@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Gradle & Kotlin build caches
+.gradle/
+**/.gradle/
+build/
+**/build/
+.kotlin/
+**/.kotlin/
+
+# C++ & NDK builds
+.cxx/
+**/.cxx/
+.externalNativeBuild/
+**/.externalNativeBuild/
+
+# Android Studio, IntelliJ, VS Code
+.idea/
+**/.idea/
+*.iml
+**/*.iml
+local.properties
+**/local.properties
+.vscode/
+**/.vscode/
+
+# Large binaries, APKs, AABs & archives
+*.apk
+**/*.apk
+*.aab
+**/*.aab
+*.apks
+**/*.apks
+*.zip
+stuff/*.aab
+stuff/*.jar
+stuff/*.apks
+
+# OS & temporary files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Logs & dumps
+*.log
+*.hprof
