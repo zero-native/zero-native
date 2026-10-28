@@ -1,9 +1,10 @@
 /**
- * ZeroBill Passbook Screen (Dish A: 100% TSX-Compiled Virtual List)
- * Every single transaction card is a pure TSX component composed of Row, Box, Text, and Column!
+ * ZeroBill Passbook Screen (Dish A / Frontier 2: Templated Slot VirtualList)
+ * 10,000 items rendered via 100% declarative TSX template with ZERO hardcoded Kotlin cards!
  */
 
-import { h, LazyColumn, Column, Row, Box, Text, Pressable, Spacer } from "../zn/h";
+import { h, VirtualList, Column, Row, Box, Text, Pressable, Spacer } from "../zn/h";
+import { signal, computed } from "../zn/signals";
 import { Colors } from "../zn/tokens";
 import { nav } from "../zn/nav";
 
@@ -13,6 +14,7 @@ interface Transaction {
   category: string;
   time: string;
   amount: string;
+  avatar: string;
   isCredit: boolean;
 }
 
@@ -29,9 +31,9 @@ const MERCHANTS = [
   { name: "Apollo Pharmacy", cat: "Healthcare", amt: "₹450.00", cr: false },
 ];
 
-function generateTransactions(count: number): Transaction[] {
+function generate10000Transactions(): Transaction[] {
   const items: Transaction[] = [];
-  for (let i = 1; i <= count; i++) {
+  for (let i = 1; i <= 10000; i++) {
     const template = MERCHANTS[(i - 1) % MERCHANTS.length];
     items.push({
       id: i,
@@ -39,16 +41,33 @@ function generateTransactions(count: number): Transaction[] {
       category: template.cat,
       time: `Oct ${28 - ((i / 350) | 0)}, 2026 • ${((i * 7) % 12) + 1}:${(i * 13) % 60 < 10 ? "0" : ""}${(i * 13) % 60} ${i % 2 === 0 ? "PM" : "AM"}`,
       amount: template.cr ? `+${template.amt}` : `-${template.amt}`,
+      avatar: template.cr ? "₹" : template.name.slice(0, 1),
       isCredit: template.cr,
     });
   }
   return items;
 }
 
-// 100 realistic transactions = 1,100 real ZnNodes instantiated in TSX!
-const TRANSACTIONS = generateTransactions(100);
+const ALL_TRANSACTIONS = generate10000Transactions();
 
 export function PassbookScreen(props: { _rootId?: number; onBack?: () => void }) {
+  const windowStart = signal(0);
+  const WINDOW_SIZE = 50;
+
+  // Signal-driven window: only 50 items (~4 KB JSON) in native memory at any time!
+  const windowData = computed(() => {
+    const start = windowStart();
+    return ALL_TRANSACTIONS.slice(start, start + WINDOW_SIZE);
+  });
+
+  const onScrollWindow = (firstVisiblePayload: any) => {
+    const firstVisible = typeof firstVisiblePayload === "number" ? firstVisiblePayload : parseInt(String(firstVisiblePayload), 10) || 0;
+    const targetStart = Math.max(0, Math.min(ALL_TRANSACTIONS.length - WINDOW_SIZE, firstVisible - 15));
+    if (Math.abs(targetStart - windowStart()) >= 8) {
+      windowStart.set(targetStart);
+    }
+  };
+
   return (
     <Column _rootId={props._rootId} fill bg={Colors.background} paddingHorizontal={16} paddingTop={16}>
       {/* 1. Header with Back Button */}
@@ -69,72 +88,70 @@ export function PassbookScreen(props: { _rootId?: number; onBack?: () => void })
           <Spacer width={12} />
           <Column>
             <Text text="Passbook" size={20} weight="bold" color={Colors.textPrimary} />
-            <Text text="100% Pure TSX Components" size={12} color={Colors.textMuted} />
+            <Text text="10,000 Items (100% TSX Template)" size={12} color={Colors.textMuted} />
           </Column>
         </Row>
 
         <Box bg="#DCFCE7" radius={12} paddingHorizontal={10} paddingVertical={4}>
-          <Text text={`⚡ ${TRANSACTIONS.length} TSX CARDS`} size={11} weight="bold" color="#16A34A" />
+          <Text text="⚡ 10K TEMPLATED" size={11} weight="bold" color="#16A34A" />
         </Box>
       </Row>
 
-      {/* 2. 100% Pure TSX LazyColumn - Every single card is a real ZnNode */}
-      <LazyColumn fill gap={8}>
-        {TRANSACTIONS.map((tx) => (
-          <TransactionCard key={tx.id} tx={tx} />
-        ))}
-      </LazyColumn>
+      {/* 2. Zero-Native Templated Slot VirtualList (100% TSX Template declared once!) */}
+      <VirtualList
+        fill
+        gap={8}
+        totalCount={ALL_TRANSACTIONS.length}
+        windowStart={() => windowStart()}
+        data={() => windowData()}
+        onScrollWindow={onScrollWindow}
+        template={(slot: any) => (
+          <Row
+            height={72}
+            radius={12}
+            bg="#FFFFFF"
+            border={1}
+            borderColor="#E2E8F0"
+            paddingHorizontal={14}
+            paddingVertical={10}
+            align="center"
+            justify="space-between"
+            width="100%"
+          >
+            <Row align="center" gap={12}>
+              <Box
+                width={42}
+                height={42}
+                radius={21}
+                bg={slot.cond("isCredit", "#DCFCE7", "#F1F5F9")}
+                align="center"
+                justify="center"
+              >
+                <Text
+                  text={slot("avatar")}
+                  size={18}
+                  weight="bold"
+                  color={slot.cond("isCredit", "#16A34A", "#0F172A")}
+                />
+              </Box>
+              <Column gap={2}>
+                <Text text={slot("merchant")} size={15} weight="bold" color="#0F172A" />
+                <Text text={slot("time")} size={12} color="#64748B" />
+              </Column>
+            </Row>
+
+            <Column align="flex-end" gap={2}>
+              <Text
+                text={slot("amount")}
+                size={15}
+                weight="bold"
+                color={slot.cond("isCredit", "#16A34A", "#0F172A")}
+              />
+              <Text text={slot("category")} size={11} color="#64748B" />
+            </Column>
+          </Row>
+        )}
+      />
     </Column>
-  );
-}
-
-// Subcomponent: 100% Pure TSX Transaction Card
-function TransactionCard(props: { tx: Transaction }) {
-  const { tx } = props;
-  return (
-    <Row
-      height={72}
-      radius={12}
-      bg="#FFFFFF"
-      border={1}
-      borderColor="#E2E8F0"
-      paddingHorizontal={14}
-      paddingVertical={10}
-      align="center"
-      justify="space-between"
-      width="100%"
-    >
-      <Row align="center" gap={12}>
-        <Box
-          width={42}
-          height={42}
-          radius={21}
-          bg={tx.isCredit ? "#DCFCE7" : "#F1F5F9"}
-          align="center"
-          justify="center"
-        >
-          <Text
-            text={tx.isCredit ? "₹" : tx.merchant.slice(0, 1)}
-            size={18}
-            weight="bold"
-            color={tx.isCredit ? "#16A34A" : "#0F172A"}
-          />
-        </Box>
-        <Column gap={2}>
-          <Text text={tx.merchant} size={15} weight="bold" color="#0F172A" />
-          <Text text={tx.time} size={12} color="#64748B" />
-        </Column>
-      </Row>
-
-      <Column align="flex-end" gap={2}>
-        <Text
-          text={tx.amount}
-          size={15}
-          weight="bold"
-          color={tx.isCredit ? "#16A34A" : "#0F172A"}
-        />
-        <Text text={tx.category} size={11} color="#64748B" />
-      </Column>
-    </Row>
   );
 }

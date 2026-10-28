@@ -323,7 +323,8 @@ registerEventHandler(0, "hardwareBack", () => {
 
 // js/zn/h.ts
 var Column = "Column";
-var LazyColumn = "LazyColumn";
+var VirtualList = "VirtualList";
+var BottomSheet = "BottomSheet";
 var Row = "Row";
 var Box = "Box";
 var Text = "Text";
@@ -356,8 +357,14 @@ function h(type, props, ...rawChildren) {
   queueOp(["c", nodeId, type]);
   const children = rawChildren.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false);
   if (props) {
+    if (typeof props.template === "function") {
+      const slotEvaluator = (slotKey) => `{{slot:${slotKey}}}`;
+      slotEvaluator.cond = (slotKey, trueVal, falseVal) => `{{cond:${slotKey}:${trueVal}:${falseVal}}}`;
+      const templateRootNodeId = props.template(slotEvaluator);
+      queueOp(["p", nodeId, "templateRootId", templateRootNodeId]);
+    }
     for (const [key, value] of Object.entries(props)) {
-      if (key === "children")
+      if (key === "children" || key === "template")
         continue;
       if (key.startsWith("on") && typeof value === "function") {
         registerEventHandler(nodeId, key, value);
@@ -1309,6 +1316,13 @@ function CheckoutScreen(props) {
   const selectedAppName = signal("");
   const isLaunching = signal(false);
   const isSlowLaunch = signal(false);
+  const isBreakdownOpen = signal(false);
+  const onSheetStateChange = (state) => {
+    console.log(`[SHEET_EVENT] State changed to: ${state}`);
+    if (state === "closed") {
+      isBreakdownOpen.set(false);
+    }
+  };
   const jsProgress = signal(0);
   const startJsGlide = () => {
     jsProgress.set(0);
@@ -1367,7 +1381,7 @@ function CheckoutScreen(props) {
     const rupees = Math.floor(props.cashbackPaise / 100);
     return `₹${rupees}`;
   });
-  return /* @__PURE__ */ h(Column, {
+  return /* @__PURE__ */ h(Box, {
     _rootId: props._rootId,
     fill: true,
     bg: "#F8FAFC"
@@ -1440,7 +1454,7 @@ function CheckoutScreen(props) {
     bg: "#FFFFFF",
     radius: 16,
     padding: 16,
-    gap: 10,
+    gap: 12,
     border: 1,
     borderColor: "#E2E8F0"
   }, /* @__PURE__ */ h(Row, {
@@ -1484,7 +1498,35 @@ function CheckoutScreen(props) {
     size: 20,
     weight: "bold",
     color: "#3D26ED"
-  }))), /* @__PURE__ */ h(Column, {
+  })), /* @__PURE__ */ h(Pressable, {
+    onPress: () => isBreakdownOpen.set(true),
+    bg: "#F8FAFC",
+    radius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    border: 1,
+    borderColor: "#E2E8F0"
+  }, /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center",
+    width: "100%"
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 6
+  }, /* @__PURE__ */ h(Text, {
+    text: "\uD83E\uDDFE",
+    size: 13
+  }), /* @__PURE__ */ h(Text, {
+    text: "View Detailed Breakdown & Taxes",
+    size: 12,
+    weight: "medium",
+    color: "#3D26ED"
+  })), /* @__PURE__ */ h(Text, {
+    text: "Show ▾",
+    size: 12,
+    weight: "bold",
+    color: "#3D26ED"
+  })))), /* @__PURE__ */ h(Column, {
     gap: 4,
     marginTop: 8
   }, /* @__PURE__ */ h(Text, {
@@ -1534,7 +1576,216 @@ function CheckoutScreen(props) {
       jsProgress,
       onSelect: () => onSelectUpiApp(app.packageName, app.appName)
     }));
-  })())));
+  })())), /* @__PURE__ */ h(BottomSheet, {
+    visible: () => isBreakdownOpen(),
+    onDismiss: () => isBreakdownOpen.set(false),
+    onStateChange: onSheetStateChange
+  }, /* @__PURE__ */ h(Column, {
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+    gap: 16,
+    width: "100%"
+  }, /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center",
+    width: "100%"
+  }, /* @__PURE__ */ h(Column, {
+    gap: 2
+  }, /* @__PURE__ */ h(Text, {
+    text: "Order & Bill Breakdown",
+    size: 18,
+    weight: "bold",
+    color: "#0F172A"
+  }), /* @__PURE__ */ h(Text, {
+    text: `${props.merchantName} • ${props.counterName}`,
+    size: 12,
+    color: "#64748B"
+  })), /* @__PURE__ */ h(Pressable, {
+    onPress: () => isBreakdownOpen.set(false),
+    width: 32,
+    height: 32,
+    radius: 16,
+    bg: "#F1F5F9",
+    align: "center",
+    justify: "center"
+  }, /* @__PURE__ */ h(Text, {
+    text: "✕",
+    size: 14,
+    weight: "bold",
+    color: "#64748B"
+  }))), /* @__PURE__ */ h(Column, {
+    bg: "#F8FAFC",
+    radius: 12,
+    padding: 14,
+    gap: 10,
+    border: 1,
+    borderColor: "#E2E8F0"
+  }, /* @__PURE__ */ h(Text, {
+    text: "ITEMS ORDERED",
+    size: 11,
+    weight: "bold",
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 8
+  }, /* @__PURE__ */ h(Text, {
+    text: "☕",
+    size: 14
+  }), /* @__PURE__ */ h(Text, {
+    text: "Specialty Filter Brew (L)",
+    size: 13,
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Text, {
+    text: "₹180.00",
+    size: 13,
+    weight: "medium",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 8
+  }, /* @__PURE__ */ h(Text, {
+    text: "\uD83E\uDD50",
+    size: 14
+  }), /* @__PURE__ */ h(Text, {
+    text: "Butter Croissant Warm x 1",
+    size: 13,
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Text, {
+    text: "₹140.00",
+    size: 13,
+    weight: "medium",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 8
+  }, /* @__PURE__ */ h(Text, {
+    text: "\uD83E\uDD6A",
+    size: 14
+  }), /* @__PURE__ */ h(Text, {
+    text: "Classic Avocado Toast x 1",
+    size: 13,
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Text, {
+    text: "₹130.00",
+    size: 13,
+    weight: "medium",
+    color: "#0F172A"
+  }))), /* @__PURE__ */ h(Column, {
+    bg: "#FFFFFF",
+    radius: 12,
+    padding: 14,
+    gap: 8,
+    border: 1,
+    borderColor: "#E2E8F0"
+  }, /* @__PURE__ */ h(Text, {
+    text: "TAXES & CONVENIENCE",
+    size: 11,
+    weight: "bold",
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Text, {
+    text: "Subtotal",
+    size: 13,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Text, {
+    text: `₹${props.amountFormatted}`,
+    size: 13,
+    weight: "medium",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Text, {
+    text: "CGST (2.5%)",
+    size: 12,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Text, {
+    text: "₹11.25",
+    size: 12,
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Text, {
+    text: "SGST (2.5%)",
+    size: 12,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Text, {
+    text: "₹11.25",
+    size: 12,
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Text, {
+    text: "ZeroBill Platform Fee",
+    size: 12,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Box, {
+    bg: "#DCFCE7",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    radius: 4
+  }, /* @__PURE__ */ h(Text, {
+    text: "FREE",
+    size: 10,
+    weight: "bold",
+    color: "#16A34A"
+  }))), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Text, {
+    text: "ZeroBill Instant Discount",
+    size: 13,
+    weight: "medium",
+    color: "#059669"
+  }), /* @__PURE__ */ h(Text, {
+    text: () => `-${cashbackFormatted()}`,
+    size: 13,
+    weight: "bold",
+    color: "#059669"
+  })), /* @__PURE__ */ h(Box, {
+    height: 1,
+    bg: "#E2E8F0",
+    width: "100%"
+  }), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center"
+  }, /* @__PURE__ */ h(Text, {
+    text: "Net Payable",
+    size: 15,
+    weight: "bold",
+    color: "#0F172A"
+  }), /* @__PURE__ */ h(Text, {
+    text: () => toPayFormatted(),
+    size: 18,
+    weight: "bold",
+    color: "#3D26ED"
+  }))), /* @__PURE__ */ h(Pressable, {
+    onPress: () => isBreakdownOpen.set(false),
+    bg: "#3D26ED",
+    radius: 14,
+    height: 48,
+    align: "center",
+    justify: "center",
+    width: "100%"
+  }, /* @__PURE__ */ h(Text, {
+    text: "Looks Good, Continue to Pay",
+    size: 15,
+    weight: "bold",
+    color: "#FFFFFF"
+  })))));
 }
 function UpiTile(props) {
   return /* @__PURE__ */ h(Pressable, {
@@ -1850,9 +2101,9 @@ var MERCHANTS = [
   { name: "Google Play Store", cat: "Subscriptions", amt: "₹179.00", cr: false },
   { name: "Apollo Pharmacy", cat: "Healthcare", amt: "₹450.00", cr: false }
 ];
-function generateTransactions(count) {
+function generate10000Transactions() {
   const items = [];
-  for (let i = 1;i <= count; i++) {
+  for (let i = 1;i <= 1e4; i++) {
     const template = MERCHANTS[(i - 1) % MERCHANTS.length];
     items.push({
       id: i,
@@ -1860,13 +2111,27 @@ function generateTransactions(count) {
       category: template.cat,
       time: `Oct ${28 - (i / 350 | 0)}, 2026 • ${i * 7 % 12 + 1}:${i * 13 % 60 < 10 ? "0" : ""}${i * 13 % 60} ${i % 2 === 0 ? "PM" : "AM"}`,
       amount: template.cr ? `+${template.amt}` : `-${template.amt}`,
+      avatar: template.cr ? "₹" : template.name.slice(0, 1),
       isCredit: template.cr
     });
   }
   return items;
 }
-var TRANSACTIONS = generateTransactions(100);
+var ALL_TRANSACTIONS = generate10000Transactions();
 function PassbookScreen(props) {
+  const windowStart = signal(0);
+  const WINDOW_SIZE = 50;
+  const windowData = computed(() => {
+    const start = windowStart();
+    return ALL_TRANSACTIONS.slice(start, start + WINDOW_SIZE);
+  });
+  const onScrollWindow = (firstVisiblePayload) => {
+    const firstVisible = typeof firstVisiblePayload === "number" ? firstVisiblePayload : parseInt(String(firstVisiblePayload), 10) || 0;
+    const targetStart = Math.max(0, Math.min(ALL_TRANSACTIONS.length - WINDOW_SIZE, firstVisible - 15));
+    if (Math.abs(targetStart - windowStart()) >= 8) {
+      windowStart.set(targetStart);
+    }
+  };
   return /* @__PURE__ */ h(Column, {
     _rootId: props._rootId,
     fill: true,
@@ -1902,7 +2167,7 @@ function PassbookScreen(props) {
     weight: "bold",
     color: Colors.textPrimary
   }), /* @__PURE__ */ h(Text, {
-    text: "100% Pure TSX Components",
+    text: "10,000 Items (100% TSX Template)",
     size: 12,
     color: Colors.textMuted
   }))), /* @__PURE__ */ h(Box, {
@@ -1911,70 +2176,68 @@ function PassbookScreen(props) {
     paddingHorizontal: 10,
     paddingVertical: 4
   }, /* @__PURE__ */ h(Text, {
-    text: `⚡ ${TRANSACTIONS.length} TSX CARDS`,
+    text: "⚡ 10K TEMPLATED",
     size: 11,
     weight: "bold",
     color: "#16A34A"
-  }))), /* @__PURE__ */ h(LazyColumn, {
+  }))), /* @__PURE__ */ h(VirtualList, {
     fill: true,
-    gap: 8
-  }, TRANSACTIONS.map((tx) => /* @__PURE__ */ h(TransactionCard, {
-    key: tx.id,
-    tx
-  }))));
-}
-function TransactionCard(props) {
-  const { tx } = props;
-  return /* @__PURE__ */ h(Row, {
-    height: 72,
-    radius: 12,
-    bg: "#FFFFFF",
-    border: 1,
-    borderColor: "#E2E8F0",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    align: "center",
-    justify: "space-between",
-    width: "100%"
-  }, /* @__PURE__ */ h(Row, {
-    align: "center",
-    gap: 12
-  }, /* @__PURE__ */ h(Box, {
-    width: 42,
-    height: 42,
-    radius: 21,
-    bg: tx.isCredit ? "#DCFCE7" : "#F1F5F9",
-    align: "center",
-    justify: "center"
-  }, /* @__PURE__ */ h(Text, {
-    text: tx.isCredit ? "₹" : tx.merchant.slice(0, 1),
-    size: 18,
-    weight: "bold",
-    color: tx.isCredit ? "#16A34A" : "#0F172A"
-  })), /* @__PURE__ */ h(Column, {
-    gap: 2
-  }, /* @__PURE__ */ h(Text, {
-    text: tx.merchant,
-    size: 15,
-    weight: "bold",
-    color: "#0F172A"
-  }), /* @__PURE__ */ h(Text, {
-    text: tx.time,
-    size: 12,
-    color: "#64748B"
-  }))), /* @__PURE__ */ h(Column, {
-    align: "flex-end",
-    gap: 2
-  }, /* @__PURE__ */ h(Text, {
-    text: tx.amount,
-    size: 15,
-    weight: "bold",
-    color: tx.isCredit ? "#16A34A" : "#0F172A"
-  }), /* @__PURE__ */ h(Text, {
-    text: tx.category,
-    size: 11,
-    color: "#64748B"
-  })));
+    gap: 8,
+    totalCount: ALL_TRANSACTIONS.length,
+    windowStart: () => windowStart(),
+    data: () => windowData(),
+    onScrollWindow,
+    template: (slot) => /* @__PURE__ */ h(Row, {
+      height: 72,
+      radius: 12,
+      bg: "#FFFFFF",
+      border: 1,
+      borderColor: "#E2E8F0",
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      align: "center",
+      justify: "space-between",
+      width: "100%"
+    }, /* @__PURE__ */ h(Row, {
+      align: "center",
+      gap: 12
+    }, /* @__PURE__ */ h(Box, {
+      width: 42,
+      height: 42,
+      radius: 21,
+      bg: slot.cond("isCredit", "#DCFCE7", "#F1F5F9"),
+      align: "center",
+      justify: "center"
+    }, /* @__PURE__ */ h(Text, {
+      text: slot("avatar"),
+      size: 18,
+      weight: "bold",
+      color: slot.cond("isCredit", "#16A34A", "#0F172A")
+    })), /* @__PURE__ */ h(Column, {
+      gap: 2
+    }, /* @__PURE__ */ h(Text, {
+      text: slot("merchant"),
+      size: 15,
+      weight: "bold",
+      color: "#0F172A"
+    }), /* @__PURE__ */ h(Text, {
+      text: slot("time"),
+      size: 12,
+      color: "#64748B"
+    }))), /* @__PURE__ */ h(Column, {
+      align: "flex-end",
+      gap: 2
+    }, /* @__PURE__ */ h(Text, {
+      text: slot("amount"),
+      size: 15,
+      weight: "bold",
+      color: slot.cond("isCredit", "#16A34A", "#0F172A")
+    }), /* @__PURE__ */ h(Text, {
+      text: slot("category"),
+      size: 11,
+      color: "#64748B"
+    })))
+  }));
 }
 
 // js/main.tsx

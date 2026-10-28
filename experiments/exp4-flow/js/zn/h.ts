@@ -10,6 +10,8 @@ export type Component<P = any> = (props: P, ...children: any[]) => any;
 
 export const Column = "Column";
 export const LazyColumn = "LazyColumn";
+export const VirtualList = "VirtualList";
+export const BottomSheet = "BottomSheet";
 export const TransactionList = "TransactionList";
 export const Row = "Row";
 export const Box = "Box";
@@ -56,8 +58,16 @@ export function h(
   const children = rawChildren.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false);
 
   if (props) {
+    if (typeof props.template === "function") {
+      const slotEvaluator: any = (slotKey: string) => `{{slot:${slotKey}}}`;
+      slotEvaluator.cond = (slotKey: string, trueVal: string, falseVal: string) =>
+        `{{cond:${slotKey}:${trueVal}:${falseVal}}}`;
+      const templateRootNodeId = props.template(slotEvaluator);
+      queueOp(["p", nodeId, "templateRootId", templateRootNodeId]);
+    }
+
     for (const [key, value] of Object.entries(props)) {
-      if (key === "children") continue;
+      if (key === "children" || key === "template") continue;
 
       if (key.startsWith("on") && typeof value === "function") {
         // Event callback (e.g. onPress, onTouchDown, onTouchUp)

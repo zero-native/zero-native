@@ -1,5 +1,5 @@
 // exp4-flow/js/screens/CheckoutScreen.tsx - UPI Payment Selection & @flow integration
-import { h, Column, Row, Box, Text, Pressable, Spacer, Image } from "../zn/h";
+import { h, Column, Row, Box, Text, Pressable, Spacer, Image, BottomSheet } from "../zn/h";
 import { signal, computed, effect } from "../zn/signals";
 import { nav } from "../zn/nav";
 import { checkoutFlow } from "../flows/checkoutFlow";
@@ -20,6 +20,14 @@ export function CheckoutScreen(props: CheckoutProps) {
   const selectedAppName = signal<string>("");
   const isLaunching = signal(false);
   const isSlowLaunch = signal(false); // 2.4s fallback screen
+  const isBreakdownOpen = signal(false); // Draggable bottom sheet state
+
+  const onSheetStateChange = (state: string) => {
+    console.log(`[SHEET_EVENT] State changed to: ${state}`);
+    if (state === "closed") {
+      isBreakdownOpen.set(false);
+    }
+  };
 
   // Dual glide state:
   // Native glide runs natively inside Compose UpiProgressBar
@@ -102,7 +110,7 @@ export function CheckoutScreen(props: CheckoutProps) {
   });
 
   return (
-    <Column _rootId={props._rootId} fill={true} bg="#F8FAFC">
+    <Box _rootId={props._rootId} fill={true} bg="#F8FAFC">
       {/* 2.4s Slow Launch Fallback Screen (FullScreen White Canvas with Logo) */}
       <Box
         fill={true}
@@ -172,7 +180,7 @@ export function CheckoutScreen(props: CheckoutProps) {
         </Row>
 
         {/* Bill Summary Card */}
-        <Column bg="#FFFFFF" radius={16} padding={16} gap={10} border={1} borderColor="#E2E8F0">
+        <Column bg="#FFFFFF" radius={16} padding={16} gap={12} border={1} borderColor="#E2E8F0">
           <Row justify="space-between" align="center">
             <Text text="Bill Amount" size={14} color="#64748B" />
             <Text text={`₹${props.amountFormatted}`} size={15} weight="medium" color="#0F172A" />
@@ -189,6 +197,25 @@ export function CheckoutScreen(props: CheckoutProps) {
             <Text text="Total to Pay" size={16} weight="bold" color="#0F172A" />
             <Text text={() => toPayFormatted()} size={20} weight="bold" color="#3D26ED" />
           </Row>
+
+          {/* Interactive Trigger for Native 120 FPS Draggable Bottom Sheet */}
+          <Pressable
+            onPress={() => isBreakdownOpen.set(true)}
+            bg="#F8FAFC"
+            radius={10}
+            paddingVertical={8}
+            paddingHorizontal={12}
+            border={1}
+            borderColor="#E2E8F0"
+          >
+            <Row justify="space-between" align="center" width="100%">
+              <Row align="center" gap={6}>
+                <Text text="🧾" size={13} />
+                <Text text="View Detailed Breakdown & Taxes" size={12} weight="medium" color="#3D26ED" />
+              </Row>
+              <Text text="Show ▾" size={12} weight="bold" color="#3D26ED" />
+            </Row>
+          </Pressable>
         </Column>
 
         {/* UPI Apps Selection Header */}
@@ -241,7 +268,108 @@ export function CheckoutScreen(props: CheckoutProps) {
           })()}
         </Column>
       </Column>
-    </Column>
+
+      {/* Consumer-Grade Interactive Draggable Bottom Sheet with Spring Physics */}
+      <BottomSheet
+        visible={() => isBreakdownOpen()}
+        onDismiss={() => isBreakdownOpen.set(false)}
+        onStateChange={onSheetStateChange}
+      >
+        <Column paddingHorizontal={20} paddingBottom={28} gap={16} width="100%">
+          {/* Sheet Header */}
+          <Row justify="space-between" align="center" width="100%">
+            <Column gap={2}>
+              <Text text="Order & Bill Breakdown" size={18} weight="bold" color="#0F172A" />
+              <Text text={`${props.merchantName} • ${props.counterName}`} size={12} color="#64748B" />
+            </Column>
+            <Pressable
+              onPress={() => isBreakdownOpen.set(false)}
+              width={32}
+              height={32}
+              radius={16}
+              bg="#F1F5F9"
+              align="center"
+              justify="center"
+            >
+              <Text text="✕" size={14} weight="bold" color="#64748B" />
+            </Pressable>
+          </Row>
+
+          {/* Itemized Order Section */}
+          <Column bg="#F8FAFC" radius={12} padding={14} gap={10} border={1} borderColor="#E2E8F0">
+            <Text text="ITEMS ORDERED" size={11} weight="bold" color="#64748B" />
+            <Row justify="space-between" align="center">
+              <Row align="center" gap={8}>
+                <Text text="☕" size={14} />
+                <Text text="Specialty Filter Brew (L)" size={13} color="#0F172A" />
+              </Row>
+              <Text text="₹180.00" size={13} weight="medium" color="#0F172A" />
+            </Row>
+            <Row justify="space-between" align="center">
+              <Row align="center" gap={8}>
+                <Text text="🥐" size={14} />
+                <Text text="Butter Croissant Warm x 1" size={13} color="#0F172A" />
+              </Row>
+              <Text text="₹140.00" size={13} weight="medium" color="#0F172A" />
+            </Row>
+            <Row justify="space-between" align="center">
+              <Row align="center" gap={8}>
+                <Text text="🥪" size={14} />
+                <Text text="Classic Avocado Toast x 1" size={13} color="#0F172A" />
+              </Row>
+              <Text text="₹130.00" size={13} weight="medium" color="#0F172A" />
+            </Row>
+          </Column>
+
+          {/* Taxes & Charges Breakdown */}
+          <Column bg="#FFFFFF" radius={12} padding={14} gap={8} border={1} borderColor="#E2E8F0">
+            <Text text="TAXES & CONVENIENCE" size={11} weight="bold" color="#64748B" />
+            <Row justify="space-between" align="center">
+              <Text text="Subtotal" size={13} color="#64748B" />
+              <Text text={`₹${props.amountFormatted}`} size={13} weight="medium" color="#0F172A" />
+            </Row>
+            <Row justify="space-between" align="center">
+              <Text text="CGST (2.5%)" size={12} color="#64748B" />
+              <Text text="₹11.25" size={12} color="#0F172A" />
+            </Row>
+            <Row justify="space-between" align="center">
+              <Text text="SGST (2.5%)" size={12} color="#64748B" />
+              <Text text="₹11.25" size={12} color="#0F172A" />
+            </Row>
+            <Row justify="space-between" align="center">
+              <Text text="ZeroBill Platform Fee" size={12} color="#64748B" />
+              <Box bg="#DCFCE7" paddingHorizontal={6} paddingVertical={2} radius={4}>
+                <Text text="FREE" size={10} weight="bold" color="#16A34A" />
+              </Box>
+            </Row>
+            <Row justify="space-between" align="center">
+              <Text text="ZeroBill Instant Discount" size={13} weight="medium" color="#059669" />
+              <Text text={() => `-${cashbackFormatted()}`} size={13} weight="bold" color="#059669" />
+            </Row>
+
+            <Box height={1} bg="#E2E8F0" width="100%" />
+
+            <Row justify="space-between" align="center">
+              <Text text="Net Payable" size={15} weight="bold" color="#0F172A" />
+              <Text text={() => toPayFormatted()} size={18} weight="bold" color="#3D26ED" />
+            </Row>
+          </Column>
+
+          {/* Action Button inside Sheet */}
+          <Pressable
+            onPress={() => isBreakdownOpen.set(false)}
+            bg="#3D26ED"
+            radius={14}
+            height={48}
+            align="center"
+            justify="center"
+            width="100%"
+          >
+            <Text text="Looks Good, Continue to Pay" size={15} weight="bold" color="#FFFFFF" />
+          </Pressable>
+        </Column>
+      </BottomSheet>
+    </Box>
   );
 }
 
