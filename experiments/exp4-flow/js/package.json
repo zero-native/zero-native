@@ -1,0 +1,14 @@
+{
+  "name": "zn-renderer-js",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "build": "bun run build.ts"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.11.8",
+    "@types/bun": "latest",
+    "typescript": "^5.8.2"
+  }
+}
