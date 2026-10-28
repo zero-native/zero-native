@@ -27,6 +27,7 @@ jmethodID g_onFlowLoadMethod = nullptr;
 jmethodID g_onFlowDeleteMethod = nullptr;
 jmethodID g_checkCrashMethod = nullptr;
 jmethodID g_getPropMethod = nullptr;
+jmethodID g_getUpiAppsMethod = nullptr;
 
 std::unique_ptr<facebook::hermes::HermesRuntime> g_runtime = nullptr;
 
@@ -96,6 +97,7 @@ Java_dev_zeronative_exp4_ZnBridge_nativeInit(JNIEnv* env, jclass clazz) {
         g_onFlowDeleteMethod = env->GetStaticMethodID(g_bridgeClass, "onFlowDelete", "(Ljava/lang/String;)V");
         g_checkCrashMethod = env->GetStaticMethodID(g_bridgeClass, "checkCrashPoint", "(Ljava/lang/String;)V");
         g_getPropMethod = env->GetStaticMethodID(g_bridgeClass, "getSystemProp", "(Ljava/lang/String;)Ljava/lang/String;");
+        g_getUpiAppsMethod = env->GetStaticMethodID(g_bridgeClass, "getUpiAppsJson", "()Ljava/lang/String;");
     }
 
     try {
@@ -372,6 +374,29 @@ Java_dev_zeronative_exp4_ZnBridge_nativeInit(JNIEnv* env, jclass clazz) {
             }
         );
         g_runtime->global().setProperty(*g_runtime, "__zn_getProp", fnGetProp);
+
+        // 10. __zn_getUpiApps(): string (JSON list of installed UPI apps with zn:// icon handles)
+        auto fnGetUpiApps = facebook::jsi::Function::createFromHostFunction(
+            *g_runtime,
+            facebook::jsi::PropNameID::forAscii(*g_runtime, "__zn_getUpiApps"),
+            0,
+            [](facebook::jsi::Runtime& rt, const facebook::jsi::Value& /* thisVal */,
+               const facebook::jsi::Value* /* args */, size_t /* count */) -> facebook::jsi::Value {
+                JNIEnv* curEnv = getJniEnv();
+                if (curEnv && g_getUpiAppsMethod && g_bridgeClass) {
+                    auto jRes = (jstring)curEnv->CallStaticObjectMethod(g_bridgeClass, g_getUpiAppsMethod);
+                    if (jRes) {
+                        const char* chars = curEnv->GetStringUTFChars(jRes, nullptr);
+                        std::string resStr(chars ? chars : "[]");
+                        if (chars) curEnv->ReleaseStringUTFChars(jRes, chars);
+                        curEnv->DeleteLocalRef(jRes);
+                        return facebook::jsi::String::createFromUtf8(rt, resStr);
+                    }
+                }
+                return facebook::jsi::String::createFromUtf8(rt, "[]");
+            }
+        );
+        g_runtime->global().setProperty(*g_runtime, "__zn_getUpiApps", fnGetUpiApps);
 
         LOGI("Host functions successfully installed on JS global");
     } catch (const facebook::jsi::JSError& e) {

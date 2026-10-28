@@ -9,6 +9,8 @@ import { allocateNodeId, ensureNodeIdAbove, queueOp, registerEventHandler } from
 export type Component<P = any> = (props: P, ...children: any[]) => any;
 
 export const Column = "Column";
+export const LazyColumn = "LazyColumn";
+export const TransactionList = "TransactionList";
 export const Row = "Row";
 export const Box = "Box";
 export const Text = "Text";

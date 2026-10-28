@@ -20,7 +20,7 @@ object ZnBridge {
 
     private var jsThread: HandlerThread? = null
     private var jsHandler: Handler? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
+    val mainHandler = Handler(Looper.getMainLooper())
     private val activeTimers = HashMap<Int, Runnable>()
 
     private var appContext: Context? = null
@@ -58,6 +58,32 @@ object ZnBridge {
                 mainHandler.post { onComplete?.invoke(ok) }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load asset bytecode $assetName", e)
+                mainHandler.post { onComplete?.invoke(false) }
+            }
+        }
+    }
+
+    fun reloadBytecode(bytecode: ByteArray, onComplete: ((Boolean) -> Unit)? = null) {
+        val handler = jsHandler ?: run {
+            Log.e(TAG, "Cannot reload bytecode, jsHandler is null")
+            onComplete?.invoke(false)
+            return
+        }
+
+        handler.post {
+            try {
+                val startNanos = System.nanoTime()
+                nativeDestroy()
+                nativeInit()
+                mainHandler.post {
+                    NodeStore.clear()
+                }
+                val ok = nativeEvalBytecode(bytecode, "fast-refresh.hbc")
+                val totalMs = (System.nanoTime() - startNanos) / 1_000_000.0
+                Log.i(TAG, "[FAST_REFRESH] Bytecode hot-reloaded in ${"%.2f".format(totalMs)} ms (ok=$ok)")
+                mainHandler.post { onComplete?.invoke(ok) }
+            } catch (e: Exception) {
+                Log.e(TAG, "[FAST_REFRESH] Failed to hot-reload bytecode", e)
                 mainHandler.post { onComplete?.invoke(false) }
             }
         }
@@ -184,6 +210,18 @@ object ZnBridge {
     }
 
     @JvmStatic
+    fun getUpiAppsJson(): String {
+        val ctx = appContext
+        if (ctx == null) {
+            Log.w(TAG, "[UPI_DISCOVERY] appContext is null in getUpiAppsJson")
+            return "[]"
+        }
+        val json = UpiAppManager.getInstalledUpiAppsJson(ctx)
+        Log.i(TAG, "[UPI_DISCOVERY] getUpiAppsJson returning: $json")
+        return json
+    }
+
+    @JvmStatic
     fun checkCrashPoint(point: String) {
         val crashTarget = getSystemProperty("debug.zn.crash")
         if (crashTarget.isNotEmpty() && crashTarget == point) {
@@ -209,6 +247,33 @@ object ZnBridge {
         val runnable = activeTimers.remove(timerId)
         if (runnable != null) {
             jsHandler?.removeCallbacks(runnable)
+        }
+    }
+
+    fun reloadBytecode(bytecode: ByteArray) {
+        val startNs = System.nanoTime()
+        jsHandler?.post {
+            // Cancel active timers
+            activeTimers.values.forEach { jsHandler?.removeCallbacks(it) }
+            activeTimers.clear()
+
+            // Reset native runtime
+            nativeDestroy()
+            nativeInit()
+
+            // Reset UI tree on Main Thread
+            mainHandler.post {
+                NodeStore.clear()
+            }
+
+            // Eval new bytecode
+            val ok = nativeEvalBytecode(bytecode, "dev://bundle.hbc")
+            val totalMs = (System.nanoTime() - startNs) / 1_000_000.0
+            if (ok) {
+                Log.i(TAG, "[HOT_RELOAD] ✅ Hot reload succeeded in ${"%.2f".format(totalMs)} ms (PID=${android.os.Process.myPid()})")
+            } else {
+                Log.e(TAG, "[HOT_RELOAD] ❌ Hot reload failed during bytecode evaluation")
+            }
         }
     }
 

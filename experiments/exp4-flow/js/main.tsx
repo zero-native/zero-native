@@ -6,6 +6,7 @@ import { effect } from "./zn/signals";
 import { AmountScreen } from "./screens/AmountScreen";
 import { CheckoutScreen } from "./screens/CheckoutScreen";
 import { VerifyingScreen } from "./screens/VerifyingScreen";
+import { PassbookScreen } from "./screens/PassbookScreen";
 import { checkoutFlow } from "./flows/checkoutFlow";
 import { FlowInstance } from "./zn/flow";
 
@@ -113,6 +114,11 @@ effect(() => {
         _rootId: top.entryId,
         statusText: top.params.statusText,
         merchantName: top.params.merchantName,
+      });
+    } else if (top.route === "/passbook") {
+      PassbookScreen({
+        _rootId: top.entryId,
+        onBack: () => nav.pop(),
       });
     } else if (top.route === "/amount") {
       // Root screen at entryId 0 is already mounted on base container

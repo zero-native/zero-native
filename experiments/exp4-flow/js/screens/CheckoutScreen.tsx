@@ -1,5 +1,5 @@
 // exp4-flow/js/screens/CheckoutScreen.tsx - UPI Payment Selection & @flow integration
-import { h, Column, Row, Box, Text, Pressable, Spacer } from "../zn/h";
+import { h, Column, Row, Box, Text, Pressable, Spacer, Image } from "../zn/h";
 import { signal, computed, effect } from "../zn/signals";
 import { nav } from "../zn/nav";
 import { checkoutFlow } from "../flows/checkoutFlow";
@@ -199,46 +199,46 @@ export function CheckoutScreen(props: CheckoutProps) {
 
         {/* UPI App Tiles List */}
         <Column gap={12} width="100%">
-          {/* Pavan's Custom Mock UPI App Tile (Primary for Testing) */}
-          <UpiTile
-            name="P2P Mock UPI (Safe Test)"
-            pkg="p2pdops.android.p2pupiapp"
-            badge="Test App"
-            isSelected={() => selectedApp() === "p2pdops.android.p2pupiapp"}
-            isLaunching={() => isLaunching() && selectedApp() === "p2pdops.android.p2pupiapp"}
-            jsProgress={jsProgress}
-            onSelect={() => onSelectUpiApp("p2pdops.android.p2pupiapp", "P2P Mock UPI")}
-          />
+          {/* Query installed UPI apps via Argon's zn:// native resource URI scheme */}
+          {(() => {
+            let appsList: Array<{ packageName: string; appName: string; iconUri: string }> = [];
+            const hasFn = typeof (globalThis as any).__zn_getUpiApps === "function";
+            console.log("[UPI_DISCOVERY] has __zn_getUpiApps:", hasFn);
+            if (hasFn) {
+              try {
+                const raw = (globalThis as any).__zn_getUpiApps();
+                console.log("[UPI_DISCOVERY] raw return:", raw);
+                appsList = JSON.parse(raw);
+                console.log("[UPI_DISCOVERY] parsed count:", appsList.length);
+              } catch (e: any) {
+                console.log("[UPI_DISCOVERY] error:", e?.message);
+              }
+            }
+            if (!appsList || appsList.length === 0) {
+              appsList = [
+                {
+                  packageName: "p2pdops.android.p2pupiapp",
+                  appName: "P2P Mock UPI",
+                  iconUri: "zn://app-icon/p2pdops.android.p2pupiapp",
+                },
+              ];
+            }
+            console.log("[UPI_DISCOVERY] final appsList:", JSON.stringify(appsList));
 
-          {/* Other UPI apps commented out as requested for dedicated mock testing
-          <UpiTile
-            name="PhonePe"
-            pkg="com.phonepe.app"
-            badge="Instant"
-            isSelected={() => selectedApp() === "com.phonepe.app"}
-            isLaunching={() => isLaunching() && selectedApp() === "com.phonepe.app"}
-            jsProgress={jsProgress}
-            onSelect={() => onSelectUpiApp("com.phonepe.app", "PhonePe")}
-          />
-          <UpiTile
-            name="Paytm"
-            pkg="net.one97.paytm"
-            badge="Fast"
-            isSelected={() => selectedApp() === "net.one97.paytm"}
-            isLaunching={() => isLaunching() && selectedApp() === "net.one97.paytm"}
-            jsProgress={jsProgress}
-            onSelect={() => onSelectUpiApp("net.one97.paytm", "Paytm")}
-          />
-          <UpiTile
-            name="CRED"
-            pkg="com.dreamplug.androidapp"
-            badge="Rewards"
-            isSelected={() => selectedApp() === "com.dreamplug.androidapp"}
-            isLaunching={() => isLaunching() && selectedApp() === "com.dreamplug.androidapp"}
-            jsProgress={jsProgress}
-            onSelect={() => onSelectUpiApp("com.dreamplug.androidapp", "CRED")}
-          />
-          */}
+            return appsList.map((app) => (
+              <UpiTile
+                key={app.packageName}
+                name={app.appName}
+                pkg={app.packageName}
+                icon={app.iconUri}
+                badge={app.packageName === "p2pdops.android.p2pupiapp" ? "Safe Test" : "Installed"}
+                isSelected={() => selectedApp() === app.packageName}
+                isLaunching={() => isLaunching() && selectedApp() === app.packageName}
+                jsProgress={jsProgress}
+                onSelect={() => onSelectUpiApp(app.packageName, app.appName)}
+              />
+            ));
+          })()}
         </Column>
       </Column>
     </Column>
@@ -249,6 +249,7 @@ export function CheckoutScreen(props: CheckoutProps) {
 function UpiTile(props: {
   name: string;
   pkg: string;
+  icon?: string;
   badge?: string;
   isSelected: () => boolean;
   isLaunching: () => boolean;
@@ -268,10 +269,14 @@ function UpiTile(props: {
       <Column width="100%" gap={10}>
         <Row justify="space-between" align="center" width="100%">
           <Row align="center" gap={12}>
-            {/* App Icon Circle */}
-            <Box width={44} height={44} radius={22} bg="#F1F5F9" align="center" justify="center">
-              <Text text={props.name.slice(0, 1)} size={18} weight="bold" color="#3D26ED" />
-            </Box>
+            {/* Real App Icon via zn:// URI (Zero pixel copying) */}
+            {props.icon ? (
+              <Image src={props.icon} width={44} height={44} radius={22} />
+            ) : (
+              <Box width={44} height={44} radius={22} bg="#F1F5F9" align="center" justify="center">
+                <Text text={props.name.slice(0, 1)} size={18} weight="bold" color="#3D26ED" />
+              </Box>
+            )}
             <Column>
               <Text text={props.name} size={15} weight="bold" color="#0F172A" />
               <Text text={props.pkg} size={11} color="#94A3B8" />

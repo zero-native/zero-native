@@ -30,7 +30,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import org.json.JSONArray
+import org.json.JSONObject
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import android.view.Choreographer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -40,12 +46,15 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -107,6 +116,7 @@ fun ZnView(id: Int, modifier: Modifier = Modifier, depth: Int = 0) {
 
     when (node.type) {
         "Column" -> ZnColumn(node, modifier, depth + 1)
+        "LazyColumn" -> ZnLazyColumn(node, modifier, depth + 1)
         "Row" -> ZnRow(node, modifier, depth + 1)
         "Box" -> {
             if (node.hasProp("isNativeActive")) {
@@ -138,6 +148,57 @@ private fun ZnColumn(node: ZnNode, modifier: Modifier, depth: Int = 0) {
         for (childId in node.children) {
             key(childId) {
                 ZnChildInColumn(childId, depth)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZnLazyColumn(node: ZnNode, modifier: Modifier, depth: Int = 0) {
+    val baseMod = applyNodeModifiers(node, modifier)
+    val gap = node.getInt("gap", 0).dp
+    val children = node.children
+    val listState = rememberLazyListState()
+
+    // 90Hz / 120Hz Scroll Performance Instrumentation
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            var lastFrameTimeNanos = 0L
+            var totalFrames = 0
+            var jankFrames = 0
+            val callback = object : Choreographer.FrameCallback {
+                override fun doFrame(frameTimeNanos: Long) {
+                    if (lastFrameTimeNanos > 0) {
+                        val durationMs = (frameTimeNanos - lastFrameTimeNanos) / 1_000_000.0
+                        totalFrames++
+                        if (durationMs > 16.0) {
+                            jankFrames++
+                        }
+                    }
+                    lastFrameTimeNanos = frameTimeNanos
+                    if (listState.isScrollInProgress) {
+                        Choreographer.getInstance().postFrameCallback(this)
+                    } else {
+                        Log.i("zn-scroll", "[LAZY_SCROLL] Fling finished: $totalFrames frames, $jankFrames jank frames (${"%.1f".format(if (totalFrames > 0) (totalFrames - jankFrames) * 100.0 / totalFrames else 100.0)}% smooth)")
+                    }
+                }
+            }
+            Choreographer.getInstance().postFrameCallback(callback)
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = baseMod,
+        verticalArrangement = if (gap > 0.dp) Arrangement.spacedBy(gap) else Arrangement.Top
+    ) {
+        items(
+            count = children.size,
+            key = { index -> children[index] }
+        ) { index ->
+            val childId = children[index]
+            key(childId) {
+                ZnView(childId, Modifier.fillMaxWidth(), depth)
             }
         }
     }
@@ -378,9 +439,33 @@ private fun ZnSpacer(node: ZnNode, modifier: Modifier) {
 private fun ZnImage(node: ZnNode, modifier: Modifier) {
     val src = (node.prop("src").value as? String) ?: ""
     val baseMod = applyNodeModifiers(node, modifier)
+    val context = LocalContext.current
+
+    val model: Any? = if (src.startsWith("zn://")) {
+        val cached = ZnResourceRegistry.get(src)
+        if (cached != null) {
+            cached
+        } else if (src.startsWith("zn://app-icon/")) {
+            val pkg = src.removePrefix("zn://app-icon/")
+            try {
+                val icon = context.packageManager.getApplicationIcon(pkg)
+                ZnResourceRegistry.register(src, icon)
+                icon
+            } catch (e: Exception) {
+                Log.w("zn", "[ZnImage] Failed to load application icon for $pkg", e)
+                null
+            }
+        } else {
+            null
+        }
+    } else {
+        src
+    }
+
+    Log.i("zn", "[ZnImage] src=$src -> resolved model=${model?.javaClass?.simpleName}")
 
     AsyncImage(
-        model = src,
+        model = model,
         contentDescription = null,
         modifier = baseMod
     )

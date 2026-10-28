@@ -28,7 +28,7 @@ export function AmountScreen(props: AmountScreenProps) {
     min_total_to_use_cashback: 200,
     platform_fee: 5,
     merchant: {
-      name: "Kalyan Jewellers",
+      name: "⚡ ZeroBill SuperStore (Fast1!)",
       counters: 2,
     },
   };
@@ -107,9 +107,22 @@ export function AmountScreen(props: AmountScreenProps) {
           <Text text="Counter 1 • Multi-Counter" size={12} weight="medium" color={Colors.textSecondary} />
         </Column>
 
-        <Pressable padding={8} pressedScale={0.92} haptic="light">
-          <Text text="%" size={20} weight="bold" color={Colors.primary} />
-        </Pressable>
+        <Row align="center">
+          <Pressable
+            paddingHorizontal={10}
+            paddingVertical={6}
+            radius={8}
+            bg="#F1F5F9"
+            pressedScale={0.94}
+            onPress={() => nav.push("/passbook")}
+          >
+            <Text text="📜 Passbook" size={12} weight="bold" color={Colors.textPrimary} />
+          </Pressable>
+          <Spacer width={8} />
+          <Pressable padding={8} pressedScale={0.92} haptic="light">
+            <Text text="%" size={20} weight="bold" color={Colors.primary} />
+          </Pressable>
+        </Row>
       </Row>
 
       {/* 2. Amount Display */}
@@ -211,7 +224,7 @@ export function AmountScreen(props: AmountScreenProps) {
           marginTop={8}
         >
           <Text
-            text={() => (isPayActive() ? `Pay Now (₹${financials().toPay}) →` : "Enter Amount")}
+            text={() => (isPayActive() ? `Pay Now (₹${financials().toPay}) →` : "⚡ TAP A DIGIT TO BEGIN")}
             size={16}
             weight="bold"
             color={() => (isPayActive() ? "#FFFFFF" : Colors.textMuted)}

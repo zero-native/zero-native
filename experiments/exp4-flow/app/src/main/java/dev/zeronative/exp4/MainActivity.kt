@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -135,6 +136,11 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // 7b. In DEBUG builds, connect DevClient for Sub-Second Fast Refresh
+        if (BuildConfig.DEBUG) {
+            DevClient.start()
+        }
+
         // 8. Set Compose UI with NavigationHost
         setContent {
             val hasRoot = NodeStore.hasRoot.value
@@ -164,7 +170,9 @@ class MainActivity : ComponentActivity() {
                     } catch (_: Exception) {}
                 }
 
-                NavigationHost(modifier = Modifier.fillMaxSize())
+                key(NodeStore.treeVersion.value) {
+                    NavigationHost(modifier = Modifier.fillMaxSize())
+                }
             } else {
                 Box(
                     modifier = Modifier
@@ -250,6 +258,9 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "[LIFECYCLE] onDestroy at ${System.nanoTime()} ns")
+        if (BuildConfig.DEBUG) {
+            DevClient.stop()
+        }
         ZnBridge.destroy()
         NodeStore.clear()
     }

@@ -323,11 +323,13 @@ registerEventHandler(0, "hardwareBack", () => {
 
 // zn/h.ts
 var Column = "Column";
+var TransactionList = "TransactionList";
 var Row = "Row";
 var Box = "Box";
 var Text = "Text";
 var Pressable = "Pressable";
 var Spacer = "Spacer";
+var Image = "Image";
 function bindReactiveProp(nodeId, propKey, getter) {
   effect(() => {
     const evaluated = getter();
@@ -485,7 +487,7 @@ function AmountScreen(props) {
     min_total_to_use_cashback: 200,
     platform_fee: 5,
     merchant: {
-      name: "Kalyan Jewellers",
+      name: "⚡ ZeroBill SuperStore (Fast1!)",
       counters: 2
     }
   };
@@ -560,7 +562,23 @@ function AmountScreen(props) {
     size: 12,
     weight: "medium",
     color: Colors.textSecondary
-  })), /* @__PURE__ */ h(Pressable, {
+  })), /* @__PURE__ */ h(Row, {
+    align: "center"
+  }, /* @__PURE__ */ h(Pressable, {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    radius: 8,
+    bg: "#F1F5F9",
+    pressedScale: 0.94,
+    onPress: () => nav.push("/passbook")
+  }, /* @__PURE__ */ h(Text, {
+    text: "\uD83D\uDCDC Passbook",
+    size: 12,
+    weight: "bold",
+    color: Colors.textPrimary
+  })), /* @__PURE__ */ h(Spacer, {
+    width: 8
+  }), /* @__PURE__ */ h(Pressable, {
     padding: 8,
     pressedScale: 0.92,
     haptic: "light"
@@ -569,7 +587,7 @@ function AmountScreen(props) {
     size: 20,
     weight: "bold",
     color: Colors.primary
-  }))), /* @__PURE__ */ h(Column, {
+  })))), /* @__PURE__ */ h(Column, {
     weight: 1,
     align: "center",
     justify: "center",
@@ -689,7 +707,7 @@ function AmountScreen(props) {
     },
     marginTop: 8
   }, /* @__PURE__ */ h(Text, {
-    text: () => isPayActive() ? `Pay Now (₹${financials().toPay}) →` : "Enter Amount",
+    text: () => isPayActive() ? `Pay Now (₹${financials().toPay}) →` : "⚡ TAP A DIGIT TO BEGIN",
     size: 16,
     weight: "bold",
     color: () => isPayActive() ? "#FFFFFF" : Colors.textMuted
@@ -1481,15 +1499,35 @@ function CheckoutScreen(props) {
   })), /* @__PURE__ */ h(Column, {
     gap: 12,
     width: "100%"
-  }, /* @__PURE__ */ h(UpiTile, {
-    name: "P2P Mock UPI (Safe Test)",
-    pkg: "p2pdops.android.p2pupiapp",
-    badge: "Test App",
-    isSelected: () => selectedApp() === "p2pdops.android.p2pupiapp",
-    isLaunching: () => isLaunching() && selectedApp() === "p2pdops.android.p2pupiapp",
-    jsProgress,
-    onSelect: () => onSelectUpiApp("p2pdops.android.p2pupiapp", "P2P Mock UPI")
-  }))));
+  }, (() => {
+    let appsList = [];
+    if (typeof globalThis.__zn_getUpiApps === "function") {
+      try {
+        const raw = globalThis.__zn_getUpiApps();
+        appsList = JSON.parse(raw);
+      } catch (_) {}
+    }
+    if (!appsList || appsList.length === 0) {
+      appsList = [
+        {
+          packageName: "p2pdops.android.p2pupiapp",
+          appName: "P2P Mock UPI",
+          iconUri: "zn://app-icon/p2pdops.android.p2pupiapp"
+        }
+      ];
+    }
+    return appsList.map((app) => /* @__PURE__ */ h(UpiTile, {
+      key: app.packageName,
+      name: app.appName,
+      pkg: app.packageName,
+      icon: app.iconUri,
+      badge: app.packageName === "p2pdops.android.p2pupiapp" ? "Safe Test" : "Installed",
+      isSelected: () => selectedApp() === app.packageName,
+      isLaunching: () => isLaunching() && selectedApp() === app.packageName,
+      jsProgress,
+      onSelect: () => onSelectUpiApp(app.packageName, app.appName)
+    }));
+  })())));
 }
 function UpiTile(props) {
   return /* @__PURE__ */ h(Pressable, {
@@ -1510,7 +1548,12 @@ function UpiTile(props) {
   }, /* @__PURE__ */ h(Row, {
     align: "center",
     gap: 12
-  }, /* @__PURE__ */ h(Box, {
+  }, props.icon ? /* @__PURE__ */ h(Image, {
+    src: props.icon,
+    width: 44,
+    height: 44,
+    radius: 22
+  }) : /* @__PURE__ */ h(Box, {
     width: 44,
     height: 44,
     radius: 22,
@@ -1787,6 +1830,91 @@ function VerifyingScreen(props) {
   }))));
 }
 
+// screens/PassbookScreen.tsx
+var MERCHANTS = [
+  { name: "Swiggy", cat: "Food & Dining", amt: "₹340.00", cr: false },
+  { name: "ZeroBill Cashback", cat: "Rewards", amt: "₹50.00", cr: true },
+  { name: "Starbucks Coffee", cat: "Beverages", amt: "₹420.00", cr: false },
+  { name: "Zepto 10-Min", cat: "Groceries", amt: "₹289.00", cr: false },
+  { name: "Uber India", cat: "Travel", amt: "₹195.00", cr: false },
+  { name: "Flipkart Internet", cat: "Shopping", amt: "₹1,249.00", cr: false },
+  { name: "Kalyan Jewellers", cat: "Jewellery", amt: "₹5,400.00", cr: false },
+  { name: "Zomato Limited", cat: "Dining", amt: "₹612.00", cr: false },
+  { name: "Google Play Store", cat: "Subscriptions", amt: "₹179.00", cr: false },
+  { name: "Apollo Pharmacy", cat: "Healthcare", amt: "₹450.00", cr: false }
+];
+function generate10000Transactions() {
+  const items = [];
+  for (let i = 1;i <= 1e4; i++) {
+    const template = MERCHANTS[(i - 1) % MERCHANTS.length];
+    items.push({
+      id: i,
+      merchant: `${template.name} #${i}`,
+      category: template.cat,
+      time: `Oct ${28 - (i / 350 | 0)}, 2026 • ${i * 7 % 12 + 1}:${i * 13 % 60 < 10 ? "0" : ""}${i * 13 % 60} ${i % 2 === 0 ? "PM" : "AM"}`,
+      amount: template.cr ? `+${template.amt}` : `-${template.amt}`,
+      isCredit: template.cr
+    });
+  }
+  return items;
+}
+var ALL_TRANSACTIONS = generate10000Transactions();
+function PassbookScreen(props) {
+  return /* @__PURE__ */ h(Column, {
+    _rootId: props._rootId,
+    fill: true,
+    bg: Colors.background,
+    paddingHorizontal: 16,
+    paddingTop: 16
+  }, /* @__PURE__ */ h(Row, {
+    height: 52,
+    align: "center",
+    justify: "space-between",
+    marginBottom: 12
+  }, /* @__PURE__ */ h(Row, {
+    align: "center"
+  }, /* @__PURE__ */ h(Pressable, {
+    width: 40,
+    height: 40,
+    radius: 20,
+    bg: Colors.surface,
+    align: "center",
+    justify: "center",
+    pressedScale: 0.92,
+    onPress: () => nav.pop()
+  }, /* @__PURE__ */ h(Text, {
+    text: "←",
+    size: 20,
+    weight: "bold",
+    color: Colors.textPrimary
+  })), /* @__PURE__ */ h(Spacer, {
+    width: 12
+  }), /* @__PURE__ */ h(Column, null, /* @__PURE__ */ h(Text, {
+    text: "Passbook",
+    size: 20,
+    weight: "bold",
+    color: Colors.textPrimary
+  }), /* @__PURE__ */ h(Text, {
+    text: "10,000 Transactions (Zero-DOM)",
+    size: 12,
+    color: Colors.textMuted
+  }))), /* @__PURE__ */ h(Box, {
+    bg: "#DCFCE7",
+    radius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4
+  }, /* @__PURE__ */ h(Text, {
+    text: "⚡ 10K ITEMS",
+    size: 11,
+    weight: "bold",
+    color: "#16A34A"
+  }))), /* @__PURE__ */ h(TransactionList, {
+    fill: true,
+    gap: 8,
+    data: ALL_TRANSACTIONS
+  }));
+}
+
 // main.tsx
 var currentFlow = null;
 queueOp(["c", 0, "Box"]);
@@ -1874,6 +2002,11 @@ effect(() => {
         _rootId: top.entryId,
         statusText: top.params.statusText,
         merchantName: top.params.merchantName
+      });
+    } else if (top.route === "/passbook") {
+      PassbookScreen({
+        _rootId: top.entryId,
+        onBack: () => nav.pop()
       });
     } else if (top.route === "/amount") {
       if (top.entryId !== 0) {

@@ -11,6 +11,7 @@ object NodeStore {
 
     val nodes = HashMap<Int, ZnNode>()
     val hasRoot = mutableStateOf(false)
+    val treeVersion = mutableStateOf(0)
 
     // Profiling
     var lastTapUptimeNanos: Long = 0
@@ -129,6 +130,7 @@ object NodeStore {
         hasRoot.value = false
         latencyMeasurements.clear()
         NavigationManager.clear()
+        treeVersion.value++
     }
 }
 
