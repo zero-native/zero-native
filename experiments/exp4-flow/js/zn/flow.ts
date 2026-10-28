@@ -63,7 +63,7 @@ export interface FlowStep<TData = any> {
 export interface FlowConfig<TData = any> {
   name: string;
   schemaVersion: number;
-  expiresAfter: { minutes: number; sliding?: boolean };
+  expiresAfter: { minutes?: number; seconds?: number; sliding?: boolean };
   initial: string;
   data: TData;
   steps: Record<string, FlowStep<TData>>;
@@ -110,7 +110,9 @@ export class FlowInstance<TData = any> {
   constructor(config: FlowConfig<TData>, existingState?: FlowState<TData>) {
     this.config = config;
     const now = Date.now();
-    const expiryMs = (config.expiresAfter?.minutes ?? 15) * 60 * 1000;
+    const expiryMs = config.expiresAfter?.seconds !== undefined
+      ? config.expiresAfter.seconds * 1000
+      : (config.expiresAfter?.minutes ?? 15) * 60 * 1000;
 
     if (existingState) {
       this.state = existingState;
@@ -141,7 +143,9 @@ export class FlowInstance<TData = any> {
     const now = Date.now();
     this.state.updatedAt = now;
     if (this.config.expiresAfter?.sliding !== false) {
-      const expiryMs = (this.config.expiresAfter?.minutes ?? 15) * 60 * 1000;
+      const expiryMs = this.config.expiresAfter?.seconds !== undefined
+        ? this.config.expiresAfter.seconds * 1000
+        : (this.config.expiresAfter?.minutes ?? 15) * 60 * 1000;
       this.state.expiresAt = now + expiryMs;
     }
     activeAdapter.save(this.state);
@@ -279,7 +283,7 @@ export function defineFlow<TData = any>(config: FlowConfig<TData>) {
 
       const now = Date.now();
       const hasUnsafeEffectStarted = Object.values(savedState.effects).some(
-        (eff) => (eff.kind === 'once' || eff.kind === 'keyed') && eff.status === 'started'
+        (eff) => (eff.kind === 'once' || eff.kind === 'keyed') && (eff.status === 'started' || eff.status === 'done')
       );
 
       // Rule 1: Check Expiry

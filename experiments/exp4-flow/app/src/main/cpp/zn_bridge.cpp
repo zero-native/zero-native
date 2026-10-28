@@ -25,6 +25,8 @@ jmethodID g_onHttpMethod = nullptr;
 jmethodID g_onFlowSaveMethod = nullptr;
 jmethodID g_onFlowLoadMethod = nullptr;
 jmethodID g_onFlowDeleteMethod = nullptr;
+jmethodID g_checkCrashMethod = nullptr;
+jmethodID g_getPropMethod = nullptr;
 
 std::unique_ptr<facebook::hermes::HermesRuntime> g_runtime = nullptr;
 
@@ -92,6 +94,8 @@ Java_dev_zeronative_exp4_ZnBridge_nativeInit(JNIEnv* env, jclass clazz) {
         g_onFlowSaveMethod = env->GetStaticMethodID(g_bridgeClass, "onFlowSave", "(Ljava/lang/String;)V");
         g_onFlowLoadMethod = env->GetStaticMethodID(g_bridgeClass, "onFlowLoad", "(Ljava/lang/String;)Ljava/lang/String;");
         g_onFlowDeleteMethod = env->GetStaticMethodID(g_bridgeClass, "onFlowDelete", "(Ljava/lang/String;)V");
+        g_checkCrashMethod = env->GetStaticMethodID(g_bridgeClass, "checkCrashPoint", "(Ljava/lang/String;)V");
+        g_getPropMethod = env->GetStaticMethodID(g_bridgeClass, "getSystemProp", "(Ljava/lang/String;)Ljava/lang/String;");
     }
 
     try {
@@ -319,6 +323,55 @@ Java_dev_zeronative_exp4_ZnBridge_nativeInit(JNIEnv* env, jclass clazz) {
             }
         );
         g_runtime->global().setProperty(*g_runtime, "__zn_http", fnHttp);
+
+        // 11. __zn_checkCrash(point: string) - Debug only
+        auto fnCheckCrash = facebook::jsi::Function::createFromHostFunction(
+            *g_runtime,
+            facebook::jsi::PropNameID::forAscii(*g_runtime, "__zn_checkCrash"),
+            1,
+            [](facebook::jsi::Runtime& rt, const facebook::jsi::Value& /* thisVal */,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+                if (count >= 1 && args[0].isString()) {
+                    std::string point = args[0].asString(rt).utf8(rt);
+                    JNIEnv* curEnv = getJniEnv();
+                    if (curEnv && g_checkCrashMethod && g_bridgeClass) {
+                        jstring jPoint = curEnv->NewStringUTF(point.c_str());
+                        curEnv->CallStaticVoidMethod(g_bridgeClass, g_checkCrashMethod, jPoint);
+                        curEnv->DeleteLocalRef(jPoint);
+                    }
+                }
+                return facebook::jsi::Value::undefined();
+            }
+        );
+        g_runtime->global().setProperty(*g_runtime, "__zn_checkCrash", fnCheckCrash);
+
+        // 12. __zn_getProp(key: string): string - Debug only
+        auto fnGetProp = facebook::jsi::Function::createFromHostFunction(
+            *g_runtime,
+            facebook::jsi::PropNameID::forAscii(*g_runtime, "__zn_getProp"),
+            1,
+            [](facebook::jsi::Runtime& rt, const facebook::jsi::Value& /* thisVal */,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+                if (count >= 1 && args[0].isString()) {
+                    std::string key = args[0].asString(rt).utf8(rt);
+                    JNIEnv* curEnv = getJniEnv();
+                    if (curEnv && g_getPropMethod && g_bridgeClass) {
+                        jstring jKey = curEnv->NewStringUTF(key.c_str());
+                        auto jVal = (jstring)curEnv->CallStaticObjectMethod(g_bridgeClass, g_getPropMethod, jKey);
+                        curEnv->DeleteLocalRef(jKey);
+                        if (jVal) {
+                            const char* valChars = curEnv->GetStringUTFChars(jVal, nullptr);
+                            std::string valStr(valChars);
+                            curEnv->ReleaseStringUTFChars(jVal, valChars);
+                            curEnv->DeleteLocalRef(jVal);
+                            return facebook::jsi::String::createFromUtf8(rt, valStr);
+                        }
+                    }
+                }
+                return facebook::jsi::String::createFromUtf8(rt, "");
+            }
+        );
+        g_runtime->global().setProperty(*g_runtime, "__zn_getProp", fnGetProp);
 
         LOGI("Host functions successfully installed on JS global");
     } catch (const facebook::jsi::JSError& e) {

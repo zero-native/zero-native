@@ -757,7 +757,7 @@ class FlowInstance {
   constructor(config, existingState) {
     this.config = config;
     const now = Date.now();
-    const expiryMs = (config.expiresAfter?.minutes ?? 15) * 60 * 1000;
+    const expiryMs = config.expiresAfter?.seconds !== undefined ? config.expiresAfter.seconds * 1000 : (config.expiresAfter?.minutes ?? 15) * 60 * 1000;
     if (existingState) {
       this.state = existingState;
     } else {
@@ -784,7 +784,7 @@ class FlowInstance {
     const now = Date.now();
     this.state.updatedAt = now;
     if (this.config.expiresAfter?.sliding !== false) {
-      const expiryMs = (this.config.expiresAfter?.minutes ?? 15) * 60 * 1000;
+      const expiryMs = this.config.expiresAfter?.seconds !== undefined ? this.config.expiresAfter.seconds * 1000 : (this.config.expiresAfter?.minutes ?? 15) * 60 * 1000;
       this.state.expiresAt = now + expiryMs;
     }
     activeAdapter.save(this.state);
@@ -882,7 +882,7 @@ function defineFlow(config) {
         return { status: "dropped", reason: "no_saved_state" };
       }
       const now = Date.now();
-      const hasUnsafeEffectStarted = Object.values(savedState.effects).some((eff) => (eff.kind === "once" || eff.kind === "keyed") && eff.status === "started");
+      const hasUnsafeEffectStarted = Object.values(savedState.effects).some((eff) => (eff.kind === "once" || eff.kind === "keyed") && (eff.status === "started" || eff.status === "done"));
       if (now > savedState.expiresAt) {
         if (!hasUnsafeEffectStarted) {
           activeAdapter.delete(config.name);
@@ -1150,10 +1150,24 @@ function upiResponseForBackend(parsed, event) {
 
 // flows/checkoutFlow.ts
 var BACKEND_URL = "http://127.0.0.1:8787";
+var getProp = (key) => {
+  return typeof globalThis.__zn_getProp === "function" ? globalThis.__zn_getProp(key) || "" : "";
+};
+var debugExpiresSec = parseInt(getProp("debug.zn.expires") || "0", 10);
+var debugSchemaVer = parseInt(getProp("debug.zn.schema") || "1", 10);
+var debugMigrate = getProp("debug.zn.migrate");
+var migrations = {};
+if (debugMigrate === "v1") {
+  migrations[1] = (old) => ({
+    ...old,
+    migratedV1ToV2: true
+  });
+}
 var checkoutFlow = defineFlow({
   name: "checkout",
-  schemaVersion: 1,
-  expiresAfter: { minutes: 15, sliding: true },
+  schemaVersion: debugSchemaVer > 0 ? debugSchemaVer : 1,
+  expiresAfter: debugExpiresSec > 0 ? { seconds: debugExpiresSec, sliding: false } : { minutes: 15, sliding: true },
+  migrate: debugSchemaVer > 1 ? migrations : undefined,
   initial: "enteringAmount",
   data: {
     amountPaise: 50000,
@@ -1188,6 +1202,9 @@ var checkoutFlow = defineFlow({
           throw new Error(`Payment initiate failed with status ${res.status}`);
         }
         const data = await res.json();
+        if (typeof globalThis.__zn_checkCrash === "function") {
+          globalThis.__zn_checkCrash("S4c");
+        }
         return data;
       }),
       on: {
@@ -1789,16 +1806,21 @@ if (typeof globalThis.__zn_flow_load === "function") {
         console.log(`[FLOW_RESTORE] Successfully restored flow to step '${currentFlow.step}'`);
         const upiResult = savedState.data?.upiResult || savedState.effects?.launchUpi?.result || currentFlow.data.upiResult;
         const isRealUpiResult = upiResult && (upiResult.response || upiResult.Status || upiResult.responseCode !== undefined);
-        if (isRealUpiResult) {
+        if (isRealUpiResult && currentFlow.step !== "success" && currentFlow.step !== "cancelled" && currentFlow.step !== "failed") {
           currentFlow.data.upiResult = upiResult;
-          currentFlow.go("verifying", { upiResult }).catch((err) => {
+          currentFlow.go("verifying", { upiResult }).then(async () => {
+            const verifyEffect = currentFlow?.state?.effects?.["verify"];
+            if (verifyEffect && verifyEffect.status === "done") {
+              await currentFlow?.dispatch("verifyDone", verifyEffect.result);
+            }
+          }).catch((err) => {
             console.error("[FLOW_RESTORE] Verify effect error", err);
           });
         }
-        if (currentFlow.step === "verifying" || currentFlow.step === "paying" || currentFlow.step === "launchingUpi") {
+        if (currentFlow.step === "verifying" || currentFlow.step === "paying" || currentFlow.step === "launchingUpi" || currentFlow.step === "success") {
           initialScreen = "/verifying";
           initialParams = {
-            statusText: "Checking payment status...",
+            statusText: currentFlow.step === "success" ? "Payment Successful!" : "Checking payment status...",
             merchantName: "Kalyan Jewellers"
           };
         }
@@ -1868,12 +1890,17 @@ registerEventHandler(0, "upiResult", async (parsedResult) => {
     if (flow) {
       globalThis.__activeFlow = flow;
       flow.data.upiResult = parsedResult;
-      flow.go("verifying", { upiResult: parsedResult }).catch((err) => {
-        console.error("[JS_EVENT] Verify effect execution error", err);
-      });
       nav.replace("/verifying", {
         statusText: "Processing payment result...",
         merchantName: "Kalyan Jewellers"
+      });
+      flow.go("verifying", { upiResult: parsedResult }).then(async () => {
+        const verifyEffect = flow.state.effects["verify"];
+        if (verifyEffect && verifyEffect.status === "done") {
+          await flow.dispatch("verifyDone", verifyEffect.result);
+        }
+      }).catch((err) => {
+        console.error("[JS_EVENT] Verify effect execution error", err);
       });
     }
   } catch (err) {

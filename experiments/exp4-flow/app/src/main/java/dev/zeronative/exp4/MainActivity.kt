@@ -156,6 +156,9 @@ class MainActivity : ComponentActivity() {
                     val fullyDrawnTime = SystemClock.uptimeMillis()
                     val totalColdStartMs = fullyDrawnTime - activityCreateTime
                     Log.i(TAG, "[COLD_START] reportFullyDrawn: Initial screen rendered in $totalColdStartMs ms")
+                    // Successful render resets crash loop attempt counter
+                    getSharedPreferences(SAFE_MODE_PREF, Context.MODE_PRIVATE)
+                        .edit().putInt(KEY_RESTORE_ATTEMPTS, 0).apply()
                     try {
                         reportFullyDrawn()
                     } catch (_: Exception) {}
@@ -179,6 +182,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkSafeMode() {
+        val store = FlowStore.getStore(filesDir, "checkout")
+        if (store.read() == null) {
+            // No flow to restore; cannot be a restore crash loop
+            return
+        }
+
         val prefs = getSharedPreferences(SAFE_MODE_PREF, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         val lastRestore = prefs.getLong(KEY_LAST_RESTORE_TIME, 0L)
@@ -190,7 +199,7 @@ class MainActivity : ComponentActivity() {
             if (nextAttempts >= 2) {
                 Log.w(TAG, "[SAFE_MODE] CRASH LOOP DETECTED ($nextAttempts crashes in 10s). Quarantining flows!")
                 isSafeModeTriggered = true
-                FlowStore.getStore(filesDir, "checkout").delete()
+                store.delete()
                 return
             }
         } else {
@@ -207,6 +216,9 @@ class MainActivity : ComponentActivity() {
         }
         val launchTime = System.nanoTime()
         Log.i(TAG, "[UPI_INTENT] Launching intent for $pkg ($name) at $launchTime ns: $uriString")
+
+        // S4b: Debug-only crash point right after launchUpi effect record is written, before startActivity
+        ZnBridge.checkCrashPoint("S4b")
 
         try {
             upiLauncher.launch(intent)

@@ -14,10 +14,31 @@ export interface CheckoutData {
 
 const BACKEND_URL = 'http://127.0.0.1:8787';
 
+const getProp = (key: string): string => {
+  return typeof (globalThis as any).__zn_getProp === 'function'
+    ? (globalThis as any).__zn_getProp(key) || ''
+    : '';
+};
+
+const debugExpiresSec = parseInt(getProp('debug.zn.expires') || '0', 10);
+const debugSchemaVer = parseInt(getProp('debug.zn.schema') || '1', 10);
+const debugMigrate = getProp('debug.zn.migrate');
+
+const migrations: Record<number, (old: any) => any> = {};
+if (debugMigrate === 'v1') {
+  migrations[1] = (old: any) => ({
+    ...old,
+    migratedV1ToV2: true,
+  });
+}
+
 export const checkoutFlow = defineFlow<CheckoutData>({
   name: 'checkout',
-  schemaVersion: 1,
-  expiresAfter: { minutes: 15, sliding: true },
+  schemaVersion: debugSchemaVer > 0 ? debugSchemaVer : 1,
+  expiresAfter: debugExpiresSec > 0
+    ? { seconds: debugExpiresSec, sliding: false }
+    : { minutes: 15, sliding: true },
+  migrate: debugSchemaVer > 1 ? migrations : undefined,
   initial: 'enteringAmount',
   data: {
     amountPaise: 50000,
@@ -55,6 +76,12 @@ export const checkoutFlow = defineFlow<CheckoutData>({
           throw new Error(`Payment initiate failed with status ${res.status}`);
         }
         const data = await res.json();
+
+        // S4c: Crash after /pay is received by backend, before response is committed to FlowStore
+        if (typeof (globalThis as any).__zn_checkCrash === 'function') {
+          (globalThis as any).__zn_checkCrash('S4c');
+        }
+
         return data;
       }),
       on: {

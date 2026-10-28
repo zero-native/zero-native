@@ -36,17 +36,22 @@ if (typeof (globalThis as any).__zn_flow_load === "function") {
         const upiResult = savedState.data?.upiResult || savedState.effects?.launchUpi?.result || currentFlow.data.upiResult;
         const isRealUpiResult = upiResult && (upiResult.response || upiResult.Status || upiResult.responseCode !== undefined);
 
-        if (isRealUpiResult) {
+        if (isRealUpiResult && currentFlow.step !== "success" && currentFlow.step !== "cancelled" && currentFlow.step !== "failed") {
           currentFlow.data.upiResult = upiResult;
-          currentFlow.go("verifying", { upiResult }).catch((err) => {
+          currentFlow.go("verifying", { upiResult }).then(async () => {
+            const verifyEffect = currentFlow?.state?.effects?.["verify"];
+            if (verifyEffect && verifyEffect.status === "done") {
+              await currentFlow?.dispatch("verifyDone", verifyEffect.result);
+            }
+          }).catch((err) => {
             console.error("[FLOW_RESTORE] Verify effect error", err);
           });
         }
 
-        if (currentFlow.step === "verifying" || currentFlow.step === "paying" || currentFlow.step === "launchingUpi") {
+        if (currentFlow.step === "verifying" || currentFlow.step === "paying" || currentFlow.step === "launchingUpi" || currentFlow.step === "success") {
           initialScreen = "/verifying";
           initialParams = {
-            statusText: "Checking payment status...",
+            statusText: currentFlow.step === "success" ? "Payment Successful!" : "Checking payment status...",
             merchantName: "Kalyan Jewellers",
           };
         }
@@ -129,12 +134,17 @@ registerEventHandler(0, "upiResult", async (parsedResult: any) => {
     if (flow) {
       (globalThis as any).__activeFlow = flow;
       flow.data.upiResult = parsedResult;
-      flow.go("verifying", { upiResult: parsedResult }).catch((err) => {
-        console.error("[JS_EVENT] Verify effect execution error", err);
-      });
       nav.replace("/verifying", {
         statusText: "Processing payment result...",
         merchantName: "Kalyan Jewellers",
+      });
+      flow.go("verifying", { upiResult: parsedResult }).then(async () => {
+        const verifyEffect = flow.state.effects["verify"];
+        if (verifyEffect && verifyEffect.status === "done") {
+          await flow.dispatch("verifyDone", verifyEffect.result);
+        }
+      }).catch((err) => {
+        console.error("[JS_EVENT] Verify effect execution error", err);
       });
     }
   } catch (err) {

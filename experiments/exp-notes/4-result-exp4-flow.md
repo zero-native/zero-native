@@ -157,3 +157,44 @@ Audit of raw request payloads logged by `mock-backend.ts` running in Bun:
 | **Double /pay Guard** | Ad-hoc `isPaying` boolean | Ad-hoc state check | Guaranteed by `once` effect kind |
 | **Bundle Size Impact** | ~850 KB JS bundle | Full Dart AOT | **64.07 KB** bytecode (`screen.hbc`) |
 
+---
+
+## 6. Closing the Gaps: G1 Verification Matrix (Live Physical Runs on Lava Blaze 2 5G)
+
+As requested by Opus peer review (`GEMINI_V0_GAPS.md §G1`), all 9 missing double-payment edge-case scenarios were automated and executed **3 times each** on the physical Lava Blaze 2 5G against `mock-backend.ts` (`run-gap-scenarios.ps1`):
+
+| # | Scenario | Mechanism / Stimulus | Expected Behavior | Run 1 `/stats` | Run 2 `/stats` | Run 3 `/stats` | Verdict |
+|---|---|---|---|:---:|:---:|:---:|:---:|
+| **S4b** | Kill between FlowStore write and UPI launch | `debug.zn.crash S4b` right after `launchUpi` effect record written | Flow restores into `verifying`. UPI not launched. Zero double payment. | Pay: 1, Verify: 0 | Pay: 1, Verify: 0 | Pay: 1, Verify: 0 | **PASS (3/3)** |
+| **S4c** | Kill after `/pay` sent, before response committed | `debug.zn.crash S4c` after mock receives `/pay` | Flow restores into `verifying` (`once` effect). Zero second `/pay`. | Pay: 1, Verify: 0 | Pay: 1, Verify: 0 | Pay: 1, Verify: 0 | **PASS (3/3)** |
+| **S7** | System Back button pressed in UPI app | `input keyevent 4` in UPI `PaymentActivity` | `resultCode = 0`, wire parity with RN (`RESPONSECODE=U69`), clean cancel. | Pay: 1, Verify: 1 | Pay: 1, Verify: 1 | Pay: 1, Verify: 1 | **PASS (3/3)** |
+| **S8** | Retry payment after cancel | Cancel attempt 1, tap "Return to Home", enter 500, approve attempt 2 | New attempt allowed. Exactly 2 `/pay` calls (1 per attempt), 2 `/verify`. | Pay: 2, Verify: 2 | Pay: 2, Verify: 2 | Pay: 2, Verify: 2 | **PASS (3/3)** |
+| **S11** | Kill after SUCCESS (`am kill`) then reopen | Background with Home key (`keyevent 3`), `am kill`, reopen from launcher | Restores to Success screen. Zero extra `/pay` or `/verify` loops. | Pay: 1, Verify: 1 | Pay: 1, Verify: 1 | Pay: 1, Verify: 1 | **PASS (3/3)** |
+| **S12a** | Expiry before `/pay` (`expiresAfter` = 5s) | Type amount 500, force-stop, wait 6s past expiry, cold restart | Safe flow dropped; opens on clean Home screen (`/amount`). | Pay: 0, Verify: 0 | Pay: 0, Verify: 0 | Pay: 0, Verify: 0 | **PASS (3/3)** |
+| **S12b** | Expiry after `/pay` started (`expiresAfter` = 5s) | `/pay` started, S4b crash at UPI launch, wait 6s past expiry, cold restart | Flow NOT dropped: money may have moved, opens in `verifying` reconcile. | Pay: 1, Verify: 0 | Pay: 1, Verify: 0 | Pay: 1, Verify: 0 | **PASS (3/3)** |
+| **S17a** | Schema v1 $\to$ v2 migration with `migrate[1]` | Flow saved as v1, app restarts with schema v2 + `migrate[1]` declared | State migrated cleanly, restores step without crash. | Pay: 0, Verify: 0 | Pay: 0, Verify: 0 | Pay: 0, Verify: 0 | **PASS (3/3)** |
+| **S17b** | Schema v2 with missing migration path | Flow saved as v1 with in-flight effect, restarts with schema v2 & no migrate | Safely reconciles to `verifying` (money protection); zero crash. | Pay: 1, Verify: 0 | Pay: 1, Verify: 0 | Pay: 1, Verify: 0 | **PASS (3/3)** |
+
+### Key Wire Audit Log Excerpts:
+1. **S7 Parity with ZeroBill RN:**
+   ```
+   POST /transactions/verify
+   _ztc: ztc_exp4_1793169849246
+   _success: false
+   body: { "data": "test_token", "pay_type": "UPI_INTENT", "retry_count": 0, "upi_response": "STATUS=FAILURE&RESULTCODE=0&TXNREF=TRX_1793169853097&RESPONSECODE=U69&TXNID=" }
+   ```
+2. **S8 Exact Attempt Isolation:**
+   ```
+   Audit Results: Pay calls = 2, Verify calls = 2
+   - Attempt 1: Cancelled via System Back (1 /pay, 1 /verify)
+   - Attempt 2: Approved via Mock UPI Gateway (2 /pay, 2 /verify)
+   - Zero double-firing within an attempt.
+   ```
+3. **S11 Post-Success Kill State Preservation:**
+   ```
+   Before stats: Pay = 1, Verify = 1
+   After am kill & relaunch stats: Pay = 1, Verify = 1
+   Rendered Screen: "Payment Successful!" with green badge.
+   ```
+
+

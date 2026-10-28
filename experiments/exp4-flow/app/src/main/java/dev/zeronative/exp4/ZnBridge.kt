@@ -168,6 +168,30 @@ object ZnBridge {
         Log.e(TAG, "[JS_ERROR] $msg")
     }
 
+    private fun getSystemProperty(key: String): String {
+        return try {
+            val c = Class.forName("android.os.SystemProperties")
+            val get = c.getMethod("get", String::class.java, String::class.java)
+            get.invoke(c, key, "") as String
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    @JvmStatic
+    fun getSystemProp(key: String): String {
+        return getSystemProperty(key)
+    }
+
+    @JvmStatic
+    fun checkCrashPoint(point: String) {
+        val crashTarget = getSystemProperty("debug.zn.crash")
+        if (crashTarget.isNotEmpty() && crashTarget == point) {
+            Log.e(TAG, "[CRASH_POINT] Triggering deliberate crash for scenario: $point")
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
+    }
+
     @JvmStatic
     fun postTimer(timerId: Int, delayMs: Long) {
         val runnable = Runnable {
