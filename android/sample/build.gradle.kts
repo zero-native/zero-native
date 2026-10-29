@@ -62,12 +62,12 @@ android {
 dependencies {
     implementation(project(":runtime"))
 
-    val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.runtime:runtime")
-    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.activity:activity-compose:1.13.0")
     // Installs the Baseline Profile on sideloaded installs (Play installs it on its own).
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 

@@ -78,8 +78,12 @@ the Compose frame clock.
 | Hot reload, save → screen | 127 ms (Bun build 5 ms + hermesc 74 ms + device ~48 ms) | debug, dev only | 10-28 |
 | Memory, exp 2 one screen | 59 MB PSS | prototype; RN full app 181 MB, Flutter 213 MB (not comparable) | 10-28 |
 | Cold start, Step 1.5 sample (AmountScreen) | **227 ms** median (min 197 ms, p90 263 ms, 10 runs) | release (`:sample:installRelease`), Lava Blaze 2 5G | 10-29 |
+| Cold start, Step 2.0b sample (Compose 1.12.1 / BOM 2026.09.00) | **200 ms** median (min 187 ms, p90 229 ms, 11 runs) | release (`:sample:installRelease`), Lava Blaze 2 5G | 10-29 |
+| Release APK size, Step 2.0b | **5.73 MB** (5,728,905 bytes, delta +0.06 MB) | release APK | 10-29 |
+| Play download size, Step 2.0b | **2.02 MB** (brotli -q 11 on extracted bundletool splits) | release AAB with `tools/device.json` | 10-29 |
 | First JS batch applied | 140 ms after process start (before composition at 159 ms) | release, 19 ops applied | 10-29 |
 | Memory, Step 1.5 sample | **77.8 MB** PSS (total RSS 162 MB, Java Heap 3.2 MB) | release, after 10 s idle | 10-29 |
+| Memory, Step 2.0b sample | **86.1 MB** PSS (total RSS 165 MB, Java Heap 3.3 MB) | release, after 10 s idle | 10-29 |
 | Template read & preparation | 2.58 ms (7 templates prepared) | release, memory-mapped | 10-29 |
 
 ### 4.1 Where exp4-flow's ~400 ms went (one release cold start, from `logcat`, 2026-10-29)

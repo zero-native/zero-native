@@ -14,6 +14,7 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 
+adb wait-for-device
 $flags = adb shell dumpsys package $Package | Select-String "pkgFlags="
 if ("$flags" -match "DEBUGGABLE") { Write-Warning "$Package is a debug build; these numbers are not comparable." }
 

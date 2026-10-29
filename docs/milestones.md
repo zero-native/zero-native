@@ -54,8 +54,8 @@ Full brief with design decisions, tests and phone checks per step:
 | Step | What | Builder | Status |
 |---|---|---|---|
 | 2.0 | Small fixes left from milestone 1 (`targetSdk`, `fontWeight` names, move `exp4-flow`, mock UPI app into `test-kit/`) | Gemini | built, waiting for review |
-| 2.0b | Compose BOM (runtime ≥ 1.11.2) + activity-compose ≥ 1.12 + Coil upgrade, needed by Navigation 3 1.2.0; re-measure | Gemini | approved 2026-10-29 |
-| 2.1 | `routes.ts`, several screens in one bundle, route manifest | Gemini | |
+| 2.0b | Compose BOM (runtime ≥ 1.11.2) + activity-compose ≥ 1.12 + Coil upgrade, needed by Navigation 3 1.2.0; re-measure | Gemini | built, waiting for review |
+| 2.1 | `routes.ts`, several screens in one bundle, route manifest | Gemini | next |
 | 2.2 | Navigation: JS-owned back stack, `NAV` op, native host + transitions, back button, deep links, screen-owned timers | Gemini | |
 | 2.3 | Safe areas: edge-to-edge, per-route option, `insets()` | Gemini | |
 | 2.4 | `<List>`: row templates, data window, placeholders, splice | Gemini | |
@@ -79,6 +79,25 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-29: step 2.0b done
+- **Upgraded Compose BOM & Activity Compose:**
+  - Upgraded Compose BOM to `2026.09.00` in `:runtime` and `:sample`. Maps to Compose `1.12.1` across runtime, UI, animation, and foundation (satisfies Navigation 3's requirement of runtime $\ge 1.11.2$ and UI/animation $\ge 1.10.0$).
+  - Upgraded `activity-compose` to `1.13.0` (satisfies $\ge 1.12.0$).
+  - Upgraded Coil to `3.3.0` (`io.coil-kt.coil3:coil-compose:3.3.0` and `coil-network-okhttp:3.3.0`). Tested and noted: Coil 3.6.x was compiled with `kotlin-stdlib:2.4.10` which caused metadata version conflicts against AGP 9.2.1's built-in Kotlin 2.2.0 compiler; Coil 3.3.0 compiles with Kotlin 2.2.0 seamlessly.
+- **Phone verification on physical Lava Blaze 2 5G (Android 14):**
+  - Interactive checks: press states, native repeat backspace, long press clear to ₹0, Coil circular avatar loading, SVG icon drawing all verified on device.
+  - Recomposition audit: typing a digit recomposes **only the amount `Text` node** (`recomposed: {Text#-2147483647.15=1}`); blinking cursor timer recomposes 0 body nodes.
+  - Latency: `tap→applied` measured at **9.32 ms** to **11.45 ms**.
+- **Performance benchmarks in release build (`:sample:installRelease`, R8 enabled):**
+  - Cold start: **200 ms** median (min 187 ms, p90 229 ms, max 244 ms, 11 runs after first drop) — **improved by 27 ms** from Step 1.5's 227 ms.
+  - Release APK size: **5.73 MB** (5,728,905 bytes, delta +64.1 KB / +0.06 MB, well below the +0.3 MB limit).
+  - Play Store download size: **2.02 MB** (brotli -q 11 on extracted bundletool device splits).
+  - Idle memory: **86.1 MB PSS** after 10 s idle (Total RSS 165 MB, Native heap 22.3 MB, Java heap 3.3 MB).
+- **Tests & Lint:**
+  - 48 JS tests pass (`bun run test`).
+  - Kotlin unit tests pass (`.\gradlew.bat :runtime:testDebugUnitTest`).
+  - Lint: 0 errors (`.\gradlew.bat :runtime:lintDebug :sample:lintRelease`).
+
 ### 2026-10-29: step 2.0 done
 - **Target SDK restored to 36:**
   - Restored `targetSdk = 36` in `android/sample/build.gradle.kts` and `android/baselineprofile/build.gradle.kts`. (The Lava ROM broadcast issue is documented to be due to `am force-stop` on Android 14 MediaTek firmware, not `targetSdk`).

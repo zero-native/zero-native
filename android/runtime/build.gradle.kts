@@ -57,14 +57,14 @@ dependencies {
     api("com.facebook.hermes:hermes-android:250829098.0.17")
 
     // Slot cells are Compose state (ARCHITECTURE §9.1); exposed in ZnStore's API, hence `api`.
-    api(platform("androidx.compose:compose-bom:2024.09.00"))
+    api(platform("androidx.compose:compose-bom:2026.09.00"))
     api("androidx.compose.runtime:runtime")
     // The renderer: Compose foundation only, no material3 (ARCHITECTURE §9.2).
     api("androidx.compose.ui:ui")
     api("androidx.compose.foundation:foundation")
     // Image loading (same versions as the v0 size check). Apps that load http(s) images need INTERNET permission.
-    implementation("io.coil-kt.coil3:coil-compose:3.0.4")
-    implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
+    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
 
     testImplementation("junit:junit:4.13.2")
 
