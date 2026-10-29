@@ -25,6 +25,7 @@ object ZnBridge {
 
     private var appContext: Context? = null
     var onLaunchUpiListener: ((pkg: String, name: String, toPayPaise: Long) -> Unit)? = null
+    var onExitAppListener: (() -> Unit)? = null
 
     fun setContext(context: Context) {
         appContext = context.applicationContext
@@ -77,11 +78,13 @@ object ZnBridge {
                 nativeInit()
                 mainHandler.post {
                     NodeStore.clear()
+                    handler.post {
+                        val ok = nativeEvalBytecode(bytecode, "fast-refresh.hbc")
+                        val totalMs = (System.nanoTime() - startNanos) / 1_000_000.0
+                        Log.i(TAG, "[FAST_REFRESH] Bytecode hot-reloaded in ${"%.2f".format(totalMs)} ms (ok=$ok)")
+                        mainHandler.post { onComplete?.invoke(ok) }
+                    }
                 }
-                val ok = nativeEvalBytecode(bytecode, "fast-refresh.hbc")
-                val totalMs = (System.nanoTime() - startNanos) / 1_000_000.0
-                Log.i(TAG, "[FAST_REFRESH] Bytecode hot-reloaded in ${"%.2f".format(totalMs)} ms (ok=$ok)")
-                mainHandler.post { onComplete?.invoke(ok) }
             } catch (e: Exception) {
                 Log.e(TAG, "[FAST_REFRESH] Failed to hot-reload bytecode", e)
                 mainHandler.post { onComplete?.invoke(false) }

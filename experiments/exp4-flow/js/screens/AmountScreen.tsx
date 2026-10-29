@@ -7,6 +7,7 @@ import { h, Fragment, Column, Row, Box, Text, Pressable, Spacer, Image } from ".
 import { signal, computed } from "../zn/signals";
 import { Colors } from "../zn/tokens";
 import { nav } from "../zn/nav";
+import { SafeAreaView } from "../zn/insets";
 import {
   formatIndianDisplay,
   parseToPaise,

@@ -58,11 +58,34 @@ export const nav = {
   }
 };
 
+// Hardware back interceptor stack (for bottom sheets, dialogs, modals)
+type BackInterceptor = () => boolean; // return true if handled, false to pass through
+const backInterceptors: BackInterceptor[] = [];
+
+export function registerBackInterceptor(interceptor: BackInterceptor): () => void {
+  backInterceptors.push(interceptor);
+  return () => {
+    const idx = backInterceptors.indexOf(interceptor);
+    if (idx !== -1) backInterceptors.splice(idx, 1);
+  };
+}
+
 // Listen for hardware back button dispatched from MainActivity
 registerEventHandler(0, "hardwareBack", () => {
+  // 1. Check if any modal / bottom sheet intercepts back
+  for (let i = backInterceptors.length - 1; i >= 0; i--) {
+    const handled = backInterceptors[i]();
+    if (handled) return;
+  }
+
+  // 2. Otherwise navigate back in screen stack
   const current = backStack();
   if (current.length > 1) {
-    backStack.set(current.slice(0, -1));
+    nav.pop();
+  } else {
+    // 3. At root screen, request native app exit/backgrounding
+    queueOp(["app", "exit"]);
+    scheduleFlush();
   }
 });
 

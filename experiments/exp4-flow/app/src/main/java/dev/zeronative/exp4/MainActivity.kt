@@ -9,17 +9,22 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 
@@ -101,20 +106,21 @@ class MainActivity : ComponentActivity() {
         // 2. Log installed UPI apps for verification
         UpiAppManager.getInstalledUpiApps(this)
 
-        // 3. Hardware Back Button handler
+        // 3. Hardware Back Button handler (Delegated to Hermes JS Router as Single Source of Truth)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (NavigationManager.backStack.size > 1) {
-                    Log.i(TAG, "[BACK_PRESSED] Popping backStack via hardware back button")
-                    NavigationManager.pop()
-                    ZnBridge.dispatchEvent(0, "hardwareBack")
-                } else {
-                    Log.i(TAG, "[BACK_PRESSED] backStack at root, finishing activity")
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                }
+                Log.i(TAG, "[BACK_PRESSED] Hardware back pressed, delegating to Hermes JS router")
+                ZnBridge.dispatchEvent(0, "hardwareBack")
             }
         })
+
+        // 3b. Register App Exit listener from Hermes
+        ZnBridge.onExitAppListener = {
+            runOnUiThread {
+                Log.i(TAG, "[APP] moveTaskToBack requested by Hermes root router")
+                moveTaskToBack(true)
+            }
+        }
 
         // 4. Register UPI launch listener
         ZnBridge.onLaunchUpiListener = { pkg, name, toPayPaise ->

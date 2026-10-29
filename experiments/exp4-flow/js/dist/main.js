@@ -314,10 +314,19 @@ var nav = {
     return entryId;
   }
 };
+var backInterceptors = [];
 registerEventHandler(0, "hardwareBack", () => {
+  for (let i = backInterceptors.length - 1;i >= 0; i--) {
+    const handled = backInterceptors[i]();
+    if (handled)
+      return;
+  }
   const current = backStack();
   if (current.length > 1) {
-    backStack.set(current.slice(0, -1));
+    nav.pop();
+  } else {
+    queueOp(["app", "exit"]);
+    scheduleFlush();
   }
 });
 
@@ -345,7 +354,11 @@ function bindReactiveChild(textNodeId, getter) {
 }
 function h(type, props, ...rawChildren) {
   if (typeof type === "function") {
-    return type(props || {}, ...rawChildren);
+    const combinedProps = {
+      ...props || {},
+      children: rawChildren.length > 0 ? rawChildren.length === 1 ? rawChildren[0] : rawChildren : props?.children
+    };
+    return type(combinedProps, ...rawChildren);
   }
   let nodeId;
   if (props && typeof props._rootId === "number") {
@@ -366,6 +379,16 @@ function h(type, props, ...rawChildren) {
     for (const [key, value] of Object.entries(props)) {
       if (key === "children" || key === "template")
         continue;
+      if (key === "modifiers" && value && typeof value.toJSON === "function") {
+        const tuples = value.toJSON();
+        tuples.forEach((t, idx) => {
+          if (t[0] === "click" && typeof t[1] === "function") {
+            registerEventHandler(nodeId, `mod_click_${nodeId}_${idx}`, t[1]);
+          }
+        });
+        queueOp(["p", nodeId, "modifiers", JSON.stringify(tuples)]);
+        continue;
+      }
       if (key.startsWith("on") && typeof value === "function") {
         registerEventHandler(nodeId, key, value);
         queueOp(["p", nodeId, key, true]);
@@ -2120,15 +2143,17 @@ function generate10000Transactions() {
 var ALL_TRANSACTIONS = generate10000Transactions();
 function PassbookScreen(props) {
   const windowStart = signal(0);
-  const WINDOW_SIZE = 50;
+  const WINDOW_SIZE = 80;
   const windowData = computed(() => {
     const start = windowStart();
     return ALL_TRANSACTIONS.slice(start, start + WINDOW_SIZE);
   });
   const onScrollWindow = (firstVisiblePayload) => {
     const firstVisible = typeof firstVisiblePayload === "number" ? firstVisiblePayload : parseInt(String(firstVisiblePayload), 10) || 0;
-    const targetStart = Math.max(0, Math.min(ALL_TRANSACTIONS.length - WINDOW_SIZE, firstVisible - 15));
-    if (Math.abs(targetStart - windowStart()) >= 8) {
+    const targetStart = Math.max(0, Math.min(ALL_TRANSACTIONS.length - WINDOW_SIZE, firstVisible - 20));
+    if (firstVisible === 0) {
+      windowStart.set(0);
+    } else if (Math.abs(targetStart - windowStart()) >= 6) {
       windowStart.set(targetStart);
     }
   };
@@ -2197,7 +2222,14 @@ function PassbookScreen(props) {
       paddingVertical: 10,
       align: "center",
       justify: "space-between",
-      width: "100%"
+      width: "100%",
+      onPress: (payload) => {
+        const id = typeof payload === "object" ? payload?.id : Number(payload);
+        const item = ALL_TRANSACTIONS.find((t) => t.id === id);
+        if (item) {
+          nav.push("/transaction-detail", { tx: item });
+        }
+      }
     }, /* @__PURE__ */ h(Row, {
       align: "center",
       gap: 12
@@ -2238,6 +2270,411 @@ function PassbookScreen(props) {
       color: "#64748B"
     })))
   }));
+}
+
+// js/zn/modifier.ts
+class ModifierChain {
+  tuples;
+  constructor(tuples = []) {
+    this.tuples = tuples;
+  }
+  padding(allOrConfig) {
+    if (typeof allOrConfig === "number") {
+      return new ModifierChain([
+        ...this.tuples,
+        { type: "padAll", args: [allOrConfig] }
+      ]);
+    }
+    const {
+      top = 0,
+      bottom = 0,
+      left = 0,
+      right = 0,
+      horizontal = 0,
+      vertical = 0
+    } = allOrConfig;
+    const padT = top || vertical;
+    const padB = bottom || vertical;
+    const padL = left || horizontal;
+    const padR = right || horizontal;
+    return new ModifierChain([
+      ...this.tuples,
+      { type: "pad", args: [padT, padB, padL, padR] }
+    ]);
+  }
+  margin(allOrConfig) {
+    return this.padding(allOrConfig);
+  }
+  background(color, shapeRadius = 0) {
+    return new ModifierChain([
+      ...this.tuples,
+      { type: "bg", args: [color, shapeRadius] }
+    ]);
+  }
+  width(w) {
+    return new ModifierChain([...this.tuples, { type: "width", args: [w] }]);
+  }
+  height(h) {
+    return new ModifierChain([...this.tuples, { type: "height", args: [h] }]);
+  }
+  size(w, h) {
+    return new ModifierChain([
+      ...this.tuples,
+      { type: "size", args: [w, h ?? w] }
+    ]);
+  }
+  fillMaxSize() {
+    return new ModifierChain([...this.tuples, { type: "fillMax", args: [] }]);
+  }
+  fillMaxWidth() {
+    return this.width("100%");
+  }
+  fillMaxHeight() {
+    return this.height("100%");
+  }
+  rounded(radius) {
+    return new ModifierChain([...this.tuples, { type: "clip", args: [radius] }]);
+  }
+  border(width, color, radius = 0) {
+    return new ModifierChain([
+      ...this.tuples,
+      { type: "border", args: [width, color, radius] }
+    ]);
+  }
+  alpha(opacity) {
+    return new ModifierChain([...this.tuples, { type: "alpha", args: [opacity] }]);
+  }
+  clickable(onPress, haptic) {
+    return new ModifierChain([
+      ...this.tuples,
+      { type: "click", args: [onPress, haptic] }
+    ]);
+  }
+  toJSON() {
+    return this.tuples.map((t) => [t.type, ...t.args]);
+  }
+}
+var mod = new ModifierChain;
+
+// js/screens/TransactionDetailScreen.tsx
+var RATING_WORDS = {
+  1: "Terrible \uD83D\uDE1E",
+  2: "Bad \uD83D\uDE41",
+  3: "Average \uD83D\uDE10",
+  4: "Good \uD83D\uDE0A",
+  5: "Awesome! \uD83C\uDF1F"
+};
+function TransactionDetailScreen(props) {
+  const isCredit = props.tx?.isCredit ?? false;
+  const rating = signal(5);
+  const isAccordionOpen = signal(true);
+  const statusColor = isCredit ? "#66c76b" : "#66c76b";
+  const statusBg = isCredit ? "#DCFCE7" : "#E8F5E9";
+  return /* @__PURE__ */ h(Column, {
+    _rootId: props._rootId,
+    fill: true,
+    bg: "#F8FAFC",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12
+  }, /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center",
+    width: "100%",
+    height: 52
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 12
+  }, /* @__PURE__ */ h(Pressable, {
+    onPress: () => nav.pop(),
+    width: 40,
+    height: 40,
+    radius: 20,
+    bg: "#FFFFFF",
+    border: 1,
+    borderColor: "#E2E8F0",
+    align: "center",
+    justify: "center",
+    pressedScale: 0.92
+  }, /* @__PURE__ */ h(Text, {
+    text: "←",
+    size: 20,
+    weight: "bold",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Column, {
+    gap: 2
+  }, /* @__PURE__ */ h(Text, {
+    text: "Transaction Details",
+    size: 18,
+    weight: "bold",
+    color: "#0F172A"
+  }), /* @__PURE__ */ h(Text, {
+    text: "ZeroBill Verified Receipt",
+    size: 11,
+    weight: "medium",
+    color: "#64748B"
+  }))), /* @__PURE__ */ h(Pressable, {
+    width: 40,
+    height: 40,
+    radius: 20,
+    bg: "#FFFFFF",
+    border: 1,
+    borderColor: "#E2E8F0",
+    align: "center",
+    justify: "center",
+    pressedScale: 0.92
+  }, /* @__PURE__ */ h(Text, {
+    text: "↗",
+    size: 18,
+    weight: "bold",
+    color: "#0F172A"
+  }))), /* @__PURE__ */ h(Box, {
+    modifiers: mod.padding(16).background(statusBg, 14).border(1, "#C8E6C9", 14),
+    width: "100%"
+  }, /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center",
+    width: "100%"
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 12
+  }, /* @__PURE__ */ h(Box, {
+    width: 48,
+    height: 48,
+    radius: 24,
+    bg: "#FFFFFF",
+    align: "center",
+    justify: "center"
+  }, /* @__PURE__ */ h(Text, {
+    text: props.tx?.avatar || "Z",
+    size: 22,
+    weight: "bold",
+    color: "#2E7D32"
+  })), /* @__PURE__ */ h(Column, {
+    gap: 2
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 4
+  }, /* @__PURE__ */ h(Text, {
+    text: props.tx?.merchant || "Merchant Store",
+    size: 16,
+    weight: "bold",
+    color: "#1B5E20"
+  }), /* @__PURE__ */ h(Text, {
+    text: "✓",
+    size: 13,
+    weight: "bold",
+    color: "#2E7D32"
+  })), /* @__PURE__ */ h(Text, {
+    text: "Payment Successful",
+    size: 12,
+    weight: "bold",
+    color: "#2E7D32"
+  }))), /* @__PURE__ */ h(Column, {
+    align: "flex-end"
+  }, /* @__PURE__ */ h(Text, {
+    text: props.tx?.amount || "₹0.00",
+    size: 22,
+    weight: "bold",
+    color: "#1B5E20"
+  }), /* @__PURE__ */ h(Text, {
+    text: "Instant UPI",
+    size: 11,
+    color: "#4CAF50"
+  })))), /* @__PURE__ */ h(Box, {
+    modifiers: mod.padding(14).background("#FFFFFF", 12).border(1, "#E2E8F0", 12),
+    width: "100%"
+  }, /* @__PURE__ */ h(Column, {
+    width: "100%",
+    gap: 10
+  }, /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center",
+    width: "100%"
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 8
+  }, /* @__PURE__ */ h(Text, {
+    text: "\uD83D\uDECD️",
+    size: 16
+  }), /* @__PURE__ */ h(Text, {
+    text: "Bill Amount Breakdown",
+    size: 14,
+    weight: "bold",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Text, {
+    text: "4 Items",
+    size: 12,
+    weight: "bold",
+    color: "#64748B"
+  })), /* @__PURE__ */ h(Box, {
+    height: 1,
+    bg: "#F1F5F9",
+    width: "100%"
+  }), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    width: "100%"
+  }, /* @__PURE__ */ h(Text, {
+    text: "Total Items (Subtotal)",
+    size: 13,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Text, {
+    text: "₹450.00",
+    size: 13,
+    weight: "medium",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    width: "100%"
+  }, /* @__PURE__ */ h(Row, {
+    align: "center",
+    gap: 4
+  }, /* @__PURE__ */ h(Text, {
+    text: "\uD83C\uDFF7️ ZeroBill Cashback Savings",
+    size: 13,
+    color: "#16A34A"
+  })), /* @__PURE__ */ h(Text, {
+    text: "-₹30.00",
+    size: 13,
+    weight: "bold",
+    color: "#16A34A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    width: "100%"
+  }, /* @__PURE__ */ h(Text, {
+    text: "CGST + SGST (5%)",
+    size: 13,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Text, {
+    text: "₹0.00",
+    size: 13,
+    weight: "medium",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Box, {
+    height: 1,
+    bg: "#F1F5F9",
+    width: "100%"
+  }), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    align: "center",
+    width: "100%"
+  }, /* @__PURE__ */ h(Text, {
+    text: "Net Paid Amount",
+    size: 14,
+    weight: "bold",
+    color: "#0F172A"
+  }), /* @__PURE__ */ h(Text, {
+    text: props.tx?.amount || "₹420.00",
+    size: 16,
+    weight: "bold",
+    color: "#0F172A"
+  })))), /* @__PURE__ */ h(Box, {
+    modifiers: mod.padding(14).background("#FFFFFF", 12).border(1, "#E2E8F0", 12),
+    width: "100%"
+  }, /* @__PURE__ */ h(Column, {
+    width: "100%",
+    gap: 8
+  }, /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    width: "100%"
+  }, /* @__PURE__ */ h(Text, {
+    text: "UPI Reference ID (UTR)",
+    size: 12,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Text, {
+    text: "UPI/429103829102/CR",
+    size: 12,
+    weight: "bold",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    width: "100%"
+  }, /* @__PURE__ */ h(Text, {
+    text: "Payment Mode",
+    size: 12,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Text, {
+    text: "Google Pay • HDFC Bank •• 4892",
+    size: 12,
+    weight: "medium",
+    color: "#0F172A"
+  })), /* @__PURE__ */ h(Row, {
+    justify: "space-between",
+    width: "100%"
+  }, /* @__PURE__ */ h(Text, {
+    text: "Date & Time",
+    size: 12,
+    color: "#64748B"
+  }), /* @__PURE__ */ h(Text, {
+    text: props.tx?.time || "Oct 28, 2026 • 5:52 PM",
+    size: 12,
+    weight: "medium",
+    color: "#0F172A"
+  })))), /* @__PURE__ */ h(Box, {
+    modifiers: mod.padding(14).background("#FFFFFF", 12).border(1, "#E2E8F0", 12),
+    width: "100%"
+  }, /* @__PURE__ */ h(Column, {
+    align: "center",
+    width: "100%",
+    gap: 8
+  }, /* @__PURE__ */ h(Text, {
+    text: "How was your billing experience?",
+    size: 13,
+    weight: "bold",
+    color: "#0F172A"
+  }), /* @__PURE__ */ h(Row, {
+    justify: "center",
+    gap: 12
+  }, [1, 2, 3, 4, 5].map((star) => /* @__PURE__ */ h(Pressable, {
+    key: star,
+    onPress: () => rating.set(star),
+    padding: 6,
+    pressedScale: 0.88
+  }, /* @__PURE__ */ h(Text, {
+    text: star <= rating() ? "★" : "☆",
+    size: 28,
+    weight: "bold",
+    color: star <= rating() ? "#F59E0B" : "#CBD5E1"
+  })))), /* @__PURE__ */ h(Text, {
+    text: () => RATING_WORDS[rating()] || "Awesome!",
+    size: 12,
+    weight: "bold",
+    color: "#F59E0B"
+  }))), /* @__PURE__ */ h(Row, {
+    width: "100%",
+    gap: 10,
+    marginTop: 4
+  }, /* @__PURE__ */ h(Pressable, {
+    weight: 1,
+    height: 48,
+    radius: 12,
+    bg: "#0F172A",
+    align: "center",
+    justify: "center",
+    pressedScale: 0.96,
+    haptic: "medium"
+  }, /* @__PURE__ */ h(Text, {
+    text: "\uD83D\uDCC4 Digital Receipt",
+    size: 14,
+    weight: "bold",
+    color: "#FFFFFF"
+  })), /* @__PURE__ */ h(Pressable, {
+    weight: 1,
+    height: 48,
+    radius: 12,
+    bg: "#FFFFFF",
+    border: 1,
+    borderColor: "#E2E8F0",
+    align: "center",
+    justify: "center",
+    pressedScale: 0.96,
+    haptic: "light"
+  }, /* @__PURE__ */ h(Text, {
+    text: "\uD83D\uDD01 Repeat Pay",
+    size: 14,
+    weight: "bold",
+    color: "#0F172A"
+  }))));
 }
 
 // js/main.tsx
@@ -2333,6 +2770,12 @@ effect(() => {
         _rootId: top.entryId,
         onBack: () => nav.pop()
       });
+    } else if (top.route === "/transaction-detail") {
+      TransactionDetailScreen({
+        _rootId: top.entryId,
+        tx: top.params.tx,
+        onBack: () => nav.pop()
+      });
     } else if (top.route === "/amount") {
       if (top.entryId !== 0) {
         const rootId = AmountScreen({ onBack: () => {} });
@@ -2364,8 +2807,5 @@ registerEventHandler(0, "upiResult", async (parsedResult) => {
   } catch (err) {
     console.error("[JS_EVENT] Failed to process upiResult", err);
   }
-});
-registerEventHandler(0, "hardwareBack", () => {
-  nav.pop();
 });
 flushBatch();

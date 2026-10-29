@@ -7,6 +7,7 @@ import { AmountScreen } from "./screens/AmountScreen";
 import { CheckoutScreen } from "./screens/CheckoutScreen";
 import { VerifyingScreen } from "./screens/VerifyingScreen";
 import { PassbookScreen } from "./screens/PassbookScreen";
+import { TransactionDetailScreen } from "./screens/TransactionDetailScreen";
 import { checkoutFlow } from "./flows/checkoutFlow";
 import { FlowInstance } from "./zn/flow";
 
@@ -120,6 +121,12 @@ effect(() => {
         _rootId: top.entryId,
         onBack: () => nav.pop(),
       });
+    } else if (top.route === "/transaction-detail") {
+      TransactionDetailScreen({
+        _rootId: top.entryId,
+        tx: top.params.tx,
+        onBack: () => nav.pop(),
+      });
     } else if (top.route === "/amount") {
       // Root screen at entryId 0 is already mounted on base container
       if (top.entryId !== 0) {
@@ -156,10 +163,6 @@ registerEventHandler(0, "upiResult", async (parsedResult: any) => {
   } catch (err) {
     console.error("[JS_EVENT] Failed to process upiResult", err);
   }
-});
-
-registerEventHandler(0, "hardwareBack", () => {
-  nav.pop();
 });
 
 // Initial flush

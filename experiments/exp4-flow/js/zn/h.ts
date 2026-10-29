@@ -41,7 +41,11 @@ export function h(
 ): any {
   // 1. Functional component
   if (typeof type === "function") {
-    return type(props || {}, ...rawChildren);
+    const combinedProps = {
+      ...(props || {}),
+      children: rawChildren.length > 0 ? (rawChildren.length === 1 ? rawChildren[0] : rawChildren) : props?.children,
+    };
+    return type(combinedProps, ...rawChildren);
   }
 
   // 2. Intrinsic native node (Column, Row, Box, Text, Image, Pressable, Spacer, UpiProgress)
@@ -68,6 +72,17 @@ export function h(
 
     for (const [key, value] of Object.entries(props)) {
       if (key === "children" || key === "template") continue;
+
+      if (key === "modifiers" && value && typeof (value as any).toJSON === "function") {
+        const tuples = (value as any).toJSON();
+        tuples.forEach((t: any[], idx: number) => {
+          if (t[0] === "click" && typeof t[1] === "function") {
+            registerEventHandler(nodeId, `mod_click_${nodeId}_${idx}`, t[1]);
+          }
+        });
+        queueOp(["p", nodeId, "modifiers", JSON.stringify(tuples)]);
+        continue;
+      }
 
       if (key.startsWith("on") && typeof value === "function") {
         // Event callback (e.g. onPress, onTouchDown, onTouchUp)

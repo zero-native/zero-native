@@ -92,6 +92,12 @@ object NodeStore {
                                 }
                             }
                         }
+                        "app" -> {
+                            val action = op.getString(1)
+                            if (action == "exit") {
+                                ZnBridge.onExitAppListener?.invoke()
+                            }
+                        }
                     }
                 }
             }

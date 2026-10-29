@@ -7,6 +7,7 @@ import { h, VirtualList, Column, Row, Box, Text, Pressable, Spacer } from "../zn
 import { signal, computed } from "../zn/signals";
 import { Colors } from "../zn/tokens";
 import { nav } from "../zn/nav";
+import { SafeAreaView } from "../zn/insets";
 
 interface Transaction {
   id: number;
@@ -52,9 +53,9 @@ const ALL_TRANSACTIONS = generate10000Transactions();
 
 export function PassbookScreen(props: { _rootId?: number; onBack?: () => void }) {
   const windowStart = signal(0);
-  const WINDOW_SIZE = 50;
+  const WINDOW_SIZE = 80;
 
-  // Signal-driven window: only 50 items (~4 KB JSON) in native memory at any time!
+  // Signal-driven window: only 80 items in native memory at any time!
   const windowData = computed(() => {
     const start = windowStart();
     return ALL_TRANSACTIONS.slice(start, start + WINDOW_SIZE);
@@ -62,8 +63,10 @@ export function PassbookScreen(props: { _rootId?: number; onBack?: () => void })
 
   const onScrollWindow = (firstVisiblePayload: any) => {
     const firstVisible = typeof firstVisiblePayload === "number" ? firstVisiblePayload : parseInt(String(firstVisiblePayload), 10) || 0;
-    const targetStart = Math.max(0, Math.min(ALL_TRANSACTIONS.length - WINDOW_SIZE, firstVisible - 15));
-    if (Math.abs(targetStart - windowStart()) >= 8) {
+    const targetStart = Math.max(0, Math.min(ALL_TRANSACTIONS.length - WINDOW_SIZE, firstVisible - 20));
+    if (firstVisible === 0) {
+      windowStart.set(0);
+    } else if (Math.abs(targetStart - windowStart()) >= 6) {
       windowStart.set(targetStart);
     }
   };
@@ -117,6 +120,13 @@ export function PassbookScreen(props: { _rootId?: number; onBack?: () => void })
             align="center"
             justify="space-between"
             width="100%"
+            onPress={(payload: any) => {
+              const id = typeof payload === "object" ? payload?.id : Number(payload);
+              const item = ALL_TRANSACTIONS.find((t) => t.id === id);
+              if (item) {
+                nav.push("/transaction-detail", { tx: item });
+              }
+            }}
           >
             <Row align="center" gap={12}>
               <Box
