@@ -1,8 +1,10 @@
 # zero-native (`zn`): architecture
 
 **Status:** v1 target design. Written by Claude (Opus) with Pavan, 2026-10-27, after two review rounds with Gemini 4 Argon.
-**v0 experiments done (2026-10-28):** all four passed on the Lava Blaze 2 5G (`RESULTS.md`, `exp-notes/`). Lessons are
-folded in below (marked "v0 lesson"). A few safety scenarios are still open (`GEMINI_V0_GAPS.md`).
+**v0 experiments and spikes done (2026-10-27 to 10-29):** all passed on the Lava Blaze 2 5G. Lessons are folded in
+below (marked "v0 lesson"); the full list is in `docs/v0-findings.md`.
+**Updated 2026-10-29:** styling, lists, startup, safe areas, controlled components, native resource handles.
+**Detailed spec files live in `docs/`** (start with `docs/README.md`). This file stays the summary and the decision log.
 **This file replaces `intro.md` and `intro2.md` as the source of truth.** Those two files are Gemini's first brainstorm;
 section 22 lists what we kept, changed and dropped from them, and why.
 
@@ -84,7 +86,7 @@ loader and signature check. Kotlin and Swift code is only the renderer, navigati
 
 ### 5.1 Files and naming
 - Screens and components: `*.zn.tsx`. Plain logic: `*.ts`.
-- Packages: `@zero-native/core` (signals, flows), `@zero-native/ui` (components, modifiers),
+- Packages: `@zero-native/core` (signals, flows), `@zero-native/ui` (components, styles),
   `@zero-native/nav`, `@zero-native/net`, `@zero-native/storage`, `@zero-native/os` (platform APIs).
 - CLI: `zn` (`zn dev`, `zn build`, `zn ota ...`).
 - `zero-native` is the **working name**. Check name, npm scope and trademark before going public (the name was used by
@@ -109,7 +111,7 @@ Signals live in JS memory. They are not persisted unless they are part of a flow
 export function Checkout(props: { sessionId: string }) {
   const amount = signal(0)
   return (
-    <Column gap={12} modifier={ui.padding(16).background(c.surface)}>
+    <Column gap={12} style={{ padding: 16, backgroundColor: c.surface }}>
       <Text style={t.amount}>{formatInr(amount())}</Text>
       <Keypad onKey={(k) => amount.set(applyKey(amount(), k))} />
       <If when={amount() > 0}>
@@ -129,7 +131,7 @@ export function Checkout(props: { sessionId: string }) {
 - Event props (`onPress`, `onChange`, ...) are plain JS functions. Native only learns "this node has a handler".
 - **One way to handle taps (decided):** tap events (`onPress`, `onLongPress`) exist only on `Pressable` and `Button`.
   Input components have their own events (`TextField.onChange`, `Switch.onChange`, ...). Layout nodes (`Column`,
-  `Row`, `Text`, ...) take no tap handlers, and **modifiers never carry handlers** (there is no `ui.clickable()`).
+  `Row`, `Text`, ...) take no tap handlers, and **styles never carry handlers** (there is no `clickable` style).
   This gives every tappable thing a proper accessibility role and press feedback, and the template has one event
   table (`events` in 6.1). Nested `Pressable`s: the innermost one gets the tap, as on both platforms natively.
   Each component's events and their payload types are listed in the component registry (16.2).
@@ -142,15 +144,24 @@ export function Checkout(props: { sessionId: string }) {
 - **Custom component events** (like `<Keypad onKey>`) are plain JS callbacks between components. They don't exist in
   the template: `Keypad` itself is built from `Pressable`s, whose native events call into it.
 
-### 5.4 Styling and layout (decided)
-- **No margin.** Space between siblings belongs to the parent (`gap`). Space inside belongs to the node's modifiers.
-  This maps cleanly to Compose `Arrangement.spacedBy` and SwiftUI `spacing`.
-- **Modifier chains** in a fixed order, like Compose and SwiftUI:
-  `ui.padding(16).background(c.card).radius(12).border(1, c.line)`.
-  A fully static chain is compiled into the template. A chain with dynamic parts gets one slot per dynamic value.
-- **Design tokens** (`c.*` colours, `t.*` text styles, spacing) are a typed TS module. Tokens are compiled into the
-  template as constants. Theme switching (dark mode) is a token set chosen by native at runtime, not a JS re-render.
+### 5.4 Styling and layout (decided 2026-10-29; full rules in `docs/styling-and-layout.md`)
+- A **`style` prop with React Native style names** (a supported subset), as an object or an array.
+  `StyleSheet.create` exists for typing only.
+- **The framework decides the order.** The renderer turns a style into one fixed chain: margin → size → transform →
+  shadow → background → border → clip → press feedback → padding → content. Authors never order anything; for an
+  unusual layering they nest a `Box`.
+- React Native sizing: `width` includes padding and border, not margin; a border pushes content inward.
+- **Layout is done by Compose and SwiftUI. No Yoga.** `flex`, `justifyContent`, `alignItems`, `gap`, `flexWrap`,
+  percentages and absolute positioning inside `Stack` map to native layout under **our own documented flex rules**
+  (for example: `stretch` is the default in `Column`; in `Row` only with a fixed height).
+- **Margins are allowed** (outer spacing); `gap` is preferred between siblings.
+- **Static styles are folded into the template** at build time; only style values that change become slots.
+- **Unsupported keys are build errors**, never silently ignored (`flexDirection`, `flexShrink`, negative margins, ...).
+- **Design tokens** (`c.*` colours, `t.*` text styles, spacing) are a typed TS module, compiled in as constants.
+  Dark mode is a token set chosen by native at runtime, not a JS re-render.
 - Sizes are in dp/pt. Text sizes respect the user's font-scale setting by default.
+- **Safe areas** are handled natively per route (§11).
+- Why not modifier chains: order-dependent bugs, foreign in JSX, and porting RN code would be a rewrite.
 
 ## 6. Build outputs (decided)
 
@@ -185,7 +196,8 @@ Template
   gestures:   reserved for v2 (main-thread gesture expressions, section 10.3)
 Node
   type: u16 (component id)          parent: u32          staticProps: [PropValue]
-  modifiers: [Modifier]             // folded static modifier chain
+  style: [StyleValue]               // static style keys, folded at build time (applied in the fixed order, 5.4)
+// List row templates are ordinary templates; a <List> node refers to one by template index (docs/lists.md).
 ```
 - Component ids and property ids are **numbers from a versioned registry** (section 16.2). Unknown ids = bundle is
   incompatible, so it is never loaded.
@@ -257,6 +269,17 @@ public:
    and restores any flow state.
 5. JS flushes the first batch. The skeleton fills in. `reportFullyDrawn()` fires after the first batch is applied.
 
+**Startup rules (decided 2026-10-29; details and measurements in `docs/startup-and-performance.md`):**
+- No work at module load time (a module's top level only declares things).
+- No main-thread work in `onCreate` beyond creating the view host: package-manager queries, icons, disk reads and
+  parsing go to the I/O pool or happen on demand.
+- Per-screen bytecode, evaluated on demand; cold start runs `core.hbc` + the first screen only.
+- The first frame is the native skeleton, never a "Loading…" screen.
+- Baseline Profiles on by default (framework profiles shipped; apps add their own).
+- Performance numbers come only from release builds.
+- **Budget: ≤ 250 ms `am start` TotalTime on the Lava Blaze 2 5G** for a release sample app (Flutter 1.6.0 measures
+  ~300–330 ms there). v0 lesson: exp4-flow broke these rules and measured ~400–420 ms in release.
+
 ### 8.2 Threads (decided)
 | Thread | Owns | Never does |
 |---|---|---|
@@ -315,6 +338,12 @@ as tasks.
 - **iOS:** each cell is its own small `@Observable` object (`final class SlotCell { var value }`). One observable
   array would invalidate every reader of the array, so cells must be separate objects. [check with Instruments that
   only the leaf view's body re-runs]
+- **The template interpreter must be fast (decided 2026-10-29, v0 lesson).** Each template is prepared once into flat
+  arrays (node types, child ranges, pre-built static modifiers, static text, slot → node/property table). Static props
+  are constants, not state; only slots are observed. No per-row node allocation, no hash-map lookups or string
+  matching while drawing. v0 measured a generic node tree per list row at 18–25 ms per frame, and one shared template
+  at 2.8–4 ms (as fast as hand-written Kotlin). **We do not generate Kotlin/Swift from TSX**: compiled code can't be
+  updated over the air.
 
 ### 9.2 Component set v1 (decided list; props are in the registry)
 | zn | Compose | SwiftUI |
@@ -322,18 +351,19 @@ as tasks.
 | `Column` / `Row` / `Stack` | `Column` / `Row` / `Box` | `VStack` / `HStack` / `ZStack` |
 | `Spacer` | `Spacer` (+ weight) | `Spacer` |
 | `Scroll` | `verticalScroll` / `horizontalScroll` | `ScrollView` |
-| `For` (lazy) | `LazyColumn` / `LazyRow` / `LazyVerticalGrid` with keys | `LazyVStack` / `LazyHStack` / `LazyVGrid` with ids |
+| `For` (short lists) | keyed children inside `Column` / `Row` / `Scroll` | keyed children (`ForEach`) |
+| `List` (virtualized, 9.3) | `LazyColumn` / `LazyRow` / `LazyVerticalGrid` with keys | `LazyVStack` / `LazyHStack` / `LazyVGrid` with ids |
 | `Text` | `Text` | `Text` |
 | `Image` | Coil `AsyncImage` / painter | `AsyncImage` + our image cache [check cache choice] |
 | `Icon` | `ImageVector` (SVGs converted at build time) | SF Symbol or converted vector |
 | `Pressable` / `Button` | `clickable` with indication, haptics | `Button` with custom style |
 | `TextField` | `BasicTextField` | `TextField` |
 | `Switch`, `Checkbox`, `Slider`, `Progress`, `Spinner` | foundation-based components | native controls |
-| `Sheet` (with detents) | `ModalBottomSheet` (foundation-based variant) [check without material3] | `.sheet` + `presentationDetents` |
+| `Sheet` (with detents) | our own foundation-based sheet: native drag, velocity, rubber-band and spring (v0 Frontier 1: 0 bridge events during a drag) | `.sheet` + `presentationDetents` |
 | `Dialog`, `Toast` | `Dialog`, custom toast host | `.alert` / custom overlay |
 | `Lottie` | Lottie Compose | lottie-ios |
 | `NativeView` | `AndroidView` / registered composable | `UIViewRepresentable` / registered view |
-| `SafeArea`, `KeyboardAware` | insets APIs | safe area modifiers |
+| (safe areas, keyboard) | not components: per-route options handled natively (§11) | same |
 
 - We build on **Compose foundation, not material3**, so apps carry only their own design system. (Exp 1 measures
   what material3 would cost.)
@@ -341,11 +371,18 @@ as tasks.
   when both renderers pass its conformance tests (9.5). Until iOS starts, components are written for Android with the
   SwiftUI mapping reviewed on paper.
 
-### 9.3 Lists
-- `<For each={items()} key={(o) => o.id}>`: JS keeps a keyed list per `For` and emits `MOUNT` / `MOVE` / `REMOVE`
-  only for rows that changed.
-- Native renders the rows lazily (only visible rows are composed). A row's instance and slots exist in JS for every
-  item; this is fine up to a few thousand rows [target; measure]. Bigger data sets use a paged data source (v2).
+### 9.3 Lists (decided 2026-10-29; full rules in `docs/lists.md`)
+- **`<For each key>`** is for short lists inside a layout (guideline: up to ~100 items). Every item is a real instance;
+  JS emits `MOUNT` / `MOVE` / `REMOVE` only for items that changed.
+- **`<List data key rowHeight row>`** is for long lists. The `row` function is compiled **once** into a row template.
+  JS sends the row count and the row **values** for a window around the visible range (`LIST_SET`, `LIST_ROWS`,
+  `LIST_SPLICE` ops with stable keys). Native draws rows with `LazyColumn` / `LazyVStack`.
+- Native asks for new ranges asynchronously (`onRange`). **The UI thread never calls into JS or waits for row data**
+  (a synchronous pull from the UI thread was tried and rejected: Hermes is single-threaded).
+- Rows whose values haven't arrived show **the same row template with placeholder values**: same height, no jump, and
+  **never raw template syntax** (v0 leaked `{{slot:merchant}}`).
+- Very large data (10 lakh rows) can't live in the JS heap (~400 MB). A **native data source** that reads rows on an
+  I/O thread straight into the native row cache is designed in `docs/lists.md` §6 and built in v1.1.
 - **Native keeps row values cheap until a row is shown.** A row instance stores its slot values in a plain array.
   Observable cells (`MutableState` / `SlotCell`) are created only when the row enters composition, and dropped when
   it leaves. A patch to an off-screen row only updates the plain array. So 2,000 rows cost 2,000 small arrays, not
@@ -368,10 +405,19 @@ as tasks.
 - Font scaling on by default; `maxFontScale` per text style.
 - RTL: `start` / `end` everywhere instead of left / right.
 
+### 9.7 Controlled components (decided 2026-10-29)
+- **Native never writes a value that JS owns.** When the user changes something natively (drags a sheet closed,
+  flips a switch, types), native sends an **event**, and JS sets the prop.
+- While waiting for JS, native may show its own **local visual state** (the sheet keeps animating down, the switch
+  thumb moves), and then follows whatever JS sets. If JS keeps the old value (for example, refuses to close the sheet),
+  native animates back.
+- Text fields are the one allowed exception in the other direction: the native field owns the text while typing (9.4).
+- v0 lesson: the prototype sheet wrote `visible = false` straight into JS-owned state, so native and JS could disagree.
+
 ## 10. Animation
 
 ### 10.1 State-driven animation (decided)
-`ui.animate('scale', spring({ stiffness, damping }))` or `transition={fade()}` on `<If>`. When a slot value changes,
+`animate={{ scale: spring({ stiffness, damping }) }}` on a node, or `transition={fade()}` on `<If>`. When a slot value changes,
 native animates to it with **its own** spring / tween (Compose `animate*AsState` / `Animatable`, SwiftUI
 `.animation(.spring(...), value:)`). JS sends only the target value, never per-frame values.
 
@@ -382,7 +428,8 @@ native animates to it with **its own** spring / tween (Compose `animate*AsState`
 Gesture-driven values (drag offsets, swipe-to-pay) must update on the UI thread every frame. v2 adds a tiny,
 **explicitly marked** expression language (`'main thread'` directive, like Lynx), compiled into the `gestures` section
 of `.zn.ui` and run natively. No automatic splitting of arbitrary TS. Until then: native sheets with detents, native
-scroll behaviours, and `NativeView` cover the common cases.
+scroll behaviours, and `NativeView` cover the common cases. v0 Frontier 1 confirmed the pattern: a fully native
+draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag and one event when it settled.
 
 ## 11. Navigation (decided)
 
@@ -401,6 +448,15 @@ scroll behaviours, and `NativeView` cover the common cases.
 - **The back stack is saved in FlowStore** on every change (section 13), so after process death the app reopens on
   the same screen.
 - Native screens are routes too (section 15.3).
+- **Safe areas and the keyboard are route options, handled natively (decided 2026-10-29):**
+  `@route(path, { safeArea: 'all' | 'none' | { top?, bottom? }, keyboard: 'resize' | 'none' })`, default `'all'` /
+  `'resize'`. Android: edge-to-edge on, the screen host applies `windowInsetsPadding` (Compose foundation, not
+  material3 `Scaffold`). Full-bleed screens read a read-only `insets()` signal. There is no JS `SafeAreaView`
+  (v0's JS version caused a blank screen and status-bar / nav-bar overlap). Details: `docs/styling-and-layout.md` §6.
+- **Shared-element transitions (v1, optional; decided 2026-10-29):** a node with `heroTag="tx-123"` on two screens
+  morphs between them during navigation (Compose `SharedTransitionLayout`, SwiftUI zoom transition on iOS 18+). v0
+  Frontier 4 ran a list-row → detail-header morph at 90 fps. The Compose API is still experimental and must be
+  re-checked with Navigation 3 [check]; screens without `heroTag` are unaffected.
 
 ## 12. Flows and effects (`@flow`)
 
@@ -447,6 +503,8 @@ declared as an **effect** with a kind:
 | `once` | Must never run twice automatically (launch the UPI app, launch 3DS, send OTP if not keyed, submit KYC if not keyed, anything that moves money without a key) | **never run again**; go to its `reconcile` step |
 
 - `once` and `keyed` effects **must** declare a `reconcile` step. The compiler rejects them otherwise.
+- The §12.1 example shows `/pay` as `keyed`, which needs backend support. **ZeroBill's `/transactions/pay` today is
+  `once`**: every call creates a new payment (v0 G2, `exp-notes/5-pay-idempotency.md`).
 - The reconcile step asks the source of truth (usually the backend) what happened. Example: "Checking your payment…".
 
 **Where this matters beyond UPI** (the same rule covers all of them):
@@ -598,6 +656,20 @@ and events go through slots and events like any component.
 A route can point to a native screen (Kotlin composable / SwiftUI view) instead of a zn screen. It takes part in the
 same back stack and can return a result to JS.
 
+### 15.4 Native resource handles: `zn://` (decided 2026-10-29)
+Heavy native objects (app icons, camera photos, generated QR images, contact photos, PDF thumbnails) **never go
+through JS as bytes**. A native module keeps the object and returns a short string handle; JS passes the string
+around; native resolves it when drawing or uploading.
+- Examples: `zn://app-icon/com.phonepe.app`, `zn://file/kyc/front-01.jpg`, `zn://mem/qr/order-998`.
+- `Image src` and upload effects accept handles. On Android a Coil mapper resolves them.
+- `zn://mem/...` handles live only in memory and **die with the process**. `zn://file/...` handles point to
+  app-private files and survive it. **Flows may only store `zn://file/...` handles** (a KYC photo must survive process
+  death); the dev build throws if a flow saves a memory handle.
+- Native owns cleanup: memory handles are dropped when no screen uses them; file handles when their flow ends (or
+  by an explicit `release`).
+- v0 lesson: Base64 icons cost 40–100 KB of JS heap each and copied pixels three times. With handles, 9 real UPI app
+  icons rendered with zero pixel data in JS.
+
 ## 16. OTA updates
 
 ### 16.1 Bundle lifecycle (decided)
@@ -628,6 +700,10 @@ is offered a newer bundle and safely ignores it.**
 ## 17. Tooling (v1 scope)
 - `zn dev`: dev server, builds on save, pushes the changed screen to the device; the screen reloads in place, flows
   and back stack are kept (they are saved data).
+  v0 Dish B measured save → screen in **127 ms** (Bun build 5 ms + `hermesc` 74 ms + device ~48 ms) by dropping and
+  recreating the Hermes runtime in the same process. Restarting the runtime is allowed **in dev builds only** (it is
+  an exception to the one-runtime-per-process rule, §8.2); after a reload the runtime re-reads FlowStore and stays on
+  the current route. Release builds never contain the dev client.
 - **Debugging:** Hermes Chrome DevTools debugging (breakpoints, profiler, heap snapshots) over the dev server.
 - **Errors:** JS errors show a dev overlay with the TSX file and line (source maps). In release, JS stack traces are
   sent to the crash reporter and mapped back on the server with the bundle's source maps.
@@ -647,12 +723,16 @@ is offered a newer bundle and safely ignores it.**
 |---|---|---|
 | Whole-app shell download (Compose + Hermes + ML Kit + Firebase + Play services, no screens) | ≤ 10 MB | **6.42 MB** (RN + packaging fix ≈ 13.0 MB). A full app with screens, assets and its JS bundle is estimated at 8–9 MB, not measured. |
 | Hermes share of that | — | ≈ 0.83 MB |
-| Cold start to first frame | native-app speed | `am start` 222 ms; ready (`reportFullyDrawn`) 158 ms (prototype; no Firebase init, OTA loader or splash yet) |
+| Cold start (`am start` TotalTime, release) | **≤ 250 ms** (Flutter 1.6.0: ~300–330 ms) | exp 2 (one screen): 222 ms; exp4-flow (5 screens, broke the startup rules): ~400–420 ms, measured 2026-10-29 |
 | Tap → screen updated | p95 ≤ 16 ms | **p50 0.97 ms, p95 2.08 ms** (only the changed `Text` recomposed) |
 | Apply one batch on the main thread | ≤ 4 ms for a normal update; **≤ 8 ms for building a whole screen** | normal update 0.38 ms; building a screen through ops 17 ms (v0 had no template; v1 inflates the template natively instead) |
 | Restore after process death to the right screen | ≈ native cold start | 91 ms reported (debug build; re-measure in release) |
 | Screen bytecode size | tens of KB | 19.7 KB (one screen), 64 KB (three screens + flow) |
 | Animations behind a translucent UPI window | 60 fps, no workaround | p50 16.6 ms frames, 0 `onStop`, no frame pump or overlay |
+| List fling (90 Hz phone) | ≤ 11 ms per frame | one shared row template 2.8–4 ms; generic node tree per row 18–25 ms (rejected) |
+| Hot reload, save → screen | ≤ 300 ms | 127 ms (dev build) |
+
+Every number, with how it was measured: `docs/startup-and-performance.md` §4.
 
 Comparisons with the RN app in `RESULTS.md` are directional only: cold start and memory compare a prototype with the
 full app, and the RN tap-latency figures are estimates (the RN app has no tap instrumentation).
@@ -695,7 +775,8 @@ zero-native/
 | Rust SIMD flexbox layout | **Dropped** | Compose and SwiftUI do layout; a second layout pass contradicts "native". |
 | `@resumable` generator continuations (saved instruction pointer) | **Replaced** by `@flow` (section 12) | A saved instruction pointer breaks when an OTA update lands mid-flow. Named steps + versioned data + effect kinds survive it. |
 | `routes.zn.bin` radix-trie router | **Simplified** to a route manifest (11) | Same benefit (route before JS starts) without a custom binary trie for a few dozen routes. |
-| Shared-element transitions via hashed keys | **Deferred to v2** | Compose `sharedElement` and SwiftUI zoom transitions exist; not needed for v1. |
+| Shared-element transitions via hashed keys | **v1, optional** (`heroTag`, §11) | Compose `SharedTransitionLayout` and SwiftUI zoom transitions do the work; v0 Frontier 4 showed it at 90 fps. Plain string keys, no hashing needed. |
+| 64-byte folded modifier structs | **Changed** to static styles folded into the template (5.4) | Authors write RN-style `style`; the renderer owns the order. |
 | `<ShaderCanvas>` (WGPU) | **Deferred / likely never** | Adds megabytes; conflicts with goal 1. |
 | `<HardwareSurface>` (camera etc.) | **Kept as `NativeView`** (15.2) | Native views are first-class. |
 | Strict TS subset (no `any`, no dynamic shapes) | **Dropped as a language rule** | Not needed for Hermes. Lint rules cover the cases that matter. |
@@ -706,8 +787,8 @@ zero-native/
 
 ## 23. Deferred (not in v1)
 - Gesture expressions on the UI thread (10.3).
-- Shared-element transitions.
-- Paged list data sources for very large lists.
+- Native list data source for very large lists (v1.1; designed in `docs/lists.md` §6).
+- NativeWind `className` → style translator for porting RN code (v1.1 option; `docs/styling-and-layout.md` §8).
 - A general mmap data arena.
 - Cronet / HTTP/3 backend.
 - Web or desktop renderers (non-goal).
@@ -732,11 +813,24 @@ zero-native/
 | 2026-10-28 | `onPressOut` fires on cancel too; key repeat is native (`onPressRepeat`) | Section 5.3. v0 keypad bug; JS should not time press-and-hold. |
 | 2026-10-28 | Hermes `withMicrotaskQueue(true)` + drain after every entry | Section 7.2. Off by default in Hermes. |
 | 2026-10-28 | Batch-apply budget: ≤ 8 ms to build a screen | Section 19. v0 took 17 ms building a screen through ops; v1 uses native template inflation. |
+| 2026-10-29 | `style` props with RN names, fixed order owned by the renderer, our own flex rules, **no Yoga**; margins allowed; unsupported keys are build errors | Section 5.4, `docs/styling-and-layout.md`. Modifier chains are order-dependent and foreign in JSX (modifier report). |
+| 2026-10-29 | `<For>` for short lists, `<List>` with data windows, stable keys and same-height placeholders; native data source in v1.1 | Section 9.3, `docs/lists.md`. v0 eager list ran out of memory; windowed list ran at 90 fps. |
+| 2026-10-29 | Fast template interpreter; no Kotlin/Swift code generation | Section 9.1. Shared template 2.8–4 ms vs node tree per row 18–25 ms; code generation would break OTA. |
+| 2026-10-29 | Safe areas and keyboard as native route options; no JS `SafeAreaView` | Section 11. v0 JS insets caused a blank screen and bar overlap. |
+| 2026-10-29 | Controlled components: native sends events, JS owns values | Section 9.7. v0 sheet wrote JS-owned state from native. |
+| 2026-10-29 | `zn://` native resource handles; flows store only file-backed handles | Section 15.4. No pixels in JS; handles must survive process death when a flow needs them. |
+| 2026-10-29 | Startup rules + ≤ 250 ms budget; release-only numbers | Section 8.1. exp4-flow measured ~400–420 ms release because it broke these rules. |
+| 2026-10-29 | Shared elements move into v1 as optional (`heroTag`) | Section 11. Cheap with Compose; v0 Frontier 4 at 90 fps. |
+| 2026-10-29 | Hot reload may restart the runtime in dev builds only | Section 17. 127 ms save → screen. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).
 - iOS image cache choice.
-- Exact FlatBuffers schema for `.zn.ui` and the batch byte layout (written during exp 2 follow-up).
+- Exact FlatBuffers schema for `.zn.ui` and the batch byte layout (written in milestone 1).
+- How computed row expressions work with a native list data source (`docs/lists.md` §6, v1.1).
+- Whether to build the NativeWind `className` translator (v1.1).
+- Flow tests the framework must pass that v0 left open: restored flows must reach a final state with `/verify`
+  actually called; a `/pay` that died mid-call (no `ztc`) means "payment not started" (`docs/v0-findings.md` §D).
 - Nav3 version and stability at build time [check].
 
 ## 26. Glossary
@@ -751,3 +845,7 @@ zero-native/
 - **FlowStore:** the crash-safe file where flows and the back stack are saved.
 - **Capability manifest:** the list of what an installed app can run (engine, components, modules), used to decide
   which OTA bundles it may load.
+- **Style:** the `style` prop; React Native style names that the renderer applies in one fixed order.
+- **Row template / window:** a `<List>` row compiled once; the window is the range of rows whose values JS has sent.
+- **Placeholder:** what a slot shows before its value arrives (same template, same size).
+- **Resource handle:** a `zn://` string that names a native object (icon, photo) without copying its bytes into JS.
