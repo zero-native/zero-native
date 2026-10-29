@@ -68,7 +68,12 @@ object ZnStore {
         Snapshot.withMutableSnapshot {
             for (op in ops) {
                 when (op) {
-                    is BatchOp.Patch -> instance(op.instance).slot(op.slot).value = op.value
+                    is BatchOp.Patch -> {
+                        // An unknown instance means a bug (JS patching a screen it closed, or before its NAV push).
+                        val inst = instances[op.instance]
+                        if (inst != null) inst.slot(op.slot).value = op.value
+                        else android.util.Log.w("zn", "patch for unknown instance ${op.instance} ignored")
+                    }
                     is BatchOp.Mount -> {
                         val inst = ZnInstance(op.instance, op.templateId, op.parent, op.anchor)
                         op.values.forEachIndexed { i, v -> inst.slot(i).value = v }
@@ -88,10 +93,14 @@ object ZnStore {
                             siblings.add(op.toIndex.coerceIn(0, siblings.size), op.instance)
                         }
                     }
+                    is BatchOp.Nav -> ZnNav.apply(op)
                 }
             }
         }
     }
+
+    /** Drops a screen root and everything mounted under it (its entry left the back stack, ZnNav). */
+    internal fun removeRoot(id: Int) = removeTree(id)
 
     private fun removeTree(id: Int) {
         val inst = instances.remove(id) ?: return

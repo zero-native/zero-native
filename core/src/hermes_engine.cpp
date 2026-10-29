@@ -5,6 +5,7 @@
 //   __zn_mount(templateId, parent, anchor, instance, index, values[])
 //   __zn_remove(instance)
 //   __zn_move(instance, toIndex)
+//   __zn_nav(kind, entry, route, paramsJson)
 //   __zn_setTimer(delayMs, repeat) -> handle
 //   __zn_clearTimer(handle)
 //   __zn_log(level, message)
@@ -15,7 +16,9 @@
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 
+#include <cstdint>
 #include <exception>
+#include <string>
 #include <utility>
 
 namespace zn {
@@ -61,7 +64,13 @@ jsi::Value toJs(jsi::Runtime& rt, const Value& v) {
 
 uint32_t u32Arg(jsi::Runtime& rt, const jsi::Value* args, size_t count, size_t i) {
   if (i >= count || !args[i].isNumber()) throw jsi::JSError(rt, "zero-native: expected a number argument");
-  return static_cast<uint32_t>(args[i].getNumber());
+  // Casting a negative or too-big double to uint32_t is undefined behaviour in C++: a wrong id must fail loudly,
+  // not turn into some other instance id.
+  const double d = args[i].getNumber();
+  if (!(d >= 0 && d <= 4294967295.0) || d != static_cast<double>(static_cast<uint64_t>(d))) {
+    throw jsi::JSError(rt, "zero-native: expected a whole number from 0 to 2^32-1, got " + std::to_string(d));
+  }
+  return static_cast<uint32_t>(d);
 }
 
 class HermesEngine final : public Engine {
@@ -165,6 +174,12 @@ class HermesEngine final : public Engine {
 
     define("__zn_move", 2, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
       host.move(u32Arg(rt, a, n, 0), u32Arg(rt, a, n, 1));
+      return jsi::Value::undefined();
+    });
+
+    define("__zn_nav", 4, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      host.nav(static_cast<uint8_t>(u32Arg(rt, a, n, 0)), u32Arg(rt, a, n, 1),
+               static_cast<uint16_t>(u32Arg(rt, a, n, 2)), n > 3 ? toValue(rt, a[3]) : Value::null());
       return jsi::Value::undefined();
     });
 

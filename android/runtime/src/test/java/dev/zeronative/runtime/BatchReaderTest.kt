@@ -27,6 +27,23 @@ class BatchReaderTest {
     private fun header(count: Int) = Writer().u32(0x31424E5A).u32(count)
 
     @Test
+    fun readsNavOps() {
+        val bytes = header(3)
+            .u8(5).u8(1).u32(12).u16(1).str("{\"merchantId\":\"m1\"}")     // NAV PUSH with params
+            .u8(5).u8(2).u32(12).u16(0).u8(0)                                // NAV REMOVE, no params
+            .u8(5).u8(5).u32(0).u16(0).u8(0)                                 // NAV BACK_ANSWERED
+            .bytes()
+        assertEquals(
+            listOf(
+                BatchOp.Nav(BatchOp.Nav.PUSH, 12, 1, "{\"merchantId\":\"m1\"}"),
+                BatchOp.Nav(BatchOp.Nav.REMOVE, 12, 0, null),
+                BatchOp.Nav(BatchOp.Nav.BACK_ANSWERED, 0, 0, null),
+            ),
+            BatchReader.read(bytes),
+        )
+    }
+
+    @Test
     fun readsAllOpKinds() {
         val bytes = header(4)
             .u8(1).u32(7).u16(2).num(42.0)                                  // PATCH

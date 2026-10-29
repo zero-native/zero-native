@@ -22,7 +22,8 @@ it is parked. When we pick one up, move its rules into the right spec file and a
 | Conditional entries in style arrays (`[s.a, on && s.b]`) | Build error today with a hint to use a ternary inside the style object. |
 | Row items as signals | `.map` mounts a row again when its item object changes (same key). Per-row signals would update in place. |
 | Timers owned by the screen | ARCHITECTURE §14 says a screen's timers stop when the screen is removed; `setTimeout` doesn't attach to owners yet. |
-| More dynamic props | Only text, colour, background, opacity, src, disabled can change at runtime (registry v2). Sizes, padding etc. need the layout-phase slots (`docs/styling-and-layout.md` §8.3). |
+| More dynamic props | Text, colour, background, opacity, src, disabled, and (registry v4, step 2.3) per-edge padding can change at runtime. Sizes, margins, gap etc. still need layout-phase slots like padding's (`docs/styling-and-layout.md` §8.3; `layoutPadding` in `ZnTemplate.kt` is the pattern). |
+| Safe-area gaps (step 2.3) | Insets reach JS after the first frame, so a full-bleed **start** screen would draw its header without the inset for one frame (send them with START). No horizontal full-bleed option (`safeArea` has top / bottom only). Keyboard inset (`keyboard: 'resize'`) comes with `TextField`. |
 | Types for JSX | `@zero-native/ui` has loose types; a proper JSX namespace and tsconfig for editors. |
 
 ## Data and porting

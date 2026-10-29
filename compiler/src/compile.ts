@@ -203,7 +203,7 @@ export function compileModule(
       }
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
       if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
-      else if (ts.isStringLiteral(init)) setStaticProp(props, name as PropName, init.text)
+      else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, init.text, a)
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)
       else fail(a, `unsupported value for "${name}"`)
     }
@@ -301,20 +301,29 @@ export function compileModule(
     return el("Anchor")
   }
 
-  function setStaticProp(props: Record<string, unknown>, name: PropName, val: unknown) {
-    if (name === "fontWeight") {
-      if (val === "normal") val = 400
-      else if (val === "bold") val = 700
-      else if (typeof val === "string" && /^\d+$/.test(val)) val = Number(val)
+  /** A build-time prop value → the template. Values with React Native aliases are normalised here. */
+  function setStatic(props: Record<string, unknown>, name: PropName, value: unknown, at: ts.Node) {
+    props[name] = name === "fontWeight" ? fontWeight(value, at) : value
+  }
+
+  /** React Native font weights: 100–900 in steps of 100 (number or "600"), "normal" = 400, "bold" = 700. */
+  function fontWeight(value: unknown, at: ts.Node): number {
+    const n =
+      value === "normal" ? 400
+      : value === "bold" ? 700
+      : typeof value === "string" && /^[1-9]00$/.test(value) ? Number(value)
+      : value
+    if (typeof n !== "number" || !Number.isInteger(n / 100) || n < 100 || n > 900) {
+      fail(at, `fontWeight must be 100–900 in steps of 100, "normal" or "bold" (got ${JSON.stringify(value)})`)
     }
-    props[name] = val
+    return n as number
   }
 
   /** A prop value: constant → template; otherwise a slot (if the registry allows it to change at runtime). */
   function setProp(props: Record<string, unknown>, b: Builder, name: PropName, expr: ts.Expression, at: ts.Node) {
     const v = fold(expr, scope)
     if (v !== NOT_STATIC) {
-      if (v !== undefined) setStaticProp(props, name, v)
+      if (v !== undefined) setStatic(props, name, v, at)
       return
     }
     if (!DynamicProps.has(name)) {
@@ -357,7 +366,7 @@ export function compileModule(
           continue
         }
         if (!(k in Prop)) fail(at, `unknown style key "${k}"`)
-        if (v !== undefined) setStaticProp(props, k as PropName, v)
+        if (v !== undefined) setStatic(props, k as PropName, v, at)
       }
     }
     const folded = fold(expr, scope)

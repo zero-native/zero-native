@@ -1,22 +1,32 @@
 // Bun build plugin: compiles every .tsx file with the zero-native compiler during bundling, collects all templates
-// into one .zn.ui file, and writes a small manifest (component name → template id) so native knows which template
-// a screen's root uses (until the route manifest exists, ARCHITECTURE §11).
+// into one .zn.ui file, and writes the manifest: component name → template id, and the route table read from the
+// app's `defineRoutes({...})` (ARCHITECTURE §11; a route's index in the table is its number at runtime).
 import type { BunPlugin } from "bun"
 import { dirname, resolve } from "node:path"
 import { existsSync } from "node:fs"
 import ts from "typescript"
 import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule } from "./compile"
+import { readRoutes, type RouteEntry } from "./routes"
+
+/** One route in the manifest: the route entry with its screen's template id. */
+export type ManifestRoute = RouteEntry & { screen: number }
+
+export interface ZnManifest {
+  components: Record<string, number>
+  routes: ManifestRoute[]
+}
 
 export interface ZnBuild {
   plugin: BunPlugin
   /** After Bun.build: the .zn.ui bytes and the manifest. */
-  outputs(): { templates: Uint8Array; manifest: { components: Record<string, number> } }
+  outputs(): { templates: Uint8Array; manifest: ZnManifest }
 }
 
 export function znBuild(): ZnBuild {
   const specs: NodeSpec[] = []
   const components: Record<string, number> = {}
+  let routes: { file: string; entries: RouteEntry[] } | null = null
   const ctx = {
     reserveTemplate() {
       specs.push(null as unknown as NodeSpec)
@@ -42,13 +52,35 @@ export function znBuild(): ZnBuild {
         }
         return { contents: out.code, loader: "ts" }
       })
+      // Plain .ts files pass through unchanged; the one with defineRoutes(...) is also read for the route table.
+      build.onLoad({ filter: /\.ts$/ }, async ({ path }) => {
+        const source = await Bun.file(path).text()
+        if (source.includes("defineRoutes(") && !path.includes("node_modules")) {
+          const entries = readRoutes(source, path)
+          if (entries) {
+            if (routes) throw new Error(`${path}: defineRoutes is already called in ${routes.file}; one per app`)
+            routes = { file: path, entries }
+          }
+        }
+        return { contents: source, loader: "ts" }
+      })
     },
   }
 
   return {
     plugin,
     outputs() {
-      return { templates: writeTemplateFile(specs).bytes, manifest: { components } }
+      const table: ManifestRoute[] = (routes?.entries ?? []).map((r) => {
+        const screen = components[r.component]
+        if (screen === undefined) {
+          throw new Error(
+            `${routes!.file}: route "${r.name}": screen ${r.component} has no template ` +
+              `(it must be a component in a .tsx file whose root is a zero-native element)`,
+          )
+        }
+        return { ...r, screen }
+      })
+      return { templates: writeTemplateFile(specs).bytes, manifest: { components, routes: table } }
     },
   }
 }

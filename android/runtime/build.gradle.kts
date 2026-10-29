@@ -62,6 +62,9 @@ dependencies {
     // The renderer: Compose foundation only, no material3 (ARCHITECTURE §9.2).
     api("androidx.compose.ui:ui")
     api("androidx.compose.foundation:foundation")
+    // Screen host: the back stack is a list we own (ARCHITECTURE §11). Needs Compose ≥ 1.10 (step 2.0b).
+    implementation("androidx.navigation3:navigation3-runtime:1.2.0")
+    implementation("androidx.navigation3:navigation3-ui:1.2.0")
     // Image loading (same versions as the v0 size check). Apps that load http(s) images need INTERNET permission.
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")

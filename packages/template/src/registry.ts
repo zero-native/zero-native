@@ -5,7 +5,8 @@
 // Rules: never reuse or renumber an id. Adding ids bumps REGISTRY_VERSION; an app only loads templates whose
 // registry version it knows (capability manifest, §16.2).
 
-export const REGISTRY_VERSION = 3 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles
+export const REGISTRY_VERSION = 4 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+// 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 
 export const Component = {
   Column: 1,
@@ -151,4 +152,9 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "opacity",
   "src",
   "disabled",
+  // Per-edge only: the shorthands (padding, paddingHorizontal, ...) stay build-time.
+  "paddingTop",
+  "paddingBottom",
+  "paddingStart",
+  "paddingEnd",
 ])

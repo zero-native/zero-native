@@ -317,8 +317,11 @@ JS → native updates go into a **C++ batch buffer** owned by the JS thread:
   instance of a sub-template (an `<If>` branch, a `<For>` row, a component). The slot values come inside the op, so
   a new row needs one op, not one op plus K patches.
 - `REMOVE(instanceId)`, `MOVE(instanceId, toIndex)`: for keyed lists and conditions.
-- `NAV(op, routeId, entryId, paramsBytes)`: back-stack change (section 11). For `push`, `entryId` is the new
-  screen's root instance id.
+- `NAV(kind, entryId, routeIndex, paramsJson)`: back-stack change (section 11). For `PUSH`, `entryId` is the new
+  screen's root instance id. Built in milestone 2 step 2.2 with five kinds: `PUSH`, `REMOVE`, `CLEAR`, `EXIT`,
+  `BACK_ANSWERED`. Replace = `REMOVE` + `PUSH` and reset = `CLEAR` + `PUSH`es in one batch: native applies a batch
+  at once and picks the transition from the resulting stack. Byte layout: `core/include/zn/batch.h`.
+- Native → JS app-level events (start stack, back press, forced back, deep link while running) use instance id 0.
 
 Rules:
 - **Instance ids are allocated by JS**, so JS never waits for native to answer. One exception, the **screen root**:
@@ -456,7 +459,7 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
   // routes.ts
   export const routes = defineRoutes({
     home:     { path: '/', screen: HomeScreen },
-    amount:   { path: '/pay/:merchantId', screen: AmountScreen, transition: 'push' },
+    amount:   { path: '/pay/:merchantId', screen: AmountScreen, transition: 'push', deepLink: true },
     receipt:  { path: '/receipt/:ztc', screen: ReceiptScreen, transition: 'modal', safeArea: { top: false } },
   })
   nav.push('amount', { merchantId: 'm1' })   // name and params are type-checked
@@ -464,7 +467,10 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
   (Earlier drafts used `@route(path, options)` on the screen function. TypeScript allows decorators only on classes
   and class members, so editors would mark it as an error.) The compiler reads `routes.ts` at build time and writes a
   **route manifest** (in `manifest.json`): route name → path pattern, screen template, transition, presentation
-  (push / modal / full-screen), safe-area option, deep-link rules.
+  (push / modal / full-screen), safe-area option, deep-link rules. The compiler reads the call without running it;
+  route order in the file = route index at runtime. Every `:param` must be a string prop of the screen (type-checked).
+  **Deep links are opt-in per route (`deepLink: true`)**: a link is an outside entry point, so a route is reachable
+  from one only when its author says so (built in milestone 2 step 2.1).
 - **The back stack is plain data:** a list of `{ routeId, params, instanceKey }`. JS changes it with
   `nav.push / back / replace / reset / sheet / closeSheet`, sent as `NAV` ops in the batch.
 - **Android:** Jetpack Navigation 3 (a back stack you own as a list), one generic destination that renders a zn
@@ -472,9 +478,14 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
 - **iOS:** `NavigationStack(path:)` with our path array; sheets via `.sheet`.
 - **Transitions are native**, declared per route. JS never animates a page change.
 - **Deep links:** native matches the URL against the route manifest **before JS starts**, so the target screen's
-  skeleton draws first.
-- **Back button / gesture:** a screen can register `onBack` (for example "Exit transaction?"). Native asks JS
-  asynchronously; until JS answers, the back action is held. Timeout = default back. [target 300 ms]
+  skeleton draws first. A cold link opens the start route with the link's route on top (back goes to the start
+  screen, not out of the app). A link while the app runs is sent to JS, which pushes it.
+- **Back button / gesture:** a screen registers `useBack(() => boolean)` (for example "Discard amount?"); it returns
+  `true` when it handled the press, like React Native's `BackHandler`. Native sends the press to JS; JS always answers
+  (`BACK_ANSWERED`, then pops or not). If JS doesn't answer in 300 ms, native pops by itself and tells JS. On the last
+  screen the system handles back (the app goes to the background); a last screen's `useBack` is not asked yet.
+- **Screen lifetime:** closing a screen disposes it in JS at once (effects, events, **timers**); native keeps its
+  instances until the exit animation ends, and ignores patches for instances it doesn't know.
 - **The back stack is saved in FlowStore** on every change (section 13), so after process death the app reopens on
   the same screen.
 - Native screens are routes too (section 15.3).
@@ -878,6 +889,8 @@ zero-native/
 | 2026-10-29 | Images load with Coil (http(s), `asset:`) and clip to their rounded shape by default | Section 9.2. Same as React Native; Coil was already in the v0 size check. |
 | 2026-10-29 | `heroTag`: one per navigation transition, a card/container becoming the next screen | Section 11. Matches iOS 18 zoom transitions, so both platforms stay native (Argon review). |
 | 2026-10-29 | Routes live in one typed `routes.ts` (`defineRoutes`), not `@route` decorators | Section 11. Decorators on functions are not valid TypeScript; one file also gives typed `nav.push(name, params)`. |
+| 2026-10-29 | Per-edge padding may change at runtime (registry v4), read in the layout phase | Section 11 / `docs/styling-and-layout.md` §6. Full-bleed headers pad by `insets()`; a change re-measures one node and recomposes nothing. Shorthands stay build-time. |
+| 2026-10-29 | `statusBar` sets status bar icons only; navigation bar icons follow the screen background | `docs/styling-and-layout.md` §6. One option for both put a grey scrim over the bottom bar of a full-bleed screen (Lava). |
 | 2026-10-29 | The back stack is owned by JS; a system back press is an event to JS (JS pops, or its `onBack` blocks) | Sections 9.7, 11. One owner, same rule as controlled components; native pops by itself only after the 300 ms timeout and then tells JS. |
 
 ## 25. Open items (to decide while building, not blockers)

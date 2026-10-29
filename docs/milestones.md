@@ -53,12 +53,12 @@ Full brief with design decisions, tests and phone checks per step:
 
 | Step | What | Builder | Status |
 |---|---|---|---|
-| 2.0 | Small fixes left from milestone 1 (`targetSdk`, `fontWeight` names, move `exp4-flow`, mock UPI app into `test-kit/`) | Gemini | built, waiting for review |
-| 2.0b | Compose BOM (runtime ≥ 1.11.2) + activity-compose ≥ 1.12 + Coil upgrade, needed by Navigation 3 1.2.0; re-measure | Gemini | built, waiting for review |
-| 2.1 | `routes.ts`, several screens in one bundle, route manifest | Gemini | next |
-| 2.2 | Navigation: JS-owned back stack, `NAV` op, native host + transitions, back button, deep links, screen-owned timers | Gemini | |
-| 2.3 | Safe areas: edge-to-edge, per-route option, `insets()` | Gemini | |
-| 2.4 | `<List>`: row templates, data window, placeholders, splice | Gemini | |
+| 2.0 | Small fixes left from milestone 1 (`targetSdk`, `fontWeight` names, move `exp4-flow`, mock UPI app into `test-kit/`) | Gemini | **done 2026-10-29** (reviewed by Claude) |
+| 2.0b | Compose BOM (runtime ≥ 1.11.2) + activity-compose ≥ 1.12 + Coil upgrade, needed by Navigation 3 1.2.0; re-measure | Gemini | **done 2026-10-29** (reviewed by Claude; BOM 2026.09.00 = Compose 1.12.1, activity 1.13.0, Coil 3.3.0) |
+| 2.1 | `routes.ts`, several screens in one bundle, route manifest | Claude | **done 2026-10-29** |
+| 2.2 | Navigation: JS-owned back stack, `NAV` op, native host + transitions, back button, deep links, screen-owned timers | Claude | **done 2026-10-29** |
+| 2.3 | Safe areas: edge-to-edge, per-route option, `insets()` | Claude | **done 2026-10-29** |
+| 2.4 | `<List>`: row templates, data window, placeholders, splice | Gemini | next |
 | 2.5 | `<Sheet>`: native drag and detents, controlled by JS | Gemini | |
 | 2.6 | Native calls: `__zn_call`, modules, `fetch`, `os.launchActivity`, `os.upiApps` | Gemini | |
 | 2.7 | FlowStore (C++) | Claude | |
@@ -79,6 +79,88 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-29: step 2.3 done (Claude)
+- **Edge to edge:** `MainActivity` calls `enableEdgeToEdge()`; the blanket `safeDrawingPadding()` is gone.
+- **Per-route safe areas** (`ZnNavHost.kt`): each screen is padded by system bars + display cutout on the edges its
+  route's `safeArea` asks for; the screen root's background fills behind the bars. Status bar icons from the route's
+  `statusBar`; navigation bar icons from the screen's background luminance (applying `statusBar` to both gave a grey
+  scrim over the bottom bar on the full-bleed receipt; fixed and checked on the Lava).
+- **`insets()`** in `@zero-native/core` (`insets.ts`): read-only signal `{ top, bottom, start, end }` in dp, fed by a
+  new app-level event (id 5) that native sends only when the insets change.
+- **Dynamic per-edge padding (registry v4):** `paddingTop / Bottom / Start / End` may be slots, so a header can use
+  `paddingTop: insets().top + 32`. Read in the layout phase (`layoutPadding` in `ZnTemplate.kt`): a change re-measures
+  one node, recomposes nothing. Shorthands (`padding`, `paddingHorizontal`, ...) stay build-time (compiler test).
+- **Sample:** Receipt is full-bleed (`safeArea: { top: false }, statusBar: "light"`): green header behind the status
+  bar, text below it.
+- **Verified on the Lava** (screenshots): Home and Amount clear of both bars with dark icons; Receipt header behind the
+  status bar with white icons, light navigation bar; landscape keeps content clear of the cutout (left) and the
+  navigation bar (right). Release: cold start **189 ms** median (p90 210 ms), full flow works, no R8 issues. Tests:
+  JS 63 + types, compiler 16, Kotlin 13, lint 0 errors.
+- **Phone setting changed for the landscape check:** auto-rotate (`accelerometer_rotation`) is now **off**, rotation
+  back to portrait. It was most likely off before (the rotate-suggestion button had been used), but the old value
+  wasn't recorded.
+- **Not done (parked in after-foundations):** insets with START (one-frame gap for a full-bleed start screen),
+  horizontal full-bleed, keyboard inset (with `TextField`).
+
+### 2026-10-29: step 2.2 done (Claude)
+- **NAV op (code 5)** in C++ (`batch.h/.cpp`, `runtime.cpp`, host function `__zn_nav` in `hermes_engine.cpp`),
+  Kotlin (`BatchReader.kt`) and JS. Kinds: PUSH, REMOVE, CLEAR, EXIT, BACK_ANSWERED; replace = REMOVE + PUSH, reset
+  = CLEAR + PUSHes in one batch (native applies a batch at once and only sees the result). Never merged.
+- **JS (`packages/core/src/nav.ts`):** the back stack; `nav.push / back / replace / reset / current / depth`;
+  `useBack(() => boolean)` (true = handled, like RN's BackHandler); `startApp(routes)`. Typed: apps register their
+  routes once (`declare module "@zero-native/core" { interface Register { routes: typeof routes } }`), then
+  `nav.push("amount", { merchantId })` is checked (missing / wrong params and unknown routes are type errors).
+  Native → JS app events on instance 0: START (first stack), BACK, FORCED_BACK, OPEN (deep link while running).
+- **Screen-owned timers:** a timer created under an owner (screen body, component, or an event handler of one: `on()`
+  now runs handlers under their instance's owner) is cleared when the owner is disposed. One set of handles per
+  owner, so many short timers don't pile up cleanups.
+- **Native (`ZnNav.kt`, `ZnNavHost.kt`):** Navigation 3 1.2.0 `NavDisplay` draws the stack; transitions per route
+  (push = RTL-aware slide, modal = up from the bottom, fade, none; the leaving screen stays on top on pop). Native
+  opens the first stack (start route, plus a cold deep link's route on top), allocates top-bit ids, creates the
+  roots, then sends START. A popped screen's instances live until its exit animation ends; entries that were never on
+  screen (under the top) are freed at once. System back → JS; 300 ms fallback if JS doesn't answer.
+  `ZnTemplates.whenReady` lets native open the stack before the first frame. Patches for unknown instances are now
+  ignored with a warning (they used to create an empty instance).
+- **Bug found and fixed on the phone:** native ids (top bit set) are negative as Kotlin `Int`s; the first START sent
+  -2147483647, the C++ bridge cast it to some other u32 and Home's rows mounted under a parent that didn't exist
+  (silently). Native now sends ids to JS as unsigned numbers, and the bridge's `u32Arg` **throws** on negative,
+  fractional or too-big numbers instead of an undefined C++ cast.
+- **Sample:** Home → Amount (← and back ask "Discard ₹X?" when an amount is typed) → Pay → Receipt (modal) → Done
+  resets to Home. `MainActivity` is a thin `singleTask` host (debug footer removed; recreate with
+  `adb shell cmd uimode night yes`).
+- **Verified on the Lava:** debug: every flow above; double tap on Pay → one receipt; Amount's 500 ms cursor timer
+  stops after popping (0 batches in 3 s idle on Home); dark-mode recreation keeps the screen and amount, JS not
+  restarted, `useBack` still works; cold deep link `/pay/m3` → Amount over Home, back → Home; warm link `/pay/m4`
+  pushes; `/receipt/...` (no deep link) ignored; back on the last screen → app goes to the background.
+  **Release:** cold start **193 ms** median (p90 198 ms, 11 runs, load avg ~18), tap → new screen's first frame
+  12–17 ms, full flow works, no R8 issues; APK 5.83 MB (+0.1 MB for Navigation 3).
+  Tests: C++ 63 checks, JS 62 + type tests, Kotlin 13, lint 0 errors.
+- **Not verified / not done:** the 300 ms fallback (JS never hung); the predictive back gesture (the Lava uses
+  3-button navigation); a last screen's `useBack` (the system handles back there).
+
+### 2026-10-29: step 2.1 done (Claude)
+- **Routes:** `defineRoutes` in `@zero-native/core` (`packages/core/src/routes.ts`) with types: every `:param` in a
+  path must be a string prop of the screen (checked by `bun run test:types`, now part of `bun run test`);
+  `RouteParams<R, name>` gives the params `nav.push` will need. Options: `transition`, `safeArea`, `statusBar`,
+  `deepLink` (**off by default**: a link is an outside entry point, each route opts in).
+- **Compiler:** `compiler/src/routes.ts` reads the `defineRoutes({...})` call **without running it** (running it would
+  run the screens). Build errors with file:line:col for: no `"/"` route, bad paths, repeated params, two routes with
+  the same pattern, unknown screens or options, names that aren't plain names (JS key order = route index). The
+  Bun plugin writes `routes` into `main.zn.ui.json`: name, path, screen template id, options, in source order.
+- **Kotlin:** `ZnRoutes.kt`: route table on `ZnBundle.routes`, `named`, `at(index)`, `start` (the `"/"` route),
+  `matchDeepLink(path)` (literal segments beat params, query/fragment ignored, `%XX` decoded as UTF-8, `+` kept,
+  malformed escapes don't match, routes without `deepLink` never match). 5 JVM tests.
+- **Sample:** `routes.ts` (home `/`, amount `/pay/:merchantId` with deep links, receipt `/receipt/:ztc` modal),
+  new `HomeScreen` (5 merchants), `ReceiptScreen`, `merchants.ts`; `AmountScreen` takes `merchantId`. Native opens
+  the start route from the manifest; a `zn://sample/...` link is matched and **logged** (opening it is step 2.2).
+- **fontWeight:** the compiler checks React Native's values (100–900 in steps of 100, `"normal"`, `"bold"`) and fails
+  with file:line:col otherwise (it used to pass bad values on to the writer).
+- **Verified:** JS 52 tests + type tests, Kotlin 12 tests, lint 0 errors; on the Lava (debug): Home draws from the
+  manifest's start route; `zn://sample/pay/Kalyan%20J` → `amount {merchantId=Kalyan J}`; `zn://sample/receipt/abc`
+  → no route (receipt has no deep link).
+- **Not done here (step 2.2):** `main.ts` and `MainActivity` still hard-code the root id `0x80000001`; Amount and
+  Receipt can't be reached on the phone until navigation exists.
+
 ### 2026-10-29: step 2.0b done
 - **Upgraded Compose BOM & Activity Compose:**
   - Upgraded Compose BOM to `2026.09.00` in `:runtime` and `:sample`. Maps to Compose `1.12.1` across runtime, UI, animation, and foundation (satisfies Navigation 3's requirement of runtime $\ge 1.11.2$ and UI/animation $\ge 1.10.0$).

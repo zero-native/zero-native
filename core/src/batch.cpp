@@ -92,6 +92,16 @@ void Batch::move(uint32_t instance, uint32_t toIndex) {
   push(std::move(op));
 }
 
+void Batch::nav(NavKind kind, uint32_t entry, uint16_t route, Value params) {
+  Op op;
+  op.code = OpCode::Nav;
+  op.navKind = kind;
+  op.instance = entry;
+  op.route = route;
+  op.value = std::move(params);
+  push(std::move(op));
+}
+
 void Batch::append(const Batch& other) {
   for (const Op& op : other.ops_) push(op);
 }
@@ -128,6 +138,12 @@ std::vector<uint8_t> Batch::encode() const {
       case OpCode::Move:
         w.u32(op.instance);
         w.u32(op.index);
+        break;
+      case OpCode::Nav:
+        w.u8(static_cast<uint8_t>(op.navKind));
+        w.u32(op.instance);
+        w.u16(op.route);
+        w.value(op.value);
         break;
     }
   }

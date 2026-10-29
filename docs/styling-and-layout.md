@@ -129,11 +129,21 @@ These follow React Native wherever Compose and SwiftUI make it cheap, and say so
 
 ## 6. Safe areas and the keyboard (decided)
 Handled by **native code per route**, never by a JS `SafeAreaView`:
-- `@route(path, { safeArea: 'all' | 'none' | { top?: boolean, bottom?: boolean } })`, default `'all'`.
-- Android: edge-to-edge is on; the screen host applies `windowInsetsPadding(WindowInsets.safeDrawing)` for the chosen
-  edges (Compose foundation; **not** material3's `Scaffold`, which we don't ship). iOS: `.ignoresSafeArea(edges:)`.
+- Route option in `routes.ts`: `safeArea: 'all' | 'none' | { top?: boolean, bottom?: boolean }`, default `'all'`.
+  Start / end (landscape cutouts, side navigation bars) are kept clear unless the route says `'none'`.
+- Android (built in milestone 2 step 2.3): the Activity calls `enableEdgeToEdge()`; `ZnNavHost` pads each screen with
+  `windowInsetsPadding` of **system bars + display cutout** for the chosen edges (Compose foundation; **not**
+  material3's `Scaffold`, which we don't ship), and fills behind the bars with the screen root's background colour.
+  The keyboard is not part of this (see below). iOS: `.ignoresSafeArea(edges:)`.
+- Bar icons: the route option `statusBar: 'dark' | 'light'` sets the **status bar** icons (default dark icons, for
+  light screens). The **navigation bar** icons follow the screen root's background (dark icons on a light screen), so
+  a full-bleed screen with a dark header doesn't get a grey scrim over a light bottom bar (seen on the Lava).
 - Full-bleed screens (a coloured header behind the status bar) use `safeArea: { top: false }` and read the read-only
-  `insets()` signal (`{ top, bottom, start, end, ime }`) to pad their own header.
+  `insets()` signal (`{ top, bottom, start, end }`, dp) to pad their own header: `paddingTop: insets().top + 24`.
+  Per-edge padding (`paddingTop/Bottom/Start/End`) may change at runtime for this (registry v4); it is read in the
+  **layout phase**, so an inset change re-measures that node and recomposes nothing. Native sends insets only when
+  they change. Until the first value arrives they are 0 (only a full-bleed **start** screen could show that for one
+  frame).
 - The keyboard (IME) inset is applied by native for screens with text input (`keyboard: 'resize' | 'none'` route
   option), so focused fields stay visible.
 - Background: v0 bridged insets into JS through a `SafeAreaView`; it caused a blank screen and status-bar /

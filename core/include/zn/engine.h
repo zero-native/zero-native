@@ -41,6 +41,8 @@ class HostApi {
                      std::vector<Value> values) = 0;
   virtual void remove(uint32_t instance) = 0;
   virtual void move(uint32_t instance, uint32_t toIndex) = 0;
+  // Back-stack change (NAV op, batch.h): kind is a NavKind, params a JSON string or null.
+  virtual void nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) = 0;
   // Timers (ARCHITECTURE §14): returns a handle that never changes for the life of the timer.
   virtual uint32_t setTimer(double delayMs, bool repeat) = 0;
   virtual void clearTimer(uint32_t handle) = 0;

@@ -12,8 +12,11 @@ import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import org.json.JSONObject
 
-/** A loaded .zn.ui file: all its templates, plus the manifest (component name → template id), if there is one. */
-class ZnBundle(val templates: List<ZnTemplate>, val components: Map<String, Int>) {
+/**
+ * A loaded .zn.ui file: all its templates, plus what the manifest says about them (component name → template id,
+ * and the route table). A bundle without a manifest has neither.
+ */
+class ZnBundle(val templates: List<ZnTemplate>, val components: Map<String, Int>, val routes: ZnRoutes) {
     /** The template id a screen's root uses (from the compiler's manifest), or null if unknown. */
     fun templateOf(component: String): Int? = components[component]
 }
@@ -28,6 +31,7 @@ object ZnTemplates {
     private val io = Handler(HandlerThread("zn-io").apply { start() }.looper)
     private val main = Handler(Looper.getMainLooper())
     private val files = HashMap<String, MutableState<ZnBundle?>>() // main thread only
+    private val waiting = HashMap<String, MutableList<(ZnBundle) -> Unit>>() // main thread only
 
     /** Starts loading [asset] if it isn't loaded or loading yet. Call from the main thread. */
     fun preload(context: Context, asset: String) {
@@ -38,22 +42,53 @@ object ZnTemplates {
         io.post {
             val t0 = System.nanoTime()
             val templates = TemplateReader.read(map(appContext, asset)).templates.map(::ZnTemplate)
-            val components = readManifest(appContext, "$asset.json")
+            val bundle = readManifest(appContext, "$asset.json", templates)
             val ms = (System.nanoTime() - t0) / 1e6
-            Log.i(TAG, "template $asset: ${templates.size} template(s) read and prepared in %.2f ms".format(ms))
-            main.post { state.value = ZnBundle(templates, components) }
+            Log.i(TAG, "template $asset: ${templates.size} template(s), ${bundle.routes.all.size} route(s) " +
+                "read and prepared in %.2f ms".format(ms))
+            main.post {
+                state.value = bundle
+                waiting.remove(asset)?.forEach { it(bundle) }
+            }
         }
+    }
+
+    /** Runs [block] on the main thread once [asset] is loaded: now if it already is. Call [preload] first. */
+    fun whenReady(asset: String, block: (ZnBundle) -> Unit) {
+        val ready = files[asset]?.value
+        if (ready != null) block(ready) else waiting.getOrPut(asset) { ArrayList() } += block
     }
 
     /** The prepared bundle, or null while it is loading. Reading this from a composable subscribes to it. */
     fun get(asset: String): ZnBundle? = files[asset]?.value
 
-    private fun readManifest(context: Context, name: String): Map<String, Int> = try {
-        val json = JSONObject(context.assets.open(name).bufferedReader().use { it.readText() })
+    private fun readManifest(context: Context, name: String, templates: List<ZnTemplate>): ZnBundle {
+        val json = try {
+            JSONObject(context.assets.open(name).bufferedReader().use { it.readText() })
+        } catch (_: java.io.IOException) {
+            return ZnBundle(templates, emptyMap(), ZnRoutes(emptyList()))
+        }
         val c = json.getJSONObject("components")
-        c.keys().asSequence().associateWith { c.getInt(it) }
-    } catch (_: java.io.IOException) {
-        emptyMap()
+        val components = c.keys().asSequence().associateWith { c.getInt(it) }
+        val list = json.optJSONArray("routes")
+        val routes = (0 until (list?.length() ?: 0)).map { i ->
+            val r = list!!.getJSONObject(i)
+            val templateId = r.getInt("screen")
+            require(templateId in templates.indices) { "$name: route ${r.getString("name")} points at template $templateId" }
+            val safe = r.get("safeArea")
+            ZnRoute(
+                index = i,
+                name = r.getString("name"),
+                path = r.getString("path"),
+                templateId = templateId,
+                transition = ZnRoute.Transition.valueOf(r.getString("transition").uppercase()),
+                safeTop = if (safe is JSONObject) safe.getBoolean("top") else safe == "all",
+                safeBottom = if (safe is JSONObject) safe.getBoolean("bottom") else safe == "all",
+                darkBarIcons = r.getString("statusBar") == "dark",
+                deepLink = r.getBoolean("deepLink"),
+            )
+        }
+        return ZnBundle(templates, components, ZnRoutes(routes))
     }
 
     /** Maps the asset from the APK when it is stored uncompressed (apps mark *.zn.ui noCompress); else reads it. */

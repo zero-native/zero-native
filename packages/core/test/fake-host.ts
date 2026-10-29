@@ -6,6 +6,7 @@ export type Op =
   | ["mount", number, number, number, number, number, NativeValue[]]
   | ["remove", number]
   | ["move", number, number]
+  | ["nav", number, number, number, string | null]
 
 export interface FakeHost {
   timers: Map<number, { delay: number; repeat: boolean }>
@@ -52,6 +53,9 @@ export function installFakeHost(): FakeHost {
   }
   globalThis.__zn_move = (i, to) => {
     host.ops.push(["move", i, to])
+  }
+  globalThis.__zn_nav = (kind, entry, route, params) => {
+    host.ops.push(["nav", kind, entry, route, params])
   }
   globalThis.__zn_log = (level, msg) => {
     host.logs.push([level, msg])

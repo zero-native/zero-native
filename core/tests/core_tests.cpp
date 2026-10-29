@@ -119,6 +119,53 @@ void testPatchCoalescing() {
   CHECK(batch.ops()[1].values.size() == 1);
 }
 
+void testNav() {
+  std::printf("nav ops: encoding, order kept, never merged\n");
+  zn::Batch batch;
+  batch.nav(zn::NavKind::Push, 12, 1, zn::Value::string("{\"merchantId\":\"m1\"}"));
+  batch.patch(12, 0, zn::Value::number(5));
+  batch.nav(zn::NavKind::Remove, 12, 0, zn::Value::null());
+  batch.nav(zn::NavKind::BackAnswered, 0, 0, zn::Value::null());
+  CHECK(batch.size() == 4);
+  const std::vector<uint8_t> bytes = batch.encode();
+
+  Reader r{bytes};
+  CHECK(r.get<uint32_t>() == zn::kBatchMagic);
+  CHECK(r.get<uint32_t>() == 4);
+  CHECK(r.get<uint8_t>() == 5);  // NAV
+  CHECK(r.get<uint8_t>() == 1);  // PUSH
+  CHECK(r.get<uint32_t>() == 12);
+  CHECK(r.get<uint16_t>() == 1);
+  CHECK(r.get<uint8_t>() == 4);  // params: string
+  const uint32_t len = r.get<uint32_t>();
+  CHECK(len == 19);
+  r.pos += len;
+  CHECK(r.get<uint8_t>() == 1);  // PATCH
+  r.pos += 4 + 2 + 1 + 8;
+  CHECK(r.get<uint8_t>() == 5);  // NAV
+  CHECK(r.get<uint8_t>() == 2);  // REMOVE
+  CHECK(r.get<uint32_t>() == 12);
+  CHECK(r.get<uint16_t>() == 0);
+  CHECK(r.get<uint8_t>() == 0);  // params: null
+  CHECK(r.get<uint8_t>() == 5);
+  CHECK(r.get<uint8_t>() == 5);  // BACK_ANSWERED
+  r.pos += 4 + 2 + 1;
+  CHECK(r.pos == bytes.size());
+
+  // Through the runtime: unknown kinds are dropped with an error log.
+  Harness h;
+  h.engine->onCall = [](zn::HostApi& host, std::string_view, std::span<const zn::Value>) {
+    host.nav(1, 3, 2, zn::Value::null());
+    host.nav(9, 3, 2, zn::Value::null());
+  };
+  h.runtime.dispatchEvent(0, 2, zn::Value::null());
+  std::vector<uint8_t> out = h.runtime.takeBatch();
+  Reader r2{out};
+  r2.pos += 4;
+  CHECK(r2.get<uint32_t>() == 1);
+  CHECK(!h.platform.logs.empty() && h.platform.logs.back().find("unknown kind 9") != std::string::npos);
+}
+
 void testTickAndApply() {
   std::printf("tick → one apply request, coalescing until taken\n");
   Harness h;
@@ -198,6 +245,7 @@ void testTimers() {
 int main() {
   testBatchEncoding();
   testPatchCoalescing();
+  testNav();
   testTickAndApply();
   testNoOpsNoRequest();
   testTimers();

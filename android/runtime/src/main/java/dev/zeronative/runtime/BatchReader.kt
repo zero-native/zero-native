@@ -12,6 +12,16 @@ sealed class BatchOp {
     ) : BatchOp()
     data class Remove(val instance: Int) : BatchOp()
     data class Move(val instance: Int, val toIndex: Int) : BatchOp()
+    /** Back-stack change (kinds in core/include/zn/batch.h). [params] is a JSON string or null. */
+    data class Nav(val kind: Int, val entry: Int, val route: Int, val params: String?) : BatchOp() {
+        companion object {
+            const val PUSH = 1
+            const val REMOVE = 2
+            const val CLEAR = 3
+            const val EXIT = 4
+            const val BACK_ANSWERED = 5
+        }
+    }
 }
 
 /** Decodes the batch bytes written by core/src/batch.cpp (format in core/include/zn/batch.h). */
@@ -37,6 +47,7 @@ object BatchReader {
                 }
                 3 -> BatchOp.Remove(b.int)
                 4 -> BatchOp.Move(b.int, b.int)
+                5 -> BatchOp.Nav(b.get().toInt(), b.int, b.u16(), b.value() as String?)
                 else -> error("unknown batch op $code")
             }
         }

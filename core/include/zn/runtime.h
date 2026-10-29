@@ -53,6 +53,7 @@ class Runtime final : private HostApi {
              std::vector<Value> values) override;
   void remove(uint32_t instance) override;
   void move(uint32_t instance, uint32_t toIndex) override;
+  void nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) override;
   uint32_t setTimer(double delayMs, bool repeat) override;
   void clearTimer(uint32_t handle) override;
   void log(int level, std::string_view message) override;

@@ -1,9 +1,10 @@
 // The sample's amount-entry screen, written as plain TSX and compiled by the zero-native compiler.
 import { Column, Pressable, Row, Text, Box, Icon, Image } from "@zero-native/ui"
-import { computed, signal } from "@zero-native/core"
+import { computed, nav, signal, useBack } from "@zero-native/core"
 import { c } from "./tokens"
 import { backspace as backspaceIcon } from "./icons"
 import { applyKey, backspace, financials, formatIndian, rupees, toPaise, type Session } from "./money"
+import { merchantById } from "./merchants"
 
 const session: Session = {
   merchant: "Kalyan Jewellers",
@@ -55,15 +56,32 @@ function BackspaceKey(props: { onDelete: () => void }) {
   )
 }
 
-export function AmountScreen() {
+export function AmountScreen(props: { merchantId: string }) {
+  const merchant = merchantById(props.merchantId)
   const amount = signal("0")
   const status = signal("")
   const cursor = signal(true)
+  const confirmDiscard = signal(false)
 
-  // Blinking cursor
+  // Blinking cursor. Owned by this screen: it stops when the screen closes.
   setInterval(() => {
     cursor.set((v) => !v)
   }, 500)
+
+  // Back (system button / gesture, or the ← button) with an amount typed: ask first instead of losing it.
+  const leave = (): boolean => {
+    if (amount() === "0") return false
+    confirmDiscard.set(true)
+    return true
+  }
+  useBack(leave)
+  const goBack = () => {
+    if (!leave()) nav.back()
+  }
+  const discard = () => {
+    confirmDiscard.set(false)
+    nav.back()
+  }
 
   const paise = computed(() => toPaise(amount()))
   const money = computed(() => financials(paise(), session))
@@ -77,7 +95,13 @@ export function AmountScreen() {
     status.set("")
     amount.set((prev) => backspace(prev))
   }
-  const pay = () => status.set(`Would pay ₹${rupees(money().toPay)} (UPI arrives in milestone 2)`)
+  // One receipt per payment, even if Pay is tapped twice quickly (the second tap arrives before the screen changes).
+  let paid = false
+  const pay = () => {
+    if (paid) return
+    paid = true
+    nav.push("receipt", { ztc: `ZTC${Date.now()}`, amount: rupees(money().toPay) })
+  }
 
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
@@ -95,7 +119,7 @@ export function AmountScreen() {
         }}
       >
         <Pressable
-          onPress={() => {}}
+          onPress={goBack}
           haptic
           style={{
             width: 40,
@@ -113,15 +137,15 @@ export function AmountScreen() {
 
         <Row style={{ alignItems: "center", gap: 10 }}>
           <Image
-            src="https://picsum.photos/id/1062/112/112"
+            src={merchant.photo}
             style={{ width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: c.border }}
           />
           <Column style={{ alignItems: "center" }}>
             <Text fontSize={16} fontWeight={700} color={c.ink}>
-              {session.merchant}
+              {merchant.name}
             </Text>
             <Text fontSize={11} color={c.muted}>
-              Counter 1 • Multi-Counter
+              {merchant.area}
             </Text>
           </Column>
         </Row>
@@ -141,6 +165,41 @@ export function AmountScreen() {
           </Text>
         </Pressable>
       </Row>
+
+      {/* Shown instead of going back when an amount is typed. */}
+      {confirmDiscard() && (
+        <Row
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            gap: 8,
+            alignItems: "center",
+            backgroundColor: c.ink,
+          }}
+        >
+          <Column style={{ flex: 1 }}>
+            <Text fontSize={14} fontWeight={600} color={c.white}>
+              Discard ₹{formatIndian(amount())}?
+            </Text>
+          </Column>
+          <Pressable
+            onPress={() => confirmDiscard.set(false)}
+            style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: c.white }}
+          >
+            <Text fontSize={13} fontWeight={600} color={c.ink}>
+              Keep
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={discard}
+            style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: c.primary }}
+          >
+            <Text fontSize={13} fontWeight={600} color={c.white}>
+              Discard
+            </Text>
+          </Pressable>
+        </Row>
+      )}
 
       {/* 2. Amount Hero & Cursor */}
       <Column style={{ flex: 1, padding: 24, gap: 10 }} justifyContent="center" alignItems="center">

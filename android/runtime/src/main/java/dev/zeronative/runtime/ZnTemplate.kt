@@ -26,13 +26,17 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.sp
 
 private const val NONE = -1
@@ -154,6 +158,12 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val opacitySlot = slotFor(raw, Registry.Prop.OPACITY)
     val srcSlot = slotFor(raw, Registry.Prop.SRC)
     val disabledSlot = slotFor(raw, Registry.Prop.DISABLED)
+    /** Padding edges bound to slots (start, top, end, bottom; NONE = static). Read in the layout phase. */
+    val paddingSlots = intArrayOf(
+        slotFor(raw, Registry.Prop.PADDING_START), slotFor(raw, Registry.Prop.PADDING_TOP),
+        slotFor(raw, Registry.Prop.PADDING_END), slotFor(raw, Registry.Prop.PADDING_BOTTOM),
+    )
+    val hasDynamicPadding = paddingSlots.any { it != NONE }
 
     // Events: the event id JS listens to, or 0.
     val onPress = eventFor(raw, Registry.Event.ON_PRESS)
@@ -163,17 +173,19 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val onPressRepeat = eventFor(raw, Registry.Event.ON_PRESS_REPEAT)
 
     /** True when the drawing chain reads a slot, so it must be built per instance instead of once here. */
-    val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || type == Registry.Component.PRESSABLE
+    val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || hasDynamicPadding ||
+        type == Registry.Component.PRESSABLE
 
     /** Pre-built chain for nodes whose chain never changes (most nodes). */
-    val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null)
+    val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null)
 
     /**
      * The fixed order (docs/styling-and-layout.md §4): margin → size → transform + opacity → shadow → background →
      * border → clip → press feedback → padding (+ border widths). Dynamic opacity and background are read in the
-     * draw phase, so a change redraws only this node (§8.3).
+     * draw phase, so a change redraws only this node; dynamic padding ([pad], the padding edges with slot values
+     * filled in) in the layout phase, so a change re-measures this node without recomposing anything (§8.3).
      */
-    fun buildChain(alpha: (() -> Float)?, background: (() -> Color)?, press: Modifier?): Modifier {
+    fun buildChain(alpha: (() -> Float)?, background: (() -> Color)?, press: Modifier?, pad: (() -> Edges)?): Modifier {
         var m: Modifier = Modifier
         margin?.let { m = m.padding(it.toPadding()) }
         when (val w = width) {
@@ -225,13 +237,19 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         if (clip || clipsByDefault) m = m.clip(shape)
         press?.let { m = m.then(it) }
         // Borders take space: content sits inside them (zn flex rule 2).
-        val pad = padding ?: Edges(0f, 0f, 0f, 0f)
-        val inner = pad.plus(borderWidth, borderWidth + borderTopWidth, borderWidth, borderWidth + borderBottomWidth)
-        if (padding != null || borderWidth > 0f || borderTopWidth > 0f || borderBottomWidth > 0f) {
-            m = m.padding(inner.toPadding())
+        val bs = borderWidth
+        val bt = borderWidth + borderTopWidth
+        val bb = borderWidth + borderBottomWidth
+        if (pad != null) {
+            m = m.layoutPadding { pad().plus(bs, bt, bs, bb) }
+        } else if (padding != null || borderWidth > 0f || borderTopWidth > 0f || borderBottomWidth > 0f) {
+            m = m.padding((padding ?: Edges(0f, 0f, 0f, 0f)).plus(bs, bt, bs, bb).toPadding())
         }
         return m
     }
+
+    /** The static padding edges (0 where none), for [buildChain]'s dynamic padding to fill slot values into. */
+    val staticPadding: Edges = padding ?: Edges(0f, 0f, 0f, 0f)
 
     private fun num(prop: Int): Float? = (p[prop] as Double?)?.toFloat()
     private fun enum(prop: Int): Int = (p[prop] as ZnEnum?)?.value ?: NONE
@@ -254,6 +272,22 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
 }
 
 private fun Float?.orUnspecified(): Dp = this?.dp ?: Dp.Unspecified
+
+/**
+ * Padding whose values are read while measuring: when a value it reads changes (a slot), only this node is measured
+ * again; nothing recomposes. Start / end follow the layout direction (placeRelative mirrors in RTL).
+ */
+private fun Modifier.layoutPadding(edges: () -> Edges): Modifier = layout { measurable, constraints ->
+    val e = edges()
+    val start = e.start.coerceAtLeast(0f).dp.roundToPx()
+    val top = e.top.coerceAtLeast(0f).dp.roundToPx()
+    val end = e.end.coerceAtLeast(0f).dp.roundToPx()
+    val bottom = e.bottom.coerceAtLeast(0f).dp.roundToPx()
+    val placeable = measurable.measure(constraints.offset(-(start + end), -(top + bottom)))
+    val width = constraints.constrainWidth(placeable.width + start + end)
+    val height = constraints.constrainHeight(placeable.height + top + bottom)
+    layout(width, height) { placeable.placeRelative(start, top) }
+}
 
 /** A template prepared for drawing. Built once per template and shared by all its instances. */
 @Immutable

@@ -61,9 +61,13 @@ export function slot(inst: Instance, slotId: number, fn: () => unknown, kind: nu
   })
 }
 
-/** Binds a native event (tap, ...) of this instance to a handler. */
+/**
+ * Binds a native event (tap, ...) of this instance to a handler. The handler runs under the instance's owner, so a
+ * timer it starts stops when the instance (its screen) is disposed.
+ */
 export function on(inst: Instance, eventId: number, handler: (payload: NativeValue) => void): void {
-  onCleanup(onEvent(inst.id, eventId, handler))
+  const owner = getOwner()
+  onCleanup(onEvent(inst.id, eventId, (payload) => runWithOwner(owner, () => handler(payload))))
 }
 
 /** Sends MOUNT for a JS-mounted instance, with the slot values collected so far. Safe to call twice. */
@@ -82,8 +86,7 @@ export function ready(inst: Instance): void {
 function mountChild(owner: Owner | null, make: () => View, parent: number, anchor: number, index: number): Mounted {
   return runWithOwner(owner, () =>
     createRoot((dispose) => {
-      if (nextInstanceId >= JS_ID_LIMIT) throw new Error("zero-native: out of instance ids")
-      const id = nextInstanceId++
+      const id = allocInstanceId()
       const v = make() // a component's body runs here, inside the instance's owner
       const inst: Instance = { id, collecting: [], mount: { templateId: v.templateId, parent, anchor, index } }
       v.setup(inst)
@@ -189,6 +192,12 @@ export function each<T>(
       order = keys
     })
   })
+}
+
+/** A new JS-allocated instance id (also used for back-stack entries: a screen's entry id is its root id). */
+export function allocInstanceId(): number {
+  if (nextInstanceId >= JS_ID_LIMIT) throw new Error("zero-native: out of instance ids")
+  return nextInstanceId++
 }
 
 /** Runs a screen component on a root instance that native already created from the template (no MOUNT). */

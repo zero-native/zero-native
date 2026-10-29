@@ -141,8 +141,16 @@ describe("errors point at the source", () => {
     expect(err(`function A() { return <Row flexDirection="row" /> }`)).toMatch(/test\.tsx:1:\d+: unknown prop "flexDirection"/)
     expect(err(`function A() { return <Row style={{ margin2: 1 }} /> }`)).toMatch(/unknown style key "margin2"/)
   })
+  test("fontWeight outside React Native's values", () => {
+    expect(err(`function A() { return <Text fontWeight="heavy">x</Text> }`)).toMatch(/test\.tsx:1:\d+: fontWeight must be 100–900/)
+    expect(err(`function A() { return <Text style={{ fontWeight: 450 }}>x</Text> }`)).toMatch(/fontWeight must be 100–900.*got 450/)
+    expect(err(`function A() { return <Text fontWeight="1000">x</Text> }`)).toMatch(/fontWeight must be 100–900/)
+  })
   test("a layout prop that changes at runtime", () => {
     expect(err(`function A(p) { return <Row gap={p.gap} /> }`)).toMatch(/"gap" must be known at build time/)
+    // Per-edge padding may change (headers padded by insets()); the shorthands may not.
+    expect(err(`function A(p) { return <Row style={{ paddingTop: p.top, paddingHorizontal: 20 }} /> }`)).toBe("no error")
+    expect(err(`function A(p) { return <Row style={{ padding: p.top }} /> }`)).toMatch(/"padding" must be known at build time/)
   })
   test("text outside <Text>, missing keys, stray JSX", () => {
     expect(err(`function A() { return <Row>hi</Row> }`)).toMatch(/text must be inside <Text>/)

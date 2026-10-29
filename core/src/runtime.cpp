@@ -80,6 +80,14 @@ void Runtime::remove(uint32_t instance) { tick_.remove(instance); }
 
 void Runtime::move(uint32_t instance, uint32_t toIndex) { tick_.move(instance, toIndex); }
 
+void Runtime::nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) {
+  if (kind < static_cast<uint8_t>(NavKind::Push) || kind > static_cast<uint8_t>(NavKind::BackAnswered)) {
+    platform_.log(3, "nav: unknown kind " + std::to_string(kind));
+    return;
+  }
+  tick_.nav(static_cast<NavKind>(kind), entry, route, std::move(params));
+}
+
 uint32_t Runtime::setTimer(double delayMs, bool repeat) {
   const uint32_t handle = nextTimer_++;
   // A repeating timer with no delay would spin forever; give it at least 1 ms.

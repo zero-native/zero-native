@@ -203,7 +203,13 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance): Modifier {
         val press = if (s.type == Registry.Component.PRESSABLE) {
             Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication)
         } else null
-        s.buildChain(alpha, background, press)
+        val pad = if (s.hasDynamicPadding) {
+            val base = s.staticPadding
+            val cells = s.paddingSlots.map { if (it >= 0) inst.slot(it) else null }
+            fun edge(i: Int, static: Float) = (cells[i]?.value as? Double)?.toFloat() ?: static
+            ({ Edges(edge(0, base.start), edge(1, base.top), edge(2, base.end), edge(3, base.bottom)) })
+        } else null
+        s.buildChain(alpha, background, press, pad)
     }
 }
 
