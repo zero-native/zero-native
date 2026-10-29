@@ -9,6 +9,8 @@
 //   __zn_listSet(instance, node, keys[], types[]) / __zn_listSplice(instance, node, index, removeCount, keys[], types[])
 //   __zn_listRow(instance, node, key, rowInstance)
 //   __zn_call(module, method, argsJson, callbackId)   (result: app event 7, see runtime.h Platform::callNative)
+//   __zn_cancel(callbackId)
+//   __zn_store_write(key, json) / __zn_store_read(key) / __zn_store_list() / __zn_store_remove(key)   (FlowStore)
 //   __zn_setTimer(delayMs, repeat) -> handle
 //   __zn_clearTimer(handle)
 //   __zn_log(level, message)
@@ -250,10 +252,49 @@ class HermesEngine final : public Engine {
       return jsi::Value::undefined();
     });
 
+    // FlowStore. write → true / false; read → string (ok), null (missing) or false (broken); list → string[].
+    define("__zn_store_write", 2, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      if (n < 2 || !a[0].isString() || !a[1].isString()) throw jsi::JSError(rt, "zero-native: __zn_store_write(key, json)");
+      std::string error;
+      return jsi::Value(host.storeWrite(a[0].getString(rt).utf8(rt), a[1].getString(rt).utf8(rt), &error));
+    });
+
+    define("__zn_store_read", 1, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      if (n < 1 || !a[0].isString()) throw jsi::JSError(rt, "zero-native: __zn_store_read(key)");
+      const FlowStore::ReadResult r = host.storeRead(a[0].getString(rt).utf8(rt));
+      if (r.status == FlowStore::ReadStatus::Missing) return jsi::Value::null();
+      if (r.status == FlowStore::ReadStatus::Broken) return jsi::Value(false);
+      return jsi::String::createFromUtf8(rt, r.payload);
+    });
+
+    define("__zn_store_list", 0, [&host](jsi::Runtime& rt, const jsi::Value&, Args, size_t) -> jsi::Value {
+      const std::vector<std::string> keys = host.storeList();
+      jsi::Array out(rt, keys.size());
+      for (size_t i = 0; i < keys.size(); i++) out.setValueAtIndex(rt, i, jsi::String::createFromUtf8(rt, keys[i]));
+      return out;
+    });
+
+    define("__zn_store_remove", 1, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      if (n < 1 || !a[0].isString()) throw jsi::JSError(rt, "zero-native: __zn_store_remove(key)");
+      return jsi::Value(host.storeRemove(a[0].getString(rt).utf8(rt)));
+    });
+
+    define("__zn_cancel", 1, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      host.cancelCall(u32Arg(rt, a, n, 0));
+      return jsi::Value::undefined();
+    });
+
     define("__zn_log", 2, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
       const int level = (n > 0 && a[0].isNumber()) ? static_cast<int>(a[0].getNumber()) : 1;
       const std::string msg = n > 1 ? a[1].toString(rt).utf8(rt) : std::string();
       host.log(level, msg);
+      return jsi::Value::undefined();
+    });
+
+    define("__zn_error", 2, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      const std::string where = n > 0 ? a[0].toString(rt).utf8(rt) : std::string();
+      const std::string details = n > 1 ? a[1].toString(rt).utf8(rt) : std::string();
+      host.jsError(where, details);
       return jsi::Value::undefined();
     });
 

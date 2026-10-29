@@ -182,11 +182,36 @@ const pickerOpen = signal(false)
   Don't set `borderRadius` on it (the top corners are rounded for you).
 - Close the sheet **before** navigating (`pickerOpen.set(false); nav.push(...)`), as in the sample.
 
-## 13. Calling native code (transport built; module system proposed in `docs/native-modules.md`)
-- Today: `callNative(module, method, args)` → Promise, for modules registered natively with `ZnModules.register(...)`.
-  Always async: the JS thread never waits for native.
-- Planned: typed `nativeModule<T>("Name")` declared in TS with generated Kotlin/Swift interfaces, events with
-  `Module.on(...)` that unsubscribe when the screen closes.
+## 13. Native modules: calling your own Kotlin (Swift later) code (built: foundations)
+```ts
+// device.ts — declare once
+export interface DeviceModule {
+  info(): Promise<{ model: string }>
+  slowEcho(args: { text: string; ms: number }, options?: CallOptions): Promise<string>
+  events: { tick: number }
+}
+export const Device = nativeModule<DeviceModule>("Device", { version: 1 })
+```
+```kotlin
+// DeviceModule.kt — implement, then ZnModules.register(DeviceModule()) in your Application
+class DeviceModule : ZnModuleBase("Device", version = 1) {
+    init { function("info") { it.resolve(JSONObject().put("model", Build.MODEL)) } }
+    override fun onListenerCount(event: String, count: Int) { /* start the source at 1, stop it at 0 */ }
+}
+```
+- **Always async.** Every call returns a Promise; JS never waits for native, so a slow module can't freeze the UI.
+  Native runs functions on a background pool; mark UI work (starting activities) `onMain = true`.
+- **One args object** per method, plain JSON. Large things (images, files) go by handle (`zn://...`), never as base64.
+- **Errors have codes:** `catch (e) { if (e.code === "unavailable") ... }` (`NativeError`: `unavailable`,
+  `cancelled`, `invalid_args`, `failed`, or the module's own).
+- **Cancel** with an `AbortController`: `Device.slowEcho(args, { signal: ac.signal })`, `ac.abort()`. Calls a screen
+  starts are dropped automatically when the screen closes: don't worry about "setState after unmount".
+- **Events:** `Device.on("tick", handler)` in a screen body: unsubscribed when the screen closes. Native knows how many
+  listeners there are, so start GPS / sensors / receivers only while someone listens (`onListenerCount`), and use
+  `emit(..., latestOnly = true)` for fast streams so a busy JS thread gets the newest value, not a backlog.
+- **Versions:** when you add a method, raise the Kotlin `version` and the JS `nativeModule(..., { version })`
+  together. An OTA bundle that needs a newer module than the installed app gets `unavailable` instead of crashing.
+- **Don't:** block in a function on the main thread; answer twice; keep working after `call.isCancelled`.
 
 ## 14. Gradients, colours and text
 - `backgroundImage: "linear-gradient(135deg, #047857 0%, #0F172A 100%)"` (React Native's CSS form; `to bottom` /
@@ -203,10 +228,67 @@ const pickerOpen = signal(false)
 - Fixed sizes for images and list rows wherever possible.
 - Measure on a low-end phone in a **release** build; debug builds are several times slower.
 
+## 16. Saving data and payments (FlowStore built, step 2.7; app storage comes later)
+Android often kills the app while the user is inside the UPI app. When they come back, the app starts fresh. The
+payment must not be forgotten, and it must never be sent twice. The flow engine that would do this for you is parked
+(ARCHITECTURE §12), so apps follow this pattern by hand.
+
+**The save-then-verify pattern** (one record per payment, in `flowStore`):
+1. Before calling `/pay`: write `{ orderId, step: "paying" }`. If `write` returns `false`, stop and show an error.
+2. When `/pay` answers: write `{ orderId, paymentId, step: "in-upi" }`, **then** open the UPI app (only if the
+   write returned `true`).
+3. When the UPI app returns: don't trust its result. Call `/verify` and show what the backend says.
+4. On a final answer (success / failed): show it, then `remove` the record.
+5. On app start: `read` the record.
+   - `ok`, step `in-upi`: open the status screen and call `/verify`. **Never open the UPI app or call `/pay` again.**
+   - `ok`, step `paying` (killed before `/pay` answered): the UPI app never opened, so no money moved. Remove the
+     record and let the user try again.
+   - `broken`: show "checking your last payment" and ask the backend for the user's latest payment.
+
+```ts
+// Sketch: `api` is your backend client, `Os` the built-in module (step 2.6b).
+const KEY = "pending-payment"
+if (!flowStore.write(KEY, { orderId, step: "paying" })) return showError("Could not start the payment")
+const { paymentId, upiLink } = await api.pay(orderId)
+// If this write fails, don't open the UPI app: the record would still say "paying", and a restart would wrongly
+// conclude that no money moved.
+if (!flowStore.write(KEY, { orderId, paymentId, step: "in-upi" })) return showError("Could not start the payment")
+await Os.launchActivity({ action: "android.intent.action.VIEW", uri: upiLink }).catch(() => {})
+const status = await api.verify(paymentId) // the backend decides, not the UPI app
+if (status !== "pending") flowStore.remove(KEY)
+```
+
+- **Do:** keep normal app data (settings, last tab, caches) in app storage (planned, MMKV-like). Losing the last write
+  there is fine.
+- **Don't:** use `flowStore` as a settings store. Each key is its own file of at least 64 KB; keep it to a few
+  records.
+- **Don't:** keep secrets (tokens, PINs) in either store. They are plain files (private to the app, not backed up).
+- **Don't:** retry `/pay` or reopen the UPI app after a restart "to be safe". If you are not sure what happened,
+  ask the backend.
+- **Why:** a payment must never be lost or sent twice when the app is killed. FlowStore keeps two copies with a
+  checksum and switches over last, so a kill at any moment leaves the old value or the new one, never half
+  (tested: 200 / 200 kills mid-write). A write takes about 5 µs, so saving before every step is free.
+
+## 17. Live reload and the error screen: `zn dev` (built, step 3.1)
+Run `bun run dev` at the repo root with the phone connected (USB or wireless debugging), then open the app's **debug**
+build. Save a file: the phone shows the change in well under a second and stays on the same screens.
+- **Do:** keep anything you want to survive a reload in FlowStore or (later) storage. A reload starts JS fresh:
+  signals, timers and in-memory stores start again, and the screens are opened again with the same params.
+- **Do:** read the error screen's first line in **your** file (`src/...tsx:line`); the lines under it are usually the
+  framework calling your code.
+- **Don't:** test performance or startup with `zn dev` running: debug build, extra line-number info in the bytecode,
+  and one reload at app start. Use a release build (`docs/startup-and-performance.md`).
+- **Don't:** rely on a handler error stopping the app. The runtime catches errors in handlers, timers, effects and
+  listeners so one bad handler can't break the screen; in debug builds they show on the error screen, in release
+  they are only logged. Fix them, don't ignore them.
+- **Why:** building on the computer and sending bytecode is much faster than RN's Metro (no JS parsing on the
+  phone), and a fresh runtime can't keep stale closures or listeners alive, which is where RN Fast Refresh breaks.
+
 ---
 
 ## Open items to write up when built
 - `<List>` rails, carousel, impressions (steps 2.4b–d). See
   `docs/cross-communication/2026-10-29-feeds-and-lists-proposal.md`.
 - Sheets (2.5), native calls / `fetch` (2.6), flows and payments (2.7–2.8): the "effects" rules are the most important
-  thing to teach well.
+  thing to teach well. (Sheets, native calls and FlowStore with the payment pattern are now written up in sections
+  12, 13 and 16; the flow engine is parked.)

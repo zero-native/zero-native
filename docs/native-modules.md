@@ -1,21 +1,41 @@
 # Native modules: calling native code from JS and back
 
-Part of the zero-native spec (ARCHITECTURE §15). **Status (2026-10-29): the transport is built; the module system
-below is a proposal, waiting for Pavan's OK.** This is zero-native's answer to React Native's NativeModules /
-TurboModules and Flutter's MethodChannel / EventChannel / Pigeon.
+Part of the zero-native spec (ARCHITECTURE §15). **Status (2026-10-29): the foundations are built (step 2.6a, approved
+by Pavan: async only, cancellation, events, error codes, versions). Built-in modules are briefed to Gemini
+(`docs/cross-communication/2026-10-29-native-modules-brief.md`); `fetch` and codegen are later, only when Pavan
+asks.** This is zero-native's answer to React Native's NativeModules / TurboModules and Flutter's MethodChannel /
+EventChannel / Pigeon.
 
-## 1. What exists today (built in milestone 2, step 2.5)
-- **JS → native call, async:** `callNative(module, method, args)` returns a Promise (`packages/core/src/calls.ts`).
-  Host function `__zn_call(module, method, argsJson, callbackId)` → C++ `Platform::callNative` → Kotlin
-  `ZnModules.call` (`android/runtime/.../ZnModules.kt`), which runs the module **on the I/O pool** (or the main thread
-  if the module says so) and replies with app event 7 `{ id, ok, value | error }`.
-- **Kotlin side:** `interface ZnModule { name; onMainThread; call(method, args: JSONObject, reply: ZnReply) }`,
-  registered with `ZnModules.register(module)`. Unknown module → rejected Promise with a clear message; a module that
-  throws → rejected Promise, stack logged natively; a second reply is ignored and logged.
-- Arguments and results are JSON. Arguments cross JNI as UTF-8 bytes (JNI's own strings are not real UTF-8 for emoji).
-- Tests: JS (`calls.test.ts`: resolve, reject, duplicate and unknown replies), C++ (`testNativeCall`).
-- **Not built:** typed declarations, codegen, native → JS module events, cancellation, any real module (the
-  `os.upiApps()` call was written and then parked until this design is agreed).
+## 1. What is built (steps 2.5 + 2.6a)
+**JS (`packages/core/src/calls.ts`, `abort.ts`):**
+- `nativeModule<T>("Name", { version })`: a typed handle (a `Proxy`): every method of the interface becomes
+  `(args?, { signal }?) => Promise`, plus `on(event, handler)`. Declare the module once as a TS interface (methods take
+  one plain args object; `events` lists what native can send). The version the code needs travels with each call
+  (`__v`); an older app answers `unavailable`.
+- `callNative(module, method, args, { signal })`: the untyped form. `NativeError { code, message, module, method }`.
+- **Cancellation:** an `AbortSignal` (Hermes has none; `abort.ts` adds the standard shape) rejects at once with
+  `cancelled` and tells native (`__zn_cancel`). Calls made by a screen are **dropped** (never settle; native told to
+  stop) when the screen closes, like its timers.
+- **Events:** `onNativeEvent` / `Module.on(...)` → unsubscribe function; ended by the screen closing. Every listener
+  change sends the count to native (`__listeners`, no reply), so a module starts / stops its source.
+
+**Native (`android/runtime/.../ZnModules.kt`):**
+- `ZnModuleBase("Name", version)` with `function("x", onMain = false) { call -> ... }`; or implement `ZnModule`.
+- `ZnCall`: `args`, `resolve(value)`, `reject(code, message)`, `isCancelled`, `onCancel { }`. Answer exactly once; a
+  cancelled call's answer is dropped; an exception rejects with `failed`.
+- Calls run on a 2-thread I/O pool, or the main thread per function. `emit(event, payload, latestOnly)`:
+  `latestOnly` keeps one delivery queued per event and it reads the newest value when the JS thread runs it.
+- Path: `__zn_call` / `__zn_cancel` → C++ `Platform::callNative` / `cancelNative` → JNI (args as UTF-8 bytes) →
+  `ZnModules`; answers = app event 7, module events = app event 8 (instance 0).
+
+**Proof:** the sample's `DeviceModule` (`android/sample/.../DeviceModule.kt`, `examples/sample/src/device.ts`,
+screen `/dev/modules`). On the Lava (debug + release): info call; ticks every 50 ms only while the screen is open
+("tick source started" / "stopped (no listeners)"); a 3 s call answers; cancelled after 1 s → JS `cancelled` at once
+and native "stopped early"; `fail()` → `NativeError` with code `no_luck`. Tests: JS `calls.test.ts` (typed calls,
+version marker, error codes, abort, screen-close drop, events + listener counts), C++ `testNativeCall`.
+
+**Not built:** codegen (Kotlin interface from the TS interface, capability-manifest entries), binary arguments,
+`fetch`, built-in modules (Gemini, see the brief).
 
 ## 2. How others do it
 | | Declaration | Calls | Native → JS | Types |

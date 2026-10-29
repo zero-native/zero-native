@@ -8,7 +8,16 @@
 #include <string>
 #include <vector>
 
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#include <random>
+
 #include "zn/batch.h"
+#include "zn/flowstore.h"
 #include "zn/runtime.h"
 
 namespace {
@@ -38,6 +47,9 @@ struct FakePlatform : zn::Platform {
   void callNative(std::string_view module, std::string_view method, std::string_view args, uint32_t id) override {
     calls.push_back(std::string(module) + "." + std::string(method) + "(" + std::string(args) + ")#" + std::to_string(id));
   }
+  std::vector<uint32_t> cancelled;
+  void cancelNative(uint32_t id) override { cancelled.push_back(id); }
+  std::string flowStoreDir() override { return "/data/local/tmp/zn-flowstore-test"; }
   double nowMs() override { return 0; }
 };
 
@@ -206,10 +218,153 @@ void testNativeCall() {
   Harness h;
   h.engine->onCall = [](zn::HostApi& host, std::string_view, std::span<const zn::Value>) {
     host.call("os", "upiApps", "{}", 4);
+    host.cancelCall(4);
   };
   h.runtime.dispatchEvent(0, 1, zn::Value::null());
   CHECK(h.platform.calls.size() == 1 && h.platform.calls[0] == "os.upiApps({})#4");
+  CHECK(h.platform.cancelled.size() == 1 && h.platform.cancelled[0] == 4);
   CHECK(h.platform.applyRequests == 0);  // a call is not a UI change
+}
+
+// ---- FlowStore (ARCHITECTURE §13.2) --------------------------------------------------------------------------------
+
+const char* kFsDir = "/data/local/tmp/zn-flowstore-test";
+
+void freshDir() {
+  std::string cmd = std::string("rm -rf ") + kFsDir;
+  std::system(cmd.c_str());
+  mkdir(kFsDir, 0700);
+}
+
+/** Flips one byte at [offset] of a key's file (to fake a torn or damaged slot). */
+void damage(const std::string& key, long offset) {
+  const std::string p = std::string(kFsDir) + "/" + key + ".znfs";
+  int fd = open(p.c_str(), O_RDWR);
+  uint8_t b = 0;
+  pread(fd, &b, 1, offset);
+  b ^= 0xFF;
+  pwrite(fd, &b, 1, offset);
+  close(fd);
+}
+
+void testFlowStoreBasics() {
+  std::printf("flowstore: round trip, newest slot wins, list, remove\n");
+  freshDir();
+  {
+    zn::FlowStore fs(kFsDir);
+    CHECK(fs.read("checkout").status == zn::FlowStore::ReadStatus::Missing);
+    CHECK(fs.write("checkout", R"({"step":"enteringAmount"})"));
+    CHECK(fs.write("checkout", R"({"step":"paying","amountPaise":40000})"));
+    auto r = fs.read("checkout");
+    CHECK(r.status == zn::FlowStore::ReadStatus::Ok && r.payload == R"({"step":"paying","amountPaise":40000})");
+    CHECK(fs.write("nav", "[]"));
+    auto keys = fs.list();
+    CHECK(keys.size() == 2);
+    std::string err;
+    CHECK(!fs.write("../evil", "x", &err) && !err.empty());
+  }
+  {
+    zn::FlowStore fs(kFsDir);  // a new process would see the same
+    CHECK(fs.read("checkout").payload == R"({"step":"paying","amountPaise":40000})");
+    CHECK(fs.remove("nav"));
+    CHECK(fs.read("nav").status == zn::FlowStore::ReadStatus::Missing);
+  }
+}
+
+void testFlowStoreDamage() {
+  std::printf("flowstore: a damaged newest slot falls back; both damaged = broken\n");
+  freshDir();
+  {
+    zn::FlowStore fs(kFsDir, 4096);
+    fs.write("k", "first");   // slot A, seq 1
+    fs.write("k", "second");  // slot B, seq 2
+  }
+  damage("k", 64 + 4096 + 16);  // a payload byte of slot B
+  {
+    zn::FlowStore fs(kFsDir, 4096);
+    auto r = fs.read("k");
+    CHECK(r.status == zn::FlowStore::ReadStatus::Ok && r.payload == "first");
+    CHECK(fs.write("k", "third"));  // goes into the damaged slot B, which is not current
+    CHECK(fs.read("k").payload == "third");
+  }
+  damage("k", 64 + 16);         // slot A
+  damage("k", 64 + 4096 + 16);  // slot B
+  {
+    zn::FlowStore fs(kFsDir, 4096);
+    CHECK(fs.read("k").status == zn::FlowStore::ReadStatus::Broken);
+  }
+}
+
+void testFlowStoreGrowth() {
+  std::printf("flowstore: grows for big payloads; over the ceiling fails and keeps the good state\n");
+  freshDir();
+  zn::FlowStore fs(kFsDir, 4096);
+  CHECK(fs.write("k", "small"));
+  const std::string big(100 * 1024, 'x');
+  CHECK(fs.write("k", big));
+  CHECK(fs.read("k").payload == big);
+  std::string err;
+  const std::string huge(300 * 1024, 'y');
+  CHECK(!fs.write("k", huge, &err) && err.find("limit") != std::string::npos);
+  CHECK(fs.read("k").payload == big);
+  zn::FlowStore again(kFsDir, 4096);
+  CHECK(again.read("k").payload == big);
+}
+
+void testFlowStoreThroughRuntime() {
+  std::printf("flowstore: reachable from JS through the runtime (host functions)\n");
+  freshDir();
+  Harness h;
+  bool wrote = false;
+  zn::FlowStore::ReadResult read;
+  h.engine->onCall = [&](zn::HostApi& host, std::string_view, std::span<const zn::Value>) {
+    std::string err;
+    wrote = host.storeWrite("flow-checkout", R"({"step":"paying"})", &err);
+    read = host.storeRead("flow-checkout");
+  };
+  h.runtime.dispatchEvent(0, 1, zn::Value::null());
+  CHECK(wrote && read.status == zn::FlowStore::ReadStatus::Ok && read.payload == R"({"step":"paying"})");
+}
+
+void testFlowStoreKill() {
+  std::printf("flowstore: killed mid-write 200 times, always reads a complete value\n");
+  freshDir();
+  std::mt19937 rng(42);
+  int ok = 0;
+  for (int round = 0; round < 200; round++) {
+    pid_t child = fork();
+    if (child == 0) {
+      zn::FlowStore fs(kFsDir, 8192);
+      for (uint32_t n = 0;; n++) {
+        // Values of different sizes (some cross a page), each ending in its own number, so a torn value shows.
+        std::string v = "v" + std::to_string(n) + ":" + std::string(500 + (n * 997) % 7000, 'a' + n % 26) + ":" +
+                        std::to_string(n);
+        fs.write("k", v);
+      }
+    }
+    usleep(1000 + rng() % 20000);
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+    zn::FlowStore fs(kFsDir, 8192);
+    auto r = fs.read("k");
+    if (r.status != zn::FlowStore::ReadStatus::Ok) continue;  // killed before the first write finished: allowed once
+    const size_t colon = r.payload.find(':');
+    const std::string head = r.payload.substr(1, colon - 1);
+    const std::string tail = r.payload.substr(r.payload.rfind(':') + 1);
+    if (head == tail) ok++;
+  }
+  std::printf("  %d / 200 rounds read a complete value\n", ok);
+  CHECK(ok >= 199);
+
+  // Cost of one write (a typical flow state is under 1 KB).
+  zn::FlowStore fs(kFsDir);
+  const std::string v(800, 'z');
+  timespec a{}, b{};
+  clock_gettime(CLOCK_MONOTONIC, &a);
+  for (int i = 0; i < 10000; i++) fs.write("speed", v);
+  clock_gettime(CLOCK_MONOTONIC, &b);
+  const double us = ((b.tv_sec - a.tv_sec) * 1e9 + (b.tv_nsec - a.tv_nsec)) / 1e3 / 10000;
+  std::printf("  one 800-byte write: %.2f us (average of 10,000)\n", us);
 }
 
 void testTickAndApply() {
@@ -294,6 +449,11 @@ int main() {
   testNav();
   testListOps();
   testNativeCall();
+  testFlowStoreBasics();
+  testFlowStoreDamage();
+  testFlowStoreGrowth();
+  testFlowStoreThroughRuntime();
+  testFlowStoreKill();
   testTickAndApply();
   testNoOpsNoRequest();
   testTimers();

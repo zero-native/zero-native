@@ -11,6 +11,7 @@
 //
 // App-level events from native use instance 0 (no screen has id 0): START, BACK, FORCED_BACK, OPEN (a deep link
 // while the app runs), INSETS (5, insets.ts). Native side: android/runtime/.../ZnNav.kt.
+import { reportError } from "./errors"
 import { onEvent } from "./events"
 import { installInsets } from "./insets"
 import type { NativeValue } from "./native"
@@ -142,7 +143,7 @@ function onImpressions(payload: NativeValue): void {
   try {
     e.impressions.handler(out)
   } catch (err) {
-    globalThis.__zn_log(3, `impressions handler threw: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`)
+    reportError("impressions handler", err)
   }
 }
 
@@ -224,7 +225,7 @@ function onSystemBack(): void {
     try {
       handled = top.onBack() === true
     } catch (e) {
-      globalThis.__zn_log(3, `useBack handler threw: ${e instanceof Error ? `${e.message}\n${e.stack}` : String(e)}`)
+      reportError("useBack handler", e)
     }
     if (handled) return
   }

@@ -425,7 +425,9 @@ as tasks.
   Known, accepted differences are listed in `docs/platform-differences.md`.
 
 ### 9.6 Accessibility and text
-- Every component maps `label`, `hint`, `role`, `hidden` to native accessibility (TalkBack / VoiceOver).
+- Every component maps `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`, `accessibilityHidden` to
+  native accessibility (TalkBack / VoiceOver). React Native's names for the first three, so RN code ports as it is;
+  RN splits "hidden" per platform, so we have one `accessibilityHidden` (decided 2026-10-30).
 - Font scaling on by default; `maxFontScale` per text style.
 - RTL: `start` / `end` everywhere instead of left / right.
 
@@ -516,6 +518,11 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
     upgrade first** (milestone 2 step 2.0b).
 
 ## 12. Flows and effects (`@flow`)
+
+> **Parked (Pavan, 2026-10-30): not part of v1.** Until then, apps keep payments safe by hand: save a record to
+> FlowStore before acting, check with the backend on start, never repeat `/pay` (`docs/guide-notes.md` §16). The
+> design below stays as the plan for later (`docs/after-foundations.md`, "Flows"). Parts of other sections that wait
+> for flows: "never while a flow is active" (16.1), flows kept across `zn dev` reloads and the `reconcile` lint (17).
 
 ### 12.1 What a flow is
 A flow is a **named state machine whose state is saved before anything else happens**. Use it for anything that must
@@ -629,10 +636,10 @@ Each flow declares `expiresAfter` (sliding by default: refreshed on every save).
 ### 13.1 Two kinds of saved data (decided)
 | | FlowStore (core) | Storage (module) |
 |---|---|---|
-| For | flows, effect records, back stack | app data: settings, caches, drafts, local tables |
+| For | a few records that must never be lost (a pending payment); later flows, effect records, back stack | app data: settings, caches, drafts, local tables |
 | Timing | **written before the next action**, in order | may be delayed and batched |
 | Guarantee | survives process kill; checksum; never half-written | normal key-value guarantees |
-| Implementation | two-slot mmap file in the C++ core, no dependencies | MMKV by default (Android + iOS); swappable |
+| Implementation | two-slot mmap file in the C++ core, no dependencies | MMKV (Android + iOS) called **synchronously** from JS through JSI host functions (no Promises; reads are a memory lookup); swappable |
 
 Secrets (tokens, keys) go in **SecureStore** (Android Keystore-backed / iOS Keychain), never in FlowStore or Storage.
 
@@ -669,6 +676,13 @@ state the whole time.
 FlowStore writes happen on the JS thread (the caller of `go()` / `effect()`), synchronously. They are memory copies,
 so they never block the UI thread.
 
+**Built (milestone 2 step 2.7):** `core/include/zn/flowstore.h` / `core/src/flowstore.cpp` exactly as in 13.2 (one
+`<key>.znfs` file per key, default 32 KB slots, growth to 256 KB, CRC-32 over length + payload). Android folder:
+`noBackupFilesDir/zn`. JS: `flowStore.write / read / list / remove` (`packages/core/src/flowstore.ts`, public: for a
+few must-not-lose records; each key is its own file of at least 64 KB, so it is not a settings store). Measured on the Lava: an 800-byte write takes **4.5–6 µs**; a child process killed
+mid-write at random **200 / 200** times always left a complete, valid value; a damaged newest slot falls back to the
+previous one; both damaged reads as "broken".
+
 ### 13.4 Persisted signals
 `persisted(signal, { key, store: 'storage' })` saves a signal to Storage (debounced). For drafts and preferences only;
 never for anything a flow needs.
@@ -702,8 +716,9 @@ export const Upi = nativeModule<UpiModule>('Upi', { version: 1 })
 ```
 - `zn codegen` generates Kotlin and Swift interfaces plus the argument encoding. The native side implements them.
 - Calls are asynchronous: JS → `__zn_call` → native runs on the module's own thread (or main if it says so) → result
-  posted back to the JS thread. **The transport is built** (milestone 2 step 2.5: `callNative`, `ZnModules`); the
-  typed module system, events (native → JS), cancellation and codegen are proposed in `docs/native-modules.md`.
+  posted back to the JS thread. **Foundations built** (milestone 2 steps 2.5–2.6a): typed `nativeModule<T>`,
+  cancellation, error codes, events with listener counts, versions (`docs/native-modules.md`). Codegen and binary
+  arguments are not built yet; built-in modules are step 2.6b.
 - Each module and its version is a **capability** listed in the app binary (section 16.2).
 
 ### 15.2 Native views
@@ -762,6 +777,18 @@ is offered a newer bundle and safely ignores it.**
   recreating the Hermes runtime in the same process. Restarting the runtime is allowed **in dev builds only** (it is
   an exception to the one-runtime-per-process rule, §8.2); after a reload the runtime re-reads FlowStore and stays on
   the current route. Release builds never contain the dev client.
+
+  **Built (milestone 3 step 3.1, 2026-10-30):** `bun run dev` (`tools/zn-dev.ts`) watches the app's `src/` and the
+  framework packages, rebuilds (`buildApp` in `compiler/src/build-app.ts`, then `hermesc -g1` for line numbers) and
+  sends templates + manifest + bytecode over a plain TCP socket (`adb reverse tcp:8082`; plain TCP needs no
+  cleartext-HTTP setting in the app). On the phone, `ZnDev.kt` (behind `BuildConfig.DEBUG`; R8 removes it from
+  release, checked in the release dex) swaps the runtime (`ZnRuntime.reload`), clears instances, and opens the same
+  back stack again by route name and params. Running native calls are cancelled and event sources told they have no
+  listeners. JS errors (uncaught, or caught by the runtime in handlers / timers / effects / listeners,
+  `packages/core/src/errors.ts` → `__zn_error`) show on a dev error screen; the server maps the stack to TSX file and
+  line (`compiler/src/sourcemap.ts`: Bun's bundle map + the compiler's own map per `.tsx`). Measured on the Lava:
+  save → built 140–210 ms (bundle 30–70 ms, `hermesc` 105–170 ms); phone reload 17–50 ms when idle.
+  Not done yet: in-place reload keeps no screen state (signals start fresh; FlowStore data stays).
 - **Debugging:** Hermes Chrome DevTools debugging (breakpoints, profiler, heap snapshots) over the dev server.
 - **Errors:** JS errors show a dev overlay with the TSX file and line (source maps). In release, JS stack traces are
   sent to the crash reporter and mapped back on the server with the bundle's source maps.
@@ -844,6 +871,7 @@ zero-native/
 | `zn` CLI, `@zero-native/*`, `*.zn.tsx` | **Kept** (working name) | Check the name before going public. |
 
 ## 23. Deferred (not in v1)
+- The flow engine (12): parked 2026-10-30; apps use FlowStore + the save-then-verify pattern.
 - Gesture expressions on the UI thread (10.3).
 - Native list data source for very large lists (v1.1; designed in `docs/lists.md` §6).
 - NativeWind `className` → style translator for porting RN code (v1.1 option; `docs/styling-and-layout.md` §9).
@@ -894,12 +922,17 @@ zero-native/
 | 2026-10-29 | `heroTag`: one per navigation transition, a card/container becoming the next screen | Section 11. Matches iOS 18 zoom transitions, so both platforms stay native (Argon review). |
 | 2026-10-29 | Routes live in one typed `routes.ts` (`defineRoutes`), not `@route` decorators | Section 11. Decorators on functions are not valid TypeScript; one file also gives typed `nav.push(name, params)`. |
 | 2026-10-29 | `<Sheet>` draws in its own full-screen window; a user close only asks (`onDismiss`), JS owns `visible` | Section 9.7. Scrim over the status bar and back-before-screen for free; v0's sheet wrote JS-owned state from native. |
+| 2026-10-29 | Module calls and event listeners belong to the screen that made them (dropped / ended when it closes); native gets listener counts; fast events can be `latestOnly` | `docs/native-modules.md`. No "update after unmount" bugs, no sources running for nobody, no backlog when JS is busy. |
 | 2026-10-29 | Native calls are async only (JS never waits for native); transport = `__zn_call` + app event 7 | Section 15.1, `docs/native-modules.md`. One slow sync call would stall all JS (TurboModules allow sync; we don't). |
 | 2026-10-29 | `<Carousel>` is native (pager, auto-advance only while on screen and resumed); impressions are native-measured (`impressionKey` + `useImpressions`, threshold default 35 %, batched) | Feeds proposal (approved). The RN Offers tab lagged from JS carousel timers and JS `measureInWindow` impression passes during scroll. |
 | 2026-10-29 | `<List>` rows are template instances mounted only near the visible range, with row kinds (one template per `row` leaf) and no version numbers | Section 9.3, `docs/lists.md`. Feeds need rows that hold rails, conditionals and components; ops arrive in order so nothing is stale. Measured: p95 11 ms/frame flinging 10,100 rows on the Lava (release). |
 | 2026-10-29 | Per-edge padding may change at runtime (registry v4), read in the layout phase | Section 11 / `docs/styling-and-layout.md` §6. Full-bleed headers pad by `insets()`; a change re-measures one node and recomposes nothing. Shorthands stay build-time. |
 | 2026-10-29 | `statusBar` sets status bar icons only; navigation bar icons follow the screen background | `docs/styling-and-layout.md` §6. One option for both put a grey scrim over the bottom bar of a full-bleed screen (Lava). |
 | 2026-10-29 | The back stack is owned by JS; a system back press is an event to JS (JS pops, or its `onBack` blocks) | Sections 9.7, 11. One owner, same rule as controlled components; native pops by itself only after the 300 ms timeout and then tells JS. |
+| 2026-10-29 | FlowStore is our own two-copy memory-mapped file in C++ (one file per key, CRC-32, sequence written last), not MMKV, and is framework internal | Section 13. Flows need "saved before I act" on every crash, checked by test (200 / 200 SIGKILL rounds, ~5 µs per write); the same C++ runs on iOS. App data (settings, caches) is a separate, later store. |
+| 2026-10-30 | `zn dev` sends whole builds (templates + bytecode) over plain TCP and restarts the JS runtime; the back stack is reopened by route name | Section 17. Bytecode compiled on the computer loads in ~15–50 ms on the Lava; a fresh runtime has no stale closures or listeners (RN Fast Refresh's common bugs). Plain TCP avoids a cleartext-HTTP exception in every app's manifest. |
+| 2026-10-30 | `storage` (MMKV) is synchronous JSI, not an async native module | Section 13.1. MMKV reads and writes are memory operations (microseconds); a Promise per read would make simple code (`if (storage.get("onboarded"))`) awkward for no gain. Same reason as FlowStore. |
+| 2026-10-30 | Flow engine parked (not in v1); `flowStore` is public and payments use the save-then-verify pattern | Section 12 note, `docs/guide-notes.md` §16. For one or two money journeys, ~30 lines of app code plus the backend's `/verify` give the same safety; the engine pays off with many journeys and teams. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).

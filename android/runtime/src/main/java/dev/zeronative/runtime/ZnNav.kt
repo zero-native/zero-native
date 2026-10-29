@@ -4,7 +4,10 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import org.json.JSONArray
 import org.json.JSONObject
@@ -63,20 +66,59 @@ object ZnNav {
         }
         started = true
         val home = bundle.routes.start ?: error("the bundle has no route with path \"/\"")
-        val first = ArrayList<Pair<ZnRoute, Map<String, String>>>()
-        first += home to emptyMap()
+        val first = ArrayList<Pair<ZnRoute, String>>()
+        first += home to "{}"
         val match = link?.let { match(it) }
-        if (match != null && match.route != home) first += match.route to match.params
+        if (match != null && match.route != home) first += match.route to JSONObject(match.params).toString()
+        startWith(bundle, first)
+    }
 
+    private fun startWith(bundle: ZnBundle, first: List<Pair<ZnRoute, String>>) {
         val payload = JSONArray()
-        for ((route, params) in first) {
+        for ((route, json) in first) {
             val id = nextNativeId++
-            val json = JSONObject(params).toString()
             ZnStore.mountRoot(id, route.templateId, bundle.templates[route.templateId])
             stack += ZnEntry(id, route, json)
             payload.put(JSONObject().put("entry", id.u32()).put("route", route.index).put("params", JSONObject(json)))
         }
         ZnRuntime.dispatchEvent(APP, EVENT_START, payload.toString())
+    }
+
+    /**
+     * Bumped by a dev reload. The host keys its screens on it, so the old screens are dropped at once (no exit
+     * animation over screens whose instances are gone).
+     */
+    var generation by mutableIntStateOf(0)
+        private set
+
+    /**
+     * Debug builds (`zn dev` reload), main thread: forgets the stack and returns it as (route name, params JSON),
+     * bottom first, for [restart].
+     */
+    internal fun resetForReload(): List<Pair<String, String>> {
+        val saved = stack.map { it.route.name to it.params }
+        backFallback?.let(main::removeCallbacks)
+        backFallback = null
+        stack.clear()
+        composed.clear()
+        lastInsets = "" // the new JS must hear the insets again
+        started = false
+        generation++
+        return saved
+    }
+
+    /**
+     * Debug builds (`zn dev` reload): opens the [saved] stack again with the new [bundle], so you stay on the screen
+     * you were on. Routes that no longer exist are skipped; the start route is always at the bottom.
+     */
+    internal fun restart(bundle: ZnBundle, saved: List<Pair<String, String>>) {
+        this.bundle = bundle
+        started = true
+        val home = bundle.routes.start ?: error("the bundle has no route with path \"/\"")
+        val first = ArrayList<Pair<ZnRoute, String>>()
+        for ((name, params) in saved) bundle.routes.all.firstOrNull { it.name == name }?.let { first += it to params }
+        if (first.firstOrNull()?.first != home) first.add(0, home to "{}")
+        startWith(bundle, first)
     }
 
     /** A link while the app runs: JS pushes its route (JS owns the stack). */

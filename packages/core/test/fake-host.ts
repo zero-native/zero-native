@@ -20,6 +20,11 @@ export interface FakeHost {
   logs: Array<[number, string]>
   /** Native module calls JS made. */
   calls: Array<{ module: string; method: string; args: unknown; id: number }>
+  /** Call ids JS told native to cancel. */
+  cancelled: number[]
+  /** FlowStore contents (key → JSON) and keys to report as broken. */
+  store: Map<string, string>
+  broken: Set<string>
   /** Fires a timer the way native does: only if it is still registered on the native side. */
   fire(handle: number): void
 }
@@ -32,6 +37,9 @@ export function installFakeHost(): FakeHost {
     ops: [],
     logs: [],
     calls: [],
+    cancelled: [],
+    store: new Map(),
+    broken: new Set(),
     fire(handle) {
       const t = host.timers.get(handle)
       if (!t) return
@@ -75,8 +83,22 @@ export function installFakeHost(): FakeHost {
   globalThis.__zn_call = (module, method, args, id) => {
     host.calls.push({ module, method, args: JSON.parse(args), id })
   }
+  globalThis.__zn_cancel = (id) => {
+    host.cancelled.push(id)
+  }
+  globalThis.__zn_store_write = (key, json) => {
+    host.store.set(key, json)
+    return true
+  }
+  globalThis.__zn_store_read = (key) => (host.broken.has(key) ? false : (host.store.get(key) ?? null))
+  globalThis.__zn_store_list = () => [...host.store.keys()]
+  globalThis.__zn_store_remove = (key) => host.store.delete(key)
   globalThis.__zn_log = (level, msg) => {
     host.logs.push([level, msg])
+  }
+  // Native logs a reported JS error as "<where>: <details>" (core Platform::jsError).
+  globalThis.__zn_error = (where, details) => {
+    host.logs.push([3, `${where}: ${details}`])
   }
   globalThis.__zn_now = () => 0
   return host

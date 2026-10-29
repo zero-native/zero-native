@@ -9,15 +9,18 @@ const platformDir =
 const exe = process.platform === "win32" ? "hermesc.exe" : "hermesc"
 const hermescPath = join(root, "node_modules/hermes-compiler/hermesc", platformDir, exe)
 
-/** Compiles one JS file to optimised Hermes bytecode. Throws with hermesc's output on failure. */
-export async function hermesc(input: string, output: string): Promise<void> {
+/**
+ * Compiles one JS file to optimised Hermes bytecode. Throws with hermesc's output on failure.
+ * [extraFlags]: for example `-g1` (line numbers in JS stack traces; `zn dev` uses it).
+ */
+export async function hermesc(input: string, output: string, extraFlags: string[] = []): Promise<void> {
   if (!existsSync(hermescPath)) {
     throw new Error(`hermesc not found at ${hermescPath}. Run \`bun install\` at the repo root.`)
   }
   // -Xes6-block-scoping: without it this hermesc treats `let` / `const` like `var`, so closures created in a loop
   // all see the last value (found 2026-10-29: every console level logged as "error"). Hidden flag; see
   // docs/v0-findings.md §P.
-  const proc = Bun.spawn([hermescPath, "-O", "-Xes6-block-scoping", "-emit-binary", "-out", output, input], {
+  const proc = Bun.spawn([hermescPath, "-O", "-Xes6-block-scoping", ...extraFlags, "-emit-binary", "-out", output, input], {
     stdout: "pipe",
     stderr: "pipe",
   })

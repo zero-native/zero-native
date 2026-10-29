@@ -11,6 +11,7 @@
 #include <ctime>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "zn/runtime.h"
 
@@ -24,6 +25,8 @@ jclass g_nativeClass = nullptr;  // global ref to dev/zeronative/runtime/ZnNativ
 jmethodID g_scheduleTimer = nullptr;
 jmethodID g_requestApply = nullptr;
 jmethodID g_callNative = nullptr;
+jmethodID g_cancelNative = nullptr;
+jmethodID g_jsError = nullptr;
 
 JNIEnv* env() {
   JNIEnv* e = nullptr;
@@ -58,15 +61,31 @@ class AndroidPlatform final : public zn::Platform {
     e->DeleteLocalRef(fn);
     e->DeleteLocalRef(args);
   }
+  std::string flowDir;  // FlowStore folder, given by Kotlin (noBackupFilesDir/zn)
+  std::string flowStoreDir() override { return flowDir; }
+  void cancelNative(uint32_t callbackId) override {
+    env()->CallStaticVoidMethod(g_nativeClass, g_cancelNative, static_cast<jint>(callbackId));
+  }
   double nowMs() override {
     timespec ts{};
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<double>(ts.tv_sec) * 1000.0 + static_cast<double>(ts.tv_nsec) / 1e6;
   }
+  void jsError(std::string_view where, std::string_view details) override {
+    zn::Platform::jsError(where, details);  // logcat, as before
+    // As UTF-8 bytes, like callNative: error text may hold emoji, which JNI's own string encoding can't take.
+    std::string text = std::string(where) + "\n" + std::string(details);
+    JNIEnv* e = env();
+    jbyteArray bytes = e->NewByteArray(static_cast<jsize>(text.size()));
+    e->SetByteArrayRegion(bytes, 0, static_cast<jsize>(text.size()), reinterpret_cast<const jbyte*>(text.data()));
+    e->CallStaticVoidMethod(g_nativeClass, g_jsError, bytes);
+    e->DeleteLocalRef(bytes);
+  }
 };
 
 // The runtime and its platform live together; ZnNative holds a pointer to this as a Long.
 struct Holder {
+  explicit Holder(std::string flowDir) { platform.flowDir = std::move(flowDir); }
   AndroidPlatform platform;
   zn::Runtime runtime{platform, [](zn::HostApi& host) { return zn::createHermesEngine(host); }};
 };
@@ -99,13 +118,18 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
   g_scheduleTimer = e->GetStaticMethodID(g_nativeClass, "onScheduleTimer", "(ID)V");
   g_requestApply = e->GetStaticMethodID(g_nativeClass, "onRequestApply", "()V");
   g_callNative = e->GetStaticMethodID(g_nativeClass, "onCallNative", "(Ljava/lang/String;Ljava/lang/String;[BI)V");
-  if (g_scheduleTimer == nullptr || g_requestApply == nullptr || g_callNative == nullptr) return JNI_ERR;
+  g_cancelNative = e->GetStaticMethodID(g_nativeClass, "onCancelNative", "(I)V");
+  g_jsError = e->GetStaticMethodID(g_nativeClass, "onJsError", "([B)V");
+  if (g_scheduleTimer == nullptr || g_requestApply == nullptr || g_callNative == nullptr || g_cancelNative == nullptr ||
+      g_jsError == nullptr) {
+    return JNI_ERR;
+  }
   return JNI_VERSION_1_6;
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_dev_zeronative_runtime_ZnNative_createRuntime(JNIEnv* /* env */, jclass /* clazz */) {
-  auto* h = new Holder();
+Java_dev_zeronative_runtime_ZnNative_createRuntime(JNIEnv* env, jclass /* clazz */, jstring flowDir) {
+  auto* h = new Holder(toStdString(env, flowDir));
   __android_log_print(ANDROID_LOG_INFO, kTag, "runtime created (Hermes, microtask queue on)");
   return reinterpret_cast<jlong>(h);
 }
@@ -134,6 +158,18 @@ Java_dev_zeronative_runtime_ZnNative_evalAsset(JNIEnv* e, jclass /* clazz */, jl
       static_cast<size_t>(AAsset_getLength(asset)),
       owner,
   };
+  return toResult(e, holder(handle)->runtime.evalBytecode(bytes, name));
+}
+
+// Runs bytecode from a Java byte array (debug builds: a new build from `zn dev`). The bytes are copied once.
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_zeronative_runtime_ZnNative_evalBytes(JNIEnv* e, jclass /* clazz */, jlong handle, jbyteArray jBytes,
+                                               jstring jName) {
+  const std::string name = toStdString(e, jName);
+  const jsize length = e->GetArrayLength(jBytes);
+  auto copy = std::make_shared<std::vector<uint8_t>>(static_cast<size_t>(length));
+  e->GetByteArrayRegion(jBytes, 0, length, reinterpret_cast<jbyte*>(copy->data()));
+  zn::Bytes bytes{copy->data(), copy->size(), copy};
   return toResult(e, holder(handle)->runtime.evalBytecode(bytes, name));
 }
 

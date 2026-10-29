@@ -41,6 +41,11 @@ internal object ZnImpressions {
             if (value) refresh() else flush()
         }
 
+    /** Debug builds (`zn dev` reload): the screens are replaced, so every tracked screen is dropped unsent. */
+    fun resetForReload() {
+        tracks.clear()
+    }
+
     /** NAV IMPRESSIONS: the screen [entry] tracks impressions with these settings. */
     fun configure(entry: Int, params: String?) {
         val json = runCatching { JSONObject(params ?: "{}") }.getOrDefault(JSONObject())

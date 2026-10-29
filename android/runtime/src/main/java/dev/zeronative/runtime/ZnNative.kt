@@ -11,12 +11,16 @@ internal object ZnNative {
         System.loadLibrary("zn")
     }
 
-    @JvmStatic external fun createRuntime(): Long
+    /** [flowDir]: an existing app-private folder for FlowStore files, excluded from backups. */
+    @JvmStatic external fun createRuntime(flowDir: String): Long
 
     @JvmStatic external fun destroyRuntime(runtime: Long)
 
     /** Returns "ok:<value>" or "error:<message>". */
     @JvmStatic external fun evalAsset(runtime: Long, assets: AssetManager, name: String): String
+
+    /** Like [evalAsset], for bytecode in memory (debug builds: a new build from `zn dev`). */
+    @JvmStatic external fun evalBytes(runtime: Long, bytes: ByteArray, name: String): String
 
     /** payloadKind: 0 null, 1 boolean (number != 0), 2 number, 3 string. */
     @JvmStatic external fun dispatchEvent(
@@ -36,4 +40,9 @@ internal object ZnNative {
 
     @JvmStatic fun onCallNative(module: String, method: String, args: ByteArray, callbackId: Int) =
         ZnModules.call(module, method, String(args, Charsets.UTF_8), callbackId)
+
+    @JvmStatic fun onCancelNative(callbackId: Int) = ZnModules.cancel(callbackId)
+
+    /** JS threw and nothing caught it. "where\nmessage and JS stack", as UTF-8. Already in logcat. */
+    @JvmStatic fun onJsError(text: ByteArray) = ZnRuntime.jsError(String(text, Charsets.UTF_8))
 }

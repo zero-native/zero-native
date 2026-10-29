@@ -3,79 +3,210 @@ package dev.zeronative.runtime
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import org.json.JSONObject
 
-/** The answer to one native call. Call exactly one of the two, from any thread. */
-interface ZnReply {
+/**
+ * One call from JS to a native module. Finish it exactly once with [resolve] or [reject], from any thread.
+ * [isCancelled] turns true if JS gives up (AbortSignal, or the screen that asked closed); then any answer is dropped,
+ * so long work should check it, or stop in [onCancel].
+ */
+interface ZnCall {
+    val args: JSONObject
+    val isCancelled: Boolean
+
     /** [value]: null, Boolean, Number, String, JSONObject or JSONArray. */
-    fun ok(value: Any?)
-    fun error(message: String)
+    fun resolve(value: Any? = null)
+
+    /** [code]: "invalid_args", "failed", "unavailable", or the module's own code; JS gets NativeError(code, message). */
+    fun reject(code: String, message: String)
+
+    /** Runs [block] (once, on any thread) if JS cancels this call. Runs at once if it already did. */
+    fun onCancel(block: () -> Unit)
 }
 
 /**
- * A native module JS can call (ARCHITECTURE §15.1): `callNative("os", "upiApps", {...})` in JS ends up in
- * [call] with method "upiApps". Runs on the I/O pool unless [onMainThread]; it must never block the UI thread.
+ * A native module JS can call (ARCHITECTURE §15.1, docs/native-modules.md). Most modules extend [ZnModuleBase]
+ * instead of implementing this directly.
  */
 interface ZnModule {
     val name: String
-    val onMainThread: Boolean get() = false
-    fun call(method: String, args: JSONObject, reply: ZnReply)
+    /** Raised when the module gains methods or changes behaviour; JS declares the lowest version it needs. */
+    val version: Int get() = 1
+
+    /** True: [call] runs on the main thread (UI work: starting activities). Default: the I/O pool. */
+    fun runsOnMain(method: String): Boolean = false
+
+    fun call(method: String, call: ZnCall)
+
+    /** How many JS listeners [event] has now (sent on every change). Start or stop the source accordingly. */
+    fun onListenerCount(event: String, count: Int) {}
+}
+
+/**
+ * A module as a table of named functions:
+ *
+ *     class DeviceModule : ZnModuleBase("Device", version = 1) {
+ *         init {
+ *             function("info") { it.resolve(JSONObject().put("model", Build.MODEL)) }
+ *             function("open", onMain = true) { ... }
+ *         }
+ *         override fun onListenerCount(event: String, count: Int) { if (count > 0) start() else stop() }
+ *         private fun tick(n: Int) = emit("tick", n, latestOnly = true)
+ *     }
+ *
+ * Unknown methods are rejected with "unavailable"; an exception in a function rejects with "failed".
+ */
+abstract class ZnModuleBase(override val name: String, override val version: Int = 1) : ZnModule {
+    private class Fn(val onMain: Boolean, val body: (ZnCall) -> Unit)
+    private val fns = HashMap<String, Fn>()
+
+    protected fun function(method: String, onMain: Boolean = false, body: (ZnCall) -> Unit) {
+        fns[method] = Fn(onMain, body)
+    }
+
+    override fun runsOnMain(method: String) = fns[method]?.onMain == true
+
+    override fun call(method: String, call: ZnCall) {
+        val fn = fns[method] ?: return call.reject("unavailable", "$name has no method \"$method\"")
+        fn.body(call)
+    }
+
+    /** Sends [event] to JS listeners. [latestOnly]: if JS is busy, only the newest value of this event is delivered. */
+    protected fun emit(event: String, payload: Any? = null, latestOnly: Boolean = false) =
+        ZnModules.emit(name, event, payload, latestOnly)
 }
 
 /**
  * Registered native modules and the call path: JS `__zn_call` → C++ → [call] (on the JS thread) → the module, on the
- * I/O pool → the reply goes back to JS as app event 7 (`{ id, ok, value | error }`), which resolves the JS Promise
- * (packages/core/src/calls.ts). The JS thread and the UI thread never wait for a module.
+ * I/O pool or the main thread → the answer goes back to JS as app event 7 (`{ id, ok, value | code, error }`), which
+ * settles the JS Promise (packages/core/src/calls.ts). JS `__zn_cancel` → [cancel]. Module events → app event 8.
+ * The JS thread and the UI thread never wait for a module.
  */
 object ZnModules {
     private const val TAG = "zn"
     private const val APP = 0
     private const val EVENT_RESULT = 7
+    private const val EVENT_MODULE = 8
+    private const val NO_REPLY = 0
 
-    private val modules = HashMap<String, ZnModule>()
+    private val modules = ConcurrentHashMap<String, ZnModule>()
+    private val active = ConcurrentHashMap<Int, CallImpl>()
+    private val latest = HashMap<String, String>() // module\u0000event → newest payload JSON (latestOnly events)
+    private val listening = HashMap<String, Int>() // module\u0000event → JS listener count; main thread only
     private val io = Executors.newFixedThreadPool(2) { r -> Thread(r, "zn-call").apply { isDaemon = true } }
     private val main = Handler(Looper.getMainLooper())
 
     /** Registers [module] under its name (the app, or the runtime for built-ins). Replaces one with the same name. */
-    @Synchronized
     fun register(module: ZnModule) {
         modules[module.name] = module
     }
 
+    /** Sends a module event to JS (any thread). See [ZnModuleBase.emit]. */
+    fun emit(module: String, event: String, payload: Any?, latestOnly: Boolean) {
+        val json = JSONObject().put("module", module).put("event", event).put("payload", payload ?: JSONObject.NULL).toString()
+        if (!latestOnly) return ZnRuntime.dispatchEvent(APP, EVENT_MODULE, json)
+        val key = "$module\u0000$event"
+        val first = synchronized(latest) { latest.put(key, json) == null }
+        // One delivery is queued at a time per event; it takes whatever is newest when the JS thread gets to it.
+        if (first) ZnRuntime.dispatchLatest(APP, EVENT_MODULE) { synchronized(latest) { latest.remove(key) } }
+    }
+
     internal fun call(module: String, method: String, argsJson: String, callbackId: Int) {
-        val m = synchronized(this) { modules[module] }
-        val reply = Reply(callbackId, "$module.$method")
-        if (m == null) return reply.error("no native module \"$module\"")
+        val m = modules[module]
         val args = try {
             JSONObject(argsJson.ifEmpty { "{}" })
         } catch (e: Exception) {
-            return reply.error("$module.$method: arguments are not a JSON object")
+            if (callbackId != NO_REPLY) CallImpl(callbackId, "$module.$method", JSONObject()).reject("invalid_args", "arguments are not a JSON object")
+            return
         }
+        // Internal: JS listener counts for module events (no reply).
+        if (method == "__listeners") {
+            if (m != null) main.post {
+                val event = args.optString("event")
+                val count = args.optInt("count")
+                if (count > 0) listening["$module\u0000$event"] = count else listening.remove("$module\u0000$event")
+                m.onListenerCount(event, count)
+            }
+            return
+        }
+        val call = CallImpl(callbackId, "$module.$method", args)
+        if (m == null) return call.reject("unavailable", "no native module \"$module\" in this app")
+        val needs = args.optInt("__v", 1)
+        args.remove("__v")
+        if (m.version < needs) {
+            return call.reject("unavailable", "this app has $module v${m.version}; the code needs v$needs")
+        }
+        active[callbackId] = call
         val run = Runnable {
+            if (call.isCancelled) return@Runnable
             try {
-                m.call(method, args, reply)
+                m.call(method, call)
             } catch (e: Exception) {
                 Log.e(TAG, "$module.$method threw", e)
-                reply.error("$module.$method failed: ${e.message ?: e::class.java.simpleName}")
+                call.reject("failed", "$module.$method failed: ${e.message ?: e::class.java.simpleName}")
             }
         }
-        if (m.onMainThread) main.post(run) else io.execute(run)
+        if (m.runsOnMain(method)) main.post(run) else io.execute(run)
     }
 
-    private class Reply(private val id: Int, private val what: String) : ZnReply {
+    internal fun cancel(callbackId: Int) {
+        active.remove(callbackId)?.cancel()
+    }
+
+    /**
+     * Debug builds (`zn dev` reload), main thread: the old JS is gone, so every running call is cancelled (its answer
+     * is dropped) and every event source is told it has no listeners left.
+     */
+    internal fun resetForReload() {
+        for (id in active.keys.toList()) cancel(id)
+        for ((key, _) in listening.toList()) {
+            val (module, event) = key.split('\u0000', limit = 2)
+            modules[module]?.onListenerCount(event, 0)
+        }
+        listening.clear()
+        synchronized(latest) { latest.clear() }
+    }
+
+    private class CallImpl(private val id: Int, private val what: String, override val args: JSONObject) : ZnCall {
         @Volatile private var done = false
+        @Volatile override var isCancelled = false
+            private set
+        private val cancelHooks = ArrayList<() -> Unit>()
 
-        override fun ok(value: Any?) = send(JSONObject().put("id", id).put("ok", true).put("value", value ?: JSONObject.NULL))
+        override fun resolve(value: Any?) =
+            send(JSONObject().put("id", id).put("ok", true).put("value", value ?: JSONObject.NULL))
 
-        override fun error(message: String) = send(JSONObject().put("id", id).put("ok", false).put("error", message))
+        override fun reject(code: String, message: String) =
+            send(JSONObject().put("id", id).put("ok", false).put("code", code).put("error", message))
+
+        override fun onCancel(block: () -> Unit) {
+            val runNow = synchronized(cancelHooks) {
+                if (!isCancelled) cancelHooks += block
+                isCancelled
+            }
+            if (runNow) block()
+        }
+
+        fun cancel() {
+            val hooks = synchronized(cancelHooks) {
+                isCancelled = true
+                cancelHooks.toList().also { cancelHooks.clear() }
+            }
+            hooks.forEach { runCatching(it).onFailure { e -> Log.e(TAG, "$what: onCancel threw", e) } }
+        }
 
         private fun send(payload: JSONObject) {
-            if (done) {
-                Log.w(TAG, "$what replied twice; the second reply is ignored")
-                return
+            synchronized(this) {
+                if (done) {
+                    Log.w(TAG, "$what answered twice; the second answer is ignored")
+                    return
+                }
+                done = true
             }
-            done = true
+            active.remove(id)
+            if (isCancelled || id == NO_REPLY) return // JS gave up on it: drop the answer
             ZnRuntime.dispatchEvent(APP, EVENT_RESULT, payload.toString())
         }
     }

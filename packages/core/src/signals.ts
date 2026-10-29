@@ -17,6 +17,8 @@ const DIRTY = 2
 
 type Cleanup = () => void
 
+import { reportError } from "./errors"
+
 export class Owner {
   owned: Owner[] | null = null
   cleanups: Cleanup[] | null = null
@@ -115,7 +117,7 @@ class Computation extends Owner implements Source {
       next = this.fn()
     } catch (e) {
       // An error must not break the reactive graph; effects log it, computeds keep their old value.
-      logError(this.isEffect ? "effect" : "computed", e)
+      reportError(this.isEffect ? "effect" : "computed", e)
       next = this.value
     } finally {
       observer = prevObserver
@@ -170,16 +172,10 @@ function runSafely(fn: () => void, what: string) {
   try {
     fn()
   } catch (e) {
-    logError(what, e)
+    reportError(what, e)
   }
 }
 
-function logError(what: string, e: unknown) {
-  const msg = e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e)
-  const log = (globalThis as any).__zn_log
-  if (typeof log === "function") log(3, `${what} threw: ${msg}`)
-  else console.error(`${what} threw: ${msg}`)
-}
 
 // ---- Public API --------------------------------------------------------------------------------------------------
 

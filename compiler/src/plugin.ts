@@ -7,6 +7,7 @@ import { existsSync } from "node:fs"
 import ts from "typescript"
 import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule } from "./compile"
+import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
 
 /** One route in the manifest: the route entry with its screen's template id. */
@@ -21,11 +22,14 @@ export interface ZnBuild {
   plugin: BunPlugin
   /** After Bun.build: the .zn.ui bytes and the manifest. */
   outputs(): { templates: Uint8Array; manifest: ZnManifest }
+  /** After Bun.build: per .tsx file (absolute path), compiler output position → TSX position. */
+  maps: Map<string, LineMap>
 }
 
 export function znBuild(): ZnBuild {
   const specs: NodeSpec[] = []
   const components: Record<string, number> = {}
+  const maps = new Map<string, LineMap>()
   let routes: { file: string; entries: RouteEntry[] } | null = null
   const ctx = {
     reserveTemplate() {
@@ -50,6 +54,7 @@ export function znBuild(): ZnBuild {
           }
           components[name] = id
         }
+        maps.set(path, out.map)
         return { contents: out.code, loader: "ts" }
       })
       // Plain .ts files pass through unchanged; the one with defineRoutes(...) is also read for the route table.
@@ -69,6 +74,7 @@ export function znBuild(): ZnBuild {
 
   return {
     plugin,
+    maps,
     outputs() {
       const table: ManifestRoute[] = (routes?.entries ?? []).map((r) => {
         const screen = components[r.component]
@@ -102,7 +108,8 @@ async function loadStaticImports(source: string, path: string): Promise<Map<stri
     if (!file) continue
     const named = stmt.importClause?.namedBindings
     if (!named || !ts.isNamedImports(named)) continue
-    const mod = await import(file)
+    // The query makes Bun load the file again: `zn dev` rebuilds in the same process, and tokens may have changed.
+    const mod = await import(`${file}?t=${Date.now()}`)
     for (const el of named.elements) {
       const imported = (el.propertyName ?? el.name).text
       if (imported in mod) out.set(el.name.text, mod[imported])

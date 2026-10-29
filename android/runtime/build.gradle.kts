@@ -29,6 +29,7 @@ android {
     buildFeatures {
         prefab = true
         compose = true
+        buildConfig = true // BuildConfig.DEBUG gates the dev client (`zn dev`); R8 drops it from release builds
     }
 
     // CMake copies the prefab libraries we link against into this library's output, but the Hermes AAR (an `api`

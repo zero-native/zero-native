@@ -54,9 +54,13 @@ Pavan, 2026-10-29: feeds and catalogues need Flutter-sliver-like behaviour:
 | NativeWind `className` translator | Compile-time Tailwind subset → style keys, for porting ZeroBill RN code | `docs/styling-and-layout.md` §9 | v1.1, not decided. |
 | Cronet / HTTP/3 backend for `fetch` | Optional network backend | ARCHITECTURE §14 | Only if needed. |
 
-## Flows (deferred by Pavan to the framework build)
+## Flows (parked by Pavan, 2026-10-30)
+Apps keep payments safe with FlowStore and the save-then-verify pattern (`docs/guide-notes.md` §16). The flow engine
+below would make those rules automatic for every journey; pick it up when several apps or teams need it.
 | Item | What | Source |
 |---|---|---|
+| Flow engine | `defineFlow`, saving before every step, effects `safe` / `keyed` / `once` with a required reconcile step, restoring screens and state after a kill, safe mode, flow versions with OTA, lint for missing `reconcile` | ARCHITECTURE §12 (full design kept there) |
+| Result hook | `ZnActivityResults.onResult` (step 2.6b) is the single entry point for results from other apps; the engine would save each result to FlowStore before JS hears about it | ARCHITECTURE §12.4 |
 | Restored flows must finish | Restored runs logged 0 `/verify` calls in v0; the flow tests must assert `/verify` happens and a final screen shows | `docs/v0-findings.md` §D |
 | `/pay` died mid-call | No `ztc` to verify with; UPI never opened, so "payment not started → try again" | `docs/v0-findings.md` §D |
 | Backend idempotency key for `/pay` | Would make `/pay` `keyed` | `experiments/exp-notes/5-pay-idempotency.md` |

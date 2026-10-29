@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -33,7 +34,16 @@ class Platform {
   // delivers the result to JS with dispatchEvent(0, 7, {"id", "ok", "value" | "error"}). Must not block.
   virtual void callNative(std::string_view module, std::string_view method, std::string_view argsJson,
                           uint32_t callbackId) = 0;
+  // JS gave up on a call (AbortSignal, or its screen closed): the platform marks it cancelled and drops its reply.
+  virtual void cancelNative(uint32_t callbackId) = 0;
+  // An existing, app-private folder for FlowStore files, excluded from backups (Android: noBackupFilesDir/zn).
+  virtual std::string flowStoreDir() = 0;
   virtual double nowMs() = 0;
+  // JS threw and nothing caught it (in a script, an event handler or a timer). `details` is the message and the JS
+  // stack. Debug builds show it on screen (`zn dev`); the default only logs it.
+  virtual void jsError(std::string_view where, std::string_view details) {
+    log(3, std::string(where) + ": " + std::string(details));
+  }
 };
 
 class Runtime final : private HostApi {
@@ -64,9 +74,16 @@ class Runtime final : private HostApi {
   void listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) override;
   void call(std::string_view module, std::string_view method, std::string_view argsJson,
             uint32_t callbackId) override;
+  void cancelCall(uint32_t callbackId) override;
+  bool storeWrite(std::string_view key, std::string_view payload, std::string* error) override;
+  FlowStore::ReadResult storeRead(std::string_view key) override;
+  std::vector<std::string> storeList() override;
+  bool storeRemove(std::string_view key) override;
+  FlowStore& flowStore();
   uint32_t setTimer(double delayMs, bool repeat) override;
   void clearTimer(uint32_t handle) override;
   void log(int level, std::string_view message) override;
+  void jsError(std::string_view where, std::string_view details) override;
   double nowMs() override;
 
   void endTick();
@@ -78,6 +95,7 @@ class Runtime final : private HostApi {
 
   Platform& platform_;
   std::unique_ptr<Engine> engine_;
+  std::unique_ptr<FlowStore> flowStore_;      // JS thread only; opened on first use
 
   Batch tick_;                                 // JS thread only: ops of the current tick
   std::unordered_map<uint32_t, Timer> timers_; // JS thread only

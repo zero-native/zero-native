@@ -305,3 +305,33 @@ describe("end to end: compiled code runs on the view runtime", () => {
     expect(Prop.text.id).toBe(50)
   })
 })
+
+describe("source map (zn dev error lines)", () => {
+  test("copied code maps to its TSX line and column; generated code to its JSX", () => {
+    const src = [
+      `import { Column, Pressable, Text } from "@zero-native/ui"`, // 0
+      `export function Screen() {`, // 1
+      `  const n = signal(0)`, // 2
+      `  return (`, // 3
+      `    <Column>`, // 4
+      `      <Pressable onPress={() => {`, // 5
+      `        boom(n())`, // 6
+      `      }}>`, // 7
+      `        <Text>Count {n()}</Text>`, // 8
+      `      </Pressable>`, // 9
+      `    </Column>`, // 10
+      `  )`, // 11
+      `}`, // 12
+    ].join("\n")
+    const { code, map } = compile(src)
+    expect(code).not.toMatch(/[\u0001-\u0003]/) // markers are gone
+    const lines = code.split("\n")
+    const at = (needle: string) => {
+      const line = lines.findIndex((l) => l.includes(needle))
+      return map.lookup(line, lines[line].indexOf(needle))
+    }
+    expect(at("boom(n())")).toEqual({ line: 6, col: 8 })
+    expect(at("const n = signal(0)")).toEqual({ line: 2, col: 2 })
+    expect(at("__zn.ready")?.line).toBe(4) // generated: points at the screen's root element
+  })
+})

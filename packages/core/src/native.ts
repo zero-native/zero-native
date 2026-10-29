@@ -29,9 +29,12 @@ declare global {
   ) => void
   var __zn_listRow: (instance: number, node: number, key: string, row: number) => void
   var __zn_call: (module: string, method: string, argsJson: string, callbackId: number) => void
+  var __zn_cancel: (callbackId: number) => void
   var __zn_setTimer: (delayMs: number, repeat: boolean) => number
   var __zn_clearTimer: (handle: number) => void
   var __zn_log: (level: number, message: string) => void
+  /** A JS error that was caught (errors.ts): logged, and shown on the dev error screen in debug builds. */
+  var __zn_error: (where: string, details: string) => void
   var __zn_now: () => number
   // Defined by this package, called by native:
   var __zn_onTimer: (handle: number) => void

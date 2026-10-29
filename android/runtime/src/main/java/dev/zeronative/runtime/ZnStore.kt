@@ -163,6 +163,12 @@ object ZnStore {
     /** Drops a screen root and everything mounted under it (its entry left the back stack, ZnNav). */
     internal fun removeRoot(id: Int) = removeTree(id)
 
+    /** Debug builds (`zn dev` reload): forget every instance; the new JS starts its ids from 1 again. */
+    internal fun resetForReload() {
+        instances.clear()
+        placeholders.clear()
+    }
+
     private fun removeTree(id: Int) {
         val inst = instances.remove(id) ?: return
         for (child in inst.allChildren()) removeTree(child)

@@ -29,6 +29,7 @@ import {
   templateIds,
 } from "@zero-native/template"
 import { fold, NOT_STATIC, type FoldScope } from "./fold"
+import { assemble, type LineMap, markCopied } from "./sourcemap"
 
 export interface CompileContext {
   /** Reserves the next template id (its index in the app's .zn.ui file). Parents reserve before their branches. */
@@ -41,6 +42,8 @@ export interface CompileOutput {
   code: string
   /** Component name → template id of its (first) returned JSX. */
   components: Record<string, number>
+  /** Output position → TSX position (for `zn dev` error screens). */
+  map: LineMap
 }
 
 const RUNTIME = "__zn"
@@ -57,7 +60,8 @@ export function compileModule(
   const scope: FoldScope = { consts: new Map(), staticImports }
   const userComponents = new Set<string>()
   const candidates: Array<{ name: string; fn: ts.FunctionLikeDeclaration }> = []
-  const edits: Array<{ start: number; end: number; text: string }> = []
+  // `at`: where generated code points in the source map (the JSX element, not the parenthesis around it).
+  const edits: Array<{ start: number; end: number; text: string; at?: number }> = []
   const components: Record<string, number> = {}
 
   const fail = (node: ts.Node, message: string): never => {
@@ -68,7 +72,8 @@ export function compileModule(
     forEachDescendant(node, (n) => {
       if (isJsx(n)) fail(n, "JSX isn't allowed here (only as children, in `&&` / `? :` branches, or in `.map(...)` rows)")
     })
-    return source.slice(node.getStart(sf), node.getEnd())
+    // Marked, so the source map can point errors inside handlers and expressions at their exact TSX line.
+    return markCopied(node.getStart(sf), source.slice(node.getStart(sf), node.getEnd()))
   }
 
   // ---- Module scan --------------------------------------------------------------------------------------------
@@ -118,7 +123,7 @@ export function compileModule(
     }
     for (const r of roots) {
       const compiled = compileRoot(unwrap(r) as JsxNode)
-      edits.push({ start: r.getStart(sf), end: r.getEnd(), text: compiled.code })
+      edits.push({ start: r.getStart(sf), end: r.getEnd(), text: compiled.code, at: unwrap(r).getStart(sf) })
       if (compiled.templateId !== null && !(name in components)) components[name] = compiled.templateId
     }
   }
@@ -131,12 +136,19 @@ export function compileModule(
     }
   })
 
-  let code = source
-  for (const e of [...edits].sort((a, b) => b.start - a.start)) code = code.slice(0, e.start) + e.text + code.slice(e.end)
-  if (replaced.length > 0) code = `import * as ${RUNTIME} from "@zero-native/core";\n${code}`
+  const pieces: Parameters<typeof assemble>[1] = []
+  if (replaced.length > 0) pieces.push({ generatedAt: 0, text: `import * as ${RUNTIME} from "@zero-native/core";\n` })
+  let at = 0
+  for (const e of [...edits].sort((a, b) => a.start - b.start)) {
+    pieces.push({ copyFrom: at, text: source.slice(at, e.start) })
+    pieces.push({ generatedAt: e.at ?? e.start, text: e.text })
+    at = e.end
+  }
+  pieces.push({ copyFrom: at, text: source.slice(at) })
   // Each component's template id, readable at runtime without running it (a <List> row's type, in any file).
-  for (const [name, id] of Object.entries(components)) code += `\n${name}.__zt = ${id};`
-  return { code, components }
+  for (const [name, id] of Object.entries(components)) pieces.push({ generatedAt: source.length, text: `\n${name}.__zt = ${id};` })
+  const { code, map } = assemble(source, pieces)
+  return { code, components, map }
 
   // ---- Templates ----------------------------------------------------------------------------------------------
 

@@ -13,6 +13,7 @@ Runtime::~Runtime() = default;
 
 EvalResult Runtime::evalBytecode(const Bytes& bytecode, std::string_view url) {
   EvalResult result = engine_->evalBytecode(bytecode, url);
+  if (!result.ok) platform_.jsError("script " + std::string(url) + " failed", result.value);
   endTick();
   return result;
 }
@@ -20,7 +21,7 @@ EvalResult Runtime::evalBytecode(const Bytes& bytecode, std::string_view url) {
 void Runtime::dispatchEvent(uint32_t instance, uint16_t eventId, const Value& payload) {
   const std::array<Value, 3> args{Value::number(instance), Value::number(eventId), payload};
   EvalResult result = engine_->callGlobal("__zn_onEvent", args);
-  if (!result.ok) platform_.log(3, "event handler failed: " + result.value);
+  if (!result.ok) platform_.jsError("event handler failed", result.value);
   endTick();
 }
 
@@ -38,7 +39,7 @@ void Runtime::fireTimer(uint32_t handle) {
 
   const std::array<Value, 1> args{Value::number(handle)};
   EvalResult result = engine_->callGlobal("__zn_onTimer", args);
-  if (!result.ok) platform_.log(3, "timer callback failed: " + result.value);
+  if (!result.ok) platform_.jsError("timer callback failed", result.value);
   endTick();
 }
 
@@ -106,6 +107,25 @@ void Runtime::call(std::string_view module, std::string_view method, std::string
   platform_.callNative(module, method, argsJson, callbackId);
 }
 
+void Runtime::cancelCall(uint32_t callbackId) { platform_.cancelNative(callbackId); }
+
+FlowStore& Runtime::flowStore() {
+  if (!flowStore_) flowStore_ = std::make_unique<FlowStore>(platform_.flowStoreDir());
+  return *flowStore_;
+}
+
+bool Runtime::storeWrite(std::string_view key, std::string_view payload, std::string* error) {
+  const bool ok = flowStore().write(key, payload, error);
+  if (!ok) platform_.log(3, "flowstore: write of \"" + std::string(key) + "\" failed: " + (error ? *error : ""));
+  return ok;
+}
+
+FlowStore::ReadResult Runtime::storeRead(std::string_view key) { return flowStore().read(key); }
+
+std::vector<std::string> Runtime::storeList() { return flowStore().list(); }
+
+bool Runtime::storeRemove(std::string_view key) { return flowStore().remove(key); }
+
 uint32_t Runtime::setTimer(double delayMs, bool repeat) {
   const uint32_t handle = nextTimer_++;
   // A repeating timer with no delay would spin forever; give it at least 1 ms.
@@ -118,6 +138,8 @@ uint32_t Runtime::setTimer(double delayMs, bool repeat) {
 void Runtime::clearTimer(uint32_t handle) { timers_.erase(handle); }
 
 void Runtime::log(int level, std::string_view message) { platform_.log(level, message); }
+
+void Runtime::jsError(std::string_view where, std::string_view details) { platform_.jsError(where, details); }
 
 double Runtime::nowMs() { return platform_.nowMs(); }
 

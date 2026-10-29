@@ -33,7 +33,9 @@ kept with `-dontobfuscate`, so traces stay readable):
 ```bash
 .\gradlew.bat :sample:installRelease
 ```
-Logs: `adb logcat -s zn zn-js zn-sample`. Measure cold start as in `docs/startup-and-performance.md` §3 (release only).
+While working on screens, run `bun run dev` instead of `bun run sample:js` + reinstall: saved changes reach the
+debug build on the phone in under a second (`docs/guide-notes.md` §17). Install the debug build once first.
+Logs: `adb logcat -s zn zn-js zn-sample zn-dev`. Measure cold start as in `docs/startup-and-performance.md` §3 (release only).
 Debug helper: `adb shell setprop debug.zn.js_delay_ms 3000` delays JS to watch the template skeleton on its own
 (debug builds only; set back to `0`). After changing `packages/template/src/registry.ts`, run `bun run gen:registry`.
 
@@ -62,15 +64,33 @@ Full brief with design decisions, tests and phone checks per step:
 | 2.4b | Rails inside rows (`Scroll horizontal`), gradient backgrounds | Claude | **done 2026-10-29** |
 | 2.4c | `<Carousel>`: native paging, snap, auto-advance, dots | Claude | **done 2026-10-29** |
 | 2.4d | Impressions: `impressionKey` + `useImpressions` (threshold default 35 %, `minMs`), native-measured, batched | Claude | **done 2026-10-29** |
-| 2.4e | Benchmark: offers feed from `test-kit/offers-data.json` vs the RN Offers tab (release, Lava) | Claude | next: needs Pavan to run `tools/measure-frames.ps1` on the RN app |
+| 2.4e | Benchmark: offers feed from `test-kit/offers-data.json` vs the RN Offers tab (release, Lava) | Claude | skipped by Pavan (no benchmarking for now); `tools/measure-frames.ps1` stays for later |
 | 2.5 | `<Sheet>`: native drag and detents, controlled by JS (+ the native-call transport) | Claude | **done 2026-10-29** |
-| 2.6 | **Native modules v1** (`docs/native-modules.md`: typed `nativeModule<T>`, events, codegen, cancellation) + `fetch`, `os.launchActivity`, `os.upiApps` | Claude | waiting for Pavan on the proposal |
-| 2.7 | FlowStore (C++) | Claude | |
-| 2.8 | Flows: effects, write-ahead, restore, safe mode; checkout flow with the mock UPI app | Claude | |
+| 2.6a | Native module foundations: typed `nativeModule<T>`, events + listener counts, cancellation, error codes, versions (`docs/native-modules.md`) | Claude | **done 2026-10-29** |
+| 2.6b | Built-in modules on top: `Os.upiApps` + `zn://app-icon`, small `Os` methods, `launchActivity` with results, permissions (`docs/cross-communication/2026-10-29-native-modules-brief.md`); `fetch` and codegen later | Gemini | next |
+| 2.7 | FlowStore (C++): two-slot crash-safe file, checksums, growth; JS `flowStore` | Claude | **done 2026-10-29** |
+| 2.8 | ~~Flows engine~~ (parked 2026-10-30, `docs/after-foundations.md`). Instead: a sample checkout with the save-then-verify pattern (`docs/guide-notes.md` §16) against the mock UPI app, including the app being killed while the UPI app is open | Claude | after 2.6b (`launchActivity`) |
 | 2.9 | Release measurements; close the milestone | Gemini, Claude reviews | |
 
-Later milestones: **3** OTA bundles, capability manifest, `zn dev`, debugger, source maps; **4** ZeroBill checkout
-pilot with a full-app size measurement.
+## Milestone 3: real-app essentials + a fast dev loop (Android)
+Agreed with Pavan 2026-10-30. The framework stays linked to the sample app (no separate npm / Maven packaging) until
+milestone 3 or 4 ends. Registry ids are split so Gemini and Claude never pick the same number: Claude uses
+components 15–19, props 122–199, events 11–29; Gemini uses components 20–29, props 200–249, events 30–39.
+
+| Step | What | Builder | Status |
+|---|---|---|---|
+| 3.1 | `zn dev`: save a TSX file → the screen reloads on the phone (debug builds only); JS errors show a dev error screen with the TSX file and line (source maps) | Claude | **done 2026-10-30** |
+| 3.2 | Compiler gaps: children for user components, fragments `<>…</>`, text spans, JSX types for editors | Claude | |
+| 3.3 | `<TextField>`: the native field owns the text, `onChange` to JS, controlled value, keyboard insets | Claude | |
+| 3.4 | `fetch` subset over OkHttp (method, headers, body, JSON, timeout, `AbortSignal`) | Claude | |
+| 3.5 | `storage` (MMKV) with **synchronous** JSI calls (no Promises), `SecureStore` (Android Keystore) | Claude | |
+| 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | |
+| 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviews | brief: `docs/cross-communication/2026-10-30-milestone-3-gemini-brief.md` |
+| 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviews | same brief |
+
+Later milestones: **4** OTA (signed bundles, bundle pool, boot guard, capability manifest, "an older app ignores a
+newer bundle" test, release crash traces mapped back to TSX); **5** ZeroBill checkout pilot with a full-app size
+measurement. Not planned yet: the Hermes debugger (Chrome DevTools), the flow engine (parked).
 Parked ideas: `docs/after-foundations.md`.
 
 ## Tests
@@ -83,6 +103,43 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: step 3.1 done (Claude): `zn dev` live reload + error screen
+- `bun run dev` (`tools/zn-dev.ts`): watches `src/` and `packages/core|ui/src`, rebuilds, sends the build to the phone
+  over TCP (`adb reverse tcp:8082`). The sample's `build.ts` now uses the same `buildApp` (`compiler/src/build-app.ts`).
+- Phone (`ZnDev.kt`, debug only): new runtime, same back stack reopened, native calls cancelled, event sources
+  stopped; error screen with Dismiss / Reload. JS errors caught by the runtime now go through `reportError` →
+  `__zn_error` → `Platform::jsError` (logcat as before, plus the error screen in debug).
+- Compiler: a small source map per `.tsx` (`compiler/src/sourcemap.ts`); the server maps stacks to `file.tsx:line:col`.
+- Verified on the Lava (debug): edit on `/dev/modules` → title changed, still on that screen, native calls and ticks
+  work; edit on the offers feed → reload in 17–18 ms; a throwing handler → error screen with
+  `ModulesScreen.tsx:43`; JS tests 84, compiler tests 23, core tests 104; release APK has no `ZnDev` class; release
+  cold start 197–235 ms (normal).
+
+### 2026-10-29: step 2.7 done (Claude): FlowStore
+- `core/src/flowstore.cpp`: one file per key, two copies (slots), each with a sequence number and a CRC-32. A write
+  fills the older copy and bumps its number last, so a kill at any moment leaves the previous value or the new one,
+  never half. Grows up to 256 KB by writing a temp file and renaming it.
+- JS: `flowStore.write / read / list / remove` (framework internal; app code will use flows from step 2.8).
+- Android: files in `noBackupFilesDir/zn` (not in cloud backup).
+- Verified: core tests (104 checks) including 200 rounds of SIGKILL mid-write: 200 / 200 read a complete value.
+  One 800-byte write: 4.5–6 µs. On the Lava (debug and release) the `/dev/modules` visit counter survived
+  force-stops (1 → 4).
+
+### 2026-10-29: step 2.6a done (Claude): native module foundations
+- Pavan approved the module design (`docs/native-modules.md`) with: async only for now, cancellation yes, foundations
+  only; libraries go to Gemini (`docs/cross-communication/2026-10-29-native-modules-brief.md`); `fetch` later.
+- **JS:** `nativeModule<T>(name, { version })` (typed `Proxy` handle: methods + `on`), `callNative` with
+  `{ signal }`, `NativeError { code }`, `onNativeEvent`, `AbortController` for Hermes (`abort.ts`), calls and
+  listeners owned by the screen (dropped / ended when it closes), listener counts to native, `__v` version marker.
+- **Native:** `__zn_cancel` → `Platform::cancelNative` → JNI → `ZnModules.cancel`; `ZnCall` (resolve / reject with
+  code / isCancelled / onCancel), `ZnModuleBase` (function table, per-function thread), `emit(..., latestOnly)` with
+  one queued delivery per event that reads the newest value (`ZnRuntime.dispatchLatest`), version check →
+  `unavailable`.
+- **Sample:** `DeviceModule` (Kotlin) + `device.ts` + `/dev/modules` screen.
+- **Verified on the Lava** (debug + release): see `docs/native-modules.md` §1 "Proof". Tests: C++ 82, JS 82 + types,
+  Kotlin 14, lint 0. A test of cancelling first looked broken: my tap helper took ~2 s per tap, so the 3 s call had
+  finished before "Cancel"; with fast taps it cancels as designed.
+
 ### 2026-10-29: step 2.5 done (Claude): `<Sheet>` + the native-call transport
 - **`<Sheet visible onDismiss detents dismissible onDetentChange>`** (component 14; props 119–121; events 9–10;
   `visible` is a slot). Native (`ZnSheet.kt`): a full-screen `Dialog` window (scrim over the status bar; back closes

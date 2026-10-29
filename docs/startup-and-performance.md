@@ -93,6 +93,7 @@ the Compose frame clock.
 | Memory after flinging the 10,100-row list | 106 MB PSS (Java heap 28 MB) | release | 10-29 |
 | Offers feed fling (260 rows: banner rail, 100 product rails, message cards; real product photos) (step 2.4b) | p50 6 ms, p90 10 ms, p95 11 ms, p99 15 ms per frame; 1 janky of 427, 0 slow bitmap uploads; 111 MB PSS | release, 20 vertical + 6 rail + 8 back flings | 10-29 |
 | Same feed with a native carousel (auto-advance) and impressions on (steps 2.4c–d) | 4 runs: p50 6–7 ms, p95 11–13 ms, p99 14–17 ms; 0–2 janky of ~420; 0 slow bitmap uploads; 177 impressions counted in 7 batches during the flings | release, `tools/measure-frames.ps1` (same flings for any app), load avg ~19 | 10-29 |
+| FlowStore write, 800-byte value (step 2.7) | **4.5–6 µs** per write; 200 / 200 kill-mid-write rounds read a complete value | core tests on the Lava (`zn_core_tests`) | 10-29 |
 
 ### 4.1 Where exp4-flow's ~400 ms went (one release cold start, from `logcat`, 2026-10-29)
 | From process start | What | Cost |

@@ -1,6 +1,7 @@
 // Native → JS events (taps, text changes, ...). Native calls __zn_onEvent(instance, eventId, payload).
 // Step 1.1: handlers are registered by hand. From step 1.3 the compiler registers them from the template's event
 // table (ARCHITECTURE §6.1).
+import { reportError } from "./errors"
 import type { NativeValue } from "./native"
 
 type Handler = (payload: NativeValue) => void
@@ -25,7 +26,7 @@ function dispatch(instance: number, eventId: number, payload: NativeValue): void
   try {
     handler(payload)
   } catch (e) {
-    globalThis.__zn_log(3, `event handler threw: ${e instanceof Error ? `${e.message}\n${e.stack}` : String(e)}`)
+    reportError("event handler", e)
   }
 }
 

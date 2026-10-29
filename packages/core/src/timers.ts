@@ -8,6 +8,7 @@
 // - A timer created while an owner is active (a screen, a component, an event handler of one) is cleared when that
 //   owner is disposed: closing a screen stops its timers (ARCHITECTURE §14). Timers created outside any owner
 //   (module level) live until cleared.
+import { reportError } from "./errors"
 import "./native"
 import { getOwner, onCleanup, type Owner } from "./signals"
 
@@ -24,7 +25,7 @@ function onTimer(handle: number): void {
   try {
     entry.fn()
   } catch (e) {
-    globalThis.__zn_log(3, `timer callback threw: ${e instanceof Error ? `${e.message}\n${e.stack}` : String(e)}`)
+    reportError("timer callback", e)
   }
 }
 

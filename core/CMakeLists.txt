@@ -15,6 +15,7 @@ option(ZN_BUILD_TESTS "Build the core test executable" OFF)
 
 add_library(zn_core_base STATIC
   src/batch.cpp
+  src/flowstore.cpp
   src/runtime.cpp
 )
 set_target_properties(zn_core_base PROPERTIES POSITION_INDEPENDENT_CODE ON)

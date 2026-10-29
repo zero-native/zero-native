@@ -12,6 +12,7 @@
 #include <string_view>
 #include <vector>
 
+#include "zn/flowstore.h"
 #include "zn/value.h"
 
 namespace zn {
@@ -51,11 +52,20 @@ class HostApi {
   // Native module call (ARCHITECTURE §15.1); the result comes back later as an app event (runtime.h Platform).
   virtual void call(std::string_view module, std::string_view method, std::string_view argsJson,
                     uint32_t callbackId) = 0;
+  virtual void cancelCall(uint32_t callbackId) = 0;
+  // FlowStore (ARCHITECTURE §13): synchronous on the JS thread (memory copies, microseconds).
+  virtual bool storeWrite(std::string_view key, std::string_view payload, std::string* error) = 0;
+  virtual FlowStore::ReadResult storeRead(std::string_view key) = 0;
+  virtual std::vector<std::string> storeList() = 0;
+  virtual bool storeRemove(std::string_view key) = 0;
   // Timers (ARCHITECTURE §14): returns a handle that never changes for the life of the timer.
   virtual uint32_t setTimer(double delayMs, bool repeat) = 0;
   virtual void clearTimer(uint32_t handle) = 0;
   // Misc.
   virtual void log(int level, std::string_view message) = 0;
+  // JS caught an error it can't handle (a throwing event handler, timer, effect): logged, and shown on the dev
+  // error screen in debug builds (Platform::jsError).
+  virtual void jsError(std::string_view where, std::string_view details) = 0;
   virtual double nowMs() = 0;
 };
 

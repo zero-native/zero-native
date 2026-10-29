@@ -62,12 +62,27 @@ object ZnTemplates {
     /** The prepared bundle, or null while it is loading. Reading this from a composable subscribes to it. */
     fun get(asset: String): ZnBundle? = files[asset]?.value
 
+    /** Debug builds (`zn dev`): reads and prepares a bundle sent by the dev server. Any thread. */
+    internal fun prepare(name: String, templates: ByteArray, manifest: String): ZnBundle =
+        readManifest(name, manifest, TemplateReader.read(ByteBuffer.wrap(templates)).templates.map(::ZnTemplate))
+
+    /** Debug builds (`zn dev` reload), main thread: [asset] now means [bundle]; screens reading [get] redraw. */
+    internal fun replace(asset: String, bundle: ZnBundle) {
+        files.getOrPut(asset) { mutableStateOf(null) }.value = bundle
+        waiting.remove(asset)?.forEach { it(bundle) }
+    }
+
     private fun readManifest(context: Context, name: String, templates: List<ZnTemplate>): ZnBundle {
-        val json = try {
-            JSONObject(context.assets.open(name).bufferedReader().use { it.readText() })
+        val text = try {
+            context.assets.open(name).bufferedReader().use { it.readText() }
         } catch (_: java.io.IOException) {
             return ZnBundle(templates, emptyMap(), ZnRoutes(emptyList()))
         }
+        return readManifest(name, text, templates)
+    }
+
+    private fun readManifest(name: String, text: String, templates: List<ZnTemplate>): ZnBundle {
+        val json = JSONObject(text)
         val c = json.getJSONObject("components")
         val components = c.keys().asSequence().associateWith { c.getInt(it) }
         val list = json.optJSONArray("routes")

@@ -1,9 +1,10 @@
 // Builds the sample app for android/sample:
 //   src/*.tsx → zero-native compiler (Bun plugin) → one JS bundle + templates
 //   assets/main.zn.ui (templates), assets/main.zn.ui.json (manifest), assets/main.hbc (Hermes bytecode)
+// For live reload while you work, use `bun run dev` instead (tools/zn-dev.ts).
 import { join } from "node:path"
 import { mkdirSync } from "node:fs"
-import { znBuild } from "@zero-native/compiler"
+import { buildApp } from "@zero-native/compiler"
 import { hermesc } from "../../tools/hermesc"
 
 const root = join(import.meta.dir, "../..")
@@ -12,25 +13,19 @@ const tmpDir = join(import.meta.dir, "build")
 mkdirSync(assets, { recursive: true })
 mkdirSync(tmpDir, { recursive: true })
 
-const zn = znBuild()
-const result = await Bun.build({
-  entrypoints: [join(import.meta.dir, "src/main.ts")],
-  target: "browser",
-  format: "iife", // Hermes runs plain scripts, not ES modules
-  minify: false,
-  plugins: [zn.plugin],
-})
-if (!result.success) {
-  for (const log of result.logs) console.error(log)
+let app
+try {
+  app = await buildApp(join(import.meta.dir, "src/main.ts"))
+} catch (e) {
+  console.error((e as Error).message)
   process.exit(1)
 }
 
-const { templates, manifest } = zn.outputs()
-await Bun.write(join(assets, "main.zn.ui"), templates)
-await Bun.write(join(assets, "main.zn.ui.json"), JSON.stringify(manifest, null, 2))
-console.log(`sample: wrote main.zn.ui (${templates.length} bytes, components ${JSON.stringify(manifest.components)})`)
+await Bun.write(join(assets, "main.zn.ui"), app.templates)
+await Bun.write(join(assets, "main.zn.ui.json"), JSON.stringify(app.manifest, null, 2))
+console.log(`sample: wrote main.zn.ui (${app.templates.length} bytes, components ${JSON.stringify(app.manifest.components)})`)
 
 const jsPath = join(tmpDir, "main.js")
-await Bun.write(jsPath, await result.outputs[0].text())
+await Bun.write(jsPath, app.js)
 await hermesc(jsPath, join(assets, "main.hbc"))
 console.log("sample: wrote main.hbc")

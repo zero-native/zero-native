@@ -33,7 +33,14 @@ object ZnRuntime {
     private val main = Handler(Looper.getMainLooper())
 
     private lateinit var appContext: Context
-    @Volatile private var runtime = 0L // created on the JS thread; takeBatch reads it on main after creation
+    /** The runtime the main thread takes batches from (0 while a dev reload swaps runtimes). */
+    @Volatile private var runtime = 0L
+    /** The runtime JS-thread work runs on. JS thread only. */
+    private var jsRuntime = 0L
+    /** Bumped when a dev reload replaces the runtime: timers and events queued for the old one are dropped. */
+    private var generation = 0
+    /** True while a dev reload swaps runtimes: UI events in that window are dropped. */
+    @Volatile private var reloading = false
     private var started = false
     private val listeners = ArrayList<BatchListener>()
 
@@ -48,10 +55,18 @@ object ZnRuntime {
         appContext = context.applicationContext
         js.post {
             val t0 = SystemClock.uptimeMillis()
-            runtime = ZnNative.createRuntime()
-            val n = createdCount.incrementAndGet()
+            jsRuntime = createOnJsThread()
+            runtime = jsRuntime
+            val n = createdCount.get()
             Log.i(TAG, "runtime #$n started in ${SystemClock.uptimeMillis() - t0} ms (pid ${Process.myPid()})")
         }
+        if (BuildConfig.DEBUG) ZnDev.start(appContext)
+    }
+
+    private fun createOnJsThread(): Long {
+        // FlowStore files (ARCHITECTURE §13.2) live in noBackupFilesDir: never in backups or cloud restore.
+        val flowDir = java.io.File(appContext.noBackupFilesDir, "zn").apply { mkdirs() }.absolutePath
+        return ZnNative.createRuntime(flowDir).also { createdCount.incrementAndGet() }
     }
 
     /** Runs a bytecode asset on the JS thread and reports the result on the main thread. */
@@ -59,29 +74,72 @@ object ZnRuntime {
         checkStarted()
         js.post {
             val t0 = SystemClock.uptimeMillis()
-            val raw = ZnNative.evalAsset(runtime, appContext.assets, name)
-            val millis = SystemClock.uptimeMillis() - t0
-            val result = if (raw.startsWith("ok:")) {
-                EvalResult(true, raw.removePrefix("ok:"), millis)
-            } else {
-                EvalResult(false, raw.removePrefix("error:"), millis)
-            }
-            if (result.ok) Log.i(TAG, "$name evaluated in $millis ms") else Log.e(TAG, "$name failed: ${result.value}")
+            val result = evalResult(ZnNative.evalAsset(jsRuntime, appContext.assets, name), t0)
+            if (result.ok) Log.i(TAG, "$name evaluated in ${result.millis} ms") else Log.e(TAG, "$name failed: ${result.value}")
             main.post { onResult(result) }
+        }
+    }
+
+    private fun evalResult(raw: String, t0: Long): EvalResult {
+        val millis = SystemClock.uptimeMillis() - t0
+        return if (raw.startsWith("ok:")) EvalResult(true, raw.removePrefix("ok:"), millis)
+        else EvalResult(false, raw.removePrefix("error:"), millis)
+    }
+
+    /**
+     * Debug builds only (`zn dev`, ARCHITECTURE §17): replaces the JS runtime with a fresh one running [bytecode].
+     * The only exception to "one runtime per process" (§8.2). Main thread. The main thread stops taking batches
+     * now; [onLoaded] runs on the main thread once the new code has run. It must reset the screens, then call the
+     * `attach` function it is given (batches and UI events flow again), then start the screens.
+     */
+    internal fun reload(bytecode: ByteArray, onLoaded: (result: EvalResult, attach: () -> Unit) -> Unit) {
+        check(BuildConfig.DEBUG) { "reload is for debug builds only" }
+        checkStarted()
+        reloading = true
+        runtime = 0L
+        ZnModules.resetForReload()
+        js.post {
+            val t0 = SystemClock.uptimeMillis()
+            ZnNative.destroyRuntime(jsRuntime)
+            generation++
+            val fresh = createOnJsThread()
+            jsRuntime = fresh
+            val result = evalResult(ZnNative.evalBytes(fresh, bytecode, "main.hbc"), t0)
+            main.post {
+                onLoaded(result) {
+                    runtime = fresh
+                    reloading = false
+                }
+            }
         }
     }
 
     /** Sends an event to JS (for example a tap). Payload: null, Boolean, Number or String. */
     fun dispatchEvent(instance: Int, eventId: Int, payload: Any? = null) {
         checkStarted()
+        if (reloading) return // dev reload: the screens this event came from are being replaced
         js.post {
+            val rt = jsRuntime
             when (payload) {
-                null -> ZnNative.dispatchEvent(runtime, instance, eventId, 0, 0.0, null)
-                is Boolean -> ZnNative.dispatchEvent(runtime, instance, eventId, 1, if (payload) 1.0 else 0.0, null)
-                is Number -> ZnNative.dispatchEvent(runtime, instance, eventId, 2, payload.toDouble(), null)
-                is String -> ZnNative.dispatchEvent(runtime, instance, eventId, 3, 0.0, payload)
+                null -> ZnNative.dispatchEvent(rt, instance, eventId, 0, 0.0, null)
+                is Boolean -> ZnNative.dispatchEvent(rt, instance, eventId, 1, if (payload) 1.0 else 0.0, null)
+                is Number -> ZnNative.dispatchEvent(rt, instance, eventId, 2, payload.toDouble(), null)
+                is String -> ZnNative.dispatchEvent(rt, instance, eventId, 3, 0.0, payload)
                 else -> Log.e(TAG, "event payload must be null, Boolean, Number or String, got ${payload::class}")
             }
+        }
+    }
+
+    /**
+     * Sends an event to JS whose String payload is read **when the JS thread runs it**, not now: a busy JS thread gets
+     * the newest value once instead of a queue of old ones (native module events with latestOnly).
+     */
+    internal fun dispatchLatest(instance: Int, eventId: Int, payload: () -> String?) {
+        checkStarted()
+        if (reloading) return
+        js.post {
+            val p = payload() ?: return@post
+            ZnNative.dispatchEvent(jsRuntime, instance, eventId, 3, 0.0, p)
         }
     }
 
@@ -96,18 +154,26 @@ object ZnRuntime {
     // ---- Called by ZnNative on the JS thread ---------------------------------------------------------------------
 
     internal fun scheduleTimer(handle: Int, delayMs: Double) {
-        js.postDelayed({ ZnNative.fireTimer(runtime, handle) }, delayMs.toLong().coerceAtLeast(0))
+        val gen = generation
+        js.postDelayed({ if (gen == generation) ZnNative.fireTimer(jsRuntime, handle) }, delayMs.toLong().coerceAtLeast(0))
     }
 
     internal fun requestApply() {
         main.post(::applyPending)
     }
 
+    /** JS threw and nothing caught it ("where\nmessage and stack"). Already logged. Debug builds show it on screen. */
+    internal fun jsError(text: String) {
+        if (BuildConfig.DEBUG) main.post { ZnDev.onJsError(text) }
+    }
+
     // ---- Main thread ---------------------------------------------------------------------------------------------
 
     private fun applyPending() {
         val start = System.nanoTime()
-        val bytes = ZnNative.takeBatch(runtime) ?: return
+        val rt = runtime
+        if (rt == 0L) return // dev reload in progress; the new runtime's batches are taken after it attaches
+        val bytes = ZnNative.takeBatch(rt) ?: return
         val ops = BatchReader.read(bytes)
         ZnStore.apply(ops)
         val end = System.nanoTime()

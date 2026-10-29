@@ -31,6 +31,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -78,9 +79,18 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    Box(modifier) {
+        // A dev reload bumps the generation: the old screens are dropped at once instead of animating out.
+        key(ZnNav.generation) { Screens(bundle, safe) }
+        if (BuildConfig.DEBUG) ZnDev.Overlay()
+    }
+}
+
+@Composable
+private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
     NavDisplay(
         backStack = ZnNav.stack,
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
         onBack = { ZnNav.systemBack() },
         entryProvider = { entry ->
             NavEntry(entry, contentKey = entry.id, metadata = transitions(entry.route.transition)) { e ->
@@ -126,7 +136,8 @@ private fun ReportInsets(safe: WindowInsets) {
     val right = dp(safe.getRight(density, LayoutDirection.Ltr))
     val start = if (ltr) left else right
     val end = if (ltr) right else left
-    LaunchedEffect(top, bottom, start, end) { ZnNav.reportInsets(top, bottom, start, end) }
+    // generation: a dev reload starts a new JS, which must hear the insets again.
+    LaunchedEffect(top, bottom, start, end, ZnNav.generation) { ZnNav.reportInsets(top, bottom, start, end) }
 }
 
 /** Dark bar icons (true) for light backgrounds, light icons (false) for dark ones. */

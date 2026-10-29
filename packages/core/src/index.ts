@@ -3,6 +3,7 @@ import { installConsole } from "./log"
 import { installEvents } from "./events"
 import { installTimers } from "./timers"
 import { installCalls } from "./calls"
+import { installAbort } from "./abort"
 
 export * from "./native"
 export { parseColor } from "./color"
@@ -27,7 +28,16 @@ export {
 export { onEvent } from "./events"
 export { nav, startApp, useBack, useImpressions, type ImpressionOptions, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
-export { callNative, pendingCallCount } from "./calls"
+export { flowStore, type StoreRead } from "./flowstore"
+export {
+  callNative,
+  nativeModule,
+  NativeError,
+  onNativeEvent,
+  pendingCallCount,
+  type CallOptions,
+  type ModuleHandle,
+} from "./calls"
 export {
   defineRoutes,
   type PathParams,
@@ -45,5 +55,6 @@ export function installRuntime(): void {
   installConsole()
   installTimers()
   installEvents()
+  installAbort()
   installCalls()
 }

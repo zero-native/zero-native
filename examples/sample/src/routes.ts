@@ -5,6 +5,7 @@ import { HomeScreen } from "./HomeScreen"
 import { AmountScreen } from "./AmountScreen"
 import { ReceiptScreen } from "./ReceiptScreen"
 import { OffersScreen } from "./OffersScreen"
+import { ModulesScreen } from "./ModulesScreen"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -12,6 +13,7 @@ export const routes = defineRoutes({
   // Full-bleed: its green header runs behind the status bar (light icons on it).
   receipt: { path: "/receipt/:ztc", screen: ReceiptScreen, transition: "modal", safeArea: { top: false }, statusBar: "light" },
   offers: { path: "/offers", screen: OffersScreen, deepLink: true },
+  modules: { path: "/dev/modules", screen: ModulesScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
