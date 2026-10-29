@@ -45,10 +45,28 @@ Debug helper: `adb shell setprop debug.zn.js_delay_ms 3000` delays JS to watch t
 | 1.2 | `.zn.ui` format (own binary format, see ARCHITECTURE §6.1), TS writer, Kotlin reader + preparation, registry for Column / Row / Stack / Box / Text / Image / Pressable / Spacer / Icon, basic renderer | A hand-written template draws its skeleton with no JS | **done 2026-10-29** |
 | 1.3 | Compiler: TSX → template + JS; signals; reactive wrapping; static style folding; `&&` / `? :` / `.map` (instead of `<If>` / `<For>`) | `bun test` covers the transforms; amount screen compiles | **done 2026-10-29** (and runs on the phone) |
 | 1.4 | Compose renderer: remaining style keys, `Pressable` press states (in / out with cancel, long press) + native key repeat, Image / Icon, recomposition audit | Amount screen complete; typing recomposes only the changed text (measured) | **done 2026-10-29** |
-| 1.5 | Measure in release on the Lava: cold start ≤ 250 ms, tap p95, frames, memory, Baseline Profile | Numbers in `docs/startup-and-performance.md` | **done 2026-10-29** |
+| 1.5 | Measure in release on the Lava: cold start ≤ 250 ms, tap p95, frames, memory, Baseline Profile | Numbers in `docs/startup-and-performance.md` | **done 2026-10-29** (Baseline Profile generation parked: blocked by the Lava's ROM, `docs/after-foundations.md`) |
 
-Later milestones: **2** `<List>`, navigation, safe areas, Sheet, flows + C++ FlowStore; **3** OTA bundles, capability
-manifest, `zn dev`, debugger, source maps; **4** ZeroBill checkout pilot with a full-app size measurement.
+## Milestone 2: an app (Android)
+Full brief with design decisions, tests and phone checks per step:
+`docs/cross-communication/2026-10-29-milestone-2-brief.md`.
+
+| Step | What | Builder | Status |
+|---|---|---|---|
+| 2.0 | Small fixes left from milestone 1 (`targetSdk`, `fontWeight` names, move `exp4-flow`, mock UPI app into `test-kit/`) | Gemini | next |
+| 2.0b | Compose BOM (runtime ≥ 1.11.2) + activity-compose ≥ 1.12 + Coil upgrade, needed by Navigation 3 1.2.0; re-measure | Gemini | approved 2026-10-29 |
+| 2.1 | `routes.ts`, several screens in one bundle, route manifest | Gemini | |
+| 2.2 | Navigation: JS-owned back stack, `NAV` op, native host + transitions, back button, deep links, screen-owned timers | Gemini | |
+| 2.3 | Safe areas: edge-to-edge, per-route option, `insets()` | Gemini | |
+| 2.4 | `<List>`: row templates, data window, placeholders, splice | Gemini | |
+| 2.5 | `<Sheet>`: native drag and detents, controlled by JS | Gemini | |
+| 2.6 | Native calls: `__zn_call`, modules, `fetch`, `os.launchActivity`, `os.upiApps` | Gemini | |
+| 2.7 | FlowStore (C++) | Claude | |
+| 2.8 | Flows: effects, write-ahead, restore, safe mode; checkout flow with the mock UPI app | Claude | |
+| 2.9 | Release measurements; close the milestone | Gemini, Claude reviews | |
+
+Later milestones: **3** OTA bundles, capability manifest, `zn dev`, debugger, source maps; **4** ZeroBill checkout
+pilot with a full-app size measurement.
 Parked ideas: `docs/after-foundations.md`.
 
 ## Tests

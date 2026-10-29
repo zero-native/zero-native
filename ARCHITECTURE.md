@@ -107,7 +107,7 @@ Signals live in JS memory. They are not persisted unless they are part of a flow
 
 ### 5.3 Screens and components
 ```tsx
-@route('/checkout/:sessionId', { transition: 'push' })
+// Registered in routes.ts as { checkout: { path: '/checkout/:sessionId', screen: Checkout } } (§11)
 export function Checkout(props: { sessionId: string }) {
   const amount = signal(0)
   return (
@@ -451,8 +451,20 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
 
 ## 11. Navigation (decided)
 
-- Routes are declared with `@route(path, options)`. The compiler writes a **route manifest** (in `manifest.json`):
-  path pattern → screen id, transition, presentation (push / modal / sheet / full-screen), deep-link rules.
+- **Routes are declared in one typed file (changed 2026-10-29):**
+  ```ts
+  // routes.ts
+  export const routes = defineRoutes({
+    home:     { path: '/', screen: HomeScreen },
+    amount:   { path: '/pay/:merchantId', screen: AmountScreen, transition: 'push' },
+    receipt:  { path: '/receipt/:ztc', screen: ReceiptScreen, transition: 'modal', safeArea: { top: false } },
+  })
+  nav.push('amount', { merchantId: 'm1' })   // name and params are type-checked
+  ```
+  (Earlier drafts used `@route(path, options)` on the screen function. TypeScript allows decorators only on classes
+  and class members, so editors would mark it as an error.) The compiler reads `routes.ts` at build time and writes a
+  **route manifest** (in `manifest.json`): route name → path pattern, screen template, transition, presentation
+  (push / modal / full-screen), safe-area option, deep-link rules.
 - **The back stack is plain data:** a list of `{ routeId, params, instanceKey }`. JS changes it with
   `nav.push / back / replace / reset / sheet / closeSheet`, sent as `NAV` ops in the batch.
 - **Android:** Jetpack Navigation 3 (a back stack you own as a list), one generic destination that renders a zn
@@ -473,8 +485,21 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
   (v0's JS version caused a blank screen and status-bar / nav-bar overlap). Details: `docs/styling-and-layout.md` §6.
 - **Shared-element transitions (v1, optional; decided 2026-10-29):** a node with `heroTag="tx-123"` on two screens
   morphs between them during navigation (Compose `SharedTransitionLayout`, SwiftUI zoom transition on iOS 18+). v0
-  Frontier 4 ran a list-row → detail-header morph at 90 fps. The Compose API is still experimental and must be
-  re-checked with Navigation 3 [check]; screens without `heroTag` are unaffected.
+  Frontier 4 ran a list-row → detail-header morph at 90 fps. Screens without `heroTag` are unaffected.
+  - **Rule: one `heroTag` per navigation transition, and it means "this card/container on screen A becomes screen
+    B"** (example: a transaction row opens the transaction detail). Not several independent elements morphing at once
+    (an avatar and a title separately). Reason: iOS 18's native zoom transition (`.matchedTransitionSource(id:in:)` on
+    the source + `.navigationTransition(.zoom(sourceID:in:))` on the destination) morphs one source view into the
+    **whole** incoming screen. Compose can do more (`Modifier.sharedElement` per element), but we only expose what
+    both platforms do natively, so iOS needs no custom overlay renderer. (Argon review, 2026-10-29.)
+  - Compose wiring: `SharedTransitionLayout` wraps the navigation host (`NavDisplay`); the host passes the
+    `SharedTransitionScope` and each screen's `AnimatedVisibilityScope` down through `CompositionLocal`s, so any node
+    with `heroTag` adds `Modifier.sharedElement(rememberSharedContentState(heroTag), animatedVisibilityScope)` without
+    changing the node tree. Not built in milestone 2; the milestone 2 host must leave room for it.
+  - **Navigation 3 status (checked 2026-10-29 on Google Maven):** `androidx.navigation3` 1.2.0 is the latest stable
+    (1.3.0 is alpha). 1.2.0 needs Compose runtime 1.11.2, Compose UI / animation 1.10.0 and activity-compose 1.12.0.
+    We are on Compose BOM 2024.09.00 (Compose 1.7) and activity-compose 1.9.3, so **Navigation 3 needs a Compose
+    upgrade first** (milestone 2 step 2.0b).
 
 ## 12. Flows and effects (`@flow`)
 
@@ -851,6 +876,9 @@ zero-native/
 | 2026-10-29 | Press repeat is an event + two props (`onPressRepeat`, `repeatDelay`, `repeatInterval`), not an object prop | Section 5.3. Events stay plain functions; config stays build-time props. |
 | 2026-10-29 | Icons are SVG path data ("minX minY w h\|d") folded at build time and drawn natively | Section 9.2. No icon font or SVG library; one string per icon. Fill paths only for now. |
 | 2026-10-29 | Images load with Coil (http(s), `asset:`) and clip to their rounded shape by default | Section 9.2. Same as React Native; Coil was already in the v0 size check. |
+| 2026-10-29 | `heroTag`: one per navigation transition, a card/container becoming the next screen | Section 11. Matches iOS 18 zoom transitions, so both platforms stay native (Argon review). |
+| 2026-10-29 | Routes live in one typed `routes.ts` (`defineRoutes`), not `@route` decorators | Section 11. Decorators on functions are not valid TypeScript; one file also gives typed `nav.push(name, params)`. |
+| 2026-10-29 | The back stack is owned by JS; a system back press is an event to JS (JS pops, or its `onBack` blocks) | Sections 9.7, 11. One owner, same rule as controlled components; native pops by itself only after the 300 ms timeout and then tells JS. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).
@@ -860,7 +888,7 @@ zero-native/
 - Whether to build the NativeWind `className` translator (v1.1).
 - Flow tests the framework must pass that v0 left open: restored flows must reach a final state with `/verify`
   actually called; a `/pay` that died mid-call (no `ztc`) means "payment not started" (`docs/v0-findings.md` §D).
-- Nav3 version and stability at build time [check].
+- Nav3 version and stability at build time: checked 2026-10-29, 1.2.0 stable, needs Compose 1.10+ (§11).
 
 ## 26. Glossary
 - **Template:** the compiled, static shape of a screen or part of a screen.
