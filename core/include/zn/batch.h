@@ -7,6 +7,9 @@
 //   REMOVE  = u8 3 | u32 instance
 //   MOVE    = u8 4 | u32 instance | u32 toIndex
 //   NAV     = u8 5 | u8 kind | u32 entry | u16 route | value (params: JSON string, or null)
+//   LIST_SET    = u8 6 | u32 instance | u16 node | u32 count | (value key | u16 type)*
+//   LIST_SPLICE = u8 7 | u32 instance | u16 node | u32 index | u32 removeCount | u32 insertCount | (value key | u16 type)*
+//   LIST_ROW    = u8 8 | u32 instance | u16 node | value key | u32 rowInstance
 //   value   = u8 kind (0 null, 1 false, 2 true, 3 number, 4 string) | f64 (number) | u32 length + UTF-8 (string)
 //
 // NAV kinds (the back stack is owned by JS, ARCHITECTURE §11; native applies a whole batch at once, so it only ever
@@ -17,6 +20,12 @@
 //   4 EXIT   the stack's last screen was backed out of: let the system handle back (leave the app)
 //   5 BACK_ANSWERED  JS has handled the last system back press (stops native's 300 ms fallback)
 // A NAV op is structural: it keeps its place in the batch and is never merged.
+//
+// List ops (<List>, docs/lists.md): the list is node `node` of `instance`. LIST_SET gives native every row's key and
+// type (the row template id: for Compose's per-kind reuse and the right placeholder); LIST_SPLICE changes a range
+// (native keeps the scroll anchored to the first visible key); LIST_ROW says which mounted instance draws the row
+// with `key`. Rows are ordinary MOUNTed instances (parent = instance, anchor = node), mounted by JS only around the
+// visible range and REMOVEd when they leave it. Ops arrive in order from one JS thread, so no version numbers.
 #pragma once
 
 #include <cstdint>
@@ -27,7 +36,7 @@
 
 namespace zn {
 
-enum class OpCode : uint8_t { Patch = 1, Mount = 2, Remove = 3, Move = 4, Nav = 5 };
+enum class OpCode : uint8_t { Patch = 1, Mount = 2, Remove = 3, Move = 4, Nav = 5, ListSet = 6, ListSplice = 7, ListRow = 8 };
 enum class NavKind : uint8_t { Push = 1, Remove = 2, Clear = 3, Exit = 4, BackAnswered = 5 };
 
 constexpr uint32_t kBatchMagic = 0x31424E5A;  // "ZNB1" read as little-endian bytes
@@ -42,8 +51,11 @@ struct Op {
   uint16_t templateId = 0;   // MOUNT
   uint32_t parent = 0;       // MOUNT
   uint16_t anchor = 0;       // MOUNT
-  uint32_t index = 0;        // MOUNT: position among siblings; MOVE: new position
-  std::vector<Value> values; // MOUNT: initial slot values
+  uint32_t index = 0;        // MOUNT: position among siblings; MOVE: new position; LIST_SPLICE: first row
+  std::vector<Value> values; // MOUNT: initial slot values; LIST_SET / LIST_SPLICE: row keys
+  std::vector<uint16_t> types;  // LIST_SET / LIST_SPLICE: row template ids (same length as values)
+  uint32_t removeCount = 0;  // LIST_SPLICE
+  uint32_t row = 0;          // LIST_ROW: the row's instance (key in `value`, list node in `slot`)
 };
 
 class Batch {
@@ -55,6 +67,10 @@ class Batch {
   void remove(uint32_t instance);
   void move(uint32_t instance, uint32_t toIndex);
   void nav(NavKind kind, uint32_t entry, uint16_t route, Value params);
+  void listSet(uint32_t instance, uint16_t node, std::vector<Value> keys, std::vector<uint16_t> types);
+  void listSplice(uint32_t instance, uint16_t node, uint32_t index, uint32_t removeCount, std::vector<Value> keys,
+                  std::vector<uint16_t> types);
+  void listRow(uint32_t instance, uint16_t node, Value key, uint32_t row);
 
   // Appends all ops of `other` in order, with the same patch-replacing rule (used to coalesce ticks).
   void append(const Batch& other);

@@ -31,6 +31,8 @@ export interface StyleProps {
   alignItems?: "flex-start" | "center" | "flex-end" | "stretch"
   alignSelf?: "flex-start" | "center" | "flex-end" | "stretch"
   backgroundColor?: Color
+  /** React Native's CSS gradient: `"linear-gradient(180deg, rgba(0,0,0,0) 0%, #000 100%)"` (build-time only). */
+  backgroundImage?: string
   borderRadius?: number
   borderWidth?: number
   borderColor?: Color
@@ -91,6 +93,11 @@ export declare const Text: Intrinsic<Base & TextStyleProps & { text?: string; ch
 export declare const Image: Intrinsic<Base & { src?: string; contentScale?: "cover" | "contain" | "fill" }>
 export declare const Icon: Intrinsic<Base & { icon?: string; color?: Color }>
 export declare const Spacer: Intrinsic<Base>
+/**
+ * A scrolling container. `horizontal` makes a rail: only the visible children are drawn, and scrolling never involves
+ * JS. Its padding scrolls with the content (like RN's contentContainerStyle). For long vertical data use <List>.
+ */
+export declare const Scroll: Intrinsic<Container & { horizontal?: boolean }>
 export declare const Pressable: Intrinsic<
   Container & {
     onPress?: () => void
@@ -104,6 +111,22 @@ export declare const Pressable: Intrinsic<
     haptic?: boolean
   }
 >
+
+/**
+ * A virtualized list for long or growing data (docs/lists.md). `row` is compiled once per row kind: return one JSX
+ * element, or `cond ? <A/> : <B/>` to choose between kinds (headers, banners, product rails...). Only rows near the
+ * screen exist; the rest are drawn as placeholders until they are near. Keys must be unique and stable.
+ * Note: `key` here is the list's key function (the JSX `key` attribute name is reused on purpose, like FlatList's
+ * keyExtractor).
+ */
+export declare function List<T>(props: {
+  data: readonly T[] | null | undefined
+  key: (item: T, index: number) => string | number
+  row: (item: T, index: number) => unknown
+  onEndReached?: () => void
+  style?: StyleInput
+  gap?: number
+}): never
 
 /** Build-time helper: returns its argument (typed). The compiler folds it. */
 export const StyleSheet = { create: <T extends Record<string, Style>>(styles: T): T => styles }

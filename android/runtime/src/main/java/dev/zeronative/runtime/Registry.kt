@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 4
+    const val VERSION = 5
 
     object Component {
         const val COLUMN = 1
@@ -16,6 +16,8 @@ object Registry {
         const val SPACER = 8
         const val ICON = 9
         const val ANCHOR = 10
+        const val LIST = 11
+        const val SCROLL = 12
     }
 
     object Prop {
@@ -84,6 +86,8 @@ object Registry {
         const val HAPTIC = 81
         const val REPEAT_DELAY = 82
         const val REPEAT_INTERVAL = 83
+        const val HORIZONTAL = 110
+        const val BACKGROUND_IMAGE = 111
     }
 
     object Event {
@@ -92,6 +96,8 @@ object Registry {
         const val ON_PRESS_OUT = 3
         const val ON_LONG_PRESS = 4
         const val ON_PRESS_REPEAT = 5
+        const val ON_RANGE = 6
+        const val ON_END_REACHED = 7
     }
 
     object JustifyContent {

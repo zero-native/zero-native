@@ -88,6 +88,19 @@ void Runtime::nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) {
   tick_.nav(static_cast<NavKind>(kind), entry, route, std::move(params));
 }
 
+void Runtime::listSet(uint32_t instance, uint16_t node, std::vector<Value> keys, std::vector<uint16_t> types) {
+  tick_.listSet(instance, node, std::move(keys), std::move(types));
+}
+
+void Runtime::listSplice(uint32_t instance, uint16_t node, uint32_t index, uint32_t removeCount,
+                         std::vector<Value> keys, std::vector<uint16_t> types) {
+  tick_.listSplice(instance, node, index, removeCount, std::move(keys), std::move(types));
+}
+
+void Runtime::listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) {
+  tick_.listRow(instance, node, std::move(key), row);
+}
+
 uint32_t Runtime::setTimer(double delayMs, bool repeat) {
   const uint32_t handle = nextTimer_++;
   // A repeating timer with no delay would spin forever; give it at least 1 ms.

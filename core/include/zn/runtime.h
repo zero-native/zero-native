@@ -54,6 +54,10 @@ class Runtime final : private HostApi {
   void remove(uint32_t instance) override;
   void move(uint32_t instance, uint32_t toIndex) override;
   void nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) override;
+  void listSet(uint32_t instance, uint16_t node, std::vector<Value> keys, std::vector<uint16_t> types) override;
+  void listSplice(uint32_t instance, uint16_t node, uint32_t index, uint32_t removeCount, std::vector<Value> keys,
+                  std::vector<uint16_t> types) override;
+  void listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) override;
   uint32_t setTimer(double delayMs, bool repeat) override;
   void clearTimer(uint32_t handle) override;
   void log(int level, std::string_view message) override;

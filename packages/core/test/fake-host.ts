@@ -7,6 +7,9 @@ export type Op =
   | ["remove", number]
   | ["move", number, number]
   | ["nav", number, number, number, string | null]
+  | ["listSet", number, number, string[], number[]]
+  | ["listSplice", number, number, number, number, string[], number[]]
+  | ["listRow", number, number, string, number]
 
 export interface FakeHost {
   timers: Map<number, { delay: number; repeat: boolean }>
@@ -56,6 +59,15 @@ export function installFakeHost(): FakeHost {
   }
   globalThis.__zn_nav = (kind, entry, route, params) => {
     host.ops.push(["nav", kind, entry, route, params])
+  }
+  globalThis.__zn_listSet = (i, n, keys, types) => {
+    host.ops.push(["listSet", i, n, keys, types])
+  }
+  globalThis.__zn_listSplice = (i, n, at, remove, keys, types) => {
+    host.ops.push(["listSplice", i, n, at, remove, keys, types])
+  }
+  globalThis.__zn_listRow = (i, n, key, row) => {
+    host.ops.push(["listRow", i, n, key, row])
   }
   globalThis.__zn_log = (level, msg) => {
     host.logs.push([level, msg])

@@ -24,6 +24,7 @@ until it is proven.
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |
 | `milestones.md` | **the build plan, progress log, and how to build and run the sample app** |
 | `after-foundations.md` | parked ideas to pick up once the foundations work |
+| `guide-notes.md` | **how app authors should use what we build** (do / don't / why): raw material for the public docs. Update it whenever an author-facing feature lands |
 
 Experiment files (v0 results, Gemini and Argon reports, `intro*.md`, `GEMINI_*.md`, exp2–4) live in `../experiments/`.
 

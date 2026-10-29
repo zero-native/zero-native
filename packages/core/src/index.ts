@@ -10,6 +10,7 @@ export {
   allocInstanceId,
   component,
   each,
+  list,
   on,
   ready,
   renderRoot,
@@ -19,6 +20,7 @@ export {
   view,
   when,
   type Instance,
+  type ListOptions,
   type View,
 } from "./view"
 export { onEvent } from "./events"

@@ -11,9 +11,19 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -129,6 +139,34 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
             }
         }
         Registry.Component.ANCHOR -> Unit // expanded by the parent (childRefs)
+        Registry.Component.LIST -> ZnLazyList(f, s, inst, n, mod)
+        Registry.Component.SCROLL -> if (s.horizontal) {
+            // A rail: only the visible children are composed; scrolling it never involves JS.
+            val refs = childRefs(f, t, inst, s)
+            LazyRow(
+                modifier = mod,
+                contentPadding = s.contentPadding ?: PaddingValues(0.dp),
+                horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
+                verticalAlignment = verticalAlignment(s.alignItems),
+            ) {
+                items(count = refs.size, key = { refs[it].key }) { i ->
+                    val ref = refs[i]
+                    val child = ref.template.nodes[ref.node]
+                    ZnNode(f, ref.template, ref.instance, ref.node, Modifier, definiteWidth = child.width != null)
+                }
+            }
+        } else {
+            Column(
+                modifier = mod.verticalScroll(rememberScrollState()).padding(s.contentPadding ?: PaddingValues(0.dp)),
+                verticalArrangement = verticalArrangement(s),
+                horizontalAlignment = horizontalAlignment(s.alignItems),
+            ) {
+                for (ref in childRefs(f, t, inst, s)) key(ref.key) {
+                    val child = ref.template.nodes[ref.node]
+                    ZnNode(f, ref.template, ref.instance, ref.node, Modifier, definiteWidth = child.width != null)
+                }
+            }
+        }
         Registry.Component.TEXT -> {
             val text = if (s.textSlot >= 0) display(inst.slot(s.textSlot).value) else s.text.orEmpty()
             BasicText(
@@ -174,6 +212,50 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
             )
         }
         else -> Box(modifier = mod)
+    }
+}
+
+/** How close to the end (in rows) a <List> sends onEndReached. */
+private const val END_REACHED_ROWS = 5
+
+/**
+ * A <List> (docs/lists.md): a LazyColumn over the row keys JS sent. A row draws its mounted instance, or a placeholder
+ * of its type while JS hasn't mounted it (the UI thread never waits for JS). Rows of the same type share Compose's
+ * reuse pool (`contentType`). The visible range goes to JS (onRange) so it mounts rows ahead of the scroll.
+ */
+@Composable
+private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, node: Int, mod: Modifier) {
+    val list = inst.list(node)
+    val rows = list.rows
+    val state = rememberLazyListState() // saveable: the scroll position survives back navigation and recreation
+    LazyColumn(
+        modifier = mod,
+        state = state,
+        verticalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Top,
+    ) {
+        items(count = rows.size, key = { rows[it].key }, contentType = { rows[it].type }) { i ->
+            val row = rows.getOrNull(i) ?: return@items
+            val mounted = list.bound[row.key]?.let(ZnStore::find)
+            val t = f.getOrNull(mounted?.templateId ?: row.type) ?: return@items
+            val ri = mounted ?: ZnStore.placeholder(row.type, t)
+            ZnNode(f, t, ri, 0, Modifier.fillMaxWidth(), definiteWidth = true)
+        }
+    }
+    if (s.onRange != 0 || s.onEndReached != 0) {
+        LaunchedEffect(state, inst.id, node) {
+            var endSentAt = -1
+            snapshotFlow {
+                val visible = state.layoutInfo.visibleItemsInfo
+                (visible.firstOrNull()?.index ?: 0) to (visible.lastOrNull()?.index ?: 0)
+            }.distinctUntilChanged().collect { (a, b) ->
+                if (s.onRange != 0) ZnRuntime.dispatchEvent(inst.id, s.onRange, "$a,$b")
+                val count = rows.size
+                if (s.onEndReached != 0 && count > 0 && b >= count - END_REACHED_ROWS && endSentAt != count) {
+                    endSentAt = count
+                    ZnRuntime.dispatchEvent(inst.id, s.onEndReached)
+                }
+            }
+        }
     }
 }
 

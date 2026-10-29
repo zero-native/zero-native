@@ -194,6 +194,126 @@ export function each<T>(
   })
 }
 
+/** How many rows <List> keeps mounted around the visible range (in rows; native reports the range). */
+const LIST_AHEAD = 12 // below the last visible row (the usual scroll direction)
+const LIST_BEHIND = 8 // above the first visible row
+const LIST_INITIAL = 16 // before native reports a range (the first screen)
+
+export interface ListOptions<T> {
+  data: () => readonly T[] | null | undefined
+  key: (item: T, index: number) => unknown
+  row: (item: T, index: number) => View
+  /** The row's template id, without building the row (compiler-generated from the row's branches). */
+  type: (item: T, index: number) => number
+  /** Event ids of the list node's onRange / onEndReached (0 = not bound). */
+  rangeEvent: number
+  endEvent: number
+  onEndReached?: () => void
+}
+
+/**
+ * `<List data key row>` (docs/lists.md): a virtualized list. Native knows every row's key and type (LIST_SET /
+ * LIST_SPLICE) and draws rows that aren't mounted as placeholders. JS mounts a row (an ordinary instance) only while it
+ * is near the visible range native reports (onRange), and removes it after it leaves a wider band, so a long list
+ * costs one small key array, not thousands of instances. A row whose item object changes (same key) is mounted again.
+ */
+export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
+  ready(inst)
+  const owner = getOwner()
+  let keys: string[] = []
+  let types: number[] = []
+  let items: readonly T[] = []
+  let keyIndex = new Map<string, number>()
+  const mounted = new Map<string, { item: T; m: Mounted }>()
+  let first = 0
+  let last = LIST_INITIAL - 1
+  let sent = false
+
+  const sync = () => {
+    const n = keys.length
+    const from = Math.max(0, first - LIST_BEHIND)
+    const to = Math.min(n - 1, last + LIST_AHEAD)
+    // Keep a wider band than we mount, so scrolling back and forth doesn't mount and remove the same rows.
+    const keepFrom = first - 2 * LIST_BEHIND
+    const keepTo = last + 2 * LIST_AHEAD
+    for (const [k, r] of mounted) {
+      const i = keyIndex.get(k)
+      if (i === undefined || i < keepFrom || i > keepTo || items[i] !== r.item) {
+        r.m.dispose(true)
+        mounted.delete(k)
+      }
+    }
+    for (let i = from; i <= to; i++) {
+      const k = keys[i]
+      if (mounted.has(k)) continue
+      const item = items[i]
+      const m = mountChild(owner, () => o.row(item, i), inst.id, node, 0)
+      globalThis.__zn_listRow(inst.id, node, k, m.id)
+      mounted.set(k, { item, m })
+    }
+  }
+
+  effect(() => {
+    const next = o.data() ?? []
+    untrack(() => {
+      const nextKeys: string[] = new Array(next.length)
+      const nextTypes: number[] = new Array(next.length)
+      const seen = new Set<string>()
+      next.forEach((item, i) => {
+        let k = String(o.key(item, i))
+        if (seen.has(k)) {
+          // Compose needs unique keys; a duplicate would crash the list. Keep the row, under a made-up key.
+          globalThis.__zn_log(3, `list: duplicate key ${k} at row ${i}; give every row a unique key`)
+          k = `${k}#${i}`
+        }
+        seen.add(k)
+        nextKeys[i] = k
+        nextTypes[i] = o.type(item, i)
+      })
+
+      if (!sent) {
+        globalThis.__zn_listSet(inst.id, node, nextKeys, nextTypes)
+        sent = true
+      } else {
+        // One splice covering what changed between the common start and the common end (a new row at the top, rows
+        // added at the end, one row removed). Rows outside it keep their keys, so native keeps their state and scroll.
+        let p = 0
+        const max = Math.min(keys.length, nextKeys.length)
+        while (p < max && keys[p] === nextKeys[p] && types[p] === nextTypes[p]) p++
+        let s = 0
+        while (
+          s < max - p &&
+          keys[keys.length - 1 - s] === nextKeys[nextKeys.length - 1 - s] &&
+          types[types.length - 1 - s] === nextTypes[nextTypes.length - 1 - s]
+        ) {
+          s++
+        }
+        const removeCount = keys.length - p - s
+        const insertKeys = nextKeys.slice(p, nextKeys.length - s)
+        if (removeCount > 0 || insertKeys.length > 0) {
+          globalThis.__zn_listSplice(inst.id, node, p, removeCount, insertKeys, nextTypes.slice(p, nextTypes.length - s))
+        }
+      }
+      keys = nextKeys
+      types = nextTypes
+      items = next.slice()
+      keyIndex = new Map(keys.map((k, i) => [k, i]))
+      sync()
+    })
+  })
+
+  if (o.rangeEvent) {
+    on(inst, o.rangeEvent, (payload) => {
+      const [a, b] = String(payload).split(",").map(Number)
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return
+      first = a
+      last = b
+      sync()
+    })
+  }
+  if (o.endEvent && o.onEndReached) on(inst, o.endEvent, () => o.onEndReached!())
+}
+
 /** A new JS-allocated instance id (also used for back-stack entries: a screen's entry id is its root id). */
 export function allocInstanceId(): number {
   if (nextInstanceId >= JS_ID_LIMIT) throw new Error("zero-native: out of instance ids")

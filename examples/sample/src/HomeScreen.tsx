@@ -1,42 +1,100 @@
-// The sample's start screen (route "/"): a short merchant list. Tapping a row opens the Amount screen; the
-// 10,000-row virtualized version comes with <List> (step 2.4).
-import { Column, Image, Pressable, Row, Text } from "@zero-native/ui"
-import { nav } from "@zero-native/core"
+// The sample's start screen (route "/"): 10,000 merchants in a virtualized <List> with two row kinds (an area header
+// every 100 rows, merchant rows). "New payment arrives" inserts a row at the top: the visible rows must not move.
+import { Box, Column, List, Pressable, Row, Text } from "@zero-native/ui"
+import { nav, signal } from "@zero-native/core"
 import { c } from "./tokens"
-import { MERCHANTS } from "./merchants"
+import { generatedMerchant, type Merchant } from "./merchants"
+
+const COUNT = 10_000
+const AVATAR = ["#E0E7FF", "#DCFCE7", "#FEF3C7", "#FCE7F3", "#E0F2FE", "#F3E8FF"]
+
+type Item = { kind: "header"; id: string; title: string } | ({ kind: "merchant"; paid?: boolean } & Merchant)
+
+function buildFeed(): Item[] {
+  const out: Item[] = []
+  for (let i = 0; i < COUNT; i++) {
+    const m = generatedMerchant(i)
+    if (i % 100 === 0) out.push({ kind: "header", id: `h${i}`, title: `${m.area} · stores ${i + 1}–${i + 100}` })
+    out.push({ kind: "merchant", ...m })
+  }
+  return out
+}
 
 export function HomeScreen() {
+  const feed = signal(buildFeed())
+  let arrivals = 0
+  const newPayment = () => {
+    arrivals++
+    const m = generatedMerchant(COUNT + arrivals)
+    feed.set([{ kind: "merchant", ...m, name: `Just paid: ${m.name}`, paid: true }, ...feed()])
+  }
+
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
-      <Column style={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 12, gap: 4 }}>
-        <Text fontSize={24} fontWeight="bold" color={c.ink}>
-          Pay a merchant
-        </Text>
-        <Text fontSize={13} color={c.muted}>
-          Recent stores near you
-        </Text>
-      </Column>
-      <Column style={{ paddingHorizontal: 12, gap: 8 }}>
-        {MERCHANTS.map((m) => (
-          <Pressable
-            key={m.id}
-            onPress={() => nav.push("amount", { merchantId: m.id })}
-            style={{ padding: 12, borderRadius: 14, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}
-          >
-            <Row style={{ gap: 12, alignItems: "center" }}>
-              <Image src={m.photo} style={{ width: 44, height: 44, borderRadius: 22 }} />
-              <Column style={{ gap: 2 }}>
-                <Text fontSize={16} fontWeight={600} color={c.ink}>
-                  {m.name}
-                </Text>
-                <Text fontSize={12} color={c.muted}>
-                  {m.area}
-                </Text>
-              </Column>
-            </Row>
-          </Pressable>
-        ))}
-      </Column>
+      <Row style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, gap: 12, alignItems: "center" }}>
+        <Column style={{ flex: 1, gap: 2 }}>
+          <Text fontSize={24} fontWeight="bold" color={c.ink}>
+            Pay a merchant
+          </Text>
+          <Text fontSize={13} color={c.muted}>
+            {feed().length} stores near you
+          </Text>
+        </Column>
+        <Pressable
+          onPress={() => nav.push("offers")}
+          style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: c.successBg }}
+        >
+          <Text fontSize={12} fontWeight={700} color={c.success}>
+            Offers
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={newPayment}
+          style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: c.primary }}
+        >
+          <Text fontSize={12} fontWeight={600} color={c.white}>
+            New payment arrives
+          </Text>
+        </Pressable>
+      </Row>
+      <List
+        data={feed()}
+        key={(f) => f.id}
+        style={{ flex: 1, paddingHorizontal: 12 }}
+        gap={8}
+        row={(f) =>
+          f.kind === "header" ? (
+            <Text fontSize={13} fontWeight={700} color={c.muted} style={{ paddingTop: 12, paddingHorizontal: 4 }}>
+              {f.title}
+            </Text>
+          ) : (
+            <Pressable
+              onPress={() => nav.push("amount", { merchantId: f.id })}
+              style={{ padding: 12, borderRadius: 14, backgroundColor: f.paid ? c.successBg : c.white, borderWidth: 1, borderColor: c.border }}
+            >
+              <Row style={{ gap: 12, alignItems: "center" }}>
+                <Box
+                  alignItems="center"
+                  justifyContent="center"
+                  style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: AVATAR[f.name.length % AVATAR.length] }}
+                >
+                  <Text fontSize={18} fontWeight={700} color={c.ink}>
+                    {f.name.charAt(0)}
+                  </Text>
+                </Box>
+                <Column style={{ gap: 2 }}>
+                  <Text fontSize={16} fontWeight={600} color={c.ink}>
+                    {f.name}
+                  </Text>
+                  <Text fontSize={12} color={c.muted}>
+                    {f.area}
+                  </Text>
+                </Column>
+              </Row>
+            </Pressable>
+          )
+        }
+      />
     </Column>
   )
 }

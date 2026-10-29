@@ -18,6 +18,16 @@ declare global {
   var __zn_remove: (instance: number) => void
   var __zn_move: (instance: number, toIndex: number) => void
   var __zn_nav: (kind: number, entry: number, route: number, params: string | null) => void
+  var __zn_listSet: (instance: number, node: number, keys: string[], types: number[]) => void
+  var __zn_listSplice: (
+    instance: number,
+    node: number,
+    index: number,
+    removeCount: number,
+    keys: string[],
+    types: number[],
+  ) => void
+  var __zn_listRow: (instance: number, node: number, key: string, row: number) => void
   var __zn_setTimer: (delayMs: number, repeat: boolean) => number
   var __zn_clearTimer: (handle: number) => void
   var __zn_log: (level: number, message: string) => void

@@ -16,9 +16,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
@@ -45,6 +47,39 @@ private const val NONE = -1
 class Edges(val start: Float, val top: Float, val end: Float, val bottom: Float) {
     fun plus(s: Float, t: Float, e: Float, b: Float) = Edges(start + s, top + t, end + e, bottom + b)
     fun toPadding() = PaddingValues(start.dp, top.dp, end.dp, bottom.dp)
+}
+
+/**
+ * A CSS linear gradient, parsed once from the compiler's "angle|argb@position|..." (position 0–1, or -1 = spread
+ * evenly). Angles follow CSS: 0deg points up, 90deg right, 180deg down (the default).
+ */
+class ZnGradient(private val angleDeg: Float, private val colors: List<Color>, private val stops: FloatArray) {
+    /** The brush for a box of [size]: the gradient line goes through the centre, long enough to reach the corners. */
+    fun brush(size: Size): Brush {
+        val rad = Math.toRadians(angleDeg.toDouble())
+        val dx = kotlin.math.sin(rad).toFloat()
+        val dy = -kotlin.math.cos(rad).toFloat()
+        val half = (kotlin.math.abs(size.width * dx) + kotlin.math.abs(size.height * dy)) / 2f
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val start = Offset(c.x - dx * half, c.y - dy * half)
+        val end = Offset(c.x + dx * half, c.y + dy * half)
+        return Brush.linearGradient(colorStops = Array(colors.size) { stops[it] to colors[it] }, start = start, end = end)
+    }
+
+    companion object {
+        fun parse(spec: String): ZnGradient? {
+            val parts = spec.split('|')
+            val angle = parts.firstOrNull()?.toFloatOrNull() ?: return null
+            val raw = parts.drop(1).mapNotNull { stop ->
+                val (argb, pos) = stop.split('@').takeIf { it.size == 2 } ?: return@mapNotNull null
+                Color(argb.toLong().toInt()) to (pos.toFloatOrNull() ?: -1f)
+            }
+            if (raw.size < 2) return null
+            // Missing positions are spread evenly, as in CSS.
+            val stops = FloatArray(raw.size) { i -> raw[i].second.takeIf { it >= 0f } ?: (i.toFloat() / (raw.size - 1)) }
+            return ZnGradient(angle, raw.map { it.first }, stops)
+        }
+    }
 }
 
 /** An icon as SVG path data, parsed once ("minX minY width height|pathData", see packages/ui Icon docs). */
@@ -148,6 +183,12 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     // Pressable
     val disabled = p[Registry.Prop.DISABLED] == true
     val haptic = p[Registry.Prop.HAPTIC] == true
+    // Scroll: horizontal rails; its padding becomes content padding (it scrolls with the content, as in RN's
+    // contentContainerStyle), so it is left out of the modifier chain.
+    val horizontal = p[Registry.Prop.HORIZONTAL] == true
+    private val paddingIsContent = type == Registry.Component.SCROLL
+    val contentPadding: PaddingValues? = if (paddingIsContent) padding?.toPadding() else null
+    val gradient: ZnGradient? = (p[Registry.Prop.BACKGROUND_IMAGE] as String?)?.let(ZnGradient::parse)
     val repeatDelayMs = (num(Registry.Prop.REPEAT_DELAY) ?: 400f).toLong()
     val repeatIntervalMs = (num(Registry.Prop.REPEAT_INTERVAL) ?: 100f).toLong().coerceAtLeast(16)
 
@@ -167,6 +208,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
 
     // Events: the event id JS listens to, or 0.
     val onPress = eventFor(raw, Registry.Event.ON_PRESS)
+    val onRange = eventFor(raw, Registry.Event.ON_RANGE)
+    val onEndReached = eventFor(raw, Registry.Event.ON_END_REACHED)
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)
     val onPressOut = eventFor(raw, Registry.Event.ON_PRESS_OUT)
     val onLongPress = eventFor(raw, Registry.Event.ON_LONG_PRESS)
@@ -217,6 +260,15 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         } else {
             this.background?.let { m = m.background(it, shape) }
         }
+        // backgroundImage: a linear gradient over the background colour. The brush is built once per size.
+        gradient?.let { g ->
+            val s = shape
+            m = m.drawWithCache {
+                val brush = g.brush(size)
+                val outline = s.createOutline(size, layoutDirection, this)
+                onDrawBehind { drawOutline(outline, brush) }
+            }
+        }
         if (borderWidth > 0f) m = m.border(borderWidth.dp, borderColor, shape)
         if (borderTopWidth > 0f || borderBottomWidth > 0f) {
             val c = borderColor
@@ -240,7 +292,11 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         val bs = borderWidth
         val bt = borderWidth + borderTopWidth
         val bb = borderWidth + borderBottomWidth
-        if (pad != null) {
+        if (paddingIsContent) {
+            if (borderWidth > 0f || borderTopWidth > 0f || borderBottomWidth > 0f) {
+                m = m.padding(Edges(0f, 0f, 0f, 0f).plus(bs, bt, bs, bb).toPadding())
+            }
+        } else if (pad != null) {
             m = m.layoutPadding { pad().plus(bs, bt, bs, bb) }
         } else if (padding != null || borderWidth > 0f || borderTopWidth > 0f || borderBottomWidth > 0f) {
             m = m.padding((padding ?: Edges(0f, 0f, 0f, 0f)).plus(bs, bt, bs, bb).toPadding())

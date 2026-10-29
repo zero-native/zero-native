@@ -70,7 +70,8 @@ translator (§9) maps `View` + `flex-row` to `Row`.
 ### 3.2 Drawing
 | Key | Notes |
 |---|---|
-| `backgroundColor` | colour or token |
+| `backgroundColor` | colour or token (`#hex`, `rgb()`, `rgba()`, `transparent`) |
+| `backgroundImage` | `"linear-gradient(<angle>deg \| to <side>, <colour> [N%], ...)"` (RN's CSS form); parsed at build time, drawn over `backgroundColor` in the same shape; build-time only (step 2.4b) |
 | `borderRadius`, `borderTopStartRadius`, ... | one shape is built from all corner values and shared by background, border, clip, press feedback and shadow |
 | `borderWidth`, `borderColor` | uniform border |
 | `borderTopWidth`, `borderBottomWidth`, ... (+ colours) | per-side borders (dividers are common in RN code); drawn with `drawBehind` on Android [check cost] |

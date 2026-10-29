@@ -85,6 +85,13 @@ the Compose frame clock.
 | Memory, Step 1.5 sample | **77.8 MB** PSS (total RSS 162 MB, Java Heap 3.2 MB) | release, after 10 s idle | 10-29 |
 | Memory, Step 2.0b sample | **86.1 MB** PSS (total RSS 165 MB, Java Heap 3.3 MB) | release, after 10 s idle | 10-29 |
 | Template read & preparation | 2.58 ms (7 templates prepared) | release, memory-mapped | 10-29 |
+| Cold start, step 2.2 (Navigation 3 host) | **193 ms** median (p90 198 ms, 11 runs) | release, load avg ~18 | 10-29 |
+| Cold start, step 2.3 (edge to edge) | **189 ms** median (p90 210 ms) | release | 10-29 |
+| Tap merchant → Amount screen's first frame | 12–17 ms (2 runs) | release, in-app timestamps (`tap→frame`) | 10-29 |
+| `<List>` fling, 10,100 rows, 2 kinds (step 2.4a) | p50 6 ms, p90 9 ms, p95 11 ms, p99 15 ms per frame; 0 janky, 0 slow UI thread (491 frames, 35 fast flings) | release, `dumpsys gfxinfo`; 90 Hz target ≤ 11 ms | 10-29 |
+| Cold start with the 10,100-row list on the first screen | **180 ms** median (p90 201 ms); fully drawn 235 ms (1 run) | release | 10-29 |
+| Memory after flinging the 10,100-row list | 106 MB PSS (Java heap 28 MB) | release | 10-29 |
+| Offers feed fling (260 rows: banner rail, 100 product rails, message cards; real product photos) (step 2.4b) | p50 6 ms, p90 10 ms, p95 11 ms, p99 15 ms per frame; 1 janky of 427, 0 slow bitmap uploads; 111 MB PSS | release, 20 vertical + 6 rail + 8 back flings | 10-29 |
 
 ### 4.1 Where exp4-flow's ~400 ms went (one release cold start, from `logcat`, 2026-10-29)
 | From process start | What | Cost |

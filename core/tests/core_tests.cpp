@@ -166,6 +166,37 @@ void testNav() {
   CHECK(!h.platform.logs.empty() && h.platform.logs.back().find("unknown kind 9") != std::string::npos);
 }
 
+void testListOps() {
+  std::printf("list ops: set, splice, row\n");
+  zn::Batch batch;
+  batch.listSet(7, 3, {zn::Value::string("a"), zn::Value::string("b")}, {4, 5});
+  batch.listSplice(7, 3, 0, 1, {zn::Value::string("c")}, {4});
+  batch.listRow(7, 3, zn::Value::string("c"), 12);
+  const std::vector<uint8_t> bytes = batch.encode();
+  Reader r{bytes};
+  CHECK(r.get<uint32_t>() == zn::kBatchMagic);
+  CHECK(r.get<uint32_t>() == 3);
+  CHECK(r.get<uint8_t>() == 6);  // LIST_SET
+  CHECK(r.get<uint32_t>() == 7);
+  CHECK(r.get<uint16_t>() == 3);
+  CHECK(r.get<uint32_t>() == 2);
+  CHECK(r.get<uint8_t>() == 4 && r.get<uint32_t>() == 1);  // "a"
+  r.pos += 1;
+  CHECK(r.get<uint16_t>() == 4);
+  r.pos += 1 + 4 + 1;  // "b"
+  CHECK(r.get<uint16_t>() == 5);
+  CHECK(r.get<uint8_t>() == 7);  // LIST_SPLICE
+  r.pos += 4 + 2;
+  CHECK(r.get<uint32_t>() == 0);  // index
+  CHECK(r.get<uint32_t>() == 1);  // removeCount
+  CHECK(r.get<uint32_t>() == 1);  // insertCount
+  r.pos += 1 + 4 + 1 + 2;         // "c", type
+  CHECK(r.get<uint8_t>() == 8);  // LIST_ROW
+  r.pos += 4 + 2 + 1 + 4 + 1;    // instance, node, "c"
+  CHECK(r.get<uint32_t>() == 12);
+  CHECK(r.pos == bytes.size());
+}
+
 void testTickAndApply() {
   std::printf("tick → one apply request, coalescing until taken\n");
   Harness h;
@@ -246,6 +277,7 @@ int main() {
   testBatchEncoding();
   testPatchCoalescing();
   testNav();
+  testListOps();
   testTickAndApply();
   testNoOpsNoRequest();
   testTimers();

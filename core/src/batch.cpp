@@ -102,6 +102,39 @@ void Batch::nav(NavKind kind, uint32_t entry, uint16_t route, Value params) {
   push(std::move(op));
 }
 
+void Batch::listSet(uint32_t instance, uint16_t node, std::vector<Value> keys, std::vector<uint16_t> types) {
+  Op op;
+  op.code = OpCode::ListSet;
+  op.instance = instance;
+  op.slot = node;
+  op.values = std::move(keys);
+  op.types = std::move(types);
+  push(std::move(op));
+}
+
+void Batch::listSplice(uint32_t instance, uint16_t node, uint32_t index, uint32_t removeCount,
+                       std::vector<Value> keys, std::vector<uint16_t> types) {
+  Op op;
+  op.code = OpCode::ListSplice;
+  op.instance = instance;
+  op.slot = node;
+  op.index = index;
+  op.removeCount = removeCount;
+  op.values = std::move(keys);
+  op.types = std::move(types);
+  push(std::move(op));
+}
+
+void Batch::listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) {
+  Op op;
+  op.code = OpCode::ListRow;
+  op.instance = instance;
+  op.slot = node;
+  op.value = std::move(key);
+  op.row = row;
+  push(std::move(op));
+}
+
 void Batch::append(const Batch& other) {
   for (const Op& op : other.ops_) push(op);
 }
@@ -144,6 +177,26 @@ std::vector<uint8_t> Batch::encode() const {
         w.u32(op.instance);
         w.u16(op.route);
         w.value(op.value);
+        break;
+      case OpCode::ListSet:
+      case OpCode::ListSplice:
+        w.u32(op.instance);
+        w.u16(op.slot);
+        if (op.code == OpCode::ListSplice) {
+          w.u32(op.index);
+          w.u32(op.removeCount);
+        }
+        w.u32(static_cast<uint32_t>(op.values.size()));
+        for (size_t i = 0; i < op.values.size(); i++) {
+          w.value(op.values[i]);
+          w.u16(i < op.types.size() ? op.types[i] : 0);
+        }
+        break;
+      case OpCode::ListRow:
+        w.u32(op.instance);
+        w.u16(op.slot);
+        w.value(op.value);
+        w.u32(op.row);
         break;
     }
   }

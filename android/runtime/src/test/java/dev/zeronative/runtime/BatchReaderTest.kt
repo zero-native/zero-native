@@ -44,6 +44,23 @@ class BatchReaderTest {
     }
 
     @Test
+    fun readsListOps() {
+        val bytes = header(3)
+            .u8(6).u32(7).u16(3).u32(2).str("a").u16(4).str("b").u16(5)          // LIST_SET
+            .u8(7).u32(7).u16(3).u32(0).u32(1).u32(1).str("c").u16(4)           // LIST_SPLICE
+            .u8(8).u32(7).u16(3).str("c").u32(12)                               // LIST_ROW
+            .bytes()
+        assertEquals(
+            listOf(
+                BatchOp.ListSet(7, 3, listOf("a", "b"), listOf(4, 5)),
+                BatchOp.ListSplice(7, 3, 0, 1, listOf("c"), listOf(4)),
+                BatchOp.ListRow(7, 3, "c", 12),
+            ),
+            BatchReader.read(bytes),
+        )
+    }
+
+    @Test
     fun readsAllOpKinds() {
         val bytes = header(4)
             .u8(1).u32(7).u16(2).num(42.0)                                  // PATCH

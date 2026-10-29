@@ -6,6 +6,8 @@
 //   __zn_remove(instance)
 //   __zn_move(instance, toIndex)
 //   __zn_nav(kind, entry, route, paramsJson)
+//   __zn_listSet(instance, node, keys[], types[]) / __zn_listSplice(instance, node, index, removeCount, keys[], types[])
+//   __zn_listRow(instance, node, key, rowInstance)
 //   __zn_setTimer(delayMs, repeat) -> handle
 //   __zn_clearTimer(handle)
 //   __zn_log(level, message)
@@ -180,6 +182,48 @@ class HermesEngine final : public Engine {
     define("__zn_nav", 4, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
       host.nav(static_cast<uint8_t>(u32Arg(rt, a, n, 0)), u32Arg(rt, a, n, 1),
                static_cast<uint16_t>(u32Arg(rt, a, n, 2)), n > 3 ? toValue(rt, a[3]) : Value::null());
+      return jsi::Value::undefined();
+    });
+
+    // keys: array of strings; types: array of template ids (same length).
+    auto rows = [](jsi::Runtime& rt, const jsi::Value* k, const jsi::Value* t, std::vector<Value>& keys,
+                   std::vector<uint16_t>& types) {
+      if (!k || !t || !k->isObject() || !t->isObject()) {
+        throw jsi::JSError(rt, "zero-native: list keys and types must be arrays");
+      }
+      jsi::Array ka = k->getObject(rt).getArray(rt);
+      jsi::Array ta = t->getObject(rt).getArray(rt);
+      const size_t n = ka.size(rt);
+      if (ta.size(rt) != n) throw jsi::JSError(rt, "zero-native: list keys and types differ in length");
+      keys.reserve(n);
+      types.reserve(n);
+      for (size_t i = 0; i < n; i++) {
+        keys.push_back(toValue(rt, ka.getValueAtIndex(rt, i)));
+        const jsi::Value ty = ta.getValueAtIndex(rt, i);
+        types.push_back(static_cast<uint16_t>(ty.isNumber() ? ty.getNumber() : 0));
+      }
+    };
+
+    define("__zn_listSet", 4, [&host, rows](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      std::vector<Value> keys;
+      std::vector<uint16_t> types;
+      rows(rt, n > 2 ? &a[2] : nullptr, n > 3 ? &a[3] : nullptr, keys, types);
+      host.listSet(u32Arg(rt, a, n, 0), static_cast<uint16_t>(u32Arg(rt, a, n, 1)), std::move(keys), std::move(types));
+      return jsi::Value::undefined();
+    });
+
+    define("__zn_listSplice", 6, [&host, rows](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      std::vector<Value> keys;
+      std::vector<uint16_t> types;
+      rows(rt, n > 4 ? &a[4] : nullptr, n > 5 ? &a[5] : nullptr, keys, types);
+      host.listSplice(u32Arg(rt, a, n, 0), static_cast<uint16_t>(u32Arg(rt, a, n, 1)), u32Arg(rt, a, n, 2),
+                      u32Arg(rt, a, n, 3), std::move(keys), std::move(types));
+      return jsi::Value::undefined();
+    });
+
+    define("__zn_listRow", 4, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      host.listRow(u32Arg(rt, a, n, 0), static_cast<uint16_t>(u32Arg(rt, a, n, 1)),
+                   n > 2 ? toValue(rt, a[2]) : Value::null(), u32Arg(rt, a, n, 3));
       return jsi::Value::undefined();
     });
 

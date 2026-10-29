@@ -19,6 +19,7 @@ import {
   DynamicProps,
   el,
   event as eventRef,
+  parseColor,
   EventKind,
   type NodeProps,
   type NodeSpec,
@@ -133,6 +134,8 @@ export function compileModule(
   let code = source
   for (const e of [...edits].sort((a, b) => b.start - a.start)) code = code.slice(0, e.start) + e.text + code.slice(e.end)
   if (replaced.length > 0) code = `import * as ${RUNTIME} from "@zero-native/core";\n${code}`
+  // Each component's template id, readable at runtime without running it (a <List> row's type, in any file).
+  for (const [name, id] of Object.entries(components)) code += `\n${name}.__zt = ${id};`
   return { code, components }
 
   // ---- Templates ----------------------------------------------------------------------------------------------
@@ -176,6 +179,7 @@ export function compileModule(
   function element(node: ts.JsxElement | ts.JsxSelfClosingElement, b: Builder, allowKey = false): NodeSpec {
     const tag = tagName(node)
     if (!isIntrinsic(tag)) fail(node, `"${tag}" is not a zero-native component`)
+    if (tag === "List") return listElement(node, b)
     b.nodes++
     const props: NodeProps & Record<string, unknown> = {}
     const opening = ts.isJsxElement(node) ? node.openingElement : node
@@ -203,7 +207,7 @@ export function compileModule(
       }
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
       if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
-      else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, init.text, a)
+      else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)
       else fail(a, `unsupported value for "${name}"`)
     }
@@ -301,9 +305,147 @@ export function compileModule(
     return el("Anchor")
   }
 
+  /**
+   * `<List data={...} key={(it) => ...} row={(it) => ...} onEndReached={...} style={...} />` (docs/lists.md).
+   * Each JSX leaf of the row function (`cond ? <A/> : <B/>` picks between row kinds) becomes a row template; the
+   * runtime mounts rows only near the visible range. Also emitted: `type(item)`, the leaf's template id computed
+   * without building the row (a user component's id comes from `Comp.__zt`, set where it is compiled).
+   */
+  function listElement(node: ts.JsxElement | ts.JsxSelfClosingElement, b: Builder): NodeSpec {
+    const index = b.nodes++
+    if (ts.isJsxElement(node) && node.children.some((c) => !(ts.isJsxText(c) && c.text.trim() === ""))) {
+      fail(node, "<List> takes no children: rows come from its row={(item) => <Row/>} function")
+    }
+    const props: NodeProps & Record<string, unknown> = {}
+    const special: Record<string, ts.Expression> = {}
+    for (const attr of (ts.isJsxElement(node) ? node.openingElement : node).attributes.properties) {
+      if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
+      const a = attr as ts.JsxAttribute
+      const name = a.name.getText(sf)
+      const init = a.initializer
+      const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
+      if (name === "data" || name === "key" || name === "row" || name === "onEndReached") {
+        if (!expr) fail(a, `${name} needs an expression: ${name}={...}`)
+        special[name] = expr!
+      } else if (name === "style") {
+        if (!expr) fail(a, "style needs an object: style={{ ... }}")
+        styleProps(expr!, props, b)
+      } else if (name in Prop) {
+        if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
+        else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
+        else if (expr) setProp(props, b, name as PropName, expr, a)
+        else fail(a, `unsupported value for "${name}"`)
+      } else {
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style)`)
+      }
+    }
+    for (const required of ["data", "key", "row"]) {
+      if (!special[required]) fail(node, `<List> needs ${required}={...}`)
+    }
+
+    const fn = unwrap(special.row)
+    if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) fail(special.row, "row must be a function: row={(item) => <Row/>}")
+    const rowFn = fn as ts.ArrowFunction
+    if (rowFn.parameters.length < 1 || rowFn.parameters.length > 2) fail(rowFn, "row takes (item) or (item, index)")
+    const params = rowFn.parameters.map((p) => text(p)).join(", ")
+    let body: ts.Expression | undefined
+    if (ts.isBlock(rowFn.body)) {
+      const only = rowFn.body.statements.length === 1 ? rowFn.body.statements[0] : null
+      body = only && ts.isReturnStatement(only) ? only.expression : undefined
+    } else {
+      body = rowFn.body
+    }
+    if (!body) fail(rowFn, "row must return its JSX directly: row={(item) => <Row/>}")
+
+    const branches = (e: ts.Expression): { code: string; type: string } => {
+      const u = unwrap(e)
+      if (ts.isConditionalExpression(u)) {
+        const cond = text(u.condition)
+        const yes = branches(u.whenTrue)
+        const no = branches(u.whenFalse)
+        return { code: `(${cond}) ? ${yes.code} : ${no.code}`, type: `(${cond}) ? ${yes.type} : ${no.type}` }
+      }
+      if (!isJsx(u) || ts.isJsxFragment(u)) {
+        fail(u, "a row must be one JSX element, or `cond ? <A/> : <B/>` to pick between row kinds")
+      }
+      const root = compileRoot(u as JsxNode, b.depth + 1, /* allowKey */ true)
+      if (root.templateId !== null) return { code: root.code, type: String(root.templateId) }
+      const tag = tagName(u as ts.JsxElement)
+      return { code: root.code, type: `(${tag}.__zt ?? 0)` }
+    }
+    const rows = branches(body!)
+
+    const range = `e${b.events++}`
+    ;(props as any).onRange = eventRef(range)
+    let end = "0"
+    let onEnd = "undefined"
+    if (special.onEndReached) {
+      const ev = `e${b.events++}`
+      ;(props as any).onEndReached = eventRef(ev)
+      end = `@@E:${ev}@@`
+      onEnd = text(special.onEndReached)
+    }
+    b.kids.push(
+      `${RUNTIME}.list(${b.inst}, ${index}, { data: () => (${text(special.data)}), key: ${text(special.key)}, ` +
+        `row: (${params}) => ${rows.code}, type: (${params}) => ${rows.type}, ` +
+        `rangeEvent: @@E:${range}@@, endEvent: ${end}, onEndReached: ${onEnd} });`,
+    )
+    return el("List", props)
+  }
+
   /** A build-time prop value → the template. Values with React Native aliases are normalised here. */
   function setStatic(props: Record<string, unknown>, name: PropName, value: unknown, at: ts.Node) {
-    props[name] = name === "fontWeight" ? fontWeight(value, at) : value
+    props[name] =
+      name === "fontWeight" ? fontWeight(value, at)
+      : name === "backgroundImage" ? linearGradient(value, at)
+      : value
+  }
+
+  /**
+   * React Native's `backgroundImage` (CSS `linear-gradient(...)`) → "angle|argb@position|..." for native. Supports an
+   * angle (`180deg`) or a side (`to bottom`, `to right`, ...), then 2+ colours with optional `N%` positions.
+   */
+  function linearGradient(value: unknown, at: ts.Node): string {
+    const s = typeof value === "string" ? value.trim() : ""
+    const m = /^linear-gradient\((.*)\)$/s.exec(s)
+    if (!m) return fail(at, 'backgroundImage needs "linear-gradient(...)" (only linear gradients are supported)')
+    // Split on commas outside parentheses (rgba(...) has its own commas).
+    const parts: string[] = []
+    let depth = 0
+    let cur = ""
+    for (const ch of m[1]) {
+      if (ch === "(") depth++
+      if (ch === ")") depth--
+      if (ch === "," && depth === 0) {
+        parts.push(cur.trim())
+        cur = ""
+      } else cur += ch
+    }
+    parts.push(cur.trim())
+    const sides: Record<string, number> = {
+      "to top": 0, "to right": 90, "to bottom": 180, "to left": 270,
+      "to top right": 45, "to bottom right": 135, "to bottom left": 225, "to top left": 315,
+    }
+    let angle = 180 // CSS default: top to bottom
+    const deg = /^(-?\d*\.?\d+)deg$/.exec(parts[0])
+    if (deg) {
+      angle = Number(deg[1])
+      parts.shift()
+    } else if (parts[0] in sides) {
+      angle = sides[parts.shift()!]
+    }
+    if (parts.length < 2) fail(at, "linear-gradient needs at least 2 colours")
+    const stops = parts.map((p) => {
+      const sm = /^(.*?)(?:\s+(-?\d*\.?\d+)%)?$/.exec(p)!
+      let argb = 0
+      try {
+        argb = parseColor(sm[1].trim())
+      } catch (e) {
+        fail(at, `backgroundImage: ${(e as Error).message}`)
+      }
+      return `${argb}@${sm[2] === undefined ? -1 : Number(sm[2]) / 100}`
+    })
+    return [String(angle), ...stops].join("|")
   }
 
   /** React Native font weights: 100–900 in steps of 100 (number or "600"), "normal" = 400, "bold" = 700. */
@@ -450,7 +592,7 @@ export function compileModule(
       if (name === "key") continue
       const init = a.initializer
       if (!init) parts.push(`${JSON.stringify(name)}: true`)
-      else if (ts.isStringLiteral(init)) parts.push(`${JSON.stringify(name)}: ${JSON.stringify(init.text)}`)
+      else if (ts.isStringLiteral(init)) parts.push(`${JSON.stringify(name)}: ${JSON.stringify(decodeEntities(init.text))}`)
       else if (ts.isJsxExpression(init) && init.expression) parts.push(`get ${JSON.stringify(name)}() { return (${text(init.expression)}) }`)
       else fail(a, `unsupported value for "${name}"`)
     }
@@ -488,8 +630,26 @@ function forEachDescendant(node: ts.Node, visit: (n: ts.Node) => void, stopAtFun
   ts.forEachChild(node, walk)
 }
 
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }
+
+/** HTML entities in JSX text and string attributes, decoded as React does (`&amp;`, `&#8377;`, `&#x20B9;`). */
+function decodeEntities(s: string): string {
+  if (!s.includes("&")) return s
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, name: string) => {
+    if (name[0] === "#") {
+      const code = name[1] === "x" || name[1] === "X" ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10)
+      return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : whole
+    }
+    return ENTITIES[name.toLowerCase()] ?? whole
+  })
+}
+
 /** JSX text whitespace rules (as in React): lines are trimmed, blank lines dropped, lines joined with one space. */
 function jsxText(raw: string): string {
+  return decodeEntities(jsxWhitespace(raw))
+}
+
+function jsxWhitespace(raw: string): string {
   const lines = raw.split(/\r\n|\n|\r/)
   if (lines.length === 1) return raw
   return lines

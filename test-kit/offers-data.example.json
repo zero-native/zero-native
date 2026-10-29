@@ -1,0 +1,11 @@
+[
+  { "id": "ex-b1", "zmc": null, "type": "BANNER", "source_name": "Example Mart", "tagline": "Weekend sale", "caption": "Up to 20% off groceries", "description": "Made-up offer for the sample app.", "product_details": null },
+  { "id": "ex-b2", "zmc": null, "type": "BANNER", "source_name": "Example Cafe", "tagline": "Buy 1 get 1", "caption": "On every cold coffee", "description": "Made-up offer for the sample app.", "product_details": null },
+  { "id": "ex-p1", "zmc": "EX-M1", "type": "PRODUCT", "source_name": "Example Mart", "tagline": null, "caption": "Fresh picks at Example Mart", "description": null, "product_details": { "name": "Basmati rice 5 kg" } },
+  { "id": "ex-p2", "zmc": "EX-M1", "type": "PRODUCT", "source_name": "Example Mart", "tagline": null, "caption": "Fresh picks at Example Mart", "description": null, "product_details": { "name": "Toor dal 1 kg" } },
+  { "id": "ex-p3", "zmc": "EX-M1", "type": "PRODUCT", "source_name": "Example Mart", "tagline": null, "caption": "Fresh picks at Example Mart", "description": null, "product_details": { "name": "Sunflower oil 1 L" } },
+  { "id": "ex-p4", "zmc": "EX-M2", "type": "PRODUCT", "source_name": "Example Pharmacy", "tagline": null, "caption": "Health deals near you", "description": null, "product_details": { "name": "Vitamin C tablets" } },
+  { "id": "ex-p5", "zmc": "EX-M2", "type": "PRODUCT", "source_name": "Example Pharmacy", "tagline": null, "caption": "Health deals near you", "description": null, "product_details": { "name": "Hand sanitiser 500 ml" } },
+  { "id": "ex-m1", "zmc": null, "type": "MESSAGE", "source_name": "Example Bank", "tagline": "Cashback", "caption": "₹50 back on your first UPI payment", "description": "Made-up offer for the sample app.", "product_details": null },
+  { "id": "ex-m2", "zmc": null, "type": "MESSAGE", "source_name": "Example Telecom", "tagline": "Recharge", "caption": "Extra 2 GB on a ₹299 recharge", "description": "Made-up offer for the sample app.", "product_details": null }
+]

@@ -2,7 +2,9 @@ package dev.zeronative.runtime
 
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshots.SnapshotStateList
 
@@ -33,6 +35,38 @@ class ZnInstance internal constructor(
     fun children(anchor: Int): SnapshotStateList<Int> = anchors.getOrPut(anchor) { mutableStateListOf() }
 
     internal fun allChildren(): List<Int> = anchors.values.flatten()
+
+    private val lists = HashMap<Int, ZnList>()
+
+    /** The state of the <List> at node [node] (created on first use). */
+    fun list(node: Int): ZnList = lists.getOrPut(node) { ZnList() }
+
+    internal fun listOrNull(node: Int): ZnList? = lists[node]
+}
+
+/** One row of a <List>: its key and its type (the row template id: Compose reuse per kind, and its placeholder). */
+data class ZnListRow(val key: String, val type: Int)
+
+/**
+ * A <List>'s rows (docs/lists.md). Native knows every row's key and type; only rows near the screen have an instance
+ * (mounted by JS), found through [bound]. Observable, so a row redraws when its instance arrives.
+ */
+class ZnList {
+    val rows: SnapshotStateList<ZnListRow> = mutableStateListOf()
+    /** Row key → the instance that draws it. */
+    val bound: SnapshotStateMap<String, Int> = mutableStateMapOf()
+    private val keyOf = HashMap<Int, String>()
+
+    internal fun bind(key: String, row: Int) {
+        keyOf.remove(bound[key] ?: Int.MIN_VALUE)
+        bound[key] = row
+        keyOf[row] = key
+    }
+
+    internal fun unbind(row: Int) {
+        val key = keyOf.remove(row) ?: return
+        if (bound[key] == row) bound.remove(key)
+    }
 }
 
 /**
@@ -83,9 +117,23 @@ object ZnStore {
                     }
                     is BatchOp.Remove -> {
                         val inst = instances[op.instance]
-                        if (inst != null) instances[inst.parent]?.children(inst.anchor)?.remove(op.instance)
+                        if (inst != null) {
+                            val parent = instances[inst.parent]
+                            parent?.children(inst.anchor)?.remove(op.instance)
+                            parent?.listOrNull(inst.anchor)?.unbind(op.instance) // a <List> row leaving the window
+                        }
                         removeTree(op.instance)
                     }
+                    is BatchOp.ListSet -> instances[op.instance]?.list(op.node)?.rows?.let { rows ->
+                        rows.clear()
+                        rows.addAll(op.keys.indices.map { ZnListRow(op.keys[it], op.types[it]) })
+                    }
+                    is BatchOp.ListSplice -> instances[op.instance]?.list(op.node)?.rows?.let { rows ->
+                        val at = op.index.coerceIn(0, rows.size)
+                        rows.removeRange(at, (at + op.removeCount).coerceAtMost(rows.size))
+                        rows.addAll(at, op.keys.indices.map { ZnListRow(op.keys[it], op.types[it]) })
+                    }
+                    is BatchOp.ListRow -> instances[op.instance]?.list(op.node)?.bind(op.key, op.row)
                     is BatchOp.Move -> {
                         val inst = instances[op.instance] ?: continue
                         val siblings = instances[inst.parent]?.children(inst.anchor) ?: continue
@@ -96,6 +144,19 @@ object ZnStore {
                     is BatchOp.Nav -> ZnNav.apply(op)
                 }
             }
+        }
+    }
+
+    private val placeholders = HashMap<Int, ZnInstance>()
+
+    /**
+     * A read-only instance of [template] with its slot defaults, for <List> rows whose instance isn't mounted yet:
+     * same template, so the same height and look, never raw template syntax (docs/lists.md §3). Not in the store;
+     * JS never patches it, and its events reach no handler.
+     */
+    fun placeholder(templateId: Int, template: ZnTemplate): ZnInstance = placeholders.getOrPut(templateId) {
+        ZnInstance(Int.MIN_VALUE, templateId, parent = 0, anchor = 0).also { p ->
+            template.slotDefaults.forEachIndexed { slot, value -> p.slot(slot).value = value }
         }
     }
 

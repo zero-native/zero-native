@@ -13,54 +13,55 @@ Part of the zero-native spec. The summary is in `ARCHITECTURE.md` §9.3; this fi
 
 The compiler warns when a `<For>` is fed an array that is not obviously small, and suggests `<List>`.
 
-## 2. `<List>` authoring
+## 2. `<List>` authoring (built, milestone 2 step 2.4a)
 ```tsx
 <List
-  data={txns}                         // a ListSource: a JS array or signal of an array (v1), or a native source (v1.1)
-  key={(t) => t.id}                   // stable key, required
-  rowHeight={72}                      // fixed height (recommended); or estimatedRowHeight={72}
-  row={(t) => (                       // compiled ONCE into a row template; each t.* read becomes a row slot
-    <Pressable onPress={() => openTxn(t.id)} style={s.row}>
-      <Text style={t_.merchant} placeholder="████████">{t.merchant}</Text>
-      <Text style={[t_.amount, { color: t.isCredit ? c.credit : c.text }]}>{formatInr(t.amountPaise)}</Text>
-    </Pressable>
-  )}
-  onEndReached={() => loadMore()}     // network pagination
+  data={feed()}                        // a JS array (read a signal to make it reactive)
+  key={(f) => f.id}                    // unique, stable key; required
+  style={{ flex: 1, paddingHorizontal: 12 }}
+  gap={8}
+  row={(f) =>                          // one JSX element, or cond ? <A/> : <B/> to choose a row KIND
+    f.kind === "header" ? <Text style={s.header}>{f.title}</Text>
+    : <MerchantRow m={f} />}          // a component from any file is fine
+  onEndReached={() => loadMore()}      // network pagination; once per row count
 />
 ```
-- The `row` function is compiled into **one row template** (inside the screen's `.zn.ui`). It is **not** called per row
-  at runtime to build nodes.
-- Every expression inside `row` that reads the item (`t.merchant`, `formatInr(t.amountPaise)`) becomes a **row slot**.
-  JS computes row slot values for the rows in the current window only.
-- Row expressions should be pure functions of the item. They may also read list-level signals (for example
-  `selectedId()`); when such a signal changes, JS recomputes the affected slots for rows in the window only.
-- Taps: put a `Pressable` in the row. The event carries the row key, and the handler gets the item from JS memory.
+- **Row kinds:** each JSX leaf of `row` is its own row template. The compiler also emits `type(item)`, which picks the
+  leaf's template id **without building the row** (a user component's id comes from `Comp.__zt`, which the compiler
+  sets where the component is compiled). Native gives each kind its own Compose reuse pool (`contentType`) and its own
+  placeholder. Heights may differ per row: Compose measures lazy rows itself.
+- **A row is an ordinary template instance** (2.4a decision, changed from "row values only"): JS mounts it only while
+  it is near the visible range and removes it after it leaves a wider band. So everything that works in a screen works
+  in a row: slots, taps with closures over the item, `cond && <X/>`, `.map` rails, components. A long list still costs
+  only one key + type per row on the native side, plus instances for a window of ~40 rows.
+- A row whose item object changes (same key, new object) is mounted again. Keep items immutable: replace the object.
+- `row`'s index argument is the position when the row was mounted; it is not updated by later inserts.
 
-## 3. The window protocol (decided)
-JS → native (in the normal batch, ARCHITECTURE §8.3):
-- `LIST_SET(listId, count, version)`: the list now has `count` rows.
-- `LIST_ROWS(listId, version, startIndex, keys[], values[][])`: row slot values for a range, indexed by **slot id**
-  (typed values, no strings like `"{{slot:x}}"`).
-- `LIST_SPLICE(listId, version, index, removeCount, insertCount, keys[])`: rows inserted or removed (a new payment at
-  the top). Native shifts its cache and **keeps the scroll position anchored to the first visible key**.
+## 3. The window protocol (built, 2.4a)
+JS → native (normal batch ops, `core/include/zn/batch.h`):
+- `LIST_SET(instance, node, keys[], types[])`: every row's key and kind (template id), once.
+- `LIST_SPLICE(instance, node, index, removeCount, keys[], types[])`: what changed between the common start and the
+  common end of the old and new key lists (a new payment at the top, rows added at the end, a row removed): one op.
+  Compose keeps the scroll anchored to the first visible key.
+- `MOUNT` (parent = the list's instance, anchor = the list node) + `LIST_ROW(instance, node, key, rowInstance)`:
+  a row near the visible range; `REMOVE` when it leaves.
+- No version numbers: ops come in order from one JS thread, so nothing can arrive stale.
 
-Native → JS (asynchronous event, never waited for):
-- `onRange(listId, firstVisible, lastVisible, velocity)` sent when the visible range moves by more than a few rows
-  (v0 used 8). JS answers with `LIST_ROWS` for the visible range plus overscan (default: one screen above, two below
-  in the scroll direction; tuned by measurement).
+Native → JS (asynchronous events, never waited for):
+- `onRange` (payload `"first,last"`), sent when the visible range changes (at most once per frame). JS mounts rows from
+  8 above to 12 below it (and the first 16 + 12 before any range arrives) and removes rows outside twice that band.
+- `onEndReached`, once per row count, when the last visible row is within 5 of the end.
 
 Rules:
 - **The UI thread never calls into JS and never waits for row data.** v0 considered a synchronous JSI pull from
   Compose for each row ("Option B"). It is **rejected**: Hermes is single-threaded, so calling it from the UI thread
   corrupts memory, and putting a lock around it makes the UI thread wait during JS work and GC pauses.
-- **Native row cache:** plain value arrays keyed by index and key, bounded (default about 4× the window, least
-  recently used dropped). Observable cells exist only for rows that are composed (ARCHITECTURE §9.3).
-- **Missing rows show the same row template with placeholder values** (each slot's `placeholder`, or a neutral
-  default per value type: grey bar for text, empty for images). Same template, same height: no layout jump when real
-  values arrive. **Raw template syntax is never shown** (v0 showed `{{slot:merchant}}`; see `docs/v0-findings.md` §F).
-- `version` lets native ignore stale `LIST_ROWS` that arrive after a `LIST_SET` / `LIST_SPLICE`.
-- **Heights:** with `rowHeight`, positions are computed without measuring, and placeholders can't change height. With
-  `estimatedRowHeight`, rows are measured when composed; placeholder and real row may differ (documented trade-off).
+- **Missing rows show the same row template as a placeholder** (a shared read-only instance holding the template's
+  slot defaults), so a row never shows raw template syntax (v0 showed `{{slot:merchant}}`, `docs/v0-findings.md` §F).
+  Grey-bar placeholder text (`placeholder` prop) is not built yet.
+- **Duplicate keys** would crash Compose; JS logs an error and makes the key unique (`key#index`).
+- **Measured (Lava, release, 10,100 rows with 2 kinds, fast flings):** p50 6 ms, p95 11 ms, p99 15 ms per frame,
+  0 janky frames, 0 slow UI-thread frames; cold start 180 ms median with the list on the first screen.
 
 ## 4. The template interpreter must be fast (decided)
 v0 measured three ways to draw the same 72 dp card while flinging (Lava Blaze 2 5G, 90 Hz, 11.1 ms per frame):

@@ -12,6 +12,14 @@ sealed class BatchOp {
     ) : BatchOp()
     data class Remove(val instance: Int) : BatchOp()
     data class Move(val instance: Int, val toIndex: Int) : BatchOp()
+    /** <List>: every row's key and type (row template id). */
+    data class ListSet(val instance: Int, val node: Int, val keys: List<String>, val types: List<Int>) : BatchOp()
+    /** <List>: replace [removeCount] rows at [index] with these. */
+    data class ListSplice(
+        val instance: Int, val node: Int, val index: Int, val removeCount: Int, val keys: List<String>, val types: List<Int>,
+    ) : BatchOp()
+    /** <List>: instance [row] draws the row with [key]. */
+    data class ListRow(val instance: Int, val node: Int, val key: String, val row: Int) : BatchOp()
     /** Back-stack change (kinds in core/include/zn/batch.h). [params] is a JSON string or null. */
     data class Nav(val kind: Int, val entry: Int, val route: Int, val params: String?) : BatchOp() {
         companion object {
@@ -48,6 +56,21 @@ object BatchReader {
                 3 -> BatchOp.Remove(b.int)
                 4 -> BatchOp.Move(b.int, b.int)
                 5 -> BatchOp.Nav(b.get().toInt(), b.int, b.u16(), b.value() as String?)
+                6 -> {
+                    val instance = b.int
+                    val node = b.u16()
+                    val (keys, types) = b.rows()
+                    BatchOp.ListSet(instance, node, keys, types)
+                }
+                7 -> {
+                    val instance = b.int
+                    val node = b.u16()
+                    val index = b.int
+                    val removeCount = b.int
+                    val (keys, types) = b.rows()
+                    BatchOp.ListSplice(instance, node, index, removeCount, keys, types)
+                }
+                8 -> BatchOp.ListRow(b.int, b.u16(), b.value().toString(), b.int)
                 else -> error("unknown batch op $code")
             }
         }
@@ -56,6 +79,18 @@ object BatchReader {
     }
 
     private fun ByteBuffer.u16(): Int = short.toInt() and 0xFFFF
+
+    /** u32 count | (value key | u16 type)* */
+    private fun ByteBuffer.rows(): Pair<List<String>, List<Int>> {
+        val n = int
+        val keys = ArrayList<String>(n)
+        val types = ArrayList<Int>(n)
+        repeat(n) {
+            keys += value().toString()
+            types += u16()
+        }
+        return keys to types
+    }
 
     private fun ByteBuffer.value(): Any? = when (val kind = get().toInt()) {
         0 -> null

@@ -395,9 +395,12 @@ as tasks.
 - **`items.map(item => <X key={...}/>)`** is for short lists inside a layout (guideline: up to ~100 items). Every
   item is a real instance; JS emits `MOUNT` / `MOVE` / `REMOVE` only for items that changed. (Called `<For>` in earlier
   drafts; plain `.map` replaced it, 2026-10-29.)
-- **`<List data key rowHeight row>`** is for long lists. The `row` function is compiled **once** into a row template.
-  JS sends the row count and the row **values** for a window around the visible range (`LIST_SET`, `LIST_ROWS`,
-  `LIST_SPLICE` ops with stable keys). Native draws rows with `LazyColumn` / `LazyVStack`.
+- **`<List data key row>`** is for long lists (built in milestone 2 step 2.4a). Each JSX leaf of `row`
+  (`cond ? <A/> : <B/>` picks a row **kind**) is compiled once into a row template. Native gets every row's key and
+  kind (`LIST_SET` / `LIST_SPLICE`); **rows are ordinary template instances that JS mounts only near the visible
+  range** (`MOUNT` + `LIST_ROW`) and removes after they leave a wider band, so a row can hold anything a screen can
+  (taps, conditionals, rails, components) while a long list costs one key + kind per row. Native draws rows with
+  `LazyColumn` (`contentType` = kind) / `LazyVStack`. Full protocol: `docs/lists.md` §3.
 - Native asks for new ranges asynchronously (`onRange`). **The UI thread never calls into JS or waits for row data**
   (a synchronous pull from the UI thread was tried and rejected: Hermes is single-threaded).
 - Rows whose values haven't arrived show **the same row template with placeholder values**: same height, no jump, and
@@ -889,6 +892,7 @@ zero-native/
 | 2026-10-29 | Images load with Coil (http(s), `asset:`) and clip to their rounded shape by default | Section 9.2. Same as React Native; Coil was already in the v0 size check. |
 | 2026-10-29 | `heroTag`: one per navigation transition, a card/container becoming the next screen | Section 11. Matches iOS 18 zoom transitions, so both platforms stay native (Argon review). |
 | 2026-10-29 | Routes live in one typed `routes.ts` (`defineRoutes`), not `@route` decorators | Section 11. Decorators on functions are not valid TypeScript; one file also gives typed `nav.push(name, params)`. |
+| 2026-10-29 | `<List>` rows are template instances mounted only near the visible range, with row kinds (one template per `row` leaf) and no version numbers | Section 9.3, `docs/lists.md`. Feeds need rows that hold rails, conditionals and components; ops arrive in order so nothing is stale. Measured: p95 11 ms/frame flinging 10,100 rows on the Lava (release). |
 | 2026-10-29 | Per-edge padding may change at runtime (registry v4), read in the layout phase | Section 11 / `docs/styling-and-layout.md` §6. Full-bleed headers pad by `insets()`; a change re-measures one node and recomposes nothing. Shorthands stay build-time. |
 | 2026-10-29 | `statusBar` sets status bar icons only; navigation bar icons follow the screen background | `docs/styling-and-layout.md` §6. One option for both put a grey scrim over the bottom bar of a full-bleed screen (Lava). |
 | 2026-10-29 | The back stack is owned by JS; a system back press is an event to JS (JS pops, or its `onBack` blocks) | Sections 9.7, 11. One owner, same rule as controlled components; native pops by itself only after the 300 ms timeout and then tells JS. |

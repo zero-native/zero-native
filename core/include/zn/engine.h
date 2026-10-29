@@ -43,6 +43,11 @@ class HostApi {
   virtual void move(uint32_t instance, uint32_t toIndex) = 0;
   // Back-stack change (NAV op, batch.h): kind is a NavKind, params a JSON string or null.
   virtual void nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) = 0;
+  // <List> ops (batch.h): row keys + types, a splice of them, and which instance draws a row.
+  virtual void listSet(uint32_t instance, uint16_t node, std::vector<Value> keys, std::vector<uint16_t> types) = 0;
+  virtual void listSplice(uint32_t instance, uint16_t node, uint32_t index, uint32_t removeCount,
+                          std::vector<Value> keys, std::vector<uint16_t> types) = 0;
+  virtual void listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) = 0;
   // Timers (ARCHITECTURE §14): returns a handle that never changes for the life of the timer.
   virtual uint32_t setTimer(double delayMs, bool repeat) = 0;
   virtual void clearTimer(uint32_t handle) = 0;

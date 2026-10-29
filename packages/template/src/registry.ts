@@ -5,8 +5,9 @@
 // Rules: never reuse or renumber an id. Adding ids bumps REGISTRY_VERSION; an app only loads templates whose
 // registry version it knows (capability manifest, §16.2).
 
-export const REGISTRY_VERSION = 4 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 5 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
+// 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 
 export const Component = {
   Column: 1,
@@ -21,6 +22,10 @@ export const Component = {
   /** Where child instances mount (components, `cond && <X/>`, `list.map(...)`). Draws nothing itself: its children
    *  are laid out as if they were direct children of the Anchor's parent. Created by the compiler. */
   Anchor: 10,
+  /** Virtualized list (docs/lists.md): rows are template instances mounted by JS only around the visible range. */
+  List: 11,
+  /** Scrollable container. horizontal: children drawn lazily (only the visible ones are composed): product rails. */
+  Scroll: 12,
 } as const
 export type ComponentName = keyof typeof Component
 
@@ -107,6 +112,13 @@ export const Prop = {
   repeatDelay: { id: 82, type: "number" },
   /** onPressRepeat: then every this many ms (default 100). */
   repeatInterval: { id: 83, type: "number" },
+  // Scroll
+  horizontal: { id: 110, type: "bool" },
+  /**
+   * CSS linear gradient, as in React Native (`linear-gradient(180deg, rgba(0,0,0,0) 0%, #000 100%)`). Parsed at build
+   * time into "angle|argb@position|..." (position 0–1, or -1 when not given); drawn over backgroundColor.
+   */
+  backgroundImage: { id: 111, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -141,6 +153,10 @@ export const EventKind = {
   onLongPress: 4,
   /** Fired by native while the finger stays down (after repeatDelay, then every repeatInterval). */
   onPressRepeat: 5,
+  /** <List>: the visible row range changed. Payload "first,last". Bound by the compiler, not by authors. */
+  onRange: 6,
+  /** <List>: the end is near (once per row count). */
+  onEndReached: 7,
 } as const
 export type EventName = keyof typeof EventKind
 

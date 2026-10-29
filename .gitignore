@@ -40,3 +40,4 @@ android/sample/src/main/assets/*.zn.ui.json
 # Compiler test artifacts
 compiler/test/.tmp/
 
+test-kit/offers-data.json

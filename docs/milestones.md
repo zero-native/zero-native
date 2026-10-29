@@ -58,7 +58,11 @@ Full brief with design decisions, tests and phone checks per step:
 | 2.1 | `routes.ts`, several screens in one bundle, route manifest | Claude | **done 2026-10-29** |
 | 2.2 | Navigation: JS-owned back stack, `NAV` op, native host + transitions, back button, deep links, screen-owned timers | Claude | **done 2026-10-29** |
 | 2.3 | Safe areas: edge-to-edge, per-route option, `insets()` | Claude | **done 2026-10-29** |
-| 2.4 | `<List>`: row templates, data window, placeholders, splice | Gemini | next |
+| 2.4a | `<List>` with row types, window protocol, placeholders, splice anchor, `onEndReached` (feeds proposal) | Claude | **done 2026-10-29** |
+| 2.4b | Rails inside rows (`Scroll horizontal`), gradient backgrounds | Claude | **done 2026-10-29** |
+| 2.4c | `<Carousel>`: native paging, snap, auto-advance, dots | Claude | next |
+| 2.4d | Impressions: `impressionKey` + `useImpressions` (threshold default 35 %, `minMs`), native-measured, batched | Claude | |
+| 2.4e | Benchmark: offers feed from `test-kit/offers-data.json` vs the RN Offers tab (release, Lava) | Claude | |
 | 2.5 | `<Sheet>`: native drag and detents, controlled by JS | Gemini | |
 | 2.6 | Native calls: `__zn_call`, modules, `fetch`, `os.launchActivity`, `os.upiApps` | Gemini | |
 | 2.7 | FlowStore (C++) | Claude | |
@@ -79,6 +83,49 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-29: step 2.4b done (Claude): rails and gradients
+- **`Scroll`** (registry v5, component 12, prop `horizontal`): horizontal = `LazyRow` over the children (anchors
+  expanded), so only visible cards are composed and a rail scrolls without JS; padding becomes content padding;
+  vertical = scrolling `Column`.
+- **`backgroundImage: "linear-gradient(...)"`** (RN's CSS form, prop 111): parsed by the compiler (angle or `to side`,
+  stops with optional `%`), drawn natively with a cached brush over the background colour in the node's shape.
+- **Colours:** `rgb()` / `rgba()` accepted everywhere (RN has them; banner overlays need them).
+- **Bug found on the phone and fixed:** JSX text showed `&amp;` literally. The compiler now decodes HTML entities in
+  JSX text and string attributes, like React (`&amp;`, `&#8377;`, `&#x20B9;`).
+- **Sample:** `OffersScreen` (route `/offers`, deep link on; "Offers" button on Home): the real offers from
+  `test-kit/offers-data.json` grouped like the RN `HomeOffersTab` (banner rail, a product rail per merchant, message
+  cards, section headers), repeated ×10 (260 rows). Image URLs built like the RN app (`OFFER_IMAGE_BASE` +
+  `image_id`); image banners get a dark gradient overlay. Pavan re-exported the data with `image_id` (88 products,
+  10 banners, 10 messages have one).
+- **Verified on the Lava:** screenshots: gradient banners, image banners with overlay, product photos, tagline
+  strips, `&` decoded. Release: flinging the feed (vertical + rails): p50 6 ms, p95 11 ms, p99 15 ms, 1 janky frame
+  of 427, 0 slow bitmap uploads; 111 MB PSS. Tests: JS 75 + types, Kotlin 14, lint 0.
+- **Not done / noticed:** one product image is a 404 on storage (data); its card shows an empty box until image
+  fallbacks exist (after-foundations). Cards in a lazy rail don't stretch to the tallest one (RN's do).
+
+### 2026-10-29: step 2.4a done (Claude): `<List>` with row kinds
+- Plan approved by Pavan (`docs/cross-communication/2026-10-29-feeds-and-lists-proposal.md`): 2.4 split into a–e.
+- **Ops 6–8** (`LIST_SET`, `LIST_SPLICE`, `LIST_ROW`) in C++ (`batch.h/.cpp`, runtime, host functions
+  `__zn_listSet/Splice/Row`), Kotlin (`BatchReader`, `ZnStore` → `ZnList`) and JS. Registry **v5**: `List` (11),
+  events `onRange` (6), `onEndReached` (7).
+- **Compiler:** `<List data key row onEndReached style gap>`; each JSX leaf of `row` (`cond ? <A/> : <B/>`) is a row
+  template; generated `type(item)` picks the leaf without building it; every compiled component gets `Comp.__zt`
+  (its template id), so a row component can live in any file. Errors for missing props, children, non-JSX rows.
+- **JS (`list()` in `view.ts`):** one `LIST_SET`, then one `LIST_SPLICE` per change (common start / end kept); rows
+  mounted 8 behind to 12 ahead of the visible range, removed outside twice that; changed items remounted;
+  duplicate keys logged and made unique (Compose would crash).
+- **Native:** `LazyColumn` with key + `contentType` per kind; unmounted rows draw a shared read-only placeholder
+  instance of their kind; visible range → JS at most once per frame; `onEndReached` once per row count; scroll
+  position saved (back navigation and recreation keep it).
+- **Bug fixed while building:** `jsi::Value` can't be copied (C++ compile error in the new host functions).
+- **Sample:** Home = 10,000 generated merchants + 100 area headers (2 kinds), "New payment arrives" inserts at the
+  top.
+- **Verified on the Lava:** debug: list draws, inserting at the top while scrolled keeps the visible row in place,
+  tap → Amount, back → same scroll position. **Release:** 491 frames of fast flings: p50 6 ms, p90 9 ms, p95 11 ms,
+  p99 15 ms, **0 janky frames, 0 slow UI-thread frames**; cold start **180 ms** median (p90 201 ms) with the 10,100-row
+  list on the first screen; memory 106 MB PSS. Tests: C++ 79 checks, JS 71 + types, compiler 18, Kotlin 14, lint 0.
+- **Not done yet:** grey-bar placeholder text (`placeholder` prop); rails, carousel, impressions (2.4b–d).
+
 ### 2026-10-29: step 2.3 done (Claude)
 - **Edge to edge:** `MainActivity` calls `enableEdgeToEdge()`; the blanket `safeDrawingPadding()` is gone.
 - **Per-route safe areas** (`ZnNavHost.kt`): each screen is padded by system bars + display cutout on the edges its

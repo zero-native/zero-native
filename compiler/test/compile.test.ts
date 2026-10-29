@@ -128,6 +128,94 @@ describe("templates", () => {
   })
 })
 
+describe("feeds: gradients and rails", () => {
+  test("HTML entities in JSX text and string attributes are decoded, as in React", () => {
+    const { templates } = compile(`
+      function A(p) {
+        return (
+          <Column>
+            <Text>Tap to view &amp; redeem &#8377;5 &#x20B9;6</Text>
+            <Child label="a &lt; b" />
+          </Column>
+        )
+      }`)
+    expect(templates[0].children[0].props).toMatchObject({ text: "Tap to view & redeem ₹5 ₹6" })
+  })
+  test("backgroundImage linear-gradient is parsed at build time", () => {
+    const { templates } = compile(`
+      function A() {
+        return (
+          <Column>
+            <Box style={{ backgroundImage: "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.85) 100%)" }} />
+            <Box style={{ backgroundImage: "linear-gradient(to right, #047857, #0F172A)" }} />
+          </Column>
+        )
+      }`)
+    expect(templates[0].children[0].props).toMatchObject({ backgroundImage: `180|0@0|${0xd9000000}@1` })
+    expect(templates[0].children[1].props).toMatchObject({ backgroundImage: `90|${0xff047857}@-1|${0xff0f172a}@-1` })
+  })
+  test("a .map inside a horizontal Scroll is a rail of keyed card instances", () => {
+    const { code, templates } = compile(`
+      function Rail(p) {
+        return <Scroll horizontal style={{ gap: 12, paddingHorizontal: 16 }}>{p.items.map((o) => <Box key={o.id} />)}</Scroll>
+      }`)
+    expect(templates[0].type).toBe("Scroll")
+    expect(templates[0].props).toMatchObject({ horizontal: true, gap: 12, paddingHorizontal: 16 })
+    expect(code).toMatch(/__zn\.each\(__i0, 1, \(\) => \(p\.items\)/)
+  })
+  test("gradient errors", () => {
+    const err = (src: string) => {
+      try {
+        compile(src)
+      } catch (e) {
+        return (e as Error).message
+      }
+      return "no error"
+    }
+    expect(err(`function A() { return <Box style={{ backgroundImage: "radial-gradient(red, blue)" }} /> }`))
+      .toMatch(/only linear gradients/)
+    expect(err(`function A() { return <Box style={{ backgroundImage: "linear-gradient(#000)" }} /> }`)).toMatch(/at least 2/)
+  })
+})
+
+describe("<List>", () => {
+  test("each row kind is its own template; type() picks it without building the row", () => {
+    const { templates, code } = compile(`
+      function Card(p) { return <Column><Text>{p.it.name}</Text></Column> }
+      export function Feed(p) {
+        return (
+          <Column style={{ flex: 1 }}>
+            <List data={p.items} key={(it) => it.id} style={{ flex: 1 }} onEndReached={() => p.more()}
+              row={(it) => it.kind === "header" ? <Text fontSize={18}>{it.title}</Text> : <Card it={it} />} />
+          </Column>
+        )
+      }`)
+    const feed = templates.find((t) => t?.children?.[0]?.type === "List")!
+    expect(feed.children[0].props).toMatchObject({ flex: 1 })
+    // Header leaf = a template; Card leaf = the component (its id from Card.__zt at runtime).
+    expect(code).toMatch(/__zn\.list\(__i0, 1, \{ data: \(\) => \(p\.items\), key: \(it\) => it\.id/)
+    expect(code).toMatch(/type: \(it\) => \(it\.kind === "header"\) \? \d+ : \(Card\.__zt \?\? 0\)/)
+    expect(code).toMatch(/onEndReached: \(\) => p\.more\(\)/)
+    expect(code).toMatch(/Card\.__zt = \d+;/)
+    expect(code).toMatch(/Feed\.__zt = \d+;/)
+  })
+  test("errors", () => {
+    const err = (src: string) => {
+      try {
+        compile(src)
+      } catch (e) {
+        return (e as Error).message
+      }
+      return "no error"
+    }
+    expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} /> }`)).toMatch(/<List> needs row/)
+    expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={(i) => i.ok && <Row/>} /> }`))
+      .toMatch(/a row must be one JSX element/)
+    expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={(i) => <Row/>}><Row/></List> }`))
+      .toMatch(/takes no children/)
+  })
+})
+
 describe("errors point at the source", () => {
   const err = (src: string) => {
     try {
