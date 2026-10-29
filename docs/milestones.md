@@ -53,7 +53,7 @@ Full brief with design decisions, tests and phone checks per step:
 
 | Step | What | Builder | Status |
 |---|---|---|---|
-| 2.0 | Small fixes left from milestone 1 (`targetSdk`, `fontWeight` names, move `exp4-flow`, mock UPI app into `test-kit/`) | Gemini | next |
+| 2.0 | Small fixes left from milestone 1 (`targetSdk`, `fontWeight` names, move `exp4-flow`, mock UPI app into `test-kit/`) | Gemini | built, waiting for review |
 | 2.0b | Compose BOM (runtime ≥ 1.11.2) + activity-compose ≥ 1.12 + Coil upgrade, needed by Navigation 3 1.2.0; re-measure | Gemini | approved 2026-10-29 |
 | 2.1 | `routes.ts`, several screens in one bundle, route manifest | Gemini | |
 | 2.2 | Navigation: JS-owned back stack, `NAV` op, native host + transitions, back button, deep links, screen-owned timers | Gemini | |
@@ -79,6 +79,24 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-29: step 2.0 done
+- **Target SDK restored to 36:**
+  - Restored `targetSdk = 36` in `android/sample/build.gradle.kts` and `android/baselineprofile/build.gradle.kts`. (The Lava ROM broadcast issue is documented to be due to `am force-stop` on Android 14 MediaTek firmware, not `targetSdk`).
+- **`fontWeight` string mapping in compiler:**
+  - Added string `fontWeight` normalization in `compiler/src/compile.ts` (`"normal"` → 400, `"bold"` → 700, and numeric strings like `"600"` → 600) for both JSX props and `style` objects.
+  - Added unit test in `compiler/test/compile.test.ts`. 48 JS tests pass.
+- **Relocated `exp4-flow/` and preserved mock backend:**
+  - Copied `exp4-flow/mock-backend.ts` → `tools/mock-backend.ts` for native host calls (Step 2.6) and flows (Step 2.8).
+  - Moved `exp4-flow/` into `experiments/exp4-flow/`.
+- **Mock UPI app added to test kit:**
+  - Copied source and Gradle files from `C:\work\zero-native-bkp\P2pUPIapp` to `test-kit/p2p-upi-app/` (omitted all build artifacts, `.gradle`, `.idea`, `.kotlin`, `local.properties`).
+  - Verified it builds cleanly with `cd test-kit/p2p-upi-app; .\gradlew.bat assembleDebug` (30s, 36 tasks executed).
+- **Verification:**
+  - JS: 48 tests pass (`bun run test`).
+  - Kotlin: 7 unit tests pass (`.\gradlew.bat :runtime:testDebugUnitTest`).
+  - Lint: 0 errors (`.\gradlew.bat :runtime:lintDebug :sample:lintRelease`).
+  - Sample bundle: `bun run sample:js` writes `main.zn.ui` (1917 bytes) and `main.hbc` cleanly.
+
 ### 2026-10-29: step 1.5 done
 - **Fixed Opus handoff build blockers:**
   - Migrated to AGP 9.2.1 built-in Kotlin (`android.builtInKotlin=true`, removed external `org.jetbrains.kotlin.android`), completely eliminating Windows `provider(?)` path failure (`InvalidPathException`).

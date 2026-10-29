@@ -15,7 +15,7 @@ android {
     defaultConfig {
         // Generating profiles without root needs Android 13+; benchmarks alone work from Android 9.
         minSdk = 28
-        targetSdk = 34
+        targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

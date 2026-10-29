@@ -108,6 +108,24 @@ describe("templates", () => {
       const B = () => <Row />`)
     expect(components).toEqual({ AScreen: 0, B: 1 })
   })
+
+  test("fontWeight normal and bold map to 400 and 700", () => {
+    const { templates } = compile(`
+      export function Heading() {
+        return (
+          <Column>
+            <Text style={{ fontWeight: "bold" }}>Bold</Text>
+            <Text style={{ fontWeight: "normal" }}>Normal</Text>
+            <Text fontWeight="bold">Direct Bold</Text>
+            <Text fontWeight="600">Numeric 600</Text>
+          </Column>
+        )
+      }`)
+    expect(templates[0].children[0].props).toMatchObject({ fontWeight: 700 })
+    expect(templates[0].children[1].props).toMatchObject({ fontWeight: 400 })
+    expect(templates[0].children[2].props).toMatchObject({ fontWeight: 700 })
+    expect(templates[0].children[3].props).toMatchObject({ fontWeight: 600 })
+  })
 })
 
 describe("errors point at the source", () => {

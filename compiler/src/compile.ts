@@ -203,7 +203,7 @@ export function compileModule(
       }
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
       if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
-      else if (ts.isStringLiteral(init)) (props as any)[name] = init.text
+      else if (ts.isStringLiteral(init)) setStaticProp(props, name as PropName, init.text)
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)
       else fail(a, `unsupported value for "${name}"`)
     }
@@ -301,11 +301,20 @@ export function compileModule(
     return el("Anchor")
   }
 
+  function setStaticProp(props: Record<string, unknown>, name: PropName, val: unknown) {
+    if (name === "fontWeight") {
+      if (val === "normal") val = 400
+      else if (val === "bold") val = 700
+      else if (typeof val === "string" && /^\d+$/.test(val)) val = Number(val)
+    }
+    props[name] = val
+  }
+
   /** A prop value: constant → template; otherwise a slot (if the registry allows it to change at runtime). */
   function setProp(props: Record<string, unknown>, b: Builder, name: PropName, expr: ts.Expression, at: ts.Node) {
     const v = fold(expr, scope)
     if (v !== NOT_STATIC) {
-      if (v !== undefined) props[name] = v as never
+      if (v !== undefined) setStaticProp(props, name, v)
       return
     }
     if (!DynamicProps.has(name)) {
@@ -348,7 +357,7 @@ export function compileModule(
           continue
         }
         if (!(k in Prop)) fail(at, `unknown style key "${k}"`)
-        if (v !== undefined) props[k] = v
+        if (v !== undefined) setStaticProp(props, k as PropName, v)
       }
     }
     const folded = fold(expr, scope)
