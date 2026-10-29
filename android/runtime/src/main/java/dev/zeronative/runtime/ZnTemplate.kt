@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -176,6 +177,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         lineHeight = num(Registry.Prop.LINE_HEIGHT)?.sp ?: TextStyle.Default.lineHeight,
         letterSpacing = num(Registry.Prop.LETTER_SPACING)?.sp ?: TextStyle.Default.letterSpacing,
     )
+    /** Nested <Text> spans: one style per span; the text holds the spans' texts joined by U+001F. */
+    val spans: List<SpanStyle>? = (p[Registry.Prop.SPANS] as String?)?.let(::parseSpans)
     val src: String? = p[Registry.Prop.SRC] as String?
     val contentScale = enum(Registry.Prop.CONTENT_SCALE)
     val icon: ZnIcon? = (p[Registry.Prop.ICON] as String?)?.let(ZnIcon::parse)
@@ -201,6 +204,20 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val detents: List<String> = (p[Registry.Prop.DETENTS] as String?)?.split(',')?.map { it.trim() }
         ?.filter { it == "content" || it == "half" || it == "full" }?.ifEmpty { null } ?: listOf("content")
     val dismissible = p[Registry.Prop.DISMISSIBLE] != false
+    // TextField
+    val value: String? = p[Registry.Prop.VALUE] as String?
+    val placeholder: String? = p[Registry.Prop.PLACEHOLDER] as String?
+    val placeholderColor: Color = color(Registry.Prop.PLACEHOLDER_COLOR) ?: Color(0xFF9CA3AF)
+    val keyboardType = enum(Registry.Prop.KEYBOARD_TYPE)
+    val secure = p[Registry.Prop.SECURE_TEXT_ENTRY] == true
+    val maxLength = num(Registry.Prop.MAX_LENGTH)?.toInt()
+    val multiline = p[Registry.Prop.MULTILINE] == true
+    val autoFocus = p[Registry.Prop.AUTO_FOCUS] == true
+    val returnKeyType = enum(Registry.Prop.RETURN_KEY_TYPE)
+    val editable = p[Registry.Prop.EDITABLE] != false
+    val autoCapitalize = enum(Registry.Prop.AUTO_CAPITALIZE)
+    val autoCorrect = p[Registry.Prop.AUTO_CORRECT] != false
+    val selectionColor: Color? = color(Registry.Prop.SELECTION_COLOR)
     val repeatDelayMs = (num(Registry.Prop.REPEAT_DELAY) ?: 400f).toLong()
     val repeatIntervalMs = (num(Registry.Prop.REPEAT_INTERVAL) ?: 100f).toLong().coerceAtLeast(16)
 
@@ -214,6 +231,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val impressionKeySlot = slotFor(raw, Registry.Prop.IMPRESSION_KEY)
     val hasImpression = impressionKey != null || impressionKeySlot != NONE
     val disabledSlot = slotFor(raw, Registry.Prop.DISABLED)
+    val valueSlot = slotFor(raw, Registry.Prop.VALUE)
+    val placeholderSlot = slotFor(raw, Registry.Prop.PLACEHOLDER)
+    val editableSlot = slotFor(raw, Registry.Prop.EDITABLE)
     /** Padding edges bound to slots (start, top, end, bottom; NONE = static). Read in the layout phase. */
     val paddingSlots = intArrayOf(
         slotFor(raw, Registry.Prop.PADDING_START), slotFor(raw, Registry.Prop.PADDING_TOP),
@@ -227,6 +247,10 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val onPageChange = eventFor(raw, Registry.Event.ON_PAGE_CHANGE)
     val onDismiss = eventFor(raw, Registry.Event.ON_DISMISS)
     val onDetentChange = eventFor(raw, Registry.Event.ON_DETENT_CHANGE)
+    val onChangeText = eventFor(raw, Registry.Event.ON_CHANGE_TEXT)
+    val onSubmitEditing = eventFor(raw, Registry.Event.ON_SUBMIT_EDITING)
+    val onFocus = eventFor(raw, Registry.Event.ON_FOCUS)
+    val onBlur = eventFor(raw, Registry.Event.ON_BLUR)
     val visibleSlot = slotFor(raw, Registry.Prop.VISIBLE)
     val onEndReached = eventFor(raw, Registry.Event.ON_END_REACHED)
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)
@@ -376,5 +400,36 @@ class ZnTemplate(val raw: RawTemplate) {
         val children = Array(n) { ArrayList<Int>() }
         for (i in 1 until n) children[raw.parent[i]].add(i)
         nodes = Array(n) { ZnNodeSpec(raw, it, children[it].toIntArray()) }
+    }
+}
+
+/**
+ * Span styles written by the compiler for nested <Text> (compile.ts `spanStyle`): a JSON array, one object per span,
+ * with colours as ARGB numbers and enums as their numbers. Unset fields inherit the outer Text's style.
+ */
+internal fun parseSpans(json: String): List<SpanStyle> {
+    val list = org.json.JSONArray(json)
+    return List(list.length()) { i ->
+        val o = list.getJSONObject(i)
+        fun num(key: String) = if (o.has(key)) o.getDouble(key).toFloat() else null
+        fun argb(key: String) = if (o.has(key)) Color(o.getLong(key).toInt()) else Color.Unspecified
+        SpanStyle(
+            color = argb("color"),
+            fontSize = num("fontSize")?.sp ?: androidx.compose.ui.unit.TextUnit.Unspecified,
+            fontWeight = num("fontWeight")?.let { FontWeight(it.toInt().coerceIn(1, 1000)) },
+            fontStyle = when (if (o.has("fontStyle")) o.getInt("fontStyle") else -1) {
+                Registry.FontStyle.ITALIC -> FontStyle.Italic
+                Registry.FontStyle.NORMAL -> FontStyle.Normal
+                else -> null
+            },
+            textDecoration = when (if (o.has("textDecorationLine")) o.getInt("textDecorationLine") else -1) {
+                Registry.TextDecorationLine.UNDERLINE -> TextDecoration.Underline
+                Registry.TextDecorationLine.LINE_THROUGH -> TextDecoration.LineThrough
+                Registry.TextDecorationLine.NONE -> TextDecoration.None
+                else -> null
+            },
+            letterSpacing = num("letterSpacing")?.sp ?: androidx.compose.ui.unit.TextUnit.Unspecified,
+            background = argb("backgroundColor"),
+        )
     }
 }

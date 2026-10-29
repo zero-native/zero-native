@@ -12,7 +12,7 @@
     "dev": "bun run tools/zn-dev.ts",
     "gen:registry": "bun run tools/gen-registry.ts",
     "test": "bun test packages compiler && bun run test:types",
-    "test:types": "tsc -p packages/core/test/tsconfig.types.json"
+    "test:types": "tsc -p packages/core/test/tsconfig.types.json && tsc -p examples/sample"
   },
   "devDependencies": {
     "hermes-compiler": "250829098.0.17",

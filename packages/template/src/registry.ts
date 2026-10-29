@@ -5,9 +5,10 @@
 // Rules: never reuse or renumber an id. Adding ids bumps REGISTRY_VERSION; an app only loads templates whose
 // registry version it knows (capability manifest, §16.2).
 
-export const REGISTRY_VERSION = 5 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 6 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
+// 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
 
 export const Component = {
   Column: 1,
@@ -30,6 +31,12 @@ export const Component = {
   Carousel: 13,
   /** Bottom sheet over the whole screen, controlled by JS (`visible`); drag, detents and dismiss are native. */
   Sheet: 14,
+  /** `<>...</>` and the children passed to a user component: no layout of its own; its children are laid out as
+   *  direct children of the parent (like Anchor's). Alone (a screen or a list row) it lays out like a Column. */
+  Fragment: 15,
+  /** A text input. The native field owns the text while the user types; JS hears onChangeText and may set `value`. */
+  TextField: 16,
+  // 17-19: Claude (milestone 3). 20-29: Gemini (milestone 3 brief).
 } as const
 export type ComponentName = keyof typeof Component
 
@@ -143,6 +150,27 @@ export const Prop = {
   detents: { id: 120, type: "string" },
   /** false: drag-down, scrim tap and back don't ask to close (default true). */
   dismissible: { id: 121, type: "bool" },
+  // Text spans (nested <Text>): the compiler writes the spans' styles here as JSON, one entry per span, and joins
+  // the spans' text with U+001F in `text`. Build-time only.
+  spans: { id: 122, type: "string" },
+  // TextField
+  /** The field's text, owned by JS (controlled). Optional: without it the field keeps its own text. */
+  value: { id: 123, type: "string" },
+  placeholder: { id: 124, type: "string" },
+  placeholderColor: { id: 125, type: "color" },
+  keyboardType: { id: 126, type: "enum" },
+  secureTextEntry: { id: 127, type: "bool" },
+  maxLength: { id: 128, type: "number" },
+  multiline: { id: 129, type: "bool" },
+  autoFocus: { id: 130, type: "bool" },
+  returnKeyType: { id: 131, type: "enum" },
+  /** false: the field can't be edited (still selectable). Default true. */
+  editable: { id: 132, type: "bool" },
+  autoCapitalize: { id: 133, type: "enum" },
+  autoCorrect: { id: 134, type: "bool" },
+  /** Cursor and selection handle colour. */
+  selectionColor: { id: 135, type: "color" },
+  // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -164,6 +192,9 @@ export const Enum = {
   position: { relative: 0, absolute: 1 },
   fontStyle: { normal: 0, italic: 1 },
   textDecorationLine: { none: 0, underline: 1, "line-through": 2 },
+  keyboardType: { default: 0, "number-pad": 1, "decimal-pad": 2, "phone-pad": 3, "email-address": 4, url: 5 },
+  returnKeyType: { done: 0, go: 1, next: 2, search: 3, send: 4 },
+  autoCapitalize: { none: 0, sentences: 1, words: 2, characters: 3 },
 } as const satisfies Partial<Record<PropName, Record<string, number>>>
 
 /**
@@ -187,6 +218,13 @@ export const EventKind = {
   onDismiss: 9,
   /** <Sheet>: it settled on another detent (payload: "content" | "half" | "full"). */
   onDetentChange: 10,
+  /** <TextField>: the text changed (payload: the new text). */
+  onChangeText: 11,
+  /** <TextField>: the keyboard's action key (done / go / next / search / send) was pressed. */
+  onSubmitEditing: 12,
+  onFocus: 13,
+  onBlur: 14,
+  // 15-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
 } as const
 export type EventName = keyof typeof EventKind
 
@@ -205,4 +243,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "paddingEnd",
   "impressionKey",
   "visible",
+  "value",
+  "placeholder",
+  "editable",
 ])

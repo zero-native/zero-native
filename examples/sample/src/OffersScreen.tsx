@@ -222,9 +222,9 @@ export function OffersScreen() {
         gap={8}
         row={(f) =>
           f.kind === "header" ? <SectionHeader title={f.title} />
-          : f.kind === "banners" ? <BannerRail offers={f.offers} />
-          : f.kind === "products" ? <ProductRail merchant={f.merchant} caption={f.caption} offers={f.offers} />
-          : <MessageCard o={f.offer} />
+            : f.kind === "banners" ? <BannerRail offers={f.offers} />
+              : f.kind === "products" ? <ProductRail merchant={f.merchant} caption={f.caption} offers={f.offers} />
+                : <MessageCard o={f.offer} />
         }
       />
     </Column>

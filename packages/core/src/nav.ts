@@ -16,7 +16,7 @@ import { onEvent } from "./events"
 import { installInsets } from "./insets"
 import type { NativeValue } from "./native"
 import type { RouteDef, RouteName, RouteParams } from "./routes"
-import { allocInstanceId, renderRoot } from "./view"
+import { allocInstanceId, renderRoot, type View } from "./view"
 
 /** Apps register their routes for typed navigation (in routes.ts):
  *    declare module "@zero-native/core" { interface Register { routes: typeof routes } } */
@@ -188,7 +188,8 @@ function show(e: Entry): void {
   const prev = rendering
   rendering = e
   try {
-    e.dispose = renderRoot(e.id, screen, e.params)
+    // Screens return JSX, which the compiler turned into a View.
+    e.dispose = renderRoot(e.id, screen as (props: Record<string, unknown>) => View, e.params)
   } finally {
     rendering = prev
   }

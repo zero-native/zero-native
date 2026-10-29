@@ -3,6 +3,31 @@
 type Color = string
 type Size = number | `${number}%`
 
+declare const znElement: unique symbol
+/** What JSX makes (a template instance to show). Opaque: return it from a component or pass it on. */
+export type ZnElement = { readonly [znElement]: true }
+/**
+ * JSX passed to a component: its children (`<Card>...</Card>`) or a JSX prop (`header={<Title/>}`). Show it with
+ * `{props.children}` / `{props.header}`; anything else (reading, mapping, counting) isn't supported.
+ */
+export type Children = ZnElement | readonly Children[] | null | undefined | false
+
+declare global {
+  // The JSX types for editors and `tsc` (tsconfig: "jsx": "preserve"). The compiler does the real work.
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace JSX {
+    type Element = ZnElement
+    interface ElementChildrenAttribute {
+      children: {}
+    }
+    interface IntrinsicAttributes {
+      // `any`: <List key={(item) => ...}> reuses the name for its key function (see List below).
+      key?: any
+    }
+    interface IntrinsicElements {}
+  }
+}
+
 export interface StyleProps {
   width?: Size
   height?: Size
@@ -92,7 +117,8 @@ export declare const Row: Intrinsic<Container>
 export declare const Stack: Intrinsic<Container>
 export declare const Box: Intrinsic<Container>
 export declare const Text: Intrinsic<Base & TextStyleProps & { text?: string; children?: unknown }>
-export declare const Image: Intrinsic<Base & { src?: string; contentScale?: "cover" | "contain" | "fill" }>
+/** `src`: an https URL or "asset:path". null / undefined shows nothing (the box keeps its size). */
+export declare const Image: Intrinsic<Base & { src?: string | null; contentScale?: "cover" | "contain" | "fill" }>
 export declare const Icon: Intrinsic<Base & { icon?: string; color?: Color }>
 export declare const Spacer: Intrinsic<Base>
 /**
@@ -144,6 +170,36 @@ export declare const Pressable: Intrinsic<
     disabled?: boolean
     haptic?: boolean
   }
+>
+
+/**
+ * A text input. The native field owns the text while the user types (no lag); you hear `onChangeText`.
+ * Controlled: pass `value` too and set it in onChangeText (synchronously); the field always ends up showing `value`,
+ * so you can format or reject input there. Without `value` the field keeps its own text.
+ * `onSubmitEditing` fires on the keyboard's action key (its label: `returnKeyType`).
+ */
+export declare const TextField: Intrinsic<
+  Base &
+    TextStyleProps & {
+      value?: string
+      onChangeText?: (text: string) => void
+      placeholder?: string
+      placeholderColor?: Color
+      keyboardType?: "default" | "number-pad" | "decimal-pad" | "phone-pad" | "email-address" | "url"
+      secureTextEntry?: boolean
+      maxLength?: number
+      multiline?: boolean
+      autoFocus?: boolean
+      returnKeyType?: "done" | "go" | "next" | "search" | "send"
+      editable?: boolean
+      autoCapitalize?: "none" | "sentences" | "words" | "characters"
+      autoCorrect?: boolean
+      /** Cursor and selection handle colour. */
+      selectionColor?: Color
+      onSubmitEditing?: (text: string) => void
+      onFocus?: () => void
+      onBlur?: () => void
+    }
 >
 
 /**

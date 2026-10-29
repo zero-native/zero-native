@@ -60,6 +60,7 @@ object ZnRuntime {
             val n = createdCount.get()
             Log.i(TAG, "runtime #$n started in ${SystemClock.uptimeMillis() - t0} ms (pid ${Process.myPid()})")
         }
+        ZnModules.register(ZnKeyboard) // built-in module: Keyboard.dismiss()
         if (BuildConfig.DEBUG) ZnDev.start(appContext)
     }
 

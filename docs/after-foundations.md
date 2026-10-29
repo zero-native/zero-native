@@ -37,15 +37,15 @@ Pavan, 2026-10-29: feeds and catalogues need Flutter-sliver-like behaviour:
 ## Compiler and runtime (gaps left on purpose in step 1.3)
 | Item | Notes |
 |---|---|
-| Children for user components (`<Card>…</Card>`) | Build error today. Needs a "children" anchor passed as a prop. |
-| Fragments `<>…</>` and several roots | Build error today. |
-| Nested elements inside `<Text>` (spans) | Build error today. |
+| Children for user components (`<Card>…</Card>`) | **Done (step 3.2):** children and JSX props are functions that make a View; `{props.children}` shows them. Left: reading / mapping / counting children (not planned). |
+| Fragments `<>…</>` and several roots | **Done (step 3.2):** Fragment node; `.map` / `<List>` rows still need one root element (a row needs a key). |
+| Nested elements inside `<Text>` (spans) | **Done (step 3.2)** for build-time span styles. Left: span styles that change at runtime, `onPress` on a span (links), inline icons / images. |
 | Conditional entries in style arrays (`[s.a, on && s.b]`) | Build error today with a hint to use a ternary inside the style object. |
 | Row items as signals | `.map` mounts a row again when its item object changes (same key). Per-row signals would update in place. |
 | Timers owned by the screen | ARCHITECTURE §14 says a screen's timers stop when the screen is removed; `setTimeout` doesn't attach to owners yet. |
 | More dynamic props | Text, colour, background, opacity, src, disabled, and (registry v4, step 2.3) per-edge padding can change at runtime. Sizes, margins, gap etc. still need layout-phase slots like padding's (`docs/styling-and-layout.md` §8.3; `layoutPadding` in `ZnTemplate.kt` is the pattern). |
-| Safe-area gaps (step 2.3) | Insets reach JS after the first frame, so a full-bleed **start** screen would draw its header without the inset for one frame (send them with START). No horizontal full-bleed option (`safeArea` has top / bottom only). Keyboard inset (`keyboard: 'resize'`) comes with `TextField`. |
-| Types for JSX | `@zero-native/ui` has loose types; a proper JSX namespace and tsconfig for editors. |
+| Safe-area gaps (step 2.3) | Insets reach JS after the first frame, so a full-bleed **start** screen would draw its header without the inset for one frame (send them with START). No horizontal full-bleed option (`safeArea` has top / bottom only). Keyboard inset: done (step 3.3, route option `keyboard`); a `<TextField>` inside a `<Sheet>` doesn't resize the sheet yet. |
+| Types for JSX | **Done (step 3.2):** JSX namespace in `@zero-native/ui`, `examples/sample/tsconfig.json`, `bun run test:types` checks the sample. Left: props are typed per component but slot / build-time rules are only checked by the compiler. |
 
 ## Data and porting
 | Item | What | Source | Notes |

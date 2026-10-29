@@ -19,10 +19,12 @@ export interface RouteEntry {
   safeArea: "all" | "none" | { top: boolean; bottom: boolean }
   statusBar: "dark" | "light"
   deepLink: boolean
+  /** "resize" (default): the screen shrinks above the keyboard. "none": the keyboard covers the screen. */
+  keyboard: "resize" | "none"
 }
 
 const TRANSITIONS = ["push", "modal", "fade", "none"]
-const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink"]
+const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard"]
 
 /** The routes declared in [source], or null if it has no `defineRoutes` call. */
 export function readRoutes(source: string, fileName: string): RouteEntry[] | null {
@@ -116,6 +118,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
           : (safeArea as "all" | "none"),
       statusBar: (options.statusBar as RouteEntry["statusBar"]) ?? "dark",
       deepLink: (options.deepLink as boolean) ?? false,
+      keyboard: (options.keyboard as RouteEntry["keyboard"]) ?? "resize",
     })
   }
   if (!routes.some((r) => r.path === "/")) fail(arg, 'one route needs path "/" (where the app starts)')
@@ -144,6 +147,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
       key === "transition" ? TRANSITIONS.includes(v as string)
       : key === "statusBar" ? v === "dark" || v === "light"
       : key === "deepLink" ? typeof v === "boolean"
+      : key === "keyboard" ? v === "resize" || v === "none"
       : v === "all" || v === "none" ||
         (typeof v === "object" && v !== null &&
           Object.entries(v).every(([k, b]) => (k === "top" || k === "bottom") && typeof b === "boolean"))

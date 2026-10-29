@@ -18,6 +18,7 @@ import {
   Component,
   DynamicProps,
   el,
+  Enum,
   event as eventRef,
   parseColor,
   EventKind,
@@ -152,22 +153,44 @@ export function compileModule(
 
   // ---- Templates ----------------------------------------------------------------------------------------------
 
-  /** A root JSX expression → code that produces a View; plus its template id (null for a bare user component). */
+  /**
+   * A root JSX expression → code that produces a View; plus its template id (null for a bare user component).
+   * A fragment `<>...</>` becomes a template whose root is a Fragment node: its children join the parent's layout.
+   */
   function compileRoot(jsx: JsxNode, depth = 0, allowKey = false): { code: string; templateId: number | null } {
-    if (ts.isJsxFragment(jsx)) fail(jsx, "a component must return one root element (fragments aren't supported yet)")
-    const tag = tagName(jsx as ts.JsxElement | ts.JsxSelfClosingElement)
-    if (!isIntrinsic(tag)) {
-      return { code: `${tag}(${propsObject(jsx as ts.JsxElement | ts.JsxSelfClosingElement)})`, templateId: null }
+    if (!ts.isJsxFragment(jsx)) {
+      const tag = tagName(jsx)
+      if (!isIntrinsic(tag)) return { code: `${tag}(${propsObject(jsx, depth)})`, templateId: null }
     }
+    return compileTemplate(jsx, depth, (b) => element(jsx, b, allowKey))
+  }
+
+  /**
+   * The children written inside a user component (`<Card>...</Card>`) → code for a View: the one element itself, or a
+   * Fragment holding them all. The component shows it where it writes `{props.children}`.
+   */
+  function compileChildren(at: ts.Node, kids: ts.NodeArray<ts.JsxChild>, depth: number): string {
+    const real = kids.filter((k) => !(ts.isJsxText(k) && k.text.trim() === "") && !(ts.isJsxExpression(k) && !k.expression))
+    if (real.length === 1 && (ts.isJsxElement(real[0]) || ts.isJsxSelfClosingElement(real[0]) || ts.isJsxFragment(real[0]))) {
+      return compileRoot(real[0] as JsxNode, depth).code
+    }
+    return compileTemplate(at, depth, (b) => {
+      b.nodes++
+      return el("Fragment", {}, ...childList(kids, b))
+    }).code
+  }
+
+  /** Builds one template with [build] and returns the code that sets up an instance of it. */
+  function compileTemplate(at: ts.Node, depth: number, build: (b: Builder) => NodeSpec): { code: string; templateId: number } {
     const inst = `__i${depth}`
     const id = ctx.reserveTemplate() // before branches, so a screen's template comes before its parts
     const b: Builder = { nodes: 0, slots: 0, events: 0, binds: [], kids: [], inst, depth }
-    const spec = element(jsx as ts.JsxElement | ts.JsxSelfClosingElement, b, allowKey)
+    const spec = build(b)
     let ids
     try {
       ids = templateIds(spec)
     } catch (e) {
-      return fail(jsx, (e as Error).message)
+      return fail(at, (e as Error).message)
     }
     ctx.defineTemplate(id, spec)
     const resolve = (s: string) =>
@@ -188,13 +211,22 @@ export function compileModule(
     depth: number
   }
 
-  function element(node: ts.JsxElement | ts.JsxSelfClosingElement, b: Builder, allowKey = false): NodeSpec {
+  function element(jsx: JsxNode, b: Builder, allowKey = false): NodeSpec {
+    if (ts.isJsxFragment(jsx)) {
+      b.nodes++
+      return el("Fragment", {}, ...childList(jsx.children, b))
+    }
+    const node = jsx
     const tag = tagName(node)
     if (!isIntrinsic(tag)) fail(node, `"${tag}" is not a zero-native component`)
+    if (tag === "Fragment") fail(node, "write a fragment as <>...</>")
     if (tag === "List") return listElement(node, b)
     b.nodes++
     const props: NodeProps & Record<string, unknown> = {}
     const opening = ts.isJsxElement(node) ? node.openingElement : node
+    // <TextField value={...} onChangeText={...}>: the handler is bound after the loop, wrapped by textInput().
+    let changeText: { ev: string; handler: string } | null = null
+    let valueSlot: { s: string; expr: ts.Expression } | null = null
 
     for (const attr of opening.attributes.properties) {
       if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
@@ -214,44 +246,69 @@ export function compileModule(
         if (!init || !ts.isJsxExpression(init) || !init.expression) fail(a, `${name} needs a function`)
         const ev = `e${b.events++}`
         ;(props as any)[name] = eventRef(ev)
-        b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${text((init as ts.JsxExpression).expression!)});`)
+        const handler = text((init as ts.JsxExpression).expression!)
+        if (tag === "TextField" && name === "onChangeText") changeText = { ev, handler }
+        else b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${handler});`)
         continue
       }
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
+      if (tag === "TextField" && name === "value" && init && ts.isJsxExpression(init) && init.expression) {
+        const before = b.slots
+        setProp(props, b, name, init.expression, a)
+        if (b.slots > before) valueSlot = { s: `s${before}`, expr: init.expression }
+        continue
+      }
       if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
       else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)
       else fail(a, `unsupported value for "${name}"`)
     }
+    if (changeText) {
+      const { ev, handler } = changeText
+      b.binds.push(
+        valueSlot
+          ? `${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${RUNTIME}.textInput(${b.inst}, @@S:${valueSlot.s}@@, () => (${text(valueSlot.expr)}), ${handler}));`
+          : `${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${handler});`,
+      )
+    }
 
-    const children: NodeSpec[] = []
+    let children: NodeSpec[] = []
     const kids = ts.isJsxElement(node) ? node.children : ts.factory.createNodeArray<ts.JsxChild>()
     if (tag === "Text") {
       textChildren(node, kids, props, b)
+    } else if (tag === "TextField") {
+      if (kids.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) fail(node, "<TextField> takes no children")
     } else {
-      for (const child of kids) {
-        if (ts.isJsxText(child)) {
-          if (child.text.trim() !== "") fail(child, "text must be inside <Text>")
-        } else if (ts.isJsxExpression(child)) {
-          if (!child.expression) continue // {/* comment */}
-          const e = unwrap(child.expression)
-          if (isJsx(e)) children.push(...childElement(e as JsxNode, b))
-          else children.push(anchor(e, b))
-        } else {
-          children.push(...childElement(child as JsxNode, b))
-        }
-      }
+      children = childList(kids, b)
     }
     return el(tag as keyof typeof Component, props, ...children)
   }
 
+  /** The children of an element (or fragment), in order. Fragments inside are flattened: they add no node. */
+  function childList(kids: ts.NodeArray<ts.JsxChild>, b: Builder): NodeSpec[] {
+    const children: NodeSpec[] = []
+    for (const child of kids) {
+      if (ts.isJsxText(child)) {
+        if (child.text.trim() !== "") fail(child, "text must be inside <Text>")
+      } else if (ts.isJsxExpression(child)) {
+        if (!child.expression) continue // {/* comment */}
+        const e = unwrap(child.expression)
+        if (isJsx(e)) children.push(...childElement(e as JsxNode, b))
+        else children.push(anchor(e, b))
+      } else {
+        children.push(...childElement(child as JsxNode, b))
+      }
+    }
+    return children
+  }
+
   function childElement(node: JsxNode, b: Builder): NodeSpec[] {
-    if (ts.isJsxFragment(node)) fail(node, "fragments aren't supported yet")
-    const tag = tagName(node as ts.JsxElement)
-    if (isIntrinsic(tag)) return [element(node as ts.JsxElement, b)]
+    if (ts.isJsxFragment(node)) return childList(node.children, b)
+    const tag = tagName(node)
+    if (isIntrinsic(tag)) return [element(node, b)]
     // A user component: an anchor where its instance mounts.
     const index = b.nodes++
-    b.kids.push(`${RUNTIME}.component(${b.inst}, ${index}, ${tag}, ${propsObject(node as ts.JsxElement)});`)
+    b.kids.push(`${RUNTIME}.component(${b.inst}, ${index}, ${tag}, ${propsObject(node, b.depth + 1)});`)
     return [el("Anchor")]
   }
 
@@ -312,7 +369,10 @@ export function compileModule(
         `${RUNTIME}.each(${b.inst}, ${index}, () => (${text(e.expression.expression)}), (${params}) => (${keyExpr}), (${params}) => ${row});`,
       )
     } else {
-      fail(e, "children can be JSX, `cond && <X/>`, `cond ? <A/> : <B/>` or `list.map(item => <X key={...}/>)`")
+      // Any other expression: a View passed in, like `{props.children}` or `{props.header}` (runtime: insert()).
+      const v = fold(e, scope)
+      if (typeof v === "string" || typeof v === "number") fail(e, "text must be inside <Text>")
+      b.kids.push(`${RUNTIME}.insert(${b.inst}, ${index}, () => (${text(e)}));`)
     }
     return el("Anchor")
   }
@@ -563,38 +623,108 @@ export function compileModule(
 
   /** <Text> content: literal text and {expressions}. All constant → static text; otherwise one text slot. */
   function textChildren(node: ts.Node, kids: ts.NodeArray<ts.JsxChild>, props: Record<string, unknown>, b: Builder) {
-    const parts: Array<{ lit: string } | { expr: ts.Expression }> = []
-    for (const child of kids) {
-      if (ts.isJsxText(child)) {
-        const t = jsxText(child.text)
-        if (t) parts.push({ lit: t })
-      } else if (ts.isJsxExpression(child)) {
-        if (!child.expression) continue
-        const v = fold(child.expression, scope)
-        if (v !== NOT_STATIC) parts.push({ lit: v === null || v === undefined || v === false ? "" : String(v) })
-        else parts.push({ expr: child.expression })
-      } else {
-        fail(child, "<Text> can only contain text and {expressions} (nested elements aren't supported yet)")
+    type Part = { lit: string } | { expr: ts.Expression }
+    // Spans: nested <Text> elements. Each run of text with one style is a span; the outer text's own runs have style {}.
+    const spans: Array<{ style: Record<string, unknown>; parts: Part[] }> = []
+    let nested = false
+    const add = (style: Record<string, unknown>, part: Part) => {
+      const last = spans[spans.length - 1]
+      if (last && last.style === style) last.parts.push(part)
+      else spans.push({ style, parts: [part] })
+    }
+    const walk = (children: ts.NodeArray<ts.JsxChild>, style: Record<string, unknown>) => {
+      for (const child of children) {
+        if (ts.isJsxText(child)) {
+          const t = jsxText(child.text)
+          if (t) add(style, { lit: t })
+        } else if (ts.isJsxExpression(child)) {
+          if (!child.expression) continue
+          if (isJsx(unwrap(child.expression))) fail(child, "inside <Text>, write nested text as <Text>...</Text> directly")
+          const v = fold(child.expression, scope)
+          if (v !== NOT_STATIC) add(style, { lit: v === null || v === undefined || v === false ? "" : String(v) })
+          else add(style, { expr: child.expression })
+        } else if ((ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) && tagName(child) === "Text") {
+          nested = true
+          const inner = { ...style, ...spanStyle(child) }
+          if (ts.isJsxElement(child)) walk(child.children, inner)
+        } else {
+          fail(child, "<Text> can only contain text, {expressions} and nested <Text> spans")
+        }
       }
     }
-    if (parts.length === 0) return
+    walk(kids, {})
+    if (spans.length === 0) return
     if ("text" in props) fail(node, "use either the text prop or children, not both")
-    if (parts.every((p) => "lit" in p)) {
-      props.text = parts.map((p) => (p as { lit: string }).lit).join("")
+
+    // Without spans: one string. With spans: the spans' texts joined by U+001F, and their styles in `spans`.
+    const sep = nested ? "\u001f" : ""
+    const allParts = spans.flatMap((s, i) => (i > 0 && sep ? [{ lit: sep } as Part, ...s.parts] : s.parts))
+    if (nested) props.spans = JSON.stringify(spans.map((s) => s.style))
+    if (allParts.every((p) => "lit" in p)) {
+      props.text = allParts.map((p) => (p as { lit: string }).lit).join("")
       return
     }
     const s = `s${b.slots++}`
     // Default (shown before JS runs): the literal parts, so the skeleton already reads well.
-    props.text = slotRef(s, parts.map((p) => ("lit" in p ? p.lit : "")).join("")) as never
-    const js = parts.map((p) => ("lit" in p ? JSON.stringify(p.lit) : `${RUNTIME}.str(${text(p.expr)})`)).join(" + ")
+    props.text = slotRef(s, allParts.map((p) => ("lit" in p ? p.lit : "")).join("")) as never
+    const js = allParts.map((p) => ("lit" in p ? JSON.stringify(p.lit) : `${RUNTIME}.str(${text(p.expr)})`)).join(" + ")
     b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => ${js}, 0);`)
   }
 
-  /** Props object for a user component: expressions become getters, so the child reads them reactively. */
-  function propsObject(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
-    if (ts.isJsxElement(node) && node.children.some((c) => !(ts.isJsxText(c) && c.text.trim() === ""))) {
-      fail(node, "children for user components aren't supported yet")
+  /**
+   * A nested <Text>'s own style, for its span. Build-time values only, and only what a span can change: colour, size,
+   * weight, italic, underline / line-through, letter spacing, background. Values go to native as in templates
+   * (colours as ARGB numbers, enums as their numbers).
+   */
+  function spanStyle(node: ts.JsxElement | ts.JsxSelfClosingElement): Record<string, unknown> {
+    const allowed = ["color", "fontSize", "fontWeight", "fontStyle", "textDecorationLine", "letterSpacing", "backgroundColor"]
+    const out: Record<string, unknown> = {}
+    const put = (key: string, value: unknown, at: ts.Node) => {
+      if (!allowed.includes(key)) fail(at, `"${key}" isn't supported on a nested <Text> span (use ${allowed.join(", ")})`)
+      if (value === undefined || value === null) return
+      if (key === "fontWeight") out[key] = fontWeight(value, at)
+      else if (key === "color" || key === "backgroundColor") {
+        try {
+          out[key] = parseColor(String(value))
+        } catch (e) {
+          fail(at, (e as Error).message)
+        }
+      } else if (key === "fontStyle" || key === "textDecorationLine") {
+        const table = Enum[key] as Record<string, number>
+        if (!(String(value) in table)) fail(at, `${key} must be one of ${Object.keys(table).join(", ")}`)
+        out[key] = table[String(value)]
+      } else out[key] = value
     }
+    const merge = (obj: unknown, at: ts.Node) => {
+      if (obj === null || obj === undefined || obj === false) return
+      if (Array.isArray(obj)) return obj.forEach((o) => merge(o, at))
+      if (typeof obj !== "object") fail(at, "style entries must be objects")
+      for (const [k, v] of Object.entries(obj as object)) put(k, v, at)
+    }
+    for (const attr of (ts.isJsxElement(node) ? node.openingElement : node).attributes.properties) {
+      if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
+      const a = attr as ts.JsxAttribute
+      const name = a.name.getText(sf)
+      if (name in EventKind) fail(a, `${name} on a nested <Text> span isn't supported yet`)
+      const init = a.initializer
+      const value =
+        !init ? true
+        : ts.isStringLiteral(init) ? init.text
+        : ts.isJsxExpression(init) && init.expression ? fold(init.expression, scope)
+        : NOT_STATIC
+      if (value === NOT_STATIC) fail(a, `a span's "${name}" must be known at build time (a literal, a const or a token)`)
+      if (name === "style") merge(value, a)
+      else put(name, value, a)
+    }
+    return out
+  }
+
+  /**
+   * Props object for a user component: expressions become getters, so the child reads them reactively. JSX passed as
+   * a prop (`header={<Title/>}`) and the children written inside the element become functions that make a View;
+   * the component shows them with `{props.header}` / `{props.children}`. [depth]: for the templates' setup code.
+   */
+  function propsObject(node: ts.JsxElement | ts.JsxSelfClosingElement, depth: number): string {
     const opening = ts.isJsxElement(node) ? node.openingElement : node
     const parts: string[] = []
     for (const attr of opening.attributes.properties) {
@@ -602,11 +732,17 @@ export function compileModule(
       const a = attr as ts.JsxAttribute
       const name = a.name.getText(sf)
       if (name === "key") continue
+      if (name === "children") fail(a, "write children between the tags: <Card>...</Card>")
       const init = a.initializer
+      const jsx = init && ts.isJsxExpression(init) && init.expression ? unwrap(init.expression) : null
       if (!init) parts.push(`${JSON.stringify(name)}: true`)
       else if (ts.isStringLiteral(init)) parts.push(`${JSON.stringify(name)}: ${JSON.stringify(decodeEntities(init.text))}`)
+      else if (jsx && isJsx(jsx)) parts.push(`${JSON.stringify(name)}: () => ${compileRoot(jsx as JsxNode, depth).code}`)
       else if (ts.isJsxExpression(init) && init.expression) parts.push(`get ${JSON.stringify(name)}() { return (${text(init.expression)}) }`)
       else fail(a, `unsupported value for "${name}"`)
+    }
+    if (ts.isJsxElement(node) && node.children.some((c) => !(ts.isJsxText(c) && c.text.trim() === "") && !(ts.isJsxExpression(c) && !c.expression))) {
+      parts.push(`"children": () => ${compileChildren(node, node.children, depth)}`)
     }
     return `{ ${parts.join(", ")} }`
   }

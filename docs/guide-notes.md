@@ -284,6 +284,42 @@ build. Save a file: the phone shows the change in well under a second and stays 
 - **Why:** building on the computer and sending bytecode is much faster than RN's Metro (no JS parsing on the
   phone), and a fresh runtime can't keep stale closures or listeners alive, which is where RN Fast Refresh breaks.
 
+## 18. Children, JSX props, fragments and text spans (built, step 3.2)
+```tsx
+function Card(props: { header: Children; children?: Children }) {
+  return <Column style={s.card}>{props.header}{props.children}</Column>
+}
+<Card header={<Text>Who</Text>}><TextField ... /><TextField ... /></Card>
+```
+- **Do:** pass content into layout components (cards, sections, screen frames) as children or JSX props, and show it
+  with `{props.children}` / `{props.header}`. Type them as `Children` from `@zero-native/ui`.
+- **Do:** return `<>...</>` when a component is just a few siblings; they join the parent's layout (its gap, its
+  alignment) with no extra box.
+- **Do:** style part of a sentence with nested `<Text>`: `Pay <Text fontWeight="bold">₹400</Text> now`. It is one
+  native text, so it wraps and ellipsizes as one.
+- **Don't:** read, count or `.map` children: they are a recipe the component places, not data. Pass data as props.
+- **Don't:** change a span's style at runtime yet (colour from a signal, etc.) or put `onPress` on a span: build
+  error. Use separate `<Text>` elements in a `<Row>` for that for now.
+- **Why:** the parent's JSX keeps its own template and its own variables; the child only says where it goes. That
+  keeps one template per piece of UI, with no copying of props through layers.
+
+## 19. Text input and the keyboard (built, step 3.3)
+```tsx
+<TextField value={amount()} onChangeText={(t) => amount.set(format(t))} keyboardType="number-pad" placeholder="₹0" />
+```
+- **Do:** make fields controlled (`value` + `onChangeText`) and set the value **synchronously** in the handler. To
+  format, set the formatted text; to reject a key, don't set anything: the field goes back to `value`.
+- **Do:** pick the keyboard: `number-pad` (digits only), `decimal-pad`, `phone-pad`, `email-address`, `url`; and
+  `returnKeyType` for the action key (`next`, `done`, `search`, ...). `onSubmitEditing` fires on that key.
+- **Do:** put forms in a `<Scroll>` with the main button outside it, at the bottom. The default route option
+  `keyboard: "resize"` keeps that button above the keyboard, and the focused field scrolls into view.
+- **Do:** call `Keyboard.dismiss()` before you navigate away or open a sheet after a form.
+- **Don't:** set the value later (after an `await`): the field shows your old value first, then jumps.
+- **Don't:** collect a real UPI PIN. The UPI PIN is only ever typed in the bank's / NPCI's own screen. Even a
+  `secureTextEntry` field is readable by accessibility services on Android (the Lava's UI dump showed the digits).
+- **Why:** the native field owns the text while typing, so typing never waits for JS; each change and JS's answer to
+  it are numbered (as in React Native), so an answer to an old keystroke never overwrites newer typing.
+
 ---
 
 ## Open items to write up when built

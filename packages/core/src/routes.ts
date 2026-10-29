@@ -22,11 +22,17 @@ export interface RouteOptions {
   statusBar?: "dark" | "light"
   /** Allow opening this route from a link (zn://<app>/<path>). Off by default: a link is an outside entry point. */
   deepLink?: boolean
+  /**
+   * When the keyboard opens: "resize" (default) shrinks the screen to the space above it, so a focused field and a
+   * bottom button stay visible; "none" lets the keyboard cover the screen.
+   */
+  keyboard?: "resize" | "none"
 }
 
 export interface RouteDef<Path extends string = string, Props = any> extends RouteOptions {
   path: Path
-  screen: (props: Props) => View
+  /** The screen component (it returns JSX). */
+  screen: (props: Props) => unknown
 }
 
 /** `"/pay/:merchantId/:tab"` → `{ merchantId: string; tab: string }`. */

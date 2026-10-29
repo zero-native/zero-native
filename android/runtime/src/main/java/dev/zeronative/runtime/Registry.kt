@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 5
+    const val VERSION = 6
 
     object Component {
         const val COLUMN = 1
@@ -20,6 +20,8 @@ object Registry {
         const val SCROLL = 12
         const val CAROUSEL = 13
         const val SHEET = 14
+        const val FRAGMENT = 15
+        const val TEXT_FIELD = 16
     }
 
     object Prop {
@@ -100,6 +102,20 @@ object Registry {
         const val VISIBLE = 119
         const val DETENTS = 120
         const val DISMISSIBLE = 121
+        const val SPANS = 122
+        const val VALUE = 123
+        const val PLACEHOLDER = 124
+        const val PLACEHOLDER_COLOR = 125
+        const val KEYBOARD_TYPE = 126
+        const val SECURE_TEXT_ENTRY = 127
+        const val MAX_LENGTH = 128
+        const val MULTILINE = 129
+        const val AUTO_FOCUS = 130
+        const val RETURN_KEY_TYPE = 131
+        const val EDITABLE = 132
+        const val AUTO_CAPITALIZE = 133
+        const val AUTO_CORRECT = 134
+        const val SELECTION_COLOR = 135
     }
 
     object Event {
@@ -113,6 +129,10 @@ object Registry {
         const val ON_PAGE_CHANGE = 8
         const val ON_DISMISS = 9
         const val ON_DETENT_CHANGE = 10
+        const val ON_CHANGE_TEXT = 11
+        const val ON_SUBMIT_EDITING = 12
+        const val ON_FOCUS = 13
+        const val ON_BLUR = 14
     }
 
     object JustifyContent {
@@ -169,5 +189,29 @@ object Registry {
         const val NONE = 0
         const val UNDERLINE = 1
         const val LINE_THROUGH = 2
+    }
+
+    object KeyboardType {
+        const val DEFAULT = 0
+        const val NUMBER_PAD = 1
+        const val DECIMAL_PAD = 2
+        const val PHONE_PAD = 3
+        const val EMAIL_ADDRESS = 4
+        const val URL = 5
+    }
+
+    object ReturnKeyType {
+        const val DONE = 0
+        const val GO = 1
+        const val NEXT = 2
+        const val SEARCH = 3
+        const val SEND = 4
+    }
+
+    object AutoCapitalize {
+        const val NONE = 0
+        const val SENTENCES = 1
+        const val WORDS = 2
+        const val CHARACTERS = 3
     }
 }

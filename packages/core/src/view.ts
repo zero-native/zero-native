@@ -57,6 +57,7 @@ export function slot(inst: Instance, slotId: number, fn: () => unknown, kind: nu
   effect(() => {
     const value = toNative(fn(), kind)
     if (inst.collecting) inst.collecting[slotId] = value
+    else if (answering?.inst === inst && answering.slot === slotId) return // textInput() answers instead
     else globalThis.__zn_patch(inst.id, slotId, value)
   })
 }
@@ -106,6 +107,67 @@ function mountChild(owner: Owner | null, make: () => View, parent: number, ancho
 export function component<P>(inst: Instance, anchor: number, Comp: (props: P) => View, props: P): void {
   ready(inst)
   mountChild(getOwner(), () => Comp(props), inst.id, anchor, 0)
+}
+
+/**
+ * `{props.children}`, `{props.header}`: shows a View passed in by the parent (the compiler turns JSX children and JSX
+ * props into functions that make a View). null / undefined / false show nothing. Mounted again if the value changes.
+ */
+export function insert(inst: Instance, anchor: number, value: () => unknown): void {
+  ready(inst)
+  const owner = getOwner()
+  let current: Mounted | null = null
+  let shown: unknown = undefined
+  effect(() => {
+    const v = value()
+    if (v === shown) return
+    shown = v
+    untrack(() => {
+      current?.dispose(true)
+      current = null
+      if (typeof v === "function") current = mountChild(owner, v as () => View, inst.id, anchor, 0)
+      else if (isView(v)) current = mountChild(owner, () => v, inst.id, anchor, 0)
+      else if (v !== null && v !== undefined && v !== false && v !== true) {
+        globalThis.__zn_log(3, `can't show ${typeof v} "${String(v)}" here: only JSX (text must be inside <Text>)`)
+      }
+    })
+  })
+}
+
+function isView(v: unknown): v is View {
+  return typeof v === "object" && v !== null && "templateId" in v && "setup" in v
+}
+
+/** The controlled <TextField> whose onChangeText is running: its value slot isn't patched by its effect then. */
+let answering: { inst: Instance; slot: number } | null = null
+
+/**
+ * A controlled <TextField> (`value` + `onChangeText`), as React Native does it. Native numbers each change the user
+ * makes and sends "n\u0001text". After the handler runs, JS answers "n\u0001value" with what `value` now says (the
+ * typed text, a reformatted one, or the old one if the handler rejected it), and the slot's own effect stays quiet
+ * meanwhile. Native ignores an answer to an older change (the user has typed on since; the newer change gets its own
+ * answer), so fast typing never jumps back. Set the value synchronously in the handler.
+ */
+export function textInput(
+  inst: Instance,
+  valueSlot: number,
+  value: () => unknown,
+  handler: (text: string) => void,
+): (payload: NativeValue) => void {
+  return (payload) => {
+    const raw = String(payload ?? "")
+    const sep = raw.indexOf("\u0001")
+    const typed = sep >= 0 ? raw.slice(sep + 1) : raw
+    const prev = answering
+    answering = { inst, slot: valueSlot }
+    try {
+      handler(typed)
+    } finally {
+      answering = prev
+    }
+    const now = str(untrack(value))
+    globalThis.__zn_patch(inst.id, valueSlot, sep >= 0 ? `${raw.slice(0, sep)}\u0001${now}` : now)
+  }
 }
 
 /** `cond && <A/>` and `cond ? <A/> : <B/>`: mounts the branch whose condition holds, swaps it when that changes. */

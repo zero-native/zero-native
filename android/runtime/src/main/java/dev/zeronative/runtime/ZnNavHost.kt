@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.systemBars
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.LayoutDirection
@@ -79,6 +81,13 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    // Keyboard.dismiss() (ZnKeyboard) clears focus in this window.
+    val focusManager = LocalFocusManager.current
+    DisposableEffect(focusManager) {
+        ZnKeyboard.focusManager = focusManager
+        onDispose { if (ZnKeyboard.focusManager === focusManager) ZnKeyboard.focusManager = null }
+    }
+
     Box(modifier) {
         // A dev reload bumps the generation: the old screens are dropped at once instead of animating out.
         key(ZnNav.generation) { Screens(bundle, safe) }
@@ -105,7 +114,10 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
                 val sides = safeSides(e.route)
                 Box(
                     Modifier.fillMaxSize().background(background)
-                        .then(if (sides != null) Modifier.windowInsetsPadding(safe.only(sides)) else Modifier),
+                        .then(if (sides != null) Modifier.windowInsetsPadding(safe.only(sides)) else Modifier)
+                        // keyboard: "resize" (default): the screen ends above the keyboard. The bar padding above has
+                        // used up the navigation bar's share, so only the rest of the keyboard's height is added.
+                        .then(if (e.route.resizeForKeyboard) Modifier.imePadding() else Modifier),
                 ) {
                     CompositionLocalProvider(LocalZnEntry provides e.id) {
                         ZnScreen(bundle.templates, root, Modifier.fillMaxSize())

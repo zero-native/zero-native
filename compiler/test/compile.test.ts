@@ -335,3 +335,99 @@ describe("source map (zn dev error lines)", () => {
     expect(at("__zn.ready")?.line).toBe(4) // generated: points at the screen's root element
   })
 })
+
+describe("fragments, children and spans (step 3.2)", () => {
+  test("a fragment root becomes a Fragment template; a fragment child is flattened", () => {
+    const { templates } = compile(`
+      export function Pair() {
+        return (
+          <>
+            <Text>A</Text>
+            <Column>
+              <>
+                <Text>B</Text>
+                <Text>C</Text>
+              </>
+            </Column>
+          </>
+        )
+      }`)
+    const root = templates[0]
+    expect(root.type).toBe("Fragment")
+    expect(root.children.map((c) => c.type)).toEqual(["Text", "Column"])
+    expect(root.children[1].children.map((c) => (c.props as any).text)).toEqual(["B", "C"]) // no extra node
+  })
+
+  test("children and JSX props of a user component become functions; {props.children} is an insert", () => {
+    const { templates, code } = compile(`
+      function Card(props) {
+        return <Column padding={8}>{props.header}{props.children}</Column>
+      }
+      export function Screen() {
+        return (
+          <Column>
+            <Card header={<Text>Title</Text>}>
+              <Text>One</Text>
+              <Text>Two</Text>
+            </Card>
+          </Column>
+        )
+      }`)
+    expect(templates[0].children.map((c) => c.type)).toEqual(["Anchor", "Anchor"])
+    expect(code).toContain("__zn.insert(__i0, 1, () => (props.header));")
+    expect(code).toContain("__zn.insert(__i0, 2, () => (props.children));")
+    expect(code).toMatch(/"header": \(\) => __zn\.view\(\d+,/)
+    expect(code).toMatch(/"children": \(\) => __zn\.view\(\d+,/)
+    const fragment = templates.find((t) => t?.type === "Fragment")!
+    expect(fragment.children.map((c) => (c.props as any).text)).toEqual(["One", "Two"])
+  })
+
+  test("one child is passed as itself, with no Fragment", () => {
+    const { templates, code } = compile(`
+      function Card(props) { return <Column>{props.children}</Column> }
+      export function Screen() {
+        return <Column><Card><Text>Only</Text></Card></Column>
+      }`)
+    expect(templates.some((t) => t?.type === "Fragment")).toBe(false)
+    expect(code).toMatch(/"children": \(\) => __zn\.view\(/)
+  })
+
+  test("nested <Text> becomes spans: styles as JSON, texts joined by U+001F", () => {
+    const { templates, code } = compile(`
+      export function T() {
+        const name = signal("Asha")
+        return (
+          <Column>
+            <Text>Pay <Text fontWeight="bold" color="#047857">₹400</Text> now</Text>
+            <Text>Hi <Text style={{ fontStyle: "italic" }}>{name()}</Text>!</Text>
+          </Column>
+        )
+      }`)
+    const [a, b] = templates[0].children
+    expect((a.props as any).text).toBe("Pay \u001f₹400\u001f now")
+    expect(JSON.parse((a.props as any).spans)).toEqual([{}, { fontWeight: 700, color: 0xff047857 }, {}])
+    expect(JSON.parse((b.props as any).spans)).toEqual([{}, { fontStyle: 1 }, {}])
+    const sep = JSON.stringify("\u001f") // how the separator appears in the generated code
+    expect(code).toContain(`() => "Hi " + ${sep} + __zn.str(name()) + ${sep} + "!"`)
+  })
+
+  test("spans reject runtime styles and events", () => {
+    expect(() =>
+      compile(`export function T() { const c = signal("#000"); return <Text>a <Text color={c()}>b</Text></Text> }`),
+    ).toThrow(/must be known at build time/)
+    expect(() => compile(`export function T() { return <Text>a <Text onPress={() => 1}>b</Text></Text> }`)).toThrow(
+      /isn't supported yet/,
+    )
+  })
+
+  test("a controlled TextField wraps onChangeText with textInput()", () => {
+    const { templates, code } = compile(`
+      export function F() {
+        const amount = signal("")
+        return <TextField value={amount()} onChangeText={(t) => amount.set(t)} keyboardType="number-pad" />
+      }`)
+    expect(templates[0].type).toBe("TextField")
+    expect((templates[0].props as any).value).toEqual({ $slot: "s0", default: null })
+    expect(code).toContain("__zn.on(__i0, 1, __zn.textInput(__i0, 0, () => (amount()), (t) => amount.set(t)));")
+  })
+})

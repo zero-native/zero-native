@@ -377,7 +377,8 @@ as tasks.
 | `Image` | Coil `AsyncImage` / painter | `AsyncImage` + our image cache [check cache choice] |
 | `Icon` | SVG path data drawn with a Compose `Path` (folded into the template at build time) | the same path data in a SwiftUI `Path` |
 | `Pressable` / `Button` | `clickable` with indication, haptics | `Button` with custom style |
-| `TextField` | `BasicTextField` | `TextField` |
+| `TextField` | `BasicTextField` (state-based) | `TextField` |
+| `<>...</>` (Fragment) | children laid out in the parent | children in the parent stack |
 | `Switch`, `Checkbox`, `Slider`, `Progress`, `Spinner` | foundation-based components | native controls |
 | `Sheet` (with detents) | our own foundation-based sheet: native drag, velocity, rubber-band and spring (v0 Frontier 1: 0 bridge events during a drag) | `.sheet` + `presentationDetents` |
 | `Dialog`, `Toast` | `Dialog`, custom toast host | `.alert` / custom overlay |
@@ -417,6 +418,15 @@ as tasks.
 - `onChange` events go to JS; JS may set a new value (for formatting). A controlled value from JS replaces the field
   text only if it differs, keeping the cursor at the end unless JS gives a selection. [check edge cases: IME
   composition, emoji, paste]
+
+**Built (milestone 3 step 3.3):** `<TextField>` on Compose's state-based `BasicTextField` (`ZnTextField.kt`; IME
+composition, paste and emoji are Compose's own handling). Controlled fields work as in React Native: native numbers
+each change ("ntext"), JS answers every change with what `value` says now ("nvalue", `textInput()` in
+`packages/core/src/view.ts`), and native ignores an answer to an older change or one that arrives while a newer
+change is still unsent. So fast typing never jumps back, and a rejected or reformatted change comes back correctly
+(Lava: typing "123456789" fast into a field limited to 7 digits and formatted as rupees gave "12,34,567" in 3 of 3
+runs). Selection from JS is not supported yet. The keyboard: route option `keyboard: "resize" | "none"` (default
+resize, `imePadding` under the route's safe-area padding), `Keyboard.dismiss()` (built-in module `ZnKeyboard`).
 
 ### 9.5 Cross-platform layout rules and conformance tests
 - zn defines its own small layout rules (alignment defaults, how `weight` / `fill` resolve, text line height), and
@@ -930,6 +940,10 @@ zero-native/
 | 2026-10-29 | `statusBar` sets status bar icons only; navigation bar icons follow the screen background | `docs/styling-and-layout.md` §6. One option for both put a grey scrim over the bottom bar of a full-bleed screen (Lava). |
 | 2026-10-29 | The back stack is owned by JS; a system back press is an event to JS (JS pops, or its `onBack` blocks) | Sections 9.7, 11. One owner, same rule as controlled components; native pops by itself only after the 300 ms timeout and then tells JS. |
 | 2026-10-29 | FlowStore is our own two-copy memory-mapped file in C++ (one file per key, CRC-32, sequence written last), not MMKV, and is framework internal | Section 13. Flows need "saved before I act" on every crash, checked by test (200 / 200 SIGKILL rounds, ~5 µs per write); the same C++ runs on iOS. App data (settings, caches) is a separate, later store. |
+| 2026-10-30 | A component's children and JSX props are functions that make a View, shown where the component writes `{props.children}` (`insert`); fragments are a Fragment node whose children join the parent's layout | Section 5.3. The parent's JSX keeps its own templates and closures; the child only places it. Compose lays several children out in the parent with no wrapper, so a fragment costs no extra layout node. |
+| 2026-10-30 | Nested `<Text>` is one native text with spans: span styles are build-time JSON, span texts joined by U+001F in the one text slot | Section 9.2. One slot and one AnnotatedString, no per-span nodes. Runtime span styles and tappable spans later. |
+| 2026-10-30 | Controlled `<TextField>`: numbered changes and answers, as React Native's event count | Section 9.4. Comparing text values alone lost a digit when the user typed while JS formatted (seen on the Lava). |
+| 2026-10-30 | Route option `keyboard: "resize"` (default) / `"none"` instead of a global soft-input mode | Section 11. Per screen, like `safeArea`; a payment screen keeps its Pay button above the keyboard by default. |
 | 2026-10-30 | `zn dev` sends whole builds (templates + bytecode) over plain TCP and restarts the JS runtime; the back stack is reopened by route name | Section 17. Bytecode compiled on the computer loads in ~15–50 ms on the Lava; a fresh runtime has no stale closures or listeners (RN Fast Refresh's common bugs). Plain TCP avoids a cleartext-HTTP exception in every app's manifest. |
 | 2026-10-30 | `storage` (MMKV) is synchronous JSI, not an async native module | Section 13.1. MMKV reads and writes are memory operations (microseconds); a Promise per read would make simple code (`if (storage.get("onboarded"))`) awkward for no gain. Same reason as FlowStore. |
 | 2026-10-30 | Flow engine parked (not in v1); `flowStore` is public and payments use the save-then-verify pattern | Section 12 note, `docs/guide-notes.md` §16. For one or two money journeys, ~30 lines of app code plus the backend's `/verify` give the same safety; the engine pays off with many journeys and teams. |

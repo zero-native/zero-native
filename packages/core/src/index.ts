@@ -12,6 +12,8 @@ export {
   allocInstanceId,
   component,
   each,
+  insert,
+  textInput,
   list,
   on,
   ready,
@@ -29,6 +31,7 @@ export { onEvent } from "./events"
 export { nav, startApp, useBack, useImpressions, type ImpressionOptions, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
 export { flowStore, type StoreRead } from "./flowstore"
+export { Keyboard, type KeyboardModule } from "./keyboard"
 export {
   callNative,
   nativeModule,

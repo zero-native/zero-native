@@ -22,6 +22,8 @@ class ZnRoute(
     val darkBarIcons: Boolean,
     /** Only routes that allow it can be opened from a link. */
     val deepLink: Boolean,
+    /** True: the screen shrinks to the space above the keyboard (the `keyboard: "resize"` option, the default). */
+    val resizeForKeyboard: Boolean = true,
 ) {
     enum class Transition { PUSH, MODAL, FADE, NONE }
 

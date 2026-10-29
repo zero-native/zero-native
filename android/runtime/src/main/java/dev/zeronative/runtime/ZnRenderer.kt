@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
@@ -78,22 +79,31 @@ fun ZnScreen(templates: List<ZnTemplate>, instance: ZnInstance, modifier: Modifi
 /** What to draw at one child position: a node of the same template, or the root of a mounted instance. */
 private class ChildRef(val template: ZnTemplate, val instance: ZnInstance, val node: Int, val key: Any)
 
-/** The children of node [s] in order, with anchors expanded into the instances mounted there (observable). */
+/**
+ * The children of node [s] in order, with anchors expanded into the instances mounted there (observable). An
+ * instance whose root is a Fragment (`<>...</>`, a component's children) adds its root's children instead of itself.
+ */
 @Composable
 private fun childRefs(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: ZnNodeSpec): List<ChildRef> {
     val out = ArrayList<ChildRef>(s.children.size)
-    for (c in s.children) {
+    addChildRefs(out, f, t, inst, s.children)
+    return out
+}
+
+private fun addChildRefs(out: ArrayList<ChildRef>, f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, children: IntArray) {
+    for (c in children) {
         if (t.nodes[c].type == Registry.Component.ANCHOR) {
             for (id in inst.children(c)) {
                 val ci = ZnStore.find(id) ?: continue
                 val ct = f.getOrNull(ci.templateId) ?: continue
-                out += ChildRef(ct, ci, 0, "i$id")
+                if (ct.nodes[0].type == Registry.Component.FRAGMENT) addChildRefs(out, f, ct, ci, ct.nodes[0].children)
+                else out += ChildRef(ct, ci, 0, "i$id")
             }
         } else {
-            out += ChildRef(t, inst, c, "n$c")
+            // Keyed by instance too: a fragment's nodes sit next to its parent's nodes.
+            out += ChildRef(t, inst, c, inst.id.toLong() shl 32 or c.toLong())
         }
     }
-    return out
 }
 
 /**
@@ -108,8 +118,10 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
     val chain = if (s.hasDynamicChain) dynamicChain(s, inst) else s.staticChain
     val mod = if (s.hasImpression) outer.then(impression(s, inst)).then(chain) else outer.then(chain)
     when (s.type) {
-        Registry.Component.COLUMN, Registry.Component.BOX, Registry.Component.PRESSABLE ->
+        // A Fragment inside a parent is expanded by the parent (childRefs); alone (a screen, a list row) it is a Column.
+        Registry.Component.COLUMN, Registry.Component.BOX, Registry.Component.PRESSABLE, Registry.Component.FRAGMENT ->
             ZnColumn(f, t, inst, s, mod, definiteWidth)
+        Registry.Component.TEXT_FIELD -> ZnTextField(s, inst, n, mod)
         Registry.Component.SHEET -> ZnSheet(f, t, s, inst) // drawn in its own window, takes no space here
         Registry.Component.ROW -> Row(
             modifier = mod,
@@ -169,24 +181,32 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
                 verticalArrangement = verticalArrangement(s),
                 horizontalAlignment = horizontalAlignment(s.alignItems),
             ) {
+                // Stretches children like a Column (zn flex rule 4, as RN's ScrollView). No flex: the height is open.
+                val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
                 for (ref in childRefs(f, t, inst, s)) key(ref.key) {
                     val child = ref.template.nodes[ref.node]
-                    ZnNode(f, ref.template, ref.instance, ref.node, Modifier, definiteWidth = child.width != null)
+                    val stretched = stretch && child.width == null && child.type != Registry.Component.SPACER &&
+                        (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
+                    var m: Modifier = if (stretched) Modifier.fillMaxWidth() else Modifier
+                    if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
+                    ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
                 }
             }
         }
         Registry.Component.TEXT -> {
             val text = if (s.textSlot >= 0) display(inst.slot(s.textSlot).value) else s.text.orEmpty()
-            BasicText(
-                text = text,
-                modifier = mod,
-                style = s.textStyle,
-                maxLines = s.maxLines,
-                overflow = TextOverflow.Ellipsis,
-                // Read in the draw phase: a colour change redraws, nothing more.
-                color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
-                else ({ s.color ?: Color.Black }),
-            )
+            // Read in the draw phase: a colour change redraws, nothing more.
+            val color: () -> Color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
+            else ({ s.color ?: Color.Black })
+            val spans = s.spans
+            if (spans == null) {
+                BasicText(text = text, modifier = mod, style = s.textStyle, maxLines = s.maxLines,
+                    overflow = TextOverflow.Ellipsis, color = color)
+            } else {
+                val styled = remember(text, spans) { spannedText(text, spans) }
+                BasicText(text = styled, modifier = mod, style = s.textStyle, maxLines = s.maxLines,
+                    overflow = TextOverflow.Ellipsis, color = color)
+            }
         }
         Registry.Component.SPACER -> Spacer(modifier = mod)
         Registry.Component.IMAGE -> {
@@ -477,3 +497,12 @@ private fun stackBias(s: ZnNodeSpec): Pair<Float, Float> {
 private fun stackAlignment(s: ZnNodeSpec): Alignment = stackBias(s).let { (h, v) -> BiasAlignment(h, v) }
 
 private fun Float.dp() = androidx.compose.ui.unit.Dp(this)
+
+/** Nested <Text> spans: the text holds one piece per span, joined by U+001F (compile.ts `textChildren`). */
+private fun spannedText(text: String, spans: List<androidx.compose.ui.text.SpanStyle>) =
+    androidx.compose.ui.text.buildAnnotatedString {
+        text.split('\u001f').forEachIndexed { i, piece ->
+            val style = spans.getOrNull(i)
+            if (style == null) append(piece) else withStyle(style) { append(piece) }
+        }
+    }

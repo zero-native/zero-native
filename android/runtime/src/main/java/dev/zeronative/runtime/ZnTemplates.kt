@@ -101,6 +101,7 @@ object ZnTemplates {
                 safeBottom = if (safe is JSONObject) safe.getBoolean("bottom") else safe == "all",
                 darkBarIcons = r.getString("statusBar") == "dark",
                 deepLink = r.getBoolean("deepLink"),
+                resizeForKeyboard = r.optString("keyboard", "resize") != "none",
             )
         }
         return ZnBundle(templates, components, ZnRoutes(routes))

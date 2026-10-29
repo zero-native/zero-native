@@ -29,6 +29,7 @@ describe("routes", () => {
     expect(routes!.map((r) => r.name)).toEqual(["home", "amount", "receipt"])
     expect(routes![0]).toEqual({
       name: "home", path: "/", component: "HomeScreen", transition: "push", safeArea: "all", statusBar: "dark", deepLink: false,
+      keyboard: "resize",
     })
     expect(routes![1].component).toBe("AmountScreen") // the exported name, not the local alias
     expect(routes![1].deepLink).toBe(true)
@@ -48,6 +49,7 @@ describe("routes", () => {
     expect(err(`defineRoutes({ home: { path: "/", screen: Missing } })`)).toMatch(/"Missing" is not imported or declared/)
     expect(err(`defineRoutes({ home: { path: "/", screen: HomeScreen, transition: "slide" } })`)).toMatch(/unsupported transition "slide"/)
     expect(err(`defineRoutes({ home: { path: "/", screen: HomeScreen, color: 1 } })`)).toMatch(/unknown route option "color"/)
+    expect(err(`defineRoutes({ home: { path: "/", screen: HomeScreen, keyboard: "pan" } })`)).toMatch(/unsupported keyboard "pan"/)
     expect(err(`defineRoutes({ "1": { path: "/", screen: HomeScreen } })`)).toMatch(/must start with a letter/)
     expect(err(`defineRoutes({ home: { path: "/", screen: HomeScreen } }); defineRoutes({})`)).toMatch(/only one defineRoutes/)
   })

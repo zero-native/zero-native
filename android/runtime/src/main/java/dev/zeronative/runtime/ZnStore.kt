@@ -42,6 +42,12 @@ class ZnInstance internal constructor(
     fun list(node: Int): ZnList = lists.getOrPut(node) { ZnList() }
 
     internal fun listOrNull(node: Int): ZnList? = lists[node]
+
+    /**
+     * Called for every PATCH of a slot, even one that repeats the current value (a cell only notifies on change). A
+     * controlled <TextField> needs that: JS resends its value to undo typing it rejected. Main thread.
+     */
+    internal val patchWatchers = HashMap<Int, (Any?) -> Unit>()
 }
 
 /** One row of a <List>: its key and its type (the row template id: Compose reuse per kind, and its placeholder). */
@@ -105,8 +111,12 @@ object ZnStore {
                     is BatchOp.Patch -> {
                         // An unknown instance means a bug (JS patching a screen it closed, or before its NAV push).
                         val inst = instances[op.instance]
-                        if (inst != null) inst.slot(op.slot).value = op.value
-                        else android.util.Log.w("zn", "patch for unknown instance ${op.instance} ignored")
+                        if (inst != null) {
+                            inst.slot(op.slot).value = op.value
+                            inst.patchWatchers[op.slot]?.invoke(op.value)
+                        } else {
+                            android.util.Log.w("zn", "patch for unknown instance ${op.instance} ignored")
+                        }
                     }
                     is BatchOp.Mount -> {
                         val inst = ZnInstance(op.instance, op.templateId, op.parent, op.anchor)
