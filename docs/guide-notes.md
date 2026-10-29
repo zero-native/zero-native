@@ -117,7 +117,7 @@ useBack(() => {
   library. Fill paths only for now.
 - Heavy native things (app icons, camera photos) go by **handle** (`zn://...`, planned), never as Base64 through JS.
 
-## 11. Long lists and feeds: `<List>` (built: row kinds, rails; planned: carousel, impressions)
+## 11. Long lists and feeds: `<List>`, rails, `<Carousel>`, impressions (built)
 ```tsx
 <List data={feed()} key={(f) => f.id} style={{ flex: 1 }} gap={8}
   onEndReached={() => loadMore()}
@@ -140,12 +140,55 @@ useBack(() => {
   cards exist while its row is near the screen.
 - Cards in a lazy rail don't stretch to the tallest card (they are measured one by one). If cards must line up, give
   them a fixed height.
-- Don't measure or track visibility from JS (no `onScroll` + measuring): impressions will be native (planned,
-  `impressionKey`).
-- Measured (Lava, release): a 260-row offers feed with banner and product rails and real product photos flings at
-  6 ms median, 11 ms p95 per frame, with 1 janky frame in 427.
+- **Carousels (banners):** `<Carousel itemWidth={300} autoAdvance={4500} dots style={{ gap: 12, paddingHorizontal: 16 }}>`
+  with `{banners.map(b => <BannerCard key={b.id} b={b} />)}` inside. Paging, snap, peek, auto-advance and dots are
+  native. Auto-advance pauses after the user touches it (`pauseAfterTouch`, default 3000 ms) and stops by itself
+  when the carousel is off screen, another screen is on top, or the app is in the background.
+  **Don't** build a carousel with `setInterval` + `scrollTo` (the RN way): that's a JS timer and a re-render per
+  page, even off screen. `onPageChange` is optional; bind it only if you need the index.
+- **Impressions (analytics "seen" events):**
+  ```tsx
+  useImpressions((keys) => analytics.track("IMPRESSION", keys))            // once, in the screen body
+  <Pressable impressionKey={offer.id} onPress={...}>                        // on each card / row you track
+  ```
+  Native measures visibility from layout (no `onScroll`, no `measureInWindow`, no JS while scrolling). A key counts
+  when ≥ 35 % of it is visible (`{ threshold: 0.5 }` to change; `{ minMs: 500 }` to require a dwell time), only while
+  the screen is on top and the app is in front, once per visit of the screen (`{ once: "session" }` for once per app
+  session). Keys arrive in batches (about every 500 ms, and when the screen leaves or the app pauses).
+  **Don't** track impressions with scroll handlers and measuring in JS: that is exactly what made the RN Offers tab lag.
+  Clicks stay plain `onPress`.
+- Measured (Lava, release): a 260-row offers feed with a banner carousel, product rails, real product photos and
+  impressions on flings at 6–7 ms median, 11–13 ms p95 per frame, 0–2 janky frames in ~420.
 
-## 12. Gradients, colours and text
+## 12. Bottom sheets: `<Sheet>` (built, step 2.5)
+```tsx
+const pickerOpen = signal(false)
+<Pressable onPress={() => pickerOpen.set(true)}>…</Pressable>
+<Sheet visible={pickerOpen()} onDismiss={() => pickerOpen.set(false)} style={{ paddingHorizontal: 20, gap: 12 }}>
+  …content…
+</Sheet>
+```
+- **You own `visible`.** The user closing it (drag down, fling, tap outside, back) only *asks*: `onDismiss` fires and
+  you set `visible` to false. If you don't (a form with unsaved input, a payment in progress), it springs back up.
+  This is the opposite of most RN sheet libraries, where the sheet closes itself and your state goes stale.
+- Put it anywhere in the screen; it takes no space there and draws over the whole screen (scrim over the status bar,
+  content above the navigation bar). Back closes the sheet before the screen.
+- Dragging, flinging and snapping are native: no JS runs during the gesture. A scrolling list inside the sheet
+  scrolls first; at its top, pulling down moves the sheet.
+- `detents="content"` (default: as tall as its content), `"half"`, `"full"`, or several (`"half,full"`: opens at the
+  first, the user can drag between them; `onDetentChange` tells you). `dismissible={false}` for sheets the user must
+  answer.
+- Style the sheet's content with `style` (padding, gap); its background is white unless you set `backgroundColor`.
+  Don't set `borderRadius` on it (the top corners are rounded for you).
+- Close the sheet **before** navigating (`pickerOpen.set(false); nav.push(...)`), as in the sample.
+
+## 13. Calling native code (transport built; module system proposed in `docs/native-modules.md`)
+- Today: `callNative(module, method, args)` → Promise, for modules registered natively with `ZnModules.register(...)`.
+  Always async: the JS thread never waits for native.
+- Planned: typed `nativeModule<T>("Name")` declared in TS with generated Kotlin/Swift interfaces, events with
+  `Module.on(...)` that unsubscribe when the screen closes.
+
+## 14. Gradients, colours and text
 - `backgroundImage: "linear-gradient(135deg, #047857 0%, #0F172A 100%)"` (React Native's CSS form; `to bottom` /
   `to right` work too). Parsed at build time, drawn with the background: no gradient library, no extra view. Use it
   for card backgrounds and image overlays (`linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.85) 100%)` over
@@ -154,7 +197,7 @@ useBack(() => {
   supported: use tokens.
 - JSX text decodes HTML entities like React (`&amp;`, `&#8377;`), so copied web/RN markup shows correctly.
 
-## 13. Performance habits (the short list for the docs)
+## 15. Performance habits (the short list for the docs)
 - Read signals only inside JSX or `computed`; reading them in plain code captures a value once.
 - Keep lists of more than ~100 items in `<List>`, not `.map`.
 - Fixed sizes for images and list rows wherever possible.

@@ -76,6 +76,8 @@ type StyleInput = Style | false | null | undefined | StyleInput[]
 interface Base extends StyleProps {
   style?: StyleInput
   key?: string | number
+  /** Counted natively when visible enough on a screen that calls useImpressions(...). Usually your item's id. */
+  impressionKey?: string
 }
 
 interface Container extends Base {
@@ -98,6 +100,38 @@ export declare const Spacer: Intrinsic<Base>
  * JS. Its padding scrolls with the content (like RN's contentContainerStyle). For long vertical data use <List>.
  */
 export declare const Scroll: Intrinsic<Container & { horizontal?: boolean }>
+/**
+ * A bottom sheet over the whole screen. **Controlled:** you own `visible`; when the user drags it down, flings it,
+ * taps outside or presses back, `onDismiss` asks you to close it (set `visible` to false). If you keep it true, it
+ * springs back. Dragging and settling are native (no JS during the gesture). `detents`: "content" (default),
+ * "half", "full", comma-separated, first = where it opens. Place it anywhere in a screen: it takes no space there.
+ */
+export declare const Sheet: Intrinsic<
+  Container & {
+    visible: boolean
+    onDismiss?: () => void
+    detents?: string
+    dismissible?: boolean
+    onDetentChange?: (detent: "content" | "half" | "full") => void
+  }
+>
+/**
+ * A native pager (banners): its children are the pages (usually `items.map(...)`). Snaps per page; the next page
+ * peeks in when `itemWidth` is smaller than the carousel. `autoAdvance` (ms) runs natively, only while the carousel
+ * is on screen and the app is in front, and pauses `pauseAfterTouch` ms (default 3000) after the user touches it.
+ * No JS timer, no re-render per page. Padding is content padding (the first page starts inset).
+ */
+export declare const Carousel: Intrinsic<
+  Container & {
+    itemWidth?: number
+    autoAdvance?: number
+    pauseAfterTouch?: number
+    dots?: boolean
+    dotColor?: Color
+    activeDotColor?: Color
+    onPageChange?: (index: number) => void
+  }
+>
 export declare const Pressable: Intrinsic<
   Container & {
     onPress?: () => void

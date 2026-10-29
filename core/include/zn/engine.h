@@ -48,6 +48,9 @@ class HostApi {
   virtual void listSplice(uint32_t instance, uint16_t node, uint32_t index, uint32_t removeCount,
                           std::vector<Value> keys, std::vector<uint16_t> types) = 0;
   virtual void listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) = 0;
+  // Native module call (ARCHITECTURE §15.1); the result comes back later as an app event (runtime.h Platform).
+  virtual void call(std::string_view module, std::string_view method, std::string_view argsJson,
+                    uint32_t callbackId) = 0;
   // Timers (ARCHITECTURE §14): returns a handle that never changes for the life of the timer.
   virtual uint32_t setTimer(double delayMs, bool repeat) = 0;
   virtual void clearTimer(uint32_t handle) = 0;

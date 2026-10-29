@@ -33,4 +33,7 @@ internal object ZnNative {
     @JvmStatic fun onScheduleTimer(handle: Int, delayMs: Double) = ZnRuntime.scheduleTimer(handle, delayMs)
 
     @JvmStatic fun onRequestApply() = ZnRuntime.requestApply()
+
+    @JvmStatic fun onCallNative(module: String, method: String, args: ByteArray, callbackId: Int) =
+        ZnModules.call(module, method, String(args, Charsets.UTF_8), callbackId)
 }

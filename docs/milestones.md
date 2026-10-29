@@ -60,11 +60,11 @@ Full brief with design decisions, tests and phone checks per step:
 | 2.3 | Safe areas: edge-to-edge, per-route option, `insets()` | Claude | **done 2026-10-29** |
 | 2.4a | `<List>` with row types, window protocol, placeholders, splice anchor, `onEndReached` (feeds proposal) | Claude | **done 2026-10-29** |
 | 2.4b | Rails inside rows (`Scroll horizontal`), gradient backgrounds | Claude | **done 2026-10-29** |
-| 2.4c | `<Carousel>`: native paging, snap, auto-advance, dots | Claude | next |
-| 2.4d | Impressions: `impressionKey` + `useImpressions` (threshold default 35 %, `minMs`), native-measured, batched | Claude | |
-| 2.4e | Benchmark: offers feed from `test-kit/offers-data.json` vs the RN Offers tab (release, Lava) | Claude | |
-| 2.5 | `<Sheet>`: native drag and detents, controlled by JS | Gemini | |
-| 2.6 | Native calls: `__zn_call`, modules, `fetch`, `os.launchActivity`, `os.upiApps` | Gemini | |
+| 2.4c | `<Carousel>`: native paging, snap, auto-advance, dots | Claude | **done 2026-10-29** |
+| 2.4d | Impressions: `impressionKey` + `useImpressions` (threshold default 35 %, `minMs`), native-measured, batched | Claude | **done 2026-10-29** |
+| 2.4e | Benchmark: offers feed from `test-kit/offers-data.json` vs the RN Offers tab (release, Lava) | Claude | next: needs Pavan to run `tools/measure-frames.ps1` on the RN app |
+| 2.5 | `<Sheet>`: native drag and detents, controlled by JS (+ the native-call transport) | Claude | **done 2026-10-29** |
+| 2.6 | **Native modules v1** (`docs/native-modules.md`: typed `nativeModule<T>`, events, codegen, cancellation) + `fetch`, `os.launchActivity`, `os.upiApps` | Claude | waiting for Pavan on the proposal |
 | 2.7 | FlowStore (C++) | Claude | |
 | 2.8 | Flows: effects, write-ahead, restore, safe mode; checkout flow with the mock UPI app | Claude | |
 | 2.9 | Release measurements; close the milestone | Gemini, Claude reviews | |
@@ -83,6 +83,49 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-29: step 2.5 done (Claude): `<Sheet>` + the native-call transport
+- **`<Sheet visible onDismiss detents dismissible onDetentChange>`** (component 14; props 119–121; events 9–10;
+  `visible` is a slot). Native (`ZnSheet.kt`): a full-screen `Dialog` window (scrim over the status bar; back closes
+  the sheet before the screen), spring open / close, drag with rubber-band above the top, fling and position decide
+  close vs snap (35 % / 1200 px/s), detents `content` / `half` / `full`, nested scroll (an inner list scrolls first),
+  content padded above the navigation bar, dark nav-bar buttons on a light sheet. **Controlled:** a user close sends
+  `onDismiss` and animates down; if JS still says `visible` 400 ms later it springs back. Native never writes
+  `visible`. Children are drawn with the Column rules (`ZnColumn`, extracted from the renderer).
+- **Native-call transport** (start of step 2.6, see `docs/native-modules.md`): `callNative()` (`calls.ts`) →
+  `__zn_call` → `Platform::callNative` → JNI (args as UTF-8 bytes) → `ZnModules` (I/O pool or main) → app event 7.
+  `os.upiApps()` was written and then **parked** on Pavan's call: the module system (typed declarations, events,
+  codegen) is designed first.
+- **Sample:** "Pay Now" on Amount opens "Pay ₹X with" listing 5 UPI apps (static, from v0's checkout); picking one
+  closes the sheet and opens the receipt "Paid with <app>".
+- **Bugs found on the phone and fixed:** the last row was cut off (the dialog window learns its navigation-bar inset
+  after the first layout; the height is now recomputed every composition); white nav-bar buttons on the white sheet.
+- **Verified on the Lava** (debug + release): open; close by scrim tap, back (Amount stays), drag down; a small drag
+  springs back; pick an app → receipt; dark-mode recreation with the sheet open keeps it open; release run, no R8
+  issues. Tests: C++ 81, JS 79 + types, Kotlin 14, lint 0.
+- **Not verified on the phone:** "JS keeps it open" spring-back (the sample always closes), `half` / `full` detents and
+  dragging between them, a scrolling list inside a sheet (designed and coded, no sample uses them yet).
+
+### 2026-10-29: steps 2.4c and 2.4d done (Claude): Carousel and impressions
+- **`<Carousel>`** (component 13; props `itemWidth`, `autoAdvance`, `pauseAfterTouch`, `dots`, `dotColor`,
+  `activeDotColor`; event `onPageChange` 8): Compose `HorizontalPager` with fixed page width (next page peeks),
+  content padding, dots. Auto-advance is a coroutine that runs only while the carousel is composed and the app is
+  resumed (`repeatOnLifecycle(RESUMED)`), and skips ticks within `pauseAfterTouch` of a touch. `onPageChange` only
+  if bound. Sample: the offers banner rail is now a carousel.
+- **Impressions** (`impressionKey` prop 118, dynamic; NAV kind 6 IMPRESSIONS; app event 6): `useImpressions(handler,
+  { threshold = 0.35, minMs = 0, once: "screen" | "session" })`. Native (`ZnImpressions.kt`): nodes with a key report
+  their visible fraction from `onGloballyPositioned` + `boundsInWindow` (clipped by lists and rails); counted when ≥
+  threshold (for minMs), only on the top screen while resumed, once per screen visit; batches every 500 ms and on
+  pause / screen leaving. Counted keys skip measuring afterwards. Session dedupe in JS.
+- **`tools/measure-frames.ps1`:** the same flings + `gfxinfo` for any app, for fair comparisons (2.4e).
+- **Verified on the Lava:** carousel advances ~every 4.5 s on screen; 0 page changes in 10 s off screen and in
+  10 s in the background; a manual swipe pauses it ≥ 3 s. Impressions: first screen 3, rail swipe +2, scroll +3 / +4,
+  scroll back 0, background 0, new visit counts again. Release flings with both on: p50 6–7 ms, p95 11–13 ms,
+  p99 14–17 ms, 0–2 janky of ~420 (4 runs). Tests: C++ 79, JS 77 + types, compiler 19, Kotlin 14, lint 0.
+- **Known limits:** a node with `impressionKey` on a screen's **root template** of a cold-start screen isn't tracked
+  (the screen draws before JS turns impressions on); rows, rails and carousels are fine. Carousel pages snap to the
+  start edge (RN's banner centres them).
+- **2.4e (benchmark vs the RN Offers tab):** waiting for Pavan to run `tools/measure-frames.ps1` on the RN app.
+
 ### 2026-10-29: step 2.4b done (Claude): rails and gradients
 - **`Scroll`** (registry v5, component 12, prop `horizontal`): horizontal = `LazyRow` over the children (anchors
   expanded), so only visible cards are composed and a rail scrolls without JS; padding becomes content padding;

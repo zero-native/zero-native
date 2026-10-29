@@ -163,6 +163,21 @@ describe("feeds: gradients and rails", () => {
     expect(templates[0].props).toMatchObject({ horizontal: true, gap: 12, paddingHorizontal: 16 })
     expect(code).toMatch(/__zn\.each\(__i0, 1, \(\) => \(p\.items\)/)
   })
+  test("a Carousel: pages from .map, settings in the template, onPageChange as an event", () => {
+    const { code, templates } = compile(`
+      function Banners(p) {
+        return (
+          <Carousel itemWidth={300} autoAdvance={4500} dots style={{ gap: 12, paddingHorizontal: 16 }}
+            onPageChange={(i) => p.seen(i)}>
+            {p.offers.map((o) => <Box key={o.id} />)}
+          </Carousel>
+        )
+      }`)
+    expect(templates[0].type).toBe("Carousel")
+    expect(templates[0].props).toMatchObject({ itemWidth: 300, autoAdvance: 4500, dots: true, gap: 12 })
+    expect(code).toMatch(/__zn\.on\(__i0, \d+, \(i\) => p\.seen\(i\)\)/)
+    expect(code).toMatch(/__zn\.each\(__i0, 1, \(\) => \(p\.offers\)/)
+  })
   test("gradient errors", () => {
     const err = (src: string) => {
       try {

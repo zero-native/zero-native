@@ -19,6 +19,7 @@ until it is proven.
 |---|---|
 | `styling-and-layout.md` | `style` props, supported keys, the fixed modifier order, zn flex rules, safe areas |
 | `lists.md` | `<For>` vs `<List>`, the window protocol, placeholders, the fast template interpreter, native data source (v1.1) |
+| `native-modules.md` | calling native code from JS and back (RN TurboModules / Flutter channels equivalent): transport built, module system proposed |
 | `startup-and-performance.md` | startup rules and budget, how to measure, every number measured so far |
 | `platform-differences.md` | known differences between Android, iOS and React Native semantics |
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |

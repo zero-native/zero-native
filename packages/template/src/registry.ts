@@ -26,6 +26,10 @@ export const Component = {
   List: 11,
   /** Scrollable container. horizontal: children drawn lazily (only the visible ones are composed): product rails. */
   Scroll: 12,
+  /** Native pager: snap per item, optional auto-advance and dots. Children = its pages (usually a .map). */
+  Carousel: 13,
+  /** Bottom sheet over the whole screen, controlled by JS (`visible`); drag, detents and dismiss are native. */
+  Sheet: 14,
 } as const
 export type ComponentName = keyof typeof Component
 
@@ -119,6 +123,26 @@ export const Prop = {
    * time into "angle|argb@position|..." (position 0–1, or -1 when not given); drawn over backgroundColor.
    */
   backgroundImage: { id: 111, type: "string" },
+  // Carousel
+  /** Move to the next page every this many ms (0 / absent = never). Only while on screen and the app is in front. */
+  autoAdvance: { id: 112, type: "number" },
+  /** After the user touches the carousel, wait this long before auto-advancing again (default 3000 ms). */
+  pauseAfterTouch: { id: 113, type: "number" },
+  /** Page indicator dots under the pages. */
+  dots: { id: 114, type: "bool" },
+  dotColor: { id: 115, type: "color" },
+  activeDotColor: { id: 116, type: "color" },
+  /** Width of each page in dp (pages after it peek in). Default: the carousel's width minus its padding. */
+  itemWidth: { id: 117, type: "number" },
+  /** Impressions: native counts this key once it is visible enough on the top screen (useImpressions). */
+  impressionKey: { id: 118, type: "string" },
+  // Sheet
+  /** Whether the sheet is open. Owned by JS: native asks to close it with onDismiss and follows what JS sets. */
+  visible: { id: 119, type: "bool" },
+  /** Where the sheet can rest, comma-separated, first = where it opens: "content" (its content's height), "half", "full". */
+  detents: { id: 120, type: "string" },
+  /** false: drag-down, scrim tap and back don't ask to close (default true). */
+  dismissible: { id: 121, type: "bool" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -157,6 +181,12 @@ export const EventKind = {
   onRange: 6,
   /** <List>: the end is near (once per row count). */
   onEndReached: 7,
+  /** <Carousel>: the page settled on a new index (payload: the index). Sent only if bound. */
+  onPageChange: 8,
+  /** <Sheet>: the user asked to close it (drag down, fling, scrim tap, back). JS decides: set visible to false. */
+  onDismiss: 9,
+  /** <Sheet>: it settled on another detent (payload: "content" | "half" | "full"). */
+  onDetentChange: 10,
 } as const
 export type EventName = keyof typeof EventKind
 
@@ -173,4 +203,6 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "paddingBottom",
   "paddingStart",
   "paddingEnd",
+  "impressionKey",
+  "visible",
 ])

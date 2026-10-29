@@ -25,6 +25,10 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -60,6 +64,19 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     // (dark icons on a light screen), so a full-bleed header doesn't get a scrim over the bottom bar.
     val topBackground = top?.route?.templateId?.let { bundle.templates.getOrNull(it)?.nodes?.firstOrNull()?.background }
     BarIcons(statusDark = top?.route?.darkBarIcons ?: true, navDark = (topBackground?.luminance() ?: 1f) > 0.5f)
+    // Impressions count only while the app is in front.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> ZnImpressions.resumed = true
+                Lifecycle.Event.ON_PAUSE -> ZnImpressions.resumed = false
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     NavDisplay(
         backStack = ZnNav.stack,
@@ -80,7 +97,9 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
                     Modifier.fillMaxSize().background(background)
                         .then(if (sides != null) Modifier.windowInsetsPadding(safe.only(sides)) else Modifier),
                 ) {
-                    ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
+                    CompositionLocalProvider(LocalZnEntry provides e.id) {
+                        ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
+                    }
                 }
             }
         },

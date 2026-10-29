@@ -34,6 +34,10 @@ struct FakePlatform : zn::Platform {
   void scheduleTimer(uint32_t handle, double delayMs) override { scheduled.emplace_back(handle, delayMs); }
   void requestApply() override { applyRequests++; }
   void log(int, std::string_view m) override { logs.emplace_back(m); }
+  std::vector<std::string> calls;
+  void callNative(std::string_view module, std::string_view method, std::string_view args, uint32_t id) override {
+    calls.push_back(std::string(module) + "." + std::string(method) + "(" + std::string(args) + ")#" + std::to_string(id));
+  }
   double nowMs() override { return 0; }
 };
 
@@ -197,6 +201,17 @@ void testListOps() {
   CHECK(r.pos == bytes.size());
 }
 
+void testNativeCall() {
+  std::printf("native calls go to the platform, not into the batch\n");
+  Harness h;
+  h.engine->onCall = [](zn::HostApi& host, std::string_view, std::span<const zn::Value>) {
+    host.call("os", "upiApps", "{}", 4);
+  };
+  h.runtime.dispatchEvent(0, 1, zn::Value::null());
+  CHECK(h.platform.calls.size() == 1 && h.platform.calls[0] == "os.upiApps({})#4");
+  CHECK(h.platform.applyRequests == 0);  // a call is not a UI change
+}
+
 void testTickAndApply() {
   std::printf("tick → one apply request, coalescing until taken\n");
   Harness h;
@@ -278,6 +293,7 @@ int main() {
   testPatchCoalescing();
   testNav();
   testListOps();
+  testNativeCall();
   testTickAndApply();
   testNoOpsNoRequest();
   testTimers();

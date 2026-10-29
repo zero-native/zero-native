@@ -23,8 +23,8 @@ import { allocInstanceId, renderRoot } from "./view"
 export interface Register {}
 type Routes = Register extends { routes: infer R } ? R : Record<string, RouteDef>
 
-const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5 } as const
-export const AppEvent = { Start: 1, Back: 2, ForcedBack: 3, Open: 4 } as const
+const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6 } as const
+export const AppEvent = { Start: 1, Back: 2, ForcedBack: 3, Open: 4, Insets: 5, Impressions: 6 } as const
 const APP = 0
 
 interface Entry {
@@ -34,7 +34,11 @@ interface Entry {
   params: Record<string, unknown>
   dispose: () => void
   onBack: (() => boolean) | null
+  impressions?: { handler: (keys: string[]) => void; session: boolean }
 }
+
+/** Keys already reported in this app session (for `once: "session"`). */
+const seenThisSession = new Set<string>()
 
 let table: Record<string, RouteDef> | null = null
 let names: string[] = []
@@ -102,6 +106,46 @@ export function useBack(handler: () => boolean): void {
   rendering.onBack = handler
 }
 
+export interface ImpressionOptions {
+  /** How much of a card must be visible to count, 0–1. Default 0.35 (the web IntersectionObserver rule). */
+  threshold?: number
+  /** It must stay that visible this long (ms). Default 0: counts at once. */
+  minMs?: number
+  /** "screen" (default): each key once per visit of this screen. "session": once per app session. */
+  once?: "screen" | "session"
+}
+
+/**
+ * Turns on impressions for the current screen: nodes with an `impressionKey` are measured natively, and `handler`
+ * gets the keys that became visible (≥ threshold, while the screen is on top and the app is in front), in batches.
+ * JS does nothing while the user scrolls. Call it in the screen body, once.
+ */
+export function useImpressions(handler: (keys: string[]) => void, options: ImpressionOptions = {}): void {
+  if (!rendering) throw new Error("useImpressions must be called while a screen renders (in a component body)")
+  const threshold = options.threshold ?? 0.35
+  if (!(threshold > 0 && threshold <= 1)) throw new Error("useImpressions: threshold must be more than 0 and at most 1")
+  rendering.impressions = { handler, session: options.once === "session" }
+  globalThis.__zn_nav(NavKind.Impressions, rendering.id, 0, JSON.stringify({ threshold, minMs: options.minMs ?? 0 }))
+}
+
+/** Native's batch of counted keys for one screen. */
+function onImpressions(payload: NativeValue): void {
+  const { entry, keys } = JSON.parse(String(payload)) as { entry: number; keys: string[] }
+  const e = stack.find((s) => s.id === entry)
+  if (!e?.impressions) return
+  let out = keys
+  if (e.impressions.session) {
+    out = keys.filter((k) => !seenThisSession.has(k))
+    out.forEach((k) => seenThisSession.add(k))
+  }
+  if (out.length === 0) return
+  try {
+    e.impressions.handler(out)
+  } catch (err) {
+    globalThis.__zn_log(3, `impressions handler threw: ${err instanceof Error ? `${err.message}\n${err.stack}` : String(err)}`)
+  }
+}
+
 /** Starts the app: registers the routes and waits for native's START event with the first stack. */
 export function startApp(routes: Record<string, RouteDef>): void {
   table = routes
@@ -110,6 +154,7 @@ export function startApp(routes: Record<string, RouteDef>): void {
   onEvent(APP, AppEvent.Back, () => onSystemBack())
   onEvent(APP, AppEvent.ForcedBack, (payload) => onForcedBack(payload))
   onEvent(APP, AppEvent.Open, (payload) => onOpenLink(payload))
+  onEvent(APP, AppEvent.Impressions, (payload) => onImpressions(payload))
   installInsets()
 }
 

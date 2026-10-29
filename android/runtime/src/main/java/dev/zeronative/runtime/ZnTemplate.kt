@@ -186,9 +186,21 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     // Scroll: horizontal rails; its padding becomes content padding (it scrolls with the content, as in RN's
     // contentContainerStyle), so it is left out of the modifier chain.
     val horizontal = p[Registry.Prop.HORIZONTAL] == true
-    private val paddingIsContent = type == Registry.Component.SCROLL
+    private val paddingIsContent = type == Registry.Component.SCROLL || type == Registry.Component.CAROUSEL
     val contentPadding: PaddingValues? = if (paddingIsContent) padding?.toPadding() else null
     val gradient: ZnGradient? = (p[Registry.Prop.BACKGROUND_IMAGE] as String?)?.let(ZnGradient::parse)
+    // Carousel
+    val autoAdvanceMs = num(Registry.Prop.AUTO_ADVANCE)?.toLong() ?: 0L
+    val pauseAfterTouchMs = num(Registry.Prop.PAUSE_AFTER_TOUCH)?.toLong() ?: 3000L
+    val dots = p[Registry.Prop.DOTS] == true
+    val dotColor: Color = color(Registry.Prop.DOT_COLOR) ?: Color(0xFFD1D5DB)
+    val activeDotColor: Color = color(Registry.Prop.ACTIVE_DOT_COLOR) ?: Color(0xFF047857)
+    val itemWidth = num(Registry.Prop.ITEM_WIDTH)
+    // Sheet
+    val visible = p[Registry.Prop.VISIBLE] == true
+    val detents: List<String> = (p[Registry.Prop.DETENTS] as String?)?.split(',')?.map { it.trim() }
+        ?.filter { it == "content" || it == "half" || it == "full" }?.ifEmpty { null } ?: listOf("content")
+    val dismissible = p[Registry.Prop.DISMISSIBLE] != false
     val repeatDelayMs = (num(Registry.Prop.REPEAT_DELAY) ?: 400f).toLong()
     val repeatIntervalMs = (num(Registry.Prop.REPEAT_INTERVAL) ?: 100f).toLong().coerceAtLeast(16)
 
@@ -198,6 +210,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val backgroundSlot = slotFor(raw, Registry.Prop.BACKGROUND_COLOR)
     val opacitySlot = slotFor(raw, Registry.Prop.OPACITY)
     val srcSlot = slotFor(raw, Registry.Prop.SRC)
+    val impressionKey: String? = p[Registry.Prop.IMPRESSION_KEY] as String?
+    val impressionKeySlot = slotFor(raw, Registry.Prop.IMPRESSION_KEY)
+    val hasImpression = impressionKey != null || impressionKeySlot != NONE
     val disabledSlot = slotFor(raw, Registry.Prop.DISABLED)
     /** Padding edges bound to slots (start, top, end, bottom; NONE = static). Read in the layout phase. */
     val paddingSlots = intArrayOf(
@@ -209,6 +224,10 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     // Events: the event id JS listens to, or 0.
     val onPress = eventFor(raw, Registry.Event.ON_PRESS)
     val onRange = eventFor(raw, Registry.Event.ON_RANGE)
+    val onPageChange = eventFor(raw, Registry.Event.ON_PAGE_CHANGE)
+    val onDismiss = eventFor(raw, Registry.Event.ON_DISMISS)
+    val onDetentChange = eventFor(raw, Registry.Event.ON_DETENT_CHANGE)
+    val visibleSlot = slotFor(raw, Registry.Prop.VISIBLE)
     val onEndReached = eventFor(raw, Registry.Event.ON_END_REACHED)
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)
     val onPressOut = eventFor(raw, Registry.Event.ON_PRESS_OUT)

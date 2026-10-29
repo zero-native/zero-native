@@ -23,6 +23,7 @@ JavaVM* g_vm = nullptr;
 jclass g_nativeClass = nullptr;  // global ref to dev/zeronative/runtime/ZnNative
 jmethodID g_scheduleTimer = nullptr;
 jmethodID g_requestApply = nullptr;
+jmethodID g_callNative = nullptr;
 
 JNIEnv* env() {
   JNIEnv* e = nullptr;
@@ -42,6 +43,20 @@ class AndroidPlatform final : public zn::Platform {
     static constexpr int kPriority[] = {ANDROID_LOG_DEBUG, ANDROID_LOG_INFO, ANDROID_LOG_WARN, ANDROID_LOG_ERROR};
     const int prio = kPriority[level < 0 ? 0 : (level > 3 ? 3 : level)];
     __android_log_print(prio, kJsTag, "%.*s", static_cast<int>(message.size()), message.data());
+  }
+  void callNative(std::string_view module, std::string_view method, std::string_view argsJson,
+                  uint32_t callbackId) override {
+    JNIEnv* e = env();
+    // Module and method names are ASCII; the arguments go as UTF-8 bytes (JNI's own string encoding is not real
+    // UTF-8 for emoji and other characters outside the basic plane).
+    jstring m = e->NewStringUTF(std::string(module).c_str());
+    jstring fn = e->NewStringUTF(std::string(method).c_str());
+    jbyteArray args = e->NewByteArray(static_cast<jsize>(argsJson.size()));
+    e->SetByteArrayRegion(args, 0, static_cast<jsize>(argsJson.size()), reinterpret_cast<const jbyte*>(argsJson.data()));
+    e->CallStaticVoidMethod(g_nativeClass, g_callNative, m, fn, args, static_cast<jint>(callbackId));
+    e->DeleteLocalRef(m);
+    e->DeleteLocalRef(fn);
+    e->DeleteLocalRef(args);
   }
   double nowMs() override {
     timespec ts{};
@@ -83,7 +98,8 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
   e->DeleteLocalRef(local);
   g_scheduleTimer = e->GetStaticMethodID(g_nativeClass, "onScheduleTimer", "(ID)V");
   g_requestApply = e->GetStaticMethodID(g_nativeClass, "onRequestApply", "()V");
-  if (g_scheduleTimer == nullptr || g_requestApply == nullptr) return JNI_ERR;
+  g_callNative = e->GetStaticMethodID(g_nativeClass, "onCallNative", "(Ljava/lang/String;Ljava/lang/String;[BI)V");
+  if (g_scheduleTimer == nullptr || g_requestApply == nullptr || g_callNative == nullptr) return JNI_ERR;
   return JNI_VERSION_1_6;
 }
 

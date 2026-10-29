@@ -1,7 +1,29 @@
 package dev.zeronative.runtime
 
+import android.os.SystemClock
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,26 +106,11 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
     val s = t.nodes[n]
     if (ZnDebug.countRecompositions) SideEffect { ZnDebug.hit("${ZnDebug.componentName(s.type)}#${inst.id}.$n") }
     val chain = if (s.hasDynamicChain) dynamicChain(s, inst) else s.staticChain
-    val mod = outer.then(chain)
+    val mod = if (s.hasImpression) outer.then(impression(s, inst)).then(chain) else outer.then(chain)
     when (s.type) {
-        Registry.Component.COLUMN, Registry.Component.BOX, Registry.Component.PRESSABLE -> Column(
-            modifier = mod,
-            verticalArrangement = verticalArrangement(s),
-            horizontalAlignment = horizontalAlignment(s.alignItems),
-        ) {
-            val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
-            for (ref in childRefs(f, t, inst, s)) key(ref.key) {
-                val child = ref.template.nodes[ref.node]
-                var m: Modifier = Modifier
-                if (child.flex > 0f) m = m.weight(child.flex)
-                // zn flex rule 4: Column stretches children without a width (docs/styling-and-layout.md §5).
-                val stretched = stretch && child.width == null && child.type != Registry.Component.SPACER &&
-                    (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
-                if (stretched) m = m.fillMaxWidth()
-                if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
-                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
-            }
-        }
+        Registry.Component.COLUMN, Registry.Component.BOX, Registry.Component.PRESSABLE ->
+            ZnColumn(f, t, inst, s, mod, definiteWidth)
+        Registry.Component.SHEET -> ZnSheet(f, t, s, inst) // drawn in its own window, takes no space here
         Registry.Component.ROW -> Row(
             modifier = mod,
             horizontalArrangement = horizontalArrangement(s),
@@ -140,6 +147,7 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
         }
         Registry.Component.ANCHOR -> Unit // expanded by the parent (childRefs)
         Registry.Component.LIST -> ZnLazyList(f, s, inst, n, mod)
+        Registry.Component.CAROUSEL -> ZnCarousel(f, t, s, inst, mod)
         Registry.Component.SCROLL -> if (s.horizontal) {
             // A rail: only the visible children are composed; scrolling it never involves JS.
             val refs = childRefs(f, t, inst, s)
@@ -212,6 +220,114 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
             )
         }
         else -> Box(modifier = mod)
+    }
+}
+
+/** A Column-like node's children, with the zn flex rules (also the body of a <Sheet>). */
+@Composable
+internal fun ZnColumn(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: ZnNodeSpec, mod: Modifier, definiteWidth: Boolean) {
+    Column(
+        modifier = mod,
+        verticalArrangement = verticalArrangement(s),
+        horizontalAlignment = horizontalAlignment(s.alignItems),
+    ) {
+        val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
+        for (ref in childRefs(f, t, inst, s)) key(ref.key) {
+            val child = ref.template.nodes[ref.node]
+            var m: Modifier = Modifier
+            if (child.flex > 0f) m = m.weight(child.flex)
+            // zn flex rule 4: Column stretches children without a width (docs/styling-and-layout.md §5).
+            val stretched = stretch && child.width == null && child.type != Registry.Component.SPACER &&
+                (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
+            if (stretched) m = m.fillMaxWidth()
+            if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
+            ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
+        }
+    }
+}
+
+/** A node's modifier chain (built once, or per instance when it reads slots). */
+@Composable
+internal fun nodeChain(s: ZnNodeSpec, inst: ZnInstance): Modifier = if (s.hasDynamicChain) dynamicChain(s, inst) else s.staticChain
+
+/** The screen entry a node belongs to (provided per screen by ZnNavHost), for impressions. 0 = none. */
+internal val LocalZnEntry = staticCompositionLocalOf { 0 }
+
+/**
+ * A node with an `impressionKey`: reports how much of it is visible (from its layout position, clipped by the lists
+ * and rails around it) whenever it moves, and 0 when it leaves the screen. Only on screens that track impressions.
+ */
+@Composable
+private fun impression(s: ZnNodeSpec, inst: ZnInstance): Modifier {
+    val entry = LocalZnEntry.current
+    val key = (if (s.impressionKeySlot >= 0) inst.slot(s.impressionKeySlot).value else s.impressionKey)?.toString()
+    if (entry == 0 || key.isNullOrEmpty() || !ZnImpressions.tracking(entry)) return Modifier
+    DisposableEffect(entry, key) { onDispose { ZnImpressions.report(entry, key, 0f) } }
+    return Modifier.onGloballyPositioned { c ->
+        if (ZnImpressions.done(entry, key)) return@onGloballyPositioned // counted: no more work while scrolling
+        val area = c.size.width.toFloat() * c.size.height.toFloat()
+        val b = c.boundsInWindow()
+        ZnImpressions.report(entry, key, if (area > 0f) (b.width * b.height / area).coerceIn(0f, 1f) else 0f)
+    }
+}
+
+/**
+ * A <Carousel> (feeds proposal, step 2.4c): a native pager. Pages are its children (anchors expanded, usually a
+ * `.map`). Paging, snapping, auto-advance and dots are all native: no JS timer, no re-render per page. Auto-advance
+ * runs only while the carousel is composed (on screen, its screen on top) and the app is resumed, and waits
+ * `pauseAfterTouch` after the user touched it. `onPageChange` reaches JS only if it is bound.
+ */
+@Composable
+private fun ZnCarousel(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, mod: Modifier) {
+    val refs = childRefs(f, t, inst, s)
+    val pager = rememberPagerState { refs.size }
+    Column(mod) {
+        HorizontalPager(
+            state = pager,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = s.contentPadding ?: PaddingValues(0.dp),
+            pageSize = s.itemWidth?.let { PageSize.Fixed(it.dp) } ?: PageSize.Fill,
+            pageSpacing = s.gap.dp,
+            verticalAlignment = Alignment.Top,
+            key = { refs.getOrNull(it)?.key ?: it },
+        ) { page ->
+            val ref = refs.getOrNull(page) ?: return@HorizontalPager
+            ZnNode(f, ref.template, ref.instance, ref.node, Modifier, definiteWidth = true)
+        }
+        if (s.dots && refs.size > 1) {
+            Row(
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                repeat(refs.size) { i ->
+                    val active = pager.currentPage == i
+                    Box(
+                        Modifier.height(6.dp).width(if (active) 20.dp else 6.dp)
+                            .clip(RoundedCornerShape(3.dp)).background(if (active) s.activeDotColor else s.dotColor),
+                    )
+                }
+            }
+        }
+    }
+    if (s.autoAdvanceMs > 0 && refs.size > 1) {
+        val dragged by pager.interactionSource.collectIsDraggedAsState()
+        var lastTouch by remember { mutableLongStateOf(0L) }
+        LaunchedEffect(dragged) { lastTouch = SystemClock.uptimeMillis() } // on touch down and on release
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        LaunchedEffect(pager, s.autoAdvanceMs) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    delay(s.autoAdvanceMs)
+                    if (pager.isScrollInProgress || SystemClock.uptimeMillis() - lastTouch < s.pauseAfterTouchMs) continue
+                    if (pager.pageCount > 1) pager.animateScrollToPage((pager.currentPage + 1) % pager.pageCount)
+                }
+            }
+        }
+    }
+    if (s.onPageChange != 0) {
+        LaunchedEffect(pager, inst.id) {
+            snapshotFlow { pager.settledPage }.drop(1).collect { ZnRuntime.dispatchEvent(inst.id, s.onPageChange, it) }
+        }
     }
 }
 

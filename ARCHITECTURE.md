@@ -702,7 +702,8 @@ export const Upi = nativeModule<UpiModule>('Upi', { version: 1 })
 ```
 - `zn codegen` generates Kotlin and Swift interfaces plus the argument encoding. The native side implements them.
 - Calls are asynchronous: JS → `__zn_call` → native runs on the module's own thread (or main if it says so) → result
-  posted back to the JS thread.
+  posted back to the JS thread. **The transport is built** (milestone 2 step 2.5: `callNative`, `ZnModules`); the
+  typed module system, events (native → JS), cancellation and codegen are proposed in `docs/native-modules.md`.
 - Each module and its version is a **capability** listed in the app binary (section 16.2).
 
 ### 15.2 Native views
@@ -892,6 +893,9 @@ zero-native/
 | 2026-10-29 | Images load with Coil (http(s), `asset:`) and clip to their rounded shape by default | Section 9.2. Same as React Native; Coil was already in the v0 size check. |
 | 2026-10-29 | `heroTag`: one per navigation transition, a card/container becoming the next screen | Section 11. Matches iOS 18 zoom transitions, so both platforms stay native (Argon review). |
 | 2026-10-29 | Routes live in one typed `routes.ts` (`defineRoutes`), not `@route` decorators | Section 11. Decorators on functions are not valid TypeScript; one file also gives typed `nav.push(name, params)`. |
+| 2026-10-29 | `<Sheet>` draws in its own full-screen window; a user close only asks (`onDismiss`), JS owns `visible` | Section 9.7. Scrim over the status bar and back-before-screen for free; v0's sheet wrote JS-owned state from native. |
+| 2026-10-29 | Native calls are async only (JS never waits for native); transport = `__zn_call` + app event 7 | Section 15.1, `docs/native-modules.md`. One slow sync call would stall all JS (TurboModules allow sync; we don't). |
+| 2026-10-29 | `<Carousel>` is native (pager, auto-advance only while on screen and resumed); impressions are native-measured (`impressionKey` + `useImpressions`, threshold default 35 %, batched) | Feeds proposal (approved). The RN Offers tab lagged from JS carousel timers and JS `measureInWindow` impression passes during scroll. |
 | 2026-10-29 | `<List>` rows are template instances mounted only near the visible range, with row kinds (one template per `row` leaf) and no version numbers | Section 9.3, `docs/lists.md`. Feeds need rows that hold rails, conditionals and components; ops arrive in order so nothing is stale. Measured: p95 11 ms/frame flinging 10,100 rows on the Lava (release). |
 | 2026-10-29 | Per-edge padding may change at runtime (registry v4), read in the layout phase | Section 11 / `docs/styling-and-layout.md` §6. Full-bleed headers pad by `insets()`; a change re-measures one node and recomposes nothing. Shorthands stay build-time. |
 | 2026-10-29 | `statusBar` sets status bar icons only; navigation bar icons follow the screen background | `docs/styling-and-layout.md` §6. One option for both put a grey scrim over the bottom bar of a full-bleed screen (Lava). |

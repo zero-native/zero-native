@@ -81,7 +81,7 @@ void Runtime::remove(uint32_t instance) { tick_.remove(instance); }
 void Runtime::move(uint32_t instance, uint32_t toIndex) { tick_.move(instance, toIndex); }
 
 void Runtime::nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) {
-  if (kind < static_cast<uint8_t>(NavKind::Push) || kind > static_cast<uint8_t>(NavKind::BackAnswered)) {
+  if (kind < static_cast<uint8_t>(NavKind::Push) || kind > static_cast<uint8_t>(NavKind::Impressions)) {
     platform_.log(3, "nav: unknown kind " + std::to_string(kind));
     return;
   }
@@ -99,6 +99,11 @@ void Runtime::listSplice(uint32_t instance, uint16_t node, uint32_t index, uint3
 
 void Runtime::listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) {
   tick_.listRow(instance, node, std::move(key), row);
+}
+
+void Runtime::call(std::string_view module, std::string_view method, std::string_view argsJson,
+                   uint32_t callbackId) {
+  platform_.callNative(module, method, argsJson, callbackId);
 }
 
 uint32_t Runtime::setTimer(double delayMs, bool repeat) {

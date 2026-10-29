@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test"
 import { installFakeHost, type FakeHost } from "./fake-host"
 import { installEvents } from "../src/events"
 import { insets } from "../src/insets"
-import { AppEvent, nav, resetNavForTests, startApp, useBack } from "../src/nav"
+import { AppEvent, nav, resetNavForTests, startApp, useBack, useImpressions } from "../src/nav"
 import { defineRoutes } from "../src/routes"
 import { signal } from "../src/signals"
 import { activeTimerCount, installTimers, setInterval, setTimeout } from "../src/timers"
@@ -168,6 +168,25 @@ test("insets() follows native's INSETS event; equal values send nothing", () => 
   send(5, JSON.stringify({ top: 24, bottom: 48, start: 0, end: 0 }))
   expect(host.ops).toEqual([])
   expect(insets()).toEqual({ top: 24, bottom: 48, start: 0, end: 0 })
+})
+
+test("useImpressions sends the screen's settings; native batches reach its handler (once per session if asked)", () => {
+  const got: string[][] = []
+  const Feed = () => {
+    useImpressions((keys) => got.push(keys), { threshold: 0.5, once: "session" })
+    return view(1, () => {})
+  }
+  resetNavForTests()
+  startApp(defineRoutes({ home: { path: "/", screen: Home }, feed: { path: "/feed", screen: Feed } }))
+  start()
+  host.ops.length = 0
+  nav.push("feed")
+  const entry = navOps()[0][2] as number
+  expect(navOps()[1]).toEqual(["nav", 6, entry, 0, JSON.stringify({ threshold: 0.5, minMs: 0 })])
+  send(AppEvent.Impressions, JSON.stringify({ entry, keys: ["a", "b"] }))
+  send(AppEvent.Impressions, JSON.stringify({ entry, keys: ["b", "c"] })) // "b" already seen this session
+  expect(got).toEqual([["a", "b"], ["c"]])
+  expect(() => useImpressions(() => {}, { threshold: 2 })).toThrow(/while a screen renders/)
 })
 
 test("unknown routes and useBack outside a screen are errors", () => {

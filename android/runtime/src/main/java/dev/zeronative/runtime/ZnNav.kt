@@ -21,7 +21,8 @@ class ZnEntry(val id: Int, val route: ZnRoute, val params: String) {
  * NAV ops JS sends (BatchReader, core/include/zn/batch.h) and reports system back presses as events. Process-wide,
  * like [ZnStore], so a recreated Activity shows the same stack. Main thread only.
  *
- * App-level events to JS use instance 0 (packages/core/src/nav.ts): START, BACK, FORCED_BACK, OPEN, INSETS.
+ * App-level events to JS use instance 0 (packages/core/src/nav.ts): START, BACK, FORCED_BACK, OPEN, INSETS,
+ * IMPRESSIONS (6, ZnImpressions).
  */
 object ZnNav {
     private const val TAG = "zn"
@@ -135,7 +136,12 @@ object ZnNav {
             }
             BatchOp.Nav.EXIT -> main.post { onExit?.invoke() }
             BatchOp.Nav.BACK_ANSWERED -> backFallback?.let { main.removeCallbacks(it); backFallback = null }
+            BatchOp.Nav.IMPRESSIONS -> ZnImpressions.configure(op.entry, op.params)
             else -> Log.e(TAG, "nav: unknown kind ${op.kind}")
+        }
+        // The top screen may have changed: impressions count only on the top screen.
+        if (op.kind == BatchOp.Nav.PUSH || op.kind == BatchOp.Nav.REMOVE || op.kind == BatchOp.Nav.CLEAR) {
+            main.post { ZnImpressions.refresh() }
         }
     }
 
@@ -164,6 +170,7 @@ object ZnNav {
 
     /** An entry left the stack: free its instances now, or after its exit animation if it is on screen. */
     private fun release(id: Int) {
+        ZnImpressions.release(id)
         if (id !in composed) ZnStore.removeRoot(id)
     }
 

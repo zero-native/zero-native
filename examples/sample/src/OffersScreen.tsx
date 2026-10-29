@@ -1,8 +1,8 @@
 // An offers feed shaped like ZeroBill's RN HomeOffersTab (milestone 2 step 2.4): section headers, a banner rail,
 // one product rail per merchant, message cards. One <List> with 4 row kinds; rails are <Scroll horizontal> with
 // .map inside a row, so scrolling a rail never involves JS. Data: test-kit/offers-data.json (via offers.ts).
-import { Box, Column, Icon, Image, List, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import { nav, signal } from "@zero-native/core"
+import { Box, Carousel, Column, Icon, Image, List, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
+import { nav, signal, useImpressions } from "@zero-native/core"
 import { c } from "./tokens"
 import { chevronRight, shoppingBag, tag } from "./icons"
 import { buildOffersFeed, offerImage, offerTitle, type FeedItem, type Offer } from "./offers"
@@ -24,7 +24,7 @@ function BannerCard(props: { o: Offer }) {
   if (image) {
     // Image banner: the photo with a dark gradient from the bottom, so the white text stays readable.
     return (
-      <Pressable onPress={() => open(props.o)} style={{ width: 300, height: 160, borderRadius: 16, elevation: 3, overflow: "hidden" }}>
+      <Pressable impressionKey={props.o.id} onPress={() => open(props.o)} style={{ width: 300, height: 160, borderRadius: 16, elevation: 3, overflow: "hidden" }}>
         <Stack style={{ width: 300, height: 160 }}>
           <Image src={image} style={{ width: 300, height: 160 }} />
           <Column
@@ -53,7 +53,7 @@ function BannerCard(props: { o: Offer }) {
   }
   return (
     <Pressable
-      onPress={() => open(props.o)}
+      impressionKey={props.o.id} onPress={() => open(props.o)}
       style={{
         width: 300,
         height: 160,
@@ -94,20 +94,28 @@ function BannerCard(props: { o: Offer }) {
   )
 }
 
+/** Banners: a native carousel (snap, next banner peeks, auto-advance every 4.5 s, dots), like the RN BannerCarousel
+ *  but without its JS timer and re-render per page. */
 function BannerRail(props: { offers: Offer[] }) {
   return (
-    <Scroll horizontal style={{ gap: 12, paddingHorizontal: 16, paddingVertical: 6 }}>
+    <Carousel
+      itemWidth={300}
+      autoAdvance={4500}
+      dots
+      onPageChange={(i) => console.info(`offers: banner page ${i}`)}
+      style={{ gap: 12, paddingHorizontal: 16, paddingVertical: 6 }}
+    >
       {props.offers.map((o) => (
         <BannerCard key={o.id} o={o} />
       ))}
-    </Scroll>
+    </Carousel>
   )
 }
 
 function ProductCard(props: { o: Offer }) {
   return (
     <Pressable
-      onPress={() => open(props.o)}
+      impressionKey={props.o.id} onPress={() => open(props.o)}
       style={{ width: 176, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.white, overflow: "hidden" }}
     >
       <Box alignItems="center" justifyContent="center" style={{ height: 128, backgroundColor: "#F3F4F6" }}>
@@ -164,7 +172,7 @@ function ProductRail(props: { merchant: string; caption: string; offers: Offer[]
 function MessageCard(props: { o: Offer }) {
   return (
     <Pressable
-      onPress={() => open(props.o)}
+      impressionKey={props.o.id} onPress={() => open(props.o)}
       style={{ marginHorizontal: 16, padding: 12, gap: 12, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.white }}
     >
       <Row style={{ gap: 12, alignItems: "center" }}>
@@ -189,6 +197,12 @@ function MessageCard(props: { o: Offer }) {
 
 export function OffersScreen() {
   const feed = signal<FeedItem[]>(buildOffersFeed(COPIES))
+  // Each card counts once per visit when 35 % of it is visible (the RN app's rule); native measures, JS gets batches.
+  let seen = 0
+  useImpressions((keys) => {
+    seen += keys.length
+    console.info(`offers: impressions +${keys.length} (total ${seen}): ${keys.slice(0, 3).join(", ")}`)
+  })
   return (
     <Column style={{ flex: 1, backgroundColor: c.white }}>
       <Row style={{ paddingHorizontal: 8, paddingVertical: 8, gap: 4, alignItems: "center", borderBottomWidth: 1, borderColor: c.border }}>

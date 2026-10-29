@@ -1,10 +1,26 @@
 // The sample's amount-entry screen, written as plain TSX and compiled by the zero-native compiler.
-import { Column, Pressable, Row, Text, Box, Icon, Image } from "@zero-native/ui"
+import { Column, Pressable, Row, Text, Box, Icon, Image, Sheet } from "@zero-native/ui"
 import { computed, nav, signal, useBack } from "@zero-native/core"
 import { c } from "./tokens"
 import { backspace as backspaceIcon } from "./icons"
 import { applyKey, backspace, financials, formatIndian, rupees, toPaise, type Session } from "./money"
 import { merchantById } from "./merchants"
+
+/** The UPI apps the picker shows. A fixed list for now (from v0's checkout); the real installed apps come from a
+ *  native module call once native modules are built (docs/native-modules.md). */
+interface UpiAppTile {
+  name: string
+  pkg: string
+  badge: string
+  color: string
+}
+const UPI_APPS: UpiAppTile[] = [
+  { name: "PhonePe", pkg: "com.phonepe.app", badge: "Instant", color: "#5F259F" },
+  { name: "Google Pay", pkg: "com.google.android.apps.nbu.paisa.user", badge: "Fast", color: "#1A73E8" },
+  { name: "Paytm", pkg: "net.one97.paytm", badge: "Fast", color: "#00B9F1" },
+  { name: "CRED", pkg: "com.dreamplug.androidapp", badge: "Rewards", color: "#1F2937" },
+  { name: "P2P Mock UPI", pkg: "p2pdops.android.p2pupiapp", badge: "Test app", color: "#15803D" },
+]
 
 const session: Session = {
   merchant: "Kalyan Jewellers",
@@ -95,12 +111,17 @@ export function AmountScreen(props: { merchantId: string }) {
     status.set("")
     amount.set((prev) => backspace(prev))
   }
-  // One receipt per payment, even if Pay is tapped twice quickly (the second tap arrives before the screen changes).
+  // "Pay Now" opens the UPI app picker (a native bottom sheet we control with this signal).
+  const pickerOpen = signal(false)
+  const pay = () => pickerOpen.set(true)
+  // One receipt per payment, even if an app is tapped twice quickly (the second tap arrives before the screen changes).
+  // Launching the real UPI app comes with flows (milestone 2 step 2.8); for now the receipt opens directly.
   let paid = false
-  const pay = () => {
+  const payWith = (app: UpiAppTile) => {
     if (paid) return
     paid = true
-    nav.push("receipt", { ztc: `ZTC${Date.now()}`, amount: rupees(money().toPay) })
+    pickerOpen.set(false)
+    nav.push("receipt", { ztc: `ZTC${Date.now()}`, amount: rupees(money().toPay), via: app.name })
   }
 
   return (
@@ -277,6 +298,46 @@ export function AmountScreen(props: { merchantId: string }) {
           </Text>
         </Pressable>
       </Column>
+
+      {/* UPI app picker: a native bottom sheet. Drag it down, tap outside or press back: onDismiss asks us to close. */}
+      <Sheet visible={pickerOpen()} onDismiss={() => pickerOpen.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+        <Column style={{ gap: 2 }}>
+          <Text fontSize={18} fontWeight={700} color={c.ink}>
+            Pay ₹{rupees(money().toPay)} with
+          </Text>
+          <Text fontSize={13} color={c.muted}>
+            Choose a UPI app on this phone
+          </Text>
+        </Column>
+        {UPI_APPS.map((app) => (
+          <Pressable
+            key={app.pkg}
+            onPress={() => payWith(app)}
+            style={{ padding: 12, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.white }}
+          >
+            <Row style={{ gap: 12, alignItems: "center" }}>
+              <Box alignItems="center" justifyContent="center" style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: app.color }}>
+                <Text fontSize={16} fontWeight={800} color={c.white}>
+                  {app.name.charAt(0)}
+                </Text>
+              </Box>
+              <Column style={{ flex: 1, gap: 2 }}>
+                <Text fontSize={15} fontWeight={600} color={c.ink}>
+                  {app.name}
+                </Text>
+                <Text fontSize={11} color={c.muted}>
+                  {app.pkg}
+                </Text>
+              </Column>
+              <Box style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: c.pillBg }}>
+                <Text fontSize={11} fontWeight={700} color={c.ink}>
+                  {app.badge}
+                </Text>
+              </Box>
+            </Row>
+          </Pressable>
+        ))}
+      </Sheet>
     </Column>
   )
 }

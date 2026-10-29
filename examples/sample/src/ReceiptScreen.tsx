@@ -5,7 +5,7 @@ import { Column, Pressable, Text } from "@zero-native/ui"
 import { insets, nav } from "@zero-native/core"
 import { c } from "./tokens"
 
-export function ReceiptScreen(props: { ztc: string; amount?: string }) {
+export function ReceiptScreen(props: { ztc: string; amount?: string; via?: string }) {
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
       <Column
@@ -21,7 +21,7 @@ export function ReceiptScreen(props: { ztc: string; amount?: string }) {
       </Column>
       <Column style={{ flex: 1, padding: 24, gap: 8 }} alignItems="center">
         <Text fontSize={13} color={c.muted}>
-          Reference {props.ztc}
+          {props.via ? `Paid with ${props.via} · ` : ""}Reference {props.ztc}
         </Text>
         <Pressable
           onPress={() => nav.reset([{ name: "home" }])}

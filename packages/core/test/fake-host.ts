@@ -18,6 +18,8 @@ export interface FakeHost {
   /** Every batch op in order. */
   ops: Op[]
   logs: Array<[number, string]>
+  /** Native module calls JS made. */
+  calls: Array<{ module: string; method: string; args: unknown; id: number }>
   /** Fires a timer the way native does: only if it is still registered on the native side. */
   fire(handle: number): void
 }
@@ -29,6 +31,7 @@ export function installFakeHost(): FakeHost {
     patches: [],
     ops: [],
     logs: [],
+    calls: [],
     fire(handle) {
       const t = host.timers.get(handle)
       if (!t) return
@@ -68,6 +71,9 @@ export function installFakeHost(): FakeHost {
   }
   globalThis.__zn_listRow = (i, n, key, row) => {
     host.ops.push(["listRow", i, n, key, row])
+  }
+  globalThis.__zn_call = (module, method, args, id) => {
+    host.calls.push({ module, method, args: JSON.parse(args), id })
   }
   globalThis.__zn_log = (level, msg) => {
     host.logs.push([level, msg])

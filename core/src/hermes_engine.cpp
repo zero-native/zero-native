@@ -8,6 +8,7 @@
 //   __zn_nav(kind, entry, route, paramsJson)
 //   __zn_listSet(instance, node, keys[], types[]) / __zn_listSplice(instance, node, index, removeCount, keys[], types[])
 //   __zn_listRow(instance, node, key, rowInstance)
+//   __zn_call(module, method, argsJson, callbackId)   (result: app event 7, see runtime.h Platform::callNative)
 //   __zn_setTimer(delayMs, repeat) -> handle
 //   __zn_clearTimer(handle)
 //   __zn_log(level, message)
@@ -235,6 +236,17 @@ class HermesEngine final : public Engine {
 
     define("__zn_clearTimer", 1, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
       if (n > 0 && a[0].isNumber()) host.clearTimer(static_cast<uint32_t>(a[0].getNumber()));
+      return jsi::Value::undefined();
+    });
+
+    define("__zn_call", 4, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+      if (n < 4 || !a[0].isString() || !a[1].isString() || !a[2].isString()) {
+        throw jsi::JSError(rt, "zero-native: __zn_call(module, method, argsJson, callbackId)");
+      }
+      const std::string module = a[0].getString(rt).utf8(rt);
+      const std::string method = a[1].getString(rt).utf8(rt);
+      const std::string args = a[2].getString(rt).utf8(rt);
+      host.call(module, method, args, u32Arg(rt, a, n, 3));
       return jsi::Value::undefined();
     });
 

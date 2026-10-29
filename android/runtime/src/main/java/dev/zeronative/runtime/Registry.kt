@@ -18,6 +18,8 @@ object Registry {
         const val ANCHOR = 10
         const val LIST = 11
         const val SCROLL = 12
+        const val CAROUSEL = 13
+        const val SHEET = 14
     }
 
     object Prop {
@@ -88,6 +90,16 @@ object Registry {
         const val REPEAT_INTERVAL = 83
         const val HORIZONTAL = 110
         const val BACKGROUND_IMAGE = 111
+        const val AUTO_ADVANCE = 112
+        const val PAUSE_AFTER_TOUCH = 113
+        const val DOTS = 114
+        const val DOT_COLOR = 115
+        const val ACTIVE_DOT_COLOR = 116
+        const val ITEM_WIDTH = 117
+        const val IMPRESSION_KEY = 118
+        const val VISIBLE = 119
+        const val DETENTS = 120
+        const val DISMISSIBLE = 121
     }
 
     object Event {
@@ -98,6 +110,9 @@ object Registry {
         const val ON_PRESS_REPEAT = 5
         const val ON_RANGE = 6
         const val ON_END_REACHED = 7
+        const val ON_PAGE_CHANGE = 8
+        const val ON_DISMISS = 9
+        const val ON_DETENT_CHANGE = 10
     }
 
     object JustifyContent {

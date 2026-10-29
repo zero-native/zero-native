@@ -2,6 +2,7 @@
 import { installConsole } from "./log"
 import { installEvents } from "./events"
 import { installTimers } from "./timers"
+import { installCalls } from "./calls"
 
 export * from "./native"
 export { parseColor } from "./color"
@@ -24,8 +25,9 @@ export {
   type View,
 } from "./view"
 export { onEvent } from "./events"
-export { nav, startApp, useBack, type Register } from "./nav"
+export { nav, startApp, useBack, useImpressions, type ImpressionOptions, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
+export { callNative, pendingCallCount } from "./calls"
 export {
   defineRoutes,
   type PathParams,
@@ -43,4 +45,5 @@ export function installRuntime(): void {
   installConsole()
   installTimers()
   installEvents()
+  installCalls()
 }

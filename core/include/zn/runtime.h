@@ -29,6 +29,10 @@ class Platform {
   virtual void requestApply() = 0;
   // level: 0 debug, 1 info, 2 warn, 3 error.
   virtual void log(int level, std::string_view message) = 0;
+  // A native module call from JS (ARCHITECTURE §15.1). The platform runs it off the JS and UI threads and later
+  // delivers the result to JS with dispatchEvent(0, 7, {"id", "ok", "value" | "error"}). Must not block.
+  virtual void callNative(std::string_view module, std::string_view method, std::string_view argsJson,
+                          uint32_t callbackId) = 0;
   virtual double nowMs() = 0;
 };
 
@@ -58,6 +62,8 @@ class Runtime final : private HostApi {
   void listSplice(uint32_t instance, uint16_t node, uint32_t index, uint32_t removeCount, std::vector<Value> keys,
                   std::vector<uint16_t> types) override;
   void listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) override;
+  void call(std::string_view module, std::string_view method, std::string_view argsJson,
+            uint32_t callbackId) override;
   uint32_t setTimer(double delayMs, bool repeat) override;
   void clearTimer(uint32_t handle) override;
   void log(int level, std::string_view message) override;
