@@ -1,0 +1,275 @@
+package dev.zeronative.runtime
+
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import coil3.compose.AsyncImage
+
+/**
+ * Draws template instances with Compose (ARCHITECTURE.md §9). Anchor nodes draw the child instances mounted there
+ * (components, `&&` branches, `.map` rows) as if they were direct children of the anchor's parent. Images load with
+ * Coil (http(s) URLs and `asset:` paths); icons are SVG path data drawn natively.
+ *
+ * [templates] is the whole .zn.ui file: a child instance may use any template in it.
+ */
+@Composable
+fun ZnScreen(templates: List<ZnTemplate>, instance: ZnInstance, modifier: Modifier = Modifier) {
+    val t = templates.getOrNull(instance.templateId) ?: return
+    ZnNode(templates, t, instance, 0, modifier, definiteWidth = true) // a screen fills its host
+}
+
+/** What to draw at one child position: a node of the same template, or the root of a mounted instance. */
+private class ChildRef(val template: ZnTemplate, val instance: ZnInstance, val node: Int, val key: Any)
+
+/** The children of node [s] in order, with anchors expanded into the instances mounted there (observable). */
+@Composable
+private fun childRefs(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: ZnNodeSpec): List<ChildRef> {
+    val out = ArrayList<ChildRef>(s.children.size)
+    for (c in s.children) {
+        if (t.nodes[c].type == Registry.Component.ANCHOR) {
+            for (id in inst.children(c)) {
+                val ci = ZnStore.find(id) ?: continue
+                val ct = f.getOrNull(ci.templateId) ?: continue
+                out += ChildRef(ct, ci, 0, "i$id")
+            }
+        } else {
+            out += ChildRef(t, inst, c, "n$c")
+        }
+    }
+    return out
+}
+
+/**
+ * [definiteWidth]: this node's width is fixed by something other than its content (a width prop, or its parent
+ * stretches it). zn flex rule 4: a Column only stretches its children when its own width is definite; otherwise it
+ * wraps its content, as in React Native (a stretch must never push a shrink-wrapped parent wider).
+ */
+@Composable
+private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int, outer: Modifier, definiteWidth: Boolean) {
+    val s = t.nodes[n]
+    if (ZnDebug.countRecompositions) SideEffect { ZnDebug.hit("${ZnDebug.componentName(s.type)}#${inst.id}.$n") }
+    val chain = if (s.hasDynamicChain) dynamicChain(s, inst) else s.staticChain
+    val mod = outer.then(chain)
+    when (s.type) {
+        Registry.Component.COLUMN, Registry.Component.BOX, Registry.Component.PRESSABLE -> Column(
+            modifier = mod,
+            verticalArrangement = verticalArrangement(s),
+            horizontalAlignment = horizontalAlignment(s.alignItems),
+        ) {
+            val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
+            for (ref in childRefs(f, t, inst, s)) key(ref.key) {
+                val child = ref.template.nodes[ref.node]
+                var m: Modifier = Modifier
+                if (child.flex > 0f) m = m.weight(child.flex)
+                // zn flex rule 4: Column stretches children without a width (docs/styling-and-layout.md §5).
+                val stretched = stretch && child.width == null && child.type != Registry.Component.SPACER &&
+                    (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
+                if (stretched) m = m.fillMaxWidth()
+                if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
+                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
+            }
+        }
+        Registry.Component.ROW -> Row(
+            modifier = mod,
+            horizontalArrangement = horizontalArrangement(s),
+            verticalAlignment = verticalAlignment(s.alignItems),
+        ) {
+            // zn flex rule 4: a Row stretches children only when it has a fixed height.
+            val stretch = s.alignItems == Registry.AlignItems.STRETCH && s.height is Double
+            for (ref in childRefs(f, t, inst, s)) key(ref.key) {
+                val child = ref.template.nodes[ref.node]
+                var m: Modifier = Modifier
+                if (child.flex > 0f) m = m.weight(child.flex)
+                if (stretch && child.height == null) m = m.fillMaxHeight()
+                if (child.alignSelf != -1) m = m.align(verticalAlignment(child.alignSelf))
+                // In a Row, a child's width is definite when it is set or shared out by flex.
+                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = child.width != null || child.flex > 0f)
+            }
+        }
+        Registry.Component.STACK -> Box(modifier = mod, contentAlignment = stackAlignment(s)) {
+            for (ref in childRefs(f, t, inst, s)) key(ref.key) {
+                val child = ref.template.nodes[ref.node]
+                var m: Modifier = Modifier
+                if (child.absolute) {
+                    // position: 'absolute' with top/bottom/start/end, relative to the Stack's content box.
+                    val h = if (child.start != null) -1f else if (child.end != null) 1f else stackBias(s).first
+                    val v = if (child.top != null) -1f else if (child.bottom != null) 1f else stackBias(s).second
+                    m = m.align(BiasAlignment(h, v)).offset(
+                        x = (child.start ?: child.end?.let { -it } ?: 0f).dp,
+                        y = (child.top ?: child.bottom?.let { -it } ?: 0f).dp,
+                    )
+                }
+                child.zIndex?.let { m = m.zIndex(it) }
+                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = child.width != null)
+            }
+        }
+        Registry.Component.ANCHOR -> Unit // expanded by the parent (childRefs)
+        Registry.Component.TEXT -> {
+            val text = if (s.textSlot >= 0) display(inst.slot(s.textSlot).value) else s.text.orEmpty()
+            BasicText(
+                text = text,
+                modifier = mod,
+                style = s.textStyle,
+                maxLines = s.maxLines,
+                overflow = TextOverflow.Ellipsis,
+                // Read in the draw phase: a colour change redraws, nothing more.
+                color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
+                else ({ s.color ?: Color.Black }),
+            )
+        }
+        Registry.Component.SPACER -> Spacer(modifier = mod)
+        Registry.Component.IMAGE -> {
+            val src = if (s.srcSlot >= 0) inst.slot(s.srcSlot).value as? String else s.src
+            AsyncImage(
+                model = imageModel(src),
+                contentDescription = null,
+                modifier = mod,
+                onError = { android.util.Log.w("zn", "image failed: $src — ${it.result.throwable}") },
+                contentScale = when (s.contentScale) {
+                    Registry.ContentScale.CONTAIN -> ContentScale.Fit
+                    Registry.ContentScale.FILL -> ContentScale.FillBounds
+                    else -> ContentScale.Crop
+                },
+            )
+        }
+        Registry.Component.ICON -> {
+            val icon = s.icon
+            val tint: () -> Color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
+            else ({ s.color ?: Color.Black })
+            val sized = if (s.width == null && s.height == null) mod.size(24.dp) else mod
+            Spacer(
+                sized.drawBehind {
+                    if (icon != null) {
+                        withTransform({
+                            scale(size.width / icon.width, size.height / icon.height, pivot = Offset.Zero)
+                            translate(-icon.minX, -icon.minY)
+                        }) { drawPath(icon.path, tint()) }
+                    }
+                },
+            )
+        }
+        else -> Box(modifier = mod)
+    }
+}
+
+/** `asset:path` (or `asset://path`) → the app's assets; http(s) URLs as they are. `zn://` handles come later. */
+private fun imageModel(src: String?): Any? = when {
+    src == null -> null
+    src.startsWith("asset://") -> "file:///android_asset/" + src.removePrefix("asset://")
+    src.startsWith("asset:") -> "file:///android_asset/" + src.removePrefix("asset:")
+    else -> src
+}
+
+@Composable
+private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance): Modifier {
+    val disabled = if (s.disabledSlot >= 0) inst.slot(s.disabledSlot).value == true else s.disabled
+    val view = LocalView.current
+    val indication = LocalIndication.current
+    val interactions = remember { MutableInteractionSource() }
+    return remember(s, inst, disabled, indication) {
+        val alpha = if (s.opacitySlot >= 0) {
+            val cell = inst.slot(s.opacitySlot)
+            ({ ((cell.value as? Double) ?: 1.0).toFloat() })
+        } else null
+        val background = if (s.backgroundSlot >= 0) {
+            val cell = inst.slot(s.backgroundSlot)
+            ({ toColor(cell.value) ?: Color.Transparent })
+        } else null
+        val press = if (s.type == Registry.Component.PRESSABLE) {
+            Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication)
+        } else null
+        s.buildChain(alpha, background, press)
+    }
+}
+
+/** Slot values arrive as null, Boolean, Double or String. Whole numbers show without ".0". */
+private fun display(v: Any?): String = when (v) {
+    null -> ""
+    is Double -> if (v % 1.0 == 0.0 && kotlin.math.abs(v) < 1e15) v.toLong().toString() else v.toString()
+    else -> v.toString()
+}
+
+/** Colours come from templates as ZnColor and from JS as an ARGB number. */
+private fun toColor(v: Any?): Color? = when (v) {
+    is ZnColor -> Color(v.argb)
+    is Double -> Color(v.toLong().toInt())
+    else -> null
+}
+
+private fun verticalArrangement(s: ZnNodeSpec): Arrangement.Vertical =
+    if (s.gap > 0f && s.justify in listOf(-1, Registry.JustifyContent.FLEX_START)) Arrangement.spacedBy(s.gap.dp())
+    else when (s.justify) {
+        Registry.JustifyContent.CENTER -> Arrangement.Center
+        Registry.JustifyContent.FLEX_END -> Arrangement.Bottom
+        Registry.JustifyContent.SPACE_BETWEEN -> Arrangement.SpaceBetween
+        Registry.JustifyContent.SPACE_AROUND -> Arrangement.SpaceAround
+        Registry.JustifyContent.SPACE_EVENLY -> Arrangement.SpaceEvenly
+        else -> Arrangement.Top
+    }
+
+private fun horizontalArrangement(s: ZnNodeSpec): Arrangement.Horizontal =
+    if (s.gap > 0f && s.justify in listOf(-1, Registry.JustifyContent.FLEX_START)) Arrangement.spacedBy(s.gap.dp())
+    else when (s.justify) {
+        Registry.JustifyContent.CENTER -> Arrangement.Center
+        Registry.JustifyContent.FLEX_END -> Arrangement.End
+        Registry.JustifyContent.SPACE_BETWEEN -> Arrangement.SpaceBetween
+        Registry.JustifyContent.SPACE_AROUND -> Arrangement.SpaceAround
+        Registry.JustifyContent.SPACE_EVENLY -> Arrangement.SpaceEvenly
+        else -> Arrangement.Start
+    }
+
+private fun horizontalAlignment(align: Int): Alignment.Horizontal = when (align) {
+    Registry.AlignItems.CENTER -> Alignment.CenterHorizontally
+    Registry.AlignItems.FLEX_END -> Alignment.End
+    else -> Alignment.Start
+}
+
+private fun verticalAlignment(align: Int): Alignment.Vertical = when (align) {
+    Registry.AlignItems.CENTER -> Alignment.CenterVertically
+    Registry.AlignItems.FLEX_END -> Alignment.Bottom
+    else -> Alignment.Top
+}
+
+/** A Stack's default child position as (horizontal, vertical) bias: alignItems and justifyContent. */
+private fun stackBias(s: ZnNodeSpec): Pair<Float, Float> {
+    val h = when (s.alignItems) {
+        Registry.AlignItems.CENTER -> 0f
+        Registry.AlignItems.FLEX_END -> 1f
+        else -> -1f
+    }
+    val v = when (s.justify) {
+        Registry.JustifyContent.CENTER -> 0f
+        Registry.JustifyContent.FLEX_END -> 1f
+        else -> -1f
+    }
+    return h to v
+}
+
+private fun stackAlignment(s: ZnNodeSpec): Alignment = stackBias(s).let { (h, v) -> BiasAlignment(h, v) }
+
+private fun Float.dp() = androidx.compose.ui.unit.Dp(this)

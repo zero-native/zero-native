@@ -77,6 +77,10 @@ the Compose frame clock.
 | List fling, generic node tree per row | 18–25 ms per frame | prototype | 10-28 |
 | Hot reload, save → screen | 127 ms (Bun build 5 ms + hermesc 74 ms + device ~48 ms) | debug, dev only | 10-28 |
 | Memory, exp 2 one screen | 59 MB PSS | prototype; RN full app 181 MB, Flutter 213 MB (not comparable) | 10-28 |
+| Cold start, Step 1.5 sample (AmountScreen) | **227 ms** median (min 197 ms, p90 263 ms, 10 runs) | release (`:sample:installRelease`), Lava Blaze 2 5G | 10-29 |
+| First JS batch applied | 140 ms after process start (before composition at 159 ms) | release, 19 ops applied | 10-29 |
+| Memory, Step 1.5 sample | **77.8 MB** PSS (total RSS 162 MB, Java Heap 3.2 MB) | release, after 10 s idle | 10-29 |
+| Template read & preparation | 2.58 ms (7 templates prepared) | release, memory-mapped | 10-29 |
 
 ### 4.1 Where exp4-flow's ~400 ms went (one release cold start, from `logcat`, 2026-10-29)
 | From process start | What | Cost |

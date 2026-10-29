@@ -127,7 +127,10 @@ export function Checkout(props: { sessionId: string }) {
 - A JSX expression that only reads constants becomes a **static value** baked into the template.
 - Component props are passed as getters by the compiler, so a child reading `props.x` stays reactive. Authors must not
   destructure props (the compiler warns, the same rule as SolidJS).
-- Control flow is template nodes: `<If when>` (+ `else`), `<Switch>/<Match>`, `<For each key>`.
+- **Control flow is plain JS (decided 2026-10-29):** `{cond && <X/>}`, `{cond ? <A/> : <B/>}` and
+  `{items.map(item => <Row key={item.id}/>)}`. The compiler turns each into an **Anchor** node in the template plus the
+  code that mounts branches or rows there; branches and rows get their own templates. No `<If>` / `<For>` components
+  to learn. Rows need a `key`. Anything else in a child position is a build error with a file:line:col.
 - Event props (`onPress`, `onChange`, ...) are plain JS functions. Native only learns "this node has a handler".
 - **One way to handle taps (decided):** tap events (`onPress`, `onLongPress`) exist only on `Pressable` and `Button`.
   Input components have their own events (`TextField.onChange`, `Switch.onChange`, ...). Layout nodes (`Column`,
@@ -137,10 +140,12 @@ export function Checkout(props: { sessionId: string }) {
   Each component's events and their payload types are listed in the component registry (16.2).
 - **Press lifecycle (v0 lesson):** `Pressable` has `onPressIn`, `onPressOut`, `onPress`, `onLongPress`.
   `onPressOut` **always** fires once after `onPressIn`, whether the finger is lifted or the touch is **cancelled**
-  (finger dragged off, scroll takes over, `ACTION_CANCEL`); its payload says which (`{ cancelled: boolean }`).
-- **Key repeat is native (v0 lesson):** `onPressRepeat={{ delay: 400, interval: 150 }}` makes native send repeated
-  events while the finger is down and stop the moment it isn't. JS never runs a timer for press-and-hold
-  (keypad backspace, steppers). This removes the whole "zombie timer" class of bugs.
+  (finger dragged off, scroll takes over, `ACTION_CANCEL`); its payload is `true` when cancelled, `false` when lifted.
+  `onPress` fires only for a completed tap that didn't long-press or repeat. (Built and verified in step 1.4.)
+- **Key repeat is native (v0 lesson):** `onPressRepeat={handler}` with `repeatDelay` (default 400 ms) and
+  `repeatInterval` (default 100 ms) makes native send repeated events while the finger is down and stop the moment it
+  isn't. JS never runs a timer for press-and-hold (keypad backspace, steppers). This removes the whole "zombie timer"
+  class of bugs. `haptic` adds a press-in tick that respects the system haptics setting.
 - **Custom component events** (like `<Keypad onKey>`) are plain JS callbacks between components. They don't exist in
   the template: `Keypad` itself is built from `Pressable`s, whose native events call into it.
 
@@ -181,8 +186,14 @@ A **bundle** is one signed archive:
   `.hbc` files share one module graph in one runtime.
 - Bytecode is produced by the `hermesc` that matches the engine inside the app (section 7.3).
 
-### 6.1 `.zn.ui` template format (outline; exact schema is written during the build)
-FlatBuffers, so native reads it in place with no parsing step.
+### 6.1 `.zn.ui` template format
+**Changed 2026-10-29 (step 1.2): our own small, versioned binary format instead of FlatBuffers.** The byte layout is
+documented at the top of `packages/template/src/writer.ts` (writer) and read by `TemplateReader.kt`. Reasons:
+FlatBuffers would add the `flatc` generator and generated code in TS, Kotlin and Swift, and its main benefit (reading
+without parsing) doesn't matter here: each template is read **once** and prepared into flat arrays (§9.1), never
+parsed again (measured: 1.8 ms to read and prepare the sample template in a release build). Component, prop, event
+and enum ids come from one registry (`packages/template/src/registry.ts`, Kotlin copy generated). The outline below
+still describes the content:
 ```
 Template file
   header:     magic "ZNUI", formatVersion, frameworkAbi, screenId
@@ -256,6 +267,8 @@ public:
 
 ### 7.3 Versions
 - App binary records: framework ABI version, Hermes bytecode version (from `hermes.h` / `hermesc --version`).
+- **Bytecode is always compiled with `hermesc -O -Xes6-block-scoping`** (decided 2026-10-29). Without the second
+  flag, `let` / `const` behave like `var` in this Hermes release (v0 lesson, `docs/v0-findings.md` §P).
 - Every bundle states both. A bundle with a different bytecode version is never loaded (section 16.2).
 
 ## 8. Runtime and threads
@@ -344,6 +357,10 @@ as tasks.
   matching while drawing. v0 measured a generic node tree per list row at 18–25 ms per frame, and one shared template
   at 2.8–4 ms (as fast as hand-written Kotlin). **We do not generate Kotlin/Swift from TSX**: compiled code can't be
   updated over the air.
+- **Planned renderer optimisations (build only if they don't cause real problems; `docs/styling-and-layout.md` §8.3):**
+  merge decoration-only boxes into their single child's modifier chain, and read each dynamic style slot in the
+  cheapest Compose phase (draw for colours / opacity / transforms, layout for sizes / padding, composition only for
+  content and structure).
 
 ### 9.2 Component set v1 (decided list; props are in the registry)
 | zn | Compose | SwiftUI |
@@ -355,7 +372,7 @@ as tasks.
 | `List` (virtualized, 9.3) | `LazyColumn` / `LazyRow` / `LazyVerticalGrid` with keys | `LazyVStack` / `LazyHStack` / `LazyVGrid` with ids |
 | `Text` | `Text` | `Text` |
 | `Image` | Coil `AsyncImage` / painter | `AsyncImage` + our image cache [check cache choice] |
-| `Icon` | `ImageVector` (SVGs converted at build time) | SF Symbol or converted vector |
+| `Icon` | SVG path data drawn with a Compose `Path` (folded into the template at build time) | the same path data in a SwiftUI `Path` |
 | `Pressable` / `Button` | `clickable` with indication, haptics | `Button` with custom style |
 | `TextField` | `BasicTextField` | `TextField` |
 | `Switch`, `Checkbox`, `Slider`, `Progress`, `Spinner` | foundation-based components | native controls |
@@ -372,8 +389,9 @@ as tasks.
   SwiftUI mapping reviewed on paper.
 
 ### 9.3 Lists (decided 2026-10-29; full rules in `docs/lists.md`)
-- **`<For each key>`** is for short lists inside a layout (guideline: up to ~100 items). Every item is a real instance;
-  JS emits `MOUNT` / `MOVE` / `REMOVE` only for items that changed.
+- **`items.map(item => <X key={...}/>)`** is for short lists inside a layout (guideline: up to ~100 items). Every
+  item is a real instance; JS emits `MOUNT` / `MOVE` / `REMOVE` only for items that changed. (Called `<For>` in earlier
+  drafts; plain `.map` replaced it, 2026-10-29.)
 - **`<List data key rowHeight row>`** is for long lists. The `row` function is compiled **once** into a row template.
   JS sends the row count and the row **values** for a window around the visible range (`LIST_SET`, `LIST_ROWS`,
   `LIST_SPLICE` ops with stable keys). Native draws rows with `LazyColumn` / `LazyVStack`.
@@ -788,7 +806,7 @@ zero-native/
 ## 23. Deferred (not in v1)
 - Gesture expressions on the UI thread (10.3).
 - Native list data source for very large lists (v1.1; designed in `docs/lists.md` §6).
-- NativeWind `className` → style translator for porting RN code (v1.1 option; `docs/styling-and-layout.md` §8).
+- NativeWind `className` → style translator for porting RN code (v1.1 option; `docs/styling-and-layout.md` §9).
 - A general mmap data arena.
 - Cronet / HTTP/3 backend.
 - Web or desktop renderers (non-goal).
@@ -822,6 +840,17 @@ zero-native/
 | 2026-10-29 | Startup rules + ≤ 250 ms budget; release-only numbers | Section 8.1. exp4-flow measured ~400–420 ms release because it broke these rules. |
 | 2026-10-29 | Shared elements move into v1 as optional (`heroTag`) | Section 11. Cheap with Compose; v0 Frontier 4 at 90 fps. |
 | 2026-10-29 | Hot reload may restart the runtime in dev builds only | Section 17. 127 ms save → screen. |
+| 2026-10-29 | `.zn.ui` uses our own versioned binary format, not FlatBuffers | Section 6.1. No code generator or generated code in 3 languages; templates are parsed once and prepared, so zero-parse reading buys nothing. |
+| 2026-10-29 | Registry is one TS file; the Kotlin copy is generated and checked by a test | Section 6.1. Ids can't drift between the writer and the renderer. |
+| 2026-10-29 | Colours are ARGB numbers at runtime (parsed at build time); JS sends colours as numbers | Section 9. v0 parsed "#hex" strings while drawing. |
+| 2026-10-29 | Control flow is plain JS (`&&`, `? :`, `.map` with `key`), compiled to Anchor nodes; no `<If>` / `<For>` | Section 5.3. Familiar to React/RN developers; same template mechanics underneath. |
+| 2026-10-29 | Build-time constants: literals, module `const`s, `StyleSheet.create`, and named imports from side-effect-free `.ts` modules (tokens) loaded by the compiler | Section 5.4. Tokens cost nothing at runtime; anything else is a slot or a build error. |
+| 2026-10-29 | Signals are push-pull and glitch-free, with owners for cleanup | Section 5.2. v0's signals ran subscribers immediately (diamond glitches) and never cleaned up branches. |
+| 2026-10-29 | A Column only stretches children when its own width is definite | `docs/styling-and-layout.md` §5 rule 4. Matches RN; found as a full-width badge on the phone. |
+| 2026-10-29 | Press feedback is clipped to the node's rounded shape | `docs/styling-and-layout.md` §4 step 8. Found on the phone: square highlight on a rounded button. |
+| 2026-10-29 | Press repeat is an event + two props (`onPressRepeat`, `repeatDelay`, `repeatInterval`), not an object prop | Section 5.3. Events stay plain functions; config stays build-time props. |
+| 2026-10-29 | Icons are SVG path data ("minX minY w h\|d") folded at build time and drawn natively | Section 9.2. No icon font or SVG library; one string per icon. Fill paths only for now. |
+| 2026-10-29 | Images load with Coil (http(s), `asset:`) and clip to their rounded shape by default | Section 9.2. Same as React Native; Coil was already in the v0 size check. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).

@@ -6,12 +6,13 @@ being killed. ZeroBill is its first user; it is a long-term community project an
 until it is proven.
 
 ## Reading order for a new session
+0. **`milestones.md`**: where the build stands right now and what's next.
 1. **`../ARCHITECTURE.md`**: the spec and the source of truth. Decision log in §24.
 2. The detailed spec files below, for the part you are working on.
 3. **`v0-findings.md`**: every bug and lesson from the v0 experiments. Read the matching section before building
    any part.
 4. `../story.md`: history, how we got here, project framing and status.
-5. Raw evidence, only when needed: `../RESULTS.md`, `../exp-notes/`, `../gemini-flash-individual-experiments/`.
+5. Raw evidence, only when needed: `../experiments/RESULTS.md`, `../experiments/exp-notes/`, `../experiments/gemini-flash-individual-experiments/`.
 
 ## Detailed spec files
 | File | What it covers |
@@ -20,7 +21,11 @@ until it is proven.
 | `lists.md` | `<For>` vs `<List>`, the window protocol, placeholders, the fast template interpreter, native data source (v1.1) |
 | `startup-and-performance.md` | startup rules and budget, how to measure, every number measured so far |
 | `platform-differences.md` | known differences between Android, iOS and React Native semantics |
-| `v0-findings.md` | lessons and bugs from v0, with where the spec handles each |
+| `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |
+| `milestones.md` | **the build plan, progress log, and how to build and run the sample app** |
+| `after-foundations.md` | parked ideas to pick up once the foundations work |
+
+Experiment files (v0 results, Gemini and Argon reports, `intro*.md`, `GEMINI_*.md`, exp2–4) live in `../experiments/`.
 
 ## Rules for writing these docs
 - Simple English, short sentences. Explain any term once.

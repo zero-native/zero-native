@@ -1,0 +1,19 @@
+{
+  "name": "zero-native",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "compiler",
+    "examples/*"
+  ],
+  "scripts": {
+    "sample:js": "bun run examples/sample/build.ts",
+    "gen:registry": "bun run tools/gen-registry.ts",
+    "test": "bun test packages compiler"
+  },
+  "devDependencies": {
+    "hermes-compiler": "250829098.0.17",
+    "typescript": "5.9.3"
+  }
+}

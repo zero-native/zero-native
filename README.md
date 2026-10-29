@@ -1,9 +1,13 @@
-# zero-native
+# zero-native (`zn`)
 
-An idea, not code yet: a mobile framework built in 2026 from first principles. You write screens in TSX; they become
-native Jetpack Compose (and later SwiftUI) screens; logic runs on Hermes; and over-the-air updates are part of the
-design from day one.
+A mobile UI framework: screens in TypeScript + TSX, drawn by native Jetpack Compose (SwiftUI later), logic in Hermes
+without React or React Native, OTA updates, and payment flows that survive the app being killed.
 
-Read [story.md](story.md) for why, and `experiments/` for how the idea was tested.
+**Status:** building milestone 1 (foundations, Android). Progress: `docs/milestones.md`.
 
-Licensed under the Apache License 2.0.
+- Spec and decisions: `ARCHITECTURE.md`
+- Detailed rules and reading order: `docs/README.md`
+- History: `story.md`
+- v0 experiments (reference only): `experiments/`
+
+Build and run the sample app: see `docs/milestones.md` ("How to build and run the sample").

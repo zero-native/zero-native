@@ -1,0 +1,15 @@
+{
+  "name": "@zero-native/example-sample",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run build.ts"
+  },
+  "dependencies": {
+    "@zero-native/core": "workspace:*",
+    "@zero-native/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@zero-native/compiler": "workspace:*"
+  }
+}

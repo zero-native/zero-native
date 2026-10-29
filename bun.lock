@@ -1,0 +1,61 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "zero-native",
+      "devDependencies": {
+        "hermes-compiler": "250829098.0.17",
+        "typescript": "5.9.3",
+      },
+    },
+    "compiler": {
+      "name": "@zero-native/compiler",
+      "version": "0.0.0",
+      "dependencies": {
+        "@zero-native/core": "workspace:*",
+        "@zero-native/template": "workspace:*",
+      },
+    },
+    "examples/sample": {
+      "name": "@zero-native/example-sample",
+      "dependencies": {
+        "@zero-native/core": "workspace:*",
+        "@zero-native/ui": "workspace:*",
+      },
+      "devDependencies": {
+        "@zero-native/compiler": "workspace:*",
+      },
+    },
+    "packages/core": {
+      "name": "@zero-native/core",
+      "version": "0.0.0",
+    },
+    "packages/template": {
+      "name": "@zero-native/template",
+      "version": "0.0.0",
+      "dependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
+    "packages/ui": {
+      "name": "@zero-native/ui",
+      "version": "0.0.0",
+    },
+  },
+  "packages": {
+    "@zero-native/compiler": ["@zero-native/compiler@workspace:compiler"],
+
+    "@zero-native/core": ["@zero-native/core@workspace:packages/core"],
+
+    "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
+
+    "@zero-native/template": ["@zero-native/template@workspace:packages/template"],
+
+    "@zero-native/ui": ["@zero-native/ui@workspace:packages/ui"],
+
+    "hermes-compiler": ["hermes-compiler@250829098.0.17", "", {}, "sha512-qG1PXzTEtriF6oQLZF3vyHhSMxOdW5h2TqqLri0rdpstPustd2fSvRZQMVAPdlhgFwBfYnj3OUZtiO6LjYsEFw=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+  }
+}

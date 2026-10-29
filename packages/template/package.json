@@ -1,0 +1,13 @@
+{
+  "name": "@zero-native/template",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@zero-native/core": "workspace:*"
+  }
+}

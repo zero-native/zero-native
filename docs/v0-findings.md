@@ -165,6 +165,25 @@ Source: `docs/startup-and-performance.md` §4.1.
   main thread, the whole app's bytecode evaluated at start, a "Loading…" screen, and building the screen through JSON
   ops. → startup rules 1–8.
 
+## P. Building v1 (milestone 1, from 2026-10-29)
+Lessons found while building the real framework. Details in `docs/milestones.md` (log).
+- **Hermes V1 API:** `isHermesBytecode` (and `getBytecodeVersion`, `prefetchHermesBytecode`) are on the root API:
+  `jsi::castInterface<IHermesRootAPI>(makeHermesRootAPI())`, not static methods of `HermesRuntime`.
+- **Prefab + library module:** CMake copies linked prefab `.so` files into the library's output, and the Hermes AAR
+  ships them too → "2 files found with path lib/arm64-v8a/libhermesvm.so". The runtime library excludes its copies.
+- **R8 and fbjni:** `libhermesvm.so` loads `libfbjni.so`, whose `JNI_OnLoad` looks up Java classes by name. R8
+  removed them and the **release** app crashed at start (`ClassNotFoundException: com.facebook.jni.HybridData$Destructor`).
+  Keep rules ship in `android/runtime/consumer-rules.pro`. Debug builds hide this; always test release.
+- **Bun transpiler** removes a bare final expression (`answer`) as dead code.
+- **Hermes block scoping is off by default.** Without the hidden `hermesc` flag `-Xes6-block-scoping`, `let` and
+  `const` behave like `var`: closures created in a loop all see the last value (every `console` level logged as
+  "error"). `tools/hermesc.ts` always passes the flag. The compiler (step 1.3) must keep using it, and a JS test
+  should cover loop closures on the device.
+- **`SystemClock.uptimeNanos()` is API 35+.** The release app crashed on the Lava (Android 14). Use `System.nanoTime()`.
+  Lint (`NewApi`) would have caught it: run `.\gradlew.bat lint` before each step is called done.
+- **PowerShell 5.1 + adb:** adb prints progress on stderr; with `$ErrorActionPreference = 'Stop'` that becomes an
+  error. Scripts use `'Continue'` and check `$LASTEXITCODE`.
+
 ## O. Process and testing lessons
 - Always say which build was measured and where the clock starts.
 - "Don't keep activities" was left on after exp 4 testing; it changes the whole phone's behaviour. Turn it off after
