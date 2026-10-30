@@ -98,8 +98,52 @@ export interface TextStyleProps {
 type Style = StyleProps & TextStyleProps
 type StyleInput = Style | false | null | undefined | StyleInput[]
 
+/** 250 (ms, tween) | "spring" | "bouncy" | { duration, easing? } | { spring: { damping?, stiffness? } } */
+export type Timing =
+  | number
+  | "spring"
+  | "bouncy"
+  | { duration: number; easing?: "standard" | "ease-out" | "ease-in" | "linear" }
+  | { spring: { damping?: number; stiffness?: number } }
+
+export type AnimatableProp =
+  | "opacity"
+  | "backgroundColor"
+  | "scale"
+  | "scaleX"
+  | "scaleY"
+  | "translateX"
+  | "translateY"
+  | "rotate"
+
+/** The state an element enters from (enter) or leaves to (exit). */
+export type Transition =
+  | "fade"
+  | "fade-up"
+  | "fade-down"
+  | "scale"
+  | "pop"
+  | {
+      opacity?: number
+      translateX?: number
+      translateY?: number
+      scale?: number
+      duration?: number
+      easing?: "standard" | "ease-out" | "ease-in" | "linear"
+      spring?: { damping?: number; stiffness?: number }
+    }
+
 interface Base extends StyleProps {
   style?: StyleInput
+  /**
+   * Animate changes of this element's opacity, background colour and transforms natively (build-time value):
+   * `animate={250}` for all of them, or `animate={{ opacity: 200, translateY: "spring" }}`.
+   */
+  animate?: Timing | Partial<Record<AnimatableProp, Timing>>
+  /** On the root of `cond && <X/>`, a ternary branch or a `.map` row: how it appears. */
+  enter?: Transition
+  /** Same, how it leaves: native keeps it on screen until this finishes. */
+  exit?: Transition
   key?: string | number
   /** Counted natively when visible enough on a screen that calls useImpressions(...). Usually your item's id. */
   impressionKey?: string
@@ -169,6 +213,22 @@ export declare const Pressable: Intrinsic<
     repeatInterval?: number
     disabled?: boolean
     haptic?: boolean
+    /** "ripple" (default on Android: from the touch point, inside the shape), "highlight" (a flat overlay) or "none". */
+    pressFeedback?: "ripple" | "highlight" | "none"
+    /** The ripple's colour; use white (or a light colour) on dark buttons. */
+    rippleColor?: Color
+    /** Scale while pressed, e.g. 0.95; springs back on release. */
+    pressScale?: number
+    /** Ripple opacity 0–1 (default 0.12, or 0.24 with a rippleColor). */
+    rippleOpacity?: number
+    /** A ripple not clipped to the element (a circle around the touch), for icon buttons. */
+    rippleBorderless?: boolean
+    /** Ripple radius in dp (default: covers the element). */
+    rippleRadius?: number
+    /** Opacity while pressed, e.g. 0.6 (iOS-style "dim while pressed"); animated. Combines with any feedback. */
+    pressOpacity?: number
+    /** The overlay colour for pressFeedback="highlight" (default black at 10 %). Give it its own alpha. */
+    highlightColor?: Color
   }
 >
 

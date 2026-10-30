@@ -460,6 +460,14 @@ native animates to it with **its own** spring / tween (Compose `animate*AsState`
 ### 10.2 Enter / exit
 `<If>` and `<For>` rows accept `enter` / `exit` transitions, mapped to `AnimatedVisibility` / `.transition`.
 
+**Built (step 3.6), the shape it took:** `animate={250}` or `animate={{ opacity: 200, translateY: "spring" }}` on any
+element (opacity, background colour and transforms; transforms can now change at runtime), and `enter` / `exit` on
+the root of a `&&` / `? :` branch or a `.map` row (presets `fade`, `fade-up`, `fade-down`, `scale`, `pop`, or
+`{ opacity, translateX, translateY, scale, duration | spring }`). All encoded at build time; native animates with
+`Animatable` values read in the draw phase (no recomposition per frame). On REMOVE, an instance with `exit` stays in
+its parent (marked exiting) until its animation ends; JS indexes skip exiting children. Guide: `docs/guide-notes.md`
+§22.
+
 ### 10.3 Gestures (deferred to v2)
 Gesture-driven values (drag offsets, swipe-to-pay) must update on the UI thread every frame. v2 adds a tiny,
 **explicitly marked** expression language (`'main thread'` directive, like Lynx), compiled into the `gestures` section
@@ -952,6 +960,7 @@ zero-native/
 | 2026-10-30 | `fetch` defaults: 30 s limit on the whole request, 10 MB body limit, not tied to the screen, non-idempotent bodies one-shot (OkHttp never resends a POST), no HTTPS → HTTP redirects, cookies and cache off | `docs/fetch.md`. Each one answers a production problem RN / Flutter apps had; the double-POST one was reproduced and stopped on the Lava. |
 | 2026-10-30 | Binary data crosses the bridge as raw bytes: `bytes` in, `resolveBytes` out (one ArrayBuffer, app event 9) | Section 15.1, `docs/fetch.md` §4. No base64 or JSON escaping for bodies and files; one copy on the way to JS. |
 | 2026-10-30 | Storage = MMKV's C++ core vendored and built into `libzn.so`; values tagged with their type; damaged stores are dropped, never "recovered"; not in backups. SecureStore = Android Keystore AES-256-GCM, one file per key | `docs/storage.md`. ~87 KB download instead of ~372 KB for the MMKV AAR; the kill test showed MMKV's recover mode returning value bytes as keys. |
+| 2026-10-30 | Animation is declared at build time (`animate`, `enter`, `exit` props) and run natively from target values; `exit` delays the native REMOVE, not JS | Section 10. JS stays simple (it sets values and removes elements as usual); every frame is native and draw-phase only. |
 | 2026-10-30 | Flow engine parked (not in v1); `flowStore` is public and payments use the save-then-verify pattern | Section 12 note, `docs/guide-notes.md` §16. For one or two money journeys, ~30 lines of app code plus the backend's `/verify` give the same safety; the engine pays off with many journeys and teams. |
 
 ## 25. Open items (to decide while building, not blockers)

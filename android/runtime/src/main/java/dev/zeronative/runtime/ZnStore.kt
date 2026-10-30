@@ -48,6 +48,12 @@ class ZnInstance internal constructor(
      * controlled <TextField> needs that: JS resends its value to undo typing it rejected. Main thread.
      */
     internal val patchWatchers = HashMap<Int, (Any?) -> Unit>()
+
+    /** Its root has an `exit` transition (set when drawn): a REMOVE then plays it before the instance goes. */
+    internal var hasExit = false
+
+    /** JS removed it and its `exit` animation is playing; it stays in its parent until ZnStore.finishExit. */
+    internal val exiting = mutableStateOf(false)
 }
 
 /** One row of a <List>: its key and its type (the row template id: Compose reuse per kind, and its placeholder). */
@@ -123,14 +129,21 @@ object ZnStore {
                         op.values.forEachIndexed { i, v -> inst.slot(i).value = v }
                         instances[op.instance] = inst
                         val siblings = instance(op.parent).children(op.anchor)
-                        siblings.add(op.index.coerceIn(0, siblings.size), op.instance)
+                        siblings.add(liveIndex(siblings, op.index), op.instance)
                     }
                     is BatchOp.Remove -> {
                         val inst = instances[op.instance]
                         if (inst != null) {
                             val parent = instances[inst.parent]
+                            val list = parent?.listOrNull(inst.anchor)
+                            // `exit` (step 3.6): keep it on screen while it animates out; finishExit drops it. Not
+                            // for <List> rows (they leave because they scrolled away) or a root whose parent is gone.
+                            if (inst.hasExit && parent != null && list == null && !inst.exiting.value) {
+                                inst.exiting.value = true
+                                continue
+                            }
                             parent?.children(inst.anchor)?.remove(op.instance)
-                            parent?.listOrNull(inst.anchor)?.unbind(op.instance) // a <List> row leaving the window
+                            list?.unbind(op.instance) // a <List> row leaving the window
                         }
                         removeTree(op.instance)
                     }
@@ -148,7 +161,7 @@ object ZnStore {
                         val inst = instances[op.instance] ?: continue
                         val siblings = instances[inst.parent]?.children(inst.anchor) ?: continue
                         if (siblings.remove(op.instance)) {
-                            siblings.add(op.toIndex.coerceIn(0, siblings.size), op.instance)
+                            siblings.add(liveIndex(siblings, op.toIndex), op.instance)
                         }
                     }
                     is BatchOp.Nav -> ZnNav.apply(op)
@@ -168,6 +181,28 @@ object ZnStore {
         ZnInstance(Int.MIN_VALUE, templateId, parent = 0, anchor = 0).also { p ->
             template.slotDefaults.forEachIndexed { slot, value -> p.slot(slot).value = value }
         }
+    }
+
+    /**
+     * The list position for JS's index [jsIndex]. JS doesn't count children that are playing their exit animation
+     * (they are gone for JS); they keep their place, and a new child goes after any of them at that spot.
+     */
+    private fun liveIndex(siblings: List<Int>, jsIndex: Int): Int {
+        var live = 0
+        for (i in siblings.indices) {
+            if (instances[siblings[i]]?.exiting?.value == true) continue
+            if (live == jsIndex) return i
+            live++
+        }
+        return siblings.size
+    }
+
+    /** An instance's exit animation ended (ZnAnimation.kt): now it really goes. Main thread. */
+    internal fun finishExit(id: Int) {
+        val inst = instances[id] ?: return
+        if (!inst.exiting.value) return
+        instances[inst.parent]?.children(inst.anchor)?.remove(id)
+        removeTree(id)
     }
 
     /** Drops a screen root and everything mounted under it (its entry left the back stack, ZnNav). */

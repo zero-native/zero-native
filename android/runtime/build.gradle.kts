@@ -63,6 +63,8 @@ dependencies {
     // The renderer: Compose foundation only, no material3 (ARCHITECTURE §9.2).
     api("androidx.compose.ui:ui")
     api("androidx.compose.foundation:foundation")
+    // Pressable's ripple (step 3.6). Only the ripple, not Material: Compose moved ripple() to this small artifact.
+    implementation("androidx.compose.material:material-ripple")
     // Screen host: the back stack is a list we own (ARCHITECTURE §11). Needs Compose ≥ 1.10 (step 2.0b).
     implementation("androidx.navigation3:navigation3-runtime:1.2.0")
     implementation("androidx.navigation3:navigation3-ui:1.2.0")

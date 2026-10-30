@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 6
+    const val VERSION = 7
 
     object Component {
         const val COLUMN = 1
@@ -116,6 +116,17 @@ object Registry {
         const val AUTO_CAPITALIZE = 133
         const val AUTO_CORRECT = 134
         const val SELECTION_COLOR = 135
+        const val ANIMATE = 136
+        const val ENTER = 137
+        const val EXIT = 138
+        const val PRESS_FEEDBACK = 139
+        const val RIPPLE_COLOR = 140
+        const val PRESS_SCALE = 141
+        const val RIPPLE_OPACITY = 142
+        const val RIPPLE_BORDERLESS = 143
+        const val RIPPLE_RADIUS = 144
+        const val PRESS_OPACITY = 145
+        const val HIGHLIGHT_COLOR = 146
     }
 
     object Event {
@@ -213,5 +224,11 @@ object Registry {
         const val SENTENCES = 1
         const val WORDS = 2
         const val CHARACTERS = 3
+    }
+
+    object PressFeedback {
+        const val RIPPLE = 0
+        const val HIGHLIGHT = 1
+        const val NONE = 2
     }
 }

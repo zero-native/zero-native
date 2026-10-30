@@ -9,6 +9,9 @@ import { ModulesScreen } from "./ModulesScreen"
 import { InputScreen } from "./InputScreen"
 import { FetchScreen } from "./FetchScreen"
 import { StorageScreen } from "./StorageScreen"
+import { AnimationScreen } from "./AnimationScreen"
+import { DevScreen } from "./DevScreen"
+import { PressScreen } from "./PressScreen"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -20,6 +23,9 @@ export const routes = defineRoutes({
   input: { path: "/dev/input", screen: InputScreen, deepLink: true },
   fetch: { path: "/dev/fetch", screen: FetchScreen, deepLink: true },
   storage: { path: "/dev/storage", screen: StorageScreen, deepLink: true },
+  animation: { path: "/dev/animation", screen: AnimationScreen, deepLink: true },
+  dev: { path: "/dev", screen: DevScreen, deepLink: true },
+  press: { path: "/dev/press", screen: PressScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

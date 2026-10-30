@@ -84,7 +84,7 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.3 | `<TextField>`: the native field owns the text, `onChange` to JS, controlled value, keyboard insets | Claude | **done 2026-10-30** |
 | 3.4 | `fetch` subset over OkHttp (method, headers, body, JSON, timeout, `AbortSignal`) | Claude | **done 2026-10-30** |
 | 3.5 | `storage` (MMKV) with **synchronous** JSI calls (no Promises), `SecureStore` (Android Keystore) | Claude | **done 2026-10-30** |
-| 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | |
+| 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | **done 2026-10-30** |
 | 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviews | brief: `docs/cross-communication/2026-10-30-milestone-3-gemini-brief.md` |
 | 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviews | same brief |
 
@@ -103,6 +103,35 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: step 3.6 done (Claude): animation
+- `animate`, `enter`, `exit` props (registry v7, ids 136–138), transforms can change at runtime (draw phase). Native:
+  `ZnAnimation.kt` (`Animatable` per animated value, read in `graphicsLayer` / `drawBehind`); `ZnStore` keeps an
+  exiting instance until its animation ends (`finishExit`); JS indexes skip exiting children (`liveIndex`).
+- Author rules: `docs/guide-notes.md` §22; ARCHITECTURE §10.
+- **Tests:** compiler 3 new (encoding, presets, errors), Kotlin `ZnAnimationTest`, JS 120 total.
+- Sample `/dev/animation`: value animations (tween, spring, bouncy, colour, rotate), toast enter / exit, a swap in a
+  Stack, list rows entering / leaving; a 6-second demo loop for frame measurements.
+- **Verified on the Lava (release):** 6-second demo loop (card, colour + rotate, toast, swap, chips): **441 frames,
+  1 janky (0.23 %), p50 5 ms, p90 7 ms, p99 15 ms**; fast taps while animating: 0 janky, p99 10–12 ms. Toast and
+  swap enter and leave; 5 fast swaps leave exactly one button; chips added / removed fast (2 taps per 150 ms) all
+  register, leave in order, none stuck after their exit (UI dump), no errors in logcat.
+- **Found (layout, not animation):** (1) a full `Row` squeezes its last child (its text wrapped onto two lines) where
+  React Native would let it overflow; (2) a leaving element keeps its space until its exit ends. Together they made
+  a button below a chip row jump for ~200 ms, so fast taps at its old position missed (traced with temporary probes:
+  the Scroll saw every press, the button only those where it was). Sample fixed (3 chips); both noted in
+  `docs/after-foundations.md`. Also: `position: "absolute"` with `top/start/end/bottom: 0` doesn't stretch an element
+  in a Stack.
+- **Pavan:** the animation set should grow later (after the framework is complete): list in after-foundations.
+- Press feedback added after review: `Pressable` ripples by default (our own ripple on `material-ripple`'s node, no
+  Material theme; +6 KB APK), `rippleColor`, `pressScale` (spring), `pressFeedback` ("ripple" / "highlight" /
+  "none"); registry ids 139–141. The keypad keys use ripple + `pressScale={0.94}`: checked on the Lava (screenshot
+  mid-press: key scaled down, ripple filled).
+- More press options after review (registry ids 142–146): `rippleOpacity`, `rippleBorderless`, `rippleRadius`,
+  `pressOpacity`, `highlightColor` (our own highlight node). Checked on the Lava (`/dev/press`): borderless round
+  ripple around an icon; highlight pixel = brand colour at 12 % over white; dimmed card = white at 50 % over the page.
+- Sample: **Dev screens** list (route `/dev`, button on the home screen) with every test screen; add new dev screens
+  there.
+
 ### 2026-10-30: step 3.5 done (Claude): `storage` (MMKV) and `SecureStore`
 - Design, numbers and rules: `docs/storage.md`; author rules: `docs/guide-notes.md` §21.
 - JS: `storage`, `createStorage(id)`, `persistedSignal(key, initial)`, `onChange`; `SecureStore.get / set / delete`.

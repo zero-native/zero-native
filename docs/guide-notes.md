@@ -371,6 +371,40 @@ await SecureStore.set("refreshToken", token)
 - **Why:** MMKV reads and writes are memory operations (~1 µs read, ~4 µs write on the Lava), so making them async
   would only add `await`s and loading states. Secrets need the Keystore, which is a system service: those are async.
 
+## 22. Animation (built, step 3.6)
+```tsx
+<Box animate={{ opacity: 200, translateY: "spring" }}
+     style={{ opacity: open() ? 1 : 0, transform: [{ translateY: open() ? 0 : 24 }] }} />
+{toast() && <Box enter="fade-up" exit="fade-down">...</Box>}
+```
+- **Do:** animate by changing values as usual and adding `animate` to the element: a number is a tween in ms
+  (`animate={250}` covers all its animatable props), `"spring"` / `"bouncy"` springs, or
+  `{ duration, easing }` / `{ spring: { damping, stiffness } }`. Animatable: opacity, background colour, scale,
+  translateX / Y, rotate (degrees; a number when it changes at runtime).
+- **Do:** put `enter` / `exit` on the root element of a `&&` or `? :` branch, or of a `.map` row. Presets: `fade`,
+  `fade-up`, `fade-down`, `scale`, `pop`; or `{ opacity, translateX, translateY, scale, duration }`.
+- **Do:** to swap two elements in place (`a ? <A/> : <B/>`), put them in a `<Stack>` with absolute positions: while
+  one leaves and the other arrives, both are on screen.
+- **Do:** rely on `Pressable`'s press feedback: a ripple from the touch point by default (Android), clipped to its
+  shape. Options (all build-time):
+  | Prop | Use |
+  |---|---|
+  | `rippleColor`, `rippleOpacity` | white on dark buttons; a brand-tinted ripple (`rippleColor={c.primary} rippleOpacity={0.3}`) |
+  | `rippleBorderless`, `rippleRadius` | icon buttons: a round ripple around the icon, not clipped (`rippleRadius={24}`) |
+  | `pressFeedback="highlight"`, `highlightColor` | a flat overlay instead of a ripple (give the colour its own alpha) |
+  | `pressOpacity` | dims while pressed (iOS feel), e.g. `pressOpacity={0.5} pressFeedback="none"` |
+  | `pressScale` | keys and cards that "give" (`0.94`–`0.97`) |
+  | `pressFeedback="none"` | no feedback |
+  Try them all on the sample's "Press feedback" dev screen.
+- **Don't:** animate with `setInterval` + signals. Every frame would go through JS; `animate` runs natively.
+- **Don't:** expect `exit` on a `<List>` row (rows also leave when they scroll away) or when the whole screen closes
+  (the screen transition covers it).
+- **Don't:** rely on layout animating: width, height, padding and position changes jump. The element keeps its space
+  while it exits, then the space closes at once. Leave room for the leaving element (a row of chips that is already
+  full gets squeezed while one more fades out, and things below it can jump).
+- **Why:** JS sends only target values; the spring / tween runs on the UI thread and is read in the draw phase, so an
+  animation never recomposes or re-lays out anything and keeps going even while JS is busy.
+
 ---
 
 ## Open items to write up when built

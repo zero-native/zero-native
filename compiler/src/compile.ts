@@ -51,6 +51,10 @@ const RUNTIME = "__zn"
 const UI_MODULE = "@zero-native/ui"
 type JsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment
 
+
+// Animation (step 3.6): what `animate` can name, and the easings a tween can use (index = native easing id).
+const ANIMATABLE = ["opacity", "backgroundColor", "scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"]
+const EASINGS = ["standard", "ease-out", "ease-in", "linear"]
 export function compileModule(
   source: string,
   fileName: string,
@@ -470,7 +474,91 @@ export function compileModule(
     props[name] =
       name === "fontWeight" ? fontWeight(value, at)
       : name === "backgroundImage" ? linearGradient(value, at)
+      : name === "animate" ? animateSpec(value, at)
+      : name === "enter" || name === "exit" ? transitionSpec(value, name, at)
       : value
+  }
+
+  // ---- Animation (step 3.6, ARCHITECTURE §10): build-time values, encoded for native (registry: animate / enter / exit).
+
+  /** 250 | "spring" | "bouncy" | { duration, easing? } | { spring: { damping?, stiffness? } } → "t250e0" / "s0.75,400". */
+  function timing(v: unknown, at: ts.Node, what: string): string {
+    const ms = (n: unknown) => {
+      if (typeof n !== "number" || !(n >= 0 && n <= 10_000)) fail(at, `${what}: a duration is 0–10000 ms, got ${JSON.stringify(n)}`)
+      return Math.round(n as number)
+    }
+    if (typeof v === "number") return `t${ms(v)}e0`
+    if (v === "spring") return "s0.75,400"
+    if (v === "bouncy") return "s0.45,400"
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const o = v as Record<string, unknown>
+      if ("spring" in o) {
+        const sp = (o.spring ?? {}) as Record<string, unknown>
+        const damping = sp.damping ?? 0.75
+        const stiffness = sp.stiffness ?? 400
+        if (typeof damping !== "number" || damping <= 0 || typeof stiffness !== "number" || stiffness <= 0) {
+          fail(at, `${what}: spring needs damping > 0 (1 = no bounce) and stiffness > 0`)
+        }
+        return `s${damping},${stiffness}`
+      }
+      if ("duration" in o) {
+        const easing = o.easing ?? "standard"
+        const e = EASINGS.indexOf(easing as string)
+        if (e < 0) fail(at, `${what}: easing must be one of ${EASINGS.join(", ")}`)
+        return `t${ms(o.duration)}e${e}`
+      }
+    }
+    return fail(at, `${what}: use a duration in ms (250), "spring", "bouncy", { duration, easing } or { spring: { damping, stiffness } }`)
+  }
+
+  function isTiming(v: unknown): boolean {
+    if (typeof v === "number" || v === "spring" || v === "bouncy") return true
+    return !!v && typeof v === "object" && ("duration" in (v as object) || "spring" in (v as object))
+  }
+
+  /** animate={250} (every animatable prop of the element) or animate={{ opacity: 200, translateY: "spring" }}. */
+  function animateSpec(v: unknown, at: ts.Node): string {
+    if (isTiming(v)) return `*=${timing(v, at, "animate")}`
+    if (!v || typeof v !== "object" || Array.isArray(v)) fail(at, "animate needs a timing (250, \"spring\") or { prop: timing }")
+    const parts: string[] = []
+    for (const [k, t] of Object.entries(v as object)) {
+      if (!ANIMATABLE.includes(k)) fail(at, `animate: "${k}" can't be animated (use ${ANIMATABLE.join(", ")})`)
+      parts.push(`${Prop[k as PropName].id}=${timing(t, at, `animate.${k}`)}`)
+    }
+    return parts.join(";")
+  }
+
+  /**
+   * enter / exit: a preset ("fade", "fade-up", "fade-down", "scale", "pop") or { opacity, translateX, translateY,
+   * scale, duration | spring, easing }: the state the element enters from, or exits to.
+   * → "opacity,translateX,translateY,scale|timing".
+   */
+  function transitionSpec(v: unknown, kind: "enter" | "exit", at: ts.Node): string {
+    const into = kind === "enter" ? 1 : -1 // "up" means: enters from below, leaves upward
+    const presets: Record<string, Record<string, unknown>> = {
+      fade: { opacity: 0 },
+      "fade-up": { opacity: 0, translateY: 16 * into },
+      "fade-down": { opacity: 0, translateY: -16 * into },
+      scale: { opacity: 0, scale: 0.92 },
+      pop: { opacity: 0, scale: 0.85, ...(kind === "enter" ? { timing: "bouncy" } : {}) },
+    }
+    const o = typeof v === "string" ? presets[v] : (v as Record<string, unknown>)
+    if (!o || typeof o !== "object" || Array.isArray(o)) {
+      fail(at, `${kind}: use a preset (${Object.keys(presets).join(", ")}) or { opacity, translateX, translateY, scale, duration }`)
+    }
+    const known = ["opacity", "translateX", "translateY", "scale", "duration", "easing", "spring", "timing"]
+    for (const k of Object.keys(o)) if (!known.includes(k)) fail(at, `${kind}: unknown key "${k}"`)
+    const num = (k: string, d: number) => {
+      const x = o[k] ?? d
+      if (typeof x !== "number") fail(at, `${kind}.${k} must be a number`)
+      return x as number
+    }
+    const t =
+      "timing" in o ? timing(o.timing, at, kind)
+      : "spring" in o || "duration" in o ? timing(o, at, kind)
+      : kind === "enter" ? "t220e1" // ease-out: arrives fast, settles slowly
+      : "t160e2" // ease-in: leaves a little faster than it came
+    return `${num("opacity", 1)},${num("translateX", 0)},${num("translateY", 0)},${num("scale", 1)}|${t}`
   }
 
   /**
@@ -597,8 +685,27 @@ export function compileModule(
           const key = p.name.getText(sf).replace(/^["']|["']$/g, "")
           if (key === "transform") {
             const v = fold(p.initializer, scope)
-            if (v === NOT_STATIC) fail(p, "transform must be known at build time for now")
-            transform(v, props, p)
+            if (v !== NOT_STATIC) {
+              transform(v, props, p)
+              continue
+            }
+            // Entries may change at runtime (step 3.6): [{ translateY: open() ? 0 : 40 }]. Each is its own slot.
+            const list = unwrap(p.initializer)
+            if (!ts.isArrayLiteralExpression(list)) fail(p, "transform must be an array literal like [{ scale: x }]")
+            for (const item of (list as ts.ArrayLiteralExpression).elements) {
+              const obj = unwrap(item)
+              const entry = ts.isObjectLiteralExpression(obj) ? obj.properties : undefined
+              if (!entry || entry.length !== 1 || !ts.isPropertyAssignment(entry[0]!)) {
+                fail(item, "each transform entry has exactly one key, e.g. { translateY: y() }")
+              }
+              const pa = entry![0] as ts.PropertyAssignment
+              const tk = pa.name.getText(sf)
+              const tv = fold(pa.initializer, scope)
+              if (tv !== NOT_STATIC) transform([{ [tk]: tv }], props, pa)
+              else if (["scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"].includes(tk)) {
+                setProp(props, b, tk as PropName, pa.initializer, pa) // rotate at runtime: a number of degrees
+              } else fail(pa, `unsupported transform "${tk}"`)
+            }
             continue
           }
           if (!(key in Prop)) fail(p, `unknown style key "${key}"`)

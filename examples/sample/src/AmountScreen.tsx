@@ -46,7 +46,7 @@ const keyStyle = {
 
 function Key(props: { label: string; onKey: (key: string) => void }) {
   return (
-    <Pressable onPress={() => props.onKey(props.label)} haptic alignItems="center" justifyContent="center" style={keyStyle}>
+    <Pressable onPress={() => props.onKey(props.label)} haptic pressScale={0.94} alignItems="center" justifyContent="center" style={keyStyle}>
       <Text fontSize={26} fontWeight={700} color={c.ink}>
         {props.label}
       </Text>
@@ -63,6 +63,7 @@ function BackspaceKey(props: { onDelete: () => void }) {
       repeatDelay={400}
       repeatInterval={90}
       haptic
+      pressScale={0.94}
       alignItems="center"
       justifyContent="center"
       style={keyStyle}

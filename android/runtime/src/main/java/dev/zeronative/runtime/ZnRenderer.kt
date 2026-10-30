@@ -1,7 +1,6 @@
 package dev.zeronative.runtime
 
 import android.os.SystemClock
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -115,7 +114,7 @@ private fun addChildRefs(out: ArrayList<ChildRef>, f: List<ZnTemplate>, t: ZnTem
 private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int, outer: Modifier, definiteWidth: Boolean) {
     val s = t.nodes[n]
     if (ZnDebug.countRecompositions) SideEffect { ZnDebug.hit("${ZnDebug.componentName(s.type)}#${inst.id}.$n") }
-    val chain = if (s.hasDynamicChain) dynamicChain(s, inst) else s.staticChain
+    val chain = if (s.hasDynamicChain) dynamicChain(s, inst, root = n == 0) else s.staticChain
     val mod = if (s.hasImpression) outer.then(impression(s, inst)).then(chain) else outer.then(chain)
     when (s.type) {
         // A Fragment inside a parent is expanded by the parent (childRefs); alone (a screen, a list row) it is a Column.
@@ -268,7 +267,8 @@ internal fun ZnColumn(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: Z
 
 /** A node's modifier chain (built once, or per instance when it reads slots). */
 @Composable
-internal fun nodeChain(s: ZnNodeSpec, inst: ZnInstance): Modifier = if (s.hasDynamicChain) dynamicChain(s, inst) else s.staticChain
+internal fun nodeChain(s: ZnNodeSpec, inst: ZnInstance): Modifier =
+    if (s.hasDynamicChain) dynamicChain(s, inst, root = false) else s.staticChain
 
 /** The screen entry a node belongs to (provided per screen by ZnNavHost), for impressions. 0 = none. */
 internal val LocalZnEntry = staticCompositionLocalOf { 0 }
@@ -404,20 +404,20 @@ private fun imageModel(src: String?): Any? = when {
 }
 
 @Composable
-private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance): Modifier {
+private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean): Modifier {
     val disabled = if (s.disabledSlot >= 0) inst.slot(s.disabledSlot).value == true else s.disabled
     val view = LocalView.current
-    val indication = LocalIndication.current
+    val indication = when (s.pressFeedback) {
+        Registry.PressFeedback.NONE -> null
+        Registry.PressFeedback.HIGHLIGHT -> remember(s) { ZnHighlight(s.highlightColor) }
+        else -> remember(s) { ZnRipple(s.rippleColor, s.rippleOpacity, !s.rippleBorderless, s.rippleRadius) }
+    }
     val interactions = remember { MutableInteractionSource() }
-    return remember(s, inst, disabled, indication) {
-        val alpha = if (s.opacitySlot >= 0) {
-            val cell = inst.slot(s.opacitySlot)
-            ({ ((cell.value as? Double) ?: 1.0).toFloat() })
-        } else null
-        val background = if (s.backgroundSlot >= 0) {
-            val cell = inst.slot(s.backgroundSlot)
-            ({ toColor(cell.value) ?: Color.Transparent })
-        } else null
+    val pressed = if (s.type == Registry.Component.PRESSABLE) znPressed(s, interactions) else null
+    // Opacity, transforms and background: slot reads or animations, all read in the draw phase (ZnAnimation.kt).
+    val layer = znLayer(s, inst, root, pressed)
+    val background = znBackground(s, inst)
+    return remember(s, inst, disabled, indication, layer, background) {
         val press = if (s.type == Registry.Component.PRESSABLE) {
             Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication)
         } else null
@@ -427,7 +427,7 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance): Modifier {
             fun edge(i: Int, static: Float) = (cells[i]?.value as? Double)?.toFloat() ?: static
             ({ Edges(edge(0, base.start), edge(1, base.top), edge(2, base.end), edge(3, base.bottom)) })
         } else null
-        s.buildChain(alpha, background, press, pad)
+        s.buildChain(layer, background, press, pad)
     }
 }
 
@@ -439,7 +439,7 @@ private fun display(v: Any?): String = when (v) {
 }
 
 /** Colours come from templates as ZnColor and from JS as an ARGB number. */
-private fun toColor(v: Any?): Color? = when (v) {
+internal fun toColor(v: Any?): Color? = when (v) {
     is ZnColor -> Color(v.argb)
     is Double -> Color(v.toLong().toInt())
     else -> null

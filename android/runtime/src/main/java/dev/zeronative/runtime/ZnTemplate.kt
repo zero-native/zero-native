@@ -155,6 +155,15 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val translateY = num(Registry.Prop.TRANSLATE_Y) ?: 0f
     val rotate = num(Registry.Prop.ROTATE) ?: 0f
     private val hasTransform = scaleX != 1f || scaleY != 1f || translateX != 0f || translateY != 0f || rotate != 0f
+    // The parts of scaleX / scaleY above, kept apart because each can have its own slot (step 3.6).
+    val scaleBase = num(Registry.Prop.SCALE) ?: 1f
+    val scaleXOnly = num(Registry.Prop.SCALE_X) ?: 1f
+    val scaleYOnly = num(Registry.Prop.SCALE_Y) ?: 1f
+
+    // Animation (step 3.6, ZnAnimation.kt)
+    internal val animate: ZnAnimate? = (p[Registry.Prop.ANIMATE] as String?)?.let(ZnAnimate::parse)
+    internal val enter: ZnTransition? = (p[Registry.Prop.ENTER] as String?)?.let(ZnTransition::parse)
+    internal val exit: ZnTransition? = (p[Registry.Prop.EXIT] as String?)?.let(ZnTransition::parse)
 
     // Content
     val text: String? = p[Registry.Prop.TEXT] as String?
@@ -186,6 +195,14 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     // Pressable
     val disabled = p[Registry.Prop.DISABLED] == true
     val haptic = p[Registry.Prop.HAPTIC] == true
+    val pressFeedback = enum(Registry.Prop.PRESS_FEEDBACK) ?: Registry.PressFeedback.RIPPLE
+    val rippleColor: Color? = color(Registry.Prop.RIPPLE_COLOR)
+    val pressScale = num(Registry.Prop.PRESS_SCALE) ?: 1f
+    val pressOpacity = num(Registry.Prop.PRESS_OPACITY) ?: 1f
+    val rippleOpacity: Float? = num(Registry.Prop.RIPPLE_OPACITY)?.coerceIn(0f, 1f)
+    val rippleBorderless = p[Registry.Prop.RIPPLE_BORDERLESS] == true
+    val rippleRadius: Float? = num(Registry.Prop.RIPPLE_RADIUS)
+    val highlightColor: Color = color(Registry.Prop.HIGHLIGHT_COLOR) ?: Color(0x1A000000)
     // Scroll: horizontal rails; its padding becomes content padding (it scrolls with the content, as in RN's
     // contentContainerStyle), so it is left out of the modifier chain.
     val horizontal = p[Registry.Prop.HORIZONTAL] == true
@@ -226,6 +243,14 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val colorSlot = slotFor(raw, Registry.Prop.COLOR)
     val backgroundSlot = slotFor(raw, Registry.Prop.BACKGROUND_COLOR)
     val opacitySlot = slotFor(raw, Registry.Prop.OPACITY)
+    val scaleSlot = slotFor(raw, Registry.Prop.SCALE)
+    val scaleXSlot = slotFor(raw, Registry.Prop.SCALE_X)
+    val scaleYSlot = slotFor(raw, Registry.Prop.SCALE_Y)
+    val translateXSlot = slotFor(raw, Registry.Prop.TRANSLATE_X)
+    val translateYSlot = slotFor(raw, Registry.Prop.TRANSLATE_Y)
+    val rotateSlot = slotFor(raw, Registry.Prop.ROTATE)
+    val hasTransformSlots = scaleSlot != NONE || scaleXSlot != NONE || scaleYSlot != NONE || translateXSlot != NONE ||
+        translateYSlot != NONE || rotateSlot != NONE
     val srcSlot = slotFor(raw, Registry.Prop.SRC)
     val impressionKey: String? = p[Registry.Prop.IMPRESSION_KEY] as String?
     val impressionKeySlot = slotFor(raw, Registry.Prop.IMPRESSION_KEY)
@@ -260,7 +285,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
 
     /** True when the drawing chain reads a slot, so it must be built per instance instead of once here. */
     val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || hasDynamicPadding ||
-        type == Registry.Component.PRESSABLE
+        type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null
 
     /** Pre-built chain for nodes whose chain never changes (most nodes). */
     val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null)
@@ -271,7 +296,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
      * draw phase, so a change redraws only this node; dynamic padding ([pad], the padding edges with slot values
      * filled in) in the layout phase, so a change re-measures this node without recomposing anything (§8.3).
      */
-    fun buildChain(alpha: (() -> Float)?, background: (() -> Color)?, press: Modifier?, pad: (() -> Edges)?): Modifier {
+    internal fun buildChain(layer: ZnLayer?, background: (() -> Color)?, press: Modifier?, pad: (() -> Edges)?): Modifier {
         var m: Modifier = Modifier
         margin?.let { m = m.padding(it.toPadding()) }
         when (val w = width) {
@@ -285,10 +310,20 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         if (minWidth != null || maxWidth != null) m = m.widthIn(minWidth.orUnspecified(), maxWidth.orUnspecified())
         if (minHeight != null || maxHeight != null) m = m.heightIn(minHeight.orUnspecified(), maxHeight.orUnspecified())
         aspectRatio?.let { m = m.aspectRatio(it) }
-        if (alpha != null || opacity < 1f || hasTransform) {
+        if (layer != null) {
+            // Values that change at runtime (slots, animations): read here, in the draw phase (step 3.6).
+            m = m.graphicsLayer {
+                this.alpha = layer.alpha()
+                this.scaleX = layer.scaleX()
+                this.scaleY = layer.scaleY()
+                rotationZ = layer.rotate()
+                translationX = layer.translateX().dp.toPx()
+                translationY = layer.translateY().dp.toPx()
+            }
+        } else if (opacity < 1f || hasTransform) {
             val staticAlpha = opacity
             m = m.graphicsLayer {
-                this.alpha = alpha?.invoke() ?: staticAlpha
+                this.alpha = staticAlpha
                 this.scaleX = this@ZnNodeSpec.scaleX
                 this.scaleY = this@ZnNodeSpec.scaleY
                 rotationZ = rotate
@@ -328,7 +363,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         // Step 7 clips for overflow: 'hidden'. Press feedback (step 8) must also stay inside a rounded shape, or the
         // pressed highlight shows square corners on a rounded button (found on the Lava, step 1.2).
         // Images clip to their rounded shape by default, as in React Native.
-        val clipsByDefault = radius > 0f && (press != null || type == Registry.Component.IMAGE)
+        // A borderless ripple must draw outside the shape, so such a Pressable isn't clipped by default.
+        val clipsByDefault = radius > 0f && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE)
         if (clip || clipsByDefault) m = m.clip(shape)
         press?.let { m = m.then(it) }
         // Borders take space: content sits inside them (zn flex rule 2).

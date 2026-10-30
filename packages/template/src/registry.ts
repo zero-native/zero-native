@@ -5,10 +5,12 @@
 // Rules: never reuse or renumber an id. Adding ids bumps REGISTRY_VERSION; an app only loads templates whose
 // registry version it knows (capability manifest, §16.2).
 
-export const REGISTRY_VERSION = 6 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 7 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
+// 7: animation (step 3.6): animate / enter / exit, transforms can change at runtime; Pressable press feedback
+//    (ripple by default, pressScale).
 
 export const Component = {
   Column: 1,
@@ -170,6 +172,28 @@ export const Prop = {
   autoCorrect: { id: 134, type: "bool" },
   /** Cursor and selection handle colour. */
   selectionColor: { id: 135, type: "color" },
+  // Animation (step 3.6, ARCHITECTURE §10). Build-time strings made by the compiler from the TSX values:
+  /** `animate`: "<propId|*>=<timing>;..." with timing "t<ms>e<easing>" (tween) or "s<dampingRatio>,<stiffness>". */
+  animate: { id: 136, type: "string" },
+  /** `enter` / `exit`: "<opacity>,<translateX>,<translateY>,<scale>|<timing>": the state it enters from / exits to. */
+  enter: { id: 137, type: "string" },
+  exit: { id: 138, type: "string" },
+  // Pressable feedback (step 3.6). Default on Android: a ripple from the touch point, clipped to the shape.
+  pressFeedback: { id: 139, type: "enum" },
+  /** Ripple colour (default: the platform's, dark at low alpha). Use white on dark buttons. */
+  rippleColor: { id: 140, type: "color" },
+  /** Scale while pressed (e.g. 0.95), springing back on release. Native, draw phase only. */
+  pressScale: { id: 141, type: "number" },
+  /** Ripple opacity 0–1 (default 0.12; 0.24 when rippleColor is set). */
+  rippleOpacity: { id: 142, type: "number" },
+  /** Ripple not clipped to the element: a circle around the touch, for icon buttons (RN android_ripple borderless). */
+  rippleBorderless: { id: 143, type: "bool" },
+  /** Ripple radius in dp (default: reaches the farthest corner, or a circle around an icon button when borderless). */
+  rippleRadius: { id: 144, type: "number" },
+  /** Opacity while pressed, e.g. 0.6 (the iOS / RN TouchableOpacity feel); animated back on release. */
+  pressOpacity: { id: 145, type: "number" },
+  /** Overlay colour for pressFeedback "highlight" (RN TouchableHighlight underlayColor). Default black at 10 %. */
+  highlightColor: { id: 146, type: "color" },
   // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
@@ -195,6 +219,7 @@ export const Enum = {
   keyboardType: { default: 0, "number-pad": 1, "decimal-pad": 2, "phone-pad": 3, "email-address": 4, url: 5 },
   returnKeyType: { done: 0, go: 1, next: 2, search: 3, send: 4 },
   autoCapitalize: { none: 0, sentences: 1, words: 2, characters: 3 },
+  pressFeedback: { ripple: 0, highlight: 1, none: 2 },
 } as const satisfies Partial<Record<PropName, Record<string, number>>>
 
 /**
@@ -234,6 +259,13 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "color",
   "backgroundColor",
   "opacity",
+  // Transforms (step 3.6): read in the draw phase, so changing them never recomposes or re-lays out.
+  "scale",
+  "scaleX",
+  "scaleY",
+  "translateX",
+  "translateY",
+  "rotate",
   "src",
   "disabled",
   // Per-edge only: the shorthands (padding, paddingHorizontal, ...) stay build-time.

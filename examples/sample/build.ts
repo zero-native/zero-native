@@ -18,6 +18,8 @@ try {
   app = await buildApp(join(import.meta.dir, "src/main.ts"))
 } catch (e) {
   console.error((e as Error).message)
+  // Bun's "Bundle failed" keeps the real reasons (our compiler's messages) in `errors`.
+  for (const err of (e as { errors?: unknown[] }).errors ?? []) console.error((err as Error).message ?? String(err))
   process.exit(1)
 }
 

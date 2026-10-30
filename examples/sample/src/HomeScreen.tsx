@@ -31,15 +31,23 @@ export function HomeScreen() {
 
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
-      <Row style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, gap: 12, alignItems: "center" }}>
-        <Column style={{ flex: 1, gap: 2 }}>
-          <Text fontSize={24} fontWeight="bold" color={c.ink}>
-            Pay a merchant
+      <Column style={{ paddingHorizontal: 20, paddingTop: 20, gap: 2 }}>
+        <Text fontSize={24} fontWeight="bold" color={c.ink}>
+          Pay a merchant
+        </Text>
+        <Text fontSize={13} color={c.muted}>
+          {feed().length} stores near you
+        </Text>
+      </Column>
+      <Row style={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: 12, gap: 8, alignItems: "center" }}>
+        <Pressable
+          onPress={() => nav.push("dev")}
+          style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: c.pillBg }}
+        >
+          <Text fontSize={12} fontWeight={700} color={c.ink}>
+            Dev screens
           </Text>
-          <Text fontSize={13} color={c.muted}>
-            {feed().length} stores near you
-          </Text>
-        </Column>
+        </Pressable>
         <Pressable
           onPress={() => nav.push("offers")}
           style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: c.successBg }}
@@ -50,6 +58,7 @@ export function HomeScreen() {
         </Pressable>
         <Pressable
           onPress={newPayment}
+          rippleColor="#FFFFFF"
           style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: c.primary }}
         >
           <Text fontSize={12} fontWeight={600} color={c.white}>

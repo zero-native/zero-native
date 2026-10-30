@@ -431,3 +431,39 @@ describe("fragments, children and spans (step 3.2)", () => {
     expect(code).toContain("__zn.on(__i0, 1, __zn.textInput(__i0, 0, () => (amount()), (t) => amount.set(t)));")
   })
 })
+
+describe("animation (step 3.6)", () => {
+  test("animate and enter / exit are encoded at build time; transforms can change at runtime", () => {
+    const { templates, code } = compile(`
+      export function F() {
+        const open = signal(false)
+        return (
+          <Box
+            style={{ opacity: open() ? 1 : 0, transform: [{ translateY: open() ? 0 : 40 }, { scale: 0.98 }] }}
+            animate={{ opacity: 200, translateY: "spring", rotate: { duration: 300, easing: "ease-out" } }}
+            enter="fade-up"
+            exit={{ opacity: 0, scale: 0.9, duration: 120 }}
+          />
+        )
+      }`)
+    const p = templates[0].props as any
+    expect(p.animate).toBe(`${Prop.opacity.id}=t200e0;${Prop.translateY.id}=s0.75,400;${Prop.rotate.id}=t300e1`)
+    expect(p.enter).toBe("0,0,16,1|t220e1")
+    expect(p.exit).toBe("0,0,0,0.9|t120e0")
+    expect(p.scale).toBe(0.98)
+    expect(p.translateY).toEqual({ $slot: "s1", default: null })
+    expect(code).toContain("() => (open() ? 0 : 40)")
+  })
+
+  test("animate shorthand and exit presets move the other way", () => {
+    const { templates } = compile(`export function F() { return <Box animate={250} exit="fade-up" /> }`)
+    expect((templates[0].props as any).animate).toBe("*=t250e0")
+    expect((templates[0].props as any).exit).toBe("0,0,-16,1|t160e2")
+  })
+
+  test("bad animation values fail with a clear message", () => {
+    expect(() => compile(`export function F() { return <Box animate={{ fontSize: 200 }} /> }`)).toThrow("can't be animated")
+    expect(() => compile(`export function F() { return <Box enter="spin" /> }`)).toThrow("use a preset")
+    expect(() => compile(`export function F() { return <Box animate={-5} /> }`)).toThrow("0–10000 ms")
+  })
+})
