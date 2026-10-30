@@ -85,10 +85,12 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.4 | `fetch` subset over OkHttp (method, headers, body, JSON, timeout, `AbortSignal`) | Claude | **done 2026-10-30** |
 | 3.5 | `storage` (MMKV) with **synchronous** JSI calls (no Promises), `SecureStore` (Android Keystore) | Claude | **done 2026-10-30** |
 | 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | **done 2026-10-30** |
-| 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviews | brief: `docs/cross-communication/2026-10-30-milestone-3-gemini-brief.md` |
-| 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviews | same brief |
+| 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviews | brief: `docs/cross-communication/2026-10-30-milestone-3-gemini-brief.md` + must-not-miss list `2026-10-30-m3-3.7-3.8-must-not-miss.md` |
+| 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviews | same brief + must-not-miss list |
 
-**Milestone 4 (OTA): proposal in `docs/ota.md`** (steps 4.0–4.9, decisions D1–D5 waiting for Pavan, 2026-10-30).
+**Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
+recommended; logged in ARCHITECTURE §16 / §24. 4.1 done 2026-10-30 (log below). Next: 4.2 (capability manifest),
+Claude.
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
 
 Later milestones: **4** OTA (signed bundles, bundle pool, boot guard, capability manifest, "an older app ignores a
@@ -106,6 +108,32 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: step 4.1 done (Claude): bundle format and loader
+- `zn-bundle.json` (`tools/bundle-info.ts`): app, serial, id `<app>_<serial>`, one SHA-256 for the bundle, every file
+  with size and SHA-256. The sample build writes it into the APK's assets (`--serial N`, `--out DIR` options) and
+  copies the app's images from `examples/sample/assets/` into the bundle.
+- `ZnBundles.kt`: the one place that decides where bytecode, templates, manifest and `asset:` images come from: the
+  APK or `noBackupFilesDir/zn-ota/bundles/<id>/` (named by `zn-ota/current`). A downloaded bundle runs only if it is
+  for this app, its format is known, its serial is bigger than the built-in one (a newer APK wins), it has every
+  code file, and every file has its listed size. Anything else, or any error: the built-in bundle, reason logged.
+  Chosen once per process off the main thread. Bytecode from a folder is memory-mapped (`evalFile`, no copy).
+  Apps change nothing: `ZnTemplates.preload("main.zn.ui")` and `ZnRuntime.evalAsset("main.hbc")` read the
+  running bundle.
+- **Found and fixed: builds were not repeatable.** Template ids followed the order Bun happened to load files, and
+  Bun adds a random `debugId` line, so every build of the same source had a new SHA (it would make "one SHA = one
+  serial" and small patches impossible). Now ids are given by file path after all files are compiled (fixed-width
+  placeholders, so source-map columns don't move) and the `debugId` line is dropped. Same source = same bytes
+  (checked: 3 builds of the sample, identical; hermesc itself is repeatable).
+- **Tests:** Kotlin `ZnBundlesTest` (11: each refusal rule, path escapes, parsing); compiler `build-app.test.ts`
+  (3: id order by path, same bytes twice, source map after filling ids); JS 123 total; Android lint 0 errors.
+- **Verified on the Lava:** bundle #1 copied by hand runs from the folder (new title and an image that exists only
+  in the bundle, navigation works); refused with the right reason and the built-in bundle running: a cut
+  `main.hbc`, `current` = `../bundles`, a missing folder, an APK whose built-in bundle is #2. Release cold start
+  (speed-profile, n=10): **built-in median 179 ms, OTA folder 182 ms** (same within noise); choosing takes ~2 ms
+  (60 ms only on the first start after install). Test bundle removed from the phone afterwards.
+- **Not yet (later steps):** a bundle whose templates file is damaged but the right size crashes at start until the
+  watchdog (4.7) exists; checksums and signatures are checked at install (4.3, 4.5), not at start.
+
 ### 2026-10-30: step 3.6 done (Claude): animation
 - `animate`, `enter`, `exit` props (registry v7, ids 136–138), transforms can change at runtime (draw phase). Native:
   `ZnAnimation.kt` (`Animatable` per animated value, read in `graphicsLayer` / `drawBehind`); `ZnStore` keeps an

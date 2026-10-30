@@ -395,11 +395,14 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     }
 }
 
-/** `asset:path` (or `asset://path`) → the app's assets; http(s) URLs as they are. `zn://` handles come later. */
+/**
+ * `asset:path` (or `asset://path`) → the running bundle's image (a downloaded OTA bundle's copy, else the APK's
+ * assets, [ZnBundles.assetModel]); http(s) URLs as they are. `zn://` handles come later.
+ */
 private fun imageModel(src: String?): Any? = when {
     src == null -> null
-    src.startsWith("asset://") -> "file:///android_asset/" + src.removePrefix("asset://")
-    src.startsWith("asset:") -> "file:///android_asset/" + src.removePrefix("asset:")
+    src.startsWith("asset://") -> ZnBundles.assetModel(src.removePrefix("asset://"))
+    src.startsWith("asset:") -> ZnBundles.assetModel(src.removePrefix("asset:"))
     else -> src
 }
 

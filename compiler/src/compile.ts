@@ -37,6 +37,11 @@ export interface CompileContext {
   reserveTemplate(): number
   /** Stores the template for a reserved id. */
   defineTemplate(id: number, spec: NodeSpec): void
+  /**
+   * How generated code writes template [id]. Default: the number. The app build (plugin.ts) writes a placeholder
+   * instead and numbers all templates once every file is compiled, so ids don't depend on the order Bun loads files.
+   */
+  ref?(id: number): string
 }
 
 export interface CompileOutput {
@@ -62,6 +67,7 @@ export function compileModule(
   staticImports: Map<string, unknown> = new Map(),
 ): CompileOutput {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const ref = (id: number) => ctx.ref?.(id) ?? String(id)
   const scope: FoldScope = { consts: new Map(), staticImports }
   const userComponents = new Set<string>()
   const candidates: Array<{ name: string; fn: ts.FunctionLikeDeclaration }> = []
@@ -151,7 +157,7 @@ export function compileModule(
   }
   pieces.push({ copyFrom: at, text: source.slice(at) })
   // Each component's template id, readable at runtime without running it (a <List> row's type, in any file).
-  for (const [name, id] of Object.entries(components)) pieces.push({ generatedAt: source.length, text: `\n${name}.__zt = ${id};` })
+  for (const [name, id] of Object.entries(components)) pieces.push({ generatedAt: source.length, text: `\n${name}.__zt = ${ref(id)};` })
   const { code, map } = assemble(source, pieces)
   return { code, components, map }
 
@@ -202,7 +208,7 @@ export function compileModule(
         .replace(/@@S:(\w+)@@/g, (_, n) => String(ids.slots[n]))
         .replace(/@@E:(\w+)@@/g, (_, n) => String(ids.events[n]))
     const lines = [...b.binds.map(resolve), `${RUNTIME}.ready(${inst});`, ...b.kids.map(resolve)]
-    return { code: `${RUNTIME}.view(${id}, (${inst}) => {\n  ${lines.join("\n  ")}\n})`, templateId: id }
+    return { code: `${RUNTIME}.view(${ref(id)}, (${inst}) => {\n  ${lines.join("\n  ")}\n})`, templateId: id }
   }
 
   interface Builder {
@@ -445,7 +451,7 @@ export function compileModule(
         fail(u, "a row must be one JSX element, or `cond ? <A/> : <B/>` to pick between row kinds")
       }
       const root = compileRoot(u as JsxNode, b.depth + 1, /* allowKey */ true)
-      if (root.templateId !== null) return { code: root.code, type: String(root.templateId) }
+      if (root.templateId !== null) return { code: root.code, type: ref(root.templateId) }
       const tag = tagName(u as ts.JsxElement)
       return { code: root.code, type: `(${tag}.__zt ?? 0)` }
     }

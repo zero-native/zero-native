@@ -1,8 +1,8 @@
-# OTA updates for zero-native apps (milestone 4): proposal
+# OTA updates for zero-native apps (milestone 4): design
 
-**Status: proposal (2026-10-30), waiting for Pavan's decisions in §2.** Built from ARCHITECTURE §16 (decided basics)
-and ZeroBill's React Native OTA v2 (`my-rn-app/docs/ota_architecture.md`, v7.1), keeping every lesson
-that applies. Nothing here is built yet.
+**Status: decided 2026-10-30 (Pavan accepted D1–D5 as recommended, §2); building from step 4.1.** Built from
+ARCHITECTURE §16 and ZeroBill's React Native OTA v2 (`my-rn-app/docs/ota_architecture.md`, v7.1),
+keeping every lesson that applies.
 
 ## 1. What an OTA bundle is in zero-native
 - The app's **bytecode** (`main.hbc`), **templates** (`main.zn.ui`), **manifest** (`main.zn.ui.json`: routes,
@@ -12,14 +12,23 @@ that applies. Nothing here is built yet.
 - What can't change over the air: Kotlin / C++ (the renderer, native modules, Hermes), the registry, host functions.
   The **capability manifest** (§3.2) is how a bundle knows whether the installed app can run it.
 
-## 2. Decisions needed (my recommendation first)
-| # | Question | Recommendation | Other option |
+## 2. Decisions (2026-10-30: the recommendation was taken for all five)
+| # | Question | Decided | Other option (not taken) |
 |---|---|---|---|
 | D1 | **When may a bundle run on an installed app?** | **Capability manifest** (ARCHITECTURE §16.2, already decided): the app lists what it has (registry version, Hermes bytecode version, host-API version, native modules + versions); a bundle lists what it needs; it runs on **any** app version that covers it. One fix reaches every compatible install. | RN's way: an exact **native hash** per pool. Safest by construction, but every native change starts a new pool and old installs get nothing. |
 | D2 | **Which server?** | The framework defines a small **check protocol** and ships a **reference server** (Bun) + release CLI with storage adapters (local folder, GCS). In milestone 5, ZeroBill's backend serves the same protocol from its `zappbundles` / `zappupdates` tables. | Reuse ZeroBill's `/v1/updates/check` (`x-zota-*` headers) as is. Faster for the pilot, but ties a community framework to ZeroBill's backend. |
 | D3 | **Signatures** | **ECDSA P-256** with a main + an offline backup public key in the app (RN v2's proven setup; works on Android 7). | Ed25519 (ARCHITECTURE §16.1): Android has it natively only from API 33, so it would need a bundled library. |
 | D4 | **When is a bundle applied?** | The framework gives the pieces: download in the background, apply at the **next cold start** by itself, and `Updates.applyNow()` (a release-safe JS restart, from 3.1's reload) for **moments the app chooses** (RN gates: after login, back on Home, Scan). The app marks busy times (`Updates.holdApply()` during a checkout). | Cold start only (ARCHITECTURE §16.1). Simpler, but RN learned customers open the app 1–2× a month, so fixes arrive a month late. |
 | D5 | **Patches** | **Full compressed bundles first** (~115 KB today). Binary patches (BSDiff) later, only if real bundles pass ~500 KB compressed. | BSDiff from day one, like RN (+ bspatch / bzip2 in the core, ~70 KB, and more code to get right). |
+
+**Notes on the decisions:**
+- D1, "bytecode version": this is the **Hermes bytecode format number** (99 today), not the Hermes release. Hermes
+  loads only bytecode with exactly its own format number; several Hermes releases share one number. So a new Hermes
+  in an APK that keeps format 99 still runs old bundles, and one that moves to 100 can't (the check catches it).
+- D5, later (Pavan, 2026-10-30): look at **smaller downloads by design**, not only BSDiff:
+  (a) split the bytecode per screen (or per group of screens), so an update downloads only the screens that
+  changed; (b) make builds patch-friendly: stable output order and ids, so a small TSX change gives a small
+  binary change and BSDiff patches stay small. To be measured on real ZeroBill screens before choosing.
 
 ## 3. Design (assuming the recommendations)
 
@@ -29,8 +38,12 @@ that applies. Nothing here is built yet.
 - **One pool for staging and production; a channel is a signed pointer** (`staging → #12`, `production → #10`) with a
   `seq` the phone never lets go backwards. Production can only point at a bundle staging ran and the owner marked
   stable. **Rollback = move the pointer back. Kill switch = a signed pointer to "built-in".**
-- On the phone: `files/zn-ota/bundles/<id>/` (hbc, zn.ui, manifest, assets, `.sha256`); the running id is one saved
-  value, switched only at a safe moment; up to **K = 4** kept bundles, so going back downloads nothing.
+- On the phone: `noBackupFilesDir/zn-ota/bundles/<id>/` (not in backups: a restored bundle could be for another app
+  version). A bundle folder mirrors the APK's assets: `main.hbc`, `main.zn.ui`, `main.zn.ui.json`, the app's images
+  at their `asset:` paths, and `zn-bundle.json` (app, serial, id, one SHA-256 for the bundle, every file with its size
+  and SHA-256; written by `tools/bundle-info.ts`). `zn-ota/current` holds the running id: one saved value, switched
+  only at a safe moment; up to **K = 4** kept bundles, so going back downloads nothing. A bundle folder is never
+  changed after install (bytecode is memory-mapped from it while JS runs).
 
 ### 3.2 Capability manifest (new; replaces RN's native hash for compatibility)
 - **The app** (built into the runtime, computed at start): `registry` version, `bytecode` version (Hermes root API),
@@ -91,7 +104,7 @@ phone → `USE_LOCAL`; else `UPDATE` (full download; patch later, D5). Resumable
 | Step | What | Done when |
 |---|---|---|
 | 4.0 | This proposal + Pavan's decisions (§2) → `docs/ota.md` becomes the design; ARCHITECTURE §16 / §24 updated | decisions logged |
-| 4.1 | Bundle format and loader: one place decides where hbc / templates / manifest / images come from; built-in bundle id + serial in the APK | the sample runs from a bundle folder copied by hand; images resolve bundle → APK |
+| 4.1 | Bundle format and loader: one place decides where hbc / templates / manifest / images come from; built-in bundle id + serial in the APK | **done 2026-10-30** (`ZnBundles.kt`; see `docs/milestones.md` log) |
 | 4.2 | Capability manifest: native side, compiler side (requirements), load-time check | unit tests + "an older app ignores a newer bundle" on the phone |
 | 4.3 | Signing + release CLI (`zn ota`): build, serial, sign, zip, publish (local folder / GCS), pointers with seq, kill switch, rollback, stable / approve, typed confirmation for production | publish → pointer → files on disk, all signed |
 | 4.4 | Reference update server (Bun): the check, the pure decision function (one test per row), Range downloads | decision tests + manual checks with curl |

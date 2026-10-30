@@ -767,10 +767,12 @@ around; native resolves it when drawing or uploading.
 ## 16. OTA updates
 
 ### 16.1 Bundle lifecycle (decided)
-- Bundles are **signed** (Ed25519). The public key is in the app binary. Unsigned or wrongly signed = never loaded.
+- Bundles are **signed** (ECDSA P-256, a main and a backup public key in the app binary; changed from Ed25519 on
+  2026-10-30 because Android has Ed25519 natively only from API 33). Unsigned or wrongly signed = never loaded.
 - Download in the background; verify hashes and signature; store in a bundle pool with the last known good bundle.
-- **A new bundle is applied only at cold start**, and never while a flow is active (it waits for the next cold start
-  with no active flow, or a flow's natural end). Flows then go through migration (12.5).
+- **A new bundle is applied at the next cold start**, or earlier at a moment the app chooses with
+  `Updates.applyNow()` (a JS restart in place; changed 2026-10-30, `docs/ota.md` §3.5). Never while the app holds it
+  (`Updates.holdApply()`, e.g. during a checkout) or while a flow is active. Flows then go through migration (12.5).
 - **Boot guard:** if the app crashes twice within N seconds of starting a new bundle, roll back to the previous good
   bundle and report it.
 - Server side: channels, staged rollout percentage, kill switch, rollback. (ZeroBill's OTA v2 already does most of
@@ -961,6 +963,8 @@ zero-native/
 | 2026-10-30 | Binary data crosses the bridge as raw bytes: `bytes` in, `resolveBytes` out (one ArrayBuffer, app event 9) | Section 15.1, `docs/fetch.md` §4. No base64 or JSON escaping for bodies and files; one copy on the way to JS. |
 | 2026-10-30 | Storage = MMKV's C++ core vendored and built into `libzn.so`; values tagged with their type; damaged stores are dropped, never "recovered"; not in backups. SecureStore = Android Keystore AES-256-GCM, one file per key | `docs/storage.md`. ~87 KB download instead of ~372 KB for the MMKV AAR; the kill test showed MMKV's recover mode returning value bytes as keys. |
 | 2026-10-30 | Animation is declared at build time (`animate`, `enter`, `exit` props) and run natively from target values; `exit` delays the native REMOVE, not JS | Section 10. JS stays simple (it sets values and removes elements as usual); every frame is native and draw-phase only. |
+| 2026-10-30 | OTA (`docs/ota.md`): capability manifest decides where a bundle may run (no exact native hash); the framework defines a check protocol + reference Bun server + release CLI (ZeroBill's backend serves the same protocol in milestone 5); ECDSA P-256 with a backup key; apply at cold start or `Updates.applyNow()`, blocked by `holdApply()`; full compressed bundles first | Pavan's decisions D1–D5. One fix reaches every compatible install; the framework doesn't depend on ZeroBill's backend; P-256 is native on Android 7; RN showed customers open the app 1–2× a month, so cold start alone is too slow; bundles are ~115 KB compressed, so patches can wait. |
+| 2026-10-30 | Builds are byte-for-byte repeatable: template ids are given by file path after all files are compiled; Bun's random `debugId` line is dropped. One place (`ZnBundles`) picks the running bundle (APK or a downloaded folder) for bytecode, templates and images | `docs/ota.md` §3.1. Ids followed Bun's file load order, so the same source gave a new SHA each build; one SHA = one serial and small patches need repeatable output. |
 | 2026-10-30 | Flow engine parked (not in v1); `flowStore` is public and payments use the save-then-verify pattern | Section 12 note, `docs/guide-notes.md` §16. For one or two money journeys, ~30 lines of app code plus the backend's `/verify` give the same safety; the engine pays off with many journeys and teams. |
 
 ## 25. Open items (to decide while building, not blockers)

@@ -7,9 +7,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
-import java.io.FileInputStream
 import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
 import org.json.JSONObject
 
 /**
@@ -38,11 +36,13 @@ object ZnTemplates {
         if (files.containsKey(asset)) return
         val state = mutableStateOf<ZnBundle?>(null)
         files[asset] = state
-        val appContext = context.applicationContext
+        ZnBundles.init(context)
         io.post {
             val t0 = System.nanoTime()
-            val templates = TemplateReader.read(map(appContext, asset)).templates.map(::ZnTemplate)
-            val bundle = readManifest(appContext, "$asset.json", templates)
+            // From the running bundle: the APK's assets or a downloaded OTA bundle (ZnBundles, docs/ota.md).
+            val bytes = checkNotNull(ZnBundles.map(asset)) { "bundle ${ZnBundles.running} has no $asset" }
+            val templates = TemplateReader.read(bytes).templates.map(::ZnTemplate)
+            val bundle = readManifest("$asset.json", templates)
             val ms = (System.nanoTime() - t0) / 1e6
             Log.i(TAG, "template $asset: ${templates.size} template(s), ${bundle.routes.all.size} route(s) " +
                 "read and prepared in %.2f ms".format(ms))
@@ -72,12 +72,8 @@ object ZnTemplates {
         waiting.remove(asset)?.forEach { it(bundle) }
     }
 
-    private fun readManifest(context: Context, name: String, templates: List<ZnTemplate>): ZnBundle {
-        val text = try {
-            context.assets.open(name).bufferedReader().use { it.readText() }
-        } catch (_: java.io.IOException) {
-            return ZnBundle(templates, emptyMap(), ZnRoutes(emptyList()))
-        }
+    private fun readManifest(name: String, templates: List<ZnTemplate>): ZnBundle {
+        val text = ZnBundles.readText(name) ?: return ZnBundle(templates, emptyMap(), ZnRoutes(emptyList()))
         return readManifest(name, text, templates)
     }
 
@@ -105,17 +101,5 @@ object ZnTemplates {
             )
         }
         return ZnBundle(templates, components, ZnRoutes(routes))
-    }
-
-    /** Maps the asset from the APK when it is stored uncompressed (apps mark *.zn.ui noCompress); else reads it. */
-    private fun map(context: Context, asset: String): ByteBuffer = try {
-        context.assets.openFd(asset).use { fd ->
-            FileInputStream(fd.fileDescriptor).channel.use { ch ->
-                ch.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.length)
-            }
-        }
-    } catch (_: java.io.FileNotFoundException) {
-        // openFd fails for compressed assets.
-        ByteBuffer.wrap(context.assets.open(asset).use { it.readBytes() })
     }
 }

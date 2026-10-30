@@ -20,25 +20,40 @@ export interface ZnManifest {
 
 export interface ZnBuild {
   plugin: BunPlugin
-  /** After Bun.build: the .zn.ui bytes and the manifest. */
-  outputs(): { templates: Uint8Array; manifest: ZnManifest }
+  /**
+   * After Bun.build: the .zn.ui bytes, the manifest, and the bundle's [js] with the template ids filled in.
+   * Templates are numbered by file path, then by their order in the file, so the same source always gives the same
+   * bytes (one bundle = one SHA-256, docs/ota.md §3.1; small binary patches later), whatever order Bun loaded files.
+   */
+  outputs(js: string): { templates: Uint8Array; manifest: ZnManifest; js: string }
   /** After Bun.build: per .tsx file (absolute path), compiler output position → TSX position. */
   maps: Map<string, LineMap>
 }
 
+/** Template id placeholder in generated code: fixed width, so filling it in (padded with spaces) moves no column. */
+const PLACEHOLDER = /__znT(\d{6})__/g
+const placeholder = (n: number) => `__znT${String(n).padStart(6, "0")}__`
+
 export function znBuild(): ZnBuild {
+  // Indexed by reservation number (the order templates were reserved in, which depends on Bun's load order).
   const specs: NodeSpec[] = []
+  const reservedBy: { file: string; seq: number }[] = []
+  /** Component name → reservation number. */
   const components: Record<string, number> = {}
   const maps = new Map<string, LineMap>()
   let routes: { file: string; entries: RouteEntry[] } | null = null
+  let compiling = "" // the file being compiled; compileModule is synchronous, so no two files interleave
+  let seqInFile = 0
   const ctx = {
     reserveTemplate() {
       specs.push(null as unknown as NodeSpec)
+      reservedBy.push({ file: compiling, seq: seqInFile++ })
       return specs.length - 1
     },
     defineTemplate(id: number, spec: NodeSpec) {
       specs[id] = spec
     },
+    ref: placeholder,
   }
 
   const plugin: BunPlugin = {
@@ -47,6 +62,8 @@ export function znBuild(): ZnBuild {
       build.onLoad({ filter: /\.tsx$/ }, async ({ path }) => {
         const source = await Bun.file(path).text()
         const staticImports = await loadStaticImports(source, path)
+        compiling = path
+        seqInFile = 0
         const out = compileModule(source, path, ctx, staticImports)
         for (const [name, id] of Object.entries(out.components)) {
           if (name in components && components[name] !== id) {
@@ -75,9 +92,26 @@ export function znBuild(): ZnBuild {
   return {
     plugin,
     maps,
-    outputs() {
+    outputs(js: string) {
+      // Final ids: by file path, then by order in the file.
+      const order = reservedBy
+        .map((r, reservation) => ({ ...r, reservation }))
+        .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.seq - b.seq))
+      const finalId: number[] = []
+      order.forEach((r, id) => (finalId[r.reservation] = id))
+      const finalSpecs = order.map((r) => specs[r.reservation])
+      const finalComponents: Record<string, number> = {}
+      for (const [name, reservation] of Object.entries(components).sort((a, b) => finalId[a[1]] - finalId[b[1]])) {
+        finalComponents[name] = finalId[reservation]
+      }
+      const filledJs = js.replace(PLACEHOLDER, (token, n: string) => {
+        const id = finalId[Number(n)]
+        if (id === undefined) throw new Error(`zero-native: unknown template placeholder ${token} in the bundle`)
+        return String(id).padEnd(token.length)
+      })
+
       const table: ManifestRoute[] = (routes?.entries ?? []).map((r) => {
-        const screen = components[r.component]
+        const screen = finalComponents[r.component]
         if (screen === undefined) {
           throw new Error(
             `${routes!.file}: route "${r.name}": screen ${r.component} has no template ` +
@@ -86,7 +120,11 @@ export function znBuild(): ZnBuild {
         }
         return { ...r, screen }
       })
-      return { templates: writeTemplateFile(specs).bytes, manifest: { components, routes: table } }
+      return {
+        templates: writeTemplateFile(finalSpecs).bytes,
+        manifest: { components: finalComponents, routes: table },
+        js: filledJs,
+      }
     },
   }
 }

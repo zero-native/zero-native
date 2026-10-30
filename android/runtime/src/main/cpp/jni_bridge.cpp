@@ -6,8 +6,13 @@
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <android/log.h>
+#include <fcntl.h>
 #include <jni.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
+#include <cerrno>
 #include <ctime>
 #include <cstring>
 #include <memory>
@@ -176,6 +181,32 @@ Java_dev_zeronative_runtime_ZnNative_evalAsset(JNIEnv* e, jclass /* clazz */, jl
       static_cast<size_t>(AAsset_getLength(asset)),
       owner,
   };
+  return toResult(e, holder(handle)->runtime.evalBytecode(bytes, name));
+}
+
+// Runs bytecode from a file: a downloaded OTA bundle (ZnBundles.kt, docs/ota.md). The file is mapped read-only, the
+// same as an uncompressed APK asset: no copy, and memory pages are shared with the OS file cache. Bundle files are
+// never changed in place (a new bundle is a new folder), so the mapping stays valid while JS runs.
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_zeronative_runtime_ZnNative_evalFile(JNIEnv* e, jclass /* clazz */, jlong handle, jstring jPath,
+                                              jstring jName) {
+  const std::string path = toStdString(e, jPath);
+  const std::string name = toStdString(e, jName);
+  const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return toResult(e, {false, "can't open " + path + ": " + std::strerror(errno)});
+  struct stat st{};
+  if (fstat(fd, &st) != 0 || st.st_size <= 0) {
+    close(fd);
+    return toResult(e, {false, "empty or unreadable file: " + path});
+  }
+  const auto size = static_cast<size_t>(st.st_size);
+  void* data = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+  close(fd);  // the mapping keeps the file open
+  if (data == MAP_FAILED) return toResult(e, {false, "can't map " + path + ": " + std::strerror(errno)});
+
+  // The shared_ptr unmaps the file when the engine no longer needs the bytes.
+  std::shared_ptr<const void> owner(data, [size](const void* p) { munmap(const_cast<void*>(p), size); });
+  zn::Bytes bytes{static_cast<const uint8_t*>(data), size, owner};
   return toResult(e, holder(handle)->runtime.evalBytecode(bytes, name));
 }
 

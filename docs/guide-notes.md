@@ -407,6 +407,21 @@ await SecureStore.set("refreshToken", token)
 
 ---
 
+## 23. What an OTA update can change (bundle loading built, step 4.1; downloads come in 4.5)
+- **An update can change:** your screens and logic (bytecode), layouts and styles (templates), routes, and your own
+  images. **It can't change:** Kotlin / Swift code, native modules, the framework's native side, or the Hermes
+  engine. Those need a store release.
+- **Do:** keep your images in the app's `assets/` folder next to `src/` (the sample: `examples/sample/assets/`) and
+  use them as `asset:images/x.png`. The build copies them into the bundle, so an update can change or add images.
+- **Don't:** put images straight into the Android project's `src/main/assets`. They work, but only a store release
+  can change them; an update that refers to a new image there shows an empty box.
+- **Do:** expect the same source to give the same bundle, byte for byte. If a rebuild of unchanged source gives a
+  new bundle SHA, something is wrong (tell us): it would ship an update nobody made.
+- **Why:** the app runs exactly one bundle per process, either the one in the APK or a downloaded one. Bytecode,
+  templates and images always come from the same bundle, and a newer APK always wins over an older download.
+
+---
+
 ## Open items to write up when built
 - `<List>` rails, carousel, impressions (steps 2.4b–d). See
   `docs/cross-communication/2026-10-29-feeds-and-lists-proposal.md`.

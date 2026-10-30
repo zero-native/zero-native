@@ -77,6 +77,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
 
     testImplementation("junit:junit:4.13.2")
+    // Android's org.json is a stub in JVM unit tests; this is the real one (tests only: ZnBundlesTest).
+    testImplementation("org.json:json:20250517")
 
     // The runtime's own Baseline Profile ships inside the library, so every app gets it (startup rule 6).
     // Recorded by driving the sample; only our classes are kept (Compose ships its own profile).

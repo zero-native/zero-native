@@ -30,13 +30,17 @@ export async function buildApp(entry: string): Promise<AppBuild> {
 
   const js = result.outputs.find((o) => o.kind === "entry-point")!
   const mapFile = result.outputs.find((o) => o.kind === "sourcemap")
-  const { templates, manifest } = zn.outputs()
+  // Bun ends the bundle with a random `//# debugId=` comment (it links the file to its source map). We keep the map
+  // ourselves, and the same source must give the same bytes (docs/ota.md §3.1), so it is dropped. It is the last
+  // line, so no position in the source map moves.
+  const bundled = (await js.text()).replace(/\n\/\/# debugId=[0-9A-Fa-f]+\s*$/, "\n")
+  const { templates, manifest, js: filledJs } = zn.outputs(bundled)
   const bundleMap: DecodedMap | null = mapFile ? decodeSourceMap(JSON.parse(await mapFile.text())) : null
 
   return {
     templates,
     manifest,
-    js: await js.text(),
+    js: filledJs,
     original(line, col) {
       const hit = bundleMap && lookup(bundleMap, line, col)
       if (!hit) return null

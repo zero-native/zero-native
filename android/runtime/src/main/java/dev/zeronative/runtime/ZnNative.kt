@@ -19,6 +19,9 @@ internal object ZnNative {
     /** Returns "ok:<value>" or "error:<message>". */
     @JvmStatic external fun evalAsset(runtime: Long, assets: AssetManager, name: String): String
 
+    /** Like [evalAsset], for a bytecode file (a downloaded OTA bundle, [ZnBundles]). The file is memory-mapped. */
+    @JvmStatic external fun evalFile(runtime: Long, path: String, name: String): String
+
     /** Like [evalAsset], for bytecode in memory (debug builds: a new build from `zn dev`). */
     @JvmStatic external fun evalBytes(runtime: Long, bytes: ByteArray, name: String): String
 

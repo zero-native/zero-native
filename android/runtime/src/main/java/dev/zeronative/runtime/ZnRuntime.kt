@@ -62,6 +62,7 @@ object ZnRuntime {
         }
         started = true
         appContext = context.applicationContext
+        ZnBundles.init(appContext) // which bundle runs is chosen on first use, off the main thread
         js.post {
             val t0 = SystemClock.uptimeMillis()
             jsRuntime = createOnJsThread()
@@ -86,12 +87,18 @@ object ZnRuntime {
         return ZnNative.createRuntime(flowDir, storageDir).also { createdCount.incrementAndGet() }
     }
 
-    /** Runs a bytecode asset on the JS thread and reports the result on the main thread. */
+    /**
+     * Runs bytecode file [name] of the running bundle on the JS thread and reports the result on the main thread.
+     * The running bundle is the APK's assets or a downloaded OTA bundle ([ZnBundles], docs/ota.md).
+     */
     fun evalAsset(name: String, onResult: (EvalResult) -> Unit = {}) {
         checkStarted()
         js.post {
             val t0 = SystemClock.uptimeMillis()
-            val result = evalResult(ZnNative.evalAsset(jsRuntime, appContext.assets, name), t0)
+            val file = ZnBundles.file(name)
+            val raw = if (file != null) ZnNative.evalFile(jsRuntime, file.path, name)
+                else ZnNative.evalAsset(jsRuntime, appContext.assets, name)
+            val result = evalResult(raw, t0)
             if (result.ok) Log.i(TAG, "$name evaluated in ${result.millis} ms") else Log.e(TAG, "$name failed: ${result.value}")
             main.post { onResult(result) }
         }
