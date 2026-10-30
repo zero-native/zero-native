@@ -5,7 +5,7 @@
     "": {
       "name": "zero-native",
       "devDependencies": {
-        "hermes-compiler": "250829098.0.17",
+        "hermes-compiler": "260318099.0.5",
         "typescript": "5.9.3",
       },
     },
@@ -54,7 +54,7 @@
 
     "@zero-native/ui": ["@zero-native/ui@workspace:packages/ui"],
 
-    "hermes-compiler": ["hermes-compiler@250829098.0.17", "", {}, "sha512-qG1PXzTEtriF6oQLZF3vyHhSMxOdW5h2TqqLri0rdpstPustd2fSvRZQMVAPdlhgFwBfYnj3OUZtiO6LjYsEFw=="],
+    "hermes-compiler": ["hermes-compiler@260318099.0.5", "", {}, "sha512-4Gze+pGTGTUBRmnv6LtdOMo6ZzMMh3hEkvDiWzvuNL5LM0EO5YGhr8xh3fRjFaEqReUwEGjJGcGgEPFe9+E6Gw=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
   }

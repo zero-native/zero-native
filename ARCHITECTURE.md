@@ -652,6 +652,8 @@ Each flow declares `expiresAfter` (sliding by default: refreshed on every save).
 | Implementation | two-slot mmap file in the C++ core, no dependencies | MMKV (Android + iOS) called **synchronously** from JS through JSI host functions (no Promises; reads are a memory lookup); swappable |
 
 Secrets (tokens, keys) go in **SecureStore** (Android Keystore-backed / iOS Keychain), never in FlowStore or Storage.
+**Built (step 3.5):** Storage and SecureStore, `docs/storage.md`. Storage is MMKV built from source into `libzn.so`;
+a store damaged by a kill or power loss opens empty (measured: MMKV's "recover" mode returns garbage).
 
 ### 13.2 FlowStore file format (decided)
 One file per flow plus one for navigation, in app-private storage, **excluded from backups**.
@@ -700,6 +702,7 @@ never for anything a flow needs.
 ## 14. Host APIs for plain TypeScript (decided list)
 - `fetch` (subset: method, headers, body as string / bytes / form, JSON helpers, timeouts, abort). Native HTTP stack:
   OkHttp on Android, URLSession on iOS. Cookies off by default. Cronet / HTTP/3 is an optional later backend.
+  **Built (step 3.4):** design, defaults and the production problems it handles are in `docs/fetch.md`.
 - Timers: `setTimeout`, `setInterval`, `queueMicrotask`. **Rules (v0 lesson):**
   - A timer id returned to JS is a **logical handle** that never changes for the life of the timer.
     `setInterval` keeps one handle even though each tick schedules a new native callback.
@@ -946,6 +949,9 @@ zero-native/
 | 2026-10-30 | Route option `keyboard: "resize"` (default) / `"none"` instead of a global soft-input mode | Section 11. Per screen, like `safeArea`; a payment screen keeps its Pay button above the keyboard by default. |
 | 2026-10-30 | `zn dev` sends whole builds (templates + bytecode) over plain TCP and restarts the JS runtime; the back stack is reopened by route name | Section 17. Bytecode compiled on the computer loads in ~15–50 ms on the Lava; a fresh runtime has no stale closures or listeners (RN Fast Refresh's common bugs). Plain TCP avoids a cleartext-HTTP exception in every app's manifest. |
 | 2026-10-30 | `storage` (MMKV) is synchronous JSI, not an async native module | Section 13.1. MMKV reads and writes are memory operations (microseconds); a Promise per read would make simple code (`if (storage.get("onboarded"))`) awkward for no gain. Same reason as FlowStore. |
+| 2026-10-30 | `fetch` defaults: 30 s limit on the whole request, 10 MB body limit, not tied to the screen, non-idempotent bodies one-shot (OkHttp never resends a POST), no HTTPS → HTTP redirects, cookies and cache off | `docs/fetch.md`. Each one answers a production problem RN / Flutter apps had; the double-POST one was reproduced and stopped on the Lava. |
+| 2026-10-30 | Binary data crosses the bridge as raw bytes: `bytes` in, `resolveBytes` out (one ArrayBuffer, app event 9) | Section 15.1, `docs/fetch.md` §4. No base64 or JSON escaping for bodies and files; one copy on the way to JS. |
+| 2026-10-30 | Storage = MMKV's C++ core vendored and built into `libzn.so`; values tagged with their type; damaged stores are dropped, never "recovered"; not in backups. SecureStore = Android Keystore AES-256-GCM, one file per key | `docs/storage.md`. ~87 KB download instead of ~372 KB for the MMKV AAR; the kill test showed MMKV's recover mode returning value bytes as keys. |
 | 2026-10-30 | Flow engine parked (not in v1); `flowStore` is public and payments use the save-then-verify pattern | Section 12 note, `docs/guide-notes.md` §16. For one or two money journeys, ~30 lines of app code plus the backend's `/verify` give the same safety; the engine pays off with many journeys and teams. |
 
 ## 25. Open items (to decide while building, not blockers)

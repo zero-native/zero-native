@@ -16,7 +16,7 @@ class SampleApp : Application() {
         // Everything below only posts work to other threads and returns at once (startup rules).
         ZnTemplates.preload(this, "main.zn.ui")
         ZnRuntime.start(this)
-        ZnModules.register(DeviceModule()) // the sample's own native module (src/device.ts)
+        ZnModules.register(DeviceModule(this)) // the sample's own native module (src/device.ts)
         // Registered before JS runs, so the first batch is never missed (it can land before MainActivity exists).
         ZnRuntime.addBatchListener { ops, _, _ ->
             if (!firstBatchApplied) {

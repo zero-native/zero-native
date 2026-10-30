@@ -23,6 +23,9 @@ until it is proven.
 | `startup-and-performance.md` | startup rules and budget, how to measure, every number measured so far |
 | `platform-differences.md` | known differences between Android, iOS and React Native semantics |
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |
+| `fetch.md` | `fetch`: design, defaults, and the production problems (RN / Flutter / OkHttp) it handles |
+| `storage.md` | app storage (MMKV, synchronous), SecureStore, and when a store can be lost |
+| `hermes-features.md` | what Hermes 260318099 added (JSI runtime data, `ISerialization`, faster JSON, ...) and how we could use it later |
 | `milestones.md` | **the build plan, progress log, and how to build and run the sample app** |
 | `after-foundations.md` | parked ideas to pick up once the foundations work |
 | `guide-notes.md` | **how app authors should use what we build** (do / don't / why): raw material for the public docs. Update it whenever an author-facing feature lands |

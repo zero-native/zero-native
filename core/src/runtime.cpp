@@ -25,6 +25,13 @@ void Runtime::dispatchEvent(uint32_t instance, uint16_t eventId, const Value& pa
   endTick();
 }
 
+void Runtime::dispatchBytes(uint32_t instance, uint16_t eventId, std::vector<uint8_t> bytes) {
+  const std::array<Value, 2> args{Value::number(instance), Value::number(eventId)};
+  EvalResult result = engine_->callGlobalBytes("__zn_onEvent", args, std::move(bytes));
+  if (!result.ok) platform_.jsError("event handler failed", result.value);
+  endTick();
+}
+
 void Runtime::fireTimer(uint32_t handle) {
   auto it = timers_.find(handle);
   if (it == timers_.end()) return;  // cleared: a queued fire never runs (ARCHITECTURE §14, "clear always wins")
@@ -103,8 +110,8 @@ void Runtime::listRow(uint32_t instance, uint16_t node, Value key, uint32_t row)
 }
 
 void Runtime::call(std::string_view module, std::string_view method, std::string_view argsJson,
-                   uint32_t callbackId) {
-  platform_.callNative(module, method, argsJson, callbackId);
+                   uint32_t callbackId, std::optional<std::span<const uint8_t>> bytes) {
+  platform_.callNative(module, method, argsJson, callbackId, bytes);
 }
 
 void Runtime::cancelCall(uint32_t callbackId) { platform_.cancelNative(callbackId); }
@@ -125,6 +132,34 @@ FlowStore::ReadResult Runtime::storeRead(std::string_view key) { return flowStor
 std::vector<std::string> Runtime::storeList() { return flowStore().list(); }
 
 bool Runtime::storeRemove(std::string_view key) { return flowStore().remove(key); }
+
+Storage& Runtime::storage() {
+  if (!storage_) {
+    storage_ = std::make_unique<Storage>(platform_.storageDir(),
+                                         [this](int level, std::string_view m) { platform_.log(level, m); });
+  }
+  return *storage_;
+}
+
+bool Runtime::storageSet(std::string_view id, std::string_view key, std::span<const uint8_t> tagged) {
+  const bool ok = storage().set(id, key, tagged);
+  if (!ok) platform_.log(3, "storage: saving \"" + std::string(key) + "\" in \"" + std::string(id) + "\" failed");
+  return ok;
+}
+
+std::optional<std::vector<uint8_t>> Runtime::storageGet(std::string_view id, std::string_view key) {
+  return storage().get(id, key);
+}
+
+bool Runtime::storageHas(std::string_view id, std::string_view key) { return storage().has(id, key); }
+
+bool Runtime::storageRemove(std::string_view id, std::string_view key) { return storage().remove(id, key); }
+
+std::vector<std::string> Runtime::storageKeys(std::string_view id) { return storage().keys(id); }
+
+void Runtime::storageClear(std::string_view id) { storage().clear(id); }
+
+void Runtime::storageFlush(std::string_view id) { storage().flush(id); }
 
 uint32_t Runtime::setTimer(double delayMs, bool repeat) {
   const uint32_t handle = nextTimer_++;

@@ -21,8 +21,9 @@ EventChannel / Pigeon.
 
 **Native (`android/runtime/.../ZnModules.kt`):**
 - `ZnModuleBase("Name", version)` with `function("x", onMain = false) { call -> ... }`; or implement `ZnModule`.
-- `ZnCall`: `args`, `resolve(value)`, `reject(code, message)`, `isCancelled`, `onCancel { }`. Answer exactly once; a
-  cancelled call's answer is dropped; an exception rejects with `failed`.
+- `ZnCall`: `args`, `bytes` (binary input or null), `resolve(value)`, `resolveBytes(value, bytes)`,
+  `reject(code, message)`, `isCancelled`, `onCancel { }`. Answer exactly once; a cancelled call's answer is dropped;
+  an exception rejects with `failed`. (`bytes` / `resolveBytes`: step 3.4, see `docs/fetch.md` §4.)
 - Calls run on a 2-thread I/O pool, or the main thread per function. `emit(event, payload, latestOnly)`:
   `latestOnly` keeps one delivery queued per event and it reads the newest value when the JS thread runs it.
 - Path: `__zn_call` / `__zn_cancel` → C++ `Platform::callNative` / `cancelNative` → JNI (args as UTF-8 bytes) →
@@ -34,8 +35,8 @@ screen `/dev/modules`). On the Lava (debug + release): info call; ticks every 50
 and native "stopped early"; `fail()` → `NativeError` with code `no_luck`. Tests: JS `calls.test.ts` (typed calls,
 version marker, error codes, abort, screen-close drop, events + listener counts), C++ `testNativeCall`.
 
-**Not built:** codegen (Kotlin interface from the TS interface, capability-manifest entries), binary arguments,
-`fetch`, built-in modules (Gemini, see the brief).
+**Not built:** codegen (Kotlin interface from the TS interface, capability-manifest entries), built-in modules
+(Gemini, see the brief). Binary arguments and `fetch` were built in step 3.4.
 
 ## 2. How others do it
 | | Declaration | Calls | Native → JS | Types |

@@ -4,6 +4,8 @@ import { installEvents } from "./events"
 import { installTimers } from "./timers"
 import { installCalls } from "./calls"
 import { installAbort } from "./abort"
+import { installText } from "./text"
+import { installFetch } from "./fetch"
 
 export * from "./native"
 export { parseColor } from "./color"
@@ -31,6 +33,15 @@ export { onEvent } from "./events"
 export { nav, startApp, useBack, useImpressions, type ImpressionOptions, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
 export { flowStore, type StoreRead } from "./flowstore"
+export {
+  createStorage,
+  persistedSignal,
+  storage,
+  type Storage,
+  type StorageListener,
+  type StoredValue,
+} from "./storage"
+export { SecureStore } from "./secure-store"
 export { Keyboard, type KeyboardModule } from "./keyboard"
 export {
   callNative,
@@ -38,9 +49,26 @@ export {
   NativeError,
   onNativeEvent,
   pendingCallCount,
+  type BytesResult,
   type CallOptions,
   type ModuleHandle,
 } from "./calls"
+export {
+  fetch,
+  FetchError,
+  Request,
+  Response,
+  setFetchDefaults,
+  type BodyInit,
+  type FetchDefaults,
+  type FetchErrorCode,
+  type FetchInit,
+  type RedirectMode,
+  type ResponseInit,
+} from "./fetch"
+export { Headers, type HeadersInit } from "./headers"
+export { FormData, type FormFile, type FormValue } from "./formdata"
+export { useAbortSignal } from "./abort"
 export {
   defineRoutes,
   type PathParams,
@@ -60,4 +88,6 @@ export function installRuntime(): void {
   installEvents()
   installAbort()
   installCalls()
+  installText()
+  installFetch()
 }

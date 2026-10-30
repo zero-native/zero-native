@@ -24,3 +24,7 @@ target_link_libraries(zn PRIVATE
     android
     log
 )
+
+# Only the JNI entry points (compiled into this library, in jni_bridge.cpp) must be visible. Hiding the symbols of the
+# static libraries (our core, MMKV) lets the linker drop the code nothing calls: without this, all of MMKV is kept.
+target_link_options(zn PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections)

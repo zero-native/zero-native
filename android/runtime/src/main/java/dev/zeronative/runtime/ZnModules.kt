@@ -14,10 +14,18 @@ import org.json.JSONObject
  */
 interface ZnCall {
     val args: JSONObject
+    /** Binary input from JS (an ArrayBuffer or typed array passed to `callNative` as `bytes`), or null. */
+    val bytes: ByteArray?
     val isCancelled: Boolean
 
     /** [value]: null, Boolean, Number, String, JSONObject or JSONArray. */
     fun resolve(value: Any? = null)
+
+    /**
+     * Answers with binary data: JS gets `{ value, bytes }`, where `bytes` is a Uint8Array (no base64, no JSON
+     * escaping; copied once on the way to JS). For bodies, files, images.
+     */
+    fun resolveBytes(value: Any?, bytes: ByteArray)
 
     /** [code]: "invalid_args", "failed", "unavailable", or the module's own code; JS gets NativeError(code, message). */
     fun reject(code: String, message: String)
@@ -81,7 +89,8 @@ abstract class ZnModuleBase(override val name: String, override val version: Int
 /**
  * Registered native modules and the call path: JS `__zn_call` → C++ → [call] (on the JS thread) → the module, on the
  * I/O pool or the main thread → the answer goes back to JS as app event 7 (`{ id, ok, value | code, error }`), which
- * settles the JS Promise (packages/core/src/calls.ts). JS `__zn_cancel` → [cancel]. Module events → app event 8.
+ * settles the JS Promise (packages/core/src/calls.ts); an answer with bytes goes as app event 9, one ArrayBuffer
+ * (ZnNative.dispatchBytes). JS `__zn_cancel` → [cancel]. Module events → app event 8.
  * The JS thread and the UI thread never wait for a module.
  */
 object ZnModules {
@@ -89,6 +98,7 @@ object ZnModules {
     private const val APP = 0
     private const val EVENT_RESULT = 7
     private const val EVENT_MODULE = 8
+    private const val EVENT_RESULT_BYTES = 9
     private const val NO_REPLY = 0
 
     private val modules = ConcurrentHashMap<String, ZnModule>()
@@ -113,12 +123,15 @@ object ZnModules {
         if (first) ZnRuntime.dispatchLatest(APP, EVENT_MODULE) { synchronized(latest) { latest.remove(key) } }
     }
 
-    internal fun call(module: String, method: String, argsJson: String, callbackId: Int) {
+    /** JS thread (called through ZnNative). */
+    internal fun call(module: String, method: String, argsJson: String, bytes: ByteArray?, callbackId: Int) {
         val m = modules[module]
+        // Answers belong to the runtime that asked: after a dev reload they are dropped, never sent to the new one.
+        val generation = ZnRuntime.currentGeneration
         val args = try {
             JSONObject(argsJson.ifEmpty { "{}" })
         } catch (e: Exception) {
-            if (callbackId != NO_REPLY) CallImpl(callbackId, "$module.$method", JSONObject()).reject("invalid_args", "arguments are not a JSON object")
+            if (callbackId != NO_REPLY) CallImpl(callbackId, "$module.$method", JSONObject(), null, generation).reject("invalid_args", "arguments are not a JSON object")
             return
         }
         // Internal: JS listener counts for module events (no reply).
@@ -131,7 +144,7 @@ object ZnModules {
             }
             return
         }
-        val call = CallImpl(callbackId, "$module.$method", args)
+        val call = CallImpl(callbackId, "$module.$method", args, bytes, generation)
         if (m == null) return call.reject("unavailable", "no native module \"$module\" in this app")
         val needs = args.optInt("__v", 1)
         args.remove("__v")
@@ -169,7 +182,13 @@ object ZnModules {
         synchronized(latest) { latest.clear() }
     }
 
-    private class CallImpl(private val id: Int, private val what: String, override val args: JSONObject) : ZnCall {
+    private class CallImpl(
+        private val id: Int,
+        private val what: String,
+        override val args: JSONObject,
+        override val bytes: ByteArray?,
+        private val generation: Int,
+    ) : ZnCall {
         @Volatile private var done = false
         @Volatile override var isCancelled = false
             private set
@@ -180,6 +199,9 @@ object ZnModules {
 
         override fun reject(code: String, message: String) =
             send(JSONObject().put("id", id).put("ok", false).put("code", code).put("error", message))
+
+        override fun resolveBytes(value: Any?, bytes: ByteArray) =
+            send(JSONObject().put("id", id).put("ok", true).put("value", value ?: JSONObject.NULL), bytes)
 
         override fun onCancel(block: () -> Unit) {
             val runNow = synchronized(cancelHooks) {
@@ -197,7 +219,7 @@ object ZnModules {
             hooks.forEach { runCatching(it).onFailure { e -> Log.e(TAG, "$what: onCancel threw", e) } }
         }
 
-        private fun send(payload: JSONObject) {
+        private fun send(payload: JSONObject, body: ByteArray? = null) {
             synchronized(this) {
                 if (done) {
                     Log.w(TAG, "$what answered twice; the second answer is ignored")
@@ -207,7 +229,8 @@ object ZnModules {
             }
             active.remove(id)
             if (isCancelled || id == NO_REPLY) return // JS gave up on it: drop the answer
-            ZnRuntime.dispatchEvent(APP, EVENT_RESULT, payload.toString())
+            if (body == null) ZnRuntime.dispatchAnswer(EVENT_RESULT, payload.toString(), generation)
+            else ZnRuntime.dispatchAnswerBytes(EVENT_RESULT_BYTES, payload.toString().toByteArray(), body, generation)
         }
     }
 }

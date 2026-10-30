@@ -8,6 +8,10 @@ export interface DeviceModule {
   slowEcho(args: { text: string; ms: number }, options?: CallOptions): Promise<string>
   /** Always rejects with code "no_luck" (to show error codes). */
   fail(): Promise<never>
+  /** Reads "dev.fromJs" through Kotlin's ZnStorage and writes dev.fromKotlin / kotlinNumber / kotlinFlag. */
+  storageEcho(): Promise<{ fromJs: string | null; typeError: string }>
+  /** A background thread writes dev.hammer.kotlin and dev.hammer.shared `count` times. */
+  storageHammer(args: { count: number }): Promise<{ count: number; ms: number }>
   events: {
     /** A counter every 50 ms, only while someone listens; if JS is busy only the newest value arrives. */
     tick: number

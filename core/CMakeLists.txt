@@ -1,7 +1,9 @@
 # zero-native C++ core, shared by Android and iOS (ARCHITECTURE.md §4).
 #
 # Targets:
-#   zn_core_base  runtime rules (batch, timers, ticks); no engine dependency, so it can be tested on its own
+#   zn_core_base  runtime rules (batch, timers, ticks, storage); no engine dependency, so it can be tested on its own
+#   core          MMKV's C++ core (third_party/mmkv, BSD-3), built from source and linked into zn_core_base. Built
+#                 against the shared C++ library we already ship: ~87 KB download, against ~370 KB for MMKV's AAR.
 #   zn_core       zn_core_base + the Hermes engine adapter
 #   zn_core_tests test executable (only when ZN_BUILD_TESTS=ON); see tools/run-core-tests.ps1
 #
@@ -17,10 +19,16 @@ add_library(zn_core_base STATIC
   src/batch.cpp
   src/flowstore.cpp
   src/runtime.cpp
+  src/utf8.cpp
+  src/storage.cpp
 )
 set_target_properties(zn_core_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(zn_core_base PUBLIC cxx_std_20)
 target_include_directories(zn_core_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# MMKV (app storage). Its own CMake file, unchanged from upstream, so upgrading = replacing third_party/mmkv/Core.
+add_subdirectory(third_party/mmkv/Core mmkv EXCLUDE_FROM_ALL)
+target_link_libraries(zn_core_base PRIVATE core log)
 
 # The engine adapter is only built when the host provides Hermes (the test build doesn't).
 if(TARGET hermes-engine::hermesvm)

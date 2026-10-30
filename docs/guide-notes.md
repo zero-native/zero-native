@@ -320,6 +320,57 @@ function Card(props: { header: Children; children?: Children }) {
 - **Why:** the native field owns the text while typing, so typing never waits for JS; each change and JS's answer to
   it are numbered (as in React Native), so an answer to an old keystroke never overwrites newer typing.
 
+## 20. Network calls: `fetch` (built, step 3.4)
+```ts
+const res = await fetch(`${API}/offers?page=${page}`, { headers: { Authorization: `Bearer ${token}` } })
+if (!res.ok) throw new Error(`offers: HTTP ${res.status}`)
+const offers = await res.json()
+```
+- **Do:** check `res.ok` / `res.status` before `res.json()`. HTTP errors (404, 500) are not exceptions; a 204 has no
+  body to parse.
+- **Do:** catch `FetchError` and look at `e.code` (`offline`, `timeout`, `dns`, `tls`, ...) to show the right message
+  ("You're offline" vs "Server is slow, try again").
+- **Do:** set `Content-Type: application/json` when you send `JSON.stringify(...)`.
+- **Do:** set app-wide limits once at startup if 30 s / 10 MB don't suit you: `setFetchDefaults({ timeout: 20_000 })`.
+  Per request, `timeout` / `maxBodySize` win.
+- **Do:** pass `signal: useAbortSignal()` for data only this screen needs (search, a list page): the request stops
+  when the screen closes.
+- **Do:** for payments and other money calls, save first, then call, then verify after a restart (§16). Send an
+  `Idempotency-Key` header if the server supports one.
+- **Don't:** retry POSTs in a loop. `fetch` never retries them (not even OkHttp's hidden retry); a retry of a payment
+  call must be a decision of the app and the server.
+- **Don't:** set `Accept-Encoding`, `Host`, `Content-Length` and other transport headers (they are dropped), or put
+  non-ASCII text in a header (encode it).
+- **Don't:** download big files with `fetch` (10 MB limit by default, all in memory). A native download comes later.
+- **Why:** the defaults are made for flaky mobile networks: a 30 s limit on the whole request (RN has none), stale
+  connections closed when the network changes, clear error codes, and no duplicate POSTs. Details: `docs/fetch.md`.
+
+## 21. Saving data: `storage`, `SecureStore`, `flowStore` (built, step 3.5)
+```ts
+if (!storage.getBoolean("onboarded")) nav.replace("welcome")
+const lang = persistedSignal("lang", "en")          // lang.set("kn") saves at once
+await SecureStore.set("refreshToken", token)
+```
+- **Do:** use `storage` for preferences, drafts and cached data. It is synchronous: read it while building a screen,
+  no `await`, no loading state.
+- **Do:** use `persistedSignal` for a setting the UI shows (language, theme, last tab): one line, always in sync.
+- **Do:** give each signed-in user their own store (`createStorage(\`user.${id}\`)`) and `clear()` it on sign-out.
+- **Do:** put tokens and keys in `SecureStore`, and treat `null` as "sign in again" (a secret can become unreadable).
+- **Do:** use `ZnStorage.store(context)` when Kotlin code (a widget, a push handler) needs the same data: same stores,
+  same types. Each key should have one writer: a push handler and JS both doing "read, add 1, write" can lose an
+  update. JS `onChange` doesn't fire for Kotlin writes: send a module event, or re-read when the screen shows.
+- **Don't:** use storage from a service with its own `android:process`: it throws (two processes would damage the
+  file).
+- **Do:** call `storage.flush()` after a write that must survive a power cut (the user's chosen language, a
+  "signed in" flag). Every write already survives the app being killed.
+- **Don't:** keep anything you can't rebuild only in `storage`: a power cut right after a write can make a store open
+  empty (`docs/storage.md` §4). Money state goes in `flowStore` and on the server.
+- **Don't:** store big blobs (images, long lists) in `storage`: every store is kept in memory while open. Files and a
+  native database come later.
+- **Don't:** read a key with a different type than you saved (`getString` on a number): it throws.
+- **Why:** MMKV reads and writes are memory operations (~1 µs read, ~4 µs write on the Lava), so making them async
+  would only add `await`s and loading states. Secrets need the Keystore, which is a system service: those are async.
+
 ---
 
 ## Open items to write up when built

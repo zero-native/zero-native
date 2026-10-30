@@ -39,6 +39,9 @@ object ZnRuntime {
     private var jsRuntime = 0L
     /** Bumped when a dev reload replaces the runtime: timers and events queued for the old one are dropped. */
     private var generation = 0
+
+    /** The runtime generation; read it on the JS thread only. Native call answers carry it (ZnModules). */
+    internal val currentGeneration: Int get() = generation
     /** True while a dev reload swaps runtimes: UI events in that window are dropped. */
     @Volatile private var reloading = false
     private var started = false
@@ -51,6 +54,12 @@ object ZnRuntime {
     @Synchronized
     fun start(context: Context) {
         if (started) return
+        // Application.onCreate runs in every process of the app; an SDK's extra process must not start a second JS
+        // runtime (startup cost, and two processes opening the same storage files).
+        if (!ZnProcess.isMain(context)) {
+            Log.i(TAG, "not starting the JS runtime in process ${ZnProcess.name()} (main process only)")
+            return
+        }
         started = true
         appContext = context.applicationContext
         js.post {
@@ -61,13 +70,20 @@ object ZnRuntime {
             Log.i(TAG, "runtime #$n started in ${SystemClock.uptimeMillis() - t0} ms (pid ${Process.myPid()})")
         }
         ZnModules.register(ZnKeyboard) // built-in module: Keyboard.dismiss()
+        ZnFetch.init(appContext) // built-in module behind the global fetch()
+        ZnModules.register(ZnFetch)
+        ZnSecureStore.init(appContext) // built-in module: SecureStore (Keystore-encrypted secrets)
+        ZnModules.register(ZnSecureStore)
         if (BuildConfig.DEBUG) ZnDev.start(appContext)
     }
 
     private fun createOnJsThread(): Long {
         // FlowStore files (ARCHITECTURE §13.2) live in noBackupFilesDir: never in backups or cloud restore.
         val flowDir = java.io.File(appContext.noBackupFilesDir, "zn").apply { mkdirs() }.absolutePath
-        return ZnNative.createRuntime(flowDir).also { createdCount.incrementAndGet() }
+        // App storage (MMKV, docs/storage.md): not in backups either. Restoring it to a new phone would bring back
+        // stale state and, with an old backup, mixed versions of it; apps keep what must follow the user on a server.
+        val storageDir = ZnStorage.dir(appContext).apply { mkdirs() }.absolutePath // the folder Kotlin's ZnStorage uses
+        return ZnNative.createRuntime(flowDir, storageDir).also { createdCount.incrementAndGet() }
     }
 
     /** Runs a bytecode asset on the JS thread and reports the result on the main thread. */
@@ -142,6 +158,20 @@ object ZnRuntime {
             val p = payload() ?: return@post
             ZnNative.dispatchEvent(jsRuntime, instance, eventId, 3, 0.0, p)
         }
+    }
+
+    /** A native call's answer (JSON) for the runtime of [gen]; dropped if a dev reload replaced that runtime. */
+    internal fun dispatchAnswer(eventId: Int, json: String, gen: Int) {
+        checkStarted()
+        if (reloading) return
+        js.post { if (gen == generation) ZnNative.dispatchEvent(jsRuntime, 0, eventId, 3, 0.0, json) }
+    }
+
+    /** Same, with binary data: JS gets one ArrayBuffer [u32 LE head size][head][body] (jni_bridge.cpp). */
+    internal fun dispatchAnswerBytes(eventId: Int, head: ByteArray, body: ByteArray, gen: Int) {
+        checkStarted()
+        if (reloading) return
+        js.post { if (gen == generation) ZnNative.dispatchBytes(jsRuntime, 0, eventId, head, body) }
     }
 
     fun addBatchListener(listener: BatchListener) {

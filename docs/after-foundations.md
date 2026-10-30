@@ -44,15 +44,19 @@ Pavan, 2026-10-29: feeds and catalogues need Flutter-sliver-like behaviour:
 | Row items as signals | `.map` mounts a row again when its item object changes (same key). Per-row signals would update in place. |
 | Timers owned by the screen | ARCHITECTURE §14 says a screen's timers stop when the screen is removed; `setTimeout` doesn't attach to owners yet. |
 | More dynamic props | Text, colour, background, opacity, src, disabled, and (registry v4, step 2.3) per-edge padding can change at runtime. Sizes, margins, gap etc. still need layout-phase slots like padding's (`docs/styling-and-layout.md` §8.3; `layoutPadding` in `ZnTemplate.kt` is the pattern). |
+| Deep-link query values | `zn://sample/dev/fetch?auto=1` reaches the route with params `{}`: query values are dropped (found in step 3.4) | Pass them as optional params, or document that deep links carry path params only. |
 | Safe-area gaps (step 2.3) | Insets reach JS after the first frame, so a full-bleed **start** screen would draw its header without the inset for one frame (send them with START). No horizontal full-bleed option (`safeArea` has top / bottom only). Keyboard inset: done (step 3.3, route option `keyboard`); a `<TextField>` inside a `<Sheet>` doesn't resize the sheet yet. |
 | Types for JSX | **Done (step 3.2):** JSX namespace in `@zero-native/ui`, `examples/sample/tsconfig.json`, `bun run test:types` checks the sample. Left: props are typed per component but slot / build-time rules are only checked by the compiler. |
 
 ## Data and porting
 | Item | What | Source | Notes |
 |---|---|---|---|
+| Storage follow-ups | Stores that go into Android backups, Block Store for staying signed in after a reinstall, encrypted stores, a backup copy for important stores, SecureStore with fingerprint / screen lock | `docs/storage.md` §5 | Only when an app needs one. |
 | Native list data source | SQLite / mmap rows read on an I/O thread straight into the row cache (10 lakh rows) | `docs/lists.md` §6 | v1.1. |
 | NativeWind `className` translator | Compile-time Tailwind subset → style keys, for porting ZeroBill RN code | `docs/styling-and-layout.md` §9 | v1.1, not decided. |
 | Cronet / HTTP/3 backend for `fetch` | Optional network backend | ARCHITECTURE §14 | Only if needed. |
+| `fetch` follow-ups | Streaming bodies, progress events, download to file, OkHttp 5 (`fastFallback`), an extra root for Android 7.0, sharing the client with Coil, a network-status module | `docs/fetch.md` §7 | Two need Pavan's call (OkHttp 5, Android 7.0 root). |
+| Own TS lib types (no DOM) | Apps get `fetch` / `Response` types from TypeScript's DOM lib, which also offers `document`, `window`, `Blob`, `ReadableStream` that don't exist here | step 3.4 | A `@zero-native/types` lib file with only what the runtime has. |
 
 ## Flows (parked by Pavan, 2026-10-30)
 Apps keep payments safe with FlowStore and the save-then-verify pattern (`docs/guide-notes.md` §16). The flow engine
@@ -68,17 +72,18 @@ below would make those rules automatic for every journey; pick it up when severa
 ## Build and engine
 | Item | Notes |
 |---|---|
+| Use what Hermes 260318099 added | `docs/hermes-features.md`: runtime data and `ISerialization` (JSI), faster JSON / Map / Set, `FinalizationRegistry`, built-in `TextDecoder`, bytecode version 99 (an OTA rule for milestone 4), with a suggested order. |
 | Build `libjsi.so` from source | The RN repo has the JSI source for the same release (`node_modules/react-native/ReactCommon/jsi/jsi/jsi.cpp`). Today we ship the prebuilt `libjsi.so` copied from `react-android:0.87.1`, which is the exact binary Hermes was built against. Building it ourselves removes a copied binary but must produce an identical ABI. |
 | Images: `zn://` handles, placeholders | Step 1.4 loads http(s) and `asset:` with Coil. `zn://` handles (ARCHITECTURE §15.4) and placeholder / error images are still to do. |
 | Icons: strokes and an icon-set importer | Step 1.4 draws fill paths from "minX minY w h\|d" strings. Stroke icons (Lucide etc.) and a script that turns a folder of SVGs into `icons.ts` are still to do. |
-| Upgrade Coil | Pinned at 3.0.4 (the v0 size check); lint reports 3.6.3. Upgrade together with the Compose BOM. **Scheduled: milestone 2 step 2.0b.** |
+| Upgrade Coil | **Done 2026-10-30:** Coil 3.6.3 with OkHttp 5.5.1. Coil 3.6 needs Kotlin stdlib 2.4, so the Kotlin compiler went 2.2.0 → 2.4.21 (the Compose compiler plugin version in `android/build.gradle.kts` sets it). |
 | Dynamic transforms | `transform` is build-time only; press-scale and animated transforms need slot-bound transforms (draw phase). |
 | Slot cells as arrays | `ZnInstance` keeps slot cells in a hash map; switch to an array sized from the template when it matters (lists, step 2). |
 | Direct `ByteBuffer` for batches | Batches cross JNI as a `byte[]` copy today (small). Switch to a direct buffer if measurements show a cost. |
 | Generate the Baseline Profiles | The `:baselineprofile` module is ready, but generation fails on the Lava: after macrobenchmark force-stops the app, the ROM drops the "save profile" broadcast even once the app is relaunched (`result=0`; `am kill` instead of force-stop works). Not a `targetSdk` issue. Run it once on any other Android 13+ phone or an emulator: `.\gradlew.bat :sample:generateBaselineProfile :runtime:generateBaselineProfile`, then measure with and without the profile. |
 | Lint in the step checklist | `NewApi` would have caught the API-35 crash in step 1.1. Run `.\gradlew.bat :runtime:lintDebug :sample:lintRelease` (0 errors at step 1.1). |
 | Upgrade the Compose BOM | We use `2024.09.00` (what v0 verified); lint reports `2026.09.00`. Upgrade in one step and re-measure startup and frames. **Scheduled: milestone 2 step 2.0b** (needed by Navigation 3). |
-| Hermes version | Lint reports `hermes-android 260318099.0.5`. We stay on `250829098.0.17` because JSI headers, `libjsi.so` and `hermesc` must all match; upgrading means replacing all four together (`core/third_party/jsi/README.md`). |
+| Hermes version | **Done 2026-10-30:** `260318099.0.5` (RN 0.88.1's Hermes), with its JSI headers, `libjsi.so` and `hermesc` (npm `hermes-compiler`). Cost: `libhermesvm.so` +228 KB raw, about +100 KB in download size. Next upgrade: same four together (`core/third_party/jsi/README.md`). |
 
 ## Project
 | Item | Notes |

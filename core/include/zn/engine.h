@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -50,14 +51,23 @@ class HostApi {
                           std::vector<Value> keys, std::vector<uint16_t> types) = 0;
   virtual void listRow(uint32_t instance, uint16_t node, Value key, uint32_t row) = 0;
   // Native module call (ARCHITECTURE §15.1); the result comes back later as an app event (runtime.h Platform).
+  // `bytes`: raw binary input (an ArrayBuffer from JS, e.g. a fetch body), or nullopt when JS passed none.
   virtual void call(std::string_view module, std::string_view method, std::string_view argsJson,
-                    uint32_t callbackId) = 0;
+                    uint32_t callbackId, std::optional<std::span<const uint8_t>> bytes) = 0;
   virtual void cancelCall(uint32_t callbackId) = 0;
   // FlowStore (ARCHITECTURE §13): synchronous on the JS thread (memory copies, microseconds).
   virtual bool storeWrite(std::string_view key, std::string_view payload, std::string* error) = 0;
   virtual FlowStore::ReadResult storeRead(std::string_view key) = 0;
   virtual std::vector<std::string> storeList() = 0;
   virtual bool storeRemove(std::string_view key) = 0;
+  // App storage (ARCHITECTURE §13.1, storage.h): synchronous on the JS thread. Values are tagged blobs (storage.h).
+  virtual bool storageSet(std::string_view id, std::string_view key, std::span<const uint8_t> tagged) = 0;
+  virtual std::optional<std::vector<uint8_t>> storageGet(std::string_view id, std::string_view key) = 0;
+  virtual bool storageHas(std::string_view id, std::string_view key) = 0;
+  virtual bool storageRemove(std::string_view id, std::string_view key) = 0;
+  virtual std::vector<std::string> storageKeys(std::string_view id) = 0;
+  virtual void storageClear(std::string_view id) = 0;
+  virtual void storageFlush(std::string_view id) = 0;
   // Timers (ARCHITECTURE §14): returns a handle that never changes for the life of the timer.
   virtual uint32_t setTimer(double delayMs, bool repeat) = 0;
   virtual void clearTimer(uint32_t handle) = 0;
@@ -79,6 +89,10 @@ class Engine {
   // Calls a global JS function (for example "__zn_onEvent"). Microtasks are drained before returning.
   // Returns an error result (not an exception) if the function is missing or throws.
   virtual EvalResult callGlobal(std::string_view name, std::span<const Value> args) = 0;
+
+  // Like callGlobal, with `bytes` added as a last argument: a JS ArrayBuffer that owns the vector (no copy).
+  virtual EvalResult callGlobalBytes(std::string_view name, std::span<const Value> args,
+                                     std::vector<uint8_t> bytes) = 0;
 
   // Runs queued microtasks. Called after every entry into JS (ARCHITECTURE §7.2, v0 lesson).
   virtual void drainMicrotasks() = 0;

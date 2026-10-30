@@ -55,7 +55,7 @@ android {
 
 dependencies {
     // Hermes V1. Must match core/third_party/jsi, libjsi.so and the hermesc used to build bytecode.
-    api("com.facebook.hermes:hermes-android:250829098.0.17")
+    api("com.facebook.hermes:hermes-android:260318099.0.5")
 
     // Slot cells are Compose state (ARCHITECTURE §9.1); exposed in ZnStore's API, hence `api`.
     api(platform("androidx.compose:compose-bom:2026.09.00"))
@@ -66,9 +66,13 @@ dependencies {
     // Screen host: the back stack is a list we own (ARCHITECTURE §11). Needs Compose ≥ 1.10 (step 2.0b).
     implementation("androidx.navigation3:navigation3-runtime:1.2.0")
     implementation("androidx.navigation3:navigation3-ui:1.2.0")
-    // Image loading (same versions as the v0 size check). Apps that load http(s) images need INTERNET permission.
-    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
-    implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
+    // Image loading. Coil 3.6 needs Compose foundation ≥ 1.12 (the BOM above has 1.12.1).
+    implementation("io.coil-kt.coil3:coil-compose:3.6.3")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
+    // fetch (ZnFetch.kt) and Coil's network loader. Coil asks for OkHttp 4.12; declaring 5.x here wins (Gradle takes the
+    // higher version; OkHttp 5 keeps 4.x's API). 5.x tries IPv6 and IPv4 together (fastFallback), which matters on
+    // networks with broken IPv6.
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
 
     testImplementation("junit:junit:4.13.2")
 

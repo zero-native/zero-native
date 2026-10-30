@@ -8,6 +8,9 @@
 //   settles, native is told to stop) when that screen closes, like its timers.
 // - Errors are `NativeError { code, message, module, method }`: "unavailable" (no such module, method or version),
 //   "cancelled", "invalid_args", "failed", or a module's own code.
+// - Binary data: `bytes` (an ArrayBuffer or typed array) goes to native as raw bytes (`call.bytes`), and a native
+//   `resolveBytes(value, bytes)` answer arrives as app event 9, one ArrayBuffer [u32 LE head size][head JSON][body];
+//   the Promise then resolves with `{ value, bytes }`, `bytes` being a Uint8Array view (no copy, no base64).
 // - Events (native → JS): `Module.on("event", handler)` → unsubscribe function; also ended when the screen closes.
 //   Native delivers app event 8 `{ module, event, payload }`. Native is told how many listeners an event has, so it
 //   can start / stop work (GPS, receivers) only while someone listens.
@@ -32,6 +35,19 @@ export class NativeError extends Error {
 export interface CallOptions {
   /** Abort the call: the Promise rejects with code "cancelled" and native is told to stop. */
   signal?: AbortSignal
+  /** Binary input for native (`call.bytes` in Kotlin). Read once, during the call. */
+  bytes?: ArrayBuffer | ArrayBufferView
+  /**
+   * false: the call is not tied to the current screen, so it still settles after the screen closes (fetch uses
+   * this). Default true: the screen closing drops it quietly.
+   */
+  owned?: boolean
+}
+
+/** What a native `resolveBytes(value, bytes)` answer resolves with. */
+export interface BytesResult<T = unknown> {
+  value: T
+  bytes: Uint8Array
 }
 
 interface Pending {
@@ -59,7 +75,7 @@ export function callNative<T = unknown>(
     const signal = options.signal
     if (signal?.aborted) return reject(new NativeError("cancelled", `${module}.${method} was cancelled`, module, method))
     const id = nextId++
-    const owned = ownedSet()
+    const owned = options.owned === false ? null : ownedSet()
     owned?.add(id)
     pending.set(id, { resolve, reject, module, method, owned })
     signal?.addEventListener("abort", () => {
@@ -68,7 +84,10 @@ export function callNative<T = unknown>(
       reject(new NativeError("cancelled", `${module}.${method} was cancelled`, module, method))
     })
     try {
-      globalThis.__zn_call(module, method, JSON.stringify(args), id)
+      const b = options.bytes
+      if (b === undefined) globalThis.__zn_call(module, method, JSON.stringify(args), id)
+      else if (b instanceof ArrayBuffer) globalThis.__zn_call(module, method, JSON.stringify(args), id, b, 0, b.byteLength)
+      else globalThis.__zn_call(module, method, JSON.stringify(args), id, b.buffer as ArrayBuffer, b.byteOffset, b.byteLength)
     } catch (e) {
       finish(id)
       reject(new NativeError("invalid_args", e instanceof Error ? e.message : String(e), module, method))
@@ -104,12 +123,29 @@ function ownedSet(): Set<number> | null {
   return set
 }
 
+type Answer = { id: number; ok: boolean; value?: unknown; code?: string; error?: string }
+
 function onResult(payload: NativeValue): void {
-  const r = JSON.parse(String(payload)) as { id: number; ok: boolean; value?: unknown; code?: string; error?: string }
+  settle(JSON.parse(String(payload)) as Answer)
+}
+
+/** App event 9: [u32 LE head size][head: the same JSON as event 7][body bytes]. */
+function onResultBytes(payload: unknown): void {
+  if (!(payload instanceof ArrayBuffer) || payload.byteLength < 4) {
+    reportError("native answer", new Error("binary answer is not an ArrayBuffer"))
+    return
+  }
+  const headSize = new DataView(payload).getUint32(0, true)
+  const head = globalThis.__zn_utf8Decode(payload, 4, headSize, false) as string
+  settle(JSON.parse(head) as Answer, new Uint8Array(payload, 4 + headSize))
+}
+
+function settle(r: Answer, bytes?: Uint8Array): void {
   const p = pending.get(r.id)
   if (!p || !finish(r.id)) return
-  if (r.ok) p.resolve(r.value ?? null)
-  else p.reject(new NativeError(r.code ?? "failed", r.error ?? "native call failed", p.module, p.method))
+  if (!r.ok) p.reject(new NativeError(r.code ?? "failed", r.error ?? "native call failed", p.module, p.method))
+  else if (bytes) p.resolve({ value: r.value ?? null, bytes })
+  else p.resolve(r.value ?? null)
 }
 
 // ---- Events (native → JS) ------------------------------------------------------------------------------------------
@@ -199,4 +235,5 @@ export function pendingCallCount(): number {
 export function installCalls(): void {
   onEvent(0, 7, onResult)
   onEvent(0, 8, onModuleEvent)
+  onEvent(0, 9, onResultBytes as (payload: NativeValue) => void) // its payload is an ArrayBuffer
 }

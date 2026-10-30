@@ -82,8 +82,8 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.1 | `zn dev`: save a TSX file → the screen reloads on the phone (debug builds only); JS errors show a dev error screen with the TSX file and line (source maps) | Claude | **done 2026-10-30** |
 | 3.2 | Compiler gaps: children for user components, fragments `<>…</>`, text spans, JSX types for editors | Claude | **done 2026-10-30** |
 | 3.3 | `<TextField>`: the native field owns the text, `onChange` to JS, controlled value, keyboard insets | Claude | **done 2026-10-30** |
-| 3.4 | `fetch` subset over OkHttp (method, headers, body, JSON, timeout, `AbortSignal`) | Claude | |
-| 3.5 | `storage` (MMKV) with **synchronous** JSI calls (no Promises), `SecureStore` (Android Keystore) | Claude | |
+| 3.4 | `fetch` subset over OkHttp (method, headers, body, JSON, timeout, `AbortSignal`) | Claude | **done 2026-10-30** |
+| 3.5 | `storage` (MMKV) with **synchronous** JSI calls (no Promises), `SecureStore` (Android Keystore) | Claude | **done 2026-10-30** |
 | 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | |
 | 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviews | brief: `docs/cross-communication/2026-10-30-milestone-3-gemini-brief.md` |
 | 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviews | same brief |
@@ -103,6 +103,67 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: step 3.5 done (Claude): `storage` (MMKV) and `SecureStore`
+- Design, numbers and rules: `docs/storage.md`; author rules: `docs/guide-notes.md` §21.
+- JS: `storage`, `createStorage(id)`, `persistedSignal(key, initial)`, `onChange`; `SecureStore.get / set / delete`.
+- MMKV 2.4.3's C++ core vendored in `core/third_party/mmkv` (BSD-3) and built into `libzn.so`; `libzn.so` now hides
+  everything but its JNI entry points (509 → 356 KB raw).
+- Kotlin access added after review: `ZnStorage.store(context, id)` (same stores, same types, any thread). Checked on
+  the Lava: JS ↔ Kotlin round trip with Hindi + emoji, types kept, wrong-type read throws (`/dev/storage` 8 / 8).
+- Background work checked after review: a Kotlin thread (like a push handler) and JS each wrote 20,000 times at once,
+  sharing one key: 0 torn values, counters exact (`/dev/storage` 9 / 9, 3 runs). `ZnStorage` throws and
+  `ZnRuntime.start` does nothing outside the app's main process (`ZnProcess.kt`; not tested with a real second
+  process: the sample has none).
+- `storage.flush()` added after review (forces a store to flash, ~1 ms). The speed check now compares all 10,000
+  values it reads back, and a value written on one open is checked exactly on the next (after a force-stop): passed
+  three opens in a row.
+- **Tests:** core 148 checks on the phone, including real MMKV and a 100-round kill test; JS 117 (8 new); lint 0
+  errors.
+- **Verified on the Lava (release):** `/dev/storage` 6 / 6: types round trip (Hindi, emoji, -0, bytes), wrong-type
+  read throws, stores separate; **write 4.0–4.5 µs, read 1.2–1.3 µs** per call from JS; SecureStore set 19–65 ms, get
+  9–18 ms; values kept across force-stop (visits counter 1 → 5 over kills). Cold start median 193 ms (n=10).
+- **Found:** killed mid-write, MMKV damaged its file in ~6 % of rounds (writing nonstop); its "recover" mode returned
+  value bytes as keys. We drop damaged stores instead (never a wrong value). Authors told: `storage` is for data the
+  app can rebuild.
+- **Size:** release APK 6.86 → 7.05 MB raw (+190 KB, MMKV + storage + SecureStore, after the symbol hiding).
+- **Not checked:** SecureStore after an OS update or backup restore (the "unreadable → null" path is code-reviewed
+  only), a real power cut.
+
+### 2026-10-30: version upgrades (Claude, asked by Pavan): Hermes, OkHttp, Coil, Kotlin
+| Library | Before | Now | Why it was safe / what it took |
+|---|---|---|---|
+| Hermes (`hermes-android`, npm `hermes-compiler`) | 250829098.0.17 | **260318099.0.5** | RN 0.88.1's Hermes. JSI headers and `libjsi.so` from `react-android:0.88.1` (only `decorator.h` changed). `-Xes6-block-scoping` still needed (still off by default). |
+| OkHttp | 4.12.0 (through Coil) | **5.5.1** | Coil asks for 4.12; our declaration wins. `fastFallback(true)` now on. |
+| Coil | 3.3.0 | **3.6.3** | Needs Kotlin stdlib 2.4 (why step 2.0b stopped at 3.3.0) and Compose foundation ≥ 1.12 (BOM has 1.12.1). |
+| Kotlin compiler (Compose plugin) | 2.2.0 | **2.4.21** | Needed by Coil 3.6. No code changes. |
+- `setFetchDefaults({ timeout, maxBodySize })` added (Pavan asked if the defaults can be changed app-wide).
+- **Verified on the Lava (release):** `/dev/fetch` 27 / 27 after each upgrade (with OkHttp 5 the PUT in the
+  pooled-connection test is sent 3 times, the POST still once); offers feed images load (Coil 3.6.3); amount keypad
+  → ₹1,250 with the cashback lines; no JS errors on offers / modules / input / amount; cold start median **199 ms**
+  (183–213, n=10), same as before. Kotlin tests, lint (0 errors), JS 109, `:baselineprofile` builds.
+- **Size:** release APK 6.59 MB → 6.63 MB (Coil + OkHttp + Kotlin stdlib, +38 KB) → 6.86 MB (Hermes, +227 KB raw;
+  `libhermesvm.so` deflated 1.03 → 1.13 MB, so about +100 KB download).
+- **Not checked:** `zn dev` reload with the new `hermesc`, a network with broken IPv6.
+
+### 2026-10-30: step 3.4 done (Claude): `fetch`
+- Design and the problem list (RN / Flutter / OkHttp production bugs and what we do): `docs/fetch.md`. Author rules:
+  `docs/guide-notes.md` §20.
+- Globals: `fetch`, `Headers`, `Request`, `Response`, `FormData`, `TextEncoder` / `TextDecoder`; `AbortSignal.timeout /
+  any / abort`, a small `DOMException`; `useAbortSignal()`; `FetchError` with codes.
+- New bridge piece for every module: binary input (`callNative(..., { bytes })` → `call.bytes`) and binary answers
+  (`call.resolveBytes` → one ArrayBuffer, app event 9). UTF-8 decode / encode in C++ (`core/src/utf8.cpp`).
+- Native answers now carry the runtime generation; an answer for a runtime replaced by `zn dev` is dropped.
+- Runtime manifest now declares `INTERNET` and `ACCESS_NETWORK_STATE`. OkHttp is a direct dependency (5.5.1 after
+  the upgrade below).
+- **Tests:** JS 108 (14 new for fetch), core 127 checks on the phone (UTF-8 rules, bytes in / out), Kotlin
+  `ZnFetchTest` (error codes), lint 0 errors.
+- **Verified on the Lava (debug and release):** `/dev/fetch` 27 / 27, including the pooled-connection test where
+  OkHttp sent a PUT twice and our POST once. Numbers in `docs/fetch.md` §6.
+- **Not checked:** Wi-Fi ↔ mobile switch, airplane mode, `content://` file upload, release cold start after this
+  change (the client is built on the first fetch, not at start).
+- Found on the way: a deep link's query values (`?a=1`) don't reach the screen's props (`→ fetch {}`); noted in
+  `docs/after-foundations.md`.
+
 ### 2026-10-30: steps 3.2 and 3.3 done (Claude): children, fragments, spans, JSX types; TextField and the keyboard
 - Registry v6: `Fragment` (15), `TextField` (16), prop `spans` (122), TextField props 123–135, events
   onChangeText / onSubmitEditing / onFocus / onBlur (11–14). Ids stay inside Claude's ranges (Gemini brief).

@@ -4,5 +4,6 @@ plugins {
     id("com.android.library") version "9.2.1" apply false
     id("com.android.test") version "9.2.1" apply false
     id("androidx.baselineprofile") version "1.5.0" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.2.0" apply false
+    // Also sets the Kotlin compiler version (AGP 9's built-in Kotlin). 2.4+ is needed by Coil 3.6 (2026-10-30).
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.21" apply false
 }

@@ -15,7 +15,7 @@
     "test:types": "tsc -p packages/core/test/tsconfig.types.json && tsc -p examples/sample"
   },
   "devDependencies": {
-    "hermes-compiler": "250829098.0.17",
+    "hermes-compiler": "260318099.0.5",
     "typescript": "5.9.3"
   }
 }

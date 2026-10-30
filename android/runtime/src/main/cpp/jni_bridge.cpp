@@ -9,11 +9,16 @@
 #include <jni.h>
 
 #include <ctime>
+#include <cstring>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "zn/runtime.h"
+#include "zn/storage.h"
 
 namespace {
 
@@ -27,6 +32,12 @@ jmethodID g_requestApply = nullptr;
 jmethodID g_callNative = nullptr;
 jmethodID g_cancelNative = nullptr;
 jmethodID g_jsError = nullptr;
+
+jbyteArray newByteArray(JNIEnv* e, const uint8_t* data, size_t size) {
+  jbyteArray array = e->NewByteArray(static_cast<jsize>(size));
+  e->SetByteArrayRegion(array, 0, static_cast<jsize>(size), reinterpret_cast<const jbyte*>(data));
+  return array;
+}
 
 JNIEnv* env() {
   JNIEnv* e = nullptr;
@@ -48,21 +59,24 @@ class AndroidPlatform final : public zn::Platform {
     __android_log_print(prio, kJsTag, "%.*s", static_cast<int>(message.size()), message.data());
   }
   void callNative(std::string_view module, std::string_view method, std::string_view argsJson,
-                  uint32_t callbackId) override {
+                  uint32_t callbackId, std::optional<std::span<const uint8_t>> bytes) override {
     JNIEnv* e = env();
     // Module and method names are ASCII; the arguments go as UTF-8 bytes (JNI's own string encoding is not real
     // UTF-8 for emoji and other characters outside the basic plane).
     jstring m = e->NewStringUTF(std::string(module).c_str());
     jstring fn = e->NewStringUTF(std::string(method).c_str());
-    jbyteArray args = e->NewByteArray(static_cast<jsize>(argsJson.size()));
-    e->SetByteArrayRegion(args, 0, static_cast<jsize>(argsJson.size()), reinterpret_cast<const jbyte*>(argsJson.data()));
-    e->CallStaticVoidMethod(g_nativeClass, g_callNative, m, fn, args, static_cast<jint>(callbackId));
+    jbyteArray args = newByteArray(e, reinterpret_cast<const uint8_t*>(argsJson.data()), argsJson.size());
+    jbyteArray data = bytes ? newByteArray(e, bytes->data(), bytes->size()) : nullptr;  // null: JS passed none
+    e->CallStaticVoidMethod(g_nativeClass, g_callNative, m, fn, args, data, static_cast<jint>(callbackId));
     e->DeleteLocalRef(m);
     e->DeleteLocalRef(fn);
     e->DeleteLocalRef(args);
+    if (data != nullptr) e->DeleteLocalRef(data);
   }
   std::string flowDir;  // FlowStore folder, given by Kotlin (noBackupFilesDir/zn)
   std::string flowStoreDir() override { return flowDir; }
+  std::string storeDir;  // app storage (MMKV) folder, given by Kotlin (noBackupFilesDir/zn-storage)
+  std::string storageDir() override { return storeDir; }
   void cancelNative(uint32_t callbackId) override {
     env()->CallStaticVoidMethod(g_nativeClass, g_cancelNative, static_cast<jint>(callbackId));
   }
@@ -85,7 +99,10 @@ class AndroidPlatform final : public zn::Platform {
 
 // The runtime and its platform live together; ZnNative holds a pointer to this as a Long.
 struct Holder {
-  explicit Holder(std::string flowDir) { platform.flowDir = std::move(flowDir); }
+  Holder(std::string flowDir, std::string storeDir) {
+    platform.flowDir = std::move(flowDir);
+    platform.storeDir = std::move(storeDir);
+  }
   AndroidPlatform platform;
   zn::Runtime runtime{platform, [](zn::HostApi& host) { return zn::createHermesEngine(host); }};
 };
@@ -117,7 +134,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
   e->DeleteLocalRef(local);
   g_scheduleTimer = e->GetStaticMethodID(g_nativeClass, "onScheduleTimer", "(ID)V");
   g_requestApply = e->GetStaticMethodID(g_nativeClass, "onRequestApply", "()V");
-  g_callNative = e->GetStaticMethodID(g_nativeClass, "onCallNative", "(Ljava/lang/String;Ljava/lang/String;[BI)V");
+  g_callNative = e->GetStaticMethodID(g_nativeClass, "onCallNative", "(Ljava/lang/String;Ljava/lang/String;[B[BI)V");
   g_cancelNative = e->GetStaticMethodID(g_nativeClass, "onCancelNative", "(I)V");
   g_jsError = e->GetStaticMethodID(g_nativeClass, "onJsError", "([B)V");
   if (g_scheduleTimer == nullptr || g_requestApply == nullptr || g_callNative == nullptr || g_cancelNative == nullptr ||
@@ -128,8 +145,9 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_dev_zeronative_runtime_ZnNative_createRuntime(JNIEnv* env, jclass /* clazz */, jstring flowDir) {
-  auto* h = new Holder(toStdString(env, flowDir));
+Java_dev_zeronative_runtime_ZnNative_createRuntime(JNIEnv* env, jclass /* clazz */, jstring flowDir,
+                                                  jstring storeDir) {
+  auto* h = new Holder(toStdString(env, flowDir), toStdString(env, storeDir));
   __android_log_print(ANDROID_LOG_INFO, kTag, "runtime created (Hermes, microtask queue on)");
   return reinterpret_cast<jlong>(h);
 }
@@ -187,6 +205,24 @@ Java_dev_zeronative_runtime_ZnNative_dispatchEvent(JNIEnv* e, jclass /* clazz */
   holder(handle)->runtime.dispatchEvent(static_cast<uint32_t>(instance), static_cast<uint16_t>(eventId), payload);
 }
 
+// A binary answer for JS: one ArrayBuffer laid out as [u32 little-endian head length][head][body]. The head is
+// UTF-8 JSON (ZnModules.kt), the body raw bytes. Both arrays are copied once, straight into the buffer JS gets.
+extern "C" JNIEXPORT void JNICALL
+Java_dev_zeronative_runtime_ZnNative_dispatchBytes(JNIEnv* e, jclass /* clazz */, jlong handle, jint instance,
+                                                   jint eventId, jbyteArray head, jbyteArray body) {
+  const jsize headSize = e->GetArrayLength(head);
+  const jsize bodySize = body != nullptr ? e->GetArrayLength(body) : 0;
+  std::vector<uint8_t> bytes(4 + static_cast<size_t>(headSize) + static_cast<size_t>(bodySize));
+  const uint32_t n = static_cast<uint32_t>(headSize);
+  const uint8_t le[4] = {static_cast<uint8_t>(n), static_cast<uint8_t>(n >> 8), static_cast<uint8_t>(n >> 16),
+                         static_cast<uint8_t>(n >> 24)};
+  std::memcpy(bytes.data(), le, 4);
+  e->GetByteArrayRegion(head, 0, headSize, reinterpret_cast<jbyte*>(bytes.data() + 4));
+  if (bodySize > 0) e->GetByteArrayRegion(body, 0, bodySize, reinterpret_cast<jbyte*>(bytes.data() + 4 + headSize));
+  holder(handle)->runtime.dispatchBytes(static_cast<uint32_t>(instance), static_cast<uint16_t>(eventId),
+                                        std::move(bytes));
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_dev_zeronative_runtime_ZnNative_fireTimer(JNIEnv* /* env */, jclass /* clazz */, jlong handle, jint timer) {
   holder(handle)->runtime.fireTimer(static_cast<uint32_t>(timer));
@@ -200,4 +236,98 @@ Java_dev_zeronative_runtime_ZnNative_takeBatch(JNIEnv* e, jclass /* clazz */, jl
   jbyteArray array = e->NewByteArray(static_cast<jsize>(bytes.size()));
   e->SetByteArrayRegion(array, 0, static_cast<jsize>(bytes.size()), reinterpret_cast<const jbyte*>(bytes.data()));
   return array;
+}
+
+// ---- Kotlin access to app storage (ZnStorage.kt) --------------------------------------------------------------------
+// Any thread. One Storage for all Kotlin calls, behind a lock. It shares stores with the JS runtime's Storage (MMKV
+// keeps one instance per store per process, with its own lock), so JS and Kotlin see each other's writes at once.
+// Ids, keys and values cross as UTF-8 / tagged bytes (JNI's own string encoding is not real UTF-8 for emoji).
+namespace {
+
+std::mutex g_storageMutex;
+zn::Storage* g_storage = nullptr;  // created once, never destroyed (stores live for the whole process anyway)
+
+std::string bytesToString(JNIEnv* e, jbyteArray bytes) {
+  const jsize n = e->GetArrayLength(bytes);
+  std::string out(static_cast<size_t>(n), '\0');
+  e->GetByteArrayRegion(bytes, 0, n, reinterpret_cast<jbyte*>(out.data()));
+  return out;
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_zeronative_runtime_ZnNative_storageOpen(JNIEnv* e, jclass, jstring dir) {
+  std::lock_guard<std::mutex> lock(g_storageMutex);
+  if (g_storage != nullptr) return;
+  g_storage = new zn::Storage(toStdString(e, dir), [](int level, std::string_view m) {
+    __android_log_print(level >= 3 ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN, kTag, "%.*s", static_cast<int>(m.size()),
+                        m.data());
+  });
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_zeronative_runtime_ZnNative_storageSet(JNIEnv* e, jclass, jbyteArray id, jbyteArray key, jbyteArray tagged) {
+  const std::string i = bytesToString(e, id), k = bytesToString(e, key), v = bytesToString(e, tagged);
+  std::lock_guard<std::mutex> lock(g_storageMutex);
+  return g_storage->set(i, k, std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(v.data()), v.size()));
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_zeronative_runtime_ZnNative_storageGet(JNIEnv* e, jclass, jbyteArray id, jbyteArray key) {
+  const std::string i = bytesToString(e, id), k = bytesToString(e, key);
+  std::optional<std::vector<uint8_t>> blob;
+  {
+    std::lock_guard<std::mutex> lock(g_storageMutex);
+    blob = g_storage->get(i, k);
+  }
+  return blob ? newByteArray(e, blob->data(), blob->size()) : nullptr;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_zeronative_runtime_ZnNative_storageHas(JNIEnv* e, jclass, jbyteArray id, jbyteArray key) {
+  const std::string i = bytesToString(e, id), k = bytesToString(e, key);
+  std::lock_guard<std::mutex> lock(g_storageMutex);
+  return g_storage->has(i, k);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_zeronative_runtime_ZnNative_storageRemove(JNIEnv* e, jclass, jbyteArray id, jbyteArray key) {
+  const std::string i = bytesToString(e, id), k = bytesToString(e, key);
+  std::lock_guard<std::mutex> lock(g_storageMutex);
+  g_storage->remove(i, k);
+}
+
+// Keys as UTF-8 byte arrays (Kotlin decodes them).
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_dev_zeronative_runtime_ZnNative_storageKeys(JNIEnv* e, jclass, jbyteArray id) {
+  const std::string i = bytesToString(e, id);
+  std::vector<std::string> keys;
+  {
+    std::lock_guard<std::mutex> lock(g_storageMutex);
+    keys = g_storage->keys(i);
+  }
+  jclass byteArray = e->FindClass("[B");
+  jobjectArray out = e->NewObjectArray(static_cast<jsize>(keys.size()), byteArray, nullptr);
+  for (size_t n = 0; n < keys.size(); n++) {
+    jbyteArray k = newByteArray(e, reinterpret_cast<const uint8_t*>(keys[n].data()), keys[n].size());
+    e->SetObjectArrayElement(out, static_cast<jsize>(n), k);
+    e->DeleteLocalRef(k);
+  }
+  e->DeleteLocalRef(byteArray);
+  return out;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_zeronative_runtime_ZnNative_storageClear(JNIEnv* e, jclass, jbyteArray id) {
+  const std::string i = bytesToString(e, id);
+  std::lock_guard<std::mutex> lock(g_storageMutex);
+  g_storage->clear(i);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_zeronative_runtime_ZnNative_storageFlush(JNIEnv* e, jclass, jbyteArray id) {
+  const std::string i = bytesToString(e, id);
+  std::lock_guard<std::mutex> lock(g_storageMutex);
+  g_storage->flush(i);
 }

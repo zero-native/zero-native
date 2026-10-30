@@ -28,7 +28,16 @@ declare global {
     types: number[],
   ) => void
   var __zn_listRow: (instance: number, node: number, key: string, row: number) => void
-  var __zn_call: (module: string, method: string, argsJson: string, callbackId: number) => void
+  /** The optional buffer range is raw binary input for native (copied during the call). */
+  var __zn_call: (
+    module: string,
+    method: string,
+    argsJson: string,
+    callbackId: number,
+    buffer?: ArrayBuffer,
+    offset?: number,
+    length?: number,
+  ) => void
   var __zn_cancel: (callbackId: number) => void
   var __zn_setTimer: (delayMs: number, repeat: boolean) => number
   var __zn_clearTimer: (handle: number) => void
@@ -36,8 +45,13 @@ declare global {
   /** A JS error that was caught (errors.ts): logged, and shown on the dev error screen in debug builds. */
   var __zn_error: (where: string, details: string) => void
   var __zn_now: () => number
+  /** UTF-8 bytes → string. Bad bytes become U+FFFD; with `fatal`, bad bytes give undefined instead. */
+  var __zn_utf8Decode: (buffer: ArrayBuffer, offset: number, length: number, fatal: boolean) => string | undefined
+  /** String → UTF-8 bytes (a lone surrogate becomes U+FFFD). */
+  var __zn_utf8Encode: (text: string) => ArrayBuffer
   // Defined by this package, called by native:
   var __zn_onTimer: (handle: number) => void
+  /** `payload` is an ArrayBuffer for binary answers (app event 9, calls.ts). */
   var __zn_onEvent: (instance: number, eventId: number, payload: NativeValue) => void
 }
 

@@ -5,6 +5,7 @@ each under its own license.
 
 - **JSI headers from React Native (Meta Platforms, Inc. and affiliates)** (`core/third_party/jsi`): MIT License. See `core/third_party/jsi/README.md` for the version.
 - **libjsi.so from `com.facebook.react:react-android` (Meta Platforms, Inc. and affiliates)** (`android/runtime/src/main/jniLibs`): MIT License.
+- **MMKV (Tencent)** (`core/third_party/mmkv`): BSD 3-Clause, with parts under other licenses: `core/third_party/mmkv/LICENSE.TXT`.
 
 Build and runtime dependencies fetched by Gradle, SwiftPM or Bun (Hermes, Compose, OkHttp, Coil, Firebase, ...) keep
 their own licenses and are not copied into this repository.
