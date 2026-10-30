@@ -55,8 +55,34 @@ object ZnBundles {
     /** The bundle this process runs. [dir] is null for the built-in bundle (the APK's assets). */
     class Running(val info: Info?, val dir: File?) {
         val builtIn get() = dir == null
+        /**
+         * How reports name this bundle: `sample_12@1a2b3c4d5e6f` (id and the first 12 characters of its SHA). The SHA
+         * is needed because the APK's own bundle is `<app>_0` in every APK; `bun run ota symbolicate` finds the
+         * source map by it (step 4.8). Null for an APK built without `zn-bundle.json`.
+         */
+        val label: String? get() = info?.let { "${it.id}@${it.sha256.take(12)}" }
         /** For logs: "sample_12 (#12) from files" or "sample_0 (#0) built-in". */
         override fun toString() = "${info ?: "unnamed bundle"} " + if (dir == null) "built-in" else "from files"
+    }
+
+    private val watchers = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+
+    /**
+     * Calls [listener] on the main thread with the running bundle's [Running.label]: once it is chosen (at once if it
+     * already is), and again every time it changes while the app runs (an update applied in place, a rollback). For
+     * a crash reporter's custom key, so native crashes say which bundle ran too:
+     *
+     *     ZnBundles.watchRunning { FirebaseCrashlytics.getInstance().setCustomKey("zn_bundle", it) }
+     */
+    fun watchRunning(listener: (label: String) -> Unit) {
+        watchers += listener
+        chosen?.label?.let { label -> mainHandler.post { listener(label) } }
+    }
+
+    private fun tellWatchers(r: Running) {
+        val label = r.label ?: return
+        if (watchers.isNotEmpty()) mainHandler.post { for (w in watchers) w(label) }
     }
 
     @Volatile private var appContext: Context? = null
@@ -76,7 +102,10 @@ object ZnBundles {
     /** The bundle this process runs, chosen on first use (reads a few small files). */
     val running: Running
         get() = chosen ?: synchronized(this) {
-            chosen ?: choose(checkNotNull(appContext) { "ZnBundles.init() was not called" }).also { chosen = it }
+            chosen ?: choose(checkNotNull(appContext) { "ZnBundles.init() was not called" }).also {
+                chosen = it
+                tellWatchers(it)
+            }
         }
 
     /** A bundle ready to run in place of the running one (step 4.6): checked, and its template files already read. */
@@ -133,6 +162,7 @@ object ZnBundles {
         }
         Log.i(TAG, "bundle: now running ${c.running}")
         ZnOtaHealth.onChosen(c.running)
+        tellWatchers(c.running)
     }
 
     /** The OTA folder: not in backups (a restored bundle could be for another app version). */
@@ -224,7 +254,7 @@ object ZnBundles {
             ZnOtaHealth.guardFailed(e)
             Running(builtIn, null)
         }
-        Log.i(TAG, "bundle: running $running, chosen in %.2f ms".format((System.nanoTime() - t0) / 1e6))
+        Log.i(TAG, "bundle: running $running (${running.label}), chosen in %.2f ms".format((System.nanoTime() - t0) / 1e6))
         ZnOtaHealth.onChosen(running)
         return running
     }

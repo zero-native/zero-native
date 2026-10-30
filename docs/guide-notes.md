@@ -419,6 +419,11 @@ await SecureStore.set("refreshToken", token)
   new bundle SHA, something is wrong (tell us): it would ship an update nobody made.
 - **Why:** the app runs exactly one bundle per process, either the one in the APK or a downloaded one. Bytecode,
   templates and images always come from the same bundle, and a newer APK always wins over an older download.
+- **Needs a store release (step 4.9 list):** a new native module or a new version of one (a bundle that needs it is
+  ignored by older apps: they keep their bundle, nothing breaks), new Android permissions or manifest entries (push
+  setup, deep-link hosts, the launcher icon and name), a newer Hermes or framework native side, and fixing a crash in
+  Kotlin code (the watchdog can block a bundle, not fix native code). Plan these as: APK first, then the bundles that
+  use it, once most users have that APK.
 
 ---
 
@@ -619,9 +624,12 @@ bun run ota serve                                    the reference update server
 ### When an update is bad: the safety nets (step 4.7, docs/ota.md §3.6)
 - **What happens by itself:** a new bundle is on trial until it is *healthy* (its first screens up 4 s in the
   foreground). If it shows an error screen, hangs, or never shows its first screen (10 s) during the trial, the phone
-  blocks it and goes back to the last healthy bundle at once, in place. If it crashes the app on 2 launches in a row,
-  it is blocked and the next start runs the last healthy one. A blocked bundle never runs on that phone again: ship
-  the fix as a **new** bundle (`bun run ota build`), don't publish the same one again.
+  blocks it and goes back to the last healthy bundle at once, in place. If it crashes the app during the trial, it is
+  blocked and the next start runs the last healthy one (one crash on Android 11+; two in a row on older phones, after
+  an ANR, or for the bundle that was healthy on that phone before). A blocked bundle never runs on that phone again: ship
+  the fix as a **new** bundle (`bun run ota build`), don't publish the same one again. Once a bundle was healthy on a
+  phone, its later error screens are only reported (you still see them in `onReport` and `ota status`), never blocked:
+  fix those with a new bundle too.
 - **Do:** call `Updates.markHealthy()` once the first screen has really loaded (its data is on screen), if that can
   take longer than 4 s, or set `ZnOta.Config(healthyAfterMs = 0)` and always call it. Mark it after the data
   arrived, not when the request started.
@@ -639,6 +647,54 @@ bun run ota serve                                    the reference update server
 - **Why:** a bad update is worse than a missing one: customers can't fix it themselves and won't come back for weeks.
   The trial window is short so a good bundle quickly stops being judged (later errors are only reported), and going
   back to the last *healthy* bundle keeps the fixes users already had (the RN app went back to the APK's bundle).
+
+### Saved data across updates and rollbacks (step 4.9)
+- **What happens:** `storage`, `SecureStore`, `flowStore` and files are never touched by an update. So a new bundle
+  reads what the old one wrote, and after a rollback (a safety net, `ota publish` of an older bundle, the kill switch)
+  an **older** bundle reads what the newer one wrote.
+- **Do:** change saved formats only by adding: new keys or new optional fields. Read with a default for anything
+  missing. If a format must really change, write it under a new key (`cart.v2`) and keep the old key readable until
+  every bundle that reads it is gone.
+  ```ts
+  const prefs = JSON.parse(storage.getString("prefs") ?? "{}") as { lang?: string; sound?: boolean }
+  const sound = prefs.sound ?? true // an older bundle wrote no `sound`
+  ```
+- **Don't:** rename or delete a key, change a field's type, or make a field required in an update. The bundle before
+  it (still on many phones, and where a rollback goes) can't read it, and a screen that throws while it builds on the
+  first launch rolls the update back on every phone.
+- **Do:** keep payment flow state (`flowStore`) readable by the bundle before and after. A cold start can run a new
+  bundle while a payment saved by the old one is still open: that screen must still open and finish it.
+- **Why:** an update is never alone on the phone: the APK's own bundle, the last good one and the new one all read the
+  same storage, in any order.
+
+### When the phone is full (step 4.9)
+- **What happens:** before a download the phone needs room for the zip, ~4× its size unzipped, and 50 MB kept free for
+  the user. Without it nothing is written (outcome `no_space`) and the next check tries again; the app runs on with
+  what it has. If the phone fills up during the download, the half-written files are removed at once.
+- **Do:** keep bundles small (images compressed, no unused assets): every MB counts on low-end phones.
+- **Why:** an update must never be the reason a user can't take a photo or receive an OTP.
+
+### Finding the TSX line of a release crash (step 4.8, docs/ota.md §3.7)
+- **Do:** wire Crashlytics once in your `Application`:
+  ```kotlin
+  ZnRuntime.onJsError = { e ->
+      FirebaseCrashlytics.getInstance().log(e.details)           // the full JS stack, with columns
+      FirebaseCrashlytics.getInstance().recordException(e.asThrowable())
+  }
+  ZnBundles.watchRunning { FirebaseCrashlytics.getInstance().setCustomKey("zn_bundle", it) }
+  ```
+  Every report then names the bundle (`sample_8@1a2b3c4d5e6f`), native crashes too.
+- **Do:** run `bun run ota keep-map` from the same commit every time you build an APK for release. The APK's own bundle
+  is not released with `ota build`, so without this its traces can't be mapped. Released bundles keep their maps by
+  themselves.
+- **Do:** paste a trace (from logcat, Crashlytics or your backend) into `bun run ota symbolicate`, or give a file. It
+  finds the bundle label in the text; else add `--bundle <id or SHA>`. `--from-telemetry` shows the last stacks phones
+  sent with a rollback or an error screen.
+- **Don't:** build the APK's bundle from uncommitted changes and keep-map later from a clean checkout: one changed
+  byte gives another SHA, and the map won't be found. Same source gives the same bytes on any machine and folder.
+- **Don't:** strip the line positions to save bytes (hermesc `-g0`): release traces would lose the main.js lines.
+- **Why:** release bytecode only knows main.js lines. The map is the only way back to your TSX, and the bundle label
+  (with its SHA, since the APK's bundle is `_0` in every APK) tells which map to use.
 
 ---
 

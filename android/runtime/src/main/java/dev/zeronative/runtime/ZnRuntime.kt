@@ -32,7 +32,55 @@ class ZnJsError(
     val screen: String?,
     /** The running bundle id (`app_12`; [ZnBundles]), so a report says which OTA bundle it came from. */
     val bundle: String?,
-)
+    /**
+     * The running bundle as reports name it, id and SHA (`app_12@1a2b3c4d5e6f`, [ZnBundles.Running.label]): what
+     * `bun run ota symbolicate` needs to find the source map (step 4.8). The APK's own bundle is `app_0` in every APK,
+     * so the id alone isn't enough.
+     */
+    val bundleLabel: String? = null,
+) {
+    /**
+     * This error as a Throwable for a crash reporter (Crashlytics' `recordException`): the message names the bundle
+     * and the error, and the stack is the JS frames (`at zn.js.HomeScreen(main.js:2051)`), so issues group by JS
+     * function and `bun run ota symbolicate` maps the trace to TSX lines. Java frames have no column: the full JS stack
+     * with columns is in [details] (log it too, for an exact position).
+     */
+    fun asThrowable(): Throwable = ZnJsException(this)
+
+    override fun toString() = "JS error [${bundleLabel ?: bundle}] $kind in $where: ${details.substringBefore('\n')}"
+}
+
+/** [ZnJsError.asThrowable]: a JS error in Java form. */
+class ZnJsException internal constructor(val error: ZnJsError) : RuntimeException(error.toString()) {
+    init {
+        // Hermes frames: `at fn (file:line:col)` or `at file:line:col`; frames without a position (native) are left out.
+        val frame = Regex("""^\s*at (?:(.+?) \()?([^\s()]+):(\d+):\d+\)?\s*$""")
+        stackTrace = error.details.lineSequence().mapNotNull { line ->
+            frame.matchEntire(line)?.destructured?.let { (fn, file, l) ->
+                StackTraceElement("zn.js", fn.ifEmpty { "<anonymous>" }, file.substringAfterLast('/').substringAfterLast('\\'), l.toInt())
+            }
+        }.toList().toTypedArray()
+    }
+
+    override fun fillInStackTrace(): Throwable = this // the Java stack where it was made means nothing here
+}
+
+/** The update server keeps at most 1 KB of an outcome's stack ([jsTopFrames]). */
+internal const val MAX_JS_FRAMES_CHARS = 1_000
+
+/**
+ * The top frames of a JS error's stack (`at fn (main.js:2051:22)` lines, at most 8 and [MAX_JS_FRAMES_CHARS] chars),
+ * for OTA telemetry (step 4.8): enough to find the line with `ota symbolicate`, small enough to send. Null if none.
+ */
+internal fun jsTopFrames(details: String): String? {
+    val out = StringBuilder()
+    for (line in details.lineSequence().map { it.trim() }.filter { it.startsWith("at ") }.take(8)) {
+        if (out.length + line.length + 1 > MAX_JS_FRAMES_CHARS) break
+        if (out.isNotEmpty()) out.append('\n')
+        out.append(line)
+    }
+    return out.toString().ifEmpty { null }
+}
 
 /** Called on the main thread after each batch is applied (timestamps from System.nanoTime, a monotonic clock). */
 fun interface BatchListener {
@@ -305,7 +353,8 @@ object ZnRuntime {
             val hook = onJsError ?: return@post
             // A screen that failed while being built isn't the top of native's stack yet: its name is in the report.
             val screen = SCREEN_ERROR.find(where)?.groupValues?.get(1) ?: ZnNav.stack.lastOrNull()?.route?.name
-            val error = ZnJsError(kind, where, details, screen, ZnBundles.running.info?.id)
+            val running = ZnBundles.running
+            val error = ZnJsError(kind, where, details, screen, running.info?.id, running.label)
             try {
                 hook(error)
             } catch (e: Exception) {
@@ -324,7 +373,8 @@ object ZnRuntime {
         if (BuildConfig.DEBUG) ZnDev.onJsError("renderer: $where\n$details")
         val hook = onJsError ?: return
         try {
-            hook(ZnJsError("renderer", where, details, ZnNav.stack.lastOrNull()?.route?.name, ZnBundles.running.info?.id))
+            val running = ZnBundles.running
+            hook(ZnJsError("renderer", where, details, ZnNav.stack.lastOrNull()?.route?.name, running.info?.id, running.label))
         } catch (t: Exception) {
             Log.e(TAG, "onJsError threw", t)
         }

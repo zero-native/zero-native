@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only (step 4.9 tests). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Starts the app's process with no Activity, the way a push message (FCM) or a background job does:
+             adb shell content query uri content://dev.zeronative.sample.debugwake/start
+             A provider, not a broadcast receiver: some phones' ROMs (the Lava) refuse to start an app's process for
+             a manifest receiver ("suppress to start process of staticReceiver"); FCM gets through because Google Play
+             services is allowed. Only the shell can call it (DUMP permission). -->
+        <provider
+            android:name=".DebugWakeProvider"
+            android:authorities="dev.zeronative.sample.debugwake"
+            android:exported="true"
+            android:readPermission="android.permission.DUMP" />
+    </application>
+</manifest>

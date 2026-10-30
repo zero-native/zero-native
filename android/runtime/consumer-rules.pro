@@ -14,3 +14,8 @@
 }
 # fbjni refers to javax.annotation.Nullable, which is compile-time only and not on the app classpath.
 -dontwarn javax.annotation.**
+
+# ZnJsError.asThrowable(): crash reporters group and show JS errors by this class name. Without this rule R8 merged
+# it into an unrelated exception class of the same shape (logs said coil3.network.HttpException; found 2026-10-31,
+# step 4.8).
+-keep class dev.zeronative.runtime.ZnJsException

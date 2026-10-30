@@ -41,6 +41,10 @@ export interface Outcome {
   bundle?: string
   detail?: string
   at?: string
+  /** error_screen / error_rollback: the top JS stack frames (step 4.8, `ota symbolicate --from-telemetry`). */
+  stack?: string
+  /** The bundle's SHA when the stack is set (an APK's own bundle has the same id in every APK). */
+  sha?: string
 }
 
 export type Action = "NONE" | "UPDATE" | "USE_LOCAL" | "BUILT_IN"

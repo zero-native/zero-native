@@ -149,10 +149,20 @@ export interface BuildResult {
  * Releases the bundle built in [builtDir] (zn-bundle.json and its files, serial 0): the same bytes as a released bundle
  * reuse its serial; new bytes take the next serial, are zipped, signed and uploaded. Builds never publish.
  */
-export async function releaseBuilt(ctx: Context, builtDir: string, git: { commit: string; dirty: boolean }): Promise<BuildResult> {
+export async function releaseBuilt(
+  ctx: Context,
+  builtDir: string,
+  git: { commit: string; dirty: boolean },
+  /** The build's source map (step 4.8): kept by the bundle's SHA, never inside the zip. */
+  sourceMap?: string,
+): Promise<BuildResult> {
   const info = readBundleInfo(builtDir)
   if (info.app !== ctx.app) throw new ReleaseError(`the build is for app "${info.app}", not "${ctx.app}"`)
   if (!info.requires) throw new ReleaseError("the build's zn-bundle.json has no requires (rebuild with the current tools)")
+  if (sourceMap !== undefined) {
+    const kept = await keepMap(ctx, sourceMap)
+    if (kept.sha256 !== info.sha256) throw new ReleaseError(`the source map is for ${kept.sha256.slice(0, 12)}, the build is ${info.sha256.slice(0, 12)}`)
+  }
   const all = await manifests(ctx)
   const same = all.find((m) => m.bundleSha256 === info.sha256 && requiresLine(m.requires) === requiresLine(info.requires))
   if (same) return { manifest: same, reused: true }
@@ -183,6 +193,56 @@ export async function releaseBuilt(ctx: Context, builtDir: string, git: { commit
     throw new ReleaseError(`serial #${serial} was just taken by another release; run the build again`)
   }
   return { manifest: m, reused: false }
+}
+
+// ---- Source maps (step 4.8) -------------------------------------------------------------------------------------------
+
+/** Where the source map of the bundle with this SHA is kept: by SHA, because the APK's own bundle is `<app>_0` in every APK. */
+export const mapPath = (app: string, sha256: string) => `${app}/maps/${sha256}.map`
+
+/**
+ * Keeps a build's source map in the store (`<app>/maps/<bundle sha256>.map`, written once, never changed). The map
+ * names its bundle (`x_zn_bundle`, written by the app's build). For OTA bundles `ota build` calls this; for the APK's
+ * own bundle, `ota keep-map` at APK release time.
+ */
+export async function keepMap(ctx: Context, text: string): Promise<{ id: string; sha256: string; created: boolean }> {
+  let map: { version?: number; mappings?: unknown; x_zn_bundle?: { app?: string; id?: string; sha256?: string } }
+  try {
+    map = JSON.parse(text)
+  } catch {
+    throw new ReleaseError("the source map isn't JSON")
+  }
+  const b = map.x_zn_bundle
+  if (map.version !== 3 || typeof map.mappings !== "string") throw new ReleaseError("not a v3 source map")
+  if (!b || typeof b.id !== "string" || typeof b.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(b.sha256)) {
+    throw new ReleaseError("the source map doesn't name its bundle (x_zn_bundle): rebuild with the current tools")
+  }
+  if (b.app !== ctx.app) throw new ReleaseError(`the source map is for app "${b.app}", not "${ctx.app}"`)
+  const created = await ctx.store.createOnly(mapPath(ctx.app, b.sha256), new TextEncoder().encode(text))
+  return { id: b.id, sha256: b.sha256, created }
+}
+
+/** Released bundles with no source map kept (released before step 4.8, or the map was lost). */
+export async function missingMaps(ctx: Context): Promise<string[]> {
+  const kept = new Set((await ctx.store.list(`${ctx.app}/maps`)).map((p) => p.split("/").pop()!.replace(/\.map$/, "")))
+  return (await manifests(ctx)).filter((m) => !kept.has(m.bundleSha256)).map((m) => m.id)
+}
+
+/** The kept source map for a bundle: [hint] is a SHA (12+ hex characters), a bundle id, or a serial. */
+export async function findMap(ctx: Context, hint: string): Promise<{ sha256: string; text: string }> {
+  let sha: string | undefined
+  if (/^[0-9a-f]{8,64}$/.test(hint)) {
+    const all = (await ctx.store.list(`${ctx.app}/maps`)).map((p) => p.split("/").pop()!.replace(/\.map$/, ""))
+    const hits = all.filter((s) => s.startsWith(hint))
+    if (hits.length > 1) throw new ReleaseError(`${hint} matches ${hits.length} source maps: give more of the SHA`)
+    sha = hits[0]
+  } else {
+    if (hint === "0" || hint === `${ctx.app}_0`) throw new ReleaseError(`${hint} is an APK's own bundle: give its SHA (every report says ${ctx.app}_0@<sha>)`)
+    sha = (await manifest(ctx, hint)).bundleSha256
+  }
+  const bytes = sha ? await ctx.store.read(mapPath(ctx.app, sha)) : null
+  if (!sha || !bytes) throw new ReleaseError(`no source map kept for ${hint} (bundles released before step 4.8 have none; for an APK's own bundle run \`ota keep-map\` when you build the APK)`)
+  return { sha256: sha, text: new TextDecoder().decode(bytes) }
 }
 
 // ---- Pointers: publish, roll out, kill -------------------------------------------------------------------------------

@@ -177,6 +177,36 @@ export function decodeSourceMap(raw: RawSourceMap): DecodedMap {
   return { sources: raw.sources, lines }
 }
 
+/** Writes a standard v3 source map (the opposite of [decodeSourceMap]; entries must be sorted by genCol). */
+export function encodeSourceMap(map: DecodedMap, file: string): string {
+  const vlq = (n: number) => {
+    let v = n < 0 ? (-n << 1) | 1 : n << 1
+    let out = ""
+    do {
+      let digit = v & 31
+      v >>>= 5
+      if (v > 0) digit |= 32
+      out += B64[digit]
+    } while (v > 0)
+    return out
+  }
+  let src = 0
+  let srcLine = 0
+  let srcCol = 0
+  const lines = map.lines.map((entries) => {
+    let genCol = 0
+    return entries.map(([g, s, l, c]) => {
+      const seg = vlq(g - genCol) + vlq(s - src) + vlq(l - srcLine) + vlq(c - srcCol)
+      genCol = g
+      src = s
+      srcLine = l
+      srcCol = c
+      return seg
+    }).join(",")
+  })
+  return JSON.stringify({ version: 3, file, sources: map.sources, names: [], mappings: lines.join(";") })
+}
+
 /** The original (source, line, col) for a generated position, or null when it maps to nothing. */
 export function lookup(map: DecodedMap, line: number, col: number): { source: string; line: number; col: number } | null {
   const entries = map.lines[line]

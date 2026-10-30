@@ -11,7 +11,10 @@ import org.junit.Test
 
 /** The OTA safety nets' rules (ZnOtaHealth.Rules, step 4.7, docs/ota.md §3.6): the launch watchdog, blocks, the APK, the fuse. */
 class ZnOtaHealthTest {
-    private val crash: (Long, Int) -> Exit = { _, _ -> Exit.Counts("crash") }
+    /** A death Android can't explain (Android < 11, no exit record, a freeze): two in a row block. */
+    private val crash: (Long, Int) -> Exit = { _, _ -> Exit.Counts("ended while on screen", sure = false) }
+    /** Android's exit record says it crashed (Android 11+): one blocks. */
+    private val sureCrash: (Long, Int) -> Exit = { _, _ -> Exit.Counts("crash", sure = true) }
     private val stopped: (Long, Int) -> Exit = { _, _ -> Exit.Ignored("exit reason 10") }
 
     /** A state as after a first start on APK (1, 100). */
@@ -38,8 +41,50 @@ class ZnOtaHealthTest {
         val s = fresh()
         Rules.launch(s, "app_5", 1_000, 777)
         var asked: Pair<Long, Int>? = null
-        Rules.atStart(s, 1, 100, 2_000) { since, pid -> asked = since to pid; Exit.Counts("crash") }
+        Rules.atStart(s, 1, 100, 2_000) { since, pid -> asked = since to pid; Exit.Counts("crash", sure = false) }
         assertEquals(1_000L to 777, asked)
+    }
+
+    @Test fun oneSureCrashBlocksAtOnce() {
+        val s = fresh()
+        launchThatDies(s, "app_5", sureCrash)
+        assertEquals(ZnOtaHealth.WATCHDOG, s.blocked["app_5"])
+        assertEquals(0, s.crashes)
+        assertEquals(listOf("launch_crashed", "watchdog_block"), s.events.map { it.kind })
+        assertEquals("crash (1 of 1)", s.events[0].detail)
+        assertEquals("a launch ended by a crash; last: crash", s.events[1].detail)
+    }
+
+    @Test fun theLastGoodBundleKeepsTwoCrashesEvenWhenSure() {
+        val s = fresh()
+        Rules.healthy(s, "app_5") // ran well on this phone before
+        launchThatDies(s, "app_5", sureCrash)
+        assertTrue(s.blocked.isEmpty())
+        assertEquals("crash (1 of 2)", s.events.last().detail)
+        launchThatDies(s, "app_5", sureCrash)
+        assertEquals(ZnOtaHealth.WATCHDOG, s.blocked["app_5"])
+        assertNull(s.lastGood)
+    }
+
+    @Test fun errorsOfTheLastGoodBundleAreOnlyReported() {
+        val s = fresh()
+        assertTrue(Rules.errorsRollBack(s, "app_5")) // new on this phone: on trial
+        Rules.healthy(s, "app_5")
+        assertFalse(Rules.errorsRollBack(s, "app_5")) // ran well here before
+        assertTrue(Rules.errorsRollBack(s, "app_6")) // a newer bundle is on trial again
+        Rules.healthy(s, "app_6")
+        assertTrue(Rules.errorsRollBack(s, "app_5")) // no longer the last good one
+        Rules.block(s, "app_6", ZnOtaHealth.WATCHDOG)
+        assertTrue(Rules.errorsRollBack(s, "app_6")) // a block forgets it as last good
+    }
+
+    @Test fun aSureCrashAfterAnUnsureOneBlocks() {
+        val s = fresh()
+        launchThatDies(s, "app_5", crash)
+        assertTrue(s.blocked.isEmpty())
+        launchThatDies(s, "app_5", sureCrash)
+        assertEquals(ZnOtaHealth.WATCHDOG, s.blocked["app_5"])
+        assertEquals("2 launches in a row ended by a crash or a freeze; last: crash", s.events.last().detail)
     }
 
     @Test fun aNormalExitInBetweenResetsTheCount() {
@@ -138,12 +183,14 @@ class ZnOtaHealthTest {
         Rules.healthy(s, "app_4")
         Rules.launch(s, "app_8", 42, 4242)
         Rules.event(s, "x", "app_8", "why", 7)
+        Rules.event(s, "error_rollback", "app_8", "screen in Home", 8, stack = "at Home (main.js:20:5)", sha = "ab".repeat(32))
         val back = State.fromJson(s.toJson())
         assertEquals(listOf("app_9", "app_3"), back.blocked.keys.toList()) // order kept
         assertEquals("app_4", back.lastGood)
         assertEquals("app_8", back.pending)
         assertEquals(42L, back.pendingSince)
         assertEquals(4242, back.pendingPid)
-        assertEquals(listOf("x", "app_8", "why", 7L), back.events.single().let { listOf(it.kind, it.bundle, it.detail, it.atMs) })
+        assertEquals(listOf("x", "app_8", "why", 7L, null, null), back.events[0].let { listOf(it.kind, it.bundle, it.detail, it.atMs, it.stack, it.sha) })
+        assertEquals(listOf("at Home (main.js:20:5)", "ab".repeat(32)), back.events[1].let { listOf(it.stack, it.sha) })
     }
 }

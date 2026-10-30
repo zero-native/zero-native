@@ -10,23 +10,28 @@
 //   bun run ota kill    --channel production --reason "..."    (asks to type KILL PRODUCTION)
 //   bun run ota status                                         channels, bundles, and what phones reported (7 days)
 //   bun run ota verify                                         check every signature and zip in the store
+//   bun run ota keep-map                                       keep the APK's own bundle's source map (at APK release)
+//   bun run ota symbolicate [file] [--bundle <id|sha>]        map a release stack trace to TSX lines (file or paste)
+//   bun run ota symbolicate --from-telemetry                   the same for the latest stacks phones sent
 //   bun run ota serve   [--port 8790] [--host 127.0.0.1]       the reference update server over the local store
 //
 // Common options: --app-dir <dir> (default examples/sample; holds zn-ota.json), --key <private key PEM file>,
-// --confirm "<text>" (for scripts; otherwise you are asked).
+// --confirm "<text>" (for scripts; otherwise you are asked), --store <dir> (another local store than zn-ota.json's,
+// e.g. the phone tests' own: tools/ota/phone-test.ts), --data <dir> (telemetry folder for serve / status).
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { parseArgs } from "node:util"
 import * as core from "./core"
 import { generateKeys, keyId, publicKeyOf } from "./signing"
 import { startServer } from "./server"
+import { bundleIn, symbolicate } from "./symbolicate"
 import { LocalStore, type Store } from "./store"
 
 /** An app's release settings: `zn-ota.json` next to its sources. Paths are relative to that file. */
 interface AppConfig {
   app: string
-  /** The build command; the CLI adds `--out <dir> --serial 0`. Runs in the app's folder. */
+  /** The build command; the CLI adds `--out <dir> --serial 0 --map <file>`. Runs in the app's folder. */
   build: string[]
   /** The store: a local folder now (GCS and others come as adapters). */
   store: string
@@ -52,6 +57,8 @@ const { values: a, positionals } = parseArgs({
     port: { type: "string" },
     host: { type: "string" },
     data: { type: "string" },
+    store: { type: "string" },
+    "from-telemetry": { type: "boolean" },
   },
 })
 const command = positionals[0]
@@ -70,9 +77,15 @@ function config(): AppConfig {
   return JSON.parse(readFileSync(f, "utf8")) as AppConfig
 }
 
-function store(c: AppConfig): Store {
+/** The store folder: --store (relative to where you run it; e.g. the phone tests' own store) or zn-ota.json's. */
+function storeRoot(c: AppConfig): string {
+  if (a.store) return resolve(a.store)
   if (/^[a-z]+:\/\//.test(c.store)) fail(`store "${c.store}": only local folders are supported so far`)
-  return new LocalStore(resolve(appDir, c.store))
+  return resolve(appDir, c.store)
+}
+
+function store(c: AppConfig): Store {
+  return new LocalStore(storeRoot(c))
 }
 
 function privateKey(c: AppConfig): string {
@@ -130,18 +143,21 @@ async function main() {
       const pem = privateKey(c)
       const g = git()
       await withLock(async () => {
-        const out = mkdtempSync(join(tmpdir(), "zn-ota-build-"))
+        const work = mkdtempSync(join(tmpdir(), "zn-ota-build-"))
+        const out = join(work, "bundle") // zipped as it is: the source map goes next to it, never inside
+        const mapFile = join(work, "main.js.map")
         try {
           console.log(`… building ${c.app} (${c.build.join(" ")})`)
-          const p = Bun.spawnSync([...c.build, "--out", out, "--serial", "0"], { cwd: appDir, stdout: "inherit", stderr: "inherit" })
+          const p = Bun.spawnSync([...c.build, "--out", out, "--serial", "0", "--map", mapFile], { cwd: appDir, stdout: "inherit", stderr: "inherit" })
           if (p.exitCode !== 0) fail("the build failed")
-          const r = await core.releaseBuilt({ store: store(c), app: c.app, privatePem: pem }, out, g)
+          if (!existsSync(mapFile)) fail(`the build wrote no source map (${mapFile}): the app's build must take --map (step 4.8)`)
+          const r = await core.releaseBuilt({ store: store(c), app: c.app, privatePem: pem }, out, g, readFileSync(mapFile, "utf8"))
           const m = r.manifest
           if (r.reused) console.log(`✓ same bytes as #${m.serial} (${m.id}): nothing new to release`)
           else console.log(`✓ released #${m.serial} (${m.id}), zip ${Math.round(m.zip.size / 1024)} KB${g.dirty ? ", from uncommitted changes (staging only)" : ""}`)
           console.log(`  next: bun run ota publish --channel staging --bundle ${m.serial}`)
         } finally {
-          rmSync(out, { recursive: true, force: true })
+          rmSync(work, { recursive: true, force: true })
         }
       })
       return
@@ -226,21 +242,84 @@ async function main() {
       const problems = await core.verifyStore({ store: store(c), app: c.app }, keys)
       if (problems.length > 0) fail(`${problems.length} problem(s):\n  ${problems.join("\n  ")}`)
       console.log(`✓ every signature and zip in ${store(c).where} checks out (${keys.length} trusted key(s))`)
+      const noMap = await core.missingMaps({ store: store(c), app: c.app })
+      if (noMap.length > 0) console.log(`  note: no source map kept for ${noMap.join(", ")} (released before step 4.8): their traces can't be mapped`)
+      return
+    }
+    case "keep-map": {
+      // The APK's own bundle: build the current source like the APK build does, keep only its source map. Run it from
+      // the commit the APK is built from (the SHA it prints must be the one in the APK's reports).
+      const c = config()
+      const work = mkdtempSync(join(tmpdir(), "zn-ota-map-"))
+      try {
+        const mapFile = join(work, "main.js.map")
+        const p = Bun.spawnSync([...c.build, "--out", join(work, "bundle"), "--serial", "0", "--map", mapFile], { cwd: appDir, stdout: "inherit", stderr: "inherit" })
+        if (p.exitCode !== 0 || !existsSync(mapFile)) fail("the build failed or wrote no source map")
+        const k = await core.keepMap({ store: store(c), app: c.app }, readFileSync(mapFile, "utf8"))
+        console.log(`✓ source map ${k.created ? "kept" : "was already kept"} for ${k.id}@${k.sha256.slice(0, 12)} (${core.mapPath(c.app, k.sha256)})`)
+      } finally {
+        rmSync(work, { recursive: true, force: true })
+      }
+      return
+    }
+    case "symbolicate": {
+      const c = config()
+      const ctx = { store: store(c), app: c.app }
+      // Map source names are relative to the app's folder; print them relative to the repo (clickable in editors).
+      const name = (s: string) => relative(root, resolve(appDir, s)).split(sep).join("/")
+      const show = async (text: string, hint?: string) => {
+        const h = hint ?? a.bundle ?? bundleIn(text)?.sha
+        if (!h) fail("which bundle? The trace names none (<app>_<n>@<sha>): pass --bundle <id, serial or sha>")
+        const map = await core.findMap(ctx, h)
+        const r = symbolicate(text, map.text, name)
+        console.log(r.text.trimEnd())
+        console.log(`  (${r.mapped} of ${r.frames} main.js position(s) mapped, source map ${map.sha256.slice(0, 12)})`)
+      }
+      if (a["from-telemetry"]) {
+        const dataDir = join(resolve(appDir, a.data ?? join(c.store, "..", ".zn-ota-data")), c.app)
+        const files = existsSync(dataDir) ? readdirSync(dataDir).filter((f) => f.startsWith("checks-") && f.endsWith(".ndjson")).sort() : []
+        const found: Array<{ at: string; kind: string; bundle: string; sha?: string; stack: string }> = []
+        for (const f of files) {
+          for (const line of readFileSync(join(dataDir, f), "utf8").split(/\r?\n/)) {
+            if (!line.trim()) continue
+            try {
+              for (const o of JSON.parse(line).outcomes ?? []) if (typeof o.stack === "string" && o.stack) found.push(o)
+            } catch {
+              // a bad line: skip it
+            }
+          }
+        }
+        if (found.length === 0) fail(`no stacks in ${dataDir} (phones send them with error_screen / error_rollback)`)
+        for (const o of found.slice(-5)) {
+          console.log(`--- ${o.at} ${o.kind} ${o.bundle}${o.sha ? `@${o.sha}` : ""}`)
+          try {
+            await show(o.stack, o.sha ?? (o.bundle?.startsWith(`${c.app}_`) ? o.bundle : undefined))
+          } catch (e) {
+            console.log(`  ${e instanceof core.ReleaseError ? e.message : String(e)}`)
+          }
+        }
+        return
+      }
+      const file = positionals[1]
+      if (!file && process.stdin.isTTY) console.log("Paste the trace, then Ctrl+Z and Enter (Windows) or Ctrl+D:")
+      const text = file ? readFileSync(file, "utf8") : await Bun.stdin.text()
+      await show(text)
       return
     }
     case "serve": {
       const c = config()
-      if (/^[a-z]+:\/\//.test(c.store)) fail("serve reads a local store folder")
-      const storeRoot = resolve(appDir, c.store)
+      const root = storeRoot(c)
       const dataDir = resolve(appDir, a.data ?? join(c.store, "..", ".zn-ota-data"))
-      const server = startServer({ storeRoot, dataDir, port: a.port ? Number(a.port) : undefined, hostname: a.host })
-      console.log(`✓ update server on http://${server.hostname}:${server.port} (store ${storeRoot}, telemetry ${dataDir})`)
+      const server = startServer({ storeRoot: root, dataDir, port: a.port ? Number(a.port) : undefined, hostname: a.host })
+      console.log(`✓ update server on http://${server.hostname}:${server.port} (store ${root}, telemetry ${dataDir})`)
       console.log(`  phone over USB: adb reverse tcp:${server.port} tcp:${server.port}   Ctrl+C stops it`)
       return
     }
     default:
-      fail(`unknown command "${command ?? ""}". Commands: keygen, build, publish, stable, rollout, kill, status, verify, serve`)
+      fail(`unknown command "${command ?? ""}". Commands: keygen, build, publish, stable, rollout, kill, status, verify, keep-map, symbolicate, serve`)
   }
 }
 
-main().catch((e) => fail(e instanceof core.ReleaseError ? e.message : String(e instanceof Error ? e.stack : e)))
+// Awaited: a read of stdin that is still waiting doesn't keep Bun 1.4 running by itself. Without the await,
+// `ota symbolicate` with a paste or a pipe ended at once with no output (found 2026-10-31).
+await main().catch((e) => fail(e instanceof core.ReleaseError ? e.message : String(e instanceof Error ? e.stack : e)))

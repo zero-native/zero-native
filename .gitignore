@@ -48,3 +48,5 @@ test-kit/offers-data.json
 # Local OTA release store (bun run ota; docs/ota.md)
 .zn-ota-store/
 .zn-ota-data/
+# The phone matrix's own store, telemetry and results (bun run ota:phone)
+.zn-ota-test/

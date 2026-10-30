@@ -188,3 +188,38 @@ describe("telemetry summary (ota status)", () => {
     ])
   })
 })
+
+describe("source maps (step 4.8)", () => {
+  const mapFor = (sha: string, app = "sample", id = "sample_1") =>
+    JSON.stringify({ version: 3, file: "main.js", sources: ["src/a.tsx"], names: [], mappings: "AAAA", x_zn_bundle: { app, id, sha256: sha } })
+
+  test("a release keeps its map by the bundle's SHA, once; a map of another build is refused", async () => {
+    const dir = await built("v1")
+    const sha = (await import("../../bundle-info")).readBundleInfo(dir).sha256
+    const { manifest } = await core.releaseBuilt(ctx, dir, clean, mapFor(sha))
+    expect(manifest.bundleSha256).toBe(sha)
+    expect(await ctx.store.read(core.mapPath("sample", sha))).not.toBeNull()
+    expect((await core.findMap(ctx, "sample_1")).sha256).toBe(sha)
+    expect((await core.findMap(ctx, "1")).sha256).toBe(sha)
+    expect((await core.findMap(ctx, sha.slice(0, 12))).sha256).toBe(sha)
+    expect(await core.missingMaps(ctx)).toEqual([])
+    await expect(core.releaseBuilt(ctx, await built("v2"), clean, mapFor("a".repeat(64)))).rejects.toThrow("the source map is for aaaaaaaaaaaa")
+  })
+
+  test("keep-map: the APK's own bundle is found by SHA only; bad maps are refused", async () => {
+    const sha = "b".repeat(64)
+    expect(await core.keepMap(ctx, mapFor(sha, "sample", "sample_0"))).toEqual({ id: "sample_0", sha256: sha, created: true })
+    expect((await core.keepMap(ctx, mapFor(sha, "sample", "sample_0"))).created).toBe(false)
+    expect((await core.findMap(ctx, "bbbbbbbbbbbb")).sha256).toBe(sha)
+    await expect(core.findMap(ctx, "sample_0")).rejects.toThrow("give its SHA")
+    await expect(core.keepMap(ctx, mapFor(sha, "other"))).rejects.toThrow('for app "other"')
+    await expect(core.keepMap(ctx, JSON.stringify({ version: 3, mappings: "" }))).rejects.toThrow("doesn't name its bundle")
+    await expect(core.keepMap(ctx, "nope")).rejects.toThrow("isn't JSON")
+  })
+
+  test("bundles released without a map are listed", async () => {
+    await core.releaseBuilt(ctx, await built("v1"), clean)
+    expect(await core.missingMaps(ctx)).toEqual(["sample_1"])
+    await expect(core.findMap(ctx, "sample_1")).rejects.toThrow("no source map kept")
+  })
+})

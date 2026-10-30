@@ -1,6 +1,6 @@
 // Runs the Hermes bytecode compiler from the `hermes-compiler` package.
 // Its version must match com.facebook.hermes:hermes-android in android/runtime/build.gradle.kts.
-import { join } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { existsSync } from "node:fs"
 
 const root = join(import.meta.dir, "..")
@@ -11,7 +11,12 @@ const hermescPath = join(root, "node_modules/hermes-compiler/hermesc", platformD
 
 /**
  * Compiles one JS file to optimised Hermes bytecode. Throws with hermesc's output on failure.
- * [extraFlags]: for example `-g1` (line numbers in JS stack traces; `zn dev` uses it).
+ * [extraFlags]: for example `-g1` (line numbers in JS stack traces; `zn dev` uses it). hermesc's default is the same
+ * as -g1 (checked 2026-10-31: same bytes), so release bundles have `main.js:line:col` in their stack traces too
+ * (`bun run ota symbolicate` maps them to TSX, step 4.8); -g0 would save ~16% but lose them.
+ * hermesc runs inside [input]'s folder and gets only its file name: the name is stored in the bytecode and shows in
+ * every stack trace, so a full path would leak the build machine's folders and make the same source give different
+ * bytes (and bundle SHA) on another machine or on CI (docs/ota.md §3.1).
  */
 export async function hermesc(input: string, output: string, extraFlags: string[] = []): Promise<void> {
   if (!existsSync(hermescPath)) {
@@ -22,7 +27,8 @@ export async function hermesc(input: string, output: string, extraFlags: string[
   // docs/v0-findings.md §P.
   // -emit-async-break-check: lets the runtime stop JS that runs past its time limit (an endless loop; step 3.9).
   const flags = ["-O", "-Xes6-block-scoping", "-emit-async-break-check", ...extraFlags]
-  const proc = Bun.spawn([hermescPath, ...flags, "-emit-binary", "-out", output, input], {
+  const proc = Bun.spawn([hermescPath, ...flags, "-emit-binary", "-out", resolve(output), basename(input)], {
+    cwd: dirname(resolve(input)),
     stdout: "pipe",
     stderr: "pipe",
   })

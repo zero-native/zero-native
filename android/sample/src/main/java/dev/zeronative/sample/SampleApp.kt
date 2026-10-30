@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import dev.zeronative.runtime.ZnBundles
 import dev.zeronative.runtime.ZnModules
 import dev.zeronative.runtime.ZnOta
 import dev.zeronative.runtime.ZnRuntime
@@ -22,15 +23,25 @@ class SampleApp : Application() {
         // The app's own native modules first: choosing the bundle (an OTA one needs them) starts with preload / eval.
         ZnModules.register(DeviceModule(this)) // the sample's own native module (src/device.ts)
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call
-        // Crashlytics' recordException. The sample only logs it.
+        // Crashlytics' recordException(e.asThrowable()). The sample logs the full JS stack (with columns: the exact
+        // TSX line with `bun run ota symbolicate`) and the Throwable a crash reporter would get.
         ZnRuntime.onJsError = { e ->
-            Log.w("zn-sample", "onJsError kind=${e.kind} where=${e.where} screen=${e.screen} bundle=${e.bundle}: " +
-                e.details.substringBefore('\n'))
+            Log.w("zn-sample", "onJsError kind=${e.kind} where=${e.where} screen=${e.screen} bundle=${e.bundleLabel}:\n${e.details}",
+                e.asThrowable())
         }
+        // The bundle that runs, at start and after an update or rollback switches it: an app would set it as a
+        // Crashlytics custom key (setCustomKey("zn_bundle", it)), so every crash says which bundle it came from.
+        ZnBundles.watchRunning { Log.i("zn-sample", "running bundle $it") }
         // Debug builds only: `adb shell setprop debug.zn.js_time_limit_ms 60000` changes the JS time limit (3 s in
         // debug builds), e.g. to pause in a debugger. Reset with `adb shell setprop debug.zn.js_time_limit_ms 0`.
         if (BuildConfig.DEBUG) {
             systemProperty("debug.zn.js_time_limit_ms")?.toIntOrNull()?.takeIf { it > 0 }?.let { ZnRuntime.jsTimeLimitMs = it }
+            // `adb shell setprop debug.zn.ota_free_bytes 1000000` makes OTA see a nearly full phone (low-storage test,
+            // step 4.9; read at start). Reset with `adb shell setprop debug.zn.ota_free_bytes 0`.
+            systemProperty("debug.zn.ota_free_bytes")?.toLongOrNull()?.takeIf { it > 0 }?.let {
+                ZnOta.freeSpaceOverride = it
+                Log.w("zn-sample", "OTA sees $it bytes free (debug.zn.ota_free_bytes)")
+            }
         }
         // OTA updates from the reference server on this computer (`bun run ota serve`, reached over
         // `adb reverse tcp:8790 tcp:8790`), staging channel, signed with the sample's key (`bun run ota keygen`; the

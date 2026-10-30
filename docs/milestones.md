@@ -91,8 +91,8 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
 recommended; logged in ARCHITECTURE §16 / §24. 4.1, 4.2, step 3.9 and 4.3 (local store) done 2026-10-30 (log
-below). 4.4 and 4.5 done 2026-10-30, 4.6 and 4.7 done 2026-10-31. Next: 4.8 (crash traces + telemetry: bundle id
-everywhere, source maps per bundle, `zn symbolicate`); Claude.
+below). 4.4 and 4.5 done 2026-10-30, 4.6, 4.7, 4.8 and 4.9 done 2026-10-31: **milestone 4 is done**. Next:
+`restorableSignal` (agreed below), then milestone 5.
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
 
 **Agreed for after 4.9 (Pavan, 2026-10-30): `restorableSignal(key, initial)`.** Like `signal`, but its value comes
@@ -116,8 +116,71 @@ Parked ideas: `docs/after-foundations.md`.
 | Kotlin (batch reader, template reader) | `.\gradlew.bat :runtime:testDebugUnitTest` in `android/` | `android/runtime/src/test/` |
 | Lint | `.\gradlew.bat :runtime:lintDebug :sample:lintDebug` | 0 errors expected |
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
+| OTA on the phone (22 cases, ~15 min) | `bun run ota:phone` (debug sample, phone unlocked) | `tools/ota/phone-matrix.ts`, `docs/ota-test-matrix.md` |
 
 ## Log
+### 2026-10-31: step 4.9 done (Claude): OTA phone test matrix, low storage, docs
+- **Phone matrix:** `bun run ota:phone` (`tools/ota/phone-matrix.ts`) runs 22 OTA cases on a real phone in ~15 min:
+  installs the debug sample fresh, releases test bundles into its own store (`.zn-ota-test/`), and breaks things on
+  purpose through a fault proxy (changed zip byte, wrong signatures, replayed answer, cut / slow download, server
+  down, app killed mid-download, half-installed files, full phone, start without UI, newer APK). It puts the phone's
+  settings and the sample's sources back. **22 of 22 on the Lava**; table and the cases not scripted (with why):
+  `docs/ota-test-matrix.md`. Decisions (Pavan, 2026-10-31): D1 (a) a debug-only setprop fakes low space, D2 (a) a
+  debug-only way to start the process without UI, D3 (a) a re-runnable script now.
+- **Low storage (new):** `ZnOta.checkSpace` before a download (rest of the zip + 4× zip + 50 MB for the user), outcome
+  `no_space`; a full disk mid-download removes the half-written files at once. `ZnOta.freeSpaceOverride` (the sample
+  sets it from `debug.zn.ota_free_bytes` in debug builds only). Numbers: second-opinions entry 5.
+- **Debug-only sample parts:** `DebugWakeProvider` (`adb shell content query --uri
+  content://dev.zeronative.sample.debugwake/start`, shell only). A provider, because the Lava's ROM won't start a
+  stopped app's process for a manifest broadcast receiver.
+- **CLI:** `--store <dir>` on every store command (the matrix uses its own store).
+- **Found by the matrix:** (1) the Lava's "app has stopped" dialog keeps a crashed process alive until closed; a force
+  stop while it shows is recorded as a force stop and the watchdog misses that crash (second-opinions entry 1, not
+  changed). (2) A downloaded bundle that can't run falls back to the APK's bundle, not the last good one, until the
+  channel moves (second-opinions entry 6, not changed). No runtime bugs found.
+- **Guide notes:** saved data across updates and rollbacks (add-only formats), when the phone is full, the "needs a
+  store release" list in §23.
+- **Not verified:** a release (R8) build in the matrix (it needs debug helpers; 4.8 ran the main paths in release),
+  Android < 11, a real network (airplane mode can't affect `adb reverse`), kills timed inside apply.
+
+### 2026-10-31: step 4.8 done (Claude): crash traces and telemetry
+- **What it gives** (docs/ota.md §3.7): every report names the bundle as `<id>@<sha12>`; each released bundle's
+  source map is kept in the store by SHA (`ota build`, and `ota keep-map` for the APK's own bundle at APK release);
+  `bun run ota symbolicate` turns a release trace (logcat, `onJsError`, Crashlytics, or `--from-telemetry`) into TSX
+  lines. Decisions D1–D4 (2026-10-31): keep-map (a), stacks for error_screen / error_rollback to the server plus the
+  Crashlytics form (a), other JS errors stay the app's (a), the watchdog blocks after 1 sure crash (yes).
+- **Phone side:** `ZnJsError.bundleLabel` + `asThrowable()` (`ZnJsException`, JS frames as Java frames);
+  `ZnBundles.watchRunning { }` (for a Crashlytics custom key); `error_screen`, `error_rollback`, `apply_failed`
+  outcomes carry `stack` (top 8 frames, ≤1 KB) and `sha`; `ZnOtaReport.stack`. Sample logs all of it.
+- **Watchdog change:** one launch Android's record says crashed blocks a bundle never healthy on this phone; 2 in a row
+  are still needed on Android < 11, with no exit record, for an ANR, and for the phone's **last good** bundle. That
+  last part is my addition to D4: the healthy mark is per process, so a bundle proven for weeks is watched for 4 s
+  on every launch, and one native-SDK crash there shouldn't cost the user the update until the next APK.
+- **Bugs found and fixed:** (1) the bundle bytes depended on the working folder (Bun's `// path` module comments, and
+  hermesc's baked-in input path): `ota keep-map` (app folder) gave another SHA than `bun run sample:js` (repo root),
+  so the kept map wouldn't have matched the APK. Both fixed; every bundle's SHA changed once. (2) In release, R8
+  merged `ZnJsException` into coil's `HttpException` (logs said `coil3.network.HttpException: JS error ...`): runtime
+  R8 rule keeps it. (3) Crashlytics-style frames (no column) mapped one line early (Bun maps a line's leading spaces
+  to the line before): now the line most points map to. (4) `ota symbolicate` with a paste or a pipe ended at once
+  with no output: a waiting stdin read doesn't keep Bun 1.4 running, and the CLI didn't await `main()`. Now it does.
+- **Judgment calls for a second opinion** (watchdog limits, ANR, the per-process healthy mark, error text in
+  telemetry): `docs/second-opinions.md`.
+- **Last good bundle, errors only reported** (Pavan chose option (a) of second-opinions entry 3): an error screen, a
+  hang or no first screen on the phone's last good bundle no longer blocks it forever; it is reported
+  (`error_screen`). `Rules.errorsRollBack` + unit test (Kotlin 72). Lava (debug): healthy on launch 1, home throws on
+  launch 2 → reported only, launch 3 runs it normally; the stack maps to `HomeScreen.tsx:26` via `--from-telemetry`.
+- **Tests:** JS 202 (source map compose / round trip / same bytes, build bytes don't depend on the folder,
+  symbolicate 5, keep-map / findMap, hermesc same bytes in two folders); Kotlin 71 (`ZnJsErrorTest` 3,
+  `ZnOtaHealthTest` 15: sure crash, sure after unsure, last good keeps 2, stack round trip); lint clean.
+- **Verified on the Lava:** release: tap-handler and async errors in the APK's bundle → `symbolicate` from logcat gives
+  `CrashLabScreen.tsx:78` / `:82` with and without columns; a bundle whose home screen throws → rolled back,
+  `--from-telemetry` → `HomeScreen.tsx:24`; `watchRunning` logs the label at start and after the rollback; cold start
+  median 195 ms (n=10, as before). Debug: a never-healthy bundle crashing once (`Device.crash`) → `launch_crashed
+  (1 of 1)` + `watchdog_block` at the next start; force stop still not counted.
+- **Not verified:** a real Crashlytics project (no Firebase in the sample; the Throwable and custom key are logged
+  instead), the last-good 2-crash path on the phone (unit-tested), Android < 11, `apply_failed` stack on the phone
+  (same code as error_rollback). Next: **4.9** phone test matrix, docs, guide notes.
+
 ### 2026-10-31: step 4.7 done (Claude): OTA safety nets
 - **What a downloaded bundle goes through** (docs/ota.md §3.6, `ZnOtaHealth.kt` + `ZnOta.kt`): on trial until
   *healthy* (screens up 4 s in the foreground, or `Updates.markHealthy()`); during the trial an error screen, a hang

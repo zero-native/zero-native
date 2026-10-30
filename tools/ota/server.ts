@@ -73,6 +73,9 @@ export function parseCheck(body: unknown): CheckRequest {
       bundle: o.bundle === undefined ? undefined : String(o.bundle).slice(0, 80),
       detail: o.detail === undefined ? undefined : String(o.detail).slice(0, 300),
       at: o.at === undefined ? undefined : String(o.at).slice(0, 40),
+      // Step 4.8: the top JS stack frames of error_screen / error_rollback, and the bundle's SHA (for the source map).
+      stack: o.stack === undefined ? undefined : String(o.stack).slice(0, 1024),
+      sha: o.sha === undefined ? undefined : String(o.sha).slice(0, 64),
     })),
   }
 }

@@ -331,14 +331,53 @@ object ZnOta {
 
     // ---- Download and install -------------------------------------------------------------------------------------
 
+    /**
+     * Tests only (debug builds): the free space the client sees, in bytes, instead of the real one (step 4.9; the
+     * sample sets it from `adb shell setprop debug.zn.ota_free_bytes N`). Null: the real free space.
+     */
+    @Volatile var freeSpaceOverride: Long? = null
+
+    /** An unzipped bundle is about 3× its zip (hbc and templates); this leaves room. */
+    private const val UNZIP_FACTOR = 4
+    /** An update never leaves the phone with less free space than this: the user's photos and payments come first. */
+    private const val MIN_FREE_BYTES = 50L * 1024 * 1024
+
+    /**
+     * Before downloading: is there room for the rest of the zip, its unzipped files and [MIN_FREE_BYTES]? If not, the
+     * check fails with `no_space` (nothing written; the seq isn't saved, so the next check tries again).
+     */
+    private fun checkSpace(m: ZnOtaInstall.Manifest) {
+        val partInfo = File(ota(), "download.json")
+        val same = partInfo.isFile && runCatching { JSONObject(partInfo.readText()).getString("sha256") }.getOrNull() == m.zipSha256
+        val have = if (same) File(ota(), "download.part").length().coerceAtMost(m.zipSize) else 0L
+        val need = (m.zipSize - have) + m.zipSize * UNZIP_FACTOR + MIN_FREE_BYTES
+        val free = freeSpaceOverride ?: ota().usableSpace
+        if (free < need) throw ZnOtaError("no_space", "${m.id} needs ${mb(need)} MB free (with ${mb(MIN_FREE_BYTES)} MB kept for the user), the phone has ${mb(free)} MB")
+    }
+
+    private fun mb(bytes: Long) = "%.1f".format(Locale.US, bytes / 1048576.0)
+
     private fun install(c: Config, m: ZnOtaInstall.Manifest) {
         val running = ZnBundles.running
         if (!running.builtIn && running.info?.id == m.id) throw ZnOtaError("install", "${m.id} is running already")
-        val zip = download(c, m)
-        setPhase("installing")
-        val tmp = File(ota(), "tmp").apply { deleteRecursively() }
+        ota().mkdirs()
+        checkSpace(m)
+        val tmp = File(ota(), "tmp")
+        val zip: File
         val staged = File(tmp, m.id)
-        ZnOtaInstall.extract(zip, m, staged)
+        try {
+            zip = download(c, m)
+            setPhase("installing")
+            tmp.deleteRecursively()
+            ZnOtaInstall.extract(zip, m, staged)
+        } catch (e: java.io.IOException) {
+            // The phone filled up while we wrote (another app, a big photo): give the space back at once.
+            if (!(e.message ?: "").let { "ENOSPC" in it || "No space left" in it }) throw e
+            tmp.deleteRecursively()
+            File(ota(), "download.part").delete()
+            File(ota(), "download.json").delete()
+            throw ZnOtaError("no_space", "the phone ran out of space while installing ${m.id}; its files were removed (${e.message})")
+        }
         val dest = File(ota(), "bundles/${m.id}")
         dest.parentFile!!.mkdirs()
         if (dest.exists()) dest.deleteRecursively() // a copy left by an earlier install of the same bytes (ids never change)
@@ -483,14 +522,22 @@ object ZnOta {
         ZnOtaInstall.writeAtomic(stateFile(), j.toString())
     }
 
-    /** Adds an outcome for the next check, and tells [Config.onReport] (on the main thread). */
-    private fun outcome(st: State, kind: String, bundle: String?, detail: String?, atMs: Long = System.currentTimeMillis()) {
+    /**
+     * Adds an outcome for the next check, and tells [Config.onReport] (on the main thread). [stack] and [sha]: a JS
+     * error's top frames ([jsTopFrames]) and its bundle's SHA-256, for `bun run ota symbolicate --from-telemetry` (step 4.8).
+     */
+    private fun outcome(
+        st: State, kind: String, bundle: String?, detail: String?, atMs: Long = System.currentTimeMillis(),
+        stack: String? = null, sha: String? = null,
+    ) {
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val o = JSONObject().put("kind", kind).put("at", iso.format(Date(atMs)))
         if (bundle != null) o.put("bundle", bundle)
         if (detail != null) o.put("detail", detail.take(300))
+        if (stack != null) o.put("stack", stack.take(MAX_JS_FRAMES_CHARS))
+        if (sha != null) o.put("sha", sha)
         st.outcomes += o
-        val report = ZnOtaReport(kind, bundle, detail, serious = kind in SERIOUS)
+        val report = ZnOtaReport(kind, bundle, detail, serious = kind in SERIOUS, stack = stack)
         if (kind in SERIOUS) Log.w(TAG, "report: $report") else Log.i(TAG, "report: $report")
         val hook = config?.onReport ?: return
         main.post {
@@ -619,7 +666,8 @@ object ZnOta {
                     if (backId == null) currentFile().delete() else ZnOtaInstall.writeAtomic(currentFile(), backId)
                     if (id != null) ZnOtaHealth.block(id, ZnOtaHealth.ERROR, kind = null, detail = null)
                     record("apply_failed", id ?: "built-in", "${result.value.substringBefore('\n')}; running ${backId ?: "built-in"}", running = null,
-                        error = "apply_failed: ${id ?: "built-in"} threw while starting: ${result.value.substringBefore('\n')}")
+                        error = "apply_failed: ${id ?: "built-in"} threw while starting: ${result.value.substringBefore('\n')}",
+                        stack = jsTopFrames(result.value), sha = target.running.info?.sha256)
                 }
                 return@restart swap(fallback.first, fallback.second, null, t0, Swap.FALLBACK, done)
             }
@@ -664,12 +712,16 @@ object ZnOta {
 
     /**
      * Client thread: adds an outcome for the next check (none if [kind] is null); [running] (if set) is now what runs
-     * (no "started" later); [error] (if set) shows as `status().lastError` until the next check.
+     * (no "started" later); [error] (if set) shows as `status().lastError` until the next check; [stack], [sha]: see
+     * [outcome].
      */
-    private fun record(kind: String?, bundle: String?, detail: String?, running: String?, error: String? = null) {
+    private fun record(
+        kind: String?, bundle: String?, detail: String?, running: String?, error: String? = null,
+        stack: String? = null, sha: String? = null,
+    ) {
         synchronized(stateLock) {
             val st = loadState()
-            if (kind != null) outcome(st, kind, bundle, detail)
+            if (kind != null) outcome(st, kind, bundle, detail, stack = stack, sha = sha)
             if (running != null) st.lastRunning = running
             if (error != null) st.lastError = error
             saveState(st)
@@ -695,7 +747,13 @@ object ZnOta {
         val c = config ?: return@Runnable
         if (screensAreUp || !inFront || applying || rollingBack || ZnOtaHealth.healthyBundle == id) return@Runnable
         Log.w(TAG, "safety: the first screens of $id weren't up ${c.firstScreenTimeoutMs} ms after the app came on screen")
-        rollBack(id, "the first screens weren't up after ${c.firstScreenTimeoutMs} ms")
+        val why = "the first screens weren't up after ${c.firstScreenTimeoutMs} ms"
+        if (!ZnOtaHealth.errorsRollBack(id)) {
+            // The phone's last good bundle: reported, not blocked (see errorScreen).
+            worker.execute { record("error_screen", id, "$why (last good bundle: reported only)", running = null) }
+            return@Runnable
+        }
+        rollBack(id, why)
     }
 
     private fun onFront() {
@@ -767,25 +825,37 @@ object ZnOta {
     /**
      * Main thread, from [ZnRuntime.jsError]: JS failed to start, a screen failed while being built, or JS hung. On a
      * downloaded bundle that isn't healthy yet this blocks it and rolls back in place; returns true then (the error
-     * screen isn't shown). Else the error is only counted (outcome `error_screen`) and the error screen shows.
+     * screen isn't shown). Else (a healthy bundle, the APK's, or the phone's last good one) the error is only counted
+     * (outcome `error_screen`) and the error screen shows.
      */
     internal fun errorScreen(kind: String, where: String, details: String): Boolean {
         if (config == null || applying || rollingBack || ZnRuntime.isRestarting) return false
-        val id = ZnBundles.runningIfChosen?.key()
+        val running = ZnBundles.runningIfChosen
+        val id = running?.key()
         val what = "$kind in $where: ${details.substringBefore('\n')}"
+        val stack = jsTopFrames(details)
+        val sha = running?.info?.sha256
         if (id == null || ZnOtaHealth.healthyBundle == id) {
-            worker.execute { record("error_screen", id ?: "built-in", what, running = null) }
+            worker.execute { record("error_screen", id ?: "built-in", what, running = null, stack = stack, sha = sha) }
             return false
         }
-        return rollBack(id, what)
+        if (!ZnOtaHealth.errorsRollBack(id)) {
+            // The phone's last good bundle ran well here before: one bad moment (odd server data, a slow phone) must
+            // not block it forever. Reported only; the error screen shows. Its crashes still count (watchdog).
+            Log.w(TAG, "safety: $id is the last good bundle: $what (reported, not blocked)")
+            worker.execute { record("error_screen", id, "$what (last good bundle: reported only)", running = null, stack = stack, sha = sha) }
+            return false
+        }
+        return rollBack(id, what, stack, sha)
     }
 
     /**
      * Main thread: blocks [id] (an "error" block: forever) and runs the last good bundle (or the APK's) in its place,
      * the way [applyNow] does. If JS holds updates (a payment) or the runtime can't be replaced yet, the good bundle
      * only becomes current (it runs from the next start) and this returns false: the error screen shows meanwhile.
+     * [stack], [sha]: the error's top JS frames and the bundle's SHA, for the `error_rollback` outcome.
      */
-    private fun rollBack(id: String, why: String): Boolean {
+    private fun rollBack(id: String, why: String, stack: String? = null, sha: String? = null): Boolean {
         val assets = ZnTemplates.assets()
         val inPlace = holds.isEmpty() && ZnRuntime.canRestart && assets.isNotEmpty()
         val later = if (inPlace) "" else " from the next start (${if (holds.isNotEmpty()) "updates are held" else "the app isn't running yet"})"
@@ -798,7 +868,7 @@ object ZnOta {
             val target = ZnBundles.fallbackCandidate(exclude = id)
             val targetId = target.running.key()
             if (targetId == null) currentFile().delete() else ZnOtaInstall.writeAtomic(currentFile(), targetId)
-            ZnOtaHealth.block(id, ZnOtaHealth.ERROR, "error_rollback", "$why; going back to ${targetId ?: "the built-in bundle"}$later")
+            ZnOtaHealth.block(id, ZnOtaHealth.ERROR, "error_rollback", "$why; going back to ${targetId ?: "the built-in bundle"}$later", stack, sha)
             // Telemetry after the swap is on its way (a few file writes less before it).
             val report = Runnable {
                 deliver()
@@ -849,7 +919,7 @@ object ZnOta {
         if (events.isEmpty()) return
         synchronized(stateLock) {
             val st = loadState()
-            for (e in events) outcome(st, e.kind, e.bundle, e.detail, e.atMs)
+            for (e in events) outcome(st, e.kind, e.bundle, e.detail, e.atMs, e.stack, e.sha)
             saveState(st)
         }
     }
@@ -883,9 +953,10 @@ object ZnOta {
 /**
  * One outcome of the update client ([ZnOta.Config.onReport]): [kind] as sent to the server (docs/ota.md §3.7), the
  * bundle it is about, and a line of detail. [serious]: a safety net acted (a rollback, a block, OTA turned off) or a
- * signed file didn't check out; worth a crash-report log.
+ * signed file didn't check out; worth a crash-report log. [stack]: for error_screen, error_rollback and apply_failed,
+ * the error's top JS frames (step 4.8; the full error also reached `onJsError` when it happened).
  */
-class ZnOtaReport(val kind: String, val bundle: String?, val detail: String?, val serious: Boolean) {
+class ZnOtaReport(val kind: String, val bundle: String?, val detail: String?, val serious: Boolean, val stack: String? = null) {
     override fun toString() = "$kind${bundle?.let { " $it" } ?: ""}${detail?.let { ": $it" } ?: ""}"
 }
 

@@ -219,6 +219,10 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   show the dev error box). If JS holds updates (`holdApply`: a payment), or the runtime can't be replaced yet, the
   good bundle only becomes `current` (next start) and the error screen shows. After healthy, errors are only counted
   (outcome `error_screen`). Decision D1 (a): back to last good, not straight to the APK's (RN goes to built-in).
+  **Not for the phone's last good bundle** (added in step 4.8, Pavan's choice; `docs/second-opinions.md` entry 3):
+  the healthy mark is per process, so it is on trial again for 4 s at every launch, but an error screen, a hang or no
+  first screen there is only reported (`error_screen`, "last good bundle: reported only") and the error screen shows.
+  It ran well on this phone before, and an "error" block is forever. Its crashes still count (watchdog, 2 in a row).
 - **First-screen rule:** a downloaded bundle not healthy whose screens aren't up `Config.firstScreenTimeoutMs`
   (10 s) after the app came on screen (counted while in the foreground) → rolled back the same way (a bundle that
   never calls `startApp`, or waits forever).
@@ -227,8 +231,13 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   thread in release, no fsync). Going to the background or the healthy mark clears it. At the next start a pending
   launch is judged by Android's exit record **of that process** (Android 11+): crash, native crash or ANR **count**;
   anything else (force stop, low memory, swipe away, reboot) **doesn't**. Android < 11 can't say why: every such death
-  counts. **2 counted launches in a row → blocked ("watchdog")**; the next start runs last good or the APK's. A
-  watchdog block is cleared by the next APK install (it may fix a native cause); an error block never is.
+  counts. **Blocking (changed in step 4.8):** one launch that Android's record says **crashed** (crash, native crash)
+  blocks a bundle never healthy on this phone at once ("watchdog"): a crash before the healthy mark comes back on the
+  next start, so waiting only costs the user a second crash. **2 counted launches in a row** are needed when Android
+  can't be sure (Android < 11, no exit record, an ANR: a slow phone can freeze too), and for the phone's last good
+  bundle (it ran well here before; one crash may be a native SDK's bad luck). The healthy mark is per process, so
+  every launch is watched until its 4 s pass. The next start runs last good or the APK's. A watchdog block is cleared
+  by the next APK install (it may fix a native cause); an error block never is.
 - **Blocked bundles** never run, are never switched to, never offered as `kept`, and their folders are deleted. A
   channel pointing to a blocked bundle (a newer seq) → the seq is saved, nothing downloaded, result NONE BLOCKED,
   outcome `blocked`. The way forward is a fixed bundle (a new id).
@@ -248,14 +257,50 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   main thread; `health.json` is written at start only when something changed.
 - **Never during a checkout:** `holdApply` + guide notes; a cold start with a saved payment applies the bundle before
   JS, so bundles must keep reading saved flow state (FlowStore formats are versioned by the app).
+- **Low storage (added in step 4.9):** before a download, free space must cover the rest of the zip + 4× the zip
+  (unzipped) + 50 MB left for the user; else the check fails with `no_space`, nothing written, retried at the next
+  check. ENOSPC while writing removes the half-written files at once (`no_space`). `ZnOta.freeSpaceOverride` (debug
+  tests: `debug.zn.ota_free_bytes` in the sample). Numbers: `docs/second-opinions.md` entry 5.
 
-### 3.7 Crash traces and telemetry
-- Every log and crash report carries the running bundle id. The release CLI keeps each bundle's **source map**;
-  `zn symbolicate` maps a release stack trace back to TSX lines (3.1's mapping, for release builds).
+### 3.7 Crash traces and telemetry (built in step 4.8)
+- **Bundle label everywhere:** `<id>@<sha12>` (`sample_8@1a2b3c4d5e6f`, `ZnBundles.Running.label`). The SHA is
+  needed because the APK's own bundle is `<app>_0` in every APK. It is in `ZnJsError.bundleLabel`, in the message of
+  `ZnJsError.asThrowable()`, and `ZnBundles.watchRunning { }` gives it at start and on every switch (an update applied
+  in place, a rollback): an app sets it as a Crashlytics custom key, so native crashes name the bundle too.
+- **Release stacks have positions:** hermesc's default is `-g1` (same bytes as no flag): frames read
+  `at HomeScreen (main.js:2051:22)`. `-g0` would save ~16% of the bytecode but lose them: not used.
+- **Same source → same bytes on any machine:** hermesc runs in the input's folder with only the file name (it bakes
+  the path into the bytecode), and `buildApp` names Bun's `// path` module comments from the entry's folder (they
+  were relative to the working folder: `ota keep-map`, run in the app's folder, gave a different SHA than
+  `bun run sample:js` at the repo root). Both changed every bundle's SHA once.
+- **Source maps:** `buildApp(...).sourceMap()` composes Bun's map with the compiler's TSX map into one standard v3 map
+  (main.js → TSX, sources relative to the app folder, no source text), with `x_zn_bundle: {app, id, sha256}`. The app's
+  build writes it with `--map FILE`. The store keeps it at `<app>/maps/<bundle sha256>.map` (create-only):
+  `ota build` keeps it with each released bundle (it fails if the build made none); **`ota keep-map`** builds the
+  sources as they are now and keeps the map of the APK's own bundle: run it from the commit the APK is built from, at
+  every APK release. `ota verify` lists released bundles without a map (those built before 4.8).
+- **`bun run ota symbolicate [file] [--bundle <id|sha>]`** (or paste on stdin): finds the bundle label in the text (or
+  `--bundle`: an id, a serial, or a SHA prefix of 8+; the APK's `_0` needs its SHA), and rewrites every main.js
+  position: `at HomeScreen (src/HomeScreen.tsx:24:38 (main.js:2051:22))`. Reads Hermes frames, pre-4.8 full paths,
+  and Crashlytics frames without a column (`at zn.js.HomeScreen(main.js:2051)` → `HomeScreen.tsx:24`: the source
+  line most points on that main.js line map to, because Bun maps a line's leading spaces to the line before).
+  `--from-telemetry` does the same for the last 5 outcomes with a stack in the server's telemetry.
+- **Stacks in telemetry (D2):** `error_screen`, `error_rollback` and `apply_failed` carry `stack` (the top JS frames:
+  `at` lines, at most 8 and 1 KB) and `sha` (the bundle's full SHA). The server keeps them (1 KB / 64 chars);
+  `ZnOtaReport.stack` has them too. Other JS errors (handlers, async, parts) are the app's: `onJsError` →
+  Crashlytics (D3). No extra requests: they go with the next check.
+- **Crashlytics form:** `ZnJsError.asThrowable()` is a `ZnJsException` (kept by name in the runtime's R8 rules: R8
+  had merged it into an unrelated exception class) whose message is `JS error [label] kind in where: first line` and
+  whose stack is the JS frames as `zn.js.<function>(main.js:<line>)` (frames without a position left out), so issues
+  group by JS function.
+- Checked on the Lava (release): a tap handler and an async error in the APK's bundle map to their exact TSX lines
+  from logcat, with and without columns; a bundle whose home screen throws rolls back and `--from-telemetry` gives
+  `HomeScreen.tsx:24`; a never-healthy bundle that crashes once is blocked at the next start (debug build:
+  `Device.crash`); cold start median 195 ms (n=10, as before).
 - Small telemetry with the next check, no extra requests. Outcome kinds so far: `downloaded`, `switched`, `started`,
   `applied`, `apply_failed`, `healthy`, `error_screen`, `error_rollback`, `launch_crashed`, `watchdog_block`,
   `blocked`, `apk_changed`, `init_failed`, `ota_off`, `pointer_refused`, and a failed check's code (`server`,
-  `download`, `zip_sha`, `signature`, `incompatible`, `bundle`, ...). Serious (a safety net acted, or a signed file
+  `download`, `zip_sha`, `signature`, `incompatible`, `bundle`, `no_space`, ...). Serious (a safety net acted, or a signed file
   didn't check out): `error_rollback`, `launch_crashed`, `watchdog_block`, `apply_failed`, `init_failed`, `ota_off`,
   `signature`, `zip_sha`.
 
@@ -270,16 +315,18 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
 | 4.5 | Client: check, resumable download, verify, atomic install, kept bundles, seq, `Updates` JS API | **done 2026-10-30** (§3.5; `docs/milestones.md` log) |
 | 4.6 | Apply: cold start + `applyNow()` (release-safe restart), `holdApply()`, cover screen | **done 2026-10-31** (§3.5; `docs/milestones.md` log) |
 | 4.7 | Safety nets: watchdog, error-before-healthy rollback, healthy mark, startup guard, APK-newer, capability change | **done 2026-10-31** (§3.6; `docs/milestones.md` log) |
-| 4.8 | Crash traces + telemetry: bundle id everywhere, source maps per bundle, `zn symbolicate` | a release crash maps back to the TSX line |
-| 4.9 | Phone test matrix (below), docs, guide notes ("what OTA can and can't change", busy moments, state formats) | matrix green on the Lava |
+| 4.8 | Crash traces + telemetry: bundle id everywhere, source maps per bundle, `zn symbolicate` | **done 2026-10-31** (§3.7; `docs/milestones.md` log) |
+| 4.9 | Phone test matrix (below), docs, guide notes ("what OTA can and can't change", busy moments, state formats) | **done 2026-10-31** (22 of 22 on the Lava: `docs/ota-test-matrix.md`) |
 | later | BSDiff patches (D5), CDN / signed download links, push-started checks (an `Updates.checkInBackground()` hook for apps' FCM handlers), iOS client | when needed |
 
 **Phone test matrix (4.9):** first install → no OTA; publish #1 → downloads, applies on next cold start; `applyNow`
 during a visit; held during checkout; kill during download / install / apply; tampered zip; wrong bundle signature;
 wrong pointer signature; replayed old pointer (lower seq); kill switch; rollback to a kept bundle (no download);
-bundle that throws at start → rollback in one launch; bundle that crashes twice → watchdog; APK update newer than the
+bundle that throws at start → rollback in one launch; bundle that crashes → watchdog (once on Android 11+, twice for
+the last good bundle or on Android < 11); APK update newer than the
 OTA bundle; **older app offered a newer bundle needing a module it lacks → ignores it**; low storage; airplane mode;
-FCM-style background start doesn't count as a launch.
+FCM-style background start doesn't count as a launch. **Built:** `bun run ota:phone` runs it (22 cases) on a phone;
+results and what can't be run there: `docs/ota-test-matrix.md`.
 
 ## 5. What stays the app's job (as in the RN app)
 Which moments are safe to apply (the gates), the update banner and its wording, push messages that trigger checks,

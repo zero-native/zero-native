@@ -11,6 +11,7 @@
     "sample:js": "bun run examples/sample/build.ts",
     "dev": "bun run tools/zn-dev.ts",
     "ota": "bun run tools/ota/cli.ts",
+    "ota:phone": "bun run tools/ota/phone-matrix.ts",
     "gen:registry": "bun run tools/gen-registry.ts",
     "test": "bun test packages compiler tools && bun run test:types",
     "test:types": "tsc -p packages/core/test/tsconfig.types.json && tsc -p examples/sample"
