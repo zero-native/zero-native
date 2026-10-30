@@ -1,6 +1,8 @@
 package dev.zeronative.runtime
 
 import android.content.res.AssetManager
+import com.facebook.soloader.nativeloader.NativeLoader
+import com.facebook.soloader.nativeloader.SystemDelegate
 
 /**
  * JNI entry points (android/runtime/src/main/cpp/jni_bridge.cpp).
@@ -8,6 +10,14 @@ import android.content.res.AssetManager
  */
 internal object ZnNative {
     init {
+        // Hermes calls Java through fbjni for `Intl` (toLocaleString, Intl.NumberFormat, dates). Without these two
+        // lines the first `Intl` call aborted the app (found 2026-10-30 on the Lava):
+        // - fbjni's Java side loads libraries through NativeLoader, which must be set up once (React Native does this
+        //   at startup; an app that already did it keeps its own setup);
+        // - fbjni sets itself up in its JNI_OnLoad, which runs only for libraries loaded here, not for libfbjni loaded
+        //   as a dependency of libzn.
+        if (!NativeLoader.isInitialized()) NativeLoader.init(SystemDelegate())
+        System.loadLibrary("fbjni")
         System.loadLibrary("zn")
     }
 

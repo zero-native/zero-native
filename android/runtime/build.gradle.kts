@@ -75,6 +75,8 @@ dependencies {
     // higher version; OkHttp 5 keeps 4.x's API). 5.x tries IPv6 and IPv4 together (fastFallback), which matters on
     // networks with broken IPv6.
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    // Already in every app through Hermes → fbjni (same version); declared so ZnNative can set it up for `Intl`.
+    implementation("com.facebook.soloader:nativeloader:0.10.5")
 
     testImplementation("junit:junit:4.13.2")
     // Android's org.json is a stub in JVM unit tests; this is the real one (tests only: ZnBundlesTest).

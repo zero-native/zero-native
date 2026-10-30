@@ -460,6 +460,22 @@ await SecureStore.set("refreshToken", token)
 
 ---
 
+## 25. Formatting numbers, money and dates (`Intl`, works since 2026-10-30)
+- **Do:** make each formatter once, at module level, and reuse it:
+  ```ts
+  const rupees = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 })
+  rupees.format(125000) // "₹1,25,000"
+  ```
+- **Don't:** call `amount.toLocaleString("en-IN")` or `new Intl.NumberFormat(...)` in a list row or on every change.
+- **Why:** each `toLocaleString` call builds a new formatter through Java: **~2 ms** per call on the Lava. A reused
+  formatter takes **0.004 ms**. Fifty rows formatted the slow way is ~100 ms of jank. (Step 3.9 makes
+  `toLocaleString` cache its formatters, so this trap goes away; reusing a formatter stays the clearest code.)
+- What works (checked on the Lava): Indian grouping (`1,25,000`), `₹` currency, compact lakh (`12L`), `30 Oct 2026`,
+  `2:35 pm`, the phone's time zone. Dates show in the phone's time zone; pass `timeZone: "Asia/Kolkata"` for
+  receipts that must always show Indian time.
+
+---
+
 ## Open items to write up when built
 - `<List>` rails, carousel, impressions (steps 2.4b–d). See
   `docs/cross-communication/2026-10-29-feeds-and-lists-proposal.md`.

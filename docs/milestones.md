@@ -87,10 +87,11 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | **done 2026-10-30** |
 | 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviewed + fixed | **done 2026-10-30** (note: `docs/cross-communication/2026-10-30-steps-3.7-3.8-gemini-done.md`) |
 | 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviewed + fixed | **done 2026-10-30** |
+| 3.9 | **Resilience** (agreed 2026-10-30): (1) a screen that throws while being built stays on the stack and native shows a built-in fallback (release: "Something went wrong" + Go back / Try again; first screen: Try again; debug: the red screen with the TSX line); a failing part of a screen (conditional block, list row) stays empty, the rest works; (2) promise rejection tracking, so errors in `async` code are reported; (3) a time limit on each JS task (Hermes `watchTimeLimit`, ~5 s) instead of a frozen app; (4) `onError(handler)` for apps (screen name, bundle id) to send to Crashlytics / a backend; (5) checks on templates and values when they arrive (unknown ids, wrong value types, a node placed inside itself): refuse or report instead of crashing; (6) the back stack saved on every change and reopened after Android kills the app in the background (designed in ARCHITECTURE §11, built only in v0); (7) `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` reuse cached formatters per locale + options, so the simple way is also the fast way (today ~2 ms per call, guide note §25) | Claude | after 4.2; needed by 4.7 |
 
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
 recommended; logged in ARCHITECTURE §16 / §24. 4.1 done 2026-10-30 (log below). Next: 4.2 (capability manifest),
-Claude.
+then 3.9 (resilience), then 4.3 onwards; Claude.
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
 
 Later milestones: **4** OTA (signed bundles, bundle pool, boot guard, capability manifest, "an older app ignores a
@@ -108,6 +109,19 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: `Intl` crashed the app (fixed, Claude)
+- Any `Intl` use (`toLocaleString("en-IN")`, `Intl.NumberFormat`, date formatting) aborted the app on the zn-js
+  thread, debug and release: Hermes calls Java through fbjni for `Intl`, and fbjni was never set up (its
+  `JNI_OnLoad` runs only for libraries loaded with `System.loadLibrary`; ours loaded it as a dependency of libzn),
+  then fbjni's Java side needed `NativeLoader.init(SystemDelegate())`. Fixed in `ZnNative.kt` (both, before
+  `zn`); `com.facebook.soloader:nativeloader:0.10.5` declared (already in the APK through fbjni, same version).
+- **Verified on the Lava, debug and release:** `1,25,000.5`, `₹12,50,000.50`, `₹400` (no decimals), compact `12L`,
+  `30 Oct 2026`, `2:35 pm`, time zone `Asia/Calcutta`. Cost: `toLocaleString("en-IN")` **~2 ms per call** (it
+  builds a formatter each time); a reused `Intl.NumberFormat` **0.004 ms**. Guide note §25.
+- **Startup cost of the fix: none measurable.** Release, speed-profile, n=10, built back to back: without the two
+  lines median 209 ms / p90 220 ms; with them 211 ms / 216 ms. Loading the native libraries takes 5–9 ms without
+  and 5–14 ms with, on the zn-js thread (not the main thread).
+
 ### 2026-10-30: steps 3.7 / 3.8 reviewed and fixed (Claude)
 Gemini built them (step note in `docs/cross-communication/`). Review found and fixed:
 - **Image fallback loop:** a fallback that loaded made the image go back to the broken `src`, forever. On the Lava,
