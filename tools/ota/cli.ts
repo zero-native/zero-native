@@ -8,13 +8,13 @@
 //   bun run ota publish --channel production --bundle 12 --rollout 10      (asks to type PRODUCTION #12)
 //   bun run ota rollout --channel production --percent 50
 //   bun run ota kill    --channel production --reason "..."    (asks to type KILL PRODUCTION)
-//   bun run ota status
+//   bun run ota status                                         channels, bundles, and what phones reported (7 days)
 //   bun run ota verify                                         check every signature and zip in the store
 //   bun run ota serve   [--port 8790] [--host 127.0.0.1]       the reference update server over the local store
 //
 // Common options: --app-dir <dir> (default examples/sample; holds zn-ota.json), --key <private key PEM file>,
 // --confirm "<text>" (for scripts; otherwise you are asked).
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { parseArgs } from "node:util"
@@ -202,6 +202,21 @@ async function main() {
       for (const b of s.bundles) {
         const marks = [b.stable ? "stable" : "", b.dirty ? "uncommitted" : "", ...b.servedBy].filter(Boolean).join(", ")
         console.log(`  #${b.serial} ${b.id} ${b.zipKb} KB ${b.builtAt}${marks ? ` [${marks}]` : ""}`)
+      }
+      // What phones reported (the reference server's telemetry, last 7 days; step 4.7).
+      const dataDir = join(resolve(appDir, a.data ?? join(c.store, "..", ".zn-ota-data")), c.app)
+      const since = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
+      const files = existsSync(dataDir) ? readdirSync(dataDir).filter((f) => /^checks-\d{4}-\d{2}-\d{2}\.ndjson$/.test(f) && f.slice(7, 17) >= since).sort() : []
+      const health = core.summarizeChecks(files.flatMap((f) => readFileSync(join(dataDir, f), "utf8").split("\n")))
+      console.log(`phones (last 7 days, ${dataDir}):`)
+      for (const h of health) {
+        const kinds = Object.entries(h.outcomes).sort(([x], [y]) => Number(core.SERIOUS_OUTCOMES.includes(y)) - Number(core.SERIOUS_OUTCOMES.includes(x)) || x.localeCompare(y))
+        const text = kinds.map(([k, n]) => `${core.SERIOUS_OUTCOMES.includes(k) ? "!" : ""}${k} ${n}`).join(", ")
+        console.log(`  ${h.bundle.padEnd(24)} ${String(h.phones).padStart(4)} phone(s)${text ? `  ${text}` : ""}`)
+      }
+      if (health.length === 0) console.log("  (no checks recorded)")
+      else if (health.some((h) => Object.keys(h.outcomes).some((k) => core.SERIOUS_OUTCOMES.includes(k)))) {
+        console.log("  ! = a safety net acted on phones (rollback, block, OTA off): see docs/ota.md §3.6")
       }
       return
     }

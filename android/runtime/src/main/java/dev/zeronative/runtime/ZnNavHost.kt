@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -14,6 +15,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -32,7 +35,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -91,6 +98,7 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     Box(modifier) {
         // A dev reload bumps the generation: the old screens are dropped at once instead of animating out.
         key(ZnNav.generation) { Screens(bundle, safe) }
+        Cover()
         ZnToast.Host()
         if (BuildConfig.DEBUG) ZnDev.Overlay()
     }
@@ -142,6 +150,25 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
         },
     )
 }
+
+/**
+ * While an update is applied in place ([ZnNav.cover], step 4.6): a plain cover in the top screen's background colour
+ * that takes every touch. It appears at once and fades out once the new screens are drawn.
+ */
+@Composable
+private fun Cover() {
+    val color = ZnNav.cover
+    var last by remember { mutableStateOf(Color.Transparent) }
+    if (color != null) last = color
+    AnimatedVisibility(visible = color != null, enter = EnterTransition.None, exit = fadeOut(tween(COVER_FADE_MS))) {
+        Box(
+            Modifier.fillMaxSize().background(last)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+        )
+    }
+}
+
+private const val COVER_FADE_MS = 180
 
 /** Edges a route keeps clear of the system bars: "all", "none", or { top, bottom } (start / end follow "all"). */
 private fun safeSides(route: ZnRoute): WindowInsetsSides? = when {

@@ -159,8 +159,8 @@ object ZnErrorScreen {
     }
 
     /**
-     * Starts the app again in a new process: the JS runtime can't be rebuilt in place yet (that comes with the
-     * release-safe restart of step 4.6), and a fresh process starts from a clean state.
+     * Starts the app again in a new process. The runtime can be replaced in place since step 4.6 (`ZnRuntime.restart`),
+     * but after a failed start a fresh process is the safer clean state (native modules, threads, caches).
      */
     private fun restartApp(context: Context) {
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return

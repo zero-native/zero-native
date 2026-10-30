@@ -149,13 +149,17 @@ internal object ZnOtaInstall {
         }
     }
 
-    /** Writes a small file so readers see the old text or the new one, never half: a temp file, synced, renamed. */
-    fun writeAtomic(file: File, text: String) {
+    /**
+     * Writes a small file so readers see the old text or the new one, never half: a temp file, synced, renamed.
+     * [sync] false skips the sync: the file still survives the app being killed, not a power cut (for a write on the
+     * main thread that must be cheap: the launch watchdog's mark, ZnOtaHealth).
+     */
+    fun writeAtomic(file: File, text: String, sync: Boolean = true) {
         file.parentFile?.mkdirs()
         val tmp = File(file.parentFile, ".${file.name}.tmp")
         FileOutputStream(tmp).use { fo ->
             fo.write(text.toByteArray(Charsets.UTF_8))
-            fo.fd.sync()
+            if (sync) fo.fd.sync()
         }
         if (!tmp.renameTo(file)) {
             file.delete()

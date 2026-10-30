@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.ui.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -61,6 +62,19 @@ object ZnNav {
     /** Called when JS says the last screen was backed out of (the host lets the system handle back). */
     var onExit: (() -> Unit)? = null
 
+    /**
+     * Set while an update is applied in place (step 4.6, [ZnOta]): the host draws this colour (the top screen's
+     * background) over everything and takes every touch, so the old screens going and the new ones being built are
+     * never seen half done. Cleared when the new screens are built (NAV STARTED, step 4.7); then it fades out.
+     */
+    internal var cover: Color? by mutableStateOf(null)
+
+    /** The template file the screens are drawn from (null before [start]). */
+    internal val currentBundle: ZnBundle? get() = bundle
+
+    /** Whether the first screens were opened ([start]). */
+    internal val isStarted: Boolean get() = started
+
     private val main = Handler(Looper.getMainLooper())
     private var bundle: ZnBundle? = null
     private var started = false
@@ -108,6 +122,12 @@ object ZnNav {
             payload.put(JSONObject().put("entry", id.u32()).put("route", route.index).put("params", JSONObject(json)))
         }
         ZnRuntime.dispatchEvent(APP, EVENT_START, payload.toString())
+        // JS answers NAV STARTED once these screens are built (host API 3). A bundle built for host API 2 doesn't, so
+        // for it "the JS thread has handled START" stands in (it can't tell a bundle that never calls startApp).
+        if ((ZnBundles.running.info?.requires?.hostApi ?: 3) < 3) {
+            val gen = generation
+            ZnRuntime.afterJs { if (gen == generation) ZnOta.screensUp() }
+        }
     }
 
     /**
@@ -118,8 +138,8 @@ object ZnNav {
         private set
 
     /**
-     * Debug builds (`zn dev` reload), main thread: forgets the stack and returns it as (route name, params JSON),
-     * bottom first, for [restart].
+     * Main thread, when the JS runtime is replaced (`zn dev` reload, or an update applied while the app runs): forgets
+     * the stack and returns it as (route name, params JSON), bottom first, for [restart].
      */
     internal fun resetForReload(): List<Pair<String, String>> {
         val saved = stack.map { it.route.name to it.params }
@@ -136,9 +156,9 @@ object ZnNav {
     }
 
     /**
-     * Opens the [saved] stack (route name, params) with [bundle]: after a `zn dev` reload (debug builds), or when
-     * Android restores the app ([start]). Routes that no longer exist are skipped (an update may have removed
-     * them); the start route is always at the bottom.
+     * Opens the [saved] stack (route name, params) with [bundle]: after a `zn dev` reload (debug builds), an update
+     * applied while the app runs ([ZnOta]), or when Android restores the app ([start]). Routes that no longer exist
+     * are skipped (an update may have removed them); the start route is always at the bottom.
      */
     internal fun restart(bundle: ZnBundle, saved: List<Pair<String, String>>) {
         this.bundle = bundle
@@ -196,6 +216,9 @@ object ZnNav {
      * answer in [BACK_TIMEOUT_MS] (it is stuck), native goes back by itself and tells JS which entry it removed.
      */
     fun systemBack() {
+        // The JS runtime is being replaced: the press would be dropped, and the fallback below would pop a screen of
+        // the stack that is about to open again.
+        if (ZnRuntime.isRestarting) return
         val top = stack.lastOrNull() ?: return
         ZnRuntime.dispatchEvent(APP, EVENT_BACK, top.id.u32())
         backFallback?.let(main::removeCallbacks)
@@ -239,6 +262,8 @@ object ZnNav {
             BatchOp.Nav.FAILED -> if (stack.any { it.id == op.entry }) {
                 failed[op.entry] = op.params?.let { runCatching { JSONObject(it).optString("message") }.getOrNull() } ?: ""
             }
+            // After this batch is drawn the first screens are on screen (OTA safety nets, step 4.7).
+            BatchOp.Nav.STARTED -> main.post { ZnOta.screensUp() }
             else -> Log.e(TAG, "nav: unknown kind ${op.kind}")
         }
         // The top screen may have changed: impressions count only on the top screen.

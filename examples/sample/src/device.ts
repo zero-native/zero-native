@@ -12,10 +12,12 @@ export interface DeviceModule {
   storageEcho(): Promise<{ fromJs: string | null; typeError: string }>
   /** A background thread writes dev.hammer.kotlin and dev.hammer.shared `count` times. */
   storageHammer(args: { count: number }): Promise<{ count: number; ms: number }>
+  /** v2, debug builds only: crashes the app (a Kotlin exception on the main thread), to test the OTA watchdog. */
+  crash(): Promise<never>
   events: {
     /** A counter every 50 ms, only while someone listens; if JS is busy only the newest value arrives. */
     tick: number
   }
 }
 
-export const Device = nativeModule<DeviceModule>("Device", { version: 1 })
+export const Device = nativeModule<DeviceModule>("Device", { version: 2 })

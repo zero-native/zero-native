@@ -39,6 +39,9 @@ class SampleApp : Application() {
             server = "http://127.0.0.1:8790",
             channel = "staging",
             publicKeys = listOf(SAMPLE_OTA_KEY),
+            // Every update outcome (rollbacks and blocked bundles too): where an app would log to Crashlytics, e.g.
+            // recordException for a serious one. The sample only logs it.
+            onReport = { r -> Log.println(if (r.serious) Log.WARN else Log.INFO, "zn-sample", "onReport $r (serious=${r.serious})") },
         ))
         ZnTemplates.preload(this, "main.zn.ui")
         ZnRuntime.start(this)

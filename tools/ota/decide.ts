@@ -56,6 +56,7 @@ export type Reason =
   | "MISSING_BUNDLE" // the pointer names a bundle the store doesn't have (a broken store)
   | "KEPT" //          the phone has the bundle already: switch to it, no download
   | "NEW_BUNDLE" //    download it
+  | "ALREADY_DONE" //  the phone already acted on this pointer (same seq) but runs something else: see decide()
 
 export interface Decision {
   action: Action
@@ -96,6 +97,16 @@ export function rolloutBucket(installId: string, app: string, channel: string): 
  * BUILT_IN, or if the store lacks it).
  */
 export function decide(req: CheckRequest, pointer: Pointer | null, target: Manifest | null): Decision {
+  const d = decideRow(req, pointer, target)
+  // A change without a pointer means the phone has this pointer's seq already, and it saves a seq only once its action
+  // is done. It still runs something else because the change waits for the next start, or because the bundle failed
+  // on this phone (an `applyNow` whose code threw goes back to the old bundle). The phone can't take a change without
+  // a newer signed pointer anyway: nothing to do until the channel moves on.
+  if (d.action !== "NONE" && !d.pointer) return { action: "NONE", reason: "ALREADY_DONE" }
+  return d
+}
+
+function decideRow(req: CheckRequest, pointer: Pointer | null, target: Manifest | null): Decision {
   if (!pointer) return { action: "NONE", reason: "NO_CHANNEL" }
   if (pointer.seq < req.seq) return { action: "NONE", reason: "STALE_SEQ" }
   // From here the pointer is the phone's or newer; send it whenever it is newer, so the phone records the seq.

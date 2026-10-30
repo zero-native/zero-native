@@ -98,7 +98,7 @@ void Runtime::remove(uint32_t instance) { tick_.remove(instance); }
 void Runtime::move(uint32_t instance, uint32_t toIndex) { tick_.move(instance, toIndex); }
 
 void Runtime::nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) {
-  if (kind < static_cast<uint8_t>(NavKind::Push) || kind > static_cast<uint8_t>(NavKind::Failed)) {
+  if (kind < static_cast<uint8_t>(NavKind::Push) || kind > static_cast<uint8_t>(NavKind::Started)) {
     platform_.log(3, "nav: unknown kind " + std::to_string(kind));
     return;
   }

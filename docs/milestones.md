@@ -91,7 +91,8 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
 recommended; logged in ARCHITECTURE §16 / §24. 4.1, 4.2, step 3.9 and 4.3 (local store) done 2026-10-30 (log
-below). 4.4 and 4.5 done 2026-10-30. Next: 4.6 (apply while the app runs: `applyNow`, `holdApply`); Claude.
+below). 4.4 and 4.5 done 2026-10-30, 4.6 and 4.7 done 2026-10-31. Next: 4.8 (crash traces + telemetry: bundle id
+everywhere, source maps per bundle, `zn symbolicate`); Claude.
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
 
 **Agreed for after 4.9 (Pavan, 2026-10-30): `restorableSignal(key, initial)`.** Like `signal`, but its value comes
@@ -117,6 +118,71 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-31: step 4.7 done (Claude): OTA safety nets
+- **What a downloaded bundle goes through** (docs/ota.md §3.6, `ZnOtaHealth.kt` + `ZnOta.kt`): on trial until
+  *healthy* (screens up 4 s in the foreground, or `Updates.markHealthy()`); during the trial an error screen, a hang
+  or no first screen in 10 s → blocked ("error") and rolled back **in place** to the last healthy bundle (or the
+  APK's); 2 launches in a row ended by a crash / native crash / ANR (Android's exit record of that process) → blocked
+  ("watchdog"); a blocked bundle never runs or downloads again (a newer pointer to it → `NONE BLOCKED`); a new APK
+  install resets the counts and clears watchdog blocks; the startup guard runs the APK's bundle if choosing fails,
+  and turns OTA off until the next APK after 2 failures in a row.
+- **"Screens up" is a new NAV op, STARTED (8)**, sent by JS `start()` after the first screens are built: host API 3.
+  Bundles built for host API 2 use "the JS thread handled START" instead. The 4.6 cover now lifts on it too (the
+  first batch was a weak signal: a screen with nothing dynamic sends none).
+- **Reporting:** every outcome reaches the server with the next check and `ZnOta.Config.onReport` at once
+  (`ZnOtaReport`: kind, bundle, detail, serious). `bun run ota status` now sums 7 days of telemetry per bundle.
+  `Updates` module v3 (`markHealthy`; status: healthy, lastGood, blocked, otaOff). Sample: `Device.crash()` (v2,
+  debug only) and the Updates screen shows healthy / last good / blocked.
+- **Bug found on the phone and fixed:** the watchdog first matched the exit record by time with 1 s of slack, so a
+  launch right after a force stop was judged by the *previous* process's record ("force stop, not counted"). Now the
+  pending launch saves its pid and only that process's record counts.
+- **Tests:** Kotlin `ZnOtaHealthTest` 12 (watchdog counting, ignored exits, pid, healthy, blocks, APK change, fuse,
+  limits, file round trip); JS nav STARTED + `markHealthy`; telemetry summary; 188 JS tests in all; lint clean.
+- **Verified on the Lava** (debug, `ota serve` over `adb reverse`): an old host-API-2 bundle → healthy via the
+  fallback signal; throws at cold start → blocked, back to #1 in place in the same launch (swap 12 ms), no error
+  screen (debug shows the dev error box); home screen throws → same (14 ms); `applyNow` to a bundle that throws → old
+  one back, new one blocked; crash 1.5 s after the home screen → counted twice → blocked, next start on #1; Home after
+  1 s and force stop on screen, twice each → nothing counted; never calls `startApp` → rolled back after 10 s; error
+  screen on a healthy bundle → only `error_screen`; a newer pointer to a blocked bundle → `NONE BLOCKED`, nothing
+  downloaded; `adb install -r` of the same build → `apk_changed`, watchdog block cleared, error blocks kept.
+- **Release (R8) on the Lava:** cold start median 192–196 ms (p90 207 ms, n=10, speed-profile), same as 4.5's
+  196 ms; start checks 0.9–3.2 ms off the main thread; launch mark 0.5–0.8 ms on the main thread (no fsync);
+  `applyNow` 30 ms; healthy 4 s after the screens; status shows the blocks.
+- **Not verified on the phone:** the startup fuse (needs choosing the bundle to throw; rules unit-tested), a rollback
+  while updates are held (then the good bundle runs from the next start), Android < 11 (every death while pending
+  counts), ANR and native-crash exits (same code path as a crash).
+
+### 2026-10-31: step 4.6 done (Claude): apply an update while the app runs
+- **`Updates.applyNow()`** (`ZnOta.applyNow`): runs the bundle installed for the next start now, without a new
+  process. The bundle is checked like at a cold start and its templates read on the client's thread while the old
+  screens run; then a cover in the top screen's colour goes up, the process switches files (`ZnBundles.candidate` /
+  `switchTo`; `running` can now change), the JS runtime is replaced (`ZnRuntime.restart`, the release-safe form of
+  the `zn dev` reload), and the open screens open again by route and params. Storage, SecureStore, FlowStore untouched;
+  native calls, timers and events of the old JS dropped; back presses wait. If the new code throws while starting,
+  the old bundle runs again the same way and stays current (outcome `apply_failed`, `status().lastError`).
+- **`Updates.holdApply()`** returns a release function; it is a native call that is never answered, so closing the
+  screen that asked cancels it by itself. While any is open, `applyNow` answers `held`. Module `Updates` v2.
+- **Fixed in the server's decision (from 4.4): row 11 `ALREADY_DONE`.** A phone that already acted on the channel's
+  pointer (same seq) but runs something else (an install waiting for the next start, a kill switch taken but not
+  restarted, a failed apply) got USE_LOCAL / BUILT_IN / UPDATE without a pointer, which the phone must refuse: every
+  check ended as an error. Now NONE `ALREADY_DONE`.
+- **Tests:** JS updates 3 (hold released once, hold ends with its screen, applyNow refusal); decide row 11; 187 JS
+  tests in all (31 of them for the OTA tools); Kotlin unit tests and lint pass.
+- **Verified on the Lava** (debug build, `ota serve` over `adb reverse`): #1 installed, "Hold updates" → Apply =
+  `held`; released → applied in 46 ms (JS 26 ms), Home + Updates reopened, home title from #1, native calls answer
+  on the new JS; #2 built to throw at start → applied, threw, #1 ran again in 203 ms with both screens, `current` back
+  to #1, `apply_failed` sent; cold start then runs #1 and the check answers `NONE ALREADY_DONE`; a hold on a screen
+  that then closed no longer holds; #3 applied in 62 ms; kill switch applied live to the APK's own bundle in 32 ms;
+  Apply with nothing waiting = `nothing`; the server got every outcome. Phone OTA state, store and port forward
+  removed afterwards.
+- **Release (R8) build on the Lava:** hold → `held`; applied in 37 ms (JS 27 ms); #2 that throws → #1 again in
+  49 ms, no error screen, the restarted screen shows `status().lastError`; cold start then runs #1, check
+  `NONE ALREADY_DONE`. **Cover checked frame by frame** (screen recording, every frame): old screen → plain cover in
+  the screen's colour for ~100–170 ms → the new screens fade in over ~180 ms, already laid out; no flash, nothing
+  jumps (also on the fallback path). The whole change takes about a third of a second to the eye.
+- **Not yet:** a bundle that throws at a **cold** start still shows the error screen,
+  and a bad bundle can come back with a newer pointer; both are 4.7 (error-before-healthy rollback, bad-bundle list).
+
 ### 2026-10-30: step 4.5 done (Claude): the phone's update client
 - **`ZnOta.kt`**: configure (server, channel, main + backup keys), checks ~3 s after the UI comes on screen and on
   returns (at most every 5 min; never for starts without UI), one at a time; the phone's own rules (`docs/ota.md`
@@ -145,8 +211,8 @@ Parked ideas: `docs/after-foundations.md`.
   cancelled by a kill switch; a zip with one byte changed is refused (`zip_sha`), nothing installed; the server
   received every outcome (downloaded, started, switched, zip_sha); a **release** build (R8) switches to kept #2 and
   runs it. Phone OTA state, store and test files removed afterwards.
-- **Note:** my test launcher (`adb shell monkey ... 1`) sends one random input after launching, and once it opened
-  the ZeroBill staging app; I pressed Home without touching it and use `am start` since.
+- **Note:** the ZeroBill staging app came to the front during these runs; it was Gemini, working on the phone at the
+  same time (Pavan). Launches here now use `am start` only (`adb shell monkey ... 1` also sends one random input).
 - **Not yet:** applying while the app runs (4.6); not re-downloading a bundle that failed twice, the watchdog and
   error-before-healthy rollback (4.7); a bundle lists every built-in module the core *loads* (not only those it
   uses), so a future built-in module would make new bundles need a newer app even if unused: scan the final

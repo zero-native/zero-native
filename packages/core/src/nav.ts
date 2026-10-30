@@ -29,7 +29,7 @@ import { allocInstanceId, renderRoot, type View } from "./view"
 export interface Register {}
 type Routes = Register extends { routes: infer R } ? R : Record<string, RouteDef>
 
-const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7 } as const
+const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7, Started: 8 } as const
 export { AppEvent } from "./app-events"
 
 interface Entry {
@@ -253,6 +253,9 @@ function start(payload: NativeValue): void {
     }
     show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, onBack: null })
   }
+  // The first screens are built (a screen that threw has already sent FAILED): the OTA safety nets count the bundle
+  // as on screen from here (docs/ota.md §3.6).
+  globalThis.__zn_nav(NavKind.Started, 0, 0, null)
 }
 
 function onSystemBack(): void {

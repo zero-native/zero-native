@@ -41,12 +41,9 @@ object ZnTemplates {
             val t0 = System.nanoTime()
             // From the running bundle: the APK's assets or a downloaded OTA bundle (ZnBundles, docs/ota.md). A downloaded
             // bundle's templates were already read (and their ids checked) while choosing it.
-            val file = ZnBundles.takeTemplateFile(asset)
-                ?: TemplateReader.read(checkNotNull(ZnBundles.map(asset)) { "bundle ${ZnBundles.running} has no $asset" })
-            val templates = file.templates.map(::ZnTemplate)
-            val bundle = readManifest("$asset.json", templates)
+            val bundle = load(asset, ZnBundles.running, ZnBundles.takeTemplateFile(asset))
             val ms = (System.nanoTime() - t0) / 1e6
-            Log.i(TAG, "template $asset: ${templates.size} template(s), ${bundle.routes.all.size} route(s) " +
+            Log.i(TAG, "template $asset: ${bundle.templates.size} template(s), ${bundle.routes.all.size} route(s) " +
                 "read and prepared in %.2f ms".format(ms))
             main.post {
                 state.value = bundle
@@ -68,14 +65,29 @@ object ZnTemplates {
     internal fun prepare(name: String, templates: ByteArray, manifest: String): ZnBundle =
         readManifest(name, manifest, TemplateReader.read(ByteBuffer.wrap(templates)).templates.map(::ZnTemplate))
 
-    /** Debug builds (`zn dev` reload), main thread: [asset] now means [bundle]; screens reading [get] redraw. */
+    /**
+     * Reads and prepares template file [asset] of bundle [r] (any thread but main). [file]: the file already read
+     * (and checked) while choosing the bundle, if it was.
+     */
+    internal fun load(asset: String, r: ZnBundles.Running, file: TemplateFile? = null): ZnBundle {
+        val f = file ?: TemplateReader.read(checkNotNull(ZnBundles.map(asset, r)) { "bundle $r has no $asset" })
+        return readManifest("$asset.json", f.templates.map(::ZnTemplate), r)
+    }
+
+    /** The template files loaded or loading (main thread): an update applied while the app runs reloads each. */
+    internal fun assets(): Set<String> = files.keys.toSet()
+
+    /**
+     * Main thread, after a `zn dev` reload or an update applied while the app runs: [asset] now means [bundle];
+     * screens reading [get] redraw.
+     */
     internal fun replace(asset: String, bundle: ZnBundle) {
         files.getOrPut(asset) { mutableStateOf(null) }.value = bundle
         waiting.remove(asset)?.forEach { it(bundle) }
     }
 
-    private fun readManifest(name: String, templates: List<ZnTemplate>): ZnBundle {
-        val text = ZnBundles.readText(name) ?: return ZnBundle(templates, emptyMap(), ZnRoutes(emptyList()))
+    private fun readManifest(name: String, templates: List<ZnTemplate>, r: ZnBundles.Running): ZnBundle {
+        val text = ZnBundles.readText(name, r) ?: return ZnBundle(templates, emptyMap(), ZnRoutes(emptyList()))
         return readManifest(name, text, templates)
     }
 

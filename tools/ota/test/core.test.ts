@@ -170,3 +170,21 @@ describe("verify", () => {
     expect(s.channels.map((c) => [c.channel, c.seq, c.target])).toEqual([["staging", 1, "sample_1"]])
   })
 })
+
+describe("telemetry summary (ota status)", () => {
+  test("counts phones by their newest check and outcomes per bundle", () => {
+    const lines = [
+      JSON.stringify({ at: "2026-10-30T10:00:00Z", installId: "a", running: "built-in sample_1", outcomes: [{ kind: "downloaded", bundle: "sample_5" }] }),
+      JSON.stringify({ at: "2026-10-30T11:00:00Z", installId: "a", running: "sample_5", outcomes: [{ kind: "error_rollback", bundle: "sample_5" }, { kind: "healthy", bundle: "sample_4" }] }),
+      JSON.stringify({ at: "2026-10-30T10:30:00Z", installId: "b", running: "sample_4" }),
+      "not json",
+      "",
+      JSON.stringify({ at: "2026-10-30T12:00:00Z", installId: "b", running: "sample_4", outcomes: [{ kind: "init_failed" }] }),
+    ]
+    expect(core.summarizeChecks(lines)).toEqual([
+      { bundle: "sample_4", phones: 1, outcomes: { healthy: 1 } },
+      { bundle: "sample_5", phones: 1, outcomes: { downloaded: 1, error_rollback: 1 } },
+      { bundle: "(none)", phones: 0, outcomes: { init_failed: 1 } },
+    ])
+  })
+})

@@ -143,6 +143,12 @@ manifest plus `url` (`/v1/files/<app>/bundles/<id>/<zip sha256>.zip`).
 | 8 | the app can't run it (same rule as `ZnCapabilities.kt`) | NONE `INCOMPATIBLE` + what it lacks |
 | 9 | the phone keeps the bundle | USE_LOCAL `KEPT` (a rollback downloads nothing) |
 | 10 | otherwise | UPDATE `NEW_BUNDLE` |
+| 11 | (applied last, step 4.6) rows 3, 7, 9 or 10 gave a change, but the phone already has this pointer's seq | NONE `ALREADY_DONE` |
+
+Row 11: the phone saves a seq only once its action is done, so a change at the same seq means it already acted: the
+change waits for the next start, or it failed there (an `applyNow` whose code threw goes back to the old bundle). The
+phone can't take a change without a newer signed pointer anyway; before this row every such check ended in an error
+("USE_LOCAL without a signed pointer").
 
 Rollout applies to rollbacks too: roll back at 100 % so every phone on the bad bundle moves.
 **`GET /v1/files/<zip path>`**: only released zips (a strict path pattern), Range for resuming (206 / 416),
@@ -173,28 +179,85 @@ seq, decision, the phone's outcomes). `GET /health`.
   kept besides the running and the current one. `state.json` holds the install id, the seq per channel and the
   outcomes not yet sent (downloaded, switched, started, zip_sha, ...), which go with the next check.
 - **JS API** (`@zero-native/core`): built in 4.5: `Updates.status()` (enabled, phase, progress, running, next,
-  pendingRestart, last check / result / error), `Updates.check()`, `Updates.onStatus()`. Step 4.6: `Updates.applyNow()`,
-  `Updates.holdApply()` / `releaseApply()`; 4.7: `Updates.markHealthy()`. Native never applies while held.
-- **Apply = JS restart in place** (3.1's reload, made release-safe): the screens reopen by route name; FlowStore,
-  storage and SecureStore are untouched; running native calls are cancelled (fetch included). Covered by a native
-  cover screen so nothing flashes.
+  pendingRestart, held, last check / result / error), `Updates.check()`, `Updates.onStatus()`. Built in 4.6:
+  `Updates.applyNow()`, `Updates.holdApply()` (returns the release function); 4.7: `Updates.markHealthy()`, and
+  status gets healthy, lastGood, blocked, otaOff. Native never applies while held. Module `Updates` is version 3
+  since 4.7 (2 in 4.6).
+- **Apply = JS restart in place** (built in step 4.6: `ZnOta.applyNow`, `ZnRuntime.restart`, `ZnBundles.candidate` /
+  `switchTo`; 3.1's reload made release-safe):
+  1. On the main thread: refused if updates are off, held, an apply is running, or the screens aren't up yet.
+  2. On the client's thread (after any check in progress): the bundle `current` names is checked like at a cold
+     start (info, sizes, needs, template ids) and its template files are read. The old screens keep running.
+     `nothing` if it is what runs now; `failed` (nothing changed) if it can't run.
+  3. On the main thread: held again? refused. Else a **cover** in the top screen's background colour goes over
+     everything and takes every touch; back presses wait; the process switches to the new bundle's files; the JS
+     runtime is destroyed and a fresh one runs the new main script; running native calls are cancelled (fetch
+     included; their answers are dropped), timers and events of the old JS are dropped.
+  4. The screens open again by route name and params (routes the new bundle no longer has are skipped; the start
+     screen is always at the bottom); their JS state starts fresh. FlowStore, storage, SecureStore and files are
+     untouched. The cover fades out once the new screens are built (NAV STARTED, step 4.7; 3 s at most).
+  5. If the new main script throws while it starts, it is blocked on this phone (4.7), the bundle that ran before
+     runs again the same way, `current` goes back to it, and the outcome `apply_failed` is sent with the next check.
+     Otherwise the outcome is `applied`.
+  JS that called `applyNow` is gone when it applies, so its Promise never settles; it resolves only with a refusal.
+  `holdApply()` is a native call that is never answered: releasing it (or closing the screen that asked) cancels it,
+  and native counts the open ones. Both run on the main thread, so a hold sent before `applyNow` is always seen.
 
-### 3.6 Safety nets (all RN lessons)
-- **Launch watchdog on UI launches only** (FCM / WorkManager starts never count): a bundle that fails 2 launches in a
-  row is blocked and the app goes back to its **built-in** bundle.
-- **Error before healthy → rollback:** a JS error reaching the error screen (our `Platform.jsError` path) before the
-  bundle is marked healthy blocks it and restarts on the built-in bundle. After healthy it is only counted.
-- **Healthy mark:** automatically 4 s after the first screen is drawn (or `Updates.markHealthy()`).
-- **Startup guard:** if OTA itself fails at start, OTA is off for that process and the built-in bundle runs; the app
-  always starts.
+### 3.6 Safety nets (all RN lessons; built in step 4.7: `ZnOtaHealth.kt`, `ZnOta.kt`)
+Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. What the phone remembers is in
+`zn-ota/health.json` (the rules are pure functions, unit-tested: `ZnOtaHealthTest`).
+- **"Screens up":** JS sends NAV STARTED (kind 8, host API 3) right after it built the first screens. A bundle built
+  for host API 2 doesn't, so for it "the JS thread handled START" stands in.
+- **Healthy mark:** a downloaded bundle is healthy once its screens were up `Config.healthyAfterMs` (4 s) **while the
+  app is in the foreground**, or when JS calls `Updates.markHealthy()` (earlier; with `healthyAfterMs = 0`, only
+  then). Healthy → it becomes **last good**: where a rollback goes. Going to the background before 4 s is not bad:
+  the next launch starts the 4 s again.
+- **Error before healthy → rollback in place:** JS fails to start, a screen throws while it is built (the error
+  screen), or JS hangs (time limit), on a downloaded bundle not healthy yet → it is **blocked ("error", forever)** and
+  the last good bundle (or, if none, or it can't run any more, the APK's) runs **in place**, the same way as
+  `applyNow` (cover, screens opened again; ~12 ms swap on the Lava). The error screen isn't shown (debug builds still
+  show the dev error box). If JS holds updates (`holdApply`: a payment), or the runtime can't be replaced yet, the
+  good bundle only becomes `current` (next start) and the error screen shows. After healthy, errors are only counted
+  (outcome `error_screen`). Decision D1 (a): back to last good, not straight to the APK's (RN goes to built-in).
+- **First-screen rule:** a downloaded bundle not healthy whose screens aren't up `Config.firstScreenTimeoutMs`
+  (10 s) after the app came on screen (counted while in the foreground) → rolled back the same way (a bundle that
+  never calls `startApp`, or waits forever).
+- **Launch watchdog, UI launches only** (FCM / WorkManager starts never count): when an Activity comes on screen on a
+  downloaded bundle not healthy yet, the launch is marked *pending* (with the process id; 0.5–0.8 ms on the main
+  thread in release, no fsync). Going to the background or the healthy mark clears it. At the next start a pending
+  launch is judged by Android's exit record **of that process** (Android 11+): crash, native crash or ANR **count**;
+  anything else (force stop, low memory, swipe away, reboot) **doesn't**. Android < 11 can't say why: every such death
+  counts. **2 counted launches in a row → blocked ("watchdog")**; the next start runs last good or the APK's. A
+  watchdog block is cleared by the next APK install (it may fix a native cause); an error block never is.
+- **Blocked bundles** never run, are never switched to, never offered as `kept`, and their folders are deleted. A
+  channel pointing to a blocked bundle (a newer seq) → the seq is saved, nothing downloaded, result NONE BLOCKED,
+  outcome `blocked`. The way forward is a fixed bundle (a new id).
+- **New APK install** (versionCode or install time changed: Play updates, `adb install -r` even of the same build,
+  checked on the Lava; Android Studio's Run installs the same way, but "Apply Changes" doesn't reinstall):
+  crash counts, pending and the startup fuse reset, watchdog blocks clear, event `apk_changed`; at the first check
+  bundles that no longer fit are deleted and `current` / last good stop naming them.
+- **Startup guard + fuse:** if choosing the bundle throws (OTA's own code or files), the APK's bundle runs and OTA is
+  off for that process (`init_failed`); twice in a row → **OTA off until the next APK install** (`ota_off`). The app
+  always starts. While OTA is off no check runs (`NONE OTA_OFF`), so these two reach `onReport` but the server only
+  after the next APK.
+- **Reporting, never silent:** every outcome goes to the server with the next check and to
+  `ZnOta.Config.onReport(ZnOtaReport)` at once on the main thread (`kind`, `bundle`, `detail`, `serious`): the app
+  logs it to Crashlytics (e.g. `recordException` when serious). `bun run ota status` sums the last 7 days of
+  telemetry per bundle (phones running it, outcome counts; safety-net ones marked `!`).
+- **Cost** (release, Lava, n=10): cold start median 192–196 ms, as before 4.7 (196 ms); start checks 1–3 ms off the
+  main thread; `health.json` is written at start only when something changed.
 - **Never during a checkout:** `holdApply` + guide notes; a cold start with a saved payment applies the bundle before
   JS, so bundles must keep reading saved flow state (FlowStore formats are versioned by the app).
 
 ### 3.7 Crash traces and telemetry
 - Every log and crash report carries the running bundle id. The release CLI keeps each bundle's **source map**;
   `zn symbolicate` maps a release stack trace back to TSX lines (3.1's mapping, for release builds).
-- Small telemetry with the next check (`downloaded`, `applied`, `rollback`, `error_screen`, `sig_rejected`,
-  `incompatible` ...), no extra requests.
+- Small telemetry with the next check, no extra requests. Outcome kinds so far: `downloaded`, `switched`, `started`,
+  `applied`, `apply_failed`, `healthy`, `error_screen`, `error_rollback`, `launch_crashed`, `watchdog_block`,
+  `blocked`, `apk_changed`, `init_failed`, `ota_off`, `pointer_refused`, and a failed check's code (`server`,
+  `download`, `zip_sha`, `signature`, `incompatible`, `bundle`, ...). Serious (a safety net acted, or a signed file
+  didn't check out): `error_rollback`, `launch_crashed`, `watchdog_block`, `apply_failed`, `init_failed`, `ota_off`,
+  `signature`, `zip_sha`.
 
 ## 4. Proposed steps (milestone 4)
 | Step | What | Done when |
@@ -205,8 +268,8 @@ seq, decision, the phone's outcomes). `GET /health`.
 | 4.3 | Signing + release CLI (`zn ota`): build, serial, sign, zip, publish (local folder / GCS), pointers with seq, kill switch, rollback, stable / approve, typed confirmation for production | **done 2026-10-30** for the local store (§3.3, §3.3b); GCS adapter waits for a test bucket |
 | 4.4 | Reference update server (Bun): the check, the pure decision function (one test per row), Range downloads | **done 2026-10-30** (§3.4; `docs/milestones.md` log) |
 | 4.5 | Client: check, resumable download, verify, atomic install, kept bundles, seq, `Updates` JS API | **done 2026-10-30** (§3.5; `docs/milestones.md` log) |
-| 4.6 | Apply: cold start + `applyNow()` (release-safe restart), `holdApply()`, cover screen | apply during a visit, screens reopen; held during a fake checkout |
-| 4.7 | Safety nets: watchdog, error-before-healthy rollback, healthy mark, startup guard, APK-newer, capability change | each one forced on the phone (a bundle that throws at start, one that crashes, a tampered file, a wrong signature) |
+| 4.6 | Apply: cold start + `applyNow()` (release-safe restart), `holdApply()`, cover screen | **done 2026-10-31** (§3.5; `docs/milestones.md` log) |
+| 4.7 | Safety nets: watchdog, error-before-healthy rollback, healthy mark, startup guard, APK-newer, capability change | **done 2026-10-31** (§3.6; `docs/milestones.md` log) |
 | 4.8 | Crash traces + telemetry: bundle id everywhere, source maps per bundle, `zn symbolicate` | a release crash maps back to the TSX line |
 | 4.9 | Phone test matrix (below), docs, guide notes ("what OTA can and can't change", busy moments, state formats) | matrix green on the Lava |
 | later | BSDiff patches (D5), CDN / signed download links, push-started checks (an `Updates.checkInBackground()` hook for apps' FCM handlers), iOS client | when needed |

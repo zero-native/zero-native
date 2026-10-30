@@ -58,7 +58,8 @@ Follow `Carousel` / `Sheet` / `Switch` as examples.
    the phone.
 
 ## 4. Host functions and the bridge
-(Host API 2, step 3.9: NAV kind FAILED and app event RETRY.)
+(Host API 2, step 3.9: NAV kind FAILED and app event RETRY. Host API 3, step 4.7: NAV kind STARTED (8), sent by JS
+`start()` once the first screens are built; the OTA safety nets count a bundle as on screen from it.)
 **App event numbers** (native → JS events on instance 0) are listed once per side: `packages/core/src/app-events.ts`
 and `ZnAppEvent.kt`. Take the next free number there; a test checks both lists are unique and equal. (Step 3.9 reused
 7 for RETRY, which took over native call answers until step 4.5 found it.)

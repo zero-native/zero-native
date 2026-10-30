@@ -84,7 +84,7 @@ export {
 } from "./routes"
 export { setTimeout, setInterval, clearTimeout, clearInterval, activeTimerCount } from "./timers"
 export { onError, type ErrorInfo, type ErrorKind } from "./errors"
-export { Updates, type UpdateCheckResult, type UpdateStatus } from "./updates"
+export { Updates, type ApplyRefused, type UpdateCheckResult, type UpdateStatus } from "./updates"
 
 /** Installs console, timers and event dispatch on the global object. Call once, first thing in the bundle. */
 export function installRuntime(): void {

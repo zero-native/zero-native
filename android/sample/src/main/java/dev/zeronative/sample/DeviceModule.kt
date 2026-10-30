@@ -15,7 +15,7 @@ import org.json.JSONObject
  * a plain call (info), a slow call that can be cancelled (slowEcho), an error with a code (fail), and an event
  * (tick, every 50 ms with latestOnly) that only runs while JS listens. JS side: examples/sample/src/device.ts.
  */
-class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 1) {
+class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 2) {
     private val main = Handler(Looper.getMainLooper())
     private var ticks = 0
     private var ticking = false
@@ -42,6 +42,14 @@ class DeviceModule(private val context: Context) : ZnModuleBase("Device", versio
         }
 
         function("fail") { call -> call.reject("no_luck", "this call always fails (demo)") }
+
+        // v2: debug builds only, for testing the OTA launch watchdog (step 4.7): the app crashes (an uncaught Kotlin
+        // exception on the main thread), as a broken native call would. Release builds refuse it.
+        function("crash", onMain = true) { call ->
+            if (!BuildConfig.DEBUG) return@function call.reject("debug_only", "crash is for debug builds only")
+            Log.w(TAG, "crash: crashing on purpose (Device.crash, debug test)")
+            main.post { throw IllegalStateException("Device.crash: a crash on purpose (debug test of the OTA watchdog)") }
+        }
 
         // Storage shared with JS (step 3.5): reads what JS wrote, writes values JS then checks.
         function("storageEcho") { call ->

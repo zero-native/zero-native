@@ -332,3 +332,49 @@ export async function status(ctx: Context): Promise<Status> {
     channels: now.map((p) => ({ channel: p.channel, seq: p.seq, target: p.target, rollout: p.rollout, priority: p.priority, at: p.at, reason: p.reason })),
   }
 }
+
+/** What phones reported about one bundle (telemetry, `ota status`; step 4.7). */
+export interface BundleHealth {
+  bundle: string
+  /** Phones (install ids) that last checked in running it. */
+  phones: number
+  /** Outcome kinds the phones sent about it, with counts: downloaded, applied, healthy, error_rollback, ... */
+  outcomes: Record<string, number>
+}
+
+/** Outcomes where a safety net acted on the phone (docs/ota.md §3.6): `ota status` shows them first. */
+export const SERIOUS_OUTCOMES = ["error_rollback", "launch_crashed", "watchdog_block", "apply_failed", "init_failed", "ota_off", "signature", "zip_sha"]
+
+/**
+ * Sums the server's telemetry lines (`checks-<date>.ndjson`, one JSON check per line) per bundle: how many phones
+ * run it now (their newest check) and what the phones reported about it. Bad lines are skipped.
+ */
+export function summarizeChecks(lines: string[]): BundleHealth[] {
+  const lastRunning = new Map<string, { at: string; running: string }>()
+  const byBundle = new Map<string, BundleHealth>()
+  const entry = (bundle: string) => {
+    let h = byBundle.get(bundle)
+    if (!h) byBundle.set(bundle, (h = { bundle, phones: 0, outcomes: {} }))
+    return h
+  }
+  for (const text of lines) {
+    if (!text.trim()) continue
+    let line: { at?: string; installId?: string; running?: string; outcomes?: Array<{ kind?: string; bundle?: string }> }
+    try {
+      line = JSON.parse(text)
+    } catch {
+      continue
+    }
+    if (typeof line.installId === "string" && typeof line.running === "string") {
+      const seen = lastRunning.get(line.installId)
+      if (!seen || String(line.at) >= seen.at) lastRunning.set(line.installId, { at: String(line.at), running: line.running })
+    }
+    for (const o of line.outcomes ?? []) {
+      if (typeof o.kind !== "string" || !o.kind) continue
+      const h = entry(typeof o.bundle === "string" && o.bundle ? o.bundle : "(none)")
+      h.outcomes[o.kind] = (h.outcomes[o.kind] ?? 0) + 1
+    }
+  }
+  for (const { running } of lastRunning.values()) entry(running).phones++
+  return [...byBundle.values()].sort((a, b) => b.phones - a.phones || a.bundle.localeCompare(b.bundle))
+}

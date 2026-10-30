@@ -588,16 +588,57 @@ bun run ota serve                                    the reference update server
 - **Do:** turn updates on in Application.onCreate, before `ZnTemplates.preload`:
   `ZnOta.configure(this, ZnOta.Config(server = "https://updates.example.com", channel = "production",
   publicKeys = listOf(MAIN_KEY, BACKUP_KEY)))`. Checks run by themselves when the app comes on screen; a new bundle
-  runs from the next cold start. Show progress or check on demand with `Updates.status()`, `Updates.check()`,
+  runs from the next cold start (or now, with `Updates.applyNow()`, below). Show progress or check on demand with `Updates.status()`, `Updates.check()`,
   `Updates.onStatus()` (see the sample's `/dev/updates` screen).
 - **Don't:** check on a timer or in a background job: checks follow the UI on purpose (no data or battery spent when
   nobody opens the app).
+- **Do:** apply an installed update at a calm moment with `Updates.applyNow()`: the user back on the home screen,
+  after login, or after they tapped "Update now" on a banner you show when `status().pendingRestart` is true. The JS
+  restarts in place on the new bundle in well under a second, behind a cover; the open screens open again by route
+  and params.
+  ```tsx
+  const s = await Updates.status()
+  if (s.pendingRestart && nav.current()?.name === "home") await Updates.applyNow() // settles only if nothing was applied
+  ```
+- **Do:** hold updates while something must not be cut: `const release = Updates.holdApply()` when a payment or a
+  long form starts, `release()` when it ends. Called while a screen builds, it also ends when that screen closes.
+  While any hold is open, `applyNow()` answers `{ applied: false, reason: "held" }`.
+- **Don't:** call `applyNow()` in the middle of a flow, or right after starting a payment: every screen's JS state
+  starts fresh (signals, timers, running `fetch` calls are dropped). Keep what must survive in storage or FlowStore,
+  and read it back when the screen builds, like after Android restored the app.
+- **Don't:** count on code after `await Updates.applyNow()` running: when it applies, that JS is gone.
+- **Why:** customers open the app once or twice a month, so "next cold start" alone brings fixes weeks late (ZeroBill's
+  RN OTA learned this). Applying in place at moments the app picks is fast; holds keep it away from money moments.
 - **Do:** serve the store with `bun run ota serve` (or your own backend speaking the same `POST /v1/check`,
   docs/ota.md §3.4). The zips are plain immutable files, so a CDN can serve them; the check must stay a server.
 - **Don't:** delete or edit files in the store by hand. Every record is written once; the phone keeps the highest
   seq it accepted, so a deleted or rewritten pointer can leave phones ignoring the channel.
 - **Why:** the same rules as ZeroBill's RN OTA v2, which came from real incidents: staging first, then stable, then a
   typed confirmation; one bundle = one serial = one SHA; rollback and the kill switch are just signed pointers.
+
+### When an update is bad: the safety nets (step 4.7, docs/ota.md §3.6)
+- **What happens by itself:** a new bundle is on trial until it is *healthy* (its first screens up 4 s in the
+  foreground). If it shows an error screen, hangs, or never shows its first screen (10 s) during the trial, the phone
+  blocks it and goes back to the last healthy bundle at once, in place. If it crashes the app on 2 launches in a row,
+  it is blocked and the next start runs the last healthy one. A blocked bundle never runs on that phone again: ship
+  the fix as a **new** bundle (`bun run ota build`), don't publish the same one again.
+- **Do:** call `Updates.markHealthy()` once the first screen has really loaded (its data is on screen), if that can
+  take longer than 4 s, or set `ZnOta.Config(healthyAfterMs = 0)` and always call it. Mark it after the data
+  arrived, not when the request started.
+  ```ts
+  const offers = await fetchOffers()
+  feed.set(offers)
+  void Updates.markHealthy() // this bundle works on this phone
+  ```
+- **Don't:** call `markHealthy()` at the top of `main.ts`: it turns the safety net off for that bundle.
+- **Do:** send the reports somewhere you read: `ZnOta.Config(onReport = { r -> ... })` gets every outcome on the main
+  thread (`kind`, `bundle`, `detail`, `serious`). Log serious ones to Crashlytics (`recordException`), the rest as
+  breadcrumbs. They also reach the update server; `bun run ota status` shows what phones reported per bundle.
+- **Don't:** keep a debugger paused, or `debug.zn.js_delay_ms` above 10 s, on a downloaded bundle: the first-screen
+  rule rolls it back. Test such things on the APK's own bundle (never judged), or set `firstScreenTimeoutMs = 0`.
+- **Why:** a bad update is worse than a missing one: customers can't fix it themselves and won't come back for weeks.
+  The trial window is short so a good bundle quickly stops being judged (later errors are only reported), and going
+  back to the last *healthy* bundle keeps the fixes users already had (the RN app went back to the APK's bundle).
 
 ---
 

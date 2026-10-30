@@ -13,7 +13,9 @@ function describe(s: UpdateStatus): string[] {
     `Channel: ${s.channel}`,
     `Running now: ${s.running ?? `the APK's own (${s.builtIn})`}`,
     `Next start: ${s.next ?? `the APK's own (${s.builtIn})`}${s.pendingRestart ? "  ← restart to apply" : ""}`,
-    `Phase: ${s.phase}${pct}`,
+    `Phase: ${s.phase}${pct}${s.held ? "  (updates held)" : ""}${s.otaOff ? "  (OTA off: start-up failed)" : ""}`,
+    `Healthy: ${s.healthy ? "yes" : "not yet"} · last good: ${s.lastGood ?? "the APK's own"}`,
+    `Blocked here: ${Object.entries(s.blocked ?? {}).map(([id, why]) => `${id} (${why})`).join(", ") || "none"}`,
     `Last check: ${s.lastCheckAt ? new Date(s.lastCheckAt).toLocaleTimeString("en-IN") : "never"} ${s.lastResult ?? ""}`,
     ...(s.lastError ? [`Last error: ${s.lastError}`] : []),
   ]
@@ -36,6 +38,23 @@ export function UpdatesScreen() {
     } finally {
       busy.set(false)
     }
+  }
+
+  // Step 4.6: run the installed update now; the hold stands in for a payment in progress.
+  const applyNow = async () => {
+    const r = await Updates.applyNow() // settles only when nothing was applied (otherwise this JS is gone)
+    lines.set([...lines(), `Apply: ${r.reason}${r.error ? ` (${r.error})` : ""}`])
+  }
+  let release: (() => void) | null = null
+  const held = signal(false)
+  const toggleHold = () => {
+    if (release) {
+      release()
+      release = null
+    } else {
+      release = Updates.holdApply()
+    }
+    held.set(release !== null)
   }
 
   return (
@@ -63,6 +82,18 @@ export function UpdatesScreen() {
             {busy() ? "Checking…" : "Check now"}
           </Text>
         </Pressable>
+        <Row style={{ gap: 12 }}>
+          <Pressable onPress={applyNow} alignItems="center" style={{ flex: 1, padding: 14, borderRadius: 12, backgroundColor: c.successBg }}>
+            <Text fontSize={15} fontWeight={700} color={c.success}>
+              Apply now
+            </Text>
+          </Pressable>
+          <Pressable onPress={toggleHold} alignItems="center" style={{ flex: 1, padding: 14, borderRadius: 12, backgroundColor: c.pillBg }}>
+            <Text fontSize={15} fontWeight={700} color={c.ink}>
+              {held() ? "Release hold" : "Hold updates"}
+            </Text>
+          </Pressable>
+        </Row>
       </Column>
     </Column>
   )

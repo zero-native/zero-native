@@ -85,6 +85,17 @@ describe("decide: one row at a time, in order", () => {
     const d = decide(req({ seq: 1 }), pointer(2, "sample_12"), bundle(12))
     expect([d.action, d.reason, d.bundle?.id, d.pointer?.seq]).toEqual(["UPDATE", "NEW_BUNDLE", "sample_12", 2])
   })
+
+  test("11 a change the phone already made (same seq) → NONE ALREADY_DONE, never a change without a pointer", () => {
+    const on11 = { running: { id: "sample_11", sha256: "x" }, seq: 7 }
+    // Installed #12 and waits for the next start, or #12 threw in applyNow and #11 runs again.
+    expect(decide(req({ ...on11, kept: ["sample_12"] }), pointer(7, "sample_12"), bundle(12))).toEqual({ action: "NONE", reason: "ALREADY_DONE" })
+    expect(decide(req(on11), pointer(7, "sample_12"), bundle(12))).toEqual({ action: "NONE", reason: "ALREADY_DONE" })
+    // Took the kill switch, still runs #11 until the next start.
+    expect(decide(req(on11), pointer(7, BUILT_IN), null)).toEqual({ action: "NONE", reason: "ALREADY_DONE" })
+    // A newer pointer still decides as before.
+    expect(decide(req({ ...on11, kept: ["sample_12"] }), pointer(8, "sample_12"), bundle(12)).action).toBe("USE_LOCAL")
+  })
 })
 
 describe("rules underneath", () => {

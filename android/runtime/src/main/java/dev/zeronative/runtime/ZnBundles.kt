@@ -15,7 +15,8 @@ import org.json.JSONObject
  * from two bundles.
  *
  * The choice is made once per process, the first time anything asks (on the zn-io or zn-js thread, never the main
- * thread at startup), and never changes in that process. Rules:
+ * thread at startup). It changes only when the app applies an update while it runs (`Updates.applyNow()`, step 4.6:
+ * [candidate], then [switchTo], while the JS runtime is replaced). Rules:
  * - `zn-ota/current` names the bundle to run. The installer writes it (step 4.5); until then it is written by hand.
  * - A downloaded bundle runs only if its `zn-bundle.json` is readable and has a known format, it is for this app,
  *   its serial is **bigger** than the built-in one (a newer APK always wins), it has every code file the built-in
@@ -23,6 +24,7 @@ import org.json.JSONObject
  *   ([ZnCapabilities]: registry version, bytecode format, host API, native modules), and every id in its templates is
  *   one this app knows ([TemplateReader]; the templates read here are kept for [ZnTemplates]).
  * - Anything else, or any error: the built-in bundle, and the reason is logged. The app always starts.
+ * - A bundle blocked by the safety nets ([ZnOtaHealth], step 4.7) never runs: the last good bundle does, if it can.
  * - Checksums and signatures are checked once, when a bundle is installed (steps 4.3, 4.5), not on every start.
  * A bundle folder is never changed after it is installed: bytecode is memory-mapped from it while JS runs.
  */
@@ -66,25 +68,89 @@ object ZnBundles {
         if (appContext == null) appContext = context.applicationContext
     }
 
+    @Volatile private var chosen: Running? = null
+
+    /** The running bundle if it was chosen already, else null (never does the choosing: safe on the main thread). */
+    internal val runningIfChosen: Running? get() = chosen
+
     /** The bundle this process runs, chosen on first use (reads a few small files). */
-    val running: Running by lazy { choose(checkNotNull(appContext) { "ZnBundles.init() was not called" }) }
+    val running: Running
+        get() = chosen ?: synchronized(this) {
+            chosen ?: choose(checkNotNull(appContext) { "ZnBundles.init() was not called" }).also { chosen = it }
+        }
+
+    /** A bundle ready to run in place of the running one (step 4.6): checked, and its template files already read. */
+    internal class Candidate(val running: Running, val templates: Map<String, TemplateFile>)
+
+    /**
+     * The bundle `current` names now (none: the built-in bundle), checked like at a cold start, for applying it while
+     * the app runs. Off the main thread. Throws [ZnOtaError] with the reason if it can't run; nothing is changed.
+     */
+    internal fun candidate(): Candidate {
+        val context = checkNotNull(appContext) { "ZnBundles.init() was not called" }
+        val id = File(otaDir(context), "current").takeIf { it.isFile }?.readText()?.trim()?.ifEmpty { null }
+        return candidateFor(id)
+    }
+
+    /**
+     * Where a rollback goes (step 4.7): the last bundle marked healthy on this phone if it isn't [exclude], isn't
+     * blocked and still passes every check; else the built-in bundle. Off the main thread. Never throws.
+     */
+    internal fun fallbackCandidate(exclude: String?): Candidate {
+        val good = ZnOtaHealth.lastGood?.takeIf { it != exclude && !ZnOtaHealth.isBlocked(it) }
+        if (good != null) {
+            try {
+                return candidateFor(good)
+            } catch (e: Exception) {
+                Log.w(TAG, "bundle: last good bundle $good can't run any more (${e.message}); using the built-in bundle")
+                ZnOtaHealth.forgetGood(good)
+            }
+        }
+        return Candidate(Running(builtIn, null), emptyMap())
+    }
+
+    /** Bundle [id] (null: the built-in bundle) checked like at a cold start. Throws [ZnOtaError] if it can't run. */
+    private fun candidateFor(id: String?): Candidate {
+        val context = checkNotNull(appContext) { "ZnBundles.init() was not called" }
+        val builtIn = builtIn ?: throw ZnOtaError("apply", "the APK has no $INFO_FILE")
+        val ota = otaDir(context)
+        if (id == null) return Candidate(Running(builtIn, null), emptyMap())
+        if (ZnOtaHealth.isBlocked(id)) throw ZnOtaError("apply", "$id is blocked on this phone")
+        val dir = File(ota, "bundles/$id")
+        val templates = HashMap<String, TemplateFile>()
+        val reason = when (val v = checkBundle(id, builtIn, ZnCapabilities.current()) { File(ota, "bundles/$it") }) {
+            is Check.Ok -> readTemplates(dir, v.info, templates) ?: return Candidate(Running(v.info, dir), templates)
+            is Check.No -> v.reason
+        }
+        throw ZnOtaError("apply", "$id can't run: $reason")
+    }
+
+    /** Main thread, while the JS runtime is being replaced: from now on the process runs [c]'s files. */
+    internal fun switchTo(c: Candidate) {
+        synchronized(this) {
+            preRead.clear()
+            chosen = c.running
+        }
+        Log.i(TAG, "bundle: now running ${c.running}")
+        ZnOtaHealth.onChosen(c.running)
+    }
 
     /** The OTA folder: not in backups (a restored bundle could be for another app version). */
     internal fun otaDir(context: Context) = File(context.noBackupFilesDir, "zn-ota")
 
     // ---- Reading bundle files -------------------------------------------------------------------------------------
 
-    /** A file of the running bundle mapped into memory, or null if the bundle has no such file. */
-    internal fun map(name: String): ByteBuffer? {
-        val dir = running.dir ?: return mapAsset(name)
+    /** A file of bundle [r] (default: the running one) mapped into memory, or null if the bundle has no such file. */
+    internal fun map(name: String, r: Running = running): ByteBuffer? {
+        val dir = r.dir ?: return mapAsset(name)
         val file = File(dir, name)
         if (!file.isFile) return null
         return FileInputStream(file).channel.use { it.map(FileChannel.MapMode.READ_ONLY, 0, it.size()) }
     }
 
-    /** A text file of the running bundle, or null if the bundle has no such file. */
-    internal fun readText(name: String): String? {
-        val dir = running.dir
+    /** A text file of bundle [r] (default: the running one), or null if the bundle has no such file. */
+    internal fun readText(name: String, r: Running = running): String? {
+        val dir = r.dir
         return try {
             if (dir == null) appContext!!.assets.open(name).bufferedReader().use { it.readText() }
             else File(dir, name).takeIf { it.isFile }?.readText()
@@ -146,25 +212,46 @@ object ZnBundles {
         val builtIn = builtIn
         ZnModules.versions() // from now on a late ZnModules.register is reported (it would miss the OTA check)
         val running = try {
-            downloaded(context, builtIn) ?: Running(builtIn, null)
+            // The safety nets (step 4.7): a new APK, a launch the last process left pending, the startup fuse.
+            val off = builtIn != null && ZnOtaHealth.atStart(context)
+            val pick = if (off) Running(builtIn, null) else downloaded(context, builtIn) ?: Running(builtIn, null)
+            ZnOtaHealth.guardOk()
+            pick
         } catch (e: Exception) {
-            // Startup guard (docs/ota.md §3.6): whatever went wrong, the built-in bundle runs.
+            // Startup guard (docs/ota.md §3.6): whatever went wrong, the built-in bundle runs, and OTA is off in this
+            // process (twice in a row: until the next APK install).
             Log.e(TAG, "bundle: choosing failed, running the built-in bundle", e)
+            ZnOtaHealth.guardFailed(e)
             Running(builtIn, null)
         }
         Log.i(TAG, "bundle: running $running, chosen in %.2f ms".format((System.nanoTime() - t0) / 1e6))
+        ZnOtaHealth.onChosen(running)
         return running
     }
 
-    /** The downloaded bundle named by `current`, if it may run; null (and the reason logged) if not. */
+    /**
+     * The downloaded bundle named by `current`, if it may run; null (and the reason logged) if not. A blocked bundle
+     * (step 4.7) never runs: the last good bundle runs instead if it can, and becomes `current`.
+     */
     private fun downloaded(context: Context, builtIn: Info?): Running? {
         val ota = otaDir(context)
-        val id = File(ota, "current").takeIf { it.isFile }?.readText()?.trim() ?: return null
+        val current = File(ota, "current")
+        var id = current.takeIf { it.isFile }?.readText()?.trim() ?: return null
         if (builtIn == null) return null
+        if (ZnOtaHealth.isBlocked(id)) {
+            val good = ZnOtaHealth.lastGood?.takeIf { it != id && !ZnOtaHealth.isBlocked(it) }
+            Log.w(TAG, "bundle: $id is blocked on this phone; running ${good ?: "the built-in bundle"}")
+            if (good == null) {
+                current.delete()
+                return null
+            }
+            ZnOtaInstall.writeAtomic(current, good)
+            id = good
+        }
         val caps = ZnCapabilities.current()
         val dir = File(ota, "bundles/$id")
         val reason = when (val v = checkBundle(id, builtIn, caps) { File(ota, "bundles/$it") }) {
-            is Check.Ok -> readTemplates(dir, v.info) ?: return Running(v.info, dir)
+            is Check.Ok -> readTemplates(dir, v.info, preRead) ?: return Running(v.info, dir)
             is Check.No -> v.reason
         }
         Log.w(TAG, "bundle: not running $id: $reason; running the built-in bundle (this app: $caps)")
@@ -174,15 +261,15 @@ object ZnBundles {
     /**
      * Reads every template file of a downloaded bundle; [TemplateReader] refuses ids this app doesn't know. This is the
      * safety net under the build's `requires`: a mistake there costs one refused update, never a wrong screen.
-     * Returns why the bundle can't run, or null (the files are then kept in [preRead]).
+     * Returns why the bundle can't run, or null (the files are then kept in [into]).
      */
-    private fun readTemplates(dir: File, info: Info): String? {
+    private fun readTemplates(dir: File, info: Info, into: MutableMap<String, TemplateFile>): String? {
         for (name in info.files.keys.filter { it.endsWith(".zn.ui") }) {
             try {
                 val buffer = FileInputStream(File(dir, name)).channel.use { it.map(FileChannel.MapMode.READ_ONLY, 0, it.size()) }
-                preRead[name] = TemplateReader.read(buffer)
+                into[name] = TemplateReader.read(buffer)
             } catch (e: Exception) {
-                preRead.clear()
+                into.clear()
                 return "its templates use something this app doesn't have ($name: ${e.message})"
             }
         }

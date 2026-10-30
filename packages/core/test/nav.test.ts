@@ -10,7 +10,7 @@ import { on, slot, view } from "../src/view"
 
 let host: FakeHost
 const NATIVE_ROOT = 0x80000001
-const PUSH = 1, REMOVE = 2, CLEAR = 3, EXIT = 4, ANSWERED = 5
+const PUSH = 1, REMOVE = 2, CLEAR = 3, EXIT = 4, ANSWERED = 5, STARTED = 8
 
 // Screens as the compiler would emit them: template id + setup binding slots / events.
 let backHandled = false
@@ -32,7 +32,13 @@ const routes = defineRoutes({
 
 const send = (event: number, payload: string | number | null) => globalThis.__zn_onEvent(0, event, payload)
 const navOps = () => host.ops.filter((o) => o[0] === "nav")
-const start = (stack = [{ entry: NATIVE_ROOT, route: 0, params: {} }]) => send(AppEvent.Start, JSON.stringify(stack))
+// JS answers every START with NAV STARTED once the screens are built (step 4.7). The first test checks it; this
+// helper drops it so the other tests see only their own ops.
+const start = (stack = [{ entry: NATIVE_ROOT, route: 0, params: {} }]) => {
+  send(AppEvent.Start, JSON.stringify(stack))
+  const last = host.ops.at(-1)
+  if (last?.[0] === "nav" && last[1] === STARTED) host.ops.pop()
+}
 
 beforeEach(() => {
   resetNavForTests()
@@ -43,19 +49,20 @@ beforeEach(() => {
   startApp(routes)
 })
 
-test("start renders native-created entries without sending NAV", () => {
-  start([
+test("start renders native-created entries, then sends only NAV STARTED", () => {
+  send(AppEvent.Start, JSON.stringify([
     { entry: NATIVE_ROOT, route: 0, params: {} },
     { entry: NATIVE_ROOT + 1, route: 1, params: { merchantId: "m2" } },
-  ])
-  expect(navOps()).toEqual([])
+  ]))
   expect(host.ops).toEqual([
     ["patch", NATIVE_ROOT, 0, "home"],
     ["patch", NATIVE_ROOT + 1, 0, "m2"],
+    ["nav", STARTED, 0, 0, null], // after the screens: native counts them as up from here
   ])
   expect(nav.current()).toEqual({ name: "amount", params: { merchantId: "m2" } })
-  start() // a second start is ignored
+  send(AppEvent.Start, JSON.stringify([{ entry: NATIVE_ROOT, route: 0, params: {} }])) // a second start is ignored
   expect(nav.depth()).toBe(2)
+  expect(navOps()).toEqual([["nav", STARTED, 0, 0, null]]) // no second STARTED
 })
 
 test("push sends NAV before the new screen's patches, in the same tick", () => {

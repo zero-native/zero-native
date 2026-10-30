@@ -71,6 +71,8 @@ object ZnRuntime {
     /** True while a dev reload swaps runtimes: UI events in that window are dropped. */
     @Volatile private var reloading = false
     private var started = false
+    /** The bytecode file [evalAsset] ran: the app's main script, run again by [restart]. */
+    @Volatile private var mainScript: String? = null
     /** Whether [start] ran (so events to JS have somewhere to go). */
     internal val isStarted: Boolean get() = started
     private val listeners = ArrayList<BatchListener>()
@@ -89,7 +91,10 @@ object ZnRuntime {
     /** Hears every error JS reported, and JS that hung or didn't start, on the main thread (crash reporting). */
     @Volatile var onJsError: ((ZnJsError) -> Unit)? = null
 
-    /** Counts runtimes created in this process. Stays 1 for the life of the process (checked by the sample app). */
+    /**
+     * Counts runtimes created in this process. Stays 1 for the life of the process, except after a `zn dev` reload
+     * (debug) or an update applied while the app runs ([restart]).
+     */
     val createdCount = AtomicInteger(0)
 
     /** Starts the runtime. Safe to call more than once; never blocks the caller. */
@@ -136,18 +141,23 @@ object ZnRuntime {
      */
     fun evalAsset(name: String, onResult: (EvalResult) -> Unit = {}) {
         checkStarted()
+        mainScript = name
         js.post {
             val t0 = SystemClock.uptimeMillis()
-            val file = ZnBundles.file(name)
-            val raw = if (file != null) ZnNative.evalFile(jsRuntime, file.path, name)
-                else ZnNative.evalAsset(jsRuntime, appContext.assets, name)
-            val result = evalResult(raw, t0)
+            val result = evalResult(evalScript(jsRuntime, name), t0)
             // The app's JS didn't start: no screen can be built. Show the error screen with "Restart app" instead of a
-            // screen that stays half drawn (step 3.9).
-            if (!result.ok) main.post { ZnNav.startFailed(result.value) }
+            // screen that stays half drawn (step 3.9), unless the OTA safety nets are already rolling back to a good
+            // bundle (step 4.7; the error reached jsError first).
+            if (!result.ok) main.post { if (!ZnOta.isRollingBack) ZnNav.startFailed(result.value) }
             if (result.ok) Log.i(TAG, "$name evaluated in ${result.millis} ms") else Log.e(TAG, "$name failed: ${result.value}")
             main.post { onResult(result) }
         }
+    }
+
+    /** JS thread: runs bytecode file [name] of the running bundle on [rt]; "ok:..." or "error:...". */
+    private fun evalScript(rt: Long, name: String): String {
+        val file = ZnBundles.file(name)
+        return if (file != null) ZnNative.evalFile(rt, file.path, name) else ZnNative.evalAsset(rt, appContext.assets, name)
     }
 
     private fun evalResult(raw: String, t0: Long): EvalResult {
@@ -164,6 +174,27 @@ object ZnRuntime {
      */
     internal fun reload(bytecode: ByteArray, onLoaded: (result: EvalResult, attach: () -> Unit) -> Unit) {
         check(BuildConfig.DEBUG) { "reload is for debug builds only" }
+        replaceRuntime({ rt -> ZnNative.evalBytes(rt, bytecode, "main.hbc") }, onLoaded)
+    }
+
+    /** True while [reload] or [restart] swaps runtimes (UI events are dropped, back presses wait). */
+    internal val isRestarting: Boolean get() = reloading
+
+    /** Whether the app's main script was started ([evalAsset]), so [restart] knows what to run. */
+    internal val canRestart: Boolean get() = started && mainScript != null
+
+    /**
+     * Release-safe (step 4.6, `Updates.applyNow()`): replaces the JS runtime with a fresh one running the app's main
+     * script (the name given to [evalAsset]) from the running bundle, which the caller has just switched
+     * ([ZnBundles.switchTo]). Main thread; same contract as [reload]. Storage is not touched: the new JS reads the
+     * same files.
+     */
+    internal fun restart(onLoaded: (result: EvalResult, attach: () -> Unit) -> Unit) {
+        val name = checkNotNull(mainScript) { "evalAsset was not called" }
+        replaceRuntime({ rt -> evalScript(rt, name) }, onLoaded)
+    }
+
+    private fun replaceRuntime(eval: (Long) -> String, onLoaded: (result: EvalResult, attach: () -> Unit) -> Unit) {
         checkStarted()
         reloading = true
         runtime = 0L
@@ -174,7 +205,7 @@ object ZnRuntime {
             generation++
             val fresh = createOnJsThread()
             jsRuntime = fresh
-            val result = evalResult(ZnNative.evalBytes(fresh, bytecode, "main.hbc"), t0)
+            val result = evalResult(eval(fresh), t0)
             main.post {
                 onLoaded(result) {
                     runtime = fresh
@@ -182,6 +213,16 @@ object ZnRuntime {
                 }
             }
         }
+    }
+
+    /**
+     * Main thread: runs [block] on the main thread once the JS thread has handled everything sent to it so far
+     * (events are handled in order). Dropped while the runtime is being replaced.
+     */
+    internal fun afterJs(block: () -> Unit) {
+        checkStarted()
+        if (reloading) return
+        js.post { main.post(block) }
     }
 
     /** Sends an event to JS (for example a tap). Payload: null, Boolean, Number or String. */
@@ -256,7 +297,10 @@ object ZnRuntime {
         val where = rest.substringBefore('\n')
         val details = rest.substringAfter('\n', "")
         main.post {
-            if (kind == "hang") ZnNav.hung(details.substringBefore('\n'))
+            // A downloaded bundle that isn't healthy yet and shows an error screen is rolled back (step 4.7); a healthy
+            // one's error screens are only counted. Either way the hook below still hears the error.
+            val rolledBack = (kind == "start" || kind == "screen" || kind == "hang") && ZnOta.errorScreen(kind, where, details)
+            if (kind == "hang" && !rolledBack) ZnNav.hung(details.substringBefore('\n'))
             if (BuildConfig.DEBUG) ZnDev.onJsError(rest)
             val hook = onJsError ?: return@post
             // A screen that failed while being built isn't the top of native's stack yet: its name is in the report.
