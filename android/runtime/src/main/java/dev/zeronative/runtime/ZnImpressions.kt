@@ -20,7 +20,7 @@ import org.json.JSONObject
  */
 internal object ZnImpressions {
     private const val APP = 0
-    private const val EVENT_IMPRESSIONS = 6
+    private const val EVENT_IMPRESSIONS = ZnAppEvent.IMPRESSIONS
     private const val FLUSH_MS = 500L
 
     private class Track(val threshold: Float, val minMs: Long) {

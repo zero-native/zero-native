@@ -113,22 +113,68 @@ commit (not uncommitted changes), with an explicit rollout and the typed `PRODUC
 `KILL <CHANNEL>` (production also a reason) and is a signed pointer to `BUILT_IN`; one release action at a time on a
 computer (`~/.zero-native/ota.lock`).
 
-### 3.4 The check (one request)
-`GET /check` with headers: app id + channel, capabilities (digest + list), running bundle id + sha, built-in id, kept
-ids, seq, install id, outcomes. A **pure decision function** (unit-tested row by row, like RN's `otaDecide`):
-no channel → none; no pointer → none; stale seq → none; kill switch → `BUILT_IN`; already running → none; not in
-rollout → none; built-in serial ≥ pointer → `BUILT_IN`; **app can't run it → none (`INCOMPATIBLE`)**; kept on the
-phone → `USE_LOCAL`; else `UPDATE` (full download; patch later, D5). Resumable downloads (Range), `no-store`.
+### 3.4 The check (one request; built in step 4.4)
+The reference server (`tools/ota/server.ts`, `bun run ota serve`) is Bun.serve over the release store: the store's
+zips are plain static files, and one route makes the decision (option B, Pavan 2026-10-30: the rules stay on the
+server, where they can change without a store release; telemetry rides along). It never holds the private key.
+
+**`POST /v1/check`** (JSON, at most 64 KB; answer `cache-control: no-store`):
+```jsonc
+{ "app": "sample", "channel": "production", "installId": "<random id made once by the app>",
+  "capabilities": { "registry": 8, "bytecode": 99, "hostApi": 2, "hostApiOldest": 1, "modules": { "Fetch": 1 } },
+  "running": { "id": "sample_12", "sha256": "…" } /* null = the APK's built-in bundle */,
+  "builtIn": { "id": "sample_10", "serial": 10 }, "kept": ["sample_11", "sample_12"], "seq": 6,
+  "outcomes": [{ "kind": "applied", "bundle": "sample_12", "at": "…", "detail": "…" }] }
+```
+Answer: `{ protocol: 1, action, reason, detail?, pointer?, bundle? }`. `pointer` is the signed pointer record,
+sent whenever its seq is newer than the phone's (so the phone records it, even with NONE). `bundle` is the signed
+manifest plus `url` (`/v1/files/<app>/bundles/<id>/<zip sha256>.zip`).
+
+**The decision** (`tools/ota/decide.ts`, pure, one test per row, in this order; RN's `otaDecide` lessons):
+| # | When | Action / reason |
+|---|---|---|
+| 1 | nothing published on the channel | NONE `NO_CHANNEL` |
+| 2 | the pointer's seq < the phone's (a stale server or cache) | NONE `STALE_SEQ` |
+| 3 | kill switch (pointer → BUILT_IN) | BUILT_IN `KILL_SWITCH` (NONE if already on its built-in bundle) |
+| 4 | the phone runs the pointer's bundle | NONE `UP_TO_DATE` |
+| 5 | the install's bucket (SHA-256 of app, channel, install id; 0–99, stable) ≥ rollout % | NONE `NOT_IN_ROLLOUT` |
+| 6 | the store lacks the named bundle | NONE `MISSING_BUNDLE` |
+| 7 | the APK's built-in serial ≥ the bundle's | BUILT_IN `APK_NEWER` (NONE if already on it) |
+| 8 | the app can't run it (same rule as `ZnCapabilities.kt`) | NONE `INCOMPATIBLE` + what it lacks |
+| 9 | the phone keeps the bundle | USE_LOCAL `KEPT` (a rollback downloads nothing) |
+| 10 | otherwise | UPDATE `NEW_BUNDLE` |
+
+Rollout applies to rollbacks too: roll back at 100 % so every phone on the bad bundle moves.
+**`GET /v1/files/<zip path>`**: only released zips (a strict path pattern), Range for resuming (206 / 416),
+`cache-control: public, max-age=31536000, immutable` and the SHA as ETag (zips never change, so a CDN can serve
+them later). **Telemetry**: one line per check in `<data>/<app>/checks-<date>.ndjson` (install id, running bundle,
+seq, decision, the phone's outcomes). `GET /health`.
 
 ### 3.5 On the phone (Kotlin, `ZnOta`)
 - **Process start** (every start, no network): new APK or changed capabilities → drop bundles that no longer fit;
   apply a downloaded bundle (SHA checked again); pick the bundle; **load from the bundle folder or the APK** (the
   runtime's loader, templates and images all go through one "where is the bundle" place).
-- **UI launch and returns:** run the check on a background thread (one at a time); download to a part file; verify
-  SHA, signature, capabilities; unzip into a temp folder; rename into place (atomic); mark it downloaded.
-- **JS API** (`@zero-native/core`): `Updates.status()` (phase, progress, bundle, priority, title),
-  `Updates.check()`, `Updates.applyNow()`, `Updates.holdApply()` / `releaseApply()`, `Updates.markHealthy()`.
-  Native never applies while held.
+- **UI launch and returns (built in step 4.5, `ZnOta.kt`, `ZnOtaInstall.kt`):** `ZnOta.configure(context,
+  Config(server, channel, publicKeys))` in Application.onCreate (main process only). A check runs ~3 s after an
+  Activity comes on screen and on returns to the foreground (at most every 5 min); never for a start without UI. One
+  check at a time on its own thread. The phone keeps these rules whatever the server says:
+  - a pointer counts only if its signature is valid, it is for this app and channel, and its seq is above the
+    highest one accepted; UPDATE / USE_LOCAL / BUILT_IN need such a pointer naming the bundle;
+  - **a seq is saved only once its action is done**, so a failed download is retried with the same signed pointer;
+  - with NONE, an accepted pointer still decides what runs next: a kill switch or APK_NEWER clears `current`, and
+    UP_TO_DATE sets it back to the running bundle (an installed update waiting for the next start must not start
+    after a kill switch or a rollback; the server only sees what runs now);
+  - the bundle must be signed, fit this app, and be newer than the APK's own.
+  Download: `download.part` (+ `download.json` naming the zip's SHA), resumed with Range after a cut, then size and
+  SHA checked. Install: `zn-bundle.json` is read first and must name the signed bundle; only the files it lists are
+  extracted, each stopped at its listed size and checked against its listed SHA (no zip bombs, no paths outside the
+  folder); then the bundle SHA and needs must equal the manifest's; then `tmp/<id>` is renamed to `bundles/<id>` and
+  `current` is written last (atomically). The new bundle runs from the **next cold start**. Up to 4 older bundles are
+  kept besides the running and the current one. `state.json` holds the install id, the seq per channel and the
+  outcomes not yet sent (downloaded, switched, started, zip_sha, ...), which go with the next check.
+- **JS API** (`@zero-native/core`): built in 4.5: `Updates.status()` (enabled, phase, progress, running, next,
+  pendingRestart, last check / result / error), `Updates.check()`, `Updates.onStatus()`. Step 4.6: `Updates.applyNow()`,
+  `Updates.holdApply()` / `releaseApply()`; 4.7: `Updates.markHealthy()`. Native never applies while held.
 - **Apply = JS restart in place** (3.1's reload, made release-safe): the screens reopen by route name; FlowStore,
   storage and SecureStore are untouched; running native calls are cancelled (fetch included). Covered by a native
   cover screen so nothing flashes.
@@ -157,8 +203,8 @@ phone → `USE_LOCAL`; else `UPDATE` (full download; patch later, D5). Resumable
 | 4.1 | Bundle format and loader: one place decides where hbc / templates / manifest / images come from; built-in bundle id + serial in the APK | **done 2026-10-30** (`ZnBundles.kt`; see `docs/milestones.md` log) |
 | 4.2 | Capability manifest: native side, compiler side (requirements), load-time check | **done 2026-10-30** (§3.2; `docs/milestones.md` log) |
 | 4.3 | Signing + release CLI (`zn ota`): build, serial, sign, zip, publish (local folder / GCS), pointers with seq, kill switch, rollback, stable / approve, typed confirmation for production | **done 2026-10-30** for the local store (§3.3, §3.3b); GCS adapter waits for a test bucket |
-| 4.4 | Reference update server (Bun): the check, the pure decision function (one test per row), Range downloads | decision tests + manual checks with curl |
-| 4.5 | Client: check, resumable download, verify, atomic install, kept bundles, seq, `Updates` JS API | phone downloads and installs; kill mid-download / mid-install leaves the old bundle running |
+| 4.4 | Reference update server (Bun): the check, the pure decision function (one test per row), Range downloads | **done 2026-10-30** (§3.4; `docs/milestones.md` log) |
+| 4.5 | Client: check, resumable download, verify, atomic install, kept bundles, seq, `Updates` JS API | **done 2026-10-30** (§3.5; `docs/milestones.md` log) |
 | 4.6 | Apply: cold start + `applyNow()` (release-safe restart), `holdApply()`, cover screen | apply during a visit, screens reopen; held during a fake checkout |
 | 4.7 | Safety nets: watchdog, error-before-healthy rollback, healthy mark, startup guard, APK-newer, capability change | each one forced on the phone (a bundle that throws at start, one that crashes, a tampered file, a wrong signature) |
 | 4.8 | Crash traces + telemetry: bundle id everywhere, source maps per bundle, `zn symbolicate` | a release crash maps back to the TSX line |

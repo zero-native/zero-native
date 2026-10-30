@@ -96,9 +96,9 @@ abstract class ZnModuleBase(override val name: String, override val version: Int
 object ZnModules {
     private const val TAG = "zn"
     private const val APP = 0
-    private const val EVENT_RESULT = 7
-    private const val EVENT_MODULE = 8
-    private const val EVENT_RESULT_BYTES = 9
+    private const val EVENT_RESULT = ZnAppEvent.CALL_RESULT
+    private const val EVENT_MODULE = ZnAppEvent.MODULE_EVENT
+    private const val EVENT_RESULT_BYTES = ZnAppEvent.CALL_RESULT_BYTES
     private const val NO_REPLY = 0
 
     private val modules = ConcurrentHashMap<String, ZnModule>()
@@ -113,7 +113,7 @@ object ZnModules {
     init {
         // Built-in modules are always there, whatever order the app starts things in: the bundle check needs them.
         // Their setup with a Context (ZnFetch.init, ZnSecureStore.init) stays in ZnRuntime.start.
-        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnSecureStore, ZnToast)) modules[m.name] = m
+        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnSecureStore, ZnToast, ZnOta.Module)) modules[m.name] = m
     }
 
     /**

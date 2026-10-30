@@ -576,13 +576,24 @@ bun run ota publish --channel production --bundle N --rollout 10     asks you to
 bun run ota rollout --channel production --percent 100
 bun run ota publish --channel production --bundle M --rollout 100    rollback: point back at an older bundle
 bun run ota kill --channel production --reason "..."                  everyone back to the APK's own bundle
+bun run ota serve                                    the reference update server over the local store (port 8790)
 ```
 - **Do:** keep the private key outside the repo (`~/.zero-native/keys/`, the default) and make a **backup** key
   too (`keygen --name backup`), kept offline. The app trusts both; if the main key is lost or leaks, the backup
   key still signs, and the next store release can carry a new pair.
 - **Do:** commit before `bun run ota build` for anything going to production: bundles built from uncommitted
   changes can only go to staging.
-- **Do:** start production with a small rollout and raise it; `status` shows what each channel serves.
+- **Do:** start production with a small rollout and raise it; `status` shows what each channel serves. Roll
+  **back** at 100 %: the rollout applies to rollbacks too, and a phone outside it keeps the bad bundle.
+- **Do:** turn updates on in Application.onCreate, before `ZnTemplates.preload`:
+  `ZnOta.configure(this, ZnOta.Config(server = "https://updates.example.com", channel = "production",
+  publicKeys = listOf(MAIN_KEY, BACKUP_KEY)))`. Checks run by themselves when the app comes on screen; a new bundle
+  runs from the next cold start. Show progress or check on demand with `Updates.status()`, `Updates.check()`,
+  `Updates.onStatus()` (see the sample's `/dev/updates` screen).
+- **Don't:** check on a timer or in a background job: checks follow the UI on purpose (no data or battery spent when
+  nobody opens the app).
+- **Do:** serve the store with `bun run ota serve` (or your own backend speaking the same `POST /v1/check`,
+  docs/ota.md §3.4). The zips are plain immutable files, so a CDN can serve them; the check must stay a server.
 - **Don't:** delete or edit files in the store by hand. Every record is written once; the phone keeps the highest
   seq it accepted, so a deleted or rewritten pointer can leave phones ignoring the channel.
 - **Why:** the same rules as ZeroBill's RN OTA v2, which came from real incidents: staging first, then stable, then a

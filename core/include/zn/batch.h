@@ -21,7 +21,7 @@
 //   5 BACK_ANSWERED  JS has handled the last system back press (stops native's 300 ms fallback)
 //   6 IMPRESSIONS    the screen `entry` tracks impressions; params = {"threshold":0.35,"minMs":0} (useImpressions)
 //   7 FAILED         the screen `entry` threw while being built; native shows its error screen instead (step 3.9);
-//                    params = {"message":"..."}. Try again: native makes a fresh root and sends app event RETRY
+//                    params = {"message":"..."}. Try again: native makes a fresh root and sends app event RETRY (10)
 // A NAV op is structural: it keeps its place in the batch and is never merged.
 //
 // List ops (<List>, docs/lists.md): the list is node `node` of `instance`. LIST_SET gives native every row's key and

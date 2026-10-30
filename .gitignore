@@ -47,3 +47,4 @@ test-kit/offers-data.json
 
 # Local OTA release store (bun run ota; docs/ota.md)
 .zn-ota-store/
+.zn-ota-data/

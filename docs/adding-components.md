@@ -59,6 +59,9 @@ Follow `Carousel` / `Sheet` / `Switch` as examples.
 
 ## 4. Host functions and the bridge
 (Host API 2, step 3.9: NAV kind FAILED and app event RETRY.)
+**App event numbers** (native → JS events on instance 0) are listed once per side: `packages/core/src/app-events.ts`
+and `ZnAppEvent.kt`. Take the next free number there; a test checks both lists are unique and equal. (Step 3.9 reused
+7 for RETRY, which took over native call answers until step 4.5 found it.)
 Adding a `__zn_*` host function, an app event number, or changing the batch / value formats changes the **host API**.
 Raise `kHostApiVersion` in `core/include/zn/engine.h` and `HOST_API_VERSION` in `packages/core/src/host-api.ts`
 together (a test checks they are equal). Removing one, or changing its meaning, also raises `kHostApiOldest`: every

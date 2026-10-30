@@ -2,5 +2,5 @@
   "app": "sample",
   "build": ["bun", "run", "build.ts"],
   "store": "../../.zn-ota-store",
-  "publicKeys": []
+  "publicKeys": ["MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyDRVX10DZWMDeefhkH4saosxvE6AwYffTsDANIEemGkrKcGD/8Cj5SEzM0NZVjWHWl0Y1hTlsVxJQBdqxIvfxw=="]
 }

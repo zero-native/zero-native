@@ -4,6 +4,7 @@
 // full-bleed screen (`safeArea: { top: false }`, a coloured header behind the status bar) reads `insets().top` to pad
 // its own header. Native sends new values only when they change (start, rotation, cutout), as an app-level event.
 // Until the first value arrives they are 0.
+import { APP, AppEvent } from "./app-events"
 import { onEvent } from "./events"
 import type { NativeValue } from "./native"
 import { signal } from "./signals"
@@ -25,7 +26,7 @@ export function insets(): Insets {
 
 /** App-level event id 5 on instance 0 (android/runtime/.../ZnNav.kt). Called by startApp. */
 export function installInsets(): void {
-  onEvent(0, 5, (payload: NativeValue) => {
+  onEvent(APP, AppEvent.Insets, (payload: NativeValue) => {
     const v = JSON.parse(String(payload)) as Partial<Insets>
     current.set({ top: v.top ?? 0, bottom: v.bottom ?? 0, start: v.start ?? 0, end: v.end ?? 0 })
   })

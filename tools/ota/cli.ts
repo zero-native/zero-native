@@ -10,6 +10,7 @@
 //   bun run ota kill    --channel production --reason "..."    (asks to type KILL PRODUCTION)
 //   bun run ota status
 //   bun run ota verify                                         check every signature and zip in the store
+//   bun run ota serve   [--port 8790] [--host 127.0.0.1]       the reference update server over the local store
 //
 // Common options: --app-dir <dir> (default examples/sample; holds zn-ota.json), --key <private key PEM file>,
 // --confirm "<text>" (for scripts; otherwise you are asked).
@@ -19,6 +20,7 @@ import { dirname, join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 import * as core from "./core"
 import { generateKeys, keyId, publicKeyOf } from "./signing"
+import { startServer } from "./server"
 import { LocalStore, type Store } from "./store"
 
 /** An app's release settings: `zn-ota.json` next to its sources. Paths are relative to that file. */
@@ -47,6 +49,9 @@ const { values: a, positionals } = parseArgs({
     priority: { type: "string" },
     confirm: { type: "string" },
     reason: { type: "string" },
+    port: { type: "string" },
+    host: { type: "string" },
+    data: { type: "string" },
   },
 })
 const command = positionals[0]
@@ -208,8 +213,18 @@ async function main() {
       console.log(`✓ every signature and zip in ${store(c).where} checks out (${keys.length} trusted key(s))`)
       return
     }
+    case "serve": {
+      const c = config()
+      if (/^[a-z]+:\/\//.test(c.store)) fail("serve reads a local store folder")
+      const storeRoot = resolve(appDir, c.store)
+      const dataDir = resolve(appDir, a.data ?? join(c.store, "..", ".zn-ota-data"))
+      const server = startServer({ storeRoot, dataDir, port: a.port ? Number(a.port) : undefined, hostname: a.host })
+      console.log(`✓ update server on http://${server.hostname}:${server.port} (store ${storeRoot}, telemetry ${dataDir})`)
+      console.log(`  phone over USB: adb reverse tcp:${server.port} tcp:${server.port}   Ctrl+C stops it`)
+      return
+    }
     default:
-      fail(`unknown command "${command ?? ""}". Commands: keygen, build, publish, stable, rollout, kill, status, verify`)
+      fail(`unknown command "${command ?? ""}". Commands: keygen, build, publish, stable, rollout, kill, status, verify, serve`)
   }
 }
 

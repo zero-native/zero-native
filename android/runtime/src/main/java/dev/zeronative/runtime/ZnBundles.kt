@@ -130,14 +130,20 @@ object ZnBundles {
 
     // ---- Choosing the bundle --------------------------------------------------------------------------------------
 
-    private fun choose(context: Context): Running {
-        val t0 = System.nanoTime()
-        val builtIn = try {
+    /** The APK's own bundle (its `zn-bundle.json`), or null if the APK has none: OTA bundles are then off. */
+    val builtIn: Info? by lazy {
+        val context = checkNotNull(appContext) { "ZnBundles.init() was not called" }
+        try {
             context.assets.open(INFO_FILE).bufferedReader().use { parseInfo(it.readText()) }
         } catch (e: Exception) {
             Log.w(TAG, "bundle: no readable $INFO_FILE in the APK (${e.message}); OTA bundles are off")
             null
         }
+    }
+
+    private fun choose(context: Context): Running {
+        val t0 = System.nanoTime()
+        val builtIn = builtIn
         ZnModules.versions() // from now on a late ZnModules.register is reported (it would miss the OTA check)
         val running = try {
             downloaded(context, builtIn) ?: Running(builtIn, null)

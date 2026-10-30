@@ -29,20 +29,20 @@ class ZnEntry(val id: Int, val route: ZnRoute, val params: String) {
  * like [ZnStore], so a recreated Activity shows the same stack. Main thread only.
  *
  * App-level events to JS use instance 0 (packages/core/src/nav.ts): START, BACK, FORCED_BACK, OPEN, INSETS,
- * IMPRESSIONS (6, ZnImpressions), RETRY (7).
+ * IMPRESSIONS (6, ZnImpressions), RETRY (10); the full list is ZnAppEvent.
  *
  * A screen whose JS threw while building it stays on the stack and is drawn as [ZnErrorScreen] (NAV FAILED, step
  * 3.9). If the app's JS failed to start at all ([appFailed]), every screen shows it, with "Restart app".
  */
 object ZnNav {
     private const val TAG = "zn"
-    private const val APP = 0
-    private const val EVENT_START = 1
-    private const val EVENT_BACK = 2
-    private const val EVENT_FORCED_BACK = 3
-    private const val EVENT_OPEN = 4
-    private const val EVENT_INSETS = 5
-    private const val EVENT_RETRY = 7
+    private const val APP = ZnAppEvent.APP
+    private const val EVENT_START = ZnAppEvent.START
+    private const val EVENT_BACK = ZnAppEvent.BACK
+    private const val EVENT_FORCED_BACK = ZnAppEvent.FORCED_BACK
+    private const val EVENT_OPEN = ZnAppEvent.OPEN
+    private const val EVENT_INSETS = ZnAppEvent.INSETS
+    private const val EVENT_RETRY = ZnAppEvent.RETRY
     /** Key of the saved back stack in the Activity's saved state ([saveState]). */
     private const val SAVED_STACK = "zn.nav.stack"
     /** How long native waits for JS to answer a back press before going back by itself. */

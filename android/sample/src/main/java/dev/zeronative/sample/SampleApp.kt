@@ -7,8 +7,13 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import dev.zeronative.runtime.ZnModules
+import dev.zeronative.runtime.ZnOta
 import dev.zeronative.runtime.ZnRuntime
 import dev.zeronative.runtime.ZnTemplates
+
+/** The sample's OTA public key (examples/sample/zn-ota.json; id 1947e1d330fa4904). */
+private const val SAMPLE_OTA_KEY =
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyDRVX10DZWMDeefhkH4saosxvE6AwYffTsDANIEemGkrKcGD/8Cj5SEzM0NZVjWHWl0Y1hTlsVxJQBdqxIvfxw=="
 
 class SampleApp : Application() {
     override fun onCreate() {
@@ -27,6 +32,14 @@ class SampleApp : Application() {
         if (BuildConfig.DEBUG) {
             systemProperty("debug.zn.js_time_limit_ms")?.toIntOrNull()?.takeIf { it > 0 }?.let { ZnRuntime.jsTimeLimitMs = it }
         }
+        // OTA updates from the reference server on this computer (`bun run ota serve`, reached over
+        // `adb reverse tcp:8790 tcp:8790`), staging channel, signed with the sample's key (`bun run ota keygen`; the
+        // private key stays in ~/.zero-native/keys). A real app uses its HTTPS server and a main + backup key.
+        ZnOta.configure(this, ZnOta.Config(
+            server = "http://127.0.0.1:8790",
+            channel = "staging",
+            publicKeys = listOf(SAMPLE_OTA_KEY),
+        ))
         ZnTemplates.preload(this, "main.zn.ui")
         ZnRuntime.start(this)
         // Registered before JS runs, so the first batch is never missed (it can land before MainActivity exists).

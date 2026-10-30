@@ -15,6 +15,7 @@
 // A screen that throws while it is being built stays on the stack (so Back works as usual) and native shows its
 // built-in error screen instead (NAV FAILED, step 3.9, docs/guide-notes.md §26). "Try again" there: native makes a
 // fresh root and sends RETRY; JS builds the screen again.
+import { APP, AppEvent } from "./app-events"
 import { reportError, setTopScreen } from "./errors"
 import { onEvent } from "./events"
 import { installInsets } from "./insets"
@@ -29,8 +30,7 @@ export interface Register {}
 type Routes = Register extends { routes: infer R } ? R : Record<string, RouteDef>
 
 const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7 } as const
-export const AppEvent = { Start: 1, Back: 2, ForcedBack: 3, Open: 4, Insets: 5, Impressions: 6, Retry: 7 } as const
-const APP = 0
+export { AppEvent } from "./app-events"
 
 interface Entry {
   id: number

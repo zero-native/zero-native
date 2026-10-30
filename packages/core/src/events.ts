@@ -11,6 +11,10 @@ const key = (instance: number, eventId: number) => `${instance}:${eventId}`
 
 export function onEvent(instance: number, eventId: number, handler: Handler): () => void {
   const k = key(instance, eventId)
+  // App events (instance 0) have one owner each (app-events.ts); a second one would silently take its events.
+  if (instance === 0 && handlers.has(k) && handlers.get(k) !== handler) {
+    globalThis.__zn_log(3, `app event ${eventId} already has a handler; the new one replaces it (two parts of the runtime use one number?)`)
+  }
   handlers.set(k, handler)
   return () => {
     if (handlers.get(k) === handler) handlers.delete(k)

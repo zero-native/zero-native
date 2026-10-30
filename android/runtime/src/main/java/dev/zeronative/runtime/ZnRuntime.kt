@@ -71,6 +71,8 @@ object ZnRuntime {
     /** True while a dev reload swaps runtimes: UI events in that window are dropped. */
     @Volatile private var reloading = false
     private var started = false
+    /** Whether [start] ran (so events to JS have somewhere to go). */
+    internal val isStarted: Boolean get() = started
     private val listeners = ArrayList<BatchListener>()
 
     /**
@@ -110,7 +112,7 @@ object ZnRuntime {
             val n = createdCount.get()
             Log.i(TAG, "runtime #$n started in ${SystemClock.uptimeMillis() - t0} ms (pid ${Process.myPid()})")
         }
-        // Built-in modules (Keyboard, Fetch, SecureStore, Toast) are registered by ZnModules itself; two need a Context.
+        // Built-in modules (Keyboard, Fetch, SecureStore, Toast, Updates) are registered by ZnModules itself; two need a Context.
         ZnFetch.init(appContext) // built-in module behind the global fetch()
         ZnSecureStore.init(appContext) // built-in module: SecureStore (Keystore-encrypted secrets)
         if (BuildConfig.DEBUG) ZnDev.start(appContext)

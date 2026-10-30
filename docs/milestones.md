@@ -91,7 +91,7 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
 recommended; logged in ARCHITECTURE §16 / §24. 4.1, 4.2, step 3.9 and 4.3 (local store) done 2026-10-30 (log
-below). Next: 4.4 (reference update server); Claude.
+below). 4.4 and 4.5 done 2026-10-30. Next: 4.6 (apply while the app runs: `applyNow`, `holdApply`); Claude.
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
 
 **Agreed for after 4.9 (Pavan, 2026-10-30): `restorableSignal(key, initial)`.** Like `signal`, but its value comes
@@ -117,6 +117,60 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: step 4.5 done (Claude): the phone's update client
+- **`ZnOta.kt`**: configure (server, channel, main + backup keys), checks ~3 s after the UI comes on screen and on
+  returns (at most every 5 min; never for starts without UI), one at a time; the phone's own rules (`docs/ota.md`
+  §3.5: signed pointer with a higher seq for every change, seq saved only when the action is done, NONE still
+  corrects `current`); resumable download; kept bundles (4 + running + current); outcomes for telemetry.
+  **`ZnOtaInstall.kt`**: manifest / pointer verification and the safe unzip (info first, listed files only, size
+  caps, per-file SHA, bundle SHA, needs), atomic `current`. JS: `Updates.status() / check() / onStatus()`
+  (`packages/core/src/updates.ts`, built-in module `Updates`); sample dev screen `/dev/updates`.
+- **Bug found and fixed (from step 3.9): native call answers were dropped.** Step 3.9 gave the new RETRY app event
+  number 7, already the native-call answer event; `startApp` registered later and took over, so every native call
+  answered after the app started never settled (`fetch`, SecureStore, `Device`, ...). The Crash lab made no native
+  calls, so 3.9's phone runs missed it. Fix: RETRY = 10; every app event number now lives in one list per side
+  (`packages/core/src/app-events.ts`, `ZnAppEvent.kt`), a test checks they are unique and equal, a test makes a
+  native call after `startApp`, and registering a second handler for an app event now logs an error.
+- **Also fixed while reviewing:** an installed update waiting for the next start would still have started after a
+  kill switch or a rollback (the server only sees what runs now); `java.time` (API 26+) replaced for minSdk 24.
+- **Sample:** `ZnOta.configure` to `http://127.0.0.1:8790` (staging) with the sample's key, made by `bun run ota
+  keygen` (private key in `~/.zero-native/keys/sample-main.pem`, public key in `SampleApp.kt` and `zn-ota.json`).
+- **Tests:** Kotlin 11 for the installer (good install, tampered manifest, changed / oversized / missing files, wrong
+  bundle or needs, `../` paths refused before any write, bundle SHA equal to the CLI's, pointer signatures, atomic
+  writes); JS app-events 3; JS 183 total; lint 0 errors.
+- **Verified on the Lava** (`ota serve` over `adb reverse`, bundles with visible titles): first launch downloads
+  and installs #1 (check 188 ms), the next start runs it; a cut download (first 50,000 bytes left on the phone)
+  resumes at 50000 of 133102 and #2 runs; rollback to kept #1 = USE_LOCAL, no download; kill switch from the
+  Updates screen (`Updates.check()`), the restart runs the built-in bundle; an update waiting for the next start is
+  cancelled by a kill switch; a zip with one byte changed is refused (`zip_sha`), nothing installed; the server
+  received every outcome (downloaded, started, switched, zip_sha); a **release** build (R8) switches to kept #2 and
+  runs it. Phone OTA state, store and test files removed afterwards.
+- **Note:** my test launcher (`adb shell monkey ... 1`) sends one random input after launching, and once it opened
+  the ZeroBill staging app; I pressed Home without touching it and use `am start` since.
+- **Not yet:** applying while the app runs (4.6); not re-downloading a bundle that failed twice, the watchdog and
+  error-before-healthy rollback (4.7); a bundle lists every built-in module the core *loads* (not only those it
+  uses), so a future built-in module would make new bundles need a newer app even if unused: scan the final
+  bundle instead of the loaded files (later).
+
+### 2026-10-30: step 4.4 done (Claude): reference update server
+- **Option B** (Pavan): Bun.serve over the local release store: zips as static files with Range, plus `POST
+  /v1/check` running the decision on the server (`tools/ota/server.ts`, `bun run ota serve`). No private key on the
+  server. Telemetry: one ndjson line per check with the phone's outcomes. GCS stays unused for now (test folder
+  `gs://my-test-bucket/zn-ota` noted for later).
+- **Decision** (`tools/ota/decide.ts`): one pure function, 10 rows in order (`docs/ota.md` §3.4), one test per row;
+  stable rollout buckets (raising the rollout only adds installs); capability rule identical to `ZnCapabilities.kt`.
+- **Tests:** decision 12, server 7 over HTTP (check → download → both signatures verify with the public key; a cut
+  download resumed with Range gives the same SHA; 416 past the end; UP_TO_DATE, rollback to a kept bundle =
+  USE_LOCAL, kill switch, stale seq, incompatible app; bad shapes 400, too big 413, paths outside released zips 404;
+  telemetry lines). JS 180 total.
+- **Real run** with the sample (throwaway key): `ota build` → #1 (130,709-byte zip), `publish` staging, `ota serve`;
+  curl: UPDATE, a two-part Range download with the manifest's SHA, both signatures valid, the zip holds the bundle
+  laid out for the loader; after applying UP_TO_DATE; an app without Toast INCOMPATIBLE. **From the Lava** (the app's
+  own `fetch` over `adb reverse`, temporary code): check 200 UPDATE, zip 130,709 bytes, Range part `206 bytes
+  50000-130708/130709`, the resumed copy identical to the whole file; the server logged the phone's check and
+  outcome. Store, telemetry, key and test code removed afterwards. (The phone shell's toybox `nc` can't use adb's
+  forward, so the phone side went through the app.)
+
 ### 2026-10-30: step 4.3 done (Claude): signing and the release CLI
 - **Signing** (`tools/ota/signing.ts`, phone: `ZnOtaSignature.kt`): ECDSA P-256, DER signatures, base64 SPKI keys;
   bundle and pointer texts as in `docs/ota.md` §3.3 (the app is now in the pointer text; serial, requires line, zip

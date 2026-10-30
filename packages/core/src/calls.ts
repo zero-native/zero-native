@@ -15,6 +15,7 @@
 //   Native delivers app event 8 `{ module, event, payload }`. Native is told how many listeners an event has, so it
 //   can start / stop work (GPS, receivers) only while someone listens.
 // - `nativeModule<T>("Name", { version })` gives a typed handle over all of this. Arguments and results are JSON.
+import { APP, AppEvent } from "./app-events"
 import { reportError } from "./errors"
 import { onEvent } from "./events"
 import type { NativeValue } from "./native"
@@ -233,7 +234,7 @@ export function pendingCallCount(): number {
 }
 
 export function installCalls(): void {
-  onEvent(0, 7, onResult)
-  onEvent(0, 8, onModuleEvent)
-  onEvent(0, 9, onResultBytes as (payload: NativeValue) => void) // its payload is an ArrayBuffer
+  onEvent(APP, AppEvent.CallResult, onResult)
+  onEvent(APP, AppEvent.ModuleEvent, onModuleEvent)
+  onEvent(APP, AppEvent.CallResultBytes, onResultBytes as (payload: NativeValue) => void) // its payload is an ArrayBuffer
 }
