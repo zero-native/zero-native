@@ -139,6 +139,14 @@ function encodeValue(prop: PropName, value: StaticValue, strings: Strings, where
     throw new Error(`${where}: prop "${prop}" ${why} (got ${JSON.stringify(value)})`)
   }
   if (value === null) return { write: (w) => w.u8(0) }
+  if (prop === "value") {
+    if (typeof value === "boolean") return { write: (w) => w.u8(value ? 2 : 1) }
+    if (typeof value === "number" && Number.isFinite(value)) return { write: (w) => (w.u8(3), w.f64(value)) }
+    if (typeof value === "string") {
+      const i = strings.get(value)
+      return { write: (w) => (w.u8(4), w.u32(i)) }
+    }
+  }
   switch (type) {
     case "number":
       if (typeof value !== "number" || !Number.isFinite(value)) fail("needs a number")

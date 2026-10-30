@@ -49,6 +49,7 @@ export function DevScreen() {
           <Entry title="Storage checks" step="3.5" detail="MMKV storage, Kotlin access, concurrent writes, SecureStore, kill test" onOpen={() => nav.push("storage")} />
           <Entry title="Press feedback" step="3.6" detail="Ripple colours / opacity / borderless, highlight, press opacity and scale" onOpen={() => nav.push("press")} />
           <Entry title="Animation" step="3.6" detail="animate, enter / exit, swap, list rows (6 s demo loop on open)" onOpen={() => nav.push("animation")} />
+          <Entry title="Components & a11y" step="3.7–3.8" detail="Switch, Checkbox, Spinner, Progress, Shimmer, Toast, TalkBack semantics, maxFontScale" onOpen={() => nav.push("components")} />
         </Column>
       </Scroll>
     </Column>

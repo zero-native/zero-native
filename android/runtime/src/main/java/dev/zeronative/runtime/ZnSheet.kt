@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -107,6 +108,10 @@ internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
             }
         }
         SheetBody(f, t, s, inst, visible, onGone = { shown = false })
+        // A toast shown while the sheet is open draws in the sheet's window, above it (ZnToast.Host).
+        val toastWindow = remember { ZnToast.openWindow() }
+        DisposableEffect(toastWindow) { onDispose { ZnToast.closeWindow(toastWindow) } }
+        ZnToast.Host(toastWindow)
     }
 }
 

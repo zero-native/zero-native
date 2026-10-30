@@ -75,6 +75,7 @@ object ZnRuntime {
         ZnModules.register(ZnFetch)
         ZnSecureStore.init(appContext) // built-in module: SecureStore (Keystore-encrypted secrets)
         ZnModules.register(ZnSecureStore)
+        ZnModules.register(ZnToast) // built-in module: Toast.show
         if (BuildConfig.DEBUG) ZnDev.start(appContext)
     }
 

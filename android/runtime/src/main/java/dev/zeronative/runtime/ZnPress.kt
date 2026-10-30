@@ -12,7 +12,10 @@ import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
@@ -45,12 +48,33 @@ internal fun Modifier.znPress(
         if (eventId != 0) ZnRuntime.dispatchEvent(inst.id, eventId, payload)
     }
 
+    val aLabel = if (s.accessibilityLabelSlot >= 0) {
+        inst.slot(s.accessibilityLabelSlot).value as? String
+    } else s.accessibilityLabel
+
     val base = this
         .indication(interactions, indication)
         .semantics(mergeDescendants = true) {
-            role = Role.Button
+            if (s.accessibilityHidden) {
+                @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+                hideFromAccessibility()
+            }
+            when (s.accessibilityRole) {
+                Registry.AccessibilityRole.NONE -> {
+                    // Rule 29: accessibilityRole="none" removes the role but keeps the onClick action
+                }
+                Registry.AccessibilityRole.HEADER -> heading()
+                Registry.AccessibilityRole.IMAGE -> role = Role.Image
+                Registry.AccessibilityRole.SWITCH -> role = Role.Switch
+                Registry.AccessibilityRole.CHECKBOX -> role = Role.Checkbox
+                Registry.AccessibilityRole.BUTTON, null -> role = Role.Button
+                else -> role = Role.Button
+            }
             if (!enabled) disabled()
-            onClick { if (enabled) send(s.onPress); enabled }
+            if (aLabel != null) {
+                contentDescription = aLabel
+            }
+            onClick(label = s.accessibilityHint) { if (enabled) send(s.onPress); enabled }
             if (s.onLongPress != 0) onLongClick { if (enabled) send(s.onLongPress); enabled }
         }
     if (!enabled) return base

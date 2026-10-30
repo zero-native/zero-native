@@ -5,12 +5,14 @@
 // Rules: never reuse or renumber an id. Adding ids bumps REGISTRY_VERSION; an app only loads templates whose
 // registry version it knows (capability manifest, §16.2).
 
-export const REGISTRY_VERSION = 7 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 8 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
 // 7: animation (step 3.6): animate / enter / exit, transforms can change at runtime; Pressable press feedback
 //    (ripple by default, pressScale).
+// 8: small components & accessibility (milestone 3 steps 3.7–3.8): Switch, Checkbox, Spinner, Progress, Shimmer;
+//    accessibilityLabel, accessibilityRole, maxFontScale.
 
 export const Component = {
   Column: 1,
@@ -39,6 +41,11 @@ export const Component = {
   /** A text input. The native field owns the text while the user types; JS hears onChangeText and may set `value`. */
   TextField: 16,
   // 17-19: Claude (milestone 3). 20-29: Gemini (milestone 3 brief).
+  Switch: 20,
+  Checkbox: 21,
+  Spinner: 22,
+  Progress: 23,
+  Shimmer: 24,
 } as const
 export type ComponentName = keyof typeof Component
 
@@ -195,6 +202,20 @@ export const Prop = {
   /** Overlay colour for pressFeedback "highlight" (RN TouchableHighlight underlayColor). Default black at 10 %. */
   highlightColor: { id: 146, type: "color" },
   // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
+  trackColor: { id: 200, type: "color" },
+  activeTrackColor: { id: 201, type: "color" },
+  thumbColor: { id: 202, type: "color" },
+  activeColor: { id: 203, type: "color" },
+  size: { id: 204, type: "number" },
+  fallbackSrc: { id: 205, type: "string" },
+  loading: { id: 206, type: "enum" },
+  baseColor: { id: 207, type: "color" },
+  period: { id: 208, type: "number" },
+  accessibilityLabel: { id: 209, type: "string" },
+  accessibilityHint: { id: 210, type: "string" },
+  accessibilityRole: { id: 211, type: "enum" },
+  accessibilityHidden: { id: 212, type: "bool" },
+  maxFontScale: { id: 213, type: "number" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -220,6 +241,17 @@ export const Enum = {
   returnKeyType: { done: 0, go: 1, next: 2, search: 3, send: 4 },
   autoCapitalize: { none: 0, sentences: 1, words: 2, characters: 3 },
   pressFeedback: { ripple: 0, highlight: 1, none: 2 },
+  loading: { none: 0, shimmer: 1 },
+  accessibilityRole: {
+    button: 0,
+    header: 1,
+    image: 2,
+    link: 3,
+    text: 4,
+    switch: 5,
+    checkbox: 6,
+    none: 7,
+  },
 } as const satisfies Partial<Record<PropName, Record<string, number>>>
 
 /**
@@ -250,6 +282,7 @@ export const EventKind = {
   onFocus: 13,
   onBlur: 14,
   // 15-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
+  onValueChange: 30,
 } as const
 export type EventName = keyof typeof EventKind
 
@@ -278,4 +311,5 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "value",
   "placeholder",
   "editable",
+  "accessibilityLabel",
 ])

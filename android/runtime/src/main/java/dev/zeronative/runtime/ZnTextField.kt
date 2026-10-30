@@ -110,7 +110,8 @@ internal fun ZnTextField(s: ZnNodeSpec, inst: ZnInstance, n: Int, mod: Modifier)
     }
 
     val color = if (s.colorSlot >= 0) (toColorOrNull(inst.slot(s.colorSlot).value) ?: Color.Black) else (s.color ?: Color.Black)
-    val style = s.textStyle.copy(color = color)
+    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    val style = s.effectiveTextStyle(fontScale).copy(color = color)
     val editable = if (s.editableSlot >= 0) inst.slot(s.editableSlot).value != false else s.editable
     val placeholder = if (s.placeholderSlot >= 0) text(inst.slot(s.placeholderSlot).value) else s.placeholder.orEmpty()
     val options = KeyboardOptions(

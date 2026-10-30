@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 7
+    const val VERSION = 8
 
     object Component {
         const val COLUMN = 1
@@ -22,6 +22,11 @@ object Registry {
         const val SHEET = 14
         const val FRAGMENT = 15
         const val TEXT_FIELD = 16
+        const val SWITCH = 20
+        const val CHECKBOX = 21
+        const val SPINNER = 22
+        const val PROGRESS = 23
+        const val SHIMMER = 24
     }
 
     object Prop {
@@ -127,6 +132,20 @@ object Registry {
         const val RIPPLE_RADIUS = 144
         const val PRESS_OPACITY = 145
         const val HIGHLIGHT_COLOR = 146
+        const val TRACK_COLOR = 200
+        const val ACTIVE_TRACK_COLOR = 201
+        const val THUMB_COLOR = 202
+        const val ACTIVE_COLOR = 203
+        const val SIZE = 204
+        const val FALLBACK_SRC = 205
+        const val LOADING = 206
+        const val BASE_COLOR = 207
+        const val PERIOD = 208
+        const val ACCESSIBILITY_LABEL = 209
+        const val ACCESSIBILITY_HINT = 210
+        const val ACCESSIBILITY_ROLE = 211
+        const val ACCESSIBILITY_HIDDEN = 212
+        const val MAX_FONT_SCALE = 213
     }
 
     object Event {
@@ -144,6 +163,7 @@ object Registry {
         const val ON_SUBMIT_EDITING = 12
         const val ON_FOCUS = 13
         const val ON_BLUR = 14
+        const val ON_VALUE_CHANGE = 30
     }
 
     object JustifyContent {
@@ -230,5 +250,21 @@ object Registry {
         const val RIPPLE = 0
         const val HIGHLIGHT = 1
         const val NONE = 2
+    }
+
+    object Loading {
+        const val NONE = 0
+        const val SHIMMER = 1
+    }
+
+    object AccessibilityRole {
+        const val BUTTON = 0
+        const val HEADER = 1
+        const val IMAGE = 2
+        const val LINK = 3
+        const val TEXT = 4
+        const val SWITCH = 5
+        const val CHECKBOX = 6
+        const val NONE = 7
     }
 }

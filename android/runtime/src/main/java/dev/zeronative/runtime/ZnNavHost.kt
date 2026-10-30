@@ -91,6 +91,7 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     Box(modifier) {
         // A dev reload bumps the generation: the old screens are dropped at once instead of animating out.
         key(ZnNav.generation) { Screens(bundle, safe) }
+        ZnToast.Host()
         if (BuildConfig.DEBUG) ZnDev.Overlay()
     }
 }

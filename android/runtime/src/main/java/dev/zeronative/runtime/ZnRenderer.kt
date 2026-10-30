@@ -12,6 +12,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.DisposableEffect
@@ -197,24 +198,61 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
             // Read in the draw phase: a colour change redraws, nothing more.
             val color: () -> Color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
             else ({ s.color ?: Color.Black })
+            val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+            val textStyle = s.effectiveTextStyle(fontScale)
             val spans = s.spans
             if (spans == null) {
-                BasicText(text = text, modifier = mod, style = s.textStyle, maxLines = s.maxLines,
+                BasicText(text = text, modifier = mod, style = textStyle, maxLines = s.maxLines,
                     overflow = TextOverflow.Ellipsis, color = color)
             } else {
-                val styled = remember(text, spans) { spannedText(text, spans) }
-                BasicText(text = styled, modifier = mod, style = s.textStyle, maxLines = s.maxLines,
+                val cap = s.fontScaleCap(fontScale)
+                val styled = remember(text, spans, cap) { spannedText(text, spans, cap) }
+                BasicText(text = styled, modifier = mod, style = textStyle, maxLines = s.maxLines,
                     overflow = TextOverflow.Ellipsis, color = color)
             }
         }
         Registry.Component.SPACER -> Spacer(modifier = mod)
         Registry.Component.IMAGE -> {
             val src = if (s.srcSlot >= 0) inst.slot(s.srcSlot).value as? String else s.src
+            val fallback = s.fallbackSrc
+            // Per src, one way only: src → fallback (if any) → give up (empty box). Never back to src: a loaded
+            // fallback must not retry the broken src, or the two swap forever (one request per frame, seen on
+            // the Lava). A new src starts again (a reused list row, rule 24).
+            var stage by remember(src) {
+                mutableStateOf(if (src != null) IMAGE_SRC else if (fallback != null) IMAGE_FALLBACK else IMAGE_NONE)
+            }
+            var isLoading by remember(src) { mutableStateOf(stage != IMAGE_NONE) }
+            val activeModel = when (stage) {
+                IMAGE_SRC -> imageModel(src)
+                IMAGE_FALLBACK -> imageModel(fallback)
+                else -> null
+            }
+
+            val imageModifier = if (s.loading == Registry.Loading.SHIMMER && isLoading) {
+                mod.shimmerEffect()
+            } else {
+                mod
+            }
+
             AsyncImage(
-                model = imageModel(src),
+                model = activeModel,
+                // The label (and the image role) come from the node's accessibility step in the chain, so TalkBack
+                // reads it once; without a label the image is decorative and skipped.
                 contentDescription = null,
-                modifier = mod,
-                onError = { android.util.Log.w("zn", "image failed: $src — ${it.result.throwable}") },
+                modifier = imageModifier,
+                onLoading = { isLoading = true },
+                onSuccess = { isLoading = false },
+                onError = {
+                    if (stage == IMAGE_NONE) return@AsyncImage // no model: nothing was requested
+                    val which = if (stage == IMAGE_SRC) src else "fallback $fallback"
+                    android.util.Log.w("zn", "image failed: $which — ${it.result.throwable}")
+                    if (stage == IMAGE_SRC && fallback != null) {
+                        stage = IMAGE_FALLBACK // stays loading: the fallback is requested next
+                    } else {
+                        stage = IMAGE_NONE
+                        isLoading = false
+                    }
+                },
                 contentScale = when (s.contentScale) {
                     Registry.ContentScale.CONTAIN -> ContentScale.Fit
                     Registry.ContentScale.FILL -> ContentScale.FillBounds
@@ -222,6 +260,11 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
                 },
             )
         }
+        Registry.Component.SWITCH -> ZnSwitch(s, inst, mod)
+        Registry.Component.CHECKBOX -> ZnCheckbox(s, inst, mod)
+        Registry.Component.SPINNER -> ZnSpinner(s, inst, mod)
+        Registry.Component.PROGRESS -> ZnProgress(s, inst, mod)
+        Registry.Component.SHIMMER -> ZnShimmer(s, inst, mod)
         Registry.Component.ICON -> {
             val icon = s.icon
             val tint: () -> Color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
@@ -395,6 +438,11 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     }
 }
 
+// Which image an <Image> shows (its `stage`): its src, its fallbackSrc, or nothing (an empty box).
+private const val IMAGE_SRC = 0
+private const val IMAGE_FALLBACK = 1
+private const val IMAGE_NONE = 2
+
 /**
  * `asset:path` (or `asset://path`) → the running bundle's image (a downloaded OTA bundle's copy, else the APK's
  * assets, [ZnBundles.assetModel]); http(s) URLs as they are. `zn://` handles come later.
@@ -420,7 +468,10 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean): Modifi
     // Opacity, transforms and background: slot reads or animations, all read in the draw phase (ZnAnimation.kt).
     val layer = znLayer(s, inst, root, pressed)
     val background = znBackground(s, inst)
-    return remember(s, inst, disabled, indication, layer, background) {
+    val aLabel = if (s.accessibilityLabelSlot >= 0) {
+        inst.slot(s.accessibilityLabelSlot).value as? String
+    } else null
+    return remember(s, inst, disabled, indication, layer, background, aLabel) {
         val press = if (s.type == Registry.Component.PRESSABLE) {
             Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication)
         } else null
@@ -430,7 +481,8 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean): Modifi
             fun edge(i: Int, static: Float) = (cells[i]?.value as? Double)?.toFloat() ?: static
             ({ Edges(edge(0, base.start), edge(1, base.top), edge(2, base.end), edge(3, base.bottom)) })
         } else null
-        s.buildChain(layer, background, press, pad)
+        val accessibility = if (s.type != Registry.Component.PRESSABLE) s.accessibilitySemantics(aLabel ?: s.accessibilityLabel) else null
+        s.buildChain(layer, background, press, pad, accessibility)
     }
 }
 
@@ -501,11 +553,24 @@ private fun stackAlignment(s: ZnNodeSpec): Alignment = stackBias(s).let { (h, v)
 
 private fun Float.dp() = androidx.compose.ui.unit.Dp(this)
 
-/** Nested <Text> spans: the text holds one piece per span, joined by U+001F (compile.ts `textChildren`). */
-private fun spannedText(text: String, spans: List<androidx.compose.ui.text.SpanStyle>) =
-    androidx.compose.ui.text.buildAnnotatedString {
-        text.split('\u001f').forEachIndexed { i, piece ->
-            val style = spans.getOrNull(i)
-            if (style == null) append(piece) else withStyle(style) { append(piece) }
+/**
+ * Nested <Text> spans: the text holds one piece per span, joined by U+001F (compile.ts `textChildren`). [cap] is the
+ * parent's maxFontScale cap ([ZnNodeSpec.fontScaleCap]); a span's own sizes are capped too. A span without its own
+ * size keeps the parent's (already capped) size.
+ */
+private fun spannedText(
+    text: String,
+    spans: List<androidx.compose.ui.text.SpanStyle>,
+    cap: Float = 1f,
+) = androidx.compose.ui.text.buildAnnotatedString {
+    text.split('\u001f').forEachIndexed { i, piece ->
+        val style = spans.getOrNull(i)
+        if (style == null) {
+            append(piece)
+        } else {
+            val capped = if (cap == 1f) style
+            else style.copy(fontSize = style.fontSize.scaledSp(cap), letterSpacing = style.letterSpacing.scaledSp(cap))
+            withStyle(capped) { append(piece) }
         }
     }
+}

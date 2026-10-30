@@ -43,6 +43,7 @@ export {
 } from "./storage"
 export { SecureStore } from "./secure-store"
 export { Keyboard, type KeyboardModule } from "./keyboard"
+export { toast, type ToastOptions } from "./toast"
 export {
   callNative,
   nativeModule,

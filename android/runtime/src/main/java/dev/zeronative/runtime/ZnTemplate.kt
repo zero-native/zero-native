@@ -35,6 +35,12 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
@@ -222,7 +228,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         ?.filter { it == "content" || it == "half" || it == "full" }?.ifEmpty { null } ?: listOf("content")
     val dismissible = p[Registry.Prop.DISMISSIBLE] != false
     // TextField
-    val value: String? = p[Registry.Prop.VALUE] as String?
+    val rawValue: Any? = p[Registry.Prop.VALUE]
+    val value: String? = rawValue as? String
     val placeholder: String? = p[Registry.Prop.PLACEHOLDER] as String?
     val placeholderColor: Color = color(Registry.Prop.PLACEHOLDER_COLOR) ?: Color(0xFF9CA3AF)
     val keyboardType = enum(Registry.Prop.KEYBOARD_TYPE)
@@ -237,6 +244,70 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val selectionColor: Color? = color(Registry.Prop.SELECTION_COLOR)
     val repeatDelayMs = (num(Registry.Prop.REPEAT_DELAY) ?: 400f).toLong()
     val repeatIntervalMs = (num(Registry.Prop.REPEAT_INTERVAL) ?: 100f).toLong().coerceAtLeast(16)
+
+    // Small Components & Accessibility (milestone 3 steps 3.7 & 3.8)
+    val trackColor: Color? = color(Registry.Prop.TRACK_COLOR)
+    val activeTrackColor: Color? = color(Registry.Prop.ACTIVE_TRACK_COLOR)
+    val thumbColor: Color? = color(Registry.Prop.THUMB_COLOR)
+    val activeColor: Color? = color(Registry.Prop.ACTIVE_COLOR)
+    val size: Float? = num(Registry.Prop.SIZE)
+    val fallbackSrc: String? = p[Registry.Prop.FALLBACK_SRC] as String?
+    val loading: Int = enum(Registry.Prop.LOADING).let { if (it == NONE) Registry.Loading.NONE else it }
+    val baseColor: Color? = color(Registry.Prop.BASE_COLOR)
+    /** Shimmer's moving highlight: `highlightColor` when set (the same prop as Pressable's), else white at 55 %. */
+    val shimmerHighlight: Color = color(Registry.Prop.HIGHLIGHT_COLOR) ?: Color.White.copy(alpha = 0.55f)
+    val period: Float? = num(Registry.Prop.PERIOD)
+    val accessibilityLabel: String? = p[Registry.Prop.ACCESSIBILITY_LABEL] as String?
+    val accessibilityLabelSlot = slotFor(raw, Registry.Prop.ACCESSIBILITY_LABEL)
+    val accessibilityHint: String? = p[Registry.Prop.ACCESSIBILITY_HINT] as String?
+    val accessibilityRole: Int? = enum(Registry.Prop.ACCESSIBILITY_ROLE).let { if (it == NONE) null else it }
+    val accessibilityHidden = p[Registry.Prop.ACCESSIBILITY_HIDDEN] == true
+    val maxFontScale = num(Registry.Prop.MAX_FONT_SCALE)
+
+    /**
+     * The scale that brings the phone's [fontScale] down to [maxFontScale] (1 when there is no cap or it isn't
+     * reached). Sizes in sp already include the phone's scale, so capping multiplies them by this.
+     */
+    fun fontScaleCap(fontScale: Float): Float {
+        val max = maxFontScale ?: return 1f
+        return if (fontScale > max && fontScale > 0f) max / fontScale else 1f
+    }
+
+    fun effectiveTextStyle(fontScale: Float): TextStyle {
+        val f = fontScaleCap(fontScale)
+        if (f == 1f) return textStyle
+        return textStyle.copy(
+            fontSize = textStyle.fontSize.scaledSp(f),
+            lineHeight = textStyle.lineHeight.scaledSp(f),
+            letterSpacing = textStyle.letterSpacing.scaledSp(f),
+        )
+    }
+
+    /**
+     * TalkBack semantics for a node that isn't a Pressable (Pressable does its own, ZnPress.kt), or null when the
+     * node sets none. [label] is the static label or the slot's current value. A labelled Image gets the image
+     * role; an Image without a label stays decorative (skipped).
+     */
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) // hideFromAccessibility
+    internal fun accessibilitySemantics(label: String?): Modifier? {
+        val imageRole = type == Registry.Component.IMAGE && label != null
+        if (!accessibilityHidden && accessibilityRole == null && label == null && !imageRole) return null
+        return Modifier.semantics(mergeDescendants = label != null) {
+            if (accessibilityHidden) hideFromAccessibility()
+            if (label != null) contentDescription = label
+            when (accessibilityRole) {
+                Registry.AccessibilityRole.HEADER -> heading()
+                Registry.AccessibilityRole.BUTTON -> role = Role.Button
+                Registry.AccessibilityRole.IMAGE -> role = Role.Image
+                Registry.AccessibilityRole.SWITCH -> role = Role.Switch
+                Registry.AccessibilityRole.CHECKBOX -> role = Role.Checkbox
+                else -> if (imageRole) role = Role.Image
+            }
+        }
+    }
+
+    private val staticAccessibility: Modifier? =
+        if (type != Registry.Component.PRESSABLE) accessibilitySemantics(accessibilityLabel) else null
 
     // Slots: the slot id bound to a prop, or -1 when the prop is static.
     val textSlot = slotFor(raw, Registry.Prop.TEXT)
@@ -282,13 +353,15 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val onPressOut = eventFor(raw, Registry.Event.ON_PRESS_OUT)
     val onLongPress = eventFor(raw, Registry.Event.ON_LONG_PRESS)
     val onPressRepeat = eventFor(raw, Registry.Event.ON_PRESS_REPEAT)
+    val onValueChange = eventFor(raw, Registry.Event.ON_VALUE_CHANGE)
 
     /** True when the drawing chain reads a slot, so it must be built per instance instead of once here. */
     val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || hasDynamicPadding ||
-        type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null
+        type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null ||
+        accessibilityLabelSlot != NONE
 
     /** Pre-built chain for nodes whose chain never changes (most nodes). */
-    val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null)
+    val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null, staticAccessibility)
 
     /**
      * The fixed order (docs/styling-and-layout.md §4): margin → size → transform + opacity → shadow → background →
@@ -296,7 +369,13 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
      * draw phase, so a change redraws only this node; dynamic padding ([pad], the padding edges with slot values
      * filled in) in the layout phase, so a change re-measures this node without recomposing anything (§8.3).
      */
-    internal fun buildChain(layer: ZnLayer?, background: (() -> Color)?, press: Modifier?, pad: (() -> Edges)?): Modifier {
+    internal fun buildChain(
+        layer: ZnLayer?,
+        background: (() -> Color)?,
+        press: Modifier?,
+        pad: (() -> Edges)?,
+        accessibility: Modifier? = null
+    ): Modifier {
         var m: Modifier = Modifier
         margin?.let { m = m.padding(it.toPadding()) }
         when (val w = width) {
@@ -364,9 +443,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         // pressed highlight shows square corners on a rounded button (found on the Lava, step 1.2).
         // Images clip to their rounded shape by default, as in React Native.
         // A borderless ripple must draw outside the shape, so such a Pressable isn't clipped by default.
-        val clipsByDefault = radius > 0f && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE)
+        val clipsByDefault = radius > 0f && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE || type == Registry.Component.SHIMMER)
         if (clip || clipsByDefault) m = m.clip(shape)
-        press?.let { m = m.then(it) }
+        press?.let { m = m.then(it) } ?: accessibility?.let { m = m.then(it) }
         // Borders take space: content sits inside them (zn flex rule 2).
         val bs = borderWidth
         val bt = borderWidth + borderTopWidth
@@ -407,6 +486,12 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
 }
 
 private fun Float?.orUnspecified(): Dp = this?.dp ?: Dp.Unspecified
+
+/**
+ * This size times [f] when it is in sp; unset sizes (a span that keeps its parent's size) and em sizes stay as they
+ * are. Compose throws on arithmetic with an unset size, so maxFontScale must never scale one.
+ */
+internal fun androidx.compose.ui.unit.TextUnit.scaledSp(f: Float) = if (isSp) this * f else this
 
 /**
  * Padding whose values are read while measuring: when a value it reads changes (a slot), only this node is measured

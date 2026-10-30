@@ -4,7 +4,7 @@ Raw material for the public docs (user guide, best practices, sample projects). 
 something an app author will touch.** Each topic says what to do, what not to do, and why, in words an outsider (a
 React Native or Flutter developer) understands. Code here must match what is built; mark unbuilt parts **(planned)**.
 
-Last updated: 2026-10-29 (milestone 2, steps 2.1–2.4a).
+Last updated: 2026-10-30 (milestone 3, steps 3.7–3.8).
 
 ---
 
@@ -419,6 +419,44 @@ await SecureStore.set("refreshToken", token)
   new bundle SHA, something is wrong (tell us): it would ship an update nobody made.
 - **Why:** the app runs exactly one bundle per process, either the one in the APK or a downloaded one. Bytecode,
   templates and images always come from the same bundle, and a newer APK always wins over an older download.
+
+---
+
+## 24. Small Components, Toast & Accessibility (Steps 3.7 & 3.8)
+- **`<Switch>` and `<Checkbox>` are strictly controlled:**
+  - **Do:** update your signal inside `onValueChange`:
+    ```tsx
+    <Switch value={enabled()} onValueChange={next => enabled.set(next)} />
+    ```
+  - **Don't:** expect native to change the shown value or animate ahead of JS. If `onValueChange` is ignored or does
+    not set the value, **nothing moves and no animation starts** (Rule 10). Native never guesses user state.
+  - **Why:** ARCHITECTURE §9.7 (JS owns all reactive state). Tightly controlled components eliminate desync bugs and
+    flickering list rows.
+- **`<Spinner>`, `<Progress>`, and `<Shimmer>` are draw-phase only:**
+  - **Do:** use `<Shimmer>` placeholders for loading skeletons; all shimmers across the screen move in lockstep via a
+    shared monotonic clock (`SystemClock.uptimeMillis() % period`).
+  - **Why:** zero recompositions per frame (verified with `ZnDebug`). Reading animated values only inside draw phase
+    preserves 90 fps flings in heavy feeds.
+- **`<Image>` fallback and loading shimmer:**
+  - **Do:** pass `fallbackSrc` and `loading="shimmer"`. The fallback shows **only on error**, never while loading; a new
+    `src` resets to loading. Keep the fallback in the app (`asset:images/...`), not on the network: a fallback URL can
+    fail for the same reason as `src` (no network).
+  - **Don't:** expect a retry of `src` after the fallback shows. Each image is requested once per `src`.
+  - **Why:** list row reuse would otherwise show stale errors or stale fallback images, and retrying a broken `src`
+    swapped it with the fallback forever (found in review: ~47 requests a second for one broken offer image).
+- **`toast(message, options)`:**
+  - **Do:** use `toast("Saved")` for transient non-blocking feedback. Calls use `owned: false`, so they survive
+    subsequent screen closure (`toast("Saved"); nav.back()`).
+  - **Do:** call it from inside a `<Sheet>` too ("UPI ID copied"): it shows on top of the sheet.
+  - **Don't:** use toast for errors that need an action (use dialogs, sheets, or inline error text).
+  - **Why:** toasts disappear automatically and cannot capture user input.
+- **Accessibility:**
+  - **Do:** use `accessibilityLabel` on icon-only `Pressable`s so TalkBack users understand the button's action.
+  - **Do:** use `accessibilityRole="none"` if you need a touchable area that shouldn't announce "Button" in TalkBack.
+  - **Do:** use `maxFontScale` on compact text (e.g. `maxFontScale={1.2}`) to prevent text clipping while respecting
+    system accessibility scaling.
+  - **Don't:** add a second semantics block on a Pressable; use the single semantics props on the node.
+  - **Why:** TalkBack announces elements once without duplicate readings or conflicting semantics trees.
 
 ---
 

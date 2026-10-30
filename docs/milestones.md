@@ -85,8 +85,8 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.4 | `fetch` subset over OkHttp (method, headers, body, JSON, timeout, `AbortSignal`) | Claude | **done 2026-10-30** |
 | 3.5 | `storage` (MMKV) with **synchronous** JSI calls (no Promises), `SecureStore` (Android Keystore) | Claude | **done 2026-10-30** |
 | 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | **done 2026-10-30** |
-| 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviews | brief: `docs/cross-communication/2026-10-30-milestone-3-gemini-brief.md` + must-not-miss list `2026-10-30-m3-3.7-3.8-must-not-miss.md` |
-| 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviews | same brief + must-not-miss list |
+| 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviewed + fixed | **done 2026-10-30** (note: `docs/cross-communication/2026-10-30-steps-3.7-3.8-gemini-done.md`) |
+| 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviewed + fixed | **done 2026-10-30** |
 
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
 recommended; logged in ARCHITECTURE §16 / §24. 4.1 done 2026-10-30 (log below). Next: 4.2 (capability manifest),
@@ -108,6 +108,23 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: steps 3.7 / 3.8 reviewed and fixed (Claude)
+Gemini built them (step note in `docs/cross-communication/`). Review found and fixed:
+- **Image fallback loop:** a fallback that loaded made the image go back to the broken `src`, forever. On the Lava,
+  470 requests in 10 s for one broken URL. Now one way per `src` (src → fallback → empty box): 1 request. Gemini's
+  test missed it because its "working" fallback URL was also a 404.
+- **`maxFontScale` crash:** a nested `<Text>` span without its own `fontSize` threw (Compose can't scale an unset
+  size) when the phone's font size was above the cap. Now unset sizes are left alone (`scaledSp`). Checked at font
+  scale 1.3 with spans: no crash, capped text stays smaller (setting put back to 1.0).
+- **Toast under a sheet:** a toast shown from an open `<Sheet>` was drawn behind the sheet's window. Now the newest
+  window draws it (`ZnToast.openWindow`); timing moved out of composition so it keeps its time between windows.
+- Smaller: TalkBack label set twice on a labelled image (now once, with the image role, one shared
+  `accessibilitySemantics`); toast text vanished at the start of its fade-out; Shimmer ignored `highlightColor`;
+  Switch / Checkbox ignored `rippleColor`; the Offers feed had no fallback (now a placeholder from
+  `examples/sample/assets/images/`, shipped in the bundle); test screen text and broken demo URLs.
+- **Known, left as is:** the `value` prop now takes a boolean / number / string on any component (needed for
+  `<Switch value>` and `<Progress value>`), so a wrong static `value` on a TextField is no longer a build error.
+
 ### 2026-10-30: step 4.1 done (Claude): bundle format and loader
 - `zn-bundle.json` (`tools/bundle-info.ts`): app, serial, id `<app>_<serial>`, one SHA-256 for the bundle, every file
   with size and SHA-256. The sample build writes it into the APK's assets (`--serial N`, `--out DIR` options) and

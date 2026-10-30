@@ -93,6 +93,8 @@ export interface TextStyleProps {
   letterSpacing?: number
   fontStyle?: "normal" | "italic"
   textDecorationLine?: "none" | "underline" | "line-through"
+  /** Cap the font scale factor (size * min(fontScale, maxFontScale)) for this text node. */
+  maxFontScale?: number
 }
 
 type Style = StyleProps & TextStyleProps
@@ -147,6 +149,14 @@ interface Base extends StyleProps {
   key?: string | number
   /** Counted natively when visible enough on a screen that calls useImpressions(...). Usually your item's id. */
   impressionKey?: string
+  /** Accessibility label read by TalkBack. Dynamic slot allowed. */
+  accessibilityLabel?: string
+  /** Additional hint read after the accessibility label. */
+  accessibilityHint?: string
+  /** The semantic role for TalkBack. */
+  accessibilityRole?: "button" | "header" | "image" | "link" | "text" | "switch" | "checkbox" | "none"
+  /** Skip this node and its children in accessibility traversal. */
+  accessibilityHidden?: boolean
 }
 
 interface Container extends Base {
@@ -162,9 +172,70 @@ export declare const Stack: Intrinsic<Container>
 export declare const Box: Intrinsic<Container>
 export declare const Text: Intrinsic<Base & TextStyleProps & { text?: string; children?: unknown }>
 /** `src`: an https URL or "asset:path". null / undefined shows nothing (the box keeps its size). */
-export declare const Image: Intrinsic<Base & { src?: string | null; contentScale?: "cover" | "contain" | "fill" }>
+export declare const Image: Intrinsic<
+  Base & {
+    src?: string | null
+    fallbackSrc?: string | null
+    loading?: "none" | "shimmer"
+    contentScale?: "cover" | "contain" | "fill"
+  }
+>
 export declare const Icon: Intrinsic<Base & { icon?: string; color?: Color }>
 export declare const Spacer: Intrinsic<Base>
+/**
+ * A controlled native switch toggle.
+ */
+export declare const Switch: Intrinsic<
+  Base & {
+    value: boolean
+    onValueChange?: (value: boolean) => void
+    disabled?: boolean
+    trackColor?: Color
+    activeTrackColor?: Color
+    thumbColor?: Color
+  }
+>
+/**
+ * A controlled native checkbox toggle.
+ */
+export declare const Checkbox: Intrinsic<
+  Base & {
+    value: boolean
+    onValueChange?: (value: boolean) => void
+    disabled?: boolean
+    color?: Color
+    activeColor?: Color
+  }
+>
+/**
+ * An endless circular loading spinner drawn natively in the draw phase (0 recompositions).
+ */
+export declare const Spinner: Intrinsic<
+  Base & {
+    size?: number
+    color?: Color
+  }
+>
+/**
+ * A progress bar, value 0–1 (or indeterminate if value omitted).
+ */
+export declare const Progress: Intrinsic<
+  Base & {
+    value?: number
+    color?: Color
+    trackColor?: Color
+  }
+>
+/**
+ * A standalone shimmer box for list placeholders, synced to a shared frame clock.
+ */
+export declare const Shimmer: Intrinsic<
+  Base & {
+    baseColor?: Color
+    highlightColor?: Color
+    period?: number
+  }
+>
 /**
  * A scrolling container. `horizontal` makes a rail: only the visible children are drawn, and scrolling never involves
  * JS. Its padding scrolls with the content (like RN's contentContainerStyle). For long vertical data use <List>.

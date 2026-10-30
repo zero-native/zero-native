@@ -12,6 +12,7 @@ import { StorageScreen } from "./StorageScreen"
 import { AnimationScreen } from "./AnimationScreen"
 import { DevScreen } from "./DevScreen"
 import { PressScreen } from "./PressScreen"
+import { ComponentsScreen } from "./ComponentsScreen"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -26,6 +27,7 @@ export const routes = defineRoutes({
   animation: { path: "/dev/animation", screen: AnimationScreen, deepLink: true },
   dev: { path: "/dev", screen: DevScreen, deepLink: true },
   press: { path: "/dev/press", screen: PressScreen, deepLink: true },
+  components: { path: "/dev/components", screen: ComponentsScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

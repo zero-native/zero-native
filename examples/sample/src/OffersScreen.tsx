@@ -26,7 +26,7 @@ function BannerCard(props: { o: Offer }) {
     return (
       <Pressable impressionKey={props.o.id} onPress={() => open(props.o)} style={{ width: 300, height: 160, borderRadius: 16, elevation: 3, overflow: "hidden" }}>
         <Stack style={{ width: 300, height: 160 }}>
-          <Image src={image} style={{ width: 300, height: 160 }} />
+          <Image src={image} fallbackSrc="asset:images/offer-placeholder.png" loading="shimmer" style={{ width: 300, height: 160 }} />
           <Column
             justifyContent="flex-end"
             style={{
@@ -120,7 +120,7 @@ function ProductCard(props: { o: Offer }) {
     >
       <Box alignItems="center" justifyContent="center" style={{ height: 128, backgroundColor: "#F3F4F6" }}>
         {offerImage(props.o) ? (
-          <Image src={offerImage(props.o)} contentScale="contain" style={{ width: 152, height: 98 }} />
+          <Image src={offerImage(props.o)} loading="shimmer" contentScale="contain" style={{ width: 152, height: 98 }} />
         ) : (
           <Icon icon={shoppingBag} color="#9CA3AF" style={{ width: 40, height: 40 }} />
         )}
