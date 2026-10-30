@@ -27,6 +27,12 @@ export interface RouteOptions {
    * bottom button stay visible; "none" lets the keyboard cover the screen.
    */
   keyboard?: "resize" | "none"
+  /**
+   * Reopen this screen when Android brings the app back after killing it in the background (default true; step
+   * 3.9). false for screens that must never come back on their own, such as a "payment done" screen: it and the
+   * screens above it are left out, and the user lands on the screen below it.
+   */
+  restore?: boolean
 }
 
 export interface RouteDef<Path extends string = string, Props = any> extends RouteOptions {

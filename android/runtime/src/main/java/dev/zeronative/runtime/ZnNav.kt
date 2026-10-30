@@ -1,14 +1,18 @@
 package dev.zeronative.runtime
 
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -25,7 +29,10 @@ class ZnEntry(val id: Int, val route: ZnRoute, val params: String) {
  * like [ZnStore], so a recreated Activity shows the same stack. Main thread only.
  *
  * App-level events to JS use instance 0 (packages/core/src/nav.ts): START, BACK, FORCED_BACK, OPEN, INSETS,
- * IMPRESSIONS (6, ZnImpressions).
+ * IMPRESSIONS (6, ZnImpressions), RETRY (7).
+ *
+ * A screen whose JS threw while building it stays on the stack and is drawn as [ZnErrorScreen] (NAV FAILED, step
+ * 3.9). If the app's JS failed to start at all ([appFailed]), every screen shows it, with "Restart app".
  */
 object ZnNav {
     private const val TAG = "zn"
@@ -35,11 +42,21 @@ object ZnNav {
     private const val EVENT_FORCED_BACK = 3
     private const val EVENT_OPEN = 4
     private const val EVENT_INSETS = 5
+    private const val EVENT_RETRY = 7
+    /** Key of the saved back stack in the Activity's saved state ([saveState]). */
+    private const val SAVED_STACK = "zn.nav.stack"
     /** How long native waits for JS to answer a back press before going back by itself. */
     private const val BACK_TIMEOUT_MS = 300L
 
     /** The back stack, bottom first. Observable: the host draws its top. */
     val stack: SnapshotStateList<ZnEntry> = mutableStateListOf()
+
+    /** Entries whose screen threw while JS built it: entry id → the error message. The host draws [ZnErrorScreen]. */
+    val failed: SnapshotStateMap<Int, String> = mutableStateMapOf()
+
+    /** Set when the app's JS failed to start (its bytecode threw): no screen can be built, so all show the error. */
+    var appFailed: String? by mutableStateOf(null)
+        private set
 
     /** Called when JS says the last screen was backed out of (the host lets the system handle back). */
     var onExit: (() -> Unit)? = null
@@ -57,11 +74,20 @@ object ZnNav {
      * Opens the first screens once per process: the start route ("/"), plus the [link]'s route on top of it if it
      * matches a route that allows deep links. Later calls (Activity recreated, or opened again by a link) keep the
      * stack and only open [link], by asking JS to push it.
+     *
+     * [savedState]: the Activity's saved state (`savedInstanceState`). When Android brings the app back after killing
+     * it in the background, it holds the stack [saveState] wrote, and those screens open again instead (step 3.9).
      */
-    fun start(bundle: ZnBundle, link: Uri?) {
+    fun start(bundle: ZnBundle, link: Uri?, savedState: Bundle? = null) {
         this.bundle = bundle
         if (started) {
             if (link != null) open(link)
+            return
+        }
+        val saved = savedState?.getString(SAVED_STACK)?.let(::readSaved)
+        if (saved != null) {
+            Log.i(TAG, "nav: Android restored the app; reopening ${saved.size} screen(s): ${saved.joinToString { it.first }}")
+            restart(bundle, saved)
             return
         }
         started = true
@@ -101,6 +127,8 @@ object ZnNav {
         backFallback = null
         stack.clear()
         composed.clear()
+        failed.clear()
+        appFailed = null
         lastInsets = "" // the new JS must hear the insets again
         started = false
         generation++
@@ -108,8 +136,9 @@ object ZnNav {
     }
 
     /**
-     * Debug builds (`zn dev` reload): opens the [saved] stack again with the new [bundle], so you stay on the screen
-     * you were on. Routes that no longer exist are skipped; the start route is always at the bottom.
+     * Opens the [saved] stack (route name, params) with [bundle]: after a `zn dev` reload (debug builds), or when
+     * Android restores the app ([start]). Routes that no longer exist are skipped (an update may have removed
+     * them); the start route is always at the bottom.
      */
     internal fun restart(bundle: ZnBundle, saved: List<Pair<String, String>>) {
         this.bundle = bundle
@@ -119,6 +148,34 @@ object ZnNav {
         for ((name, params) in saved) bundle.routes.all.firstOrNull { it.name == name }?.let { first += it to params }
         if (first.firstOrNull()?.first != home) first.add(0, home to "{}")
         startWith(bundle, first)
+    }
+
+    /**
+     * Saves the back stack (route names and params) into the Activity's saved state. Call it from
+     * `Activity.onSaveInstanceState`. Android hands it back to [start] only when it restores the app after killing it
+     * in the background; a normal launch from the launcher has none and starts on the start screen. A screen whose
+     * route says `restore: false` is left out, with the screens above it. The screens' JS state starts fresh.
+     */
+    fun saveState(out: Bundle) {
+        val keep = stack.takeWhile { it.route.restore }
+        if (keep.size <= 1) return // only the start screen: a fresh start is the same
+        val json = JSONArray().apply {
+            for (e in keep) put(JSONObject().put("route", e.route.name).put("params", JSONObject(e.params)))
+        }.toString()
+        // Saved state crosses a Binder call with a small size limit; huge params are not worth a crash.
+        if (json.length > 50_000) {
+            Log.w(TAG, "nav: back stack too big to save (${json.length} chars); not saved")
+            return
+        }
+        out.putString(SAVED_STACK, json)
+    }
+
+    private fun readSaved(json: String): List<Pair<String, String>>? = try {
+        val a = JSONArray(json)
+        List(a.length()) { i -> a.getJSONObject(i).let { it.getString("route") to it.getJSONObject("params").toString() } }
+    } catch (e: Exception) {
+        Log.w(TAG, "nav: saved back stack can't be read; starting on the start screen", e)
+        null
     }
 
     /** A link while the app runs: JS pushes its route (JS owns the stack). */
@@ -179,6 +236,9 @@ object ZnNav {
             BatchOp.Nav.EXIT -> main.post { onExit?.invoke() }
             BatchOp.Nav.BACK_ANSWERED -> backFallback?.let { main.removeCallbacks(it); backFallback = null }
             BatchOp.Nav.IMPRESSIONS -> ZnImpressions.configure(op.entry, op.params)
+            BatchOp.Nav.FAILED -> if (stack.any { it.id == op.entry }) {
+                failed[op.entry] = op.params?.let { runCatching { JSONObject(it).optString("message") }.getOrNull() } ?: ""
+            }
             else -> Log.e(TAG, "nav: unknown kind ${op.kind}")
         }
         // The top screen may have changed: impressions count only on the top screen.
@@ -210,8 +270,36 @@ object ZnNav {
         if (stack.none { it.id == id }) ZnStore.removeRoot(id)
     }
 
+    /**
+     * "Try again" on a failed screen: drop what the failed build left under its root, make a fresh root from the
+     * template, and ask JS to build the screen again (RETRY).
+     */
+    internal fun retry(id: Int) {
+        val entry = stack.firstOrNull { it.id == id } ?: return
+        val b = bundle ?: return
+        if (failed.remove(id) == null) return
+        ZnStore.removeRoot(id)
+        ZnStore.mountRoot(id, entry.route.templateId, b.templates[entry.route.templateId])
+        ZnRuntime.dispatchEvent(APP, EVENT_RETRY, id.u32())
+    }
+
+    /**
+     * JS hung and was stopped by the time limit (main thread). The top screen shows the error screen; its state may
+     * be half updated, and "Try again" builds it again from its route and params.
+     */
+    internal fun hung(message: String) {
+        val top = stack.lastOrNull() ?: return
+        failed[top.id] = message
+    }
+
+    /** The app's JS failed to start (main thread). Every screen now shows the error screen with "Restart app". */
+    internal fun startFailed(message: String) {
+        appFailed = message
+    }
+
     /** An entry left the stack: free its instances now, or after its exit animation if it is on screen. */
     private fun release(id: Int) {
+        failed.remove(id)
         ZnImpressions.release(id)
         if (id !in composed) ZnStore.removeRoot(id)
     }

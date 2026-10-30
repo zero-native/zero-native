@@ -113,61 +113,88 @@ object ZnStore {
     internal fun apply(ops: List<BatchOp>) {
         Snapshot.withMutableSnapshot {
             for (op in ops) {
-                when (op) {
-                    is BatchOp.Patch -> {
-                        // An unknown instance means a bug (JS patching a screen it closed, or before its NAV push).
-                        val inst = instances[op.instance]
-                        if (inst != null) {
-                            inst.slot(op.slot).value = op.value
-                            inst.patchWatchers[op.slot]?.invoke(op.value)
-                        } else {
-                            android.util.Log.w("zn", "patch for unknown instance ${op.instance} ignored")
-                        }
-                    }
-                    is BatchOp.Mount -> {
-                        val inst = ZnInstance(op.instance, op.templateId, op.parent, op.anchor)
-                        op.values.forEachIndexed { i, v -> inst.slot(i).value = v }
-                        instances[op.instance] = inst
-                        val siblings = instance(op.parent).children(op.anchor)
-                        siblings.add(liveIndex(siblings, op.index), op.instance)
-                    }
-                    is BatchOp.Remove -> {
-                        val inst = instances[op.instance]
-                        if (inst != null) {
-                            val parent = instances[inst.parent]
-                            val list = parent?.listOrNull(inst.anchor)
-                            // `exit` (step 3.6): keep it on screen while it animates out; finishExit drops it. Not
-                            // for <List> rows (they leave because they scrolled away) or a root whose parent is gone.
-                            if (inst.hasExit && parent != null && list == null && !inst.exiting.value) {
-                                inst.exiting.value = true
-                                continue
-                            }
-                            parent?.children(inst.anchor)?.remove(op.instance)
-                            list?.unbind(op.instance) // a <List> row leaving the window
-                        }
-                        removeTree(op.instance)
-                    }
-                    is BatchOp.ListSet -> instances[op.instance]?.list(op.node)?.rows?.let { rows ->
-                        rows.clear()
-                        rows.addAll(op.keys.indices.map { ZnListRow(op.keys[it], op.types[it]) })
-                    }
-                    is BatchOp.ListSplice -> instances[op.instance]?.list(op.node)?.rows?.let { rows ->
-                        val at = op.index.coerceIn(0, rows.size)
-                        rows.removeRange(at, (at + op.removeCount).coerceAtMost(rows.size))
-                        rows.addAll(at, op.keys.indices.map { ZnListRow(op.keys[it], op.types[it]) })
-                    }
-                    is BatchOp.ListRow -> instances[op.instance]?.list(op.node)?.bind(op.key, op.row)
-                    is BatchOp.Move -> {
-                        val inst = instances[op.instance] ?: continue
-                        val siblings = instances[inst.parent]?.children(inst.anchor) ?: continue
-                        if (siblings.remove(op.instance)) {
-                            siblings.add(liveIndex(siblings, op.toIndex), op.instance)
-                        }
-                    }
-                    is BatchOp.Nav -> ZnNav.apply(op)
+                // One bad op (a bug, or a bundle built wrong) is reported and skipped; the rest of the batch still
+                // applies, and the app doesn't crash (step 3.9).
+                try {
+                    applyOne(op)
+                } catch (e: Exception) {
+                    ZnRuntime.rendererError("batch op ${op::class.simpleName} failed and was skipped", e)
                 }
             }
         }
+    }
+
+    private fun applyOne(op: BatchOp) {
+        when (op) {
+            is BatchOp.Patch -> {
+                // An unknown instance means a bug (JS patching a screen it closed, or before its NAV push).
+                val inst = instances[op.instance]
+                if (inst != null) {
+                    inst.slot(op.slot).value = op.value
+                    inst.patchWatchers[op.slot]?.invoke(op.value)
+                } else {
+                    android.util.Log.w("zn", "patch for unknown instance ${op.instance} ignored")
+                }
+            }
+            is BatchOp.Mount -> {
+                // A node placed inside itself would make drawing loop forever (v0's StackOverflowError).
+                if (wouldLoop(op.instance, op.parent)) {
+                    ZnRuntime.rendererError("mount of ${op.instance} under ${op.parent} refused", IllegalStateException("it would be inside itself"))
+                    return
+                }
+                val inst = ZnInstance(op.instance, op.templateId, op.parent, op.anchor)
+                op.values.forEachIndexed { i, v -> inst.slot(i).value = v }
+                instances[op.instance] = inst
+                val siblings = instance(op.parent).children(op.anchor)
+                siblings.add(liveIndex(siblings, op.index), op.instance)
+            }
+            is BatchOp.Remove -> {
+                val inst = instances[op.instance]
+                if (inst != null) {
+                    val parent = instances[inst.parent]
+                    val list = parent?.listOrNull(inst.anchor)
+                    // `exit` (step 3.6): keep it on screen while it animates out; finishExit drops it. Not
+                    // for <List> rows (they leave because they scrolled away) or a root whose parent is gone.
+                    if (inst.hasExit && parent != null && list == null && !inst.exiting.value) {
+                        inst.exiting.value = true
+                        return
+                    }
+                    parent?.children(inst.anchor)?.remove(op.instance)
+                    list?.unbind(op.instance) // a <List> row leaving the window
+                }
+                removeTree(op.instance)
+            }
+            is BatchOp.ListSet -> instances[op.instance]?.list(op.node)?.rows?.let { rows ->
+                rows.clear()
+                rows.addAll(op.keys.indices.map { ZnListRow(op.keys[it], op.types[it]) })
+            }
+            is BatchOp.ListSplice -> instances[op.instance]?.list(op.node)?.rows?.let { rows ->
+                val at = op.index.coerceIn(0, rows.size)
+                rows.removeRange(at, (at + op.removeCount).coerceAtMost(rows.size))
+                rows.addAll(at, op.keys.indices.map { ZnListRow(op.keys[it], op.types[it]) })
+            }
+            is BatchOp.ListRow -> instances[op.instance]?.list(op.node)?.bind(op.key, op.row)
+            is BatchOp.Move -> {
+                val inst = instances[op.instance] ?: return
+                val siblings = instances[inst.parent]?.children(inst.anchor) ?: return
+                if (siblings.remove(op.instance)) {
+                    siblings.add(liveIndex(siblings, op.toIndex), op.instance)
+                }
+            }
+            is BatchOp.Nav -> ZnNav.apply(op)
+        }
+    }
+
+    /** True if mounting [instance] under [parent] would put it inside itself ([parent] is it or one of its children). */
+    private fun wouldLoop(instance: Int, parent: Int): Boolean {
+        var p = parent
+        var steps = 0
+        while (steps++ < 100_000) {
+            if (p == instance) return true
+            p = instances[p]?.parent ?: return false
+            if (p == 0) return false
+        }
+        return true
     }
 
     private val placeholders = HashMap<Int, ZnInstance>()

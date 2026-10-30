@@ -43,6 +43,10 @@ object TemplateReader {
     private val knownProps = idSet(Registry.PROP_IDS)
     private val knownDynamicProps = idSet(Registry.DYNAMIC_PROP_IDS)
     private val knownEvents = idSet(Registry.EVENT_IDS)
+    /** Prop id → its value type (Registry.PROP_TYPES codes), -1 for unknown ids. */
+    private val propTypes = IntArray((Registry.PROP_IDS.maxOrNull() ?: 0) + 1) { -1 }.also { t ->
+        Registry.PROP_IDS.forEachIndexed { i, id -> t[id] = Registry.PROP_TYPES[i] }
+    }
 
     private fun idSet(ids: IntArray) = BooleanArray((ids.maxOrNull() ?: 0) + 1).also { for (id in ids) it[id] = true }
 
@@ -50,6 +54,21 @@ object TemplateReader {
 
     private fun checkProp(where: String, prop: Int, value: Any?) {
         require(knownProps.has(prop)) { "$where: unknown prop $prop (this app has registry v${Registry.VERSION})" }
+        // The value's kind must fit the prop's type, or preparing the template would fail with a cast error (step 3.9).
+        val fits = if (prop == Registry.Prop.VALUE) {
+            // `value` holds text (TextField), true/false (Switch, Checkbox) or a number (Progress): writer.ts
+            // encodes it by what it is, and the renderer reads it as any value.
+            value == null || value is String || value is Boolean || value is Double
+        } else when (propTypes[prop]) {
+            0 -> value == null || value is Double
+            1 -> value == null || value is Double || value is ZnPercent
+            2 -> value == null || value is String
+            3 -> value == null || value is ZnColor
+            4 -> value == null || value is ZnEnum
+            5 -> value == null || value is Boolean
+            else -> false
+        }
+        require(fits) { "$where: prop $prop can't hold ${value?.let { it::class.simpleName }}" }
         if (value is ZnEnum) {
             val known = Registry.ENUM_VALUES[prop]
             require(known != null && value.value in known) { "$where: prop $prop has unknown value ${value.value}" }

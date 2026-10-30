@@ -1,0 +1,42 @@
+{
+  "note": "Made by tools/ota/make-signature-fixture.ts with a throwaway key; no private key is stored.",
+  "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuYuAcTFvv/ac90TZJ1plNUz/yk+K8O17ux7dJNbEd87sI1CQ8tUbusqJNUD+GVkR3j9/CCMN/VsA8/F301QXwg==",
+  "otherPublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEon5zpLeyqZugwK2SrfkgBk73EnocZrPfQTWgtfxNewPTsc+PljUBOQGS3GoV1kRRhA9mepx5QMcV+72W3kdJiQ==",
+  "requiresLine": "registry=8;bytecode=99;hostApi=2;modules=Device:2,Fetch:1,Toast:1",
+  "bundle": {
+    "app": "sample",
+    "id": "sample_12",
+    "serial": 12,
+    "bundleSha256": "abababababababababababababababababababababababababababababababab",
+    "requires": {
+      "registry": 8,
+      "bytecode": 99,
+      "hostApi": 2,
+      "modules": {
+        "Toast": 1,
+        "Device": 2,
+        "Fetch": 1
+      }
+    },
+    "zipSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "zipSize": 118034,
+    "text": "zn-ota-v1\nbundle\nsample\nsample_12\n12\nabababababababababababababababababababababababababababababababab\nregistry=8;bytecode=99;hostApi=2;modules=Device:2,Fetch:1,Toast:1\ncdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\n118034",
+    "signature": "MEUCIQCcpAA4Uz4R9uAGmqOMbT8rKl0c2k13rAt+iWwYcnWodQIgKC8wS2dQjJuoC1/LxvOKYpGX08waupH7nJjfWEJqrr8="
+  },
+  "pointer": {
+    "app": "sample",
+    "channel": "production",
+    "seq": 7,
+    "target": "sample_12",
+    "text": "zn-ota-v1\npointer\nsample\nproduction\n7\nsample_12",
+    "signature": "MEUCIQC4pasN6WCiU4sg/equsK5Gd8evXukQJfM8MbHZjrKG8QIgEhMPsbe4nDiCiCvHX06J+O7LVl+ydVM7+3GuxpFQ0q8="
+  },
+  "kill": {
+    "app": "sample",
+    "channel": "production",
+    "seq": 8,
+    "target": "BUILT_IN",
+    "text": "zn-ota-v1\npointer\nsample\nproduction\n8\nBUILT_IN",
+    "signature": "MEQCIB/6wwOfF0p4SG3XTHcAe18304k61SV8aDSZ2kR7H0kJAiAQd+rfF0PxUgUvkYybo9wD7YxqSJlT//wdR6po0MrEqA=="
+  }
+}

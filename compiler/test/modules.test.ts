@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
 import { nativeModuleUses } from "../src/modules"
 import { buildApp } from "../src/build-app"
+import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
 
 describe("native modules a bundle needs (docs/ota.md §3.2)", () => {
   test("nativeModule and callNative with literal names and versions", () => {
@@ -36,7 +37,7 @@ describe("native modules a bundle needs (docs/ota.md §3.2)", () => {
   test("buildApp lists what the bundle needs", async () => {
     const app = await buildApp(join(import.meta.dir, "fixtures/order/main.ts"))
     expect(app.requires.registry).toBe(8)
-    expect(app.requires.hostApi).toBe(1)
+    expect(app.requires.hostApi).toBe(HOST_API_VERSION)
     // The fixture pulls in @zero-native/core's storage and keyboard code (via the compiler's runtime import).
     expect(app.requires.modules.Keyboard).toBe(1)
   })

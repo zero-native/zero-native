@@ -58,6 +58,7 @@ Follow `Carousel` / `Sheet` / `Switch` as examples.
    the phone.
 
 ## 4. Host functions and the bridge
+(Host API 2, step 3.9: NAV kind FAILED and app event RETRY.)
 Adding a `__zn_*` host function, an app event number, or changing the batch / value formats changes the **host API**.
 Raise `kHostApiVersion` in `core/include/zn/engine.h` and `HOST_API_VERSION` in `packages/core/src/host-api.ts`
 together (a test checks they are equal). Removing one, or changing its meaning, also raises `kHostApiOldest`: every

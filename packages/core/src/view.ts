@@ -7,6 +7,7 @@
 // Every instance has an owner (signals.ts). Disposing it stops its effects, events and child instances; only the
 // top instance of a removed subtree sends REMOVE, because native removes the whole subtree.
 import { parseColor } from "./color"
+import { reportError } from "./errors"
 import { onEvent } from "./events"
 import type { NativeValue } from "./native"
 import { createRoot, effect, getOwner, onCleanup, runWithOwner, untrack, type Owner } from "./signals"
@@ -83,15 +84,27 @@ export function ready(inst: Instance): void {
   globalThis.__zn_mount(m.templateId, m.parent, m.anchor, inst.id, m.index, values)
 }
 
-/** Mounts a view as a child of `parent` at template node `anchor`, position `index`, owned by `owner`. */
+/**
+ * Mounts a view as a child of `parent` at template node `anchor`, position `index`, owned by `owner`.
+ * If building it throws, only this part fails (like Flutter's error widget, step 3.9): what it started is stopped,
+ * what it already sent to native is removed, the error is reported, and the rest of the screen keeps working.
+ */
 function mountChild(owner: Owner | null, make: () => View, parent: number, anchor: number, index: number): Mounted {
   return runWithOwner(owner, () =>
     createRoot((dispose) => {
       const id = allocInstanceId()
-      const v = make() // a component's body runs here, inside the instance's owner
-      const inst: Instance = { id, collecting: [], mount: { templateId: v.templateId, parent, anchor, index } }
-      v.setup(inst)
-      ready(inst)
+      let inst: Instance | null = null
+      try {
+        const v = make() // a component's body runs here, inside the instance's owner
+        inst = { id, collecting: [], mount: { templateId: v.templateId, parent, anchor, index } }
+        v.setup(inst)
+        ready(inst)
+      } catch (e) {
+        dispose()
+        if (inst?.collecting === null) globalThis.__zn_remove(id) // its MOUNT was already sent
+        reportError("a part of the screen (left empty)", e, "part")
+        return { id, dispose() {} }
+      }
       return {
         id,
         dispose(remove: boolean) {
@@ -382,11 +395,19 @@ export function allocInstanceId(): number {
   return nextInstanceId++
 }
 
-/** Runs a screen component on a root instance that native already created from the template (no MOUNT). */
+/**
+ * Runs a screen component on a root instance that native already created from the template (no MOUNT). If it
+ * throws, everything it started is stopped before the error goes on to the caller (nav shows the error screen).
+ */
 export function renderRoot<P>(rootId: number, Screen: (props: P) => View, props: P): () => void {
   return createRoot((dispose) => {
-    const v = Screen(props)
-    v.setup({ id: rootId, collecting: null, mount: null })
+    try {
+      const v = Screen(props)
+      v.setup({ id: rootId, collecting: null, mount: null })
+    } catch (e) {
+      dispose()
+      throw e
+    }
     return dispose
   })
 }

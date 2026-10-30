@@ -12,6 +12,28 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Result of running JS: [value] is the result as text when [ok], else the error message. */
 data class EvalResult(val ok: Boolean, val value: String, val millis: Long)
 
+/**
+ * An error JS reported, or JS that hung or didn't start ([ZnRuntime.onJsError]; step 3.9). For crash reporting:
+ * Crashlytics' `recordException`, or the app's backend.
+ */
+class ZnJsError(
+    /**
+     * What was running: "screen" (building a screen: the user sees the error screen), "part" (building a part of a
+     * screen: it stays empty), "async" (a Promise nobody caught), "handler" (a tap or other event handler, a
+     * timer, an effect, a listener), "hang" (stopped by the time limit), "start" (the app's JS didn't start),
+     * "renderer" (native refused or skipped something JS sent).
+     */
+    val kind: String,
+    /** Where, in words (`screen "amount" threw`, `event handler failed`, ...). */
+    val where: String,
+    /** The message and the JS stack. */
+    val details: String,
+    /** The top screen's route name when it was reported (null before the first screen). */
+    val screen: String?,
+    /** The running bundle id (`app_12`; [ZnBundles]), so a report says which OTA bundle it came from. */
+    val bundle: String?,
+)
+
 /** Called on the main thread after each batch is applied (timestamps from System.nanoTime, a monotonic clock). */
 fun interface BatchListener {
     fun onApplied(opCount: Int, applyStartNanos: Long, applyEndNanos: Long)
@@ -27,6 +49,10 @@ fun interface BatchListener {
  */
 object ZnRuntime {
     private const val TAG = "zn"
+    /** Start of the error text of JS stopped by the time limit (kTimeLimitError in core/include/zn/engine.h). */
+    internal const val TIME_LIMIT_ERROR = "zero-native time limit:"
+    /** A screen that threw while being built reports `screen "<route>" threw` (packages/core/src/nav.ts). */
+    private val SCREEN_ERROR = Regex("^screen \"(.+)\" threw$")
 
     private val jsThread = HandlerThread("zn-js").apply { start() }
     private val js = Handler(jsThread.looper)
@@ -46,6 +72,20 @@ object ZnRuntime {
     @Volatile private var reloading = false
     private var started = false
     private val listeners = ArrayList<BatchListener>()
+
+    /**
+     * The longest one piece of JS (a tap handler, a timer, building a screen) may run before it is stopped and
+     * reported as a hang; 0 = no limit. Default 2 s in release builds, 3 s in debug builds (debug code is slower).
+     * Taps wait while JS is busy (the UI itself keeps scrolling and animating), so a task this long is already a
+     * bug; anything over 200 ms is logged as "slow JS" to catch it early. Raise it while pausing in a debugger.
+     * Set it in Application.onCreate before [start]. A hang shows the error screen on the top screen
+     * ("Try again" builds it again); the framework does nothing more by itself: an app that wants more (for example
+     * a restart after several hangs) does it in [onJsError].
+     */
+    @Volatile var jsTimeLimitMs: Int = if (BuildConfig.DEBUG) 3_000 else 2_000
+
+    /** Hears every error JS reported, and JS that hung or didn't start, on the main thread (crash reporting). */
+    @Volatile var onJsError: ((ZnJsError) -> Unit)? = null
 
     /** Counts runtimes created in this process. Stays 1 for the life of the process (checked by the sample app). */
     val createdCount = AtomicInteger(0)
@@ -82,7 +122,10 @@ object ZnRuntime {
         // App storage (MMKV, docs/storage.md): not in backups either. Restoring it to a new phone would bring back
         // stale state and, with an old backup, mixed versions of it; apps keep what must follow the user on a server.
         val storageDir = ZnStorage.dir(appContext).apply { mkdirs() }.absolutePath // the folder Kotlin's ZnStorage uses
-        return ZnNative.createRuntime(flowDir, storageDir).also { createdCount.incrementAndGet() }
+        return ZnNative.createRuntime(flowDir, storageDir).also {
+            ZnNative.setTimeLimit(it, jsTimeLimitMs)
+            createdCount.incrementAndGet()
+        }
     }
 
     /**
@@ -97,6 +140,9 @@ object ZnRuntime {
             val raw = if (file != null) ZnNative.evalFile(jsRuntime, file.path, name)
                 else ZnNative.evalAsset(jsRuntime, appContext.assets, name)
             val result = evalResult(raw, t0)
+            // The app's JS didn't start: no screen can be built. Show the error screen with "Restart app" instead of a
+            // screen that stays half drawn (step 3.9).
+            if (!result.ok) main.post { ZnNav.startFailed(result.value) }
             if (result.ok) Log.i(TAG, "$name evaluated in ${result.millis} ms") else Log.e(TAG, "$name failed: ${result.value}")
             main.post { onResult(result) }
         }
@@ -198,9 +244,44 @@ object ZnRuntime {
         main.post(::applyPending)
     }
 
-    /** JS threw and nothing caught it ("where\nmessage and stack"). Already logged. Debug builds show it on screen. */
+    /**
+     * JS threw and nothing caught it, or it hung, or didn't start ("kind\nwhere\nmessage and stack"). Already logged.
+     * Debug builds show it on screen; a hang shows the error screen on the top screen; [onJsError] hears it.
+     */
     internal fun jsError(text: String) {
-        if (BuildConfig.DEBUG) main.post { ZnDev.onJsError(text) }
+        val kind = text.substringBefore('\n')
+        val rest = text.substringAfter('\n', "")
+        val where = rest.substringBefore('\n')
+        val details = rest.substringAfter('\n', "")
+        main.post {
+            if (kind == "hang") ZnNav.hung(details.substringBefore('\n'))
+            if (BuildConfig.DEBUG) ZnDev.onJsError(rest)
+            val hook = onJsError ?: return@post
+            // A screen that failed while being built isn't the top of native's stack yet: its name is in the report.
+            val screen = SCREEN_ERROR.find(where)?.groupValues?.get(1) ?: ZnNav.stack.lastOrNull()?.route?.name
+            val error = ZnJsError(kind, where, details, screen, ZnBundles.running.info?.id)
+            try {
+                hook(error)
+            } catch (e: Exception) {
+                Log.e(TAG, "onJsError threw", e)
+            }
+        }
+    }
+
+    /**
+     * Main thread: the renderer refused or skipped something JS sent (a bad op). Logged, shown on the dev error
+     * screen in debug builds, and passed to [onJsError] as kind "renderer". The app keeps running.
+     */
+    internal fun rendererError(where: String, e: Throwable) {
+        Log.e(TAG, "renderer: $where", e)
+        val details = "${e::class.simpleName}: ${e.message}"
+        if (BuildConfig.DEBUG) ZnDev.onJsError("renderer: $where\n$details")
+        val hook = onJsError ?: return
+        try {
+            hook(ZnJsError("renderer", where, details, ZnNav.stack.lastOrNull()?.route?.name, ZnBundles.running.info?.id))
+        } catch (t: Exception) {
+            Log.e(TAG, "onJsError threw", t)
+        }
     }
 
     // ---- Main thread ---------------------------------------------------------------------------------------------

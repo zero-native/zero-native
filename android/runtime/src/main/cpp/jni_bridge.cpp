@@ -90,10 +90,10 @@ class AndroidPlatform final : public zn::Platform {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<double>(ts.tv_sec) * 1000.0 + static_cast<double>(ts.tv_nsec) / 1e6;
   }
-  void jsError(std::string_view where, std::string_view details) override {
-    zn::Platform::jsError(where, details);  // logcat, as before
+  void jsError(std::string_view kind, std::string_view where, std::string_view details) override {
+    zn::Platform::jsError(kind, where, details);  // logcat, as before
     // As UTF-8 bytes, like callNative: error text may hold emoji, which JNI's own string encoding can't take.
-    std::string text = std::string(where) + "\n" + std::string(details);
+    std::string text = std::string(kind) + "\n" + std::string(where) + "\n" + std::string(details);
     JNIEnv* e = env();
     jbyteArray bytes = e->NewByteArray(static_cast<jsize>(text.size()));
     e->SetByteArrayRegion(bytes, 0, static_cast<jsize>(text.size()), reinterpret_cast<const jbyte*>(text.data()));
@@ -165,6 +165,12 @@ Java_dev_zeronative_runtime_ZnNative_createRuntime(JNIEnv* env, jclass /* clazz 
   auto* h = new Holder(toStdString(env, flowDir), toStdString(env, storeDir));
   __android_log_print(ANDROID_LOG_INFO, kTag, "runtime created (Hermes, microtask queue on)");
   return reinterpret_cast<jlong>(h);
+}
+
+// JS thread. Each entry into JS may run at most `ms` (0 = no limit); a longer one is stopped (step 3.9).
+extern "C" JNIEXPORT void JNICALL
+Java_dev_zeronative_runtime_ZnNative_setTimeLimit(JNIEnv* /* env */, jclass /* clazz */, jlong handle, jint ms) {
+  holder(handle)->runtime.setTimeLimit(static_cast<uint32_t>(ms < 0 ? 0 : ms));
 }
 
 extern "C" JNIEXPORT void JNICALL

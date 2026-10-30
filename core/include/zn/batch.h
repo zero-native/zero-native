@@ -20,6 +20,8 @@
 //   4 EXIT   the stack's last screen was backed out of: let the system handle back (leave the app)
 //   5 BACK_ANSWERED  JS has handled the last system back press (stops native's 300 ms fallback)
 //   6 IMPRESSIONS    the screen `entry` tracks impressions; params = {"threshold":0.35,"minMs":0} (useImpressions)
+//   7 FAILED         the screen `entry` threw while being built; native shows its error screen instead (step 3.9);
+//                    params = {"message":"..."}. Try again: native makes a fresh root and sends app event RETRY
 // A NAV op is structural: it keeps its place in the batch and is never merged.
 //
 // List ops (<List>, docs/lists.md): the list is node `node` of `instance`. LIST_SET gives native every row's key and
@@ -38,7 +40,7 @@
 namespace zn {
 
 enum class OpCode : uint8_t { Patch = 1, Mount = 2, Remove = 3, Move = 4, Nav = 5, ListSet = 6, ListSplice = 7, ListRow = 8 };
-enum class NavKind : uint8_t { Push = 1, Remove = 2, Clear = 3, Exit = 4, BackAnswered = 5, Impressions = 6 };
+enum class NavKind : uint8_t { Push = 1, Remove = 2, Clear = 3, Exit = 4, BackAnswered = 5, Impressions = 6, Failed = 7 };
 
 constexpr uint32_t kBatchMagic = 0x31424E5A;  // "ZNB1" read as little-endian bytes
 

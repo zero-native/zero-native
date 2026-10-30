@@ -44,3 +44,6 @@ android/sample/src/main/assets/images/
 compiler/test/.tmp/
 
 test-kit/offers-data.json
+
+# Local OTA release store (bun run ota; docs/ota.md)
+.zn-ota-store/

@@ -19,6 +19,8 @@ const constName = (s: string) =>
     .toUpperCase()
 
 const ints = (values: number[]) => `intArrayOf(${values.join(", ")})`
+/** Prop value types as numbers for Kotlin (TemplateReader checks each value against its prop's type). */
+const PROP_TYPE_CODES = ["number", "size", "string", "color", "enum", "bool"]
 
 export function kotlinRegistry(): string {
   const lines: string[] = []
@@ -50,6 +52,8 @@ export function kotlinRegistry(): string {
   lines.push("    /** Every id this app knows: templates from an OTA bundle that use any other id are refused (TemplateReader). */")
   lines.push(`    val COMPONENT_IDS = ${ints(Object.values(Component))}`)
   lines.push(`    val PROP_IDS = ${ints(Object.values(Prop).map((p) => p.id))}`)
+  lines.push("    /** The value type of each prop in PROP_IDS (same order): 0 number, 1 size, 2 string, 3 color, 4 enum, 5 bool. */")
+  lines.push(`    val PROP_TYPES = ${ints(Object.values(Prop).map((p) => PROP_TYPE_CODES.indexOf(p.type)))}`)
   lines.push(`    val DYNAMIC_PROP_IDS = ${ints([...DynamicProps].map((p) => Prop[p].id))}`)
   lines.push(`    val EVENT_IDS = ${ints(Object.values(EventKind))}`)
   lines.push("    /** Enum prop id → the values this app knows. */")

@@ -43,7 +43,7 @@ declare global {
   var __zn_clearTimer: (handle: number) => void
   var __zn_log: (level: number, message: string) => void
   /** A JS error that was caught (errors.ts): logged, and shown on the dev error screen in debug builds. */
-  var __zn_error: (where: string, details: string) => void
+  var __zn_error: (where: string, details: string, kind?: string) => void
   var __zn_now: () => number
   /** UTF-8 bytes → string. Bad bytes become U+FFFD; with `fatal`, bad bytes give undefined instead. */
   var __zn_utf8Decode: (buffer: ArrayBuffer, offset: number, length: number, fatal: boolean) => string | undefined

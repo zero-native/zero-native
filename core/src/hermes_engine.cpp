@@ -30,7 +30,13 @@
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 
+#include <algorithm>
+#include <atomic>
 #include <bit>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -193,6 +199,21 @@ class HermesEngine final : public Engine {
     installHostFunctions();
   }
 
+  ~HermesEngine() override {
+    {
+      std::lock_guard lock(watchMutex_);
+      stopping_ = true;
+    }
+    watchWake_.notify_all();
+    if (watchdog_.joinable()) watchdog_.join();  // before runtime_ goes away
+  }
+
+  void setTimeLimit(uint32_t ms) override {
+    limitMs_.store(ms);
+    if (ms > 0 && !watchdog_.joinable()) watchdog_ = std::thread([this] { watch(); });
+    watchWake_.notify_all();
+  }
+
   EvalResult evalBytecode(const Bytes& bytecode, std::string_view url) override {
     if (bytecode.data == nullptr || bytecode.size == 0) {
       return {false, "empty bytecode: " + std::string(url)};
@@ -200,7 +221,7 @@ class HermesEngine final : public Engine {
     if (!rootApi()->isHermesBytecode(bytecode.data, bytecode.size)) {
       return {false, "not Hermes bytecode (wrong file or wrong hermesc version?): " + std::string(url)};
     }
-    return guard([&] {
+    return guard(std::string("script ") + std::string(url), [&] {
       auto buffer = std::make_shared<BytesBuffer>(bytecode);
       jsi::Value result = runtime_->evaluateJavaScript(buffer, std::string(url));
       runtime_->drainMicrotasks();
@@ -209,7 +230,7 @@ class HermesEngine final : public Engine {
   }
 
   EvalResult callGlobal(std::string_view name, std::span<const Value> args) override {
-    return guard([&] {
+    return guard(entryLabel(name), [&] {
       jsi::Runtime& rt = *runtime_;
       jsi::Value fn = rt.global().getProperty(rt, std::string(name).c_str());
       if (!fn.isObject() || !fn.getObject(rt).isFunction(rt)) {
@@ -227,7 +248,7 @@ class HermesEngine final : public Engine {
 
   EvalResult callGlobalBytes(std::string_view name, std::span<const Value> args,
                              std::vector<uint8_t> bytes) override {
-    return guard([&] {
+    return guard(entryLabel(name), [&] {
       jsi::Runtime& rt = *runtime_;
       jsi::Value fn = rt.global().getProperty(rt, std::string(name).c_str());
       if (!fn.isObject() || !fn.getObject(rt).isFunction(rt)) {
@@ -244,18 +265,79 @@ class HermesEngine final : public Engine {
     });
   }
 
-  void drainMicrotasks() override { runtime_->drainMicrotasks(); }
+  void drainMicrotasks() override {
+    Entry entry(*this, "promise callbacks");
+    runtime_->drainMicrotasks();
+  }
 
  private:
+  // Marks one entry into JS for the time limit. Nested entries (JS → native → JS) count as the outer one.
+  struct Entry {
+    Entry(HermesEngine& e, std::string label) : engine(e), what(std::move(label)) {
+      if (engine.depth_++ == 0) {
+        engine.timedOut_.store(false);
+        engine.entryStart_.store(steadyMs());
+      }
+    }
+    ~Entry() {
+      if (--engine.depth_ != 0) return;
+      const int64_t ms = steadyMs() - engine.entryStart_.load();
+      engine.entryStart_.store(0);
+      // The UI keeps working while JS is busy, but taps wait: say so before the time limit has to step in.
+      if (ms >= kSlowEntryMs && !engine.timedOut_.load()) {
+        engine.host_.log(2, "slow JS: " + what + " ran for " + std::to_string(ms) + " ms (taps wait meanwhile; it is "
+                                "stopped after " + std::to_string(engine.limitMs_.load()) + " ms)");
+      }
+    }
+    HermesEngine& engine;
+    std::string what;
+  };
+
+  static int64_t steadyMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count() + 1;  // never 0
+  }
+
+  // The watchdog thread: wakes a few times per limit and stops an entry that runs too long. Hermes can be
+  // interrupted from any thread (asyncTriggerTimeout); the running JS then throws at its next break check.
+  void watch() {
+    std::unique_lock lock(watchMutex_);
+    while (!stopping_) {
+      const uint32_t limit = limitMs_.load();
+      watchWake_.wait_for(lock, std::chrono::milliseconds(limit > 0 ? std::max<uint32_t>(limit / 5, 20) : 1000));
+      if (stopping_ || limit == 0) continue;
+      const int64_t start = entryStart_.load();
+      if (start != 0 && !timedOut_.load() && steadyMs() - start > static_cast<int64_t>(limit)) {
+        timedOut_.store(true);
+        runtime_->asyncTriggerTimeout();
+      }
+    }
+  }
+
+  // For the slow-task warning: what native called.
+  static std::string entryLabel(std::string_view global) {
+    if (global == "__zn_onEvent") return "an event (tap, native answer, ...)";
+    if (global == "__zn_onTimer") return "a timer";
+    return std::string(global);
+  }
+
   template <typename F>
-  EvalResult guard(F&& body) {
+  EvalResult guard(std::string label, F&& body) {
+    Entry entry(*this, std::move(label));
     try {
       return {true, body()};
     } catch (const jsi::JSError& e) {
-      return {false, e.getMessage() + "\n" + e.getStack()};
+      return {false, failure(e.getMessage() + "\n" + e.getStack())};
     } catch (const std::exception& e) {
-      return {false, e.what()};
+      return {false, failure(e.what())};
     }
+  }
+
+  // An entry the watchdog stopped says so first, so the platform can treat it as a hang (step 3.9).
+  std::string failure(std::string details) {
+    if (!timedOut_.load()) return details;
+    return std::string(kTimeLimitError) + " JS ran longer than " + std::to_string(limitMs_.load()) +
+           " ms and was stopped\n" + details;
   }
 
   std::string describe(const jsi::Value& value) {
@@ -494,10 +576,12 @@ class HermesEngine final : public Engine {
       return jsi::Value::undefined();
     });
 
-    define("__zn_error", 2, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
+    define("__zn_error", 3, [&host](jsi::Runtime& rt, const jsi::Value&, Args a, size_t n) -> jsi::Value {
       const std::string where = n > 0 ? a[0].toString(rt).utf8(rt) : std::string();
       const std::string details = n > 1 ? a[1].toString(rt).utf8(rt) : std::string();
-      host.jsError(where, details);
+      // The kind is optional: a core from before step 3.9 sends two arguments.
+      const std::string kind = n > 2 && a[2].isString() ? a[2].asString(rt).utf8(rt) : std::string("handler");
+      host.jsError(kind, where, details);
       return jsi::Value::undefined();
     });
 
@@ -508,6 +592,18 @@ class HermesEngine final : public Engine {
 
   HostApi& host_;
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime_;
+  // One entry into JS taking this long is logged as slow (step 3.9): far below the time limit, so it shows in
+  // development long before users would wait on it.
+  static constexpr int64_t kSlowEntryMs = 200;
+  // Time limit (setTimeLimit). depth_ is JS-thread only; the rest is shared with the watchdog thread.
+  int depth_ = 0;
+  std::atomic<uint32_t> limitMs_{0};
+  std::atomic<int64_t> entryStart_{0};  // steadyMs() when the current entry began; 0 = not in JS
+  std::atomic<bool> timedOut_{false};
+  std::mutex watchMutex_;
+  std::condition_variable watchWake_;
+  bool stopping_ = false;  // guarded by watchMutex_
+  std::thread watchdog_;
 };
 
 }  // namespace

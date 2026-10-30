@@ -5,6 +5,7 @@
     "": {
       "name": "zero-native",
       "devDependencies": {
+        "fflate": "0.8.2",
         "hermes-compiler": "260318099.0.5",
         "typescript": "5.9.3",
       },
@@ -53,6 +54,8 @@
     "@zero-native/template": ["@zero-native/template@workspace:packages/template"],
 
     "@zero-native/ui": ["@zero-native/ui@workspace:packages/ui"],
+
+    "fflate": ["fflate@0.8.2", "", {}, "sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A=="],
 
     "hermes-compiler": ["hermes-compiler@260318099.0.5", "", {}, "sha512-4Gze+pGTGTUBRmnv6LtdOMo6ZzMMh3hEkvDiWzvuNL5LM0EO5YGhr8xh3fRjFaEqReUwEGjJGcGgEPFe9+E6Gw=="],
 

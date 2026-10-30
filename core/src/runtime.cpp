@@ -11,9 +11,18 @@ Runtime::Runtime(Platform& platform, const EngineFactory& engineFactory)
 
 Runtime::~Runtime() = default;
 
+namespace {
+// An entry JS didn't finish: "hang" if the time limit stopped it (Engine::setTimeLimit), else [otherwise].
+std::string_view failureKind(const EvalResult& result, std::string_view otherwise) {
+  return std::string_view(result.value).starts_with(kTimeLimitError) ? "hang" : otherwise;
+}
+}  // namespace
+
 EvalResult Runtime::evalBytecode(const Bytes& bytecode, std::string_view url) {
   EvalResult result = engine_->evalBytecode(bytecode, url);
-  if (!result.ok) platform_.jsError("script " + std::string(url) + " failed", result.value);
+  if (!result.ok) {
+    platform_.jsError(failureKind(result, "start"), "script " + std::string(url) + " failed", result.value);
+  }
   endTick();
   return result;
 }
@@ -21,14 +30,14 @@ EvalResult Runtime::evalBytecode(const Bytes& bytecode, std::string_view url) {
 void Runtime::dispatchEvent(uint32_t instance, uint16_t eventId, const Value& payload) {
   const std::array<Value, 3> args{Value::number(instance), Value::number(eventId), payload};
   EvalResult result = engine_->callGlobal("__zn_onEvent", args);
-  if (!result.ok) platform_.jsError("event handler failed", result.value);
+  if (!result.ok) platform_.jsError(failureKind(result, "handler"), "event handler failed", result.value);
   endTick();
 }
 
 void Runtime::dispatchBytes(uint32_t instance, uint16_t eventId, std::vector<uint8_t> bytes) {
   const std::array<Value, 2> args{Value::number(instance), Value::number(eventId)};
   EvalResult result = engine_->callGlobalBytes("__zn_onEvent", args, std::move(bytes));
-  if (!result.ok) platform_.jsError("event handler failed", result.value);
+  if (!result.ok) platform_.jsError(failureKind(result, "handler"), "event handler failed", result.value);
   endTick();
 }
 
@@ -46,7 +55,7 @@ void Runtime::fireTimer(uint32_t handle) {
 
   const std::array<Value, 1> args{Value::number(handle)};
   EvalResult result = engine_->callGlobal("__zn_onTimer", args);
-  if (!result.ok) platform_.jsError("timer callback failed", result.value);
+  if (!result.ok) platform_.jsError(failureKind(result, "handler"), "timer callback failed", result.value);
   endTick();
 }
 
@@ -89,7 +98,7 @@ void Runtime::remove(uint32_t instance) { tick_.remove(instance); }
 void Runtime::move(uint32_t instance, uint32_t toIndex) { tick_.move(instance, toIndex); }
 
 void Runtime::nav(uint8_t kind, uint32_t entry, uint16_t route, Value params) {
-  if (kind < static_cast<uint8_t>(NavKind::Push) || kind > static_cast<uint8_t>(NavKind::Impressions)) {
+  if (kind < static_cast<uint8_t>(NavKind::Push) || kind > static_cast<uint8_t>(NavKind::Failed)) {
     platform_.log(3, "nav: unknown kind " + std::to_string(kind));
     return;
   }
@@ -174,7 +183,9 @@ void Runtime::clearTimer(uint32_t handle) { timers_.erase(handle); }
 
 void Runtime::log(int level, std::string_view message) { platform_.log(level, message); }
 
-void Runtime::jsError(std::string_view where, std::string_view details) { platform_.jsError(where, details); }
+void Runtime::jsError(std::string_view kind, std::string_view where, std::string_view details) {
+  platform_.jsError(kind, where, details);
+}
 
 double Runtime::nowMs() { return platform_.nowMs(); }
 

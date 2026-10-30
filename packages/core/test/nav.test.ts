@@ -194,3 +194,59 @@ test("unknown routes and useBack outside a screen are errors", () => {
   expect(() => (nav.push as any)("nope")).toThrow(/unknown route "nope"/)
   expect(() => useBack(() => true)).toThrow(/while a screen renders/)
 })
+
+// ---- A screen that throws while being built (step 3.9) ------------------------------------------------------------
+
+const FAILED = 7
+let brokenOnce = false
+const Broken = () => {
+  useBack(() => true) // set up before the throw: must not survive the failed build
+  setInterval(() => {}, 500) // started before the throw: must be stopped
+  if (brokenOnce) throw new Error("no merchant data")
+  return view(3, (i) => slot(i, 0, () => "fixed"))
+}
+const brokenRoutes = defineRoutes({ home: { path: "/", screen: Home }, broken: { path: "/broken", screen: Broken } })
+
+test("a screen that throws stays on the stack, native shows its error screen, Back works", () => {
+  resetNavForTests()
+  startApp(brokenRoutes)
+  start()
+  const timers = activeTimerCount()
+  brokenOnce = true
+  nav.push("broken")
+  const id = navOps()[0][2] as number
+  expect(navOps().map((o) => o[1])).toEqual([PUSH, FAILED]) // both in the same tick: no broken frame
+  expect(navOps()[1]).toEqual(["nav", FAILED, id, 0, JSON.stringify({ message: "no merchant data" })])
+  expect(host.logs.some(([level, m]) => level === 3 && m.includes('screen "broken" threw') && m.includes("no merchant data"))).toBe(true)
+  expect(activeTimerCount()).toBe(timers) // what it started is stopped
+  expect(nav.depth()).toBe(2)
+  // Back from the error screen: its useBack (from the failed build) doesn't block it.
+  send(AppEvent.Back, id)
+  expect(navOps().at(-1)).toEqual(["nav", REMOVE, id, 0, null])
+  expect(nav.depth()).toBe(1)
+})
+
+test("Try again builds the failed screen again on the fresh root native made", () => {
+  resetNavForTests()
+  startApp(brokenRoutes)
+  start()
+  brokenOnce = true
+  nav.push("broken")
+  const id = navOps()[0][2] as number
+  brokenOnce = false // the cause went away (data arrived, network back)
+  host.ops.length = 0
+  send(AppEvent.Retry, id)
+  expect(host.ops).toEqual([["patch", id, 0, "fixed"]])
+  // Native also sends RETRY for a screen that hung (JS didn't mark it failed): the old build is stopped first.
+  send(AppEvent.Retry, id)
+  expect(host.ops).toEqual([["patch", id, 0, "fixed"], ["patch", id, 0, "fixed"]])
+})
+
+test("a failed start screen shows the error screen too", () => {
+  resetNavForTests()
+  startApp(defineRoutes({ home: { path: "/", screen: Broken } }))
+  brokenOnce = true
+  start()
+  expect(navOps()).toEqual([["nav", FAILED, NATIVE_ROOT, 0, JSON.stringify({ message: "no merchant data" })]])
+  expect(nav.depth()).toBe(1)
+})

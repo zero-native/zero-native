@@ -62,7 +62,8 @@ class MainActivity : ComponentActivity() {
 
         // A recreated Activity has the same intent: its link was already handled.
         val link = if (savedInstanceState == null) intent?.data else null
-        ZnTemplates.whenReady(ASSET) { bundle -> ZnNav.start(bundle, link) }
+        // savedInstanceState: after Android killed the app in the background, the screens that were open come back.
+        ZnTemplates.whenReady(ASSET) { bundle -> ZnNav.start(bundle, link, savedInstanceState) }
 
         setContent {
             val bundle = ZnTemplates.get(ASSET)
@@ -77,6 +78,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        ZnNav.saveState(outState) // the open screens, for when Android brings the app back after killing it
     }
 
     override fun onNewIntent(intent: Intent) {

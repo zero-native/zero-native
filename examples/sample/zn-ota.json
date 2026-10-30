@@ -1,0 +1,6 @@
+{
+  "app": "sample",
+  "build": ["bun", "run", "build.ts"],
+  "store": "../../.zn-ota-store",
+  "publicKeys": []
+}

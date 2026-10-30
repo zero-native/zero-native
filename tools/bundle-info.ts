@@ -2,7 +2,7 @@
 // (docs/ota.md §3.1). The APK carries one for its built-in bundle; every OTA bundle folder has one too.
 // The phone reads it to choose which bundle to run (ZnBundles.kt). Signing (step 4.3) signs `sha256` below.
 import { join, relative, sep } from "node:path"
-import { readdirSync, statSync } from "node:fs"
+import { readdirSync, readFileSync, statSync } from "node:fs"
 
 /** Format of `zn-bundle.json`. The phone ignores a bundle whose format it doesn't know. */
 export const BUNDLE_INFO_FORMAT = 1
@@ -88,6 +88,23 @@ export async function writeBundleInfo(
     files,
     builtAt: new Date().toISOString(),
   }
+  await Bun.write(join(dir, BUNDLE_INFO_FILE), JSON.stringify(info, null, 2) + "\n")
+  return info
+}
+
+/** Reads `zn-bundle.json` from a built bundle folder. */
+export function readBundleInfo(dir: string): BundleInfo {
+  return JSON.parse(readFileSync(join(dir, BUNDLE_INFO_FILE), "utf8")) as BundleInfo
+}
+
+/**
+ * Gives a built bundle its released serial (the release CLI takes the next free one only after it knows the bundle is
+ * new). The files and their SHA-256 don't change: the serial is only in `zn-bundle.json`, which isn't hashed.
+ */
+export async function setBundleSerial(dir: string, serial: number): Promise<BundleInfo> {
+  if (!Number.isInteger(serial) || serial < 1) throw new Error(`a released serial is 1 or more, got ${serial}`)
+  const info = { ...readBundleInfo(dir), serial }
+  info.id = `${info.app}_${serial}`
   await Bun.write(join(dir, BUNDLE_INFO_FILE), JSON.stringify(info, null, 2) + "\n")
   return info
 }

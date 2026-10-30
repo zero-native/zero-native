@@ -120,8 +120,22 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
                         // used up the navigation bar's share, so only the rest of the keyboard's height is added.
                         .then(if (e.route.resizeForKeyboard) Modifier.imePadding() else Modifier),
                 ) {
-                    CompositionLocalProvider(LocalZnEntry provides e.id) {
-                        ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
+                    // A screen whose JS threw (or an app whose JS didn't start) shows the error screen instead.
+                    val appFailed = ZnNav.appFailed
+                    val failure = appFailed ?: ZnNav.failed[e.id]
+                    if (failure != null) {
+                        ZnErrorScreen.Draw(
+                            message = failure,
+                            startFailed = appFailed != null,
+                            hung = failure.startsWith(ZnRuntime.TIME_LIMIT_ERROR),
+                            canGoBack = appFailed == null && ZnNav.stack.indexOf(e) > 0,
+                            onRetry = { ZnNav.retry(e.id) },
+                            onBack = { ZnNav.systemBack() },
+                        )
+                    } else {
+                        CompositionLocalProvider(LocalZnEntry provides e.id) {
+                            ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
+                        }
                     }
                 }
             }

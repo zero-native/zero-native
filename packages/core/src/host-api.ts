@@ -3,4 +3,4 @@
 // The build writes it into each bundle's requirements, so an OTA bundle never runs on an app whose native side is
 // older than the core it was built with (docs/ota.md §3.2). No side effects: the compiler imports this file.
 
-export const HOST_API_VERSION = 1
+export const HOST_API_VERSION = 2 // 2: NAV FAILED, app event RETRY (step 3.9)

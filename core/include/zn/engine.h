@@ -74,8 +74,9 @@ class HostApi {
   // Misc.
   virtual void log(int level, std::string_view message) = 0;
   // JS caught an error it can't handle (a throwing event handler, timer, effect): logged, and shown on the dev
-  // error screen in debug builds (Platform::jsError).
-  virtual void jsError(std::string_view where, std::string_view details) = 0;
+  // error screen in debug builds (Platform::jsError). `kind`: "screen", "part", "async" or "handler"
+  // (packages/core/src/errors.ts).
+  virtual void jsError(std::string_view kind, std::string_view where, std::string_view details) = 0;
   virtual double nowMs() = 0;
 };
 
@@ -96,7 +97,15 @@ class Engine {
 
   // Runs queued microtasks. Called after every entry into JS (ARCHITECTURE §7.2, v0 lesson).
   virtual void drainMicrotasks() = 0;
+
+  // A time limit for each entry into JS (an event, a timer, building a screen; step 3.9). 0 = none. An entry that
+  // runs longer is stopped: it returns an error whose text starts with kTimeLimitError. Bytecode must be compiled
+  // with async break checks (hermesc -emit-async-break-check), or loops can't be interrupted.
+  virtual void setTimeLimit(uint32_t /* ms */) {}
 };
+
+// The start of the error text of a JS entry stopped by the time limit (Engine::setTimeLimit).
+inline constexpr const char* kTimeLimitError = "zero-native time limit:";
 
 using EngineFactory = std::function<std::unique_ptr<Engine>(HostApi&)>;
 
@@ -111,7 +120,7 @@ uint32_t hermesBytecodeVersion();
 // numbers, the batch and value formats. Raise kHostApiVersion when any of them gains something (packages/core/src/
 // host-api.ts must say the same number); raise kHostApiOldest only when something is removed or changes meaning,
 // which makes every bundle built before it refuse to run on this app (docs/ota.md §3.2).
-inline constexpr uint32_t kHostApiVersion = 1;
+inline constexpr uint32_t kHostApiVersion = 2;  // 2: NAV FAILED, app event RETRY (step 3.9)
 inline constexpr uint32_t kHostApiOldest = 1;
 
 }  // namespace zn

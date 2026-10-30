@@ -44,10 +44,11 @@ class Platform {
   // (Android: noBackupFilesDir/zn-storage).
   virtual std::string storageDir() = 0;
   virtual double nowMs() = 0;
-  // JS threw and nothing caught it (in a script, an event handler or a timer). `details` is the message and the JS
-  // stack. Debug builds show it on screen (`zn dev`); the default only logs it.
-  virtual void jsError(std::string_view where, std::string_view details) {
-    log(3, std::string(where) + ": " + std::string(details));
+  // JS threw and nothing caught it, or it hung or didn't start. `kind`: what was running ("screen", "part",
+  // "async", "handler" from JS; "hang" when the time limit stopped it; "start" when a script failed). `details`
+  // is the message and the JS stack. Debug builds show it on screen (`zn dev`); the default only logs it.
+  virtual void jsError(std::string_view kind, std::string_view where, std::string_view details) {
+    log(3, std::string(where) + " [" + std::string(kind) + "]: " + std::string(details));
   }
 };
 
@@ -63,6 +64,8 @@ class Runtime final : private HostApi {
   void dispatchBytes(uint32_t instance, uint16_t eventId, std::vector<uint8_t> bytes);
   void fireTimer(uint32_t handle);
   size_t activeTimers() const { return timers_.size(); }
+  // Each entry into JS may run at most `ms` (0 = no limit); see Engine::setTimeLimit.
+  void setTimeLimit(uint32_t ms) { engine_->setTimeLimit(ms); }
 
   // UI thread: the pending batch as bytes (see batch.h), or empty if there is nothing to apply.
   std::vector<uint8_t> takeBatch();
@@ -98,7 +101,7 @@ class Runtime final : private HostApi {
   uint32_t setTimer(double delayMs, bool repeat) override;
   void clearTimer(uint32_t handle) override;
   void log(int level, std::string_view message) override;
-  void jsError(std::string_view where, std::string_view details) override;
+  void jsError(std::string_view kind, std::string_view where, std::string_view details) override;
   double nowMs() override;
 
   void endTick();

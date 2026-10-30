@@ -10,8 +10,12 @@
 //   tells native to let the system handle it. JS always answers, so native's 300 ms fallback never fires normally.
 //
 // App-level events from native use instance 0 (no screen has id 0): START, BACK, FORCED_BACK, OPEN (a deep link
-// while the app runs), INSETS (5, insets.ts). Native side: android/runtime/.../ZnNav.kt.
-import { reportError } from "./errors"
+// while the app runs), INSETS (5, insets.ts), RETRY (7). Native side: android/runtime/.../ZnNav.kt.
+//
+// A screen that throws while it is being built stays on the stack (so Back works as usual) and native shows its
+// built-in error screen instead (NAV FAILED, step 3.9, docs/guide-notes.md §26). "Try again" there: native makes a
+// fresh root and sends RETRY; JS builds the screen again.
+import { reportError, setTopScreen } from "./errors"
 import { onEvent } from "./events"
 import { installInsets } from "./insets"
 import type { NativeValue } from "./native"
@@ -24,8 +28,8 @@ import { allocInstanceId, renderRoot, type View } from "./view"
 export interface Register {}
 type Routes = Register extends { routes: infer R } ? R : Record<string, RouteDef>
 
-const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6 } as const
-export const AppEvent = { Start: 1, Back: 2, ForcedBack: 3, Open: 4, Insets: 5, Impressions: 6 } as const
+const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7 } as const
+export const AppEvent = { Start: 1, Back: 2, ForcedBack: 3, Open: 4, Insets: 5, Impressions: 6, Retry: 7 } as const
 const APP = 0
 
 interface Entry {
@@ -36,6 +40,8 @@ interface Entry {
   dispose: () => void
   onBack: (() => boolean) | null
   impressions?: { handler: (keys: string[]) => void; session: boolean }
+  /** The screen threw while being built; native shows its error screen. */
+  failed?: boolean
 }
 
 /** Keys already reported in this app session (for `once: "session"`). */
@@ -156,6 +162,8 @@ export function startApp(routes: Record<string, RouteDef>): void {
   onEvent(APP, AppEvent.ForcedBack, (payload) => onForcedBack(payload))
   onEvent(APP, AppEvent.Open, (payload) => onOpenLink(payload))
   onEvent(APP, AppEvent.Impressions, (payload) => onImpressions(payload))
+  onEvent(APP, AppEvent.Retry, (payload) => onRetry(payload))
+  setTopScreen(() => stack[stack.length - 1]?.name ?? null)
   installInsets()
 }
 
@@ -184,16 +192,45 @@ function open(name: string, params: Record<string, unknown>): Entry {
 
 /** Renders an entry's screen on its root instance and puts it on top of the stack. */
 function show(e: Entry): void {
+  render(e)
+  stack.push(e)
+}
+
+/**
+ * Builds an entry's screen. If it throws, the entry stays (so the stack JS and native see stays the same and Back
+ * works), the error is reported, and native shows its error screen for it (NAV FAILED).
+ */
+function render(e: Entry): void {
   const screen = table![e.name].screen
   const prev = rendering
   rendering = e
   try {
     // Screens return JSX, which the compiler turned into a View.
     e.dispose = renderRoot(e.id, screen as (props: Record<string, unknown>) => View, e.params)
+    e.failed = false
+  } catch (err) {
+    // renderRoot has already stopped whatever the screen started. Handlers it set up belong to the failed build.
+    e.dispose = () => {}
+    e.onBack = null
+    e.impressions = undefined
+    e.failed = true
+    reportError(`screen "${e.name}"`, err, "screen", e.name)
+    const message = err instanceof Error ? err.message : String(err)
+    globalThis.__zn_nav(NavKind.Failed, e.id, 0, JSON.stringify({ message }))
   } finally {
     rendering = prev
   }
-  stack.push(e)
+}
+
+/**
+ * "Try again" on a screen native shows as failed (it threw while being built, or JS hung on it): native has made a
+ * fresh root for it; stop what is left of the old build and build the screen again.
+ */
+function onRetry(payload: NativeValue): void {
+  const e = stack.find((s) => s.id === Number(payload))
+  if (!e) return
+  e.dispose()
+  render(e)
 }
 
 /** Disposes an entry's screen (effects, events, timers). `send`: also tell native to take it out of the stack. */

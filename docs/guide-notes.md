@@ -484,6 +484,112 @@ await SecureStore.set("refreshToken", token)
 
 ---
 
+## 26. When your code breaks (step 3.9)
+What users see, and what you can do:
+| What fails | What happens |
+|---|---|
+| A screen throws while it is built | It stays on the stack and shows the error screen: **Try again** builds it again, **Go back** works (on the first screen: Try again only) |
+| A part of a screen throws (a child component, an `&&` block, a list row) | Only that part stays empty; the rest of the screen works |
+| A tap handler, timer, effect or listener throws | Nothing changes on screen; it is reported |
+| An `async` function or a Promise rejects and nothing catches it | Reported (after ~100 ms for TypeError / ReferenceError / RangeError, ~2 s for others) |
+| JS runs too long (an endless loop) | Stopped after the time limit (2 s; 3 s in debug builds); the top screen shows "stopped responding" with Try again. Anything over 200 ms is logged as "slow JS" |
+| The app's JS fails at start | Every screen shows "The app couldn't start" with **Restart app** |
+Every one of these is logged, shown on the red screen in debug builds, and passed to your error handlers.
+
+- **Do:** send errors somewhere you can see them. In JS: `onError((error, info) => ...)` (`info.kind`, `info.where`,
+  `info.screen`). In Kotlin, for Crashlytics: `ZnRuntime.onJsError = { e -> ... }` (`e.kind`, `e.where`, `e.screen`,
+  and `e.bundle`, the running OTA bundle). Both get every case in the table above; `kind` says which (screen,
+  part, async, handler; Kotlin also hang, start, renderer). Keep handlers short; an error inside one is only logged.
+- **Do:** set the error screen's words in your users' language: `ZnErrorScreen.texts = ZnErrorScreen.Texts(...)`,
+  and your colours with `ZnErrorScreen.colors`, in Application.onCreate.
+- **Do:** add the two lines that bring screens back after Android kills the app in the background, in your
+  Activity: `ZnNav.start(bundle, link, savedInstanceState)` and, in `onSaveInstanceState`, `ZnNav.saveState(outState)`.
+  Mark screens that must never reopen on their own with `restore: false` in `routes.ts` (a "payment done" screen).
+  Screens come back with their route params; their signals start fresh, so keep what must survive in `storage` or
+  `flowStore`.
+- **Don't:** rely on the error screen for flows that move money. A payment screen that fails to build must not leave
+  the payment unknown: keep the save-then-verify pattern (§16), which works whatever the UI does.
+- **Don't:** do heavy work in one go on the JS thread (parsing a huge file, a long loop). Taps wait while it runs
+  (scrolling and animations don't), over 200 ms it is logged as "slow JS", and past the time limit it is stopped.
+  Split it up, or do it in a native module. What to do with big data: §27. Change the limit with `ZnRuntime.jsTimeLimitMs` (0 = none), for example
+  while pausing in a debugger.
+- **Why:** one broken screen should never take the whole app down (React Native's default), and Back must always
+  work. The framework reports and shows the fallback; anything more (restarting after repeated hangs, reporting) is
+  the app's choice.
+
+---
+
+## 27. Long JS work: the time limit, "slow JS" and big downloads (step 3.9)
+**How it works.** JS runs on its own thread. While one piece of JS runs (a tap handler, a timer, a native answer,
+building a screen, and the `await` / `.then` callbacks that follow it in the same turn), the UI still scrolls,
+animates and goes back, but **taps wait**. So:
+- **Over 200 ms:** logged as `slow JS: <what> ran for N ms` (debug and release). Users start to feel taps lag.
+  Fix it before it ships.
+- **Over the time limit** (2 s release, 3 s debug; `ZnRuntime.jsTimeLimitMs`): stopped. The top screen shows
+  "stopped responding" with Try again, and it is reported as a hang. This is a bug catcher for endless loops and
+  stuck code, not a speed target: correct code never gets near it.
+
+**Measured on the Lava (release):** `JSON.parse` of 0.4 MB takes ~10 ms, 3.7 MB 37 ms, 15 MB ~190 ms. Walking the
+parsed rows is a few ms. So parsing a big download is not the problem; doing heavy work on every row in one go
+is (and memory: 15 MB of JSON becomes many times that as JS objects). On a phone 4× slower than the Lava, 15 MB
+still parses in under 1 s.
+
+**When you have a lot of data:**
+1. **Don't send it.** The best fix is on the server: pages (`?after=…&limit=50`), only the fields the screen shows,
+   a summary instead of every row. A phone on a 3G-like network takes far longer to download 15 MB than to parse it.
+2. **Show it with `<List>`**, never `.map` over thousands of rows (docs/lists.md): rows are built only near the
+   screen.
+3. **Split heavy work into turns.** Process a few hundred rows, then let taps run, then go on:
+   ```ts
+   const nextTurn = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+   for (let i = 0; i < rows.length; i += 500) {
+     rows.slice(i, i + 500).forEach(addToIndex)
+     await nextTurn() // a new JS task: taps run here, and the time limit starts again
+   }
+   ```
+   **Use `setTimeout`, not `await Promise.resolve()` or `queueMicrotask`:** those callbacks run in the **same** task
+   (before any tap), so they neither let taps through nor restart the time limit.
+4. **Ask for less at once:** JSON Lines from the server (one record per line) lets you parse and process line by line
+   across turns, as in 3.
+5. **Very large or binary data: keep it out of JS.** Write a native module that downloads, parses and stores it
+   (SQLite, files, `storage`) on a background thread and returns only what the screen needs (counts, one page). JS
+   has no worker threads in zero-native (one runtime per app), so native is the place for bulk work.
+   **Photos, video, camera frames, PDFs: never as bytes through JS.** A native module keeps the object and gives JS a
+   short handle (`zn://file/kyc/front-01.jpg`, ARCHITECTURE §15.4); `<Image src>` and uploads take the handle. A
+   4K photo is ~12 MB of pixels; copying it into JS and back costs far more than any JSON, and memory too.
+6. **Only if you really must** (for example a slow, correct import on very old phones): raise
+   `ZnRuntime.jsTimeLimitMs` for the whole app. Prefer 1–5, which fix the cause.
+
+- **Don't:** treat "slow JS" lines as noise. Each one is a moment when the user's taps waited.
+- **Why:** keeping each piece of JS short is what keeps taps instant. The 200 ms warning shows problems in
+  development; the time limit makes sure a bug can't leave the app looking frozen forever.
+
+---
+
+## 28. Releasing an OTA update (step 4.3; phones download them from step 4.5)
+```
+bun run ota keygen                                   once: a key pair; put the public key in the app
+bun run ota build                                    builds and releases a bundle (#N); never publishes
+bun run ota publish --channel staging --bundle N     staging phones get it; test it there
+bun run ota stable --bundle N                        after testing on staging
+bun run ota publish --channel production --bundle N --rollout 10     asks you to type PRODUCTION #N
+bun run ota rollout --channel production --percent 100
+bun run ota publish --channel production --bundle M --rollout 100    rollback: point back at an older bundle
+bun run ota kill --channel production --reason "..."                  everyone back to the APK's own bundle
+```
+- **Do:** keep the private key outside the repo (`~/.zero-native/keys/`, the default) and make a **backup** key
+  too (`keygen --name backup`), kept offline. The app trusts both; if the main key is lost or leaks, the backup
+  key still signs, and the next store release can carry a new pair.
+- **Do:** commit before `bun run ota build` for anything going to production: bundles built from uncommitted
+  changes can only go to staging.
+- **Do:** start production with a small rollout and raise it; `status` shows what each channel serves.
+- **Don't:** delete or edit files in the store by hand. Every record is written once; the phone keeps the highest
+  seq it accepted, so a deleted or rewritten pointer can leave phones ignoring the channel.
+- **Why:** the same rules as ZeroBill's RN OTA v2, which came from real incidents: staging first, then stable, then a
+  typed confirmation; one bundle = one serial = one SHA; rollback and the kill switch are just signed pointers.
+
+---
+
 ## Open items to write up when built
 - `<List>` rails, carousel, impressions (steps 2.4b–d). See
   `docs/cross-communication/2026-10-29-feeds-and-lists-proposal.md`.

@@ -76,11 +76,42 @@ keeping every lesson that applies.
   log in `docs/milestones.md`).
 - A native hash is still computed later, but only for logs and the release page.
 
-### 3.3 Signatures
-- Bundle (once): `zn-ota-v1 \n bundle \n <app id> \n <bundle id> \n <bundle sha256> \n <assets digest> \n <requires digest>`.
-- Pointer (every change): `zn-ota-v1 \n pointer \n <channel> \n <seq> \n <bundle id | BUILT_IN>`.
+### 3.3 Signatures (built in step 4.3)
+ECDSA P-256 with SHA-256; signatures are base64 DER (what Android's `SHA256withECDSA` verifies); public keys are
+base64 SPKI DER, one line each. The texts are byte-identical in `tools/ota/signing.ts` (CLI, server) and
+`ZnOtaSignature.kt` (phone); a JVM test verifies a signature the CLI made (`ZnOtaSignatureTest`).
+- **Bundle** (once, at release): `zn-ota-v1 \n bundle \n <app> \n <bundle id> \n <serial> \n <bundle sha256> \n
+  <requires line> \n <zip sha256> \n <zip size>`. The bundle SHA covers every file (code and images), so no separate
+  image digest is needed; the requires line (`registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1`, modules
+  sorted) is signed because `zn-bundle.json` itself isn't hashed; the zip SHA lets the phone check the download
+  before unzipping it.
+- **Pointer** (every change): `zn-ota-v1 \n pointer \n <app> \n <channel> \n <seq> \n <bundle id | BUILT_IN>`. The app
+  is in the text (not in the first proposal), so a pointer of one app can't be replayed to another signed by the
+  same key.
 - Rollout % and priority are not signed (they only delay or speed up a bundle already chosen). Main + backup public
-  keys in the app; the private key never in the repo.
+  keys in the app; the private key never in the repo (`~/.zero-native/keys/<app>-main.pem`; the CLI refuses a key
+  inside the repo).
+
+### 3.3b The store and the release CLI (built in step 4.3)
+**Store** (`tools/ota/store.ts`): every record is a file created once and never changed, so two releases can't take
+the same serial or seq (the second create fails) and no database or compare-and-swap is needed (RN OTA v2 left
+compare-and-swap JSON on GCS because it was slow and easy to break). Per app:
+```
+<app>/bundles/<id>/<zip sha256>.zip     the files (the name has the SHA: a retry never replaces another zip)
+<app>/bundles/<id>/manifest.json        the signed record; creating it is the moment the bundle exists
+<app>/bundles/<id>/stable.json          "stable on staging" (created once)
+<app>/channels/<channel>/<seq>.json     one file per pointer change (seq zero-padded); the highest is current
+```
+Adapters: a local folder now (development, tests, any static web server). **GCS: not built yet**: create-only
+maps to an upload with `ifGenerationMatch=0`; it needs a test bucket to be built and checked against.
+
+**CLI** (`bun run ota <command>`; settings in the app's `zn-ota.json`): `keygen`, `build` (builds the app, releases
+the bundle; the same bytes reuse their serial; never publishes), `publish` (staging, production; rollback = publish an
+older bundle), `stable`, `rollout`, `kill`, `status`, `verify` (every signature and zip). Rules (all in
+`tools/ota/core.ts`, tested): production only for a bundle staging served and the owner marked stable, built from a
+commit (not uncommitted changes), with an explicit rollout and the typed `PRODUCTION #N`; the kill switch needs
+`KILL <CHANNEL>` (production also a reason) and is a signed pointer to `BUILT_IN`; one release action at a time on a
+computer (`~/.zero-native/ota.lock`).
 
 ### 3.4 The check (one request)
 `GET /check` with headers: app id + channel, capabilities (digest + list), running bundle id + sha, built-in id, kept
@@ -125,7 +156,7 @@ phone → `USE_LOCAL`; else `UPDATE` (full download; patch later, D5). Resumable
 | 4.0 | This proposal + Pavan's decisions (§2) → `docs/ota.md` becomes the design; ARCHITECTURE §16 / §24 updated | decisions logged |
 | 4.1 | Bundle format and loader: one place decides where hbc / templates / manifest / images come from; built-in bundle id + serial in the APK | **done 2026-10-30** (`ZnBundles.kt`; see `docs/milestones.md` log) |
 | 4.2 | Capability manifest: native side, compiler side (requirements), load-time check | **done 2026-10-30** (§3.2; `docs/milestones.md` log) |
-| 4.3 | Signing + release CLI (`zn ota`): build, serial, sign, zip, publish (local folder / GCS), pointers with seq, kill switch, rollback, stable / approve, typed confirmation for production | publish → pointer → files on disk, all signed |
+| 4.3 | Signing + release CLI (`zn ota`): build, serial, sign, zip, publish (local folder / GCS), pointers with seq, kill switch, rollback, stable / approve, typed confirmation for production | **done 2026-10-30** for the local store (§3.3, §3.3b); GCS adapter waits for a test bucket |
 | 4.4 | Reference update server (Bun): the check, the pure decision function (one test per row), Range downloads | decision tests + manual checks with curl |
 | 4.5 | Client: check, resumable download, verify, atomic install, kept bundles, seq, `Updates` JS API | phone downloads and installs; kill mid-download / mid-install leaves the old bundle running |
 | 4.6 | Apply: cold start + `applyNow()` (release-safe restart), `holdApply()`, cover screen | apply during a visit, screens reopen; held during a fake checkout |

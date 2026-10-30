@@ -21,10 +21,12 @@ export interface RouteEntry {
   deepLink: boolean
   /** "resize" (default): the screen shrinks above the keyboard. "none": the keyboard covers the screen. */
   keyboard: "resize" | "none"
+  /** false: not reopened after Android kills the app in the background (default true). */
+  restore: boolean
 }
 
 const TRANSITIONS = ["push", "modal", "fade", "none"]
-const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard"]
+const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore"]
 
 /** The routes declared in [source], or null if it has no `defineRoutes` call. */
 export function readRoutes(source: string, fileName: string): RouteEntry[] | null {
@@ -119,6 +121,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
       statusBar: (options.statusBar as RouteEntry["statusBar"]) ?? "dark",
       deepLink: (options.deepLink as boolean) ?? false,
       keyboard: (options.keyboard as RouteEntry["keyboard"]) ?? "resize",
+      restore: (options.restore as boolean) ?? true,
     })
   }
   if (!routes.some((r) => r.path === "/")) fail(arg, 'one route needs path "/" (where the app starts)')
@@ -146,7 +149,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
     const ok =
       key === "transition" ? TRANSITIONS.includes(v as string)
       : key === "statusBar" ? v === "dark" || v === "light"
-      : key === "deepLink" ? typeof v === "boolean"
+      : key === "deepLink" || key === "restore" ? typeof v === "boolean"
       : key === "keyboard" ? v === "resize" || v === "none"
       : v === "all" || v === "none" ||
         (typeof v === "object" && v !== null &&

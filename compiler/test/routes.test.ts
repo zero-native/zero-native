@@ -24,16 +24,16 @@ describe("routes", () => {
     const routes = read(`export const routes = defineRoutes({
       home: { path: "/", screen: HomeScreen },
       amount: { path: "/pay/:merchantId", screen: Amount, deepLink: true },
-      receipt: { path: "/receipt/:ztc", screen: ReceiptScreen, transition: "modal", safeArea: { top: false }, statusBar: "light" },
+      receipt: { path: "/receipt/:ztc", screen: ReceiptScreen, transition: "modal", safeArea: { top: false }, statusBar: "light", restore: false },
     })`)
     expect(routes!.map((r) => r.name)).toEqual(["home", "amount", "receipt"])
     expect(routes![0]).toEqual({
       name: "home", path: "/", component: "HomeScreen", transition: "push", safeArea: "all", statusBar: "dark", deepLink: false,
-      keyboard: "resize",
+      keyboard: "resize", restore: true,
     })
     expect(routes![1].component).toBe("AmountScreen") // the exported name, not the local alias
     expect(routes![1].deepLink).toBe(true)
-    expect(routes![2]).toMatchObject({ transition: "modal", safeArea: { top: false, bottom: true }, statusBar: "light" })
+    expect(routes![2]).toMatchObject({ transition: "modal", safeArea: { top: false, bottom: true }, statusBar: "light", restore: false })
   })
 
   test("a file without defineRoutes", () => {

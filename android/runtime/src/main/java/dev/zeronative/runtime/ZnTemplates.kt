@@ -100,6 +100,7 @@ object ZnTemplates {
                 darkBarIcons = r.getString("statusBar") == "dark",
                 deepLink = r.getBoolean("deepLink"),
                 resizeForKeyboard = r.optString("keyboard", "resize") != "none",
+                restore = r.optBoolean("restore", true),
             )
         }
         return ZnBundle(templates, components, ZnRoutes(routes))

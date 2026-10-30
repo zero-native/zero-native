@@ -87,12 +87,20 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | **done 2026-10-30** |
 | 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviewed + fixed | **done 2026-10-30** (note: `docs/cross-communication/2026-10-30-steps-3.7-3.8-gemini-done.md`) |
 | 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviewed + fixed | **done 2026-10-30** |
-| 3.9 | **Resilience** (agreed 2026-10-30): (1) a screen that throws while being built stays on the stack and native shows a built-in fallback (release: "Something went wrong" + Go back / Try again; first screen: Try again; debug: the red screen with the TSX line); a failing part of a screen (conditional block, list row) stays empty, the rest works; (2) promise rejection tracking, so errors in `async` code are reported; (3) a time limit on each JS task (Hermes `watchTimeLimit`, ~5 s) instead of a frozen app; (4) `onError(handler)` for apps (screen name, bundle id) to send to Crashlytics / a backend; (5) checks on templates and values when they arrive (unknown ids, wrong value types, a node placed inside itself): refuse or report instead of crashing; (6) the back stack saved on every change and reopened after Android kills the app in the background (designed in ARCHITECTURE §11, built only in v0); (7) `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` reuse cached formatters per locale + options, so the simple way is also the fast way (today ~2 ms per call, guide note §25) | Claude | after 4.2; needed by 4.7 |
+| 3.9 | **Resilience** (agreed 2026-10-30; **done 2026-10-30**, log below): (1) a screen that throws while being built stays on the stack and native shows a built-in fallback (release: "Something went wrong" + Go back / Try again; first screen: Try again; debug: the red screen with the TSX line); a failing part of a screen (conditional block, list row) stays empty, the rest works; (2) promise rejection tracking, so errors in `async` code are reported; (3) a time limit on each JS task (Hermes `watchTimeLimit`, ~5 s) instead of a frozen app; (4) `onError(handler)` for apps (screen name, bundle id) to send to Crashlytics / a backend; (5) checks on templates and values when they arrive (unknown ids, wrong value types, a node placed inside itself): refuse or report instead of crashing; (6) the back stack saved on every change and reopened after Android kills the app in the background (designed in ARCHITECTURE §11, built only in v0); (7) `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` reuse cached formatters per locale + options, so the simple way is also the fast way (today ~2 ms per call, guide note §25) | Claude | after 4.2; needed by 4.7 |
 
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
-recommended; logged in ARCHITECTURE §16 / §24. 4.1 and 4.2 done 2026-10-30 (log below). Next: 3.9 (resilience),
-then 4.3 onwards; Claude.
+recommended; logged in ARCHITECTURE §16 / §24. 4.1, 4.2, step 3.9 and 4.3 (local store) done 2026-10-30 (log
+below). Next: 4.4 (reference update server); Claude.
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
+
+**Agreed for after 4.9 (Pavan, 2026-10-30): `restorableSignal(key, initial)`.** Like `signal`, but its value comes
+back when Android restores a screen after killing the app in the background (step 3.9 brings the screens back; their
+signals start fresh today). For the amount typed on the keypad, a half-filled form, the selected tab. Each change
+goes to native, which keeps the values per screen entry and saves them with the back stack (`ZnNav.saveState`); on
+restore, the START payload hands them back as the starting values. JSON-able values only, a size cap (saved state
+is small), nothing kept across normal launches (that is `storage`). About half a day; React Native has no such
+thing, Flutter (`RestorationMixin`) and Compose (`rememberSaveable`) do.
 
 Later milestones: **4** OTA (signed bundles, bundle pool, boot guard, capability manifest, "an older app ignores a
 newer bundle" test, release crash traces mapped back to TSX); **5** ZeroBill checkout pilot with a full-app size
@@ -109,6 +117,62 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: step 4.3 done (Claude): signing and the release CLI
+- **Signing** (`tools/ota/signing.ts`, phone: `ZnOtaSignature.kt`): ECDSA P-256, DER signatures, base64 SPKI keys;
+  bundle and pointer texts as in `docs/ota.md` §3.3 (the app is now in the pointer text; serial, requires line, zip
+  SHA and size in the bundle text). Cross-checked: the JVM test verifies signatures the CLI made
+  (`ota-signature-fixture.json`, a throwaway key; no private key stored) and refuses a changed seq or channel,
+  another key and bad input.
+- **Store** (`tools/ota/store.ts`): create-once files (bundles, manifests, marks, one file per pointer change), so
+  two releases can't take one serial or seq. Local folder adapter; GCS waits for a test bucket.
+- **CLI** (`bun run ota ...`, rules in `tools/ota/core.ts`): keygen, build (same bytes reuse their serial; never
+  publishes), publish (rollback = publish older), stable, rollout, kill, status, verify; the RN OTA v2 rules for
+  production (stable on staging, built from a commit, explicit rollout, typed `PRODUCTION #N`) and the kill switch
+  (typed `KILL <CHANNEL>`, reason on production); a lock for one action at a time. The sample's settings:
+  `examples/sample/zn-ota.json` (store `.zn-ota-store/`, gitignored). `bundle-info.ts` gained `readBundleInfo` and
+  `setBundleSerial`. New dev dependency: `fflate` 0.8.2 (zips; the RN release tool uses it too).
+- **Tests:** 11 for the release rules (serial reuse, racing serial / seq, production rules, kill switch, rollback,
+  verify finds a tampered zip / pointer), 4 Kotlin (cross-check, base64); JS 161 total; lint 0 errors.
+- **Dry run** with the sample and a throwaway key: build #1 (128 KB zip), build again → same bytes, staging,
+  production refused before `stable` and again for a build from uncommitted changes, kill switch refused with the
+  wrong text and accepted with `KILL STAGING`, status, verify clean. Store and key deleted afterwards.
+- Not yet: GCS adapter (needs a test bucket), source maps per bundle (4.8), deleting bundles (RN rule 10), a
+  release page like RN's console.
+
+### 2026-10-30: step 3.9 done (Claude): resilience
+- **A screen that throws** stays on the stack; native draws `ZnErrorScreen` (NAV FAILED): Try again (native makes a
+  fresh root, JS builds it again: RETRY) and Go back (the normal back path). Fixes the bug where Back then closed the
+  screen underneath. **A failing part** (child component, `&&` block, list row) is caught where it mounts: what it
+  started is stopped, what it sent is removed, the rest works. **JS that fails to start**: every screen shows the
+  error screen with Restart app (a new process). Texts and colours: `ZnErrorScreen.texts / colors`.
+- **Async errors**: Hermes' Promise rejection tracker is on; unhandled rejections are reported (kind async).
+- **Time limit** per JS entry, in the C++ core: a watchdog thread calls Hermes' `asyncTriggerTimeout` when one
+  entry runs too long; bytecode is built with `-emit-async-break-check`. `ZnRuntime.jsTimeLimitMs` (2 s release,
+  3 s debug, lowered from 5 s / 30 s at Pavan's request; sample: `debug.zn.js_time_limit_ms`). A hang shows the error
+  screen on the top screen. Every entry over 200 ms is logged as "slow JS" (what ran, how long).
+- **Reporting**: `onError(handler)` in JS (kind screen / part / async / handler, where, screen) and
+  `ZnRuntime.onJsError` in Kotlin (the same kinds plus hang / start / renderer, screen, **bundle id**) for crash
+  reporting. The kind travels from JS through the C++ core (`__zn_error`'s optional third argument).
+- **Bad data**: the template reader also checks each value's type against its prop (it caught Gemini's `value`
+  holding booleans, which is intended: `value` is now an explicit exception on both sides); each batch op is wrapped
+  (a bad one is reported as kind renderer and skipped); a mount that would put a node inside itself is refused.
+- **Back stack after process death**: `ZnNav.saveState` / `ZnNav.start(..., savedInstanceState)` (two lines in the
+  app's Activity); route option `restore: false`.
+- **Intl**: `toLocaleString` and the three Date methods keep cached formatters (same text as the originals, tested).
+- **Host API 2** (NAV FAILED, app event RETRY).
+- **Tests:** JS 150 (nav 3, view 2, errors 2, intl 3 new); compiler routes; Kotlin tests; core 148 on the phone;
+  Android lint 0 errors.
+- **Verified on the Lava (debug), sample "Crash lab" screen (`zn://sample/dev/crash`):** screen that throws → error
+  screen, Try again builds it, Go back and system back return to the screen under it; tap, async and part errors
+  reported to `onError` and `onJsError` (with screen and bundle `sample_0`); an endless loop stopped after the 3 s
+  test limit, error screen "stopped responding", Try again rebuilds the screen; a node inside itself refused (kind
+  renderer), app keeps running; JS that throws at start → "The app couldn't start" + Restart app → new process;
+  killed in the background (`am kill`) and reopened from the launcher → home + crash lab back (the `restore: false`
+  screen left out), Back works; a fresh launch after force-stop starts on Home. Intl: cached = fresh formatter 4/4.
+- **Cost (release, speed-profile, n=10, two rounds):** break checks add 757 bytes of bytecode (0.2 %); cold start
+  186 / 190 ms without vs 196 / 193 ms with: within the usual spread.
+- Not done here: OTA rollback after errors (4.7, builds on this).
+
 ### 2026-10-30: step 4.2 done (Claude): capability manifest
 - **Registry:** `BASE_VERSION = 8` (everything today) and an `Added` table for anything added or visibly changed
   later. `registry.lock.json` keeps the last accepted registry; the test and `bun run gen:registry` refuse removed,

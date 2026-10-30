@@ -148,3 +148,39 @@ test("a component's body runs inside its instance: its effects stop when it is r
   tick.set(1)
   expect(seen).toEqual([0])
 })
+
+// ---- A part of a screen that throws (step 3.9) ----------------------------------------------------------------------
+
+test("a child that throws leaves only its part empty; what it sent is removed; the rest keeps working", () => {
+  const label = signal("a")
+  const Bad = () => {
+    throw new Error("bad row")
+  }
+  // A child that sends MOUNT, then a grandchild component throws while it builds: the grandchild is left out, the
+  // child itself stays (only the failing part is empty).
+  const Inner = () => view(5, (i) => component(i, 1, Bad, {}))
+  renderRoot(ROOT, () => view(0, (i) => {
+    slot(i, 0, () => label())
+    component(i, 3, Inner, {})
+    when(i, 4, () => true, () => Bad())
+  }), {})
+  expect(kinds()).toEqual(["patch", "mount"]) // the root's value, Inner; Bad (twice) never got as far as MOUNT
+  expect(host.logs.filter(([, m]) => m.includes("a part of the screen (left empty) threw")).length).toBe(2)
+  label.set("b") // the screen still works
+  expect(host.ops.at(-1)).toEqual(["patch", ROOT, 0, "b"])
+})
+
+test("a child that throws after its MOUNT went out is removed again", () => {
+  const Half = () => view(6, (i) => {
+    on(i, 1, () => {})
+    // ready() runs inside component(): MOUNT is sent, then the grandchild's body throws.
+    component(i, 2, () => view(7, () => {
+      throw new Error("late")
+    }), {})
+    throw new Error("after mount")
+  })
+  renderRoot(ROOT, () => view(0, (i) => component(i, 3, Half, {})), {})
+  const [mount, remove] = host.ops.filter((o) => o[0] === "mount" || o[0] === "remove")
+  expect(mount[0]).toBe("mount")
+  expect(remove).toEqual(["remove", mount[4]])
+})

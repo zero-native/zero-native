@@ -29,6 +29,7 @@ sealed class BatchOp {
             const val EXIT = 4
             const val BACK_ANSWERED = 5
             const val IMPRESSIONS = 6
+            const val FAILED = 7
         }
     }
 }

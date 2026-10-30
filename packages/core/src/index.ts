@@ -6,6 +6,8 @@ import { installCalls } from "./calls"
 import { installAbort } from "./abort"
 import { installText } from "./text"
 import { installFetch } from "./fetch"
+import { installRejectionTracking } from "./errors"
+import { installIntlCache } from "./intl"
 
 export * from "./native"
 export { parseColor } from "./color"
@@ -81,6 +83,7 @@ export {
   type Transition,
 } from "./routes"
 export { setTimeout, setInterval, clearTimeout, clearInterval, activeTimerCount } from "./timers"
+export { onError, type ErrorInfo, type ErrorKind } from "./errors"
 
 /** Installs console, timers and event dispatch on the global object. Call once, first thing in the bundle. */
 export function installRuntime(): void {
@@ -91,4 +94,6 @@ export function installRuntime(): void {
   installCalls()
   installText()
   installFetch()
+  installRejectionTracking() // after timers: Hermes' tracker uses setTimeout
+  installIntlCache()
 }

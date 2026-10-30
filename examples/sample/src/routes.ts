@@ -13,6 +13,7 @@ import { AnimationScreen } from "./AnimationScreen"
 import { DevScreen } from "./DevScreen"
 import { PressScreen } from "./PressScreen"
 import { ComponentsScreen } from "./ComponentsScreen"
+import { CrashLabScreen, CrashScreen } from "./CrashLabScreen"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -28,6 +29,9 @@ export const routes = defineRoutes({
   dev: { path: "/dev", screen: DevScreen, deepLink: true },
   press: { path: "/dev/press", screen: PressScreen, deepLink: true },
   components: { path: "/dev/components", screen: ComponentsScreen, deepLink: true },
+  crashLab: { path: "/dev/crash", screen: CrashLabScreen, deepLink: true },
+  // restore: false: not reopened after Android kills the app (step 3.9); the crash lab is reopened instead.
+  crashScreen: { path: "/dev/crash/screen", screen: CrashScreen, restore: false },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

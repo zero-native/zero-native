@@ -29,6 +29,9 @@ internal object ZnNative {
 
     @JvmStatic external fun destroyRuntime(runtime: Long)
 
+    /** JS thread. Each entry into JS may run at most [ms] (0 = no limit). */
+    @JvmStatic external fun setTimeLimit(runtime: Long, ms: Int)
+
     /** Returns "ok:<value>" or "error:<message>". */
     @JvmStatic external fun evalAsset(runtime: Long, assets: AssetManager, name: String): String
 
@@ -75,5 +78,6 @@ internal object ZnNative {
     @JvmStatic fun onCancelNative(callbackId: Int) = ZnModules.cancel(callbackId)
 
     /** JS threw and nothing caught it. "where\nmessage and JS stack", as UTF-8. Already in logcat. */
+    /** "kind\nwhere\nmessage and stack" (jni_bridge.cpp). */
     @JvmStatic fun onJsError(text: ByteArray) = ZnRuntime.jsError(String(text, Charsets.UTF_8))
 }
