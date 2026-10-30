@@ -10,7 +10,7 @@ import { join, resolve } from "node:path"
 import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs"
 import { parseArgs } from "node:util"
 import { buildApp } from "@zero-native/compiler"
-import { hermesc } from "../../tools/hermesc"
+import { bytecodeVersion, hermesc } from "../../tools/hermesc"
 import { writeBundleInfo } from "../../tools/bundle-info"
 
 const { values: args } = parseArgs({ options: { serial: { type: "string" }, out: { type: "string" } } })
@@ -46,5 +46,6 @@ const assetNames = existsSync(appAssets) ? readdirSync(appAssets) : []
 if (assetNames.length > 0) cpSync(appAssets, assets, { recursive: true })
 
 const names = ["main.hbc", "main.zn.ui", "main.zn.ui.json", ...assetNames]
-const info = await writeBundleInfo(assets, { app: "sample", serial, names })
-console.log(`sample: wrote zn-bundle.json (${info.id}, sha256 ${info.sha256.slice(0, 12)}…)`)
+const requires = { ...app.requires, bytecode: await bytecodeVersion(join(assets, "main.hbc")) }
+const info = await writeBundleInfo(assets, { app: "sample", serial, names, requires })
+console.log(`sample: wrote zn-bundle.json (${info.id}, sha256 ${info.sha256.slice(0, 12)}…, needs ${JSON.stringify(info.requires)})`)

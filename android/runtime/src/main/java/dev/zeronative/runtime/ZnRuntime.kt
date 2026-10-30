@@ -70,12 +70,9 @@ object ZnRuntime {
             val n = createdCount.get()
             Log.i(TAG, "runtime #$n started in ${SystemClock.uptimeMillis() - t0} ms (pid ${Process.myPid()})")
         }
-        ZnModules.register(ZnKeyboard) // built-in module: Keyboard.dismiss()
+        // Built-in modules (Keyboard, Fetch, SecureStore, Toast) are registered by ZnModules itself; two need a Context.
         ZnFetch.init(appContext) // built-in module behind the global fetch()
-        ZnModules.register(ZnFetch)
         ZnSecureStore.init(appContext) // built-in module: SecureStore (Keystore-encrypted secrets)
-        ZnModules.register(ZnSecureStore)
-        ZnModules.register(ZnToast) // built-in module: Toast.show
         if (BuildConfig.DEBUG) ZnDev.start(appContext)
     }
 

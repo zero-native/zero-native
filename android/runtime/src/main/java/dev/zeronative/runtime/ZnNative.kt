@@ -21,6 +21,9 @@ internal object ZnNative {
         System.loadLibrary("zn")
     }
 
+    /** Any thread. [Hermes bytecode format, host API version, oldest host API version] (ZnCapabilities). */
+    @JvmStatic external fun capabilities(): IntArray
+
     /** [flowDir], [storageDir]: existing app-private folders for FlowStore and app storage, excluded from backups. */
     @JvmStatic external fun createRuntime(flowDir: String, storageDir: String): Long
 

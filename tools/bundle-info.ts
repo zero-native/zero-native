@@ -13,6 +13,21 @@ export interface BundleFile {
   sha256: string
 }
 
+/**
+ * What an app must have to run the bundle (docs/ota.md §3.2). The phone refuses a downloaded bundle it can't cover;
+ * the update server (step 4.4) doesn't offer it.
+ */
+export interface BundleRequires {
+  /** Lowest registry version that has everything the templates use. */
+  registry: number
+  /** Hermes bytecode format (must match exactly). */
+  bytecode: number
+  /** Host API of the bundled `@zero-native/core`. */
+  hostApi: number
+  /** Native module name → lowest version needed. */
+  modules: Record<string, number>
+}
+
 export interface BundleInfo {
   format: number
   /** The app this bundle belongs to; the phone never runs another app's bundle. */
@@ -23,6 +38,7 @@ export interface BundleInfo {
   id: string
   /** SHA-256 of the file list below (one line per file, sorted: "name size sha256\n"): one value for the bundle. */
   sha256: string
+  requires: BundleRequires
   /** Paths relative to the bundle root, with "/" separators. */
   files: Record<string, BundleFile>
   builtAt: string
@@ -46,7 +62,7 @@ export function bundleSha256(files: Record<string, BundleFile>): string {
  */
 export async function writeBundleInfo(
   dir: string,
-  opts: { app: string; serial: number; names: string[] },
+  opts: { app: string; serial: number; names: string[]; requires: BundleRequires },
 ): Promise<BundleInfo> {
   if (!/^[a-z][a-z0-9_.-]*$/.test(opts.app)) throw new Error(`bundle app id "${opts.app}": use a-z, 0-9, _ . -`)
   if (!Number.isInteger(opts.serial) || opts.serial < 0) throw new Error(`bundle serial must be 0 or more`)
@@ -68,6 +84,7 @@ export async function writeBundleInfo(
     serial: opts.serial,
     id: `${opts.app}_${opts.serial}`,
     sha256: bundleSha256(files),
+    requires: opts.requires,
     files,
     builtAt: new Date().toISOString(),
   }

@@ -784,9 +784,11 @@ The app binary carries a **capability manifest**:
 - component registry version (component ids, prop ids, value types),
 - native modules and their versions, native views, native screens.
 
-Each bundle's `manifest.json` lists what it **requires**. The server only offers a bundle to app versions whose
-capabilities cover it, and the phone checks again before loading. Test that must always pass: **an older installed app
-is offered a newer bundle and safely ignores it.**
+Each bundle's `zn-bundle.json` lists what it **requires** (the lowest registry version that has what it uses, the
+bytecode format, the host API of its core, its native modules). The server only offers a bundle to app versions
+whose capabilities cover it, and the phone checks again before loading, including every id in the templates. Test
+that must always pass: **an older installed app is offered a newer bundle and safely ignores it** (passing since
+step 4.2; details in `docs/ota.md` §3.2).
 
 ### 16.3 Store policy
 - Apple App Store guideline 2.5.2 and Google Play's rules allow interpreted code updates for fixes and small changes;
@@ -964,6 +966,7 @@ zero-native/
 | 2026-10-30 | Storage = MMKV's C++ core vendored and built into `libzn.so`; values tagged with their type; damaged stores are dropped, never "recovered"; not in backups. SecureStore = Android Keystore AES-256-GCM, one file per key | `docs/storage.md`. ~87 KB download instead of ~372 KB for the MMKV AAR; the kill test showed MMKV's recover mode returning value bytes as keys. |
 | 2026-10-30 | Animation is declared at build time (`animate`, `enter`, `exit` props) and run natively from target values; `exit` delays the native REMOVE, not JS | Section 10. JS stays simple (it sets values and removes elements as usual); every frame is native and draw-phase only. |
 | 2026-10-30 | OTA (`docs/ota.md`): capability manifest decides where a bundle may run (no exact native hash); the framework defines a check protocol + reference Bun server + release CLI (ZeroBill's backend serves the same protocol in milestone 5); ECDSA P-256 with a backup key; apply at cold start or `Updates.applyNow()`, blocked by `holdApply()`; full compressed bundles first | Pavan's decisions D1–D5. One fix reaches every compatible install; the framework doesn't depend on ZeroBill's backend; P-256 is native on Android 7; RN showed customers open the app 1–2× a month, so cold start alone is too slow; bundles are ~115 KB compressed, so patches can wait. |
+| 2026-10-30 | OTA compatibility: a bundle asks for the **lowest registry version that has what it uses** (`Added` table + `registry.lock.json` checked by a test), plus bytecode format, host API, native modules read from the source; the phone checks them and every template id | Pavan chose approach A over one framework version: a fix built with newer tools still reaches older installs when it uses nothing new. The id check means a mistake costs one refused update, never a wrong screen. |
 | 2026-10-30 | Builds are byte-for-byte repeatable: template ids are given by file path after all files are compiled; Bun's random `debugId` line is dropped. One place (`ZnBundles`) picks the running bundle (APK or a downloaded folder) for bytecode, templates and images | `docs/ota.md` §3.1. Ids followed Bun's file load order, so the same source gave a new SHA each build; one SHA = one serial and small patches need repeatable output. |
 | 2026-10-30 | Flow engine parked (not in v1); `flowStore` is public and payments use the save-then-verify pattern | Section 12 note, `docs/guide-notes.md` §16. For one or two money journeys, ~30 lines of app code plus the backend's `/verify` give the same safety; the engine pays off with many journeys and teams. |
 

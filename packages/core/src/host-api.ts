@@ -1,0 +1,6 @@
+// The version of the JS ↔ native contract this `@zero-native/core` relies on: the `__zn_*` host functions, app event
+// numbers, the batch and value formats. It must equal kHostApiVersion in core/include/zn/engine.h (a test checks).
+// The build writes it into each bundle's requirements, so an OTA bundle never runs on an app whose native side is
+// older than the core it was built with (docs/ota.md §3.2). No side effects: the compiler imports this file.
+
+export const HOST_API_VERSION = 1

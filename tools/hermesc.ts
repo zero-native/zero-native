@@ -30,3 +30,11 @@ export async function hermesc(input: string, output: string, extraFlags: string[
     throw new Error(`hermesc failed (exit ${code}):\n${err}`)
   }
 }
+
+/** The Hermes bytecode format of a .hbc file (99 for hermes-compiler 260318099): a u32 after the 8-byte magic. */
+export async function bytecodeVersion(hbcPath: string): Promise<number> {
+  const head = new Uint8Array(await Bun.file(hbcPath).slice(0, 12).arrayBuffer())
+  const magic = [0xc6, 0x1f, 0xbc, 0x03, 0xc1, 0x03, 0x19, 0x1f]
+  if (head.length < 12 || magic.some((b, i) => head[i] !== b)) throw new Error(`${hbcPath} is not Hermes bytecode`)
+  return new DataView(head.buffer).getUint32(8, true)
+}

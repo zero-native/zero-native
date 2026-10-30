@@ -1,18 +1,24 @@
-// Writes the Kotlin copy of the component registry from packages/template/src/registry.ts.
-// Run: bun run gen:registry. packages/template/test/registry.test.ts fails if the Kotlin file is out of date.
+// Writes the Kotlin copy of the component registry from packages/template/src/registry.ts, and the registry lock
+// (packages/template/registry.lock.json) after checking the change follows the OTA rules (registry-lock.ts).
+// Run: bun run gen:registry. packages/template/test/registry.test.ts fails if the Kotlin file or the lock is out of date.
 import { join } from "node:path"
-import { Component, Enum, EventKind, Prop, REGISTRY_VERSION } from "../packages/template/src/registry"
+import { existsSync, readFileSync } from "node:fs"
+import { Component, DynamicProps, Enum, EventKind, Prop, REGISTRY_VERSION } from "../packages/template/src/registry"
+import { registryProblems, registrySnapshot, type RegistryLock } from "../packages/template/src/registry-lock"
 
 export const KOTLIN_REGISTRY_PATH = join(
   import.meta.dir,
   "../android/runtime/src/main/java/dev/zeronative/runtime/Registry.kt",
 )
+export const REGISTRY_LOCK_PATH = join(import.meta.dir, "../packages/template/registry.lock.json")
 
 const constName = (s: string) =>
   s
     .replace(/-/g, "_")
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .toUpperCase()
+
+const ints = (values: number[]) => `intArrayOf(${values.join(", ")})`
 
 export function kotlinRegistry(): string {
   const lines: string[] = []
@@ -40,12 +46,43 @@ export function kotlinRegistry(): string {
     for (const [name, v] of Object.entries(values)) lines.push(`        const val ${constName(name)} = ${v}`)
     lines.push("    }")
   }
+  lines.push("")
+  lines.push("    /** Every id this app knows: templates from an OTA bundle that use any other id are refused (TemplateReader). */")
+  lines.push(`    val COMPONENT_IDS = ${ints(Object.values(Component))}`)
+  lines.push(`    val PROP_IDS = ${ints(Object.values(Prop).map((p) => p.id))}`)
+  lines.push(`    val DYNAMIC_PROP_IDS = ${ints([...DynamicProps].map((p) => Prop[p].id))}`)
+  lines.push(`    val EVENT_IDS = ${ints(Object.values(EventKind))}`)
+  lines.push("    /** Enum prop id → the values this app knows. */")
+  lines.push("    val ENUM_VALUES = mapOf(")
+  for (const [prop, values] of Object.entries(Enum)) {
+    lines.push(`        ${Prop[prop as keyof typeof Prop].id} to ${ints(Object.values(values))},`)
+  }
+  lines.push("    )")
   lines.push("}")
   lines.push("")
   return lines.join("\n")
 }
 
+/** The lock file's text for the current registry: one line per entry, so a change shows as a one-line diff. */
+export function registryLockText(): string {
+  const lock = registrySnapshot()
+  const entries = Object.entries(lock.entries).map(([key, e]) => `    ${JSON.stringify(key)}: ${JSON.stringify(e)}`)
+  return `{\n  "version": ${lock.version},\n  "base": ${lock.base},\n  "entries": {\n${entries.join(",\n")}\n  }\n}\n`
+}
+
+export function readRegistryLock(): RegistryLock | null {
+  return existsSync(REGISTRY_LOCK_PATH) ? (JSON.parse(readFileSync(REGISTRY_LOCK_PATH, "utf8")) as RegistryLock) : null
+}
+
 if (import.meta.main) {
+  const lock = readRegistryLock()
+  const problems = lock ? registryProblems(lock) : []
+  if (problems.length > 0) {
+    console.error("registry change not allowed (nothing written):\n- " + problems.join("\n- "))
+    process.exit(1)
+  }
   await Bun.write(KOTLIN_REGISTRY_PATH, kotlinRegistry())
   console.log("wrote", KOTLIN_REGISTRY_PATH)
+  await Bun.write(REGISTRY_LOCK_PATH, registryLockText())
+  console.log("wrote", REGISTRY_LOCK_PATH)
 }

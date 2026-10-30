@@ -3,7 +3,7 @@
 // made from `js` afterwards (tools/hermesc.ts).
 import { existsSync } from "node:fs"
 import { dirname, resolve } from "node:path"
-import { znBuild, type ZnManifest } from "./plugin"
+import { type BundleRequires, znBuild, type ZnManifest } from "./plugin"
 import { decodeSourceMap, type DecodedMap, type LineMap, lookup } from "./sourcemap"
 
 export interface AppBuild {
@@ -12,6 +12,8 @@ export interface AppBuild {
   manifest: ZnManifest
   /** One plain script (Hermes runs scripts, not ES modules). */
   js: string
+  /** What an app must have to run this build (OTA capability check, docs/ota.md §3.2); bytecode format not included. */
+  requires: BundleRequires
   /** Maps a position in `js` (0-based line and column) back to the TSX / TS file. */
   original(line: number, col: number): { file: string; line: number; col: number } | null
 }
@@ -34,13 +36,14 @@ export async function buildApp(entry: string): Promise<AppBuild> {
   // ourselves, and the same source must give the same bytes (docs/ota.md §3.1), so it is dropped. It is the last
   // line, so no position in the source map moves.
   const bundled = (await js.text()).replace(/\n\/\/# debugId=[0-9A-Fa-f]+\s*$/, "\n")
-  const { templates, manifest, js: filledJs } = zn.outputs(bundled)
+  const { templates, manifest, js: filledJs, requires } = zn.outputs(bundled)
   const bundleMap: DecodedMap | null = mapFile ? decodeSourceMap(JSON.parse(await mapFile.text())) : null
 
   return {
     templates,
     manifest,
     js: filledJs,
+    requires,
     original(line, col) {
       const hit = bundleMap && lookup(bundleMap, line, col)
       if (!hit) return null

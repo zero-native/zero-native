@@ -9,6 +9,8 @@ import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule } from "./compile"
 import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
+import { nativeModuleUses } from "./modules"
+import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
 
 /** One route in the manifest: the route entry with its screen's template id. */
 export type ManifestRoute = RouteEntry & { screen: number }
@@ -18,6 +20,17 @@ export interface ZnManifest {
   routes: ManifestRoute[]
 }
 
+/**
+ * What an app must have to run this bundle (docs/ota.md §3.2): the lowest registry version that has everything the
+ * templates use, the host API of the bundled `@zero-native/core`, and every native module called with the highest
+ * version asked for. The Hermes bytecode format is added after hermesc (tools/hermesc.ts).
+ */
+export interface BundleRequires {
+  registry: number
+  hostApi: number
+  modules: Record<string, number>
+}
+
 export interface ZnBuild {
   plugin: BunPlugin
   /**
@@ -25,7 +38,7 @@ export interface ZnBuild {
    * Templates are numbered by file path, then by their order in the file, so the same source always gives the same
    * bytes (one bundle = one SHA-256, docs/ota.md §3.1; small binary patches later), whatever order Bun loaded files.
    */
-  outputs(js: string): { templates: Uint8Array; manifest: ZnManifest; js: string }
+  outputs(js: string): { templates: Uint8Array; manifest: ZnManifest; js: string; requires: BundleRequires }
   /** After Bun.build: per .tsx file (absolute path), compiler output position → TSX position. */
   maps: Map<string, LineMap>
 }
@@ -44,6 +57,13 @@ export function znBuild(): ZnBuild {
   let routes: { file: string; entries: RouteEntry[] } | null = null
   let compiling = "" // the file being compiled; compileModule is synchronous, so no two files interleave
   let seqInFile = 0
+  /** Native module name → the highest version any loaded file asks for. */
+  const modules = new Map<string, number>()
+  const addModules = (source: string, path: string) => {
+    for (const { name, version } of nativeModuleUses(source, path)) {
+      modules.set(name, Math.max(modules.get(name) ?? 0, version))
+    }
+  }
   const ctx = {
     reserveTemplate() {
       specs.push(null as unknown as NodeSpec)
@@ -61,6 +81,7 @@ export function znBuild(): ZnBuild {
     setup(build) {
       build.onLoad({ filter: /\.tsx$/ }, async ({ path }) => {
         const source = await Bun.file(path).text()
+        addModules(source, path)
         const staticImports = await loadStaticImports(source, path)
         compiling = path
         seqInFile = 0
@@ -77,6 +98,7 @@ export function znBuild(): ZnBuild {
       // Plain .ts files pass through unchanged; the one with defineRoutes(...) is also read for the route table.
       build.onLoad({ filter: /\.ts$/ }, async ({ path }) => {
         const source = await Bun.file(path).text()
+        addModules(source, path)
         if (source.includes("defineRoutes(") && !path.includes("node_modules")) {
           const entries = readRoutes(source, path)
           if (entries) {
@@ -120,10 +142,13 @@ export function znBuild(): ZnBuild {
         }
         return { ...r, screen }
       })
+      const file = writeTemplateFile(finalSpecs)
+      const sortedModules = Object.fromEntries([...modules.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
       return {
-        templates: writeTemplateFile(finalSpecs).bytes,
+        templates: file.bytes,
         manifest: { components: finalComponents, routes: table },
         js: filledJs,
+        requires: { registry: file.registry, hostApi: HOST_API_VERSION, modules: sortedModules },
       }
     },
   }

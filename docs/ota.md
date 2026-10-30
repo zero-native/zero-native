@@ -45,17 +45,36 @@ keeping every lesson that applies.
   only at a safe moment; up to **K = 4** kept bundles, so going back downloads nothing. A bundle folder is never
   changed after install (bytecode is memory-mapped from it while JS runs).
 
-### 3.2 Capability manifest (new; replaces RN's native hash for compatibility)
-- **The app** (built into the runtime, computed at start): `registry` version, `bytecode` version (Hermes root API),
-  `hostApi` version (we bump it whenever a host function or event format changes), and every registered native module
-  with its version (built-ins: Keyboard, Fetch, SecureStore, Device...).
-- **The bundle** (written by the compiler / release CLI): the registry version its templates use, its bytecode
-  version, the host-API version of the `@zero-native/core` it bundles, and every native module it calls
-  (`nativeModule("X", { version })`, `callNative("X", ...)`, read from the code at build time) with the lowest version.
-- **Rule:** the bundle runs only if the app covers all of it. Checked by the server (it doesn't offer it) **and** by
-  the phone before loading (a broken server can't push an incompatible bundle). The must-pass test: **an older app is
-  offered a newer bundle and safely ignores it.**
-- A native hash is still computed, but only for logs and the release page.
+### 3.2 Capability manifest (built in step 4.2; replaces RN's native hash for compatibility)
+- **The app** (`ZnCapabilities.kt`, computed when a downloaded bundle is considered): the `registry` version its
+  renderer knows (`Registry.VERSION`), the Hermes `bytecode` format (Hermes root API, 99 today), the `hostApi`
+  range of its native side (`kHostApiVersion` / `kHostApiOldest` in `core/include/zn/engine.h`), and every
+  registered native module with its version. Built-in modules (Keyboard, Fetch, SecureStore, Toast) are always
+  registered; **apps register their own modules before `ZnTemplates.preload` / `ZnRuntime.evalAsset`** (a later
+  `ZnModules.register` throws in debug builds and logs an error in release).
+- **The bundle** (`requires` in `zn-bundle.json`, written by the build):
+  - `registry`: the **lowest registry version that has everything its templates use** (components, props, props
+    bound to slots, enum values, events). Everything that exists today is `BASE_VERSION` (8); anything added or
+    visibly changed later is listed in `Added` in `registry.ts` with its version. So a bundle that doesn't use a
+    new component still runs on older apps. The same number is in the `.zn.ui` header.
+  - `bytecode`: read from `main.hbc`'s header (must match the app exactly).
+  - `hostApi`: `HOST_API_VERSION` of the bundled `@zero-native/core` (`packages/core/src/host-api.ts`; a test keeps
+    it equal to the C++ number).
+  - `modules`: every `nativeModule("X", { version })` / `callNative("X", ..., { __v })` in the bundled code, with
+    the highest version asked for, read from the source at build time. The name must be a string literal (else a
+    build error).
+- **Rule:** the bundle runs only if the app covers all of it. Checked by the phone before loading (`ZnBundles`) and,
+  from step 4.4, by the server. **Safety net:** the phone also reads the bundle's templates while choosing it and
+  refuses any id it doesn't know (unknown component, prop, enum value, event, or a slot on a prop that can't change
+  at runtime in this app). A mistake in `requires` costs one refused update, never a wrong screen.
+- **Registry changes are checked by machine:** `packages/template/registry.lock.json` keeps the last accepted
+  registry. The registry test (and `bun run gen:registry`, which then refuses to write) fails if anything is removed,
+  renumbered or retyped, if something new isn't in `Added` with the new `REGISTRY_VERSION`, or if a `since` goes
+  down. A visible change in how Kotlin draws an existing entry can't be detected: that is a review rule (raise its
+  `since` in `Added`).
+- The must-pass test **an older app is offered a newer bundle and safely ignores it** passes on the Lava (step 4.2
+  log in `docs/milestones.md`).
+- A native hash is still computed later, but only for logs and the release page.
 
 ### 3.3 Signatures
 - Bundle (once): `zn-ota-v1 \n bundle \n <app id> \n <bundle id> \n <bundle sha256> \n <assets digest> \n <requires digest>`.
@@ -105,7 +124,7 @@ phone → `USE_LOCAL`; else `UPDATE` (full download; patch later, D5). Resumable
 |---|---|---|
 | 4.0 | This proposal + Pavan's decisions (§2) → `docs/ota.md` becomes the design; ARCHITECTURE §16 / §24 updated | decisions logged |
 | 4.1 | Bundle format and loader: one place decides where hbc / templates / manifest / images come from; built-in bundle id + serial in the APK | **done 2026-10-30** (`ZnBundles.kt`; see `docs/milestones.md` log) |
-| 4.2 | Capability manifest: native side, compiler side (requirements), load-time check | unit tests + "an older app ignores a newer bundle" on the phone |
+| 4.2 | Capability manifest: native side, compiler side (requirements), load-time check | **done 2026-10-30** (§3.2; `docs/milestones.md` log) |
 | 4.3 | Signing + release CLI (`zn ota`): build, serial, sign, zip, publish (local folder / GCS), pointers with seq, kill switch, rollback, stable / approve, typed confirmation for production | publish → pointer → files on disk, all signed |
 | 4.4 | Reference update server (Bun): the check, the pure decision function (one test per row), Range downloads | decision tests + manual checks with curl |
 | 4.5 | Client: check, resumable download, verify, atomic install, kept bundles, seq, `Updates` JS API | phone downloads and installs; kill mid-download / mid-install leaves the old bundle running |

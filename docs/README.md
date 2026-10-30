@@ -29,6 +29,7 @@ until it is proven.
 | `hermes-features.md` | what Hermes 260318099 added (JSI runtime data, `ISerialization`, faster JSON, ...) and how we could use it later |
 | `milestones.md` | **the build plan, progress log, and how to build and run the sample app** |
 | `after-foundations.md` | parked ideas to pick up once the foundations work |
+| `adding-components.md` | **for framework developers:** adding a component, prop, event or host function without breaking OTA bundles on older apps (registry rules, `gen:registry`, id ranges) |
 | `guide-notes.md` | **how app authors should use what we build** (do / don't / why): raw material for the public docs. Update it whenever an author-facing feature lands |
 
 Experiment files (v0 results, Gemini and Argon reports, `intro*.md`, `GEMINI_*.md`, exp2–4) live in `../experiments/`.

@@ -514,4 +514,6 @@ class HermesEngine final : public Engine {
 
 std::unique_ptr<Engine> createHermesEngine(HostApi& host) { return std::make_unique<HermesEngine>(host); }
 
+uint32_t hermesBytecodeVersion() { return rootApi()->getBytecodeVersion(); }
+
 }  // namespace zn

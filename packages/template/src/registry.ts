@@ -2,8 +2,11 @@
 // and enum values. **This file is the single source of truth.** `bun run gen:registry` writes the Kotlin copy
 // (android/runtime/src/main/java/dev/zeronative/runtime/Registry.kt); a test fails if the two drift apart.
 //
-// Rules: never reuse or renumber an id. Adding ids bumps REGISTRY_VERSION; an app only loads templates whose
-// registry version it knows (capability manifest, §16.2).
+// Rules: never reuse, renumber, retype or remove an id. Adding something raises REGISTRY_VERSION and lists it in
+// `Added` (end of this file) with that version; so does a visible change to an existing entry. Templates ask for
+// the lowest version that has what they use, so OTA bundles keep running on older apps (docs/ota.md §3.2).
+// `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
+// docs/adding-components.md.
 
 export const REGISTRY_VERSION = 8 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
@@ -313,3 +316,32 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "editable",
   "accessibilityLabel",
 ])
+
+// ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
+
+/** The registry version every released app has at least. Everything not listed in [Added] exists since it. */
+export const BASE_VERSION = 8
+
+/**
+ * What was added after [BASE_VERSION], or changed in a way the screen shows, with the registry version it came in.
+ * A bundle asks for the highest version among the things it really uses (writer.ts), so a bundle that doesn't use
+ * a new component still runs on older apps. The registry test compares with `registry.lock.json`: anything new that
+ * is missing here fails it, and `bun run gen:registry` refuses to write.
+ * - New component / prop / event / enum value: add it here with the new REGISTRY_VERSION.
+ * - A prop that becomes dynamic (can change at runtime): `dynamic`.
+ * - A visible change in how an existing entry draws or behaves: set it to the new REGISTRY_VERSION. Bundles that use
+ *   it then need the new app; older apps keep the bundle they have, which matches how they draw it.
+ */
+export const Added: {
+  component: Partial<Record<ComponentName, number>>
+  prop: Partial<Record<PropName, number>>
+  dynamic: Partial<Record<PropName, number>>
+  /** Key: "<prop>.<value>", e.g. "pressFeedback.highlight". */
+  enumValue: Record<string, number>
+  event: Partial<Record<EventName, number>>
+} = { component: {}, prop: {}, dynamic: {}, enumValue: {}, event: {} }
+
+/** The registry version that [kind] [name] needs ([BASE_VERSION] unless listed in [Added]). */
+export function since(kind: keyof typeof Added, name: string): number {
+  return (Added[kind] as Record<string, number | undefined>)[name] ?? BASE_VERSION
+}

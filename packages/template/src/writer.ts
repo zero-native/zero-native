@@ -16,6 +16,7 @@
 // Nodes are stored in tree order (a parent always comes before its children; children keep their order).
 import { parseColor } from "./color"
 import {
+  BASE_VERSION,
   Component,
   type ComponentName,
   DynamicProps,
@@ -25,6 +26,7 @@ import {
   Prop,
   type PropName,
   REGISTRY_VERSION,
+  since,
 } from "./registry"
 
 export const TEMPLATE_MAGIC = 0x49554e5a // "ZNUI" as little-endian bytes
@@ -191,11 +193,20 @@ interface FlatNode {
   props: Array<{ id: number; value: EncodedValue }>
 }
 
-/** Encodes templates into one .zn.ui file. Throws a clear error for anything the registry doesn't allow. */
-export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: TemplateIds[] } {
+/**
+ * Encodes templates into one .zn.ui file. Throws a clear error for anything the registry doesn't allow.
+ * [registry]: the lowest registry version that has everything these templates use (components, props, props bound
+ * to slots, enum values, events). It goes in the file header and the bundle's requirements, so the templates run on
+ * every app with at least that version, not only on apps as new as this compiler (docs/ota.md §3.2).
+ */
+export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: TemplateIds[]; registry: number } {
   const strings = new Strings()
   const encoded: Array<{ nodes: FlatNode[]; slots: Array<[number, number, EncodedValue]>; events: Array<[number, number, number]> }> = []
   const ids: TemplateIds[] = []
+  let registry = BASE_VERSION
+  const needs = (version: number) => {
+    if (version > registry) registry = version
+  }
 
   roots.forEach((root, t) => {
     const nodes: FlatNode[] = []
@@ -206,6 +217,7 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
     const visit = (spec: NodeSpec, parent: number, path: string) => {
       const component = Component[spec.type]
       if (component === undefined) throw new Error(`${path}: unknown component "${spec.type}"`)
+      needs(since("component", spec.type))
       const index = nodes.length
       if (index >= ROOT_PARENT) throw new Error(`template ${t}: too many nodes`)
       const node: FlatNode = { component, parent, props: [] }
@@ -219,20 +231,24 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
           if (!isEvent(raw)) throw new Error(`${path}: "${key}" needs event("name")`)
           const id = (tIds.events[raw.$event] ??= Object.keys(tIds.events).length + 1)
           events.push([index, EventKind[key as EventName], id])
+          needs(since("event", key))
           continue
         }
         if (!(key in Prop)) throw new Error(`${path}: unknown prop or style key "${key}"`)
         const prop = key as PropName
+        needs(since("prop", prop))
         if (isSlot(raw)) {
           if (!DynamicProps.has(prop)) {
             throw new Error(`${path}: prop "${prop}" can't change at runtime yet (registry v${REGISTRY_VERSION})`)
           }
+          needs(since("dynamic", prop))
           if (raw.$slot in tIds.slots) throw new Error(`${path}: slot name "${raw.$slot}" used twice`)
           tIds.slots[raw.$slot] = slots.length
           slots.push([index, Prop[prop].id, encodeValue(prop, raw.default, strings, path)])
           continue
         }
         node.props.push({ id: Prop[prop].id, value: encodeValue(prop, raw as StaticValue, strings, path) })
+        if (Prop[prop].type === "enum" && typeof raw === "string") needs(since("enumValue", `${prop}.${raw}`))
       }
       if (node.props.length > 255) throw new Error(`${path}: too many props`)
       spec.children.forEach((child, i) => visit(child, index, `${path} > ${child.type}[${i}]`))
@@ -245,7 +261,7 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
   const w = new ByteWriter()
   w.u32(TEMPLATE_MAGIC)
   w.u16(FORMAT_VERSION)
-  w.u16(REGISTRY_VERSION)
+  w.u16(registry)
   w.u32(strings.list.length)
   const enc = new TextEncoder()
   for (const s of strings.list) {
@@ -278,7 +294,7 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
       w.u16(id)
     }
   }
-  return { bytes: w.result(), ids }
+  return { bytes: w.result(), ids, registry }
 }
 
 /**

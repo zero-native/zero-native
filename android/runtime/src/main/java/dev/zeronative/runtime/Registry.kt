@@ -267,4 +267,28 @@ object Registry {
         const val CHECKBOX = 6
         const val NONE = 7
     }
+
+    /** Every id this app knows: templates from an OTA bundle that use any other id are refused (TemplateReader). */
+    val COMPONENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24)
+    val PROP_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 30, 31, 32, 33, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 90, 91, 92, 93, 94, 95, 100, 101, 102, 103, 104, 105, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 80, 81, 82, 83, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213)
+    val DYNAMIC_PROP_IDS = intArrayOf(50, 51, 40, 44, 90, 91, 92, 93, 94, 95, 60, 80, 23, 24, 25, 26, 118, 119, 123, 124, 132, 209)
+    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 30)
+    /** Enum prop id → the values this app knows. */
+    val ENUM_VALUES = mapOf(
+        31 to intArrayOf(0, 1, 2, 3, 4, 5),
+        32 to intArrayOf(0, 1, 2, 3),
+        33 to intArrayOf(0, 1, 2, 3),
+        45 to intArrayOf(0, 1),
+        54 to intArrayOf(0, 1, 2),
+        61 to intArrayOf(0, 1, 2),
+        100 to intArrayOf(0, 1),
+        58 to intArrayOf(0, 1),
+        59 to intArrayOf(0, 1, 2),
+        126 to intArrayOf(0, 1, 2, 3, 4, 5),
+        131 to intArrayOf(0, 1, 2, 3, 4),
+        133 to intArrayOf(0, 1, 2, 3),
+        139 to intArrayOf(0, 1, 2),
+        206 to intArrayOf(0, 1),
+        211 to intArrayOf(0, 1, 2, 3, 4, 5, 6, 7),
+    )
 }

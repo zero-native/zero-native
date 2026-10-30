@@ -39,9 +39,11 @@ object ZnTemplates {
         ZnBundles.init(context)
         io.post {
             val t0 = System.nanoTime()
-            // From the running bundle: the APK's assets or a downloaded OTA bundle (ZnBundles, docs/ota.md).
-            val bytes = checkNotNull(ZnBundles.map(asset)) { "bundle ${ZnBundles.running} has no $asset" }
-            val templates = TemplateReader.read(bytes).templates.map(::ZnTemplate)
+            // From the running bundle: the APK's assets or a downloaded OTA bundle (ZnBundles, docs/ota.md). A downloaded
+            // bundle's templates were already read (and their ids checked) while choosing it.
+            val file = ZnBundles.takeTemplateFile(asset)
+                ?: TemplateReader.read(checkNotNull(ZnBundles.map(asset)) { "bundle ${ZnBundles.running} has no $asset" })
+            val templates = file.templates.map(::ZnTemplate)
             val bundle = readManifest("$asset.json", templates)
             val ms = (System.nanoTime() - t0) / 1e6
             Log.i(TAG, "template $asset: ${templates.size} template(s), ${bundle.routes.all.size} route(s) " +

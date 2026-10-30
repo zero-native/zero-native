@@ -149,6 +149,16 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
   return JNI_VERSION_1_6;
 }
 
+// What this app's native side can run (ZnCapabilities.kt): [Hermes bytecode format, host API, oldest host API].
+extern "C" JNIEXPORT jintArray JNICALL
+Java_dev_zeronative_runtime_ZnNative_capabilities(JNIEnv* e, jclass /* clazz */) {
+  const jint values[] = {static_cast<jint>(zn::hermesBytecodeVersion()), static_cast<jint>(zn::kHostApiVersion),
+                         static_cast<jint>(zn::kHostApiOldest)};
+  jintArray out = e->NewIntArray(3);
+  e->SetIntArrayRegion(out, 0, 3, values);
+  return out;
+}
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_dev_zeronative_runtime_ZnNative_createRuntime(JNIEnv* env, jclass /* clazz */, jstring flowDir,
                                                   jstring storeDir) {

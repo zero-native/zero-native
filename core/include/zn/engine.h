@@ -103,4 +103,15 @@ using EngineFactory = std::function<std::unique_ptr<Engine>(HostApi&)>;
 // Creates the Hermes engine with the settings zero-native requires (microtask queue on) and the host functions.
 std::unique_ptr<Engine> createHermesEngine(HostApi& host);
 
+// The Hermes bytecode format this engine runs (99 for Hermes 260318099). Bytecode must match it exactly. Part of the
+// app's capabilities for OTA bundles (docs/ota.md §3.2).
+uint32_t hermesBytecodeVersion();
+
+// The JS ↔ native contract that a bundle's `@zero-native/core` relies on: the `__zn_*` host functions, app event
+// numbers, the batch and value formats. Raise kHostApiVersion when any of them gains something (packages/core/src/
+// host-api.ts must say the same number); raise kHostApiOldest only when something is removed or changes meaning,
+// which makes every bundle built before it refuse to run on this app (docs/ota.md §3.2).
+inline constexpr uint32_t kHostApiVersion = 1;
+inline constexpr uint32_t kHostApiOldest = 1;
+
 }  // namespace zn

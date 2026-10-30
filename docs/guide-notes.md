@@ -458,6 +458,14 @@ await SecureStore.set("refreshToken", token)
   - **Don't:** add a second semantics block on a Pressable; use the single semantics props on the node.
   - **Why:** TalkBack announces elements once without duplicate readings or conflicting semantics trees.
 
+- **Do:** register your own native modules first in `Application.onCreate`, before `ZnTemplates.preload` and
+  `ZnRuntime.evalAsset`. **Why:** the app decides which bundle to run when those start, and a downloaded bundle
+  that needs your module is checked against the modules registered by then (debug builds stop with an error if
+  you register later).
+- **Do:** write native module names as plain strings: `nativeModule("Device", { version: 2 })`. **Why:** the
+  build reads them to list what the bundle needs; a name in a variable is a build error. Raise `version` (on both
+  sides) when JS starts using a new native method, so older apps don't get a bundle that calls it.
+
 ---
 
 ## 25. Formatting numbers, money and dates (`Intl`, works since 2026-10-30)

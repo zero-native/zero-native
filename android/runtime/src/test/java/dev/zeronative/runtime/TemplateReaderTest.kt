@@ -64,4 +64,28 @@ class TemplateReaderTest {
             .u16(0).u16(0).buffer()
         assertThrows(IllegalArgumentException::class.java) { TemplateReader.read(bytes) }
     }
+
+    // ---- Ids this app doesn't know (an OTA bundle built for a newer app, docs/ota.md §3.2) -------------------------
+
+    private fun oneNode(component: Int, props: W.() -> W = { this }, count: Int = 0) =
+        header(emptyList()).u16(1).u16(1).u16(component).u16(0xFFFF).u8(count).props()
+
+    private fun refused(bytes: ByteBuffer, part: String) {
+        val e = assertThrows(IllegalArgumentException::class.java) { TemplateReader.read(bytes) }
+        org.junit.Assert.assertTrue("\"${e.message}\" should mention \"$part\"", e.message!!.contains(part))
+    }
+
+    @Test
+    fun refusesUnknownComponentPropEnumValueSlotAndEvent() {
+        refused(oneNode(999).u16(0).u16(0).buffer(), "unknown component 999")
+        refused(oneNode(Registry.Component.BOX, { u16(999).u8(3).f64(1.0) }, count = 1).u16(0).u16(0).buffer(), "unknown prop 999")
+        refused(
+            oneNode(Registry.Component.BOX, { u16(Registry.Prop.ALIGN_ITEMS).u8(7).u16(99) }, count = 1).u16(0).u16(0).buffer(),
+            "unknown value 99",
+        )
+        // A slot on a prop that can't change at runtime in this app (fontSize is build-time only).
+        refused(oneNode(Registry.Component.TEXT).u16(1).u16(0).u16(Registry.Prop.FONT_SIZE).u8(3).f64(14.0).u16(0).buffer(), "can't change at runtime")
+        refused(oneNode(Registry.Component.PRESSABLE).u16(0).u16(1).u16(0).u16(999).u16(1).buffer(), "unknown event 999")
+    }
 }
+

@@ -107,10 +107,34 @@ object ZnModules {
     private val listening = HashMap<String, Int>() // module\u0000event → JS listener count; main thread only
     private val io = Executors.newFixedThreadPool(2) { r -> Thread(r, "zn-call").apply { isDaemon = true } }
     private val main = Handler(Looper.getMainLooper())
+    /** Set once the running bundle is chosen: the module list has been compared with the bundle's needs. */
+    @Volatile private var chosen = false
 
-    /** Registers [module] under its name (the app, or the runtime for built-ins). Replaces one with the same name. */
+    init {
+        // Built-in modules are always there, whatever order the app starts things in: the bundle check needs them.
+        // Their setup with a Context (ZnFetch.init, ZnSecureStore.init) stays in ZnRuntime.start.
+        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnSecureStore, ZnToast)) modules[m.name] = m
+    }
+
+    /**
+     * Registers [module] under its name (the app's own modules). Replaces one with the same name. Call it in
+     * Application.onCreate **before** `ZnTemplates.preload` / `ZnRuntime.evalAsset`: the OTA check compares the
+     * modules registered by then with what a downloaded bundle needs (docs/ota.md §3.2).
+     */
     fun register(module: ZnModule) {
+        if (chosen && modules[module.name]?.version != module.version) {
+            val message = "native module ${module.name} v${module.version} was registered after the running bundle " +
+                "was chosen; register native modules before ZnTemplates.preload / ZnRuntime.evalAsset"
+            if (BuildConfig.DEBUG) throw IllegalStateException(message)
+            Log.e(TAG, message)
+        }
         modules[module.name] = module
+    }
+
+    /** Module name → version, for the capability check. Marks the module list as used ([register] warns after). */
+    internal fun versions(): Map<String, Int> {
+        chosen = true
+        return modules.mapValues { it.value.version }
     }
 
     /** Sends a module event to JS (any thread). See [ZnModuleBase.emit]. */

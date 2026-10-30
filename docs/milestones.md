@@ -90,8 +90,8 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.9 | **Resilience** (agreed 2026-10-30): (1) a screen that throws while being built stays on the stack and native shows a built-in fallback (release: "Something went wrong" + Go back / Try again; first screen: Try again; debug: the red screen with the TSX line); a failing part of a screen (conditional block, list row) stays empty, the rest works; (2) promise rejection tracking, so errors in `async` code are reported; (3) a time limit on each JS task (Hermes `watchTimeLimit`, ~5 s) instead of a frozen app; (4) `onError(handler)` for apps (screen name, bundle id) to send to Crashlytics / a backend; (5) checks on templates and values when they arrive (unknown ids, wrong value types, a node placed inside itself): refuse or report instead of crashing; (6) the back stack saved on every change and reopened after Android kills the app in the background (designed in ARCHITECTURE §11, built only in v0); (7) `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` reuse cached formatters per locale + options, so the simple way is also the fast way (today ~2 ms per call, guide note §25) | Claude | after 4.2; needed by 4.7 |
 
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
-recommended; logged in ARCHITECTURE §16 / §24. 4.1 done 2026-10-30 (log below). Next: 4.2 (capability manifest),
-then 3.9 (resilience), then 4.3 onwards; Claude.
+recommended; logged in ARCHITECTURE §16 / §24. 4.1 and 4.2 done 2026-10-30 (log below). Next: 3.9 (resilience),
+then 4.3 onwards; Claude.
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
 
 Later milestones: **4** OTA (signed bundles, bundle pool, boot guard, capability manifest, "an older app ignores a
@@ -109,6 +109,30 @@ Parked ideas: `docs/after-foundations.md`.
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 
 ## Log
+### 2026-10-30: step 4.2 done (Claude): capability manifest
+- **Registry:** `BASE_VERSION = 8` (everything today) and an `Added` table for anything added or visibly changed
+  later. `registry.lock.json` keeps the last accepted registry; the test and `bun run gen:registry` refuse removed,
+  renumbered or retyped entries, new entries missing from `Added`, and a `since` that goes down.
+- **Bundle side:** the template writer computes the lowest registry version the templates need (also in the
+  `.zn.ui` header, which used to hold the compiler's own version, i.e. "one framework version"); the compiler reads
+  native modules from `nativeModule` / `callNative` calls (string-literal names, build error otherwise); the build
+  adds the bytecode format from the `.hbc` header and the host API of the bundled core. All in `requires` of
+  `zn-bundle.json`. Sample: `{registry 8, bytecode 99, hostApi 1, modules Device, Fetch, Keyboard, SecureStore,
+  Toast}`.
+- **App side:** `ZnCapabilities.kt` (registry, Hermes format via the root API, host API range from
+  `core/include/zn/engine.h`, registered modules). `ZnBundles` refuses a downloaded bundle the app can't cover and
+  reads its templates while choosing it: `TemplateReader` now refuses unknown components, props, enum values, events
+  and slots on props that can't change at runtime (the parsed file is kept, so templates are read once). Built-in
+  modules are registered by `ZnModules` itself; apps register theirs **before** `preload` / `evalAsset` (a late
+  registration throws in debug builds). The sample now registers `DeviceModule` first.
+- **Tests:** template 5 new (lock rules, version per kind), compiler 5 (module scanning, requires), core 1 (JS and
+  C++ host API equal), Kotlin 7 bundle + 1 reader (each refusal); JS 140 total; Android lint 0 errors.
+- **Verified on the Lava (debug), bundles built from real source:** #1 runs from files; **#2 uses a `Scanner` module
+  this app doesn't have → refused ("needs native module Scanner"), built-in runs** (the must-pass test of
+  ARCHITECTURE §16.2); #3 whose `zn-bundle.json` claims it fits but whose templates use component 999 → refused by
+  the id check. Release cold start (speed-profile, n=10): **OTA folder median 196 ms, built-in 195 ms**; choosing an
+  OTA bundle takes ~10 ms on zn-io (templates read there instead of later). Test bundles removed afterwards.
+
 ### 2026-10-30: `Intl` crashed the app (fixed, Claude)
 - Any `Intl` use (`toLocaleString("en-IN")`, `Intl.NumberFormat`, date formatting) aborted the app on the zn-js
   thread, debug and release: Hermes calls Java through fbjni for `Intl`, and fbjni was never set up (its

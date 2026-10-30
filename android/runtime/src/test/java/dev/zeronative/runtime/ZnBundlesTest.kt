@@ -14,6 +14,14 @@ class ZnBundlesTest {
         app = "sample", serial = 3, id = "sample_3", sha256 = "x",
         files = mapOf("main.hbc" to 4L, "main.zn.ui" to 2L, "main.zn.ui.json" to 2L),
     )
+    /** This "app": registry v9, Hermes format 99, host API 1–2, Device v2 and Keyboard v1. */
+    private var caps = ZnCapabilities(9, 99, 2, 1, mapOf("Device" to 2, "Keyboard" to 1))
+
+    /** A JSON value written as it is (for "requires"). */
+    private class Raw(val json: String) {
+        override fun toString() = json
+    }
+    private val needsLittle = Raw("""{"registry":8,"bytecode":99,"hostApi":1,"modules":{"Device":1}}""")
 
     /** Writes bundle [id] with [files] (name → content) and a matching zn-bundle.json, changed by [edit]. */
     private fun bundle(
@@ -25,6 +33,7 @@ class ZnBundlesTest {
         for ((name, text) in files) File(dir, name).apply { parentFile!!.mkdirs() }.writeText(text)
         val fields = mutableMapOf<String, Any>(
             "format" to 1, "app" to "sample", "serial" to id.substringAfterLast('_').toInt(), "id" to id, "sha256" to "y",
+            "requires" to needsLittle,
         )
         edit(fields)
         val list = files.entries.joinToString(",") { (n, t) -> "\"$n\":{\"size\":${t.length},\"sha256\":\"z\"}" }
@@ -32,7 +41,7 @@ class ZnBundlesTest {
         File(dir, ZnBundles.INFO_FILE).writeText("{$head,\"files\":{$list}}")
     }
 
-    private fun check(id: String) = ZnBundles.checkBundle(id, builtIn) { File(root, it) }
+    private fun check(id: String) = ZnBundles.checkBundle(id, builtIn, caps) { File(root, it) }
 
     private fun assertNo(id: String, reasonPart: String) {
         when (val v = check(id)) {
@@ -122,5 +131,61 @@ class ZnBundlesTest {
         assertEquals("sample_12", info.id)
         assertEquals(12, info.serial)
         assertEquals(mapOf("main.hbc" to 10L), info.files)
+    }
+
+    // ---- Capabilities (step 4.2): the app must cover what the bundle needs ------------------------------------------
+
+    private fun needs(registry: Int = 8, bytecode: Int = 99, hostApi: Int = 1, modules: String = "{\"Device\":1}") =
+        Raw("{\"registry\":$registry,\"bytecode\":$bytecode,\"hostApi\":$hostApi,\"modules\":$modules}")
+
+    @Test
+    fun aBundleThatListsNoNeedsIsRefused() {
+        bundle("sample_5") { it.remove("requires") }
+        assertNo("sample_5", "doesn't say what it needs")
+    }
+
+    @Test
+    fun aBundleNeedingANewerRegistryIsRefused() {
+        bundle("sample_5") { it["requires"] = needs(registry = 10) }
+        assertNo("sample_5", "needs registry v10, this app has v9")
+        bundle("sample_6") { it["requires"] = needs(registry = 9) }
+        assertTrue(check("sample_6") is ZnBundles.Check.Ok)
+    }
+
+    @Test
+    fun aBundleForAnotherBytecodeFormatIsRefused() {
+        bundle("sample_5") { it["requires"] = needs(bytecode = 98) }
+        assertNo("sample_5", "format 98")
+    }
+
+    @Test
+    fun theHostApiMustBeInTheAppsRange() {
+        bundle("sample_5") { it["requires"] = needs(hostApi = 3) }
+        assertNo("sample_5", "needs host API v3")
+        caps = ZnCapabilities(9, 99, 4, 2, mapOf("Device" to 2))
+        bundle("sample_6") { it["requires"] = needs(hostApi = 1) }
+        assertNo("sample_6", "built for host API v1; this app runs v2 and newer")
+    }
+
+    @Test
+    fun anOlderAppWithoutAModuleIgnoresTheBundle() {
+        // The must-pass test of ARCHITECTURE §16.2: a newer bundle needs a module this (older) app doesn't have.
+        bundle("sample_5") { it["requires"] = needs(modules = "{\"Device\":1,\"Scanner\":1}") }
+        assertNo("sample_5", "needs native module Scanner")
+        bundle("sample_6") { it["requires"] = needs(modules = "{\"Device\":3}") }
+        assertNo("sample_6", "needs Device v3, this app has v2")
+    }
+
+    @Test
+    fun parseInfoReadsRequires() {
+        val info = ZnBundles.parseInfo(
+            """{"format":1,"app":"sample","serial":2,"id":"sample_2","sha256":"ab","files":{},
+               "requires":{"registry":8,"bytecode":99,"hostApi":1,"modules":{"Fetch":1,"Device":2}}}""",
+        )
+        val r = info.requires!!
+        assertEquals(8, r.registry)
+        assertEquals(99, r.bytecode)
+        assertEquals(1, r.hostApi)
+        assertEquals(mapOf("Fetch" to 1, "Device" to 2), r.modules)
     }
 }
