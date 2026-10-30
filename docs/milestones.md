@@ -88,6 +88,9 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviews | brief: `docs/cross-communication/2026-10-30-milestone-3-gemini-brief.md` |
 | 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviews | same brief |
 
+**Milestone 4 (OTA): proposal in `docs/ota.md`** (steps 4.0–4.9, decisions D1–D5 waiting for Pavan, 2026-10-30).
+Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
+
 Later milestones: **4** OTA (signed bundles, bundle pool, boot guard, capability manifest, "an older app ignores a
 newer bundle" test, release crash traces mapped back to TSX); **5** ZeroBill checkout pilot with a full-app size
 measurement. Not planned yet: the Hermes debugger (Chrome DevTools), the flow engine (parked).

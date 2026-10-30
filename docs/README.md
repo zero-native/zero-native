@@ -24,6 +24,7 @@ until it is proven.
 | `platform-differences.md` | known differences between Android, iOS and React Native semantics |
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |
 | `fetch.md` | `fetch`: design, defaults, and the production problems (RN / Flutter / OkHttp) it handles |
+| `ota.md` | OTA updates (milestone 4): **proposal**, decisions D1–D5 waiting for Pavan |
 | `storage.md` | app storage (MMKV, synchronous), SecureStore, and when a store can be lost |
 | `hermes-features.md` | what Hermes 260318099 added (JSI runtime data, `ISerialization`, faster JSON, ...) and how we could use it later |
 | `milestones.md` | **the build plan, progress log, and how to build and run the sample app** |
