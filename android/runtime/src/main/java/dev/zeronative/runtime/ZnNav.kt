@@ -19,9 +19,38 @@ import org.json.JSONObject
 
 /** One back-stack entry: a screen. Its id is the screen's root instance id (ARCHITECTURE §8.3). */
 class ZnEntry(val id: Int, val route: ZnRoute, val params: String) {
+    /** The screen's `restorableSignal` values (key → JSON value), saved with the back stack (NAV RESTORE). */
+    internal val values = JSONObject()
+
     override fun equals(other: Any?) = other is ZnEntry && other.id == id
     override fun hashCode() = id
     override fun toString() = "zn-entry-$id(${route.name})"
+}
+
+/** A screen as saved in the Activity's state: route name, params JSON, and its `restorableSignal` values (JSON). */
+internal data class ZnSavedEntry(val route: String, val params: String, val values: String? = null)
+
+/** Saved state crosses a Binder call with a small size limit; a bigger back stack is not worth a crash. */
+internal const val MAX_SAVED_STACK_CHARS = 50_000
+
+/** The saved back stack as JSON: `[{"route":"amount","params":{...},"values":{...}}, ...]` (no "values" if none). */
+internal fun savedStackJson(entries: List<ZnSavedEntry>, withValues: Boolean = true): String = JSONArray().apply {
+    for (e in entries) {
+        val o = JSONObject().put("route", e.route).put("params", JSONObject(e.params))
+        if (withValues && e.values != null) o.put("values", JSONObject(e.values))
+        put(o)
+    }
+}.toString()
+
+/** Reads [savedStackJson]'s output; null if it can't be read. Stacks saved before host API 4 have no "values". */
+internal fun readSavedStack(json: String): List<ZnSavedEntry>? = try {
+    val a = JSONArray(json)
+    List(a.length()) { i ->
+        val o = a.getJSONObject(i)
+        ZnSavedEntry(o.getString("route"), o.getJSONObject("params").toString(), o.optJSONObject("values")?.toString())
+    }
+} catch (e: Exception) {
+    null
 }
 
 /**
@@ -46,6 +75,8 @@ object ZnNav {
     private const val EVENT_RETRY = ZnAppEvent.RETRY
     /** Key of the saved back stack in the Activity's saved state ([saveState]). */
     private const val SAVED_STACK = "zn.nav.stack"
+    /** Key of the bundle (`id@sha12`) that saved it: screen values come back only into the same code. */
+    private const val SAVED_BUNDLE = "zn.nav.bundle"
     /** How long native waits for JS to answer a back press before going back by itself. */
     private const val BACK_TIMEOUT_MS = 300L
 
@@ -85,41 +116,65 @@ object ZnNav {
     private var backFallback: Runnable? = null
 
     /**
-     * Opens the first screens once per process: the start route ("/"), plus the [link]'s route on top of it if it
-     * matches a route that allows deep links. Later calls (Activity recreated, or opened again by a link) keep the
-     * stack and only open [link], by asking JS to push it.
+     * Call it from `Activity.onCreate` (and use [openLink] in `onNewIntent`). Opens the first screens: the start route
+     * ("/"), plus the [link]'s route on top of it if it matches a route that allows deep links.
      *
      * [savedState]: the Activity's saved state (`savedInstanceState`). When Android brings the app back after killing
      * it in the background, it holds the stack [saveState] wrote, and those screens open again instead (step 3.9).
+     * The process keeps the stack while it lives, so an Activity recreated with saved state (rotation, dark mode, the
+     * system freeing it in the background) shows the same screens.
+     *
+     * A new Activity **without** saved state while the screens are already up means the user closed the app (swiped
+     * it from recents) and this phone kept the process alive (some ROMs do): the app starts fresh, as on a phone that
+     * ends the process: a new JS runtime and the start screen ([startFresh]).
      */
     fun start(bundle: ZnBundle, link: Uri?, savedState: Bundle? = null) {
         this.bundle = bundle
         if (started) {
-            if (link != null) open(link)
+            if (savedState == null && ZnRuntime.canRestart && !ZnRuntime.isRestarting) startFresh(bundle, link)
+            else if (link != null) open(link)
             return
         }
-        val saved = savedState?.getString(SAVED_STACK)?.let(::readSaved)
+        val savedJson = savedState?.getString(SAVED_STACK)
+        var saved = savedJson?.let(::readSavedStack)
+        if (savedJson != null && saved == null) Log.w(TAG, "nav: saved back stack can't be read; starting on the start screen")
         if (saved != null) {
-            Log.i(TAG, "nav: Android restored the app; reopening ${saved.size} screen(s): ${saved.joinToString { it.first }}")
+            Log.i(TAG, "nav: Android restored the app; reopening ${saved.size} screen(s): ${saved.joinToString { it.route }}")
+            // Values written by other code (an update installed meanwhile) may have another shape: the screens start
+            // fresh instead (docs/second-opinions.md entry 7).
+            val savedBy = savedState?.getString(SAVED_BUNDLE)
+            if (saved.any { it.values != null } && savedBy != ZnBundles.running.label) {
+                Log.i(TAG, "nav: screen values not restored: saved by $savedBy, running ${ZnBundles.running.label}")
+                saved = saved.map { it.copy(values = null) }
+            }
             restart(bundle, saved)
             return
         }
         started = true
         val home = bundle.routes.start ?: error("the bundle has no route with path \"/\"")
-        val first = ArrayList<Pair<ZnRoute, String>>()
-        first += home to "{}"
+        val first = ArrayList<Opening>()
+        first += Opening(home, "{}")
         val match = link?.let { match(it) }
-        if (match != null && match.route != home) first += match.route to JSONObject(match.params).toString()
+        if (match != null && match.route != home) first += Opening(match.route, JSONObject(match.params).toString())
         startWith(bundle, first)
     }
 
-    private fun startWith(bundle: ZnBundle, first: List<Pair<ZnRoute, String>>) {
+    /** A screen native opens before JS runs: its route, params JSON and restored `restorableSignal` values. */
+    private class Opening(val route: ZnRoute, val params: String, val values: String? = null)
+
+    private fun startWith(bundle: ZnBundle, first: List<Opening>) {
         val payload = JSONArray()
-        for ((route, json) in first) {
+        for (o in first) {
             val id = nextNativeId++
-            ZnStore.mountRoot(id, route.templateId, bundle.templates[route.templateId])
-            stack += ZnEntry(id, route, json)
-            payload.put(JSONObject().put("entry", id.u32()).put("route", route.index).put("params", JSONObject(json)))
+            ZnStore.mountRoot(id, o.route.templateId, bundle.templates[o.route.templateId])
+            val entry = ZnEntry(id, o.route, o.params)
+            val values = o.values?.let(::JSONObject)
+            // Kept natively too: a value whose part of the screen isn't shown yet must survive a second kill.
+            values?.keys()?.forEach { entry.values.put(it, values.get(it)) }
+            stack += entry
+            val item = JSONObject().put("entry", id.u32()).put("route", o.route.index).put("params", JSONObject(o.params))
+            if (values != null && values.length() > 0) item.put("values", values)
+            payload.put(item)
         }
         ZnRuntime.dispatchEvent(APP, EVENT_START, payload.toString())
         // JS answers NAV STARTED once these screens are built (host API 3). A bundle built for host API 2 doesn't, so
@@ -139,10 +194,11 @@ object ZnNav {
 
     /**
      * Main thread, when the JS runtime is replaced (`zn dev` reload, or an update applied while the app runs): forgets
-     * the stack and returns it as (route name, params JSON), bottom first, for [restart].
+     * the stack and returns it as (route name, params JSON), bottom first, for [restart]. Screen values are left
+     * out: the new code starts its screens fresh.
      */
-    internal fun resetForReload(): List<Pair<String, String>> {
-        val saved = stack.map { it.route.name to it.params }
+    internal fun resetForReload(): List<ZnSavedEntry> {
+        val saved = stack.map { ZnSavedEntry(it.route.name, it.params) }
         backFallback?.let(main::removeCallbacks)
         backFallback = null
         stack.clear()
@@ -156,49 +212,76 @@ object ZnNav {
     }
 
     /**
-     * Opens the [saved] stack (route name, params) with [bundle]: after a `zn dev` reload (debug builds), an update
-     * applied while the app runs ([ZnOta]), or when Android restores the app ([start]). Routes that no longer exist
-     * are skipped (an update may have removed them); the start route is always at the bottom.
+     * Opens the [saved] stack (route name, params, screen values) with [bundle]: after a `zn dev` reload (debug
+     * builds), an update applied while the app runs ([ZnOta]), or when Android restores the app ([start]). Routes
+     * that no longer exist are skipped (an update may have removed them); the start route is always at the bottom.
      */
-    internal fun restart(bundle: ZnBundle, saved: List<Pair<String, String>>) {
+    internal fun restart(bundle: ZnBundle, saved: List<ZnSavedEntry>) {
         this.bundle = bundle
         started = true
         val home = bundle.routes.start ?: error("the bundle has no route with path \"/\"")
-        val first = ArrayList<Pair<ZnRoute, String>>()
-        for ((name, params) in saved) bundle.routes.all.firstOrNull { it.name == name }?.let { first += it to params }
-        if (first.firstOrNull()?.first != home) first.add(0, home to "{}")
+        val first = ArrayList<Opening>()
+        for (s in saved) bundle.routes.all.firstOrNull { it.name == s.route }?.let { first += Opening(it, s.params, s.values) }
+        if (first.firstOrNull()?.route != home) first.add(0, Opening(home, "{}"))
         startWith(bundle, first)
     }
 
     /**
-     * Saves the back stack (route names and params) into the Activity's saved state. Call it from
-     * `Activity.onSaveInstanceState`. Android hands it back to [start] only when it restores the app after killing it
-     * in the background; a normal launch from the launcher has none and starts on the start screen. A screen whose
-     * route says `restore: false` is left out, with the screens above it. The screens' JS state starts fresh.
+     * Saves the back stack (route names, params and `restorableSignal` values) into the Activity's saved state. Call
+     * it from `Activity.onSaveInstanceState`. Android hands it back to [start] only when it restores the app after
+     * killing it in the background; a normal launch from the launcher has none and starts on the start screen. A
+     * screen whose route says `restore: false` is left out, with the screens above it. Other JS state starts fresh.
      */
     fun saveState(out: Bundle) {
         val keep = stack.takeWhile { it.route.restore }
-        if (keep.size <= 1) return // only the start screen: a fresh start is the same
-        val json = JSONArray().apply {
-            for (e in keep) put(JSONObject().put("route", e.route.name).put("params", JSONObject(e.params)))
-        }.toString()
-        // Saved state crosses a Binder call with a small size limit; huge params are not worth a crash.
-        if (json.length > 50_000) {
+        // Only the start screen, with no values: a fresh start is the same.
+        if (keep.isEmpty() || (keep.size == 1 && keep[0].values.length() == 0)) return
+        val entries = keep.map { ZnSavedEntry(it.route.name, it.params, it.values.takeIf { v -> v.length() > 0 }?.toString()) }
+        var json = savedStackJson(entries)
+        if (json.length > MAX_SAVED_STACK_CHARS) {
+            Log.w(TAG, "nav: screen values too big to save (${json.length} chars); saving the screens without them")
+            json = savedStackJson(entries, withValues = false)
+        }
+        if (json.length > MAX_SAVED_STACK_CHARS) {
             Log.w(TAG, "nav: back stack too big to save (${json.length} chars); not saved")
             return
         }
         out.putString(SAVED_STACK, json)
+        ZnBundles.running.label?.let { out.putString(SAVED_BUNDLE, it) }
     }
 
-    private fun readSaved(json: String): List<Pair<String, String>>? = try {
-        val a = JSONArray(json)
-        List(a.length()) { i -> a.getJSONObject(i).let { it.getString("route") to it.getJSONObject("params").toString() } }
-    } catch (e: Exception) {
-        Log.w(TAG, "nav: saved back stack can't be read; starting on the start screen", e)
-        null
+    /** NAV RESTORE: a `restorableSignal` of [entry] changed. `{"key":k,"value":v}` keeps v; no "value" forgets k. */
+    private fun keepValue(entry: ZnEntry, params: String?) {
+        try {
+            val o = JSONObject(params ?: return)
+            val key = o.getString("key")
+            if (o.has("value")) entry.values.put(key, o.get("value")) else entry.values.remove(key)
+        } catch (e: Exception) {
+            Log.e(TAG, "nav: bad RESTORE params for $entry: $params", e)
+        }
     }
 
-    /** A link while the app runs: JS pushes its route (JS owns the stack). */
+    /**
+     * The same steps as an update applied in place ([ZnOta]), with the bundle that runs now: the JS runtime is
+     * replaced (storage and FlowStore are files: untouched) and the start screen opens, with [link] on top if given.
+     */
+    private fun startFresh(bundle: ZnBundle, link: Uri?) {
+        Log.i(TAG, "nav: a new Activity without saved state while the app still runs (closed from recents?): starting fresh")
+        ZnRuntime.restart { result, attach ->
+            resetForReload()
+            ZnStore.resetForReload()
+            ZnImpressions.resetForReload()
+            attach()
+            start(bundle, link)
+            if (!result.ok) startFailed(result.value)
+        }
+    }
+
+    /** Call it from `Activity.onNewIntent`: a link while the app runs. JS pushes its route (JS owns the stack). */
+    fun openLink(link: Uri) {
+        if (started) open(link)
+    }
+
     private fun open(link: Uri) {
         val m = match(link) ?: return
         val payload = JSONObject().put("route", m.route.index).put("params", JSONObject(m.params))
@@ -264,6 +347,7 @@ object ZnNav {
             }
             // After this batch is drawn the first screens are on screen (OTA safety nets, step 4.7).
             BatchOp.Nav.STARTED -> main.post { ZnOta.screensUp() }
+            BatchOp.Nav.RESTORE -> stack.firstOrNull { it.id == op.entry }?.let { keepValue(it, op.params) }
             else -> Log.e(TAG, "nav: unknown kind ${op.kind}")
         }
         // The top screen may have changed: impressions count only on the top screen.

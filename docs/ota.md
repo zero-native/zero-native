@@ -1,12 +1,15 @@
 # OTA updates for zero-native apps (milestone 4): design
 
-**Status: decided 2026-10-30 (Pavan accepted D1–D5 as recommended, §2); building from step 4.1.** Built from
+**Status: built on Android (steps 4.0–4.9 done 2026-10-31; the phone test matrix passed 22 of 22 on the Lava,
+`docs/ota-test-matrix.md`). Decided 2026-10-30 (Pavan accepted D1–D5 as recommended, §2). Not built: the GCS store
+adapter (waits for a test bucket), BSDiff patches, iOS (§4 "later").** Built from
 ARCHITECTURE §16 and ZeroBill's React Native OTA v2 (`my-rn-app/docs/ota_architecture.md`, v7.1),
 keeping every lesson that applies.
 
 ## 1. What an OTA bundle is in zero-native
 - The app's **bytecode** (`main.hbc`), **templates** (`main.zn.ui`), **manifest** (`main.zn.ui.json`: routes,
-  components) and the app's own **images** (`asset:` paths). Today all of these load from the APK's assets.
+  components) and the app's own **images** (`asset:` paths). All of these load either from the APK's assets (the
+  built-in bundle) or from a downloaded bundle's folder; one place decides which (`ZnBundles.kt`, step 4.1).
 - Size now: the sample is **346 KB raw, ~115 KB compressed** (no React, no framework JS beyond our small runtime).
   ZeroBill's RN bundle is 4.3 MB JS + 0.6 MB images (hence its BSDiff patches).
 - What can't change over the air: Kotlin / C++ (the renderer, native modules, Hermes), the registry, host functions.
@@ -198,6 +201,13 @@ seq, decision, the phone's outcomes). `GET /health`.
      untouched. The cover fades out once the new screens are built (NAV STARTED, step 4.7; 3 s at most).
   5. If the new main script throws while it starts, it is blocked on this phone (4.7), the bundle that ran before
      runs again the same way, `current` goes back to it, and the outcome `apply_failed` is sent with the next check.
+  `restorableSignal` values (ARCHITECTURE §11) are not carried over an apply: the new code starts its screens fresh.
+  Android's own restore (after it killed the app in the background) brings them back only if the same bundle runs.
+- **Closed from recents while the process lives (added 2026-10-31):** some phones (the Lava) keep the process after
+  the user swipes the app away. The next launch then starts fresh like other apps do: the JS runtime is replaced
+  with the **same** bundle and the start screen opens (`ZnNav.startFresh`). It does **not** switch to a waiting
+  update: that still waits for a real cold start or `applyNow()`. (Open question: should it pick up `current` here
+  too? It is a natural safe moment, since no screen is open yet.)
      Otherwise the outcome is `applied`.
   JS that called `applyNow` is gone when it applies, so its Promise never settles; it resolves only with a refusal.
   `holdApply()` is a native call that is never answered: releasing it (or closing the screen that asked) cancels it,

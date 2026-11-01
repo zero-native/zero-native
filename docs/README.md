@@ -14,17 +14,30 @@ until it is proven.
 4. `../story.md`: history, how we got here, project framing and status.
 5. Raw evidence, only when needed: `../experiments/RESULTS.md`, `../experiments/exp-notes/`, `../experiments/gemini-flash-individual-experiments/`.
 
+## Reading order for an outside reviewer (state on 2026-10-31)
+1. `../ARCHITECTURE.md`: "Where things stand" at the top, then the spec. Sections marked **As built** say what the
+   code does today; §24 is the decision log, §25 the open questions.
+2. `milestones.md`: the step tables (what is done, what moved), then the log at the bottom for details per step.
+3. `ota.md` + `ota-test-matrix.md`: the OTA design and the 22 phone tests.
+4. `plugins.md`: the next piece of work (a proposal, decisions D1–D7 open).
+5. `second-opinions.md`: judgment calls we want checked.
+6. `guide-notes.md`: what we tell app authors (do / don't / why).
+
 ## Detailed spec files
 | File | What it covers |
 |---|---|
 | `styling-and-layout.md` | `style` props, supported keys, the fixed modifier order, zn flex rules, safe areas |
 | `lists.md` | `<For>` vs `<List>`, the window protocol, placeholders, the fast template interpreter, native data source (v1.1) |
-| `native-modules.md` | calling native code from JS and back (RN TurboModules / Flutter channels equivalent): transport built, module system proposed |
+| `native-modules.md` | calling native code from JS and back (RN TurboModules / Flutter channels equivalent): typed modules, events, cancellation, binary data built; built-in modules moved to `plugins.md` |
+| `plugins.md` | **proposal (2026-10-31):** how plugins (native modules + native views + native screens) are written and shipped, official plugins, core plumbing (permissions, results from other apps), decisions D1–D7, steps P.1–P.6 |
+| `components.md` | reference for the small components (Switch, Checkbox, Spinner / Progress, Toast, image fallback) and accessibility props from steps 3.7–3.8 |
 | `startup-and-performance.md` | startup rules and budget, how to measure, every number measured so far |
 | `platform-differences.md` | known differences between Android, iOS and React Native semantics |
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |
 | `fetch.md` | `fetch`: design, defaults, and the production problems (RN / Flutter / OkHttp) it handles |
-| `ota.md` | OTA updates (milestone 4): design, decisions D1–D5 (taken 2026-10-30), steps 4.0–4.9 (4.1 done), phone test matrix |
+| `ota.md` | OTA updates (milestone 4): design, decisions D1–D5 (taken 2026-10-30), steps 4.0–4.9 (all done 2026-10-31) |
+| `ota-test-matrix.md` | the OTA phone test script (`bun run ota:phone`), its 22 cases and results on the Lava, and what it can't test |
+| `second-opinions.md` | judgment calls made while building, written up for a bigger model or an expert to check |
 | `storage.md` | app storage (MMKV, synchronous), SecureStore, and when a store can be lost |
 | `hermes-features.md` | what Hermes 260318099 added (JSI runtime data, `ISerialization`, faster JSON, ...) and how we could use it later |
 | `milestones.md` | **the build plan, progress log, and how to build and run the sample app** |

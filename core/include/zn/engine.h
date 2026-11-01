@@ -120,7 +120,8 @@ uint32_t hermesBytecodeVersion();
 // numbers, the batch and value formats. Raise kHostApiVersion when any of them gains something (packages/core/src/
 // host-api.ts must say the same number); raise kHostApiOldest only when something is removed or changes meaning,
 // which makes every bundle built before it refuse to run on this app (docs/ota.md §3.2).
-inline constexpr uint32_t kHostApiVersion = 3;  // 2: NAV FAILED, app event RETRY (step 3.9); 3: NAV STARTED (4.7)
+inline constexpr uint32_t kHostApiVersion = 4;  // 2: NAV FAILED, app event RETRY (step 3.9); 3: NAV STARTED (4.7);
+                                                // 4: NAV RESTORE, START "values" (restorableSignal)
 inline constexpr uint32_t kHostApiOldest = 1;
 
 }  // namespace zn

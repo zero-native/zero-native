@@ -94,6 +94,10 @@ the Compose frame clock.
 | Offers feed fling (260 rows: banner rail, 100 product rails, message cards; real product photos) (step 2.4b) | p50 6 ms, p90 10 ms, p95 11 ms, p99 15 ms per frame; 1 janky of 427, 0 slow bitmap uploads; 111 MB PSS | release, 20 vertical + 6 rail + 8 back flings | 10-29 |
 | Same feed with a native carousel (auto-advance) and impressions on (steps 2.4c–d) | 4 runs: p50 6–7 ms, p95 11–13 ms, p99 14–17 ms; 0–2 janky of ~420; 0 slow bitmap uploads; 177 impressions counted in 7 batches during the flings | release, `tools/measure-frames.ps1` (same flings for any app), load avg ~19 | 10-29 |
 | FlowStore write, 800-byte value (step 2.7) | **4.5–6 µs** per write; 200 / 200 kill-mid-write rounds read a complete value | core tests on the Lava (`zn_core_tests`) | 10-29 |
+| Cold start, step 4.2 sample (15 routes) | **OTA folder 196 ms**, built-in 195 ms median (n=10); choosing an OTA bundle ~10 ms, off the main thread | release, speed-profile | 10-30 |
+| Cold start, step 4.7 (safety nets on) | **192–196 ms** median (p90 207 ms, n=10); start checks 0.9–3.2 ms off the main thread; launch mark 0.5–0.8 ms on the main thread | release, speed-profile | 10-31 |
+| OTA update applied in place (`applyNow`) | **37 ms** (JS 27 ms); a bundle that throws → old bundle again in 49 ms; cover on screen ~100–170 ms, then new screens fade in over ~180 ms | release, step 4.6–4.7 | 10-31 |
+| Warm start with "Don't keep activities" on | the Activity is rebuilt each time, so Android shows the app's splash briefly; this is Android's own behaviour, not ours | debug, Pavan's developer setting | 10-31 |
 
 ### 4.1 Where exp4-flow's ~400 ms went (one release cold start, from `logcat`, 2026-10-29)
 | From process start | What | Cost |

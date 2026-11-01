@@ -4,7 +4,20 @@
 **v0 experiments and spikes done (2026-10-27 to 10-29):** all passed on the Lava Blaze 2 5G. Lessons are folded in
 below (marked "v0 lesson"); the full list is in `docs/v0-findings.md`.
 **Updated 2026-10-29:** styling, lists, startup, safe areas, controlled components, native resource handles.
+**Updated 2026-10-31:** "Where things stand" below; "as built" notes where the build differs from the first plan
+(§4, §6, §8.1, §15, §16, §17, §21); decision log to 2026-10-31; plugins proposal (`docs/plugins.md`).
 **Detailed spec files live in `docs/`** (start with `docs/README.md`). This file stays the summary and the decision log.
+
+**Where things stand (2026-10-31, Android only).** Milestones 1–4 are built and checked on a real low-end phone
+(Lava Blaze 2 5G, Android 14): compiler and templates, signals, the batch, the Compose renderer and component set,
+navigation (deep links, back, safe areas, restore after process death, `restorableSignal`), lists / feeds / sheets,
+native modules (calls, events, cancellation, binary data), `fetch`, storage (MMKV) and SecureStore, FlowStore, text
+input, animation, resilience (error screens, time limits), the `zn dev` hot reload, and OTA (signed bundles,
+compatibility check, store + CLI + reference server, apply in place, safety nets, crash traces mapped to TSX; 22 / 22
+phone test cases). Release cold start of the sample app: ~195 ms median. **Not built:** iOS (no host yet), the
+plugin system (proposal: `docs/plugins.md`), `<NativeView>` and native screens, permissions / "open another app for a
+result", `zn://` handles, background JS, the flow engine (parked, §12). Progress log: `docs/milestones.md`.
+Judgment calls waiting for a second opinion: `docs/second-opinions.md`.
 **This file replaces `intro.md` and `intro2.md` as the source of truth.** Those two files are Gemini's first brainstorm;
 section 22 lists what we kept, changed and dropped from them, and why.
 
@@ -82,12 +95,22 @@ RUN TIME (one app process)
 The **C++ core** is shared by both platforms: engine adapter, batch buffer, `.zn.ui` reader, FlowStore, bundle
 loader and signature check. Kotlin and Swift code is only the renderer, navigation and platform modules.
 
+**As built (2026-10-31):** the compiler is a Bun build plugin using the TypeScript compiler API (`compiler/src/`),
+not SWC / OXC. A bundle is **one** `main.zn.ui` (all templates, our own binary format, §6.1) + **one** `main.hbc`
+(all JS) + `main.zn.ui.json` (routes, components) + `zn-bundle.json` (id, SHA-256, requirements) + images. The
+template reader lives in Kotlin today (`TemplateReader.kt`), not C++; the OTA bundle loader and signature check are
+Kotlin too (`ZnBundles`, `ZnOtaSignature`). The C++ core holds the engine adapter, batch buffer, FlowStore and MMKV
+storage. Navigation 3 (1.2.0) hosts the screens on Android.
+
 ## 5. Authoring model
 
 ### 5.1 Files and naming
 - Screens and components: `*.zn.tsx`. Plain logic: `*.ts`.
 - Packages: `@zero-native/core` (signals, flows), `@zero-native/ui` (components, styles),
   `@zero-native/nav`, `@zero-native/net`, `@zero-native/storage`, `@zero-native/os` (platform APIs).
+  **As built:** three packages: `@zero-native/core` (signals, navigation, `fetch`, storage, FlowStore, native
+  modules, updates, errors), `@zero-native/ui` (components) and `@zero-native/template` (registry + template writer,
+  used by the compiler). Platform APIs and optional features become plugins (`docs/plugins.md`).
 - CLI: `zn` (`zn dev`, `zn build`, `zn ota ...`).
 - `zero-native` is the **working name**. Check name, npm scope and trademark before going public (the name was used by
   `vercel-labs/native`, a TypeScript desktop toolkit, before its rename).
@@ -104,6 +127,9 @@ untrack(() => amount())                      // read without subscribing
   A signal may pass its own `equals` function for objects. (v0 lesson: repeated "0" → "0" writes kept work alive.)
 Signals live in JS memory. They are not persisted unless they are part of a flow (section 12) or stored on purpose
 (section 13.4).
+- **Built variants:** `persistedSignal(key, initial)` (kept in `storage`, survives everything; §13.4) and
+  `restorableSignal(key, initial)` (inside a screen; comes back only when Android restores the app after killing it
+  in the background; §11, guide notes §26.1).
 
 ### 5.3 Screens and components
 ```tsx
@@ -185,6 +211,13 @@ A **bundle** is one signed archive:
 - JS modules use a small registry inside `core.hbc` (`__zn_define(id, factory)` / `__zn_require(id)`), so several
   `.hbc` files share one module graph in one runtime.
 - Bytecode is produced by the `hermesc` that matches the engine inside the app (section 7.3).
+
+**As built (2026-10-31):** not per screen yet. A bundle is one `main.hbc` + one `main.zn.ui` (all screens) +
+`main.zn.ui.json` + `zn-bundle.json` (id, SHA-256, requirements; signed by the OTA store) + images; source maps stay
+on the build machine / OTA store (`docs/ota.md` §3.7). OTA ships the **whole bundle**, compressed (~115 KB for the
+15-route sample), which made per-screen files and patches unnecessary for now (decision D5, `docs/ota.md` §2). The
+cold start still evaluates all JS (~70 ms in a debug build for the sample); per-screen bytecode stays the plan if
+real apps make that slow.
 
 ### 6.1 `.zn.ui` template format
 **Changed 2026-10-29 (step 1.2): our own small, versioned binary format instead of FlatBuffers.** The byte layout is
@@ -293,6 +326,11 @@ public:
 - **Budget: ≤ 250 ms `am start` TotalTime on the Lava Blaze 2 5G** for a release sample app (Flutter 1.6.0 measures
   ~300–330 ms there). v0 lesson: exp4-flow broke these rules and measured ~400–420 ms in release.
 
+**As built (2026-10-31):** step 1 is `ZnBundles` choosing the APK's bundle or a downloaded one, after the OTA
+safety-net checks (`docs/ota.md` §3.6). Step 2 reads the **Activity's saved state**, not FlowStore (changed in step
+3.9, §11). Step 4 evaluates the whole `main.hbc` (§6 as built). Measured: release cold start of the 15-route sample
+**~195 ms median** (n=10, speed-profile, built-in or downloaded bundle), within budget.
+
 ### 8.2 Threads (decided)
 | Thread | Owns | Never does |
 |---|---|---|
@@ -319,7 +357,8 @@ JS → native updates go into a **C++ batch buffer** owned by the JS thread:
 - `REMOVE(instanceId)`, `MOVE(instanceId, toIndex)`: for keyed lists and conditions.
 - `NAV(kind, entryId, routeIndex, paramsJson)`: back-stack change (section 11). For `PUSH`, `entryId` is the new
   screen's root instance id. Built in milestone 2 step 2.2 with five kinds: `PUSH`, `REMOVE`, `CLEAR`, `EXIT`,
-  `BACK_ANSWERED`. Replace = `REMOVE` + `PUSH` and reset = `CLEAR` + `PUSH`es in one batch: native applies a batch
+  `BACK_ANSWERED`; since then `IMPRESSIONS` (6), `FAILED` (7, step 3.9), `STARTED` (8, step 4.7), `RESTORE` (9,
+  `restorableSignal`). `FAILED`, `STARTED` and `RESTORE` each raised the host API version (now 4). Replace = `REMOVE` + `PUSH` and reset = `CLEAR` + `PUSH`es in one batch: native applies a batch
   at once and picks the transition from the resulting stack. Byte layout: `core/include/zn/batch.h`.
 - Native → JS app-level events (start stack, back press, forced back, deep link while running) use instance id 0.
 
@@ -497,7 +536,7 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
 - **The back stack is plain data:** a list of `{ routeId, params, instanceKey }`. JS changes it with
   `nav.push / back / replace / reset / sheet / closeSheet`, sent as `NAV` ops in the batch.
 - **Android:** Jetpack Navigation 3 (a back stack you own as a list), one generic destination that renders a zn
-  screen. Predictive back comes from the platform. [check Nav3 stable status and version]
+  screen. Predictive back comes from the platform. (Checked: Navigation 3 1.2.0, stable, in use.)
 - **iOS:** `NavigationStack(path:)` with our path array; sheets via `.sheet`.
 - **Transitions are native**, declared per route. JS never animates a page change.
 - **Deep links:** native matches the URL against the route manifest **before JS starts**, so the target screen's
@@ -514,7 +553,13 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
   when it restores the app after killing it, so a normal launch still starts on the start screen. Routes with
   `restore: false` (and the screens above them) are left out; screens' JS state starts fresh. (Changed from "saved in
   FlowStore on every change": the saved state gives exactly Android's rule for when to restore, and no writes per
-  navigation.)
+  navigation.) Except `restorableSignal(key, initial)` values (host API 4): each change goes to native (NAV
+  RESTORE), which keeps them per entry, saves them with the stack, and hands them back in START's `values`, only into
+  the same bundle (`id@sha12`) that saved them (docs/second-opinions.md entry 7).
+- **A new Activity without saved state starts fresh** (2026-10-31): the stack lives in the process, so on phones
+  that keep the process after a swipe from recents (the Lava) the old screens used to come back. Now `ZnNav.start`
+  with no saved state while screens are up replaces the JS runtime (the in-place update path) and opens the start
+  screen, like a new launch. Links while running go through `ZnNav.openLink` (`onNewIntent`).
 - Native screens are routes too (section 15.3).
 - **Safe areas and the keyboard are route options, handled natively (decided 2026-10-29):**
   `@route(path, { safeArea: 'all' | 'none' | { top?, bottom? }, keyboard: 'resize' | 'none' })`, default `'all'` /
@@ -742,19 +787,22 @@ export const Upi = nativeModule<UpiModule>('Upi', { version: 1 })
 - `zn codegen` generates Kotlin and Swift interfaces plus the argument encoding. The native side implements them.
 - Calls are asynchronous: JS → `__zn_call` → native runs on the module's own thread (or main if it says so) → result
   posted back to the JS thread. **Foundations built** (milestone 2 steps 2.5–2.6a): typed `nativeModule<T>`,
-  cancellation, error codes, events with listener counts, versions (`docs/native-modules.md`). Codegen and binary
-  arguments are not built yet; built-in modules are step 2.6b.
+  cancellation, error codes, events with listener counts, versions (`docs/native-modules.md`); binary arguments
+  built in step 3.4. Codegen is not built. Built-in modules (old step 2.6b) are now part of the plugin proposal
+  (`docs/plugins.md`: permissions and "open another app for a result" in core, UPI as a plugin).
 - Each module and its version is a **capability** listed in the app binary (section 16.2).
 
 ### 15.2 Native views
 `<NativeView name="camera.qrScanner" props={...} onEvent={...} />`. Native registers a factory for the name. Props
-and events go through slots and events like any component.
+and events go through slots and events like any component. **Not built**; detailed proposal (sizing, lifecycle,
+versioning by the plugin's module version) in `docs/plugins.md` §4.
 
 ### 15.3 Native screens
 A route can point to a native screen (Kotlin composable / SwiftUI view) instead of a zn screen. It takes part in the
-same back stack and can return a result to JS.
+same back stack and can return a result to JS. **Not built**; proposal (`nav.pushForResult`, results after a process
+kill) in `docs/plugins.md` §5.
 
-### 15.4 Native resource handles: `zn://` (decided 2026-10-29)
+### 15.4 Native resource handles: `zn://` (decided 2026-10-29; not built yet, planned with the plugin core, `docs/plugins.md` §6)
 Heavy native objects (app icons, camera photos, generated QR images, contact photos, PDF thumbnails) **never go
 through JS as bytes**. A native module keeps the object and returns a short string handle; JS passes the string
 around; native resolves it when drawing or uploading.
@@ -778,15 +826,28 @@ around; native resolves it when drawing or uploading.
   `Updates.applyNow()` (a JS restart in place; changed 2026-10-30, `docs/ota.md` §3.5). Never while the app holds it
   (`Updates.holdApply()`, e.g. during a checkout) or while a flow is active. Flows then go through migration (12.5).
 - **Boot guard:** if the app crashes twice within N seconds of starting a new bundle, roll back to the previous good
-  bundle and report it.
+  bundle and report it. **As built (steps 4.7–4.8, `docs/ota.md` §3.6):** a downloaded bundle is on trial until
+  *healthy* (screens up 4 s in the foreground, or `Updates.markHealthy()`). During the trial, an error screen, a hang,
+  a start failure or no first screen in 10 s blocks it on this phone and goes back to the last good bundle in place.
+  A launch that Android records as a crash blocks a never-healthy bundle at once (2 in a row for an ANR, Android < 11,
+  or the phone's last good bundle). The last good bundle's errors are only reported. A startup guard, a kill switch,
+  `no_space` and every outcome reported to the server complete it.
 - Server side: channels, staged rollout percentage, kill switch, rollback. (ZeroBill's OTA v2 already does most of
-  this; the zn version reuses its design.)
+  this; the zn version reuses its design.) **As built:** the framework defines its own check protocol, with a
+  reference Bun server and a release CLI (`tools/ota/`), so it doesn't depend on ZeroBill's backend; ZeroBill's
+  backend can serve the same protocol later.
+- **Crash traces (step 4.8):** every report names the bundle as `id@sha12`; each bundle's source map is kept in the
+  store by SHA; `ota symbolicate` turns a release stack (logcat, Crashlytics, telemetry) into TSX lines.
+- **A swipe from recents** starts the app fresh even if the phone kept the process (§11), but keeps the running
+  bundle: an update downloaded meanwhile waits for a real process start.
 
 ### 16.2 Compatibility (decided)
 The app binary carries a **capability manifest**:
 - framework ABI version, Hermes bytecode version,
 - component registry version (component ids, prop ids, value types),
-- native modules and their versions, native views, native screens.
+- native modules and their versions, native views, native screens. (As built: registry version, bytecode format,
+  host API range and modules. Native views and screens don't exist yet; the plugin proposal ties them to their
+  module's version so `requires` keeps its signed format, `docs/plugins.md` D3.)
 
 Each bundle's `zn-bundle.json` lists what it **requires** (the lowest registry version that has what it uses, the
 bytecode format, the host API of its core, its native modules). The server only offers a bundle to app versions
@@ -819,18 +880,28 @@ step 4.2; details in `docs/ota.md` §3.2).
   save → built 140–210 ms (bundle 30–70 ms, `hermesc` 105–170 ms); phone reload 17–50 ms when idle.
   Not done yet: in-place reload keeps no screen state (signals start fresh; FlowStore data stays).
 - **Debugging:** Hermes Chrome DevTools debugging (breakpoints, profiler, heap snapshots) over the dev server.
+  **Not built, not planned yet** (milestones).
 - **Errors:** JS errors show a dev overlay with the TSX file and line (source maps). In release, JS stack traces are
-  sent to the crash reporter and mapped back on the server with the bundle's source maps.
+  sent to the crash reporter and mapped back on the server with the bundle's source maps. **Built** (dev: step 3.1;
+  release: step 4.8, `ZnRuntime.onJsError` + `asThrowable()` for Crashlytics, `bun run ota symbolicate`).
 - **Tests:** logic and flows run under `bun test` with a fake host (no device needed). Renderer conformance screenshot
-  tests run on emulators / simulators.
+  tests run on emulators / simulators. **As built:** `bun test` with a fake host (~200 JS tests), Kotlin unit tests
+  (~75), C++ core tests run on the phone, and an OTA phone test matrix (`bun run ota:phone`, 22 cases). No screenshot
+  conformance tests yet.
 - **Lint:** the compiler reports destructured props, effects missing `reconcile`, flow schema changes without a version
-  bump, and unknown components or props.
+  bump, and unknown components or props. **As built:** unknown components, props and style keys are build errors;
+  the other checks are not built (flows are parked).
 
 ## 18. Security and privacy
 - Only signed bundles run. No `eval` of downloaded text; Hermes runs our compiled bytecode only.
 - Flows hold plain JSON with **no secrets**; files are app-private and excluded from backups.
 - For regulated apps (for example payments in India), check what flow data is allowed at rest under RBI rules.
-- Native modules are the only way to reach platform APIs; permissions are requested through `os.permissions`.
+- Native modules are the only way to reach platform APIs; permissions are requested through `os.permissions`
+  (not built; proposed as core `Permissions`, `docs/plugins.md` §6).
+- **As built:** OTA bundles are signed with ECDSA P-256 (main + backup public key in the APK; the private key never
+  in the repo); a replayed old answer is refused (signed, increasing `seq`); `SecureStore` uses the Android Keystore;
+  storage and FlowStore are excluded from backups. Telemetry carries the first line of JS error messages (privacy
+  question in `docs/second-opinions.md` entry 4).
 
 ## 19. Performance targets
 | What | Target | v0 measured (Lava Blaze 2 5G, prototype, 2026-10-28) |
@@ -846,6 +917,10 @@ step 4.2; details in `docs/ota.md` §3.2).
 | List fling (90 Hz phone) | ≤ 11 ms per frame | one shared row template 2.8–4 ms; generic node tree per row 18–25 ms (rejected) |
 | Hot reload, save → screen | ≤ 300 ms | 127 ms (dev build) |
 
+**v1 numbers so far (release, Lava, 2026-10-29 to 10-31):** cold start of the 15-route sample ~195 ms median
+(n=10; same with a downloaded OTA bundle); `<List>` fling of 10,100 rows p95 11 ms per frame; an OTA update applied
+in place in 37–50 ms; hot reload save → phone 140–210 ms build + 17–50 ms reload (debug).
+
 Every number, with how it was measured: `docs/startup-and-performance.md` §4.
 
 Comparisons with the RN app in `RESULTS.md` are directional only: cold start and memory compare a prototype with the
@@ -860,6 +935,12 @@ full app, and the RN tap-latency figures are estimates (the RN app has no tap in
   the same; `launchActivity` is replaced by `openURL` + resume handling, still a `once` effect.
 
 ## 21. Repository layout (planned)
+**As built (2026-10-31):** `compiler/` (Bun plugin + TS compiler API), `core/` (C++: Hermes adapter, batch,
+FlowStore, MMKV storage; tests run on the phone), `android/` (`runtime` library + `sample` app), `packages/` (`core`,
+`ui`, `template`), `tools/` (`zn-dev.ts` hot reload, `ota/` store + CLI + reference server + phone matrix, `hermesc`,
+measuring scripts), `examples/sample` (the sample app's TSX), `docs/`, `experiments/` (v0, reference only). No
+`ios/`, `cli/` or `conformance/` yet; `plugins/` is proposed (`docs/plugins.md` D5).
+The first plan:
 ```
 zero-native/
   compiler/        TS: JSX transform, template writer (.zn.ui), flow schema checks, codegen
@@ -907,6 +988,8 @@ zero-native/
 - A general mmap data arena.
 - Cronet / HTTP/3 backend.
 - Web or desktop renderers (non-goal).
+- Not deferred on purpose but not started yet (2026-10-31): the iOS host, the Hermes debugger, screenshot
+  conformance tests, per-screen bytecode, binary OTA patches.
 
 ## 24. Decision log
 | Date | Decision | Reason |
@@ -974,16 +1057,27 @@ zero-native/
 | 2026-10-30 | OTA compatibility: a bundle asks for the **lowest registry version that has what it uses** (`Added` table + `registry.lock.json` checked by a test), plus bytecode format, host API, native modules read from the source; the phone checks them and every template id | Pavan chose approach A over one framework version: a fix built with newer tools still reaches older installs when it uses nothing new. The id check means a mistake costs one refused update, never a wrong screen. |
 | 2026-10-30 | Builds are byte-for-byte repeatable: template ids are given by file path after all files are compiled; Bun's random `debugId` line is dropped. One place (`ZnBundles`) picks the running bundle (APK or a downloaded folder) for bytecode, templates and images | `docs/ota.md` §3.1. Ids followed Bun's file load order, so the same source gave a new SHA each build; one SHA = one serial and small patches need repeatable output. |
 | 2026-10-30 | Flow engine parked (not in v1); `flowStore` is public and payments use the save-then-verify pattern | Section 12 note, `docs/guide-notes.md` §16. For one or two money journeys, ~30 lines of app code plus the backend's `/verify` give the same safety; the engine pays off with many journeys and teams. |
+| 2026-10-31 | OTA safety nets (step 4.7): healthy mark after 4 s in front; before it, an error screen / hang / start failure / no first screen in 10 s blocks the bundle and goes back to the last good one in place; a startup guard; outcomes always reported | `docs/ota.md` §3.6. Every lesson from ZeroBill's RN OTA v2; a bad update must cost a user one bad launch at most. |
+| 2026-10-31 | Watchdog: a launch Android records as a crash blocks a never-healthy bundle at once; ANR / no exit record / the phone's last good bundle need 2 in a row; errors of the last good bundle are only reported (Pavan chose option (a)) | `docs/ota.md` §3.6, `docs/second-opinions.md` entries 1–3. A bundle proven for weeks shouldn't be lost to one native-SDK crash; kept for expert review. |
+| 2026-10-31 | Crash traces: bundle label `id@sha12` everywhere; source maps kept in the store by SHA; `ota symbolicate`; bundle bytes made independent of the build folder | `docs/ota.md` §3.7. A release crash must map to a TSX line for the exact bundle that ran. |
+| 2026-10-31 | Download only with free space ≥ rest of the zip + 4× the zip + 50 MB (`no_space` otherwise); a full disk mid-download removes the half files | `docs/ota.md` §3.6, `docs/second-opinions.md` entry 5. An update must never fill a low-end phone. |
+| 2026-10-31 | `restorableSignal(key, initial)`: values sent to native per change (NAV RESTORE, host API 4), saved with the back stack, handed back on restore only into the same bundle (`id@sha12`) | §11, `docs/second-opinions.md` entry 7. The amount typed before going to the UPI app must survive a process kill; a newer bundle might read an old value wrong. |
+| 2026-10-31 | A new Activity without saved state while the process lives (a swipe from recents on ROMs that keep the process) starts fresh: new JS runtime, start screen; links while running go through `ZnNav.openLink` | §11. Same behaviour on every phone, like RN and Flutter apps on the same Lava; Android's own rule: saved state = restore, none = fresh. |
+| 2026-10-31 | **Proposed, not decided:** a plugin system (package = TS + Android library, `ZnPlugin` entry point, `<NativeView>`, native screens, core permissions / activity results / `zn://` handles); decisions D1–D7 open | `docs/plugins.md`. QR, WebView, UPI, media and push all need it; one system before five ad-hoc ones. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).
 - iOS image cache choice.
-- Exact FlatBuffers schema for `.zn.ui` and the batch byte layout (written in milestone 1).
+- ~~Exact FlatBuffers schema for `.zn.ui` and the batch byte layout~~ (done in milestone 1: own binary format,
+  `packages/template/src/writer.ts`; batch layout in `core/include/zn/batch.h`).
+- The plugin system's decisions D1–D7 (`docs/plugins.md`).
+- Judgment calls kept for a second opinion (watchdog limits, error text in telemetry, free-space numbers, fallback
+  for an unusable bundle, `restorableSignal` across bundles): `docs/second-opinions.md`.
 - How computed row expressions work with a native list data source (`docs/lists.md` §6, v1.1).
 - Whether to build the NativeWind `className` translator (v1.1).
 - Flow tests the framework must pass that v0 left open: restored flows must reach a final state with `/verify`
   actually called; a `/pay` that died mid-call (no `ztc`) means "payment not started" (`docs/v0-findings.md` §D).
-- Nav3 version and stability at build time: checked 2026-10-29, 1.2.0 stable, needs Compose 1.10+ (§11).
+- ~~Nav3 version and stability at build time~~: checked 2026-10-29, 1.2.0 stable, needs Compose 1.10+ (§11); in use.
 
 ## 26. Glossary
 - **Template:** the compiled, static shape of a screen or part of a screen.
@@ -994,7 +1088,13 @@ zero-native/
 - **Flow:** a saved state machine for a multi-step process.
 - **Effect:** a side effect inside a flow (network call, launching another app) that must be recorded before it runs.
 - **Reconcile step:** the flow step that finds out what really happened after an uncertain effect.
-- **FlowStore:** the crash-safe file where flows and the back stack are saved.
+- **FlowStore:** the crash-safe file where flows (later) and pending payment records are saved. (The back stack is
+  saved in the Activity's saved state since step 3.9.)
+- **Bundle label:** `<bundle id>@<first 12 hex of its SHA-256>`, e.g. `sample_5@447185f3dbdd`: names the exact code
+  in every log, report and crash.
+- **Healthy / last good bundle:** a downloaded bundle is *healthy* once its screens were up 4 s in front; the phone's
+  *last good* bundle is the newest one that became healthy there, and safety nets go back to it.
+- **Host API:** the version of the JS ↔ native contract (host functions, batch ops, event numbers); now 4.
 - **Capability manifest:** the list of what an installed app can run (engine, components, modules), used to decide
   which OTA bundles it may load.
 - **Style:** the `style` prop; React Native style names that the renderer applies in one fixed order.

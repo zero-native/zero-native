@@ -2,11 +2,11 @@ import { beforeEach, expect, test } from "bun:test"
 import { installFakeHost, type FakeHost } from "./fake-host"
 import { installEvents } from "../src/events"
 import { insets } from "../src/insets"
-import { AppEvent, nav, resetNavForTests, startApp, useBack, useImpressions } from "../src/nav"
+import { AppEvent, nav, resetNavForTests, restorableSignal, startApp, useBack, useImpressions } from "../src/nav"
 import { defineRoutes } from "../src/routes"
 import { signal } from "../src/signals"
 import { activeTimerCount, installTimers, setInterval, setTimeout } from "../src/timers"
-import { on, slot, view } from "../src/view"
+import { on, slot, view, when } from "../src/view"
 
 let host: FakeHost
 const NATIVE_ROOT = 0x80000001
@@ -256,4 +256,91 @@ test("a failed start screen shows the error screen too", () => {
   start()
   expect(navOps()).toEqual([["nav", FAILED, NATIVE_ROOT, 0, JSON.stringify({ message: "no merchant data" })]])
   expect(nav.depth()).toBe(1)
+})
+
+// ---- restorableSignal ------------------------------------------------------------------------------------------------
+
+const RESTORE = 9
+let amount: ReturnType<typeof restorableSignal<string>> | null = null
+let showNote: ReturnType<typeof signal<boolean>> | null = null
+let note: ReturnType<typeof restorableSignal<string>> | null = null
+const Keypad = () => {
+  amount = restorableSignal("amount", "")
+  showNote = signal(false)
+  return view(0, (i) => {
+    slot(i, 0, () => amount!())
+    // A part shown later (after a tap): its restorableSignal still belongs to this screen.
+    when(i, 1, () => showNote!(), () => {
+      note = restorableSignal("note", "")
+      return view(1, () => {})
+    })
+  })
+}
+const keypadRoutes = defineRoutes({ home: { path: "/", screen: Keypad } })
+const restoreOps = () => navOps().filter((o) => o[1] === RESTORE)
+
+test("restorableSignal sends its first value and each change to native as NAV RESTORE", () => {
+  resetNavForTests()
+  startApp(keypadRoutes)
+  start()
+  expect(restoreOps()).toEqual([["nav", RESTORE, NATIVE_ROOT, 0, `{"key":"amount","value":""}`]])
+  amount!.set("12")
+  amount!.set("12") // same value: nothing sent
+  amount!.set((a) => a + "5")
+  expect(restoreOps().slice(1)).toEqual([
+    ["nav", RESTORE, NATIVE_ROOT, 0, `{"key":"amount","value":"12"}`],
+    ["nav", RESTORE, NATIVE_ROOT, 0, `{"key":"amount","value":"125"}`],
+  ])
+  expect(host.ops).toContainEqual(["patch", NATIVE_ROOT, 0, "125"]) // still an ordinary signal
+})
+
+test("after Android restored the app, START's values are the starting values", () => {
+  resetNavForTests()
+  startApp(keypadRoutes)
+  start([{ entry: NATIVE_ROOT, route: 0, params: {}, values: { amount: "250", note: "for tea" } } as never])
+  expect(amount!()).toBe("250")
+  expect(host.ops).toContainEqual(["patch", NATIVE_ROOT, 0, "250"])
+  showNote!.set(true) // the part shown later gets its value too
+  expect(note!()).toBe("for tea")
+  // Each value is used once: the part shown again later starts fresh, like a signal.
+  showNote!.set(false)
+  showNote!.set(true)
+  expect(note!()).toBe("")
+})
+
+test("restorableSignal outside a screen, or a key used twice on one screen, is an error", () => {
+  expect(() => restorableSignal("x", 0)).toThrow("inside a screen")
+  const Twice = () => {
+    restorableSignal("k", 1)
+    restorableSignal("k", 2)
+    return view(0, () => {})
+  }
+  resetNavForTests()
+  startApp(defineRoutes({ home: { path: "/", screen: Twice } }))
+  start()
+  expect(nav.depth()).toBe(1) // the screen failed (native shows its error screen)
+  expect(navOps()).toContainEqual(["nav", FAILED, NATIVE_ROOT, 0, JSON.stringify({ message: `restorableSignal: the key "k" is already used on screen "home"` })])
+  // A part that is hidden frees its key: showing it again is fine.
+  resetNavForTests()
+  startApp(keypadRoutes)
+  start()
+  showNote!.set(true)
+  showNote!.set(false)
+  expect(() => showNote!.set(true)).not.toThrow()
+})
+
+test("a value that isn't JSON or is too big is not kept (one warning), and an older value is forgotten", () => {
+  resetNavForTests()
+  startApp(keypadRoutes)
+  start()
+  host.ops.length = 0
+  amount!.set("9".repeat(5000))
+  amount!.set("8".repeat(5000))
+  expect(restoreOps()).toEqual([
+    ["nav", RESTORE, NATIVE_ROOT, 0, `{"key":"amount"}`],
+    ["nav", RESTORE, NATIVE_ROOT, 0, `{"key":"amount"}`],
+  ])
+  expect(host.logs.filter(([, m]) => m.includes("won't come back"))).toHaveLength(1)
+  amount!.set("7")
+  expect(restoreOps().at(-1)).toEqual(["nav", RESTORE, NATIVE_ROOT, 0, `{"key":"amount","value":"7"}`])
 })

@@ -176,7 +176,7 @@ internal object ZnDev {
             attach()
             ZnNav.restart(bundle, saved)
             runningHash = hash
-            val where = saved.lastOrNull()?.first ?: "start"
+            val where = saved.lastOrNull()?.route ?: "start"
             Log.i(TAG, "reloaded in ${SystemClock.uptimeMillis() - t0} ms (JS ${result.millis} ms), on $where" +
                 if (result.ok) "" else " — the new code threw, see the error screen")
         }

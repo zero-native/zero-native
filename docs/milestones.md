@@ -67,10 +67,10 @@ Full brief with design decisions, tests and phone checks per step:
 | 2.4e | Benchmark: offers feed from `test-kit/offers-data.json` vs the RN Offers tab (release, Lava) | Claude | skipped by Pavan (no benchmarking for now); `tools/measure-frames.ps1` stays for later |
 | 2.5 | `<Sheet>`: native drag and detents, controlled by JS (+ the native-call transport) | Claude | **done 2026-10-29** |
 | 2.6a | Native module foundations: typed `nativeModule<T>`, events + listener counts, cancellation, error codes, versions (`docs/native-modules.md`) | Claude | **done 2026-10-29** |
-| 2.6b | Built-in modules on top: `Os.upiApps` + `zn://app-icon`, small `Os` methods, `launchActivity` with results, permissions (`docs/cross-communication/2026-10-29-native-modules-brief.md`); `fetch` and codegen later | Gemini | next |
+| 2.6b | Built-in modules on top: `Os.upiApps` + `zn://app-icon`, small `Os` methods, `launchActivity` with results, permissions (`docs/cross-communication/2026-10-29-native-modules-brief.md`); `fetch` and codegen later | Gemini | **moved 2026-10-31** to the plugin plan (`docs/plugins.md` P.2 plumbing, P.3 `@zero-native/upi`); not started by Gemini. (`fetch` was built in 3.4) |
 | 2.7 | FlowStore (C++): two-slot crash-safe file, checksums, growth; JS `flowStore` | Claude | **done 2026-10-29** |
-| 2.8 | ~~Flows engine~~ (parked 2026-10-30, `docs/after-foundations.md`). Instead: a sample checkout with the save-then-verify pattern (`docs/guide-notes.md` §16) against the mock UPI app, including the app being killed while the UPI app is open | Claude | after 2.6b (`launchActivity`) |
-| 2.9 | Release measurements; close the milestone | Gemini, Claude reviews | |
+| 2.8 | ~~Flows engine~~ (parked 2026-10-30, `docs/after-foundations.md`). Instead: a sample checkout with the save-then-verify pattern (`docs/guide-notes.md` §16) against the mock UPI app, including the app being killed while the UPI app is open | Claude | **moved 2026-10-31** to the ZeroBill checkout pilot (planned separately), after plugins P.3 |
+| 2.9 | Release measurements; close the milestone | Gemini, Claude reviews | **covered 2026-10-31**: release numbers were taken at each step of milestones 3–4 (`docs/startup-and-performance.md` §4); proposed: treat milestone 2 as closed, since 2.6b / 2.8 moved (Pavan to confirm) |
 
 ## Milestone 3: real-app essentials + a fast dev loop (Android)
 Agreed with Pavan 2026-10-30. The framework stays linked to the sample app (no separate npm / Maven packaging) until
@@ -87,15 +87,16 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 | 3.6 | Animation: `animate` with spring / tween on slot values, enter / exit on `&&` and `? :` | Claude | **done 2026-10-30** |
 | 3.7 | Small components: Switch, Checkbox, Spinner / Progress, Toast, image fallback + shimmer | Gemini, Claude reviewed + fixed | **done 2026-10-30** (note: `docs/cross-communication/2026-10-30-steps-3.7-3.8-gemini-done.md`) |
 | 3.8 | Accessibility basics: `label`, `role`, `hidden`, font scaling with `maxFontScale` | Gemini, Claude reviewed + fixed | **done 2026-10-30** |
-| 3.9 | **Resilience** (agreed 2026-10-30; **done 2026-10-30**, log below): (1) a screen that throws while being built stays on the stack and native shows a built-in fallback (release: "Something went wrong" + Go back / Try again; first screen: Try again; debug: the red screen with the TSX line); a failing part of a screen (conditional block, list row) stays empty, the rest works; (2) promise rejection tracking, so errors in `async` code are reported; (3) a time limit on each JS task (Hermes `watchTimeLimit`, ~5 s) instead of a frozen app; (4) `onError(handler)` for apps (screen name, bundle id) to send to Crashlytics / a backend; (5) checks on templates and values when they arrive (unknown ids, wrong value types, a node placed inside itself): refuse or report instead of crashing; (6) the back stack saved on every change and reopened after Android kills the app in the background (designed in ARCHITECTURE §11, built only in v0); (7) `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` reuse cached formatters per locale + options, so the simple way is also the fast way (today ~2 ms per call, guide note §25) | Claude | after 4.2; needed by 4.7 |
+| 3.9 | **Resilience** (agreed 2026-10-30; **done 2026-10-30**, log below): (1) a screen that throws while being built stays on the stack and native shows a built-in fallback (release: "Something went wrong" + Go back / Try again; first screen: Try again; debug: the red screen with the TSX line); a failing part of a screen (conditional block, list row) stays empty, the rest works; (2) promise rejection tracking, so errors in `async` code are reported; (3) a time limit on each JS task (Hermes `watchTimeLimit`, ~5 s) instead of a frozen app; (4) `onError(handler)` for apps (screen name, bundle id) to send to Crashlytics / a backend; (5) checks on templates and values when they arrive (unknown ids, wrong value types, a node placed inside itself): refuse or report instead of crashing; (6) the back stack saved on every change and reopened after Android kills the app in the background (designed in ARCHITECTURE §11, built only in v0); (7) `toLocaleString` / `toLocaleDateString` / `toLocaleTimeString` reuse cached formatters per locale + options, so the simple way is also the fast way (today ~2 ms per call, guide note §25) | Claude | **done 2026-10-30** |
 
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
 recommended; logged in ARCHITECTURE §16 / §24. 4.1, 4.2, step 3.9 and 4.3 (local store) done 2026-10-30 (log
-below). 4.4 and 4.5 done 2026-10-30, 4.6, 4.7, 4.8 and 4.9 done 2026-10-31: **milestone 4 is done**. Next:
-`restorableSignal` (agreed below), then milestone 5.
+below). 4.4 and 4.5 done 2026-10-30, 4.6, 4.7, 4.8 and 4.9 done 2026-10-31: **milestone 4 is done**.
+`restorableSignal` (agreed below) done 2026-10-31. Next: the plugin system (`docs/plugins.md`, decisions D1–D7
+open, out for review), then the ZeroBill checkout pilot (planned separately).
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
 
-**Agreed for after 4.9 (Pavan, 2026-10-30): `restorableSignal(key, initial)`.** Like `signal`, but its value comes
+**Agreed for after 4.9 (Pavan, 2026-10-30): `restorableSignal(key, initial)`** (**done 2026-10-31**, log below). Like `signal`, but its value comes
 back when Android restores a screen after killing the app in the background (step 3.9 brings the screens back; their
 signals start fresh today). For the amount typed on the keypad, a half-filled form, the selected tab. Each change
 goes to native, which keeps the values per screen entry and saves them with the back stack (`ZnNav.saveState`); on
@@ -103,9 +104,10 @@ restore, the START payload hands them back as the starting values. JSON-able val
 is small), nothing kept across normal launches (that is `storage`). About half a day; React Native has no such
 thing, Flutter (`RestorationMixin`) and Compose (`rememberSaveable`) do.
 
-Later milestones: **4** OTA (signed bundles, bundle pool, boot guard, capability manifest, "an older app ignores a
+Later milestones: **4** OTA (**done 2026-10-31**: signed bundles, bundle pool, boot guard, capability manifest, "an older app ignores a
 newer bundle" test, release crash traces mapped back to TSX); **5** ZeroBill checkout pilot with a full-app size
-measurement. Not planned yet: the Hermes debugger (Chrome DevTools), the flow engine (parked).
+measurement (planned separately, after plugins P.3); **plugins** (`docs/plugins.md`, proposal). Not planned yet: the
+Hermes debugger (Chrome DevTools), the flow engine (parked), iOS.
 Parked ideas: `docs/after-foundations.md`.
 
 ## Tests
@@ -119,6 +121,53 @@ Parked ideas: `docs/after-foundations.md`.
 | OTA on the phone (22 cases, ~15 min) | `bun run ota:phone` (debug sample, phone unlocked) | `tools/ota/phone-matrix.ts`, `docs/ota-test-matrix.md` |
 
 ## Log
+### 2026-10-31: docs brought up to date for an outside review (Claude)
+- Checked every main doc against the code. Fixed: `ARCHITECTURE.md` ("Where things stand", "As built" notes, §24 /
+  §25 / glossary), `docs/ota.md` (status, where bundles load from, swipe-from-recents note), `docs/native-modules.md`
+  (built-in modules never built, moved to `plugins.md`), `docs/startup-and-performance.md` (milestone 4 numbers),
+  this file (2.6b / 2.8 moved, 2.9, 3.9 status, later milestones), `docs/after-foundations.md` (stale rows, pointer
+  to `plugins.md`), both READMEs, a history note on `story.md`.
+- Review brief for Gemini 4 Argon: `docs/cross-communication/2026-10-31-argon-review-brief.md`.
+
+### 2026-10-31: a swipe from recents now starts the app fresh (Claude, Pavan approved option (a))
+- **Found by Pavan:** swiping the sample away and reopening it showed the amount screen again. RN and Flutter apps on
+  the same Lava open on their home screen. Cause: the Lava keeps the process alive after the task is removed, and
+  `ZnNav` keeps the stack per process (on purpose, for rotation), so the new Activity showed the old stack.
+- **Fix:** `ZnNav.start` from `onCreate` with no saved state while screens are already up → `startFresh`: a new JS
+  runtime (the same steps as an update applied in place, same bundle; storage / FlowStore untouched) and the start
+  screen. Links while running: new `ZnNav.openLink(link)` for `onNewIntent` (app code: one line changed; guide notes
+  §26).
+- **Verified on the Lava (debug):** typed 2450, task removed like a swipe (`am stack remove`), same pid → opens on
+  home ("starting fresh"); a deep link while running → amount on top, no restart; rotation with 2450 typed → same
+  screen and value; Home + background kill → restored with 2450.
+- **Known limit:** an OTA bundle downloaded meanwhile still waits for a real process start (the fresh start keeps
+  the running bundle). Possible follow-up: apply a waiting update at this moment, since the user sees a fresh start
+  anyway.
+
+### 2026-10-31: `restorableSignal` done (Claude): screen values that survive Android killing the app
+- **What it gives** (guide notes §26.1): `restorableSignal("amount", "0")` works like `signal`; when Android kills
+  the app in the background and the user comes back, the screen opens again (step 3.9) **with that value**. Sample:
+  the keypad amount (`AmountScreen.tsx`).
+- **How:** JS sends each change as NAV RESTORE (kind 9, `{"key","value"}`); `ZnNav` keeps values per entry, saves
+  them with the stack (`zn.nav.stack` entries get `"values"`, plus `zn.nav.bundle` = the running `id@sha12`), and
+  hands them back in START's `values`. Works anywhere inside a screen (it finds its screen through the owner chain,
+  so also in parts shown later); a key twice on one screen throws.
+- **Limits chosen:** JSON values only, ≤4,000 chars each (else not kept, one warning, and the older value is
+  forgotten); if the whole stack with values passes 50,000 chars, the screens are saved without values; values come
+  back only into the same bundle that saved them, not after an OTA update in between, a dev reload or an update
+  applied in place (second-opinions entry 7). The home screen alone is now saved too when it has values.
+- **Host API 4** (C++ `NavKind::Restore`, `kHostApiVersion`, `HOST_API_VERSION`): every bundle built from now on
+  needs an app with host API 4; older bundles still run on this app (`kHostApiOldest` stays 1).
+- **Tests:** C++ core 148 (the "unknown NAV kind" check now uses 10); JS 4 new (first value + changes, START values
+  used once, a part shown later, errors, too big /
+  not JSON); Kotlin `ZnNavSavedTest` 4 (round trip, without values, a stack saved before host API 4, broken JSON).
+- **Verified on the Lava (debug):** amount screen, typed 2450, Home, killed in the background (SIGKILL as the
+  low-memory killer does; `am kill` doesn't kill it on this ROM), reopened from the launcher → "Android restored
+  the app; reopening 2 screen(s): home, amount" and ₹2,450 (the cashback line recomputed from it). A fresh launch
+  after a force stop → ₹0.
+- **Not verified on the phone:** values dropped when another bundle runs (needs an OTA install between the kill and
+  the return; the check is one comparison, and the log line says so); a value too big for the saved state.
+
 ### 2026-10-31: step 4.9 done (Claude): OTA phone test matrix, low storage, docs
 - **Phone matrix:** `bun run ota:phone` (`tools/ota/phone-matrix.ts`) runs 22 OTA cases on a real phone in ~15 min:
   installs the debug sample fresh, releases test bundles into its own store (`.zn-ota-test/`), and breaks things on

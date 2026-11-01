@@ -15,12 +15,16 @@
 // A screen that throws while it is being built stays on the stack (so Back works as usual) and native shows its
 // built-in error screen instead (NAV FAILED, step 3.9, docs/guide-notes.md §26). "Try again" there: native makes a
 // fresh root and sends RETRY; JS builds the screen again.
+//
+// restorableSignal: each value change goes to native as NAV RESTORE; native saves the values with the back stack and,
+// when Android restores the app after killing it, hands them back in START's "values" (host API 4).
 import { APP, AppEvent } from "./app-events"
 import { reportError, setTopScreen } from "./errors"
 import { onEvent } from "./events"
 import { installInsets } from "./insets"
 import type { NativeValue } from "./native"
 import type { RouteDef, RouteName, RouteParams } from "./routes"
+import { getOwner, onCleanup, signal, type Owner, type Signal } from "./signals"
 import { allocInstanceId, renderRoot, type View } from "./view"
 
 /** Apps register their routes for typed navigation (in routes.ts):
@@ -29,7 +33,7 @@ import { allocInstanceId, renderRoot, type View } from "./view"
 export interface Register {}
 type Routes = Register extends { routes: infer R } ? R : Record<string, RouteDef>
 
-const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7, Started: 8 } as const
+const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7, Started: 8, Restore: 9 } as const
 export { AppEvent } from "./app-events"
 
 interface Entry {
@@ -42,7 +46,14 @@ interface Entry {
   impressions?: { handler: (keys: string[]) => void; session: boolean }
   /** The screen threw while being built; native shows its error screen. */
   failed?: boolean
+  /** restorableSignal values native handed back (Android restored the app); each is used once. */
+  restored?: Record<string, unknown>
+  /** restorableSignal keys in use on this screen now. */
+  restoreKeys?: Set<string>
 }
+
+/** A screen's root owner → its entry: restorableSignal finds its screen through the owner it is created under. */
+const screenOwners = new WeakMap<Owner, Entry>()
 
 /** Keys already reported in this app session (for `once: "session"`). */
 const seenThisSession = new Set<string>()
@@ -135,6 +146,70 @@ export function useImpressions(handler: (keys: string[]) => void, options: Impre
   globalThis.__zn_nav(NavKind.Impressions, rendering.id, 0, JSON.stringify({ threshold, minMs: options.minMs ?? 0 }))
 }
 
+/** Longest JSON a restorableSignal value may have (saved state is small: Android limits it to ~1 MB in all). */
+const MAX_RESTORABLE_CHARS = 4_000
+
+/**
+ * Like `signal`, but its value comes back when Android restores the screen after killing the app in the background
+ * (the amount typed on a keypad, a half-filled form, the selected tab). Call it inside a screen (a component body,
+ * also in a part shown later); `key` names the value on this screen. The value must be JSON-able and small (≤4,000
+ * chars as JSON); it comes back as JSON gives it (a Date as a string). Nothing is kept across normal launches: use
+ * `persistedSignal` (storage) for that. Values come back only into the same bundle that saved them (an update
+ * installed meanwhile starts the screen fresh). Guide notes: "Values that survive Android killing the app".
+ */
+export function restorableSignal<T>(key: string, initial: T, options?: { equals?: (a: T, b: T) => boolean }): Signal<T> {
+  const e = screenOf(getOwner())
+  if (!e) throw new Error("restorableSignal must be called inside a screen (in a component body)")
+  const keys = (e.restoreKeys ??= new Set())
+  if (keys.has(key)) throw new Error(`restorableSignal: the key "${key}" is already used on screen "${e.name}"`)
+  keys.add(key)
+  onCleanup(() => keys.delete(key))
+
+  let first = initial
+  if (e.restored && key in e.restored) {
+    first = e.restored[key] as T
+    delete e.restored[key]
+  }
+  let warned = false
+  const keep = (value: T) => {
+    let json: string | undefined
+    try {
+      json = JSON.stringify(value)
+    } catch {
+      json = undefined
+    }
+    if (json !== undefined && json.length <= MAX_RESTORABLE_CHARS) {
+      globalThis.__zn_nav(NavKind.Restore, e.id, 0, `{"key":${JSON.stringify(key)},"value":${json}}`)
+      return
+    }
+    if (!warned) {
+      warned = true
+      const why = json === undefined ? "isn't JSON" : `is ${json.length} chars as JSON (at most ${MAX_RESTORABLE_CHARS})`
+      globalThis.__zn_log(2, `restorableSignal "${key}" on screen "${e.name}": the value ${why}; it won't come back`)
+    }
+    globalThis.__zn_nav(NavKind.Restore, e.id, 0, JSON.stringify({ key })) // an older value mustn't come back instead
+  }
+
+  const s = signal(first, options)
+  keep(first)
+  const set = s.set
+  s.set = (next) => {
+    const before = s.peek()
+    set(next)
+    const now = s.peek()
+    if (!Object.is(before, now)) keep(now)
+  }
+  return s
+}
+
+function screenOf(o: Owner | null): Entry | undefined {
+  for (; o; o = o.parent) {
+    const e = screenOwners.get(o)
+    if (e) return e
+  }
+  return undefined
+}
+
 /** Native's batch of counted keys for one screen. */
 function onImpressions(payload: NativeValue): void {
   const { entry, keys } = JSON.parse(String(payload)) as { entry: number; keys: string[] }
@@ -206,7 +281,12 @@ function render(e: Entry): void {
   rendering = e
   try {
     // Screens return JSX, which the compiler turned into a View.
-    e.dispose = renderRoot(e.id, screen as (props: Record<string, unknown>) => View, e.params)
+    const build = screen as (props: Record<string, unknown>) => View
+    e.dispose = renderRoot(e.id, (props: Record<string, unknown>) => {
+      const root = getOwner()
+      if (root) screenOwners.set(root, e)
+      return build(props)
+    }, e.params)
     e.failed = false
   } catch (err) {
     // renderRoot has already stopped whatever the screen started. Handlers it set up belong to the failed build.
@@ -244,14 +324,20 @@ function start(payload: NativeValue): void {
     globalThis.__zn_log(2, "nav: start event ignored, the app has already started")
     return
   }
-  const entries = JSON.parse(String(payload)) as Array<{ entry: number; route: number; params: Record<string, unknown> }>
-  for (const { entry, route, params } of entries) {
+  const entries = JSON.parse(String(payload)) as Array<{
+    entry: number
+    route: number
+    params: Record<string, unknown>
+    /** restorableSignal values, when Android restored the app (host API 4). */
+    values?: Record<string, unknown>
+  }>
+  for (const { entry, route, params, values } of entries) {
     const name = names[route]
     if (name === undefined) {
       globalThis.__zn_log(3, `nav: start entry ${entry} has unknown route ${route}`)
       continue
     }
-    show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, onBack: null })
+    show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, onBack: null, restored: values })
   }
   // The first screens are built (a screen that threw has already sent FAILED): the OTA safety nets count the bundle
   // as on screen from here (docs/ota.md §3.6).

@@ -42,7 +42,7 @@ Pavan, 2026-10-29: feeds and catalogues need Flutter-sliver-like behaviour:
 | Nested elements inside `<Text>` (spans) | **Done (step 3.2)** for build-time span styles. Left: span styles that change at runtime, `onPress` on a span (links), inline icons / images. |
 | Conditional entries in style arrays (`[s.a, on && s.b]`) | Build error today with a hint to use a ternary inside the style object. |
 | Row items as signals | `.map` mounts a row again when its item object changes (same key). Per-row signals would update in place. |
-| Timers owned by the screen | ARCHITECTURE §14 says a screen's timers stop when the screen is removed; `setTimeout` doesn't attach to owners yet. |
+| Timers owned by the screen | **Done (step 2.2):** a timer made inside a screen or component is cleared when it closes (`packages/core/src/timers.ts`). |
 | More dynamic props | Text, colour, background, opacity, src, disabled, and (registry v4, step 2.3) per-edge padding can change at runtime. Sizes, margins, gap etc. still need layout-phase slots like padding's (`docs/styling-and-layout.md` §8.3; `layoutPadding` in `ZnTemplate.kt` is the pattern). |
 | Deep-link query values | `zn://sample/dev/fetch?auto=1` reaches the route with params `{}`: query values are dropped (found in step 3.4) | Pass them as optional params, or document that deep links carry path params only. |
 | Safe-area gaps (step 2.3) | Insets reach JS after the first frame, so a full-bleed **start** screen would draw its header without the inset for one frame (send them with START). No horizontal full-bleed option (`safeArea` has top / bottom only). Keyboard inset: done (step 3.3, route option `keyboard`); a `<TextField>` inside a `<Sheet>` doesn't resize the sheet yet. |
@@ -64,7 +64,7 @@ below would make those rules automatic for every journey; pick it up when severa
 | Item | What | Source |
 |---|---|---|
 | Flow engine | `defineFlow`, saving before every step, effects `safe` / `keyed` / `once` with a required reconcile step, restoring screens and state after a kill, safe mode, flow versions with OTA, lint for missing `reconcile` | ARCHITECTURE §12 (full design kept there) |
-| Result hook | `ZnActivityResults.onResult` (step 2.6b) is the single entry point for results from other apps; the engine would save each result to FlowStore before JS hears about it | ARCHITECTURE §12.4 |
+| Result hook | `ZnActivityResults.onResult` (was step 2.6b; now `launchForResult` in `docs/plugins.md` P.2) is the single entry point for results from other apps; the engine would save each result to FlowStore before JS hears about it | ARCHITECTURE §12.4 |
 | Restored flows must finish | Restored runs logged 0 `/verify` calls in v0; the flow tests must assert `/verify` happens and a final screen shows | `docs/v0-findings.md` §D |
 | `/pay` died mid-call | No `ztc` to verify with; UPI never opened, so "payment not started → try again" | `docs/v0-findings.md` §D |
 | Backend idempotency key for `/pay` | Would make `/pay` `keyed` | `experiments/exp-notes/5-pay-idempotency.md` |
@@ -74,7 +74,7 @@ below would make those rules automatic for every journey; pick it up when severa
 |---|---|
 | Use what Hermes 260318099 added | `docs/hermes-features.md`: runtime data and `ISerialization` (JSI), faster JSON / Map / Set, `FinalizationRegistry`, built-in `TextDecoder`, bytecode version 99 (an OTA rule for milestone 4), with a suggested order. |
 | Build `libjsi.so` from source | The RN repo has the JSI source for the same release (`node_modules/react-native/ReactCommon/jsi/jsi/jsi.cpp`). Today we ship the prebuilt `libjsi.so` copied from `react-android:0.87.1`, which is the exact binary Hermes was built against. Building it ourselves removes a copied binary but must produce an identical ABI. |
-| Images: `zn://` handles, placeholders | Step 1.4 loads http(s) and `asset:` with Coil. `zn://` handles (ARCHITECTURE §15.4) and placeholder / error images are still to do. |
+| Images: `zn://` handles, placeholders | Step 1.4 loads http(s) and `asset:` with Coil. Fallback and shimmer while loading: done in step 3.7. `zn://` handles (ARCHITECTURE §15.4): moved to the plugin plan (`docs/plugins.md` P.2). |
 | Icons: strokes and an icon-set importer | Step 1.4 draws fill paths from "minX minY w h\|d" strings. Stroke icons (Lucide etc.) and a script that turns a folder of SVGs into `icons.ts` are still to do. |
 | Upgrade Coil | **Done 2026-10-30:** Coil 3.6.3 with OkHttp 5.5.1. Coil 3.6 needs Kotlin stdlib 2.4, so the Kotlin compiler went 2.2.0 → 2.4.21 (the Compose compiler plugin version in `android/build.gradle.kts` sets it). |
 | Dynamic transforms | **Done (step 3.6):** transforms can change at runtime and animate. |
@@ -85,10 +85,13 @@ below would make those rules automatic for every journey; pick it up when severa
 | Direct `ByteBuffer` for batches | Batches cross JNI as a `byte[]` copy today (small). Switch to a direct buffer if measurements show a cost. |
 | Generate the Baseline Profiles | The `:baselineprofile` module is ready, but generation fails on the Lava: after macrobenchmark force-stops the app, the ROM drops the "save profile" broadcast even once the app is relaunched (`result=0`; `am kill` instead of force-stop works). Not a `targetSdk` issue. Run it once on any other Android 13+ phone or an emulator: `.\gradlew.bat :sample:generateBaselineProfile :runtime:generateBaselineProfile`, then measure with and without the profile. |
 | Lint in the step checklist | `NewApi` would have caught the API-35 crash in step 1.1. Run `.\gradlew.bat :runtime:lintDebug :sample:lintRelease` (0 errors at step 1.1). |
-| Upgrade the Compose BOM | We use `2024.09.00` (what v0 verified); lint reports `2026.09.00`. Upgrade in one step and re-measure startup and frames. **Scheduled: milestone 2 step 2.0b** (needed by Navigation 3). |
+| Upgrade the Compose BOM | **Done (step 2.0b, 2026-10-29):** BOM `2026.09.00` (Compose 1.12.1), re-measured. |
 | Hermes version | **Done 2026-10-30:** `260318099.0.5` (RN 0.88.1's Hermes), with its JSI headers, `libjsi.so` and `hermesc` (npm `hermes-compiler`). Cost: `libhermesvm.so` +228 KB raw, about +100 KB in download size. Next upgrade: same four together (`core/third_party/jsi/README.md`). |
 
 ## Production areas not built yet (listed 2026-10-30; Pavan: for later, in this order unless an app needs one sooner)
+
+**Update 2026-10-31:** these are now planned as plugins and core plumbing in **`docs/plugins.md`** (sections 6–7, steps
+P.1–P.6, decisions D1–D7 open). This table is kept as the earlier notes; plugins.md is the current plan.
 | # | Area | Notes |
 |---|---|---|
 | 1 | **QR scan / camera** | Core for ZeroBill (Scan & pay). **An optional package, not core:** `@zero-native/scanner` + an Android module that registers a `NativeView` (ARCHITECTURE §15.2, to build first; also used later by WebView, maps, etc.). Apps that don't add it pay 0 bytes; the capability manifest lists it with its version, so a bundle using it never runs on an app without it. Inside: CameraX preview + **bundled** ML Kit barcode (~2.4 MB; Play-services-downloaded models fail to install on low-storage phones, Pavan 2026-10-30). Sends `onScan(text)` once, then pauses until JS calls `resume()`; torch, gallery-image scan, camera permission handled natively. **Stale frames rule** (an RN / Flutter bug ZeroBill hit: going back to the scan screen scanned an old QR at once): every pause (scan sent, screen covered, app in background) bumps a generation number and unbinds the analyser; a result is sent only if its generation is current **and** its frame was captured after the screen became visible again. Test: scan, go to the next screen, come back pointing at the same QR: no scan until `resume()`, and none from frames before returning. iOS: AVFoundation, no extra library. |

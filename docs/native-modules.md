@@ -6,6 +6,11 @@ by Pavan: async only, cancellation, events, error codes, versions). Built-in mod
 asks.** This is zero-native's answer to React Native's NativeModules / TurboModules and Flutter's MethodChannel /
 EventChannel / Pigeon.
 
+> **Update 2026-10-31:** the Gemini brief for built-in modules was never done; nothing from §3.5 is built. Binary data
+> and `fetch` were built in step 3.4 (`docs/fetch.md`). Built-in modules, codegen, permissions and activity results
+> now belong to the plugin plan: **`docs/plugins.md`** (official plugins §7, plumbing §6, steps P.1–P.6). Sections
+> 3–4 below are kept as the earlier design notes.
+
 ## 1. What is built (steps 2.5 + 2.6a)
 **JS (`packages/core/src/calls.ts`, `abort.ts`):**
 - `nativeModule<T>("Name", { version })`: a typed handle (a `Proxy`): every method of the interface becomes
@@ -36,7 +41,9 @@ and native "stopped early"; `fail()` → `NativeError` with code `no_luck`. Test
 version marker, error codes, abort, screen-close drop, events + listener counts), C++ `testNativeCall`.
 
 **Not built:** codegen (Kotlin interface from the TS interface, capability-manifest entries), built-in modules
-(Gemini, see the brief). Binary arguments and `fetch` were built in step 3.4.
+(the Gemini brief was not done; now planned in `docs/plugins.md`). Binary arguments and `fetch` were built in step 3.4.
+The compiler records each `nativeModule("X", { version })` it finds into `zn-bundle.json` (`needs`), and OTA checks
+it against the app (ARCHITECTURE §16.1).
 
 ## 2. How others do it
 | | Declaration | Calls | Native → JS | Types |
@@ -106,6 +113,6 @@ loaded by a Coil fetcher, `<queries>` in the runtime manifest), `os.launchActivi
 - Kotlin: modules are plain classes; test them with a fake `ZnReply`.
 
 ## 4. Proposed plan
-Make it milestone 2 **step 2.6 "Native modules v1"** (it was "native calls"): `nativeModule<T>` + `on()`, codegen of
+(Earlier plan. Steps 2.5 and 2.6a are built; the rest moved to `docs/plugins.md`.) Make it milestone 2 **step 2.6 "Native modules v1"** (it was "native calls"): `nativeModule<T>` + `on()`, codegen of
 the Kotlin side + capability manifest entries, events with owner cleanup and coalescing, cancellation, error codes,
 then the built-in `os` modules and `fetch` on top. Flows (2.7–2.8) then use `os.launchActivity` for UPI.

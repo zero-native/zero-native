@@ -507,11 +507,16 @@ Every one of these is logged, shown on the red screen in debug builds, and passe
   part, async, handler; Kotlin also hang, start, renderer). Keep handlers short; an error inside one is only logged.
 - **Do:** set the error screen's words in your users' language: `ZnErrorScreen.texts = ZnErrorScreen.Texts(...)`,
   and your colours with `ZnErrorScreen.colors`, in Application.onCreate.
-- **Do:** add the two lines that bring screens back after Android kills the app in the background, in your
-  Activity: `ZnNav.start(bundle, link, savedInstanceState)` and, in `onSaveInstanceState`, `ZnNav.saveState(outState)`.
+- **Do:** add the lines that bring screens back after Android kills the app in the background, in your Activity:
+  `ZnNav.start(bundle, link, savedInstanceState)` in `onCreate`, `ZnNav.saveState(outState)` in
+  `onSaveInstanceState`, and `ZnNav.openLink(link)` in `onNewIntent` (not `start`: `start` means a new Activity).
   Mark screens that must never reopen on their own with `restore: false` in `routes.ts` (a "payment done" screen).
-  Screens come back with their route params; their signals start fresh, so keep what must survive in `storage` or
-  `flowStore`.
+  Screens come back with their route params; their signals start fresh, except `restorableSignal` (§26.1). Keep what
+  must survive a normal close too in `storage` or `flowStore`.
+- **What to expect when the user swipes the app away from recents:** the next open starts fresh on the start screen,
+  on every phone. Some phones (the Lava) keep the process alive after the swipe; zero-native then starts a new JS
+  runtime itself, the same as a new launch (module-level JS state is gone too, as on a real restart). A rotation or
+  dark-mode change keeps the screens and their state.
 - **Don't:** rely on the error screen for flows that move money. A payment screen that fails to build must not leave
   the payment unknown: keep the save-then-verify pattern (§16), which works whatever the UI does.
 - **Don't:** do heavy work in one go on the JS thread (parsing a huge file, a long loop). Taps wait while it runs
@@ -521,6 +526,30 @@ Every one of these is logged, shown on the red screen in debug builds, and passe
 - **Why:** one broken screen should never take the whole app down (React Native's default), and Back must always
   work. The framework reports and shows the fallback; anything more (restarting after repeated hangs, reporting) is
   the app's choice.
+
+### 26.1 Values that survive Android killing the app: `restorableSignal`
+**What it does.** Users leave the app mid-task (to check the balance in the UPI app, to copy an OTP). Low-end phones
+often kill the app meanwhile. When the user comes back, the screen opens again (above), and a `restorableSignal`
+gets back the value it had:
+```ts
+const amount = restorableSignal("amount", "0")   // like signal("0"); "amount" names it on this screen
+const tab = restorableSignal("tab", "upi")
+```
+- **Do:** use it for what the user typed or picked on this screen and would be annoyed to lose: the amount on a
+  keypad, a half-filled form, the selected tab, a search box. Call it in the screen's components (also in a part
+  shown later); each key once per screen.
+- **Do:** keep values small and plain: strings, numbers, booleans, arrays, plain objects (at most 4,000 chars as
+  JSON each). A bigger or non-JSON value isn't kept (one warning in the log). A `Date` comes back as a string.
+- **Don't:** use it for things that must last past the app being closed normally (a swipe from recents, a phone
+  restart): that is `persistedSignal` / `storage`. And never for payment state: `flowStore` (§16) is the source of
+  truth there; `restorableSignal` is only for comfort.
+- **Don't:** put secrets in it (an OTP, a PIN, a card number): Android writes saved state to disk while the app is
+  killed.
+- **What to expect:** values come back only into the same bundle that saved them. If an OTA update was installed in
+  between, the screen opens fresh (the new code might read the old value wrong). A value comes back once: a part
+  hidden and shown again later starts from its initial value, like `signal`.
+- **Why:** a user who typed ₹2,450 and went to check the balance should come back to ₹2,450, not 0. Android keeps
+  the saved state only for this kind of "the system killed it" return; nothing is kept on a fresh launch.
 
 ---
 

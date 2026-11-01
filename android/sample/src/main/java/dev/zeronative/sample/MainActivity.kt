@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         val link = intent.data ?: return
-        ZnTemplates.whenReady(ASSET) { bundle -> ZnNav.start(bundle, link) }
+        ZnTemplates.whenReady(ASSET) { ZnNav.openLink(link) }
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

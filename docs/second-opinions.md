@@ -105,3 +105,16 @@ change, and what evidence would make you change it?"
   send an outcome (`bundle_unusable`, with the reason) so it shows in telemetry; (c) drop the saved seq so the next
   check downloads the bundle again. (a) + (b) look cheap and safe; (c) risks a download loop if the cause repeats.
 - **Evidence:** how often (b) would fire in a staging rollout. If it never fires, keep it as is.
+
+## 7. restorableSignal values come back only into the bundle that saved them (after milestone 4)
+- **Where:** `ZnNav.start` (`SAVED_BUNDLE`, the running bundle's `id@sha12`); guide-notes §26.1.
+- **Chosen:** when Android restores the app, screen values come back only if the same bundle runs now. If another
+  bundle runs (an OTA update was installed while the app was in the background, or the watchdog rolled back), the
+  screens still open again but start fresh. A dev reload and an update applied in place also start screens fresh.
+- **Why:** a newer bundle may read a value differently (a renamed key, an amount in paise instead of rupees). A
+  wrong value on a payment screen is worse than an empty one; this case is rare (an install, then a background kill).
+- **Risk if wrong:** a user loses a typed value once in that rare case. No safety risk.
+- **Other options:** (a) always hand values back and let the app check them (like `storage`, guide notes "saved
+  data across updates"); (b) a version number per value (`restorableSignal("amount", "0", { version: 2 })`), kept
+  only if equal.
+- **Evidence:** none needed unless users report lost values after updates; (b) is a small, safe addition later.

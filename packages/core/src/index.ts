@@ -32,7 +32,7 @@ export {
   type View,
 } from "./view"
 export { onEvent } from "./events"
-export { nav, startApp, useBack, useImpressions, type ImpressionOptions, type Register } from "./nav"
+export { nav, restorableSignal, startApp, useBack, useImpressions, type ImpressionOptions, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
 export { flowStore, type StoreRead } from "./flowstore"
 export {

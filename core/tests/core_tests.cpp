@@ -185,14 +185,14 @@ void testNav() {
   Harness h;
   h.engine->onCall = [](zn::HostApi& host, std::string_view, std::span<const zn::Value>) {
     host.nav(1, 3, 2, zn::Value::null());
-    host.nav(9, 3, 2, zn::Value::null());
+    host.nav(10, 3, 2, zn::Value::null());  // 9 is RESTORE (host API 4)
   };
   h.runtime.dispatchEvent(0, 2, zn::Value::null());
   std::vector<uint8_t> out = h.runtime.takeBatch();
   Reader r2{out};
   r2.pos += 4;
   CHECK(r2.get<uint32_t>() == 1);
-  CHECK(!h.platform.logs.empty() && h.platform.logs.back().find("unknown kind 9") != std::string::npos);
+  CHECK(!h.platform.logs.empty() && h.platform.logs.back().find("unknown kind 10") != std::string::npos);
 }
 
 void testListOps() {

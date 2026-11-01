@@ -1,6 +1,6 @@
 // The sample's amount-entry screen, written as plain TSX and compiled by the zero-native compiler.
 import { Column, Pressable, Row, Text, Box, Icon, Image, Sheet } from "@zero-native/ui"
-import { computed, nav, signal, useBack } from "@zero-native/core"
+import { computed, nav, restorableSignal, signal, useBack } from "@zero-native/core"
 import { c } from "./tokens"
 import { backspace as backspaceIcon } from "./icons"
 import { applyKey, backspace, financials, formatIndian, rupees, toPaise, type Session } from "./money"
@@ -75,7 +75,8 @@ function BackspaceKey(props: { onDelete: () => void }) {
 
 export function AmountScreen(props: { merchantId: string }) {
   const merchant = merchantById(props.merchantId)
-  const amount = signal("0")
+  // Comes back if Android kills the app while the user is in another app (checking the balance in the UPI app).
+  const amount = restorableSignal("amount", "0")
   const status = signal("")
   const cursor = signal(true)
   const confirmDiscard = signal(false)
