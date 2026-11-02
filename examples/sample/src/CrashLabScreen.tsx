@@ -1,7 +1,8 @@
 // Crash lab (step 3.9): forces each kind of failure, to check on the phone that the app keeps working and that every
 // error is reported. Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/crash
 import { Box, Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { nav, onCleanup, onError, signal } from "@zero-native/core"
+import { nav, onAppState, onCleanup, onError, signal } from "@zero-native/core"
+import { Device } from "./device"
 import { c } from "./tokens"
 
 // Module level: folded into the templates at build time.
@@ -51,6 +52,10 @@ export function CrashLabScreen() {
       status.set(`#${count.peek()} ${info.kind} · ${info.where} · screen ${info.screen}: ${String(error).slice(0, 80)}`)
     }),
   )
+  onAppState((state) => {
+    console.log(`crash lab: app state ${state}`) // read on the phone with logcat (H.7)
+    status.set(`App state: ${state}`)
+  })
 
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
@@ -95,9 +100,51 @@ export function CrashLabScreen() {
             }}
           />
           <LabRow
+            title="Endless loop inside try / catch"
+            detail="JS can't catch the time limit: stopped the same way"
+            onRun={() => {
+              for (;;) {
+                try {
+                  let i = 0
+                  while (i >= 0) i = (i + 1) % 1000
+                } catch {
+                  // A loop that swallows every error must still be stopped.
+                }
+              }
+            }}
+          />
+          <LabRow
+            title="Busy for 1.5 s"
+            detail="Under the time limit. To test: kill -STOP the process meanwhile, then -CONT; no hang is reported"
+            onRun={() => {
+              // Counts only time really spent here, so a frozen process doesn't shorten it.
+              let busy = 0
+              let last = Date.now()
+              while (busy < 1500) {
+                const now = Date.now()
+                if (now - last < 100) busy += now - last
+                last = now
+              }
+            }}
+          />
+          <LabRow
             title="Send native a node inside itself"
             detail="The renderer refuses it and reports it (kind renderer); the app keeps running"
             onRun={() => globalThis.__zn_mount(0, 999_000_001, 0, 999_000_001, 0, [])}
+          />
+          <LabRow
+            title="Open the mock UPI app"
+            detail="Debug builds. To test a link, or our icon, while another app is on top"
+            onRun={() => {
+              Device.openMockUpi().catch((e) => status.set(String(e)))
+            }}
+          />
+          <LabRow
+            title="Crash the app"
+            detail="Debug builds. A Kotlin crash; the next start counts it against the running update"
+            onRun={() => {
+              Device.crash().catch((e) => status.set(String(e)))
+            }}
           />
           <LabRow title="Check Intl formatting" detail="Cached toLocaleString vs a fresh formatter, and its speed" onRun={() => status.set(intlCheck())} />
           <Box style={card}>

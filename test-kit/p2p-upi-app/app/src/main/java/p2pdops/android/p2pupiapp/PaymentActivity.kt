@@ -85,6 +85,15 @@ class PaymentActivity : ComponentActivity() {
                             onCancel = { returnCancelled(txnRef) },
                             onCrash = { simulateProcessCrash() }
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        // Test only: a link from an app that doesn't ask for a new task, like some UPI apps on return.
+                        Text(
+                            text = "Send a link to the app (no new task)",
+                            color = Color(0xFF64748B),
+                            modifier = Modifier
+                                .clickable { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("zn://sample/offers?from=mock"))) }
+                                .padding(12.dp)
+                        )
                     }
                 }
             }

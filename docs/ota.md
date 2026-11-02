@@ -1,6 +1,6 @@
 # OTA updates for zero-native apps (milestone 4): design
 
-**Status: built on Android (steps 4.0–4.9 done 2026-10-31; the phone test matrix passed 22 of 22 on the Lava,
+**Status: built on Android (steps 4.0–4.9 done 2026-10-31; the phone test matrix passed 28 of 28 on the Lava after the hardening steps, 2026-11-02;
 `docs/ota-test-matrix.md`). Decided 2026-10-30 (Pavan accepted D1–D5 as recommended, §2). Not built: the GCS store
 adapter (waits for a test bucket), BSDiff patches, iOS (§4 "later").** Built from
 ARCHITECTURE §16 and ZeroBill's React Native OTA v2 (`my-rn-app/docs/ota_architecture.md`, v7.1),
@@ -174,6 +174,10 @@ seq, decision, the phone's outcomes). `GET /health`.
     UP_TO_DATE sets it back to the running bundle (an installed update waiting for the next start must not start
     after a kill switch or a rollback; the server only sees what runs now);
   - the bundle must be signed, fit this app, and be newer than the APK's own.
+  Time limits (2026-11-02): the check has 30 s for the whole call and fails as `server`; its answer is capped at
+  256 KB while reading. The download has no total limit, so a slow one that still moves is fine, but 60 s with no bytes
+  fails it as `download`, and the next check resumes it. Without these, a server that accepts and never answers would
+  block the one OTA thread for good.
   Download: `download.part` (+ `download.json` naming the zip's SHA), resumed with Range after a cut, then size and
   SHA checked. Install: `zn-bundle.json` is read first and must name the signed bundle; only the files it lists are
   extracted, each stopped at its listed size and checked against its listed SHA (no zip bombs, no paths outside the
@@ -232,22 +236,33 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   **Not for the phone's last good bundle** (added in step 4.8, Pavan's choice; `docs/second-opinions.md` entry 3):
   the healthy mark is per process, so it is on trial again for 4 s at every launch, but an error screen, a hang or no
   first screen there is only reported (`error_screen`, "last good bundle: reported only") and the error screen shows.
-  It ran well on this phone before, and an "error" block is forever. Its crashes still count (watchdog, 2 in a row).
+  It ran well on this phone before, and an "error" block is forever. Its crashes still count (watchdog, 3 in 24 h).
+  One exception (2026-11-02): JS that throws at start comes back at every launch, so 2 failed starts in 24 h block it
+  ("watchdog": until the next APK) and the APK's bundle runs.
 - **First-screen rule:** a downloaded bundle not healthy whose screens aren't up `Config.firstScreenTimeoutMs`
   (10 s) after the app came on screen (counted while in the foreground) → rolled back the same way (a bundle that
   never calls `startApp`, or waits forever).
-- **Launch watchdog, UI launches only** (FCM / WorkManager starts never count): when an Activity comes on screen on a
-  downloaded bundle not healthy yet, the launch is marked *pending* (with the process id; 0.5–0.8 ms on the main
-  thread in release, no fsync). Going to the background or the healthy mark clears it. At the next start a pending
-  launch is judged by Android's exit record **of that process** (Android 11+): crash, native crash or ANR **count**;
-  anything else (force stop, low memory, swipe away, reboot) **doesn't**. Android < 11 can't say why: every such death
-  counts. **Blocking (changed in step 4.8):** one launch that Android's record says **crashed** (crash, native crash)
-  blocks a bundle never healthy on this phone at once ("watchdog"): a crash before the healthy mark comes back on the
-  next start, so waiting only costs the user a second crash. **2 counted launches in a row** are needed when Android
-  can't be sure (Android < 11, no exit record, an ANR: a slow phone can freeze too), and for the phone's last good
-  bundle (it ran well here before; one crash may be a native SDK's bad luck). The healthy mark is per process, so
-  every launch is watched until its 4 s pass. The next start runs last good or the APK's. A watchdog block is cleared
-  by the next APK install (it may fix a native cause); an error block never is.
+- **Launch watchdog, UI launches only** (FCM / WorkManager starts never count). **Changed 2026-11-02 (F4 option D):**
+  whenever an Activity comes on screen on a downloaded bundle, healthy or not, the visit is marked *pending* (with the
+  process id; 0.5–0.8 ms on the main thread in release, no fsync). Only going to the background clears it. At the next
+  start a pending visit is judged: a crash mark from that process (below) or Android's exit record **of that process**
+  (Android 11+): crash, native crash or ANR **count**; anything else (force stop, low memory, swipe away, reboot)
+  **doesn't**. A phone restart after the mark never counts. Android < 11 can't say why: every other such death counts.
+  **The times of the last 3 deaths are kept for 24 h.** The background and the healthy mark don't clear them; a new APK
+  or a different bundle does, and times in the future are dropped. **Blocking ("watchdog"):** within 24 h, **1 sure
+  crash** of a bundle never healthy on this phone (it comes back on the next start, so waiting only costs a second
+  crash), **2 deaths** when Android can't be sure (Android < 11, no exit record, an ANR: a slow phone can freeze too),
+  **3 deaths** of the phone's last good bundle (it ran well here; one crash may be a native SDK's bad luck). So a crash
+  on return from a UPI app counts, and so does one after the healthy mark. The next start runs last good or the APK's.
+  A watchdog block is cleared by the next APK install (it may fix a native cause); an error block never is.
+  `launch_crashed` goes to the server every time, so it shows the rate per bundle, and the kill switch stays the tool
+  for all phones.
+- **Crash mark** (2026-11-02): a default uncaught-exception handler writes `zn-ota/crash-mark` (pid + time), then always
+  calls the handler before it, so Crashlytics keeps working. It makes Java and Kotlin crashes "sure" below Android 11,
+  and when a crash dialog was closed with a force stop. Native crashes never reach it.
+- **A bundle that fails its checks at a start** (missing files, wrong hash, a module the app lacks; 2026-11-02): the last
+  good bundle runs if it passes the same checks, and `current` points at it; else the APK's bundle runs and `current`
+  goes. `bundle_unusable` is sent once per bundle id, and the next prune deletes the folder.
 - **Blocked bundles** never run, are never switched to, never offered as `kept`, and their folders are deleted. A
   channel pointing to a blocked bundle (a newer seq) → the seq is saved, nothing downloaded, result NONE BLOCKED,
   outcome `blocked`. The way forward is a fixed bundle (a new id).
@@ -309,10 +324,13 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   `Device.crash`); cold start median 195 ms (n=10, as before).
 - Small telemetry with the next check, no extra requests. Outcome kinds so far: `downloaded`, `switched`, `started`,
   `applied`, `apply_failed`, `healthy`, `error_screen`, `error_rollback`, `launch_crashed`, `watchdog_block`,
-  `blocked`, `apk_changed`, `init_failed`, `ota_off`, `pointer_refused`, and a failed check's code (`server`,
-  `download`, `zip_sha`, `signature`, `incompatible`, `bundle`, `no_space`, ...). Serious (a safety net acted, or a signed file
-  didn't check out): `error_rollback`, `launch_crashed`, `watchdog_block`, `apply_failed`, `init_failed`, `ota_off`,
-  `signature`, `zip_sha`.
+  `blocked`, `bundle_unusable`, `apk_changed`, `init_failed`, `ota_off`, `pointer_refused`, and a failed check's code
+  (`server`, `download`, `zip_sha`, `signature`, `incompatible`, `bundle`, `no_space`, ...). Serious (a safety net acted,
+  or a signed file didn't check out): `error_rollback`, `launch_crashed`, `watchdog_block`, `apply_failed`, `init_failed`,
+  `ota_off`, `signature`, `zip_sha`, `bundle_unusable`.
+- **Private data in error text** (2026-11-02): before a JS error's text is stored or sent, the phone masks URL query
+  strings, bearer tokens, anything like `a@b`, and runs of 6 or more digits (spaces or dashes may be between them). Then
+  `ZnOta.Config.redact` runs, if the app set one. Stack frames stay as they are. `onJsError` still gets the raw text.
 
 ## 4. Proposed steps (milestone 4)
 | Step | What | Done when |
@@ -335,7 +353,7 @@ wrong pointer signature; replayed old pointer (lower seq); kill switch; rollback
 bundle that throws at start → rollback in one launch; bundle that crashes → watchdog (once on Android 11+, twice for
 the last good bundle or on Android < 11); APK update newer than the
 OTA bundle; **older app offered a newer bundle needing a module it lacks → ignores it**; low storage; airplane mode;
-FCM-style background start doesn't count as a launch. **Built:** `bun run ota:phone` runs it (22 cases) on a phone;
+FCM-style background start doesn't count as a launch. **Built:** `bun run ota:phone` runs it (28 cases) on a phone;
 results and what can't be run there: `docs/ota-test-matrix.md`.
 
 ## 5. What stays the app's job (as in the RN app)

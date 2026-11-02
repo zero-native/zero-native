@@ -25,7 +25,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * A thin host: the screens, the back stack and back handling all come from the zn runtime (ZnNavHost / ZnNav).
- * Launched in `singleTask` mode, so a deep link while the app runs arrives in [onNewIntent], not a second Activity.
+ * Launched in `singleTop` mode: a deep link while this Activity is on top arrives in [onNewIntent]; while another app is
+ * on top it makes a second Activity, which [ZnNav.handleExtraActivity] forwards and closes.
  * To test Activity recreation: `adb shell cmd uimode night yes` (and `no`).
  */
 class MainActivity : ComponentActivity() {
@@ -56,6 +57,11 @@ class MainActivity : ComponentActivity() {
         // Draw behind the status and navigation bars; each route decides which edges stay clear (ZnNavHost).
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (ZnNav.handleExtraActivity(this, savedInstanceState)) {
+            finish()
+            return
+        }
+        current = this
         ZnDebug.countRecompositions = BuildConfig.DEBUG
         ZnRuntime.addBatchListener(batchListener)
         ZnNav.onExit = exit
@@ -99,6 +105,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         ZnRuntime.removeBatchListener(batchListener)
+        if (current === this) current = null
         if (ZnNav.onExit === exit) ZnNav.onExit = null
         super.onDestroy()
     }
@@ -108,5 +115,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "zn-sample"
         private const val ASSET = "main.zn.ui"
+        /** The Activity on screen, for the debug-only [DeviceModule] call that opens the mock UPI app. */
+        internal var current: MainActivity? = null
     }
 }

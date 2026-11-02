@@ -30,6 +30,17 @@ change, and what evidence would make you change it?"
   the watchdog doesn't count force stops (on purpose: users force-stop healthy apps too). That crash is missed; the
   next one counts. Possible fix: an uncaught-exception handler (not there today) writes a small "crashed" mark before
   Android's handler runs; a force stop with that mark counts as a crash. Low priority unless telemetry shows crash loops without `launch_crashed`.
+- **Reviewed 2026-11-02 (Fable, Argon):** 1 vs 2 kept for the launch. Two changes, planned in `docs/hardening-plan.md`
+  H.3, not built yet:
+  - The crash mark is in: it also makes Java crashes "sure" on Android below 11.
+  - **The count changes (decided by Fable + Claude; Pavan left it to us).** Today a crash after the healthy mark is
+    never counted, and going to the background resets the count, so a crash on return from a UPI app is always "1 of
+    N". New rule: every foreground period is watched; the last 3 counted deaths are kept with their times; deaths
+    older than 24 h drop out; neither the background nor the healthy mark clears them. Limits in 24 h: 1 sure crash
+    (never healthy), 2 unsure (never healthy), 3 (last good). A plain "3 in a row" was rejected, as was "only report and
+    use the kill switch", which needs a person to notice while the user can't pay.
+  - **Evidence that would change it:** if `launch_crashed` on healthy bundles is mostly one event per phone with no
+    cluster per bundle, raise the limit to 4 or stop blocking after healthy. If it clusters per bundle, tighten it.
 
 ## 2. Watchdog: an ANR counts, but as "not sure" (2 needed) (step 4.8)
 - **Where:** `ZnOtaHealth.kt`, `exitOf` (`REASON_ANR -> Exit.Counts(..., sure = false)`).
@@ -40,6 +51,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a bundle that freezes the main thread stays for one more launch.
 - **Other options:** `sure = true` (block after 1); or don't count ANRs at all.
 - **Evidence:** ANR rate per bundle vs the APK's own bundle in telemetry / Play Console.
+- **Reviewed 2026-11-02 (Fable, Argon):** keep. JS doesn't run on the main thread, so an ANR is native or the phone.
 
 ## 3. Errors of the phone's last good bundle are only reported (step 4.7, changed in 4.8)
 - **Where:** `ZnOtaHealth.Rules.errorsRollBack`, used by `ZnOta.errorScreen` and the first-screen timer;
@@ -63,6 +75,10 @@ change, and what evidence would make you change it?"
   every launch (→ consider (b)) vs once (→ keep).
 - **Checked:** on the Lava (debug): bundle healthy on launch 1, home throws on launch 2 → reported only, launch 3 runs
   it normally. Unit test: `ZnOtaHealthTest.errorsOfTheLastGoodBundleAreOnlyReported`.
+- **Reviewed 2026-11-02 (Fable, Argon):** keep option (a) for screen errors. A **start** failure repeats on every launch,
+  so it will count: 2 in 24 h blocks the bundle (`docs/hardening-plan.md` H.3, not built yet). The check still runs on
+  an error screen, so a fixed bundle or a kill switch reaches the phone. Hangs and a late first screen on a slow phone
+  block a new bundle for good (Fable's F5): to fix before real users.
 
 ## 4. What error text goes to our server (step 4.7 / 4.8)
 - **Where:** `ZnOta.errorScreen` (`detail`: the first line of the error message), `jsTopFrames` (`stack`); the
@@ -74,6 +90,9 @@ change, and what evidence would make you change it?"
 - **Other options:** send only the error type (`TypeError`) and frames; or let the app filter messages
   (`ZnOta.Config.redact`).
 - **Evidence:** a look at real `detail` values from a staging rollout; ask whoever owns privacy / compliance.
+- **Reviewed 2026-11-02 (Fable, Argon):** change the default. Mask digit runs, VPAs and emails, URL query strings and
+  bearer tokens on the phone, and add `ZnOta.Config.redact` (`docs/hardening-plan.md` H.4, built 2026-11-02). Whether
+  messages may leave the phone at all is still for whoever owns compliance.
 
 ## 5. How much free space a download needs (step 4.9)
 - **Where:** `ZnOta.checkSpace` (`UNZIP_FACTOR = 4`, `MIN_FREE_BYTES = 50 MB`); guide-notes "When the phone is full".
@@ -88,6 +107,8 @@ change, and what evidence would make you change it?"
   delete kept older bundles first to make room before giving up.
 - **Evidence:** count of `no_space` outcomes per install in telemetry, and the free space phones report (not sent
   today).
+- **Reviewed 2026-11-02 (Fable, Argon):** keep the formula. Later, cheap additions: send free space with the check, and
+  prune old bundles before giving up.
 
 ## 6. A downloaded bundle that can't run falls back to the APK's bundle, not the last good one (found in 4.9)
 - **Where:** `ZnBundles.downloaded` ("not running X: …; running the built-in bundle"); the server's `ALREADY_DONE` in
@@ -105,6 +126,8 @@ change, and what evidence would make you change it?"
   send an outcome (`bundle_unusable`, with the reason) so it shows in telemetry; (c) drop the saved seq so the next
   check downloads the bundle again. (a) + (b) look cheap and safe; (c) risks a download loop if the cause repeats.
 - **Evidence:** how often (b) would fire in a staging rollout. If it never fires, keep it as is.
+- **Reviewed 2026-11-02 (Fable, Argon):** do (a) + (b) (`docs/hardening-plan.md` H.4, built 2026-11-02). A new APK that
+  registers a module late would make every bundle unusable on every phone, and today only a log line shows it.
 
 ## 7. restorableSignal values come back only into the bundle that saved them (after milestone 4)
 - **Where:** `ZnNav.start` (`SAVED_BUNDLE`, the running bundle's `id@sha12`); guide-notes §26.1.
@@ -118,3 +141,24 @@ change, and what evidence would make you change it?"
   data across updates"); (b) a version number per value (`restorableSignal("amount", "0", { version: 2 })`), kept
   only if equal.
 - **Evidence:** none needed unless users report lost values after updates; (b) is a small, safe addition later.
+- **Reviewed 2026-11-02 (Fable, Argon):** keep.
+
+## 8. A phone restart never counts as a death (H.3)
+- **Where:** `ZnOtaHealth.exitOf` (`docs/hardening-plan.md` H.3). Not in the plan; added while building it.
+- **Chosen:** if the phone started after the pending mark, the death is ignored, whatever Android's record says.
+- **Why:** every visit is now watched, not only the first seconds. With the app on screen, a flat battery leaves a
+  pending mark and no exit record, which would count as an unsure death of a good bundle.
+- **Risk if wrong:** a bundle that makes the whole phone restart isn't counted. That needs a phone-level failure, which
+  a JS bundle can't normally cause.
+- **Other options:** count it; or use `Settings.Global.BOOT_COUNT` in place of the clock sum.
+- **Evidence:** `launch_crashed` with "no exit record" from the field would show what this misses.
+
+## 9. App state follows resume and pause, not start and stop (H.7)
+- **Where:** `ZnAppState.kt`, `packages/core/src/app-state.ts`; guide-notes §29.
+- **Chosen:** `"background"` means the user can't touch the app: the Activity paused. Not "the app is out of sight".
+- **Why:** a see-through payment window pauses us without stopping us. With start and stop, JS would never hear that
+  the user came back. React Native does the same on Android.
+- **Risk if wrong:** a permission dialog, or losing focus in split screen, also reads as `background`. An app that does
+  heavy work on `active` runs it after each one.
+- **Other options:** a third state like iOS's `inactive` for "visible but not in front".
+- **Evidence:** what the pilot's verify-on-return code needs. A third state can be added with a new host API.

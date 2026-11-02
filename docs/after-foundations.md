@@ -44,7 +44,7 @@ Pavan, 2026-10-29: feeds and catalogues need Flutter-sliver-like behaviour:
 | Row items as signals | `.map` mounts a row again when its item object changes (same key). Per-row signals would update in place. |
 | Timers owned by the screen | **Done (step 2.2):** a timer made inside a screen or component is cleared when it closes (`packages/core/src/timers.ts`). |
 | More dynamic props | Text, colour, background, opacity, src, disabled, and (registry v4, step 2.3) per-edge padding can change at runtime. Sizes, margins, gap etc. still need layout-phase slots like padding's (`docs/styling-and-layout.md` §8.3; `layoutPadding` in `ZnTemplate.kt` is the pattern). |
-| Deep-link query values | `zn://sample/dev/fetch?auto=1` reaches the route with params `{}`: query values are dropped (found in step 3.4) | Pass them as optional params, or document that deep links carry path params only. |
+| Deep-link query values | **Done (2026-11-02, H.1):** query values reach the route as params; a value from the path wins. |
 | Safe-area gaps (step 2.3) | Insets reach JS after the first frame, so a full-bleed **start** screen would draw its header without the inset for one frame (send them with START). No horizontal full-bleed option (`safeArea` has top / bottom only). Keyboard inset: done (step 3.3, route option `keyboard`); a `<TextField>` inside a `<Sheet>` doesn't resize the sheet yet. |
 | Types for JSX | **Done (step 3.2):** JSX namespace in `@zero-native/ui`, `examples/sample/tsconfig.json`, `bun run test:types` checks the sample. Left: props are typed per component but slot / build-time rules are only checked by the compiler. |
 

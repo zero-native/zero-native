@@ -156,6 +156,7 @@ object ZnRuntime {
             return
         }
         started = true
+        ZnAppState.init(context)
         appContext = context.applicationContext
         ZnBundles.init(appContext) // which bundle runs is chosen on first use, off the main thread
         js.post {

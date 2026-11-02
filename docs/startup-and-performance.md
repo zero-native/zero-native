@@ -96,6 +96,7 @@ the Compose frame clock.
 | FlowStore write, 800-byte value (step 2.7) | **4.5–6 µs** per write; 200 / 200 kill-mid-write rounds read a complete value | core tests on the Lava (`zn_core_tests`) | 10-29 |
 | Cold start, step 4.2 sample (15 routes) | **OTA folder 196 ms**, built-in 195 ms median (n=10); choosing an OTA bundle ~10 ms, off the main thread | release, speed-profile | 10-30 |
 | Cold start, step 4.7 (safety nets on) | **192–196 ms** median (p90 207 ms, n=10); start checks 0.9–3.2 ms off the main thread; launch mark 0.5–0.8 ms on the main thread | release, speed-profile | 10-31 |
+| Cold start, after H.1 to H.7 (every visit watched) | **180 ms** median (p90 194 ms, n=10), running a downloaded bundle; visit mark 0.42–0.50 ms on the main thread; start checks 4.3–6.6 ms off the main thread in this test, since each run was force-stopped with a visit pending and reads the exit record | release | 11-02 |
 | OTA update applied in place (`applyNow`) | **37 ms** (JS 27 ms); a bundle that throws → old bundle again in 49 ms; cover on screen ~100–170 ms, then new screens fade in over ~180 ms | release, step 4.6–4.7 | 10-31 |
 | Warm start with "Don't keep activities" on | the Activity is rebuilt each time, so Android shows the app's splash briefly; this is Android's own behaviour, not ours | debug, Pavan's developer setting | 10-31 |
 

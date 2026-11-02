@@ -163,6 +163,50 @@ test("a deep link while the app runs pushes its route", () => {
   expect(nav.current()).toEqual({ name: "amount", params: { merchantId: "m4" } })
 })
 
+test("onLink can refuse a deep link; it sees the route, params and the whole link", () => {
+  const seen: unknown[] = []
+  let allow = false
+  resetNavForTests()
+  startApp(routes, {
+    onLink: (link) => {
+      seen.push(link)
+      return allow
+    },
+  })
+  start()
+  host.ops.length = 0
+  const payload = JSON.stringify({ route: 1, params: { merchantId: "m4", from: "qr" }, url: "zn://sample/pay/m4?from=qr" })
+  send(AppEvent.Open, payload)
+  expect(seen).toEqual([{ route: "amount", params: { merchantId: "m4", from: "qr" }, url: "zn://sample/pay/m4?from=qr" }])
+  expect(navOps()).toEqual([])
+  expect(nav.depth()).toBe(1)
+  allow = true
+  send(AppEvent.Open, payload)
+  expect(nav.current()?.name).toBe("amount")
+})
+
+test("an onLink that throws refuses the link and reports the error", () => {
+  resetNavForTests()
+  startApp(routes, {
+    onLink: () => {
+      throw new Error("broken guard")
+    },
+  })
+  start()
+  host.ops.length = 0
+  send(AppEvent.Open, JSON.stringify({ route: 1, params: { merchantId: "m4" }, url: "zn://sample/pay/m4" }))
+  expect(navOps()).toEqual([])
+  expect(nav.depth()).toBe(1)
+})
+
+test("startApp with no onLink opens links as before", () => {
+  resetNavForTests()
+  startApp(routes)
+  start()
+  send(AppEvent.Open, JSON.stringify({ route: 1, params: { merchantId: "m4" }, url: "zn://sample/pay/m4" }))
+  expect(nav.current()?.name).toBe("amount")
+})
+
 test("insets() follows native's INSETS event; equal values send nothing", () => {
   const Full = () => view(1, (i) => slot(i, 0, () => insets().top + 16))
   resetNavForTests()

@@ -510,6 +510,13 @@ Every one of these is logged, shown on the red screen in debug builds, and passe
 - **Do:** add the lines that bring screens back after Android kills the app in the background, in your Activity:
   `ZnNav.start(bundle, link, savedInstanceState)` in `onCreate`, `ZnNav.saveState(outState)` in
   `onSaveInstanceState`, and `ZnNav.openLink(link)` in `onNewIntent` (not `start`: `start` means a new Activity).
+- **Do:** use `android:launchMode="singleTop"` if your app opens another app for a result (a payment app, a document
+  picker), and start `onCreate` with `super.onCreate(...)`, then `if (ZnNav.handleExtraActivity(this, savedInstanceState)) { finish(); return }`.
+  **Why:** `singleTask` closes the other app when the user taps your icon, so a payment looks cancelled. With `singleTop`
+  a link can make a second Activity while the other app is on top; without this line it would restart your JS.
+- **Do:** pass `onLink` to `startApp(routes, { onLink })` if a link must not interrupt something: return false to
+  refuse it, for example while a payment is open. It gets `{ route, params, url }`; `params` has path and query values.
+  **Don't** trust those values: a link is outside input. `onLink` isn't called for the link that started the app.
   Mark screens that must never reopen on their own with `restore: false` in `routes.ts` (a "payment done" screen).
   Screens come back with their route params; their signals start fresh, except `restorableSignal` (§26.1). Keep what
   must survive a normal close too in `storage` or `flowStore`.
@@ -654,8 +661,9 @@ bun run ota serve                                    the reference update server
 - **What happens by itself:** a new bundle is on trial until it is *healthy* (its first screens up 4 s in the
   foreground). If it shows an error screen, hangs, or never shows its first screen (10 s) during the trial, the phone
   blocks it and goes back to the last healthy bundle at once, in place. If it crashes the app during the trial, it is
-  blocked and the next start runs the last healthy one (one crash on Android 11+; two in a row on older phones, after
-  an ANR, or for the bundle that was healthy on that phone before). A blocked bundle never runs on that phone again: ship
+  blocked and the next start runs the last healthy one (one crash on Android 11+; two in 24 h on older phones or after
+  an ANR). After the trial it is still watched: three crashes in 24 h block the phone's last healthy bundle, even if
+  each was on return from another app. A blocked bundle never runs on that phone again: ship
   the fix as a **new** bundle (`bun run ota build`), don't publish the same one again. Once a bundle was healthy on a
   phone, its later error screens are only reported (you still see them in `onReport` and `ota status`), never blocked:
   fix those with a new bundle too.
@@ -713,6 +721,11 @@ bun run ota serve                                    the reference update server
   ZnBundles.watchRunning { FirebaseCrashlytics.getInstance().setCustomKey("zn_bundle", it) }
   ```
   Every report then names the bundle (`sample_8@1a2b3c4d5e6f`), native crashes too.
+- **Don't:** send `e.details` anywhere private data can't go. `onJsError` gets the raw error text. Only what goes to your
+  update server is masked first (phone numbers, VPAs, URL query strings, bearer tokens). **Why:** an error message can
+  hold whatever your code put in it. Keep private values out of your own `throw new Error(...)` too.
+- **Do:** set `ZnOta.Config(redact = { ... })` if your app has private data the built-in masks can't know the shape of,
+  such as your own customer ids. It runs after them, on the update server's copy only.
 - **Do:** run `bun run ota keep-map` from the same commit every time you build an APK for release. The APK's own bundle
   is not released with `ota build`, so without this its traces can't be mapped. Released bundles keep their maps by
   themselves.
@@ -733,3 +746,22 @@ bun run ota serve                                    the reference update server
 - Sheets (2.5), native calls / `fetch` (2.6), flows and payments (2.7–2.8): the "effects" rules are the most important
   thing to teach well. (Sheets, native calls and FlowStore with the payment pattern are now written up in sections
   12, 13 and 16; the flow engine is parked.)
+
+## 29. Knowing when the user comes back (H.7)
+```tsx
+import { appState, onAppState } from "@zero-native/core"
+
+onAppState((state) => {
+  if (state === "active") checkPaymentStatus()
+})
+```
+- **Do:** use `onAppState` to act when the user returns from another app, even if that app sent no result (they may have
+  left it with the Home button). Set inside a screen, it stops by itself when the screen closes. Elsewhere, call the
+  function it returns.
+- **Don't:** expect a call when the app starts: it hears changes only. Read `appState()` for the state now.
+- **Don't:** rely on seeing `"background"` first. Act on `"active"`.
+- **Know:** `"background"` means the user can't touch the app, not that it is out of sight. A see-through payment window
+  or a permission dialog counts. **Why:** Android pauses the app for these without stopping it, and the user still came
+  back. JS keeps running in the background; don't use this to stop timers that must go on.
+- **Don't:** do heavy work on every `"active"`. It also fires after a permission dialog.
+- Needs host API 5: a bundle built with this core won't run on an app with an older native side.

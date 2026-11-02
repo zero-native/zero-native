@@ -260,8 +260,9 @@ object ZnBundles {
     }
 
     /**
-     * The downloaded bundle named by `current`, if it may run; null (and the reason logged) if not. A blocked bundle
-     * (step 4.7) never runs: the last good bundle runs instead if it can, and becomes `current`.
+     * The downloaded bundle named by `current`, if it may run; null if not. A blocked bundle (step 4.7) never runs, and
+     * neither does one that fails its checks (H.4): the last good bundle runs instead if it can, and becomes `current`.
+     * With no last good bundle, `current` goes and the APK's bundle runs. A bundle that can't run is reported once.
      */
     private fun downloaded(context: Context, builtIn: Info?): Running? {
         val ota = otaDir(context)
@@ -279,13 +280,35 @@ object ZnBundles {
             id = good
         }
         val caps = ZnCapabilities.current()
-        val dir = File(ota, "bundles/$id")
-        val reason = when (val v = checkBundle(id, builtIn, caps) { File(ota, "bundles/$it") }) {
-            is Check.Ok -> readTemplates(dir, v.info, preRead) ?: return Running(v.info, dir)
+        val reason = when (val v = tryBundle(ota, id, builtIn, caps)) {
+            is Check.Ok -> return Running(v.info, File(ota, "bundles/$id"))
             is Check.No -> v.reason
         }
-        Log.w(TAG, "bundle: not running $id: $reason; running the built-in bundle (this app: $caps)")
+        Log.w(TAG, "bundle: not running $id: $reason (this app: $caps)")
+        ZnOtaHealth.unusable(id, reason)
+        if (ZnOtaHealth.lastGood == id) ZnOtaHealth.forgetGood(id)
+        val good = ZnOtaHealth.lastGood?.takeIf { !ZnOtaHealth.isBlocked(it) }
+        if (good != null) {
+            val v = tryBundle(ota, good, builtIn, caps)
+            if (v is Check.Ok) {
+                Log.w(TAG, "bundle: running the last good bundle $good instead")
+                ZnOtaInstall.writeAtomic(current, good)
+                return Running(v.info, File(ota, "bundles/$good"))
+            }
+            ZnOtaHealth.forgetGood(good)
+        }
+        Log.w(TAG, "bundle: running the built-in bundle")
+        current.delete()
         return null
+    }
+
+    /** Runs every check on bundle [id], and keeps its template files for the start if it passes. */
+    private fun tryBundle(ota: File, id: String, builtIn: Info, caps: ZnCapabilities): Check {
+        val v = checkBundle(id, builtIn, caps) { File(ota, "bundles/$it") }
+        if (v !is Check.Ok) return v
+        val problem = readTemplates(File(ota, "bundles/$id"), v.info, preRead) ?: return v
+        preRead.clear()
+        return Check.No(problem)
     }
 
     /**

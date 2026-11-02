@@ -19,4 +19,5 @@ internal object ZnAppEvent {
     const val MODULE_EVENT = 8
     const val CALL_RESULT_BYTES = 9
     const val RETRY = 10
+    const val APP_STATE = 11
 }

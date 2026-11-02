@@ -19,6 +19,7 @@
 // restorableSignal: each value change goes to native as NAV RESTORE; native saves the values with the back stack and,
 // when Android restores the app after killing it, hands them back in START's "values" (host API 4).
 import { APP, AppEvent } from "./app-events"
+import { appStarting, installAppState } from "./app-state"
 import { reportError, setTopScreen } from "./errors"
 import { onEvent } from "./events"
 import { installInsets } from "./insets"
@@ -60,6 +61,7 @@ const seenThisSession = new Set<string>()
 
 let table: Record<string, RouteDef> | null = null
 let names: string[] = []
+let onLink: AppOptions["onLink"] | null = null
 const stack: Entry[] = []
 /** The entry whose screen is being rendered right now (for useBack). */
 let rendering: Entry | null = null
@@ -228,10 +230,27 @@ function onImpressions(payload: NativeValue): void {
   }
 }
 
+/** A deep link that arrived while the app runs. `params`: path and query values, as text; `url`: the whole link. */
+export interface OpenedLink {
+  route: string
+  params: Record<string, string>
+  url: string
+}
+
+export interface AppOptions {
+  /**
+   * Called before a deep link opens its route while the app runs; return false to refuse it (a link must not take the
+   * user away from a payment in flight, say). Links are outside input: check their values. Not called for the link that
+   * started the app: that one's screen is already open when JS starts.
+   */
+  onLink?: (link: OpenedLink) => boolean
+}
+
 /** Starts the app: registers the routes and waits for native's START event with the first stack. */
-export function startApp(routes: Record<string, RouteDef>): void {
+export function startApp(routes: Record<string, RouteDef>, options: AppOptions = {}): void {
   table = routes
   names = Object.keys(routes)
+  onLink = options.onLink ?? null
   onEvent(APP, AppEvent.Start, (payload) => start(payload))
   onEvent(APP, AppEvent.Back, () => onSystemBack())
   onEvent(APP, AppEvent.ForcedBack, (payload) => onForcedBack(payload))
@@ -240,13 +259,23 @@ export function startApp(routes: Record<string, RouteDef>): void {
   onEvent(APP, AppEvent.Retry, (payload) => onRetry(payload))
   setTopScreen(() => stack[stack.length - 1]?.name ?? null)
   installInsets()
+  installAppState()
 }
 
 /** A deep link while the app runs: native matched it to a route that allows links; JS opens it on top. */
 function onOpenLink(payload: NativeValue): void {
-  const { route, params } = JSON.parse(String(payload)) as { route: number; params: Record<string, string> }
+  const { route, params, url } = JSON.parse(String(payload)) as { route: number; params: Record<string, string>; url?: string }
   const name = names[route]
   if (name === undefined) return globalThis.__zn_log(3, `nav: link to unknown route ${route}`)
+  if (onLink) {
+    let allowed = false // a guard that throws refuses: a link must not get past a broken check
+    try {
+      allowed = onLink({ route: name, params, url: url ?? "" }) !== false
+    } catch (err) {
+      reportError("onLink handler", err)
+    }
+    if (!allowed) return
+  }
   ;(nav.push as (n: string, p: Record<string, unknown>) => void)(name, params)
 }
 
@@ -324,6 +353,7 @@ function start(payload: NativeValue): void {
     globalThis.__zn_log(2, "nav: start event ignored, the app has already started")
     return
   }
+  appStarting()
   const entries = JSON.parse(String(payload)) as Array<{
     entry: number
     route: number

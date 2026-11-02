@@ -7,6 +7,7 @@
 // - Values keep their type: what you save as a number comes back as a number. Reading it with another typed getter
 //   (getString on a number) is a TypeError, never a wrong value.
 // - A `set` survives the app being killed as soon as it returns; `flush()` makes it survive a power cut too.
+//   A damaged store opens empty (docs/storage.md), so keep nothing here that can't be lost.
 //   Not in backups: a new phone starts empty (docs/storage.md says why).
 // - Not for secrets (tokens, PINs): use SecureStore (encrypted with a key in the Android Keystore).
 // - Not for payment state that must not be lost: use FlowStore and the save-then-verify pattern (guide-notes §16).

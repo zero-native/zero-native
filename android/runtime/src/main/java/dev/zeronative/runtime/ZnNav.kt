@@ -1,5 +1,7 @@
 package dev.zeronative.runtime
 
+import android.app.Activity
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -126,7 +128,8 @@ object ZnNav {
      *
      * A new Activity **without** saved state while the screens are already up means the user closed the app (swiped
      * it from recents) and this phone kept the process alive (some ROMs do): the app starts fresh, as on a phone that
-     * ends the process: a new JS runtime and the start screen ([startFresh]).
+     * ends the process: a new JS runtime and the start screen ([startFresh]). A host must call [handleExtraActivity]
+     * first, so a second Activity made by a link never gets here.
      */
     fun start(bundle: ZnBundle, link: Uri?, savedState: Bundle? = null) {
         this.bundle = bundle
@@ -159,6 +162,31 @@ object ZnNav {
         startWith(bundle, first)
     }
 
+    /**
+     * Call it in `Activity.onCreate`, right after `super.onCreate` and before setting any hook. If it returns true,
+     * call `finish()` and return.
+     *
+     * With `launchMode="singleTop"` (needed by any app that opens another app for a result), a link that arrives while
+     * another app is on top makes a **second** Activity, with no saved state, while the first one lives. That is not
+     * the user closing the app: the JS runtime must stay, or a payment open in the other app would lose its JS. A
+     * second Activity is not the root of its task; a real new launch is. So the link goes to the running app, and
+     * our task comes to the front as it is (the other app stays on top of it). The link's own Activity never shows.
+     */
+    fun handleExtraActivity(activity: Activity, savedState: Bundle?): Boolean {
+        if (!started || savedState != null || activity.isTaskRoot) return false
+        val link = activity.intent?.data
+        Log.i(TAG, "nav: a second Activity while the app runs: ${if (link != null) "forwarding its link" else "no link"}")
+        if (link != null) {
+            openLink(link)
+            // A link from an app that doesn't ask for a new task lands in that app's task: without this the user would
+            // see nothing. The launcher's intent has no data, so if it makes a second Activity too, this stops there.
+            activity.packageManager.getLaunchIntentForPackage(activity.packageName)?.let {
+                activity.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+        return true
+    }
+
     /** A screen native opens before JS runs: its route, params JSON and restored `restorableSignal` values. */
     private class Opening(val route: ZnRoute, val params: String, val values: String? = null)
 
@@ -177,6 +205,7 @@ object ZnNav {
             payload.put(item)
         }
         ZnRuntime.dispatchEvent(APP, EVENT_START, payload.toString())
+        ZnAppState.sendAfterStart()
         // JS answers NAV STARTED once these screens are built (host API 3). A bundle built for host API 2 doesn't, so
         // for it "the JS thread has handled START" stands in (it can't tell a bundle that never calls startApp).
         if ((ZnBundles.running.info?.requires?.hostApi ?: 3) < 3) {
@@ -262,18 +291,21 @@ object ZnNav {
     }
 
     /**
-     * The same steps as an update applied in place ([ZnOta]), with the bundle that runs now: the JS runtime is
-     * replaced (storage and FlowStore are files: untouched) and the start screen opens, with [link] on top if given.
+     * A waiting update runs now, as it would on a phone that ends the process ([ZnOta.startFresh]). With none: the same
+     * steps as an update applied in place, with the bundle that runs now: the JS runtime is replaced (storage and
+     * FlowStore are files: untouched) and the start screen opens, with [link] on top if given.
      */
     private fun startFresh(bundle: ZnBundle, link: Uri?) {
         Log.i(TAG, "nav: a new Activity without saved state while the app still runs (closed from recents?): starting fresh")
-        ZnRuntime.restart { result, attach ->
-            resetForReload()
-            ZnStore.resetForReload()
-            ZnImpressions.resetForReload()
-            attach()
-            start(bundle, link)
-            if (!result.ok) startFailed(result.value)
+        ZnOta.startFresh(link) {
+            ZnRuntime.restart { result, attach ->
+                resetForReload()
+                ZnStore.resetForReload()
+                ZnImpressions.resetForReload()
+                attach()
+                start(bundle, link)
+                if (!result.ok) startFailed(result.value)
+            }
         }
     }
 
@@ -284,13 +316,19 @@ object ZnNav {
 
     private fun open(link: Uri) {
         val m = match(link) ?: return
-        val payload = JSONObject().put("route", m.route.index).put("params", JSONObject(m.params))
+        val payload = JSONObject().put("route", m.route.index).put("params", JSONObject(m.params)).put("url", link.toString())
         ZnRuntime.dispatchEvent(APP, EVENT_OPEN, payload.toString())
     }
 
+    /** The route of [link], with its query values as params too (a value from the path wins). */
     private fun match(link: Uri): ZnRouteMatch? {
-        val m = bundle?.routes?.matchDeepLink(link.encodedPath ?: "/")
-        Log.i(TAG, "deep link $link → ${m?.let { "${it.route.name} ${it.params}" } ?: "no route"}")
+        val m = bundle?.routes?.matchDeepLink(link.encodedPath ?: "/")?.let { path ->
+            if (!link.isHierarchical) return@let path
+            val params = HashMap<String, String>()
+            for (name in link.queryParameterNames) link.getQueryParameter(name)?.let { params[name] = it }
+            path.copy(params = params + path.params)
+        }
+        Log.i(TAG, "deep link ${link.scheme}://${link.host}${link.path} → ${m?.let { "${it.route.name} ${it.params.keys}" } ?: "no route"}")
         return m
     }
 

@@ -13,13 +13,14 @@ import org.json.JSONObject
 
 /**
  * What the OTA safety nets remember (step 4.7, docs/ota.md §3.6), in `zn-ota/health.json`:
- * - **launch watchdog**: a UI launch on a downloaded bundle that isn't healthy yet is marked *pending*; going to the
- *   background or becoming healthy clears it. A process that dies while pending (a crash, a freeze) leaves it set,
- *   and the next start counts it, if Android says the process crashed or froze (Android 11+; older phones count every
- *   such death). One launch Android says crashed blocks a bundle never healthy on this phone (step 4.8); when it
- *   can't be sure (Android < 11, no exit record, a freeze), or for the last good bundle, two counted launches in a row
- *   do;
+ * - **launch watchdog** (2026-11-02, F4 option D): every time a downloaded bundle is on screen, healthy or not, it is
+ *   marked *pending*; only going to the background clears it. A process that dies while pending leaves it set, and the
+ *   next start counts it if it was a crash or a freeze (Android 11+ says which; older phones count every such death).
+ *   The times of the last deaths are kept for 24 h. The background and the healthy mark don't clear them; a new APK or a
+ *   different bundle does. Within 24 h, 1 sure crash, 2 unsure deaths, or 3 deaths of the phone's last good bundle block
+ *   it. A crash on return from another app counts, and so does one after the healthy mark;
  * - **last good**: the last bundle marked healthy on this phone, where a rollback goes back to;
+ * - bundles that failed their checks at a start (**unusable**, H.4): only so each is reported once;
  * - **blocked** bundles, never run, switched to or downloaded again: "error" (its JS failed before it was healthy;
  *   forever) or "watchdog" (launches ended by crashes; cleared by the next APK install, which may fix the cause);
  * - the **APK** this state is for (versionCode + install time): any new install, even of the same version, is seen;
@@ -31,6 +32,7 @@ import org.json.JSONObject
  */
 internal object ZnOtaHealth {
     private const val TAG = "zn-ota"
+    private const val CRASH_MARK = "crash-mark"
     const val ERROR = "error"
     const val WATCHDOG = "watchdog"
 
@@ -44,24 +46,27 @@ internal object ZnOtaHealth {
         var pending: String? = null,
         var pendingSince: Long = 0L,
         var pendingPid: Int = 0,
-        /** Launches in a row of [crashBundle] that ended by a crash or a freeze. */
+        /** When [crashBundle] last died by a crash or a freeze (wall clock ms), oldest first; at most [Rules.LAST_GOOD_LIMIT]. */
         var crashBundle: String? = null,
-        var crashes: Int = 0,
+        val crashTimes: MutableList<Long> = ArrayList(),
         var lastGood: String? = null,
         /** Bundle id → [ERROR] or [WATCHDOG], oldest first. */
         val blocked: LinkedHashMap<String, String> = LinkedHashMap(),
         /** Starts in a row whose OTA start-up failed (the startup guard caught an error). */
         var guardFails: Int = 0,
         val events: MutableList<Event> = ArrayList(),
+        /** Bundles already reported as unusable, oldest first. */
+        val unusable: MutableList<String> = ArrayList(),
     ) {
         fun toJson(): String = JSONObject()
             .put("apkVersion", apkVersion).put("apkUpdated", apkUpdated)
             .put("pending", pending ?: "").put("pendingSince", pendingSince).put("pendingPid", pendingPid)
-            .put("crashBundle", crashBundle ?: "").put("crashes", crashes)
+            .put("crashBundle", crashBundle ?: "").put("crashTimes", JSONArray(crashTimes))
             .put("lastGood", lastGood ?: "")
             .put("blocked", JSONObject().apply { for ((k, v) in blocked) put(k, v) })
             .put("blockedOrder", JSONArray(blocked.keys.toList()))
             .put("guardFails", guardFails)
+            .put("unusable", JSONArray(unusable))
             .put("events", JSONArray(events.map { e ->
                 JSONObject().put("kind", e.kind).put("bundle", e.bundle ?: "").put("detail", e.detail ?: "").put("at", e.atMs)
                     .apply { if (e.stack != null) put("stack", e.stack); if (e.sha != null) put("sha", e.sha) }
@@ -84,9 +89,11 @@ internal object ZnOtaHealth {
                 return State(
                     apkVersion = j.optLong("apkVersion", -1L), apkUpdated = j.optLong("apkUpdated", -1L),
                     pending = j.optString("pending").ifEmpty { null }, pendingSince = j.optLong("pendingSince"), pendingPid = j.optInt("pendingPid"),
-                    crashBundle = j.optString("crashBundle").ifEmpty { null }, crashes = j.optInt("crashes"),
+                    crashBundle = j.optString("crashBundle").ifEmpty { null },
+                    crashTimes = j.optJSONArray("crashTimes")?.let { a -> MutableList(a.length()) { a.getLong(it) } } ?: ArrayList(),
                     lastGood = j.optString("lastGood").ifEmpty { null }, blocked = blocked,
                     guardFails = j.optInt("guardFails"), events = events,
+                    unusable = j.optJSONArray("unusable")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: ArrayList(),
                 )
             }
         }
@@ -105,15 +112,24 @@ internal object ZnOtaHealth {
     /** The rules, on a [State]. No Android, no files: ZnOtaHealthTest checks each one. */
     object Rules {
         /**
-         * Launches in a row ended by a crash or a freeze before a bundle is blocked, when Android can't say for sure
-         * that it crashed (Android < 11, no exit record, a freeze: a slow phone can freeze too), or when the bundle is
-         * the phone's last good one. A sure crash of a bundle never healthy on this phone blocks at once: a crash
-         * before the healthy mark repeats on the next start, so waiting costs the user one more crash.
+         * Deaths within [CRASH_WINDOW_MS] before a bundle is blocked, when Android can't say for sure that it crashed
+         * (Android < 11, no exit record, a freeze: a slow phone can freeze too). A sure crash of a bundle never healthy
+         * on this phone blocks at once: it repeats on the next start, so waiting costs the user one more crash.
          */
         const val WATCHDOG_LIMIT = 2
+        /** The same for the phone's last good bundle: it ran well here, and blocking it costs the update until the next APK. */
+        const val LAST_GOOD_LIMIT = 3
+        const val CRASH_WINDOW_MS = 24 * 60 * 60 * 1000L
         /** At most this many blocked ids are remembered (oldest dropped; their folders are gone by then). */
         const val MAX_BLOCKED = 32
         const val MAX_EVENTS = 20
+        private const val MAX_UNUSABLE = 8
+        /** Text longer than this is cut before masking. Outcomes keep 300 characters of it anyway. */
+        private const val MAX_MASKED = 1024
+        private val QUERY = Regex("((?:[a-z][a-z0-9+.-]*:/*|/)[^\\s?#\"']*)\\?[^\\s\"'#]*", RegexOption.IGNORE_CASE)
+        private val BEARER = Regex("\\bbearer\\s+\\S+", RegexOption.IGNORE_CASE)
+        private val ADDRESS = Regex("[\\w.+-]+@[\\w.-]+")
+        private val DIGITS = Regex("\\d(?:[ -]?\\d){5,}")
 
         /**
          * Once per process, before the bundle is chosen: notices a new APK install (resets the counts, clears watchdog
@@ -128,8 +144,9 @@ internal object ZnOtaHealth {
                 event(s, "apk_changed", null, how, now)
                 s.pending = null
                 s.crashBundle = null
-                s.crashes = 0
+                s.crashTimes.clear()
                 s.guardFails = 0
+                s.unusable.clear()
                 s.blocked.entries.removeAll { it.value == WATCHDOG }
             }
             s.apkVersion = apkVersion
@@ -139,44 +156,79 @@ internal object ZnOtaHealth {
             when (val e = exit(s.pendingSince, s.pendingPid)) {
                 is Exit.Ignored -> Unit // not the bundle's fault: the count stays as it was
                 is Exit.Counts -> {
-                    s.crashes = if (s.crashBundle == p) s.crashes + 1 else 1
-                    s.crashBundle = p
-                    // The phone's last good bundle ran well here before: one crash may be bad luck (a native SDK), and
-                    // blocking it costs the update until the next APK. It keeps the 2-in-a-row rule.
-                    val limit = if (e.sure && s.lastGood != p) 1 else WATCHDOG_LIMIT
-                    event(s, "launch_crashed", p, "${e.reason} (${s.crashes} of $limit)", now)
-                    if (s.crashes >= limit) {
-                        block(s, p, WATCHDOG)
-                        val how = if (s.crashes == 1) "a launch ended by a crash" else "${s.crashes} launches in a row ended by a crash or a freeze"
-                        s.crashBundle = null
-                        s.crashes = 0
-                        event(s, "watchdog_block", p, "$how; last: ${e.reason}", now)
+                    // The phone's last good bundle ran well here before: one crash may be bad luck (a native SDK).
+                    val limit = when {
+                        s.lastGood == p -> LAST_GOOD_LIMIT
+                        e.sure -> 1
+                        else -> WATCHDOG_LIMIT
                     }
+                    countDeath(s, p, e.reason, limit, now)
                 }
             }
             return changed
         }
 
-        /** A UI launch (or a return to the front) on [bundle], not healthy yet, in process [pid]. */
+        /**
+         * One more death of [bundle]; times older than the window, or in the future (a clock change), are dropped.
+         * Returns true if it is now blocked.
+         */
+        fun countDeath(s: State, bundle: String, reason: String, limit: Int, now: Long): Boolean {
+            if (s.crashBundle != bundle) s.crashTimes.clear()
+            s.crashBundle = bundle
+            s.crashTimes.removeAll { it > now || now - it >= CRASH_WINDOW_MS }
+            s.crashTimes += now
+            while (s.crashTimes.size > LAST_GOOD_LIMIT) s.crashTimes.removeAt(0)
+            val count = s.crashTimes.size
+            event(s, "launch_crashed", bundle, "$reason ($count of $limit)", now)
+            if (count < limit) return false
+            block(s, bundle, WATCHDOG)
+            val how = if (count == 1) "a launch ended by a crash" else "$count launches in 24 h ended by a crash or a freeze"
+            s.crashBundle = null
+            s.crashTimes.clear()
+            event(s, "watchdog_block", bundle, "$how; last: $reason", now)
+            return true
+        }
+
+        /** [bundle] failed its checks at a start. The event is sent once per bundle, so a repeat can't fill the list. */
+        fun unusable(s: State, bundle: String, reason: String, now: Long) {
+            if (bundle in s.unusable) return
+            s.unusable += bundle
+            while (s.unusable.size > MAX_UNUSABLE) s.unusable.removeAt(0)
+            event(s, "bundle_unusable", bundle, reason, now)
+        }
+
+        /**
+         * Hides what could be private in a JS error's text before it is stored or sent (H.4): URL query strings, bearer
+         * tokens, anything like `a@b` (VPAs, emails), and runs of 6 or more digits, which may have spaces or dashes
+         * between them (phone numbers, account numbers). Stack frames hold no values and stay as they are.
+         */
+        fun mask(text: String): String = text.take(MAX_MASKED)
+            .replace(QUERY, "$1?***")
+            .replace(BEARER, "Bearer ***")
+            .replace(ADDRESS, "***@***")
+            .replace(DIGITS, "***")
+
+        /** True if [mark] (the file [watchCrashes] leaves) says process [pid] crashed after [since]. */
+        fun isCrashOf(mark: String?, pid: Int, since: Long): Boolean {
+            val parts = mark?.trim()?.split(' ') ?: return false
+            return parts.size == 2 && parts[0].toIntOrNull() == pid && (parts[1].toLongOrNull() ?: 0L) >= since
+        }
+
+        /** A UI launch (or a return to the front) on [bundle], in process [pid]. */
         fun launch(s: State, bundle: String, now: Long, pid: Int) {
             s.pending = bundle
             s.pendingSince = now
             s.pendingPid = pid
         }
 
-        /** The launch ended well before the healthy mark (the app went to the background): not counted. */
+        /** The app went to the background: a death from now on isn't counted. Earlier deaths stay counted. */
         fun ended(s: State, bundle: String) {
             if (s.pending == bundle) s.pending = null
-            if (s.crashBundle == bundle) {
-                s.crashBundle = null
-                s.crashes = 0
-            }
         }
 
-        /** [bundle] is healthy: it becomes the last good bundle. Returns true if that changed. */
+        /** [bundle] is healthy: it becomes the last good bundle. Returns true if that changed. A blocked bundle never does (F6). */
         fun healthy(s: State, bundle: String): Boolean {
-            ended(s, bundle)
-            if (s.lastGood == bundle) return false
+            if (s.blocked.containsKey(bundle) || s.lastGood == bundle) return false
             s.lastGood = bundle
             return true
         }
@@ -273,7 +325,11 @@ internal object ZnOtaHealth {
      */
     fun atStart(context: Context): Boolean {
         val t0 = SystemClock.elapsedRealtimeNanos()
-        synchronized(lock) { file = File(ZnBundles.otaDir(context), "health.json") }
+        val dir = ZnBundles.otaDir(context)
+        synchronized(lock) { file = File(dir, "health.json") }
+        val markFile = File(dir, CRASH_MARK)
+        val mark = if (markFile.isFile) runCatching { markFile.readText() }.getOrNull().also { markFile.delete() } else null
+        watchCrashes(dir)
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         val version = PackageInfoCompat.getLongVersionCode(info)
         // On the startup path: the file is written only if something changed, and synced only if a block did (a lost
@@ -282,7 +338,7 @@ internal object ZnOtaHealth {
             val s = load()
             val before = s.toJson()
             val blockedBefore = s.blocked.toMap()
-            apkChanged = Rules.atStart(s, version, info.lastUpdateTime, System.currentTimeMillis()) { since, pid -> exitOf(context, since, pid) }
+            apkChanged = Rules.atStart(s, version, info.lastUpdateTime, System.currentTimeMillis()) { since, pid -> exitOf(context, since, pid, mark) }
             val after = s.toJson()
             if (after != before) file?.let { ZnOtaInstall.writeAtomic(it, after, sync = s.blocked != blockedBefore) }
             Rules.fuseBlown(s)
@@ -317,10 +373,34 @@ internal object ZnOtaHealth {
     }
 
     /**
+     * Leaves a small mark for the next start when a Java or Kotlin error kills the process. It says "crash" even when
+     * Android's exit record can't: below Android 11, or when a crash dialog was closed with a force stop. Native crashes
+     * never reach it. The crash always goes on to the handler before this one, or Crashlytics would stop seeing crashes.
+     */
+    private fun watchCrashes(dir: File) {
+        val before = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            try {
+                File(dir, CRASH_MARK).writeText("${android.os.Process.myPid()} ${System.currentTimeMillis()}")
+            } catch (_: Throwable) {
+                // Only a lost mark: the exit record still counts this crash.
+            }
+            before?.uncaughtException(thread, error)
+        }
+    }
+
+    /**
      * How process [pid], which left a pending launch at [since], ended (Android 11+ knows; older phones: counted).
      * Matched by pid: the record of an earlier process (one force-stopped just before this launch) must not count.
+     * [mark]: the file [watchCrashes] left, if any.
      */
-    private fun exitOf(context: Context, since: Long, pid: Int): Exit {
+    private fun exitOf(context: Context, since: Long, pid: Int, mark: String?): Exit {
+        if (Rules.isCrashOf(mark, pid, since)) {
+            Log.i(TAG, "health: the last launch ended: crash (counted, from the crash mark)")
+            return Exit.Counts("crash", sure = true)
+        }
+        // The phone went off with the app on screen: now that every visit is watched, this must not count.
+        if (since < System.currentTimeMillis() - SystemClock.elapsedRealtime()) return Exit.Ignored("the phone restarted")
         if (Build.VERSION.SDK_INT < 30) return Exit.Counts("ended while on screen (Android < 11 can't say why)", sure = false)
         val am = context.getSystemService(ActivityManager::class.java) ?: return Exit.Counts("ended while on screen", sure = false)
         val e = am.getHistoricalProcessExitReasons(context.packageName, 0, 8)
@@ -359,7 +439,11 @@ internal object ZnOtaHealth {
     private fun markLaunch() {
         val r = chosen ?: return
         val id = r.info?.id
-        if (r.builtIn || id == null || healthyBundle == id || offInProcess) return
+        if (r.builtIn || id == null || offInProcess) {
+            // After a switch to the APK's bundle: a death now says nothing about the bundle that ran before.
+            if (read { it.pending != null }) edit(sync = false) { it.pending = null }
+            return
+        }
         if (read { it.pending == id }) return
         val t0 = SystemClock.elapsedRealtimeNanos()
         edit(sync = false) { Rules.launch(it, id, System.currentTimeMillis(), android.os.Process.myPid()) }
@@ -381,6 +465,18 @@ internal object ZnOtaHealth {
             Rules.block(s, id, why)
             if (kind != null) Rules.event(s, kind, id, detail, System.currentTimeMillis(), stack, sha)
         }
+    }
+
+    /**
+     * [id] threw while starting (F9). Main thread, a rare path. It counts as an unsure death, also for the last good
+     * bundle: the same error comes back at every start. Returns true if [id] is now blocked.
+     */
+    fun startFailed(id: String): Boolean = edit(sync = false) { Rules.countDeath(it, id, "start failed", Rules.WATCHDOG_LIMIT, System.currentTimeMillis()) }
+
+    /** [id] can't run: it failed its checks (at a start, off the main thread). */
+    fun unusable(id: String, reason: String) {
+        edit(sync = false) { Rules.unusable(it, id, reason, System.currentTimeMillis()) }
+        ZnOta.deliverSoon()
     }
 
     /** Forgets [id] as the last good bundle (it no longer fits this APK). */

@@ -143,6 +143,14 @@ async function expectText(re: RegExp, timeoutMs = 8_000) {
   throw new Fail(`no text matching ${re} on screen`)
 }
 
+/** Closes the app from recents, like a user's swipe; this phone keeps the process alive. */
+async function swipeAway() {
+  const m = /taskId=(\d+): dev\.zeronative\.sample/.exec(shell("am", "stack", "list"))
+  check(m, "the sample has no task")
+  shell("am", "stack", "remove", m[1])
+  await sleep(1000)
+}
+
 /** Runs a shell command as the app (debug builds): its files. */
 const asApp = (cmd: string) => shell("run-as", PKG, "sh", "-c", `'${cmd}'`)
 
@@ -165,8 +173,8 @@ const KINDS: Record<string, Patch[]> = {
     { file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nav, signal, storage } from "@zero-native/core"\n' },
     HOME_START('  const launch = (storage.getNumber("zn-test.launch") ?? 0) + 1\n  storage.set("zn-test.launch", launch)\n  if (launch === 2) throw new Error("OTA test: the home screen throws on the second launch")\n'),
   ],
-  // Needs Device v3; the app has v2: an older app offered a bundle for newer native code.
-  "needs-module": [{ file: "device.ts", old: 'nativeModule<DeviceModule>("Device", { version: 2 })', new: 'nativeModule<DeviceModule>("Device", { version: 3 })' }],
+  // Needs Device v4; the app has v3: an older app offered a bundle for newer native code.
+  "needs-module": [{ file: "device.ts", old: 'nativeModule<DeviceModule>("Device", { version: 3 })', new: 'nativeModule<DeviceModule>("Device", { version: 4 })' }],
 }
 
 /** Puts the sample's sources back from the backup; [stopped]: left by a run that was killed (say so). */
@@ -206,7 +214,7 @@ const publish = (serial: number) => cli("publish", "--channel", "staging", "--bu
 
 // ---- The fault proxy: the phone talks to it; it passes everything to the real server, or breaks it on purpose -------
 
-type Fault = "none" | "zip" | "bundle-sig" | "pointer-sig" | "replay" | "cut" | "slow"
+type Fault = "none" | "zip" | "bundle-sig" | "pointer-sig" | "replay" | "cut" | "slow" | "stall-check" | "stall-file"
 let fault: Fault = "none"
 let replay: string | null = null
 /** Check answers that carried a pointer, oldest first (for the replay case). */
@@ -226,6 +234,7 @@ function startProxy() {
   return Bun.serve({
     port: PORT,
     hostname: "127.0.0.1",
+    idleTimeout: 0, // Bun's default closes a quiet connection after 10 s, which would hide a stall
     async fetch(req) {
       const url = new URL(req.url)
       const target = `http://127.0.0.1:${INNER_PORT}${url.pathname}${url.search}`
@@ -233,6 +242,7 @@ function startProxy() {
       headers.delete("host")
       if (url.pathname === "/v1/check") {
         const body = await req.text()
+        if (fault === "stall-check") return new Promise<Response>(() => {}) // accepts, never answers
         if (fault === "replay" && replay) return new Response(replay, { headers: { "content-type": "application/json" } })
         const r = await fetch(target, { method: "POST", body, headers })
         let text = await r.text()
@@ -265,6 +275,11 @@ function startProxy() {
             },
           })
           return new Response(stream, { status: r.status, headers: h })
+        }
+        if (fault === "stall-file") {
+          // Half the bytes, then silence: the connection stays open and nothing more comes.
+          const half = bytes.slice(0, bytes.length >> 1)
+          return new Response(new ReadableStream({ start: (c) => c.enqueue(half) }), { status: r.status, headers: h })
         }
         if (fault === "slow") {
           // 8 KB every 400 ms: a 128 KB zip takes ~6 s, time to kill the app in the middle.
@@ -320,6 +335,121 @@ const cases: Case[] = [
       await expectLog(new RegExp(`running bundle ${b.a.id}@`))
       await expectText(/^OTA A$/)
       return await expectLog(new RegExp(`safety: ${b.a.id} is healthy`))
+    },
+  },
+  {
+    id: "check-stall",
+    title: "The server accepts a check and never answers: it fails after 30 s, applyNow answers, the next check works",
+    async run() {
+      fault = "stall-check"
+      await launch()
+      await openDeepLink("dev/updates")
+      await tap("Apply now") // waits behind the stalled check on the same thread
+      const line = await expectLog(/check failed \(server\): no full answer within 30 s/, 45_000)
+      await expectText(/^Apply: /)
+      fault = "none"
+      await launch()
+      await expectLog(/check staging: /)
+      return line
+    },
+  },
+  {
+    id: "download-stall",
+    title: "A download stops halfway with the connection open: it fails after 60 s, the next check resumes it",
+    async run() {
+      b.stall = release("good", "S")
+      publish(b.stall.serial)
+      fault = "stall-file"
+      await launch()
+      const line = await expectLog(/check failed \(download\): no data for 60 s/, 80_000)
+      fault = "none"
+      await launch()
+      await expectLog(new RegExp(`resuming ${b.stall.id} at \\d+ of \\d+ bytes`))
+      await expectLog(new RegExp(`installed ${b.stall.id}`))
+      await launch() // back to what the next case expects: a healthy downloaded bundle runs
+      await expectLog(new RegExp(`safety: ${b.stall.id} is healthy`))
+      return line
+    },
+  },
+  {
+    id: "swipe-update",
+    title: "Swipe from recents, reopen: starts fresh in the same process, and a waiting update runs",
+    async run() {
+      await launch()
+      await expectLog(new RegExp(`safety: ${b.stall.id} is healthy`))
+      const pid = shell("pidof", PKG).trim()
+      await swipeAway()
+      shell("am", "start", "-n", `${PKG}/.MainActivity`)
+      await expectLog(/nav: a new Activity without saved state/)
+      await expectText(/^OTA S$/) // no update waits: the same bundle, fresh
+      await expectNoLog(/apply: now running/, 500)
+      b.w = release("good", "W")
+      publish(b.w.serial)
+      await launch()
+      await expectLog(new RegExp(`installed ${b.w.id}`))
+      const pid2 = shell("pidof", PKG).trim()
+      await swipeAway()
+      clearLog()
+      shell("am", "start", "-n", `${PKG}/.MainActivity`)
+      const line = await expectLog(new RegExp(`report: applied ${b.w.id}: fresh start`))
+      await expectText(/^OTA W$/)
+      await expectLog(new RegExp(`safety: ${b.w.id} is healthy`))
+      check(shell("pidof", PKG).trim() === pid2 && pid !== "", "the process changed: this phone didn't keep it alive")
+      return line
+    },
+  },
+  {
+    id: "swipe-bad-update",
+    title: "The same with a bundle that throws at start: the bundle that ran comes back, fresh",
+    async run() {
+      b.badSwipe = release("throw-start", "WB")
+      publish(b.badSwipe.serial)
+      await launch()
+      await expectLog(new RegExp(`installed ${b.badSwipe.id}`))
+      await swipeAway()
+      clearLog()
+      shell("am", "start", "-n", `${PKG}/.MainActivity`)
+      const line = await expectLog(new RegExp(`report: apply_failed ${b.badSwipe.id}`))
+      // By log, not on screen: in debug builds the dev error screen covers the app after any JS error.
+      await expectLog(new RegExp(`apply: now running ${b.w.id} .*1 screen\\(s\\) opened again`))
+      await expectLog(new RegExp(`safety: ${b.w.id} is healthy`))
+      return line
+    },
+  },
+  {
+    id: "crash-on-return",
+    title: "The last good bundle crashes on return from the UPI app, 3 times with the background between: blocked on the third",
+    async run() {
+      b.ret = release("good", "R")
+      publish(b.ret.serial)
+      await launch()
+      await expectLog(new RegExp(`installed ${b.ret.id}`))
+      await launch()
+      await expectLog(new RegExp(`safety: ${b.ret.id} is healthy`))
+      for (let i = 1; i <= 3; i++) {
+        await openDeepLink("dev/crash")
+        shell("input", "swipe", "500", "1500", "500", "500", "1200") // slow: a tap during a fling only stops the list
+        await sleep(1000)
+        await tap("Open the mock UPI app")
+        await sleep(2500)
+        check(/topResumedActivity.*p2pupiapp/.test(shell("dumpsys", "activity", "activities")), "the mock UPI app didn't open")
+        // The mock has two screens to go back through; then we are in front again.
+        const onTop = (re: RegExp) => re.test(shell("dumpsys", "activity", "activities").match(/topResumedActivity.*/)?.[0] ?? "")
+        for (let k = 0; k < 4 && !onTop(/zeronative\.sample/); k++) {
+          shell("input", "keyevent", "KEYCODE_BACK")
+          await sleep(1000)
+        }
+        check(onTop(/zeronative\.sample/), "the sample didn't come back from the mock UPI app")
+        await sleep(800)
+        await tap("Crash the app")
+        await expectLog(/crashing on purpose/)
+        await closeCrashDialog()
+        await launch()
+        await expectLog(new RegExp(`launch_crashed ${b.ret.id}: crash \\(${i} of 3\\)`))
+      }
+      const line = await expectLog(new RegExp(`report: watchdog_block ${b.ret.id}`))
+      await expectNoLog(new RegExp(`running bundle ${b.ret.id}@`), 500)
+      return line
     },
   },
   {
@@ -592,14 +722,30 @@ const cases: Case[] = [
   },
   {
     id: "killed-install",
-    title: "Files a kill mid-install could leave (half folder, a broken `current`): the app still starts",
+    title: "Files a kill mid-install could leave (half folder, a broken `current`): the last good bundle runs and is reported",
     async run() {
       forceStop()
       asApp(`mkdir -p ${OTA_DIR}/tmp/sample_99 ${OTA_DIR}/bundles/sample_98 && echo half > ${OTA_DIR}/tmp/sample_99/main.hbc && echo half > ${OTA_DIR}/bundles/sample_98/main.hbc && echo sample_98 > ${OTA_DIR}/current`)
       await launch()
       const line = await expectLog(/bundle: not running sample_98: /)
-      await expectLog(/running bundle sample_0@/)
+      await expectLog(new RegExp(`running bundle ${b.h.id}@`))
+      await expectLog(/report: bundle_unusable sample_98/)
       await expectLog(/check staging: /)
+      return line
+    },
+  },
+  {
+    id: "unusable-no-good",
+    title: "A broken `current` and no last good bundle: the APK's bundle runs, `current` is removed",
+    async run() {
+      forceStop()
+      asApp(`rm ${OTA_DIR}/health.json; echo sample_98 > ${OTA_DIR}/current`)
+      await launch()
+      const line = await expectLog(/bundle: not running sample_98: /)
+      await expectLog(/running bundle sample_0@/)
+      await expectLog(/report: bundle_unusable sample_98/)
+      await launch()
+      await expectNoLog(/not running sample_98/, 2000)
       return line
     },
   },

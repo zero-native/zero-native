@@ -36,8 +36,9 @@ until it is proven.
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |
 | `fetch.md` | `fetch`: design, defaults, and the production problems (RN / Flutter / OkHttp) it handles |
 | `ota.md` | OTA updates (milestone 4): design, decisions D1–D5 (taken 2026-10-30), steps 4.0–4.9 (all done 2026-10-31) |
-| `ota-test-matrix.md` | the OTA phone test script (`bun run ota:phone`), its 22 cases and results on the Lava, and what it can't test |
+| `ota-test-matrix.md` | the OTA phone test script (`bun run ota:phone`), its 28 cases and results on the Lava, and what it can't test |
 | `second-opinions.md` | judgment calls made while building, written up for a bigger model or an expert to check |
+| `hardening-plan.md` | fixes planned before the plugin work (H.1–H.7), with risks and tests. A plan until Pavan says go |
 | `storage.md` | app storage (MMKV, synchronous), SecureStore, and when a store can be lost |
 | `hermes-features.md` | what Hermes 260318099 added (JSI runtime data, `ISerialization`, faster JSON, ...) and how we could use it later |
 | `milestones.md` | **the build plan, progress log, and how to build and run the sample app** |

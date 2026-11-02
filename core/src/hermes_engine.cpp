@@ -300,14 +300,28 @@ class HermesEngine final : public Engine {
 
   // The watchdog thread: wakes a few times per limit and stops an entry that runs too long. Hermes can be
   // interrupted from any thread (asyncTriggerTimeout); the running JS then throws at its next break check.
+  // steady_clock keeps counting while Android freezes the process. So when this thread wakes much later than it
+  // should, the process was stopped, and that gap doesn't count toward the limit: a frozen task is not a hang.
   void watch() {
     std::unique_lock lock(watchMutex_);
+    int64_t lastWake = steadyMs();
+    int64_t entry = 0;    // the entry [stopped] belongs to
+    int64_t stopped = 0;  // ms the process was stopped during it
     while (!stopping_) {
       const uint32_t limit = limitMs_.load();
-      watchWake_.wait_for(lock, std::chrono::milliseconds(limit > 0 ? std::max<uint32_t>(limit / 5, 20) : 1000));
+      const int64_t period = limit > 0 ? std::max<uint32_t>(limit / 5, 20) : 1000;
+      watchWake_.wait_for(lock, std::chrono::milliseconds(period));
+      const int64_t now = steadyMs();
+      const int64_t late = now - lastWake - period;
+      lastWake = now;
       if (stopping_ || limit == 0) continue;
       const int64_t start = entryStart_.load();
-      if (start != 0 && !timedOut_.load() && steadyMs() - start > static_cast<int64_t>(limit)) {
+      if (start != entry) {
+        entry = start;
+        stopped = 0;
+      }
+      if (late > period) stopped += late;
+      if (start != 0 && !timedOut_.load() && now - start - stopped > static_cast<int64_t>(limit)) {
         timedOut_.store(true);
         runtime_->asyncTriggerTimeout();
       }

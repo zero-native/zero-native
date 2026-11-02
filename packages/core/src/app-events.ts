@@ -27,4 +27,6 @@ export const AppEvent = {
   CallResultBytes: 9,
   /** "Try again" on a screen's error screen (nav.ts, step 3.9). */
   Retry: 10,
+  /** "active" or "background" (app-state.ts). */
+  AppState: 11,
 } as const

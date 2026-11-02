@@ -3,6 +3,7 @@ package dev.zeronative.runtime
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -11,6 +12,7 @@ import android.util.Log
 import androidx.compose.ui.graphics.Color
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InterruptedIOException
 import java.text.SimpleDateFormat
 import java.util.Collections
 import java.util.Date
@@ -19,6 +21,7 @@ import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -59,6 +62,11 @@ object ZnOta {
     /** Downloaded bundles kept besides the running and the current one, newest first: going back downloads nothing. */
     private const val KEEP = 4
     private const val MAX_OUTCOMES = 20
+    /** The check is a small JSON answer: this limit covers the whole call. */
+    private const val CHECK_TIMEOUT_MS = 30_000L
+    private const val MAX_CHECK_ANSWER = 256 * 1024L
+    /** The download has no total limit, so a slow one that still moves is fine. This is the longest gap between bytes. */
+    private const val DOWNLOAD_IDLE_TIMEOUT_MS = 60_000L
 
     class Config(
         /** The update server's base URL (the reference server: `bun run ota serve`). */
@@ -83,12 +91,21 @@ object ZnOta {
          * to Crashlytics (for example `recordException` when [ZnOtaReport.serious]); they also reach the server.
          */
         val onReport: ((ZnOtaReport) -> Unit)? = null,
+        /**
+         * Runs on a JS error's text before it is stored or sent, after the built-in masks ([ZnOtaHealth.Rules.mask]): for
+         * private data only your app knows the shape of. Keep it fast and simple. If it throws, the masked text is used.
+         */
+        val redact: ((String) -> String)? = null,
     )
 
     @Volatile private var config: Config? = null
     private lateinit var appContext: Context
     /** Made on first use: an app that never configures OTA gets no thread. */
     private val worker by lazy { Executors.newSingleThreadExecutor { r -> Thread(r, "zn-ota").apply { isDaemon = true } } }
+    // ZnFetch's client has no read limit (each fetch sets its own). Without these, a server that accepts and never
+    // answers would block [worker] for good: no more checks, and applyNow would never answer.
+    private val checkClient by lazy { ZnFetch.client.newBuilder().callTimeout(CHECK_TIMEOUT_MS, TimeUnit.MILLISECONDS).build() }
+    private val downloadClient by lazy { ZnFetch.client.newBuilder().readTimeout(DOWNLOAD_IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS).build() }
     private val main = Handler(Looper.getMainLooper())
     private val stateLock = Any()
 
@@ -255,11 +272,16 @@ object ZnOta {
             .url(c.server.trimEnd('/') + "/v1/check")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        ZnFetch.client.newCall(request).execute().use { r ->
-            if (!r.isSuccessful) throw ZnOtaError("server", "check answered HTTP ${r.code}")
-            val text = r.body.string()
-            if (text.length > 256 * 1024) throw ZnOtaError("server", "check answer too big")
-            return JSONObject(text)
+        try {
+            checkClient.newCall(request).execute().use { r ->
+                if (!r.isSuccessful) throw ZnOtaError("server", "check answered HTTP ${r.code}")
+                val source = r.body.source()
+                // Stops reading at the limit, so a huge answer never fills the memory.
+                if (source.request(MAX_CHECK_ANSWER + 1)) throw ZnOtaError("server", "check answer too big")
+                return JSONObject(source.buffer.readUtf8())
+            }
+        } catch (e: InterruptedIOException) { // OkHttp's error for a time limit
+            throw ZnOtaError("server", "no full answer within ${CHECK_TIMEOUT_MS / 1000} s")
         }
     }
 
@@ -404,7 +426,7 @@ object ZnOta {
             val url = c.server.toHttpUrl().resolve(m.url) ?: throw ZnOtaError("bundle", "bad download url ${m.url}")
             val request = Request.Builder().url(url).apply { if (have > 0) header("Range", "bytes=$have-") }.build()
             if (have > 0) Log.i(TAG, "resuming ${m.id} at $have of ${m.zipSize} bytes")
-            ZnFetch.client.newCall(request).execute().use { r ->
+            try { downloadClient.newCall(request).execute().use { r ->
                 val append = when {
                     r.code == 206 && r.header("Content-Range")?.startsWith("bytes $have-") == true -> true
                     r.code == 200 -> false
@@ -429,6 +451,8 @@ object ZnOta {
                     }
                     out.fd.sync()
                 }
+            } } catch (e: InterruptedIOException) { // OkHttp's error for a time limit; download.part stays for the next check
+                throw ZnOtaError("download", "no data for ${DOWNLOAD_IDLE_TIMEOUT_MS / 1000} s, at $have of ${m.zipSize} bytes")
             }
         }
         if (part.length() != m.zipSize || ZnOtaInstall.sha256(part) != m.zipSha256) {
@@ -450,7 +474,7 @@ object ZnOta {
 
     /**
      * Keeps the running bundle, the current one, the last good one and the newest [KEEP] others; deletes the rest.
-     * Blocked bundles are deleted (they never run again), unless running.
+     * Blocked bundles and ones that fail their checks are deleted (they never run), unless running.
      */
     private fun prune(builtIn: ZnBundles.Info) {
         val dirs = File(ota(), "bundles").listFiles()?.filter { it.isDirectory } ?: return
@@ -459,12 +483,13 @@ object ZnOta {
         currentFile().takeIf { it.isFile }?.readText()?.trim()?.let(keep::add)
         ZnOtaHealth.lastGood?.let(keep::add)
         val blocked = ZnOtaHealth.blocked()
-        dirs.map { it.name }.filter { it.startsWith("${builtIn.app}_") && it !in blocked }
+        val usable = keptBundles(builtIn, ZnCapabilities.current()).toSet()
+        dirs.map { it.name }.filter { it in usable }
             .sortedByDescending { it.substringAfterLast('_').toIntOrNull() ?: -1 }
             .filterNot { it in keep }.take(KEEP).let(keep::addAll)
         for (d in dirs) if (d.name !in keep) {
             d.deleteRecursively()
-            Log.i(TAG, "deleted ${if (d.name in blocked) "blocked" else "old"} bundle ${d.name}")
+            Log.i(TAG, "deleted ${if (d.name in blocked) "blocked" else if (d.name in usable) "old" else "unusable"} bundle ${d.name}")
         }
     }
 
@@ -552,6 +577,7 @@ object ZnOta {
     /** Outcomes where a safety net acted, or where a signed file didn't check out: worth a crash-report log. */
     private val SERIOUS = setOf(
         "error_rollback", "launch_crashed", "watchdog_block", "apply_failed", "init_failed", "ota_off", "signature", "zip_sha",
+        "bundle_unusable",
     )
 
     /** Reports, once, that a new bundle started running (installed earlier, applied at this cold start). */
@@ -630,8 +656,60 @@ object ZnOta {
     /** null for the APK's own bundle, else the bundle id. */
     private fun ZnBundles.Running.key(): String? = if (builtIn) null else info?.id
 
-    /** Why [swap] runs: [applyNow], a safety-net [rollBack], or the way back after either one's bundle threw. */
-    private enum class Swap { APPLY, ROLLBACK, FALLBACK }
+    /**
+     * Main thread, from [ZnNav]: the user closed the app and opened it again, and this phone kept the process alive
+     * (H.6). A waiting update runs now, in place of the old stack: the start screen opens, with [link] on top if given.
+     * With no waiting update, with updates held, or with OTA off, [noUpdate] starts fresh on the bundle that runs. If
+     * the update throws while it starts, the bundle that ran comes back, like [applyNow]. The cover goes up at once, so
+     * the old screens never flash.
+     */
+    internal fun startFresh(link: Uri?, noUpdate: () -> Unit) {
+        coverScreens()
+        main.removeCallbacks(uncover)
+        main.postDelayed(uncover, COVER_TIMEOUT_MS) // [screensUp] takes the cover away; this if it never comes
+        val assets = ZnTemplates.assets()
+        val ready = config != null && holds.isEmpty() && !applying && !rollingBack && assets.isNotEmpty() &&
+            assets.all { ZnTemplates.get(it) != null } && assets.any { ZnTemplates.get(it) === ZnNav.currentBundle }
+        if (!ready) return noUpdate()
+        applying = true
+        // Not on [worker]: a download running there would keep the user on the cover. `current` is written last and
+        // atomically, so reading it here is safe; what can't be read counts as no update.
+        Thread({
+            val update = try {
+                val c = ZnBundles.candidate()
+                if (c.running.key() == ZnBundles.running.key()) null
+                else c to assets.associateWith { ZnTemplates.load(it, c.running, c.templates[it]) }
+            } catch (e: Exception) {
+                Log.w(TAG, "apply: no update for the fresh start: ${e.message}")
+                null
+            }
+            main.post {
+                if (update == null || holds.isNotEmpty()) {
+                    applying = false
+                    return@post noUpdate()
+                }
+                fresh = true
+                freshLink = link
+                val old = ZnBundles.Candidate(ZnBundles.running, emptyMap()) to assets.associateWith { ZnTemplates.get(it)!! }
+                swap(update.first, update.second, old, SystemClock.uptimeMillis(), Swap.FRESH) {}
+            }
+        }, "zn-ota-fresh").start()
+    }
+
+    /** Main thread: the next [swap] that reaches the end opens the start screen, not the old stack. */
+    private var fresh = false
+    private var freshLink: Uri? = null
+
+    /** Why [swap] runs: [applyNow], [startFresh], a safety-net [rollBack], or the way back after one's bundle threw. */
+    private enum class Swap { APPLY, FRESH, ROLLBACK, FALLBACK }
+
+    /** Main thread: covers the screens with the top screen's background, or white, unless a cover is up already. */
+    private fun coverScreens() {
+        if (ZnNav.cover != null) return
+        val top = ZnNav.stack.lastOrNull()
+        val background = top?.route?.templateId?.let { ZnNav.currentBundle?.templates?.getOrNull(it)?.nodes?.firstOrNull()?.background }
+        ZnNav.cover = background?.takeIf { it.alpha == 1f } ?: Color.White // never see-through
+    }
 
     /**
      * Main thread: switches the process to [target] and replaces the JS runtime. If the new code throws while it
@@ -645,11 +723,7 @@ object ZnOta {
         why: Swap,
         done: (JSONObject) -> Unit,
     ) {
-        if (ZnNav.cover == null) {
-            val top = ZnNav.stack.lastOrNull()
-            val background = top?.route?.templateId?.let { ZnNav.currentBundle?.templates?.getOrNull(it)?.nodes?.firstOrNull()?.background }
-            ZnNav.cover = background?.takeIf { it.alpha == 1f } ?: Color.White // never see-through
-        }
+        coverScreens()
         // The template file the screens are drawn from (apps load one; any others are replaced too).
         val navAsset = bundles.keys.firstOrNull { ZnTemplates.get(it) === ZnNav.currentBundle }
         val from = ZnBundles.running
@@ -661,12 +735,13 @@ object ZnOta {
             if (!result.ok && fallback != null) {
                 val back = fallback.first.running
                 Log.e(TAG, "apply: ${target.running} threw while starting; running $back instead: ${result.value}")
+                val line = safeText(result.value.substringBefore('\n'))
                 worker.execute {
                     val backId = back.key()
                     if (backId == null) currentFile().delete() else ZnOtaInstall.writeAtomic(currentFile(), backId)
                     if (id != null) ZnOtaHealth.block(id, ZnOtaHealth.ERROR, kind = null, detail = null)
-                    record("apply_failed", id ?: "built-in", "${result.value.substringBefore('\n')}; running ${backId ?: "built-in"}", running = null,
-                        error = "apply_failed: ${id ?: "built-in"} threw while starting: ${result.value.substringBefore('\n')}",
+                    record("apply_failed", id ?: "built-in", "$line; running ${backId ?: "built-in"}", running = null,
+                        error = "apply_failed: ${id ?: "built-in"} threw while starting: $line",
                         stack = jsTopFrames(result.value), sha = target.running.info?.sha256)
                 }
                 return@restart swap(fallback.first, fallback.second, null, t0, Swap.FALLBACK, done)
@@ -677,7 +752,10 @@ object ZnOta {
             for ((asset, bundle) in bundles) ZnTemplates.replace(asset, bundle)
             attach()
             val navBundle = navAsset?.let(bundles::get)
-            if (navBundle != null && saved.isNotEmpty()) ZnNav.restart(navBundle, saved)
+            if (navBundle != null && fresh) ZnNav.start(navBundle, freshLink)
+            else if (navBundle != null && saved.isNotEmpty()) ZnNav.restart(navBundle, saved)
+            fresh = false
+            freshLink = null
             applying = false
             rollingBack = false
             val ms = SystemClock.uptimeMillis() - t0
@@ -696,6 +774,10 @@ object ZnOta {
             when (why) {
                 Swap.APPLY -> {
                     worker.execute { record("applied", id ?: "built-in", "was ${from.key() ?: "built-in"}, $ms ms", running = now) }
+                    done(JSONObject().put("applied", true).put("bundle", id ?: JSONObject.NULL))
+                }
+                Swap.FRESH -> {
+                    worker.execute { record("applied", id ?: "built-in", "fresh start, was ${from.key() ?: "built-in"}, $ms ms", running = now) }
                     done(JSONObject().put("applied", true).put("bundle", id ?: JSONObject.NULL))
                 }
                 Swap.ROLLBACK -> {
@@ -786,6 +868,7 @@ object ZnOta {
         val c = config ?: return
         val r = ZnBundles.runningIfChosen ?: return
         if (r.builtIn || c.healthyAfterMs <= 0 || ZnOtaHealth.healthyBundle == r.key()) return
+        if (ZnOtaHealth.isBlocked(r.key()!!)) return // a blocked bundle never becomes healthy (F6)
         main.removeCallbacks(healthyTimer)
         main.postDelayed(healthyTimer, c.healthyAfterMs)
     }
@@ -812,7 +895,7 @@ object ZnOta {
     fun markHealthy() {
         if (config == null) return
         val id = ZnBundles.runningIfChosen?.key() ?: return
-        if (ZnOtaHealth.healthyBundle == id) return
+        if (ZnOtaHealth.healthyBundle == id || ZnOtaHealth.isBlocked(id)) return
         ZnOtaHealth.healthyBundle = id // at once: an error from now on is only counted
         main.post(::stopTimers)
         worker.execute {
@@ -832,7 +915,7 @@ object ZnOta {
         if (config == null || applying || rollingBack || ZnRuntime.isRestarting) return false
         val running = ZnBundles.runningIfChosen
         val id = running?.key()
-        val what = "$kind in $where: ${details.substringBefore('\n')}"
+        val what = safeText("$kind in $where: ${details.substringBefore('\n')}")
         val stack = jsTopFrames(details)
         val sha = running?.info?.sha256
         if (id == null || ZnOtaHealth.healthyBundle == id) {
@@ -841,7 +924,9 @@ object ZnOta {
         }
         if (!ZnOtaHealth.errorsRollBack(id)) {
             // The phone's last good bundle ran well here before: one bad moment (odd server data, a slow phone) must
-            // not block it forever. Reported only; the error screen shows. Its crashes still count (watchdog).
+            // not block it forever. Reported only; the error screen shows. Its crashes still count (watchdog). A failed
+            // start repeats at every launch, so two in 24 h block it until the next APK, and the APK's bundle runs (F9).
+            if (kind == "start" && ZnOtaHealth.startFailed(id)) return rollBack(id, what, stack, sha, ZnOtaHealth.WATCHDOG)
             Log.w(TAG, "safety: $id is the last good bundle: $what (reported, not blocked)")
             worker.execute { record("error_screen", id, "$what (last good bundle: reported only)", running = null, stack = stack, sha = sha) }
             return false
@@ -849,13 +934,26 @@ object ZnOta {
         return rollBack(id, what, stack, sha)
     }
 
+    /** A JS error's text as it may be stored and sent: masked, then the app's own [Config.redact]. */
+    private fun safeText(text: String): String {
+        val masked = ZnOtaHealth.Rules.mask(text)
+        val redact = config?.redact ?: return masked
+        return try {
+            redact(masked)
+        } catch (e: Exception) {
+            Log.e(TAG, "redact threw", e) // the masked text still goes
+            masked
+        }
+    }
+
     /**
      * Main thread: blocks [id] (an "error" block: forever) and runs the last good bundle (or the APK's) in its place,
      * the way [applyNow] does. If JS holds updates (a payment) or the runtime can't be replaced yet, the good bundle
      * only becomes current (it runs from the next start) and this returns false: the error screen shows meanwhile.
-     * [stack], [sha]: the error's top JS frames and the bundle's SHA, for the `error_rollback` outcome.
+     * [stack], [sha]: the error's top JS frames and the bundle's SHA, for the `error_rollback` outcome. [blockAs]: how
+     * the block is kept.
      */
-    private fun rollBack(id: String, why: String, stack: String? = null, sha: String? = null): Boolean {
+    private fun rollBack(id: String, why: String, stack: String? = null, sha: String? = null, blockAs: String = ZnOtaHealth.ERROR): Boolean {
         val assets = ZnTemplates.assets()
         val inPlace = holds.isEmpty() && ZnRuntime.canRestart && assets.isNotEmpty()
         val later = if (inPlace) "" else " from the next start (${if (holds.isNotEmpty()) "updates are held" else "the app isn't running yet"})"
@@ -868,7 +966,7 @@ object ZnOta {
             val target = ZnBundles.fallbackCandidate(exclude = id)
             val targetId = target.running.key()
             if (targetId == null) currentFile().delete() else ZnOtaInstall.writeAtomic(currentFile(), targetId)
-            ZnOtaHealth.block(id, ZnOtaHealth.ERROR, "error_rollback", "$why; going back to ${targetId ?: "the built-in bundle"}$later", stack, sha)
+            ZnOtaHealth.block(id, blockAs, "error_rollback", "$why; going back to ${targetId ?: "the built-in bundle"}$later", stack, sha)
             // Telemetry after the swap is on its way (a few file writes less before it).
             val report = Runnable {
                 deliver()

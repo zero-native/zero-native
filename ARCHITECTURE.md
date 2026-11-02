@@ -560,6 +560,10 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
   that keep the process after a swipe from recents (the Lava) the old screens used to come back. Now `ZnNav.start`
   with no saved state while screens are up replaces the JS runtime (the in-place update path) and opens the start
   screen, like a new launch. Links while running go through `ZnNav.openLink` (`onNewIntent`).
+- **A second Activity never restarts JS** (2026-11-02): hosts use `singleTop`, so a link while another app is on top
+  makes a second Activity. It is not its task's root, so `ZnNav.handleExtraActivity` forwards the link and closes it. Only
+  a task root with no saved state starts fresh. Query values reach the route as params, and `startApp(routes, { onLink })`
+  lets the app refuse a link while it runs.
 - Native screens are routes too (section 15.3).
 - **Safe areas and the keyboard are route options, handled natively (decided 2026-10-29):**
   `@route(path, { safeArea: 'all' | 'none' | { top?, bottom? }, keyboard: 'resize' | 'none' })`, default `'all'` /
@@ -757,6 +761,8 @@ previous one; both damaged reads as "broken".
 never for anything a flow needs.
 
 ## 14. Host APIs for plain TypeScript (decided list)
+- `appState()` and `onAppState()` (H.7, host API 5): `"active"` or `"background"`, following the Activity's resume and
+  pause, so a see-through payment window counts. Details: guide-notes §29.
 - `fetch` (subset: method, headers, body as string / bytes / form, JSON helpers, timeouts, abort). Native HTTP stack:
   OkHttp on Android, URLSession on iOS. Cookies off by default. Cronet / HTTP/3 is an optional later backend.
   **Built (step 3.4):** design, defaults and the production problems it handles are in `docs/fetch.md`.
@@ -802,7 +808,7 @@ A route can point to a native screen (Kotlin composable / SwiftUI view) instead 
 same back stack and can return a result to JS. **Not built**; proposal (`nav.pushForResult`, results after a process
 kill) in `docs/plugins.md` §5.
 
-### 15.4 Native resource handles: `zn://` (decided 2026-10-29; not built yet, planned with the plugin core, `docs/plugins.md` §6)
+### 15.4 Native resource handles: `zn://` (decided 2026-10-29; built only in the exp4 prototype, to be ported with the plugin core, `docs/plugins.md` §6)
 Heavy native objects (app icons, camera photos, generated QR images, contact photos, PDF thumbnails) **never go
 through JS as bytes**. A native module keeps the object and returns a short string handle; JS passes the string
 around; native resolves it when drawing or uploading.
@@ -886,7 +892,7 @@ step 4.2; details in `docs/ota.md` §3.2).
   release: step 4.8, `ZnRuntime.onJsError` + `asThrowable()` for Crashlytics, `bun run ota symbolicate`).
 - **Tests:** logic and flows run under `bun test` with a fake host (no device needed). Renderer conformance screenshot
   tests run on emulators / simulators. **As built:** `bun test` with a fake host (~200 JS tests), Kotlin unit tests
-  (~75), C++ core tests run on the phone, and an OTA phone test matrix (`bun run ota:phone`, 22 cases). No screenshot
+  (~75), C++ core tests run on the phone, and an OTA phone test matrix (`bun run ota:phone`, 28 cases). No screenshot
   conformance tests yet.
 - **Lint:** the compiler reports destructured props, effects missing `reconcile`, flow schema changes without a version
   bump, and unknown components or props. **As built:** unknown components, props and style keys are build errors;
@@ -1064,13 +1070,17 @@ zero-native/
 | 2026-10-31 | `restorableSignal(key, initial)`: values sent to native per change (NAV RESTORE, host API 4), saved with the back stack, handed back on restore only into the same bundle (`id@sha12`) | §11, `docs/second-opinions.md` entry 7. The amount typed before going to the UPI app must survive a process kill; a newer bundle might read an old value wrong. |
 | 2026-10-31 | A new Activity without saved state while the process lives (a swipe from recents on ROMs that keep the process) starts fresh: new JS runtime, start screen; links while running go through `ZnNav.openLink` | §11. Same behaviour on every phone, like RN and Flutter apps on the same Lava; Android's own rule: saved state = restore, none = fresh. |
 | 2026-10-31 | **Proposed, not decided:** a plugin system (package = TS + Android library, `ZnPlugin` entry point, `<NativeView>`, native screens, core permissions / activity results / `zn://` handles); decisions D1–D7 open | `docs/plugins.md`. QR, WebView, UPI, media and push all need it; one system before five ad-hoc ones. |
+| 2026-11-02 | Plugin decisions D1–D7 taken as recommended, with the review's additions (by-hand registration first, `ZnModuleBase` + typed helpers, views on their module's version with a compiler check, `pushForResult` + kept results, plugins in this repo, `peerDependencies` + `requireHostApi`, UPI as a plugin) | `docs/plugins.md` §8; reviewed against the code in `docs/cross-communication/2026-11-02-fable-review-response.md`. Not built yet. |
+| 2026-11-02 | Crash count for downloaded bundles changes (**decided, not built**): every foreground period is watched; the last 3 counted deaths are kept with their times for 24 h; the background and the healthy mark no longer clear them; limits 1 sure / 2 unsure before healthy, 3 for the last good bundle | A crash on return from a UPI app was always "1 of N". `docs/hardening-plan.md` H.3, `docs/second-opinions.md` entry 1. |
+| 2026-11-02 | The sample and pilot app use `singleTop`; a new Activity starts fresh only if it is the task root, else it forwards its link and finishes (**decided, not built**) | `singleTask` can close the UPI app (RN found this); `singleTop` alone could restart JS during a payment. `docs/hardening-plan.md` H.1. |
+| 2026-11-02 | Order: hardening (H.1–H.7), then P.1, P.2, `upi`, `auth`, `scanner` as a native screen, then pilot screens, with the checkout rules port alongside. `<NativeView>` after the pilot | The first app pilot is login, scan, UPI transaction; its details live in the app's own private repo. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).
 - iOS image cache choice.
 - ~~Exact FlatBuffers schema for `.zn.ui` and the batch byte layout~~ (done in milestone 1: own binary format,
   `packages/template/src/writer.ts`; batch layout in `core/include/zn/batch.h`).
-- The plugin system's decisions D1–D7 (`docs/plugins.md`).
+- ~~The plugin system's decisions D1–D7 (`docs/plugins.md`).~~ Taken 2026-11-02 (§24).
 - Judgment calls kept for a second opinion (watchdog limits, error text in telemetry, free-space numbers, fallback
   for an unusable bundle, `restorableSignal` across bundles): `docs/second-opinions.md`.
 - How computed row expressions work with a native list data source (`docs/lists.md` §6, v1.1).

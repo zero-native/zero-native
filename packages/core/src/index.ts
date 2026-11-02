@@ -32,8 +32,9 @@ export {
   type View,
 } from "./view"
 export { onEvent } from "./events"
-export { nav, restorableSignal, startApp, useBack, useImpressions, type ImpressionOptions, type Register } from "./nav"
+export { nav, restorableSignal, startApp, useBack, useImpressions, type AppOptions, type ImpressionOptions, type OpenedLink, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
+export { appState, onAppState, type AppState } from "./app-state"
 export { flowStore, type StoreRead } from "./flowstore"
 export {
   createStorage,

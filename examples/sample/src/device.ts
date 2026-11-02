@@ -14,10 +14,12 @@ export interface DeviceModule {
   storageHammer(args: { count: number }): Promise<{ count: number; ms: number }>
   /** v2, debug builds only: crashes the app (a Kotlin exception on the main thread), to test the OTA watchdog. */
   crash(): Promise<never>
+  /** v3, debug builds only: opens the mock UPI app for a result, to test a link arriving while it is on top. */
+  openMockUpi(): Promise<boolean>
   events: {
     /** A counter every 50 ms, only while someone listens; if JS is busy only the newest value arrives. */
     tick: number
   }
 }
 
-export const Device = nativeModule<DeviceModule>("Device", { version: 2 })
+export const Device = nativeModule<DeviceModule>("Device", { version: 3 })

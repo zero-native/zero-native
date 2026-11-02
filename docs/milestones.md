@@ -92,8 +92,8 @@ components 15–19, props 122–199, events 11–29; Gemini uses components 20�
 **Milestone 4 (OTA): design in `docs/ota.md`** (steps 4.0–4.9). 4.0 done 2026-10-30: Pavan took D1–D5 as
 recommended; logged in ARCHITECTURE §16 / §24. 4.1, 4.2, step 3.9 and 4.3 (local store) done 2026-10-30 (log
 below). 4.4 and 4.5 done 2026-10-30, 4.6, 4.7, 4.8 and 4.9 done 2026-10-31: **milestone 4 is done**.
-`restorableSignal` (agreed below) done 2026-10-31. Next: the plugin system (`docs/plugins.md`, decisions D1–D7
-open, out for review), then the ZeroBill checkout pilot (planned separately).
+`restorableSignal` (agreed below) done 2026-10-31. Next: the plugin system (`docs/plugins.md`, decisions D1–D7 taken
+2026-11-02), then the ZeroBill checkout pilot: login, scan, UPI transaction (details in the app's private repo).
 Order agreed 2026-10-30: framework first (milestone 4), the 2.8 sample checkout later; Gemini does 3.7 / 3.8.
 
 **Agreed for after 4.9 (Pavan, 2026-10-30): `restorableSignal(key, initial)`** (**done 2026-10-31**, log below). Like `signal`, but its value comes
@@ -118,9 +118,61 @@ Parked ideas: `docs/after-foundations.md`.
 | Kotlin (batch reader, template reader) | `.\gradlew.bat :runtime:testDebugUnitTest` in `android/` | `android/runtime/src/test/` |
 | Lint | `.\gradlew.bat :runtime:lintDebug :sample:lintDebug` | 0 errors expected |
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
-| OTA on the phone (22 cases, ~15 min) | `bun run ota:phone` (debug sample, phone unlocked) | `tools/ota/phone-matrix.ts`, `docs/ota-test-matrix.md` |
+| OTA on the phone (28 cases, ~20 min) | `bun run ota:phone` (debug sample, phone unlocked) | `tools/ota/phone-matrix.ts`, `docs/ota-test-matrix.md` |
 
 ## Log
+### 2026-11-02: hardening done, H.1 to H.7 (Claude)
+- Full OTA matrix 28 of 28 on the Lava (debug). Release cold start 180 ms median. Next: P.1 (`docs/plugins.md` §9).
+
+### 2026-11-02: H.7 done, app state reaches JS (Claude)
+- `onAppState()` and `appState()`, new app event 11, host API 5. They follow resume and pause, so a see-through
+  payment window counts (`docs/second-opinions.md` entry 9). Tested on the Lava (`docs/hardening-plan.md` H.7).
+
+### 2026-11-02: H.6 done, swipe and reopen applies a waiting update (Claude)
+- On a phone that keeps the process alive, a swipe from recents now runs a waiting update, as a process death would. A
+  bundle that throws at start falls back to the one that ran. A cover hides the old screens. New matrix cases
+  `swipe-update` and `swipe-bad-update` (`docs/hardening-plan.md` H.6).
+
+### 2026-11-02: H.5 done, a frozen JS task is not a hang (Claude)
+- The time limit no longer counts time when the process was stopped. A 1.5 s task frozen for 6 s was reported as a hang
+  before the fix and isn't now; an endless loop inside `try / catch` is still stopped (`docs/hardening-plan.md` H.5).
+- The storage comment now says a damaged store opens empty.
+
+### 2026-11-02: H.4 done, unusable bundles and private data in errors (Claude)
+- A bundle that fails its checks at a start now falls back to the last good bundle, or else the APK's, and is reported
+  once as `bundle_unusable` (`docs/second-opinions.md` entry 6).
+- JS error text is masked before it is stored or sent: digit runs, `a@b`, URL query strings, bearer tokens. An app can
+  add `ZnOta.Config.redact` (entry 4). Tested by hand on the Lava (`docs/hardening-plan.md` H.4).
+
+### 2026-11-02: H.3 done, crashes are counted over 24 h (Claude; design with Fable)
+- Every foreground visit is watched, healthy or not. Deaths stay counted for 24 h: 1 sure crash, 2 unsure deaths, or 3
+  for the last good bundle block a bundle. A crash on return from a UPI app now counts (F4 option D).
+- A blocked bundle can't become last good (F6). Two failed starts of the last good bundle in 24 h block it (F9). A crash
+  mark file makes Kotlin crashes "sure" below Android 11.
+- New matrix case `crash-on-return` passes on the Lava (`docs/hardening-plan.md` H.3).
+
+### 2026-11-02: H.2 done, OTA calls have time limits (Claude)
+- The check has 30 s for the whole call, and its answer is capped while reading. The download fails after 60 s with no
+  bytes and resumes at the next check. Before, a server that never answered blocked the OTA thread for good.
+- Two new matrix cases, `check-stall` and `download-stall`, pass on the Lava (`docs/hardening-plan.md` H.2).
+
+### 2026-11-02: H.1 done, a second Activity never restarts JS (Claude)
+- `ZnNav.handleExtraActivity` forwards a link from a second Activity and closes it. The sample is `singleTop`, so our
+  icon no longer closes a UPI app above us. `startApp(routes, { onLink })` lets an app refuse a link. Query values reach
+  the route as params; the log prints their names only, never values.
+- Test kit: a Crash lab button opens the mock UPI app (debug only, Device module version 3); the mock can send a link.
+- 8 phone cases pass on the Lava (`docs/hardening-plan.md` H.1). Not tested: `onLink` on the phone, other ROMs, a
+  release build. The full matrix runs after H.7.
+
+### 2026-11-02: reviews done, plugin decisions taken, plan written (Claude; reviews by Argon and Fable 5.1)
+- Argon and Fable reviewed the architecture. Fable read the code and found real gaps: OTA calls with no time limit (F1),
+  no app-state event (F3), crashes after healthy never counted (F4), and a second Activity that could restart JS during
+  a payment (F11). Report: `docs/cross-communication/2026-11-02-fable-review-response.md`.
+- Plugin decisions D1–D7 taken (`docs/plugins.md` §8). Pilot scope set: login, scan, UPI transaction, with failure
+  paths (details in the app's private repo). `zn://` will be ported from the exp4 prototype. Crash count: `docs/second-opinions.md`
+  entry 1.
+- Next: `docs/hardening-plan.md`, waiting for Pavan's go. No code changed in this entry.
+
 ### 2026-10-31: docs brought up to date for an outside review (Claude)
 - Checked every main doc against the code. Fixed: `ARCHITECTURE.md` ("Where things stand", "As built" notes, §24 /
   §25 / glossary), `docs/ota.md` (status, where bundles load from, swipe-from-recents note), `docs/native-modules.md`

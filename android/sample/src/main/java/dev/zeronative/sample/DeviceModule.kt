@@ -1,6 +1,8 @@
 package dev.zeronative.sample
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -15,7 +17,7 @@ import org.json.JSONObject
  * a plain call (info), a slow call that can be cancelled (slowEcho), an error with a code (fail), and an event
  * (tick, every 50 ms with latestOnly) that only runs while JS listens. JS side: examples/sample/src/device.ts.
  */
-class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 2) {
+class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 3) {
     private val main = Handler(Looper.getMainLooper())
     private var ticks = 0
     private var ticking = false
@@ -49,6 +51,16 @@ class DeviceModule(private val context: Context) : ZnModuleBase("Device", versio
             if (!BuildConfig.DEBUG) return@function call.reject("debug_only", "crash is for debug builds only")
             Log.w(TAG, "crash: crashing on purpose (Device.crash, debug test)")
             main.post { throw IllegalStateException("Device.crash: a crash on purpose (debug test of the OTA watchdog)") }
+        }
+
+        // v3: debug builds only, for testing a second Activity (docs/hardening-plan.md H.1): opens the mock UPI app
+        // (test-kit/) for a result, so it sits on top of our task. Never a real UPI app: the package is fixed.
+        function("openMockUpi", onMain = true) { call ->
+            if (!BuildConfig.DEBUG) return@function call.reject("debug_only", "openMockUpi is for debug builds only")
+            val activity = MainActivity.current ?: return@function call.reject("no_activity", "no Activity on screen")
+            val pay = Uri.parse("upi://pay?pa=test@mock&pn=Mock&am=1.00&tr=H1&cu=INR")
+            activity.startActivityForResult(Intent(Intent.ACTION_VIEW, pay).setPackage("p2pdops.android.p2pupiapp"), 1)
+            call.resolve(true)
         }
 
         // Storage shared with JS (step 3.5): reads what JS wrote, writes values JS then checks.
