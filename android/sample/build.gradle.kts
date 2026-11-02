@@ -61,6 +61,7 @@ android {
 
 dependencies {
     implementation(project(":runtime"))
+    implementation(project(":plugin-device-test"))
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)

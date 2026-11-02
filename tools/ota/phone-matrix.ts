@@ -55,7 +55,7 @@ function check(cond: unknown, what: string): asserts cond {
 // ---- Phone ----------------------------------------------------------------------------------------------------------
 
 function logcat(): string {
-  return adb("logcat", "-d", "-v", "brief", "-s", "zn-ota:*", "zn-sample:*", "zn:*", "AndroidRuntime:E")
+  return adb("logcat", "-d", "-v", "brief", "-s", "zn-ota:*", "zn-sample:*", "zn:*", "zn-js:*", "AndroidRuntime:E")
 }
 
 /** Waits for a log line matching [re] (logs since the last [clearLog]). Returns it. */
@@ -110,6 +110,7 @@ async function openDeepLink(path: string) {
 }
 
 function screenTexts(): Array<{ text: string; x: number; y: number }> {
+  shell("rm", "-f", "/sdcard/zn-ui.xml") // a failed dump must not leave the last screen's text in place
   shell("uiautomator", "dump", "/sdcard/zn-ui.xml")
   const xml = shell("cat", "/sdcard/zn-ui.xml")
   const out: Array<{ text: string; x: number; y: number }> = []
@@ -151,6 +152,47 @@ async function swipeAway() {
   await sleep(1000)
 }
 
+const MOCK = "p2pdops.android.p2pupiapp"
+const focused = () => /mCurrentFocus=.*/.exec(shell("dumpsys", "window"))?.[0] ?? ""
+
+/** A cold start on the launch dev screen, with no saved launch left from a case before. */
+async function launchScreen(): Promise<void> {
+  shell("input", "keyevent", "KEYCODE_WAKEUP")
+  forceStop()
+  await sleep(800)
+  clearLog()
+  await openDeepLink("dev/launch")
+  await expectLog(/launch-test first read/)
+  const saved = await expectLog(/launch-test first read/)
+  if (!saved.endsWith(": none")) {
+    await tap("Ack")
+    await expectLog(/launch-test ack: true/)
+    clearLog()
+  }
+}
+
+/** Opens the mock for a result. [opaque]: waits for its payment screen; its first window is see-through for 1.8 s. */
+async function openMock(opaque: boolean) {
+  if (opaque) {
+    await tap("Open mock")
+    for (let i = 0; i < 20 && !focused().includes("PaymentActivity"); i++) await sleep(300)
+    check(focused().includes("PaymentActivity"), `the mock's payment screen didn't open: ${focused()}`)
+    await sleep(1000)
+    return
+  }
+  const open = screenTexts().find((t) => t.text === "Open mock")
+  check(open, "no Open mock button")
+  shell("input", "tap", String(open.x), String(open.y))
+  await sleep(600)
+}
+
+async function leaveMock() {
+  for (let i = 0; i < 5 && focused().includes(MOCK); i++) {
+    shell("input", "keyevent", "KEYCODE_BACK")
+    await sleep(900)
+  }
+}
+
 /** Runs a shell command as the app (debug builds): its files. */
 const asApp = (cmd: string) => shell("run-as", PKG, "sh", "-c", `'${cmd}'`)
 
@@ -166,15 +208,16 @@ const KINDS: Record<string, Patch[]> = {
   good: [],
   "throw-start": [{ file: "main.ts", old: "installRuntime()\n", new: 'installRuntime()\nif (Date.now() > 0) throw new Error("OTA test: this bundle fails at start on purpose")\n' }],
   "crash-home": [
-    { file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nav, setTimeout, signal } from "@zero-native/core"\nimport { Device } from "./device"\n' },
+    { file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nav, setTimeout, signal } from "@zero-native/core"\nimport { Device } from "@zero-native/device-test"\n' },
     HOME_START("  setTimeout(() => void Device.crash(), 1500) // OTA test: crash before the healthy mark\n"),
   ],
   "throw-second": [
     { file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nav, signal, storage } from "@zero-native/core"\n' },
     HOME_START('  const launch = (storage.getNumber("zn-test.launch") ?? 0) + 1\n  storage.set("zn-test.launch", launch)\n  if (launch === 2) throw new Error("OTA test: the home screen throws on the second launch")\n'),
   ],
-  // Needs Device v4; the app has v3: an older app offered a bundle for newer native code.
-  "needs-module": [{ file: "device.ts", old: 'nativeModule<DeviceModule>("Device", { version: 3 })', new: 'nativeModule<DeviceModule>("Device", { version: 4 })' }],
+  // Needs Device v5; the app has v4: an older app offered a bundle for newer native code. The build takes the highest
+  // version it finds, so one more line is enough; the plugin's own files stay as they are.
+  "needs-module": [{ file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nativeModule, nav, signal } from "@zero-native/core"\nconst newerDevice = nativeModule("Device", { version: 5 })\n' }],
 }
 
 /** Puts the sample's sources back from the backup; [stopped]: left by a run that was killed (say so). */
@@ -750,6 +793,158 @@ const cases: Case[] = [
     },
   },
   {
+    id: "result-alive",
+    title: "Another app's result, process alive: saved, heard, comes again at the next start until ack; a wrong id clears nothing",
+    async run() {
+      await launchScreen()
+      await openMock(true)
+      await leaveMock()
+      const line = await expectLog(/launch-test heard: result t\d+ code 0/)
+      await tap("Wrong ack")
+      await expectLog(/launch-test wrong ack: false/)
+      forceStop()
+      await sleep(800)
+      clearLog()
+      await openDeepLink("dev/launch")
+      await expectLog(/launch-test first read: result t\d+/)
+      await expectLog(/launch-test heard: result t\d+/)
+      await tap("Open mock")
+      await expectLog(/launch-test open: launched=false reason=unacked/)
+      await tap("Ack")
+      await expectLog(/launch-test ack: true/)
+      await tap("Missing app")
+      await expectLog(/launch-test missing: launched=false reason=no_app/)
+      return line
+    },
+  },
+  {
+    id: "result-after-kill",
+    title: "Android kills the process while the other app is open: the first screen of the new process already reads the result",
+    async run() {
+      await launchScreen()
+      await openMock(true)
+      const before = shell("pidof", PKG).trim()
+      shell("am", "kill", PKG)
+      await sleep(1000)
+      if (shell("pidof", PKG).trim()) asApp(`kill -9 ${before}`)
+      await sleep(1000)
+      check(!shell("pidof", PKG).trim(), "the process didn't end")
+      clearLog()
+      await leaveMock()
+      const line = await expectLog(/launch-test first read: /)
+      check(/first read: result t\d+ code/.test(line), `the first read must be the result: ${line}`)
+      await expectLog(/Android restored the app; reopening 2 screen/)
+      await expectLog(/launch-test heard: result t\d+/)
+      await sleep(800)
+      await tap("Ack")
+      await expectLog(/launch-test ack: true/)
+      return line
+    },
+  },
+  {
+    id: "result-under-see-through",
+    title: "The process dies under a see-through window: Android can't keep our Activity; the next open reads lost",
+    async run() {
+      await launchScreen()
+      await openMock(false)
+      check(!focused().includes("PaymentActivity"), "the payment screen came too soon")
+      asApp(`kill -9 ${shell("pidof", PKG).trim()}`)
+      await sleep(1200)
+      check(!shell("pidof", PKG).trim(), "the process didn't end")
+      await leaveMock()
+      shell("am", "force-stop", MOCK)
+      clearLog()
+      await openDeepLink("dev/launch")
+      const line = await expectLog(/launch-test first read: /)
+      check(/first read: lost t\d+/.test(line), `expected lost: ${line}`)
+      await tap("Ack")
+      await expectLog(/launch-test ack: true/)
+      return line
+    },
+  },
+  {
+    id: "no-result-after-swipe",
+    title: "The app is swiped away while the other app is open: lost, and a fresh start works",
+    async run() {
+      await launchScreen()
+      await openMock(true)
+      clearLog()
+      await swipeAway()
+      await sleep(800)
+      await openDeepLink("dev/launch")
+      const line = await expectLog(/launch-test first read: /)
+      check(/first read: lost t\d+/.test(line), `expected lost: ${line}`)
+      await tap("Ack")
+      await expectLog(/launch-test ack: true/)
+      return line
+    },
+  },
+  {
+    id: "link-while-waiting",
+    title: "A link while the other app is open reaches onLink; JS isn't restarted and the other app stays on top",
+    async run() {
+      await launchScreen()
+      await openMock(true)
+      const before = shell("pidof", PKG).trim()
+      clearLog()
+      shell("am", "start", "-a", "android.intent.action.VIEW", "-d", "zn://sample/offers?refuse=1", PKG)
+      const line = await expectLog(/sample: link zn:\/\/sample\/offers\?refuse=1 atStart=false/)
+      await expectLog(/a second Activity while the app runs/)
+      await sleep(1500)
+      check(focused().includes(MOCK), `the other app must stay on top: ${focused()}`)
+      check(shell("pidof", PKG).trim() === before, "the process changed")
+      await expectNoLog(/starting fresh/, 0)
+      await leaveMock()
+      await sleep(800)
+      await tap("Ack")
+      await expectLog(/launch-test ack: true/)
+      return line
+    },
+  },
+  {
+    id: "start-link-refused",
+    title: "The link guard is asked about the link that started the app; refused, the start screen shows",
+    async run() {
+      forceStop()
+      await sleep(800)
+      clearLog()
+      await openDeepLink("offers?refuse=1")
+      const line = await expectLog(/sample: link zn:\/\/sample\/offers\?refuse=1 atStart=true/)
+      await expectText(/^Pay a merchant$/)
+      return line
+    },
+  },
+  {
+    id: "result-survives-rollback",
+    title: "A result not acked, then a bad update rolls back: the same result is still there for the bundle that runs",
+    async run() {
+      b.rs = release("good", "RS")
+      publish(b.rs.serial)
+      await launch()
+      await expectLog(new RegExp(`installed ${b.rs.id}`))
+      await launchScreen()
+      await expectLog(new RegExp(`running bundle ${b.rs.id}@`))
+      await openMock(true)
+      await leaveMock()
+      const heard = await expectLog(/launch-test heard: result (t\d+) code/)
+      const id = /result (t\d+)/.exec(heard)![1]
+      b.rsBad = release("throw-start", "RT")
+      publish(b.rsBad.serial)
+      await launch()
+      await expectLog(new RegExp(`installed ${b.rsBad.id}`))
+      await launch()
+      await expectLog(new RegExp(`report: error_rollback ${b.rsBad.id}`))
+      await launch()
+      await expectLog(new RegExp(`running bundle ${b.rs.id}@`))
+      await openDeepLink("dev/launch")
+      const line = await expectLog(new RegExp(`launch-test first read: result ${id} code`))
+      await expectLog(new RegExp(`launch-test heard: result ${id} code`))
+      await tap("Ack")
+      await expectLog(/launch-test ack: true/)
+      return line
+    },
+  },
+  {
     id: "server-down",
     title: "The update server can't be reached: the check fails quietly, the app runs",
     async run() {
@@ -776,6 +971,74 @@ const cases: Case[] = [
       await expectLog(/running bundle sample_50@/)
       const line = await expectLog(/new APK: \d+ bundle\(s\) that no longer fit/)
       await expectLog(/check staging: NONE APK_NEWER/)
+      return line
+    },
+  },
+  {
+    id: "permission-grant",
+    title: "Permissions: never asked reads denied; the dialog grants; a second request shows no dialog",
+    async run() {
+      forceStop()
+      shell("pm", "clear", PKG) // last: this also clears the app's OTA files
+      clearLog()
+      await openDeepLink("dev/launch")
+      await tap("Camera status")
+      await expectLog(/launch-test camera status: denied/)
+      await tap("Ask camera")
+      await sleep(1200)
+      await tap("While using the app")
+      const line = await expectLog(/launch-test camera: granted/)
+      clearLog()
+      await tap("Ask camera")
+      await expectLog(/launch-test camera: granted/)
+      return line
+    },
+  },
+  {
+    id: "permission-blocked",
+    title: "Permissions: closing the dialog isn't a refusal; a first refusal is denied; a second is blocked, with no dialog after",
+    async run() {
+      forceStop()
+      shell("pm", "clear", PKG)
+      clearLog()
+      await openDeepLink("dev/launch")
+      await tap("Ask camera")
+      await sleep(1200)
+      shell("input", "keyevent", "KEYCODE_BACK")
+      await expectLog(/launch-test camera: denied/)
+      clearLog()
+      await tap("Ask camera")
+      await sleep(1200)
+      await tap("Don't allow")
+      await expectLog(/launch-test camera: denied/)
+      clearLog()
+      await tap("Ask camera")
+      await sleep(1200)
+      await tap("Don't allow")
+      const line = await expectLog(/launch-test camera: blocked/)
+      await tap("Camera status")
+      await expectLog(/launch-test camera status: blocked/)
+      return line
+    },
+  },
+  {
+    id: "icon-handle",
+    title: "A zn:// handle shows the mock's icon, a handle that fails is a normal image error, and Os and plugin events work",
+    async run() {
+      forceStop()
+      shell("pm", "clear", PKG) // leaves CAMERA as Android first set it
+      await sleep(800)
+      clearLog()
+      await openDeepLink("dev/launch")
+      const line = await expectLog(/image failed: zn:\/\/app-icon\/dev\.zeronative\.no\.such\.app/)
+      await expectNoLog(/image failed: zn:\/\/app-icon\/p2pdops/, 500)
+      await expectLog(/activity event: front/)
+      await tap("Os info")
+      await expectLog(/launch-test os: 0\.1\.0 build 1, /)
+      await tap("Haptic")
+      await expectLog(/launch-test haptic: /)
+      await tap("Bad link")
+      await expectLog(/launch-test failed: not_allowed/)
       return line
     },
   },

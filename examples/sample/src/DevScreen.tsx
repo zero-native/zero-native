@@ -51,6 +51,7 @@ export function DevScreen() {
           <Entry title="Animation" step="3.6" detail="animate, enter / exit, swap, list rows (6 s demo loop on open)" onOpen={() => nav.push("animation")} />
           <Entry title="Components & a11y" step="3.7–3.8" detail="Switch, Checkbox, Spinner, Progress, Shimmer, Toast, TalkBack semantics, maxFontScale" onOpen={() => nav.push("components")} />
           <Entry title="Crash lab" step="3.9" detail="A screen, part, tap, async task or loop that fails; bad native data; Intl check" onOpen={() => nav.push("crashLab")} />
+          <Entry title="Other apps" step="P.2" detail="Open the mock UPI app for a result, ack, permissions, Os, an app icon handle" onOpen={() => nav.push("launch")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

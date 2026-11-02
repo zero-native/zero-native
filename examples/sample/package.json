@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "@zero-native/core": "workspace:*",
+    "@zero-native/device-test": "workspace:*",
     "@zero-native/ui": "workspace:*"
   },
   "devDependencies": {

@@ -13,10 +13,11 @@ below (marked "v0 lesson"); the full list is in `docs/v0-findings.md`.
 navigation (deep links, back, safe areas, restore after process death, `restorableSignal`), lists / feeds / sheets,
 native modules (calls, events, cancellation, binary data), `fetch`, storage (MMKV) and SecureStore, FlowStore, text
 input, animation, resilience (error screens, time limits), the `zn dev` hot reload, and OTA (signed bundles,
-compatibility check, store + CLI + reference server, apply in place, safety nets, crash traces mapped to TSX; 22 / 22
-phone test cases). Release cold start of the sample app: ~195 ms median. **Not built:** iOS (no host yet), the
-plugin system (proposal: `docs/plugins.md`), `<NativeView>` and native screens, permissions / "open another app for a
-result", `zn://` handles, background JS, the flow engine (parked, §12). Progress log: `docs/milestones.md`.
+compatibility check, store + CLI + reference server, apply in place, safety nets, crash traces mapped to TSX; 38 / 38
+phone test cases). Release cold start of the sample app: ~180 ms median. The plugin base and its plumbing are built (P.1, P.2, 2026-11-02): permissions, "open another app for a
+result" that survives a kill, `Os`, `detached`, `zn://app-icon` handles.
+**Not built:** iOS (no host yet), the plugins themselves (`docs/plugins.md`), `<NativeView>` and native screens, background JS,
+the flow engine (parked, §12). Progress log: `docs/milestones.md`.
 Judgment calls waiting for a second opinion: `docs/second-opinions.md`.
 **This file replaces `intro.md` and `intro2.md` as the source of truth.** Those two files are Gemini's first brainstorm;
 section 22 lists what we kept, changed and dropped from them, and why.
@@ -808,7 +809,7 @@ A route can point to a native screen (Kotlin composable / SwiftUI view) instead 
 same back stack and can return a result to JS. **Not built**; proposal (`nav.pushForResult`, results after a process
 kill) in `docs/plugins.md` §5.
 
-### 15.4 Native resource handles: `zn://` (decided 2026-10-29; built only in the exp4 prototype, to be ported with the plugin core, `docs/plugins.md` §6)
+### 15.4 Native resource handles: `zn://` (decided 2026-10-29; `zn://app-icon` and the table of kinds built in P.2, `ZnHandles.kt`; `file` and `mem` come with media)
 Heavy native objects (app icons, camera photos, generated QR images, contact photos, PDF thumbnails) **never go
 through JS as bytes**. A native module keeps the object and returns a short string handle; JS passes the string
 around; native resolves it when drawing or uploading.
@@ -892,7 +893,7 @@ step 4.2; details in `docs/ota.md` §3.2).
   release: step 4.8, `ZnRuntime.onJsError` + `asThrowable()` for Crashlytics, `bun run ota symbolicate`).
 - **Tests:** logic and flows run under `bun test` with a fake host (no device needed). Renderer conformance screenshot
   tests run on emulators / simulators. **As built:** `bun test` with a fake host (~200 JS tests), Kotlin unit tests
-  (~75), C++ core tests run on the phone, and an OTA phone test matrix (`bun run ota:phone`, 28 cases). No screenshot
+  (~75), C++ core tests run on the phone, and an OTA phone test matrix (`bun run ota:phone`, 38 cases). No screenshot
   conformance tests yet.
 - **Lint:** the compiler reports destructured props, effects missing `reconcile`, flow schema changes without a version
   bump, and unknown components or props. **As built:** unknown components, props and style keys are build errors;
@@ -945,7 +946,7 @@ full app, and the RN tap-latency figures are estimates (the RN app has no tap in
 FlowStore, MMKV storage; tests run on the phone), `android/` (`runtime` library + `sample` app), `packages/` (`core`,
 `ui`, `template`), `tools/` (`zn-dev.ts` hot reload, `ota/` store + CLI + reference server + phone matrix, `hermesc`,
 measuring scripts), `examples/sample` (the sample app's TSX), `docs/`, `experiments/` (v0, reference only). No
-`ios/`, `cli/` or `conformance/` yet; `plugins/` is proposed (`docs/plugins.md` D5).
+`ios/`, `cli/` or `conformance/` yet. `plugins/` holds the test plugin (`docs/plugins.md` D5).
 The first plan:
 ```
 zero-native/
@@ -1074,6 +1075,8 @@ zero-native/
 | 2026-11-02 | Crash count for downloaded bundles changes (**decided, not built**): every foreground period is watched; the last 3 counted deaths are kept with their times for 24 h; the background and the healthy mark no longer clear them; limits 1 sure / 2 unsure before healthy, 3 for the last good bundle | A crash on return from a UPI app was always "1 of N". `docs/hardening-plan.md` H.3, `docs/second-opinions.md` entry 1. |
 | 2026-11-02 | The sample and pilot app use `singleTop`; a new Activity starts fresh only if it is the task root, else it forwards its link and finishes (**decided, not built**) | `singleTask` can close the UPI app (RN found this); `singleTop` alone could restart JS during a payment. `docs/hardening-plan.md` H.1. |
 | 2026-11-02 | Order: hardening (H.1–H.7), then P.1, P.2, `upi`, `auth`, `scanner` as a native screen, then pilot screens, with the checkout rules port alongside. `<NativeView>` after the pilot | The first app pilot is login, scan, UPI transaction; its details live in the app's own private repo. |
+| 2026-11-02 | Plugin base built (P.1): `ZnPlugins.register(context, ...)`, a plugin adds whole or not at all, a taken module name fails, typed arg helpers reject with `invalid_args`. A failed plugin stops a debug build; a release build skips it and starts | `docs/plugins.md`, `docs/guide-notes.md` §30, `docs/second-opinions.md` entry 10. |
+| 2026-11-02 | Plumbing built (P.2): only Kotlin opens another app; a launch's record is on disk before it opens, and its result stays until `ack`; START waits for Android's answer after a kill, so a sync `pending()` is right on the first screen; a new launch is refused while a result isn't acked | `docs/plugins.md` §6, `docs/guide-notes.md` §31, `docs/second-opinions.md` entries 11 to 15. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).

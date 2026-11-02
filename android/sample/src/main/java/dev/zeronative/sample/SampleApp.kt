@@ -6,9 +6,10 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import dev.zeronative.plugins.devicetest.DeviceTestPlugin
 import dev.zeronative.runtime.ZnBundles
-import dev.zeronative.runtime.ZnModules
 import dev.zeronative.runtime.ZnOta
+import dev.zeronative.runtime.ZnPlugins
 import dev.zeronative.runtime.ZnRuntime
 import dev.zeronative.runtime.ZnTemplates
 
@@ -20,8 +21,8 @@ class SampleApp : Application() {
     override fun onCreate() {
         super.onCreate()
         // Everything below only posts work to other threads and returns at once (startup rules).
-        // The app's own native modules first: choosing the bundle (an OTA one needs them) starts with preload / eval.
-        ZnModules.register(DeviceModule(this)) // the sample's own native module (src/device.ts)
+        // Plugins first: choosing the bundle (an OTA one needs their modules) starts with preload / eval.
+        ZnPlugins.register(this, DeviceTestPlugin())
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call
         // Crashlytics' recordException(e.asThrowable()). The sample logs the full JS stack (with columns: the exact
         // TSX line with `bun run ota symbolicate`) and the Throwable a crash reporter would get.

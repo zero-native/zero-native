@@ -18,8 +18,8 @@ until it is proven.
 1. `../ARCHITECTURE.md`: "Where things stand" at the top, then the spec. Sections marked **As built** say what the
    code does today; §24 is the decision log, §25 the open questions.
 2. `milestones.md`: the step tables (what is done, what moved), then the log at the bottom for details per step.
-3. `ota.md` + `ota-test-matrix.md`: the OTA design and the 22 phone tests.
-4. `plugins.md`: the next piece of work (a proposal, decisions D1–D7 open).
+3. `ota.md` + `ota-test-matrix.md`: the OTA design and the 38 phone tests.
+4. `plugins.md`: the plugin system. P.1 and P.2 are built; decisions D1–D7 are taken; P.3 is next.
 5. `second-opinions.md`: judgment calls we want checked.
 6. `guide-notes.md`: what we tell app authors (do / don't / why).
 
@@ -36,7 +36,7 @@ until it is proven.
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |
 | `fetch.md` | `fetch`: design, defaults, and the production problems (RN / Flutter / OkHttp) it handles |
 | `ota.md` | OTA updates (milestone 4): design, decisions D1–D5 (taken 2026-10-30), steps 4.0–4.9 (all done 2026-10-31) |
-| `ota-test-matrix.md` | the OTA phone test script (`bun run ota:phone`), its 28 cases and results on the Lava, and what it can't test |
+| `ota-test-matrix.md` | the OTA phone test script (`bun run ota:phone`), its 38 cases and results on the Lava, and what it can't test |
 | `second-opinions.md` | judgment calls made while building, written up for a bigger model or an expert to check |
 | `hardening-plan.md` | fixes planned before the plugin work (H.1–H.7), with risks and tests. A plan until Pavan says go |
 | `storage.md` | app storage (MMKV, synchronous), SecureStore, and when a store can be lost |

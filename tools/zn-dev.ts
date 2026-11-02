@@ -9,7 +9,7 @@
 // Wire format, both ways: u32 length (big endian), then u8 type and the body. Same list as ZnDev.kt.
 import { createHash } from "node:crypto"
 import { watch } from "node:fs"
-import { mkdirSync } from "node:fs"
+import { mkdirSync, readdirSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import type { Socket } from "bun"
 import { buildApp, type AppBuild } from "../compiler/src"
@@ -195,7 +195,7 @@ if (adb.exitCode !== 0) {
 console.log(`zn dev: ${relative(root, appDir) || "."} on port ${PORT}. Open the app's debug build on the phone.`)
 await rebuild("start")
 
-// Rebuild on save: the app's sources and the framework packages it bundles. Editors often write a file twice.
+// Rebuild on save: the app's sources and the framework packages and plugins it bundles. Editors often write a file twice.
 let timer: ReturnType<typeof setTimeout> | null = null
 let changed = ""
 const onChange = (dir: string) => (_event: string, file: string | null) => {
@@ -204,6 +204,7 @@ const onChange = (dir: string) => (_event: string, file: string | null) => {
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => void rebuild(changed), 30)
 }
-for (const dir of [join(appDir, "src"), join(root, "packages/core/src"), join(root, "packages/ui/src")]) {
+const pluginSources = readdirSync(join(root, "plugins")).map((name) => join(root, "plugins", name, "src"))
+for (const dir of [join(appDir, "src"), join(root, "packages/core/src"), join(root, "packages/ui/src"), ...pluginSources]) {
   watch(dir, { recursive: true }, onChange(dir))
 }

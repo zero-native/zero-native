@@ -158,7 +158,7 @@ object ZnNav {
         val first = ArrayList<Opening>()
         first += Opening(home, "{}")
         val match = link?.let { match(it) }
-        if (match != null && match.route != home) first += Opening(match.route, JSONObject(match.params).toString())
+        if (match != null && match.route != home) first += Opening(match.route, JSONObject(match.params).toString(), link = link.toString())
         startWith(bundle, first)
     }
 
@@ -171,13 +171,18 @@ object ZnNav {
      * the user closing the app: the JS runtime must stay, or a payment open in the other app would lose its JS. A
      * second Activity is not the root of its task; a real new launch is. So the link goes to the running app, and
      * our task comes to the front as it is (the other app stays on top of it). The link's own Activity never shows.
+     *
+     * While a launch waits for its result ([ZnLaunch]), that holds even if this Activity looks like a new launch, and
+     * our task stays where it is: the other app's screen is not taken from the user.
      */
     fun handleExtraActivity(activity: Activity, savedState: Bundle?): Boolean {
-        if (!started || savedState != null || activity.isTaskRoot) return false
+        val waiting = ZnLaunch.waitingHere
+        if (!started || savedState != null || (activity.isTaskRoot && !waiting)) return false
         val link = activity.intent?.data
         Log.i(TAG, "nav: a second Activity while the app runs: ${if (link != null) "forwarding its link" else "no link"}")
         if (link != null) {
             openLink(link)
+            if (waiting) return true
             // A link from an app that doesn't ask for a new task lands in that app's task: without this the user would
             // see nothing. The launcher's intent has no data, so if it makes a second Activity too, this stops there.
             activity.packageManager.getLaunchIntentForPackage(activity.packageName)?.let {
@@ -187,8 +192,11 @@ object ZnNav {
         return true
     }
 
-    /** A screen native opens before JS runs: its route, params JSON and restored `restorableSignal` values. */
-    private class Opening(val route: ZnRoute, val params: String, val values: String? = null)
+    /**
+     * A screen native opens before JS runs: its route, params JSON, restored `restorableSignal` values, and the [link]
+     * that opened it: JS asks the app's link guard before it builds the screen, and removes it if refused.
+     */
+    private class Opening(val route: ZnRoute, val params: String, val values: String? = null, val link: String? = null)
 
     private fun startWith(bundle: ZnBundle, first: List<Opening>) {
         val payload = JSONArray()
@@ -202,15 +210,19 @@ object ZnNav {
             stack += entry
             val item = JSONObject().put("entry", id.u32()).put("route", o.route.index).put("params", JSONObject(o.params))
             if (values != null && values.length() > 0) item.put("values", values)
+            if (o.link != null) item.put("link", o.link)
             payload.put(item)
         }
-        ZnRuntime.dispatchEvent(APP, EVENT_START, payload.toString())
-        ZnAppState.sendAfterStart()
-        // JS answers NAV STARTED once these screens are built (host API 3). A bundle built for host API 2 doesn't, so
-        // for it "the JS thread has handled START" stands in (it can't tell a bundle that never calls startApp).
-        if ((ZnBundles.running.info?.requires?.hostApi ?: 3) < 3) {
-            val gen = generation
-            ZnRuntime.afterJs { if (gen == generation) ZnOta.screensUp() }
+        // After a kill, a screen must read the other app's result when it is built, not "still waiting".
+        ZnLaunch.whenSettled {
+            ZnRuntime.dispatchEvent(APP, EVENT_START, payload.toString())
+            ZnAppState.sendAfterStart()
+            // JS answers NAV STARTED once these screens are built (host API 3). A bundle built for host API 2 doesn't, so
+            // for it "the JS thread has handled START" stands in (it can't tell a bundle that never calls startApp).
+            if ((ZnBundles.running.info?.requires?.hostApi ?: 3) < 3) {
+                val gen = generation
+                ZnRuntime.afterJs { if (gen == generation) ZnOta.screensUp() }
+            }
         }
     }
 

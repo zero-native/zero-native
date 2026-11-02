@@ -65,6 +65,8 @@ dependencies {
     api("androidx.compose.foundation:foundation")
     // Pressable's ripple (step 3.6). Only the ripple, not Material: Compose moved ripple() to this small artifact.
     implementation("androidx.compose.material:material-ripple")
+    // The host Activity's type and its result launchers (ZnActivity). Already in every app through activity-compose.
+    api("androidx.activity:activity:1.13.0")
     // Screen host: the back stack is a list we own (ARCHITECTURE §11). Needs Compose ≥ 1.10 (step 2.0b).
     implementation("androidx.navigation3:navigation3-runtime:1.2.0")
     implementation("androidx.navigation3:navigation3-ui:1.2.0")

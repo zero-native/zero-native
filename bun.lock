@@ -22,6 +22,7 @@
       "name": "@zero-native/example-sample",
       "dependencies": {
         "@zero-native/core": "workspace:*",
+        "@zero-native/device-test": "workspace:*",
         "@zero-native/ui": "workspace:*",
       },
       "devDependencies": {
@@ -43,11 +44,20 @@
       "name": "@zero-native/ui",
       "version": "0.0.0",
     },
+    "plugins/device-test": {
+      "name": "@zero-native/device-test",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@zero-native/compiler": ["@zero-native/compiler@workspace:compiler"],
 
     "@zero-native/core": ["@zero-native/core@workspace:packages/core"],
+
+    "@zero-native/device-test": ["@zero-native/device-test@workspace:plugins/device-test"],
 
     "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
 

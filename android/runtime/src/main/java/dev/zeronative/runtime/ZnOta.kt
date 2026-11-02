@@ -620,7 +620,7 @@ object ZnOta {
             val assets = ZnTemplates.assets()
             val refused = when {
                 config == null -> "off"
-                holds.isNotEmpty() -> "held"
+                holds.isNotEmpty() || ZnLaunch.waitingHere -> "held"
                 applying || ZnRuntime.isRestarting -> "busy"
                 !ZnRuntime.canRestart || assets.isEmpty() || assets.any { ZnTemplates.get(it) == null } -> "not_started"
                 else -> null

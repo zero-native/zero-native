@@ -17,3 +17,5 @@ rootProject.name = "zero-native"
 include(":runtime")
 include(":sample")
 include(":baselineprofile")
+include(":plugin-device-test")
+project(":plugin-device-test").projectDir = file("../plugins/device-test/android")

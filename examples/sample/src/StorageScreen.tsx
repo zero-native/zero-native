@@ -5,7 +5,7 @@
 import { Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
 import { createStorage, nav, now, persistedSignal, SecureStore, signal, storage, type Signal } from "@zero-native/core"
 import { c } from "./tokens"
-import { Device } from "./device"
+import { Device } from "@zero-native/device-test"
 
 const FAIL = "#B91C1C"
 
@@ -107,6 +107,7 @@ const checks: Array<[string, Check]> = [
       const shared = storage.getString("dev.hammer.shared")
       if (!whole(shared)) torn++
       if (shared?.startsWith("kotlin")) sawKotlin++
+      if (i % 2000 === 0) await new Promise((next) => setTimeout(next, 0)) // stays under the JS time limit in debug builds
     }
     const r = await kotlin
     must(torn === 0, `${torn} torn values`)

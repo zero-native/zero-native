@@ -162,3 +162,64 @@ change, and what evidence would make you change it?"
   heavy work on `active` runs it after each one.
 - **Other options:** a third state like iOS's `inactive` for "visible but not in front".
 - **Evidence:** what the pilot's verify-on-return code needs. A third state can be added with a new host API.
+
+## 10. A plugin that fails is skipped in release, not a crash (P.1)
+- **Where:** `ZnPlugins.register` (`android/runtime/.../ZnPlugins.kt`); guide-notes §30.
+- **Chosen:** a debug build throws at once. A release build logs the error, skips that plugin and starts. A plugin is added
+  whole or not at all, so a failure after its first `r.module` leaves nothing behind.
+- **Why:** a crash here happens in `Application.onCreate`, so the app can't open at all, and an OTA update can't fix it. A
+  skipped plugin costs one feature. Its calls reject with `unavailable`, which JS already handles, and the OTA check
+  refuses bundles that need it.
+- **Risk if wrong:** an app whose core flow needs the plugin opens and then fails later, in a worse place. A payment app with
+  a missing UPI plugin would show its home screen and fail at checkout. Only the log says why, until the app reports it.
+- **Other options:** crash in release too (fails loud, and a crash reporter sees it); or let each plugin say it is required.
+- **Evidence:** this shouldn't fire at all in a tested APK: `register` only declares things. If it ever shows up in the
+  field, look at why first. A `required` flag is a small addition later.
+
+## 11. A new launch is refused while a result isn't acked (P.2)
+- **Where:** `ZnLaunch.Rules.refusal`; guide-notes §31.
+- **Chosen:** `launched: false, reason: "unacked"`. The app must `ack` the old record before the same key launches again.
+- **Why:** replacing it would lose a result in silence. That's the one thing this code exists to prevent.
+- **Risk if wrong:** an app that forgets `ack` can't start a payment. It shows at once in testing, but a rare path could reach
+  users.
+- **Other options:** replace the record and log it; or keep a short history per key.
+- **Evidence:** how often the pilot logs `unacked`.
+
+## 12. START waits for Android's answer, so `pending()` can be sync (P.2)
+- **Where:** `ZnLaunch.whenSettled`, `ZnNav.startWith`.
+- **Chosen:** if a launch from an earlier process may be waiting, START is held until the Activity's first resume. A marker
+  file decides this with one stat, so a normal start doesn't touch storage on the main thread.
+- **Why:** after a kill, Android delivers the result just before `onResume`, while JS may be building the first screen. A read
+  then says `waiting`, and the restore code picks the wrong path.
+- **Risk if wrong:** the first screen comes a little later on that one path. If the Activity never resumes, JS never builds
+  screens, but nothing is on show then either.
+- **Other options:** an async `pending()`: every restore path would have to wait, and the first screen would need a loading state.
+- **Evidence:** `result-after-kill` in the phone matrix. Timing on other ROMs.
+
+## 13. Only Kotlin can open another app (P.2)
+- **Where:** `ZnLaunch.start` has no JS form. `Os.openUrl` takes only http, https, mailto and tel.
+- **Chosen:** JS calls a plugin, and the plugin builds the Intent.
+- **Why:** bundles change over OTA. A stolen signing key, or a bad update, must not be able to open any app with any data.
+- **Risk if wrong:** each new kind of app needs a plugin and an APK release.
+- **Other options:** a generic `launch(intent)` with an allow-list in the manifest.
+- **Evidence:** how many plugins end up doing nothing but one `startActivity`.
+
+## 14. The other app's answer sits in a plain store until ack (P.2)
+- **Where:** the store `zn.launch`, in `noBackupFilesDir`, excluded from backups. It holds the result's simple extras, at most 16 KB.
+- **Chosen:** not encrypted, like a saved flow.
+- **Why:** a UPI answer has refs and a status, no secrets, and it must be readable at once on the first screen. SecureStore is
+  async and slower.
+- **Risk if wrong:** some other app's result might hold something private, on a rooted phone. A plugin controls what it opens.
+- **Other options:** encrypt with a Keystore key, read async; or drop the extras a plugin doesn't list.
+- **Evidence:** a review of what P.3's real UPI apps and the auth plugin put in their results.
+
+## 15. Under a see-through window, a killed app can't get its result (P.2)
+- **Where:** Android, not our code. Found with the mock's first window; `result-under-see-through` in the matrix.
+- **What happens:** a see-through window only pauses us, so our state isn't saved yet. If the process dies then, Android drops
+  the Activity. The other app's result reaches nobody, and the user lands on the launcher. The next open reads `lost`.
+- **Chosen:** accept it. It's rare: Android counts the process as visible, and `am kill` refused it; the test needed `kill -9`.
+  The safe path holds: the app asks its server.
+- **Risk if wrong:** on a phone with hard memory pressure, a user who just paid sees the launcher. The money part is still right.
+- **Other options:** save state on pause (Android gives no such hook for this); a foreground service during a payment,
+  which keeps the process alive, at the cost of a notification.
+- **Evidence:** how often the pilot logs `lost` right after a launch.

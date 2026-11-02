@@ -19,3 +19,7 @@
 # it into an unrelated exception class of the same shape (logs said coil3.network.HttpException; found 2026-10-31,
 # step 4.8).
 -keep class dev.zeronative.runtime.ZnJsException
+
+# The log for a plugin that failed names it: without this rule R8 renamed it (a log said plugin okio.Path$Companion failed;
+# found 2026-11-02, step P.1).
+-keepnames class * implements dev.zeronative.runtime.ZnPlugin

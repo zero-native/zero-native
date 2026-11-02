@@ -3,7 +3,7 @@
 import { Column, Pressable, Row, Text } from "@zero-native/ui"
 import { flowStore, nav, NativeError, signal } from "@zero-native/core"
 import { c } from "./tokens"
-import { Device } from "./device"
+import { Device } from "@zero-native/device-test"
 
 function Button(props: { label: string; onPress: () => void }) {
   return (

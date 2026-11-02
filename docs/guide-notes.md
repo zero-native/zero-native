@@ -115,7 +115,7 @@ useBack(() => {
   jump when they load. A rounded image clips to its corners automatically.
 - Icons are SVG path data in a `.ts` file (`"minX minY w h|d"`), folded into the template: no icon font, no SVG
   library. Fill paths only for now.
-- Heavy native things (app icons, camera photos) go by **handle** (`zn://...`, planned), never as Base64 through JS.
+- Heavy native things (app icons, camera photos) go by **handle** (`zn://...`, §33), never as Base64 through JS.
 
 ## 11. Long lists and feeds: `<List>`, rails, `<Carousel>`, impressions (built)
 ```tsx
@@ -212,6 +212,9 @@ class DeviceModule : ZnModuleBase("Device", version = 1) {
 - **Versions:** when you add a method, raise the Kotlin `version` and the JS `nativeModule(..., { version })`
   together. An OTA bundle that needs a newer module than the installed app gets `unavailable` instead of crashing.
 - **Don't:** block in a function on the main thread; answer twice; keep working after `call.isCancelled`.
+- **Do:** read arguments with the typed helpers: `call.string("uri")`, `call.intOrNull("limit") ?: 20`. A wrong or
+  missing value rejects the call with `invalid_args` and names the field. See §30.
+- **A module to share across apps** goes in a plugin (§30). `ZnModules.register` stays for an app's own module.
 
 ## 14. Gradients, colours and text
 - `backgroundImage: "linear-gradient(135deg, #047857 0%, #0F172A 100%)"` (React Native's CSS form; `to bottom` /
@@ -516,7 +519,7 @@ Every one of these is logged, shown on the red screen in debug builds, and passe
   a link can make a second Activity while the other app is on top; without this line it would restart your JS.
 - **Do:** pass `onLink` to `startApp(routes, { onLink })` if a link must not interrupt something: return false to
   refuse it, for example while a payment is open. It gets `{ route, params, url }`; `params` has path and query values.
-  **Don't** trust those values: a link is outside input. `onLink` isn't called for the link that started the app.
+  **Don't** trust those values: a link is outside input. `onLink` is also called for the link that started the app (`atStart: true`); refused, the user stays on the start screen.
   Mark screens that must never reopen on their own with `restore: false` in `routes.ts` (a "payment done" screen).
   Screens come back with their route params; their signals start fresh, except `restorableSignal` (§26.1). Keep what
   must survive a normal close too in `storage` or `flowStore`.
@@ -765,3 +768,122 @@ onAppState((state) => {
   back. JS keeps running in the background; don't use this to stop timers that must go on.
 - **Don't:** do heavy work on every `"active"`. It also fires after a permission dialog.
 - Needs host API 5: a bundle built with this core won't run on an app with an older native side.
+
+## 30. Writing a plugin (P.1)
+A plugin adds a native feature: a TS API plus an Android library, in one package. Copy `plugins/device-test`, the
+smallest full plugin. Native views and native screens come later (`docs/plugins.md`).
+```
+plugins/my-plugin/
+  package.json     name, "main": "src/index.ts", peerDependencies on @zero-native/core
+  src/index.ts     nativeModule<MyModule>("My", { version: 1 })
+  test/            JS tests with core's fake host
+  android/         a Gradle library that depends on project(":runtime")
+```
+```kotlin
+class MyPlugin : ZnPlugin {
+    override fun register(r: ZnPluginRegistry) {
+        r.requireHostApi(5) // only if you need something newer than the first host API
+        r.module(MyModule(r.context))
+    }
+}
+
+class MyModule(context: Context) : ZnModuleBase("My", version = 1) {
+    init {
+        function("open") { call ->
+            val uri = call.string("uri")               // rejects with invalid_args if missing or not a string
+            val limit = call.intOrNull("limit") ?: 20  // optional
+            call.resolve(...)
+        }
+    }
+}
+```
+To add it to an app:
+1. `package.json`: add the package.
+2. `android/settings.gradle.kts`: `include(":plugin-my")` and set its `projectDir`.
+3. The app's `build.gradle.kts`: `implementation(project(":plugin-my"))`.
+4. `Application.onCreate`, first thing: `ZnPlugins.register(this, MyPlugin())`.
+
+- **Do:** call `ZnPlugins.register` before `ZnTemplates.preload` and `ZnRuntime.start`. **Why:** the OTA check compares the
+  modules registered by then with what a downloaded bundle needs. Too late fails in debug builds.
+- **Don't:** do work in `register`: no disk, no network, no heavy objects. **Why:** it runs on the main thread during app
+  start, and every plugin adds to that.
+- **Don't:** use a module name that is taken. A plugin can't replace `Fetch` or another plugin's module.
+- **Do:** read arguments first, at the top of the function. **Why:** a wrong argument only rejects the call if it is read on
+  the function's own thread. On another thread, the exception is not caught there.
+- **Know the type rules:** `call.string` refuses a number, `call.int` refuses `1.5` and numbers outside the int range,
+  `call.long` refuses numbers JS can't hold exactly. A JS `null` counts as missing.
+- **Know what ships how:** `src/` ships in OTA bundles. `android/` ships only in a new APK. So when native gains a function,
+  raise the version in Kotlin and in `nativeModule(...)` together: an older app then refuses the bundle, safely.
+- **Know what a failed plugin does:** a debug build stops at once and says why. A release build logs it, skips that plugin
+  and still starts. Its module is then missing: calls reject with `unavailable`, and updates that need it are refused.
+  **Why:** one optional feature shouldn't stop people from opening the app (`docs/second-opinions.md` entry 10).
+
+## 31. Opening another app and getting its result (P.2)
+Only Kotlin opens another app: a plugin builds the Intent, JS calls the plugin. JS can't open any app with any data.
+```kotlin
+// In a plugin's module. Main thread. The app's Activity needs ZnActivity.attach(this) in onCreate.
+function("pay", onMain = true) { call ->
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(call.string("link"))).setPackage(call.string("app"))
+    call.resolve(ZnLaunch.start("upi", call.string("id"), intent).toJson())
+}
+```
+```ts
+flowStore.write("payment", { id, status: "started" })         // 1. save first
+const { launched, reason } = await Upi.pay({ id, link, app })  // 2. open the app
+if (!launched) showError(reason)                               //    it didn't open: nothing can have happened
+
+launches.onResult("upi", async (r) => {                        // 3. a result, even after a kill
+  await verifyWithServer(r.id)                                 // 4. the server decides
+  await launches.ack("upi", r.id)                              // 5. only now
+})
+```
+- **Do:** give each launch your own id (a txn ref), and save your flow before you launch. **Why:** a kill can come at any
+  moment, and the id tells a repeat from a new payment.
+- **Do:** call `ack` after you have acted on the result. **Why:** until then the result comes again at every start, so a kill
+  or a rollback can't lose it.
+- **Expect repeats.** Your handler must be safe to run twice for one id.
+- **Do:** read `launches.pending("upi")` while a restored screen is built. It's a sync read, and it's already right: the app's
+  first screen waits for Android's answer, so it never says `waiting` when a result exists.
+- **Don't:** trust the result. It comes from another app, so it's outside input. It only says when to ask your server.
+- **Do:** handle `lost`. It means no result came: the user swiped the app away, or Android dropped our screen while a
+  see-through window was on top. Ask your server. A late result can still follow it.
+- **Know why a launch is refused:** `no_app` (not installed), `no_activity`, `no_storage`, `busy` (one launch at a time),
+  `unacked` (this key has a result you haven't acked: `ack` it first, usually at the start of a new payment).
+- **Know:** while a launch waits, a link doesn't restart JS or bring your app forward, and `Updates.applyNow` answers `held`.
+- **Why a host must attach:** Android drops a result for a launcher registered too late. `ZnActivity.attach(this)` goes
+  right after `ZnNav.handleExtraActivity` in `onCreate`.
+
+## 32. Permissions (P.2)
+```ts
+const { camera } = await Permissions.request(["camera"])
+if (camera === "blocked") Os.openSettings()
+```
+- Each permission must be in a manifest (a plugin's own counts). If not, the call fails with `not_declared`.
+- **Know the states:** `granted`; `denied` (you can ask again); `blocked` (Android won't show the dialog again).
+- **Do:** ask at the moment the user needs the feature, and explain why first if it isn't obvious.
+- **Don't:** ask again right after `denied`. Android turns a second "no" into `blocked`.
+- **Know:** closing the dialog with no answer stays `denied`, not `blocked`. `status` shows `denied` for a permission never asked for.
+- Errors: `busy` (a request is open), `no_activity`.
+
+## 33. Small native helpers (P.2)
+```ts
+const stop = detached((stop) => { setInterval(checkPayment, 3000) })  // goes on after the screen closes
+await Os.haptic("success")                                            // light, medium, success, error
+await Os.openUrl("https://example.com/help")
+```
+```tsx
+<Image src="zn://app-icon/com.example.app" style={{ width: 48, height: 48 }} />
+```
+- **`detached`: do** use it for work that must outlive a screen on purpose, like a payment check. **Don't** use it for
+  screen work: normal timers stop with their screen. It ends with `stop()` or when the JS runtime is replaced, so keep the
+  state in `flowStore`, not in memory.
+- **`detached`: know** code after an `await` has no owner, as everywhere, so `stop()` doesn't reach timers started there.
+  Check a flag in that code.
+- **`Os.openUrl`** opens only http, https, mailto and tel; anything else fails with `not_allowed`. **Why:** a bundle sent over
+  OTA must not be able to open a payment link. Payment apps go through a plugin.
+- **`Os`:** `info()` gives the app version and phone; `openSettings()` opens the app's page; `share({ text })` opens the share
+  sheet. `no_app`: nothing on the phone can open it.
+- **`zn://` handles** are short strings for native images: the pixels never enter JS. `zn://app-icon/<package>` is built.
+  On Android 11+, list the package in `<queries>` or the image fails. Add `fallback`. A plugin adds its own kind with
+  `ZnHandles.kind("name") { context, path -> drawable }`; that code runs off the main thread.
+- **Plugins:** `r.activityEvents(listener)` hears new intents, front and back, low memory and new JS. Keep each one short.

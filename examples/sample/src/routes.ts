@@ -5,6 +5,7 @@ import { HomeScreen } from "./HomeScreen"
 import { AmountScreen } from "./AmountScreen"
 import { ReceiptScreen } from "./ReceiptScreen"
 import { OffersScreen } from "./OffersScreen"
+import { LaunchScreen } from "./LaunchScreen"
 import { ModulesScreen } from "./ModulesScreen"
 import { InputScreen } from "./InputScreen"
 import { FetchScreen } from "./FetchScreen"
@@ -34,6 +35,7 @@ export const routes = defineRoutes({
   // restore: false: not reopened after Android kills the app (step 3.9); the crash lab is reopened instead.
   crashScreen: { path: "/dev/crash/screen", screen: CrashScreen, restore: false },
   updates: { path: "/dev/updates", screen: UpdatesScreen, deepLink: true },
+  launch: { path: "/dev/launch", screen: LaunchScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

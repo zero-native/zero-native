@@ -34,6 +34,42 @@ interface ZnCall {
     fun onCancel(block: () -> Unit)
 }
 
+/** A wrong or missing argument, from the helpers below: JS gets NativeError("invalid_args", ...). */
+class ZnInvalidArgs(message: String) : Exception(message)
+
+/**
+ * Typed arguments: `call.string("uri")`, `call.intOrNull("limit") ?: 20`. The plain form rejects the call if the value
+ * is missing; the `OrNull` form gives null for a missing value or a JS null. A value of the wrong type rejects in both:
+ * a number is not a string, and 1.5 is not an int. Read them at the top of the function: [ZnInvalidArgs] only rejects
+ * the call from the function's own thread.
+ */
+fun ZnCall.stringOrNull(name: String): String? = arg(name)?.let { it as? String ?: throw wrongType(name, "a string", it) }
+fun ZnCall.booleanOrNull(name: String): Boolean? = arg(name)?.let { it as? Boolean ?: throw wrongType(name, "a boolean", it) }
+fun ZnCall.doubleOrNull(name: String): Double? = arg(name)?.let { (it as? Number ?: throw wrongType(name, "a number", it)).toDouble() }
+fun ZnCall.intOrNull(name: String): Int? = whole(name, Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong(), "an int")?.toInt()
+fun ZnCall.longOrNull(name: String): Long? = whole(name, -MAX_SAFE_INTEGER, MAX_SAFE_INTEGER, "a whole number")
+
+fun ZnCall.string(name: String): String = stringOrNull(name) ?: throw missing(name)
+fun ZnCall.boolean(name: String): Boolean = booleanOrNull(name) ?: throw missing(name)
+fun ZnCall.double(name: String): Double = doubleOrNull(name) ?: throw missing(name)
+fun ZnCall.int(name: String): Int = intOrNull(name) ?: throw missing(name)
+fun ZnCall.long(name: String): Long = longOrNull(name) ?: throw missing(name)
+
+/** JS numbers are exact only up to here (Number.MAX_SAFE_INTEGER), so a bigger one has already lost digits. */
+private const val MAX_SAFE_INTEGER = 9007199254740991L
+
+private fun ZnCall.arg(name: String): Any? = args.opt(name).takeUnless { it == JSONObject.NULL }
+
+private fun ZnCall.whole(name: String, min: Long, max: Long, type: String): Long? {
+    val value = arg(name) ?: return null
+    val number = (value as? Number)?.toDouble() ?: throw wrongType(name, type, value)
+    if (number != Math.rint(number) || number < min || number > max) throw wrongType(name, type, value)
+    return number.toLong()
+}
+
+private fun missing(name: String) = ZnInvalidArgs("\"$name\" is missing")
+private fun wrongType(name: String, type: String, value: Any) = ZnInvalidArgs("\"$name\" must be $type, got $value")
+
 /**
  * A native module JS can call (ARCHITECTURE §15.1, docs/native-modules.md). Most modules extend [ZnModuleBase]
  * instead of implementing this directly.
@@ -64,7 +100,8 @@ interface ZnModule {
  *         private fun tick(n: Int) = emit("tick", n, latestOnly = true)
  *     }
  *
- * Unknown methods are rejected with "unavailable"; an exception in a function rejects with "failed".
+ * Unknown methods are rejected with "unavailable"; an exception in a function rejects with "failed"; a wrong argument
+ * read with the typed helpers ([string], [int]) rejects with "invalid_args".
  */
 abstract class ZnModuleBase(override val name: String, override val version: Int = 1) : ZnModule {
     private class Fn(val onMain: Boolean, val body: (ZnCall) -> Unit)
@@ -113,7 +150,7 @@ object ZnModules {
     init {
         // Built-in modules are always there, whatever order the app starts things in: the bundle check needs them.
         // Their setup with a Context (ZnFetch.init, ZnSecureStore.init) stays in ZnRuntime.start.
-        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnSecureStore, ZnToast, ZnOta.Module)) modules[m.name] = m
+        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnSecureStore, ZnToast, ZnOta.Module, ZnPermissions, ZnLaunch, ZnOs)) modules[m.name] = m
     }
 
     /**
@@ -130,6 +167,9 @@ object ZnModules {
         }
         modules[module.name] = module
     }
+
+    /** True if a module has this name (built-in or registered). */
+    internal fun has(name: String) = modules.containsKey(name)
 
     /** Module name → version, for the capability check. Marks the module list as used ([register] warns after). */
     internal fun versions(): Map<String, Int> {
@@ -180,6 +220,8 @@ object ZnModules {
             if (call.isCancelled) return@Runnable
             try {
                 m.call(method, call)
+            } catch (e: ZnInvalidArgs) {
+                call.reject("invalid_args", "$module.$method: ${e.message}")
             } catch (e: Exception) {
                 Log.e(TAG, "$module.$method threw", e)
                 call.reject("failed", "$module.$method failed: ${e.message ?: e::class.java.simpleName}")

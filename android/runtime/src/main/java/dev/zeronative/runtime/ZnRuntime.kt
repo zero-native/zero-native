@@ -157,6 +157,8 @@ object ZnRuntime {
         }
         started = true
         ZnAppState.init(context)
+        ZnActivity.init(context)
+        ZnOs.init(context)
         appContext = context.applicationContext
         ZnBundles.init(appContext) // which bundle runs is chosen on first use, off the main thread
         js.post {
@@ -259,6 +261,7 @@ object ZnRuntime {
                 onLoaded(result) {
                     runtime = fresh
                     reloading = false
+                    ZnActivity.fire { it.onRuntimeReplaced() }
                 }
             }
         }

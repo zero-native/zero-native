@@ -270,6 +270,26 @@ export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
 }
 
 /**
+ * Runs fn with an owner no screen owns, on purpose: its timers, effects and native calls go on when the screen that
+ * started it closes (a payment check must outlive its screen). They end when `stop` runs (fn gets it, and it is
+ * returned) or when the JS runtime is replaced. Code after an `await` in fn has no owner, as everywhere: `stop` doesn't
+ * reach timers started there.
+ */
+export function detached(fn: (stop: () => void) => void): () => void {
+  return runWithOwner(null, () =>
+    createRoot((stop) => {
+      try {
+        fn(stop)
+      } catch (err) {
+        stop()
+        throw err
+      }
+      return stop
+    }),
+  )
+}
+
+/**
  * Runs fn with a new owner that isn't tracked by the caller. fn gets a dispose function. Used for mounted instances
  * (a screen, a conditional branch, a list row, a component).
  */

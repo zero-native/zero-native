@@ -230,18 +230,22 @@ function onImpressions(payload: NativeValue): void {
   }
 }
 
-/** A deep link that arrived while the app runs. `params`: path and query values, as text; `url`: the whole link. */
+/**
+ * A deep link. `params`: path and query values, as text; `url`: the whole link; `atStart`: it is the link that started
+ * the app, so no screen but the start screen exists yet.
+ */
 export interface OpenedLink {
   route: string
   params: Record<string, string>
   url: string
+  atStart: boolean
 }
 
 export interface AppOptions {
   /**
-   * Called before a deep link opens its route while the app runs; return false to refuse it (a link must not take the
-   * user away from a payment in flight, say). Links are outside input: check their values. Not called for the link that
-   * started the app: that one's screen is already open when JS starts.
+   * Called before a deep link opens its route, while the app runs or for the link that started it; return false to
+   * refuse it (a link must not take the user away from a payment in flight, say). Links are outside input: check their
+   * values. A link refused at start leaves the user on the start screen.
    */
   onLink?: (link: OpenedLink) => boolean
 }
@@ -267,16 +271,18 @@ function onOpenLink(payload: NativeValue): void {
   const { route, params, url } = JSON.parse(String(payload)) as { route: number; params: Record<string, string>; url?: string }
   const name = names[route]
   if (name === undefined) return globalThis.__zn_log(3, `nav: link to unknown route ${route}`)
-  if (onLink) {
-    let allowed = false // a guard that throws refuses: a link must not get past a broken check
-    try {
-      allowed = onLink({ route: name, params, url: url ?? "" }) !== false
-    } catch (err) {
-      reportError("onLink handler", err)
-    }
-    if (!allowed) return
-  }
+  if (!linkAllowed({ route: name, params, url: url ?? "", atStart: false })) return
   ;(nav.push as (n: string, p: Record<string, unknown>) => void)(name, params)
+}
+
+function linkAllowed(link: OpenedLink): boolean {
+  if (!onLink) return true
+  try {
+    return onLink(link) !== false
+  } catch (err) {
+    reportError("onLink handler", err)
+    return false // a guard that throws refuses: a link must not get past a broken check
+  }
 }
 
 /** Tests only: forgets the stack and the routes (screens are disposed, nothing is sent). */
@@ -360,11 +366,17 @@ function start(payload: NativeValue): void {
     params: Record<string, unknown>
     /** restorableSignal values, when Android restored the app (host API 4). */
     values?: Record<string, unknown>
+    /** The whole link that started the app, on the screen it opens. Older bundles ignore it and open the screen. */
+    link?: string
   }>
-  for (const { entry, route, params, values } of entries) {
+  for (const { entry, route, params, values, link } of entries) {
     const name = names[route]
     if (name === undefined) {
       globalThis.__zn_log(3, `nav: start entry ${entry} has unknown route ${route}`)
+      continue
+    }
+    if (link !== undefined && !linkAllowed({ route: name, params: (params ?? {}) as Record<string, string>, url: link, atStart: true })) {
+      globalThis.__zn_nav(NavKind.Remove, entry, 0, null)
       continue
     }
     show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, onBack: null, restored: values })

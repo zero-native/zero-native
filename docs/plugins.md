@@ -1,6 +1,7 @@
 # Plugins: adding native features to zero-native (design, for review)
 
-**Status: design, not built yet.** Decisions D1–D7 were taken on 2026-11-02 (section 8); section 10 has the
+**Status: P.1 and P.2 are built (2026-11-02): the plugin entry point, typed arg helpers, the test plugin in
+`plugins/device-test`, and section 6's plumbing (not background JS). The rest is design.** Decisions D1–D7 were taken on 2026-11-02 (section 8); section 10 has the
 questions for reviewers. Android only for now; every choice must also work for iOS later.
 
 **Why now.** The next features (QR scan, WebView, UPI apps, photos, push) each need native code, a native view or
@@ -23,11 +24,12 @@ breaks somewhere. So first one plugin system, then the features as plugins on to
 | Native modules: typed `nativeModule<T>("Name", { version })`, async calls, cancellation, events with listener counts, error codes, binary data | **built** (2.6a, 3.4) | `docs/native-modules.md`, `ZnModules.kt` |
 | Module versions in every bundle's `requires.modules`; an app without the module (or with an older version) ignores the bundle | **built** (4.x) | `compiler/src/plugin.ts`, `ZnCapabilities.kt` |
 | The compiler finds `nativeModule("X", { version })` in any imported file, packages included | **built** | `compiler/src/modules.ts` |
-| `zn://` handles: native resources (images, files) reach JS as a short string, never as bytes | **decided; built only in a v0 prototype**, not in the runtime (the renderer takes bundle assets and http(s) URLs today). The prototype drew 9 real UPI app icons: `experiments/exp4-flow/.../ZnResourceRegistry.kt`, `ZnPrimitives.kt:234`, `UpiAppManager.kt`. It loads icons on the main thread, which must change when ported (`docs/startup-and-performance.md` §4.1) | ARCHITECTURE §15.4 |
+| Plugin entry point: `ZnPlugin`, `ZnPluginRegistry` (`module`, `requireHostApi`), `ZnPlugins.register`; typed arg helpers | **built** (P.1). `view` and `screen` come with P.4 | `ZnPlugins.kt`, `ZnModules.kt`, `docs/guide-notes.md` §30 |
+| `zn://` handles: native resources (images, files) reach JS as a short string, never as bytes | **built** (P.2): `zn://app-icon/<package>` and a table of kinds, loaded off the main thread. `zn://file` and `zn://mem` come when media needs them | `ZnHandles.kt`, ARCHITECTURE §15.4 |
 | Android merges a library's `AndroidManifest.xml` (permissions, providers, activities) into the app | Android does it | — |
 | `<NativeView>` | **designed, not built** | ARCHITECTURE §15.2 |
 | Native screens as routes | **designed, not built** | ARCHITECTURE §15.3 |
-| Permissions, "open another app and get its result" | **not built** (was step 2.6b) | — |
+| Permissions, "open another app and get its result" | **built** (P.2) | `ZnPermissions.kt`, `ZnLaunch.kt`, `docs/guide-notes.md` §31–32 |
 | Codegen (Kotlin interface from the TS interface) | **not built** | ARCHITECTURE §15.1 |
 
 So the call path, versions and OTA safety exist. What is missing is the *package* around them, a way for native
@@ -134,7 +136,7 @@ const result = await nav.pushForResult("scan")        // { code: "upi://pay?..."
 | **Open another app and get its result** | Takes an `Intent` or an `IntentSender` (the phone number hint gives one). Native saves a "pending" record before the launch, and saves the result to disk **before** JS hears it. JS gets it as a promise when alive, and as an event after NAV STARTED otherwise; it is sent again at every start until JS calls `ack(key)`, after its own `flowStore` write. Never read-and-clear: a rollback between the two would lose it | UPI, the phone hint, document pickers, KYC SDKs. The hard part (the process dying while the other app is open) must be solved once |
 | **Current Activity + one host call** | Core holds the current Activity; the host makes one call in `onCreate`, so result launchers are always registered before `onStart` (Android drops a result otherwise) | Permissions, launches and `FLAG_SECURE` all need an Activity |
 | **App state to JS** | **Built (H.7).** `onAppState("active" \| "background")` and `appState()` (`docs/hardening-plan.md` H.7) | A payment screen must verify on return from a UPI app, whatever the result says |
-| **Activity events for plugins** | `onActivityResult`, `onNewIntent`, front / back, low memory, runtime replaced | Plugins must not ask the app's Activity for hooks one by one |
+| **Activity events for plugins** | `onNewIntent`, front / back, low memory, runtime replaced | Plugins must not ask the app's Activity for hooks one by one |
 | **`zn://` handles for media** | Photos, PDFs, video, app icons stay native; JS gets a handle; `<Image src="zn://...">` shows it | Decided (§15.4); plugins hand out handles, so the handle table belongs in core (built with P.2, ported from the exp4 prototype, §1) |
 | **A detached helper** | `detached(fn)` runs code with no screen as its owner | A verify loop must outlive any one screen on purpose, not by luck after an `await` |
 | **Background JS** | Run a registered JS task without a screen (FCM message, WorkManager job), with a time limit | Push and sync need it; it changes how the runtime starts, so core |
@@ -176,6 +178,11 @@ the code (`docs/cross-communication/2026-11-02-fable-review-response.md`).
 **Additions from the review:**
 - **D1:** plugins register first in `Application.onCreate`, before the bundle is chosen: the capability check reads the
   module list once at that point. A late plugin would make every bundle that needs it look incompatible.
+- **D1 as built:** the call is `ZnPlugins.register(this, ScannerPlugin())`. It takes the app's context because modules
+  need one. `r.context` gives it to a plugin.
+- **P.2 as built:** only Kotlin starts a launch (`ZnLaunch.start`, so no generic launch from JS); the caller gives the id; `pending(key)`
+  is a sync read, because START waits for Android's answer; a late result wins over `lost`. No raw `onActivityResult` for
+  plugins yet: `ZnLaunch` covers what P.3 to P.4 need.
 - **D2:** add the typed arg helpers now (`call.string("uri")`, `call.int(...)`), each rejecting with `invalid_args`.
 - **D3:** the compiler fails the build if a `NativeView` name's prefix has no matching `nativeModule` in the same package,
   so the "empty box" case can't happen. A props snapshot test per plugin catches a view change with no version raise.
@@ -191,8 +198,8 @@ TS runs alongside from the start, in the app's private repo.
 
 | Step | What | Done when |
 |---|---|---|
-| P.1 | `ZnPlugin` + `ZnPluginRegistry`, `plugins/` folder, D1 (a); the sample's `DeviceModule` moved into a test plugin | The sample works with the module registered through a plugin; guide notes "writing a plugin" |
-| P.2 | Core plumbing (section 6): permissions, `launchForResult` with saved results and `ack`, current Activity + host call, Activity events, `Os` info / haptics / open URL, `detached`, `zn://` handles (ported from exp4). Also: never start fresh or bring the task forward while a launch waits for its result | Phone tests **with the mock UPI app**: grant / deny / "don't ask again"; a result delivered after the process was killed in the other app; a rollback between delivery and `ack`; an app icon shown from a `zn://` handle |
+| P.1 **built 2026-11-02** | `ZnPlugin` + `ZnPluginRegistry`, `plugins/` folder, D1 (a); the sample's `DeviceModule` moved into a test plugin | The sample works with the module registered through a plugin; guide notes "writing a plugin" (§30) |
+| P.2 **built 2026-11-02** | Core plumbing (section 6): permissions, `launchForResult` with saved results and `ack`, current Activity + host call, Activity events, `Os` info / haptics / open URL, `detached`, `zn://` handles (ported from exp4). Also: never start fresh or bring the task forward while a launch waits for its result | Phone tests **with the mock UPI app**: grant / deny / "don't ask again"; a result delivered after the process was killed in the other app; a rollback between delivery and `ack`; an app icon shown from a `zn://` handle |
 | P.3 | `@zero-native/upi`, with `<queries>` for `upi://pay` and `upi://mandate` | Lists UPI apps with icons, launches the mock UPI app, result back; also after a kill; the UPI loading look works behind the mock's translucent window with no native pump |
 | P.3b | `@zero-native/auth`: phone number hint, SMS Retriever | Both work on the Lava; each failure falls back to typing |
 | P.4a | `@zero-native/scanner` as a native screen (`pushForResult`, route `native:` field). No `<NativeView>` | QR scan on the Lava; camera stops when covered; stale frames ignored; release build size measured |

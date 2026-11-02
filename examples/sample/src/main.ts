@@ -4,5 +4,11 @@ import { installRuntime, startApp } from "@zero-native/core"
 import { routes } from "./routes"
 
 installRuntime()
-startApp(routes)
+// A link with ?refuse=1 is refused: how the phone test checks the guard, at start and while the app runs.
+startApp(routes, {
+  onLink: (link) => {
+    console.info(`sample: link ${link.url} atStart=${link.atStart}`)
+    return link.params.refuse !== "1"
+  },
+})
 console.info("sample: started")

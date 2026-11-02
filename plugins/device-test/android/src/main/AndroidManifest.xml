@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Never used: only to test the permission dialog on /dev/launch. It reaches the sample through the manifest merge. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Android 11+ hides other apps unless they are listed. The mock UPI app, for its icon on /dev/launch. -->
+    <queries>
+        <package android:name="p2pdops.android.p2pupiapp" />
+    </queries>
+</manifest>

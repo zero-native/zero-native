@@ -1,4 +1,4 @@
-package dev.zeronative.sample
+package dev.zeronative.plugins.devicetest
 
 import android.content.Context
 import android.content.Intent
@@ -8,16 +8,20 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import dev.zeronative.runtime.ZnLaunch
 import dev.zeronative.runtime.ZnModuleBase
 import dev.zeronative.runtime.ZnStorage
+import dev.zeronative.runtime.intOrNull
+import dev.zeronative.runtime.longOrNull
+import dev.zeronative.runtime.string
 import org.json.JSONObject
 
 /**
  * A demo native module for the sample app (milestone 2 step 2.6, native module foundations). Shows each part:
  * a plain call (info), a slow call that can be cancelled (slowEcho), an error with a code (fail), and an event
- * (tick, every 50 ms with latestOnly) that only runs while JS listens. JS side: examples/sample/src/device.ts.
+ * (tick, every 50 ms with latestOnly) that only runs while JS listens. JS side: ../../src/index.ts of this plugin.
  */
-class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 3) {
+class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 4) {
     private val main = Handler(Looper.getMainLooper())
     private var ticks = 0
     private var ticking = false
@@ -31,8 +35,8 @@ class DeviceModule(private val context: Context) : ZnModuleBase("Device", versio
 
         // Runs on the I/O pool. Long work checks isCancelled (or uses onCancel) so a cancelled call stops early.
         function("slowEcho") { call ->
-            val text = call.args.optString("text")
-            val until = SystemClock.uptimeMillis() + call.args.optLong("ms", 1000)
+            val text = call.string("text")
+            val until = SystemClock.uptimeMillis() + (call.longOrNull("ms") ?: 1000)
             while (SystemClock.uptimeMillis() < until) {
                 if (call.isCancelled) {
                     Log.i(TAG, "slowEcho cancelled; stopped early")
@@ -55,12 +59,19 @@ class DeviceModule(private val context: Context) : ZnModuleBase("Device", versio
 
         // v3: debug builds only, for testing a second Activity (docs/hardening-plan.md H.1): opens the mock UPI app
         // (test-kit/) for a result, so it sits on top of our task. Never a real UPI app: the package is fixed.
+        // v4: through ZnLaunch, under the key "mock-upi", with the id JS gives.
         function("openMockUpi", onMain = true) { call ->
             if (!BuildConfig.DEBUG) return@function call.reject("debug_only", "openMockUpi is for debug builds only")
-            val activity = MainActivity.current ?: return@function call.reject("no_activity", "no Activity on screen")
-            val pay = Uri.parse("upi://pay?pa=test@mock&pn=Mock&am=1.00&tr=H1&cu=INR")
-            activity.startActivityForResult(Intent(Intent.ACTION_VIEW, pay).setPackage("p2pdops.android.p2pupiapp"), 1)
-            call.resolve(true)
+            val id = call.string("id")
+            val pay = Uri.parse("upi://pay?pa=test@mock&pn=Mock&am=1.00&tr=$id&cu=INR")
+            call.resolve(ZnLaunch.start("mock-upi", id, Intent(Intent.ACTION_VIEW, pay).setPackage("p2pdops.android.p2pupiapp")).toJson())
+        }
+
+        // v4: debug builds only: a launch of an app that isn't there, to test launched: false.
+        function("openMissingApp", onMain = true) { call ->
+            if (!BuildConfig.DEBUG) return@function call.reject("debug_only", "openMissingApp is for debug builds only")
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("zn-test://none")).setPackage("dev.zeronative.no.such.app")
+            call.resolve(ZnLaunch.start("mock-missing", call.string("id"), intent).toJson())
         }
 
         // Storage shared with JS (step 3.5): reads what JS wrote, writes values JS then checks.
@@ -82,8 +93,8 @@ class DeviceModule(private val context: Context) : ZnModuleBase("Device", versio
         // Like a push-notification handler writing while the app is in use: a background thread writes its own
         // counter and a key JS writes too, `count` times, while JS does the same on the JS thread.
         function("storageHammer") { call ->
+            val count = call.intOrNull("count") ?: 20000
             val store = ZnStorage.store(context)
-            val count = call.args.optInt("count", 20000)
             val t0 = SystemClock.uptimeMillis()
             for (i in 1..count) {
                 store.set("dev.hammer.kotlin", i)

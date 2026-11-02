@@ -16,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import dev.zeronative.runtime.BatchListener
+import dev.zeronative.runtime.ZnActivity
 import dev.zeronative.runtime.ZnDebug
 import dev.zeronative.runtime.ZnNav
 import dev.zeronative.runtime.ZnNavHost
@@ -61,7 +62,7 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
-        current = this
+        ZnActivity.attach(this)
         ZnDebug.countRecompositions = BuildConfig.DEBUG
         ZnRuntime.addBatchListener(batchListener)
         ZnNav.onExit = exit
@@ -105,7 +106,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         ZnRuntime.removeBatchListener(batchListener)
-        if (current === this) current = null
         if (ZnNav.onExit === exit) ZnNav.onExit = null
         super.onDestroy()
     }
@@ -115,7 +115,5 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "zn-sample"
         private const val ASSET = "main.zn.ui"
-        /** The Activity on screen, for the debug-only [DeviceModule] call that opens the mock UPI app. */
-        internal var current: MainActivity? = null
     }
 }

@@ -1,6 +1,12 @@
-// The sample's own native module, declared once in TypeScript (docs/native-modules.md). Native side:
-// android/sample/.../DeviceModule.kt. No side effects: nativeModule() only creates a handle.
+// The test plugin's native module, declared once in TypeScript (docs/native-modules.md). Native side:
+// android/.../DeviceModule.kt. No side effects: nativeModule() only creates a handle.
 import { nativeModule, type CallOptions } from "@zero-native/core"
+
+/** launched false: the other app didn't open. */
+export interface LaunchStarted {
+  launched: boolean
+  reason?: string
+}
 
 export interface DeviceModule {
   info(): Promise<{ model: string; android: string; sdk: number }>
@@ -14,12 +20,14 @@ export interface DeviceModule {
   storageHammer(args: { count: number }): Promise<{ count: number; ms: number }>
   /** v2, debug builds only: crashes the app (a Kotlin exception on the main thread), to test the OTA watchdog. */
   crash(): Promise<never>
-  /** v3, debug builds only: opens the mock UPI app for a result, to test a link arriving while it is on top. */
-  openMockUpi(): Promise<boolean>
+  /** v4, debug builds only: opens the mock UPI app for a result, under the launch key "mock-upi". */
+  openMockUpi(args: { id: string }): Promise<LaunchStarted>
+  /** v4, debug builds only: a launch of an app that isn't installed, under the key "mock-missing". */
+  openMissingApp(args: { id: string }): Promise<LaunchStarted>
   events: {
     /** A counter every 50 ms, only while someone listens; if JS is busy only the newest value arrives. */
     tick: number
   }
 }
 
-export const Device = nativeModule<DeviceModule>("Device", { version: 3 })
+export const Device = nativeModule<DeviceModule>("Device", { version: 4 })

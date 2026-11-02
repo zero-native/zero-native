@@ -11,7 +11,7 @@ import { installIntlCache } from "./intl"
 
 export * from "./native"
 export { parseColor } from "./color"
-export { batch, computed, createRoot, effect, onCleanup, signal, untrack, type Signal } from "./signals"
+export { batch, computed, createRoot, detached, effect, onCleanup, signal, untrack, type Signal } from "./signals"
 export {
   allocInstanceId,
   component,
@@ -35,6 +35,9 @@ export { onEvent } from "./events"
 export { nav, restorableSignal, startApp, useBack, useImpressions, type AppOptions, type ImpressionOptions, type OpenedLink, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
 export { appState, onAppState, type AppState } from "./app-state"
+export { Permissions, type PermissionName, type PermissionState } from "./permissions"
+export { launches, type LaunchRecord } from "./launches"
+export { Os, type Haptic, type OsInfo } from "./os"
 export { flowStore, type StoreRead } from "./flowstore"
 export {
   createStorage,

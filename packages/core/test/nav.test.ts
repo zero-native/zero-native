@@ -4,7 +4,7 @@ import { installEvents } from "../src/events"
 import { insets } from "../src/insets"
 import { AppEvent, nav, resetNavForTests, restorableSignal, startApp, useBack, useImpressions } from "../src/nav"
 import { defineRoutes } from "../src/routes"
-import { signal } from "../src/signals"
+import { detached, signal } from "../src/signals"
 import { activeTimerCount, installTimers, setInterval, setTimeout } from "../src/timers"
 import { on, slot, view, when } from "../src/view"
 
@@ -177,7 +177,7 @@ test("onLink can refuse a deep link; it sees the route, params and the whole lin
   host.ops.length = 0
   const payload = JSON.stringify({ route: 1, params: { merchantId: "m4", from: "qr" }, url: "zn://sample/pay/m4?from=qr" })
   send(AppEvent.Open, payload)
-  expect(seen).toEqual([{ route: "amount", params: { merchantId: "m4", from: "qr" }, url: "zn://sample/pay/m4?from=qr" }])
+  expect(seen).toEqual([{ route: "amount", params: { merchantId: "m4", from: "qr" }, url: "zn://sample/pay/m4?from=qr", atStart: false }])
   expect(navOps()).toEqual([])
   expect(nav.depth()).toBe(1)
   allow = true
@@ -197,6 +197,56 @@ test("an onLink that throws refuses the link and reports the error", () => {
   send(AppEvent.Open, JSON.stringify({ route: 1, params: { merchantId: "m4" }, url: "zn://sample/pay/m4" }))
   expect(navOps()).toEqual([])
   expect(nav.depth()).toBe(1)
+})
+
+test("onLink is asked about the link that started the app; refused, its screen is removed and never built", () => {
+  const seen: unknown[] = []
+  startApp(routes, {
+    onLink: (link) => {
+      seen.push(link)
+      return false
+    },
+  })
+  const LINKED = NATIVE_ROOT + 1
+  const url = "zn://sample/pay/m4?src=qr"
+  start([
+    { entry: NATIVE_ROOT, route: 0, params: {} },
+    { entry: LINKED, route: 1, params: { merchantId: "m4", src: "qr" }, link: url } as any,
+  ])
+  expect(seen).toEqual([{ route: "amount", params: { merchantId: "m4", src: "qr" }, url, atStart: true }])
+  expect(navOps()).toEqual([["nav", REMOVE, LINKED, 0, null]])
+  expect(nav.current()?.name).toBe("home")
+  expect(nav.depth()).toBe(1)
+})
+
+test("an allowed link at start opens as before", () => {
+  startApp(routes, { onLink: () => true })
+  start([
+    { entry: NATIVE_ROOT, route: 0, params: {} },
+    { entry: NATIVE_ROOT + 1, route: 1, params: { merchantId: "m4" }, link: "zn://sample/pay/m4" } as any,
+  ])
+  expect(nav.current()?.name).toBe("amount")
+  expect(navOps()).toEqual([])
+})
+
+test("detached work goes on when its screen closes, and ends with stop", () => {
+  let stop = () => {}
+  let fires = 0
+  const Screen = () => {
+    stop = detached(() => void setInterval(() => fires++, 500))
+    return view(0, (i) => slot(i, 0, () => "x"))
+  }
+  startApp(defineRoutes({ home: { path: "/", screen: Screen } }))
+  start()
+  const before = activeTimerCount()
+  const [handle] = [...host.timers.keys()].slice(-1)
+  resetNavForTests() // disposes the screen
+  expect(activeTimerCount()).toBe(before)
+  host.fire(handle)
+  expect(fires).toBe(1)
+  stop()
+  expect(activeTimerCount()).toBe(before - 1)
+  expect(host.timers.has(handle)).toBe(false)
 })
 
 test("startApp with no onLink opens links as before", () => {

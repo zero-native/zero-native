@@ -1,8 +1,8 @@
 // Crash lab (step 3.9): forces each kind of failure, to check on the phone that the app keeps working and that every
 // error is reported. Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/crash
 import { Box, Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { nav, onAppState, onCleanup, onError, signal } from "@zero-native/core"
-import { Device } from "./device"
+import { launches, nav, onAppState, onCleanup, onError, signal } from "@zero-native/core"
+import { Device } from "@zero-native/device-test"
 import { c } from "./tokens"
 
 // Module level: folded into the templates at build time.
@@ -136,7 +136,10 @@ export function CrashLabScreen() {
             title="Open the mock UPI app"
             detail="Debug builds. To test a link, or our icon, while another app is on top"
             onRun={() => {
-              Device.openMockUpi().catch((e) => status.set(String(e)))
+              const old = launches.pending("mock-upi")
+              void (old && old.status !== "waiting" ? launches.ack("mock-upi", old.id) : Promise.resolve())
+                .then(() => Device.openMockUpi({ id: `lab${Date.now()}` }))
+                .catch((e) => status.set(String(e)))
             }}
           />
           <LabRow

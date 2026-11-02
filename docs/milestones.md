@@ -12,6 +12,7 @@ zero-native/
   android/                                Gradle build: runtime (library) + sample (app)
   examples/sample/                        the sample app's TypeScript (built to bytecode into android/sample assets)
   packages/  compiler/  cli/              added when their step starts (1.2 / 1.3)
+  plugins/                                plugins: TS plus an Android library (docs/plugins.md); today the test plugin
   tools/                                  hermesc wrapper, bundletool, device.json
   experiments/                            v0 experiments and reports (reference only; exp2–4 kept for the Hermes/JNI code)
   claude-memory/                          mirror of Claude's memory for this project
@@ -118,9 +119,33 @@ Parked ideas: `docs/after-foundations.md`.
 | Kotlin (batch reader, template reader) | `.\gradlew.bat :runtime:testDebugUnitTest` in `android/` | `android/runtime/src/test/` |
 | Lint | `.\gradlew.bat :runtime:lintDebug :sample:lintDebug` | 0 errors expected |
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
-| OTA on the phone (28 cases, ~20 min) | `bun run ota:phone` (debug sample, phone unlocked) | `tools/ota/phone-matrix.ts`, `docs/ota-test-matrix.md` |
+| OTA and launches on the phone (38 cases, ~30 min) | `bun run ota:phone` (debug sample, phone unlocked) | `tools/ota/phone-matrix.ts`, `docs/ota-test-matrix.md` |
 
 ## Log
+### 2026-11-02: P.2 done, the plumbing every plugin needs (Claude)
+- Built: `ZnActivity`, `ZnLaunch` + `launches`, `Permissions`, `Os`, `detached`, activity events for plugins, `zn://app-icon`,
+  the link guard for the link that starts the app. `Device` is v4. Guide §31–33; second-opinions entries 11 to 15.
+- **Found:** the mock UPI app's first window is see-through for 1.8 s, as real UPI apps' are. If the process dies then, Android
+  drops our Activity and the result is gone; the next open reads `lost` (entry 15).
+- **Host change:** every app adds `ZnActivity.attach(this)` in `onCreate`. Bundles built from here need an APK with P.2.
+- Phone matrix 38 of 38 on the Lava (debug, mock UPI app only). Release (R8) with a temporary test gate off: mock result alive and
+  after a kill, all permission flows, 0 crashes. Release cold start 182–187 ms median in three rows (n=10 each), same as
+  before P.2 within noise. `/dev/storage` 9 of 9 in debug, so the "Kotlin thread and JS write" row stays under the limit.
+- A late result winning over `lost` has a Kotlin test only. Real UPI apps and other phones come with P.3.
+- Next: P.3, `@zero-native/upi`.
+
+### 2026-11-02: P.1 done, the plugin base (Claude)
+- `ZnPlugin`, `ZnPluginRegistry`, `ZnPlugins.register` and typed arg helpers in the runtime. The sample's `Device` module
+  now lives in the test plugin `plugins/device-test`. Guide: `docs/guide-notes.md` §30.
+- A failed plugin stops a debug build and is skipped in release (`docs/second-opinions.md` entry 10); both tested on the
+  Lava, the release one with a plugin that fails after adding its module. Found in that test: R8 renamed the plugin in the
+  log, fixed with a keep rule in `consumer-rules.pro`.
+- `invalid_args` checked on the phone. OTA matrix 28 of 28; an earlier full run was 27: `check-stall` missed a line on screen
+  though the log shows JS updated it. It passed when run again, so it looks like the script's screen read.
+- Release cold start 183 ms median (p90 192, n=10), on the APK's bundle. Next: P.2.
+- The "Kotlin thread and JS write" row on `/dev/storage` went over the 3 s JS limit in debug builds on the Lava. Fixed in P.2:
+  the loop gives way every 2,000 rounds.
+
 ### 2026-11-02: hardening done, H.1 to H.7 (Claude)
 - Full OTA matrix 28 of 28 on the Lava (debug). Release cold start 180 ms median. Next: P.1 (`docs/plugins.md` §9).
 

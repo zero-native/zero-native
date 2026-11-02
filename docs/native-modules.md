@@ -29,13 +29,15 @@ EventChannel / Pigeon.
 - `ZnCall`: `args`, `bytes` (binary input or null), `resolve(value)`, `resolveBytes(value, bytes)`,
   `reject(code, message)`, `isCancelled`, `onCancel { }`. Answer exactly once; a cancelled call's answer is dropped;
   an exception rejects with `failed`. (`bytes` / `resolveBytes`: step 3.4, see `docs/fetch.md` §4.)
+- Typed arguments (P.1): `call.string("x")`, `int`, `long`, `double`, `boolean`, each also as `...OrNull`. A wrong or
+  missing value rejects with `invalid_args`. Rules: `docs/guide-notes.md` §30.
+- Built-in modules since P.2: `Permissions`, `Launches`, `Os` (`docs/guide-notes.md` §31–33).
 - Calls run on a 2-thread I/O pool, or the main thread per function. `emit(event, payload, latestOnly)`:
   `latestOnly` keeps one delivery queued per event and it reads the newest value when the JS thread runs it.
 - Path: `__zn_call` / `__zn_cancel` → C++ `Platform::callNative` / `cancelNative` → JNI (args as UTF-8 bytes) →
   `ZnModules`; answers = app event 7, module events = app event 8 (instance 0).
 
-**Proof:** the sample's `DeviceModule` (`android/sample/.../DeviceModule.kt`, `examples/sample/src/device.ts`,
-screen `/dev/modules`). On the Lava (debug + release): info call; ticks every 50 ms only while the screen is open
+**Proof:** the sample's `DeviceModule` (now in the test plugin `plugins/device-test`, screen `/dev/modules`). On the Lava (debug + release): info call; ticks every 50 ms only while the screen is open
 ("tick source started" / "stopped (no listeners)"); a 3 s call answers; cancelled after 1 s → JS `cancelled` at once
 and native "stopped early"; `fail()` → `NativeError` with code `no_luck`. Tests: JS `calls.test.ts` (typed calls,
 version marker, error codes, abort, screen-close drop, events + listener counts), C++ `testNativeCall`.

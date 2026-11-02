@@ -1,5 +1,6 @@
 package dev.zeronative.runtime
 
+import android.content.Context
 import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -56,6 +57,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -222,9 +224,10 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
                 mutableStateOf(if (src != null) IMAGE_SRC else if (fallback != null) IMAGE_FALLBACK else IMAGE_NONE)
             }
             var isLoading by remember(src) { mutableStateOf(stage != IMAGE_NONE) }
+            val context = LocalContext.current
             val activeModel = when (stage) {
-                IMAGE_SRC -> imageModel(src)
-                IMAGE_FALLBACK -> imageModel(fallback)
+                IMAGE_SRC -> imageModel(src, context)
+                IMAGE_FALLBACK -> imageModel(fallback, context)
                 else -> null
             }
 
@@ -445,10 +448,11 @@ private const val IMAGE_NONE = 2
 
 /**
  * `asset:path` (or `asset://path`) → the running bundle's image (a downloaded OTA bundle's copy, else the APK's
- * assets, [ZnBundles.assetModel]); http(s) URLs as they are. `zn://` handles come later.
+ * assets, [ZnBundles.assetModel]); `zn://` handles load natively ([ZnHandles]); http(s) URLs as they are.
  */
-private fun imageModel(src: String?): Any? = when {
+private fun imageModel(src: String?, context: Context): Any? = when {
     src == null -> null
+    src.startsWith("zn://") -> ZnHandles.request(context, src)
     src.startsWith("asset://") -> ZnBundles.assetModel(src.removePrefix("asset://"))
     src.startsWith("asset:") -> ZnBundles.assetModel(src.removePrefix("asset:"))
     else -> src
