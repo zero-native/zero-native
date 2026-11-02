@@ -15,7 +15,7 @@ native modules (calls, events, cancellation, binary data), `fetch`, storage (MMK
 input, animation, resilience (error screens, time limits), the `zn dev` hot reload, and OTA (signed bundles,
 compatibility check, store + CLI + reference server, apply in place, safety nets, crash traces mapped to TSX; 38 / 38
 phone test cases). Release cold start of the sample app: ~180 ms median. The plugin base and its plumbing are built (P.1, P.2, 2026-11-02): permissions, "open another app for a
-result" that survives a kill, `Os`, `detached`, `zn://app-icon` handles.
+result" that survives a kill, `Os`, `detached`, `zn://app-icon` handles. An app outside this repo builds and runs with its own plugin (P.3).
 **Not built:** iOS (no host yet), the plugins themselves (`docs/plugins.md`), `<NativeView>` and native screens, background JS,
 the flow engine (parked, §12). Progress log: `docs/milestones.md`.
 Judgment calls waiting for a second opinion: `docs/second-opinions.md`.
@@ -1077,6 +1077,7 @@ zero-native/
 | 2026-11-02 | Order: hardening (H.1–H.7), then P.1, P.2, `upi`, `auth`, `scanner` as a native screen, then pilot screens, with the checkout rules port alongside. `<NativeView>` after the pilot | The first app pilot is login, scan, UPI transaction; its details live in the app's own private repo. |
 | 2026-11-02 | Plugin base built (P.1): `ZnPlugins.register(context, ...)`, a plugin adds whole or not at all, a taken module name fails, typed arg helpers reject with `invalid_args`. A failed plugin stops a debug build; a release build skips it and starts | `docs/plugins.md`, `docs/guide-notes.md` §30, `docs/second-opinions.md` entry 10. |
 | 2026-11-02 | Plumbing built (P.2): only Kotlin opens another app; a launch's record is on disk before it opens, and its result stays until `ack`; START waits for Android's answer after a kill, so a sync `pending()` is right on the first screen; a new launch is refused while a result isn't acked | `docs/plugins.md` §6, `docs/guide-notes.md` §31, `docs/second-opinions.md` entries 11 to 15. |
+| 2026-11-02 | UPI is a plugin the app owns, not `@zero-native/upi`. An outside app uses a Gradle composite build and `bun link` until packages exist | `docs/plugins.md` D7, `docs/guide-notes.md` §34, `docs/second-opinions.md` entries 16, 17. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).

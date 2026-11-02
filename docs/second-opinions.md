@@ -222,4 +222,24 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** on a phone with hard memory pressure, a user who just paid sees the launcher. The money part is still right.
 - **Other options:** save state on pause (Android gives no such hook for this); a foreground service during a payment,
   which keeps the process alive, at the cost of a notification.
-- **Evidence:** how often the pilot logs `lost` right after a launch.
+- **Evidence:** how often the pilot logs `lost` right after a launch. A real UPI app does open such a window for 1 to 4 seconds
+  (noted in the private app's older reference code), so the case is real, not only the mock's.
+
+## 16. UPI is the app's plugin, not an official one (P.3)
+- **Where:** `docs/plugins.md` D7, reversed in part. The plugin lives in the app's private repo.
+- **Chosen:** only one app needs it today, and building it outside this repo tests what no sample could: a real app, with its
+  own host, build and plugin. It uses only public plugin APIs, so it can move here later with no change.
+- **Risk if wrong:** the framework ships with no UPI plugin, and other Indian apps each write their own. The same mistakes (a
+  chooser, a retry with the same id) would then repeat. The rules are in `docs/guide-notes.md` §31 for that reason.
+- **Other options:** keep `@zero-native/upi` here, and the pilot only uses it.
+- **Evidence:** a second app that wants UPI is the moment to move it.
+
+## 17. An outside app uses a composite build and `bun link` until packages exist (P.3)
+- **Where:** `docs/guide-notes.md` §34.
+- **Chosen:** Gradle's `includeBuild`, and `bun link`. Framework edits show at once, the app already asks for
+  `dev.zeronative:runtime`, and moving to Maven later removes one block. `:runtime` can't simply be included by path: it needs
+  `:baselineprofile`, which points at `:sample`.
+- **Risk if wrong:** the app's plugin versions must match the framework's by hand, and `bun link` is per computer, so a CI needs
+  its own setup. Two apps on one computer share the one link.
+- **Other options:** publish to a local Maven folder; npm `file:` paths, which copy, so a framework edit needs a new install.
+- **Evidence:** the first CI build of the pilot.

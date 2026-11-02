@@ -68,10 +68,24 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
         /** Only the id it answers clears a record, so an old screen can't clear a new payment; a waiting one has nothing to confirm. */
         fun canAck(record: JSONObject, id: String) = record.optString("id") == id && record.optString("status") != WAITING
 
-        /** The simple values of the other app's answer. Anything else is dropped, and everything if it is too big. */
+        /**
+         * The other app's answer as JSON. Anything but text, a boolean, an int or a normal double becomes text: a long
+         * would lose digits in JS, and JSON refuses NaN. A value that can't be read is skipped. All go if it is too big.
+         */
         fun extras(values: Map<String, Any?>): JSONObject {
             val out = JSONObject()
-            for ((k, v) in values) if (v is String || v is Boolean || v is Int || v is Long || v is Double) out.put(k, v)
+            for ((k, v) in values) {
+                try {
+                    when {
+                        v == null -> Unit
+                        v is String || v is Boolean || v is Int -> out.put(k, v)
+                        v is Double && v.isFinite() -> out.put(k, v)
+                        else -> out.put(k, v.toString())
+                    }
+                } catch (_: Throwable) {
+                    // Skipped: the rest of the answer and the result code still count.
+                }
+            }
             return if (out.toString().length > MAX_EXTRAS_CHARS) JSONObject() else out
         }
     }
@@ -215,13 +229,29 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
 
     private fun marker(context: Context) = File(context.noBackupFilesDir, MARKER)
 
-    /** The other app's answer is outside input: a value that can't be read must not break the result. */
-    private fun extrasOf(data: Intent?): Map<String, Any?> = try {
-        val extras: Bundle = data?.extras ?: Bundle.EMPTY
-        @Suppress("DEPRECATION")
-        extras.keySet().associateWith { extras.get(it) }
-    } catch (e: Exception) {
-        Log.w(TAG, "launch: the result's extras can't be read: $e")
-        emptyMap()
+    /**
+     * The other app's answer is outside input, and this runs as the user comes back from paying. Each step has its own
+     * guard: a value that can't be read is skipped and the rest are kept; the result code always gets through.
+     */
+    private fun extrasOf(data: Intent?): Map<String, Any?> {
+        val out = LinkedHashMap<String, Any?>()
+        val extras: Bundle
+        val keys: List<String>
+        try {
+            extras = data?.extras ?: return out
+            keys = extras.keySet().toList()
+        } catch (t: Throwable) {
+            Log.w(TAG, "launch: the result's extras can't be read: $t")
+            return out
+        }
+        for (key in keys) {
+            try {
+                @Suppress("DEPRECATION")
+                out[key] = extras.get(key)
+            } catch (t: Throwable) {
+                Log.w(TAG, "launch: the result's extra '$key' can't be read; skipped: $t")
+            }
+        }
+        return out
     }
 }

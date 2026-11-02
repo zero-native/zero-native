@@ -142,14 +142,14 @@ const result = await nav.pushForResult("scan")        // { code: "upi://pay?..."
 | **Background JS** | Run a registered JS task without a screen (FCM message, WorkManager job), with a time limit | Push and sync need it; it changes how the runtime starts, so core |
 
 The old step 2.6b splits along this line: `launchActivity` with results and permissions → **core** (above); `Os`
-small methods (app version, share sheet, open settings) → **core**; `Os.upiApps` + launching a UPI app → the **`upi`
-plugin**.
+small methods (app version, share sheet, open settings) → **core**; `Os.upiApps` + launching a UPI app → **a plugin the
+app owns** (D7).
 
 ## 7. Official plugins and other production items
 
 | Item | Core or plugin | Notes |
 |---|---|---|
-| UPI apps: list installed UPI apps (with icons), launch one with a `upi://pay` link, get the result | plugin `@zero-native/upi` | First plugin: proves modules + results + `zn://` icons; checkout needs it |
+| UPI apps: list installed UPI apps (with icons), launch one with a `upi://pay` link, get the result | **The app's own plugin**, not official (D7) | First real plugin: proved modules, results and `zn://` icons from an app outside this repo (`docs/guide-notes.md` §34) |
 | Phone number hint, OTP auto-read (SMS Retriever) | plugin `@zero-native/auth` | Pilot login needs it. Any Play services failure means "type it by hand", |
 | QR scan / camera | plugin `@zero-native/scanner` | Native screen first, native view later. ML Kit **bundled**, not downloaded from Play (fails on low-storage phones) |
 | WebView | plugin `@zero-native/webview` | Native view; cookies per app, file upload, `postMessage` both ways, which links leave the app |
@@ -173,7 +173,7 @@ the code (`docs/cross-communication/2026-11-02-fable-review-response.md`).
 | D4 | Native screens: API for results | (a) `nav.pushForResult(route)` promise + `onNavResult` after restore; (b) only events | **(a)**: the promise is what authors expect; the event covers the process-kill case |
 | D5 | Where do official plugins live? | (a) this repo, `plugins/<name>/`, released with core; (b) separate repos | **(a)**: one version line with core, one CI, the sample app uses them. Split later if outsiders contribute |
 | D6 | How does a plugin say which core it needs? | (a) `peerDependencies` on `@zero-native/core` + a Gradle dependency on the runtime with a version range; (b) a host API number in `package.json` | **(a)** for both sides; core's host API check already guards the JS ↔ native contract at run time |
-| D7 | UPI: core or plugin? | (a) plugin; (b) core | **(a)**: only payment apps need it; it is also the best first test of the plugin system |
+| D7 | UPI: core or plugin? | (a) plugin; (b) core | **(a)**: only payment apps need it; it is also the best first test of the plugin system. **Changed 2026-11-02:** the plugin belongs to the app, not this repo (`docs/second-opinions.md` entry 16) |
 
 **Additions from the review:**
 - **D1:** plugins register first in `Application.onCreate`, before the bundle is chosen: the capability check reads the
@@ -200,7 +200,7 @@ TS runs alongside from the start, in the app's private repo.
 |---|---|---|
 | P.1 **built 2026-11-02** | `ZnPlugin` + `ZnPluginRegistry`, `plugins/` folder, D1 (a); the sample's `DeviceModule` moved into a test plugin | The sample works with the module registered through a plugin; guide notes "writing a plugin" (§30) |
 | P.2 **built 2026-11-02** | Core plumbing (section 6): permissions, `launchForResult` with saved results and `ack`, current Activity + host call, Activity events, `Os` info / haptics / open URL, `detached`, `zn://` handles (ported from exp4). Also: never start fresh or bring the task forward while a launch waits for its result | Phone tests **with the mock UPI app**: grant / deny / "don't ask again"; a result delivered after the process was killed in the other app; a rollback between delivery and `ack`; an app icon shown from a `zn://` handle |
-| P.3 | `@zero-native/upi`, with `<queries>` for `upi://pay` and `upi://mandate` | Lists UPI apps with icons, launches the mock UPI app, result back; also after a kill; the UPI loading look works behind the mock's translucent window with no native pump |
+| P.3 **built 2026-11-02** | **Changed:** UPI is a plugin the app owns, in its private repo. This repo gains what any outside app needs: `tools/zn-build.ts`, and the guide for an app outside this repo (`docs/guide-notes.md` §34) | An app outside this repo builds, with its own plugin, in debug and in R8 release. It lists UPI apps with icons, launches the mock UPI app and gets the result back, also after a kill; a loading look keeps drawing behind the mock's see-through window with no native pump |
 | P.3b | `@zero-native/auth`: phone number hint, SMS Retriever | Both work on the Lava; each failure falls back to typing |
 | P.4a | `@zero-native/scanner` as a native screen (`pushForResult`, route `native:` field). No `<NativeView>` | QR scan on the Lava; camera stops when covered; stale frames ignored; release build size measured |
 | P.4b | `<NativeView>` (registry 9); the scanner gains a view form | After the pilot, unless a pilot screen needs it |

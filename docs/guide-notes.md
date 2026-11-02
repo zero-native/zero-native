@@ -839,6 +839,10 @@ launches.onResult("upi", async (r) => {                        // 3. a result, e
 ```
 - **Do:** give each launch your own id (a txn ref), and save your flow before you launch. **Why:** a kill can come at any
   moment, and the id tells a repeat from a new payment.
+- **Do:** use a new id for each try, also a retry of the same payment: add the time to the ref. **Why:** `onResult` drops a
+  record it has seen, so a retry with the same id looks like a repeat, and its result never arrives.
+- **Know:** extras keep text, booleans, ints and normal doubles. Anything else arrives as text (a long keeps every digit). An
+  extra that can't be read is skipped, and the result code always arrives.
 - **Do:** call `ack` after you have acted on the result. **Why:** until then the result comes again at every start, so a kill
   or a rollback can't lose it.
 - **Expect repeats.** Your handler must be safe to run twice for one id.
@@ -887,3 +891,50 @@ await Os.openUrl("https://example.com/help")
   On Android 11+, list the package in `<queries>` or the image fails. Add `fallback`. A plugin adds its own kind with
   `ZnHandles.kind("name") { context, path -> drawable }`; that code runs off the main thread.
 - **Plugins:** `r.activityEvents(listener)` hears new intents, front and back, low memory and new JS. Keep each one short.
+
+## 34. An app outside this repo (P.3)
+zero-native isn't published yet, so an app points at a local copy. The first real one worked with no change to the runtime.
+Layout, in the app's repo:
+```
+app/src/main.ts      the app's JS entry, with routes and screens
+plugins/<name>/      the app's own plugins: src/index.ts, android/
+android/             settings.gradle.kts, build.gradle.kts, app/ (the host)
+```
+**Android.** Use a composite build, in `android/settings.gradle.kts`:
+```kotlin
+val zeroNativeDir = providers.gradleProperty("zeroNativeDir").getOrElse("../../zero-native")
+includeBuild("$zeroNativeDir/android") {
+    dependencySubstitution {
+        substitute(module("dev.zeronative:runtime")).using(project(":runtime"))
+    }
+}
+include(":app")
+include(":plugin-mine")
+project(":plugin-mine").projectDir = file("../plugins/mine/android")
+```
+The app and each plugin then ask for `implementation("dev.zeronative:runtime")`. Copy the wrapper, `gradle.properties` and the
+plugin versions from this repo's `android/`: **do** keep them equal to the framework's.
+
+**JS.** Link the packages once on each computer, then depend on them:
+```bash
+bun link --cwd <zero-native>/packages/core
+bun link --cwd <zero-native>/packages/ui
+```
+```json
+"dependencies": { "@zero-native/core": "link:@zero-native/core", "@zero-native/ui": "link:@zero-native/ui" },
+"scripts": { "app:js": "bun run <zero-native>/tools/zn-build.ts app --name myapp --assets android/app/src/main/assets" }
+```
+`--name` becomes the bundle's app name; keep it the same as the OTA `app` name. **[check]** `bun run tools/zn-dev.ts <appDir>` should give
+live reload, but it isn't tried from an outside app yet, and the host needs the sample's cleartext rule for `127.0.0.1`.
+
+**Host.** Start from `android/sample`, without its test hooks:
+- The `Application` calls `ZnPlugins.register(this, MyPlugin())` first, then `ZnTemplates.preload`, `ZnRuntime.start`, `ZnRuntime.evalAsset`.
+  `ZnOta.configure` is optional: with no call, updates are off and the APK's bundle runs.
+- The Activity is a `ComponentActivity`, `singleTop`, calling `ZnNav.handleExtraActivity`, then `ZnActivity.attach(this)`.
+- Keep `noCompress += listOf("hbc", "zn.ui")`, and gitignore `src/main/assets`.
+
+**Plugins an app owns.** The same as `docs/plugins.md`: no list to join, no change in this repo. The compiler reads the plugin's
+`nativeModule` call, so the bundle's needs include it. A plugin's `<queries>` reach the app through the manifest merge.
+
+**Do** turn on R8 name changes in your release build when you are ready for it. **Why:** the sample turns them off to keep its traces
+readable, so an app is what tests them. They passed in the first outside app, launches and results included.

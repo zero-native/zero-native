@@ -98,6 +98,8 @@ the Compose frame clock.
 | Cold start, step 4.7 (safety nets on) | **192–196 ms** median (p90 207 ms, n=10); start checks 0.9–3.2 ms off the main thread; launch mark 0.5–0.8 ms on the main thread | release, speed-profile | 10-31 |
 | Cold start, after H.1 to H.7 (every visit watched) | **180 ms** median (p90 194 ms, n=10), running a downloaded bundle; visit mark 0.42–0.50 ms on the main thread; start checks 4.3–6.6 ms off the main thread in this test, since each run was force-stopped with a visit pending and reads the exit record | release | 11-02 |
 | Cold start, after P.2 (plumbing, 3 more built-in modules) | **182, 187, 185 ms** median in three rows (p90 194–198 ms, n=10 each; the third with speed-profile), battery 35.9 °C. One earlier row read 193 ms on a phone warm from hours of tests. Same as before P.2 (183 ms) within noise | release, on the APK's bundle | 11-02 |
+| Cold start, an app outside this repo (P.3, one screen, its own plugin, OTA off, R8 name changes on) | **169 ms** median (p90 183 ms, n=10) | release, on the APK's bundle | 11-02 |
+| Drawing behind a see-through window of another app (the mock, P.3) | 28 frames in 926 ms, against 33 frames per second with nothing on top. The test's 33 ms JS timer sets the rate. No native pump | release, one JS-driven value | 11-02 |
 | OTA update applied in place (`applyNow`) | **37 ms** (JS 27 ms); a bundle that throws → old bundle again in 49 ms; cover on screen ~100–170 ms, then new screens fade in over ~180 ms | release, step 4.6–4.7 | 10-31 |
 | Warm start with "Don't keep activities" on | the Activity is rebuilt each time, so Android shows the app's splash briefly; this is Android's own behaviour, not ours | debug, Pavan's developer setting | 10-31 |
 

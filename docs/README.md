@@ -33,6 +33,7 @@ until it is proven.
 | `components.md` | reference for the small components (Switch, Checkbox, Spinner / Progress, Toast, image fallback) and accessibility props from steps 3.7–3.8 |
 | `startup-and-performance.md` | startup rules and budget, how to measure, every number measured so far |
 | `platform-differences.md` | known differences between Android, iOS and React Native semantics |
+| `rn-compatibility.md` | React Native components, style keys, navigation, storage, `fetch`, `Linking`, permissions and native modules mapped to zero-native, each with a status (same / renamed / different / missing) and how to move; ends with the 10 costliest gaps |
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |
 | `fetch.md` | `fetch`: design, defaults, and the production problems (RN / Flutter / OkHttp) it handles |
 | `ota.md` | OTA updates (milestone 4): design, decisions D1–D5 (taken 2026-10-30), steps 4.0–4.9 (all done 2026-10-31) |

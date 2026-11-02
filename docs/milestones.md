@@ -122,6 +122,22 @@ Parked ideas: `docs/after-foundations.md`.
 | OTA and launches on the phone (38 cases, ~30 min) | `bun run ota:phone` (debug sample, phone unlocked) | `tools/ota/phone-matrix.ts`, `docs/ota-test-matrix.md` |
 
 ## Log
+### 2026-11-02: P.3 done, an app outside this repo with its own UPI plugin (Claude)
+- **Changed plan (Pavan):** UPI belongs to the app, so `@zero-native/upi` is gone. The plugin and host live in the app's private
+  repo, which makes this the first real test of an app outside this repo (second-opinions entries 16, 17; guide §34).
+- **Framework:** `tools/zn-build.ts` (moved out of the sample's `build.ts`; same bundle hash). The outside host built with no runtime
+  change, through a composite build.
+- **Fixed three bugs in P.2's result reading** (`ZnLaunch.extrasOf`, `Rules.extras`), all on the return from paying: one bad extra lost all
+  of them; a NaN double could crash on the main thread; a long lost digits, and other types were dropped. Now as RN: each read alone, the
+  rest as text.
+- **On the Lava, mock only, debug and R8 release with names changed:** real app list with icons; approve, decline, cancel and back parse
+  right; `result` after a kill, `lost` after a swipe, and in debug `lost` after a kill under the see-through window (needs `run-as`); a retry after
+  clear; refused: bad link, no package, missing app, second launch; a link while the mock is on top. 0 crashes.
+- **No native pump needed:** a JS-driven screen drew 28 frames in 926 ms behind the see-through window (release), against 33 per second
+  with nothing on top. It's set by the test's 33 ms timer.
+- Release cold start of the one-screen outside app: 169 ms median (p90 183, n=10).
+- A real payment, real UPI apps' answers and other phones wait for the pilot. Next: `auth` (P.3b).
+
 ### 2026-11-02: P.2 done, the plumbing every plugin needs (Claude)
 - Built: `ZnActivity`, `ZnLaunch` + `launches`, `Permissions`, `Os`, `detached`, activity events for plugins, `zn://app-icon`,
   the link guard for the link that starts the app. `Device` is v4. Guide §31–33; second-opinions entries 11 to 15.
@@ -132,7 +148,7 @@ Parked ideas: `docs/after-foundations.md`.
   after a kill, all permission flows, 0 crashes. Release cold start 182–187 ms median in three rows (n=10 each), same as
   before P.2 within noise. `/dev/storage` 9 of 9 in debug, so the "Kotlin thread and JS write" row stays under the limit.
 - A late result winning over `lost` has a Kotlin test only. Real UPI apps and other phones come with P.3.
-- Next: P.3, `@zero-native/upi`.
+- Next: P.3.
 
 ### 2026-11-02: P.1 done, the plugin base (Claude)
 - `ZnPlugin`, `ZnPluginRegistry`, `ZnPlugins.register` and typed arg helpers in the runtime. The sample's `Device` module

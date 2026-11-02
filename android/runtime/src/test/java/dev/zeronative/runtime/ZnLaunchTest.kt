@@ -73,9 +73,39 @@ class ZnLaunchTest {
         assertFalse(Rules.canAck(waiting, "txn1"))
     }
 
-    @Test fun onlySimpleExtrasAreKept() {
-        val e = Rules.extras(mapOf("a" to "x", "b" to 1, "c" to true, "d" to 2L, "e" to 1.5, "f" to null, "g" to listOf(1), "h" to byteArrayOf(1)))
-        assertEquals(setOf("a", "b", "c", "d", "e"), e.keys().asSequence().toSet())
+    @Test fun simpleExtrasKeepTheirType() {
+        val e = Rules.extras(mapOf("a" to "x", "b" to 1, "c" to true, "d" to 1.5))
+        assertEquals("x", e.get("a"))
+        assertEquals(1, e.get("b"))
+        assertEquals(true, e.get("c"))
+        assertEquals(1.5, e.get("d"))
+    }
+
+    @Test fun otherExtrasBecomeText() {
+        val e = Rules.extras(mapOf("float" to 1.5f, "list" to listOf(1)))
+        assertEquals("1.5", e.get("float"))
+        assertEquals("[1]", e.get("list"))
+    }
+
+    @Test fun aLongKeepsEveryDigit() {
+        assertEquals("9007199254740993", Rules.extras(mapOf("rrn" to 9007199254740993L)).get("rrn"))
+    }
+
+    @Test fun aNumberJsonRefusesDoesNotBreakTheResult() {
+        val e = Rules.extras(mapOf("nan" to Double.NaN, "inf" to Double.POSITIVE_INFINITY, "Status" to "SUCCESS"))
+        assertEquals("NaN", e.get("nan"))
+        assertEquals("Infinity", e.get("inf"))
+        assertEquals("SUCCESS", e.get("Status"))
+    }
+
+    @Test fun aNullExtraIsLeftOut() {
+        assertEquals(setOf("a"), Rules.extras(mapOf("a" to "x", "b" to null)).keys().asSequence().toSet())
+    }
+
+    @Test fun anExtraThatCanNotBeReadIsSkippedAndTheRestKept() {
+        val bad = object { override fun toString(): String = throw IllegalStateException("can't read") }
+        val e = Rules.extras(mapOf("Status" to "SUCCESS", "bad" to bad, "txnId" to "t1"))
+        assertEquals(setOf("Status", "txnId"), e.keys().asSequence().toSet())
     }
 
     @Test fun hugeExtrasAreDropped() {

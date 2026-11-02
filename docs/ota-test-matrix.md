@@ -25,46 +25,46 @@ leave behind).
 
 ## Cases
 
-Last run: 2026-11-02 (after P.2, the plumbing), Lava Blaze 2 5G (Android 14), debug sample: **38 of 38 passed**. The cases take
+Last run: 2026-11-03 (after P.3), Lava Blaze 2 5G (Android 14), debug sample: **38 of 38 passed**. The cases take
 ~11 min; the rest of the ~30 min is building and installing the sample. "Proof" is the log line each case waited for.
 
 | Case | Result | Time | Proof |
 |---|---|---|---|
-| first-install | pass | 5 s | check staging: NONE NO_CHANNEL in 146 ms |
-| update | pass | 13 s | safety: sample_1 is healthy |
+| first-install | pass | 5 s | check staging: NONE NO_CHANNEL in 153 ms |
+| update | pass | 14 s | safety: sample_1 is healthy |
 | check-stall | pass | 42 s | check failed (server): no full answer within 30 s |
 | download-stall | pass | 78 s | check failed (download): no data for 60 s, at 69465 of 138931 bytes |
-| swipe-update | pass | 24 s | report: applied sample_3: fresh start, was sample_2, 11 ms |
+| swipe-update | pass | 25 s | report: applied sample_3: fresh start, was sample_2, 11 ms |
 | swipe-bad-update | pass | 13 s | report: apply_failed sample_4: OTA test: this bundle fails at start on purpose; running sample_3 |
 | crash-on-return | pass | 70 s | report: watchdog_block sample_5: 3 launches in 24 h ended by a crash or a freeze; last: crash |
-| apply-now | pass | 15 s | apply: now running sample_6 (#6) from files, 2 screen(s) opened again, in 26 ms (JS 6 ms) |
-| hold | pass | 33 s | held, then: apply: now running sample_7 (#7) from files, 2 screen(s) opened again, in 24 ms (JS 6 ms) |
-| rollback-kept | pass | 11 s | check staging: USE_LOCAL KEPT in 89 ms |
-| kill-switch | pass | 7 s | check staging: BUILT_IN KILL_SWITCH in 105 ms |
+| apply-now | pass | 16 s | apply: now running sample_6 (#6) from files, 2 screen(s) opened again, in 22 ms (JS 6 ms) |
+| hold | pass | 30 s | held, then: apply: now running sample_7 (#7) from files, 2 screen(s) opened again, in 23 ms (JS 6 ms) |
+| rollback-kept | pass | 12 s | check staging: USE_LOCAL KEPT in 103 ms |
+| kill-switch | pass | 7 s | check staging: BUILT_IN KILL_SWITCH in 75 ms |
 | throw-start | pass | 9 s | report: error_rollback sample_8: start in script main.hbc failed: OTA test: this bundle fails at start on purpose; going back to sample_1 |
-| blocked-pointer | pass | 6 s | check staging: NONE BLOCKED in 88 ms |
+| blocked-pointer | pass | 6 s | check staging: NONE BLOCKED in 82 ms |
 | watchdog | pass | 14 s | report: watchdog_block sample_9: a launch ended by a crash; last: crash |
 | last-good-error | pass | 18 s | safety: sample_10 is the last good bundle: screen in screen "home" threw: Error: OTA test: the home screen throws on the second launch (reported, not blocked) |
-| incompatible | pass | 7 s | check staging: NONE INCOMPATIBLE in 85 ms |
+| incompatible | pass | 7 s | check staging: NONE INCOMPATIBLE in 81 ms |
 | tampered-zip | pass | 11 s | check failed (zip_sha): the downloaded zip doesn't match the signed manifest |
 | bad-bundle-signature | pass | 7 s | check failed (signature): bad bundle signature on sample_13 |
-| bad-pointer-signature | pass | 5 s | check staging: NONE POINTER_REFUSED in 85 ms |
-| replayed-pointer | pass | 9 s | check staging: NONE POINTER_REFUSED in 72 ms (replayed seq 1) |
+| bad-pointer-signature | pass | 5 s | check staging: NONE POINTER_REFUSED in 88 ms |
+| replayed-pointer | pass | 10 s | check staging: NONE POINTER_REFUSED in 71 ms (replayed seq 1) |
 | network-cut | pass | 12 s | resuming sample_14 at 69466 of 138933 bytes |
-| kill-download | pass | 13 s | resuming sample_15 at 49152 of 138936 bytes |
+| kill-download | pass | 14 s | resuming sample_15 at 49152 of 138936 bytes |
 | low-storage | pass | 12 s | check failed (no_space): sample_16 needs 50.7 MB free (with 50.0 MB kept for the user), the phone has 1.0 MB |
-| background-start | pass | 17 s | no check and no launch mark without UI; the UI start after it judged nothing |
+| background-start | pass | 18 s | no check and no launch mark without UI; the UI start after it judged nothing |
 | killed-install | pass | 5 s | bundle: not running sample_98: its folder has no zn-bundle.json (this app: registry v8, bytecode 99, host API v1–5, modules {Fetch=1, Toast=1, Os=1, Updates=3, Device=4, Keyboard=1, Permissions=1, Launches=1, SecureStore=1}) |
 | unusable-no-good | pass | 5 s | bundle: not running sample_98: its folder has no zn-bundle.json (this app: registry v8, bytecode 99, host API v1–5, modules {Fetch=1, Toast=1, Os=1, Updates=3, Device=4, Keyboard=1, Permissions=1, Launches=1, SecureStore=1}) |
-| result-alive | pass | 32 s | launch-test heard: result t1793639932586 code 0 |
-| result-after-kill | pass | 17 s | launch-test first read: result t1793639960740 code 0 |
-| result-under-see-through | pass | 14 s | launch-test first read: lost t1793639977880 |
-| no-result-after-swipe | pass | 17 s | launch-test first read: lost t1793639991966 |
+| result-alive | pass | 32 s | launch-test heard: result t1793644321361 code 0 |
+| result-after-kill | pass | 18 s | launch-test first read: result t1793644349590 code 0 |
+| result-under-see-through | pass | 14 s | launch-test first read: lost t1793644367711 |
+| no-result-after-swipe | pass | 17 s | launch-test first read: lost t1793644381912 |
 | link-while-waiting | pass | 17 s | sample: link zn://sample/offers?refuse=1 atStart=false |
 | start-link-refused | pass | 5 s | sample: link zn://sample/offers?refuse=1 atStart=true |
-| result-survives-rollback | pass | 32 s | launch-test first read: result t1793640037890 code 0 |
+| result-survives-rollback | pass | 33 s | launch-test first read: result t1793644428052 code 0 |
 | server-down | pass | 7 s | check failed (failed): unexpected end of stream on http://127.0.0.1:8790/... |
-| apk-newer | pass | 10 s | new APK: 6 bundle(s) that no longer fit (or are blocked) deleted |
+| apk-newer | pass | 11 s | new APK: 6 bundle(s) that no longer fit (or are blocked) deleted |
 | permission-grant | pass | 17 s | launch-test camera: granted |
 | permission-blocked | pass | 27 s | launch-test camera: blocked |
 | icon-handle | pass | 14 s | image failed: zn://app-icon/dev.zeronative.no.such.app — android.content.pm.PackageManager$NameNotFoundException: dev.zeronative.no.such.app |
