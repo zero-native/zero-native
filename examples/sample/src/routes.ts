@@ -24,6 +24,7 @@ import { WebViewLabScreen } from "./WebViewLab"
 import { SvgLabScreen } from "./SvgLab"
 import { RnBasicsLabScreen } from "./RnBasicsLab"
 import { TabsLabScreen } from "./TabsLab"
+import { PdfLabScreen } from "./PdfLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -56,6 +57,7 @@ export const routes = defineRoutes({
   rnLab: { path: "/dev/rn", screen: RnBasicsLabScreen, deepLink: true },
   // A home screen with four tabs. A link to /dev/tabs/<tab> opens that tab.
   tabsLab: { path: "/dev/tabs", screen: TabsLabScreen, deepLink: true, tabs: ["pay", "stores", "offers", "rewards"] },
+  pdfLab: { path: "/dev/pdf", screen: PdfLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

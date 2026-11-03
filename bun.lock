@@ -25,6 +25,7 @@
         "@zero-native/core": "workspace:*",
         "@zero-native/device-test": "workspace:*",
         "@zero-native/media": "workspace:*",
+        "@zero-native/pdf": "workspace:*",
         "@zero-native/scanner": "workspace:*",
         "@zero-native/ui": "workspace:*",
         "@zero-native/webview": "workspace:*",
@@ -69,6 +70,14 @@
         "@zero-native/core": "workspace:*",
       },
     },
+    "plugins/pdf": {
+      "name": "@zero-native/pdf",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+        "@zero-native/ui": "workspace:*",
+      },
+    },
     "plugins/scanner": {
       "name": "@zero-native/scanner",
       "version": "0.0.0",
@@ -98,6 +107,8 @@
     "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
 
     "@zero-native/media": ["@zero-native/media@workspace:plugins/media"],
+
+    "@zero-native/pdf": ["@zero-native/pdf@workspace:plugins/pdf"],
 
     "@zero-native/scanner": ["@zero-native/scanner@workspace:plugins/scanner"],
 

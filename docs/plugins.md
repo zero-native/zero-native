@@ -31,6 +31,7 @@ breaks somewhere. So first one plugin system, then the features as plugins on to
 | Native screens as routes | **built** 2026-11-03 | `ZnNavHost.kt`, `nav.ts`, ARCHITECTURE §15.3, `docs/guide-notes.md` §35 |
 | Background JS tasks, secure screens, dark mode, low memory, right to left | **built** 2026-11-03 (host API 6) | `ZnBackground.kt`, `tasks.ts`, `appearance.ts`, `docs/guide-notes.md` §36–37 |
 | Official plugins `auth`, `scanner`, `media`, `webview` | **built** 2026-11-03, opt-in | `plugins/<name>/README.md`, `docs/guide-notes.md` §38 |
+| Official plugin `pdf`: download and cache, a card preview, a viewer with zoom, on Android's own PdfRenderer | **built** 2026-11-03, opt-in | `plugins/pdf/README.md`, `docs/guide-notes.md` §44 |
 | Permissions, "open another app and get its result" | **built** (P.2) | `ZnPermissions.kt`, `ZnLaunch.kt`, `docs/guide-notes.md` §31–32 |
 | Codegen (Kotlin interface from the TS interface) | **not built** | ARCHITECTURE §15.1 |
 
@@ -156,6 +157,7 @@ app owns** (D7).
 | QR scan / camera | plugin `@zero-native/scanner` | Native screen first, native view later. ML Kit **bundled**, not downloaded from Play (fails on low-storage phones) |
 | WebView | plugin `@zero-native/webview` | Native view; cookies per app, file upload, `postMessage` both ways, which links leave the app |
 | Photos / files / PDF | plugin `@zero-native/media` | Pick, compress, crop, rotate natively; JS sees `zn://` handles |
+| Show a PDF | plugin `@zero-native/pdf` (**built** 2026-11-03) | `<PdfView>`, `<PdfPreview>`, `Pdf.download` to `zn://file`. Android's PdfRenderer: no library, ~15 KB |
 | Push (FCM) | plugin `@zero-native/push` on top of core background JS | Token, messages in front / back, tap to open a route. **Later** (Firebase work moved out, 2026-11-02): background JS is built and waits for it |
 | Screenshot blocking | core: route option `secure: true` | `FLAG_SECURE` while that screen is on top |
 | Certificate pinning | core: `fetch` option / app config | OkHttp `CertificatePinner`; needs a pin-rotation plan. **Not built:** RN has none today, so the pilot doesn't need it |

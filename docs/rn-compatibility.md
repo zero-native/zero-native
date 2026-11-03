@@ -126,7 +126,7 @@ known at build time (section 0).
 | `transform` | same | different | `scale`, `scaleX`, `scaleY`, `translateX`, `translateY`, `rotate` (`"45deg"` or a number). No `skew`, `perspective`, `matrix`. |
 | `backgroundImage: "linear-gradient(...)"` | same | same | Build-time only. Not for radial gradients. |
 | `color`, `fontSize`, `fontStyle`, `letterSpacing`, `lineHeight`, `textDecorationLine`, `numberOfLines` | same | same | `numberOfLines` is both a prop and a style key. |
-| `fontWeight` | same | different | Numbers 100–900 in steps of 100, `"normal"`, `"bold"`. `"500"` as a string is a build error. |
+| `fontWeight` | same | different | Numbers 100–900 in steps of 100, `"normal"`, `"bold"`. Strings like `"500"` work too (`compiler/src/compile.ts` `fontWeight`). |
 | `textAlign` | same | renamed | `left` → `start`, `right` → `end`, `center` same. `justify` is missing. |
 | `maxFontScale` | same | different | New key (RN has `maxFontSizeMultiplier`). |
 | `fontFamily`, `textTransform`, `textAlignVertical`, `includeFontPadding`, `textShadow*`, `userSelect` | none | missing | Only the system font. Change case in the string yourself. Custom fonts are not built. |
@@ -219,6 +219,7 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | Self-update (CodePush, `expo-updates`) | [`Updates`](../packages/core/src/updates.ts:76) | different | Signed OTA bundles. See [ota.md](ota.md). |
 | Camera / QR scan (`react-native-vision-camera`, `expo-camera`) | [`@zero-native/scanner`](../plugins/scanner/README.md) | different | QR and barcodes only, no photo or video. A full screen (route `native: "scanner.full"` + `nav.pushForResult`) or a view (`<QrScanner>`). ML Kit is bundled. |
 | Image / file picker, PDF | [`@zero-native/media`](../plugins/media/README.md) | different | `Media.pickPhotos`, `pickFile`, `takePhoto`, `edit`. Files come back as `zn://file` handles plus a `file://` uri for upload. Results survive a kill (`Media.onResult`). |
+| PDF view (`react-native-pdf-renderer`, `react-native-pdf`) | [`@zero-native/pdf`](../plugins/pdf/README.md) | different | `<PdfView source>` (scroll, pinch, double tap, `maxZoom`, `pageGap`, `onPageChange`, `onError`) and `<PdfPreview>` for a card (RN: `singlePage`, but fit to width). `source` is a `zn://file` handle, not a path: get one with `Pdf.download({ url, headers, key })`, which caches. No base64, password, share or links. |
 | Push notifications (`@react-native-firebase/messaging`, `expo-notifications`) | none | missing | Later (Firebase work moved out). Background tasks, which it needs, are built. |
 | `WebView` (`react-native-webview`) | [`@zero-native/webview`](../plugins/webview/README.md) | different | `<WebView>` with `allowedHosts`, `postMessage` both ways, links that leave the app, cookies, file upload. Debugging is opt-in (`WebViewPlugin(inspect = true)`). |
 | Phone number hint, SMS auto-read | [`@zero-native/auth`](../plugins/auth/README.md) | different | `Auth.phoneHint`, `Auth.listenForOtp`. Every Play services failure gives a reason, never a crash: show "type it by hand". |
@@ -277,6 +278,8 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 1. **Runtime changes to layout values** (different). `width`, `height`, `margin`, `flex`, `fontSize`, `borderRadius`
    must be known at build time. Any RN screen that sets these from state needs a redesign: two styles and a ternary,
    or an `animate` prop. Touches almost every non-trivial screen. ([§0](#0-four-big-differences-to-know-first))
+   This also hits a value passed in as a component prop: `style={{ height: props.height }}` is a build error, even
+   when every caller passes a literal. Common in design-system atoms (button heights, icon sizes).
 2. **No React** (missing). Every `useState`, `useEffect`, `useRef`, `useContext`, `useMemo`, and every hook-based
    library (React Query, Formik, React Hook Form, most state libraries) must be replaced. This is a rewrite of screen
    logic, not an edit. ([§9](#9-react-and-js-side-patterns))
@@ -308,6 +311,13 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
     `Platform`, `NetInfo`, `URL`, `atob` / `btoa` (Hermes) and `requestAnimationFrame` with their RN names; dark mode
     came in P.6. Still missing: `WebSocket`, `XMLHttpRequest`. The import line changes to `@zero-native/core`.
     ([§1](#1-components), [§5](#5-network-and-web-apis), [§6](#6-device-and-os))
+
+Two more compiler rules cost a port as much as the items above (found by the ZeroBill pilot-flow audit, 2026-11-03;
+a "compiler pack" will plan them):
+- **JSX only as a component's return value.** `const header = <X/>`, `let body = c ? <A/> : <B/>` and
+  `items.push(<X/>)` are build errors. Move the JSX into the return (`&&`, `? :`, `.map`) or into a small component.
+- **No NativeWind / Tailwind `className`.** Every class must be rewritten as a `style` object. Apps built with
+  NativeWind have hundreds of them.
 
 Smaller known gaps not in the list: `testID` (no test hook for UI tests), `Image` `onLoad` / `onError`, `Button`,
 `Modal` as a centred dialog, `Text` `onPress` and `selectable`, `StyleSheet.flatten`.

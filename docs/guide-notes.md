@@ -1090,6 +1090,7 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 | `@zero-native/media` | Pick and take photos, pick files, compress, rotate, crop by numbers | Almost nothing |
 | `@zero-native/auth` | Phone number hint, OTP auto-read | Play services auth |
 | `@zero-native/webview` | A web page in a screen, with a list of allowed hosts | `androidx.webkit` |
+| `@zero-native/pdf` | Download and cache a PDF, a card preview, a viewer with zoom (§44) | Nothing: Android's own PdfRenderer, about 15 KB |
 
 **Scanner.**
 - **Do** give the route `safeArea: "none"`. The camera runs under the status bar.
@@ -1430,3 +1431,29 @@ The compiler reads every SVG at build time and puts compact draw data in the bun
   file's still state.
 - **Know:** a big `.svg` (8 KB of draw data or more) is read in the background after the first frame, so one further down
   the screen costs nothing on the main thread. One on the first frame is read when it is first drawn, as before.
+
+## 44. PDFs (`@zero-native/pdf`)
+
+`Pdf.download` puts a PDF in the cache folder and gives a `zn://file` handle. `<PdfPreview>` shows one page on a card;
+`<PdfView>` shows every page with scroll and zoom. Drawing is Android's own PdfRenderer. The README has the API and limits.
+
+- **Do** download with `Pdf.download` (or `pdfFile`), not `fetch`. **Why:** `fetch` brings the whole body into JS; the
+  plugin streams it to disk and checks it opens before it gives a handle.
+- **Do** pass a `key` (a receipt id) when your URL can change for the same file, like a signed link. **Know:** the file is
+  named from `url` + `key`, not the headers.
+- **Do** call `Pdf.cleanup({ olderThanMs: 0 })` at logout when two users could get the same URL. **Why:** the headers
+  (a login token) are not part of the name, so the second user would get the first user's cached file.
+- **Do** show Retry on `state() === "failed"`. **Know:** nothing rejects. Every failure is a `reason`. `not_pdf` is usually
+  an error or login page sent with status 200.
+- **Know:** the app's headers go only to the first host. A redirect to another host (a CDN) gets none. A signed CDN link
+  works, but a CDN that needs your token doesn't.
+- **Do** put the view in a Box or Column with a size. **Don't** put `PdfView` in a `Scroll`. **Why:** it scrolls and zooms
+  by itself, and two scrolls fight for the finger.
+- **Do** use `<PdfPreview>` for a card (fit "width": from the top, cut by the box). It has no touch, so a `Pressable`
+  around it gets the tap. **Why:** it draws only what the box shows, so a card costs a few MB at most, even for a long receipt.
+- **Don't** show many PDF views at once (a list of 20 receipts with previews). **Why:** each view has its own memory budget,
+  up to 48 MB. Show a picture or text in a list, and the PDF when it is opened.
+- **Know:** after a kill, the view opens its file again, at page 1 and 1×. Keep the handle in a `restorableSignal`, or
+  call `pdfFile` again (a cached file comes back at once).
+- **Know:** a PDF that crashes pdfium kills the app, and no code can catch that. **Do** show PDFs only from servers you trust.
+- **Know:** a password PDF is `reason: "password"`. There is no way to type the password.

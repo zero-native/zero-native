@@ -23,3 +23,5 @@ for (name in listOf("scanner", "media", "auth", "webview")) {
     include(":plugin-$name")
     project(":plugin-$name").projectDir = file("../plugins/$name/android")
 }
+include(":plugin-pdf")
+project(":plugin-pdf").projectDir = file("../plugins/pdf/android")

@@ -12,6 +12,7 @@
     "@zero-native/media": "workspace:*",
     "@zero-native/scanner": "workspace:*",
     "@zero-native/webview": "workspace:*",
+    "@zero-native/pdf": "workspace:*",
     "@zero-native/ui": "workspace:*"
   },
   "devDependencies": {

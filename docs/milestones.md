@@ -123,6 +123,25 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-03: PDF plugin (Claude)
+- `@zero-native/pdf` in `plugins/pdf/`, on Android's own `PdfRenderer`: no PDF library. No registry or host API change
+  (module `Pdf` v1, views `pdf.view` and `pdf.preview`). Covers everything ZeroBill's RN app uses from
+  `react-native-pdf-renderer`: a file source, the page list, pinch zoom to 5×, the 220 dp card preview (pilot gap G14).
+- `Pdf.download`: native, streamed to `cacheDir/zn-files`, joined when two screens ask, cached by `url` + `key`, checked
+  before it gets a handle, https only (http to localhost in debug), the app's headers only to the first host. `pdfFile`
+  gives it as signals. Every failure is a `reason`, never a throw.
+- The viewer: our own Canvas and gestures. Page bitmaps only near the screen, within a memory budget; a view-sized
+  sharp layer at the real zoom when the fingers rest. The preview draws only the box. One thread for all PDF work.
+- Guide notes §44, second-opinions 80–84, README, `rn-compatibility.md` row, sample lab `/dev/pdf`.
+- **Tests:** JS 856 (pdf 8), Kotlin 17 (`PdfRulesTest`), `:plugin-pdf:assembleDebug`, lint 0 errors
+  (`:plugin-pdf:lintRelease :sample:lintRelease`), sample R8 release built.
+- **Emulator** (`Medium_Phone`, Android 13, debug): `bun run tools/plugin-phone.ts pdf --no-hands`, 10 of 10 steps:
+  download, preview and view; cache with no network; 50 pages and fling; zoom 3× from code and double tap; a long
+  receipt; password, broken, error page, 404, too big, not https, no server, bad handle; redirects keep or drop the
+  header; after a kill the file opens again; a kill during a download leaves only a part file; cleanup. 0 crashes.
+- **Size:** about **15 KB** of Play download (5,602,360 → 5,618,052 bytes, brotli method), 43 KB of classes.
+- **Not done:** pinch by a finger (adb can't), the Lava, the R8 release run on a phone, low-RAM memory numbers.
+
 ### 2026-11-03: SVG branch merged with main; all SVG at registry 13 (Claude)
 - Main took registry 11 (Tabs) and 12 (pull to refresh) while SVG was built as 11–13 on its branch. None of it had
   shipped, so all SVG entries (phases 1–4: components, props, dynamic props, the four formats) moved to 13, one number

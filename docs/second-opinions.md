@@ -852,3 +852,73 @@ change, and what evidence would make you change it?"
   so a non-SVG bundle that uses a loop also asks for 13. That is the same app, as nothing between 11 and 13 shipped.
 - **Other options:** 13, 14 and 15, one per phase (keeps the phase history in the numbers).
 - **Evidence wanted:** none.
+
+## 80. PDF downloads use the app's OkHttp, so the plugin compiles against it (PDF plugin, built)
+- **Where:** `plugins/pdf/android/build.gradle.kts` (`implementation("com.squareup.okhttp3:okhttp:5.5.1")`),
+  `PdfModule.kt` (`client`).
+- **Chosen:** downloads go through `ZnFetch.client.newBuilder()`, with our own redirects, a 30 s read limit and a 5 min
+  call limit. To compile, the plugin names OkHttp 5.5.1, the same version the runtime ships. The brief said "no new Maven
+  dependency"; the plan recommended this (decision A) and Pavan said go, 2026-11-03.
+- **Why:** pinning or interceptors an app sets with `ZnFetch.configure` then cover PDFs too, and connections are shared.
+  The APK gains 0 bytes: Gradle resolves one OkHttp.
+- **Risk if wrong:** if the runtime moves to another OkHttp, this line must move with it, or Gradle takes the higher one.
+- **Other options:** (a) `HttpURLConnection`: no Gradle line, but it skips the app's pinning; (b) make the runtime expose
+  OkHttp as `api`: a runtime change for one plugin.
+- **Evidence wanted:** none, unless a second plugin needs the client; then (b).
+
+## 81. A redirect to another host drops the app's headers (PDF plugin, built)
+- **Where:** `PdfModule.kt` (`fetch`), `PdfRules.sameOrigin`.
+- **Chosen:** redirects are followed by hand, up to 5. Each target must pass the https rule. The app's headers go only
+  to the same scheme, host and port as the first URL; elsewhere the request goes with no headers.
+- **Why:** ZeroBill sends its login token as a custom header (`_zcc`). OkHttp drops only `Authorization` across hosts,
+  so a redirect to a CDN would carry the token there. Browsers' `fetch` keeps custom headers too.
+- **Risk if wrong:** a server that redirects to another host which also needs the token fails with `http` 401/403.
+- **Other options:** keep headers on every redirect (like OkHttp); an option `headersOnRedirect: true`.
+- **Evidence wanted:** what ZeroBill's receipt endpoint does: serve the PDF itself, or redirect to a signed GCS link.
+  Both work now.
+
+## 82. PdfRenderer runs in the app's own process, on one thread for the whole app (PDF plugin, built)
+- **Where:** `PdfDoc.kt` (`PdfThread`).
+- **Chosen:** every PdfRenderer of the app (all views, and the module's check after a download) runs on one thread,
+  `zn-pdf`, in the app's process.
+- **Why:** PdfRenderer is not thread-safe, and pdfium keeps state for the whole process. One thread is the simplest way
+  to be sure. A card and the receipt screen take turns, which costs a few tens of ms.
+- **Risk if wrong:** a PDF that crashes pdfium in native code kills the app; Kotlin can't catch it. Receipts come from
+  our own server, so we take that risk. One thread also means a 50-page document drawing pages can delay a card on the
+  next screen a little.
+- **Other options:** run the renderer in a separate process (`android:process`) behind a Binder: a bad PDF then kills
+  only that process; costs ~30 MB of memory while open, and every bitmap crosses processes. Worth it only for PDFs from
+  outside (user uploads, third-party links).
+- **Evidence wanted:** crash reports with a pdfium frame in them.
+
+## 83. The viewer is a Canvas with two layers, not a list of page images (PDF plugin, built)
+- **Where:** `PdfViewer.kt`, `PdfRules.budget`, `baseWidth`, `areaScale`.
+- **Chosen:** one Canvas draws the pages from our own camera (zoom and scroll); gestures are our own. Page bitmaps,
+  as wide as the view, for the pages on screen and one on each side, use 2/3 of a budget: 1/8 of the heap limit, 16 to
+  48 MB, 16 MB on low-RAM phones. One view-sized "sharp layer" at the real zoom, drawn 150 ms after the fingers rest, uses
+  the other 1/3.
+- **Why:** a `LazyColumn` of images scaled with `graphicsLayer` fights the pinch for the fingers, and sharp text at 5×
+  would need page bitmaps 5 times wider (an A4 page at 5400 px is ~120 MB). The sharp layer keeps memory flat at any zoom,
+  and also makes a long receipt sharp when its page bitmap had to be narrow. RN's library caps at 2048 px and stays soft
+  above ~2×.
+- **Risk if wrong:** our own gesture code can feel different from Android's (fling speed, edge stop). Pinch was not
+  tried by a finger in this session: adb can't pinch. The numbers (2/3, 1/3, 1/8, 16 MB) are first guesses for low-end
+  phones.
+- **Other options:** tiles (pdf.js, Android's own PDF viewer): sharper while moving, more code; `androidx.pdf`: an alpha
+  library that needs Android 11+ (we support 7+).
+- **Evidence wanted:** on the Lava and a 2 GB phone, `dumpsys meminfo` while flinging the 50-page lab file and zooming,
+  and how pinch feels next to the RN app.
+
+## 84. The cache name leaves out the headers, and release builds take https only (PDF plugin, built)
+- **Where:** `PdfRules.fileName`, `PdfRules.urlAllowed`; README "Downloads"; guide notes §44.
+- **Chosen:** the file is `pdf-<sha256(url + key)>.pdf`, the same for any headers. A cached file is checked (it must
+  open), not downloaded again. Release builds refuse http; debug builds take http to localhost and 127.0.0.1 only.
+- **Why:** headers carry tokens that change at every login. With them in the name, every new login would download every
+  receipt again. ZeroBill's receipt URLs are per receipt, so two users never share a name. http in release would let a
+  network on the way change the receipt.
+- **Risk if wrong:** an app whose URL is the same for every user ("/me/statement.pdf") shows the last user's file to the
+  next one unless it calls `Pdf.cleanup({ olderThanMs: 0 })` at logout (README and guide notes say so). Also, a file
+  that changed on the server is not fetched again while the old one is on disk: use a new `key` for a new version.
+- **Other options:** put a hash of the headers in the name; send `If-None-Match` and check the server each time.
+- **Evidence wanted:** whether a ZeroBill receipt can change after it is first served (a corrected bill under the same
+  file key).
