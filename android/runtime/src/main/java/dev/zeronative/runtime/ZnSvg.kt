@@ -1207,7 +1207,7 @@ internal class ZnSvgDrawing(d: ZnSvgData) {
         private val fillOverride = LongArray(maxDepth + 1)
         private val strokeOverride = LongArray(maxDepth + 1)
         private val saved = IntArray(maxDepth + 1)
-        // Per depth (registry 12): the part stroke width / dash offset in force (NaN: none), and how much the parts in
+        // Per depth (registry 13): the part stroke width / dash offset in force (NaN: none), and how much the parts in
         // force scale (for non-scaling strokes, patterns and filters).
         private val widthOverride = FloatArray(maxDepth + 1)
         private val dashOverride = FloatArray(maxDepth + 1)

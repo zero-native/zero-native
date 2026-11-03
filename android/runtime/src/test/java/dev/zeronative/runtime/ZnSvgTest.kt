@@ -264,7 +264,7 @@ class ZnSvgTest {
 
     @Test
     fun nonScalingStrokeIsANegativeWidth() {
-        // vector-effect="non-scaling-stroke" (registry 12): the width is dp on screen, written negative.
+        // vector-effect="non-scaling-stroke" (registry 13): the width is dp on screen, written negative.
         val s = read("Z1 0 0 24 24 4 S - 1 c 1 0 1 -2.5 1 1 4 0 0 0 M0 0h4;").ops[0] as SvgShape
         assertTrue(s.strokeSpec!!.nonScaling)
         assertEquals(2.5f, s.strokeSpec.width)
@@ -274,7 +274,7 @@ class ZnSvgTest {
 
     @Test
     fun morphMixesKeyframes() {
-        // "MC|...|...": the compiler's morph (SvgPart morph, registry 12): one M and one C, two keyframes.
+        // "MC|...|...": the compiler's morph (SvgPart morph, registry 13): one M and one C, two keyframes.
         val m = ZnSvgMorph.parse("MC|0 0 3 0 6 0 9 0|0 0 3 3 6 6 9 9") { fail(it) }!!
         val out = FloatArray(8)
         m.mix(0f, out)

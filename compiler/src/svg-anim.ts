@@ -9,7 +9,7 @@
 //
 // What maps: opacity / fill-opacity / stroke-opacity, fill and stroke colours, transforms (rotate, scale, translate,
 // in that order), and the geometry of circles, ellipses and rects (cx, cy, r, rx, ry, x, y, width, height), which is
-// an exact scale and move of the drawn shape (a stroke keeps its width: the part scales its outline). Since registry 12
+// an exact scale and move of the drawn shape (a stroke keeps its width: the part scales its outline). Since registry 13
 // (docs/svg.md §16) also stroke-width, dashes (one dash with a long gap becomes trims; a fixed pattern moves with the
 // part's dashOffset) and `d` (a morph between paths with the same commands). SMIL begin chains ("a.end-0.1s") are
 // flattened into one repeating cycle. Everything else fails the build with a hint: moving along a path, filters,
@@ -1992,7 +1992,7 @@ export interface PartInfo {
 
 /**
  * The SvgPart props for every animated element (keyed by its id): rest values, pivot (viewBox units) and an
- * `animate` string in the template's timing format (registry 11, with "z" per-segment easings).
+ * `animate` string in the template's timing format (registry 13, with "z" per-segment easings).
  */
 export function motionParts(elements: AnimatedElement[], info: (id: string) => PartInfo | undefined): Map<string, Record<string, unknown>> {
   const out = new Map<string, Record<string, unknown>>()
@@ -2058,7 +2058,7 @@ export function motionParts(elements: AnimatedElement[], info: (id: string) => P
       animate.push(`${Prop[t.attr as "fill"].id}=${encode(t.track, true)}`)
     }
 
-    // Stroke width and dashes (registry 12), in viewBox units: the shape's own units scaled as its stroke is, or the
+    // Stroke width and dashes (registry 13), in viewBox units: the shape's own units scaled as its stroke is, or the
     // shape's own units when it keeps its matrix (a stroke under a stretch).
     const keep = part.stroke && similarityScale(el.ctm) === null
     const unit = keep ? 1 : Math.abs(similarityScale(el.ctm) ?? 1)

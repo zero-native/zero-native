@@ -425,7 +425,7 @@ describe("in TSX", () => {
     expect(byProp(props(n.children[1]!).animate)).toEqual({ opacity: "t1000e3~k1:0.2:1~m0:0.5:1~r-1" })
     expect(props(n).paused).toEqual({ $slot: "s0", default: null })
     expect(code).toContain("() => (busy())")
-    expect(writeTemplateFile(templates).registry).toBe(11)
+    expect(writeTemplateFile(templates).registry).toBe(13)
   })
 
   test("the screen's own part values merge with the file's motion; a second animate is an error", () => {

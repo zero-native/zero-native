@@ -22,6 +22,7 @@ export {
   each,
   insert,
   textInput,
+  latest,
   list,
   on,
   ready,

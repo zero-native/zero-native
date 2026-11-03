@@ -369,9 +369,9 @@ describe(".svg imports", () => {
     expect(props(dot!).stroke).toBe("#fff")
     expect(code).toContain("() => (brand()), 1)")
     // The registry accepts it: fill / stroke can change at runtime since v11.
-    expect(writeTemplateFile(templates).registry).toBe(11)
+    expect(writeTemplateFile(templates).registry).toBe(13)
   })
-  test("part motion: transforms turn around the part's centre, trims, animate with loops (registry 11)", () => {
+  test("part motion: transforms turn around the part's centre, trims, animate with loops (registry 13)", () => {
     const { templates, code } = compile(`import Logo from "./logo.svg"
 export function F() { return <Logo parts={{
   ring: { rotate: 360, animate: { rotate: { duration: 1000, easing: "linear", from: 0, repeat: "forever" } } },
@@ -387,7 +387,7 @@ export function F() { return <Logo parts={{
     expect(props(dot!).trimEnd).toEqual({ $slot: "s0", default: null })
     expect(props(dot!).paused).toEqual({ $slot: "s1", default: null })
     expect(code).toContain("() => (progress()), 0)")
-    expect(writeTemplateFile(templates).registry).toBe(11)
+    expect(writeTemplateFile(templates).registry).toBe(13)
     // A scale animated on the dot (a 10 × 10 box at x 60): its centre.
     const s = compile(`import Logo from "./logo.svg"\nexport function F() { return <Logo parts={{ dot: { animate: { scale: { duration: 400, keyframes: [1, 1.2, 1] } } } }} /> }`)
     expect(props(s.templates[0]!.children[0]!)).toMatchObject({ pivotX: 65, pivotY: 5 })

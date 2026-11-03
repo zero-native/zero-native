@@ -170,7 +170,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     internal val animate: ZnAnimate? = (p[Registry.Prop.ANIMATE] as String?)?.let(ZnAnimate::parse)
     internal val enter: ZnTransition? = (p[Registry.Prop.ENTER] as String?)?.let(ZnTransition::parse)
     internal val exit: ZnTransition? = (p[Registry.Prop.EXIT] as String?)?.let(ZnTransition::parse)
-    /** Loops and keyframes that play by themselves (registry 11): they need the per-instance chain. */
+    /** Loops and keyframes that play by themselves (registry 13): they need the per-instance chain. */
     internal val hasMotion = animate?.selfPlaying == true
     val paused = p[Registry.Prop.PAUSED] == true
 
@@ -207,7 +207,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val part = num(Registry.Prop.PART)?.toInt() ?: NONE
     val fill: Color? = color(Registry.Prop.FILL)
     val stroke: Color? = color(Registry.Prop.STROKE)
-    // <SvgPart> motion (registry 11): trims (0–1 of the line) and the point it turns around (viewBox units).
+    // <SvgPart> motion (registry 13): trims (0–1 of the line) and the point it turns around (viewBox units).
     val trimStart = num(Registry.Prop.TRIM_START) ?: 0f
     val trimEnd = num(Registry.Prop.TRIM_END) ?: 1f
     val trimOffset = num(Registry.Prop.TRIM_OFFSET) ?: 0f
@@ -215,7 +215,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         p.containsKey(Registry.Prop.TRIM_OFFSET)
     val pivotX = num(Registry.Prop.PIVOT_X) ?: 0f
     val pivotY = num(Registry.Prop.PIVOT_Y) ?: 0f
-    // <SvgPart> registry 12: stroke width and dash offset (viewBox units; NaN = the shapes' own), the outline
+    // <SvgPart> registry 13: stroke width and dash offset (viewBox units; NaN = the shapes' own), the outline
     // scale of one shape, and morphing (keyframe paths, and where it is in them; -1 = the shape's own path).
     val strokeWidth = num(Registry.Prop.STROKE_WIDTH) ?: Float.NaN
     val dashOffset = num(Registry.Prop.DASH_OFFSET) ?: Float.NaN

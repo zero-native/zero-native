@@ -123,6 +123,12 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-03: SVG branch merged with main; all SVG at registry 13 (Claude)
+- Main took registry 11 (Tabs) and 12 (pull to refresh) while SVG was built as 11–13 on its branch. None of it had
+  shipped, so all SVG entries (phases 1–4: components, props, dynamic props, the four formats) moved to 13, one number
+  (Pavan's call; second-opinions 73). Doc numbers moved too: guide §40 SVG → §42, components §10 → §12,
+  second-opinions SVG entries 44–66 → 50–72. Next free: registry 14 (the long press fix), then 15 (props pack 2).
+
 ### 2026-11-03: SVG phase 4 built (registry 13): effects, text, more motion, the known limits fixed (Claude)
 - **What:** still pictures with filters, masks, patterns, focal gradients, markers, blend modes, `paint-order`, nested
   `<svg>`, `<switch>` and simple `<text>`; animated files with `<animateMotion>` / CSS `offset-path`, `<set>`, `steps()`,
@@ -130,15 +136,16 @@ Parked ideas: `docs/after-foundations.md`.
   `begin="click"` (a tap on the Svg). Phase 2/3 limits fixed: trims on skewed shapes, nested trims, round-cap dots,
   non-scaling strokes under uneven scales, a group's `strokeWidth` over a child's own. Big SVGs read in the background
   after the first frame. Registry 13 (props 197–199, 250–252; formats "svg.effects", "timing.tap"). `docs/svg.md` §17;
-  guide §40; components §10; rn-compatibility rows; second-opinions 62–66.
+  guide §42; components §12; rn-compatibility rows; second-opinions 68–72.
 - **Corpus:** a new set of 78 real files (resvg tests, Meteocons, line-md, Fluent emoji) as fixtures: 75 compile, 3 refused
   on purpose. The loader corpus: 104 of 104 (was 100).
 - **Checked:** JS 829 tests, both type checks, Kotlin 168, lint (0 errors), sample debug build.
 - **On the Lava (debug and release):** every new tile draws and moves right; tap to start, pause, "Remove animations"
   and RTL work. Release: 8 s of loops 731 frames 0 janky (99th 16 ms), list flings 818 frames 0 janky (99th 15 ms).
   **Found and fixed:** filter RenderNodes were shared by every instance of an SVG, so list rows showed another size's
-  drawing; they are per Svg node now. **Found, not fixed (framework, older):** a `Pressable` whose `onPress` is
-  `undefined` throws "undefined is not a function" on tap (`on()` in `packages/core/src/view.ts`).
+  drawing; they are per Svg node now. **Found, fixed after the SVG commit (framework, older):** a `Pressable` whose
+  `onPress` was `undefined` threw "undefined is not a function" on tap. Handlers written as an expression are now read
+  at event time and an undefined one does nothing, as in RN (`latest()` in `packages/core/src/view.ts`; guide §5).
 - **Not checked yet:** TalkBack itself (the tree only), an Android 9–11 phone (the filter fallback).
 
 ### 2026-11-03: SVG phase 3 built (registry 12): stroke motion, morphing, non-scaling strokes, typed part names (Claude)
@@ -146,7 +153,7 @@ Parked ideas: `docs/after-foundations.md`.
   `.svg` parts, one-dash animations as exact trims, `vector-effect="non-scaling-stroke"`, path morphing (SMIL `d`, CSS
   `d: path()`), and `logo.d.svg.ts` part-name types. Registry 12 (props 192–196, format "svg.nonScaling"). Masks,
   patterns and "SVG by value" (remote files, icons the server picks; a later official plugin) are written down as later
-  (`docs/svg.md` §10). `docs/svg.md` §16; guide §40; components §10; rn-compatibility rows; second-opinions 57–61.
+  (`docs/svg.md` §10). `docs/svg.md` §16; guide §42; components §12; rn-compatibility rows; second-opinions 63–67.
 - **Corpus:** 100 of 104 real loaders compile (was 95); the 4 left use filters.
 - **Checked:** JS 821 tests, both type checks (a wrong part name fails in the sample), Kotlin 163, lint, sample debug build.
 - **Found while writing the docs, fixed:** a static non-scaling stroke would have asked for registry 11, which can't read it.
@@ -157,7 +164,7 @@ Parked ideas: `docs/after-foundations.md`.
 ### 2026-11-03: animated `.svg` files play (S.14) and SVG phase 2 checked on the phone (Claude)
 - **What:** SMIL (`<animate>`, `<animateTransform>`, `<set>`, begin chains) and CSS (`@keyframes`, `animation` shorthand and
   longhands, `transform-origin`) inside a `.svg` file compile into part animations. New timing option `z` (one easing per segment)
-  and a step easing. `docs/svg.md` §15, guide §40, components §10, rn-compatibility row, second-opinions entries 53–56.
+  and a step easing. `docs/svg.md` §15, guide §42, components §12, rn-compatibility row, second-opinions entries 59–62.
 - **Tests:** 104 real MIT loaders (svg-spinners SMIL + CSS, svg-loaders) as fixtures: 95 compile, the 9 refused are listed by name
   with their reason. SMIL and CSS copies of the same loader give the same motion. JS 403 tests, both type checks, Kotlin 143 tests,
   lint, sample debug build.
@@ -168,7 +175,47 @@ Parked ideas: `docs/after-foundations.md`.
   8 s: 734–739 frames, 0 janky. GPU median moved 11–19 ms between runs on the same screen (CPU at 56 °C), so read it as the phone's
   clock, not a code number. SVG code in release dex: 12.0 KB (phase 1: 6.6 KB); `ZnAnimation`: 9.4 KB.
 - **TalkBack labels** (read from the accessibility tree, TalkBack itself not turned on): every animated tile and loader has its label.
-- **Not checked yet:** "Remove animations" on imported files (some show empty, guide §40); TalkBack itself, by hand.
+- **Not checked yet:** "Remove animations" on imported files (some show empty, guide §42); TalkBack itself, by hand.
+
+### 2026-11-03: SVG phase 2 built: motion for every element, moving SVG parts (Claude)
+- **What:** timing options on every element (`repeat`, `reverse`, `from`, `delay`, `repeatDelay`, `keyframes` + `times`, bezier
+  easing), the element props `paused` and `replay`, `enter` / `exit` `delay`. SVG parts move (`rotate`, `scale`, `translateX` / `Y`
+  around their own centre) and draw themselves (`trimStart` / `trimEnd` / `trimOffset`), with per-part `animate`; inline elements take
+  the same props. Registry 11 (SVG moved from 10, which main took for the RN basics `ref`; second-opinions entry 58), with a new
+  `format` registry kind (entry 57). `docs/svg.md` §9, §15; guide §22, §42; components §12; rn-compatibility rows; entries 55–58.
+- **Checked:** JS 385 tests, both type checks, Kotlin 142 tests, lint, sample bundle build. The SVG lab has a Motion section.
+- **Not checked yet:** on the phone (looks, frame times, "Remove animations"). Animated `.svg` files (SMIL / CSS) are still refused;
+  an import is proposed (`docs/svg.md` §15).
+
+### 2026-11-03: SVG phase 1 built, static SVG (Claude; Kotlin by an Opus agent, reviewed)
+- **What:** `import Logo from "./logo.svg"` as a component, inline `<Svg>` with react-native-svg's names, runtime `color` and
+  `parts` (fill, stroke, opacity), `autoMirror`. Compiled at bundle build time into draw data, a string prop in `main.zn.ui`
+  (registry 10; host API and template format unchanged). A fixed subset; text, images, patterns, filters, CSS and SMIL fail the build
+  with a hint. `docs/svg.md` (§14 as built), guide §42, components §12, second-opinions entries 50–53.
+- **Checked:** JS 376 tests (59 new for SVG), Kotlin 139 tests, lint 0 errors, sample debug and R8 release build. The RN app's 27
+  `.svg` assets and 95 Material icons compile (180 KB → 112 KB). The draw data of 39 SVGs, turned back into SVG in the browser,
+  matches the originals (only anti-aliased edge pixels differ). SVG code: ~7.8 KB of release dex.
+- **Bug found by the new tests, fixed:** number pairs after `M x y` were read as moves, not lines.
+- **On the Lava:** the lab screen (`/dev/svg`) looks right and its taps work, in debug and release. Release cold start **176.5 ms**
+  median (same as before). A 23 KB SVG parses in 6–7 ms on a fresh install, 1.4 ms with AOT code (second-opinions entry 54).
+  Scrolling 20 full-width big SVGs: 0.6 % janky frames.
+- **Not checked yet:** TalkBack on the lab, right to left, an older Android version. Phase 2 (animated parts) waits for a check-in
+  with Pavan.
+
+### 2026-11-03: pull to refresh (Claude)
+- **What:** pull to refresh on a vertical `<Scroll>` and a `<List>` (gap #4 in `docs/rn-compatibility.md` §10; all four
+  ZeroBill home tabs use it). Controlled like RN: a pull sends `onRefresh`, JS owns `refreshing`. Flat props
+  (`refreshing`, `onRefresh`, `refreshColor`, `refreshBackground`), or RN's `refreshControl={<RefreshControl ... />}`,
+  which the compiler turns into the flat props. Compose foundation only (`ZnPullRefresh.kt`), no material3.
+- **Versions:** registry **12** (props `refreshing` 170, `refreshColor` 171, `refreshBackground` 172; event `onRefresh` 25).
+  Host API stays 8. The SVG branch (registry 11 too) must move to 13 when it merges.
+- **Docs:** guide §41, `docs/components.md`, `docs/lists.md`, `docs/rn-compatibility.md`, second-opinions 49.
+- **Checked** (second check by the tabs session, on main at `bac6d1c`): JS 740 tests + types, `gen:registry` gives no
+  change, Kotlin unit tests (7 new, pull numbers and the 1 s wait), lint 0 errors, sample debug and R8 release builds.
+  Lab: Dev → "Tabs", every tab (Pay and Rewards: flat props; Stores (List) and Offers: `<RefreshControl>`).
+- **On the Lava** (debug): `bun run tools/plugin-phone.ts tab pull --no-hands`: the 10 tabs steps and the 3 pull to
+  refresh steps passed (long pull refreshes once, short pull doesn't, a List and a Scroll across a tab switch, a pull on
+  a scrolled list scrolls it up and doesn't refresh), 13 of 13, 0 crashes.
 
 ### 2026-11-03: bottom tabs and focus (Claude)
 - **What:** tabs inside one screen, for the ZeroBill pilot's home (4 tabs, each loading its own data).

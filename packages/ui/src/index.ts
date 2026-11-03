@@ -112,7 +112,7 @@ type StyleInput = Style | false | null | undefined | StyleInput[]
 export type Easing = "standard" | "ease-out" | "ease-in" | "linear" | readonly [number, number, number, number]
 
 /**
- * Options every timing can have (registry 11). With `from` or `keyframes` the animation plays by itself when the
+ * Options every timing can have (registry 13). With `from` or `keyframes` the animation plays by itself when the
  * element appears (and again on `replay`); without them it plays when the value changes, as before.
  */
 export interface Motion {
@@ -165,7 +165,7 @@ export type Transition =
       duration?: number
       easing?: Easing
       spring?: { damping?: number; stiffness?: number }
-      /** Wait this many ms before it starts: a stagger for list rows (registry 11). */
+      /** Wait this many ms before it starts: a stagger for list rows (registry 13). */
       delay?: number
     }
 
@@ -264,7 +264,7 @@ export type SvgPartAnimatable =
   | "trimStart" | "trimEnd" | "trimOffset" | "strokeWidth" | "dashOffset"
 
 /**
- * How a part moves (registry 11): transforms in viewBox units and degrees, around the part's own centre; trims
+ * How a part moves (registry 13): transforms in viewBox units and degrees, around the part's own centre; trims
  * "draw the line" (0–1 of its length; a group's pieces count as one line). All can change at runtime, except animate.
  */
 export interface SvgPartMotion {
@@ -293,9 +293,9 @@ export interface SvgPartProps extends SvgPartMotion {
   fill?: Color
   stroke?: Color
   opacity?: number
-  /** The stroke width of every stroked shape inside it, in viewBox units (registry 12). Can change at runtime. */
+  /** The stroke width of every stroked shape inside it, in viewBox units (registry 13). Can change at runtime. */
   strokeWidth?: number
-  /** Moves the dashes of every dashed stroke inside it along the line, in viewBox units (registry 12). */
+  /** Moves the dashes of every dashed stroke inside it along the line, in viewBox units (registry 13). */
   dashOffset?: number
 }
 

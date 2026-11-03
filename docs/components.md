@@ -260,13 +260,8 @@ const tabs = useTabs("home")
 
 | Prop | Type | Dynamic Slot | Description |
 |---|---|---|---|
-| `size` | `number` | No | Width and height in dp. Or `style` width / height; with only one, the other comes from the viewBox. With none, the file's `width` / `height`, else the viewBox size. |
-| `style` | `Style` | As on any element | Size, margin, position; `opacity` and transforms can change at runtime. |
-| `color` | `Color` | Yes | The value of `currentColor`. The build fails if the SVG has none. |
-| `parts` | `{ [id]: { fill?, stroke?, opacity?, rotate?, scale?, scaleX?, scaleY?, translateX?, translateY?, trimStart?, trimEnd?, trimOffset?, strokeWidth?, dashOffset?, animate?, paused?, replay? } }` | Yes, per value (not `animate`) | Changes the element with that `id`. Unknown ids fail the build. `.svg` files only. Transforms are in viewBox units and degrees, around the part's own centre; trims are 0–1 of its line. `strokeWidth` / `dashOffset` (registry 12) are viewBox units. The build writes the names as types (`logo.d.svg.ts`, guide §40). |
-| `paused` / `replay` | `boolean` / `number` | Yes | On any element: stop its loops where they are; a new `replay` number plays them again. |
-| `autoMirror` | `boolean` | No | Flip left to right on right-to-left screens. |
-| `accessibilityLabel` / `accessibilityHidden` | `string` / `boolean` | As today | With a label, TalkBack reads it as an image; without, it is skipped. |
+| `selected` | `number` | Yes | The position of the child to draw (default 0). Pass `tabs.index()`. |
+| `style` | `Style` | No | Usually `flex: 1`. Padding and gap don't apply to the panels: put them inside each panel. |
 
 ### Behaviour
 - Children are the panels, one per tab, in the route's `tabs` order.
@@ -274,6 +269,51 @@ const tabs = useTabs("home")
   loaded data are kept. Its scroll positions are kept too, and come back when it is shown again.
 - A `NativeView` in a panel that is not selected is made again when the panel comes back (a WebView reloads).
 - The tab bar is not part of it: it is the app's own JSX. Details: `docs/guide-notes.md` §40.
+
+## 11. Pull to refresh on `<Scroll>` and `<List>` (registry 12)
+
+A vertical `<Scroll>` and a `<List>` take these props. Not on `<Scroll horizontal>` (build error).
+
+| Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|
+| `refreshing` | `boolean` | Yes | The spinner shows while true. Owned by JS: set it in `onRefresh`. |
+| `onRefresh` | `() => void` | (event) | A pull past the line ended. Without it there is no pull (only `refreshing` shows the spinner). |
+| `refreshColor` | `Color` | No | The arc. Default `#374151`. |
+| `refreshBackground` | `Color` | No | The round disc behind the arc. Default white. |
+| `refreshControl` | `<RefreshControl />` | No | React Native's shape; the compiler turns it into the props above. |
+
+### Behaviour
+- The disc slides down over the content (Android's look). The disc must come down 80 dp; it moves half as far as the
+  finger. Below that, letting go does nothing.
+- After the pull, the spinner shows at once and then follows `refreshing`. If `refreshing` is not true within 1 second,
+  it goes away.
+- A pull while the spinner shows does nothing. The pull runs natively: no JS until the finger is up.
+- Details and do / don't: `docs/guide-notes.md` §41.
+
+## 12. SVG: `.svg` files and `<Svg>` (registry 13; built as 11-13, first planned as 10)
+
+Compiled at build time into one node; drawn natively. Design and the supported subset: `docs/svg.md`. Author rules: `docs/guide-notes.md` §42.
+
+```tsx
+import Badge from "./svg/badge.svg"
+<Badge size={48} color={c.ink} parts={{ ring: { stroke: brand() } }} accessibilityLabel="Paid" />
+<Svg viewBox="0 0 64 64" size={64}><Circle cx={32} cy={32} r={28} fill="url(#g)" /></Svg>
+```
+
+| Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|
+| `size` | `number` | No | Width and height in dp. Or `style` width / height; with only one, the other comes from the viewBox. With none, the file's `width` / `height`, else the viewBox size. |
+| `style` | `Style` | As on any element | Size, margin, position; `opacity` and transforms can change at runtime. |
+| `color` | `Color` | Yes | The value of `currentColor`. The build fails if the SVG has none. |
+| `parts` | `{ [id]: { fill?, stroke?, opacity?, rotate?, scale?, scaleX?, scaleY?, translateX?, translateY?, trimStart?, trimEnd?, trimOffset?, strokeWidth?, dashOffset?, animate?, paused?, replay? } }` | Yes, per value (not `animate`) | Changes the element with that `id`. Unknown ids fail the build. `.svg` files only. Transforms are in viewBox units and degrees, around the part's own centre; trims are 0–1 of its line. `strokeWidth` / `dashOffset` (registry 12) are viewBox units. The build writes the names as types (`logo.d.svg.ts`, guide §42). |
+| `paused` / `replay` | `boolean` / `number` | Yes | On any element: stop its loops where they are; a new `replay` number plays them again. |
+| `autoMirror` | `boolean` | No | Flip left to right on right-to-left screens. |
+| `accessibilityLabel` / `accessibilityHidden` | `string` / `boolean` | As today | With a label, TalkBack reads it as an image; without, it is skipped. |
+
+Inline `<Svg>` also takes `viewBox`, `preserveAspectRatio`, `width`, `height` (RN's names) and the elements `G`, `Path`, `Rect`, `Circle`,
+`Ellipse`, `Line`, `Polyline`, `Polygon`, `Defs`, `LinearGradient`, `RadialGradient`, `Stop`, `ClipPath`, `Mask`, `Use` with react-native-svg's
+camelCase props. An element's `fill`, `stroke` or `opacity` may change at runtime; nothing else may. The part motion props above
+(`rotate`, `trimEnd`, `animate`, ...) also work on an inline element and make it a part.
 
 ### When to Use
 - **Do:** icons, logos, illustrations, gradient cards, simple charts with a fixed shape.

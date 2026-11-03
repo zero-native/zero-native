@@ -149,7 +149,7 @@ import { Svg, Defs, RadialGradient, Stop, Path, Circle, G } from "@zero-native/u
   redraws the one SVG and recomposes nothing.
 - Why `parts={{ ring: {...} }}` (grouped by part), and not `fill={{ ring: x }}` (grouped by attribute) or
   `<Part id="ring">` children: phase 2 adds per-part `animate`, which belongs with the part's other values; one prop
-  is easy to type per file later (§10); no new child rules. See `docs/second-opinions.md` entry 45.
+  is easy to type per file later (§10); no new child rules. See `docs/second-opinions.md` entry 51.
 
 ### 4.4 `Icon`
 - **Kept as it is** ([ui/index.ts:183](../packages/ui/src/index.ts:183)): registry entries are never removed, and
@@ -253,12 +253,17 @@ Z1 0 0 24 24 4 S c 1 - 1 0 1 0 M9.55 15.15l8.47-8.47q.3-.3.7-.3;
 
 **Why text and not binary:** the template file already stores strings, so the format of `.zn.ui`, the template
 reader and the bundle files don't change at all. **Why SVG path text and not our own cubic list** (changed while
-building, `docs/second-opinions.md` entry 47): the first version wrote every curve as absolute cubic numbers, and the
+building, `docs/second-opinions.md` entry 53): the first version wrote every curve as absolute cubic numbers, and the
 draw data came out *bigger* than the source SVG (the RN assets: 162 KB of SVG → 190 KB). Minified path text with
 `Q`, `T`, `A` kept is what design tools already optimise: the same assets are now 180 KB → 112 KB, and a Material icon
 ~450 bytes.
 
-## 7. Template and registry changes (registry 11; host API unchanged)
+## 7. Template and registry changes (registry 13; host API unchanged)
+
+**All SVG is registry 13 (2026-11-03, `docs/second-opinions.md` entry 73):** main took 11 for Tabs and 12 for pull to
+refresh while SVG was being built. Phases 1–4 were built as 11, 12 and 13; none had shipped, so every SVG entry now
+has since 13, one number for one feature. The ids did not change. Read "registry 11" or "registry 12" in the notes
+below about SVG as 13.
 
 **Renumbered 10 → 11 (2026-11-03):** main took registry 10 for the RN basics `TextField` `ref` while phase 1 was
 being built. The SVG entries moved to 11; the ids below did not change (no clash with main). Read "registry 10" in
@@ -269,7 +274,7 @@ at runtime), `scaleOutline` (194), `morph` (195), `morphAt` (196). The repo's ru
 also when the last one has not shipped (`docs/adding-components.md` §1). A bundle that uses none of them still asks
 for 11 (or less).
 
-**Where the draw data lives (decision, see `docs/second-opinions.md` entry 46):** as a string prop of the `Svg` node,
+**Where the draw data lives (decision, see `docs/second-opinions.md` entry 52):** as a string prop of the `Svg` node,
 inside `main.zn.ui`. The template writer already stores each distinct string once
 ([writer.ts:124](../packages/template/src/writer.ts:124)), so an icon used in 30 screens costs one copy. The `.svg`
 source stays in the app's source; its compiled form sits once in the bundle and is attached to every place that
@@ -491,7 +496,7 @@ agrees, §9), S.11 lab screen with a spinner, a gauge and a line drawing itself;
 | Clip edges look jagged on old Android versions | [check] on an older phone or emulator; else clip with a layer and `DstIn` |
 | Design tools export features we refuse, so authors hit build errors | Clear hints per feature (§5 table); the RN assets show the common cases pass |
 | The RN basics session takes the same registry ids | Renumber at the second merge (agreed); ids picked from the top of the range |
-| Draw data parse on the main thread at first draw for a huge SVG | Measure; if over ~4 ms, parse the bundle's SVGs on the I/O thread after the first frame (not before it, so cold start stays the same). **Measured:** a 23 KB SVG takes 6–7 ms on a fresh install, 1.4 ms with AOT code; kept on first draw for now (entry 48, §14). **Phase 4:** draw data of 8 KB or more is read on a background thread after the first frame ([ZnSvgCache.prefetch](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:688)); an SVG drawn before that still reads on first draw |
+| Draw data parse on the main thread at first draw for a huge SVG | Measure; if over ~4 ms, parse the bundle's SVGs on the I/O thread after the first frame (not before it, so cold start stays the same). **Measured:** a 23 KB SVG takes 6–7 ms on a fresh install, 1.4 ms with AOT code; kept on first draw for now (entry 54, §14). **Phase 4:** draw data of 8 KB or more is read on a background thread after the first frame ([ZnSvgCache.prefetch](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:688)); an SVG drawn before that still reads on first draw |
 
 ## 14. As built (phase 1, 2026-11-03)
 
@@ -510,7 +515,7 @@ Where the code is:
 - Sample: [SvgLab.tsx](../examples/sample/src/SvgLab.tsx:1), route `/dev/svg`, a row on the Dev screens list.
 
 What changed from the design above:
-- **Paths are SVG path text, arcs kept** (§6.1; second-opinions entry 47). For the iOS renderer later this means a
+- **Paths are SVG path text, arcs kept** (§6.1; second-opinions entry 53). For the iOS renderer later this means a
   small SVG-path reader with an arc → cubic helper (about 80 lines), not "plain cubics only".
 - **Precision is 1/2,000 of the viewBox's larger side** (the design said 1/10,000). At 1/2,000 a 24 dp icon is exact
   to 0.012 dp, far below a pixel; it saved ~10 % more data (125 → 112 KB on the RN assets).
@@ -541,7 +546,7 @@ On the Lava (2026-11-03, release R8 build unless it says debug):
   | the wallet card | 1.2 KB | ~0.5 ms | ~0.1 ms | ~0.02 ms |
   | a Material icon | 0.3–0.6 KB | 0.13–0.5 ms | 0.03–0.1 ms | 0.01–0.05 ms |
   The first parse of a big SVG on a fresh install is over the ~4 ms line in §13. Not changed for now
-  (`docs/second-opinions.md` entry 48).
+  (`docs/second-opinions.md` entry 54).
 - **Scrolling** (`dumpsys gfxinfo`, 90 Hz screen, fast flings): the 60-row list with an icon per row, 5 janky frames
   of 641 (0.8 %), median frame 7 ms. A stress list of 20 full-width copies of the 23 KB illustration: 5 janky of 825
   (0.6 %), median 15 ms, GPU median 9 ms. The few janky frames come at the start of flings in both, so they don't
@@ -810,7 +815,7 @@ JS 829 tests (both corpora by name, exact encodings for each new rule, the refus
 - **Release:** the template file reads in 65 ms (480 ms in debug). 8 s with every loop on screen: 731 frames, 0 janky,
   99th percentile 16 ms. Fast flings over the 60 shadowed list rows: 818 frames, 0 janky, 99th percentile 15 ms.
 - Accessibility tree: tiles read by their labels, the heart by its own. The SVG text became the label as planned, which
-  made every list row start with "₹"; the lab now hides that decorative coin (`accessibilityHidden`, guide §40).
+  made every list row start with "₹"; the lab now hides that decorative coin (`accessibilityHidden`, guide §42).
 - **Found and fixed:** a filter's `RenderNode` lived in the parsed drawing, which every instance shares. A RenderNode is
   drawn by reference, so the list's 32 dp coins showed the disc recorded for the 40 dp coin (wrong size and place). The
   nodes now belong to each Svg node on screen and are freed when it leaves

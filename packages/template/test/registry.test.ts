@@ -35,7 +35,8 @@ describe("registry changes follow the OTA rules", () => {
   test("something new with since = the new REGISTRY_VERSION is fine", () => {
     const lock = fresh()
     lock.version = REGISTRY_VERSION - 1
-    delete lock.entries["prop:trimCaps"] // one of the newest entries (since 13)
+    // The newest entries (since REGISTRY_VERSION), as if they were all added now.
+    for (const [k, e] of Object.entries(lock.entries)) if (e.since === REGISTRY_VERSION) delete lock.entries[k]
     expect(registryProblems(lock)).toEqual([])
   })
 

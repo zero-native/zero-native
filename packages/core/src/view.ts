@@ -72,6 +72,18 @@ export function on(inst: Instance, eventId: number, handler: (payload: NativeVal
   onCleanup(onEvent(inst.id, eventId, (payload) => runWithOwner(owner, () => handler(payload))))
 }
 
+/**
+ * An event prop that is not a function written in place (`onPress={props.onPress}`, `onPress={busy() ? undefined : pay}`).
+ * As in React Native, the event runs the handler the prop holds at that moment, and does nothing when it holds
+ * `undefined` or `null` (RN's Pressability: `if (onPress != null) onPress(event)`). [get] reads the prop.
+ */
+export function latest(get: () => unknown): (payload: NativeValue) => void {
+  return (payload) => {
+    const h = untrack(get)
+    if (h != null) (h as (payload: NativeValue) => void)(payload)
+  }
+}
+
 /** Sends MOUNT for a JS-mounted instance, with the slot values collected so far. Safe to call twice. */
 export function ready(inst: Instance): void {
   if (!inst.collecting || !inst.mount) {

@@ -18,14 +18,17 @@ export const REGISTRY_VERSION = 13 // 2: Anchor. 3: transforms, shadow, absolute
 //    accessibilityLabel, accessibilityRole, maxFontScale.
 // 9: NativeView, a plugin's Compose view inside a screen (docs/plugins.md §5): viewName, viewProps, onNativeEvent.
 // 10: TextField `ref` (RN basics pack): focus(), blur(), clear() from JS; focus changes come back on its event id.
-// 11: SVG (docs/svg.md): Svg, SvgPart, svg, part, fill, stroke (fill and stroke can change at runtime), autoMirror;
-//     trimStart / trimEnd / trimOffset, pivotX / pivotY. Timing options for every animation (format "timing.motion":
-//     delay, repeat, reverse, keyframes, cubic-bezier easing) and the element props paused / replay.
-// 12: SVG phase 3 (docs/svg.md §16): SvgPart strokeWidth / dashOffset (can change at runtime), scaleOutline,
-//     morph / morphAt (for animated .svg files).
-// 13: SVG phase 4 (docs/svg.md §17): draw data with masks, patterns, filters, text, focal gradients, paint-order and
-//     blend modes (format "svg.effects"); SvgPart motionPath / motionAt (animateMotion), skewX / skewY, frame,
-//     trimCaps; animations that start on a tap (format "timing.tap").
+// 11: Tabs, a container that draws only its selected child (docs/guide-notes.md §40): selected.
+// 12: pull to refresh on a vertical Scroll and on List (docs/guide-notes.md §41): refreshing, refreshColor,
+//     refreshBackground, onRefresh.
+// 13: SVG (docs/svg.md; phases 1-4 built as 11-13 on their branch, moved to one number before any shipped):
+//     Svg, SvgPart, svg, part, fill, stroke (fill and stroke can change at runtime), autoMirror; trimStart / trimEnd /
+//     trimOffset, pivotX / pivotY. Timing options for every animation (format "timing.motion": delay, repeat,
+//     reverse, keyframes, cubic-bezier easing) and the element props paused / replay. SvgPart strokeWidth /
+//     dashOffset (can change at runtime), scaleOutline, morph / morphAt (§16). Draw data with masks, patterns,
+//     filters, text, focal gradients, paint-order and blend modes (format "svg.effects"); non-scaling strokes
+//     (format "svg.nonScaling"); SvgPart motionPath / motionAt (animateMotion), skewX / skewY, frame, trimCaps;
+//     animations that start on a tap (format "timing.tap") (§17).
 
 export const Component = {
   Column: 1,
@@ -230,6 +233,16 @@ export const Prop = {
   viewName: { id: 147, type: "string" },
   /** <NativeView props={...}>: the props as JSON text. */
   viewProps: { id: 148, type: "string" },
+  /** <Tabs>: the position of the child to draw (default 0). */
+  selected: { id: 149, type: "number" },
+  // Pull to refresh (vertical Scroll, List). Ids from the middle of Claude's range, so a branch taking the next free id
+  // (150) doesn't clash.
+  /** Whether the list is refreshing (the spinner shows). Owned by JS: a pull sends onRefresh, JS sets this. */
+  refreshing: { id: 170, type: "bool" },
+  /** The spinner's arc (RN RefreshControl `colors[0]` / `tintColor`). Default: dark grey. */
+  refreshColor: { id: 171, type: "color" },
+  /** The round disc behind the arc (RN `progressBackgroundColor`). Default: white. */
+  refreshBackground: { id: 172, type: "color" },
   // SVG (docs/svg.md). Ids from the top of Claude's range, so a parallel branch taking the next free ids doesn't clash.
   /** <Svg>: the draw data the compiler made from the SVG (format: compiler/src/svg-data.ts). */
   svg: { id: 180, type: "string" },
@@ -405,6 +418,8 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "editable",
   "accessibilityLabel",
   "viewProps",
+  "selected",
+  "refreshing",
   "fill",
   "stroke",
   "trimStart",
@@ -441,20 +456,21 @@ export const Added: {
   /** A newer form of a string prop's value (key: a name in [Formats]). */
   format: Partial<Record<FormatName, number>>
 } = {
-  component: { NativeView: 9, Svg: 11, SvgPart: 11 },
+  component: { NativeView: 9, Tabs: 11, Svg: 13, SvgPart: 13 },
   prop: {
-    viewName: 9, viewProps: 9, svg: 11, part: 11, fill: 11, stroke: 11, autoMirror: 11,
-    trimStart: 11, trimEnd: 11, trimOffset: 11, pivotX: 11, pivotY: 11, paused: 11, replay: 11,
-    strokeWidth: 12, dashOffset: 12, scaleOutline: 12, morph: 12, morphAt: 12,
+    viewName: 9, viewProps: 9, selected: 11, refreshing: 12, refreshColor: 12, refreshBackground: 12,
+    // SVG phases 1-4 (built as 11-13 on their branch; one number, as none shipped).
+    svg: 13, part: 13, fill: 13, stroke: 13, autoMirror: 13, trimStart: 13, trimEnd: 13, trimOffset: 13, pivotX: 13,
+    pivotY: 13, paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13, scaleOutline: 13, morph: 13, morphAt: 13,
     motionPath: 13, motionAt: 13, skewX: 13, skewY: 13, frame: 13, trimCaps: 13,
   },
   dynamic: {
-    viewProps: 9, fill: 11, stroke: 11, trimStart: 11, trimEnd: 11, trimOffset: 11, paused: 11, replay: 11, strokeWidth: 12,
-    dashOffset: 12,
+    viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
+    paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13,
   },
   enumValue: {},
-  event: { onNativeEvent: 9, ref: 10 },
-  format: { "timing.motion": 11, "svg.nonScaling": 12, "svg.effects": 13, "timing.tap": 13 },
+  event: { onNativeEvent: 9, ref: 10, onRefresh: 12 },
+  format: { "timing.motion": 13, "svg.nonScaling": 13, "svg.effects": 13, "timing.tap": 13 },
 }
 
 /**

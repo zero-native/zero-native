@@ -538,7 +538,100 @@ change, and what evidence would make you change it?"
 - **Why:** ZeroBill reloads a tab's data on focus, so the cashback balance is fresh after a payment.
 - **Not done:** focus does not follow the app going to the background (React Navigation doesn't either). Use `onAppState`.
 
-## 49. `repeat` counts all plays, not extra ones (motion, registry 11)
+## 49. Pull to refresh: drawn on the list itself, Android's look, a 1 second wait for JS (registry 12)
+- **Where:** `android/runtime/.../ZnPullRefresh.kt`, `ZnRenderer.kt` (vertical `Scroll`, `ZnLazyList`),
+  `compiler/src/compile.ts` `refreshControl()`.
+- **Chosen:**
+  - Compose foundation only. The pull is the scroll left over at the top (a `NestedScrollConnection`). The disc is
+    drawn with `drawWithContent` on the Scroll's / LazyColumn's own modifier chain, not in a wrapper `Box`, so the
+    layout rules (flex, stretch) stay exactly as before. The disc's position is read only while drawing (no
+    recomposition during a pull); `refreshing` is read in a `snapshotFlow`, so a change doesn't recompose the list.
+  - Android's look: the content doesn't move, a disc slides over it. Line 80 dp, the disc moves at half the finger's
+    speed, past the line at half again, up to 120 dp. Like material3's numbers, drawn by hand (no material shadow:
+    two faint rings).
+  - Controlled (ARCHITECTURE §9.7): a release past the line sends `onRefresh` and shows the spinner at once; then
+    `refreshing` decides. If JS doesn't set `refreshing` to true within **1 second**, the spinner goes away.
+  - A pull only starts while the spinner is hidden; a fling that ends a pull is eaten (the content doesn't jump).
+  - React Native's `refreshControl={<RefreshControl .../>}` is turned into the flat props by the compiler (Pavan: do it if
+    easy). It must be written inside the prop: RN code that keeps it in a variable needs a small edit.
+- **Why:** a wrapper box would change how a `flex: 1` list is measured, and material3 would add ~1 MB and a second
+  design system. The wait lets a refresh that never sets `refreshing` still end cleanly.
+- **Risk if wrong:** a JS thread blocked for over 1 second (a long GC pause) after a pull makes the spinner go away and
+  come back when `refreshing` arrives. A sync `onRefresh` that sets true and false in the same turn shows the spinner
+  for 1 second. iOS: SwiftUI's `.refreshable` moves the content; it maps as "send onRefresh, then await `refreshing`
+  false" [check when iOS starts].
+- **Not done:** `progressViewOffset` (where the disc rests, for a header drawn over the list), `size`, `enabled`. Add
+  when a screen needs them.
+
+## 50. SVG is compiled at build time and drawn by our own small interpreter (SVG design, not built)
+- **Where:** `docs/svg.md` §3, §5, §6, §8.
+- **Chosen:** the compiler reads `.svg` files and inline `<Svg>` at bundle build time, checks them against a fixed subset, and writes
+  compact draw data. The phone draws it with Compose `DrawScope` calls (paths, strokes, gradient shaders, clips, layers). No XML on the
+  phone, no SVG library. Text, images, patterns, filters, non-trivial masks and SMIL fail the build with a hint.
+- **Why:** OTA needs data, not APK resources (rules out VectorDrawable); parsing XML on the phone costs cold start and a library
+  (AndroidSVG); Compose's `ImageVector` has no group opacity, dashes or gradient matrix, and keeps a bitmap per instance. ZeroBill's 27 SVG
+  files and 13 inline SVGs use nothing outside the subset except one pattern and one Figma mask (which the compiler turns into a clip).
+- **Risk if wrong:** our drawing differs from browsers in a corner case (stroke joins under skew, gradient spread, clip smoothness on old
+  Android), or authors hit build errors for exports we refuse. A library would cover more features for free.
+- **Other options:** AndroidSVG at runtime (more features, ~100+ KB, parse per start); a WebView (no); bitmaps exported at build time
+  (lose runtime colours and animation).
+- **Evidence wanted:** a side-by-side check of real SVGs (S.4, S.5 in `docs/svg.md`), and how many real files fail the build.
+
+## 51. SVG part overrides are one `parts` prop, grouped by part (SVG design, not built)
+- **Where:** `docs/svg.md` §4.3.
+- **Chosen:** `<Logo parts={{ ring: { fill: brand() }, dot: { opacity: 0.4 } }} />`. Each value is a slot when it changes at runtime; the
+  compiler writes one `SvgPart` template node per part. A part's `fill` / `stroke` replaces the paint of every shape inside it.
+- **Why:** phase 2 adds per-part `animate`, which belongs next to the part's values; one prop can later be typed per file; no new child
+  rules in JSX.
+- **Risk if wrong:** a nested object prop is new in zn (only `<NativeView props>` is close). The lead session's first idea,
+  `fill={{ ring: brand }}`, is shorter for one colour.
+- **Other options:** per-attribute maps (`fill={{ ring }}`, `opacity={{ dot }}`); `<Part id="ring" fill={...} animate={...} />` children
+  (reuses the existing `style` / `animate` props exactly, but part names can't be typed and children get special rules).
+- **Evidence wanted:** how screens look after porting the RN app's 13 inline SVG files.
+
+## 52. SVG draw data lives in the template file, not in its own file (SVG design, not built)
+- **Where:** `docs/svg.md` §6.1, §7.
+- **Chosen:** the draw data is an ASCII string prop of the `Svg` node in `main.zn.ui`. The template writer stores each distinct string
+  once, and the phone parses an SVG only when it is first drawn (cached per string, shared by all instances).
+- **Why:** no change to the template format, bundle files, bundle loading, OTA checks or signing; an older app never meets a new file.
+  Pavan's wish that the `.svg` "exists in the output and is attached where it's used" holds: one copy per bundle, used by every node.
+- **Risk if wrong:** template reading decodes all SVG strings at cold start (estimated a fraction of a ms per 100 KB, not measured);
+  choosing an SVG by a runtime value would have to send the whole string through the bridge, so phase 1 offers only ternaries.
+- **Other options:** a `main.zn.svg` pack file, read with the templates and indexed by number (cheap runtime choice, but a new bundle
+  file that `ZnBundles`, OTA bundles and the start path must handle); binary data in the template (~30 % smaller, needs a new value kind).
+- **Evidence wanted:** `main.zn.ui` size and template read time with the lab screen (S.6), and whether real apps need runtime choice.
+- **Update (built, 2026-11-03):** the "~30 % smaller binary" number was a guess for the first format (absolute cubics). The built format
+  writes paths as SVG path text (entry 53), which is already compact; a binary form would now save much less.
+
+## 53. SVG paths are written as minified SVG path text, arcs kept (SVG phase 1, built)
+- **Where:** `docs/svg.md` §6.1, §14; `compiler/src/svg-data.ts` (`writePath`); `ZnSvg.kt` reads paths with Compose's `PathParser`.
+- **Chosen:** each path is SVG path data (`M9.55 15.15l8.47-8.47q.3-.3.7-.3`), relative or absolute per command (whichever is shorter),
+  with `Q`, `T`, `S`, `H`, `V` and `A` kept. Arcs become cubics only when a transform changes their shape. Numbers are rounded to
+  1/2,000 of the viewBox's larger side, and relative steps are taken between rounded points, so rounding never adds up.
+- **Why:** the first version (absolute `M L C Z` only, as the design said) made draw data bigger than the source: 162 KB of RN assets
+  became 190 KB, icons ~1.2 KB each. Path text: 180 KB → 112 KB, icons ~450 B. Compose's `PathParser` (already used by `Icon`) reads it,
+  so the phone code stayed small.
+- **Risk if wrong:** the phone depends on `PathParser`'s reading of minified paths (it is lenient: a bad path may draw wrong rather than
+  fail); the iOS renderer later needs its own path reader with arcs. A rounding error near a sharp corner at 1/2,000 (0.012 dp on a
+  24 dp icon) is far below a pixel.
+- **Other options:** absolute cubics (simplest reader, biggest data); a binary path form (smaller, new value kind in the template format).
+- **Evidence wanted:** the lab screen on the Lava next to the source SVGs. The browser side-by-side check of 39 files (draw data turned back
+  into SVG) showed no strong pixel differences. **Update:** the lab looks right on the Lava (debug and release).
+
+## 54. A big SVG is still parsed on the main thread at its first draw (SVG phase 1, measured on the Lava)
+- **Where:** `docs/svg.md` §13, §14; `ZnSvgCache.get` in `ZnSvg.kt`.
+- **Chosen:** no change. Each distinct SVG is parsed when it is first drawn, on the main thread, and cached.
+- **Measured:** a 23 KB SVG (~400 shapes) parses in 6.3–7.3 ms right after an adb install (no AOT code), 1.4–1.5 ms after
+  `compile -m speed`. Icons: 0.13–0.5 ms, then 0.03–0.1 ms. The design said: move parsing off the main thread above ~4 ms.
+- **Why not now:** the slow case is uncompiled code, which hits every zn screen the same way, not only SVG; real apps have few SVGs that
+  big (the largest RN asset is 30 KB of XML, about 20 KB of draw data); and a background parse needs a "not ready yet" frame, which can
+  flash. The bigger win for all screens would be a baseline profile for the runtime (none exists today).
+- **Risk if wrong:** one dropped frame (90 Hz: 11 ms budget) the first time a big illustration shows after an install or update.
+- **Other options:** parse every SVG of the bundle on the I/O thread after the first frame; a baseline profile with the SVG reader and
+  Compose's `PathParser` in it.
+- **Evidence wanted:** first-draw time of a real big illustration on a Play-installed build (cloud profiles), and on a slower phone.
+
+## 55. `repeat` counts all plays, not extra ones (motion, registry 11)
 - **Where:** `docs/svg.md` §9; `timing()` in `compiler/src/compile.ts`; `motionAt` in `ZnAnimation.kt`.
 - **Chosen:** `repeat: 2` plays twice in all; `"forever"` loops. Same as CSS `animation-iteration-count`, Compose `repeatable(iterations)`,
   RN `Animated.loop({ iterations })` and Reanimated `withRepeat(x, n)`.
@@ -548,7 +641,7 @@ change, and what evidence would make you change it?"
 - **Other options:** `iterations` as the name (clearer, longer); `repeat` as extra plays (like GSAP).
 - **Evidence wanted:** what authors write first in the lab and in ZeroBill screens; any confusion in review.
 
-## 50. `paused` and `replay` are element props, not timing options (motion, registry 11)
+## 56. `paused` and `replay` are element props, not timing options (motion, registry 11)
 - **Where:** `docs/svg.md` §9; `Base` in `packages/ui/src/index.ts`; `znMotionInputs` in `ZnAnimation.kt`.
 - **Chosen:** `<Box paused={p()} replay={n()} animate={...} />`. They change at runtime (slots). The timing inside `animate` stays build-time.
   The approved plan listed `paused` with the timing options; it moved while building.
@@ -558,7 +651,7 @@ change, and what evidence would make you change it?"
 - **Other options:** a runtime `animate`; a `paused` per prop (`animate={{ rotate: { ..., paused } }}`) compiled to a slot per prop.
 - **Evidence wanted:** a real screen that needs per-prop pause.
 
-## 51. A new registry entry kind, `format`, for new forms inside a string value (motion, registry 11)
+## 57. A new registry entry kind, `format`, for new forms inside a string value (motion, registry 11)
 - **Where:** `Formats` in `packages/template/src/registry.ts`; the check in `writer.ts`; `registry.lock.json` (`format:timing.motion`).
 - **Chosen:** the `~` options in a timing string (`95=t1000e3~f0~r-1`) are a "format" added in registry 11. The writer raises the
   bundle's registry to 11 only when a value uses them; an old-style `animate` still asks for the old registry.
@@ -571,7 +664,7 @@ change, and what evidence would make you change it?"
 - **Other options:** a new prop (`animateMotion`) for the new form; always raising the registry for any `animate`.
 - **Evidence wanted:** none; review the idea once.
 
-## 52. SVG moved from registry 10 to 11 (motion, 2026-11-03)
+## 58. SVG moved from registry 10 to 11 (motion, 2026-11-03)
 - **Where:** `packages/template/src/registry.ts` (history comment), `registry.lock.json`, `Registry.kt`; `docs/svg.md` §7.
 - **Chosen:** main took registry 10 for the RN basics `TextField` `ref` (event id 16). The SVG branch's entries are now in 11. The ids did
   not change and do not clash with main's.
@@ -584,7 +677,7 @@ change, and what evidence would make you change it?"
   used twice. The RN basics pack had also taken second-opinions 38–43 and guide §39, so the SVG entries moved to 44–56 and the SVG guide
   section to §40, with every link fixed.
 
-## 53. Animated .svg files: geometry becomes a scale and a move (S.14, built)
+## 59. Animated .svg files: geometry becomes a scale and a move (S.14, built)
 - **Where:** `docs/svg.md` §15; `motionParts` in `compiler/src/svg-anim.ts`.
 - **Chosen:** SMIL / CSS changes to `cx`, `cy`, `r`, `rx`, `ry`, `x`, `y`, `width`, `height` on a circle, ellipse or rect with no stroke become
   the part's scale and translate around the shape's centre. A size that starts at 0 is baked at its largest and scaled down. The same
@@ -597,7 +690,7 @@ change, and what evidence would make you change it?"
   but a new draw-data form and runtime code.
 - **Evidence wanted:** files that people actually bring with stroked growing shapes (`puff`, `ball-triangle` in the corpus).
 
-## 54. SMIL begin chains are solved at build time into one cycle (S.14, built)
+## 60. SMIL begin chains are solved at build time into one cycle (S.14, built)
 - **Where:** `solveBegins`, `smilTiming`, `mergeSame` in `compiler/src/svg-anim.ts`.
 - **Chosen:** every SMIL start time over the first 120 s is worked out (offsets, `x.begin`, `x.end`, restarts). A series that repeats
   evenly becomes one loop: period P, its first start as `delay`, and the wait as a hold inside the cycle. Several animations of one
@@ -609,7 +702,7 @@ change, and what evidence would make you change it?"
 - **Other options:** a small SMIL timeline engine on the phone (exact, more runtime code, per-frame work).
 - **Evidence wanted:** a loader that looks wrong in the lab next to the browser.
 
-## 55. Third-party SVG files live in the repo as test fixtures (S.14)
+## 61. Third-party SVG files live in the repo as test fixtures (S.14)
 - **Where:** `compiler/test/fixtures/animated-svg/` (104 files, with each set's MIT licence), `examples/sample/src/svg/loaders/` (6).
 - **Chosen:** keep unchanged copies with their licence files and a README naming source and commit, so the corpus test runs offline
   and lists each refused file by name. The sample's six copies only add `fill="currentColor"`.
@@ -618,19 +711,19 @@ change, and what evidence would make you change it?"
 - **Other options:** fetch the corpus in CI (network in tests), or our own handmade SVGs only (misses what real files do).
 - **Evidence wanted:** a licence check before the public repo.
 
-## 56. One easing per keyframe segment, and a step easing, in the timing format (S.14, registry 11)
+## 62. One easing per keyframe segment, and a step easing, in the timing format (S.14, registry 11)
 - **Where:** the `z` option in `ZnTiming` (`android/runtime/.../ZnAnimation.kt`), `encode` in `compiler/src/svg-anim.ts`.
 - **Chosen:** `~z<seg:seg>`, one easing per segment between keyframes (`3` linear, `5` step, `4,x1,y1,x2,y2` a curve).
   Easing id 5 is a new step (holds the start value, jumps at the end). `fill-opacity` / `stroke-opacity` go into the colour's
   alpha, not the part's opacity.
 - **Why:** SMIL `keySplines` and CSS per-keyframe timing need it (16 corpus files), and `calcMode="discrete"` / `step-end`
-  need a step. Registry 11 is not shipped yet, so it is a free change to the format (entry 51). A fill-only fade must not fade the stroke.
+  need a step. Registry 11 is not shipped yet, so it is a free change to the format (entry 57). A fill-only fade must not fade the stroke.
 - **Risk if wrong:** a phone on an older runtime reading a newer template ignores `z` (unknown options are skipped) and plays
   every segment with one easing: a wrong curve, not a crash.
 - **Other options:** split each segment into its own sub-animation (many more parts), or bake the curve into many keyframes (big strings).
 - **Evidence wanted:** none before shipping; the lab's Ring and Bars loaders use it.
 
-## 57. SVG phase 3 is registry 12, though 11 has not shipped (2026-11-03)
+## 63. SVG phase 3 is registry 12, though 11 has not shipped (2026-11-03)
 - **Where:** `packages/template/src/registry.ts` (ids 192–196), `registry.lock.json`, `Registry.kt`; `docs/svg.md` §7.
 - **Chosen:** raise to 12, as `docs/adding-components.md` §1 says (once per step). `gen:registry` refuses new entries at a
   version the lock already has.
@@ -639,7 +732,7 @@ change, and what evidence would make you change it?"
 - **Other options:** hand-edit the lock to add them to 11 (fewer numbers, but breaks the rule the tests check).
 - **Evidence wanted:** none.
 
-## 58. One animated dash becomes trims, cut at the line's ends (phase 3, built)
+## 64. One animated dash becomes trims, cut at the line's ends (phase 3, built)
 - **Where:** `bakeStroke` and `clampSplit` in `compiler/src/svg-anim.ts`; `docs/svg.md` §16.
 - **Chosen:** when every keyframe has one dash and a gap at least as long as the line (and the offset keeps other dashes
   away), the visible piece is `[-offset, dash - offset]` along the line, clamped to it. That becomes `trimStart` /
@@ -653,7 +746,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** a file with a moving multi-dash pattern that people want; then `dashOffset` plus animated dash
   lengths.
 
-## 59. Morphs are mixed number by number in one cubic form (phase 3, built)
+## 65. Morphs are mixed number by number in one cubic form (phase 3, built)
 - **Where:** `cubicForm` in `compiler/src/svg-anim.ts`; `ZnSvgMorph` in `ZnSvg.kt`.
 - **Chosen:** every keyframe is written as M / C / Z (lines and arcs become cubics, exactly), and keyframes must have the
   same commands. The part's `morphAt` (an ordinary animated number) says where it is; -1 is the shape's own `d`.
@@ -664,7 +757,7 @@ change, and what evidence would make you change it?"
 - **Other options:** resample both paths to the same number of points at build time (works on any pair, not exact).
 - **Evidence wanted:** real files that fail with "the paths of this morph don't match".
 
-## 60. Part name types are generated files next to each .svg, not committed (phase 3, built)
+## 66. Part name types are generated files next to each .svg, not committed (phase 3, built)
 - **Where:** `writeSvgTypes` in `compiler/src/compile.ts`; `.gitignore`; the sample's tsconfig.
 - **Chosen:** `logo.d.svg.ts` beside `logo.svg`, written when a TSX file imports it (only when it changes), and ignored by
   git. TypeScript's `allowArbitraryExtensions` picks it up before the `*.svg` wildcard.
@@ -675,7 +768,7 @@ change, and what evidence would make you change it?"
 - **Other options:** one generated `svg-types.d.ts` per app (needs a module name per file); commit the files.
 - **Evidence wanted:** Pavan's view on files in source folders.
 
-## 61. A non-scaling stroke is a negative width in the draw data (phase 3, built)
+## 67. A non-scaling stroke is a negative width in the draw data (phase 3, built)
 - **Where:** `svg.ts` shape(), `svg-data.ts` writer, `ZnSvgReader.strokeSpec` and `strokeFor` in `ZnSvg.kt`.
 - **Chosen:** no new token in format v1: a negative width means "that many dp". The phone divides by the scale in force
   (viewBox to screen, the shape's matrix, the parts' scales) each draw.
@@ -687,7 +780,7 @@ change, and what evidence would make you change it?"
 - **Other options:** a flag token after the stroke, or a new format version Z2.
 - **Evidence wanted:** none more.
 
-## 62. `begin="click"` starts on a tap anywhere on the Svg (phase 4, built)
+## 68. `begin="click"` starts on a tap anywhere on the Svg (phase 4, built)
 - **Where:** `solveBegins` in `compiler/src/svg-anim.ts` (the `~w` timing option); `ZnSvg` composable (`pointerInput`)
   and `znMotion` in `ZnAnimation.kt`; `docs/svg.md` §17.
 - **Chosen:** a browser starts a `click` animation when the named element is clicked. We start it on a tap anywhere on the
@@ -700,7 +793,7 @@ change, and what evidence would make you change it?"
 - **Other options:** hit-test the clicked element's shape; refuse `click` and ask for `replay`.
 - **Evidence wanted:** a real file with more than one click target.
 
-## 63. Filters below Android 12 draw a plain shadow, not a blur (phase 4, built)
+## 69. Filters below Android 12 draw a plain shadow, not a blur (phase 4, built)
 - **Where:** `ZnSvgEffects.drawFiltered`; the shadow list at the end of each "FL" in `svg-data.ts`; `docs/svg.md` §17.
 - **Chosen:** Android 12+ runs the filter as a `RenderEffect`. Older phones draw the group without the filter, under the
   plain drop shadows the compiler found in it (`BlurMaskFilter`, Android 9+). A blur alone draws sharp.
@@ -711,7 +804,7 @@ change, and what evidence would make you change it?"
 - **Other options:** blur once into a cached bitmap (fine for still pictures, not for moving ones); refuse filters below 12.
 - **Evidence wanted:** the lab on an Android 9–11 phone or emulator; share of such phones among ZeroBill users.
 
-## 64. Small calls in the animated import (phase 4, built)
+## 70. Small calls in the animated import (phase 4, built)
 - **Where:** `compiler/src/svg-anim.ts` (`motionTrack`, `cssMotion`, `mediaApplies`, `resolveVars`, the begin hold).
 - **Chosen:**
   - `calcMode="linear"` on a motion path moves at an even speed, like `paced`. Browsers do the same for a path.
@@ -725,7 +818,7 @@ change, and what evidence would make you change it?"
 - **Other options:** a base hold in every loop (one more keyframe per loop); case-kept names.
 - **Evidence wanted:** a real file where Chrome and the phone differ.
 
-## 65. Big SVGs are read in the background after the first frame, from 8 KB (phase 4, built)
+## 71. Big SVGs are read in the background after the first frame, from 8 KB (phase 4, built)
 - **Where:** `ZnSvgCache.prefetch` / `bigOf` in `ZnSvg.kt`, set in `ZnTemplates.templatesOf`; `docs/svg.md` §13, §17.
 - **Chosen:** at load, the file's draw data strings of 8 KB or more are listed. After the first frame a background
   thread reads them one at a time and hands each to the main thread. A draw before that still reads on the main thread.
@@ -737,7 +830,7 @@ change, and what evidence would make you change it?"
   or higher limit.
 - **Evidence wanted:** a startup trace on the Lava with a real bundle that has big SVGs.
 
-## 66. A non-scaling stroke is drawn in screen space only when the scale is uneven (phase 4, built)
+## 72. A non-scaling stroke is drawn in screen space only when the scale is uneven (phase 4, built)
 - **Where:** `screenStroke` / `strokePath` in `ZnSvg.kt`; `docs/svg.md` §17 (known limit 4).
 - **Chosen:** when the matrix from the shape to the screen is a plain scale plus a turn, the old way stays (width divided
   by the scale). Otherwise the path is moved into screen space and stroked there at its dp width. Not inside a filter's
@@ -745,4 +838,17 @@ change, and what evidence would make you change it?"
 - **Why:** it is what the browser does, and the common case pays nothing extra.
 - **Risk if wrong:** a stretched chart line inside a filtered or masked group is a little thicker or thinner on one axis.
 - **Other options:** always draw non-scaling strokes in screen space (one more path transform per stroke per frame).
+- **Evidence wanted:** none.
+
+## 73. All SVG at registry 13 after main took 11 and 12 (merge, 2026-11-03)
+- **Where:** `packages/template/src/registry.ts` (`Added`, the version comment), `registry.lock.json`, `Registry.kt`;
+  `docs/svg.md` §7; this file's entries 50–72 (were 44–66).
+- **Chosen:** SVG phases 1–4 were built as registry 11, 12 and 13 on their branch. Main took 11 (Tabs) and 12 (pull to
+  refresh) first. Every SVG entry now says 13: components, props, dynamic props and the formats "timing.motion",
+  "svg.nonScaling", "svg.effects", "timing.tap". Pavan's call, the parent session agreed.
+- **Why:** none of 11–13 had shipped outside the sample, so one number is simplest. A bundle with any SVG or any
+  "~" timing asks for 13.
+- **Risk if wrong:** none for users. "timing.motion" (loops, keyframes on every element, not only SVG) now needs 13,
+  so a non-SVG bundle that uses a loop also asks for 13. That is the same app, as nothing between 11 and 13 shipped.
+- **Other options:** 13, 14 and 15, one per phase (keeps the phase history in the numbers).
 - **Evidence wanted:** none.

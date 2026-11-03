@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
 
 /**
  * A tween ("t<ms>e<easing>") or a spring ("s<dampingRatio>,<stiffness>"), as the compiler encodes them, and the
- * motion options after "~" (registry 11, compiler `timing()`): "d<ms>" delay, "r<n>" plays in all (-1 forever),
+ * motion options after "~" (registry 13, compiler `timing()`): "d<ms>" delay, "r<n>" plays in all (-1 forever),
  * "v" reverse, "g<ms>" repeat delay, "f<v>" from, "k<v>:<v>..." keyframes, "m<t>:..." times, "b<x1>:<y1>:<x2>:<y2>"
  * cubic-bezier (easing 4), "z<e>:<e>..." an easing per keyframe segment (from imported .svg animations: an easing id,
  * or "4,x1,y1,x2,y2"). A value is a number, or "#AARRGGBB" for backgroundColor. Easing 5 is a step: it holds, then
@@ -410,7 +410,7 @@ internal suspend fun znDelay(ms: Int) {
 }
 
 /**
- * A value that plays by itself (a timing with `from` or `keyframes`, registry 11): when the element appears, again
+ * A value that plays by itself (a timing with `from` or `keyframes`, registry 13): when the element appears, again
  * on each new `replay` value, and (with `from`) when the resting value [rest] changes. Time runs only while not
  * `paused`, so a pause holds the value and play goes on from there. A finite run stays where its last play ended.
  * When the phone's animations are off it shows [rest] and runs nothing. Read in the draw phase: no recomposition.

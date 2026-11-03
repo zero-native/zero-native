@@ -56,6 +56,18 @@ describe("templates", () => {
     expect(code).toContain("__zn.on(__i0, 1, () => n.set(n() + 1));")
   })
 
+  test("a handler that isn't written in place is read when the event comes (RN: an undefined onPress does nothing)", () => {
+    const { code } = compile(`
+      export function Tile(props: { onPress?: () => void; busy: boolean }) {
+        return <Pressable onPress={props.onPress} onLongPress={props.busy ? undefined : props.onPress}><Text>a</Text></Pressable>
+      }`)
+    expect(code).toContain("__zn.on(__i0, 1, __zn.latest(() => (props.onPress)));")
+    expect(code).toContain("__zn.on(__i0, 2, __zn.latest(() => (props.busy ? undefined : props.onPress)));")
+    // A function written in place is always the latest one: it stays as it is.
+    expect(compile(`export function F() { return <Pressable onPress={(() => 1)}><Text>a</Text></Pressable> }`).code)
+      .toContain("__zn.on(__i0, 1, (() => 1));")
+  })
+
   test("&&, ternary and .map become anchors with their own templates", () => {
     const { templates, code } = compile(`
       export function List(props) {
@@ -544,7 +556,7 @@ describe("animation (step 3.6)", () => {
   })
 })
 
-describe("motion options: loops, keyframes, delay, bezier (registry 11)", () => {
+describe("motion options: loops, keyframes, delay, bezier (registry 13)", () => {
   const props = (src: string) => compile(`export function F() { return ${src} }`).templates[0]!.props as any
   const err = (src: string) => {
     try {
@@ -580,7 +592,7 @@ describe("motion options: loops, keyframes, delay, bezier (registry 11)", () => 
     expect((templates[0]!.props as any).animate).toBe(`${id("opacity")}=t200e0;${id("rotate")}=t300e1`)
     expect(writeTemplateFile(templates).registry).toBe(8)
     const looped = compile(`export function F() { return <Box animate={{ rotate: { duration: 900, repeat: "forever", from: 0 } }} /> }`)
-    expect(writeTemplateFile(looped.templates).registry).toBe(11)
+    expect(writeTemplateFile(looped.templates).registry).toBe(13)
   })
 
   test("paused and replay can change at runtime", () => {

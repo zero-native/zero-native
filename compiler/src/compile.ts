@@ -69,6 +69,8 @@ type JsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment
 // Animation (step 3.6): what `animate` can name, and the easings a tween can use (index = native easing id).
 const ANIMATABLE = ["opacity", "backgroundColor", "scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"]
 const EASINGS = ["standard", "ease-out", "ease-in", "linear"]
+// Pull to refresh (guide notes §41): only on a vertical Scroll and on List.
+const REFRESH_PROPS = ["refreshing", "onRefresh", "refreshColor", "refreshBackground"]
 
 // SVG (docs/svg.md): react-native-svg element names inside <Svg> → SVG tags.
 const SVG_TAGS: Record<string, string> = {
@@ -86,7 +88,7 @@ const SVG_CAMEL = new Set([
 /** What a part (and an inline element's runtime value) can set at runtime. */
 const PART_PROPS = ["fill", "stroke", "opacity"] as const
 /**
- * What else a part can have (docs/svg.md §9, registry 11): transforms around the part's own centre (viewBox units,
+ * What else a part can have (docs/svg.md §9, registry 13): transforms around the part's own centre (viewBox units,
  * degrees), "draw the line" trims (0–1 of its length), and its own animate / paused / replay. Static or runtime.
  */
 const PART_MOTION = [
@@ -94,7 +96,7 @@ const PART_MOTION = [
   "animate", "paused", "replay",
 ] as const
 /**
- * What a part of an .svg file can also set (registry 12, docs/svg.md §16): the stroke width and dash offset of the
+ * What a part of an .svg file can also set (registry 13, docs/svg.md §16): the stroke width and dash offset of the
  * strokes inside it (viewBox units). Not on inline elements: there strokeWidth is the SVG attribute.
  */
 const FILE_PART_PROPS = ["strokeWidth", "dashOffset"] as const
@@ -138,6 +140,12 @@ export function compileModule(
     })
     // Marked, so the source map can point errors inside handlers and expressions at their exact TSX line.
     return markCopied(node.getStart(sf), source.slice(node.getStart(sf), node.getEnd()))
+  }
+  // An event handler: a function written in place stays as it is; anything else (`props.onPress`, `cond ? f : undefined`)
+  // is read when the event comes, and an undefined one does nothing, as in React Native (core view.ts latest()).
+  const handlerCode = (e: ts.Expression) => {
+    const u = unwrap(e)
+    return ts.isArrowFunction(u) || ts.isFunctionExpression(u) ? text(e) : `${RUNTIME}.latest(() => (${text(e)}))`
   }
 
   const uiImports = new Set<string>()
@@ -360,7 +368,7 @@ export function compileModule(
         if (!init || !ts.isJsxExpression(init) || !init.expression) fail(a, `${name} needs a function`)
         const ev = `e${b.events++}`
         ;(props as any)[name] = eventRef(ev)
-        const handler = text((init as ts.JsxExpression).expression!)
+        const handler = handlerCode((init as ts.JsxExpression).expression!)
         if (tag === "TextField" && name === "onChangeText") changeText = { ev, handler }
         else b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${handler});`)
         continue
@@ -443,7 +451,7 @@ export function compileModule(
         const ev = `e${b.events++}`
         ;(props as any).onNativeEvent = eventRef(ev)
         // A name no app uses: the handler's own `p` or `e` must not be hidden by this wrapper.
-        b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => (${text(expr!)})(JSON.parse(__znPayload)));`)
+        b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => (${handlerCode(expr!)})(JSON.parse(__znPayload)));`)
       } else {
         fail(a, `<NativeView> takes name, props, onEvent and style, not "${name}"`)
       }
@@ -1021,7 +1029,7 @@ export function compileModule(
 
   /**
    * 250 | "spring" | "bouncy" | { duration, easing? } | { spring: { damping?, stiffness? } } → "t250e0" / "s0.75,400",
-   * plus the motion options (registry 11, format "timing.motion") after "~", each a letter and its value:
+   * plus the motion options (registry 13, format "timing.motion") after "~", each a letter and its value:
    * "d<ms>" delay, "r<n>" plays in all (-1 forever), "v" reverse, "g<ms>" repeat delay, "f<value>" from,
    * "k<v>:<v>:..." keyframes, "m<t>:<t>:..." keyframe times, "b<x1>:<y1>:<x2>:<y2>" cubic-bezier (easing id 4).
    * Values are numbers, or "#AARRGGBB" for colours. Timings without options stay exactly as before.

@@ -58,6 +58,12 @@ const paise = computed(() => toPaise(amount()))
   steppers). **Don't** build it with `setInterval` in JS: that is exactly the "zombie timer" bug class (the timer
   keeps deleting after the finger lifts).
 - `haptic` adds a press tick that respects the user's system setting.
+- **Handlers work as in React Native:** a wrapper may pass a handler through (`onPress={props.onPress}`) or switch it
+  (`onPress={busy() ? undefined : pay}`). The tap runs the handler the prop holds at that moment; with none, the tap
+  does nothing. (Before 2026-11-03 the handler was read once, when the element appeared, and an undefined one threw.)
+  **Know:** the phone still waits for a long press when `onLongPress` is written on the element, even if it holds
+  `undefined` at that moment, so a long hold then gives no `onPress`. RN would give one. **Do** leave `onLongPress` off
+  a wrapper that doesn't need it.
 - **Guard actions that must happen once** (pay, submit) against double taps: the second tap can arrive before the
   screen changes. A simple `let done = false` flag in the screen body is enough.
 
@@ -1295,6 +1301,50 @@ async function refresh() {
 <List data={stores()} key={(s) => s.id} row={(s) => <StoreRow s={s} />}
   refreshing={refreshing()} onRefresh={() => void refresh()} refreshColor={c.primary} />
 ```
+React Native's shape works too, so a ported screen keeps its code:
+```tsx
+import { RefreshControl } from "@zero-native/ui"
+<List ... refreshControl={<RefreshControl refreshing={refreshing()} onRefresh={onRefresh} colors={[PRIMARY]} tintColor={PRIMARY} />} />
+```
+The compiler turns it into the props above: `colors[0]` (or `tintColor` when there is no `colors`) becomes
+`refreshColor`, `progressBackgroundColor` becomes `refreshBackground`. Any other `RefreshControl` prop is a build error.
+Example: all four tabs of [TabsLab.tsx](../examples/sample/src/TabsLab.tsx) (two use each shape).
+
+**How it behaves.**
+- The pull starts when the content is at its top and the finger keeps going down. A round disc with an arc slides down
+  over the content (Android's look: the content doesn't move). The arc grows with the pull and turns solid when letting
+  go would refresh. The disc must come down 80 dp, and it moves half as far as the finger.
+- When you let go past that point, `onRefresh` runs and the spinner shows at once. From then on it follows `refreshing`:
+  it stays while `refreshing` is true, and slides away when it goes back to false.
+- If `refreshing` is not set to true within 1 second of the pull, the spinner goes away by itself.
+- `refreshing={true}` without a pull shows the spinner too (for a first load).
+- While the spinner shows, a new pull does nothing: the list scrolls as usual.
+- Pulling works only when `onRefresh` is set.
+- No JS runs during the pull, only when the finger is up. A pull costs no frames.
+
+**Do / don't.**
+- **Do** set `refreshing` to true in `onRefresh`, and back to false when the data is in (also on errors: use `finally`).
+  **Why:** the spinner follows it. If you never set it, the spinner goes away after 1 second, before your data arrives.
+- **Do** skip a second refresh while one runs (`if (refreshing()) return`). A pull can't start one, but your own code
+  (a reload on focus) can.
+- **Don't** keep the `<RefreshControl>` in a variable (`const rc = <RefreshControl/>`, as RN code often does). Write it
+  inside `refreshControl={...}`. **Why:** the compiler reads it there, at build time.
+- **Don't** put pull to refresh on `<Scroll horizontal>`: it is a build error.
+- **Know:** one colour only. RN's `colors` array (colours that take turns) uses its first colour.
+- **Know:** the content doesn't move down with the pull, as on Android. On iOS it will (SwiftUI's own refresh).
+- **Know:** TalkBack has no pull gesture (the same as in RN). If reloading matters, give screen reader users a button.
+
+## 42. SVG (docs/svg.md, registry 13; built as 11-13, first planned as 10)
+
+```tsx
+import Logo from "./art/logo.svg"
+import { Check, Heart } from "./icons"                         // icons.ts: export { default as Check } from "./check.svg"
+
+<Check size={20} color={c.ink} />                              // color = currentColor inside the file
+<Logo style={{ width: 160 }} />                                // height from the viewBox
+<Logo size={64} parts={{ ring: { stroke: brand() }, dot: { opacity: on() ? 1 : 0.3 } }} />
+<Svg viewBox="0 0 24 24" size={24}><Path d={HEART} fill={liked() ? c.like : c.muted} /></Svg>
+```
 
 The compiler reads every SVG at build time and puts compact draw data in the bundle. The phone never reads XML, and an OTA can add or change SVGs.
 - **Do** use `.svg` files for icons and pictures; `Icon` stays for old code. **Why:** a `.svg` file is what designers hand over, and the build checks it.
@@ -1316,8 +1366,12 @@ The compiler reads every SVG at build time and puts compact draw data in the bun
 
 **Moving parts (phase 2):**
 ```tsx
-import { RefreshControl } from "@zero-native/ui"
-<List ... refreshControl={<RefreshControl refreshing={refreshing()} onRefresh={onRefresh} colors={[PRIMARY]} tintColor={PRIMARY} />} />
+<Gauge parts={{ needle: { rotate: angle(), animate: "spring" }, arc: { trimEnd: score() / 100, animate: 600 } }} />
+<Badge parts={{ tick: { trimEnd: 1, replay: paidCount(), animate: { trimEnd: { duration: 300, from: 0, delay: 450 } } } }} />
+<Svg viewBox="0 0 24 24" size={36}>
+  <Circle cx={12} cy={12} r={9} stroke={c.primary} fill="none" trimEnd={0.28}
+    rotate={360} animate={{ rotate: { duration: 900, easing: "linear", from: 0, repeat: "forever" } }} />
+</Svg>
 ```
 - **Do** move parts with `rotate`, `scale`, `translateX` / `translateY` and the trims. A part turns and scales around its own centre.
   **Know:** move and translate values are in the SVG's viewBox units, not dp. **Why:** the same SVG at 24 dp and 96 dp moves the same way.
