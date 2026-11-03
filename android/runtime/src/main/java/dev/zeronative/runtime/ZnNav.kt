@@ -75,6 +75,7 @@ object ZnNav {
     private const val EVENT_OPEN = ZnAppEvent.OPEN
     private const val EVENT_INSETS = ZnAppEvent.INSETS
     private const val EVENT_RETRY = ZnAppEvent.RETRY
+    private const val EVENT_NAV_RESULT = ZnAppEvent.NAV_RESULT
     /** Key of the saved back stack in the Activity's saved state ([saveState]). */
     private const val SAVED_STACK = "zn.nav.stack"
     /** Key of the bundle (`id@sha12`) that saved it: screen values come back only into the same code. */
@@ -202,7 +203,7 @@ object ZnNav {
         val payload = JSONArray()
         for (o in first) {
             val id = nextNativeId++
-            ZnStore.mountRoot(id, o.route.templateId, bundle.templates[o.route.templateId])
+            mount(id, o.route, bundle)
             val entry = ZnEntry(id, o.route, o.params)
             val values = o.values?.let(::JSONObject)
             // Kept natively too: a value whose part of the screen isn't shown yet must survive a second kill.
@@ -224,6 +225,11 @@ object ZnNav {
                 ZnRuntime.afterJs { if (gen == generation) ZnOta.screensUp() }
             }
         }
+    }
+
+    /** A native screen has no template, and so no root. */
+    private fun mount(id: Int, route: ZnRoute, bundle: ZnBundle) {
+        if (route.native == null) ZnStore.mountRoot(id, route.templateId, bundle.templates[route.templateId])
     }
 
     /**
@@ -378,7 +384,7 @@ object ZnNav {
                     Log.e(TAG, "nav: can't push route ${op.route} (bundle ready: ${b != null})")
                     return
                 }
-                ZnStore.mountRoot(op.entry, route.templateId, b.templates[route.templateId])
+                mount(op.entry, route, b)
                 stack += ZnEntry(op.entry, route, op.params ?: "{}")
             }
             BatchOp.Nav.REMOVE -> {
@@ -416,6 +422,18 @@ object ZnNav {
         if (json == lastInsets) return
         lastInsets = json
         ZnRuntime.dispatchEvent(APP, EVENT_INSETS, json)
+    }
+
+    /**
+     * Main thread: the native screen [entry] answers with [value] (JSON). The answer is on disk before JS hears it, so a kill
+     * can't lose it. JS closes the screen, as it owns the stack. Only the top screen can answer.
+     */
+    internal fun answer(entry: ZnEntry, value: String) {
+        if (stack.lastOrNull()?.id != entry.id) return Unit.also { Log.w(TAG, "nav: $entry answered but isn't on top; dropped") }
+        val id = "${entry.id.u32()}.${System.currentTimeMillis()}"
+        ZnLaunch.saveScreenResult("nav.${entry.route.name}", id, value)
+        val payload = JSONObject().put("entry", entry.id.u32()).put("route", entry.route.name).put("id", id)
+        ZnRuntime.dispatchEvent(APP, EVENT_NAV_RESULT, payload.toString())
     }
 
     /** The host shows an entry's screen. */

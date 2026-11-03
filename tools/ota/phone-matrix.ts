@@ -215,9 +215,9 @@ const KINDS: Record<string, Patch[]> = {
     { file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nav, signal, storage } from "@zero-native/core"\n' },
     HOME_START('  const launch = (storage.getNumber("zn-test.launch") ?? 0) + 1\n  storage.set("zn-test.launch", launch)\n  if (launch === 2) throw new Error("OTA test: the home screen throws on the second launch")\n'),
   ],
-  // Needs Device v5; the app has v4: an older app offered a bundle for newer native code. The build takes the highest
-  // version it finds, so one more line is enough; the plugin's own files stay as they are.
-  "needs-module": [{ file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nativeModule, nav, signal } from "@zero-native/core"\nconst newerDevice = nativeModule("Device", { version: 5 })\n' }],
+  // Needs Device v6; the app has v5: an older app offered a bundle for newer native code. The build takes the highest
+  // version it finds, so one more line is enough; the plugin's own files stay as they are. Raise both when Device moves.
+  "needs-module": [{ file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nativeModule, nav, signal } from "@zero-native/core"\nconst newerDevice = nativeModule("Device", { version: 6 })\n' }],
 }
 
 /** Puts the sample's sources back from the backup; [stopped]: left by a run that was killed (say so). */

@@ -2,18 +2,22 @@ package dev.zeronative.plugins.devicetest
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import dev.zeronative.runtime.ZnBackground
+import dev.zeronative.runtime.ZnHandles
 import dev.zeronative.runtime.ZnLaunch
 import dev.zeronative.runtime.ZnModuleBase
 import dev.zeronative.runtime.ZnStorage
 import dev.zeronative.runtime.intOrNull
 import dev.zeronative.runtime.longOrNull
 import dev.zeronative.runtime.string
+import java.io.File
 import org.json.JSONObject
 
 /**
@@ -21,7 +25,7 @@ import org.json.JSONObject
  * a plain call (info), a slow call that can be cancelled (slowEcho), an error with a code (fail), and an event
  * (tick, every 50 ms with latestOnly) that only runs while JS listens. JS side: ../../src/index.ts of this plugin.
  */
-class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 4) {
+class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 5) {
     private val main = Handler(Looper.getMainLooper())
     private var ticks = 0
     private var ticking = false
@@ -72,6 +76,27 @@ class DeviceModule(private val context: Context) : ZnModuleBase("Device", versio
             if (!BuildConfig.DEBUG) return@function call.reject("debug_only", "openMissingApp is for debug builds only")
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("zn-test://none")).setPackage("dev.zeronative.no.such.app")
             call.resolve(ZnLaunch.start("mock-missing", call.string("id"), intent).toJson())
+        }
+
+        // v5: runs a background task, as a plugin would.
+        function("runTask") { call ->
+            ZnBackground.run(call.string("name"), JSONObject().put("from", "lab"), call.longOrNull("timeoutMs") ?: 5_000) { outcome ->
+                call.resolve(outcome.name)
+            }
+        }
+
+        // v5: a small picture in the handle folder, and proof that a file outside it gets no handle.
+        function("makeFile") { call ->
+            val file = File(ZnHandles.fileDir(context), "lab-${SystemClock.uptimeMillis()}.png")
+            val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF22AA66.toInt()) }
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val refused = try {
+                ZnHandles.file(context, File(context.filesDir, "secret"))
+                false
+            } catch (_: IllegalArgumentException) {
+                true
+            }
+            call.resolve(JSONObject().put("handle", ZnHandles.file(context, file)).put("outsideRefused", refused))
         }
 
         // Storage shared with JS (step 3.5): reads what JS wrote, writes values JS then checks.

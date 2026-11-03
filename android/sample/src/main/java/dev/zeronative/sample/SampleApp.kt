@@ -6,7 +6,11 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import dev.zeronative.plugins.auth.AuthPlugin
 import dev.zeronative.plugins.devicetest.DeviceTestPlugin
+import dev.zeronative.plugins.media.MediaPlugin
+import dev.zeronative.plugins.scanner.ScannerPlugin
+import dev.zeronative.plugins.webview.WebViewPlugin
 import dev.zeronative.runtime.ZnBundles
 import dev.zeronative.runtime.ZnOta
 import dev.zeronative.runtime.ZnPlugins
@@ -22,7 +26,7 @@ class SampleApp : Application() {
         super.onCreate()
         // Everything below only posts work to other threads and returns at once (startup rules).
         // Plugins first: choosing the bundle (an OTA one needs their modules) starts with preload / eval.
-        ZnPlugins.register(this, DeviceTestPlugin())
+        ZnPlugins.register(this, DeviceTestPlugin(), ScannerPlugin(), MediaPlugin(), AuthPlugin(), WebViewPlugin())
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call
         // Crashlytics' recordException(e.asThrowable()). The sample logs the full JS stack (with columns: the exact
         // TSX line with `bun run ota symbolicate`) and the Throwable a crash reporter would get.

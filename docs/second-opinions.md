@@ -243,3 +243,166 @@ change, and what evidence would make you change it?"
   its own setup. Two apps on one computer share the one link.
 - **Other options:** publish to a local Maven folder; npm `file:` paths, which copy, so a framework edit needs a new install.
 - **Evidence:** the first CI build of the pilot.
+
+## 18. A native screen's answer goes in the launch store (P.3b)
+- **Where:** `ZnLaunch.saveScreenResult`, `ZnNav.answer`, `packages/core/src/nav.ts` `onNavResultEvent`.
+- **Chosen:** the same record as another app's result, under the key `nav.<route>`, on disk before JS hears it, kept until ack. One record format, and the
+  rules for a kill are already tested.
+- **Risk if wrong:** `launches.pending("nav.scan")` can see these records, and a new launch under that key is refused until ack. Only a misnamed key can
+  meet them.
+- **Other options:** a small store of its own: more code for the same rules.
+- **Evidence:** the kill case on the phone passed. A second writer of records would show the limit.
+
+## 19. `pushForResult` works only on native routes (P.3b)
+- **Where:** `packages/core/src/nav.ts`. The type limits it to native routes too.
+- **Chosen:** refuse a normal screen. A zn screen has no way to answer, and adding one is a new feature nobody asked for yet.
+- **Risk if wrong:** a screen picker written in TSX can't use it; it must pass a callback or use a store. RN apps do that today.
+- **Other options:** `nav.finish(value)` from a zn screen, later, on the same path.
+- **Evidence:** a real picker screen that wants it.
+
+## 20. `<NativeView>` props are one JSON string (P.4b)
+- **Where:** `compiler/src/compile.ts` `nativeViewElement`.
+- **Chosen:** `JSON.stringify` in a slot. A frame with no change sends nothing, as a slot compares values, and one registry prop serves all views.
+- **Risk if wrong:** each change pays for the whole JSON, and the view parses it. Fine for a torch flag; poor for a prop that changes each frame.
+- **Other options:** typed props per view: a registry change per plugin, which is what D3 avoids.
+- **Evidence:** a view with a prop that changes per frame. It should use its module instead.
+
+## 21. Dark mode comes after the template (P.6)
+- **Where:** `docs/guide-notes.md` §37, `ZnRuntime.afterMainScript`, `packages/core/src/appearance.ts`.
+- **Chosen:** JS chooses colours, as in RN's `useColorScheme`. Native sends the scheme after the main script and before START, so the first screen reads it right.
+- **Risk if wrong:** templates are drawn before JS fills slots, so a slot colour can show its default for a frame at cold start. On the Lava the first screen
+  looked right, but a slow phone may flash. Only colours that can change at runtime can use it.
+- **Other options:** light and dark values in the template, chosen natively with no JS: no flash, but a template format change and a colour token system.
+- **Evidence:** the first app that ships a dark mode, on a slow phone.
+
+## 22. Background JS has no user yet (P.5)
+- **Where:** `ZnBackground.kt`, `packages/core/src/tasks.ts`.
+- **Chosen:** built now, since `push` will need it. It doesn't change the start path; it adds one event, one module, a queue and a timer. The limit is enforced in
+  Kotlin, so JS that hangs can't hold a task open.
+- **Risk if wrong:** push may want something else: a foreground service, or a task that outlives 30 s. Only the debug provider calls it today. It adds the
+  `Tasks` module to every bundle's needs, so bundles built from here need a new APK; host API 6 needs that anyway.
+- **Other options:** wait for push.
+- **Evidence:** the first push plugin.
+
+## 23. `secure` ends as the closing animation starts (P.6)
+- **Where:** `ZnNavHost.kt` `SecureWindow`.
+- **Chosen:** the flag follows the top of the stack. On Back it clears at once, while the secure screen still slides out for about 300 ms.
+- **Risk if wrong:** a screenshot in that moment can catch the sliding screen. Also, Android may apply the flag a frame after a push.
+- **Other options:** keep the flag until the entry has left: more state in the host, for a small window. RN's `FLAG_SECURE` libraries set it per Activity or by hand.
+- **Evidence:** a security review that asks for it.
+
+## 24. `ZnLaunch.readResult`: a plugin reads its own answer (P.3b)
+- **Where:** `ZnLaunch.kt`.
+- **Chosen:** a function set in `register`, keyed by launch key. **Why:** the phone hint's number is read with Play services from the Intent, not from plain extras, and after
+  a kill only code run at start can be there. It runs on the main thread, so it must be quick.
+- **Risk if wrong:** the 16 KB limit on extras doesn't apply to it, as the plugin is trusted code. A slow reader would stall the return from the other app.
+- **Other options:** keep raw extras and parse in JS: Play services' format isn't ours to read.
+- **Evidence:** the `auth` plugin on the phone.
+
+## 25. `zn://file` is one flat folder in the cache (P.3b)
+- **Where:** `ZnHandles.kt`.
+- **Chosen:** `cacheDir/zn-files`, plain names only. A bundle can't name any other path. Cache, as a picked photo is temporary.
+- **Risk if wrong:** Android can clear it while a handle is still saved in JS: the image falls back to `<Image fallback>`, and an upload fails. An app that keeps a
+  handle over days must copy the file.
+- **Other options:** `filesDir`, with a cleanup rule. Survives, but it grows.
+- **Evidence:** the first app that keeps a handle for long.
+
+## 26. `onLowMemory` doesn't clear images (P.6)
+- **Where:** `ZnActivity.kt`.
+- **Chosen:** dropped the plan's line. Coil's own `AndroidSystemCallbacks` clears its memory cache at trim level 40 and above (checked in the 3.6.3 bytecode). A second clear adds nothing.
+- **Risk if wrong:** below level 40 the cache stays; on Android 14 those levels aren't sent anyway. A new Coil version could change it.
+- **Evidence:** a memory test on a low-end phone.
+
+## 27. The scanner's stale window counts from the first real frame (P.4)
+- **Where:** `plugins/scanner/.../ScannerRules.kt` `ScanGate`.
+- **Chosen:** 500 ms from the first frame, not from mount as RN does. RN has no frame event; a camera can take a second to open, which uses up RN's whole window. After "scan again" it is 500 ms, not RN's 300.
+- **Risk if wrong:** assumes the first frame we see is the stale one. A slower scan open by up to 500 ms.
+- **Other options:** RN's way, from mount.
+- **Evidence:** the `scanner stale frames` phone steps.
+
+## 28. CameraX 1.4.2, not the newest (P.4)
+- **Where:** `plugins/scanner/android/build.gradle.kts`.
+- **Chosen:** the version RN runs today. The newest, 1.6, has a new camera backend, which nobody here has tried in the field.
+- **Risk if wrong:** we stay on an older line with fewer fixes for new phones.
+- **Evidence:** a camera bug that a newer version fixes.
+
+## 29. ML Kit's start provider is removed (P.4)
+- **Where:** `plugins/scanner/android/src/main/AndroidManifest.xml`, `CameraSession.kt`.
+- **Chosen:** `tools:node="remove"` and `MlKit.initialize` on the camera's thread. It would otherwise run in every app start, also for users who never scan.
+- **Risk if wrong:** another ML Kit user in the same app must start it itself. A second `initialize` throws, so the scanner starts it once per process, and a start by another user counts.
+- **Evidence:** the sample's cold start with the plugin on.
+
+## 30. The picked number stays in a plain store until read (P.3b)
+- **Where:** `plugins/auth/src/index.ts`, the launch record.
+- **Chosen:** a hint goes through `ZnLaunch`, so it survives a kill, and it is acked as soon as JS reads it, unlike a payment. If no screen asks after a kill, it stays until the next `phoneHint` or `clearPhoneHint`.
+- **Risk if wrong:** a phone number sits unencrypted in app storage for a time. It is not a credential, and the app's private folder holds it.
+- **Other options:** SecureStore for this record: a special case in `ZnLaunch`.
+- **Evidence:** a security review.
+
+## 31. An OTP is never on disk (P.3b)
+- **Where:** `plugins/auth`. RN writes it to its login draft.
+- **Chosen:** memory only. A rebuilt screen joins by `key`; after a kill the code is gone, and the user types it. RN's receiver dies with a kill too, so only a code that came just before the kill is affected.
+- **Risk if wrong:** a user who gets a kill right after the SMS retypes. The SMS is in their inbox.
+- **Evidence:** a login drop report.
+
+## 32. WebView refuses `intent:` outright (P.6)
+- **Where:** `plugins/webview/.../WebViewRules.kt`.
+- **Chosen:** `intent:` and `android-app:` are never opened, even if the app lists them. They can name any Activity in any app, and filtering them is a known source of bugs.
+- **Risk if wrong:** a payment page that uses `intent:` for its UPI button won't work. Plain `upi:` does, but with no answer back.
+- **Other options:** parse the Intent, allow only `ACTION_VIEW` to a listed package, and strip everything else.
+- **Evidence:** the first payment page an app must host.
+
+## 33. WebView upload doesn't use `ZnLaunch` (P.6)
+- **Where:** `plugins/webview/.../WebViewPage.kt`.
+- **Chosen:** a new `activityResultRegistry` key per launch. WebView's callback is in memory, so after a kill there is no one to give the file to, and a saved record would only block the next launch: one upload would make a UPI launch answer `busy`.
+- **Risk if wrong:** a kill while the picker is open loses the pick. The user picks again.
+- **Evidence:** the `webview kill while the picker is open` phone step.
+
+## 34. A pushed screen destroys the WebView (P.6)
+- **Where:** core's `NavDisplay`, `plugins/webview`.
+- **Chosen:** accepted. Keeping it needs a change to how screens are drawn, or `WebView.saveState`, which keeps little.
+- **Risk if wrong:** a page state, such as a half-filled form, is lost when the app pushes a screen on top. Use a sheet, which stays on the same screen.
+- **Evidence:** an app that needs a screen over a web page.
+
+## 35. Media re-encodes every photo (P.4)
+- **Where:** `plugins/media`.
+- **Chosen:** decode, turn, write a new JPEG. The only way to be sure no location leaves the phone, and rotation can't be lost by a server. The limits are ours: 7 days and 256 MB in the folder, 100 MB per copy, 24 MP per decode.
+- **Risk if wrong:** a PNG with see-through parts turns white, and a small photo gets a second round of JPEG loss.
+- **Other options:** copy as is when the photo is small and has no EXIF.
+- **Evidence:** a complaint about quality, or a PNG need.
+
+## 36. WebView pages don't load on the Lava: DuraSpeed, not our code (P.6)
+- **Where:** the Lava's MediaTek ROM; `plugins/webview/`.
+- **Found:** every page fails in debug and release. Android refuses to start the page's renderer: "Unable to launch app
+  dev.zeronative.sample/... for service SandboxedProcessService0: process is bad". `dumpsys duraspeed suppress_list` has
+  `dev.zeronative.sample` and the mock UPI app on it, even while the app is in front. Google's app, which is on DuraSpeed's
+  whitelist, starts renderers fine. Turning DuraSpeed off in settings does not empty the list, and a shell launch does not either.
+  The same block stopped a manifest receiver earlier (why `DebugWakeProvider` exists). `com.example.app.rc` is on the list too.
+- **Wrong first guess, corrected:** I blamed `setWebContentsDebuggingEnabled` and made it opt-in. That check was false: the
+  pages it "loaded" were refused before any renderer was needed. Debugging stays opt-in anyway, as in react-native-webview.
+- **What puts it on, and takes it off (checked one by one, 2026-11-03):** `am force-stop` puts it on. One tap on the app's icon in
+  the launcher takes it off. A start from adb doesn't take it off, even with the launcher's intent. `am kill` and a kill -9 don't put it on.
+- **Fix in our tools:** the phone scripts end the app with a kill -9 (`stopApp()` in `tools/plugin-phone/helpers.ts`), not
+  `am force-stop`. With that, all 13 WebView steps pass on the Lava.
+- **Real users:** "Force stop" in Android's app settings, or a cleaner app, may do the same. The next open from the icon clears it,
+  so a user would hit it only on a start that doesn't come from the icon (a link, a notification). Not seen yet; not tested.
+  DuraSpeed's own cleaning (`ScreenOffClean: true`) is not checked either.
+- **For tests:** if WebView pages stay blank on a MediaTek phone, tap the app's icon once, and don't use `am force-stop`.
+- **Not the whole story:** later the same day, with the sample on the list again (after an OTA matrix run), the WebView steps passed.
+  So being on the list doesn't always block the renderer; something else (time on the list, DuraSpeed's own state) matters too. The
+  rule "force-stop on, icon tap off" held in every one-by-one check; the "always blank while listed" part is not proven.
+- **Risk:** if real users hit it, any WebView in a ZeroBill app shows a blank page on these phones, RN or zero-native.
+  The plugin already reports a renderer that is gone; a renderer that never starts gives no event yet.
+- **Evidence wanted:** the same app on a non-MediaTek phone; the list after a reboot or an icon tap.
+
+## 37. A JS hang while a background task runs: whose is it? (review fix 1, P.5)
+- **Where:** `android/runtime/.../ZnRuntime.kt` `jsError`.
+- **Found by the independent review:** every hang went to the OTA safety net and the top screen, also one inside a task. A task with
+  over 2 s of sync work could roll back a new bundle that isn't healthy yet. That broke "a task can't block an update".
+- **Chosen:** a hang counts as the task's when a task is queued or running **and** no Activity is in front: it is logged, it doesn't
+  judge the bundle, and no screen is marked failed. The task ends by its own time limit. With a screen in front, it stays a screen hang.
+- **Why not always the task's while one runs:** the runtime can't tell whose JS froze. A screen's hang while a task happens to run
+  would then hide a real freeze the user saw, and weaken the OTA safety net. This way the rollback trigger only gets narrower.
+- **Risk if wrong:** a task that freezes the UI for 2 s with the app open still fails the top screen and can roll back a new bundle.
+  That is a real freeze, so it is arguably right; the guide says not to do long sync work in a task (§36).
+- **Evidence wanted:** whether Hermes' time limit fires inside a task's event at all (not tested; the reviewer couldn't confirm it).

@@ -196,13 +196,22 @@ object ZnRuntime {
         js.post {
             val t0 = SystemClock.uptimeMillis()
             val result = evalResult(evalScript(jsRuntime, name), t0)
+            if (result.ok) afterMainScript(jsRuntime)
             // The app's JS didn't start: no screen can be built. Show the error screen with "Restart app" instead of a
             // screen that stays half drawn (step 3.9), unless the OTA safety nets are already rolling back to a good
             // bundle (step 4.7; the error reached jsError first).
             if (!result.ok) main.post { if (!ZnOta.isRollingBack) ZnNav.startFailed(result.value) }
             if (result.ok) Log.i(TAG, "$name evaluated in ${result.millis} ms") else Log.e(TAG, "$name failed: ${result.value}")
-            main.post { onResult(result) }
+            main.post {
+                ZnBackground.jsLoaded(result.ok)
+                onResult(result)
+            }
         }
+    }
+
+    /** JS thread, before any screen is built: what a screen needs to read at once. */
+    private fun afterMainScript(rt: Long) {
+        ZnNative.dispatchEvent(rt, ZnAppEvent.APP, ZnAppEvent.COLOR_SCHEME, 3, 0.0, ZnActivity.colorScheme(appContext.resources.configuration))
     }
 
     /** JS thread: runs bytecode file [name] of the running bundle on [rt]; "ok:..." or "error:...". */
@@ -250,6 +259,7 @@ object ZnRuntime {
         reloading = true
         runtime = 0L
         ZnModules.resetForReload()
+        ZnBackground.jsGone()
         js.post {
             val t0 = SystemClock.uptimeMillis()
             ZnNative.destroyRuntime(jsRuntime)
@@ -257,11 +267,13 @@ object ZnRuntime {
             val fresh = createOnJsThread()
             jsRuntime = fresh
             val result = evalResult(eval(fresh), t0)
+            if (result.ok) afterMainScript(fresh)
             main.post {
                 onLoaded(result) {
                     runtime = fresh
                     reloading = false
                     ZnActivity.fire { it.onRuntimeReplaced() }
+                    ZnBackground.jsLoaded(result.ok)
                 }
             }
         }
@@ -351,8 +363,13 @@ object ZnRuntime {
         main.post {
             // A downloaded bundle that isn't healthy yet and shows an error screen is rolled back (step 4.7); a healthy
             // one's error screens are only counted. Either way the hook below still hears the error.
-            val rolledBack = (kind == "start" || kind == "screen" || kind == "hang") && ZnOta.errorScreen(kind, where, details)
-            if (kind == "hang" && !rolledBack) ZnNav.hung(details.substringBefore('\n'))
+            // A hang while a background task runs and no screen is in front is the task's: it must not judge the bundle (a task
+            // can't block an update, guide §36) or fail a screen nobody sees. The task still ends, by its own time limit. With a
+            // screen in front it stays a screen's hang: the user saw the app freeze, whichever code froze it.
+            val taskHang = kind == "hang" && ZnBackground.running && !ZnOtaHealth.inFront
+            if (taskHang) Log.w(TAG, "a background task hit the time limit ($where); not counted against the bundle")
+            val rolledBack = !taskHang && (kind == "start" || kind == "screen" || kind == "hang") && ZnOta.errorScreen(kind, where, details)
+            if (kind == "hang" && !taskHang && !rolledBack) ZnNav.hung(details.substringBefore('\n'))
             if (BuildConfig.DEBUG) ZnDev.onJsError(rest)
             val hook = onJsError ?: return@post
             // A screen that failed while being built isn't the top of native's stack yet: its name is in the report.

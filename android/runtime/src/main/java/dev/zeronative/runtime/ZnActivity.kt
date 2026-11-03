@@ -63,13 +63,25 @@ object ZnActivity {
         context.applicationContext.registerComponentCallbacks(object : ComponentCallbacks2 {
             override fun onTrimMemory(level: Int) {
                 // UI_HIDDEN (20) only says the app left the screen.
-                if (level != ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) fire { it.onLowMemory() }
+                if (level != ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) lowMemory()
             }
-            override fun onConfigurationChanged(newConfig: Configuration) {}
+            override fun onConfigurationChanged(newConfig: Configuration) {
+                ZnRuntime.dispatchEvent(ZnAppEvent.APP, ZnAppEvent.COLOR_SCHEME, colorScheme(newConfig))
+            }
             @Deprecated("Deprecated in Android")
-            override fun onLowMemory() = fire { it.onLowMemory() }
+            override fun onLowMemory() = lowMemory()
         })
     }
+
+    // Coil clears its own memory cache: it listens to Android too.
+    private fun lowMemory() {
+        fire { it.onLowMemory() }
+        ZnRuntime.dispatchEvent(ZnAppEvent.APP, ZnAppEvent.LOW_MEMORY)
+    }
+
+    /** "light" or "dark", as JS's colorScheme() says it. */
+    internal fun colorScheme(config: Configuration): String =
+        if (config.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
 
     fun attach(activity: ComponentActivity) {
         current = activity

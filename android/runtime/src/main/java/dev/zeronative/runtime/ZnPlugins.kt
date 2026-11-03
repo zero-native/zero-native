@@ -20,6 +20,8 @@ class ZnPluginRegistry internal constructor(
 ) {
     internal val modules = ArrayList<ZnModule>()
     internal val events = ArrayList<ZnActivityEvents>()
+    internal val screens = HashMap<String, ZnScreenContent>()
+    internal val views = HashMap<String, ZnViewContent>()
 
     /** The Application, safe to keep. */
     val context: Context get() = appContext()
@@ -30,6 +32,18 @@ class ZnPluginRegistry internal constructor(
             "the native module name \"${module.name}\" is already taken"
         }
         modules += module
+    }
+
+    /** Adds a native screen, which a route opens with `native: "<plugin>.<name>"` (docs/plugins.md §5). */
+    fun screen(name: String, content: ZnScreenContent) {
+        check(!ZnNativeScreens.has(name) && name !in screens) { "the native screen name \"$name\" is already taken" }
+        screens[name] = content
+    }
+
+    /** Adds a view, which a screen shows with `<NativeView name="<plugin>.<name>" />` (docs/plugins.md §5). */
+    fun view(name: String, content: ZnViewContent) {
+        check(!ZnNativeViews.has(name) && name !in views) { "the native view name \"$name\" is already taken" }
+        views[name] = content
     }
 
     /** Hears the Activity and the app: new intents, front and back, low memory, new JS. */
@@ -59,7 +73,7 @@ object ZnPlugins {
      * The host API of this runtime, the same as kHostApiVersion in core/include/zn/engine.h (a test compares them). A
      * constant, so a plugin's check doesn't load the native library in Application.onCreate.
      */
-    const val HOST_API = 5
+    const val HOST_API = 6
 
     fun register(context: Context, vararg plugins: ZnPlugin) {
         val app = context.applicationContext
@@ -74,6 +88,8 @@ object ZnPlugins {
             }
             added.modules.forEach(ZnModules::register)
             added.events.forEach(ZnActivity::addEvents)
+            added.screens.forEach { (name, content) -> ZnNativeScreens.add(name, content) }
+            added.views.forEach { (name, content) -> ZnNativeViews.add(name, content) }
         }
     }
 

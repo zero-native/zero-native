@@ -278,7 +278,9 @@ internal object ZnOtaHealth {
     /** True if this process is the first since a new APK install (bundles that no longer fit are cleaned up). */
     @Volatile var apkChanged = false
         private set
-    @Volatile private var inFront = false
+    /** True while an Activity of the app is on screen. */
+    @Volatile var inFront = false
+        private set
     @Volatile private var chosen: ZnBundles.Running? = null
 
     private fun <T> edit(sync: Boolean = true, block: (State) -> T): T = synchronized(lock) {

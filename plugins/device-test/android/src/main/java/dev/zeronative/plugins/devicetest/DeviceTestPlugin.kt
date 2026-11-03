@@ -9,6 +9,8 @@ import dev.zeronative.runtime.ZnPluginRegistry
 class DeviceTestPlugin : ZnPlugin {
     override fun register(r: ZnPluginRegistry) {
         r.module(DeviceModule(r.context))
+        r.screen("device.fake-screen") { scope -> FakeScreen(scope) }
+        r.view("device.fake-view") { scope -> FakeView(scope) }
         // Log lines the phone test reads.
         r.activityEvents(object : ZnActivityEvents {
             override fun onFront() = say("front")

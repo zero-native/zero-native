@@ -16,7 +16,7 @@ beforeEach(() => {
 test("a call names the module and the version the plugin needs", async () => {
   const p = Device.slowEcho({ text: "hi", ms: 10 })
   const [c] = host.calls
-  expect(c).toMatchObject({ module: "Device", method: "slowEcho", args: { text: "hi", ms: 10, __v: 4 } })
+  expect(c).toMatchObject({ module: "Device", method: "slowEcho", args: { text: "hi", ms: 10, __v: 5 } })
   reply({ id: c.id, ok: true, value: "hi" })
   expect(await p).toBe("hi")
 })

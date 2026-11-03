@@ -12,7 +12,7 @@ import { readRoutes, type RouteEntry } from "./routes"
 import { nativeModuleUses } from "./modules"
 import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
 
-/** One route in the manifest: the route entry with its screen's template id. */
+/** One route in the manifest: the route entry with its screen's template id (-1 for a native screen). */
 export type ManifestRoute = RouteEntry & { screen: number }
 
 export interface ZnManifest {
@@ -64,6 +64,8 @@ export function znBuild(): ZnBuild {
       modules.set(name, Math.max(modules.get(name) ?? 0, version))
     }
   }
+  /** Every <NativeView>, checked in outputs(), when all files are read. */
+  const nativeViews: { name: string; where: string }[] = []
   const ctx = {
     reserveTemplate() {
       specs.push(null as unknown as NodeSpec)
@@ -74,6 +76,9 @@ export function znBuild(): ZnBuild {
       specs[id] = spec
     },
     ref: placeholder,
+    nativeView(name: string, where: string) {
+      nativeViews.push({ name, where })
+    },
   }
 
   const plugin: BunPlugin = {
@@ -132,8 +137,13 @@ export function znBuild(): ZnBuild {
         return String(id).padEnd(token.length)
       })
 
+      for (const v of nativeViews) checkNativeName(v.name, `${v.where}: <NativeView>`, modules)
       const table: ManifestRoute[] = (routes?.entries ?? []).map((r) => {
-        const screen = finalComponents[r.component]
+        if (r.native !== undefined) {
+          checkNativeName(r.native, `${routes!.file}: route "${r.name}"`, modules)
+          return { ...r, screen: -1 }
+        }
+        const screen = finalComponents[r.component!]
         if (screen === undefined) {
           throw new Error(
             `${routes!.file}: route "${r.name}": screen ${r.component} has no template ` +
@@ -152,6 +162,16 @@ export function znBuild(): ZnBuild {
       }
     },
   }
+}
+
+/**
+ * A native screen or view "<plugin>.<name>" belongs to its plugin's module (docs/plugins.md D3): the bundle must need that
+ * module, so an app without the plugin never runs it, and the "unknown name" case can't reach a phone.
+ */
+function checkNativeName(name: string, where: string, modules: Map<string, number>): void {
+  const plugin = name.split(".")[0]!
+  if ([...modules.keys()].some((m) => m.toLowerCase() === plugin)) return
+  throw new Error(`${where}: "${name}" belongs to a plugin module "${plugin}", but no code in the app uses it: import the plugin`)
 }
 
 /**

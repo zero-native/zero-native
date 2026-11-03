@@ -33,6 +33,8 @@ export interface RouteOptions {
    * screens above it are left out, and the user lands on the screen below it.
    */
   restore?: boolean
+  /** No screenshots or screen recordings while this route is on top (Android's FLAG_SECURE). */
+  secure?: boolean
 }
 
 export interface RouteDef<Path extends string = string, Props = any> extends RouteOptions {
@@ -40,6 +42,14 @@ export interface RouteDef<Path extends string = string, Props = any> extends Rou
   /** The screen component (it returns JSX). */
   screen: (props: Props) => unknown
 }
+
+/** A plugin's native screen as a route: `scan: { path: "/scan", native: "scanner.full" }` (docs/plugins.md §5). */
+export interface NativeRouteDef<Path extends string = string> extends RouteOptions {
+  path: Path
+  native: string
+}
+
+export type AnyRouteDef = RouteDef | NativeRouteDef
 
 /** `"/pay/:merchantId/:tab"` → `{ merchantId: string; tab: string }`. */
 export type PathParams<P extends string> = P extends `${string}:${infer Name}/${infer Rest}`
@@ -53,7 +63,7 @@ type RouteError<Message extends string> = { screen: never; error: Message }
 
 /** Every `:name` in the path must be a string prop of the screen. */
 type Checked<R> = {
-  [K in keyof R]: R[K] extends RouteDef<infer Path, infer Props>
+  [K in keyof R]: R[K] extends NativeRouteDef ? R[K] : R[K] extends RouteDef<infer Path, infer Props>
     ? keyof PathParams<Path> extends keyof Props
       ? PathParams<Path> extends Pick<Props, keyof PathParams<Path> & keyof Props>
         ? R[K]
@@ -62,10 +72,14 @@ type Checked<R> = {
     : never
 }
 
-export function defineRoutes<const R extends Record<string, RouteDef>>(routes: R & Checked<R>): R {
+export function defineRoutes<const R extends Record<string, AnyRouteDef>>(routes: R & Checked<R>): R {
   return routes
 }
 
 export type RouteName<R> = keyof R & string
 /** The params `nav.push(name, params)` needs: the screen's props. */
-export type RouteParams<R, K extends keyof R> = R[K] extends RouteDef<string, infer Props> ? Props : never
+export type RouteParams<R, K extends keyof R> = R[K] extends RouteDef<string, infer Props>
+  ? Props
+  : R[K] extends NativeRouteDef
+    ? Record<string, unknown>
+    : never

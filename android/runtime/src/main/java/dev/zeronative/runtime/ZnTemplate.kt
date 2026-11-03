@@ -328,6 +328,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val hasImpression = impressionKey != null || impressionKeySlot != NONE
     val disabledSlot = slotFor(raw, Registry.Prop.DISABLED)
     val valueSlot = slotFor(raw, Registry.Prop.VALUE)
+    val viewName: String? = p[Registry.Prop.VIEW_NAME] as String?
+    val viewProps: String? = p[Registry.Prop.VIEW_PROPS] as String?
+    val viewPropsSlot = slotFor(raw, Registry.Prop.VIEW_PROPS)
     val placeholderSlot = slotFor(raw, Registry.Prop.PLACEHOLDER)
     val editableSlot = slotFor(raw, Registry.Prop.EDITABLE)
     /** Padding edges bound to slots (start, top, end, bottom; NONE = static). Read in the layout phase. */
@@ -354,6 +357,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val onLongPress = eventFor(raw, Registry.Event.ON_LONG_PRESS)
     val onPressRepeat = eventFor(raw, Registry.Event.ON_PRESS_REPEAT)
     val onValueChange = eventFor(raw, Registry.Event.ON_VALUE_CHANGE)
+    val onNativeEvent = eventFor(raw, Registry.Event.ON_NATIVE_EVENT)
 
     /** True when the drawing chain reads a slot, so it must be built per instance instead of once here. */
     val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || hasDynamicPadding ||

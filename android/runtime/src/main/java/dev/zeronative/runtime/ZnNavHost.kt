@@ -3,6 +3,7 @@ package dev.zeronative.runtime
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.view.WindowManager
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.AnimatedVisibility
@@ -37,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -70,6 +72,9 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     val safe = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     ReportInsets(safe)
     val top = ZnNav.stack.lastOrNull()
+    // The top route at once (the frame it appears), and any secure screen still drawn: one that is leaving or being covered
+    // shows for its whole animation (~300 ms), and a screenshot then must not catch it.
+    SecureWindow(top?.route?.secure == true || secureDrawn.intValue > 0)
     // Status bar icons: the route's `statusBar` option. Navigation bar icons: from the screen's own background
     // (dark icons on a light screen), so a full-bleed header doesn't get a scrim over the bottom bar.
     val topBackground = top?.route?.templateId?.let { bundle.templates.getOrNull(it)?.nodes?.firstOrNull()?.background }
@@ -104,6 +109,20 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     }
 }
 
+/** How many `secure: true` screens are drawn right now, an exit or cover animation included (main thread). */
+private val secureDrawn = mutableIntStateOf(0)
+
+/** No screenshots or recordings while a `secure: true` route is drawn. A window the app itself made secure stays that way. */
+@Composable
+private fun SecureWindow(secure: Boolean) {
+    val window = ZnActivity.current?.window
+    DisposableEffect(secure, window) {
+        val ours = secure && window != null && window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE == 0
+        if (ours) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { if (ours) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+}
+
 @Composable
 private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
     NavDisplay(
@@ -115,6 +134,16 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
                 DisposableEffect(e.id) {
                     ZnNav.shown(e.id)
                     onDispose { ZnNav.hidden(e.id) }
+                }
+                if (e.route.secure) {
+                    DisposableEffect(e.id) {
+                        secureDrawn.intValue++
+                        onDispose { secureDrawn.intValue-- }
+                    }
+                }
+                e.route.native?.let { name ->
+                    NativeScreen(e, name, safe)
+                    return@NavEntry
                 }
                 val root = ZnStore.find(e.id) ?: return@NavEntry
                 val template = bundle.templates.getOrNull(root.templateId)
@@ -149,6 +178,27 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
             }
         },
     )
+}
+
+/** A plugin's native screen (docs/plugins.md §5), with the route's safe area. The bundle needs its plugin's module, so a missing one is rare. */
+@Composable
+private fun NativeScreen(e: ZnEntry, name: String, safe: WindowInsets) {
+    val sides = safeSides(e.route)
+    Box(Modifier.fillMaxSize().then(if (sides != null) Modifier.windowInsetsPadding(safe.only(sides)) else Modifier)) {
+        val content = ZnNativeScreens.get(name)
+        if (content != null) {
+            content(remember(e.id) { ZnScreenScope(e) })
+        } else {
+            ZnErrorScreen.Draw(
+                message = "no native screen \"$name\"",
+                startFailed = false,
+                hung = false,
+                canGoBack = ZnNav.stack.indexOf(e) > 0,
+                onRetry = { ZnNav.systemBack() },
+                onBack = { ZnNav.systemBack() },
+            )
+        }
+    }
 }
 
 /**

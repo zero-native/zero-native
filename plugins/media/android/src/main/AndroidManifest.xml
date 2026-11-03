@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Lets the camera app write the photo into our folder. Only that one file, only for that one launch. -->
+        <provider
+            android:name="dev.zeronative.plugins.media.MediaFileProvider"
+            android:authorities="${applicationId}.zn.media"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/zn_media_paths" />
+        </provider>
+    </application>
+</manifest>

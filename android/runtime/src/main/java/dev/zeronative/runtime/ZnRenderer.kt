@@ -124,6 +124,7 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
         Registry.Component.COLUMN, Registry.Component.BOX, Registry.Component.PRESSABLE, Registry.Component.FRAGMENT ->
             ZnColumn(f, t, inst, s, mod, definiteWidth)
         Registry.Component.TEXT_FIELD -> ZnTextField(s, inst, n, mod)
+        Registry.Component.NATIVE_VIEW -> ZnNativeView(s, inst, n, mod)
         Registry.Component.SHEET -> ZnSheet(f, t, s, inst) // drawn in its own window, takes no space here
         Registry.Component.ROW -> Row(
             modifier = mod,

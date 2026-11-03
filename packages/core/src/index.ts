@@ -32,7 +32,7 @@ export {
   type View,
 } from "./view"
 export { onEvent } from "./events"
-export { nav, restorableSignal, startApp, useBack, useImpressions, type AppOptions, type ImpressionOptions, type OpenedLink, type Register } from "./nav"
+export { nav, onNavResult, restorableSignal, startApp, useBack, useImpressions, type AppOptions, type ImpressionOptions, type OpenedLink, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
 export { appState, onAppState, type AppState } from "./app-state"
 export { Permissions, type PermissionName, type PermissionState } from "./permissions"
@@ -76,6 +76,8 @@ export {
 export { Headers, type HeadersInit } from "./headers"
 export { FormData, type FormFile, type FormValue } from "./formdata"
 export { useAbortSignal } from "./abort"
+export { colorScheme, onLowMemory, scheme, type ColorScheme } from "./appearance"
+export { defineTask, type TaskFunction } from "./tasks"
 export {
   defineRoutes,
   type PathParams,

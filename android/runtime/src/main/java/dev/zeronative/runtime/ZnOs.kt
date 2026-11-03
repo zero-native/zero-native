@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
+import android.view.View
 import org.json.JSONObject
 
 /** The built-in Os module: small things about the phone (packages/core/src/os.ts, docs/guide-notes.md §33). */
@@ -32,7 +33,8 @@ internal object ZnOs : ZnModuleBase("Os", version = 1) {
             call.resolve(
                 JSONObject().put("appVersion", info.versionName ?: "").put("appBuild", build)
                     .put("android", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT)
-                    .put("model", Build.MODEL).put("manufacturer", Build.MANUFACTURER),
+                    .put("model", Build.MODEL).put("manufacturer", Build.MANUFACTURER)
+                    .put("rtl", app.resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL),
             )
         }
 

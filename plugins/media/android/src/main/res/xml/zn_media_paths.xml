@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The same folder as ZnHandles.fileDir. -->
+<paths>
+    <cache-path name="files" path="zn-files/" />
+</paths>

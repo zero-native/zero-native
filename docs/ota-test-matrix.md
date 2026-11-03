@@ -25,7 +25,9 @@ leave behind).
 
 ## Cases
 
-Last run: 2026-11-03 (after P.3), Lava Blaze 2 5G (Android 14), debug sample: **38 of 38 passed**. The cases take
+Last run: 2026-11-03 (after P.3b–P.6: host API 6, registry 9, four more plugins), Lava Blaze 2 5G (Android 14), debug sample: **38 of 38 passed**.
+**Run it alone:** no other phone script at the same time, and never delete `~/.zero-native/ota.lock` by hand. Two runs on one phone break each
+other (seen 2026-11-03: a second run deleted the lock, reinstalled the app and emptied the store under the first). The cases take
 ~11 min; the rest of the ~30 min is building and installing the sample. "Proof" is the log line each case waited for.
 
 | Case | Result | Time | Proof |

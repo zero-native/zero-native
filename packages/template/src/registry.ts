@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 8 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 9 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -16,6 +16,7 @@ export const REGISTRY_VERSION = 8 // 2: Anchor. 3: transforms, shadow, absolute 
 //    (ripple by default, pressScale).
 // 8: small components & accessibility (milestone 3 steps 3.7–3.8): Switch, Checkbox, Spinner, Progress, Shimmer;
 //    accessibilityLabel, accessibilityRole, maxFontScale.
+// 9: NativeView, a plugin's Compose view inside a screen (docs/plugins.md §5): viewName, viewProps, onNativeEvent.
 
 export const Component = {
   Column: 1,
@@ -43,7 +44,9 @@ export const Component = {
   Fragment: 15,
   /** A text input. The native field owns the text while the user types; JS hears onChangeText and may set `value`. */
   TextField: 16,
-  // 17-19: Claude (milestone 3). 20-29: Gemini (milestone 3 brief).
+  /** A plugin's Compose view inside a screen, chosen by name. JS sends it JSON props and hears named events. */
+  NativeView: 17,
+  // 18-19: Claude (milestone 3). 20-29: Gemini (milestone 3 brief).
   Switch: 20,
   Checkbox: 21,
   Spinner: 22,
@@ -204,6 +207,10 @@ export const Prop = {
   pressOpacity: { id: 145, type: "number" },
   /** Overlay colour for pressFeedback "highlight" (RN TouchableHighlight underlayColor). Default black at 10 %. */
   highlightColor: { id: 146, type: "color" },
+  /** <NativeView name="...">: which view; fixed at build time so the build can check its plugin. */
+  viewName: { id: 147, type: "string" },
+  /** <NativeView props={...}>: the props as JSON text. */
+  viewProps: { id: 148, type: "string" },
   // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
   trackColor: { id: 200, type: "color" },
   activeTrackColor: { id: 201, type: "color" },
@@ -284,7 +291,9 @@ export const EventKind = {
   onSubmitEditing: 12,
   onFocus: 13,
   onBlur: 14,
-  // 15-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
+  /** <NativeView>: payload is JSON text, { name, data }; the compiler adds the parse. */
+  onNativeEvent: 15,
+  // 16-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
   onValueChange: 30,
 } as const
 export type EventName = keyof typeof EventKind
@@ -315,6 +324,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "placeholder",
   "editable",
   "accessibilityLabel",
+  "viewProps",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -339,7 +349,13 @@ export const Added: {
   /** Key: "<prop>.<value>", e.g. "pressFeedback.highlight". */
   enumValue: Record<string, number>
   event: Partial<Record<EventName, number>>
-} = { component: {}, prop: {}, dynamic: {}, enumValue: {}, event: {} }
+} = {
+  component: { NativeView: 9 },
+  prop: { viewName: 9, viewProps: 9 },
+  dynamic: { viewProps: 9 },
+  enumValue: {},
+  event: { onNativeEvent: 9 },
+}
 
 /** The registry version that [kind] [name] needs ([BASE_VERSION] unless listed in [Added]). */
 export function since(kind: keyof typeof Added, name: string): number {

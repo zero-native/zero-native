@@ -1,0 +1,19 @@
+{
+  "name": "@zero-native/webview",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "@zero-native/core": "workspace:*",
+    "@zero-native/ui": "workspace:*"
+  },
+  "zeroNative": {
+    "android": {
+      "plugin": "dev.zeronative.plugins.webview.WebViewPlugin"
+    }
+  }
+}

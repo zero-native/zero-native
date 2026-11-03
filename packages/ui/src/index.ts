@@ -208,6 +208,17 @@ export declare const Checkbox: Intrinsic<
   }
 >
 /**
+ * A plugin's Compose view inside a screen (docs/plugins.md §4). `name` must be a string literal; the build fails if the
+ * app doesn't use that plugin. Give it a size in `style`. Takes no children.
+ */
+export declare const NativeView: Intrinsic<
+  Base & {
+    name: string
+    props?: Record<string, unknown>
+    onEvent?: (e: { name: string; data: any }) => void
+  }
+>
+/**
  * An endless circular loading spinner drawn natively in the draw phase (0 recompositions).
  */
 export declare const Spinner: Intrinsic<

@@ -19,3 +19,7 @@ include(":sample")
 include(":baselineprofile")
 include(":plugin-device-test")
 project(":plugin-device-test").projectDir = file("../plugins/device-test/android")
+for (name in listOf("scanner", "media", "auth", "webview")) {
+    include(":plugin-$name")
+    project(":plugin-$name").projectDir = file("../plugins/$name/android")
+}

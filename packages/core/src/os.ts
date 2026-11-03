@@ -12,6 +12,8 @@ export interface OsInfo {
   sdk: number
   model: string
   manufacturer: string
+  /** True when the phone's language reads right to left (the app must set android:supportsRtl). */
+  rtl: boolean
 }
 
 export type Haptic = "light" | "medium" | "success" | "error"

@@ -36,6 +36,25 @@ describe("routes", () => {
     expect(routes![2]).toMatchObject({ transition: "modal", safeArea: { top: false, bottom: true }, statusBar: "light", restore: false })
   })
 
+  test("a native screen has no component, and options as usual", () => {
+    const routes = read(`export const routes = defineRoutes({
+      home: { path: "/", screen: HomeScreen },
+      scan: { path: "/scan", native: "scanner.full", safeArea: "none", secure: true },
+    })`)
+    expect(routes![1]).toMatchObject({ name: "scan", component: null, native: "scanner.full", safeArea: "none", secure: true })
+    expect("native" in routes![0]).toBe(false)
+    expect("secure" in routes![0]).toBe(false)
+  })
+
+  test("native screen errors", () => {
+    const home = `home: { path: "/", screen: HomeScreen }`
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: HomeScreen, native: "x.y" } })`)).toContain("both screen and native")
+    expect(err(`defineRoutes({ a: { path: "/", native: "x.y" } })`)).toContain("start route can't be a native screen")
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", native: "full" } })`)).toContain('must be "<plugin>.<name>"')
+    expect(err(`const n = "x.y"; defineRoutes({ ${home}, a: { path: "/a", native: n } })`)).toContain("string literal")
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", secure: 1, screen: HomeScreen } })`)).toContain("unsupported secure")
+  })
+
   test("a file without defineRoutes", () => {
     expect(readRoutes(`export const x = 1`, "a.ts")).toBeNull()
   })

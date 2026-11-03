@@ -24,10 +24,14 @@ export interface DeviceModule {
   openMockUpi(args: { id: string }): Promise<LaunchStarted>
   /** v4, debug builds only: a launch of an app that isn't installed, under the key "mock-missing". */
   openMissingApp(args: { id: string }): Promise<LaunchStarted>
+  /** v5: runs a background task; answers DONE, FAILED, NO_TASK or TIMED_OUT. */
+  runTask(args: { name: string; timeoutMs: number }): Promise<string>
+  /** v5: writes a small picture to the handle folder. */
+  makeFile(): Promise<{ handle: string; outsideRefused: boolean }>
   events: {
     /** A counter every 50 ms, only while someone listens; if JS is busy only the newest value arrives. */
     tick: number
   }
 }
 
-export const Device = nativeModule<DeviceModule>("Device", { version: 4 })
+export const Device = nativeModule<DeviceModule>("Device", { version: 5 })

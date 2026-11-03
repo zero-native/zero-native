@@ -32,7 +32,7 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
     private const val RECORD = "launch.record."
     private const val MARKER = "zn-launch-waiting"
 
-    /** [launched] false: the other app didn't open, so nothing can have happened there. [reason]: no_app, no_activity, no_storage, busy, unacked. */
+    /** [launched] false: the other app didn't open, so nothing can have happened there. [reason]: no_app, no_activity, no_storage, busy, unacked, failed. */
     class Started(val launched: Boolean, val reason: String? = null) {
         fun toJson(): JSONObject = JSONObject().put("launched", launched).apply { if (reason != null) put("reason", reason) }
     }
@@ -91,6 +91,7 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
     }
 
     private var app: Context? = null
+    private val readers = java.util.concurrent.ConcurrentHashMap<String, (Int, Intent?) -> JSONObject>()
     /** A launch made by this process waits for its result. */
     private var launchedHere = false
     /** A launch from an earlier process, or from an Activity that is gone, may be waiting: settled at the next resume. */
@@ -115,6 +116,15 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
             }
             call.resolve(ok)
         }
+    }
+
+    /**
+     * For a plugin whose answer isn't plain extras (the phone number hint): [read] turns Android's answer for launches
+     * under [key] into the record's `extras`. Call it in [ZnPlugin.register], so it is there after a kill too. Main thread;
+     * keep it quick. If it throws, the extras are empty and the result code still gets through.
+     */
+    fun readResult(key: String, read: (resultCode: Int, data: Intent?) -> JSONObject) {
+        readers[key] = read
     }
 
     /** Opens [intent] for a result. [key]: which feature ("upi"); [id]: this launch (a txn ref), saved by the app first. */
@@ -148,6 +158,9 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
         } catch (e: SecurityException) {
             undo(activity, store, key, e)
             return Started(false, "no_app")
+        } catch (e: RuntimeException) { // any other: with no undo, each later launch would answer "busy" until a restart
+            undo(activity, store, key, e)
+            return Started(false, "failed")
         }
         Log.i(TAG, "launch $key: opened, waiting for its result")
         return Started(true)
@@ -162,24 +175,51 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
         launchedHere = false
     }
 
+    /** Main thread: a native screen's answer as a record under [key], on disk before JS hears it (ZnNav.answer). */
+    internal fun saveScreenResult(key: String, id: String, value: String) {
+        val context = ZnActivity.current ?: app ?: return
+        val store = store(context)
+        val record = Rules.waiting(key, id).put("status", Rules.RESULT).put("resultCode", -1)
+            .put("data", JSONObject.NULL).put("extras", JSONObject().put("value", value))
+        store.set(RECORD + key, record.toString())
+        store.flush()
+    }
+
     /** Main thread: Android's answer. The record is on disk before JS hears it. */
     internal fun onResult(resultCode: Int, data: Intent?) {
         val context = ZnActivity.current ?: app ?: return
         launchedHere = false
-        marker(context).delete()
         val store = store(context)
         val key = store.getString(CURRENT)
         val record = key?.let { read(store, it) }
         if (record == null) {
+            marker(context).delete()
             Log.w(TAG, "launch: a result with no launch waiting; dropped")
             return
         }
-        val next = Rules.result(record, resultCode, data?.dataString, Rules.extras(extrasOf(data))) ?: return
+        val next = Rules.result(record, resultCode, data?.dataString, extrasFor(key, resultCode, data))
+        if (next == null) {
+            marker(context).delete()
+            return
+        }
         store.set(RECORD + key, next.toString())
         store.delete(CURRENT)
         store.flush()
+        // Only after the flush: a kill before this line leaves the marker, and the next start finds nothing waiting. Deleted
+        // first, a kill in between left the record "waiting" for good, and every later launch with its key said "busy".
+        marker(context).delete()
         Log.i(TAG, "launch $key: result $resultCode saved")
         emit("result", next)
+    }
+
+    private fun extrasFor(key: String, resultCode: Int, data: Intent?): JSONObject {
+        val read = readers[key] ?: return Rules.extras(extrasOf(data))
+        return try {
+            read(resultCode, data)
+        } catch (t: Throwable) {
+            Log.w(TAG, "launch $key: the plugin couldn't read the result: $t")
+            JSONObject()
+        }
     }
 
     /** Main thread, in [ZnActivity.attach]. Only a stat of the [marker]: a normal start must not touch storage here. */

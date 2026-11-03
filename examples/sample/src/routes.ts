@@ -16,6 +16,11 @@ import { PressScreen } from "./PressScreen"
 import { ComponentsScreen } from "./ComponentsScreen"
 import { CrashLabScreen, CrashScreen } from "./CrashLabScreen"
 import { UpdatesScreen } from "./UpdatesScreen"
+import { CoreLabScreen, SecureLabScreen } from "./CoreLabScreen"
+import { ScannerLabScreen } from "./ScannerLab"
+import { MediaLabScreen } from "./MediaLab"
+import { AuthLabScreen } from "./AuthLab"
+import { WebViewLabScreen } from "./WebViewLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -36,6 +41,14 @@ export const routes = defineRoutes({
   crashScreen: { path: "/dev/crash/screen", screen: CrashScreen, restore: false },
   updates: { path: "/dev/updates", screen: UpdatesScreen, deepLink: true },
   launch: { path: "/dev/launch", screen: LaunchScreen, deepLink: true },
+  coreLab: { path: "/dev/core", screen: CoreLabScreen, deepLink: true },
+  fakeScreen: { path: "/dev/core/native", native: "device.fake-screen" },
+  secureLab: { path: "/dev/core/secure", screen: SecureLabScreen, secure: true },
+  scannerLab: { path: "/dev/scanner", screen: ScannerLabScreen, deepLink: true },
+  scan: { path: "/dev/scanner/full", native: "scanner.full", safeArea: "none" },
+  mediaLab: { path: "/dev/media", screen: MediaLabScreen, deepLink: true },
+  authLab: { path: "/dev/auth", screen: AuthLabScreen, deepLink: true },
+  webviewLab: { path: "/dev/webview", screen: WebViewLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

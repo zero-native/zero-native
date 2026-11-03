@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "base": 8,
   "entries": {
     "component:Column": {"id":1,"since":8},
@@ -18,6 +18,7 @@
     "component:Sheet": {"id":14,"since":8},
     "component:Fragment": {"id":15,"since":8},
     "component:TextField": {"id":16,"since":8},
+    "component:NativeView": {"id":17,"since":9},
     "component:Switch": {"id":20,"since":8},
     "component:Checkbox": {"id":21,"since":8},
     "component:Spinner": {"id":22,"since":8},
@@ -125,6 +126,8 @@
     "prop:rippleRadius": {"id":144,"type":"number","since":8},
     "prop:pressOpacity": {"id":145,"type":"number","since":8},
     "prop:highlightColor": {"id":146,"type":"color","since":8},
+    "prop:viewName": {"id":147,"type":"string","since":9},
+    "prop:viewProps": {"id":148,"type":"string","since":9},
     "prop:trackColor": {"id":200,"type":"color","since":8},
     "prop:activeTrackColor": {"id":201,"type":"color","since":8},
     "prop:thumbColor": {"id":202,"type":"color","since":8},
@@ -161,6 +164,7 @@
     "dynamic:placeholder": {"since":8},
     "dynamic:editable": {"since":8},
     "dynamic:accessibilityLabel": {"since":8},
+    "dynamic:viewProps": {"since":9},
     "enum:justifyContent.flex-start": {"id":0,"since":8},
     "enum:justifyContent.center": {"id":1,"since":8},
     "enum:justifyContent.flex-end": {"id":2,"since":8},
@@ -232,6 +236,7 @@
     "event:onSubmitEditing": {"id":12,"since":8},
     "event:onFocus": {"id":13,"since":8},
     "event:onBlur": {"id":14,"since":8},
+    "event:onNativeEvent": {"id":15,"since":9},
     "event:onValueChange": {"id":30,"since":8}
   }
 }

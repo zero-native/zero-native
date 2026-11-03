@@ -18,13 +18,20 @@
 //
 // restorableSignal: each value change goes to native as NAV RESTORE; native saves the values with the back stack and,
 // when Android restores the app after killing it, hands them back in START's "values" (host API 4).
+//
+// A native screen (a route with `native`, docs/plugins.md §5) is an entry with nothing to render. Its answer is on disk
+// before JS hears NAV_RESULT, in the launches store under the key "nav.<route>": `pushForResult`'s promise takes it, or
+// after a kill, when that promise is gone, `onNavResult`.
 import { APP, AppEvent } from "./app-events"
 import { appStarting, installAppState } from "./app-state"
+import { installAppearance } from "./appearance"
 import { reportError, setTopScreen } from "./errors"
 import { onEvent } from "./events"
 import { installInsets } from "./insets"
+import { installTasks } from "./tasks"
 import type { NativeValue } from "./native"
-import type { RouteDef, RouteName, RouteParams } from "./routes"
+import type { AnyRouteDef, NativeRouteDef, RouteDef, RouteName, RouteParams } from "./routes"
+import { launches, type LaunchRecord } from "./launches"
 import { getOwner, onCleanup, signal, type Owner, type Signal } from "./signals"
 import { allocInstanceId, renderRoot, type View } from "./view"
 
@@ -32,7 +39,7 @@ import { allocInstanceId, renderRoot, type View } from "./view"
  *    declare module "@zero-native/core" { interface Register { routes: typeof routes } } */
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Register {}
-type Routes = Register extends { routes: infer R } ? R : Record<string, RouteDef>
+type Routes = Register extends { routes: infer R } ? R : Record<string, AnyRouteDef>
 
 const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7, Started: 8, Restore: 9 } as const
 export { AppEvent } from "./app-events"
@@ -59,10 +66,14 @@ const screenOwners = new WeakMap<Owner, Entry>()
 /** Keys already reported in this app session (for `once: "session"`). */
 const seenThisSession = new Set<string>()
 
-let table: Record<string, RouteDef> | null = null
+let table: Record<string, AnyRouteDef> | null = null
 let names: string[] = []
 let onLink: AppOptions["onLink"] | null = null
 const stack: Entry[] = []
+/** Entry id → the `pushForResult` promise that waits for its native screen. */
+const waiting = new Map<number, (value: unknown) => void>()
+/** Route name → who hears a native screen's answer with no promise waiting (`onNavResult`). */
+const resultListeners = new Map<string, Set<(record: LaunchRecord) => void>>()
 /** The entry whose screen is being rendered right now (for useBack). */
 let rendering: Entry | null = null
 
@@ -70,12 +81,29 @@ type ParamsArg<K extends RouteName<Routes>> = {} extends RouteParams<Routes, K>
   ? [params?: RouteParams<Routes, K>]
   : [params: RouteParams<Routes, K>]
 
+/** Only the routes with `native`, so `pushForResult<T>` can name its answer's type and still check the route. */
+type NativeRouteName = string extends RouteName<Routes>
+  ? string
+  : { [K in RouteName<Routes>]: Routes[K] extends NativeRouteDef ? K : never }[RouteName<Routes>]
+
 export const nav = {
   /** Opens a screen on top of the current one. */
   push<K extends RouteName<Routes>>(name: K, ...[params]: ParamsArg<K>): void {
     const e = open(name, (params ?? {}) as Record<string, unknown>)
     globalThis.__zn_nav(NavKind.Push, e.id, e.route, JSON.stringify(e.params))
     show(e)
+  },
+
+  /**
+   * Opens a native screen and waits for its answer; null if the user went back. If the app is killed while it is open, this
+   * promise is gone: use `onNavResult` too when the answer matters after a kill.
+   */
+  pushForResult<T = unknown>(name: NativeRouteName, params?: Record<string, unknown>): Promise<T | null> {
+    if (!isNative(table?.[name])) throw new Error(`nav.pushForResult: "${name}" is not a native screen`)
+    const e = open(name, params ?? {})
+    globalThis.__zn_nav(NavKind.Push, e.id, e.route, JSON.stringify(e.params))
+    show(e)
+    return new Promise((resolve) => waiting.set(e.id, resolve as (value: unknown) => void))
   },
 
   /** Closes the top screen. Returns false (and does nothing) on the last screen. */
@@ -124,6 +152,65 @@ export const nav = {
 export function useBack(handler: () => boolean): void {
   if (!rendering) throw new Error("useBack must be called while a screen renders (in a component body)")
   rendering.onBack = handler
+}
+
+/**
+ * Hears a native screen's answer when no `pushForResult` waits for it: after a kill, or when the screen was opened with
+ * `nav.push`. It also hears an answer already saved, and hears it again at each start until you call `ack`, after you
+ * acted on it. Called while a screen is built, it stops with the screen.
+ */
+export function onNavResult<T = unknown>(route: string, handler: (value: T, ack: () => void) => void): () => void {
+  const key = navKey(route)
+  const seen = new Set<string>()
+  const deliver = (r: LaunchRecord) => {
+    if (r.status !== "result" || seen.has(r.id)) return
+    seen.add(r.id)
+    try {
+      handler(valueOf(r) as T, () => void launches.ack(key, r.id))
+    } catch (err) {
+      reportError("onNavResult handler", err)
+    }
+  }
+  const set = resultListeners.get(route) ?? new Set()
+  resultListeners.set(route, set)
+  set.add(deliver)
+  const off = () => void set.delete(deliver)
+  if (getOwner()) onCleanup(off)
+  const saved = launches.pending(key)
+  if (saved) void Promise.resolve().then(() => deliver(saved))
+  return off
+}
+
+const navKey = (route: string) => `nav.${route}`
+
+function valueOf(record: LaunchRecord): unknown {
+  const text = record.extras?.value
+  return typeof text === "string" ? JSON.parse(text) : null
+}
+
+function isNative(route: AnyRouteDef | undefined): route is NativeRouteDef {
+  return route !== undefined && "native" in route
+}
+
+/** A native screen answered. Its answer is on disk; the top of the stack closes here, as JS owns the stack. */
+function onNavResultEvent(payload: NativeValue): void {
+  const { entry, route, id } = JSON.parse(String(payload)) as { entry: number; route: string; id: string }
+  const key = navKey(route)
+  const record = launches.pending(key)
+  const resolve = waiting.get(entry)
+  waiting.delete(entry)
+  if (record?.id === id) {
+    if (resolve) {
+      void launches.ack(key, id)
+      resolve(valueOf(record))
+    } else {
+      resultListeners.get(route)?.forEach((deliver) => deliver(record))
+    }
+  } else {
+    globalThis.__zn_log(3, `nav: no saved answer for screen ${route}`)
+    resolve?.(null)
+  }
+  if (stack[stack.length - 1]?.id === entry && !nav.back()) globalThis.__zn_nav(NavKind.Exit, 0, 0, null)
 }
 
 export interface ImpressionOptions {
@@ -251,19 +338,22 @@ export interface AppOptions {
 }
 
 /** Starts the app: registers the routes and waits for native's START event with the first stack. */
-export function startApp(routes: Record<string, RouteDef>, options: AppOptions = {}): void {
+export function startApp(routes: Record<string, AnyRouteDef>, options: AppOptions = {}): void {
   table = routes
   names = Object.keys(routes)
   onLink = options.onLink ?? null
   onEvent(APP, AppEvent.Start, (payload) => start(payload))
-  onEvent(APP, AppEvent.Back, () => onSystemBack())
+  onEvent(APP, AppEvent.Back, (payload) => onSystemBack(payload))
   onEvent(APP, AppEvent.ForcedBack, (payload) => onForcedBack(payload))
   onEvent(APP, AppEvent.Open, (payload) => onOpenLink(payload))
   onEvent(APP, AppEvent.Impressions, (payload) => onImpressions(payload))
   onEvent(APP, AppEvent.Retry, (payload) => onRetry(payload))
+  onEvent(APP, AppEvent.NavResult, (payload) => onNavResultEvent(payload))
   setTopScreen(() => stack[stack.length - 1]?.name ?? null)
   installInsets()
   installAppState()
+  installAppearance()
+  installTasks()
 }
 
 /** A deep link while the app runs: native matched it to a route that allows links; JS opens it on top. */
@@ -291,6 +381,8 @@ export function resetNavForTests(): void {
   table = null
   names = []
   rendering = null
+  waiting.clear()
+  resultListeners.clear()
 }
 
 function open(name: string, params: Record<string, unknown>): Entry {
@@ -311,7 +403,9 @@ function show(e: Entry): void {
  * works), the error is reported, and native shows its error screen for it (NAV FAILED).
  */
 function render(e: Entry): void {
-  const screen = table![e.name].screen
+  const route = table![e.name]!
+  if (isNative(route)) return // drawn by native
+  const screen = route.screen
   const prev = rendering
   rendering = e
   try {
@@ -351,6 +445,11 @@ function onRetry(payload: NativeValue): void {
 /** Disposes an entry's screen (effects, events, timers). `send`: also tell native to take it out of the stack. */
 function close(e: Entry, send: boolean): void {
   e.dispose()
+  const resolve = waiting.get(e.id)
+  if (resolve) {
+    waiting.delete(e.id)
+    resolve(null) // the user went back
+  }
   if (send) globalThis.__zn_nav(NavKind.Remove, e.id, 0, null)
 }
 
@@ -386,9 +485,13 @@ function start(payload: NativeValue): void {
   globalThis.__zn_nav(NavKind.Started, 0, 0, null)
 }
 
-function onSystemBack(): void {
+/** [payload]: the screen native had on top when Back was pressed. */
+function onSystemBack(payload: NativeValue): void {
   globalThis.__zn_nav(NavKind.BackAnswered, 0, 0, null)
   const top = stack[stack.length - 1]
+  // JS already left that screen (a scan's answer closed the scanner in the same moment): this press was for it, so it
+  // must not close the next screen too, or exit the app from the last one.
+  if (payload != null && top != null && Number(payload) !== top.id) return
   if (top?.onBack) {
     let handled = false
     try {

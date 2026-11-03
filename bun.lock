@@ -21,9 +21,13 @@
     "examples/sample": {
       "name": "@zero-native/example-sample",
       "dependencies": {
+        "@zero-native/auth": "workspace:*",
         "@zero-native/core": "workspace:*",
         "@zero-native/device-test": "workspace:*",
+        "@zero-native/media": "workspace:*",
+        "@zero-native/scanner": "workspace:*",
         "@zero-native/ui": "workspace:*",
+        "@zero-native/webview": "workspace:*",
       },
       "devDependencies": {
         "@zero-native/compiler": "workspace:*",
@@ -44,6 +48,13 @@
       "name": "@zero-native/ui",
       "version": "0.0.0",
     },
+    "plugins/auth": {
+      "name": "@zero-native/auth",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
     "plugins/device-test": {
       "name": "@zero-native/device-test",
       "version": "0.0.0",
@@ -51,8 +62,33 @@
         "@zero-native/core": "workspace:*",
       },
     },
+    "plugins/media": {
+      "name": "@zero-native/media",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
+    "plugins/scanner": {
+      "name": "@zero-native/scanner",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+        "@zero-native/ui": "workspace:*",
+      },
+    },
+    "plugins/webview": {
+      "name": "@zero-native/webview",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+        "@zero-native/ui": "workspace:*",
+      },
+    },
   },
   "packages": {
+    "@zero-native/auth": ["@zero-native/auth@workspace:plugins/auth"],
+
     "@zero-native/compiler": ["@zero-native/compiler@workspace:compiler"],
 
     "@zero-native/core": ["@zero-native/core@workspace:packages/core"],
@@ -61,9 +97,15 @@
 
     "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
 
+    "@zero-native/media": ["@zero-native/media@workspace:plugins/media"],
+
+    "@zero-native/scanner": ["@zero-native/scanner@workspace:plugins/scanner"],
+
     "@zero-native/template": ["@zero-native/template@workspace:packages/template"],
 
     "@zero-native/ui": ["@zero-native/ui@workspace:packages/ui"],
+
+    "@zero-native/webview": ["@zero-native/webview@workspace:plugins/webview"],
 
     "fflate": ["fflate@0.8.2", "", {}, "sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A=="],
 

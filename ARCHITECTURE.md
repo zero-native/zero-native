@@ -801,15 +801,18 @@ export const Upi = nativeModule<UpiModule>('Upi', { version: 1 })
 
 ### 15.2 Native views
 `<NativeView name="camera.qrScanner" props={...} onEvent={...} />`. Native registers a factory for the name. Props
-and events go through slots and events like any component. **Not built**; detailed proposal (sizing, lifecycle,
-versioning by the plugin's module version) in `docs/plugins.md` §4.
+and events go through slots and events like any component. **Built (2026-11-03):** registry 9 adds component
+`NativeView` with one JSON prop and one event; a plugin registers `r.view(name) { scope -> ... }` (`ZnNativeViews.kt`).
+The compiler needs a literal `name` and fails the build if no `nativeModule` in that package has the name's prefix (D3).
+An unknown name draws an empty box and reports one error. Details: `docs/plugins.md` §4, `docs/guide-notes.md` §35.
 
 ### 15.3 Native screens
 A route can point to a native screen (Kotlin composable / SwiftUI view) instead of a zn screen. It takes part in the
-same back stack and can return a result to JS. **Not built**; proposal (`nav.pushForResult`, results after a process
-kill) in `docs/plugins.md` §5.
+same back stack and can return a result to JS. **Built (2026-11-03):** route field `native: "<plugin>.<name>"`,
+`nav.pushForResult(name)` (refuses a zn route), `onNavResult` after a kill. The result is saved through `ZnLaunch`'s store
+(key `nav.<route>`) before JS hears it, and stays until JS acks it. Details: `docs/plugins.md` §5, `docs/guide-notes.md` §35.
 
-### 15.4 Native resource handles: `zn://` (decided 2026-10-29; `zn://app-icon` and the table of kinds built in P.2, `ZnHandles.kt`; `file` and `mem` come with media)
+### 15.4 Native resource handles: `zn://` (decided 2026-10-29; `zn://app-icon` and the table of kinds built in P.2, `ZnHandles.kt`; `zn://file` built 2026-11-03, only for files in `cacheDir/zn-files`; `mem` not built)
 Heavy native objects (app icons, camera photos, generated QR images, contact photos, PDF thumbnails) **never go
 through JS as bytes**. A native module keeps the object and returns a short string handle; JS passes the string
 around; native resolves it when drawing or uploading.
@@ -1078,6 +1081,7 @@ zero-native/
 | 2026-11-02 | Plugin base built (P.1): `ZnPlugins.register(context, ...)`, a plugin adds whole or not at all, a taken module name fails, typed arg helpers reject with `invalid_args`. A failed plugin stops a debug build; a release build skips it and starts | `docs/plugins.md`, `docs/guide-notes.md` §30, `docs/second-opinions.md` entry 10. |
 | 2026-11-02 | Plumbing built (P.2): only Kotlin opens another app; a launch's record is on disk before it opens, and its result stays until `ack`; START waits for Android's answer after a kill, so a sync `pending()` is right on the first screen; a new launch is refused while a result isn't acked | `docs/plugins.md` §6, `docs/guide-notes.md` §31, `docs/second-opinions.md` entries 11 to 15. |
 | 2026-11-02 | UPI is a plugin the app owns, not `@zero-native/upi`. An outside app uses a Gradle composite build and `bun link` until packages exist | `docs/plugins.md` D7, `docs/guide-notes.md` §34, `docs/second-opinions.md` entries 16, 17. |
+| 2026-11-03 | Plugins P.3b–P.6 built: native screens and `<NativeView>` (registry 9), `zn://file`, background JS tasks, secure screens, dark mode, low memory, right to left (host API 6); official opt-in plugins `auth`, `scanner`, `media`, `webview`. Out: push / Firebase, certificate pinning | `docs/plugins.md` §9, `docs/guide-notes.md` §35–38, `docs/second-opinions.md` entries 18–36 |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).
@@ -1108,7 +1112,7 @@ zero-native/
   in every log, report and crash.
 - **Healthy / last good bundle:** a downloaded bundle is *healthy* once its screens were up 4 s in front; the phone's
   *last good* bundle is the newest one that became healthy there, and safety nets go back to it.
-- **Host API:** the version of the JS ↔ native contract (host functions, batch ops, event numbers); now 4.
+- **Host API:** the version of the JS ↔ native contract (host functions, batch ops, event numbers); now 6.
 - **Capability manifest:** the list of what an installed app can run (engine, components, modules), used to decide
   which OTA bundles it may load.
 - **Style:** the `style` prop; React Native style names that the renderer applies in one fixed order.

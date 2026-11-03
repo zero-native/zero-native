@@ -6,6 +6,7 @@
 //   - names start with a letter (JS keeps key order only for non-number keys; the order is the route index)
 //   - `path` is a string literal: "/" or "/segment/:param/..."; params are unique; no two routes share a pattern
 //   - `screen` is a component name (imported or declared in the file); options are build-time constants
+//   - or `native` in place of `screen`: a plugin's native screen, "<plugin>.<name>" (docs/plugins.md §5)
 //   - one route has the path "/": it is where the app starts when there is nothing to restore or open
 import ts from "typescript"
 import { fold, NOT_STATIC } from "./fold"
@@ -13,8 +14,10 @@ import { fold, NOT_STATIC } from "./fold"
 export interface RouteEntry {
   name: string
   path: string
-  /** The screen component's name; the build resolves it to a template id. */
-  component: string
+  /** The screen component's name; the build resolves it to a template id. Null for a native screen. */
+  component: string | null
+  /** A plugin's native screen, in place of a component: "scanner.full". */
+  native?: string
   transition: "push" | "modal" | "fade" | "none"
   safeArea: "all" | "none" | { top: boolean; bottom: boolean }
   statusBar: "dark" | "light"
@@ -23,10 +26,14 @@ export interface RouteEntry {
   keyboard: "resize" | "none"
   /** false: not reopened after Android kills the app in the background (default true). */
   restore: boolean
+  /** true: no screenshots or recordings while this route is on top. */
+  secure?: boolean
 }
 
+/** "<plugin>.<name>": the name of a native screen or view. */
+export const NATIVE_NAME = /^[a-z][a-z0-9-]*\.[A-Za-z0-9_.-]+$/
 const TRANSITIONS = ["push", "modal", "fade", "none"]
-const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore"]
+const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore", "secure"]
 
 /** The routes declared in [source], or null if it has no `defineRoutes` call. */
 export function readRoutes(source: string, fileName: string): RouteEntry[] | null {
@@ -76,6 +83,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
 
     let path: string | null = null
     let component: string | null = null
+    let native: string | null = null
     const options: Record<string, unknown> = {}
     for (const field of (p.initializer as ts.ObjectLiteralExpression).properties) {
       if (!ts.isPropertyAssignment(field) || !ts.isIdentifier(field.name)) fail(field, "unsupported route entry")
@@ -92,17 +100,23 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
         const local = (f.initializer as ts.Identifier).text
         if (!importedAs.has(local) && !declared.has(local)) fail(f.initializer, `"${local}" is not imported or declared in this file`)
         component = importedAs.get(local) ?? local
+      } else if (key === "native") {
+        if (!ts.isStringLiteral(f.initializer)) fail(f.initializer, 'native must be a string literal, e.g. native: "scanner.full"')
+        native = (f.initializer as ts.StringLiteral).text
+        if (!NATIVE_NAME.test(native)) fail(f.initializer, `native "${native}" must be "<plugin>.<name>"`)
       } else if (OPTIONS.includes(key)) {
         const v = fold(f.initializer, scope)
         if (v === NOT_STATIC) fail(f.initializer, `${key} must be a constant`)
         options[key] = v
         checkOption(key, v, f.initializer)
       } else {
-        fail(f.name, `unknown route option "${key}" (use path, screen, ${OPTIONS.join(", ")})`)
+        fail(f.name, `unknown route option "${key}" (use path, screen, native, ${OPTIONS.join(", ")})`)
       }
     }
     if (path === null) fail(p, `route "${name}" needs a path`)
-    if (component === null) fail(p, `route "${name}" needs a screen`)
+    if (component !== null && native !== null) fail(p, `route "${name}" has both screen and native`)
+    if (component === null && native === null) fail(p, `route "${name}" needs a screen`)
+    if (native !== null && path === "/") fail(p, `route "${name}": the start route can't be a native screen`)
 
     const pattern = path!.replace(/:[^/]+/g, ":")
     if (patterns.has(pattern)) fail(p, `route "${name}" has the same path pattern as "${patterns.get(pattern)}"`)
@@ -112,7 +126,8 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
     routes.push({
       name,
       path: path!,
-      component: component!,
+      component,
+      ...(native !== null ? { native } : {}),
       transition: (options.transition as RouteEntry["transition"]) ?? "push",
       safeArea:
         typeof safeArea === "object"
@@ -122,6 +137,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
       deepLink: (options.deepLink as boolean) ?? false,
       keyboard: (options.keyboard as RouteEntry["keyboard"]) ?? "resize",
       restore: (options.restore as boolean) ?? true,
+      ...(options.secure === true ? { secure: true } : {}),
     })
   }
   if (!routes.some((r) => r.path === "/")) fail(arg, 'one route needs path "/" (where the app starts)')
@@ -149,7 +165,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
     const ok =
       key === "transition" ? TRANSITIONS.includes(v as string)
       : key === "statusBar" ? v === "dark" || v === "light"
-      : key === "deepLink" || key === "restore" ? typeof v === "boolean"
+      : key === "deepLink" || key === "restore" || key === "secure" ? typeof v === "boolean"
       : key === "keyboard" ? v === "resize" || v === "none"
       : v === "all" || v === "none" ||
         (typeof v === "object" && v !== null &&

@@ -120,8 +120,32 @@ Parked ideas: `docs/after-foundations.md`.
 | Lint | `.\gradlew.bat :runtime:lintDebug :sample:lintDebug` | 0 errors expected |
 | On the phone | sample app: JS timer, taps, "Recreate activity" | `android/sample`, `examples/sample` |
 | OTA and launches on the phone (38 cases, ~30 min) | `bun run ota:phone` (debug sample, phone unlocked) | `tools/ota/phone-matrix.ts`, `docs/ota-test-matrix.md` |
+| Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-03: P.3b–P.6 done, the rest of the framework plugins (Claude; plugins by three Opus agents, reviewed)
+- **Core:** native screens (`native:` routes, `nav.pushForResult`, `onNavResult`), `<NativeView>` (registry 9), `zn://file`, background
+  JS tasks (`defineTask`, `ZnBackground.run`), secure screens, dark mode, low memory, right to left. Host API 6. Guide §35–37.
+- **Official opt-in plugins:** `scanner` (CameraX, bundled ML Kit), `auth` (phone hint, SMS Retriever), `media`, `webview`. Guide §38,
+  each plugin's README. Out: push / Firebase (later), certificate pinning.
+- **Bugs found in review and on the phone, fixed:** a second ML Kit start crashed the scanner; the camera state listener went deaf
+  while stopped; the compiler's event wrapper could hide a handler's name. Second-opinions entries 18–36.
+- **Found on the Lava:** `am force-stop` puts an app on MediaTek DuraSpeed's list, and then no WebView page loads (entry 36). The phone
+  scripts now end the app with a kill -9. Our own test scripts had six more timing or method mistakes; all fixed.
+- **On the Lava, debug:** every no-hands step of `tools/plugin-phone.ts` passes, 0 crashes. With Pavan's hands: QR scan (also after a kill,
+  double scan, stale frames), photo / three photos / PDF / camera, a photo after a kill, phone hint, WebView upload. JS 316 tests,
+  Kotlin tests and lint (0 errors) pass.
+- **Final runs:** no-hands **50 of 50**, 0 crashes; OTA matrix **38 of 38** (run alone: a second session's matrix on the same phone had
+  broken both runs). Release (R8): cold start **177.5 ms** median, same as after P.2; APK 13.98 MB, Play download **5.50 MB**, of which the
+  scanner is about 2.5 MB (`docs/startup-and-performance.md` §4).
+- **Not tested:** the SMS steps (no second phone; Lava to itself did nothing; the emulator can't run the arm64-only sample). Real
+  carrier SMS, other phones, real UPI apps wait for the pilot.
+- **Independent review:** 6 issues found, all fixed the same day (`docs/reviews/2026-11-03-p3b-p6-independent-review.md`): the launch
+  marker on the UPI return path, a task's hang judging a bundle, a Back press after a scan closing two screens, FLAG_SECURE during
+  animations, and two in media. After the fixes: JS 317, Kotlin tests, lint (0 errors), OTA matrix 38 of 38; the no-hands suite 47 of
+  50, and the 3 that failed (two scanner torch steps: the camera didn't open once; one WebView step after them) passed on an
+  immediate rerun. Cause not known.
+
 ### 2026-11-02: P.3 done, an app outside this repo with its own UPI plugin (Claude)
 - **Changed plan (Pavan):** UPI belongs to the app, so `@zero-native/upi` is gone. The plugin and host live in the app's private
   repo, which makes this the first real test of an app outside this repo (second-opinions entries 16, 17; guide §34).

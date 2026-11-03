@@ -8,6 +8,8 @@ style keys), `packages/template/src/registry.ts` (what can really be set), `comp
 accepts), `packages/core/src/index.ts` (what is exported), and the Android runtime. Line numbers match the working
 tree that includes step P.2 (permissions, launches, `Os`, `detached`, `zn://app-icon`). Steps P.3 and after
 (UPI, auth, scanner, native views, native screens, push, WebView, media) are **not built**: they show as `missing`.
+**Updated 2026-11-03** for P.3b–P.6 (rows for dark mode, scanner, media, WebView, auth, native views, background tasks,
+secure screens). Those rows link to files, not lines, and were not re-checked by a second reviewer. Push is still missing.
 
 **Status words**
 - **same**: same name and same meaning. Copy the code.
@@ -185,15 +187,19 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | `Clipboard` | none | missing | Not built. |
 | `DeviceInfo`, `Platform.Version`, `expo-application` | [`Os.info`](../packages/core/src/os.ts:23) | renamed | `appVersion`, `appBuild`, `android`, `sdk`, `model`, `manufacturer`. |
 | `Platform.OS`, `Platform.select` | none | missing | Android only now. Remove the checks. |
-| `Appearance`, `useColorScheme` | none | missing | Dark mode is planned (P.6, [plugins.md](plugins.md) §7). |
+| `Appearance`, `useColorScheme` | [`colorScheme`](../packages/core/src/appearance.ts), `scheme(light, dark)` | renamed | `colorScheme()` is a signal: `"light"` or `"dark"`. Templates draw before JS, so a dark phone can flash light colours at cold start ([guide-notes.md](guide-notes.md) §37). |
+| `AppState` `memoryWarning` | [`onLowMemory`](../packages/core/src/appearance.ts) | renamed | Coil's memory cache is cleared for you. |
+| `I18nManager.isRTL` | `(await Os.info()).rtl` | renamed | `start` / `end` style keys follow it. The app's manifest needs `supportsRtl`. |
+| `react-native-screenshot-prevent`, `FLAG_SECURE` by hand | route option `secure: true` | different | Blocks screenshots while that route is on top. |
+| `AppRegistry.registerHeadlessTask` | [`defineTask`](../packages/core/src/tasks.ts) | renamed | Called at the top of `main.ts`. A Kotlin plugin starts it with `ZnBackground.run`; it gets a time limit and an `AbortSignal`. Nothing in the framework starts one yet (push comes later). |
 | `Keyboard.dismiss()` | [`Keyboard.dismiss`](../packages/core/src/keyboard.ts:89) | different | Returns a Promise. `Keyboard.addListener` is missing: the route option `keyboard: "resize"` handles the layout. |
 | `Toast` (`ToastAndroid.show`) | [`toast`](../packages/core/src/toast.ts:72) | renamed | `toast("Saved", { duration: "short" })`. Survives navigation. |
 | Self-update (CodePush, `expo-updates`) | [`Updates`](../packages/core/src/updates.ts:76) | different | Signed OTA bundles. See [ota.md](ota.md). |
-| Camera / QR scan (`react-native-vision-camera`, `expo-camera`) | none | missing | Planned P.4a (`@zero-native/scanner`). |
-| Image / file picker, PDF | none | missing | Planned P.6 (`media`). |
-| Push notifications (`@react-native-firebase/messaging`, `expo-notifications`) | none | missing | Planned P.5. |
-| `WebView` | none | missing | Planned P.6. |
-| Phone number hint, SMS auto-read | none | missing | Planned P.3b (`auth`). |
+| Camera / QR scan (`react-native-vision-camera`, `expo-camera`) | [`@zero-native/scanner`](../plugins/scanner/README.md) | different | QR and barcodes only, no photo or video. A full screen (route `native: "scanner.full"` + `nav.pushForResult`) or a view (`<QrScanner>`). ML Kit is bundled. |
+| Image / file picker, PDF | [`@zero-native/media`](../plugins/media/README.md) | different | `Media.pickPhotos`, `pickFile`, `takePhoto`, `edit`. Files come back as `zn://file` handles plus a `file://` uri for upload. Results survive a kill (`Media.onResult`). |
+| Push notifications (`@react-native-firebase/messaging`, `expo-notifications`) | none | missing | Later (Firebase work moved out). Background tasks, which it needs, are built. |
+| `WebView` (`react-native-webview`) | [`@zero-native/webview`](../plugins/webview/README.md) | different | `<WebView>` with `allowedHosts`, `postMessage` both ways, links that leave the app, cookies, file upload. Debugging is opt-in (`WebViewPlugin(inspect = true)`). |
+| Phone number hint, SMS auto-read | [`@zero-native/auth`](../plugins/auth/README.md) | different | `Auth.phoneHint`, `Auth.listenForOtp`. Every Play services failure gives a reason, never a crash: show "type it by hand". |
 | UPI app list and launch | none | missing | Not in the framework: the app owns this plugin (`plugins.md` D7). `ZnLaunch` and `launches` do the hard part. The icon part is built: `<Image src="zn://app-icon/<package>" />` ([ZnHandles.kt:24](../android/runtime/src/main/java/dev/zeronative/runtime/ZnHandles.kt:24)). |
 | Biometrics, location, contacts, maps, video | none | missing | Not planned yet. `Permissions.request` can ask for the permission, but no API uses it. |
 
@@ -218,7 +224,8 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | Native binary data (base64 strings) | `BytesResult` ([calls.ts:49](../packages/core/src/calls.ts:49)) | different | Bytes cross as `ArrayBuffer`, not base64. |
 | Autolinking (`react-native.config.js`, CLI) | `ZnPlugins.register(this, MyPlugin())` in `Application.onCreate` | different | By hand today: Gradle dependency + one line. Autolinking is decided for later (D1). [plugins.md](plugins.md) §8. |
 | A library package with `android/` + `src/` | plugin package (`plugins/device-test` is the sample) | renamed | [`ZnPlugin`](../android/runtime/src/main/java/dev/zeronative/runtime/ZnPlugins.kt:10) registers modules. Guide: [guide-notes.md](guide-notes.md) §30. |
-| `requireNativeComponent` / Fabric native view | none (`<NativeView>`, planned P.4b) | missing | Not built. A native view would be a plugin. |
+| `requireNativeComponent` / Fabric native view | `<NativeView name="plugin.view">` + `r.view(...)` in Kotlin | different | A Compose composable. Props are one JSON value; events come as `{ name, data }`. The name must be a literal, and its plugin's `nativeModule` must be in the bundle. |
+| Native screen (a native Activity opened for a result) | route `native: "plugin.screen"` + `r.screen(...)` | different | Joins the normal back stack. `nav.pushForResult` gives the answer, `onNavResult` after a kill. |
 | Codegen (TS spec → Kotlin / Swift) | none | missing | You write the Kotlin by hand. Planned only when needed (D2). |
 | JS-only npm libraries | allowed if they use no React and no RN modules | different | A plugin that is plain TS can import `@zero-native/core` / `ui`. Anything using React hooks, `View` or `Platform` must be rewritten. |
 
@@ -233,7 +240,8 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | `useContext` | module-level signals / imports | missing | No context. Share state through a module. |
 | `useReducer`, Redux, Zustand | signals + plain modules | different | Stores that need React hooks do not work. A plain store (Zustand `vanilla`) can be wrapped in a signal. |
 | `useCallback`, `React.memo` | not needed | missing | Delete them. |
-| `useWindowDimensions`, `useColorScheme` | none | missing | See §1 and §6. |
+| `useWindowDimensions` | none | missing | See §1. |
+| `useColorScheme` | `colorScheme()` | renamed | See §6. |
 | Conditional render `cond && <X/>`, `cond ? <A/> : <B/>` | same | same | [compile.ts:324](../compiler/src/compile.ts:324). A branch must be JSX or `null`. |
 | Component props, `children` | same | different | `{props.children}` shows them; reading, mapping or counting children is not supported. Spread props `{...p}` are a build error. |
 | Custom hooks | plain functions | different | A function that makes signals in a screen body works. |
@@ -257,8 +265,9 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 5. **`TextInput` control** (missing). No `ref.focus()` / `blur()`, no `onKeyPress`, no selection API, no
    `autoComplete`. OTP boxes and "jump to next field" flows need new code. ([§1](#1-components))
 6. **Third-party native libraries** (missing). Every RN native library (camera, maps, WebView, push, file system,
-   biometrics, image picker) has no zero-native twin yet. Only the plugin system exists (P.1, P.2). Scanner, UPI, auth,
-   push, WebView and media are P.3–P.6 and not built. A native view (`requireNativeComponent`) has no path yet.
+   biometrics, image picker) has no zero-native twin yet, except the official plugins built in P.3b–P.6: scanner, auth,
+   WebView and media. Push, maps, biometrics and video are still missing. A native view or screen is now a plugin's
+   `r.view` / `r.screen`.
    ([§6](#6-device-and-os), [§8](#8-native-modules-and-plugins))
 7. **Other apps and results through JS** (different). In RN a module can start any Intent. Here only Kotlin plugins can,
    and results come back through `launches` with `ack`. Every `Linking.openURL("upi://...")` or `intent:` call must

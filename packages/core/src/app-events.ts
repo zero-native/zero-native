@@ -29,4 +29,12 @@ export const AppEvent = {
   Retry: 10,
   /** "active" or "background" (app-state.ts). */
   AppState: 11,
+  /** A native screen answered (nav.ts). */
+  NavResult: 12,
+  /** Run a background task (tasks.ts). */
+  Task: 13,
+  /** "light" or "dark" (appearance.ts). */
+  ColorScheme: 14,
+  /** Android asked the app to free memory (appearance.ts). */
+  LowMemory: 15,
 } as const

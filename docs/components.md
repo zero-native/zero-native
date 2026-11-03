@@ -220,3 +220,26 @@ Every UI element in ZeroNative supports standard accessibility properties mapped
 3. **Decorative Images:** Images without an `accessibilityLabel` are marked as decorative and skipped by TalkBack.
 4. **maxFontScale:** Use on compact layouts (like keypad buttons or tight rows) to prevent text clipping at large accessibility font settings while preserving readability.
 
+
+---
+
+## 9. `<NativeView>` (P.4b, registry 9)
+
+A plugin's own Compose view inside a zn screen. Apps normally use the plugin's wrapper (`<QrScanner>`, `<WebView>`), not this.
+
+```tsx
+<NativeView name="scanner.qr" props={{ torch: torch() }} onEvent={(e) => e.name === "code" && onCode(e.data)} style={{ height: 320 }} />
+```
+
+| Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|
+| `name` | `string` | No | `"<plugin>.<name>"`, a string literal. The build fails if no code uses that plugin's `nativeModule`. |
+| `props` | JSON object | Yes | Sent as JSON text; only a real change reaches the view. Keep it small; big data goes by `zn://` handle. |
+| `onEvent` | `(e: { name: string; data: any }) => void` | — | Events the view sends with `scope.emit(name, data)`. |
+| `style` | `Style` | No | Must be known at build time. Give it a size: it takes no children. |
+
+### When to Use
+- **Do:** wrap it in a small component in the plugin package, with typed props and events.
+- **Don't:** use it for something zn components can draw. A native view costs a plugin, an APK change and a module version.
+- **Unknown name** (a plugin missing from the APK): an empty box of the given size and one reported error. The build check above
+  stops this from reaching a phone. Details: `docs/guide-notes.md` §35, `docs/plugins.md` §4.

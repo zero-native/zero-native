@@ -52,6 +52,11 @@ export function DevScreen() {
           <Entry title="Components & a11y" step="3.7–3.8" detail="Switch, Checkbox, Spinner, Progress, Shimmer, Toast, TalkBack semantics, maxFontScale" onOpen={() => nav.push("components")} />
           <Entry title="Crash lab" step="3.9" detail="A screen, part, tap, async task or loop that fails; bad native data; Intl check" onOpen={() => nav.push("crashLab")} />
           <Entry title="Other apps" step="P.2" detail="Open the mock UPI app for a result, ack, permissions, Os, an app icon handle" onOpen={() => nav.push("launch")} />
+          <Entry title="Core for plugins" step="P.3b" detail="Native screens and views, zn://file, tasks, secure screens, dark mode" onOpen={() => nav.push("coreLab")} />
+          <Entry title="Scanner plugin" step="P.4" detail="QR scan: full screen and a view in a screen" onOpen={() => nav.push("scannerLab")} />
+          <Entry title="Media plugin" step="P.4" detail="Pick, take, compress, upload by handle" onOpen={() => nav.push("mediaLab")} />
+          <Entry title="Auth plugin" step="P.3b" detail="Phone number hint, SMS OTP" onOpen={() => nav.push("authLab")} />
+          <Entry title="WebView plugin" step="P.6" detail="A page in a screen: cookies, upload, messages, links" onOpen={() => nav.push("webviewLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

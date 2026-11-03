@@ -20,4 +20,8 @@ internal object ZnAppEvent {
     const val CALL_RESULT_BYTES = 9
     const val RETRY = 10
     const val APP_STATE = 11
+    const val NAV_RESULT = 12
+    const val TASK = 13
+    const val COLOR_SCHEME = 14
+    const val LOW_MEMORY = 15
 }

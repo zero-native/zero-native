@@ -938,3 +938,153 @@ live reload, but it isn't tried from an outside app yet, and the host needs the 
 
 **Do** turn on R8 name changes in your release build when you are ready for it. **Why:** the sample turns them off to keep its traces
 readable, so an app is what tests them. They passed in the first outside app, launches and results included.
+
+## 35. Native screens, native views and files (P.3b)
+
+**A native screen** is a route drawn by a plugin. It sits in the normal back stack, so Back, transitions, safe areas and `restore`
+work as for any route.
+
+```ts
+scan: { path: "/scan", native: "scanner.full" },                       // routes.ts: no `screen`
+const answer = await nav.pushForResult<{ value: string }>("scan", { title: "Pay" })   // null if the user went back
+onNavResult<{ value: string }>("scan", (value, ack) => { use(value); ack() })         // in main.ts: after a kill
+```
+```kotlin
+r.screen("scanner.full") { scope -> ScannerScreen(scope) }             // scope.params, scope.finish(json), scope.cancel()
+```
+
+**Do** add `onNavResult` in `main.ts` when the answer matters after a kill. **Why:** the promise lives in JS, so a kill loses it. The
+answer is on disk before JS hears it, and it stays until `ack`. With a promise waiting, only the promise hears it, so one answer never runs
+twice.
+**Do** expect null. Back, `nav.back()` and `nav.reset()` all give null, so an `await` never hangs.
+**Don't** use `pushForResult` on a normal screen: it refuses, as a zn screen has no way to answer.
+**Don't** call `finish` twice and rely on the second. Only the first counts: that is what makes a double scan safe.
+
+**A native view** is a plugin's composable inside a screen.
+
+```tsx
+<NativeView name="device.fake-view" props={{ label: label() }} onEvent={(e) => log(e.name, e.data)} style={{ height: 60 }} />
+```
+```kotlin
+r.view("device.fake-view") { scope -> Fake(scope) }                    // scope.props (redraws on change), scope.emit(name, data), scope.id
+```
+
+- `name` must be a string literal, `"<plugin>.<name>"`. **The build fails** if no code uses that plugin's `nativeModule`. **Why:** the module
+  puts the plugin in the bundle's needs, so an app without it never runs the bundle, and the "unknown name" empty box can't reach a phone.
+- Apps normally use the plugin's own wrapper component, not `NativeView`.
+- `props` go as JSON text, so only a real change reaches the view. Keep them small and plain. Big data goes by handle.
+- **Give it a size in `style`.** It takes no children. `style` must be known at build time, so a wrapper can't pass `props.style` through: put the wrapper
+  in a sized parent. **Why:** styles fold into the template; only the props in `DynamicProps` can change.
+- **Do** use Compose's `LocalLifecycleOwner` for a camera. **Why:** it stops by itself when the screen is covered or the app leaves.
+- A plugin with screens or views needs `id("org.jetbrains.kotlin.plugin.compose")` and `compose = true` in its `build.gradle.kts`.
+
+**Files.** A plugin writes to `ZnHandles.fileDir(context)` and gives JS `ZnHandles.file(context, file)`: `zn://file/<name>`. `<Image src>` shows it,
+sized to the screen. Give JS the `file://` uri too: `FormData` streams that, so an upload never moves bytes through JS.
+
+**Don't** let JS name a path. **Why:** a bundle comes over the air, so a path from JS is outside input. A handle can only name one plain file in that
+folder: `ZnHandles.fileOf` refuses `..` and folders. **Know:** the folder is in the cache, so it stays after a kill, but Android can clear it when the
+phone is short of space. Copy anything that must stay.
+
+**Plugins with a result that isn't plain extras:** `ZnLaunch.readResult(key) { resultCode, data -> json }` in `register`, so it is there after a kill.
+
+**A trap in `main.ts`:** imports run before `installRuntime()`. A file that uses `console` or a timer at its top level stops the app at start,
+with `Property 'console' doesn't exist`. Keep that code inside a function.
+
+## 36. Background tasks (P.5)
+
+JS can run with no screen.
+
+```ts
+defineTask("sync", async (data, signal) => {      // at the top of main.ts, so it is there on a start with no screen
+  await fetch(url, { signal })
+})
+```
+```kotlin
+ZnBackground.run("sync", json, timeoutMs = 30_000) { outcome -> }   // DONE, FAILED, NO_TASK, TIMED_OUT, once, on the main thread
+```
+
+- **Do** pass `signal` to `fetch`. At the limit it aborts, and the outcome is TIMED_OUT. A late answer is dropped.
+- **Do** keep the process alive from the plugin: a service, or `goAsync`. **Why:** `ZnBackground` doesn't. Android can kill a process with nothing
+  running at any time.
+- **Don't** use `nav` in a task: there may be no Activity.
+- A task that throws gives FAILED and reports to `onError`. It can't block an update: it isn't a launch, so OTA health doesn't count it.
+- **Don't** do long sync work in a task. Past the time limit (2 s in release) JS is stopped. With no screen in front, that counts as the task's
+  problem only: the task ends at its own limit, and the bundle is not judged. **With a screen in front it counts as a screen hang**, like any
+  freeze the user sees: the top screen shows the error screen, and a new bundle that isn't healthy yet can be rolled back. **Why:** the runtime
+  can't tell whose JS froze (`docs/second-opinions.md` entry 37).
+- If JS is replaced while a task runs, the outcome is FAILED. Tasks that haven't started wait for the new JS.
+- **Know:** some phones' ROMs (the Lava) refuse to start an app for a manifest receiver. FCM gets through, as Google Play services is allowed. Test with
+  the debug `DebugWakeProvider`: `adb shell content query --uri content://dev.zeronative.sample.debugwake/task`.
+
+## 37. Dark mode, low memory, right to left, secure screens (P.6)
+
+```tsx
+<Box style={{ backgroundColor: scheme("#FFFFFF", "#121212") }} />      // follows the phone
+<Text>{colorScheme()}</Text>                                           // "light" or "dark"
+onLowMemory(() => cache.clear())
+Os.info().then((i) => i.rtl)
+secureScreen: { path: "/pin", screen: PinScreen, secure: true },       // routes.ts
+```
+
+**Dark mode.** JS knows the scheme before the first screen is built, and hears each change.
+- **Know the limit:** only props that can change at runtime can use `scheme()`: colour, background, opacity. `borderColor` can't yet: the build says so.
+- **Know the limit:** the template draws before JS sets a slot. On a dark phone, a colour with `scheme()` can show its template default for one frame at
+  cold start. **Do** check a cold start on a slow, dark phone before you ship a dark mode (`docs/second-opinions.md` entry 21).
+
+**Low memory.** Android's trim level reaches `onLowMemory`. Drop what can be made again. Images need nothing from you: Coil clears its own memory cache.
+
+**Right to left.** Set `android:supportsRtl="true"` in the app's manifest. Then the layout mirrors by itself when the phone's language reads right to left.
+- **Do** use `start` / `end`, `paddingStart` / `paddingEnd`. **Don't** read `translateX` as mirrored: as in React Native, transforms are not.
+- Test one app with `adb shell cmd locale set-app-locales <package> --locales ar`, and put it back with `--locales ""`.
+
+**Secure screens.** `secure: true` blanks screenshots, recordings and the recent-apps picture while that route is on top. It ends when the route leaves,
+at the start of the closing animation.
+- **Do** use it for PIN and card screens. **Don't** treat it as more than that: it stops the phone's own capture, not a camera pointed at the screen.
+- A window the app itself made secure stays secure.
+
+## 38. The official plugins (P.3b–P.6)
+
+All are opt-in. An app adds one Gradle line and one `register` call, and pays nothing for the ones it skips. Each README has the API and limits.
+
+| Plugin | What | Adds to the APK |
+|---|---|---|
+| `@zero-native/scanner` | QR and barcodes: full screen `scanner.full`, view `QrScanner` | CameraX, bundled ML Kit: the biggest, about 5 MB of native code on arm64 |
+| `@zero-native/media` | Pick and take photos, pick files, compress, rotate, crop by numbers | Almost nothing |
+| `@zero-native/auth` | Phone number hint, OTP auto-read | Play services auth |
+| `@zero-native/webview` | A web page in a screen, with a list of allowed hosts | `androidx.webkit` |
+
+**Scanner.**
+- **Do** give the route `safeArea: "none"`. The camera runs under the status bar.
+- The first 500 ms from the camera's first frame don't count. **Why:** the phone can hand over an old picture, such as the last counter's QR. The same after each return.
+- The first code wins, and a second is dropped at once, before anything async. A code stays locked while the app is in the background.
+- **Do** pass colours and words as params. The plugin has no brand of its own.
+- **Know:** `Permissions.status(["camera"])` says `denied`, not `blocked`, if only the scanner has asked: the scanner asks by itself.
+
+**Media.**
+- JS gets `{ handle, uri, width, height, size, mime, name }`. Show `handle`; send `uri` in `FormData`. No bytes pass through JS.
+- Photos are written again from pixels: this removes location and other EXIF, and rotation is built in. So they are always JPEG, and see-through parts turn white.
+- **`pickFile` keeps the bytes exact**, so a picture picked that way keeps its location. **Do** pass it through `Media.edit` if you share it.
+- **Do** call `Media.onResult` while your screen is built. **Why:** after a kill, the promise is gone.
+- **Do** call `Media.cleanup()` now and then. **Know:** the app's manifest may list CAMERA because of the scanner. Then `takePhoto` needs the permission too, and asks.
+
+**Auth.**
+- `Auth.phoneHint({ draft })`: `draft` is an id for one login attempt, and it must be the same after a restore. **Why:** that is how the sheet never comes back at a user who already answered it.
+- Nothing rejects. Every failure is an answer with a `reason`, and every reason means "type it by hand".
+- **Do** start `listenForOtp` just before you ask the server to send the SMS. **Do** call `stopListening` before a new send, or use a new `key`: the same key joins the last answer.
+- **The app hash differs for each signing key:** debug, release and Play signing each have their own. **Do** read it with `Auth.appHash()` from the real build.
+- **Don't** log the phone number or the OTP. The default pattern takes the first number of 4 or 6 digits: **do** pass your own if your SMS has another number first.
+
+**WebView.**
+- `allowedHosts` is required. Only those hosts load, https only. A link to any other host is refused, redirects and form POSTs too.
+- **Don't** expect a pushed screen to keep the page: `NavDisplay` draws only the top screen, so the WebView is destroyed, and coming back reloads `url`. Cookies stay.
+- A page can only ask to open another app: `onLinkOutside` must return true, and only schemes in `leaveSchemes` get that far. `intent:` is always refused, so a payment page that needs it won't work; `upi:` works, but gives no result.
+- Messages are text only, 64 KB at most. Treat them as outside input, also from your own hosts.
+- **Do** call `clearCookies()` and `clearStorage()` at logout.
+
+**WebView debugging.** `ZnPlugins.register(this, WebViewPlugin(inspect = true))` lets Chrome on the computer inspect pages, in debug builds only.
+Off by default, as in react-native-webview.
+**Know:** on MediaTek phones, DuraSpeed can stop WebView pages from loading at all (`docs/second-opinions.md` entry 36). If every page stays blank
+and the log says "process is bad", run `adb shell dumpsys duraspeed suppress_list`. `am force-stop` puts an app on that list; a tap on its icon takes it off.
+In phone scripts, end the app with `stopApp()` (`tools/plugin-phone/helpers.ts`), not `am force-stop`.
+**Know:** a page jump made by script with no tap adds no back step (Chromium's rule against history spam), so Back leaves the page. Use real links for
+steps the user should be able to go back through.

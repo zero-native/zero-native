@@ -24,11 +24,13 @@ breaks somewhere. So first one plugin system, then the features as plugins on to
 | Native modules: typed `nativeModule<T>("Name", { version })`, async calls, cancellation, events with listener counts, error codes, binary data | **built** (2.6a, 3.4) | `docs/native-modules.md`, `ZnModules.kt` |
 | Module versions in every bundle's `requires.modules`; an app without the module (or with an older version) ignores the bundle | **built** (4.x) | `compiler/src/plugin.ts`, `ZnCapabilities.kt` |
 | The compiler finds `nativeModule("X", { version })` in any imported file, packages included | **built** | `compiler/src/modules.ts` |
-| Plugin entry point: `ZnPlugin`, `ZnPluginRegistry` (`module`, `requireHostApi`), `ZnPlugins.register`; typed arg helpers | **built** (P.1). `view` and `screen` come with P.4 | `ZnPlugins.kt`, `ZnModules.kt`, `docs/guide-notes.md` §30 |
-| `zn://` handles: native resources (images, files) reach JS as a short string, never as bytes | **built** (P.2): `zn://app-icon/<package>` and a table of kinds, loaded off the main thread. `zn://file` and `zn://mem` come when media needs them | `ZnHandles.kt`, ARCHITECTURE §15.4 |
+| Plugin entry point: `ZnPlugin`, `ZnPluginRegistry` (`module`, `requireHostApi`), `ZnPlugins.register`; typed arg helpers | **built** (P.1); `view` and `screen` built 2026-11-03 | `ZnPlugins.kt`, `ZnModules.kt`, `docs/guide-notes.md` §30 |
+| `zn://` handles: native resources (images, files) reach JS as a short string, never as bytes | **built** (P.2): `zn://app-icon/<package>` and a table of kinds, loaded off the main thread. `zn://file` built 2026-11-03 (only `cacheDir/zn-files`); `zn://mem` not built | `ZnHandles.kt`, ARCHITECTURE §15.4 |
 | Android merges a library's `AndroidManifest.xml` (permissions, providers, activities) into the app | Android does it | — |
-| `<NativeView>` | **designed, not built** | ARCHITECTURE §15.2 |
-| Native screens as routes | **designed, not built** | ARCHITECTURE §15.3 |
+| `<NativeView>` | **built** 2026-11-03 (registry 9) | `ZnNativeViews.kt`, ARCHITECTURE §15.2, `docs/guide-notes.md` §35 |
+| Native screens as routes | **built** 2026-11-03 | `ZnNavHost.kt`, `nav.ts`, ARCHITECTURE §15.3, `docs/guide-notes.md` §35 |
+| Background JS tasks, secure screens, dark mode, low memory, right to left | **built** 2026-11-03 (host API 6) | `ZnBackground.kt`, `tasks.ts`, `appearance.ts`, `docs/guide-notes.md` §36–37 |
+| Official plugins `auth`, `scanner`, `media`, `webview` | **built** 2026-11-03, opt-in | `plugins/<name>/README.md`, `docs/guide-notes.md` §38 |
 | Permissions, "open another app and get its result" | **built** (P.2) | `ZnPermissions.kt`, `ZnLaunch.kt`, `docs/guide-notes.md` §31–32 |
 | Codegen (Kotlin interface from the TS interface) | **not built** | ARCHITECTURE §15.1 |
 
@@ -94,7 +96,7 @@ needs; an app whose APK has an older plugin ignores the bundle. So plugin author
 // Inside the plugin's TS (apps use the friendly wrapper, not NativeView directly):
 export function QrScanner(p: { onCode: (code: string) => void; torch?: boolean; style?: Style }) {
   return <NativeView name="scanner.qr" props={{ torch: p.torch ?? false }}
-                     onEvent={(e) => e.name === "code" && p.onCode(e.data as string)} style={p.style} />
+                     onEvent={(e) => e.name === "code" && p.onCode(e.data as string)} style={{ flex: 1 }} />
 }
 ```
 
@@ -154,9 +156,9 @@ app owns** (D7).
 | QR scan / camera | plugin `@zero-native/scanner` | Native screen first, native view later. ML Kit **bundled**, not downloaded from Play (fails on low-storage phones) |
 | WebView | plugin `@zero-native/webview` | Native view; cookies per app, file upload, `postMessage` both ways, which links leave the app |
 | Photos / files / PDF | plugin `@zero-native/media` | Pick, compress, crop, rotate natively; JS sees `zn://` handles |
-| Push (FCM) | plugin `@zero-native/push` on top of core background JS | Token, messages in front / back, tap to open a route |
+| Push (FCM) | plugin `@zero-native/push` on top of core background JS | Token, messages in front / back, tap to open a route. **Later** (Firebase work moved out, 2026-11-02): background JS is built and waits for it |
 | Screenshot blocking | core: route option `secure: true` | `FLAG_SECURE` while that screen is on top |
-| Certificate pinning | core: `fetch` option / app config | OkHttp `CertificatePinner`; needs a pin-rotation plan |
+| Certificate pinning | core: `fetch` option / app config | OkHttp `CertificatePinner`; needs a pin-rotation plan. **Not built:** RN has none today, so the pilot doesn't need it |
 | Dark mode, low memory, right-to-left | core | Colour tokens with light / dark values; `onTrimMemory` clears caches; `start` / `end` already exist |
 | Maps, video, charts | plugins, later | When an app needs them |
 
@@ -201,11 +203,11 @@ TS runs alongside from the start, in the app's private repo.
 | P.1 **built 2026-11-02** | `ZnPlugin` + `ZnPluginRegistry`, `plugins/` folder, D1 (a); the sample's `DeviceModule` moved into a test plugin | The sample works with the module registered through a plugin; guide notes "writing a plugin" (§30) |
 | P.2 **built 2026-11-02** | Core plumbing (section 6): permissions, `launchForResult` with saved results and `ack`, current Activity + host call, Activity events, `Os` info / haptics / open URL, `detached`, `zn://` handles (ported from exp4). Also: never start fresh or bring the task forward while a launch waits for its result | Phone tests **with the mock UPI app**: grant / deny / "don't ask again"; a result delivered after the process was killed in the other app; a rollback between delivery and `ack`; an app icon shown from a `zn://` handle |
 | P.3 **built 2026-11-02** | **Changed:** UPI is a plugin the app owns, in its private repo. This repo gains what any outside app needs: `tools/zn-build.ts`, and the guide for an app outside this repo (`docs/guide-notes.md` §34) | An app outside this repo builds, with its own plugin, in debug and in R8 release. It lists UPI apps with icons, launches the mock UPI app and gets the result back, also after a kill; a loading look keeps drawing behind the mock's see-through window with no native pump |
-| P.3b | `@zero-native/auth`: phone number hint, SMS Retriever | Both work on the Lava; each failure falls back to typing |
-| P.4a | `@zero-native/scanner` as a native screen (`pushForResult`, route `native:` field). No `<NativeView>` | QR scan on the Lava; camera stops when covered; stale frames ignored; release build size measured |
-| P.4b | `<NativeView>` (registry 9); the scanner gains a view form | After the pilot, unless a pilot screen needs it |
-| P.5 | Background JS + `@zero-native/push` | A push in background runs a JS task; tap opens a route |
-| P.6 | `webview`, `media`, and core items (secure screens, pinning, dark mode, low memory, RTL) | As ZeroBill needs them |
+| P.3b **built 2026-11-03** | `@zero-native/auth`: phone number hint, SMS Retriever | Both work on the Lava; each failure falls back to typing |
+| P.4a **built 2026-11-03** | `@zero-native/scanner` as a native screen (`pushForResult`, route `native:` field). No `<NativeView>` | QR scan on the Lava; camera stops when covered; stale frames ignored; release build size measured |
+| P.4b **built 2026-11-03** (moved before the pilot) | `<NativeView>` (registry 9); the scanner gains a view form | A view draws, sends events, stops when covered; the compiler refuses a name with no module |
+| P.5 **background JS built 2026-11-03**; push later | Background JS + `@zero-native/push` | A task runs with no screen, with a time limit (built). Push: a push in background runs a JS task; tap opens a route (later) |
+| P.6 **built 2026-11-03**, no pinning | `webview`, `media`, and core items (secure screens, pinning, dark mode, low memory, RTL) | Webview loads, talks both ways, keeps links in or out; media picks, shrinks and uploads by handle; a secure screen blanks screenshots; dark mode follows the phone |
 
 P.4a unblocks the ZeroBill pilot's screens: login, scan, UPI transaction (details in the app's private repo).
 

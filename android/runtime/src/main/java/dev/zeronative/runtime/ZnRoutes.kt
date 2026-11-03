@@ -26,6 +26,10 @@ class ZnRoute(
     val resizeForKeyboard: Boolean = true,
     /** False: not reopened after Android kills the app in the background (the `restore` option, default true). */
     val restore: Boolean = true,
+    /** A plugin's native screen ("scanner.full"), or null. Such a route has no template: [templateId] is -1. */
+    val native: String? = null,
+    /** True: no screenshots or recordings while this route is on top (the `secure` option). */
+    val secure: Boolean = false,
 ) {
     enum class Transition { PUSH, MODAL, FADE, NONE }
 

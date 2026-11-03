@@ -30,6 +30,7 @@ import {
   templateIds,
 } from "@zero-native/template"
 import { fold, NOT_STATIC, type FoldScope } from "./fold"
+import { NATIVE_NAME } from "./routes"
 import { assemble, type LineMap, markCopied } from "./sourcemap"
 
 export interface CompileContext {
@@ -42,6 +43,8 @@ export interface CompileContext {
    * instead and numbers all templates once every file is compiled, so ids don't depend on the order Bun loads files.
    */
   ref?(id: number): string
+  /** A <NativeView> names [name]; [where] is its place in the source. The app build checks its plugin once all files are read. */
+  nativeView?(name: string, where: string): void
 }
 
 export interface CompileOutput {
@@ -231,6 +234,7 @@ export function compileModule(
     if (!isIntrinsic(tag)) fail(node, `"${tag}" is not a zero-native component`)
     if (tag === "Fragment") fail(node, "write a fragment as <>...</>")
     if (tag === "List") return listElement(node, b)
+    if (tag === "NativeView") return nativeViewElement(node, b, allowKey)
     b.nodes++
     const props: NodeProps & Record<string, unknown> = {}
     const opening = ts.isJsxElement(node) ? node.openingElement : node
@@ -292,6 +296,60 @@ export function compileModule(
       children = childList(kids, b)
     }
     return el(tag as keyof typeof Component, props, ...children)
+  }
+
+  /**
+   * <NativeView name="scanner.qr" props={{ torch }} onEvent={(e) => ...} style={...} />: a plugin's Compose view
+   * (docs/plugins.md §5). The props go as JSON text, so only a real change reaches the view.
+   */
+  function nativeViewElement(node: ts.JsxElement | ts.JsxSelfClosingElement, b: Builder, allowKey: boolean): NodeSpec {
+    b.nodes++
+    const props: NodeProps & Record<string, unknown> = {}
+    const opening = ts.isJsxElement(node) ? node.openingElement : node
+    let viewName: string | null = null
+    for (const attr of opening.attributes.properties) {
+      if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
+      const a = attr as ts.JsxAttribute
+      const name = a.name.getText(sf)
+      const init = a.initializer
+      const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
+      if (name === "key") {
+        if (!allowKey) fail(a, "`key` is only used on the root element of a `.map(...)` row")
+      } else if (name === "style") {
+        if (!expr) fail(a, "style needs an object: style={{ ... }}")
+        styleProps(expr!, props, b)
+      } else if (name === "name") {
+        // A literal, as the build checks it against the app's plugins.
+        if (!init || !ts.isStringLiteral(init)) fail(a, 'name must be a string literal, e.g. name="scanner.qr"')
+        viewName = (init as ts.StringLiteral).text
+        if (!NATIVE_NAME.test(viewName)) fail(a, `name "${viewName}" must be "<plugin>.<name>", e.g. "scanner.qr"`)
+        setStatic(props, "viewName", viewName, a)
+      } else if (name === "props") {
+        if (!expr) fail(a, "props needs an object: props={{ ... }}")
+        const v = fold(expr!, scope)
+        if (v === NOT_STATIC) {
+          const s = `s${b.slots++}`
+          props.viewProps = slotRef(s, null) as never
+          b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => JSON.stringify(${text(expr!)}), 0);`)
+        } else if (v !== undefined) {
+          setStatic(props, "viewProps", JSON.stringify(v), a)
+        }
+      } else if (name === "onEvent") {
+        if (!expr) fail(a, "onEvent needs a function")
+        const ev = `e${b.events++}`
+        ;(props as any).onNativeEvent = eventRef(ev)
+        // A name no app uses: the handler's own `p` or `e` must not be hidden by this wrapper.
+        b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => (${text(expr!)})(JSON.parse(__znPayload)));`)
+      } else {
+        fail(a, `<NativeView> takes name, props, onEvent and style, not "${name}"`)
+      }
+    }
+    if (viewName === null) fail(node, '<NativeView> needs a name, e.g. name="scanner.qr"')
+    const kids = ts.isJsxElement(node) ? node.children : []
+    if (kids.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) fail(node, "<NativeView> takes no children")
+    const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+    ctx.nativeView?.(viewName!, `${fileName}:${line + 1}:${character + 1}`)
+    return el("NativeView", props)
   }
 
   /** The children of an element (or fragment), in order. Fragments inside are flattened: they add no node. */

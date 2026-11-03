@@ -7,6 +7,7 @@ import coil3.decode.DataSource
 import coil3.fetch.Fetcher
 import coil3.fetch.ImageFetchResult
 import coil3.request.ImageRequest
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -15,6 +16,10 @@ import java.util.concurrent.ConcurrentHashMap
  * main thread: an app icon is a slow Binder call. The handle table was first built in the exp4 prototype.
  */
 object ZnHandles {
+    private const val FILE = "file"
+    private const val FILE_DIR = "zn-files"
+    private val NAME = Regex("[A-Za-z0-9_-][A-Za-z0-9._-]*")
+
     /** Off the main thread. Null or an exception: a normal image error, and `<Image fallback>` shows. */
     fun interface Loader {
         fun load(context: Context, path: String): Drawable?
@@ -28,6 +33,30 @@ object ZnHandles {
     fun kind(name: String, loader: Loader) {
         kinds[name] = loader
     }
+
+    /** Where a plugin writes files that JS will name, like a picked photo. It stays after a kill; Android may clear it when short of space. */
+    fun fileDir(context: Context): File = File(context.cacheDir, FILE_DIR).apply { mkdirs() }
+
+    /**
+     * `zn://file/<name>` for a file in [fileDir]. Only those files get a handle, so a bundle can't read a path of its choice.
+     * Throws for any other file: a mistake in the plugin.
+     */
+    fun file(context: Context, file: File): String {
+        require(file.canonicalFile.parentFile == fileDir(context).canonicalFile && fileName(file.name) != null) {
+            "${file.name} must be a plain file name inside ZnHandles.fileDir"
+        }
+        return "zn://file/${file.name}"
+    }
+
+    /** The file of a `zn://file/<name>` handle, or null if that isn't one. For a plugin that gets a handle back from JS. */
+    fun fileOf(context: Context, uri: String): File? {
+        val (kind, path) = parse(uri) ?: return null
+        if (kind != FILE) return null
+        return fileName(path)?.let { File(fileDir(context), it) }?.takeIf { it.isFile }
+    }
+
+    /** [name] if it can only mean a file directly in [fileDir]: no folders, no "..". JS writes this text, so it's outside input. */
+    internal fun fileName(name: String): String? = name.takeIf { NAME.matches(it) }
 
     /** A data class: Compose compares requests, and an equal one must not load again. */
     private data class Handle(val uri: String)
@@ -50,7 +79,13 @@ object ZnHandles {
         return if (kind.isEmpty() || path.isEmpty()) null else kind to path
     }
 
-    /** What the renderer gives Coil for a handle. Kept in Coil's memory cache under the handle's own text. */
-    internal fun request(context: Context, uri: String): ImageRequest =
-        ImageRequest.Builder(context).data(Handle(uri)).fetcherFactory(factory).memoryCacheKey(uri).build()
+    /**
+     * What the renderer gives Coil for a handle. Kept in Coil's memory cache under the handle's own text. A file goes through
+     * Coil's normal path: it decodes a big photo at the size on screen, which a [Loader] can't do.
+     */
+    internal fun request(context: Context, uri: String): ImageRequest {
+        val file = fileOf(context, uri)
+        if (file != null) return ImageRequest.Builder(context).data(file).build()
+        return ImageRequest.Builder(context).data(Handle(uri)).fetcherFactory(factory).memoryCacheKey(uri).build()
+    }
 }

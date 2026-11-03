@@ -99,7 +99,8 @@ object ZnTemplates {
         val routes = (0 until (list?.length() ?: 0)).map { i ->
             val r = list!!.getJSONObject(i)
             val templateId = r.getInt("screen")
-            require(templateId in templates.indices) { "$name: route ${r.getString("name")} points at template $templateId" }
+            val native = r.optString("native").ifEmpty { null }
+            require(native != null || templateId in templates.indices) { "$name: route ${r.getString("name")} points at template $templateId" }
             val safe = r.get("safeArea")
             ZnRoute(
                 index = i,
@@ -113,6 +114,8 @@ object ZnTemplates {
                 deepLink = r.getBoolean("deepLink"),
                 resizeForKeyboard = r.optString("keyboard", "resize") != "none",
                 restore = r.optBoolean("restore", true),
+                native = native,
+                secure = r.optBoolean("secure", false),
             )
         }
         return ZnBundle(templates, components, ZnRoutes(routes))
