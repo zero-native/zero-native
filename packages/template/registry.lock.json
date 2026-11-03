@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "base": 8,
   "entries": {
     "component:Column": {"id":1,"since":8},
@@ -237,6 +237,7 @@
     "event:onFocus": {"id":13,"since":8},
     "event:onBlur": {"id":14,"since":8},
     "event:onNativeEvent": {"id":15,"since":9},
+    "event:ref": {"id":16,"since":10},
     "event:onValueChange": {"id":30,"since":8}
   }
 }

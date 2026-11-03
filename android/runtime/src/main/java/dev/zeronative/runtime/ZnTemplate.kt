@@ -350,6 +350,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val onSubmitEditing = eventFor(raw, Registry.Event.ON_SUBMIT_EDITING)
     val onFocus = eventFor(raw, Registry.Event.ON_FOCUS)
     val onBlur = eventFor(raw, Registry.Event.ON_BLUR)
+    /** <TextField ref>: names the field for ZnKeyboard's focus / blur / clear; focus changes go to JS on it. */
+    val ref = eventFor(raw, Registry.Event.REF)
     val visibleSlot = slotFor(raw, Registry.Prop.VISIBLE)
     val onEndReached = eventFor(raw, Registry.Event.ON_END_REACHED)
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)

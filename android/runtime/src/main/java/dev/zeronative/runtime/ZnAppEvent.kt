@@ -24,4 +24,7 @@ internal object ZnAppEvent {
     const val TASK = 13
     const val COLOR_SCHEME = 14
     const val LOW_MEMORY = 15
+    const val DEVICE = 16
+    const val WINDOW = 17
+    const val KEYBOARD = 18
 }

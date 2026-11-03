@@ -19,7 +19,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,10 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
 import androidx.navigation3.runtime.NavEntry
@@ -71,6 +75,8 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     // System bars and display cutouts. The keyboard is not part of it (it comes with text fields).
     val safe = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     ReportInsets(safe)
+    ReportWindow()
+    ReportKeyboard()
     val top = ZnNav.stack.lastOrNull()
     // The top route at once (the frame it appears), and any secure screen still drawn: one that is leaving or being covered
     // shows for its whole animation (~300 ms), and a screenshot then must not catch it.
@@ -105,6 +111,7 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
         key(ZnNav.generation) { Screens(bundle, safe) }
         Cover()
         ZnToast.Host()
+        ZnAlert.Host()
         if (BuildConfig.DEBUG) ZnDev.Overlay()
     }
 }
@@ -242,6 +249,31 @@ private fun ReportInsets(safe: WindowInsets) {
     val end = if (ltr) right else left
     // generation: a dev reload starts a new JS, which must hear the insets again.
     LaunchedEffect(top, bottom, start, end, ZnNav.generation) { ZnNav.reportInsets(top, bottom, start, end) }
+}
+
+/** Sends the window's size (dp), density and font scale to JS's `Dimensions` when they change (rotation, split screen). */
+@Composable
+private fun ReportWindow() {
+    val density = LocalDensity.current
+    val size = LocalWindowInfo.current.containerSize
+    val context = LocalContext.current
+    LaunchedEffect(size, density, ZnNav.generation) {
+        val (sw, sh) = ZnWindow.screenPx(context)
+        val d = density.density
+        ZnWindow.reportWindow(ZnWindow.windowJson(size.width / d, size.height / d, d, density.fontScale, sw / d, sh / d))
+    }
+}
+
+/**
+ * Sends the keyboard's height (dp, from the bottom of the window; 0 when hidden) to JS's `Keyboard` listeners. The
+ * animation's target, not each frame: one event per show or hide, at its start.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReportKeyboard() {
+    val density = LocalDensity.current
+    val height = WindowInsets.imeAnimationTarget.getBottom(density) / density.density
+    LaunchedEffect(height, ZnNav.generation) { ZnWindow.reportKeyboard(height) }
 }
 
 /** Dark bar icons (true) for light backgrounds, light icons (false) for dark ones. */

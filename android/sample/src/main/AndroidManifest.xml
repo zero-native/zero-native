@@ -3,6 +3,8 @@
 
     <!-- The sample loads a remote image (merchant avatar). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Vibration.vibrate (RN basics lab). As in React Native, the app declares it itself. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".SampleApp"

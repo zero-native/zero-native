@@ -2,6 +2,13 @@
 // and turns these elements into templates (compiler/src/compile.ts); none of this runs.
 type Color = string
 type Size = number | `${number}%`
+/** The same shape as core's TextFieldHandle (packages/core/src/text-field.ts). */
+interface TextFieldHandle {
+  focus(): void
+  blur(): void
+  clear(): void
+  isFocused(): boolean
+}
 
 declare const znElement: unique symbol
 /** What JSX makes (a template instance to show). Opaque: return it from a component or pass it on. */
@@ -341,6 +348,8 @@ export declare const TextField: Intrinsic<
       onSubmitEditing?: (text: string) => void
       onFocus?: () => void
       onBlur?: () => void
+      /** A handle for focus(), blur(), clear(), isFocused(): `const r = createRef<TextFieldHandle>()`, then `ref={r}`. */
+      ref?: { current: TextFieldHandle | null }
     }
 >
 

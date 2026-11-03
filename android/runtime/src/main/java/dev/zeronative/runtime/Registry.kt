@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 9
+    const val VERSION = 10
 
     object Component {
         const val COLUMN = 1
@@ -167,6 +167,7 @@ object Registry {
         const val ON_FOCUS = 13
         const val ON_BLUR = 14
         const val ON_NATIVE_EVENT = 15
+        const val REF = 16
         const val ON_VALUE_CHANGE = 30
     }
 
@@ -278,7 +279,7 @@ object Registry {
     /** The value type of each prop in PROP_IDS (same order): 0 number, 1 size, 2 string, 3 color, 4 enum, 5 bool. */
     val PROP_TYPES = intArrayOf(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 3, 0, 0, 3, 0, 4, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 2, 3, 0, 0, 4, 0, 0, 0, 4, 4, 2, 4, 2, 5, 5, 0, 0, 5, 2, 0, 0, 5, 3, 3, 0, 2, 5, 2, 5, 2, 2, 2, 3, 4, 5, 0, 5, 5, 4, 5, 4, 5, 3, 2, 2, 2, 4, 3, 0, 0, 5, 0, 0, 3, 2, 2, 3, 3, 3, 3, 0, 2, 4, 3, 0, 2, 2, 4, 5, 0)
     val DYNAMIC_PROP_IDS = intArrayOf(50, 51, 40, 44, 90, 91, 92, 93, 94, 95, 60, 80, 23, 24, 25, 26, 118, 119, 123, 124, 132, 209, 148)
-    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 30)
+    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 30)
     /** Enum prop id → the values this app knows. */
     val ENUM_VALUES = mapOf(
         31 to intArrayOf(0, 1, 2, 3, 4, 5),

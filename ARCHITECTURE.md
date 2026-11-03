@@ -468,6 +468,12 @@ change is still unsent. So fast typing never jumps back, and a rejected or refor
 runs). Selection from JS is not supported yet. The keyboard: route option `keyboard: "resize" | "none"` (default
 resize, `imePadding` under the route's safe-area padding), `Keyboard.dismiss()` (built-in module `ZnKeyboard`).
 
+**Focus from JS (RN basics pack, registry 10):** `<TextField ref={r}>` with `r = createRef()`. The compiler gives `ref` an
+event id (`EventKind.ref`); `ZnTextField` registers its `FocusRequester` with `ZnKeyboard` (v2) under (instance, id)
+while composed, so `r.current.focus()` / `blur()` / `clear()` are `Keyboard` calls, and focus changes come back on the
+same id for `isFocused()`. Keyboard shown / hidden and its height reach JS as app event KEYBOARD (host API 7), from
+`WindowInsets.imeAnimationTarget`: one event per show or hide.
+
 ### 9.5 Cross-platform layout rules and conformance tests
 - zn defines its own small layout rules (alignment defaults, how `weight` / `fill` resolve, text line height), and
   each renderer maps them explicitly, never relying on toolkit defaults.
@@ -779,6 +785,12 @@ never for anything a flow needs.
 - `@zero-native/storage` (13.4), `SecureStore`, `os.*` (app info, device info, haptics, clipboard, share, open URL,
   launch activity, permissions, app lifecycle events).
 - Zustand-style stores and plain TS libraries run unchanged (they need no React).
+- **Built (RN basics pack, host API 7):** React Native's small APIs with their RN names, exported from
+  `@zero-native/core`: `Alert`, `Clipboard`, `Share`, `Linking`, `Platform`, `Dimensions`, `PixelRatio`, `Keyboard`
+  listeners, `AppState`, `Vibration`, `ToastAndroid`, `NetInfo`, `URL` / `URLSearchParams` (a JS polyfill, `url.ts`),
+  `requestAnimationFrame` (a 16 ms timer). `atob` / `btoa` are Hermes'. Device facts and the window size come as app
+  events DEVICE and WINDOW right after the main script, so they are not ready at a file's top level. Status per API:
+  `docs/rn-compatibility.md`; author rules: guide-notes §39.
 
 ## 15. Native modules and native screens
 
@@ -1082,6 +1094,7 @@ zero-native/
 | 2026-11-02 | Plumbing built (P.2): only Kotlin opens another app; a launch's record is on disk before it opens, and its result stays until `ack`; START waits for Android's answer after a kill, so a sync `pending()` is right on the first screen; a new launch is refused while a result isn't acked | `docs/plugins.md` §6, `docs/guide-notes.md` §31, `docs/second-opinions.md` entries 11 to 15. |
 | 2026-11-02 | UPI is a plugin the app owns, not `@zero-native/upi`. An outside app uses a Gradle composite build and `bun link` until packages exist | `docs/plugins.md` D7, `docs/guide-notes.md` §34, `docs/second-opinions.md` entries 16, 17. |
 | 2026-11-03 | Plugins P.3b–P.6 built: native screens and `<NativeView>` (registry 9), `zn://file`, background JS tasks, secure screens, dark mode, low memory, right to left (host API 6); official opt-in plugins `auth`, `scanner`, `media`, `webview`. Out: push / Firebase, certificate pinning | `docs/plugins.md` §9, `docs/guide-notes.md` §35–38, `docs/second-opinions.md` entries 18–36 |
+| 2026-11-03 | RN basics pack: React Native's small APIs with RN names exported from `@zero-native/core` (no separate entry point); `TextField` `ref` (registry 10); app events DEVICE, WINDOW, KEYBOARD (host API 7); `Alert`, `Clipboard`, `Vibration`, `NetInfo` built-in modules; `URL` polyfill | §9.4, §14, `docs/guide-notes.md` §39, `docs/second-opinions.md` entries 38–43. Porting an RN screen should be mostly copy and paste for these. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).

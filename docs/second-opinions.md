@@ -406,3 +406,83 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a task that freezes the UI for 2 s with the app open still fails the top screen and can roll back a new bundle.
   That is a real freeze, so it is arguably right; the guide says not to do long sync work in a task (§36).
 - **Evidence wanted:** whether Hermes' time limit fires inside a task's event at all (not tested; the reviewer couldn't confirm it).
+
+## 38. RN names live in `@zero-native/core`, next to the zn names (RN basics pack)
+- **Where:** `packages/core/src/index.ts` (`Alert`, `Clipboard`, `Share`, `Linking`, `Platform`, `Dimensions`, `PixelRatio`,
+  `Keyboard`, `AppState`, `Vibration`, `ToastAndroid`, `NetInfo`, `useNetInfo`, `useWindowDimensions`, `createRef`).
+- **Chosen (Pavan agreed):** export them from core, not from a `@zero-native/core/rn` entry point. Where a zn name already
+  existed (`Os.share`, `Os.openUrl`, `toast`, `appState`, `onAppState`) it stays; the RN object sits on top of it.
+- **Why:** one import line for authors; the build loads every core file anyway (compiler/src/plugin.ts), so a second
+  entry point would save nothing. Nothing that existed breaks. `AppState` is now both a value and the old type name,
+  which TypeScript allows; `AppStateStatus` is the RN type name.
+- **Risk if wrong:** two names for one thing (`Os.share` and `Share.share`). The docs point ported code to the RN name.
+- **Also:** `docs/rn-compatibility.md` §11 names ZeroBill, as asked. The leak audit wants neutral names in public docs:
+  the public-repo pass must reword it ("the reference RN app").
+
+## 39. `TextField` focus: `ref={createRef()}`, a new event kind (RN basics pack)
+- **Where:** `packages/template/src/registry.ts` (`EventKind.ref = 16`, registry 10), `compiler/src/compile.ts`,
+  `packages/core/src/text-field.ts`, `android/runtime/.../ZnTextField.kt`, `ZnKeyboard.kt` (v2).
+- **Chosen:** `ref` is not a handler. The compiler gives it an event id; native keeps the field's FocusRequester under
+  (instance, id) while it is composed; JS's `focus()` / `blur()` / `clear()` are `Keyboard` module calls with that pair,
+  and native sends true / false on the same id when focus changes (for `isFocused()`). `createRef()`, not `useRef()`.
+- **Why not a `focused={signal}` prop:** if the user blurs the field and the code doesn't set the signal back,
+  setting it true again does nothing. A ref has no state to drift. **Why not `useRef`:** there are no hooks; a body runs
+  once, so `createRef()` does the job without suggesting hooks exist.
+- **Risk if wrong:** `focus()` on a field that is not composed (a lazy list row off screen) rejects `not_shown` (logged).
+  `blur()` clears the window's focus, so it only acts when this field has focus.
+- **Evidence wanted:** the phone check of the OTP demo (`examples/sample/src/RnBasicsLab.tsx`) on a few keyboards
+  (Gboard, SwiftKey): focus from a tap on a box, auto-blur after 4 digits. Passed on the emulator's Gboard.
+- **Also changed:** `onFocus` / `onBlur` (and the ref's focus events) are sent only for a real change. Compose calls
+  `onFocusChanged` when a field appears and when the Activity is made again, and every untouched field sent `onBlur`.
+  **Known edge:** if a field has focus and the phone turns, Compose doesn't give focus back, and no `onBlur` is sent for
+  the lost focus (`isFocused()` stays true until the next change). Sending one when the field leaves composition would
+  log "no handler" warnings each time a screen closes with a focused field, so it isn't done.
+
+## 40. Alert: Android's own dialog, one at a time, shown again after rotation (RN basics pack)
+- **Where:** `android/runtime/.../ZnAlert.kt`, `packages/core/src/alert.ts`.
+- **Chosen (Pavan agreed):** `android.app.AlertDialog` with the app's theme, as RN. Alerts queue and show one at a time.
+  `ZnAlert.Host()` in `ZnNavHost` shows the first one in the live Activity; a new Activity (rotation) shows it again.
+  Only a button or a cancel answers. No buttons → "OK". No Activity (push, background task) → `no_activity`, logged.
+  Alerts of a replaced JS runtime are dropped through the call's cancel, not `ZnNav.generation` (the generation moves
+  only after the new main script ran, so an alert from its top level would be dropped by mistake).
+- **Why:** RN parity, no drawing code. **Risk if wrong:** the dialog follows the app theme, not `colorScheme()`: an app
+  with a light-only theme shows a light alert in dark mode (RN does the same). An app that never shows `ZnNavHost` keeps
+  alerts queued for ever.
+
+## 41. Platform, Dimensions and the keyboard come as app events, not sync constants (RN basics pack)
+- **Where:** `android/runtime/.../ZnWindow.kt`, `ZnNavHost.kt` (`ReportWindow`, `ReportKeyboard`), app events 16–18
+  (host API 7), `packages/core/src/platform.ts`, `dimensions.ts`, `keyboard.ts`.
+- **Chosen:** DEVICE (sdk, release, model, brand, manufacturer) and a first WINDOW go right after the main script, like
+  COLOR_SCHEME. Compose then sends the measured window (`LocalWindowInfo.containerSize`) and the keyboard's target height
+  (`WindowInsets.imeAnimationTarget`, one event per show or hide). JS keeps them in signals.
+- **Why not sync constants:** that needs a new JNI argument and a C++ global for 3 numbers. Every ZeroBill use of
+  `Platform.Version` is inside a function. **Risk if wrong:** a read at a file's top level gives 0 (a warning is logged).
+- **Keyboard height:** dp from the bottom of the window, so it includes the navigation bar under the keyboard. RN's
+  Android number has differed between versions; ours is written in the guide. **Window:** includes the system bars
+  (we draw edge to edge).
+- **Evidence wanted:** split screen and font-size changes on a phone; a keyboard that changes height (emoji panel).
+
+## 42. NetInfo: Android's "validated" for `isInternetReachable`, 250 ms settle (RN basics pack)
+- **Where:** `android/runtime/.../ZnNetInfo.kt`.
+- **Chosen:** `isInternetReachable` = `NET_CAPABILITY_VALIDATED` (Android's own check), no HTTP probe like the library.
+  Type order as the library: bluetooth > cellular > ethernet > wifi > vpn, so a VPN over Wi-Fi reads "wifi". A burst of
+  callbacks sends one event 250 ms after the last one. The network is watched only while JS listens.
+- **Risk if wrong:** a network Android validated may still block our API host (a firewall), and the 250 ms delay makes
+  a change arrive late. For payments, still handle `FetchError` `offline` on each call; don't gate a payment on NetInfo.
+
+## 43. Smaller calls in the RN basics pack
+- **`Vibration` needs `VIBRATE` in the app's manifest** (Pavan agreed: same as RN). The runtime doesn't add it, so apps
+  that never vibrate don't list it. Without it: `not_declared`, logged once.
+- **`Linking.canOpenURL`:** the runtime's manifest gains `<queries>` for VIEW with https, http, mailto, tel (merged into
+  every app). It shows no list of apps; it only lets Android answer for those 4 link kinds.
+- **`Linking.getInitialURL` / `addEventListener("url")`:** read-only copies of links that already opened their route.
+  RN apps route from them; here routing is built in and `onLink` refuses. Kept small on purpose.
+- **`URL`:** no IDNA, so a non-ASCII host throws instead of guessing. Where Bun 1.4.4 and the standard differ (4 setter
+  and backslash cases, listed in `packages/core/test/url.test.ts`), we follow the standard. 791 lines, about 5 KB gzipped.
+- **`requestAnimationFrame`** is a 16 ms timer: JS doesn't draw here, and a real frame callback would cross to native
+  each frame for nothing.
+- **`flowStore` warning at 128 KB** in every build (JS has no "debug build" flag), once per key per run.
+- **`Share.share({ url })`:** RN shares `url` only on iOS; here it is shared as the text when there is no `message`, so
+  iOS-style code doesn't share nothing.
+- **Not built, on purpose:** `StatusBar` (route option; `setBarStyle` later if a screen needs it), toast gravity,
+  `Alert.prompt` (iOS only in RN), RN's Android-only `AppState` `focus` / `blur`.

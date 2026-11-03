@@ -39,6 +39,6 @@ describe("native modules a bundle needs (docs/ota.md §3.2)", () => {
     expect(app.requires.registry).toBe(8)
     expect(app.requires.hostApi).toBe(HOST_API_VERSION)
     // The fixture pulls in @zero-native/core's storage and keyboard code (via the compiler's runtime import).
-    expect(app.requires.modules.Keyboard).toBe(1)
+    expect(app.requires.modules.Keyboard).toBe(2) // v2: focus / blur / clear of a TextField ref
   })
 })

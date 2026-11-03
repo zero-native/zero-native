@@ -363,6 +363,34 @@ function onOpenLink(payload: NativeValue): void {
   if (name === undefined) return globalThis.__zn_log(3, `nav: link to unknown route ${route}`)
   if (!linkAllowed({ route: name, params, url: url ?? "", atStart: false })) return
   ;(nav.push as (n: string, p: Record<string, unknown>) => void)(name, params)
+  if (url) {
+    for (const listener of [...linkListeners]) {
+      try {
+        listener(url)
+      } catch (err) {
+        reportError("Linking url listener", err)
+      }
+    }
+  }
+}
+
+// Linking.getInitialURL and Linking.addEventListener("url") (linking.ts): read-only copies of the links that got past
+// onLink and opened their route. Links that match no route never reach JS (on purpose).
+let started = false
+let startLink: string | null = null
+const startWaiters: ((url: string | null) => void)[] = []
+const linkListeners = new Set<(url: string) => void>()
+
+/** The link that started the app and opened its screen, or null. Waits for the first screens. */
+export function initialLink(): Promise<string | null> {
+  if (started) return Promise.resolve(startLink)
+  return new Promise((resolve) => startWaiters.push(resolve))
+}
+
+/** Calls [listener] with each link that opens its screen while the app runs. Returns the function that stops it. */
+export function onOpenedLink(listener: (url: string) => void): () => void {
+  linkListeners.add(listener)
+  return () => void linkListeners.delete(listener)
 }
 
 function linkAllowed(link: OpenedLink): boolean {
@@ -383,6 +411,10 @@ export function resetNavForTests(): void {
   rendering = null
   waiting.clear()
   resultListeners.clear()
+  started = false
+  startLink = null
+  startWaiters.length = 0
+  linkListeners.clear()
 }
 
 function open(name: string, params: Record<string, unknown>): Entry {
@@ -478,8 +510,11 @@ function start(payload: NativeValue): void {
       globalThis.__zn_nav(NavKind.Remove, entry, 0, null)
       continue
     }
+    if (link !== undefined) startLink ??= link
     show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, onBack: null, restored: values })
   }
+  started = true
+  for (const resolve of startWaiters.splice(0)) resolve(startLink)
   // The first screens are built (a screen that threw has already sent FAILED): the OTA safety nets count the bundle
   // as on screen from here (docs/ota.md §3.6).
   globalThis.__zn_nav(NavKind.Started, 0, 0, null)

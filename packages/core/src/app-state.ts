@@ -8,6 +8,7 @@
 // phone is locked. Native sends it when the Activity resumes and pauses, so a see-through payment window counts too,
 // though Android doesn't stop the app for one. JS doesn't run less in the background: this is only information.
 import { APP, AppEvent } from "./app-events"
+import { onLowMemory } from "./appearance"
 import { reportError } from "./errors"
 import { onEvent } from "./events"
 import type { NativeValue } from "./native"
@@ -33,6 +34,29 @@ export function onAppState(listener: (state: AppState) => void): () => void {
   const off = () => void listeners.delete(listener)
   if (getOwner()) onCleanup(off)
   return off
+}
+
+/** React Native's name for the state type. */
+export type AppStateStatus = AppState
+
+/**
+ * React Native's `AppState` (RN basics pack), on top of appState() and onAppState(). Two states only: "inactive"
+ * never comes (Android has none). "memoryWarning" is onLowMemory(). RN's Android-only "focus" / "blur" are not sent.
+ */
+export const AppState = {
+  get currentState(): AppStateStatus {
+    return current()
+  },
+
+  isAvailable: true,
+
+  /** Returns `{ remove }`, as in React Native. Called while a screen is being built, it stops when the screen closes. */
+  addEventListener(type: "change" | "memoryWarning", handler: (state: AppStateStatus) => void): { remove(): void } {
+    if (type === "change") return { remove: onAppState(handler) }
+    if (type === "memoryWarning") return { remove: onLowMemory(() => handler(current.peek())) }
+    globalThis.__zn_log(2, `AppState.addEventListener("${type}"): only "change" and "memoryWarning" are sent`)
+    return { remove() {} }
+  },
 }
 
 /** App-level event 11 on instance 0 (android/runtime/.../ZnAppState.kt). Called by startApp. */

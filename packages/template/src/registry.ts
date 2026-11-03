@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 9 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 10 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -17,6 +17,7 @@ export const REGISTRY_VERSION = 9 // 2: Anchor. 3: transforms, shadow, absolute 
 // 8: small components & accessibility (milestone 3 steps 3.7–3.8): Switch, Checkbox, Spinner, Progress, Shimmer;
 //    accessibilityLabel, accessibilityRole, maxFontScale.
 // 9: NativeView, a plugin's Compose view inside a screen (docs/plugins.md §5): viewName, viewProps, onNativeEvent.
+// 10: TextField `ref` (RN basics pack): focus(), blur(), clear() from JS; focus changes come back on its event id.
 
 export const Component = {
   Column: 1,
@@ -293,6 +294,11 @@ export const EventKind = {
   onBlur: 14,
   /** <NativeView>: payload is JSON text, { name, data }; the compiler adds the parse. */
   onNativeEvent: 15,
+  /**
+   * <TextField ref={r}>: not a handler. Its id names the field for focus() / blur() / clear() (ZnKeyboard), and native
+   * sends true / false on it when focus comes or goes. Bound by the compiler (core text-field.ts fieldRef).
+   */
+  ref: 16,
   // 16-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
   onValueChange: 30,
 } as const
@@ -354,7 +360,7 @@ export const Added: {
   prop: { viewName: 9, viewProps: 9 },
   dynamic: { viewProps: 9 },
   enumValue: {},
-  event: { onNativeEvent: 9 },
+  event: { onNativeEvent: 9, ref: 10 },
 }
 
 /** The registry version that [kind] [name] needs ([BASE_VERSION] unless listed in [Added]). */

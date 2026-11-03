@@ -18,8 +18,9 @@ export interface OsInfo {
 
 export type Haptic = "light" | "medium" | "success" | "error"
 
+// v2: share's subject and dialogTitle, canOpenUrl (RN basics pack).
 const call = <T>(method: string, args: Record<string, unknown> = {}) =>
-  callNative<T>("Os", method, { ...args, __v: 1 }, { owned: false })
+  callNative<T>("Os", method, { ...args, __v: 2 }, { owned: false })
 
 export const Os = {
   info: () => call<OsInfo>("info"),
@@ -30,9 +31,12 @@ export const Os = {
   /** The app's page in Android settings: the only way out of a "blocked" permission. */
   openSettings: () => call<boolean>("openSettings"),
 
-  /** Android's share sheet, for plain text. */
-  share: (args: { text: string }) => call<boolean>("share", args),
+  /** Android's share sheet, for plain text. `subject`: an email's subject; `dialogTitle`: the sheet's title. */
+  share: (args: { text: string; subject?: string; dialogTitle?: string }) => call<boolean>("share", args),
 
   /** Opens a link in another app. Only http, https, mailto and tel: anything else is `not_allowed`. `no_app`: nothing can open it. */
   openUrl: (url: string) => call<boolean>("openUrl", { url }),
+
+  /** True if some app can open [url]. False for any link openUrl would refuse. */
+  canOpenUrl: (url: string) => call<boolean>("canOpenUrl", { url }),
 }

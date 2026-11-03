@@ -256,6 +256,17 @@ export function compileModule(
         styleProps((init as ts.JsxExpression).expression!, props, b)
         continue
       }
+      if (name === "ref") {
+        // Not a handler: the field's handle goes into the ref (core text-field.ts fieldRef).
+        if (tag !== "TextField") fail(a, "`ref` works only on <TextField> (focus(), blur(), clear()); other elements have no handle")
+        if (!init || !ts.isJsxExpression(init) || !init.expression) {
+          fail(a, "ref needs an object made by createRef(): const r = createRef<TextFieldHandle>(), then ref={r}")
+        }
+        const ev = `e${b.events++}`
+        ;(props as any).ref = eventRef(ev)
+        b.binds.push(`${RUNTIME}.fieldRef(${b.inst}, @@E:${ev}@@, ${text((init as ts.JsxExpression).expression!)});`)
+        continue
+      }
       if (name in EventKind) {
         if (!init || !ts.isJsxExpression(init) || !init.expression) fail(a, `${name} needs a function`)
         const ev = `e${b.events++}`

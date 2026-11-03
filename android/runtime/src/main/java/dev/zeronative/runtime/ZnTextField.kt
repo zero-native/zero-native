@@ -104,7 +104,24 @@ internal fun ZnTextField(s: ZnNodeSpec, inst: ZnInstance, n: Int, mod: Modifier)
 
     val focus = remember { FocusRequester() }
     if (s.autoFocus) LaunchedEffect(inst.id, n) { focus.requestFocus() }
+    // `ref`: JS's focus() / blur() / clear() find the field through ZnKeyboard while it is composed.
+    val refField = if (s.ref != 0) remember(state) { ZnKeyboard.Field(focus, state) } else null
+    if (refField != null) {
+        DisposableEffect(inst.id, s.ref, refField) {
+            ZnKeyboard.attach(inst.id, s.ref, refField)
+            onDispose { ZnKeyboard.detach(inst.id, s.ref, refField) }
+        }
+    }
+    // Compose calls onFocusChanged once when the field appears (not focused), and again after the Activity is made
+    // again: only a real change is sent, so onBlur doesn't fire for a field nobody touched (as in React Native).
+    val wasFocused = remember(inst.id, n) { booleanArrayOf(false) }
     val focusMod = mod.focusRequester(focus).onFocusChanged {
+        if (it.isFocused == wasFocused[0]) return@onFocusChanged
+        wasFocused[0] = it.isFocused
+        if (refField != null) {
+            refField.focused = it.isFocused
+            ZnRuntime.dispatchEvent(inst.id, s.ref, it.isFocused)
+        }
         val id = if (it.isFocused) s.onFocus else s.onBlur
         if (id != 0) ZnRuntime.dispatchEvent(inst.id, id)
     }

@@ -16,7 +16,7 @@ beforeEach(() => {
 test("each call names the Os module and its args", async () => {
   const p = Os.haptic("success")
   const [c] = host.calls
-  expect(c).toMatchObject({ module: "Os", method: "haptic", args: { kind: "success", __v: 1 } })
+  expect(c).toMatchObject({ module: "Os", method: "haptic", args: { kind: "success", __v: 2 } })
   reply({ id: c.id, ok: true, value: true })
   expect(await p).toBe(true)
 })

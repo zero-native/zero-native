@@ -70,6 +70,17 @@ export function clearTimeout(handle: number | undefined | null): void {
 
 export const clearInterval = clearTimeout
 
+/**
+ * React Native's requestAnimationFrame, for code that waits "until after this frame". JS doesn't draw here, so it is a
+ * timer of about one frame (16 ms), not a real frame callback, and like any timer it stops when its screen closes.
+ * The callback gets the time in ms (`__zn_now`), like `performance.now()`. Don't animate with it: use `animate`.
+ */
+export function requestAnimationFrame(fn: (time: number) => void): number {
+  return setTimeout(() => fn(globalThis.__zn_now()), 16)
+}
+
+export const cancelAnimationFrame = clearTimeout
+
 /** Number of live timers (for tests and leak checks). */
 export function activeTimerCount(): number {
   return callbacks.size
@@ -84,4 +95,6 @@ export function installTimers(options: { replaceGlobals?: boolean } = {}): void 
   g.setInterval = setInterval
   g.clearTimeout = clearTimeout
   g.clearInterval = clearInterval
+  g.requestAnimationFrame = requestAnimationFrame
+  g.cancelAnimationFrame = cancelAnimationFrame
 }

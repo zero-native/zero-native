@@ -4,4 +4,25 @@
          and tells "offline" apart from other errors (ZnFetch.kt). Both are install-time permissions (no dialog). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Linking.canOpenURL (ZnOs canOpenUrl): Android 11+ hides other apps unless the app says which links it asks
+         about. Only the link kinds openUrl allows; no app list is visible through this. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="mailto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="tel" />
+        </intent>
+    </queries>
 </manifest>

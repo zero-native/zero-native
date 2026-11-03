@@ -8,6 +8,10 @@ import { installText } from "./text"
 import { installFetch } from "./fetch"
 import { installRejectionTracking } from "./errors"
 import { installIntlCache } from "./intl"
+import { installPlatform } from "./platform"
+import { installDimensions } from "./dimensions"
+import { installKeyboard } from "./keyboard"
+import { installUrl } from "./url"
 
 export * from "./native"
 export { parseColor } from "./color"
@@ -34,10 +38,17 @@ export {
 export { onEvent } from "./events"
 export { nav, onNavResult, restorableSignal, startApp, useBack, useImpressions, type AppOptions, type ImpressionOptions, type OpenedLink, type Register } from "./nav"
 export { insets, type Insets } from "./insets"
-export { appState, onAppState, type AppState } from "./app-state"
+export { AppState, appState, onAppState, type AppStateStatus } from "./app-state"
 export { Permissions, type PermissionName, type PermissionState } from "./permissions"
 export { launches, type LaunchRecord } from "./launches"
 export { Os, type Haptic, type OsInfo } from "./os"
+export { Linking, Share, type ShareContent, type ShareOptions } from "./linking"
+export { Alert, type AlertButton, type AlertOptions } from "./alert"
+export { Clipboard } from "./clipboard"
+export { Vibration } from "./vibration"
+export { NetInfo, useNetInfo, type NetInfoState, type NetInfoStateType } from "./netinfo"
+export { Platform, type PlatformOSType } from "./platform"
+export { Dimensions, PixelRatio, useWindowDimensions, type ScaledSize } from "./dimensions"
 export { flowStore, type StoreRead } from "./flowstore"
 export {
   createStorage,
@@ -48,8 +59,9 @@ export {
   type StoredValue,
 } from "./storage"
 export { SecureStore } from "./secure-store"
-export { Keyboard, type KeyboardModule } from "./keyboard"
-export { toast, type ToastOptions } from "./toast"
+export { Keyboard, type KeyboardEvent, type KeyboardEventName, type KeyboardMetrics, type KeyboardModule } from "./keyboard"
+export { createRef, fieldRef, type Ref, type TextFieldHandle } from "./text-field"
+export { toast, ToastAndroid, type ToastOptions } from "./toast"
 export {
   callNative,
   nativeModule,
@@ -88,7 +100,15 @@ export {
   type SafeArea,
   type Transition,
 } from "./routes"
-export { setTimeout, setInterval, clearTimeout, clearInterval, activeTimerCount } from "./timers"
+export {
+  setTimeout,
+  setInterval,
+  clearTimeout,
+  clearInterval,
+  requestAnimationFrame,
+  cancelAnimationFrame,
+  activeTimerCount,
+} from "./timers"
 export { onError, type ErrorInfo, type ErrorKind } from "./errors"
 export { Updates, type ApplyRefused, type UpdateCheckResult, type UpdateStatus } from "./updates"
 
@@ -103,4 +123,9 @@ export function installRuntime(): void {
   installFetch()
   installRejectionTracking() // after timers: Hermes' tracker uses setTimeout
   installIntlCache()
+  // Native sends these right after the main script, so they are listened to before startApp (RN basics pack).
+  installPlatform()
+  installDimensions()
+  installKeyboard()
+  installUrl() // URL and URLSearchParams: Hermes has neither
 }

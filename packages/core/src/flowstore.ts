@@ -15,10 +15,49 @@ declare global {
   var __zn_store_remove: (key: string) => boolean
 }
 
+/** The most JSON one key can hold, in UTF-8 bytes: 256 KB less a 16-byte header (core/include/zn/flowstore.h). */
+const MAX_BYTES = 256 * 1024 - 16
+/** Above this a write still works, but it is half way to the limit: say so once per key, before it fails. */
+const WARN_BYTES = 128 * 1024
+const warned = new Set<string>()
+
+/** UTF-8 length of [s] without making the bytes. */
+function utf8Length(s: string): number {
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c < 0x80) n += 1
+    else if (c < 0x800) n += 2
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      n += 4
+      i++
+    } else n += 3
+  }
+  return n
+}
+
 export const flowStore = {
-  /** Saves [value] (as JSON) under [key]. False if it could not be saved (too big, disk error): then don't act. */
+  /** The most one key can hold: 262,128 bytes of JSON (UTF-8). A bigger write returns false and keeps the old value. */
+  MAX_BYTES,
+
+  /**
+   * Saves [value] (as JSON) under [key]. False if it could not be saved (too big, disk error): then don't act.
+   * Over 128 KB it logs a warning once per key: keep flow state small, and put big data in Storage by id.
+   */
   write(key: string, value: unknown): boolean {
-    return globalThis.__zn_store_write(key, JSON.stringify(value))
+    const json = JSON.stringify(value)
+    // Each UTF-16 unit is at most 3 bytes, so short JSON needs no count.
+    if (json.length * 3 > WARN_BYTES && !warned.has(key)) {
+      const bytes = utf8Length(json)
+      if (bytes > WARN_BYTES) {
+        warned.add(key)
+        globalThis.__zn_log(
+          2,
+          `flowStore "${key}": ${bytes} bytes, over half the ${MAX_BYTES}-byte limit. Keep flow state small (big data in storage, by id)`,
+        )
+      }
+    }
+    return globalThis.__zn_store_write(key, json)
   },
 
   /** "missing": never written; "broken": the file is damaged in both copies (quarantine it). */

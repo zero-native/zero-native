@@ -430,6 +430,24 @@ describe("fragments, children and spans (step 3.2)", () => {
     expect((templates[0].props as any).value).toEqual({ $slot: "s0", default: null })
     expect(code).toContain("__zn.on(__i0, 1, __zn.textInput(__i0, 0, () => (amount()), (t) => amount.set(t)));")
   })
+
+  test("a TextField ref gets an event id and is bound with fieldRef()", () => {
+    const { templates, code } = compile(`
+      export function F() {
+        const code = createRef()
+        return <TextField ref={code} onFocus={() => 1} />
+      }`)
+    const p = templates[0].props as any
+    expect(p.ref).toBeDefined()
+    expect(p.onFocus).toBeDefined()
+    expect(p.ref).not.toEqual(p.onFocus)
+    expect(code).toMatch(/__zn\.fieldRef\(__i0, \d+, code\);/)
+  })
+
+  test("ref works only on TextField, and needs a value", () => {
+    expect(() => compile(`export function T() { const r = createRef(); return <Box ref={r} /> }`)).toThrow(/only on <TextField>/)
+    expect(() => compile(`export function T() { return <TextField ref /> }`)).toThrow(/createRef/)
+  })
 })
 
 describe("animation (step 3.6)", () => {

@@ -10,6 +10,10 @@ tree that includes step P.2 (permissions, launches, `Os`, `detached`, `zn://app-
 (UPI, auth, scanner, native views, native screens, push, WebView, media) are **not built**: they show as `missing`.
 **Updated 2026-11-03** for P.3b–P.6 (rows for dark mode, scanner, media, WebView, auth, native views, background tasks,
 secure screens). Those rows link to files, not lines, and were not re-checked by a second reviewer. Push is still missing.
+**Updated 2026-11-03 again** for the RN basics pack: `Alert`, `Clipboard`, `Share`, `Linking`, `Platform`, `Dimensions`,
+`PixelRatio`, `Keyboard` listeners, `AppState`, `Vibration`, `ToastAndroid`, `NetInfo`, `URL`, `requestAnimationFrame` and
+`TextField` `ref`. They keep their RN names and are imported from `@zero-native/core`. Guide: [guide-notes.md](guide-notes.md) §39.
+What the reference app uses most is in [§11](#11-what-the-reference-app-uses-most-zerobill).
 
 **Status words**
 - **same**: same name and same meaning. Copy the code.
@@ -29,7 +33,7 @@ secure screens). Those rows link to files, not lines, and were not re-checked by
    component body runs once. See [guide-notes.md](guide-notes.md) §1–2.
 3. **Unknown props and style keys fail the build.** Nothing is silently ignored.
    [compile.ts:264](../compiler/src/compile.ts:264), [compile.ts:676](../compiler/src/compile.ts:676).
-4. **Android only today.** There is no `Platform.OS`. iOS (SwiftUI) comes later.
+4. **Android only today.** `Platform.OS` is always `"android"`. iOS (SwiftUI) comes later.
 
 ## 1. Components
 
@@ -66,17 +70,19 @@ secure screens). Those rows link to files, not lines, and were not re-checked by
 | `TextInput keyboardType` | `keyboardType` | different | Values: `default`, `number-pad`, `decimal-pad`, `phone-pad`, `email-address`, `url`. RN `numeric` → `number-pad` or `decimal-pad`. |
 | `TextInput onSubmitEditing` | `onSubmitEditing(text)` | different | It gets the text, not an event. Key label: `returnKeyType` (`done`, `go`, `next`, `search`, `send`). |
 | `TextInput` `secureTextEntry`, `autoCapitalize` | same names | same | `autoCapitalize`: `none`, `sentences`, `words`, `characters`. |
-| `TextInput` `onChange`, `onKeyPress`, `onSelectionChange`, `selection`, `defaultValue`, `inputMode`, `autoComplete`, `textContentType`, `numberOfLines`, `ref.focus()` / `blur()` / `clear()` | none | missing | Use `value` as the initial value. Close the keyboard with `Keyboard.dismiss()`. No focus control or key events yet. |
+| `TextInput` `ref.focus()` / `blur()` / `clear()` / `isFocused()` | [`ref`](../packages/core/src/text-field.ts:37) + [`createRef`](../packages/core/src/text-field.ts:21) | different | `useRef<TextInput>(null)` → `createRef<TextFieldHandle>()`; then `ref={r}` and `r.current?.focus()` as in RN. Only on `TextField`. OTP boxes: one hidden field plus drawn boxes ([guide-notes.md](guide-notes.md) §39). |
+| `TextInput` `onChange`, `onKeyPress`, `onSelectionChange`, `selection`, `defaultValue`, `inputMode`, `autoComplete`, `textContentType`, `numberOfLines` | none | missing | Use `value` as the initial value. Close the keyboard with `Keyboard.dismiss()`. No key events yet. |
 | `ActivityIndicator` | [`Spinner`](../packages/ui/src/index.ts:213) | renamed | `size` is a number in dp (not `"small"` / `"large"`). `color` same. |
 | `Switch` | [`Switch`](../packages/ui/src/index.ts:188) | different | `value`, `onValueChange`, `disabled`, `thumbColor` same. `trackColor={{ false, true }}` → `trackColor` (off) + `activeTrackColor` (on). It is strictly controlled: set the signal or the thumb does not move. |
 | `Checkbox` (community) | [`Checkbox`](../packages/ui/src/index.ts:201) | different | `value`, `onValueChange`, `color`, `activeColor`. |
 | (progress bar libs) | [`Progress`](../packages/ui/src/index.ts:222) | different | `value` 0–1, omit for endless. |
 | (skeleton libs) | [`Shimmer`](../packages/ui/src/index.ts:232) | different | All shimmers on screen move in step. |
 | `Modal` | [`Sheet`](../packages/ui/src/index.ts:250) or route `transition: "modal"` | different | `Sheet` is a controlled bottom sheet (`visible`, `onDismiss`). Centred dialogs / `Modal` `transparent` are missing. |
-| `Alert.alert` | none | missing | Build a `Sheet` or an inline confirm. There is no native alert call. |
-| `Dimensions`, `useWindowDimensions`, `PixelRatio` | none | missing | Use `flex` and `%` sizes. Safe-area numbers: [`insets()`](../packages/core/src/insets.ts:23). |
+| `Alert.alert` | [`Alert.alert`](../packages/core/src/alert.ts:39) | same | Android's own dialog with the app's theme, up to 3 buttons, `cancelable`, `onDismiss`. Stays open when the phone turns. `Alert.prompt` is iOS only in RN too. |
+| `Dimensions.get` / `addEventListener`, `useWindowDimensions` | [`Dimensions`](../packages/core/src/dimensions.ts:43), [`useWindowDimensions`](../packages/core/src/dimensions.ts:70) | different | Same values (dp, `scale`, `fontScale`). They can't size a layout (§0): use `flex` and `%` there, and these in logic. Read inside JSX or `effect` to follow changes. Not ready at a file's top level. |
+| `PixelRatio` | [`PixelRatio`](../packages/core/src/dimensions.ts:74) | same | `get`, `getFontScale`, `getPixelSizeForLayoutSize`, `roundToNearestPixel`. |
 | `SafeAreaView` / `react-native-safe-area-context` | route option `safeArea` + [`insets()`](../packages/core/src/insets.ts:23) | different | Delete `SafeAreaView`. Set `safeArea` on the route ([routes.ts:20](../packages/core/src/routes.ts:20)); for a coloured header use `insets().top`. |
-| `StatusBar` | route option `statusBar: "dark" \| "light"` | different | Per route, not per component. [routes.ts:22](../packages/core/src/routes.ts:22). |
+| `StatusBar` | route option `statusBar: "dark" \| "light"` | different | Per route, not per component. [routes.ts:22](../packages/core/src/routes.ts:22). `StatusBar.currentHeight` → `insets().top`. `setBarStyle` at runtime: not built (no screen needs it yet). |
 | `KeyboardAvoidingView` | route option `keyboard: "resize"` | different | On by default. Delete the component. [routes.ts:29](../packages/core/src/routes.ts:29). |
 | `RefreshControl` | none | missing | No pull to refresh. Use a visible refresh button, or wait for it to be built. |
 | `Animated`, `LayoutAnimation`, `Easing` | `animate`, `enter`, `exit` props, [`Timing`](../packages/ui/src/index.ts:104) | different | No `Animated.Value`. Say how a change should animate: `animate={250}` or `animate={{ opacity: 200, translateY: "spring" }}`. `enter` / `exit` for mount and unmount. Gesture-driven animation is missing. |
@@ -162,9 +168,13 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | `Headers`, `Request`, `Response`, `FormData`, `URLSearchParams`, `AbortController` | [`Headers`](../packages/core/src/headers.ts:32), [`Request`](../packages/core/src/fetch.ts:128), [`Response`](../packages/core/src/fetch.ts:182), [`FormData`](../packages/core/src/formdata.ts:39), `AbortController` | same | A file in `FormData` is `{ uri, name, type }` with a `content://` or `file://` uri, as in RN. |
 | `XMLHttpRequest`, axios (XHR adapter) | none | missing | Use `fetch`. For axios, use its `fetch` adapter or replace it. Upload progress is missing. |
 | `WebSocket` | none | missing | Not built and not planned yet. |
-| `NetInfo` | none | missing | Handle `FetchError` code `offline`. |
-| `URL`, `atob`, `btoa`, `crypto.getRandomValues`, `structuredClone` | not in core | missing | [check] Hermes may give some of them. Not provided or tested by core. |
-| `setTimeout`, `setInterval` | [timers.ts:57](../packages/core/src/timers.ts:57) | different | Timers made in a screen **stop when the screen closes**. For work that must go on, use [`detached`](../packages/core/src/signals.ts:278). `setImmediate`, `requestAnimationFrame`, `InteractionManager` are missing. |
+| `NetInfo.fetch` / `refresh` / `addEventListener` (`@react-native-community/netinfo`) | [`NetInfo`](../packages/core/src/netinfo.ts:45) | same | Import from `@zero-native/core`. `type`, `isConnected`, `isInternetReachable` (Android's own "validated" check, no extra request), `details.isConnectionExpensive`. The listener hears the state now, then changes. Still handle `FetchError` code `offline` on each call. |
+| `useNetInfo` | [`useNetInfo`](../packages/core/src/netinfo.ts:96) | different | Call it in a screen body; read its fields inside JSX or `effect` to follow changes. |
+| `URL`, `URLSearchParams` | installed by the runtime ([url.ts](../packages/core/src/url.ts)) | same | The web standard, tested against Bun. Non-ASCII host names (`https://café.com`) throw a TypeError: no punycode. No `createObjectURL`. |
+| `atob`, `btoa` | Hermes | same | Built into Hermes V1. |
+| `crypto.getRandomValues`, `structuredClone` | none | missing | Not provided. |
+| `setTimeout`, `setInterval` | [timers.ts:57](../packages/core/src/timers.ts:57) | different | Timers made in a screen **stop when the screen closes**. For work that must go on, use [`detached`](../packages/core/src/signals.ts:278). `setImmediate`, `InteractionManager` are missing. |
+| `requestAnimationFrame`, `cancelAnimationFrame` | [timers.ts:78](../packages/core/src/timers.ts:78) | different | A timer of about 16 ms, not a real frame; it stops with its screen. Fine for "after this frame"; don't animate with it (use `animate`). |
 | `TextEncoder` / `TextDecoder`, `Intl` | installed by the runtime ([text.ts:78](../packages/core/src/text.ts:78)) | same | |
 | `console.log` | installed by the runtime | same | |
 | `ErrorUtils.setGlobalHandler` | [`onError`](../packages/core/src/errors.ts:37) | renamed | Also sees unhandled promise rejections. |
@@ -173,27 +183,29 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 
 | RN | zero-native | Status | How to move |
 |---|---|---|---|
-| `Linking.openURL(url)` | [`Os.openUrl`](../packages/core/src/os.ts:35) | renamed | Only `http`, `https`, `mailto`, `tel`. Anything else (`upi:`, `intent:`, `whatsapp:`) rejects with `not_allowed`: this is on purpose, so an OTA bundle can't open any app. [ZnOs.kt:14](../android/runtime/src/main/java/dev/zeronative/runtime/ZnOs.kt:14). Other schemes go through a plugin in Kotlin. |
-| `Linking.canOpenURL` | none | missing | Call `openUrl` and handle `no_app`. |
-| `Linking.openSettings()` | [`Os.openSettings`](../packages/core/src/os.ts:29) | renamed | |
-| `Linking.getInitialURL()` / `addEventListener("url")` | [`startApp({ onLink })`](../packages/core/src/nav.ts:254) | different | The link opens its route by itself; `onLink(link)` can refuse it. `link.atStart` tells a cold start. The raw URL is `link.url`. |
+| `Linking.openURL(url)` | [`Linking.openURL`](../packages/core/src/linking.ts:14) (also `Os.openUrl`) | different | Same call. Only `http`, `https`, `mailto`, `tel`. Anything else (`upi:`, `intent:`, `whatsapp:`) rejects with `not_allowed`: this is on purpose, so an OTA bundle can't open any app. [ZnOs.kt:14](../android/runtime/src/main/java/dev/zeronative/runtime/ZnOs.kt:14). Other schemes go through a plugin in Kotlin. |
+| `Linking.canOpenURL` | [`Linking.canOpenURL`](../packages/core/src/linking.ts:14) | same | For the 4 schemes above (the runtime's manifest lists them in `<queries>`). False for any other link. |
+| `Linking.openSettings()` | [`Linking.openSettings`](../packages/core/src/linking.ts:14) (also `Os.openSettings`) | same | |
+| `Linking.getInitialURL()` / `addEventListener("url")` | [`Linking`](../packages/core/src/linking.ts:14) over [`startApp({ onLink })`](../packages/core/src/nav.ts:254) | different | Read-only copies: only links that matched a route with `deepLink: true` and got past `onLink` reach JS, and their screen is already open. Refuse links in `onLink`, not here. |
 | `Linking.sendIntent` | none | missing | Only Kotlin opens another app ([§7](#7-opening-another-app-for-a-result)). |
 | `PermissionsAndroid.request` / `requestMultiple` | [`Permissions.request`](../packages/core/src/permissions.ts:20) | renamed | Takes a list of names: `"camera"`, `"contacts"`, `"location"`, `"microphone"`, `"notifications"`, or a full `android.permission.X`. Returns `granted`, `denied`, `blocked` (RN: `never_ask_again`). The permission must be in the manifest or the call fails with `not_declared`. |
 | `PermissionsAndroid.check` | [`Permissions.status`](../packages/core/src/permissions.ts:23) | renamed | A permission never asked for reads as `denied`. |
-| `AppState.currentState` | [`appState()`](../packages/core/src/app-state.ts:23) | renamed | Two states: `active`, `background` (no `inactive`). It reads a signal, so JSX follows it. |
-| `AppState.addEventListener("change")` | [`onAppState`](../packages/core/src/app-state.ts:31) | renamed | Returns the stop function (RN: `.remove()`). Not called for the state at start. `background` also shows while a permission dialog or a see-through payment window is on top. |
-| `Share.share({ message })` | [`Os.share`](../packages/core/src/os.ts:32) | different | Plain text only: `{ text }`. No `url`, `title`, files, or result (it returns whether the sheet opened). |
-| `Vibration.vibrate`, `expo-haptics` | [`Os.haptic`](../packages/core/src/os.ts:26) | different | Four kinds: `light`, `medium`, `success`, `error`. No patterns or durations. On a `Pressable`, `haptic` gives a tick on press. |
-| `Clipboard` | none | missing | Not built. |
-| `DeviceInfo`, `Platform.Version`, `expo-application` | [`Os.info`](../packages/core/src/os.ts:23) | renamed | `appVersion`, `appBuild`, `android`, `sdk`, `model`, `manufacturer`. |
-| `Platform.OS`, `Platform.select` | none | missing | Android only now. Remove the checks. |
+| `AppState.currentState` | [`AppState.currentState`](../packages/core/src/app-state.ts:46) (also `appState()`) | same | Two states: `active`, `background` (`inactive` never comes, as on Android). It reads a signal, so JSX follows it. |
+| `AppState.addEventListener("change" \| "memoryWarning")` | [`AppState.addEventListener`](../packages/core/src/app-state.ts:46) (also `onAppState`) | same | Returns `{ remove }`. Not called for the state at start. `background` also shows while a permission dialog or a see-through payment window is on top. RN's Android-only `focus` / `blur` events are missing. |
+| `Share.share({ message, title }, { dialogTitle })` | [`Share.share`](../packages/core/src/linking.ts:65) | same | Answers `{ action: "sharedAction" }` once the sheet opened, as RN on Android. Android 10+ doesn't show `dialogTitle` for text (RN neither). `url` is iOS only in RN; here it is shared as the text when there is no `message`. No files. |
+| `Vibration.vibrate(ms \| pattern, repeat)`, `Vibration.cancel` | [`Vibration`](../packages/core/src/vibration.ts:33) | same | The app's manifest needs `android.permission.VIBRATE`, as in RN; without it, one warning and no buzz. |
+| `expo-haptics` | [`Os.haptic`](../packages/core/src/os.ts:26) | different | Four kinds: `light`, `medium`, `success`, `error`, no permission needed. On a `Pressable`, `haptic` gives a tick on press. |
+| `Clipboard.setString` / `getString` / `hasString` (`@react-native-clipboard/clipboard`) | [`Clipboard`](../packages/core/src/clipboard.ts:11) | same | Import from `@zero-native/core`. Text only. `getString` gives "" while the app is not in front (Android 10+). |
+| `DeviceInfo`, `expo-application` | [`Os.info`](../packages/core/src/os.ts:23) | renamed | `appVersion`, `appBuild`, `android`, `sdk`, `model`, `manufacturer`. |
+| `Platform.OS`, `Platform.Version`, `Platform.select`, `Platform.constants` | [`Platform`](../packages/core/src/platform.ts:35) | same | `OS` is always `"android"`; `Version` is the API level. Native sends the values after the main script: at a file's top level `Version` reads 0 (with a warning). `constants`: `Release`, `Model`, `Brand`, `Manufacturer`, `Version`. |
 | `Appearance`, `useColorScheme` | [`colorScheme`](../packages/core/src/appearance.ts), `scheme(light, dark)` | renamed | `colorScheme()` is a signal: `"light"` or `"dark"`. Templates draw before JS, so a dark phone can flash light colours at cold start ([guide-notes.md](guide-notes.md) §37). |
 | `AppState` `memoryWarning` | [`onLowMemory`](../packages/core/src/appearance.ts) | renamed | Coil's memory cache is cleared for you. |
 | `I18nManager.isRTL` | `(await Os.info()).rtl` | renamed | `start` / `end` style keys follow it. The app's manifest needs `supportsRtl`. |
 | `react-native-screenshot-prevent`, `FLAG_SECURE` by hand | route option `secure: true` | different | Blocks screenshots while that route is on top. |
 | `AppRegistry.registerHeadlessTask` | [`defineTask`](../packages/core/src/tasks.ts) | renamed | Called at the top of `main.ts`. A Kotlin plugin starts it with `ZnBackground.run`; it gets a time limit and an `AbortSignal`. Nothing in the framework starts one yet (push comes later). |
-| `Keyboard.dismiss()` | [`Keyboard.dismiss`](../packages/core/src/keyboard.ts:89) | different | Returns a Promise. `Keyboard.addListener` is missing: the route option `keyboard: "resize"` handles the layout. |
-| `Toast` (`ToastAndroid.show`) | [`toast`](../packages/core/src/toast.ts:72) | renamed | `toast("Saved", { duration: "short" })`. Survives navigation. |
+| `Keyboard.dismiss()` | [`Keyboard.dismiss`](../packages/core/src/keyboard.ts:64) | same | Returns a Promise (RN: nothing); calling it without `await` is the same. |
+| `Keyboard.addListener("keyboardDidShow" \| "keyboardDidHide")`, `isVisible`, `metrics` | [`Keyboard`](../packages/core/src/keyboard.ts:64) | same | As RN on Android: no `Will` events. One event per show or hide; height in dp from the bottom of the window. The route option `keyboard: "resize"` already moves the content. |
+| `ToastAndroid.show` | [`ToastAndroid`](../packages/core/src/toast.ts:23) (also `toast()`) | same | zero-native's toast: above the keyboard, survives navigation. `showWithGravity`: the gravity is ignored. |
 | Self-update (CodePush, `expo-updates`) | [`Updates`](../packages/core/src/updates.ts:76) | different | Signed OTA bundles. See [ota.md](ota.md). |
 | Camera / QR scan (`react-native-vision-camera`, `expo-camera`) | [`@zero-native/scanner`](../plugins/scanner/README.md) | different | QR and barcodes only, no photo or video. A full screen (route `native: "scanner.full"` + `nav.pushForResult`) or a view (`<QrScanner>`). ML Kit is bundled. |
 | Image / file picker, PDF | [`@zero-native/media`](../plugins/media/README.md) | different | `Media.pickPhotos`, `pickFile`, `takePhoto`, `edit`. Files come back as `zn://file` handles plus a `file://` uri for upload. Results survive a kill (`Media.onResult`). |
@@ -236,11 +248,12 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | `useState` | [`signal`](../packages/core/src/signals.ts:189) | renamed | `const [a, setA] = useState(0)` → `const a = signal(0)`; read `a()`, write `a.set(1)`. |
 | `useMemo` | [`computed`](../packages/core/src/signals.ts:208) | renamed | |
 | `useEffect` | [`effect`](../packages/core/src/signals.ts:219), [`onCleanup`](../packages/core/src/signals.ts:249) | different | Runs when the signals it read change. No dependency array. A component body runs once. |
-| `useRef`, `forwardRef`, `useImperativeHandle` | none | missing | No refs. Use a signal, or a native module call. |
+| `useRef` for a `TextInput` | [`createRef`](../packages/core/src/text-field.ts:21) | different | `ref={r}` on `TextField` only ([§1](#1-components)). |
+| `useRef` for a value, `forwardRef`, `useImperativeHandle` | none | missing | A screen body runs once: a plain `let` or a signal does it. |
 | `useContext` | module-level signals / imports | missing | No context. Share state through a module. |
 | `useReducer`, Redux, Zustand | signals + plain modules | different | Stores that need React hooks do not work. A plain store (Zustand `vanilla`) can be wrapped in a signal. |
 | `useCallback`, `React.memo` | not needed | missing | Delete them. |
-| `useWindowDimensions` | none | missing | See §1. |
+| `useWindowDimensions` | [`useWindowDimensions`](../packages/core/src/dimensions.ts:70) | different | See §1. Read it inside JSX or `effect`. |
 | `useColorScheme` | `colorScheme()` | renamed | See §6. |
 | Conditional render `cond && <X/>`, `cond ? <A/> : <B/>` | same | same | [compile.ts:324](../compiler/src/compile.ts:324). A branch must be JSX or `null`. |
 | Component props, `children` | same | different | `{props.children}` shows them; reading, mapping or counting children is not supported. Spread props `{...p}` are a build error. |
@@ -262,8 +275,9 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 4. **`ScrollView` / `FlatList` features** (different / missing). No `onScroll`, no `scrollTo`, no refs, no pull to
    refresh (`RefreshControl`), no `SectionList`, no `numColumns`, no list header / footer / empty components (use row
    kinds). Apps that animate on scroll or have grids need a new design. ([§1](#1-components))
-5. **`TextInput` control** (missing). No `ref.focus()` / `blur()`, no `onKeyPress`, no selection API, no
-   `autoComplete`. OTP boxes and "jump to next field" flows need new code. ([§1](#1-components))
+5. **`TextInput` control** (missing, partly built). `ref.focus()` / `blur()` / `clear()` are built (RN basics pack), so
+   OTP boxes and "jump to next field" port with small edits. Still no `onKeyPress`, no selection API, no `autoComplete`.
+   ([§1](#1-components))
 6. **Third-party native libraries** (missing). Every RN native library (camera, maps, WebView, push, file system,
    biometrics, image picker) has no zero-native twin yet, except the official plugins built in P.3b–P.6: scanner, auth,
    WebView and media. Push, maps, biometrics and video are still missing. A native view or screen is now a plugin's
@@ -278,10 +292,34 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 9. **Animation model** (different). `Animated.Value`, `Reanimated`, `LayoutAnimation` and gesture-driven motion do not
    exist. `animate` / `enter` / `exit` cover simple changes only. Drag-to-dismiss cards, parallax, and custom
    transitions need a native component. ([§1](#1-components))
-10. **Small OS APIs and web globals** (missing). `Alert`, `Clipboard`, `Dimensions`, `Appearance` / dark mode, `Platform`,
-    `NetInfo`, `WebSocket`, `XMLHttpRequest`, `URL`, `atob` / `btoa`, `requestAnimationFrame`. Each is small, but
-    together they touch many files, and `Alert`, `Clipboard` and `Dimensions` are used in almost every RN app.
+10. **Small OS APIs and web globals** (mostly built). The RN basics pack added `Alert`, `Clipboard`, `Dimensions`,
+    `Platform`, `NetInfo`, `URL`, `atob` / `btoa` (Hermes) and `requestAnimationFrame` with their RN names; dark mode
+    came in P.6. Still missing: `WebSocket`, `XMLHttpRequest`. The import line changes to `@zero-native/core`.
     ([§1](#1-components), [§5](#5-network-and-web-apis), [§6](#6-device-and-os))
 
 Smaller known gaps not in the list: `testID` (no test hook for UI tests), `Image` `onLoad` / `onError`, `Button`,
 `Modal` as a centred dialog, `Text` `onPress` and `selectable`, `StyleSheet.flatten`.
+
+## 11. What the reference app uses most (ZeroBill)
+
+<!-- Names a private app: reword ("the reference RN app") in the public-repo pass (docs/second-opinions.md entry 38). -->
+Rough counts of member uses in ZeroBill's React Native app (2026-11-03), to order the work. The small APIs are built now
+(RN basics pack); the right column says how a use ports.
+
+| API | Uses | Ports as |
+|---|---|---|
+| `Platform.OS` / `Version` / `select` | 94 / 3 / 1 | same |
+| `Linking.openURL` | 18 | same for https, mailto, tel; `whatsapp:` and the UPI launch go through a plugin |
+| `AppState.currentState` / `addEventListener` | 13 / 13 | same |
+| `Keyboard.addListener` / `isVisible` / `metrics` | 6 / 4 / 3 | same |
+| `Alert.alert` | 8 | same |
+| `Dimensions.get` / `useWindowDimensions` | 6 / 4 | different: values that size a layout must become `flex` or `%` |
+| `NetInfo.fetch` / `addEventListener` | 4 / 2 | same (import line changes) |
+| `Vibration.vibrate` | 4 | same; for a tap feel prefer `Os.haptic("light")` |
+| `ToastAndroid.show` | 3 | same |
+| `Clipboard.setString` | 3 | same (import line changes) |
+| `Share.share` | 2 | same |
+| `BackHandler.addEventListener` | 3 | renamed: `useBack` |
+| `Linking.getInitialURL` / `addEventListener` | 1 / 1 | different: the app's link router becomes routes with `deepLink` + `onLink` |
+| `<StatusBar barStyle>` | 2 | different: route option `statusBar` |
+| `react-native-otp-entry` (login) | 1 screen | different: one hidden `TextField` with `ref`, drawn boxes (guide-notes §39) |

@@ -159,6 +159,9 @@ object ZnRuntime {
         ZnAppState.init(context)
         ZnActivity.init(context)
         ZnOs.init(context)
+        ZnClipboard.init(context)
+        ZnVibration.init(context)
+        ZnNetInfo.init(context)
         appContext = context.applicationContext
         ZnBundles.init(appContext) // which bundle runs is chosen on first use, off the main thread
         js.post {
@@ -212,6 +215,7 @@ object ZnRuntime {
     /** JS thread, before any screen is built: what a screen needs to read at once. */
     private fun afterMainScript(rt: Long) {
         ZnNative.dispatchEvent(rt, ZnAppEvent.APP, ZnAppEvent.COLOR_SCHEME, 3, 0.0, ZnActivity.colorScheme(appContext.resources.configuration))
+        ZnWindow.afterMainScript(rt, appContext)
     }
 
     /** JS thread: runs bytecode file [name] of the running bundle on [rt]; "ok:..." or "error:...". */

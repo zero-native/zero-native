@@ -37,4 +37,10 @@ export const AppEvent = {
   ColorScheme: 14,
   /** Android asked the app to free memory (appearance.ts). */
   LowMemory: 15,
+  /** Fixed facts about the phone, once after the main script (platform.ts). */
+  Device: 16,
+  /** The window's size, pixel density and font scale changed (dimensions.ts). */
+  Window: 17,
+  /** The keyboard was shown or hidden, with its height (keyboard.ts). */
+  Keyboard: 18,
 } as const

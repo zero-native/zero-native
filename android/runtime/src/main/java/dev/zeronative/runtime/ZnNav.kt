@@ -253,6 +253,7 @@ object ZnNav {
         failed.clear()
         appFailed = null
         lastInsets = "" // the new JS must hear the insets again
+        ZnWindow.resetForReload()
         started = false
         generation++
         return saved

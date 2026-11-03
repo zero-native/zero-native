@@ -11,7 +11,7 @@ import android.view.View
 import org.json.JSONObject
 
 /** The built-in Os module: small things about the phone (packages/core/src/os.ts, docs/guide-notes.md §33). */
-internal object ZnOs : ZnModuleBase("Os", version = 1) {
+internal object ZnOs : ZnModuleBase("Os", version = 2) { // 2: share's subject and dialogTitle, canOpenUrl (RN basics pack)
     private lateinit var app: Context
 
     /** Only these open from JS, so an OTA bundle can't use [Os.openUrl] to open `upi:` or `intent:` links. */
@@ -59,7 +59,9 @@ internal object ZnOs : ZnModuleBase("Os", version = 1) {
             val text = call.string("text")
             val activity = ZnActivity.current ?: return@function call.reject("no_activity", "no Activity")
             val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-            open(call) { activity.startActivity(Intent.createChooser(send, null)) }
+            // Like React Native: `subject` is the title of an email or a post, `dialogTitle` the title of the share sheet.
+            call.stringOrNull("subject")?.let { send.putExtra(Intent.EXTRA_SUBJECT, it) }
+            open(call) { activity.startActivity(Intent.createChooser(send, call.stringOrNull("dialogTitle"))) }
         }
 
         function("openUrl", onMain = true) { call ->
@@ -67,6 +69,15 @@ internal object ZnOs : ZnModuleBase("Os", version = 1) {
             if (!allowsUrl(url)) return@function call.reject("not_allowed", "openUrl takes http, https, mailto and tel links")
             val activity = ZnActivity.current ?: return@function call.reject("no_activity", "no Activity")
             open(call) { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        }
+
+        // Some app can open it. Android 11+ answers only for the link kinds in the runtime's manifest <queries>, which are
+        // exactly the ones openUrl allows. Any other link: false, as openUrl would refuse it.
+        function("canOpenUrl") { call ->
+            val url = call.string("url")
+            if (!allowsUrl(url)) return@function call.resolve(false)
+            val view = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            call.resolve(view.resolveActivity(app.packageManager) != null)
         }
     }
 
