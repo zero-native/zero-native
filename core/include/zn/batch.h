@@ -27,6 +27,8 @@
 //   9 RESTORE        a restorableSignal value of the screen `entry` changed; params = {"key":"amount","value":...}
 //                    (no "value": forget the key). Native saves them with the back stack and hands them back in
 //                    START's "values" when Android restores the app (host API 4)
+//  10 BACK_WANTED    route = 1: when `entry` is the only screen, native sends Back presses to JS instead of letting
+//                    the system take them; route = 0: stop (host API 8). Tabs send it while a later tab is shown.
 // A NAV op is structural: it keeps its place in the batch and is never merged.
 //
 // List ops (<List>, docs/lists.md): the list is node `node` of `instance`. LIST_SET gives native every row's key and
@@ -45,7 +47,7 @@
 namespace zn {
 
 enum class OpCode : uint8_t { Patch = 1, Mount = 2, Remove = 3, Move = 4, Nav = 5, ListSet = 6, ListSplice = 7, ListRow = 8 };
-enum class NavKind : uint8_t { Push = 1, Remove = 2, Clear = 3, Exit = 4, BackAnswered = 5, Impressions = 6, Failed = 7, Started = 8, Restore = 9 };
+enum class NavKind : uint8_t { Push = 1, Remove = 2, Clear = 3, Exit = 4, BackAnswered = 5, Impressions = 6, Failed = 7, Started = 8, Restore = 9, BackWanted = 10 };
 
 constexpr uint32_t kBatchMagic = 0x31424E5A;  // "ZNB1" read as little-endian bytes
 

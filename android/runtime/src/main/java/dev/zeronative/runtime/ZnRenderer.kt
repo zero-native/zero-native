@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -49,6 +50,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
@@ -163,6 +165,7 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
         Registry.Component.ANCHOR -> Unit // expanded by the parent (childRefs)
         Registry.Component.LIST -> ZnLazyList(f, s, inst, n, mod)
         Registry.Component.CAROUSEL -> ZnCarousel(f, t, s, inst, mod)
+        Registry.Component.TABS -> ZnTabs(f, t, s, inst, mod)
         Registry.Component.SCROLL -> if (s.horizontal) {
             // A rail: only the visible children are composed; scrolling it never involves JS.
             val refs = childRefs(f, t, inst, s)
@@ -337,6 +340,28 @@ private fun impression(s: ZnNodeSpec, inst: ZnInstance): Modifier {
         val area = c.size.width.toFloat() * c.size.height.toFloat()
         val b = c.boundsInWindow()
         ZnImpressions.report(entry, key, if (area > 0f) (b.width * b.height / area).coerceIn(0f, 1f) else 0f)
+    }
+}
+
+/**
+ * <Tabs> (useTabs, docs/guide-notes.md §40): draws only the child at `selected`, filling the container. A child it
+ * stops drawing leaves composition, so data arriving for a hidden tab costs no frames; its instances stay (JS keeps its
+ * state), and its Compose saved state (scroll positions) is kept by a SaveableStateHolder until it is shown again. Like
+ * React Navigation's `freezeOnBlur`. A NativeView in a hidden tab is made again when the tab comes back.
+ */
+@Composable
+private fun ZnTabs(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, mod: Modifier) {
+    val refs = childRefs(f, t, inst, s)
+    val selected = if (s.selectedSlot >= 0) (inst.slot(s.selectedSlot).value as? Number)?.toInt() ?: 0 else s.selected
+    val holder = rememberSaveableStateHolder()
+    Box(mod) {
+        val ref = refs.getOrNull(selected) ?: return@Box
+        // The key is the child's own key (a String or Long): what a saved state needs.
+        key(ref.key) {
+            holder.SaveableStateProvider(ref.key) {
+                ZnNode(f, ref.template, ref.instance, ref.node, Modifier.fillMaxSize(), definiteWidth = true)
+            }
+        }
     }
 }
 

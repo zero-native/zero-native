@@ -41,6 +41,11 @@ export interface RouteDef<Path extends string = string, Props = any> extends Rou
   path: Path
   /** The screen component (it returns JSX). */
   screen: (props: Props) => unknown
+  /**
+   * The screen's tabs, first = the default one: `tabs: ["pay", "stores", "offers"]`. The screen shows them with
+   * `useTabs(route)` and `<Tabs>`. With `deepLink`, a link to "<path>/<tab>" opens that tab (guide notes §40).
+   */
+  tabs?: readonly string[]
 }
 
 /** A plugin's native screen as a route: `scan: { path: "/scan", native: "scanner.full" }` (docs/plugins.md §5). */
@@ -77,6 +82,10 @@ export function defineRoutes<const R extends Record<string, AnyRouteDef>>(routes
 }
 
 export type RouteName<R> = keyof R & string
+/** The routes that have `tabs`. */
+export type TabRouteName<R> = { [K in RouteName<R>]: R[K] extends { tabs: readonly string[] } ? K : never }[RouteName<R>]
+/** A route's tab names: `"pay" | "stores" | "offers"`. */
+export type TabName<R, K extends keyof R> = R[K] extends { tabs: readonly (infer T)[] } ? T & string : string
 /** The params `nav.push(name, params)` needs: the screen's props. */
 export type RouteParams<R, K extends keyof R> = R[K] extends RouteDef<string, infer Props>
   ? Props

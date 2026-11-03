@@ -60,6 +60,9 @@ internal fun readSavedStack(json: String): List<ZnSavedEntry>? = try {
  * NAV ops JS sends (BatchReader, core/include/zn/batch.h) and reports system back presses as events. Process-wide,
  * like [ZnStore], so a recreated Activity shows the same stack. Main thread only.
  *
+ * On the only screen, Back goes to the system at once, unless JS asked for it there ([backWanted]: tabs on a tab other
+ * than the first); then it goes to JS like any other press ([systemBack]).
+ *
  * App-level events to JS use instance 0 (packages/core/src/nav.ts): START, BACK, FORCED_BACK, OPEN, INSETS,
  * IMPRESSIONS (6, ZnImpressions), RETRY (10); the full list is ZnAppEvent.
  *
@@ -88,6 +91,12 @@ object ZnNav {
 
     /** Entries whose screen threw while JS built it: entry id → the error message. The host draws [ZnErrorScreen]. */
     val failed: SnapshotStateMap<Int, String> = mutableStateMapOf()
+
+    /**
+     * Entries that want Back presses even as the only screen (NAV BACK_WANTED, host API 8): tabs on a tab other than
+     * the first. Without it the system takes Back on the last screen at once (the app goes to the background).
+     */
+    internal val backWanted: SnapshotStateMap<Int, Unit> = mutableStateMapOf()
 
     /** Set when the app's JS failed to start (its bytecode threw): no screen can be built, so all show the error. */
     var appFailed: String? by mutableStateOf(null)
@@ -160,6 +169,9 @@ object ZnNav {
         first += Opening(home, "{}")
         val match = link?.let { match(it) }
         if (match != null && match.route != home) first += Opening(match.route, JSONObject(match.params).toString(), link = link.toString())
+        // A link to the start screen itself (one of its tabs, say) opens it with the link's params (host API 8). JS
+        // asks the app's link guard; refused, the start screen opens as usual.
+        else if (match != null) first[0] = Opening(home, JSONObject(match.params).toString(), link = link.toString())
         startWith(bundle, first)
     }
 
@@ -251,6 +263,7 @@ object ZnNav {
         stack.clear()
         composed.clear()
         failed.clear()
+        backWanted.clear()
         appFailed = null
         lastInsets = "" // the new JS must hear the insets again
         ZnWindow.resetForReload()
@@ -405,6 +418,9 @@ object ZnNav {
             // After this batch is drawn the first screens are on screen (OTA safety nets, step 4.7).
             BatchOp.Nav.STARTED -> main.post { ZnOta.screensUp() }
             BatchOp.Nav.RESTORE -> stack.firstOrNull { it.id == op.entry }?.let { keepValue(it, op.params) }
+            BatchOp.Nav.BACK_WANTED -> {
+                if (op.route != 0 && stack.any { it.id == op.entry }) backWanted[op.entry] = Unit else backWanted.remove(op.entry)
+            }
             else -> Log.e(TAG, "nav: unknown kind ${op.kind}")
         }
         // The top screen may have changed: impressions count only on the top screen.
@@ -478,6 +494,7 @@ object ZnNav {
     /** An entry left the stack: free its instances now, or after its exit animation if it is on screen. */
     private fun release(id: Int) {
         failed.remove(id)
+        backWanted.remove(id)
         ZnImpressions.release(id)
         if (id !in composed) ZnStore.removeRoot(id)
     }

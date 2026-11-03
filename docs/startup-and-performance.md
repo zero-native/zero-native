@@ -108,6 +108,11 @@ the Compose frame clock.
 | Drawing behind a see-through window of another app (the mock, P.3) | 28 frames in 926 ms, against 33 frames per second with nothing on top. The test's 33 ms JS timer sets the rate. No native pump | release, one JS-driven value | 11-02 |
 | OTA update applied in place (`applyNow`) | **37 ms** (JS 27 ms); a bundle that throws → old bundle again in 49 ms; cover on screen ~100–170 ms, then new screens fade in over ~180 ms | release, step 4.6–4.7 | 10-31 |
 | Warm start with "Don't keep activities" on | the Activity is rebuilt each time, so Android shows the app's splash briefly; this is Android's own behaviour, not ours | debug, Pavan's developer setting | 10-31 |
+| Cold start from a link, baseline (`/dev/rn`, a plain screen over home) | **167 ms** median (p90 176 ms, n=10) | release, speed-profile, `tools/measure-tabs.ts`, load avg ~17 | 11-03 |
+| …the tabs lab (`/dev/tabs`): 4 tabs, lazy, all 4 HTTP loads start with the screen | **171 ms** first frame (p90 174); first tab's data in JS **499 ms**, all 4 **833 ms** (server waits 250 / 300 / 400 / 600 ms on purpose) | same; data over `adb reverse` on Wi-Fi adb | 11-03 |
+| …same with `preload: true` (all 4 tabs built at start, ZeroBill RN's `lazy: false`) | **160 ms** (p90 166); first data 498 ms, all 833 ms | same | 11-03 |
+| …lazy, loading only the shown tab | **165 ms** (p90 169); its data 499 ms | same | 11-03 |
+| Where the tabs start goes (3 runs, phone clock) | skeleton frame ~145–150 ms → tabs screen JS ~200 ms, the 4 requests leave together → each tab's data reaches JS ~40 ms after the server's delay (USB/Wi-Fi tunnel + OkHttp + JSON + signal) | release | 11-03 |
 
 ### 4.1 Where exp4-flow's ~400 ms went (one release cold start, from `logcat`, 2026-10-29)
 | From process start | What | Cost |

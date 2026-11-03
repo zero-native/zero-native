@@ -106,6 +106,12 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
         onDispose { if (ZnKeyboard.focusManager === focusManager) ZnKeyboard.focusManager = null }
     }
 
+    // Back on the only screen: NavDisplay leaves it to the system, unless the screen asked for it (tabs on a later tab).
+    // Registered before the screens, so a sheet inside one still gets Back first.
+    androidx.activity.compose.BackHandler(
+        enabled = ZnNav.stack.size == 1 && top != null && ZnNav.backWanted.containsKey(top.id),
+    ) { ZnNav.systemBack() }
+
     Box(modifier) {
         // A dev reload bumps the generation: the old screens are dropped at once instead of animating out.
         key(ZnNav.generation) { Screens(bundle, safe) }

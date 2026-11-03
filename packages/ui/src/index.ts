@@ -446,6 +446,13 @@ export declare const Carousel: Intrinsic<
     onPageChange?: (index: number) => void
   }
 >
+/**
+ * The tab panels of a screen with tabs (`useTabs`, guide notes §40): its children are the panels, one per tab, in the
+ * route's order; it draws only the one at `selected` (pass `tabs.index()`). A panel you leave keeps its JS state and
+ * its scroll position, but isn't drawn (no frames while its data loads). Guard each panel's content with
+ * `tabs.seen(name) &&` so a tab is built only when first shown. The tab bar is your own JSX, outside it.
+ */
+export declare const Tabs: Intrinsic<Container & { selected: number }>
 export declare const Pressable: Intrinsic<
   Container & {
     onPress?: () => void

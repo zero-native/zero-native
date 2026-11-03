@@ -18,7 +18,7 @@ async function labInIconTask() {
   await see("Open hint", 15000)
 }
 
-const focus = () => shell("dumpsys", "window").match(/mCurrentFocus=.*/)?.[0] ?? ""
+const focus = () => shell("dumpsys", "window", "displays").match(/mCurrentFocus=.*/)?.[0] ?? ""
 const sheetOpen = () => focus().includes("com.google.android.gms")
 
 async function seeSheet() {

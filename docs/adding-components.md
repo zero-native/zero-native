@@ -21,7 +21,7 @@ apps stay installed for months, and OTA bundles must keep working on them, so th
 4. **Ids come from your range**, so two people never pick the same number:
    | Who | Components | Props | Events |
    |---|---|---|---|
-   | Claude | 15–19 | 122–199 | 11–29 |
+   | Claude | 15–19, 30–39 | 122–199 | 11–29 |
    | Gemini | 20–29 | 200–249 | 30–39 |
 5. Run **`bun run gen:registry`**. It checks the rules against `packages/template/registry.lock.json` (the last
    accepted registry) and only then writes the Kotlin copy (`Registry.kt`) and the new lock. If a rule is broken it

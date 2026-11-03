@@ -8,6 +8,8 @@
 //   - `screen` is a component name (imported or declared in the file); options are build-time constants
 //   - or `native` in place of `screen`: a plugin's native screen, "<plugin>.<name>" (docs/plugins.md §5)
 //   - one route has the path "/": it is where the app starts when there is nothing to restore or open
+//   - `tabs: ["a", "b", ...]` on a screen route: its tab names (useTabs). A link to "<path>/<tab>" opens that tab, so
+//     that path must not be another route's path
 import ts from "typescript"
 import { fold, NOT_STATIC } from "./fold"
 
@@ -28,12 +30,16 @@ export interface RouteEntry {
   restore: boolean
   /** true: no screenshots or recordings while this route is on top. */
   secure?: boolean
+  /** The screen's tab names, first = the default tab (useTabs, host API 8). */
+  tabs?: string[]
 }
 
 /** "<plugin>.<name>": the name of a native screen or view. */
 export const NATIVE_NAME = /^[a-z][a-z0-9-]*\.[A-Za-z0-9_.-]+$/
 const TRANSITIONS = ["push", "modal", "fade", "none"]
-const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore", "secure"]
+const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore", "secure", "tabs"]
+/** A tab name: also the last path segment of a link to that tab. */
+const TAB_NAME = /^[A-Za-z][A-Za-z0-9_]*$/
 
 /** The routes declared in [source], or null if it has no `defineRoutes` call. */
 export function readRoutes(source: string, fileName: string): RouteEntry[] | null {
@@ -74,6 +80,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
   const scope = { consts: new Map<string, ts.Expression>(), staticImports: new Map<string, unknown>() }
   const routes: RouteEntry[] = []
   const patterns = new Map<string, string>()
+  const tabLinks: { name: string; at: ts.Node; patterns: string[] }[] = []
   for (const prop of (arg as ts.ObjectLiteralExpression).properties) {
     if (!ts.isPropertyAssignment(prop)) fail(prop, "each route is written as name: { path, screen, ... }")
     const p = prop as ts.PropertyAssignment
@@ -117,10 +124,16 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
     if (component !== null && native !== null) fail(p, `route "${name}" has both screen and native`)
     if (component === null && native === null) fail(p, `route "${name}" needs a screen`)
     if (native !== null && path === "/") fail(p, `route "${name}": the start route can't be a native screen`)
+    if (native !== null && options.tabs !== undefined) fail(p, `route "${name}": a native screen can't have tabs`)
+    if (options.tabs !== undefined && path!.split("/").includes(":tab")) {
+      fail(p, `route "${name}": a route with tabs can't have a :tab param (a link gives the tab as "tab")`)
+    }
 
     const pattern = path!.replace(/:[^/]+/g, ":")
     if (patterns.has(pattern)) fail(p, `route "${name}" has the same path pattern as "${patterns.get(pattern)}"`)
     patterns.set(pattern, name)
+    const tabs = options.tabs as string[] | undefined
+    if (tabs) tabLinks.push({ name, at: p, patterns: tabs.map((t) => (pattern === "/" ? `/${t}` : `${pattern}/${t}`)) })
 
     const safeArea = options.safeArea ?? "all"
     routes.push({
@@ -138,9 +151,17 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
       keyboard: (options.keyboard as RouteEntry["keyboard"]) ?? "resize",
       restore: (options.restore as boolean) ?? true,
       ...(options.secure === true ? { secure: true } : {}),
+      ...(tabs ? { tabs: [...tabs] } : {}),
     })
   }
   if (!routes.some((r) => r.path === "/")) fail(arg, 'one route needs path "/" (where the app starts)')
+  // A link to "<path>/<tab>" opens that tab: it must not also be another route's path.
+  for (const link of tabLinks) {
+    for (const t of link.patterns) {
+      const other = patterns.get(t)
+      if (other !== undefined) fail(link.at, `route "${link.name}": the link to its tab "${t}" is also the path of route "${other}"`)
+    }
+  }
   return routes
 
   function checkPath(path: string, at: ts.Node) {
@@ -167,9 +188,21 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
       : key === "statusBar" ? v === "dark" || v === "light"
       : key === "deepLink" || key === "restore" || key === "secure" ? typeof v === "boolean"
       : key === "keyboard" ? v === "resize" || v === "none"
+      : key === "tabs" ? checkTabs(v, at)
       : v === "all" || v === "none" ||
         (typeof v === "object" && v !== null &&
           Object.entries(v).every(([k, b]) => (k === "top" || k === "bottom") && typeof b === "boolean"))
     if (!ok) fail(at, `unsupported ${key} ${JSON.stringify(v)}`)
+  }
+
+  function checkTabs(v: unknown, at: ts.Node): true {
+    if (!Array.isArray(v) || v.length < 2) fail(at, 'tabs must list at least two names, e.g. tabs: ["home", "offers"]')
+    const seen = new Set<string>()
+    for (const t of v as unknown[]) {
+      if (typeof t !== "string" || !TAB_NAME.test(t)) fail(at, `tab name ${JSON.stringify(t)} must start with a letter (letters, digits, _)`)
+      if (seen.has(t as string)) fail(at, `tab name "${t}" is used twice`)
+      seen.add(t as string)
+    }
+    return true
   }
 }

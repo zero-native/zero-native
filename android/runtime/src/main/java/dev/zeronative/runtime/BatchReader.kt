@@ -32,6 +32,7 @@ sealed class BatchOp {
             const val FAILED = 7
             const val STARTED = 8
             const val RESTORE = 9
+            const val BACK_WANTED = 10
         }
     }
 }

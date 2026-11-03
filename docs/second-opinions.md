@@ -487,162 +487,53 @@ change, and what evidence would make you change it?"
 - **Not built, on purpose:** `StatusBar` (route option; `setBarStyle` later if a screen needs it), toast gravity,
   `Alert.prompt` (iOS only in RN), RN's Android-only `AppState` `focus` / `blur`.
 
-## 44. SVG is compiled at build time and drawn by our own small interpreter (SVG design, not built)
-- **Where:** `docs/svg.md` §3, §5, §6, §8.
-- **Chosen:** the compiler reads `.svg` files and inline `<Svg>` at bundle build time, checks them against a fixed subset, and writes
-  compact draw data. The phone draws it with Compose `DrawScope` calls (paths, strokes, gradient shaders, clips, layers). No XML on the
-  phone, no SVG library. Text, images, patterns, filters, non-trivial masks and SMIL fail the build with a hint.
-- **Why:** OTA needs data, not APK resources (rules out VectorDrawable); parsing XML on the phone costs cold start and a library
-  (AndroidSVG); Compose's `ImageVector` has no group opacity, dashes or gradient matrix, and keeps a bitmap per instance. ZeroBill's 27 SVG
-  files and 13 inline SVGs use nothing outside the subset except one pattern and one Figma mask (which the compiler turns into a clip).
-- **Risk if wrong:** our drawing differs from browsers in a corner case (stroke joins under skew, gradient spread, clip smoothness on old
-  Android), or authors hit build errors for exports we refuse. A library would cover more features for free.
-- **Other options:** AndroidSVG at runtime (more features, ~100+ KB, parse per start); a WebView (no); bitmaps exported at build time
-  (lose runtime colours and animation).
-- **Evidence wanted:** a side-by-side check of real SVGs (S.4, S.5 in `docs/svg.md`), and how many real files fail the build.
+## 44. Tabs live inside one screen, not as stack entries (tabs)
+- **Where:** `packages/core/src/tabs.ts`, `nav.ts`, registry 11 `Tabs` (`ZnRenderer.kt` `ZnTabs`), route option `tabs`.
+- **Chosen (Pavan agreed, "make sure it is ok for other app devs"):** a tabs screen is one route. `useTabs(route)` gives the
+  selected tab; a native `<Tabs selected>` container draws one child; the bar is the app's JSX. Tab names are in routes.ts,
+  so they are typed, links can reach them, and the selected tab survives a kill (a `restorableSignal`, key `zn.tab`).
+- **Why not each tab as its own stack entry (closer to React Navigation):** it changes the core of nav: the stack's shape,
+  the saved-stack format, the "top screen" rule of impressions, the error screen per entry, and iOS later. A bundle has
+  one `main.hbc`, so separate tab routes would not load less JS either.
+- **Cost of the choice:** tabs share their screen's `restorableSignal` keys and its one `useImpressions`. A tab can't be
+  pushed as a screen of its own. Both are written in guide notes §40.
+- **Risk if wrong:** an app that needs a stack inside each tab (Instagram-style) can't have it. Today screens pushed from
+  a tab cover the whole screen, bar too, which is what ZeroBill does.
 
-## 45. SVG part overrides are one `parts` prop, grouped by part (SVG design, not built)
-- **Where:** `docs/svg.md` §4.3.
-- **Chosen:** `<Logo parts={{ ring: { fill: brand() }, dot: { opacity: 0.4 } }} />`. Each value is a slot when it changes at runtime; the
-  compiler writes one `SvgPart` template node per part. A part's `fill` / `stroke` replaces the paint of every shape inside it.
-- **Why:** phase 2 adds per-part `animate`, which belongs next to the part's values; one prop can later be typed per file; no new child
-  rules in JSX.
-- **Risk if wrong:** a nested object prop is new in zn (only `<NativeView props>` is close). The lead session's first idea,
-  `fill={{ ring: brand }}`, is shorter for one colour.
-- **Other options:** per-attribute maps (`fill={{ ring }}`, `opacity={{ dot }}`); `<Part id="ring" fill={...} animate={...} />` children
-  (reuses the existing `style` / `animate` props exactly, but part names can't be typed and children get special rules).
-- **Evidence wanted:** how screens look after porting the RN app's 13 inline SVG files.
+## 45. A hidden tab is not drawn; its state is kept (tabs)
+- **Where:** `ZnRenderer.kt` `ZnTabs`.
+- **Chosen:** only the selected child is composed. The others keep their instances (JS state, slot values) and their
+  Compose saved state (scroll positions) through a `SaveableStateHolder`. React Navigation's `freezeOnBlur`.
+- **Why not keep every visited tab composed and just hide it:** a switch back would be a little faster, but every hidden
+  tab would recompose when its data arrives (four HTTP answers at start) and keep its memory. Measured cost of a switch
+  back: see docs/startup-and-performance.md (tabs rows).
+- **Risk if wrong:** a `NativeView` in a hidden tab is made again on return (a WebView reloads). Documented as a "don't".
+- **Default lazy** (Pavan agreed): a tab is built on first show; `preload: true` builds all at start.
 
-## 46. SVG draw data lives in the template file, not in its own file (SVG design, not built)
-- **Where:** `docs/svg.md` §6.1, §7.
-- **Chosen:** the draw data is an ASCII string prop of the `Svg` node in `main.zn.ui`. The template writer stores each distinct string
-  once, and the phone parses an SVG only when it is first drawn (cached per string, shared by all instances).
-- **Why:** no change to the template format, bundle files, bundle loading, OTA checks or signing; an older app never meets a new file.
-  Pavan's wish that the `.svg` "exists in the output and is attached where it's used" holds: one copy per bundle, used by every node.
-- **Risk if wrong:** template reading decodes all SVG strings at cold start (estimated a fraction of a ms per 100 KB, not measured);
-  choosing an SVG by a runtime value would have to send the whole string through the bridge, so phase 1 offers only ternaries.
-- **Other options:** a `main.zn.svg` pack file, read with the templates and indexed by number (cheap runtime choice, but a new bundle
-  file that `ZnBundles`, OTA bundles and the start path must handle); binary data in the template (~30 % smaller, needs a new value kind).
-- **Evidence wanted:** `main.zn.ui` size and template read time with the lab screen (S.6), and whether real apps need runtime choice.
-- **Update (built, 2026-11-03):** the "~30 % smaller binary" number was a guess for the first format (absolute cubics). The built format
-  writes paths as SVG path text (entry 47), which is already compact; a binary form would now save much less.
+## 46. Back on the only screen goes to JS only when asked (NAV BACK_WANTED, host API 8)
+- **Where:** `nav.ts` `setBackWanted`, `ZnNav.backWanted`, `ZnNavHost` (a `BackHandler` when the stack has one screen).
+- **Chosen:** tabs tell native "send me Back" only while a tab other than the first is shown. Otherwise the system takes
+  Back on the last screen at once, as before.
+- **Why not ask JS on every last-screen Back:** Android 14's predictive "back to home" animation needs to know ahead that
+  the app won't handle Back. A handler that is always on would turn that animation off for every app.
+- **Also changed:** `useBack` can now be called in any part of a screen (it finds its screen through the owner, like
+  `restorableSignal`), and a screen can have several handlers: the newest is asked first. Before, a second `useBack` in a
+  screen replaced the first. No sample or test relied on that.
+- **Risk if wrong:** a `useBack` on a root screen's first tab is still not asked (the system takes Back). Same as before.
 
-## 47. SVG paths are written as minified SVG path text, arcs kept (SVG phase 1, built)
-- **Where:** `docs/svg.md` §6.1, §14; `compiler/src/svg-data.ts` (`writePath`); `ZnSvg.kt` reads paths with Compose's `PathParser`.
-- **Chosen:** each path is SVG path data (`M9.55 15.15l8.47-8.47q.3-.3.7-.3`), relative or absolute per command (whichever is shorter),
-  with `Q`, `T`, `S`, `H`, `V` and `A` kept. Arcs become cubics only when a transform changes their shape. Numbers are rounded to
-  1/2,000 of the viewBox's larger side, and relative steps are taken between rounded points, so rounding never adds up.
-- **Why:** the first version (absolute `M L C Z` only, as the design said) made draw data bigger than the source: 162 KB of RN assets
-  became 190 KB, icons ~1.2 KB each. Path text: 180 KB → 112 KB, icons ~450 B. Compose's `PathParser` (already used by `Icon`) reads it,
-  so the phone code stayed small.
-- **Risk if wrong:** the phone depends on `PathParser`'s reading of minified paths (it is lenient: a bad path may draw wrong rather than
-  fail); the iOS renderer later needs its own path reader with arcs. A rounding error near a sharp corner at 1/2,000 (0.012 dp on a
-  24 dp icon) is far below a pixel.
-- **Other options:** absolute cubics (simplest reader, biggest data); a binary path form (smaller, new value kind in the template format).
-- **Evidence wanted:** the lab screen on the Lava next to the source SVGs. The browser side-by-side check of 39 files (draw data turned back
-  into SVG) showed no strong pixel differences. **Update:** the lab looks right on the Lava (debug and release).
+## 47. A link to a tabs screen in the stack goes back to it (tabs)
+- **Where:** `nav.ts` `onOpenLink` / `tabHostFor`.
+- **Chosen (Pavan agreed):** if a screen of the link's route is in the stack and its own params match the link's, the
+  screens above it close and the link's tab is selected. Otherwise the route is pushed as before. `onLink` decides first.
+- **Why:** React Navigation's `navigate` does the same, and a second home screen on the stack would be a bug.
+- **Risk if wrong:** a link during a payment would close the payment screen. Apps must refuse links in `onLink` while a
+  payment is open (guide notes §40 says so).
+- **Also changed (host API 8):** a cold link that matches the start route itself now gives its params to the start screen
+  (before, they were dropped and `onLink` was never asked). Refused, the start screen opens without them.
 
-## 48. A big SVG is still parsed on the main thread at its first draw (SVG phase 1, measured on the Lava)
-- **Where:** `docs/svg.md` §13, §14; `ZnSvgCache.get` in `ZnSvg.kt`.
-- **Chosen:** no change. Each distinct SVG is parsed when it is first drawn, on the main thread, and cached.
-- **Measured:** a 23 KB SVG (~400 shapes) parses in 6.3–7.3 ms right after an adb install (no AOT code), 1.4–1.5 ms after
-  `compile -m speed`. Icons: 0.13–0.5 ms, then 0.03–0.1 ms. The design said: move parsing off the main thread above ~4 ms.
-- **Why not now:** the slow case is uncompiled code, which hits every zn screen the same way, not only SVG; real apps have few SVGs that
-  big (the largest RN asset is 30 KB of XML, about 20 KB of draw data); and a background parse needs a "not ready yet" frame, which can
-  flash. The bigger win for all screens would be a baseline profile for the runtime (none exists today).
-- **Risk if wrong:** one dropped frame (90 Hz: 11 ms budget) the first time a big illustration shows after an install or update.
-- **Other options:** parse every SVG of the bundle on the I/O thread after the first frame; a baseline profile with the SVG reader and
-  Compose's `PathParser` in it.
-- **Evidence wanted:** first-draw time of a real big illustration on a Play-installed build (cloud profiles), and on a slower phone.
-
-## 49. `repeat` counts all plays, not extra ones (motion, registry 11)
-- **Where:** `docs/svg.md` §9; `timing()` in `compiler/src/compile.ts`; `motionAt` in `ZnAnimation.kt`.
-- **Chosen:** `repeat: 2` plays twice in all; `"forever"` loops. Same as CSS `animation-iteration-count`, Compose `repeatable(iterations)`,
-  RN `Animated.loop({ iterations })` and Reanimated `withRepeat(x, n)`.
-- **Why:** authors coming from any of these get what they expect. The word "repeat" alone could mean "play again n times" (n + 1 in all).
-- **Risk if wrong:** an author who reads it as extra plays sees one play fewer. `repeat: 0` and `1` would mean the same, so `0` is a build
-  error that names the rule.
-- **Other options:** `iterations` as the name (clearer, longer); `repeat` as extra plays (like GSAP).
-- **Evidence wanted:** what authors write first in the lab and in ZeroBill screens; any confusion in review.
-
-## 50. `paused` and `replay` are element props, not timing options (motion, registry 11)
-- **Where:** `docs/svg.md` §9; `Base` in `packages/ui/src/index.ts`; `znMotionInputs` in `ZnAnimation.kt`.
-- **Chosen:** `<Box paused={p()} replay={n()} animate={...} />`. They change at runtime (slots). The timing inside `animate` stays build-time.
-  The approved plan listed `paused` with the timing options; it moved while building.
-- **Why:** `animate` is folded at build time into one string. A runtime `paused` inside it would need a runtime timing, a new value kind.
-  As element props they are plain slots, and one `paused` covers every looping prop of the element (CSS `animation-play-state` works the same).
-- **Risk if wrong:** no way to pause one prop of an element while another loops. Rare; split the element in two.
-- **Other options:** a runtime `animate`; a `paused` per prop (`animate={{ rotate: { ..., paused } }}`) compiled to a slot per prop.
-- **Evidence wanted:** a real screen that needs per-prop pause.
-
-## 51. A new registry entry kind, `format`, for new forms inside a string value (motion, registry 11)
-- **Where:** `Formats` in `packages/template/src/registry.ts`; the check in `writer.ts`; `registry.lock.json` (`format:timing.motion`).
-- **Chosen:** the `~` options in a timing string (`95=t1000e3~f0~r-1`) are a "format" added in registry 11. The writer raises the
-  bundle's registry to 11 only when a value uses them; an old-style `animate` still asks for the old registry.
-- **Why:** an older app reads `t1000e3~f0~r-1` as a plain 1 s tween with the default easing (checked in its parser: `"3~f0~r-1"` is not a
-  number, so the easing falls back to 0) that plays only on a value change. A spinner would never turn.
-  Raising the registry makes the older app refuse the bundle, as for any new prop, instead of drawing it wrong. Bundles without loops
-  still run on old apps.
-- **Risk if wrong:** a future string form that forgets to add a `Formats` entry would slip past the check. The lock file lists the kind, so
-  `gen:registry` shows it in review.
-- **Other options:** a new prop (`animateMotion`) for the new form; always raising the registry for any `animate`.
-- **Evidence wanted:** none; review the idea once.
-
-## 52. SVG moved from registry 10 to 11 (motion, 2026-11-03)
-- **Where:** `packages/template/src/registry.ts` (history comment), `registry.lock.json`, `Registry.kt`; `docs/svg.md` §7.
-- **Chosen:** main took registry 10 for the RN basics `TextField` `ref` (event id 16). The SVG branch's entries are now in 11. The ids did
-  not change and do not clash with main's.
-- **Why:** the version must only grow, and main already shipped 10 in its history.
-- **Risk if wrong:** none for users (nothing shipped with SVG yet). When this branch merges main, `registry.ts`, `registry.lock.json` and
-  `Registry.kt` conflict; keep both sides' entries, then run `bun run gen:registry`.
-- **Other options:** none useful.
-- **Evidence wanted:** a clean `gen:registry` and registry test after the merge.
-- **Merged main (2026-11-03):** done as written: event `ref` (16, since 10) and the SVG entries (since 11) are both in the lock; no id is
-  used twice. The RN basics pack had also taken second-opinions 38–43 and guide §39, so the SVG entries moved to 44–56 and the SVG guide
-  section to §40, with every link fixed.
-
-## 53. Animated .svg files: geometry becomes a scale and a move (S.14, built)
-- **Where:** `docs/svg.md` §15; `motionParts` in `compiler/src/svg-anim.ts`.
-- **Chosen:** SMIL / CSS changes to `cx`, `cy`, `r`, `rx`, `ry`, `x`, `y`, `width`, `height` on a circle, ellipse or rect with no stroke become
-  the part's scale and translate around the shape's centre. A size that starts at 0 is baked at its largest and scaled down. The same
-  change on a stroked shape fails the build (the stroke would grow with it).
-- **Why:** for a filled shape it is exact, and it needs no new runtime feature: the phone already moves parts. 44 of the 104 corpus files
-  animate geometry this way (bars, dots, pulses).
-- **Risk if wrong:** a shape with rounded corners (`rx` on a rect) whose width animates gets its corners stretched too; the corpus
-  has none. A size baked at its largest is drawn at that precision, so a tiny-to-huge pulse may look slightly soft at its smallest.
-- **Other options:** real geometry animation (the phone rebuilds the circle / rect path each frame): exact for strokes and corners,
-  but a new draw-data form and runtime code.
-- **Evidence wanted:** files that people actually bring with stroked growing shapes (`puff`, `ball-triangle` in the corpus).
-
-## 54. SMIL begin chains are solved at build time into one cycle (S.14, built)
-- **Where:** `solveBegins`, `smilTiming`, `mergeSame` in `compiler/src/svg-anim.ts`.
-- **Chosen:** every SMIL start time over the first 120 s is worked out (offsets, `x.begin`, `x.end`, restarts). A series that repeats
-  evenly becomes one loop: period P, its first start as `delay`, and the wait as a hold inside the cycle. Several animations of one
-  attribute merge by SMIL's rule (the one that started last sets the value).
-- **Why:** 24 of the 104 corpus files use chains; the phone has no SMIL clock and needs none.
-- **Risk if wrong:** a chain whose first round differs from the rest shows the steady cycle from the start; before an animation's
-  first start, the phone shows its first keyframe, where SMIL shows the attribute's base value (the same in every corpus file).
-  A chain that never settles fails the build.
-- **Other options:** a small SMIL timeline engine on the phone (exact, more runtime code, per-frame work).
-- **Evidence wanted:** a loader that looks wrong in the lab next to the browser.
-
-## 55. Third-party SVG files live in the repo as test fixtures (S.14)
-- **Where:** `compiler/test/fixtures/animated-svg/` (104 files, with each set's MIT licence), `examples/sample/src/svg/loaders/` (6).
-- **Chosen:** keep unchanged copies with their licence files and a README naming source and commit, so the corpus test runs offline
-  and lists each refused file by name. The sample's six copies only add `fill="currentColor"`.
-- **Why:** Pavan asked for the corpus "as tests"; MIT allows copies with the notice kept.
-- **Risk if wrong:** the public repo later carries third-party files; they must keep the licence files (they do).
-- **Other options:** fetch the corpus in CI (network in tests), or our own handmade SVGs only (misses what real files do).
-- **Evidence wanted:** a licence check before the public repo.
-
-## 56. One easing per keyframe segment, and a step easing, in the timing format (S.14, registry 11)
-- **Where:** the `z` option in `ZnTiming` (`android/runtime/.../ZnAnimation.kt`), `encode` in `compiler/src/svg-anim.ts`.
-- **Chosen:** `~z<seg:seg>`, one easing per segment between keyframes (`3` linear, `5` step, `4,x1,y1,x2,y2` a curve).
-  Easing id 5 is a new step (holds the start value, jumps at the end). `fill-opacity` / `stroke-opacity` go into the colour's
-  alpha, not the part's opacity.
-- **Why:** SMIL `keySplines` and CSS per-keyframe timing need it (16 corpus files), and `calcMode="discrete"` / `step-end`
-  need a step. Registry 11 is not shipped yet, so it is a free change to the format (entry 51). A fill-only fade must not fade the stroke.
-- **Risk if wrong:** a phone on an older runtime reading a newer template ignores `z` (unknown options are skipped) and plays
-  every segment with one easing: a wrong curve, not a crash.
-- **Other options:** split each segment into its own sub-animation (many more parts), or bake the curve into many keyframes (big strings).
-- **Evidence wanted:** none before shipping; the lab's Ring and Bars loaders use it.
+## 48. `useFocus` and `tabs.onFocus` (tabs)
+- **Where:** `nav.ts` `useFocus`, `watchFocus`; `tabs.ts` `onFocus`.
+- **Chosen (Pavan agreed):** focus = the screen is on top of the stack (and, in a tab, the tab is selected). It is
+  computed in JS from the stack; nothing new from native. The returned function runs on blur, like `useFocusEffect`.
+- **Why:** ZeroBill reloads a tab's data on focus, so the cashback balance is fresh after a payment.
+- **Not done:** focus does not follow the app going to the background (React Navigation doesn't either). Use `onAppState`.

@@ -13,7 +13,7 @@ const lab = async () => {
   await expectLog(/webview-lab ready bridge=true refused=2/)
 }
 const back = () => shell("input", "keyevent", "KEYCODE_BACK")
-const focus = () => shell("dumpsys", "window").match(/mCurrentFocus=.*/)?.[0] ?? ""
+const focus = () => shell("dumpsys", "window", "displays").match(/mCurrentFocus=.*/)?.[0] ?? ""
 const inApp = () => focus().includes(PKG)
 /** Waits until another app is on top. */
 async function otherApp(ms = 8000) {

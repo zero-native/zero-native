@@ -36,7 +36,8 @@ export {
   type View,
 } from "./view"
 export { onEvent } from "./events"
-export { nav, onNavResult, restorableSignal, startApp, useBack, useImpressions, type AppOptions, type ImpressionOptions, type OpenedLink, type Register } from "./nav"
+export { nav, onNavResult, restorableSignal, startApp, useBack, useFocus, useImpressions, type AppOptions, type ImpressionOptions, type OpenedLink, type Register } from "./nav"
+export { useTabs, type TabsHandle, type TabsOptions } from "./tabs"
 export { insets, type Insets } from "./insets"
 export { AppState, appState, onAppState, type AppStateStatus } from "./app-state"
 export { Permissions, type PermissionName, type PermissionState } from "./permissions"

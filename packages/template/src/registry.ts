@@ -18,9 +18,7 @@ export const REGISTRY_VERSION = 11 // 2: Anchor. 3: transforms, shadow, absolute
 //    accessibilityLabel, accessibilityRole, maxFontScale.
 // 9: NativeView, a plugin's Compose view inside a screen (docs/plugins.md §5): viewName, viewProps, onNativeEvent.
 // 10: TextField `ref` (RN basics pack): focus(), blur(), clear() from JS; focus changes come back on its event id.
-// 11: SVG (docs/svg.md): Svg, SvgPart, svg, part, fill, stroke (fill and stroke can change at runtime), autoMirror;
-//     trimStart / trimEnd / trimOffset, pivotX / pivotY. Timing options for every animation (format "timing.motion":
-//     delay, repeat, reverse, keyframes, cubic-bezier easing) and the element props paused / replay.
+// 11: Tabs, a container that draws only its selected child (docs/guide-notes.md §40): selected.
 
 export const Component = {
   Column: 1,
@@ -60,6 +58,12 @@ export const Component = {
   Spinner: 22,
   Progress: 23,
   Shimmer: 24,
+  // 30-39: Claude (18-19 went to the SVG work).
+  /**
+   * Tabs (useTabs): draws only its child at `selected` (its children are the tab panels, in order). The others leave
+   * the screen but keep their instances, and their scroll positions (Compose saved state).
+   */
+  Tabs: 30,
 } as const
 export type ComponentName = keyof typeof Component
 
@@ -219,29 +223,8 @@ export const Prop = {
   viewName: { id: 147, type: "string" },
   /** <NativeView props={...}>: the props as JSON text. */
   viewProps: { id: 148, type: "string" },
-  // SVG (docs/svg.md). Ids from the top of Claude's range, so a parallel branch taking the next free ids doesn't clash.
-  /** <Svg>: the draw data the compiler made from the SVG (format: compiler/src/svg-data.ts). */
-  svg: { id: 180, type: "string" },
-  /** <SvgPart>: which element of the parent Svg's draw list (its index among the draw data's shapes and groups). */
-  part: { id: 181, type: "number" },
-  /** <SvgPart>: replaces the fill of every shape in the part that has one. */
-  fill: { id: 182, type: "color" },
-  /** <SvgPart>: replaces the stroke of every shape in the part that has one. */
-  stroke: { id: 183, type: "color" },
-  /** <SvgPart>: "draw the line": the visible piece of the part's paths, as fractions 0–1 of their whole length. */
-  trimStart: { id: 184, type: "number" },
-  trimEnd: { id: 185, type: "number" },
-  /** <SvgPart>: moves the visible piece along the line (0–1; it wraps round). */
-  trimOffset: { id: 186, type: "number" },
-  /** <Svg>: flipped left to right when the layout is right to left (back arrows, chevrons). */
-  autoMirror: { id: 187, type: "bool" },
-  /** <SvgPart>: the point it turns and scales around, in viewBox units (the compiler writes the part's centre). */
-  pivotX: { id: 188, type: "number" },
-  pivotY: { id: 189, type: "number" },
-  /** Stops this element's own animations (loops, keyframes) where they are; false plays on (CSS play-state). */
-  paused: { id: 190, type: "bool" },
-  /** Each new value plays this element's own animations (loops, keyframes) again from the start. */
-  replay: { id: 191, type: "number" },
+  /** <Tabs>: the position of the child to draw (default 0). */
+  selected: { id: 149, type: "number" },
   // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
   trackColor: { id: 200, type: "color" },
   activeTrackColor: { id: 201, type: "color" },
@@ -361,13 +344,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "editable",
   "accessibilityLabel",
   "viewProps",
-  "fill",
-  "stroke",
-  "trimStart",
-  "trimEnd",
-  "trimOffset",
-  "paused",
-  "replay",
+  "selected",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -395,12 +372,9 @@ export const Added: {
   /** A newer form of a string prop's value (key: a name in [Formats]). */
   format: Partial<Record<FormatName, number>>
 } = {
-  component: { NativeView: 9, Svg: 11, SvgPart: 11 },
-  prop: {
-    viewName: 9, viewProps: 9, svg: 11, part: 11, fill: 11, stroke: 11, autoMirror: 11,
-    trimStart: 11, trimEnd: 11, trimOffset: 11, pivotX: 11, pivotY: 11, paused: 11, replay: 11,
-  },
-  dynamic: { viewProps: 9, fill: 11, stroke: 11, trimStart: 11, trimEnd: 11, trimOffset: 11, paused: 11, replay: 11 },
+  component: { NativeView: 9, Tabs: 11 },
+  prop: { viewName: 9, viewProps: 9, selected: 11 },
+  dynamic: { viewProps: 9, selected: 11 },
   enumValue: {},
   event: { onNativeEvent: 9, ref: 10 },
   format: { "timing.motion": 11 },

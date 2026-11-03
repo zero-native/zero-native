@@ -6,8 +6,11 @@
 //   and the screen's first values in one batch and draws them in one frame.
 // - Screens opened before JS runs (cold start, deep link) are created by native, which then sends the start event
 //   with their entries; JS renders them on the roots native made and sends no NAV for them.
-// - A system back press is an event to JS. JS asks the top screen's useBack handler, else pops, else (last screen)
-//   tells native to let the system handle it. JS always answers, so native's 300 ms fallback never fires normally.
+// - A system back press is an event to JS. JS asks the top screen's useBack handlers (the latest first), else pops,
+//   else (last screen) tells native to let the system handle it. JS always answers, so native's 300 ms fallback never
+//   fires normally. On the last screen native asks JS only while the screen said it wants Back there (NAV BACK_WANTED,
+//   host API 8): tabs do, while a tab other than the first is shown (tabs.ts).
+// - useFocus: the top screen has focus. It changes when a screen opens, closes or is uncovered (syncTop).
 //
 // App-level events from native use instance 0 (no screen has id 0): START, BACK, FORCED_BACK, OPEN (a deep link
 // while the app runs), INSETS (5, insets.ts), RETRY (7). Native side: android/runtime/.../ZnNav.kt.
@@ -32,25 +35,31 @@ import { installTasks } from "./tasks"
 import type { NativeValue } from "./native"
 import type { AnyRouteDef, NativeRouteDef, RouteDef, RouteName, RouteParams } from "./routes"
 import { launches, type LaunchRecord } from "./launches"
-import { getOwner, onCleanup, signal, type Owner, type Signal } from "./signals"
+import { effect, getOwner, onCleanup, signal, untrack, type Owner, type Signal } from "./signals"
 import { allocInstanceId, renderRoot, type View } from "./view"
 
 /** Apps register their routes for typed navigation (in routes.ts):
  *    declare module "@zero-native/core" { interface Register { routes: typeof routes } } */
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Register {}
-type Routes = Register extends { routes: infer R } ? R : Record<string, AnyRouteDef>
+export type Routes = Register extends { routes: infer R } ? R : Record<string, AnyRouteDef>
 
-const NavKind = { Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7, Started: 8, Restore: 9 } as const
+const NavKind = {
+  Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7, Started: 8, Restore: 9, BackWanted: 10,
+} as const
 export { AppEvent } from "./app-events"
 
-interface Entry {
+/** @internal A screen on the stack. Exported for tabs.ts only. */
+export interface Entry {
   id: number
   route: number
   name: string
   params: Record<string, unknown>
   dispose: () => void
-  onBack: (() => boolean) | null
+  /** useBack handlers, oldest first; the newest is asked first. */
+  backs: Array<() => boolean>
+  /** The screen's tabs (useTabs): a link to one of them selects it. */
+  tabs?: { select(name: string): boolean }
   impressions?: { handler: (keys: string[]) => void; session: boolean }
   /** The screen threw while being built; native shows its error screen. */
   failed?: boolean
@@ -76,6 +85,12 @@ const waiting = new Map<number, (value: unknown) => void>()
 const resultListeners = new Map<string, Set<(record: LaunchRecord) => void>>()
 /** The entry whose screen is being rendered right now (for useBack). */
 let rendering: Entry | null = null
+/** The id of the top screen's entry (0 before the start): useFocus watches it. Set by syncTop after a stack change. */
+const topId = signal(0)
+
+function syncTop(): void {
+  topId.set(stack[stack.length - 1]?.id ?? 0)
+}
 
 type ParamsArg<K extends RouteName<Routes>> = {} extends RouteParams<Routes, K>
   ? [params?: RouteParams<Routes, K>]
@@ -92,6 +107,7 @@ export const nav = {
     const e = open(name, (params ?? {}) as Record<string, unknown>)
     globalThis.__zn_nav(NavKind.Push, e.id, e.route, JSON.stringify(e.params))
     show(e)
+    syncTop()
   },
 
   /**
@@ -103,6 +119,7 @@ export const nav = {
     const e = open(name, params ?? {})
     globalThis.__zn_nav(NavKind.Push, e.id, e.route, JSON.stringify(e.params))
     show(e)
+    syncTop()
     return new Promise((resolve) => waiting.set(e.id, resolve as (value: unknown) => void))
   },
 
@@ -110,6 +127,7 @@ export const nav = {
   back(): boolean {
     if (stack.length <= 1) return false
     close(stack.pop()!, true)
+    syncTop()
     return true
   },
 
@@ -130,6 +148,7 @@ export const nav = {
       globalThis.__zn_nav(NavKind.Push, e.id, e.route, JSON.stringify(e.params))
       show(e)
     }
+    syncTop()
   },
 
   /** The top screen's route name and params (null before the app has started). */
@@ -147,11 +166,86 @@ export const nav = {
 /**
  * Lets the current screen handle the system back press (button or gesture). Return true when handled (for example
  * a "Discard amount?" bar was shown) and the screen stays; false to go back as usual. Same meaning as React Native's
- * BackHandler. Call it while the screen renders (in the component body). Only the top screen is asked.
+ * BackHandler. Call it in a component body: the screen's, or a part shown later (a tab, a `cond && <X/>` branch); it
+ * stops when that part goes. Only the top screen is asked; its newest handler first, then the older ones.
  */
 export function useBack(handler: () => boolean): void {
-  if (!rendering) throw new Error("useBack must be called while a screen renders (in a component body)")
-  rendering.onBack = handler
+  const e = screenHere("useBack must be called while a screen renders (in a component body)")
+  e.backs.push(handler)
+  if (getOwner()) onCleanup(() => {
+    const i = e.backs.lastIndexOf(handler)
+    if (i >= 0) e.backs.splice(i, 1)
+  })
+}
+
+/**
+ * Runs [fn] each time this screen gets focus: when it opens on top, and when the screen above it closes (back from
+ * checkout, say). If [fn] returns a function, that runs when the screen loses focus (another screen opens on top, or it
+ * closes). Like React Navigation's `useFocusEffect`. In a tab, use `tabs.onFocus(name, fn)`: it also follows the tab.
+ * Call it in a component body. Focus is about the stack only: for the app coming to the front, use `onAppState`.
+ */
+export function useFocus(fn: () => void | (() => void)): void {
+  const e = screenHere("useFocus must be called inside a screen (in a component body)")
+  watchFocus(() => topId() === e.id, fn)
+}
+
+/** @internal Calls [fn] each time [focused] turns true, and its cleanup when it turns false or the owner goes. */
+export function watchFocus(focused: () => boolean, fn: () => void | (() => void)): void {
+  let on = false
+  let blur: (() => void) | void = undefined
+  const leave = () => {
+    const b = blur
+    blur = undefined
+    if (typeof b !== "function") return
+    try {
+      b()
+    } catch (err) {
+      reportError("focus cleanup", err)
+    }
+  }
+  effect(() => {
+    const now = focused()
+    if (now === on) return
+    on = now
+    untrack(() => {
+      if (!now) return leave()
+      try {
+        blur = fn()
+      } catch (err) {
+        reportError("focus handler", err)
+      }
+    })
+  })
+  if (getOwner()) onCleanup(() => {
+    if (on) leave()
+    on = false
+  })
+}
+
+/** @internal The entry of the screen being built, or of the screen that owns the current code; throws [message] if none. */
+export function screenHere(message: string): Entry {
+  const e = rendering ?? screenOf(getOwner())
+  if (!e) throw new Error(message)
+  return e
+}
+
+/** @internal The id of the top screen's entry (reactive). */
+export function topScreenId(): number {
+  return topId()
+}
+
+/** @internal The tab names of route [name], or undefined if it has none. */
+export function routeTabs(name: string): readonly string[] | undefined {
+  const r = table?.[name]
+  return r && !isNative(r) ? r.tabs : undefined
+}
+
+/**
+ * @internal Whether native must ask JS when Back is pressed while [e] is the only screen (NAV BACK_WANTED). Native
+ * otherwise lets the system handle that press at once (the app goes to the background).
+ */
+export function setBackWanted(e: Entry, wanted: boolean): void {
+  globalThis.__zn_nav(NavKind.BackWanted, e.id, wanted ? 1 : 0, null)
 }
 
 /**
@@ -356,13 +450,26 @@ export function startApp(routes: Record<string, AnyRouteDef>, options: AppOption
   installTasks()
 }
 
-/** A deep link while the app runs: native matched it to a route that allows links; JS opens it on top. */
+/**
+ * A deep link while the app runs: native matched it to a route that allows links; JS opens it on top. A link to a
+ * screen with tabs that is already in the stack (with the same params) goes back to that screen instead, closing the
+ * screens above it, and selects the link's tab ("tab" param), like React Navigation's `navigate`. `onLink` decides
+ * first, so an app refuses links while a payment is open.
+ */
 function onOpenLink(payload: NativeValue): void {
   const { route, params, url } = JSON.parse(String(payload)) as { route: number; params: Record<string, string>; url?: string }
   const name = names[route]
   if (name === undefined) return globalThis.__zn_log(3, `nav: link to unknown route ${route}`)
   if (!linkAllowed({ route: name, params, url: url ?? "", atStart: false })) return
-  ;(nav.push as (n: string, p: Record<string, unknown>) => void)(name, params)
+  const host = routeTabs(name) ? tabHostFor(name, params) : undefined
+  if (host) {
+    while (stack[stack.length - 1] !== host) close(stack.pop()!, true)
+    const tab = params.tab
+    if (tab !== undefined && !host.tabs?.select(tab)) globalThis.__zn_log(2, `nav: link to tab "${tab}" of "${name}": no such tab shown`)
+    syncTop()
+  } else {
+    ;(nav.push as (n: string, p: Record<string, unknown>) => void)(name, params)
+  }
   if (url) {
     for (const listener of [...linkListeners]) {
       try {
@@ -372,6 +479,16 @@ function onOpenLink(payload: NativeValue): void {
       }
     }
   }
+}
+
+/** The highest screen of route [name] whose own params all equal the link's ("tab" aside), or undefined. */
+function tabHostFor(name: string, params: Record<string, string>): Entry | undefined {
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const e = stack[i]
+    if (e.name !== name) continue
+    if (Object.entries(e.params).every(([k, v]) => k === "tab" || params[k] === v)) return e
+  }
+  return undefined
 }
 
 // Linking.getInitialURL and Linking.addEventListener("url") (linking.ts): read-only copies of the links that got past
@@ -409,6 +526,7 @@ export function resetNavForTests(): void {
   table = null
   names = []
   rendering = null
+  topId.set(0)
   waiting.clear()
   resultListeners.clear()
   started = false
@@ -421,7 +539,7 @@ function open(name: string, params: Record<string, unknown>): Entry {
   if (!table) throw new Error("zero-native: startApp(routes) wasn't called")
   const route = names.indexOf(name)
   if (route < 0) throw new Error(`zero-native: unknown route "${name}"`)
-  return { id: allocInstanceId(), route, name, params, dispose: () => {}, onBack: null }
+  return { id: allocInstanceId(), route, name, params, dispose: () => {}, backs: [] }
 }
 
 /** Renders an entry's screen on its root instance and puts it on top of the stack. */
@@ -452,7 +570,8 @@ function render(e: Entry): void {
   } catch (err) {
     // renderRoot has already stopped whatever the screen started. Handlers it set up belong to the failed build.
     e.dispose = () => {}
-    e.onBack = null
+    e.backs = []
+    e.tabs = undefined
     e.impressions = undefined
     e.failed = true
     reportError(`screen "${e.name}"`, err, "screen", e.name)
@@ -507,12 +626,18 @@ function start(payload: NativeValue): void {
       continue
     }
     if (link !== undefined && !linkAllowed({ route: name, params: (params ?? {}) as Record<string, string>, url: link, atStart: true })) {
+      // A link to the start screen itself (host API 8: say, one of its tabs) can't remove it: it opens as usual.
+      if (stack.length === 0) {
+        show({ id: entry, route, name, params: {}, dispose: () => {}, backs: [], restored: values })
+        continue
+      }
       globalThis.__zn_nav(NavKind.Remove, entry, 0, null)
       continue
     }
     if (link !== undefined) startLink ??= link
-    show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, onBack: null, restored: values })
+    show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, backs: [], restored: values })
   }
+  syncTop()
   started = true
   for (const resolve of startWaiters.splice(0)) resolve(startLink)
   // The first screens are built (a screen that threw has already sent FAILED): the OTA safety nets count the bundle
@@ -527,10 +652,12 @@ function onSystemBack(payload: NativeValue): void {
   // JS already left that screen (a scan's answer closed the scanner in the same moment): this press was for it, so it
   // must not close the next screen too, or exit the app from the last one.
   if (payload != null && top != null && Number(payload) !== top.id) return
-  if (top?.onBack) {
+  // The newest handler first: a tab's own handler (a sheet open in it) before the tabs' "back to the first tab".
+  const handlers = top ? [...top.backs] : []
+  for (let i = handlers.length - 1; i >= 0; i--) {
     let handled = false
     try {
-      handled = top.onBack() === true
+      handled = handlers[i]() === true
     } catch (e) {
       reportError("useBack handler", e)
     }
@@ -545,4 +672,5 @@ function onForcedBack(payload: NativeValue): void {
   if (i < 0) return
   const [e] = stack.splice(i, 1)
   close(e, false)
+  syncTop()
 }

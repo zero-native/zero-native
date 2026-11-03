@@ -153,7 +153,7 @@ async function swipeAway() {
 }
 
 const MOCK = "p2pdops.android.p2pupiapp"
-const focused = () => /mCurrentFocus=.*/.exec(shell("dumpsys", "window"))?.[0] ?? ""
+const focused = () => /mCurrentFocus=.*/.exec(shell("dumpsys", "window", "displays"))?.[0] ?? ""
 
 /** A cold start on the launch dev screen, with no saved launch left from a case before. */
 async function launchScreen(): Promise<void> {

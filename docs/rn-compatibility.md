@@ -145,14 +145,15 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | `navigation.reset` | [`nav.reset`](../packages/core/src/nav.ts:96) | same | Takes `[{ name, params }]`, bottom first. |
 | `route.params` | screen props | different | Params arrive as the props of the screen function. Every `:param` in the path must be a string prop. |
 | `navigation.getState()` / `useRoute` | [`nav.current()`](../packages/core/src/nav.ts:108), [`nav.depth()`](../packages/core/src/nav.ts:114) | different | |
-| `BackHandler.addEventListener("hardwareBackPress")` | [`useBack`](../packages/core/src/nav.ts:124) | renamed | Return `true` when you handled it. Call it in the screen body, only the top screen is asked. |
+| `BackHandler.addEventListener("hardwareBackPress")` | [`useBack`](../packages/core/src/nav.ts:172) | renamed | Return `true` when you handled it. Call it in a component body (the screen or a part of it); only the top screen is asked, its newest handler first. |
 | `beforeRemove` listener | `useBack` | different | Covers the system back only. Make the on-screen back button call the same handler. |
 | Screen options: `animation`, `presentation: "modal"` | route `transition: "push" \| "modal" \| "fade" \| "none"` | renamed | [routes.ts:18](../packages/core/src/routes.ts:18). |
 | Deep link `linking` config | route `deepLink: true` + [`onLink`](../packages/core/src/nav.ts:244) + the app manifest | different | Opt-in per route. Match by path (`zn://<app>/<path>` or the scheme in your `AndroidManifest.xml`). Query values become params. `onLink` can refuse a link. [ZnNav.kt:343](../android/runtime/src/main/java/dev/zeronative/runtime/ZnNav.kt:343). |
 | Restore state after the app was killed | route `restore` + [`restorableSignal`](../packages/core/src/nav.ts:162) | different | The stack comes back by itself. Small values you want back: `restorableSignal` (≤ 4,000 chars of JSON). |
-| `useFocusEffect`, `useIsFocused`, `navigation.addListener("focus")` | none | missing | No focus events. Use `onAppState` for the app, and run code in the screen body once. |
+| `useFocusEffect`, `navigation.addListener("focus")` | [`useFocus`](../packages/core/src/nav.ts:187); in a tab `tabs.onFocus(name, fn)` | renamed | Runs when the screen opens on top and each time the screen above it closes; the returned function runs on blur. `useIsFocused` has no twin. Guide notes §40. |
 | `navigation.setOptions` / header bar (`headerShown`, `headerRight`, `headerTitle`) | none | missing | There is no header component. Build the header in your screen (a `Row`). |
-| Tab navigator (`createBottomTabNavigator`), drawer, top tabs | none | missing | No tab bar or drawer. Build tabs with a `Pressable` row and a `cond && <X/>` content area, or a `Carousel`. |
+| Bottom tab navigator (`createBottomTabNavigator`), custom `tabBar` | route `tabs: [...]` + [`useTabs`](../packages/core/src/tabs.ts:56) + `<Tabs>` | different | The tabs live in one screen; the bar is your own JSX (`tabBar` ports straight). Lazy by default (`preload: true` = `lazy: false`), hidden tabs keep their state (`freezeOnBlur`), Back goes to the first tab, the tab comes back after a kill, links reach a tab. `navigation.navigate("stores")` from a tab → `tabs.select("stores")`. Guide notes §40. |
+| Drawer, top tabs | none | missing | No drawer. Top tabs: a `Pressable` row over `<Tabs>`, or a `Carousel`. |
 | Nested navigators, `navigation.setParams`, `navigation.getParent()` | none | missing | One flat stack. Put state in signals or `restorableSignal`. |
 | Await a result from a screen (`navigation.navigate` with a callback / event) | none (`nav.pushForResult` is planned P.4a) | missing | Pass the result through a shared signal or `flowStore` until it is built ([plugins.md](plugins.md) §5). |
 
@@ -278,8 +279,9 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 2. **No React** (missing). Every `useState`, `useEffect`, `useRef`, `useContext`, `useMemo`, and every hook-based
    library (React Query, Formik, React Hook Form, most state libraries) must be replaced. This is a rewrite of screen
    logic, not an edit. ([§9](#9-react-and-js-side-patterns))
-3. **Navigation: no tabs, no header bar, no nested navigators, no focus events** (missing). Most RN apps use a tab or
-   drawer navigator and `headerRight`. All of it must be built by hand in your screens. ([§3](#3-navigation))
+3. **Navigation: no header bar, no drawer, no nested navigators** (missing). Bottom tabs and focus events are built
+   (`useTabs`, `useFocus`, 2026-11-03), but a header and a drawer must still be built by hand in your screens, and a
+   tab can't hold its own stack. ([§3](#3-navigation))
 4. **`ScrollView` / `FlatList` features** (different / missing). No `onScroll`, no `scrollTo`, no refs, no pull to
    refresh (`RefreshControl`), no `SectionList`, no `numColumns`, no list header / footer / empty components (use row
    kinds). Apps that animate on scroll or have grids need a new design. ([§1](#1-components))

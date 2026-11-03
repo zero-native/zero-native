@@ -97,7 +97,7 @@ export const steps: Step[] = [
       shell("content", "query", "--uri", "content://dev.zeronative.sample.debugwake/task")
       ok("cold task", await expectLog(/task with no screen: DONE/, 15000))
       ok("ran in JS", await expectLog(/core-lab task echo from no screen/))
-      check(!/MainActivity/.test(shell("dumpsys", "window").match(/mCurrentFocus=.*/)?.[0] ?? ""), "an Activity opened")
+      check(!/MainActivity/.test(shell("dumpsys", "window", "displays").match(/mCurrentFocus=.*/)?.[0] ?? ""), "an Activity opened")
     },
   },
   {

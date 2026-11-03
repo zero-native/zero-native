@@ -19,6 +19,27 @@ class ZnRoutesTest {
     )
 
     @Test
+    fun aTabLinkOpensItsScreenWithTheTab() {
+        fun tabbed(index: Int, name: String, path: String, tabs: List<String>, deepLink: Boolean = true) =
+            ZnRoute(index, name, path, index, ZnRoute.Transition.PUSH, true, true, true, deepLink, tabs = tabs)
+        val r = ZnRoutes(
+            listOf(
+                tabbed(0, "home", "/", listOf("pay", "stores")),
+                route(1, "offers", "/offers"),
+                tabbed(2, "shop", "/shop/:id", listOf("menu", "reviews")),
+                tabbed(3, "quiet", "/quiet", listOf("a", "b"), deepLink = false),
+            ),
+        )
+        assertEquals(ZnRouteMatch(r.named("home")!!, mapOf("tab" to "stores")), r.matchDeepLink("/stores"))
+        assertEquals(ZnRouteMatch(r.named("home")!!, emptyMap()), r.matchDeepLink("/")) // the screen itself still matches
+        assertEquals("offers", r.matchDeepLink("/offers")?.route?.name) // not a tab: an ordinary route
+        assertEquals(mapOf("id" to "s 1", "tab" to "reviews"), r.matchDeepLink("/shop/s%201/reviews")?.params)
+        assertEquals(mapOf("id" to "s1"), r.matchDeepLink("/shop/s1")?.params)
+        assertNull(r.matchDeepLink("/shop/s1/photos")) // not one of its tabs
+        assertNull(r.matchDeepLink("/quiet/a")) // no deepLink: its tabs can't be linked either
+    }
+
+    @Test
     fun lookups() {
         assertEquals("amount", routes.named("amount")?.name)
         assertEquals("tab", routes.at(3)?.name)

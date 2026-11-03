@@ -30,6 +30,8 @@ class ZnRoute(
     val native: String? = null,
     /** True: no screenshots or recordings while this route is on top (the `secure` option). */
     val secure: Boolean = false,
+    /** The screen's tab names (the `tabs` option): a link to "<path>/<tab>" opens that tab. Empty: no tabs. */
+    val tabs: List<String> = emptyList(),
 ) {
     enum class Transition { PUSH, MODAL, FADE, NONE }
 
@@ -62,25 +64,31 @@ class ZnRoutes(val all: List<ZnRoute>) {
         var best: ZnRouteMatch? = null
         var bestLiterals = -1
         for (route in all) {
-            if (!route.deepLink || route.segments.size != parts.size) continue
-            val params = HashMap<String, String>()
-            var literals = 0
-            var ok = true
-            for (i in parts.indices) {
-                val seg = route.segments[i]
-                if (seg.startsWith(':')) {
-                    val value = percentDecode(parts[i])
-                    if (value.isNullOrEmpty()) { ok = false; break }
-                    params[seg.substring(1)] = value
-                } else if (seg == parts[i]) {
-                    literals++
-                } else {
-                    ok = false; break
+            if (!route.deepLink) continue
+            // A route with tabs also matches "<path>/<tab>", with the tab as the "tab" param (host API 8).
+            val shapes = listOf(route.segments to null) + route.tabs.map { route.segments + it to it }
+            for ((segments, tab) in shapes) {
+                if (segments.size != parts.size) continue
+                val params = HashMap<String, String>()
+                var literals = 0
+                var ok = true
+                for (i in parts.indices) {
+                    val seg = segments[i]
+                    if (seg.startsWith(':')) {
+                        val value = percentDecode(parts[i])
+                        if (value.isNullOrEmpty()) { ok = false; break }
+                        params[seg.substring(1)] = value
+                    } else if (seg == parts[i]) {
+                        literals++
+                    } else {
+                        ok = false; break
+                    }
                 }
-            }
-            if (ok && literals > bestLiterals) {
-                best = ZnRouteMatch(route, params)
-                bestLiterals = literals
+                if (tab != null) params["tab"] = tab
+                if (ok && literals > bestLiterals) {
+                    best = ZnRouteMatch(route, params)
+                    bestLiterals = literals
+                }
             }
         }
         return best

@@ -122,6 +122,7 @@ object ZnTemplates {
                 restore = r.optBoolean("restore", true),
                 native = native,
                 secure = r.optBoolean("secure", false),
+                tabs = r.optJSONArray("tabs")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
             )
         }
         return ZnBundle(templates, components, ZnRoutes(routes))

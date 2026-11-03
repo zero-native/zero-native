@@ -5,7 +5,7 @@ import { adb, check, clearLog, expectLog, ok, openFresh, PKG, pid, shell, sleep,
 const PORT = 8795
 const lab = () => openFresh("dev/media", "Pick photo")
 const CAMERA = "android.permission.CAMERA"
-const focus = () => shell("dumpsys", "window").match(/mCurrentFocus=.*/)?.[0] ?? ""
+const focus = () => shell("dumpsys", "window", "displays").match(/mCurrentFocus=.*/)?.[0] ?? ""
 
 async function testPhoto() {
   await lab()

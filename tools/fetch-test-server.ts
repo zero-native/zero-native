@@ -9,6 +9,7 @@
 // proves a POST is never sent twice).
 import { createServer } from "node:net"
 import { gzipSync } from "bun"
+import { tabsAnswer } from "./plugin-phone/tabs-server"
 
 const HTTP_PORT = 8788
 const RAW_PORT = 8789
@@ -36,6 +37,9 @@ Bun.serve({
       await Bun.sleep(Number(url.searchParams.get("ms") ?? 3000))
       return json({ slept: true })
     }
+    // The tabs lab (/dev/tabs): one tab's data after a delay.
+    const tabs = await tabsAnswer(url)
+    if (tabs) return tabs
     if (path.startsWith("/status/")) {
       const code = Number(path.slice("/status/".length))
       return new Response(code === 204 || code === 304 ? null : `status ${code}`, { status: code })

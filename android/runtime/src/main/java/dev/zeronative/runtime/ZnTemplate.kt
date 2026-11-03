@@ -240,6 +240,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val dotColor: Color = color(Registry.Prop.DOT_COLOR) ?: Color(0xFFD1D5DB)
     val activeDotColor: Color = color(Registry.Prop.ACTIVE_DOT_COLOR) ?: Color(0xFF047857)
     val itemWidth = num(Registry.Prop.ITEM_WIDTH)
+    // Tabs: the child to draw
+    val selected = num(Registry.Prop.SELECTED)?.toInt() ?: 0
     // Sheet
     val visible = p[Registry.Prop.VISIBLE] == true
     val detents: List<String> = (p[Registry.Prop.DETENTS] as String?)?.split(',')?.map { it.trim() }
@@ -384,6 +386,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     /** <TextField ref>: names the field for ZnKeyboard's focus / blur / clear; focus changes go to JS on it. */
     val ref = eventFor(raw, Registry.Event.REF)
     val visibleSlot = slotFor(raw, Registry.Prop.VISIBLE)
+    val selectedSlot = slotFor(raw, Registry.Prop.SELECTED)
     val onEndReached = eventFor(raw, Registry.Event.ON_END_REACHED)
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)
     val onPressOut = eventFor(raw, Registry.Event.ON_PRESS_OUT)

@@ -425,6 +425,7 @@ as tasks.
 | `Dialog`, `Toast` | `Dialog`, custom toast host | `.alert` / custom overlay |
 | `Lottie` | Lottie Compose | lottie-ios |
 | `NativeView` | `AndroidView` / registered composable | `UIViewRepresentable` / registered view |
+| `Tabs` (tab panels, §11) | `Box` with the selected child only + `SaveableStateHolder` | `ZStack` with the selected child [check state keeping] |
 | (safe areas, keyboard) | not components: per-route options handled natively (§11) | same |
 
 - We build on **Compose foundation, not material3**, so apps carry only their own design system. (Exp 1 measures
@@ -573,6 +574,12 @@ draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag 
   a task root with no saved state starts fresh. Query values reach the route as params, and `startApp(routes, { onLink })`
   lets the app refuse a link while it runs.
 - Native screens are routes too (section 15.3).
+- **Tabs live inside one screen (built 2026-11-03, host API 8, registry 11):** route option `tabs: [...]`, `useTabs(route)`,
+  and a native `<Tabs selected>` container that draws only the selected tab (the others keep their state; a
+  `SaveableStateHolder` keeps their scroll). The bar is the app's JSX. Back on a later tab goes to the first tab; on the
+  only screen native asks JS then (NAV BACK_WANTED). The selected tab is a `restorableSignal`. A link to `<path>/<tab>`
+  selects the tab, going back to the tabs screen if it is in the stack. `useFocus` / `tabs.onFocus`: focus = on top of
+  the stack (and the tab selected), computed in JS. Guide notes §40, docs/second-opinions.md 44–48.
 - **Safe areas and the keyboard are route options, handled natively (decided 2026-10-29):**
   `@route(path, { safeArea: 'all' | 'none' | { top?, bottom? }, keyboard: 'resize' | 'none' })`, default `'all'` /
   `'resize'`. Android: edge-to-edge on, the screen host applies `windowInsetsPadding` (Compose foundation, not

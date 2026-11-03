@@ -91,9 +91,13 @@ useBack(() => {
 })
 ```
 - Same meaning as React Native's `BackHandler`: return `true` when you handled it.
-- Call it in the screen's body (not later, not in a callback). Only the top screen is asked.
+- Call it in a component body: the screen's, or a part shown later (a tab, a `cond && <X/>` branch). Not in a callback.
+  It stops when that part goes. Only the top screen is asked.
+- A screen can have several handlers: the newest is asked first, then the older ones. So a tab's "close my sheet"
+  runs before the tabs' "go to the first tab" (§40).
 - Make your on-screen ← button do the same thing (`if (!handler()) nav.back()`), so both behave alike.
-- The last screen's back goes to the system (the app moves to the background); `useBack` isn't asked there yet.
+- The last screen's back goes to the system (the app moves to the background); `useBack` isn't asked there. The one
+  exception is tabs on a tab other than the first: then Back goes to the first tab (§40).
 
 ## 8. Lifetimes: timers and cleanup
 - A timer (`setTimeout` / `setInterval`) created in a screen body, a component body, or a tap handler of one is
@@ -1197,57 +1201,80 @@ const code = createRef<TextFieldHandle>()   // RN: useRef<TextInput>(null)
   keeps the old value. Over 128 KB a warning is logged once per key. **Do** keep flow state small, and keep big data in
   `storage`, saved by id.
 
-## 40. SVG (docs/svg.md, registry 11; first planned as 10)
+## 40. Tabs and focus (host API 8, registry 11)
 
-```tsx
-import Logo from "./art/logo.svg"
-import { Check, Heart } from "./icons"                         // icons.ts: export { default as Check } from "./check.svg"
+A home screen with bottom tabs is **one screen** (one route). Its tabs live inside it. The tab bar is your own JSX: the
+framework has no stock bar, so it looks like your app (badges, a raised Scan button, anything).
 
-<Check size={20} color={c.ink} />                              // color = currentColor inside the file
-<Logo style={{ width: 160 }} />                                // height from the viewBox
-<Logo size={64} parts={{ ring: { stroke: brand() }, dot: { opacity: on() ? 1 : 0.3 } }} />
-<Svg viewBox="0 0 24 24" size={24}><Path d={HEART} fill={liked() ? c.like : c.muted} /></Svg>
+```ts
+// routes.ts: the tab names, first = the default tab. deepLink: a link to /stores opens that tab.
+home: { path: "/", screen: HomeScreen, tabs: ["pay", "stores", "offers", "rewards"], deepLink: true },
 ```
-
-The compiler reads every SVG at build time and puts compact draw data in the bundle. The phone never reads XML, and an OTA can add or change SVGs.
-- **Do** use `.svg` files for icons and pictures; `Icon` stays for old code. **Why:** a `.svg` file is what designers hand over, and the build checks it.
-- **Know:** an imported SVG is a build-time name, not a value. `icon={<Logo />}` works; `icon={Logo}` or `const all = { Logo }` fails the build.
-- **Do** add `fill="currentColor"` where the colour should change. **Know:** Material Symbols files come with no fill (that means black), so
-  `color` fails the build on them until you add it to the `<svg>`. **Why:** a `color` that silently does nothing is worse than a build error.
-- **Do** give an element an `id` to change it at runtime: `parts={{ id: { fill, stroke, opacity } }}`. A part's `fill` / `stroke` repaints every
-  shape inside it. A wrong id fails the build and lists the ids the file has.
-- **Inline `<Svg>`:** the same names as react-native-svg. Geometry is fixed at build time: `cx={x()}` fails. Only `fill`, `stroke` and `opacity`
-  may change; such an element becomes a part by itself. `.map` works over a `const` array; `cond && <X />` doesn't: use `opacity`.
-- **Don't** put text in an SVG. **Do** put a zn `<Text>` over it in a `<Stack>`. **Why:** real text follows the font size and TalkBack reads it.
-- **Know the limit:** no `<image>`, `<pattern>`, filters (blur, shadow), `<style>` / CSS classes, SMIL, markers, nested `<svg>`,
-  `non-scaling-stroke`. The build says which and how to fix it. A mask of plain white shapes is fine (it becomes a clip).
-- **Do** add `accessibilityLabel` when the SVG means something; without one TalkBack skips it. **Do** use `autoMirror` on arrows and chevrons.
-- **Know:** colours inside an SVG don't follow dark mode. **Do** pass theme colours through `color` or `parts` with `scheme(...)`.
-- Each distinct SVG is parsed once, the first time it is drawn, and shared by every place that shows it, list rows too.
-
-**Moving parts (phase 2):**
 ```tsx
-<Gauge parts={{ needle: { rotate: angle(), animate: "spring" }, arc: { trimEnd: score() / 100, animate: 600 } }} />
-<Badge parts={{ tick: { trimEnd: 1, replay: paidCount(), animate: { trimEnd: { duration: 300, from: 0, delay: 450 } } } }} />
-<Svg viewBox="0 0 24 24" size={36}>
-  <Circle cx={12} cy={12} r={9} stroke={c.primary} fill="none" trimEnd={0.28}
-    rotate={360} animate={{ rotate: { duration: 900, easing: "linear", from: 0, repeat: "forever" } }} />
-</Svg>
+import { useTabs, type TabsHandle } from "@zero-native/core"
+import { Column, Tabs } from "@zero-native/ui"
+
+type HomeTab = "pay" | "stores" | "offers" | "rewards"
+
+export function HomeScreen() {
+  const tabs = useTabs("home")              // names typed from routes.ts
+  return (
+    <Column style={{ flex: 1 }}>
+      <Tabs selected={tabs.index()} style={{ flex: 1 }}>
+        <Column style={{ flex: 1 }}>{tabs.seen("pay") && <PayTab tabs={tabs} />}</Column>
+        <Column style={{ flex: 1 }}>{tabs.seen("stores") && <StoresTab tabs={tabs} />}</Column>
+        <Column style={{ flex: 1 }}>{tabs.seen("offers") && <OffersTab tabs={tabs} />}</Column>
+        <Column style={{ flex: 1 }}>{tabs.seen("rewards") && <RewardsTab tabs={tabs} />}</Column>
+      </Tabs>
+      <HomeBar tabs={tabs} />                {/* your bar: tabs.selected(), tabs.select("stores") */}
+    </Column>
+  )
+}
+function StoresTab(props: { tabs: TabsHandle<HomeTab> }) {
+  props.tabs.onFocus("stores", () => loadStores())   // RN: useFocusEffect in a tab screen
+  ...
+}
 ```
-- **Do** move parts with `rotate`, `scale`, `translateX` / `translateY` and the trims. A part turns and scales around its own centre.
-  **Know:** move and translate values are in the SVG's viewBox units, not dp. **Why:** the same SVG at 24 dp and 96 dp moves the same way.
-- **Do** "draw the line" with `trimEnd` from 0 to 1 (`trimStart` / `trimOffset` for a moving piece). **Know:** trims cut the fill too, and
-  a group's shapes count as one line, in the order they are drawn.
-- **Do** put `animate` in the part (static only), and `paused` / `replay` like on any element. On inline `<Svg>`, the same props go on the
-  element itself and make it a part.
-- **Don't** expect a downloaded animated `.svg` (SMIL `<animate>`, CSS `@keyframes`) to play: the build refuses it and says so.
-  Rebuild the motion with parts + `animate`.
-  **Update (S.14):** most of them now play as they are: `import Spinner from "./spinner.svg"`, then
-  `<Spinner size={24} color={c.primary} paused={done()} />`. 95 of 104 loaders from two popular sets work.
-  - **Do** add `fill="currentColor"` to the file's `<svg>` when `color` should tint it (most loader files have no fill).
-  - **Know:** `paused` / `replay` on the SVG reach the file's own motion. Its parts are named by the build; `parts` can still
-    change an element that has an `id` (colour, opacity), but not give it a second `animate`.
-  - **Know the limit:** filters, moving along a path, morphing `d`, stroke width or dash animation, a growing shape with a
-    stroke, and click triggers fail the build with a hint. **Why:** each of those would draw differently from the browser.
-  - **Know:** with "Remove animations" on, the file shows its own still state, which is sometimes empty (a loader whose
-    pieces start at opacity 0). Show a plain "Loading…" text next to it if that matters.
+A full example with a ZeroBill-like bar: [TabsLab.tsx](../examples/sample/src/TabsLab.tsx).
+
+**How it behaves.**
+- **Lazy:** a tab is built the first time it is shown. `tabs.seen(name)` turns true then and stays true, so the tab is
+  never built twice. `useTabs("home", { preload: true })` builds all of them at start (React Navigation's
+  `lazy: false`). It costs start time; measure before you use it.
+- **A tab you leave keeps its state.** Its signals and loaded data stay, and so does its scroll position. Native stops
+  drawing it, so data that arrives for a hidden tab costs no frames (React Navigation's `freezeOnBlur`).
+- **Back:** on a tab other than the first, Back goes to the first tab. On the first tab, Back works as usual. This also
+  works when the tabs screen is the only screen (after login, `nav.reset([{ name: "home" }])`).
+- **After Android kills the app**, the selected tab comes back. Only that tab is built then.
+- **Links:** with `deepLink: true`, a link to `<path>/<tab>` opens that tab (for the `"/"` route: `/stores`). If the tabs
+  screen is already open under other screens, the link goes back to it (the screens above close) and selects the tab,
+  like React Navigation's `navigate`. `onLink` is asked first, as for every link.
+- **Screens on top** (the Scan button opens the scanner, a row opens checkout) are pushed as usual. Back comes to the
+  same tab, with its scroll position.
+
+**Do / don't.**
+- **Do** guard each tab with `tabs.seen(name) &&`, in the route's order, one child of `<Tabs>` per tab. **Why:** `<Tabs>`
+  draws its child at `selected`; without the guard every tab is built at start.
+- **Do** pass `tabs` to the tab components that switch tabs or need focus. RN's `navigation.navigate("stores")` from a
+  tab becomes `props.tabs.select("stores")`.
+- **Do** refresh a tab's data in `tabs.onFocus(name, fn)`: it runs when the tab is selected while its screen is on top,
+  and when the screen comes back on top (back from checkout). Return a function to run when it loses focus.
+- **Do** refuse links in `onLink` while a payment is open. **Why:** a tab link closes the screens above the tabs.
+- **Don't** put a `NativeView` (a WebView, a camera view) in a tab that you switch away from often. **Why:** a hidden tab
+  is not drawn, so its native view is made again when you come back (a WebView reloads).
+- **Do** build a raised centre button (ZeroBill's Scan) as a `Stack` slot in a bar of fixed height. Put the label where
+  the other tabs' labels sit (an empty 24 dp box stands in for the icon), and place the button over it with
+  `position: "absolute", top: -25`. It still takes taps above the bar. **Don't** lift it with `transform: translateY`:
+  that only moves the drawing, so the bar stays as tall as the button and the label ends up higher than the others.
+  Example: `TabBar` in [TabsLab.tsx](../examples/sample/src/TabsLab.tsx).
+- **Know:** a tab's `useBack` runs before the tabs' own "go to the first tab". Use it to close a sheet in that tab.
+- **Know:** `restorableSignal` keys are per screen, and all tabs share them: prefix them with the tab name. The selected
+  tab uses the key `zn.tab`.
+- **Know:** `useImpressions` is still one per screen: call it in the tabs screen's body, not in a tab.
+- **Know:** a hidden tab still runs its code (timers, signals): only drawing stops. Stop polling in the cleanup of
+  `tabs.onFocus`.
+
+**Focus on a plain screen: `useFocus`.** `useFocus(fn)` runs `fn` when the screen opens on top, and again each time the
+screen above it closes (back from checkout: refresh the balance there). The function `fn` returns runs when the screen
+loses focus. Same as React Navigation's `useFocusEffect`. It is about the stack only: for the app coming back to the
+front, use `onAppState` (§29).

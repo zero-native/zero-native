@@ -55,6 +55,31 @@ describe("routes", () => {
     expect(err(`defineRoutes({ ${home}, a: { path: "/a", secure: 1, screen: HomeScreen } })`)).toContain("unsupported secure")
   })
 
+  test("tabs: names in order, only on routes that have them", () => {
+    const routes = read(`export const routes = defineRoutes({
+      home: { path: "/", screen: HomeScreen, tabs: ["pay", "stores", "offers"], deepLink: true },
+      amount: { path: "/pay/:merchantId", screen: Amount, tabs: ["pay", "stores"] },
+    })`)
+    expect(routes![0].tabs).toEqual(["pay", "stores", "offers"])
+    expect(routes![1].tabs).toEqual(["pay", "stores"])
+    expect(read(`defineRoutes({ home: { path: "/", screen: HomeScreen } })`)![0]).not.toHaveProperty("tabs")
+  })
+
+  test("tabs errors", () => {
+    const home = `home: { path: "/", screen: HomeScreen }`
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: Amount, tabs: ["one"] } })`)).toContain("at least two names")
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: Amount, tabs: "one" } })`)).toContain("at least two names")
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: Amount, tabs: ["x", "x"] } })`)).toContain('"x" is used twice')
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: Amount, tabs: ["x", "2y"] } })`)).toContain("must start with a letter")
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a", native: "x.y", tabs: ["p", "q"] } })`)).toContain("native screen can't have tabs")
+    expect(err(`defineRoutes({ ${home}, a: { path: "/a/:tab", screen: Amount, tabs: ["p", "q"] } })`)).toContain("can't have a :tab param")
+    // "/" with tab "offers" links to "/offers", which another route already uses
+    expect(err(`defineRoutes({ home: { path: "/", screen: HomeScreen, tabs: ["pay", "offers"] }, o: { path: "/offers", screen: Amount } })`))
+      .toContain('the link to its tab "/offers" is also the path of route "o"')
+    expect(err(`defineRoutes({ ${home}, h: { path: "/h/:id", screen: Amount, tabs: ["a", "b"] }, o: { path: "/h/:x/b", screen: Amount } })`))
+      .toContain('"/h/:/b" is also the path of route "o"')
+  })
+
   test("a file without defineRoutes", () => {
     expect(readRoutes(`export const x = 1`, "a.ts")).toBeNull()
   })

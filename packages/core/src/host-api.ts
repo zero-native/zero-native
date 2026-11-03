@@ -3,6 +3,7 @@
 // The build writes it into each bundle's requirements, so an OTA bundle never runs on an app whose native side is
 // older than the core it was built with (docs/ota.md §3.2). No side effects: the compiler imports this file.
 
-export const HOST_API_VERSION = 7 // 2: NAV FAILED, app event RETRY (step 3.9); 3: NAV STARTED (step 4.7); 4: NAV RESTORE,
+export const HOST_API_VERSION = 8 // 2: NAV FAILED, app event RETRY (step 3.9); 3: NAV STARTED (step 4.7); 4: NAV RESTORE,
 // START "values" (restorableSignal); 5: app event APP_STATE (H.7); 6: app events NAV_RESULT, TASK, COLOR_SCHEME, LOW_MEMORY;
-// 7: app events DEVICE, WINDOW, KEYBOARD (RN basics pack)
+// 7: app events DEVICE, WINDOW, KEYBOARD (RN basics pack); 8: tabs: NAV BACK_WANTED, route "tabs" in the manifest, a
+// link to the start route keeps its params
