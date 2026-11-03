@@ -24,6 +24,12 @@ android {
     }
 
     buildTypes {
+        // Debug also packs x86_64, so the sample runs on an emulator. Release stays arm64-only: size numbers are for phones.
+        debug {
+            ndk {
+                abiFilters += listOf("x86_64")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

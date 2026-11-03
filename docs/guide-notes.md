@@ -939,6 +939,16 @@ live reload, but it isn't tried from an outside app yet, and the host needs the 
 **Do** turn on R8 name changes in your release build when you are ready for it. **Why:** the sample turns them off to keep its traces
 readable, so an app is what tests them. They passed in the first outside app, launches and results included.
 
+**Emulator.** The runtime's debug build has x86_64 too (2026-11-03). To run your app on an x86_64 emulator, add it to the app's debug
+build only:
+```kotlin
+buildTypes { debug { ndk { abiFilters += listOf("x86_64") } } }
+```
+**Don't** add x86_64 to release. **Why:** release apps are for phones, which are arm64, and x86_64 would add 7–13 MB of native
+libraries to the APK (the sample's debug APK: 13 MB, ML Kit included). With a phone and an emulator both on adb, set `ANDROID_SERIAL` to pick one; the phone scripts (`tools/plugin-phone.ts`,
+`bun run ota:phone`) use it. **Know:** an emulator has no torch, a different dialer and no MediaTek DuraSpeed. A pass there doesn't replace
+the phone for camera, SMS, phone number hint, UPI apps or timing numbers.
+
 ## 35. Native screens, native views and files (P.3b)
 
 **A native screen** is a route drawn by a plugin. It sits in the normal back stack, so Back, transitions, safe areas and `restore`

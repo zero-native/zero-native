@@ -149,6 +149,16 @@ Parked ideas: `docs/after-foundations.md`.
   real focus changes are sent.
 - **Not on a real phone yet:** the Lava check (MediaTek keyboard heights, DuraSpeed, real vibration feel).
 
+### 2026-11-03: emulator support (x86_64, debug builds)
+- The runtime and the sample's **debug** builds also pack x86_64; release stays arm64-only. Hermes already shipped x86_64; the only
+  missing piece was `libjsi.so`, taken from the same `react-android:0.88.1` AAR (`core/third_party/jsi/README.md`). Guide §34.
+- **On the Android 13 x86_64 emulator (`Medium_Phone`):** the sample starts, and the no-hands phone suite passed 49 of 50. The one fail is
+  "scanner torch off on the full screen": the emulator's camera has no flash.
+- Test tools: `stopApp()` falls back to `am force-stop` when the `run-as` kill fails and the device has no DuraSpeed (the emulator's
+  Play image refuses that kill). The webview tel step presses Back until it is back in the app (Google's dialer needs two). The OTA matrix
+  accepts `ANDROID_SERIAL` when a phone and an emulator are both connected. The two changed steps were re-run on the Lava and pass.
+- Not run on the emulator: the hands steps and the OTA matrix.
+
 ### 2026-11-03: P.3b–P.6 done, the rest of the framework plugins (Claude; plugins by three Opus agents, reviewed)
 - **Core:** native screens (`native:` routes, `nav.pushForResult`, `onNavResult`), `<NativeView>` (registry 9), `zn://file`, background
   JS tasks (`defineTask`, `ZnBackground.run`), secure screens, dark mode, low memory, right to left. Host API 6. Guide §35–37.

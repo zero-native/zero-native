@@ -1,6 +1,6 @@
 // Phone steps for the auth plugin (examples/sample/src/AuthLab.tsx). The phone needs Play services and a SIM with a number.
 // Steps with hands: one needs a tap in Google's sheet, and the SMS ones need a second phone to send the text the script prints.
-// (An emulator can't stand in: the sample is arm64 only, and the x86_64 images can't run it.)
+// (The debug sample runs on an x86_64 emulator, but the hint needs a SIM number and the SMS steps a real text: use the phone.)
 import { check, CLEAR_TASK, clearLog, expectLog, killInBackground, lines, ok, openFresh, pid, PKG, see, shell, sleep, stopApp, tap, texts, type Step } from "./helpers"
 
 const lab = () => openFresh("dev/auth", "Open hint")

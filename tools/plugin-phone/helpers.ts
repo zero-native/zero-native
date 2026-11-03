@@ -72,13 +72,20 @@ export const clearLog = () => adb("logcat", "-c")
  * Ends the app's process. Not `am force-stop`: on MediaTek phones that puts the app on DuraSpeed's suppress list, and then
  * no WebView page loads (docs/second-opinions.md entry 36). A kill -9 (run-as, debug builds) is what low memory does, and
  * the OTA health check ignores it. Start again with [CLEAR_TASK] for a fresh start: the old task may still be there.
+ * On the emulator (Play image) the run-as kill fails ("unknown pid"). It has no DuraSpeed, so there a force-stop is safe.
  */
 export async function stopApp() {
   const p = pid()
   if (!p) return
   shell("run-as", PKG, "kill", "-9", p)
   for (let i = 0; i < 30 && pid() === p; i++) await sleep(100)
+  if (pid() === p && !hasDuraSpeed()) {
+    shell("am", "force-stop", PKG)
+    for (let i = 0; i < 30 && pid() === p; i++) await sleep(100)
+  }
 }
+let duraSpeed: boolean | undefined
+const hasDuraSpeed = () => (duraSpeed ??= shell("service", "check", "duraspeed").includes(": found"))
 /** `am start -f`: FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK, so no screen of an old task comes back. */
 export const CLEAR_TASK = "0x10008000"
 

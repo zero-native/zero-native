@@ -1055,7 +1055,11 @@ async function main() {
   restoreBackup(true)
 
   const devices = adb("devices").split(/\r?\n/).slice(1).filter((l) => /\tdevice$/.test(l))
-  if (devices.length !== 1) throw new Error(`need exactly one phone on adb, found ${devices.length}`)
+  // ANDROID_SERIAL (adb's own variable) picks one device when a phone and an emulator are both connected.
+  const serial = process.env.ANDROID_SERIAL
+  if (serial ? !devices.some((l) => l.startsWith(`${serial}\t`)) : devices.length !== 1) {
+    throw new Error(serial ? `ANDROID_SERIAL=${serial} is not on adb` : `need exactly one phone on adb, found ${devices.length} (set ANDROID_SERIAL)`)
+  }
   shell("input", "keyevent", "KEYCODE_WAKEUP")
   if (/mDreamingLockscreen=true|mShowingLockscreen=true/.test(shell("dumpsys", "window"))) {
     throw new Error("the phone is locked: unlock it and run again")

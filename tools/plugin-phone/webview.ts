@@ -114,7 +114,11 @@ export const steps: Step[] = [
       tapPage()
       ok("asked the app", await expectLog(/webview-lab link out: tel gesture=true/))
       ok("left", await otherApp())
-      back()
+      // Google's dialer (emulator) takes two Backs: the first only closes its keypad.
+      for (let i = 0; i < 3 && !inApp(); i++) {
+        back()
+        await sleep(700)
+      }
       await see("Load inline")
       await sleep(1000) // the gap between two links out
       await tap("Go upi")
