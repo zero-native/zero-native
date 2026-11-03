@@ -63,7 +63,7 @@ object ZnTemplates {
 
     /** Debug builds (`zn dev`): reads and prepares a bundle sent by the dev server. Any thread. */
     internal fun prepare(name: String, templates: ByteArray, manifest: String): ZnBundle =
-        readManifest(name, manifest, TemplateReader.read(ByteBuffer.wrap(templates)).templates.map(::ZnTemplate))
+        readManifest(name, manifest, templatesOf(TemplateReader.read(ByteBuffer.wrap(templates))))
 
     /**
      * Reads and prepares template file [asset] of bundle [r] (any thread but main). [file]: the file already read
@@ -71,7 +71,13 @@ object ZnTemplates {
      */
     internal fun load(asset: String, r: ZnBundles.Running, file: TemplateFile? = null): ZnBundle {
         val f = file ?: TemplateReader.read(checkNotNull(ZnBundles.map(asset, r)) { "bundle $r has no $asset" })
-        return readManifest("$asset.json", f.templates.map(::ZnTemplate), r)
+        return readManifest("$asset.json", templatesOf(f), r)
+    }
+
+    /** The file's templates, sharing one SVG cache: it lives as long as the bundle that holds them (ZnSvg.kt). */
+    private fun templatesOf(f: TemplateFile): List<ZnTemplate> {
+        val svgs = ZnSvgCache()
+        return f.templates.map { ZnTemplate(it, svgs) }
     }
 
     /** The template files loaded or loading (main thread): an update applied while the app runs reloads each. */

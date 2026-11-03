@@ -285,6 +285,8 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
                 },
             )
         }
+        Registry.Component.SVG -> ZnSvg(t, s, inst, mod)
+        Registry.Component.SVG_PART -> Unit // read by its <Svg> (ZnSvg.kt), never drawn on its own
         else -> Box(modifier = mod)
     }
 }

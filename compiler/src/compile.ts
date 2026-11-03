@@ -13,6 +13,7 @@
 //     object become slots like any prop
 //   - children: elements, `{cond && <X/>}`, `{cond ? <A/> : <B/>}`, `{list.map(item => <Row key={...}/>)}`;
 //     inside <Text>: literal text and `{expressions}`
+import { dirname, resolve as resolvePath } from "node:path"
 import ts from "typescript"
 import {
   Component,
@@ -32,6 +33,8 @@ import {
 import { fold, NOT_STATIC, type FoldScope } from "./fold"
 import { NATIVE_NAME } from "./routes"
 import { assemble, type LineMap, markCopied } from "./sourcemap"
+import { type CompiledSvg, compileSvgFile, compileSvgTree } from "./svg"
+import type { SvgAttr, SvgNode } from "./svg-xml"
 
 export interface CompileContext {
   /** Reserves the next template id (its index in the app's .zn.ui file). Parents reserve before their branches. */
@@ -45,6 +48,8 @@ export interface CompileContext {
   ref?(id: number): string
   /** A <NativeView> names [name]; [where] is its place in the source. The app build checks its plugin once all files are read. */
   nativeView?(name: string, where: string): void
+  /** Compiles the .svg file at [path] (absolute). Default: read it from disk (svg.ts, cached). */
+  svg?(path: string): CompiledSvg
 }
 
 export interface CompileOutput {
@@ -63,11 +68,35 @@ type JsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment
 // Animation (step 3.6): what `animate` can name, and the easings a tween can use (index = native easing id).
 const ANIMATABLE = ["opacity", "backgroundColor", "scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"]
 const EASINGS = ["standard", "ease-out", "ease-in", "linear"]
+
+// SVG (docs/svg.md): react-native-svg element names inside <Svg> → SVG tags.
+const SVG_TAGS: Record<string, string> = {
+  G: "g", Path: "path", Rect: "rect", Circle: "circle", Ellipse: "ellipse", Line: "line", Polyline: "polyline",
+  Polygon: "polygon", Defs: "defs", LinearGradient: "linearGradient", RadialGradient: "radialGradient", Stop: "stop",
+  ClipPath: "clipPath", Mask: "mask", Use: "use", Symbol: "symbol",
+  // Refused by the SVG compiler with a hint; named here so the message is about SVG, not about zn's own Text / Image.
+  Text: "text", TSpan: "tspan", TextPath: "textPath", Image: "image", Pattern: "pattern",
+}
+/** SVG attributes that are camelCase in SVG itself; every other camelCase prop becomes kebab-case (strokeWidth). */
+const SVG_CAMEL = new Set([
+  "viewBox", "gradientUnits", "gradientTransform", "spreadMethod", "clipPathUnits", "preserveAspectRatio", "maskUnits",
+  "maskContentUnits", "patternUnits", "patternContentUnits", "patternTransform",
+])
+/** What a part (and an inline element's runtime value) can set at runtime. */
+const PART_PROPS = ["fill", "stroke", "opacity"] as const
+/** Props of the Svg node itself (`.svg` component or inline <Svg>), besides style and the SVG content. */
+const SVG_NODE_PROPS = ["color", "autoMirror", "accessibilityLabel", "accessibilityHint", "accessibilityHidden", "accessibilityRole"]
+
+/**
+ * [svgImports]: local names that are .svg files (absolute path), imported directly or through a `.ts` file that
+ * re-exports them (plugin.ts finds both). `<Name .../>` becomes an Svg node; the name is not a JS value.
+ */
 export function compileModule(
   source: string,
   fileName: string,
   ctx: CompileContext,
   staticImports: Map<string, unknown> = new Map(),
+  svgImports: Map<string, string> = new Map(),
 ): CompileOutput {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const ref = (id: number) => ctx.ref?.(id) ?? String(id)
@@ -90,11 +119,29 @@ export function compileModule(
     return markCopied(node.getStart(sf), source.slice(node.getStart(sf), node.getEnd()))
   }
 
+  const uiImports = new Set<string>()
   // ---- Module scan --------------------------------------------------------------------------------------------
   for (const stmt of sf.statements) {
     if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
+      const clause = stmt.importClause
+      const namedSvgOnly =
+        !clause?.name &&
+        !!clause?.namedBindings &&
+        ts.isNamedImports(clause.namedBindings) &&
+        clause.namedBindings.elements.length > 0 &&
+        clause.namedBindings.elements.every((e) => svgImports.has(e.name.text))
       if (stmt.moduleSpecifier.text === UI_MODULE) {
         // Intrinsic components are only imported for types; the compiler handles them.
+        edits.push({ start: stmt.getStart(sf), end: stmt.getEnd(), text: "" })
+        const named = clause?.namedBindings
+        if (named && ts.isNamedImports(named)) for (const e of named.elements) uiImports.add(e.name.text)
+      } else if (stmt.moduleSpecifier.text.endsWith(".svg") || namedSvgOnly) {
+        // SVG files are compiled into the templates; nothing of them is left in the JS (docs/svg.md §4.1).
+        if (stmt.moduleSpecifier.text.endsWith(".svg")) {
+          if (!clause?.name || clause.namedBindings) fail(stmt, 'import an .svg file as a default import: import Logo from "./logo.svg"')
+          if (!stmt.moduleSpecifier.text.startsWith(".")) fail(stmt.moduleSpecifier, "import .svg files by a relative path (./icons/check.svg)")
+          svgImports.set(clause!.name!.text, resolvePath(dirname(fileName), stmt.moduleSpecifier.text))
+        }
         edits.push({ start: stmt.getStart(sf), end: stmt.getEnd(), text: "" })
       } else {
         const named = stmt.importClause?.namedBindings
@@ -120,8 +167,21 @@ export function compileModule(
       }
     }
   }
+  for (const name of svgImports.keys()) userComponents.delete(name)
   // Intrinsics are registry names that aren't shadowed by a user component of the same name.
   const isIntrinsic = (tag: string) => tag in Component && tag !== "Anchor" && !userComponents.has(tag)
+  const isSvgFile = (tag: string) => svgImports.has(tag)
+  /** An SVG element name (Path, Circle, ...) imported from @zero-native/ui: only valid inside <Svg>. */
+  const isSvgChild = (tag: string) => tag in SVG_TAGS && !(tag in Component) && uiImports.has(tag) && !userComponents.has(tag)
+
+  // An imported SVG is a build-time name: only `<Name ... />` is allowed (docs/svg.md §4.1).
+  forEachDescendant(sf, (n) => {
+    if (!ts.isIdentifier(n) || !svgImports.has(n.text)) return
+    const p = n.parent
+    if (ts.isImportClause(p) || ts.isImportSpecifier(p)) return
+    if ((ts.isJsxOpeningElement(p) || ts.isJsxSelfClosingElement(p) || ts.isJsxClosingElement(p)) && p.tagName === n) return
+    fail(n, `${n.text} is an SVG file, which is compiled at build time: use it as JSX (<${n.text} />, or icon={<${n.text} />}), not as a value`)
+  })
 
   // ---- Components ---------------------------------------------------------------------------------------------
   for (const { name, fn } of candidates) {
@@ -173,7 +233,8 @@ export function compileModule(
   function compileRoot(jsx: JsxNode, depth = 0, allowKey = false): { code: string; templateId: number | null } {
     if (!ts.isJsxFragment(jsx)) {
       const tag = tagName(jsx)
-      if (!isIntrinsic(tag)) return { code: `${tag}(${propsObject(jsx, depth)})`, templateId: null }
+      if (isSvgChild(tag)) fail(jsx, `<${tag}> is an SVG element: it only works inside <Svg>`)
+      if (!isIntrinsic(tag) && !isSvgFile(tag)) return { code: `${tag}(${propsObject(jsx, depth)})`, templateId: null }
     }
     return compileTemplate(jsx, depth, (b) => element(jsx, b, allowKey))
   }
@@ -231,8 +292,11 @@ export function compileModule(
     }
     const node = jsx
     const tag = tagName(node)
+    if (isSvgFile(tag)) return svgFileElement(node, b, allowKey)
     if (!isIntrinsic(tag)) fail(node, `"${tag}" is not a zero-native component`)
     if (tag === "Fragment") fail(node, "write a fragment as <>...</>")
+    if (tag === "Svg") return inlineSvgElement(node, b, allowKey)
+    if (tag === "SvgPart") fail(node, "<SvgPart> is made by the compiler: use parts={{ id: { fill } }} on the SVG")
     if (tag === "List") return listElement(node, b)
     if (tag === "NativeView") return nativeViewElement(node, b, allowKey)
     b.nodes++
@@ -363,6 +427,233 @@ export function compileModule(
     return el("NativeView", props)
   }
 
+  // ---- SVG (docs/svg.md) ------------------------------------------------------------------------------------------
+
+  /** Where [node] is, as "file:line:col" (for SVG errors, which carry their own position). */
+  function whereIs(node: ts.Node): string {
+    const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+    return `${fileName}:${line + 1}:${character + 1}`
+  }
+
+  /** Runs the SVG compiler; its errors already say where (the .svg file, or the TSX for inline SVG). */
+  function svgCompile(run: () => CompiledSvg, node: ts.Node): CompiledSvg {
+    try {
+      return run()
+    } catch (e) {
+      const msg = (e as Error).message
+      // An error inside an .svg file: also say which TSX element uses it.
+      throw new Error(msg.startsWith(fileName) ? msg : `${msg}\n  (used at ${whereIs(node)})`)
+    }
+  }
+
+  /**
+   * The Svg node's own props that aren't SVG content: style, size (→ width and height), color (currentColor),
+   * autoMirror, accessibility. Returns false for any other prop, so the caller decides.
+   */
+  function svgNodeProp(name: string, a: ts.JsxAttribute, props: NodeProps & Record<string, unknown>, b: Builder, allowKey: boolean): boolean {
+    const init = a.initializer
+    const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
+    if (name === "key") {
+      if (!allowKey) fail(a, "`key` is only used on the root element of a `.map(...)` row")
+      return true
+    }
+    if (name === "style") {
+      if (!expr) fail(a, "style needs an object: style={{ ... }}")
+      styleProps(expr!, props, b)
+      return true
+    }
+    if (name === "size" || name === "width" || name === "height") {
+      const v = !init ? NOT_STATIC : ts.isStringLiteral(init) ? Number(init.text) : expr ? fold(expr, scope) : NOT_STATIC
+      if (typeof v !== "number" || !(v > 0)) fail(a, `${name} must be a positive number of dp known at build time (it sets the SVG's size)`)
+      if (name !== "height") props.width = v as number
+      if (name !== "width") props.height = v as number
+      return true
+    }
+    if (!SVG_NODE_PROPS.includes(name)) return false
+    if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
+    else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
+    else if (expr) setProp(props, b, name as PropName, expr, a)
+    else fail(a, `unsupported value for "${name}"`)
+    return true
+  }
+
+  /** Default size, and the rules every Svg node shares. */
+  function svgNode(node: ts.Node, svg: CompiledSvg, props: NodeProps & Record<string, unknown>, parts: NodeSpec[], b: Builder): NodeSpec {
+    if ("color" in props && !svg.usesCurrentColor) {
+      fail(node, 'color sets currentColor, but this SVG has none: add fill="currentColor" where the colour should change, or use parts')
+    }
+    const hasW = props.width !== undefined
+    const hasH = props.height !== undefined
+    if (!hasW && !hasH) {
+      props.width = svg.width
+      props.height = svg.height
+    } else if (hasW !== hasH && props.aspectRatio === undefined) {
+      props.aspectRatio = svg.width / svg.height
+    }
+    props.svg = svg.data
+    b.nodes += parts.length // SvgPart children, in tree order right after the Svg node
+    return el("Svg", props, ...parts)
+  }
+
+  /** `<Logo size={24} color={c.ink} parts={{ ring: { fill: brand() } }} />` for `import Logo from "./logo.svg"`. */
+  function svgFileElement(node: ts.JsxElement | ts.JsxSelfClosingElement, b: Builder, allowKey: boolean): NodeSpec {
+    const tag = tagName(node)
+    if (ts.isJsxElement(node) && node.children.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) {
+      fail(node, `<${tag}> (an SVG file) takes no children`)
+    }
+    const path = svgImports.get(tag)!
+    const svg = svgCompile(() => (ctx.svg ? ctx.svg(path) : compileSvgFile(path)), node)
+    b.nodes++
+    const props: NodeProps & Record<string, unknown> = {}
+    const parts: NodeSpec[] = []
+    for (const attr of (ts.isJsxElement(node) ? node.openingElement : node).attributes.properties) {
+      if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
+      const a = attr as ts.JsxAttribute
+      const name = a.name.getText(sf)
+      if (svgNodeProp(name, a, props, b, allowKey)) continue
+      if (name !== "parts") {
+        fail(a, `unknown prop "${name}" on <${tag}> (an SVG: use size, style, color, parts, autoMirror, accessibilityLabel)`)
+      }
+      const expr = a.initializer && ts.isJsxExpression(a.initializer) ? a.initializer.expression : undefined
+      if (!expr || !ts.isObjectLiteralExpression(unwrap(expr))) fail(a, "parts needs an object: parts={{ ring: { fill: c.brand } }}")
+      for (const p of (unwrap(expr!) as ts.ObjectLiteralExpression).properties) {
+        if (!ts.isPropertyAssignment(p)) fail(p, "write each part as name: { fill, stroke, opacity }")
+        const pa = p as ts.PropertyAssignment
+        const id = pa.name.getText(sf).replace(/^["']|["']$/g, "")
+        const index = svg.parts.get(id)
+        if (index === undefined) {
+          const known = [...svg.parts.keys()]
+          fail(pa.name, `${tag} has no part "${id}" (${known.length > 0 ? `its parts: ${known.join(", ")}` : "it has no elements with an id"})`)
+        }
+        const value = unwrap(pa.initializer)
+        if (!ts.isObjectLiteralExpression(value)) fail(pa.initializer, `part "${id}" needs an object: { fill, stroke, opacity }`)
+        const partProps: NodeProps & Record<string, unknown> = { part: index }
+        for (const q of (value as ts.ObjectLiteralExpression).properties) {
+          if (!ts.isPropertyAssignment(q)) fail(q, "write part values as fill: ..., opacity: ...")
+          const k = (q as ts.PropertyAssignment).name.getText(sf)
+          if (!(PART_PROPS as readonly string[]).includes(k)) fail(q, `a part can set ${PART_PROPS.join(", ")} (phase 2 adds transforms), not "${k}"`)
+          setProp(partProps, b, k as PropName, (q as ts.PropertyAssignment).initializer, q)
+        }
+        parts.push(el("SvgPart", partProps))
+      }
+    }
+    return svgNode(node, svg, props, parts, b)
+  }
+
+  /**
+   * Inline `<Svg viewBox="..."><Path d="..." fill={...} /></Svg>` with react-native-svg's names. The whole subtree
+   * becomes one Svg node: the SVG compiler gets the same tree a .svg file gives. An element whose fill, stroke or
+   * opacity changes at runtime becomes a part (with an id of its own if it has none).
+   */
+  function inlineSvgElement(node: ts.JsxElement | ts.JsxSelfClosingElement, b: Builder, allowKey: boolean): NodeSpec {
+    b.nodes++
+    const props: NodeProps & Record<string, unknown> = {}
+    const runtime: Array<{ id: string; prop: string; expr: ts.Expression; at: ts.Node }> = []
+    let auto = 0
+
+    const convert = (jsx: ts.JsxElement | ts.JsxSelfClosingElement, local: FoldScope, inRow: boolean, isRoot: boolean): SvgNode => {
+      const opening = ts.isJsxElement(jsx) ? jsx.openingElement : jsx
+      const jsxTag = tagName(jsx)
+      const tag = isRoot ? "svg" : SVG_TAGS[jsxTag]
+      if (!tag) fail(jsx, jsxTag === "Svg" ? "a nested <Svg> isn't supported: use a <G>" : `<${jsxTag}> can't be inside <Svg> (use ${Object.keys(SVG_TAGS).slice(0, 16).join(", ")})`)
+      const n: SvgNode = { tag: tag!, attrs: new Map(), children: [], text: "", at: whereIs(jsx) }
+      const dynamic: Array<{ prop: string; expr: ts.Expression; at: ts.Node }> = []
+      for (const attr of opening.attributes.properties) {
+        if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
+        const a = attr as ts.JsxAttribute
+        const name = a.name.getText(sf)
+        if (isRoot && svgNodeProp(name, a, props, b, allowKey)) continue
+        if (name === "key" && inRow) continue
+        const svgName = name === "xlinkHref" ? "xlink:href" : SVG_CAMEL.has(name) ? name : name.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())
+        const init = a.initializer
+        let v: unknown = NOT_STATIC
+        if (!init) fail(a, `"${name}" needs a value`)
+        else if (ts.isStringLiteral(init)) v = init.text
+        else if (ts.isJsxExpression(init) && init.expression) v = fold(init.expression, local)
+        if (v === NOT_STATIC) {
+          const expr = ts.isJsxExpression(init!) ? init.expression : undefined
+          if (!expr || !(PART_PROPS as readonly string[]).includes(svgName)) {
+            fail(a, `SVG "${name}" must be known at build time; only ${PART_PROPS.join(", ")} can change at runtime ` +
+              "(geometry is fixed: move it with a part transform in phase 2, or choose between two shapes with a ternary)")
+          }
+          if (inRow) fail(a, "inside a build-time .map(...) in <Svg>, values must be known at build time")
+          dynamic.push({ prop: svgName, expr: expr!, at: a })
+          // A stand-in the SVG compiler can work with: drawn until JS sets the value (transparent / fully opaque).
+          v = svgName === "opacity" ? "1" : "#00000000"
+        }
+        const text =
+          typeof v === "number" ? String(v)
+          : typeof v === "string" ? v
+          : Array.isArray(v) && v.every((x) => typeof x === "number") ? v.join(" ")
+          : fail(a, `SVG "${name}" needs a string or a number`)
+        n.attrs.set(svgName, { value: text as string, at: whereIs(a) } satisfies SvgAttr)
+      }
+      if (dynamic.length > 0) {
+        let id = n.attrs.get("id")?.value
+        if (id === undefined) {
+          id = `__zn${auto++}`
+          n.attrs.set("id", { value: id, at: n.at })
+        }
+        for (const d of dynamic) runtime.push({ id, ...d })
+      }
+      for (const child of ts.isJsxElement(jsx) ? jsx.children : []) {
+        if (ts.isJsxText(child)) {
+          if (child.text.trim() !== "") fail(child, "text inside <Svg> isn't supported (SVG text isn't either): put a <Text> over the SVG in a <Stack>")
+        } else if (ts.isJsxExpression(child)) {
+          if (!child.expression) continue
+          const e = unwrap(child.expression)
+          if (isJsx(e) && !ts.isJsxFragment(e)) {
+            n.children.push(convert(e as ts.JsxElement, local, inRow, false))
+            continue
+          }
+          // {ITEMS.map((it, i) => <Circle .../>)} over an array known at build time: expanded here.
+          if (
+            ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression) && e.expression.name.text === "map" &&
+            e.arguments.length === 1 && (ts.isArrowFunction(e.arguments[0]!) || ts.isFunctionExpression(e.arguments[0]!))
+          ) {
+            const list = fold(e.expression.expression, local)
+            if (!Array.isArray(list)) fail(e, "inside <Svg>, .map(...) works only over an array known at build time (a module const)")
+            const fn = e.arguments[0] as ts.ArrowFunction
+            const names = fn.parameters.map((p) => (ts.isIdentifier(p.name) ? p.name.text : fail(p, "use plain parameter names in .map")))
+            const body = ts.isBlock(fn.body)
+              ? (fn.body.statements.length === 1 && ts.isReturnStatement(fn.body.statements[0]!) ? fn.body.statements[0].expression : undefined)
+              : fn.body
+            const row = body && unwrap(body)
+            if (!row || !isJsx(row) || ts.isJsxFragment(row)) fail(fn, "a .map row inside <Svg> must return one SVG element")
+            ;(list as unknown[]).forEach((item, i) => {
+              const statics = new Map(local.staticImports)
+              if (names[0]) statics.set(names[0], item)
+              if (names[1]) statics.set(names[1], i)
+              n.children.push(convert(row as ts.JsxElement, { consts: local.consts, staticImports: statics }, true, false))
+            })
+            continue
+          }
+          fail(child, "inside <Svg>, only SVG elements and build-time .map(...) are allowed; to hide an element, set its opacity")
+        } else if (ts.isJsxFragment(child)) {
+          fail(child, "fragments aren't supported inside <Svg>: use a <G>")
+        } else {
+          n.children.push(convert(child as ts.JsxElement, local, inRow, false))
+        }
+      }
+      return n
+    }
+
+    const root = convert(node, scope, false, true)
+    const svg = svgCompile(() => compileSvgTree(root), node)
+    const byId = new Map<string, NodeProps & Record<string, unknown>>()
+    for (const r of runtime) {
+      let partProps = byId.get(r.id)
+      if (!partProps) {
+        const index = svg.parts.get(r.id)
+        if (index === undefined) fail(r.at, "this element draws nothing, so its value can't change at runtime")
+        partProps = { part: index }
+        byId.set(r.id, partProps)
+      }
+      setProp(partProps, b, r.prop as PropName, r.expr, r.at)
+    }
+    return svgNode(node, svg, props, [...byId.values()].map((p) => el("SvgPart", p)), b)
+  }
+
   /** The children of an element (or fragment), in order. Fragments inside are flattened: they add no node. */
   function childList(kids: ts.NodeArray<ts.JsxChild>, b: Builder): NodeSpec[] {
     const children: NodeSpec[] = []
@@ -384,7 +675,8 @@ export function compileModule(
   function childElement(node: JsxNode, b: Builder): NodeSpec[] {
     if (ts.isJsxFragment(node)) return childList(node.children, b)
     const tag = tagName(node)
-    if (isIntrinsic(tag)) return [element(node, b)]
+    if (isSvgChild(tag)) fail(node, `<${tag}> is an SVG element: it only works inside <Svg>`)
+    if (isIntrinsic(tag) || isSvgFile(tag)) return [element(node, b)]
     // A user component: an anchor where its instance mounts.
     const index = b.nodes++
     b.kids.push(`${RUNTIME}.component(${b.inst}, ${index}, ${tag}, ${propsObject(node, b.depth + 1)});`)

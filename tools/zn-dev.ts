@@ -199,7 +199,7 @@ await rebuild("start")
 let timer: ReturnType<typeof setTimeout> | null = null
 let changed = ""
 const onChange = (dir: string) => (_event: string, file: string | null) => {
-  if (!file || file.includes("node_modules") || !/\.(tsx?|json)$/.test(file)) return
+  if (!file || file.includes("node_modules") || !/\.(tsx?|json|svg)$/.test(file)) return
   changed = relative(root, join(dir, file)).replaceAll("\\", "/")
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => void rebuild(changed), 30)

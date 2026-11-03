@@ -1,3 +1,4 @@
+/// <reference path="./svg-modules.d.ts" />
 // Types for the intrinsic components, for editors and type checking only. The compiler removes imports of this module
 // and turns these elements into templates (compiler/src/compile.ts); none of this runs.
 type Color = string
@@ -225,6 +226,100 @@ export declare const NativeView: Intrinsic<
     onEvent?: (e: { name: string; data: any }) => void
   }
 >
+// ---- SVG (docs/svg.md) -------------------------------------------------------------------------------------------
+
+/** What a part of an SVG can change: the paint of every shape inside it, and its opacity as a whole. */
+export interface SvgPartProps {
+  fill?: Color
+  stroke?: Color
+  opacity?: number
+}
+
+/** Props of an Svg node: the whole SVG as one element. */
+interface SvgNodeProps extends Base {
+  /** Width and height in dp (build time). Without any size, the SVG's own width / height (or viewBox) is used. */
+  size?: number
+  /** The value of currentColor inside the SVG (may change at runtime). The build fails if the SVG has none. */
+  color?: Color
+  /** Flip left to right when the screen is right to left (back arrows, chevrons). */
+  autoMirror?: boolean
+}
+
+/**
+ * An .svg file imported as a component: `import Logo from "./logo.svg"`, then `<Logo size={24} color={c.ink} />`.
+ * Compiled at build time, so it is only valid as JSX (`icon={<Logo />}`), never as a value.
+ */
+export type SvgFile = Intrinsic<
+  SvgNodeProps & {
+    /** Change elements by their id: `parts={{ ring: { fill: brand() } }}`. Unknown ids fail the build. */
+    parts?: Record<string, SvgPartProps>
+  }
+>
+
+type SvgNumber = number | string
+/** SVG presentation attributes, as react-native-svg names them. */
+interface SvgPaintProps {
+  id?: string
+  fill?: Color
+  fillOpacity?: SvgNumber
+  fillRule?: "nonzero" | "evenodd"
+  stroke?: Color
+  strokeWidth?: SvgNumber
+  strokeOpacity?: SvgNumber
+  strokeLinecap?: "butt" | "round" | "square"
+  strokeLinejoin?: "miter" | "round" | "bevel"
+  strokeMiterlimit?: SvgNumber
+  strokeDasharray?: string | readonly number[]
+  strokeDashoffset?: SvgNumber
+  opacity?: SvgNumber
+  clipPath?: string
+  clipRule?: "nonzero" | "evenodd"
+  mask?: string
+  transform?: string
+  color?: Color
+  display?: "none" | "inline"
+  visibility?: "visible" | "hidden"
+  key?: string | number
+  children?: unknown
+}
+
+/** Inline SVG (react-native-svg's shape). The whole subtree is compiled at build time into one element. */
+export declare const Svg: Intrinsic<
+  SvgNodeProps &
+    Omit<SvgPaintProps, "color" | "key"> & {
+      viewBox?: string
+      preserveAspectRatio?: string
+      width?: number
+      height?: number
+      children?: unknown
+    }
+>
+export declare const G: Intrinsic<SvgPaintProps>
+export declare const Path: Intrinsic<SvgPaintProps & { d: string }>
+export declare const Rect: Intrinsic<
+  SvgPaintProps & { x?: SvgNumber; y?: SvgNumber; width: SvgNumber; height: SvgNumber; rx?: SvgNumber; ry?: SvgNumber }
+>
+export declare const Circle: Intrinsic<SvgPaintProps & { cx?: SvgNumber; cy?: SvgNumber; r: SvgNumber }>
+export declare const Ellipse: Intrinsic<SvgPaintProps & { cx?: SvgNumber; cy?: SvgNumber; rx: SvgNumber; ry: SvgNumber }>
+export declare const Line: Intrinsic<SvgPaintProps & { x1?: SvgNumber; y1?: SvgNumber; x2?: SvgNumber; y2?: SvgNumber }>
+export declare const Polyline: Intrinsic<SvgPaintProps & { points: string | readonly number[] }>
+export declare const Polygon: Intrinsic<SvgPaintProps & { points: string | readonly number[] }>
+export declare const Defs: Intrinsic<{ children?: unknown }>
+interface GradientProps {
+  id: string
+  gradientUnits?: "objectBoundingBox" | "userSpaceOnUse"
+  gradientTransform?: string
+  spreadMethod?: "pad" | "reflect" | "repeat"
+  href?: string
+  children?: unknown
+}
+export declare const LinearGradient: Intrinsic<GradientProps & { x1?: SvgNumber; y1?: SvgNumber; x2?: SvgNumber; y2?: SvgNumber }>
+export declare const RadialGradient: Intrinsic<GradientProps & { cx?: SvgNumber; cy?: SvgNumber; r?: SvgNumber }>
+export declare const Stop: Intrinsic<{ offset: SvgNumber; stopColor?: Color; stopOpacity?: SvgNumber; key?: string | number }>
+export declare const ClipPath: Intrinsic<{ id: string; clipPathUnits?: "objectBoundingBox" | "userSpaceOnUse"; children?: unknown }>
+export declare const Mask: Intrinsic<{ id: string; maskContentUnits?: "objectBoundingBox" | "userSpaceOnUse"; children?: unknown }>
+export declare const Use: Intrinsic<SvgPaintProps & { href: string; x?: SvgNumber; y?: SvgNumber }>
+
 /**
  * An endless circular loading spinner drawn natively in the draw phase (0 recompositions).
  */

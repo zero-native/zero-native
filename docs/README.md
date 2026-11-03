@@ -30,6 +30,7 @@ until it is proven.
 | `lists.md` | `<For>` vs `<List>`, the window protocol, placeholders, the fast template interpreter, native data source (v1.1) |
 | `native-modules.md` | calling native code from JS and back (RN TurboModules / Flutter channels equivalent): typed modules, events, cancellation, binary data built; built-in modules moved to `plugins.md` |
 | `plugins.md` | **proposal (2026-10-31):** how plugins (native modules + native views + native screens) are written and shipped, official plugins, core plumbing (permissions, results from other apps), decisions D1–D7, steps P.1–P.6 |
+| `svg.md` | **phase 1 built (2026-11-03), phase 2 planned:** first-class SVG: `.svg` imports, inline `<Svg>`, parts, the supported subset, build-time draw data, phase 2 animation |
 | `components.md` | reference for the small components (Switch, Checkbox, Spinner / Progress, Toast, image fallback) and accessibility props from steps 3.7–3.8 |
 | `startup-and-performance.md` | startup rules and budget, how to measure, every number measured so far |
 | `platform-differences.md` | known differences between Android, iOS and React Native semantics |

@@ -197,6 +197,13 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val src: String? = p[Registry.Prop.SRC] as String?
     val contentScale = enum(Registry.Prop.CONTENT_SCALE)
     val icon: ZnIcon? = (p[Registry.Prop.ICON] as String?)?.let(ZnIcon::parse)
+    // Svg and SvgPart (docs/svg.md §7). The draw data stays a string here: it is parsed on first draw (ZnSvg.kt).
+    val svg: String? = p[Registry.Prop.SVG] as String?
+    val autoMirror = p[Registry.Prop.AUTO_MIRROR] == true
+    /** SvgPart: the index of the op it changes (G and S ops, counted from 0), or -1. */
+    val part = num(Registry.Prop.PART)?.toInt() ?: NONE
+    val fill: Color? = color(Registry.Prop.FILL)
+    val stroke: Color? = color(Registry.Prop.STROKE)
 
     // Pressable
     val disabled = p[Registry.Prop.DISABLED] == true
@@ -285,12 +292,12 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
 
     /**
      * TalkBack semantics for a node that isn't a Pressable (Pressable does its own, ZnPress.kt), or null when the
-     * node sets none. [label] is the static label or the slot's current value. A labelled Image gets the image
-     * role; an Image without a label stays decorative (skipped).
+     * node sets none. [label] is the static label or the slot's current value. A labelled Image (or Svg) gets the
+     * image role; one without a label stays decorative (skipped).
      */
     @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) // hideFromAccessibility
     internal fun accessibilitySemantics(label: String?): Modifier? {
-        val imageRole = type == Registry.Component.IMAGE && label != null
+        val imageRole = (type == Registry.Component.IMAGE || type == Registry.Component.SVG) && label != null
         if (!accessibilityHidden && accessibilityRole == null && label == null && !imageRole) return null
         return Modifier.semantics(mergeDescendants = label != null) {
             if (accessibilityHidden) hideFromAccessibility()
@@ -333,6 +340,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val viewPropsSlot = slotFor(raw, Registry.Prop.VIEW_PROPS)
     val placeholderSlot = slotFor(raw, Registry.Prop.PLACEHOLDER)
     val editableSlot = slotFor(raw, Registry.Prop.EDITABLE)
+    val fillSlot = slotFor(raw, Registry.Prop.FILL)
+    val strokeSlot = slotFor(raw, Registry.Prop.STROKE)
     /** Padding edges bound to slots (start, top, end, bottom; NONE = static). Read in the layout phase. */
     val paddingSlots = intArrayOf(
         slotFor(raw, Registry.Prop.PADDING_START), slotFor(raw, Registry.Prop.PADDING_TOP),
@@ -515,9 +524,14 @@ private fun Modifier.layoutPadding(edges: () -> Edges): Modifier = layout { meas
     layout(width, height) { placeable.placeRelative(start, top) }
 }
 
-/** A template prepared for drawing. Built once per template and shared by all its instances. */
+/**
+ * A template prepared for drawing. Built once per template and shared by all its instances. [svgs]: the parsed SVGs,
+ * one cache shared by all templates of the same file (ZnSvg.kt).
+ */
 @Immutable
-class ZnTemplate(val raw: RawTemplate) {
+class ZnTemplate internal constructor(val raw: RawTemplate, internal val svgs: ZnSvgCache) {
+    constructor(raw: RawTemplate) : this(raw, ZnSvgCache())
+
     val nodes: Array<ZnNodeSpec>
     /** Slot defaults, in slot order (shown until JS sends a value). */
     val slotDefaults: List<Any?> = raw.slots.map { it.default }

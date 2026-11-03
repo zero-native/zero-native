@@ -35,7 +35,7 @@ describe("registry changes follow the OTA rules", () => {
   test("something new with since = the new REGISTRY_VERSION is fine", () => {
     const lock = fresh()
     lock.version = REGISTRY_VERSION - 1
-    delete lock.entries["event:ref"] // the newest entry (since 10)
+    delete lock.entries["component:Svg"]
     expect(registryProblems(lock)).toEqual([])
   })
 

@@ -2,8 +2,8 @@
 // into one .zn.ui file, and writes the manifest: component name → template id, and the route table read from the
 // app's `defineRoutes({...})` (ARCHITECTURE §11; a route's index in the table is its number at runtime).
 import type { BunPlugin } from "bun"
-import { dirname, resolve } from "node:path"
-import { existsSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
 import ts from "typescript"
 import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule } from "./compile"
@@ -90,7 +90,7 @@ export function znBuild(): ZnBuild {
         const staticImports = await loadStaticImports(source, path)
         compiling = path
         seqInFile = 0
-        const out = compileModule(source, path, ctx, staticImports)
+        const out = compileModule(source, path, ctx, staticImports, svgReexports(source, path))
         for (const [name, id] of Object.entries(out.components)) {
           if (name in components && components[name] !== id) {
             throw new Error(`${path}: component name "${name}" is used in two files; names must be unique for now`)
@@ -100,6 +100,9 @@ export function znBuild(): ZnBuild {
         maps.set(path, out.map)
         return { contents: out.code, loader: "ts" }
       })
+      // .svg files are compiled into the templates where they are used (docs/svg.md §6); the compiler removes their
+      // imports from .tsx files. What Bun still bundles (an icons.ts that re-exports them) gets an empty value.
+      build.onLoad({ filter: /\.svg$/ }, () => ({ contents: "export default {}", loader: "js" }))
       // Plain .ts files pass through unchanged; the one with defineRoutes(...) is also read for the route table.
       build.onLoad({ filter: /\.ts$/ }, async ({ path }) => {
         const source = await Bun.file(path).text()
@@ -172,6 +175,49 @@ function checkNativeName(name: string, where: string, modules: Map<string, numbe
   const plugin = name.split(".")[0]!
   if ([...modules.keys()].some((m) => m.toLowerCase() === plugin)) return
   throw new Error(`${where}: "${name}" belongs to a plugin module "${plugin}", but no code in the app uses it: import the plugin`)
+}
+
+/**
+ * SVG files imported by name through a relative `.ts` file that re-exports them (`icons.ts`:
+ * `export { default as Check } from "./check-rounded.svg"`, also through further `export { X } from "./more"`).
+ * Local name → absolute .svg path. Direct `import X from "./x.svg"` imports are found by the compiler itself.
+ */
+export function svgReexports(source: string, path: string): Map<string, string> {
+  const out = new Map<string, string>()
+  const sf = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TSX)
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue
+    const spec = stmt.moduleSpecifier.text
+    if (!spec.startsWith(".") || spec.endsWith(".svg")) continue
+    const named = stmt.importClause?.namedBindings
+    if (!named || !ts.isNamedImports(named)) continue
+    for (const el of named.elements) {
+      const svg = findSvgExport(resolve(dirname(path), spec), (el.propertyName ?? el.name).text, 0)
+      if (svg) out.set(el.name.text, svg)
+    }
+  }
+  return out
+}
+
+/** The .svg file that module [base] (a path without extension, or a folder with index.ts) exports as [name]. */
+function findSvgExport(base: string, name: string, depth: number): string | null {
+  if (depth > 8) return null
+  const file = [base, `${base}.ts`, join(base, "index.ts")].find((f) => f.endsWith(".ts") && existsSync(f))
+  if (!file) return null
+  const sf = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
+  for (const stmt of sf.statements) {
+    if (!ts.isExportDeclaration(stmt) || !stmt.moduleSpecifier || !ts.isStringLiteral(stmt.moduleSpecifier)) continue
+    const spec = stmt.moduleSpecifier.text
+    if (!spec.startsWith(".") || !stmt.exportClause || !ts.isNamedExports(stmt.exportClause)) continue
+    for (const el of stmt.exportClause.elements) {
+      if (el.name.text !== name) continue
+      const from = (el.propertyName ?? el.name).text
+      const target = resolve(dirname(file), spec)
+      if (spec.endsWith(".svg")) return from === "default" ? target : null
+      return findSvgExport(target, from, depth + 1)
+    }
+  }
+  return null
 }
 
 /**

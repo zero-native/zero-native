@@ -1099,82 +1099,30 @@ In phone scripts, end the app with `stopApp()` (`tools/plugin-phone/helpers.ts`)
 **Know:** a page jump made by script with no tap adds no back step (Chromium's rule against history spam), so Back leaves the page. Use real links for
 steps the user should be able to go back through.
 
-## 39. React Native's small APIs, with their RN names (RN basics pack)
+## 39. SVG (docs/svg.md, registry 10)
 
-Import them from `@zero-native/core` (not `react-native`, `@react-native-clipboard/clipboard` or
-`@react-native-community/netinfo`). The rest of the line stays as it was. The table with each one's status is in
-[rn-compatibility.md](rn-compatibility.md).
-
-```ts
-Alert.alert("Cancel payment?", "The amount is not taken yet.", [{ text: "Keep" }, { text: "Cancel it", onPress: cancel }])
-Clipboard.setString(utr)
-await Share.share({ message: "Try this app", title: "Invite" })
-await Linking.openURL("https://example.com/help")
-if (Platform.OS === "android" && Platform.Version >= 33) await Permissions.request(["notifications"])
-const { width } = Dimensions.get("window")
-const sub = Keyboard.addListener("keyboardDidShow", (e) => lift.set(e.endCoordinates.height))
-AppState.addEventListener("change", (s) => { if (s === "active") checkPayment() })
-const stop = NetInfo.addEventListener((s) => offline.set(s.isConnected === false))
-Vibration.vibrate(10)
-ToastAndroid.show("Copied", ToastAndroid.SHORT)
-const tn = new URL(link).searchParams.get("tn")
-```
-
-**Focus a TextField from code (OTP boxes, "jump to next field").**
 ```tsx
-const code = createRef<TextFieldHandle>()   // RN: useRef<TextInput>(null)
-<TextField ref={code} keyboardType="number-pad" maxLength={4} value={otp()} onChangeText={(t) => otp.set(t)} />
-<Pressable onPress={() => code.current?.focus()}>...</Pressable>
-```
-- `ref` works only on `<TextField>`. It has `focus()`, `blur()`, `clear()` and `isFocused()`. `ref.current` is null until
-  the field is built, and again after its screen closes.
-- **Do** make one ref per field, in the screen body. For a list of fields, make an array of refs first.
-- **Do** build OTP boxes the way react-native-otp-entry does: one hidden `TextField` (opacity 0) holds the code, and the
-  boxes only draw it. A tap on a box calls `focus()`.
-- **Know:** `returnKeyType="next"` already moves focus to the next field on screen, with no ref. Use a ref when "next"
-  isn't the field below.
-- **Know:** `clear()` acts like the user deleting the text: `onChangeText("")` follows, so a controlled `value` stays right.
-- **Know:** with a hardware keyboard or a D-pad (Android's "non-touch mode"), `blur()` can make Android give focus to the
-  first field on screen. With touch it doesn't. Seen on the emulator with `adb input text`.
-- `onFocus` / `onBlur` fire only for real changes: not when the field first appears, and not when the phone turns.
-- **Why not `useRef`:** there are no hooks. A screen body runs once, so a plain `createRef()` object does the same job.
+import Logo from "./art/logo.svg"
+import { Check, Heart } from "./icons"                         // icons.ts: export { default as Check } from "./check.svg"
 
-**Rules for the rest.**
-- **These run after the main script.** `Platform.Version`, `Dimensions` and `PixelRatio` get their values from native
-  right after the main script runs, before any screen. **Don't** read them at the top level of a file: `Version` is 0
-  there (a warning is logged). **Do** read them in screens, handlers and `startApp`.
-- **`Dimensions` can't size a layout.** Width, height and margin are fixed at build time (rn-compatibility §0). RN code
-  like `width: SCREEN_WIDTH - 32` must become `flex` or a `"N%"` size. **Do** use the values in logic (how many cards fit,
-  is it a small phone).
-- **Reads follow changes inside JSX or `effect`.** `Dimensions.get`, `useWindowDimensions`, `Keyboard.isVisible`,
-  `Keyboard.metrics`, `AppState.currentState` and `useNetInfo()` fields read signals. **Don't** copy them into a variable at
-  the top of a screen body if you need the new value later.
-- **Listeners made in a screen body stop when the screen closes.** This covers `Keyboard`, `Dimensions`, `AppState`,
-  `NetInfo` and `Linking`. `.remove()` / the returned function still work, as in RN.
-- **`Alert`** is Android's own dialog, with the app's theme, as in RN. Up to 3 buttons: 1 → right; 2 → left, right;
-  3 → far left, left, right. `cancelable` is false unless you set it. The alert stays open when the phone turns.
-  `style: "destructive"` and `Alert.prompt` are iOS only, as in RN.
-- **`Linking.openURL`** opens only http, https, mailto and tel; anything else (`upi:`, `whatsapp:`, `intent:`) rejects
-  with `not_allowed`. **Why:** a bundle sent over OTA must not be able to open any app with any data. Other apps go
-  through a plugin (§31). `canOpenURL` says false for those links.
-- **`Linking.getInitialURL` and `addEventListener("url")`** only see links that matched a route with `deepLink: true` and
-  that `onLink` allowed. The screen is already open by then. **Don't** route from them: to refuse a link, use `onLink`.
-- **`Vibration`** needs `<uses-permission android:name="android.permission.VIBRATE"/>` in the app's manifest, as in RN.
-  Without it nothing vibrates and one warning is logged. For a tap feel, `Os.haptic("light")` needs no permission.
-- **`Share.share`:** Android 10+ doesn't show `dialogTitle` on the share sheet for text (RN has the same limit).
-- **`Clipboard.getString`** gives "" when the app is not in front (Android 10+). Android 13+ shows its own "copied" bubble:
-  **don't** add a second toast there.
-- **`Keyboard` listeners:** only `keyboardDidShow` and `keyboardDidHide`, as RN on Android. One event per show or hide,
-  sent when the keyboard starts to move. The height is dp from the bottom of the window. Routes with `keyboard:
-  "resize"` (the default) already move their content: use listeners only for things drawn over the screen.
-- **`NetInfo.isInternetReachable`** is Android's own check that the network reaches the internet. No extra request is made.
-  A captive Wi-Fi reads `isConnected: true`, `isInternetReachable: false`.
-- **`ToastAndroid`** shows zero-native's toast: above the keyboard, kept across navigation. Gravity is ignored.
-- **`requestAnimationFrame`** is a timer of about 16 ms, not a real frame. It stops with its screen. **Don't** animate with
-  it: use `animate`.
-- **`URL` and `URLSearchParams`** follow the web standard. **Know:** a non-ASCII host name (`https://café.com`) throws a
-  TypeError: there is no punycode. `atob`, `btoa`, `TextEncoder` and `TextDecoder` also work.
-- **`StatusBar`** has no component: use the route option `statusBar`. Its height is `insets().top`.
-- **`flowStore`** holds at most `flowStore.MAX_BYTES` (262,128 bytes of JSON) per key. A bigger write returns false and
-  keeps the old value. Over 128 KB a warning is logged once per key. **Do** keep flow state small, and keep big data in
-  `storage`, saved by id.
+<Check size={20} color={c.ink} />                              // color = currentColor inside the file
+<Logo style={{ width: 160 }} />                                // height from the viewBox
+<Logo size={64} parts={{ ring: { stroke: brand() }, dot: { opacity: on() ? 1 : 0.3 } }} />
+<Svg viewBox="0 0 24 24" size={24}><Path d={HEART} fill={liked() ? c.like : c.muted} /></Svg>
+```
+
+The compiler reads every SVG at build time and puts compact draw data in the bundle. The phone never reads XML, and an OTA can add or change SVGs.
+- **Do** use `.svg` files for icons and pictures; `Icon` stays for old code. **Why:** a `.svg` file is what designers hand over, and the build checks it.
+- **Know:** an imported SVG is a build-time name, not a value. `icon={<Logo />}` works; `icon={Logo}` or `const all = { Logo }` fails the build.
+- **Do** add `fill="currentColor"` where the colour should change. **Know:** Material Symbols files come with no fill (that means black), so
+  `color` fails the build on them until you add it to the `<svg>`. **Why:** a `color` that silently does nothing is worse than a build error.
+- **Do** give an element an `id` to change it at runtime: `parts={{ id: { fill, stroke, opacity } }}`. A part's `fill` / `stroke` repaints every
+  shape inside it. A wrong id fails the build and lists the ids the file has.
+- **Inline `<Svg>`:** the same names as react-native-svg. Geometry is fixed at build time: `cx={x()}` fails. Only `fill`, `stroke` and `opacity`
+  may change; such an element becomes a part by itself. `.map` works over a `const` array; `cond && <X />` doesn't: use `opacity`.
+- **Don't** put text in an SVG. **Do** put a zn `<Text>` over it in a `<Stack>`. **Why:** real text follows the font size and TalkBack reads it.
+- **Know the limit:** no `<image>`, `<pattern>`, filters (blur, shadow), `<style>` / CSS classes, SMIL, markers, nested `<svg>`,
+  `non-scaling-stroke`. The build says which and how to fix it. A mask of plain white shapes is fine (it becomes a clip).
+- **Do** add `accessibilityLabel` when the SVG means something; without one TalkBack skips it. **Do** use `autoMirror` on arrows and chevrons.
+- **Know:** colours inside an SVG don't follow dark mode. **Do** pass theme colours through `color` or `parts` with `scheme(...)`.
+- Each distinct SVG is parsed once, the first time it is drawn, and shared by every place that shows it, list rows too.

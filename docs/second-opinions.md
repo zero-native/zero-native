@@ -407,82 +407,70 @@ change, and what evidence would make you change it?"
   That is a real freeze, so it is arguably right; the guide says not to do long sync work in a task (§36).
 - **Evidence wanted:** whether Hermes' time limit fires inside a task's event at all (not tested; the reviewer couldn't confirm it).
 
-## 38. RN names live in `@zero-native/core`, next to the zn names (RN basics pack)
-- **Where:** `packages/core/src/index.ts` (`Alert`, `Clipboard`, `Share`, `Linking`, `Platform`, `Dimensions`, `PixelRatio`,
-  `Keyboard`, `AppState`, `Vibration`, `ToastAndroid`, `NetInfo`, `useNetInfo`, `useWindowDimensions`, `createRef`).
-- **Chosen (Pavan agreed):** export them from core, not from a `@zero-native/core/rn` entry point. Where a zn name already
-  existed (`Os.share`, `Os.openUrl`, `toast`, `appState`, `onAppState`) it stays; the RN object sits on top of it.
-- **Why:** one import line for authors; the build loads every core file anyway (compiler/src/plugin.ts), so a second
-  entry point would save nothing. Nothing that existed breaks. `AppState` is now both a value and the old type name,
-  which TypeScript allows; `AppStateStatus` is the RN type name.
-- **Risk if wrong:** two names for one thing (`Os.share` and `Share.share`). The docs point ported code to the RN name.
-- **Also:** `docs/rn-compatibility.md` §11 names ZeroBill, as asked. The leak audit wants neutral names in public docs:
-  the public-repo pass must reword it ("the reference RN app").
+## 38. SVG is compiled at build time and drawn by our own small interpreter (SVG design, not built)
+- **Where:** `docs/svg.md` §3, §5, §6, §8.
+- **Chosen:** the compiler reads `.svg` files and inline `<Svg>` at bundle build time, checks them against a fixed subset, and writes
+  compact draw data. The phone draws it with Compose `DrawScope` calls (paths, strokes, gradient shaders, clips, layers). No XML on the
+  phone, no SVG library. Text, images, patterns, filters, non-trivial masks and SMIL fail the build with a hint.
+- **Why:** OTA needs data, not APK resources (rules out VectorDrawable); parsing XML on the phone costs cold start and a library
+  (AndroidSVG); Compose's `ImageVector` has no group opacity, dashes or gradient matrix, and keeps a bitmap per instance. ZeroBill's 27 SVG
+  files and 13 inline SVGs use nothing outside the subset except one pattern and one Figma mask (which the compiler turns into a clip).
+- **Risk if wrong:** our drawing differs from browsers in a corner case (stroke joins under skew, gradient spread, clip smoothness on old
+  Android), or authors hit build errors for exports we refuse. A library would cover more features for free.
+- **Other options:** AndroidSVG at runtime (more features, ~100+ KB, parse per start); a WebView (no); bitmaps exported at build time
+  (lose runtime colours and animation).
+- **Evidence wanted:** a side-by-side check of real SVGs (S.4, S.5 in `docs/svg.md`), and how many real files fail the build.
 
-## 39. `TextField` focus: `ref={createRef()}`, a new event kind (RN basics pack)
-- **Where:** `packages/template/src/registry.ts` (`EventKind.ref = 16`, registry 10), `compiler/src/compile.ts`,
-  `packages/core/src/text-field.ts`, `android/runtime/.../ZnTextField.kt`, `ZnKeyboard.kt` (v2).
-- **Chosen:** `ref` is not a handler. The compiler gives it an event id; native keeps the field's FocusRequester under
-  (instance, id) while it is composed; JS's `focus()` / `blur()` / `clear()` are `Keyboard` module calls with that pair,
-  and native sends true / false on the same id when focus changes (for `isFocused()`). `createRef()`, not `useRef()`.
-- **Why not a `focused={signal}` prop:** if the user blurs the field and the code doesn't set the signal back,
-  setting it true again does nothing. A ref has no state to drift. **Why not `useRef`:** there are no hooks; a body runs
-  once, so `createRef()` does the job without suggesting hooks exist.
-- **Risk if wrong:** `focus()` on a field that is not composed (a lazy list row off screen) rejects `not_shown` (logged).
-  `blur()` clears the window's focus, so it only acts when this field has focus.
-- **Evidence wanted:** the phone check of the OTP demo (`examples/sample/src/RnBasicsLab.tsx`) on a few keyboards
-  (Gboard, SwiftKey): focus from a tap on a box, auto-blur after 4 digits. Passed on the emulator's Gboard.
-- **Also changed:** `onFocus` / `onBlur` (and the ref's focus events) are sent only for a real change. Compose calls
-  `onFocusChanged` when a field appears and when the Activity is made again, and every untouched field sent `onBlur`.
-  **Known edge:** if a field has focus and the phone turns, Compose doesn't give focus back, and no `onBlur` is sent for
-  the lost focus (`isFocused()` stays true until the next change). Sending one when the field leaves composition would
-  log "no handler" warnings each time a screen closes with a focused field, so it isn't done.
+## 39. SVG part overrides are one `parts` prop, grouped by part (SVG design, not built)
+- **Where:** `docs/svg.md` §4.3.
+- **Chosen:** `<Logo parts={{ ring: { fill: brand() }, dot: { opacity: 0.4 } }} />`. Each value is a slot when it changes at runtime; the
+  compiler writes one `SvgPart` template node per part. A part's `fill` / `stroke` replaces the paint of every shape inside it.
+- **Why:** phase 2 adds per-part `animate`, which belongs next to the part's values; one prop can later be typed per file; no new child
+  rules in JSX.
+- **Risk if wrong:** a nested object prop is new in zn (only `<NativeView props>` is close). The lead session's first idea,
+  `fill={{ ring: brand }}`, is shorter for one colour.
+- **Other options:** per-attribute maps (`fill={{ ring }}`, `opacity={{ dot }}`); `<Part id="ring" fill={...} animate={...} />` children
+  (reuses the existing `style` / `animate` props exactly, but part names can't be typed and children get special rules).
+- **Evidence wanted:** how screens look after porting the RN app's 13 inline SVG files.
 
-## 40. Alert: Android's own dialog, one at a time, shown again after rotation (RN basics pack)
-- **Where:** `android/runtime/.../ZnAlert.kt`, `packages/core/src/alert.ts`.
-- **Chosen (Pavan agreed):** `android.app.AlertDialog` with the app's theme, as RN. Alerts queue and show one at a time.
-  `ZnAlert.Host()` in `ZnNavHost` shows the first one in the live Activity; a new Activity (rotation) shows it again.
-  Only a button or a cancel answers. No buttons → "OK". No Activity (push, background task) → `no_activity`, logged.
-  Alerts of a replaced JS runtime are dropped through the call's cancel, not `ZnNav.generation` (the generation moves
-  only after the new main script ran, so an alert from its top level would be dropped by mistake).
-- **Why:** RN parity, no drawing code. **Risk if wrong:** the dialog follows the app theme, not `colorScheme()`: an app
-  with a light-only theme shows a light alert in dark mode (RN does the same). An app that never shows `ZnNavHost` keeps
-  alerts queued for ever.
+## 40. SVG draw data lives in the template file, not in its own file (SVG design, not built)
+- **Where:** `docs/svg.md` §6.1, §7.
+- **Chosen:** the draw data is an ASCII string prop of the `Svg` node in `main.zn.ui`. The template writer stores each distinct string
+  once, and the phone parses an SVG only when it is first drawn (cached per string, shared by all instances).
+- **Why:** no change to the template format, bundle files, bundle loading, OTA checks or signing; an older app never meets a new file.
+  Pavan's wish that the `.svg` "exists in the output and is attached where it's used" holds: one copy per bundle, used by every node.
+- **Risk if wrong:** template reading decodes all SVG strings at cold start (estimated a fraction of a ms per 100 KB, not measured);
+  choosing an SVG by a runtime value would have to send the whole string through the bridge, so phase 1 offers only ternaries.
+- **Other options:** a `main.zn.svg` pack file, read with the templates and indexed by number (cheap runtime choice, but a new bundle
+  file that `ZnBundles`, OTA bundles and the start path must handle); binary data in the template (~30 % smaller, needs a new value kind).
+- **Evidence wanted:** `main.zn.ui` size and template read time with the lab screen (S.6), and whether real apps need runtime choice.
+- **Update (built, 2026-11-03):** the "~30 % smaller binary" number was a guess for the first format (absolute cubics). The built format
+  writes paths as SVG path text (entry 41), which is already compact; a binary form would now save much less.
 
-## 41. Platform, Dimensions and the keyboard come as app events, not sync constants (RN basics pack)
-- **Where:** `android/runtime/.../ZnWindow.kt`, `ZnNavHost.kt` (`ReportWindow`, `ReportKeyboard`), app events 16–18
-  (host API 7), `packages/core/src/platform.ts`, `dimensions.ts`, `keyboard.ts`.
-- **Chosen:** DEVICE (sdk, release, model, brand, manufacturer) and a first WINDOW go right after the main script, like
-  COLOR_SCHEME. Compose then sends the measured window (`LocalWindowInfo.containerSize`) and the keyboard's target height
-  (`WindowInsets.imeAnimationTarget`, one event per show or hide). JS keeps them in signals.
-- **Why not sync constants:** that needs a new JNI argument and a C++ global for 3 numbers. Every ZeroBill use of
-  `Platform.Version` is inside a function. **Risk if wrong:** a read at a file's top level gives 0 (a warning is logged).
-- **Keyboard height:** dp from the bottom of the window, so it includes the navigation bar under the keyboard. RN's
-  Android number has differed between versions; ours is written in the guide. **Window:** includes the system bars
-  (we draw edge to edge).
-- **Evidence wanted:** split screen and font-size changes on a phone; a keyboard that changes height (emoji panel).
+## 41. SVG paths are written as minified SVG path text, arcs kept (SVG phase 1, built)
+- **Where:** `docs/svg.md` §6.1, §14; `compiler/src/svg-data.ts` (`writePath`); `ZnSvg.kt` reads paths with Compose's `PathParser`.
+- **Chosen:** each path is SVG path data (`M9.55 15.15l8.47-8.47q.3-.3.7-.3`), relative or absolute per command (whichever is shorter),
+  with `Q`, `T`, `S`, `H`, `V` and `A` kept. Arcs become cubics only when a transform changes their shape. Numbers are rounded to
+  1/2,000 of the viewBox's larger side, and relative steps are taken between rounded points, so rounding never adds up.
+- **Why:** the first version (absolute `M L C Z` only, as the design said) made draw data bigger than the source: 162 KB of RN assets
+  became 190 KB, icons ~1.2 KB each. Path text: 180 KB → 112 KB, icons ~450 B. Compose's `PathParser` (already used by `Icon`) reads it,
+  so the phone code stayed small.
+- **Risk if wrong:** the phone depends on `PathParser`'s reading of minified paths (it is lenient: a bad path may draw wrong rather than
+  fail); the iOS renderer later needs its own path reader with arcs. A rounding error near a sharp corner at 1/2,000 (0.012 dp on a
+  24 dp icon) is far below a pixel.
+- **Other options:** absolute cubics (simplest reader, biggest data); a binary path form (smaller, new value kind in the template format).
+- **Evidence wanted:** the lab screen on the Lava next to the source SVGs. The browser side-by-side check of 39 files (draw data turned back
+  into SVG) showed no strong pixel differences. **Update:** the lab looks right on the Lava (debug and release).
 
-## 42. NetInfo: Android's "validated" for `isInternetReachable`, 250 ms settle (RN basics pack)
-- **Where:** `android/runtime/.../ZnNetInfo.kt`.
-- **Chosen:** `isInternetReachable` = `NET_CAPABILITY_VALIDATED` (Android's own check), no HTTP probe like the library.
-  Type order as the library: bluetooth > cellular > ethernet > wifi > vpn, so a VPN over Wi-Fi reads "wifi". A burst of
-  callbacks sends one event 250 ms after the last one. The network is watched only while JS listens.
-- **Risk if wrong:** a network Android validated may still block our API host (a firewall), and the 250 ms delay makes
-  a change arrive late. For payments, still handle `FetchError` `offline` on each call; don't gate a payment on NetInfo.
-
-## 43. Smaller calls in the RN basics pack
-- **`Vibration` needs `VIBRATE` in the app's manifest** (Pavan agreed: same as RN). The runtime doesn't add it, so apps
-  that never vibrate don't list it. Without it: `not_declared`, logged once.
-- **`Linking.canOpenURL`:** the runtime's manifest gains `<queries>` for VIEW with https, http, mailto, tel (merged into
-  every app). It shows no list of apps; it only lets Android answer for those 4 link kinds.
-- **`Linking.getInitialURL` / `addEventListener("url")`:** read-only copies of links that already opened their route.
-  RN apps route from them; here routing is built in and `onLink` refuses. Kept small on purpose.
-- **`URL`:** no IDNA, so a non-ASCII host throws instead of guessing. Where Bun 1.4.4 and the standard differ (4 setter
-  and backslash cases, listed in `packages/core/test/url.test.ts`), we follow the standard. 791 lines, about 5 KB gzipped.
-- **`requestAnimationFrame`** is a 16 ms timer: JS doesn't draw here, and a real frame callback would cross to native
-  each frame for nothing.
-- **`flowStore` warning at 128 KB** in every build (JS has no "debug build" flag), once per key per run.
-- **`Share.share({ url })`:** RN shares `url` only on iOS; here it is shared as the text when there is no `message`, so
-  iOS-style code doesn't share nothing.
-- **Not built, on purpose:** `StatusBar` (route option; `setBarStyle` later if a screen needs it), toast gravity,
-  `Alert.prompt` (iOS only in RN), RN's Android-only `AppState` `focus` / `blur`.
+## 42. A big SVG is still parsed on the main thread at its first draw (SVG phase 1, measured on the Lava)
+- **Where:** `docs/svg.md` §13, §14; `ZnSvgCache.get` in `ZnSvg.kt`.
+- **Chosen:** no change. Each distinct SVG is parsed when it is first drawn, on the main thread, and cached.
+- **Measured:** a 23 KB SVG (~400 shapes) parses in 6.3–7.3 ms right after an adb install (no AOT code), 1.4–1.5 ms after
+  `compile -m speed`. Icons: 0.13–0.5 ms, then 0.03–0.1 ms. The design said: move parsing off the main thread above ~4 ms.
+- **Why not now:** the slow case is uncompiled code, which hits every zn screen the same way, not only SVG; real apps have few SVGs that
+  big (the largest RN asset is 30 KB of XML, about 20 KB of draw data); and a background parse needs a "not ready yet" frame, which can
+  flash. The bigger win for all screens would be a baseline profile for the runtime (none exists today).
+- **Risk if wrong:** one dropped frame (90 Hz: 11 ms budget) the first time a big illustration shows after an install or update.
+- **Other options:** parse every SVG of the bundle on the I/O thread after the first frame; a baseline profile with the SVG reader and
+  Compose's `PathParser` in it.
+- **Evidence wanted:** first-draw time of a real big illustration on a Play-installed build (cloud profiles), and on a slower phone.

@@ -243,3 +243,33 @@ A plugin's own Compose view inside a zn screen. Apps normally use the plugin's w
 - **Don't:** use it for something zn components can draw. A native view costs a plugin, an APK change and a module version.
 - **Unknown name** (a plugin missing from the APK): an empty box of the given size and one reported error. The build check above
   stops this from reaching a phone. Details: `docs/guide-notes.md` §35, `docs/plugins.md` §4.
+
+---
+
+## 10. SVG: `.svg` files and `<Svg>` (registry 10)
+
+Compiled at build time into one node; drawn natively. Design and the supported subset: `docs/svg.md`. Author rules: `docs/guide-notes.md` §39.
+
+```tsx
+import Badge from "./svg/badge.svg"
+<Badge size={48} color={c.ink} parts={{ ring: { stroke: brand() } }} accessibilityLabel="Paid" />
+<Svg viewBox="0 0 64 64" size={64}><Circle cx={32} cy={32} r={28} fill="url(#g)" /></Svg>
+```
+
+| Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|
+| `size` | `number` | No | Width and height in dp. Or `style` width / height; with only one, the other comes from the viewBox. With none, the file's `width` / `height`, else the viewBox size. |
+| `style` | `Style` | As on any element | Size, margin, position; `opacity` and transforms can change at runtime. |
+| `color` | `Color` | Yes | The value of `currentColor`. The build fails if the SVG has none. |
+| `parts` | `{ [id]: { fill?, stroke?, opacity? } }` | Yes, per value | Changes the element with that `id`. Unknown ids fail the build. `.svg` files only. |
+| `autoMirror` | `boolean` | No | Flip left to right on right-to-left screens. |
+| `accessibilityLabel` / `accessibilityHidden` | `string` / `boolean` | As today | With a label, TalkBack reads it as an image; without, it is skipped. |
+
+Inline `<Svg>` also takes `viewBox`, `preserveAspectRatio`, `width`, `height` (RN's names) and the elements `G`, `Path`, `Rect`, `Circle`,
+`Ellipse`, `Line`, `Polyline`, `Polygon`, `Defs`, `LinearGradient`, `RadialGradient`, `Stop`, `ClipPath`, `Mask`, `Use` with react-native-svg's
+camelCase props. An element's `fill`, `stroke` or `opacity` may change at runtime; nothing else may.
+
+### When to Use
+- **Do:** icons, logos, illustrations, gradient cards, simple charts with a fixed shape.
+- **Don't:** text inside the SVG (use `<Text>` over it in a `<Stack>`), photos (`<Image>`), or a shape that changes with data every frame.
+- Phase 2 (not built): part transforms, "draw the line" trims, `animate` on parts.

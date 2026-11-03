@@ -17,7 +17,7 @@ export const REGISTRY_VERSION = 10 // 2: Anchor. 3: transforms, shadow, absolute
 // 8: small components & accessibility (milestone 3 steps 3.7–3.8): Switch, Checkbox, Spinner, Progress, Shimmer;
 //    accessibilityLabel, accessibilityRole, maxFontScale.
 // 9: NativeView, a plugin's Compose view inside a screen (docs/plugins.md §5): viewName, viewProps, onNativeEvent.
-// 10: TextField `ref` (RN basics pack): focus(), blur(), clear() from JS; focus changes come back on its event id.
+// 10: SVG (docs/svg.md): Svg, SvgPart, svg, part, fill, stroke (fill and stroke can change at runtime), autoMirror.
 
 export const Component = {
   Column: 1,
@@ -47,6 +47,10 @@ export const Component = {
   TextField: 16,
   /** A plugin's Compose view inside a screen, chosen by name. JS sends it JSON props and hears named events. */
   NativeView: 17,
+  /** An SVG compiled at build time (docs/svg.md): `svg` holds its draw data. One node, whatever the SVG holds. */
+  Svg: 18,
+  /** A part of its parent Svg (an element with an id) whose paint or opacity the screen sets. Drawn by the Svg. */
+  SvgPart: 19,
   // 18-19: Claude (milestone 3). 20-29: Gemini (milestone 3 brief).
   Switch: 20,
   Checkbox: 21,
@@ -212,6 +216,17 @@ export const Prop = {
   viewName: { id: 147, type: "string" },
   /** <NativeView props={...}>: the props as JSON text. */
   viewProps: { id: 148, type: "string" },
+  // SVG (docs/svg.md). Ids from the top of Claude's range, so a parallel branch taking the next free ids doesn't clash.
+  /** <Svg>: the draw data the compiler made from the SVG (format: compiler/src/svg-data.ts). */
+  svg: { id: 180, type: "string" },
+  /** <SvgPart>: which element of the parent Svg's draw list (its index among the draw data's shapes and groups). */
+  part: { id: 181, type: "number" },
+  /** <SvgPart>: replaces the fill of every shape in the part that has one. */
+  fill: { id: 182, type: "color" },
+  /** <SvgPart>: replaces the stroke of every shape in the part that has one. */
+  stroke: { id: 183, type: "color" },
+  /** <Svg>: flipped left to right when the layout is right to left (back arrows, chevrons). */
+  autoMirror: { id: 187, type: "bool" },
   // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
   trackColor: { id: 200, type: "color" },
   activeTrackColor: { id: 201, type: "color" },
@@ -331,6 +346,8 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "editable",
   "accessibilityLabel",
   "viewProps",
+  "fill",
+  "stroke",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -356,9 +373,9 @@ export const Added: {
   enumValue: Record<string, number>
   event: Partial<Record<EventName, number>>
 } = {
-  component: { NativeView: 9 },
-  prop: { viewName: 9, viewProps: 9 },
-  dynamic: { viewProps: 9 },
+  component: { NativeView: 9, Svg: 10, SvgPart: 10 },
+  prop: { viewName: 9, viewProps: 9, svg: 10, part: 10, fill: 10, stroke: 10, autoMirror: 10 },
+  dynamic: { viewProps: 9, fill: 10, stroke: 10 },
   enumValue: {},
   event: { onNativeEvent: 9, ref: 10 },
 }
