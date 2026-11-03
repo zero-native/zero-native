@@ -8,24 +8,29 @@
 // Link options (query values become props): ?preload=1 builds all four tabs at once; ?fetch=shown loads a tab's data
 // only when the tab is first shown (default: all four loads start with the screen). /dev/tabs/<tab> opens that tab.
 // Log lines "tabs-lab ..." (logcat tag zn-js) are read by the phone steps and tools/measure-tabs.ts.
-import { Box, Column, Icon, List, Pressable, Row, Scroll, Stack, Tabs, Text, TextField } from "@zero-native/ui"
+//
+// Pull to refresh (guide notes §41) on every tab: Pay and Rewards use the flat props (refreshing, onRefresh), Stores
+// (a List) and Offers (a Scroll) use React Native's refreshControl={<RefreshControl />}, as ZeroBill's tabs do.
+import { Box, Column, Icon, List, Pressable, RefreshControl, Row, Scroll, Stack, Tabs, Text, TextField } from "@zero-native/ui"
 import { Keyboard, nav, signal, useTabs, type Signal, type TabsHandle } from "@zero-native/core"
 import { c } from "./tokens"
 import { gift, qrScan, receipt, shoppingBag, tag } from "./icons"
 
 type Tab = "pay" | "stores" | "offers" | "rewards"
 type Item = { id: string; title: string; subtitle: string; amount: number }
-type Data = { items: Signal<Item[] | null>; error: Signal<string> }
+type Data = { items: Signal<Item[] | null>; error: Signal<string>; refreshing: Signal<boolean>; refreshes: Signal<number> }
 
 const SERVER = "http://localhost:8788"
 /** Each tab's server delay (ms): like real home tabs, they answer at different times. */
 const DELAY: Record<Tab, number> = { pay: 250, stores: 400, offers: 600, rewards: 300 }
+/** A pull's server delay: long enough to see the spinner. */
+const REFRESH_MS = 1200
 
 const say = (text: string) => console.info(`tabs-lab ${text}`)
 
-async function load(tab: Tab, d: Data): Promise<void> {
+async function load(tab: Tab, d: Data, ms = DELAY[tab]): Promise<void> {
   try {
-    const res = await fetch(`${SERVER}/tabs/${tab}?ms=${DELAY[tab]}&rows=40`)
+    const res = await fetch(`${SERVER}/tabs/${tab}?ms=${ms}&rows=40`)
     const body = (await res.json()) as { items: Item[] }
     d.items.set(body.items)
     d.error.set("")
@@ -34,6 +39,17 @@ async function load(tab: Tab, d: Data): Promise<void> {
     d.error.set("Couldn't load. Is tools/fetch-test-server.ts running (with adb reverse)?")
     say(`data ${tab} failed: ${String(e)}`)
   }
+}
+
+/** onRefresh: the RN way. `refreshing` is true while the data loads, and the spinner follows it. */
+async function refresh(tab: Tab, d: Data): Promise<void> {
+  if (d.refreshing()) return
+  d.refreshing.set(true)
+  say(`refresh ${tab} start`)
+  await load(tab, d, REFRESH_MS)
+  d.refreshes.set((n) => n + 1)
+  d.refreshing.set(false)
+  say(`refresh ${tab} done ${d.refreshes()}`)
 }
 
 const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`
@@ -71,6 +87,11 @@ function Status(props: { d: Data }) {
           {props.d.error()}
         </Text>
       )}
+      {props.d.refreshes() > 0 && (
+        <Text fontSize={12} color={c.muted} style={{ paddingHorizontal: 16, paddingVertical: 6 }}>
+          {`Refreshed ${props.d.refreshes()}×`}
+        </Text>
+      )}
     </>
   )
 }
@@ -90,7 +111,7 @@ function PayTab(props: { tabs: TabsHandle<Tab>; d: Data; fetchOnShow: boolean })
     }
   })
   return (
-    <Scroll style={{ flex: 1 }}>
+    <Scroll style={{ flex: 1 }} refreshing={props.d.refreshing()} onRefresh={() => void refresh("pay", props.d)} refreshColor={c.primary}>
       <Column style={{ gap: 1, paddingBottom: 24 }}>
         <Row style={{ gap: 8, padding: 16 }}>
           <Pressable
@@ -141,6 +162,9 @@ function StoresTab(props: { tabs: TabsHandle<Tab>; d: Data; fetchOnShow: boolean
         style={{ flex: 1 }}
         gap={1}
         row={(i) => <ItemRow item={i} />}
+        refreshControl={
+          <RefreshControl refreshing={props.d.refreshing()} onRefresh={() => void refresh("stores", props.d)} colors={[c.primary]} tintColor={c.primary} />
+        }
       />
     </Column>
   )
@@ -151,7 +175,10 @@ function OffersTab(props: { tabs: TabsHandle<Tab>; d: Data; fetchOnShow: boolean
   if (props.fetchOnShow) void load("offers", props.d)
   props.tabs.onFocus("offers", () => say("focus offers"))
   return (
-    <Scroll style={{ flex: 1 }}>
+    <Scroll
+      style={{ flex: 1 }}
+      refreshControl={<RefreshControl refreshing={props.d.refreshing()} onRefresh={() => void refresh("offers", props.d)} colors={[c.primary]} />}
+    >
       <Column style={{ gap: 1, paddingBottom: 24 }}>
         <Status d={props.d} />
         {(props.d.items() ?? []).map((item) => (
@@ -169,7 +196,13 @@ function RewardsTab(props: { tabs: TabsHandle<Tab>; d: Data; fetchOnShow: boolea
   props.tabs.onFocus("rewards", () => say("focus rewards"))
   const taps = signal(0)
   return (
-    <Scroll style={{ flex: 1 }}>
+    <Scroll
+      style={{ flex: 1 }}
+      refreshing={props.d.refreshing()}
+      onRefresh={() => void refresh("rewards", props.d)}
+      refreshColor={c.white}
+      refreshBackground={c.primary}
+    >
       <Column style={{ gap: 12, padding: 16 }}>
         <Pressable
           onPress={() => {
@@ -276,10 +309,10 @@ export function TabsLabScreen(props: { tab?: string; preload?: string; fetch?: s
   const tabs = useTabs("tabsLab", { preload: props.preload === "1" })
   const fetchOnShow = props.fetch === "shown"
   const data: Record<Tab, Data> = {
-    pay: { items: signal<Item[] | null>(null), error: signal("") },
-    stores: { items: signal<Item[] | null>(null), error: signal("") },
-    offers: { items: signal<Item[] | null>(null), error: signal("") },
-    rewards: { items: signal<Item[] | null>(null), error: signal("") },
+    pay: { items: signal<Item[] | null>(null), error: signal(""), refreshing: signal(false), refreshes: signal(0) },
+    stores: { items: signal<Item[] | null>(null), error: signal(""), refreshing: signal(false), refreshes: signal(0) },
+    offers: { items: signal<Item[] | null>(null), error: signal(""), refreshing: signal(false), refreshes: signal(0) },
+    rewards: { items: signal<Item[] | null>(null), error: signal(""), refreshing: signal(false), refreshes: signal(0) },
   }
   say(`screen tab=${tabs.selected()} preload=${props.preload === "1"} fetch=${fetchOnShow ? "shown" : "all"}`)
   // Like ZeroBill's home store: all four loads start with the screen, whatever tab is shown.

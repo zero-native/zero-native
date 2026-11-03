@@ -269,3 +269,23 @@ const tabs = useTabs("home")
   loaded data are kept. Its scroll positions are kept too, and come back when it is shown again.
 - A `NativeView` in a panel that is not selected is made again when the panel comes back (a WebView reloads).
 - The tab bar is not part of it: it is the app's own JSX. Details: `docs/guide-notes.md` §40.
+
+## 11. Pull to refresh on `<Scroll>` and `<List>` (registry 12)
+
+A vertical `<Scroll>` and a `<List>` take these props. Not on `<Scroll horizontal>` (build error).
+
+| Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|
+| `refreshing` | `boolean` | Yes | The spinner shows while true. Owned by JS: set it in `onRefresh`. |
+| `onRefresh` | `() => void` | (event) | A pull past the line ended. Without it there is no pull (only `refreshing` shows the spinner). |
+| `refreshColor` | `Color` | No | The arc. Default `#374151`. |
+| `refreshBackground` | `Color` | No | The round disc behind the arc. Default white. |
+| `refreshControl` | `<RefreshControl />` | No | React Native's shape; the compiler turns it into the props above. |
+
+### Behaviour
+- The disc slides down over the content (Android's look). The disc must come down 80 dp; it moves half as far as the
+  finger. Below that, letting go does nothing.
+- After the pull, the spinner shows at once and then follows `refreshing`. If `refreshing` is not true within 1 second,
+  it goes away.
+- A pull while the spinner shows does nothing. The pull runs natively: no JS until the finger is up.
+- Details and do / don't: `docs/guide-notes.md` §41.

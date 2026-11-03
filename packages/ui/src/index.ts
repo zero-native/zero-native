@@ -413,7 +413,34 @@ export declare const Shimmer: Intrinsic<
  * A scrolling container. `horizontal` makes a rail: only the visible children are drawn, and scrolling never involves
  * JS. Its padding scrolls with the content (like RN's contentContainerStyle). For long vertical data use <List>.
  */
-export declare const Scroll: Intrinsic<Container & { horizontal?: boolean }>
+export declare const Scroll: Intrinsic<Container & ({ horizontal?: false } & RefreshProps | { horizontal: true })>
+/**
+ * Pull to refresh on a vertical <Scroll> or a <List> (guide notes §41). **Controlled**, like RN: a pull past the line
+ * sends `onRefresh`; set `refreshing` to true while you load and back to false when done. The spinner shows while
+ * `refreshing` is true (also without a pull, for a first load). Pulling works only when `onRefresh` is set.
+ */
+export interface RefreshProps {
+  refreshing?: boolean
+  onRefresh?: () => void
+  /** The spinner's arc (RN `colors[0]` / `tintColor`). Default dark grey. */
+  refreshColor?: Color
+  /** The round disc behind the arc (RN `progressBackgroundColor`). Default white. */
+  refreshBackground?: Color
+  /** React Native's shape: `refreshControl={<RefreshControl refreshing={...} onRefresh={...} colors={[c]} />}`. */
+  refreshControl?: ZnElement
+}
+/**
+ * React Native's RefreshControl, for porting: only as `refreshControl={<RefreshControl ... />}` on a vertical <Scroll>
+ * or a <List>, written right there (not kept in a variable). The compiler turns it into the flat props above.
+ * `colors` takes one colour (only the first is used); `tintColor` is used when `colors` is not given.
+ */
+export declare const RefreshControl: Intrinsic<{
+  refreshing?: boolean
+  onRefresh?: () => void
+  colors?: readonly Color[]
+  tintColor?: Color
+  progressBackgroundColor?: Color
+}>
 /**
  * A bottom sheet over the whole screen. **Controlled:** you own `visible`; when the user drags it down, flings it,
  * taps outside or presses back, `onDismiss` asks you to close it (set `visible` to false). If you keep it true, it
@@ -529,7 +556,7 @@ export declare function List<T>(props: {
   onEndReached?: () => void
   style?: StyleInput
   gap?: number
-}): never
+} & RefreshProps): never
 
 /** Build-time helper: returns its argument (typed). The compiler folds it. */
 export const StyleSheet = { create: <T extends Record<string, Style>>(styles: T): T => styles }

@@ -242,6 +242,10 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val itemWidth = num(Registry.Prop.ITEM_WIDTH)
     // Tabs: the child to draw
     val selected = num(Registry.Prop.SELECTED)?.toInt() ?: 0
+    // Pull to refresh (vertical Scroll, List; ZnPullRefresh.kt)
+    val refreshing = p[Registry.Prop.REFRESHING] == true
+    val refreshColor: Color = color(Registry.Prop.REFRESH_COLOR) ?: Color(0xFF374151)
+    val refreshBackground: Color = color(Registry.Prop.REFRESH_BACKGROUND) ?: Color.White
     // Sheet
     val visible = p[Registry.Prop.VISIBLE] == true
     val detents: List<String> = (p[Registry.Prop.DETENTS] as String?)?.split(',')?.map { it.trim() }
@@ -387,6 +391,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val ref = eventFor(raw, Registry.Event.REF)
     val visibleSlot = slotFor(raw, Registry.Prop.VISIBLE)
     val selectedSlot = slotFor(raw, Registry.Prop.SELECTED)
+    val refreshingSlot = slotFor(raw, Registry.Prop.REFRESHING)
+    val onRefresh = eventFor(raw, Registry.Event.ON_REFRESH)
     val onEndReached = eventFor(raw, Registry.Event.ON_END_REACHED)
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)
     val onPressOut = eventFor(raw, Registry.Event.ON_PRESS_OUT)

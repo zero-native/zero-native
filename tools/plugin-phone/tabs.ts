@@ -25,6 +25,20 @@ const built = (tab: string) => lines(new RegExp(`tabs-lab built ${tab}$`)).lengt
 /** The number of the highest "Stores item N" on screen. */
 const topStore = () => Math.min(...texts().map((t) => /^Stores item (\d+)$/.exec(t.text)).filter((m) => m).map((m) => Number(m![1])))
 const inFront = () => /mCurrentFocus=[^\n]*dev\.zeronative\.sample/.test(shell("dumpsys", "window", "displays"))
+let density = 0
+/** [dp] in this phone's pixels (wm density: the override if there is one). */
+const px = (dp: number) => {
+  if (!density) density = Number([...shell("wm", "density").matchAll(/density: (\d+)/g)].pop()?.[1] ?? 160)
+  return Math.round((dp * density) / 160)
+}
+/** A finger pull down by [dp], starting on the text [from], slow enough not to fling. */
+async function pull(from: string | RegExp, dp: number) {
+  const t = texts().find((x) => (typeof from === "string" ? x.text === from : from.test(x.text)))
+  check(t, `no "${from}" to pull from`)
+  shell("input", "swipe", String(t.x), String(t.y), String(t.x), String(t.y + px(dp)), "800")
+  await sleep(300)
+}
+const refreshes = (tab: string) => lines(new RegExp(`tabs-lab refresh ${tab} start`)).length
 
 export const steps: Step[] = [
   {
@@ -181,6 +195,60 @@ export const steps: Step[] = [
       back()
       await see("tab: pay")
       ok("warm link", "amount closed, rewards selected, back → pay")
+    },
+  },
+  // Pull to refresh (guide notes §41). The disc must come down 80 dp, and it moves half as far as the finger.
+  {
+    name: "pull to refresh: a long pull on a Scroll refreshes once, a short one doesn't",
+    run: async () => {
+      await lab()
+      await see("Pay item 1")
+      clearLog()
+      await pull("Pay item 1", 70) // the disc comes 35 dp: short of the line
+      await sleep(1500)
+      check(refreshes("pay") === 0, "a short pull refreshed")
+      await pull("Pay item 1", 300)
+      ok("refresh started", await expectLog(/tabs-lab refresh pay start/))
+      ok("refresh done", await expectLog(/tabs-lab refresh pay done 1/))
+      await see("Refreshed 1×")
+      check(refreshes("pay") === 1, `one pull refreshed ${refreshes("pay")} times`)
+    },
+  },
+  {
+    name: "pull to refresh: RN's RefreshControl on a Scroll and a List, across a tab switch",
+    run: async () => {
+      await tap("Stores")
+      await see("Stores item 1")
+      clearLog()
+      await pull("Stores item 1", 300)
+      ok("list refresh started", await expectLog(/tabs-lab refresh stores start/))
+      // Switch tabs while the stores load (1.2 s): the offers tab (a Scroll) refreshes too.
+      await tap("Offers")
+      await see("Offers item 1")
+      await pull("Offers item 1", 300)
+      ok("scroll refresh started", await expectLog(/tabs-lab refresh offers start/))
+      ok("scroll refresh done", await expectLog(/tabs-lab refresh offers done 1/))
+      await see("Refreshed 1×")
+      await tap("Stores")
+      ok("list refresh done", await expectLog(/tabs-lab refresh stores done 1/))
+      await see("Refreshed 1×")
+    },
+  },
+  {
+    name: "pull to refresh: on a list scrolled down, a pull scrolls it up and doesn't refresh",
+    run: async () => {
+      await see("Stores item 1")
+      const x = String(texts().find((t) => t.text === "Stores item 1")!.x)
+      for (let i = 0; i < 2; i++) shell("input", "swipe", x, String(px(600)), x, String(px(250)), "300")
+      await sleep(800)
+      const before = topStore()
+      check(before > 4, `the stores list didn't scroll (top item ${before})`)
+      clearLog()
+      await pull(/^Stores item \d+$/, 120)
+      await sleep(1500)
+      check(refreshes("stores") === 0, "a pull on a scrolled list refreshed")
+      check(topStore() < before, `the list didn't scroll up (top item ${before} → ${topStore()})`)
+      ok("scrolled, no refresh", `top item ${before} → ${topStore()}`)
     },
   },
 ]

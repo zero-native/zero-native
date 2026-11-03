@@ -231,6 +231,64 @@ describe("<List>", () => {
   })
 })
 
+describe("pull to refresh", () => {
+  const err = (src: string) => {
+    try {
+      compile(src)
+    } catch (e) {
+      return (e as Error).message
+    }
+    return "no error"
+  }
+  test("flat props on <List> and a vertical <Scroll>", () => {
+    const { templates, code } = compile(`
+      export function A(p) {
+        return (
+          <Column>
+            <List data={p.x} key={(i) => i.id} row={(i) => <Row/>}
+              refreshing={p.busy()} onRefresh={() => p.load()} refreshColor="#6C3CE1" />
+            <Scroll refreshing={p.busy()} onRefresh={() => p.load()} refreshBackground="#FFF" />
+          </Column>
+        )
+      }`)
+    const root = templates.find((t) => t?.type === "Column" && t.children.length === 2)!
+    expect(root.children[0].props).toMatchObject({
+      refreshing: { $slot: "s0", default: null }, refreshColor: "#6C3CE1", onRefresh: { $event: "e0" },
+    })
+    expect(root.children[1].props).toMatchObject({ refreshBackground: "#FFF", onRefresh: { $event: "e2" } })
+    expect(code).toMatch(/__zn\.on\(__i0, \d+, \(\) => p\.load\(\)\);/)
+  })
+  test("RN's refreshControl={<RefreshControl .../>} becomes the flat props", () => {
+    const { templates, code } = compile(
+      `
+      export function A(p) {
+        return (
+          <Column>
+            <List data={p.x} key={(i) => i.id} row={(i) => <Row/>}
+              refreshControl={<RefreshControl refreshing={p.busy()} onRefresh={p.load} colors={[c.primary]} tintColor={c.primary} />} />
+            <Scroll refreshControl={<RefreshControl refreshing={false} onRefresh={p.load} tintColor="#123456" progressBackgroundColor="#EEE" />} />
+          </Column>
+        )
+      }`,
+      { c: { primary: "#6C3CE1" } },
+    )
+    const root = templates.find((t) => t?.type === "Column" && t.children.length === 2)!
+    expect(root.children[0].props).toMatchObject({ refreshing: { $slot: "s0" }, refreshColor: "#6C3CE1", onRefresh: { $event: "e0" } })
+    expect(root.children[1].props).toMatchObject({ refreshing: false, refreshColor: "#123456", refreshBackground: "#EEE" })
+    expect(code).toContain("p.load);")
+    expect(code).not.toContain("RefreshControl")
+  })
+  test("errors", () => {
+    expect(err(`function A(p) { return <Scroll horizontal onRefresh={p.load} /> }`)).toMatch(/only on a vertical <Scroll> or a <List>/)
+    expect(err(`function A(p) { return <Column refreshing={true} /> }`)).toMatch(/only on a vertical <Scroll> or a <List>/)
+    expect(err(`function A(p) { return <Column><RefreshControl /></Column> }`)).toMatch(/goes in refreshControl/)
+    expect(err(`function A(p) { return <Scroll refreshControl={p.rc} /> }`)).toMatch(/written right here/)
+    expect(err(`function A(p) { return <Scroll refreshControl={<RefreshControl size="large" />} /> }`))
+      .toMatch(/size on <RefreshControl> isn't supported/)
+    expect(err(`function A(p) { return <Scroll refreshControl={<RefreshControl colors={p.c} />} /> }`)).toMatch(/colors must be an array/)
+  })
+})
+
 describe("errors point at the source", () => {
   const err = (src: string) => {
     try {

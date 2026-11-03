@@ -411,6 +411,7 @@ as tasks.
 | `Column` / `Row` / `Stack` | `Column` / `Row` / `Box` | `VStack` / `HStack` / `ZStack` |
 | `Spacer` | `Spacer` (+ weight) | `Spacer` |
 | `Scroll` | `verticalScroll` / `horizontalScroll` | `ScrollView` |
+| pull to refresh (`refreshing`, `onRefresh` on `Scroll` / `List`) | our own: nested scroll + a disc drawn on the list (`ZnPullRefresh.kt`) | `.refreshable` [check] |
 | `For` (short lists) | keyed children inside `Column` / `Row` / `Scroll` | keyed children (`ForEach`) |
 | `List` (virtualized, 9.3) | `LazyColumn` / `LazyRow` / `LazyVerticalGrid` with keys | `LazyVStack` / `LazyHStack` / `LazyVGrid` with ids |
 | `Text` | `Text` | `Text` |

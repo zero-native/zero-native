@@ -183,7 +183,8 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
             }
         } else {
             Column(
-                modifier = mod.verticalScroll(rememberScrollState()).padding(s.contentPadding ?: PaddingValues(0.dp)),
+                modifier = mod.then(znPullRefresh(s, inst)).verticalScroll(rememberScrollState())
+                    .padding(s.contentPadding ?: PaddingValues(0.dp)),
                 verticalArrangement = verticalArrangement(s),
                 horizontalAlignment = horizontalAlignment(s.alignItems),
             ) {
@@ -439,7 +440,7 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     val rows = list.rows
     val state = rememberLazyListState() // saveable: the scroll position survives back navigation and recreation
     LazyColumn(
-        modifier = mod,
+        modifier = mod.then(znPullRefresh(s, inst)), // pull to refresh, when it has onRefresh / refreshing
         state = state,
         verticalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Top,
     ) {

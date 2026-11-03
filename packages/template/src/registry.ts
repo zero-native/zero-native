@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 11 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 12 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -19,6 +19,8 @@ export const REGISTRY_VERSION = 11 // 2: Anchor. 3: transforms, shadow, absolute
 // 9: NativeView, a plugin's Compose view inside a screen (docs/plugins.md §5): viewName, viewProps, onNativeEvent.
 // 10: TextField `ref` (RN basics pack): focus(), blur(), clear() from JS; focus changes come back on its event id.
 // 11: Tabs, a container that draws only its selected child (docs/guide-notes.md §40): selected.
+// 12: pull to refresh on a vertical Scroll and on List (docs/guide-notes.md §41): refreshing, refreshColor,
+//     refreshBackground, onRefresh.
 
 export const Component = {
   Column: 1,
@@ -225,6 +227,14 @@ export const Prop = {
   viewProps: { id: 148, type: "string" },
   /** <Tabs>: the position of the child to draw (default 0). */
   selected: { id: 149, type: "number" },
+  // Pull to refresh (vertical Scroll, List). Ids from the middle of Claude's range, so a branch taking the next free id
+  // (150) doesn't clash.
+  /** Whether the list is refreshing (the spinner shows). Owned by JS: a pull sends onRefresh, JS sets this. */
+  refreshing: { id: 170, type: "bool" },
+  /** The spinner's arc (RN RefreshControl `colors[0]` / `tintColor`). Default: dark grey. */
+  refreshColor: { id: 171, type: "color" },
+  /** The round disc behind the arc (RN `progressBackgroundColor`). Default: white. */
+  refreshBackground: { id: 172, type: "color" },
   // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
   trackColor: { id: 200, type: "color" },
   activeTrackColor: { id: 201, type: "color" },
@@ -312,6 +322,11 @@ export const EventKind = {
    * sends true / false on it when focus comes or goes. Bound by the compiler (core text-field.ts fieldRef).
    */
   ref: 16,
+  /**
+   * <Scroll> / <List>: the user pulled down past the line and let go (pull to refresh). Set refreshing to true while
+   * you load. Id from the middle of Claude's range (see refreshing).
+   */
+  onRefresh: 25,
   // 16-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
   onValueChange: 30,
 } as const
@@ -345,6 +360,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "accessibilityLabel",
   "viewProps",
   "selected",
+  "refreshing",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -373,11 +389,10 @@ export const Added: {
   format: Partial<Record<FormatName, number>>
 } = {
   component: { NativeView: 9, Tabs: 11 },
-  prop: { viewName: 9, viewProps: 9, selected: 11 },
-  dynamic: { viewProps: 9, selected: 11 },
+  prop: { viewName: 9, viewProps: 9, selected: 11, refreshing: 12, refreshColor: 12, refreshBackground: 12 },
+  dynamic: { viewProps: 9, selected: 11, refreshing: 12 },
   enumValue: {},
-  event: { onNativeEvent: 9, ref: 10 },
-  format: { "timing.motion": 11 },
+  event: { onNativeEvent: 9, ref: 10, onRefresh: 12 },
 }
 
 /**

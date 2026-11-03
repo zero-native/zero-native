@@ -68,43 +68,8 @@ type JsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment
 // Animation (step 3.6): what `animate` can name, and the easings a tween can use (index = native easing id).
 const ANIMATABLE = ["opacity", "backgroundColor", "scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"]
 const EASINGS = ["standard", "ease-out", "ease-in", "linear"]
-
-// SVG (docs/svg.md): react-native-svg element names inside <Svg> → SVG tags.
-const SVG_TAGS: Record<string, string> = {
-  G: "g", Path: "path", Rect: "rect", Circle: "circle", Ellipse: "ellipse", Line: "line", Polyline: "polyline",
-  Polygon: "polygon", Defs: "defs", LinearGradient: "linearGradient", RadialGradient: "radialGradient", Stop: "stop",
-  ClipPath: "clipPath", Mask: "mask", Use: "use", Symbol: "symbol",
-  // Refused by the SVG compiler with a hint; named here so the message is about SVG, not about zn's own Text / Image.
-  Text: "text", TSpan: "tspan", TextPath: "textPath", Image: "image", Pattern: "pattern",
-}
-/** SVG attributes that are camelCase in SVG itself; every other camelCase prop becomes kebab-case (strokeWidth). */
-const SVG_CAMEL = new Set([
-  "viewBox", "gradientUnits", "gradientTransform", "spreadMethod", "clipPathUnits", "preserveAspectRatio", "maskUnits",
-  "maskContentUnits", "patternUnits", "patternContentUnits", "patternTransform",
-])
-/** What a part (and an inline element's runtime value) can set at runtime. */
-const PART_PROPS = ["fill", "stroke", "opacity"] as const
-/**
- * What else a part can have (docs/svg.md §9, registry 11): transforms around the part's own centre (viewBox units,
- * degrees), "draw the line" trims (0–1 of its length), and its own animate / paused / replay. Static or runtime.
- */
-const PART_MOTION = [
-  "rotate", "scale", "scaleX", "scaleY", "translateX", "translateY", "trimStart", "trimEnd", "trimOffset",
-  "animate", "paused", "replay",
-] as const
-const PART_ANIMATABLE = [
-  "opacity", "fill", "stroke", "rotate", "scale", "scaleX", "scaleY", "translateX", "translateY", "trimStart", "trimEnd", "trimOffset",
-]
-const PART_TURNS = ["rotate", "scale", "scaleX", "scaleY"]
-/** Props of the Svg node itself (`.svg` component or inline <Svg>), besides style and the SVG content. */
-const SVG_NODE_PROPS = [
-  "color", "autoMirror", "accessibilityLabel", "accessibilityHint", "accessibilityHidden", "accessibilityRole", "paused", "replay",
-]
-
-/**
- * [svgImports]: local names that are .svg files (absolute path), imported directly or through a `.ts` file that
- * re-exports them (plugin.ts finds both). `<Name .../>` becomes an Svg node; the name is not a JS value.
- */
+// Pull to refresh (guide notes §41): only on a vertical Scroll and on List.
+const REFRESH_PROPS = ["refreshing", "onRefresh", "refreshColor", "refreshBackground"]
 export function compileModule(
   source: string,
   fileName: string,
@@ -345,6 +310,10 @@ export function compileModule(
         b.binds.push(`${RUNTIME}.fieldRef(${b.inst}, @@E:${ev}@@, ${text((init as ts.JsxExpression).expression!)});`)
         continue
       }
+      if (name === "refreshControl") {
+        refreshControl(a, props, b)
+        continue
+      }
       if (name in EventKind) {
         if (!init || !ts.isJsxExpression(init) || !init.expression) fail(a, `${name} needs a function`)
         const ev = `e${b.events++}`
@@ -365,6 +334,10 @@ export function compileModule(
       else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)
       else fail(a, `unsupported value for "${name}"`)
+    }
+    const refresh = REFRESH_PROPS.filter((k) => k in props)
+    if (refresh.length > 0 && (tag !== "Scroll" || props.horizontal === true)) {
+      fail(opening, `${refresh[0]}: pull to refresh works only on a vertical <Scroll> or a <List>`)
     }
     if (changeText) {
       const { ev, handler } = changeText
@@ -830,6 +803,11 @@ export function compileModule(
       if (name === "data" || name === "key" || name === "row" || name === "onEndReached") {
         if (!expr) fail(a, `${name} needs an expression: ${name}={...}`)
         special[name] = expr!
+      } else if (name === "onRefresh") {
+        if (!expr) fail(a, "onRefresh needs a function")
+        bindEvent(props, b, "onRefresh", expr!)
+      } else if (name === "refreshControl") {
+        refreshControl(a, props, b)
       } else if (name === "style") {
         if (!expr) fail(a, "style needs an object: style={{ ... }}")
         styleProps(expr!, props, b)
@@ -839,7 +817,7 @@ export function compileModule(
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, gap, refreshing, onRefresh)`)
       }
     }
     for (const required of ["data", "key", "row"]) {
@@ -894,6 +872,71 @@ export function compileModule(
         `rangeEvent: @@E:${range}@@, endEvent: ${end}, onEndReached: ${onEnd} });`,
     )
     return el("List", props)
+  }
+
+  /** An event prop bound to [handler] on this template's instance. */
+  function bindEvent(props: Record<string, unknown>, b: Builder, name: keyof typeof EventKind, handler: ts.Expression) {
+    const ev = `e${b.events++}`
+    props[name] = eventRef(ev)
+    b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${text(handler)});`)
+  }
+
+  /**
+   * React Native's `refreshControl={<RefreshControl refreshing onRefresh colors tintColor progressBackgroundColor />}`
+   * on a Scroll / List → the flat props refreshing, onRefresh, refreshColor, refreshBackground (guide notes §41).
+   * `colors` (Android) gives the colour; `tintColor` (iOS) only when there is no `colors`.
+   */
+  function refreshControl(a: ts.JsxAttribute, props: Record<string, unknown>, b: Builder) {
+    const init = a.initializer
+    const e = init && ts.isJsxExpression(init) && init.expression ? unwrap(init.expression) : undefined
+    if (!e || !(ts.isJsxSelfClosingElement(e) || ts.isJsxElement(e)) || tagName(e) !== "RefreshControl") {
+      return fail(a, "refreshControl takes <RefreshControl ... /> written right here " +
+        "(or use the props refreshing, onRefresh, refreshColor, refreshBackground)")
+    }
+    if (ts.isJsxElement(e) && e.children.some((c) => !(ts.isJsxText(c) && c.text.trim() === ""))) {
+      fail(e, "<RefreshControl> takes no children")
+    }
+    let colors: ts.Expression | undefined
+    let tint: ts.Expression | undefined
+    const value = (r: ts.JsxAttribute): ts.Expression => {
+      const i = r.initializer
+      if (!i) return ts.factory.createTrue()
+      if (ts.isStringLiteral(i)) return i
+      if (ts.isJsxExpression(i) && i.expression) return i.expression
+      return fail(r, `unsupported value for "${r.name.getText(sf)}"`)
+    }
+    const set = (name: PropName, r: ts.JsxAttribute) => {
+      const v = value(r)
+      if (ts.isStringLiteral(v)) setStatic(props, name, decodeEntities(v.text), r)
+      else setProp(props, b, name, v, r)
+    }
+    for (const attr of (ts.isJsxElement(e) ? e.openingElement : e).attributes.properties) {
+      if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
+      const r = attr as ts.JsxAttribute
+      const name = r.name.getText(sf)
+      if (name === "refreshing") set("refreshing", r)
+      else if (name === "onRefresh") bindEvent(props, b, "onRefresh", value(r))
+      else if (name === "progressBackgroundColor") set("refreshBackground", r)
+      else if (name === "tintColor") tint = value(r)
+      else if (name === "colors") {
+        // One colour: the first of a literal array (`colors={[PRIMARY]}`), or of a build-time constant array.
+        const v = unwrap(value(r))
+        if (ts.isArrayLiteralExpression(v) && v.elements.length > 0 && !ts.isSpreadElement(v.elements[0])) {
+          colors = v.elements[0]
+        } else {
+          const folded = fold(v, scope)
+          if (!Array.isArray(folded) || folded.length === 0) fail(r, "colors must be an array with at least one colour: colors={[c]}")
+          setStatic(props, "refreshColor", (folded as unknown[])[0], r)
+        }
+      } else {
+        fail(r, `${name} on <RefreshControl> isn't supported (use refreshing, onRefresh, colors, tintColor, progressBackgroundColor)`)
+      }
+    }
+    const color = colors ?? (props.refreshColor === undefined ? tint : undefined)
+    if (color) {
+      if (ts.isStringLiteral(color)) setStatic(props, "refreshColor", decodeEntities(color.text), color)
+      else setProp(props, b, "refreshColor", color, color)
+    }
   }
 
   /** A build-time prop value → the template. Values with React Native aliases are normalised here. */
@@ -1357,6 +1400,9 @@ export function compileModule(
    * the component shows them with `{props.header}` / `{props.children}`. [depth]: for the templates' setup code.
    */
   function propsObject(node: ts.JsxElement | ts.JsxSelfClosingElement, depth: number): string {
+    if (tagName(node) === "RefreshControl" && !userComponents.has("RefreshControl")) {
+      fail(node, "<RefreshControl> goes in refreshControl={...} on a vertical <Scroll> or a <List>")
+    }
     const opening = ts.isJsxElement(node) ? node.openingElement : node
     const parts: string[] = []
     for (const attr of opening.attributes.properties) {

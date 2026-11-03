@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "base": 8,
   "entries": {
     "component:Column": {"id":1,"since":8},
@@ -132,6 +132,9 @@
     "prop:viewName": {"id":147,"type":"string","since":9},
     "prop:viewProps": {"id":148,"type":"string","since":9},
     "prop:selected": {"id":149,"type":"number","since":11},
+    "prop:refreshing": {"id":170,"type":"bool","since":12},
+    "prop:refreshColor": {"id":171,"type":"color","since":12},
+    "prop:refreshBackground": {"id":172,"type":"color","since":12},
     "prop:trackColor": {"id":200,"type":"color","since":8},
     "prop:activeTrackColor": {"id":201,"type":"color","since":8},
     "prop:thumbColor": {"id":202,"type":"color","since":8},
@@ -170,6 +173,7 @@
     "dynamic:accessibilityLabel": {"since":8},
     "dynamic:viewProps": {"since":9},
     "dynamic:selected": {"since":11},
+    "dynamic:refreshing": {"since":12},
     "enum:justifyContent.flex-start": {"id":0,"since":8},
     "enum:justifyContent.center": {"id":1,"since":8},
     "enum:justifyContent.flex-end": {"id":2,"since":8},
@@ -243,7 +247,7 @@
     "event:onBlur": {"id":14,"since":8},
     "event:onNativeEvent": {"id":15,"since":9},
     "event:ref": {"id":16,"since":10},
-    "event:onValueChange": {"id":30,"since":8},
-    "format:timing.motion": {"since":11}
+    "event:onRefresh": {"id":25,"since":12},
+    "event:onValueChange": {"id":30,"since":8}
   }
 }

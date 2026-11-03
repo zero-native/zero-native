@@ -123,6 +123,21 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-03: pull to refresh (Claude)
+- **What:** pull to refresh on a vertical `<Scroll>` and a `<List>` (gap #4 in `docs/rn-compatibility.md` §10; all four
+  ZeroBill home tabs use it). Controlled like RN: a pull sends `onRefresh`, JS owns `refreshing`. Flat props
+  (`refreshing`, `onRefresh`, `refreshColor`, `refreshBackground`), or RN's `refreshControl={<RefreshControl ... />}`,
+  which the compiler turns into the flat props. Compose foundation only (`ZnPullRefresh.kt`), no material3.
+- **Versions:** registry **12** (props `refreshing` 170, `refreshColor` 171, `refreshBackground` 172; event `onRefresh` 25).
+  Host API stays 8. The SVG branch (registry 11 too) must move to 13 when it merges.
+- **Docs:** guide §41, `docs/components.md`, `docs/lists.md`, `docs/rn-compatibility.md`, second-opinions 49.
+- **Checked** (second check by the tabs session, on main at `bac6d1c`): JS 740 tests + types, `gen:registry` gives no
+  change, Kotlin unit tests (7 new, pull numbers and the 1 s wait), lint 0 errors, sample debug and R8 release builds.
+  Lab: Dev → "Tabs", every tab (Pay and Rewards: flat props; Stores (List) and Offers: `<RefreshControl>`).
+- **On the Lava** (debug): `bun run tools/plugin-phone.ts tab pull --no-hands`: the 10 tabs steps and the 3 pull to
+  refresh steps passed (long pull refreshes once, short pull doesn't, a List and a Scroll across a tab switch, a pull on
+  a scrolled list scrolls it up and doesn't refresh), 13 of 13, 0 crashes.
+
 ### 2026-11-03: bottom tabs and focus (Claude)
 - **What:** tabs inside one screen, for the ZeroBill pilot's home (4 tabs, each loading its own data).
   - Route option `tabs: [...]` and `useTabs(route)` (`packages/core/src/tabs.ts`).

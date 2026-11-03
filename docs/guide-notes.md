@@ -1278,3 +1278,52 @@ A full example with a ZeroBill-like bar: [TabsLab.tsx](../examples/sample/src/Ta
 screen above it closes (back from checkout: refresh the balance there). The function `fn` returns runs when the screen
 loses focus. Same as React Navigation's `useFocusEffect`. It is about the stack only: for the app coming back to the
 front, use `onAppState` (§29).
+
+## 41. Pull to refresh (registry 12)
+
+A vertical `<Scroll>` and a `<List>` refresh when the user pulls down at the top, like React Native's `RefreshControl`.
+It is **controlled**: you own `refreshing`.
+
+```tsx
+const refreshing = signal(false)
+async function refresh() {
+  if (refreshing()) return
+  refreshing.set(true)
+  try { await loadStores() } finally { refreshing.set(false) }
+}
+
+<List data={stores()} key={(s) => s.id} row={(s) => <StoreRow s={s} />}
+  refreshing={refreshing()} onRefresh={() => void refresh()} refreshColor={c.primary} />
+```
+React Native's shape works too, so a ported screen keeps its code:
+```tsx
+import { RefreshControl } from "@zero-native/ui"
+<List ... refreshControl={<RefreshControl refreshing={refreshing()} onRefresh={onRefresh} colors={[PRIMARY]} tintColor={PRIMARY} />} />
+```
+The compiler turns it into the props above: `colors[0]` (or `tintColor` when there is no `colors`) becomes
+`refreshColor`, `progressBackgroundColor` becomes `refreshBackground`. Any other `RefreshControl` prop is a build error.
+Example: all four tabs of [TabsLab.tsx](../examples/sample/src/TabsLab.tsx) (two use each shape).
+
+**How it behaves.**
+- The pull starts when the content is at its top and the finger keeps going down. A round disc with an arc slides down
+  over the content (Android's look: the content doesn't move). The arc grows with the pull and turns solid when letting
+  go would refresh. The disc must come down 80 dp, and it moves half as far as the finger.
+- When you let go past that point, `onRefresh` runs and the spinner shows at once. From then on it follows `refreshing`:
+  it stays while `refreshing` is true, and slides away when it goes back to false.
+- If `refreshing` is not set to true within 1 second of the pull, the spinner goes away by itself.
+- `refreshing={true}` without a pull shows the spinner too (for a first load).
+- While the spinner shows, a new pull does nothing: the list scrolls as usual.
+- Pulling works only when `onRefresh` is set.
+- No JS runs during the pull, only when the finger is up. A pull costs no frames.
+
+**Do / don't.**
+- **Do** set `refreshing` to true in `onRefresh`, and back to false when the data is in (also on errors: use `finally`).
+  **Why:** the spinner follows it. If you never set it, the spinner goes away after 1 second, before your data arrives.
+- **Do** skip a second refresh while one runs (`if (refreshing()) return`). A pull can't start one, but your own code
+  (a reload on focus) can.
+- **Don't** keep the `<RefreshControl>` in a variable (`const rc = <RefreshControl/>`, as RN code often does). Write it
+  inside `refreshControl={...}`. **Why:** the compiler reads it there, at build time.
+- **Don't** put pull to refresh on `<Scroll horizontal>`: it is a build error.
+- **Know:** one colour only. RN's `colors` array (colours that take turns) uses its first colour.
+- **Know:** the content doesn't move down with the pull, as on Android. On iOS it will (SwiftUI's own refresh).
+- **Know:** TalkBack has no pull gesture (the same as in RN). If reloading matters, give screen reader users a button.

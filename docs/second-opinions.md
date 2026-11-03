@@ -537,3 +537,28 @@ change, and what evidence would make you change it?"
   computed in JS from the stack; nothing new from native. The returned function runs on blur, like `useFocusEffect`.
 - **Why:** ZeroBill reloads a tab's data on focus, so the cashback balance is fresh after a payment.
 - **Not done:** focus does not follow the app going to the background (React Navigation doesn't either). Use `onAppState`.
+
+## 49. Pull to refresh: drawn on the list itself, Android's look, a 1 second wait for JS (registry 12)
+- **Where:** `android/runtime/.../ZnPullRefresh.kt`, `ZnRenderer.kt` (vertical `Scroll`, `ZnLazyList`),
+  `compiler/src/compile.ts` `refreshControl()`.
+- **Chosen:**
+  - Compose foundation only. The pull is the scroll left over at the top (a `NestedScrollConnection`). The disc is
+    drawn with `drawWithContent` on the Scroll's / LazyColumn's own modifier chain, not in a wrapper `Box`, so the
+    layout rules (flex, stretch) stay exactly as before. The disc's position is read only while drawing (no
+    recomposition during a pull); `refreshing` is read in a `snapshotFlow`, so a change doesn't recompose the list.
+  - Android's look: the content doesn't move, a disc slides over it. Line 80 dp, the disc moves at half the finger's
+    speed, past the line at half again, up to 120 dp. Like material3's numbers, drawn by hand (no material shadow:
+    two faint rings).
+  - Controlled (ARCHITECTURE §9.7): a release past the line sends `onRefresh` and shows the spinner at once; then
+    `refreshing` decides. If JS doesn't set `refreshing` to true within **1 second**, the spinner goes away.
+  - A pull only starts while the spinner is hidden; a fling that ends a pull is eaten (the content doesn't jump).
+  - React Native's `refreshControl={<RefreshControl .../>}` is turned into the flat props by the compiler (Pavan: do it if
+    easy). It must be written inside the prop: RN code that keeps it in a variable needs a small edit.
+- **Why:** a wrapper box would change how a `flex: 1` list is measured, and material3 would add ~1 MB and a second
+  design system. The wait lets a refresh that never sets `refreshing` still end cleanly.
+- **Risk if wrong:** a JS thread blocked for over 1 second (a long GC pause) after a pull makes the spinner go away and
+  come back when `refreshing` arrives. A sync `onRefresh` that sets true and false in the same turn shows the spinner
+  for 1 second. iOS: SwiftUI's `.refreshable` moves the content; it maps as "send onRefresh, then await `refreshing`
+  false" [check when iOS starts].
+- **Not done:** `progressViewOffset` (where the disc rests, for a header drawn over the list), `size`, `enabled`. Add
+  when a screen needs them.

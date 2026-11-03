@@ -35,8 +35,10 @@ describe("registry changes follow the OTA rules", () => {
   test("something new with since = the new REGISTRY_VERSION is fine", () => {
     const lock = fresh()
     lock.version = REGISTRY_VERSION - 1
-    // The newest entries (since 11)
-    for (const k of ["component:Tabs", "prop:selected", "dynamic:selected"]) delete lock.entries[k]
+    // The newest entries (since 12)
+    for (const k of ["prop:refreshing", "prop:refreshColor", "prop:refreshBackground", "dynamic:refreshing", "event:onRefresh"]) {
+      delete lock.entries[k]
+    }
     expect(registryProblems(lock)).toEqual([])
   })
 

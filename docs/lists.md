@@ -36,6 +36,7 @@ The compiler warns when a `<For>` is fed an array that is not obviously small, a
   only one key + type per row on the native side, plus instances for a window of ~40 rows.
 - A row whose item object changes (same key, new object) is mounted again. Keep items immutable: replace the object.
 - `row`'s index argument is the position when the row was mounted; it is not updated by later inserts.
+- Pull to refresh: `refreshing` + `onRefresh` (or RN's `refreshControl={<RefreshControl/>}`), guide-notes §41.
 
 ## 3. The window protocol (built, 2.4a)
 JS → native (normal batch ops, `core/include/zn/batch.h`):
