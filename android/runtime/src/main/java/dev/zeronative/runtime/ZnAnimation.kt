@@ -2,19 +2,35 @@ package dev.zeronative.runtime
 
 import androidx.compose.animation.Animatable as ColorAnimatable
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.VectorConverter
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.AnimationVector
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.TargetBasedAnimation
+import androidx.compose.animation.core.TwoWayConverter
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.MotionDurationScale
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlin.coroutines.coroutineContext
+import kotlin.math.roundToInt
 import androidx.compose.foundation.IndicationNodeFactory
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -35,39 +51,127 @@ import kotlinx.coroutines.launch
 // element's own spring or tween. Every animated value is read in the draw phase (graphicsLayer / drawBehind), so a
 // running animation redraws one node per frame and never recomposes or re-lays out anything.
 
-/** A tween ("t<ms>e<easing>") or a spring ("s<dampingRatio>,<stiffness>"), as the compiler encodes them. */
-internal class ZnTiming(private val ms: Int, private val easing: Int, private val damping: Float, private val stiffness: Float) {
-    fun <T> spec(): AnimationSpec<T> =
-        if (ms >= 0) {
-            tween(ms, easing = when (easing) {
-                1 -> LinearOutSlowInEasing // ease-out
-                2 -> FastOutLinearInEasing // ease-in
-                3 -> LinearEasing
-                else -> FastOutSlowInEasing // standard
-            })
-        } else {
-            spring(dampingRatio = damping, stiffness = stiffness)
-        }
+/**
+ * A tween ("t<ms>e<easing>") or a spring ("s<dampingRatio>,<stiffness>"), as the compiler encodes them, and the
+ * motion options after "~" (registry 11, compiler `timing()`): "d<ms>" delay, "r<n>" plays in all (-1 forever),
+ * "v" reverse, "g<ms>" repeat delay, "f<v>" from, "k<v>:<v>..." keyframes, "m<t>:..." times, "b<x1>:<y1>:<x2>:<y2>"
+ * cubic-bezier (easing 4), "z<e>:<e>..." an easing per keyframe segment (from imported .svg animations: an easing id,
+ * or "4,x1,y1,x2,y2"). A value is a number, or "#AARRGGBB" for backgroundColor. Easing 5 is a step: it holds, then
+ * jumps at the end of its segment (SMIL calcMode="discrete", CSS step-end).
+ */
+internal class ZnTiming(
+    private val ms: Int,
+    private val easing: Int,
+    private val damping: Float,
+    private val stiffness: Float,
+    val delayMs: Int = 0,
+    /** Plays in all; -1 forever. */
+    val plays: Int = 1,
+    val reverse: Boolean = false,
+    val repeatDelayMs: Int = 0,
+    /** The start value ("from"), or null. */
+    val from: String? = null,
+    /** Keyframe values, or null. */
+    val keyframes: List<String>? = null,
+    /** Keyframe times 0–1, or null (evenly spaced). */
+    val times: FloatArray? = null,
+    private val bezier: FloatArray? = null,
+    /** An easing per keyframe segment, or null (every segment uses this timing's curve). */
+    private val segments: List<Easing>? = null,
+) {
+    /** True when it plays by itself (when the element appears, and on replay), not when a value changes. */
+    val selfPlaying = from != null || keyframes != null
 
-    companion object {
-        fun parse(s: String): ZnTiming? = when {
-            s.startsWith("t") -> {
-                val e = s.indexOf('e')
-                ZnTiming(s.substring(1, if (e > 0) e else s.length).toIntOrNull() ?: return null,
-                    if (e > 0) s.substring(e + 1).toIntOrNull() ?: 0 else 0, 1f, 0f)
+    private fun curve(): Easing = easingOf(easing, bezier)
+
+    /** One play, from one value to the next (no delay: callers wait it out, so springs and tweens are the same). */
+    fun <T> spec(): AnimationSpec<T> =
+        if (ms >= 0) tween(ms, easing = curve()) else spring(dampingRatio = damping, stiffness = stiffness)
+
+    /** One play through [values] (the keyframes), each segment with its own easing, else this timing's curve. */
+    fun <T> keyframeSpec(values: List<T>): AnimationSpec<T> {
+        val d = ms.coerceAtLeast(0)
+        val e = curve()
+        return keyframes {
+            durationMillis = d
+            values.forEachIndexed { i, v ->
+                val t = times?.getOrNull(i) ?: (i.toFloat() / (values.size - 1))
+                // Rounded, not cut: the compiler writes times as whole ms, and 0.0499 * 1000 must stay 50.
+                (v at (t * d).roundToInt()) using (segments?.getOrNull(i) ?: e)
             }
-            s.startsWith("s") -> {
-                val parts = s.substring(1).split(',')
-                ZnTiming(-1, 0, parts.getOrNull(0)?.toFloatOrNull() ?: 0.75f, parts.getOrNull(1)?.toFloatOrNull() ?: 400f)
-            }
-            else -> null
         }
     }
+
+    companion object {
+        fun parse(s: String): ZnTiming? {
+            val pieces = s.split('~')
+            val b = pieces[0]
+            var delay = 0
+            var plays = 1
+            var reverse = false
+            var gap = 0
+            var from: String? = null
+            var keys: List<String>? = null
+            var times: FloatArray? = null
+            var bezier: FloatArray? = null
+            var segments: List<Easing>? = null
+            for (o in pieces.drop(1)) {
+                if (o.isEmpty()) continue
+                val v = o.substring(1)
+                when (o[0]) {
+                    'd' -> delay = v.toIntOrNull() ?: return null
+                    'r' -> plays = v.toIntOrNull() ?: return null
+                    'v' -> reverse = true
+                    'g' -> gap = v.toIntOrNull() ?: return null
+                    'f' -> from = v
+                    'k' -> keys = v.split(':')
+                    'm' -> times = v.split(':').map { it.toFloatOrNull() ?: return null }.toFloatArray()
+                    'b' -> bezier = v.split(':').map { it.toFloatOrNull() ?: return null }.toFloatArray().takeIf { it.size == 4 }
+                    'z' -> segments = v.split(':').map { seg ->
+                        val n = seg.split(',')
+                        val id = n[0].toIntOrNull() ?: return null
+                        val b = if (n.size == 5) n.drop(1).map { it.toFloatOrNull() ?: return null }.toFloatArray() else null
+                        easingOf(id, b)
+                    }
+                    else -> {} // a later option: ignored (the bundle asks for the registry that knows it)
+                }
+            }
+            return when {
+                b.startsWith("t") -> {
+                    val e = b.indexOf('e')
+                    ZnTiming(b.substring(1, if (e > 0) e else b.length).toIntOrNull() ?: return null,
+                        if (e > 0) b.substring(e + 1).toIntOrNull() ?: 0 else 0, 1f, 0f,
+                        delay, plays, reverse, gap, from, keys, times, bezier, segments)
+                }
+                b.startsWith("s") -> {
+                    val parts = b.substring(1).split(',')
+                    ZnTiming(-1, 0, parts.getOrNull(0)?.toFloatOrNull() ?: 0.75f, parts.getOrNull(1)?.toFloatOrNull() ?: 400f,
+                        delay, plays, reverse, gap, from, keys, times, bezier, segments)
+                }
+                else -> null
+            }
+        }
+    }
+}
+
+/** Holds, then jumps at the very end (easing 5). */
+private val StepEasing = Easing { if (it < 1f) 0f else 1f }
+
+/** An easing by the compiler's id (`EASINGS` in compile.ts; 4 = [bezier], 5 = step). */
+private fun easingOf(id: Int, bezier: FloatArray?): Easing = when (id) {
+    1 -> LinearOutSlowInEasing // ease-out
+    2 -> FastOutLinearInEasing // ease-in
+    3 -> LinearEasing
+    4 -> bezier?.let { CubicBezierEasing(it[0], it[1], it[2], it[3]) } ?: FastOutSlowInEasing
+    5 -> StepEasing
+    else -> FastOutSlowInEasing // standard
 }
 
 /** `animate`: per prop id, or "*" for every animatable prop of the element. */
 internal class ZnAnimate(private val byProp: Map<Int, ZnTiming>, private val all: ZnTiming?) {
     fun timingFor(prop: Int): ZnTiming? = byProp[prop] ?: all
+    /** Some prop has a loop or keyframes. */
+    val selfPlaying = byProp.values.any { it.selfPlaying }
 
     companion object {
         fun parse(s: String): ZnAnimate {
@@ -117,21 +221,25 @@ private fun lerp(from: Float, to: Float, t: Float) = from + (to - from) * t
 @Composable
 internal fun znLayer(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, pressed: ZnPressed? = null): ZnLayer? {
     val hasExit = root && s.exit != null
-    if (s.opacitySlot < 0 && !s.hasTransformSlots && s.enter == null && !hasExit && pressed == null) return null
+    if (s.opacitySlot < 0 && !s.hasTransformSlots && s.enter == null && !hasExit && pressed == null && !s.hasMotion) return null
     val a = s.animate
-    val opacity = animatedFloat(inst, s.opacitySlot, s.opacity, a?.timingFor(Registry.Prop.OPACITY))
-    val scale = animatedFloat(inst, s.scaleSlot, s.scaleBase, a?.timingFor(Registry.Prop.SCALE))
-    val scaleX = animatedFloat(inst, s.scaleXSlot, s.scaleXOnly, a?.timingFor(Registry.Prop.SCALE_X))
-    val scaleY = animatedFloat(inst, s.scaleYSlot, s.scaleYOnly, a?.timingFor(Registry.Prop.SCALE_Y))
-    val rotate = animatedFloat(inst, s.rotateSlot, s.rotate, a?.timingFor(Registry.Prop.ROTATE))
-    val tx = animatedFloat(inst, s.translateXSlot, s.translateX, a?.timingFor(Registry.Prop.TRANSLATE_X))
-    val ty = animatedFloat(inst, s.translateYSlot, s.translateY, a?.timingFor(Registry.Prop.TRANSLATE_Y))
+    val m = znMotionInputs(s, inst)
+    val opacity = animatedFloat(inst, s.opacitySlot, s.opacity, a?.timingFor(Registry.Prop.OPACITY), m)
+    val scale = animatedFloat(inst, s.scaleSlot, s.scaleBase, a?.timingFor(Registry.Prop.SCALE), m)
+    val scaleX = animatedFloat(inst, s.scaleXSlot, s.scaleXOnly, a?.timingFor(Registry.Prop.SCALE_X), m)
+    val scaleY = animatedFloat(inst, s.scaleYSlot, s.scaleYOnly, a?.timingFor(Registry.Prop.SCALE_Y), m)
+    val rotate = animatedFloat(inst, s.rotateSlot, s.rotate, a?.timingFor(Registry.Prop.ROTATE), m)
+    val tx = animatedFloat(inst, s.translateXSlot, s.translateX, a?.timingFor(Registry.Prop.TRANSLATE_X), m)
+    val ty = animatedFloat(inst, s.translateYSlot, s.translateY, a?.timingFor(Registry.Prop.TRANSLATE_Y), m)
 
     // Enter: from the `enter` state to the element's own values, once, when the node first appears.
     val enter = s.enter
     val inP: Animatable<Float, *>? = if (enter != null) {
         val p = remember(inst) { Animatable(0f) }
-        LaunchedEffect(inst) { p.animateTo(1f, enter.timing.spec()) }
+        LaunchedEffect(inst) {
+            znDelay(enter.timing.delayMs)
+            p.animateTo(1f, enter.timing.spec())
+        }
         p
     } else null
 
@@ -143,6 +251,7 @@ internal fun znLayer(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, pressed: Zn
         val exiting = inst.exiting.value
         LaunchedEffect(inst, exiting) {
             if (!exiting) return@LaunchedEffect
+            znDelay(exit.timing.delayMs)
             p.animateTo(1f, exit.timing.spec())
             ZnStore.finishExit(inst.id)
         }
@@ -168,14 +277,20 @@ internal fun znLayer(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, pressed: Zn
  * The first value is shown as it is; only later changes animate. A new target mid-animation continues from where it is.
  */
 @Composable
-private fun animatedFloat(inst: ZnInstance, slot: Int, static: Float, timing: ZnTiming?): () -> Float {
-    if (slot < 0) return remember(static) { { static } }
-    val cell: MutableState<Any?> = inst.slot(slot)
-    val read = { (cell.value as? Double)?.toFloat() ?: static }
-    if (timing == null) return remember(cell) { read }
+internal fun animatedFloat(inst: ZnInstance, slot: Int, static: Float, timing: ZnTiming?, m: ZnMotionInputs): () -> Float {
+    val cell: MutableState<Any?>? = if (slot >= 0) inst.slot(slot) else null
+    val read: () -> Float = remember(cell, static) {
+        if (cell == null) ({ static }) else ({ (cell.value as? Double)?.toFloat() ?: static })
+    }
+    // A loop or keyframes: plays by itself, also on a value that never changes.
+    if (timing != null && timing.selfPlaying) return znMotion(timing, Float.VectorConverter, String::toFloatOrNull, read, m)
+    if (cell == null || timing == null) return read
     val anim = remember(cell) { Animatable(read()) }
     LaunchedEffect(cell, timing) {
-        snapshotFlow(read).collectLatest { anim.animateTo(it, timing.spec()) }
+        snapshotFlow(read).collectLatest {
+            znDelay(timing.delayMs)
+            anim.animateTo(it, timing.spec())
+        }
     }
     return remember(anim) { { anim.value } }
 }
@@ -183,15 +298,165 @@ private fun animatedFloat(inst: ZnInstance, slot: Int, static: Float, timing: Zn
 /** A dynamic background colour, animated when the element's `animate` covers backgroundColor. */
 @Composable
 internal fun znBackground(s: ZnNodeSpec, inst: ZnInstance): (() -> Color)? {
-    if (s.backgroundSlot < 0) return null
-    val cell = inst.slot(s.backgroundSlot)
-    val read = { toColor(cell.value) ?: Color.Transparent }
-    val timing = s.animate?.timingFor(Registry.Prop.BACKGROUND_COLOR) ?: return remember(cell) { read }
+    val timing = s.animate?.timingFor(Registry.Prop.BACKGROUND_COLOR)
+    if (s.backgroundSlot < 0 && timing?.selfPlaying != true) return null
+    val cell = if (s.backgroundSlot >= 0) inst.slot(s.backgroundSlot) else null
+    val static = s.background ?: Color.Transparent
+    val read: () -> Color = remember(cell) { if (cell == null) ({ static }) else ({ toColor(cell.value) ?: Color.Transparent }) }
+    if (timing != null && timing.selfPlaying) {
+        return znMotion(timing, Color.VectorConverter(ColorSpaces.Srgb), ::motionColor, read, znMotionInputs(s, inst))
+    }
+    if (timing == null) return read
     val anim = remember(cell) { ColorAnimatable(read()) }
     LaunchedEffect(cell, timing) {
-        snapshotFlow(read).collectLatest { anim.animateTo(it, timing.spec()) }
+        snapshotFlow(read).collectLatest {
+            znDelay(timing.delayMs)
+            anim.animateTo(it, timing.spec())
+        }
     }
     return remember(anim) { { anim.value } }
+}
+
+/** Where a run of plays is: [time] inside one play (0..length) to show, and whether the run has ended. */
+internal class ZnMotionAt(val time: Long, val done: Boolean)
+
+/**
+ * The position at [playTime] of a run of [plays] plays (-1 forever) of [length] each, [gap] apart. With [reverse]
+ * every second play runs backwards. After the last play: where it ended, and done.
+ */
+internal fun motionAt(playTime: Long, length: Long, gap: Long, plays: Int, reverse: Boolean): ZnMotionAt {
+    val cycle = length + gap
+    if (cycle <= 0L) return ZnMotionAt(if (reverse && plays >= 0 && (plays - 1) % 2 == 1) 0L else length, true)
+    val index = playTime / cycle
+    if (plays >= 0 && index >= plays) {
+        val forward = !reverse || (plays - 1) % 2 == 0
+        return ZnMotionAt(if (forward) length else 0L, true)
+    }
+    val within = (playTime - index * cycle).coerceAtMost(length)
+    val forward = !reverse || index % 2 == 0L
+    return ZnMotionAt(if (forward) within else length - within, false)
+}
+
+/**
+ * A colour that may be absent (an SvgPart's fill / stroke: null = no override): a constant, a slot, or animated by
+ * [timing] (on change, or by itself with from / keyframes). An animation needs a colour to start from, so an
+ * animated part without one starts from transparent.
+ */
+@Composable
+internal fun animatedColor(inst: ZnInstance, slot: Int, static: Color?, timing: ZnTiming?, m: ZnMotionInputs): () -> Color? {
+    val cell = if (slot >= 0) inst.slot(slot) else null
+    val read: () -> Color? = remember(cell, static) { if (cell == null) ({ static }) else ({ toColor(cell.value) ?: static }) }
+    if (timing == null || (cell == null && static == null && !timing.selfPlaying)) return read
+    val rest: () -> Color = remember(read) { { read() ?: Color.Transparent } }
+    if (timing.selfPlaying) return znMotion(timing, Color.VectorConverter(ColorSpaces.Srgb), ::motionColor, rest, m)
+    if (cell == null) return read
+    val anim = remember(cell) { ColorAnimatable(rest()) }
+    LaunchedEffect(cell, timing) {
+        snapshotFlow(rest).collectLatest {
+            znDelay(timing.delayMs)
+            anim.animateTo(it, timing.spec())
+        }
+    }
+    return remember(anim) { { if (read() == null) null else anim.value } }
+}
+
+/** "#AARRGGBB" from the compiler's motion options. */
+private fun motionColor(s: String): Color? =
+    if (s.length == 9 && s[0] == '#') s.substring(1).toLongOrNull(16)?.let { Color(it.toInt()) } else null
+
+/** The element's `paused` and `replay`, read where the motion needs them (both can change at runtime). */
+internal class ZnMotionInputs(val paused: () -> Boolean, val replay: () -> Any?)
+
+@Composable
+internal fun znMotionInputs(s: ZnNodeSpec, inst: ZnInstance): ZnMotionInputs = remember(s, inst) {
+    val p = if (s.pausedSlot >= 0) inst.slot(s.pausedSlot) else null
+    val r = if (s.replaySlot >= 0) inst.slot(s.replaySlot) else null
+    val static = s.paused
+    ZnMotionInputs(
+        paused = if (p == null) ({ static }) else ({ p.value == true }),
+        replay = if (r == null) ({ null }) else ({ r.value }),
+    )
+}
+
+/**
+ * An SvgPart's `paused` / `replay` together with its Svg node's: `<Spinner paused={...} />` holds every motion inside
+ * the file, including its own SMIL / CSS animations (which have no part props of their own).
+ */
+@Composable
+internal fun znMotionInputs(part: ZnNodeSpec, svg: ZnNodeSpec, inst: ZnInstance): ZnMotionInputs {
+    val own = znMotionInputs(part, inst)
+    val outer = znMotionInputs(svg, inst)
+    return remember(own, outer) { ZnMotionInputs({ own.paused() || outer.paused() }, { own.replay() to outer.replay() }) }
+}
+
+/** The phone's animation speed ("Animation duration scale" in developer options): 0 when animations are off. */
+private suspend fun motionScale(): Float = coroutineContext[MotionDurationScale]?.scaleFactor ?: 1f
+
+/** Waits [ms] of animation time: scaled like every animation, and not at all when animations are off. */
+internal suspend fun znDelay(ms: Int) {
+    if (ms <= 0) return
+    val scale = motionScale()
+    if (scale > 0f) delay((ms * scale).toLong())
+}
+
+/**
+ * A value that plays by itself (a timing with `from` or `keyframes`, registry 11): when the element appears, again
+ * on each new `replay` value, and (with `from`) when the resting value [rest] changes. Time runs only while not
+ * `paused`, so a pause holds the value and play goes on from there. A finite run stays where its last play ended.
+ * When the phone's animations are off it shows [rest] and runs nothing. Read in the draw phase: no recomposition.
+ */
+@Composable
+internal fun <T, V : AnimationVector> znMotion(
+    t: ZnTiming,
+    converter: TwoWayConverter<T, V>,
+    parse: (String) -> T?,
+    rest: () -> T,
+    m: ZnMotionInputs,
+): () -> T {
+    val keys = remember(t) { t.keyframes?.mapNotNull(parse)?.takeIf { it.size >= 2 } }
+    val from = remember(t) { t.from?.let(parse) }
+    val value = remember(t) { mutableStateOf(keys?.first() ?: from ?: rest()) }
+    val off = remember(t) { mutableStateOf(false) }
+    LaunchedEffect(t) {
+        // Keyframes don't depend on the resting value; `from` plays towards it, so a new one starts again.
+        val restart = if (keys != null) snapshotFlow { m.replay() } else snapshotFlow { m.replay() to rest() }
+        restart.collectLatest {
+            if (motionScale() == 0f) {
+                off.value = true
+                return@collectLatest
+            }
+            off.value = false
+            val to = rest()
+            val anim = if (keys != null) TargetBasedAnimation(t.keyframeSpec(keys), converter, keys.first(), keys.last())
+            else TargetBasedAnimation(t.spec(), converter, from ?: to, to)
+            value.value = anim.getValueFromNanos(0L)
+            znDelay(t.delayMs)
+            val length = anim.durationNanos
+            val gap = t.repeatDelayMs * 1_000_000L
+            var playTime = 0L
+            var last = -1L
+            while (true) {
+                if (m.paused()) {
+                    snapshotFlow { m.paused() }.first { !it }
+                    last = -1L
+                }
+                val scale = motionScale()
+                if (scale == 0f) {
+                    off.value = true
+                    break
+                }
+                val at = withFrameNanos { now ->
+                    if (last >= 0L) playTime += ((now - last) / scale).toLong()
+                    last = now
+                    val at = motionAt(playTime, length, gap, t.plays, t.reverse)
+                    value.value = anim.getValueFromNanos(at.time)
+                    at
+                }
+                if (at.done) break
+            }
+        }
+    }
+    return remember(t) { { if (off.value) rest() else value.value } }
 }
 
 /** A Pressable's pressed look, as layer factors: `pressScale` and `pressOpacity`. */

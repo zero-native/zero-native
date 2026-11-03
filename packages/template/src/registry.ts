@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 10 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 11 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -17,7 +17,10 @@ export const REGISTRY_VERSION = 10 // 2: Anchor. 3: transforms, shadow, absolute
 // 8: small components & accessibility (milestone 3 steps 3.7–3.8): Switch, Checkbox, Spinner, Progress, Shimmer;
 //    accessibilityLabel, accessibilityRole, maxFontScale.
 // 9: NativeView, a plugin's Compose view inside a screen (docs/plugins.md §5): viewName, viewProps, onNativeEvent.
-// 10: SVG (docs/svg.md): Svg, SvgPart, svg, part, fill, stroke (fill and stroke can change at runtime), autoMirror.
+// 10: TextField `ref` (RN basics pack): focus(), blur(), clear() from JS; focus changes come back on its event id.
+// 11: SVG (docs/svg.md): Svg, SvgPart, svg, part, fill, stroke (fill and stroke can change at runtime), autoMirror;
+//     trimStart / trimEnd / trimOffset, pivotX / pivotY. Timing options for every animation (format "timing.motion":
+//     delay, repeat, reverse, keyframes, cubic-bezier easing) and the element props paused / replay.
 
 export const Component = {
   Column: 1,
@@ -225,8 +228,20 @@ export const Prop = {
   fill: { id: 182, type: "color" },
   /** <SvgPart>: replaces the stroke of every shape in the part that has one. */
   stroke: { id: 183, type: "color" },
+  /** <SvgPart>: "draw the line": the visible piece of the part's paths, as fractions 0–1 of their whole length. */
+  trimStart: { id: 184, type: "number" },
+  trimEnd: { id: 185, type: "number" },
+  /** <SvgPart>: moves the visible piece along the line (0–1; it wraps round). */
+  trimOffset: { id: 186, type: "number" },
   /** <Svg>: flipped left to right when the layout is right to left (back arrows, chevrons). */
   autoMirror: { id: 187, type: "bool" },
+  /** <SvgPart>: the point it turns and scales around, in viewBox units (the compiler writes the part's centre). */
+  pivotX: { id: 188, type: "number" },
+  pivotY: { id: 189, type: "number" },
+  /** Stops this element's own animations (loops, keyframes) where they are; false plays on (CSS play-state). */
+  paused: { id: 190, type: "bool" },
+  /** Each new value plays this element's own animations (loops, keyframes) again from the start. */
+  replay: { id: 191, type: "number" },
   // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
   trackColor: { id: 200, type: "color" },
   activeTrackColor: { id: 201, type: "color" },
@@ -348,6 +363,11 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "viewProps",
   "fill",
   "stroke",
+  "trimStart",
+  "trimEnd",
+  "trimOffset",
+  "paused",
+  "replay",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -372,13 +392,29 @@ export const Added: {
   /** Key: "<prop>.<value>", e.g. "pressFeedback.highlight". */
   enumValue: Record<string, number>
   event: Partial<Record<EventName, number>>
+  /** A newer form of a string prop's value (key: a name in [Formats]). */
+  format: Partial<Record<FormatName, number>>
 } = {
-  component: { NativeView: 9, Svg: 10, SvgPart: 10 },
-  prop: { viewName: 9, viewProps: 9, svg: 10, part: 10, fill: 10, stroke: 10, autoMirror: 10 },
-  dynamic: { viewProps: 9, fill: 10, stroke: 10 },
+  component: { NativeView: 9, Svg: 11, SvgPart: 11 },
+  prop: {
+    viewName: 9, viewProps: 9, svg: 11, part: 11, fill: 11, stroke: 11, autoMirror: 11,
+    trimStart: 11, trimEnd: 11, trimOffset: 11, pivotX: 11, pivotY: 11, paused: 11, replay: 11,
+  },
+  dynamic: { viewProps: 9, fill: 11, stroke: 11, trimStart: 11, trimEnd: 11, trimOffset: 11, paused: 11, replay: 11 },
   enumValue: {},
   event: { onNativeEvent: 9, ref: 10 },
+  format: { "timing.motion": 11 },
 }
+
+/**
+ * Newer forms of a string prop's value that older apps can't read (an older app would show the old behaviour, so a
+ * bundle that uses one must ask for the version that brought it). [uses]: does this value use the form?
+ */
+export const Formats = {
+  /** Timings with "~" options: delay, repeat, reverse, from, keyframes, times, cubic-bezier (see compiler timing()). */
+  "timing.motion": { props: ["animate", "enter", "exit"] as PropName[], uses: (raw: string) => raw.includes("~") },
+} as const
+export type FormatName = keyof typeof Formats
 
 /** The registry version that [kind] [name] needs ([BASE_VERSION] unless listed in [Added]). */
 export function since(kind: keyof typeof Added, name: string): number {

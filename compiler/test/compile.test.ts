@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { Component, Prop, type NodeSpec } from "@zero-native/template"
+import { Component, Prop, type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string, statics: Record<string, unknown> = {}) {
@@ -483,5 +483,77 @@ describe("animation (step 3.6)", () => {
     expect(() => compile(`export function F() { return <Box animate={{ fontSize: 200 }} /> }`)).toThrow("can't be animated")
     expect(() => compile(`export function F() { return <Box enter="spin" /> }`)).toThrow("use a preset")
     expect(() => compile(`export function F() { return <Box animate={-5} /> }`)).toThrow("0–10000 ms")
+  })
+})
+
+describe("motion options: loops, keyframes, delay, bezier (registry 11)", () => {
+  const props = (src: string) => compile(`export function F() { return ${src} }`).templates[0]!.props as any
+  const err = (src: string) => {
+    try {
+      compile(`export function F() { return ${src} }`)
+    } catch (e) {
+      return (e as Error).message
+    }
+    return "no error"
+  }
+  const id = (k: keyof typeof Prop) => Prop[k].id
+
+  test("a spinner, a pulse, a shake and a colour loop are encoded after ~", () => {
+    expect(props(`<Box animate={{ rotate: { duration: 900, easing: "linear", repeat: "forever", from: 0 } }} style={{ transform: [{ rotate: 360 }] }} />`).animate)
+      .toBe(`${id("rotate")}=t900e3~f0~r-1`)
+    expect(props(`<Box animate={{ scale: { duration: 600, repeat: 3, reverse: true, from: 1, delay: 200, repeatDelay: 100 } }} />`).animate)
+      .toBe(`${id("scale")}=t600e0~d200~f1~r3~v~g100`)
+    expect(props(`<Box animate={{ translateX: { duration: 300, keyframes: [0, -8, 8, -8, 0], times: [0, 0.2, 0.5, 0.8, 1] } }} />`).animate)
+      .toBe(`${id("translateX")}=t300e0~k0:-8:8:-8:0~m0:0.2:0.5:0.8:1`)
+    expect(props(`<Box animate={{ backgroundColor: { duration: 800, repeat: "forever", reverse: true, from: "#EEE" } }} />`).animate)
+      .toBe(`${id("backgroundColor")}=t800e0~f#FFEEEEEE~r-1~v`)
+    expect(props(`<Box animate={{ opacity: { spring: { damping: 0.5 }, from: 0, repeat: 2 } }} />`).animate)
+      .toBe(`${id("opacity")}=s0.5,400~f0~r2`)
+  })
+
+  test("delay and cubic-bezier on value changes and on enter / exit", () => {
+    expect(props(`<Box animate={{ duration: 250, easing: [0.4, 0, 0.2, 1], delay: 80 }} />`).animate).toBe("*=t250e4~b0.4:0:0.2:1~d80")
+    expect(props(`<Box enter={{ opacity: 0, translateY: 12, delay: 120 }} />`).enter).toBe("0,0,12,1|t220e1~d120")
+    expect(props(`<Box exit={{ opacity: 0, duration: 100, delay: 40 }} />`).exit).toBe("0,0,0,1|t100e0~d40")
+  })
+
+  test("old timings are written exactly as before and need no new registry", () => {
+    const { templates } = compile(`export function F() { return <Box animate={{ opacity: 200, rotate: { duration: 300, easing: "ease-out" } }} enter="fade" /> }`)
+    expect((templates[0]!.props as any).animate).toBe(`${id("opacity")}=t200e0;${id("rotate")}=t300e1`)
+    expect(writeTemplateFile(templates).registry).toBe(8)
+    const looped = compile(`export function F() { return <Box animate={{ rotate: { duration: 900, repeat: "forever", from: 0 } }} /> }`)
+    expect(writeTemplateFile(looped.templates).registry).toBe(11)
+  })
+
+  test("paused and replay can change at runtime", () => {
+    const { templates, code } = compile(`export function F() {
+      const tries = signal(0)
+      const on = signal(true)
+      return <Box paused={!on()} replay={tries()} animate={{ translateX: { duration: 300, keyframes: [0, -8, 8, 0] } }} />
+    }`)
+    expect((templates[0]!.props as any).paused).toEqual({ $slot: "s0", default: null })
+    expect((templates[0]!.props as any).replay).toEqual({ $slot: "s1", default: null })
+    expect(code).toContain("() => (tries())")
+  })
+
+  test("wrong motion options fail with a hint", () => {
+    expect(err(`<Box animate={{ duration: 300, repeat: 2, from: 0 }} />`)).toContain("belong to one prop")
+    expect(err(`<Box animate={{ scale: { duration: 300, repeat: 2 } }} />`)).toContain("repeat needs a start")
+    expect(err(`<Box animate={{ scale: { duration: 300, from: 0, reverse: true } }} />`)).toContain("reverse needs repeat")
+    expect(err(`<Box animate={{ scale: { duration: 300, from: 0, repeat: 0 } }} />`)).toContain("how many times it plays")
+    expect(err(`<Box animate={{ scale: { duration: 300, from: 0, keyframes: [0, 1] } }} />`)).toContain("not both")
+    expect(err(`<Box animate={{ scale: { duration: 300, keyframes: [1] } }} />`)).toContain("at least 2 values")
+    expect(err(`<Box animate={{ scale: { duration: 300, keyframes: [0, 1], times: [0, 0.5] } }} />`)).toContain("one number per keyframe")
+    expect(err(`<Box animate={{ scale: { duration: 300, keyframes: [0, 1], times: [0.1, 1] } }} />`)).toContain("rising from 0 to 1")
+    expect(err(`<Box animate={{ scale: { duration: 300, times: [0, 1] } }} />`)).toContain("times goes with keyframes")
+    expect(err(`<Box animate={{ scale: { spring: {}, keyframes: [0, 1] } }} />`)).toContain("need a duration")
+    expect(err(`<Box animate={{ scale: { duration: 300, easing: [2, 0, 0.2, 1] } }} />`)).toContain("x1 and x2 must be within 0–1")
+    expect(err(`<Box animate={{ scale: { duration: 300, easing: [0.4, 0] } }} />`)).toContain("4 numbers")
+    expect(err(`<Box animate={{ backgroundColor: { duration: 300, from: 1, repeat: 2 } }} />`)).toContain("must be colours")
+    expect(err(`<Box animate={{ scale: { duration: 300, from: "#fff", repeat: 2 } }} />`)).toContain("must be numbers")
+    expect(err(`<Box animate={{ scale: { duration: 300, delay: 99999 } }} />`)).toContain("delay is 0–60000 ms")
+    expect(err(`<Box animate={{ scale: { duration: 300, loop: true } }} />`)).toContain('unknown key "loop"')
+    expect(err(`<Box enter={{ opacity: 0, duration: 200, repeat: 2 }} />`)).toContain(`"repeat" isn't for enter / exit`)
+    expect(err(`<Box enter={{ opacity: 0, timing: "spring", delay: 50 }} />`)).toContain("with delay, give the timing")
   })
 })

@@ -22,6 +22,7 @@ import { MediaLabScreen } from "./MediaLab"
 import { AuthLabScreen } from "./AuthLab"
 import { WebViewLabScreen } from "./WebViewLab"
 import { SvgLabScreen } from "./SvgLab"
+import { RnBasicsLabScreen } from "./RnBasicsLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -51,6 +52,7 @@ export const routes = defineRoutes({
   authLab: { path: "/dev/auth", screen: AuthLabScreen, deepLink: true },
   webviewLab: { path: "/dev/webview", screen: WebViewLabScreen, deepLink: true },
   svgLab: { path: "/dev/svg", screen: SvgLabScreen, deepLink: true },
+  rnLab: { path: "/dev/rn", screen: RnBasicsLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

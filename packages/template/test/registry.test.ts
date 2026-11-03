@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { KOTLIN_REGISTRY_PATH, kotlinRegistry, readRegistryLock, REGISTRY_LOCK_PATH, registryLockText } from "../../../tools/gen-registry"
 import { el, event, slot, writeTemplateFile, type NodeSpec } from "../src"
-import { Added, BASE_VERSION, Prop, REGISTRY_VERSION } from "../src/registry"
+import { Added, BASE_VERSION, Prop, REGISTRY_VERSION, since } from "../src/registry"
 import { registryProblems, registrySnapshot, type RegistryLock } from "../src/registry-lock"
 
 test("the Kotlin registry is generated from the TS registry (run `bun run gen:registry` if this fails)", () => {
@@ -35,7 +35,7 @@ describe("registry changes follow the OTA rules", () => {
   test("something new with since = the new REGISTRY_VERSION is fine", () => {
     const lock = fresh()
     lock.version = REGISTRY_VERSION - 1
-    delete lock.entries["component:Svg"]
+    delete lock.entries["component:Svg"] // one of the newest entries (since 11)
     expect(registryProblems(lock)).toEqual([])
   })
 
@@ -87,6 +87,10 @@ describe("a template file asks for the lowest registry version that has what it 
         delete table[name]
       }
     }
+    // A newer form inside a string prop's value (format "timing.motion": options after "~").
+    expect(writeTemplateFile([el("Box", { animate: "95=t900e3~f0~r-1" })]).registry).toBe(since("format", "timing.motion"))
+    expect(writeTemplateFile([el("Box", { enter: "0,0,12,1|t220e1~d120" })]).registry).toBe(since("format", "timing.motion"))
+    expect(writeTemplateFile([el("Box", { animate: "*=t250e0" })]).registry).toBe(BASE_VERSION)
     // Not using them: back to the base.
     expect(writeTemplateFile([el("Column", {}, el("Pressable", { pressFeedback: "ripple" }))]).registry).toBe(BASE_VERSION)
   })

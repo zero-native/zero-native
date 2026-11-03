@@ -58,6 +58,7 @@ export function DevScreen() {
           <Entry title="Auth plugin" step="P.3b" detail="Phone number hint, SMS OTP" onOpen={() => nav.push("authLab")} />
           <Entry title="WebView plugin" step="P.6" detail="A page in a screen: cookies, upload, messages, links" onOpen={() => nav.push("webviewLab")} />
           <Entry title="SVG lab" step="S.4" detail=".svg files as components, icons, gradients, a clip, text over SVG, runtime parts, a list" onOpen={() => nav.push("svgLab")} />
+          <Entry title="RN basics" step="RN pack" detail="Alert, Clipboard, Share, Linking, Platform, Dimensions, Keyboard, NetInfo, Vibration, URL, OTP focus" onOpen={() => nav.push("rnLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

@@ -23,6 +23,7 @@ import {
   Enum,
   EventKind,
   type EventName,
+  Formats,
   Prop,
   type PropName,
   REGISTRY_VERSION,
@@ -249,6 +250,11 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
         }
         node.props.push({ id: Prop[prop].id, value: encodeValue(prop, raw as StaticValue, strings, path) })
         if (Prop[prop].type === "enum" && typeof raw === "string") needs(since("enumValue", `${prop}.${raw}`))
+        if (typeof raw === "string") {
+          for (const [name, f] of Object.entries(Formats)) {
+            if (f.props.includes(prop) && f.uses(raw)) needs(since("format", name))
+          }
+        }
       }
       if (node.props.length > 255) throw new Error(`${path}: too many props`)
       spec.children.forEach((child, i) => visit(child, index, `${path} > ${child.type}[${i}]`))

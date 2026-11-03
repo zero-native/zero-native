@@ -170,6 +170,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     internal val animate: ZnAnimate? = (p[Registry.Prop.ANIMATE] as String?)?.let(ZnAnimate::parse)
     internal val enter: ZnTransition? = (p[Registry.Prop.ENTER] as String?)?.let(ZnTransition::parse)
     internal val exit: ZnTransition? = (p[Registry.Prop.EXIT] as String?)?.let(ZnTransition::parse)
+    /** Loops and keyframes that play by themselves (registry 11): they need the per-instance chain. */
+    internal val hasMotion = animate?.selfPlaying == true
+    val paused = p[Registry.Prop.PAUSED] == true
 
     // Content
     val text: String? = p[Registry.Prop.TEXT] as String?
@@ -204,6 +207,14 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val part = num(Registry.Prop.PART)?.toInt() ?: NONE
     val fill: Color? = color(Registry.Prop.FILL)
     val stroke: Color? = color(Registry.Prop.STROKE)
+    // <SvgPart> motion (registry 11): trims (0–1 of the line) and the point it turns around (viewBox units).
+    val trimStart = num(Registry.Prop.TRIM_START) ?: 0f
+    val trimEnd = num(Registry.Prop.TRIM_END) ?: 1f
+    val trimOffset = num(Registry.Prop.TRIM_OFFSET) ?: 0f
+    internal val hasTrimProps = p.containsKey(Registry.Prop.TRIM_START) || p.containsKey(Registry.Prop.TRIM_END) ||
+        p.containsKey(Registry.Prop.TRIM_OFFSET)
+    val pivotX = num(Registry.Prop.PIVOT_X) ?: 0f
+    val pivotY = num(Registry.Prop.PIVOT_Y) ?: 0f
 
     // Pressable
     val disabled = p[Registry.Prop.DISABLED] == true
@@ -342,6 +353,17 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val editableSlot = slotFor(raw, Registry.Prop.EDITABLE)
     val fillSlot = slotFor(raw, Registry.Prop.FILL)
     val strokeSlot = slotFor(raw, Registry.Prop.STROKE)
+    val pausedSlot = slotFor(raw, Registry.Prop.PAUSED)
+    val replaySlot = slotFor(raw, Registry.Prop.REPLAY)
+    val trimStartSlot = slotFor(raw, Registry.Prop.TRIM_START)
+    val trimEndSlot = slotFor(raw, Registry.Prop.TRIM_END)
+    val trimOffsetSlot = slotFor(raw, Registry.Prop.TRIM_OFFSET)
+    /** An SvgPart cuts its line: static trims, trims that change at runtime, or animated ones. */
+    internal val hasTrim = hasTrimProps || trimStartSlot != NONE || trimEndSlot != NONE || trimOffsetSlot != NONE ||
+        animate?.let {
+            it.timingFor(Registry.Prop.TRIM_START) != null || it.timingFor(Registry.Prop.TRIM_END) != null ||
+                it.timingFor(Registry.Prop.TRIM_OFFSET) != null
+        } == true
     /** Padding edges bound to slots (start, top, end, bottom; NONE = static). Read in the layout phase. */
     val paddingSlots = intArrayOf(
         slotFor(raw, Registry.Prop.PADDING_START), slotFor(raw, Registry.Prop.PADDING_TOP),
@@ -373,7 +395,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     /** True when the drawing chain reads a slot, so it must be built per instance instead of once here. */
     val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || hasDynamicPadding ||
         type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null ||
-        accessibilityLabelSlot != NONE
+        accessibilityLabelSlot != NONE || hasMotion
 
     /** Pre-built chain for nodes whose chain never changes (most nodes). */
     val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null, staticAccessibility)

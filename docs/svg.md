@@ -1,7 +1,9 @@
 # SVG in zero-native (design)
 
 **Status: design approved by Pavan (2026-11-03); phase 1 built (static SVG) and checked on the Lava. What changed
-while building, and the phone numbers, are in §14.** Calls taken as recommended: draw data in the
+while building, and the phone numbers, are in §14. Phase 2 (motion: part transforms, trims, loops and keyframes for
+every element) is built and checked on the Lava (§15). S.14, animated `.svg` files from the web (SMIL and CSS), is built too:
+95 of 104 real loaders play as they are (§15).** Calls taken as recommended: draw data in the
 template file, `parts={{...}}`, no SVG `<text>` in phase 1, part names checked at build time only, `autoMirror` in phase 1,
 `non-scaling-stroke` refused. Looping (`repeat`) is decided at the phase 2 check-in. Reviewed by agy (2026-11-03): its
 points are folded in below. Framework work only: ZeroBill's own
@@ -146,7 +148,7 @@ import { Svg, Defs, RadialGradient, Stop, Path, Circle, G } from "@zero-native/u
   redraws the one SVG and recomposes nothing.
 - Why `parts={{ ring: {...} }}` (grouped by part), and not `fill={{ ring: x }}` (grouped by attribute) or
   `<Part id="ring">` children: phase 2 adds per-part `animate`, which belongs with the part's other values; one prop
-  is easy to type per file later (§10); no new child rules. See `docs/second-opinions.md` entry 39.
+  is easy to type per file later (§10); no new child rules. See `docs/second-opinions.md` entry 45.
 
 ### 4.4 `Icon`
 - **Kept as it is** ([ui/index.ts:183](../packages/ui/src/index.ts:183)): registry entries are never removed, and
@@ -197,8 +199,8 @@ is turned into a clip at build time (the Figma case); any other mask is an error
 | `pattern` | Draw the repeats as shapes (the RN coin edge is 2 stripes) |
 | `filter` (blur, drop shadow) | Use the element's `elevation` / `shadowColor`, or export the effect as a PNG |
 | `mask` (non-trivial), `marker`, `foreignObject`, `switch` | Flatten in the design tool |
-| `animate`, `animateTransform`, `set` (SMIL) | Use parts + `animate` (phase 2) or a Lottie file (later plugin) |
-| `<style>`, `class` with CSS | Inline the styles (`svgo --config` with `inlineStyles`, or the design tool's "presentation attributes" export) |
+| `animate`, `animateTransform`, `set` (SMIL) | Use parts + `animate` (phase 2) or a Lottie file (later plugin). **Update S.14:** `animate` and `animateTransform` now import (§15); `set` and `animateMotion` still fail |
+| `<style>`, `class` with CSS | Inline the styles (`svgo --config` with `inlineStyles`, or the design tool's "presentation attributes" export). **Update S.14:** plain rules (class, id, tag, descendant) and `@keyframes` now import (§15) |
 | nested `<svg>`, external `href`, `fx` / `fy` not equal to `cx` / `cy`, `paint-order`, `mix-blend-mode` | Flatten, or remove the attribute |
 | `vector-effect="non-scaling-stroke"` | Not supported yet: the stroke would grow with the SVG. Remove it and set the stroke width for the size you use (added later if a real file needs it) |
 
@@ -250,14 +252,18 @@ Z1 0 0 24 24 4 S c 1 - 1 0 1 0 M9.55 15.15l8.47-8.47q.3-.3.7-.3;
 
 **Why text and not binary:** the template file already stores strings, so the format of `.zn.ui`, the template
 reader and the bundle files don't change at all. **Why SVG path text and not our own cubic list** (changed while
-building, `docs/second-opinions.md` entry 41): the first version wrote every curve as absolute cubic numbers, and the
+building, `docs/second-opinions.md` entry 47): the first version wrote every curve as absolute cubic numbers, and the
 draw data came out *bigger* than the source SVG (the RN assets: 162 KB of SVG → 190 KB). Minified path text with
 `Q`, `T`, `A` kept is what design tools already optimise: the same assets are now 180 KB → 112 KB, and a Material icon
 ~450 bytes.
 
-## 7. Template and registry changes (registry 10; host API unchanged)
+## 7. Template and registry changes (registry 11; host API unchanged)
 
-**Where the draw data lives (decision, see `docs/second-opinions.md` entry 40):** as a string prop of the `Svg` node,
+**Renumbered 10 → 11 (2026-11-03):** main took registry 10 for the RN basics `TextField` `ref` while phase 1 was
+being built. The SVG entries moved to 11; the ids below did not change (no clash with main). Read "registry 10" in
+older notes about SVG as 11.
+
+**Where the draw data lives (decision, see `docs/second-opinions.md` entry 46):** as a string prop of the `Svg` node,
 inside `main.zn.ui`. The template writer already stores each distinct string once
 ([writer.ts:124](../packages/template/src/writer.ts:124)), so an icon used in 30 screens costs one copy. The `.svg`
 source stays in the app's source; its compiled form sits once in the bundle and is attached to every place that
@@ -276,6 +282,15 @@ the RN basics session; whichever branch merges second renumbers if needed):
 | prop | `stroke` | 183 | color | **yes** | 1 |
 | prop | `autoMirror` | 187 | bool | no | 1 |
 | prop | `trimStart`, `trimEnd`, `trimOffset` | 184–186 | number (0–1 of the length) | **yes** | 2 |
+| prop | `pivotX`, `pivotY` | 188–189 | number (viewBox units, written by the compiler) | no | 2 |
+| prop | `paused` | 190 | bool (any element) | **yes** | 2 |
+| prop | `replay` | 191 | number (any element) | **yes** | 2 |
+| format | `timing.motion` | | the `~` options inside `animate` / `enter` / `exit` strings | | 2 |
+
+**A new kind of registry entry, `format`** ([registry.ts:408](../packages/template/src/registry.ts:408)): a newer
+form *inside* a string prop's value. A timing with loops or keyframes is still an `animate` string, but an older app
+would misread it, so the writer raises the bundle's registry to 11 when a value uses it
+([writer.ts:254](../packages/template/src/writer.ts:254)); `animate="*=t250e0"` still asks for the old registry.
 
 `fill` and `stroke` go in `DynamicProps` and in `Added.dynamic` too: the registry lock checks runtime props on their own.
 
@@ -285,7 +300,7 @@ the RN basics session; whichever branch merges second renumbers if needed):
   them. They use existing props too: `opacity` (runtime), and in phase 2 `scale`, `scaleX`, `scaleY`, `translateX`,
   `translateY`, `rotate`, `animate`.
 - **Host API: no change.** No new host function, batch op, event or value kind. A bundle that uses SVG asks for
-  registry 10 (the existing `Added` mechanism); bundles without SVG still run on older apps.
+  registry 11 (the existing `Added` mechanism); bundles without SVG still run on older apps.
 - **Template format: no change.**
 
 ## 8. Drawing on the phone (Kotlin)
@@ -320,12 +335,53 @@ TalkBack reads it once, as an image. The SVG's own `<title>` is ignored (design 
 
 **Right to left:** an SVG is not mirrored (same as react-native-svg), unless it has `autoMirror` (§4.1).
 
-## 9. Animation (phase 2: planned now, built after a check-in with Pavan)
+## 9. Animation (phase 2, built 2026-11-03)
 
 ```tsx
 <Gauge size={120} parts={{ needle: { rotate: angle(), animate: "spring" }, arc: { trimEnd: progress(), animate: 600 } }} />
-<Heart size={160} parts={{ ecg: { trimStart: sweep(), trimEnd: sweep() + 0.2, animate: { duration: 900, repeat: "loop" } } }} />
+<Heart size={160} parts={{ ecg: { trimEnd: 1, animate: { trimEnd: { duration: 900, from: 0, repeat: "forever" } } } }} />
+// Inline: motion props make the element a part.
+<Svg viewBox="0 0 24 24" size={36}>
+  <Circle cx={12} cy={12} r={9} stroke={c.primary} fill="none" trimEnd={0.28}
+    rotate={360} animate={{ rotate: { duration: 900, easing: "linear", from: 0, repeat: "forever" } }} paused={paused()} />
+</Svg>
 ```
+
+**As built** (the plan as it was is kept below it):
+- **Timing options for every element**, not only SVG parts (Pavan's call: industry standard plus zn's own). A timing
+  object takes `delay`, `repeat` (how many plays in all, or `"forever"`, as in CSS `iteration-count`, Compose
+  `repeatable`, RN `Animated.loop`), `reverse` (every second play backwards, CSS `alternate`), `repeatDelay`,
+  `from` (plays from this value to the rest value), `keyframes` + `times`, and `easing` as a name or a cubic-bezier
+  `[x1, y1, x2, y2]`. `enter` / `exit` take `delay` (a list stagger). The element props `paused` (CSS play-state)
+  and `replay` (a new number plays it again: a shake on a wrong OTP) can change at runtime.
+- **When it plays:** a timing with `from` or `keyframes` plays by itself when the element appears and on each
+  `replay` change (with `from`, also when the rest value changes). Without them it animates value changes, as
+  before. A finite run stays where its last play ends. With "Remove animations" on (Android's animator scale 0),
+  the rest value shows and nothing loops; other scales stretch the time, like the rest of Android.
+- **Build checks:** `repeat`, `reverse`, `from` and `keyframes` belong to one prop (`animate={{ rotate: {...} }}`),
+  not to `animate={{...all}}`; `reverse` and `repeatDelay` need `repeat`; `keyframes` need 2 or more; `times` rise
+  from 0 to 1 with one per keyframe; colours work in `from` / `keyframes` for `backgroundColor`, `fill`, `stroke`.
+- **Parts move:** `rotate`, `scale` / `scaleX` / `scaleY`, `translateX` / `translateY` (viewBox units) and the trims,
+  as part values (runtime or build time) and in a part's `animate`. The pivot is the part's own box centre,
+  worked out by the compiler (`pivotX` / `pivotY`, only when the part turns or scales).
+- **Trims** cut fill and stroke, like VectorDrawable and Lottie. `start > end` swaps them; `trimOffset` moves the
+  piece round the line and wraps. A group's trim treats all its shapes as one line, in draw order; the nearest
+  trim wins (a shape's own trim over its group's). Lengths are measured on the first trimmed draw only.
+- **Code:** compiler [compile.ts:893](../compiler/src/compile.ts:893) (timing options),
+  [compile.ts:548](../compiler/src/compile.ts:548) (part values and pivot), boxes in
+  [svg.ts:200](../compiler/src/svg.ts:200); phone [ZnAnimation.kt:378](../android/runtime/src/main/java/dev/zeronative/runtime/ZnAnimation.kt:378)
+  (`znMotion`: the clock for loops and keyframes, [motionAt](../android/runtime/src/main/java/dev/zeronative/runtime/ZnAnimation.kt:307)
+  for the play position), [ZnSvg.kt:504](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:504)
+  (per-part readers), [ZnSvg.kt:595](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:595)
+  (drawing with transforms), [ZnSvg.kt:760](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:760)
+  (trims).
+- **Changed from the plan below:** `repeat: "loop" | "reverse"` became `repeat` (a count or `"forever"`) plus
+  `reverse`, the names CSS and Compose use. `paused` is an element prop, not a timing option, so it can change at
+  runtime without a new timing. Trim lengths come from `PathMeasure` as planned, but the cut runs on every draw
+  while a part is trimmed (one reused path; cheap for icon-sized lines). SMIL in `.svg` files is still refused: see
+  §15 for the proposed import.
+
+**The plan, as written before building:**
 - **Animatable on a part:** `opacity`, `fill`, `stroke`, `scale` / `scaleX` / `scaleY`, `translateX` /
   `translateY` (in viewBox units), `rotate` (degrees), `trimStart` / `trimEnd` / `trimOffset` ("draw the line": the
   visible part of the stroke, as fractions of its length; all its pieces count as one line).
@@ -396,6 +452,17 @@ Material icons to 41 KB (avg 445 B). Phone numbers (Lava, release): see §14.
 **Phase 2 (animated), after a check-in:** S.8 part transforms + pivot, S.9 trim, S.10 `repeat` loops (if Pavan
 agrees, §9), S.11 lab screen with a spinner, a gauge and a line drawing itself; phone check.
 
+**Phase 2 as agreed at the check-in (2026-11-03):**
+| Step | What | Status |
+|---|---|---|
+| S.8 | Timing options for every element: `repeat`, `reverse`, `from`, `delay`, `repeatDelay`, `keyframes` + `times`, bezier easing; `paused`, `replay` | done |
+| S.9 | Part transforms around the part's centre | done |
+| S.10 | Trims (fill and stroke; a group is one line) | done |
+| S.11 | Per-part `animate` (and inline motion props) | done |
+| S.12 | Lab: spinner, pulse, gauge, ECG line, a tick that draws itself, a shake, a looping button, one pause | done; checked on the Lava |
+| S.13 | Docs | done |
+| S.14 | Animated `.svg` files (SMIL, CSS `@keyframes`) import as part animations; a corpus of 104 real files as tests | done; 95 of 104; checked on the Lava |
+
 ## 13. Risks
 
 | Risk | What we do |
@@ -405,7 +472,7 @@ agrees, §9), S.11 lab screen with a spinner, a gauge and a line drawing itself;
 | Clip edges look jagged on old Android versions | [check] on an older phone or emulator; else clip with a layer and `DstIn` |
 | Design tools export features we refuse, so authors hit build errors | Clear hints per feature (§5 table); the RN assets show the common cases pass |
 | The RN basics session takes the same registry ids | Renumber at the second merge (agreed); ids picked from the top of the range |
-| Draw data parse on the main thread at first draw for a huge SVG | Measure; if over ~4 ms, parse the bundle's SVGs on the I/O thread after the first frame (not before it, so cold start stays the same). **Measured:** a 23 KB SVG takes 6–7 ms on a fresh install, 1.4 ms with AOT code; kept on first draw for now (entry 42, §14) |
+| Draw data parse on the main thread at first draw for a huge SVG | Measure; if over ~4 ms, parse the bundle's SVGs on the I/O thread after the first frame (not before it, so cold start stays the same). **Measured:** a 23 KB SVG takes 6–7 ms on a fresh install, 1.4 ms with AOT code; kept on first draw for now (entry 48, §14) |
 
 ## 14. As built (phase 1, 2026-11-03)
 
@@ -424,7 +491,7 @@ Where the code is:
 - Sample: [SvgLab.tsx](../examples/sample/src/SvgLab.tsx:1), route `/dev/svg`, a row on the Dev screens list.
 
 What changed from the design above:
-- **Paths are SVG path text, arcs kept** (§6.1; second-opinions entry 41). For the iOS renderer later this means a
+- **Paths are SVG path text, arcs kept** (§6.1; second-opinions entry 47). For the iOS renderer later this means a
   small SVG-path reader with an arc → cubic helper (about 80 lines), not "plain cubics only".
 - **Precision is 1/2,000 of the viewBox's larger side** (the design said 1/10,000). At 1/2,000 a 24 dp icon is exact
   to 0.012 dp, far below a pixel; it saved ~10 % more data (125 → 112 KB on the RN assets).
@@ -455,10 +522,76 @@ On the Lava (2026-11-03, release R8 build unless it says debug):
   | the wallet card | 1.2 KB | ~0.5 ms | ~0.1 ms | ~0.02 ms |
   | a Material icon | 0.3–0.6 KB | 0.13–0.5 ms | 0.03–0.1 ms | 0.01–0.05 ms |
   The first parse of a big SVG on a fresh install is over the ~4 ms line in §13. Not changed for now
-  (`docs/second-opinions.md` entry 42).
+  (`docs/second-opinions.md` entry 48).
 - **Scrolling** (`dumpsys gfxinfo`, 90 Hz screen, fast flings): the 60-row list with an icon per row, 5 janky frames
   of 641 (0.8 %), median frame 7 ms. A stress list of 20 full-width copies of the 23 KB illustration: 5 janky of 825
   (0.6 %), median 15 ms, GPU median 9 ms. The few janky frames come at the start of flings in both, so they don't
   look SVG-specific.
 
 Not checked yet: TalkBack on the lab, right to left (`autoMirror`), an older Android version (clip edges, §13).
+
+## 15. As built (phase 2, 2026-11-03) and what comes next
+
+What is in (details in §9):
+- Timing options for every element, `paused` / `replay`, part transforms around the part's centre, trims, per-part `animate`, and the
+  same motion props on inline elements. Registry 11 with the `format` kind (§7).
+- Tests: [svg.test.ts](../compiler/test/svg.test.ts:1) (part motion, pivots, inline motion props, errors), the motion block in
+  [compile.test.ts](../compiler/test/compile.test.ts:1) (timing encodings, errors, old format unchanged), the registry format test,
+  [ZnAnimationTest.kt](../android/runtime/src/test/java/dev/zeronative/runtime/ZnAnimationTest.kt:1) (options, play positions),
+  [ZnSvgTest.kt](../android/runtime/src/test/java/dev/zeronative/runtime/ZnSvgTest.kt:1) (trim ranges). JS 385, Kotlin 142.
+- Lab: the Motion section of [SvgLab.tsx:142](../examples/sample/src/SvgLab.tsx:142): a spinner, a live pulse, a gauge (tap),
+  an ECG line, a paid badge whose ring and tick draw themselves (tap to replay), a wrong-OTP shake, a looping Pay button, one pause.
+
+Not checked yet: the lab on the phone, frame times while loops run, "Remove animations" (the rest values must show), TalkBack.
+**Update (Lava, debug build, 2026-11-03):** checked. Every tile moves and looks right; taps replay; pause holds every loop
+(two shots 1.5 s apart are identical); with the three animation scales at 0 the rest values show and nothing loops (scales
+put back to 1.0). 8 s with all loops on screen: 736 frames at 90 Hz, 0 janky, GPU median 4 ms. **A crash found and fixed:** a
+shape whose own trim showed the whole line (`trimEnd={1}` at rest) read index -1 in `trimPath`
+([ZnSvg.kt:722](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:722)). TalkBack still not checked.
+
+Known limits:
+- Trim lengths ignore a shape's own matrix shape (a skew); they use its average scale. Only matters for a group trim across
+  shapes with different skews.
+- Nested trims: the nearest wins; they don't combine.
+- "Remove animations" reaches us as Compose's `MotionDurationScale` (Android's animator scale). Scale 0 shows the rest values
+  (checked on the Lava, above).
+
+**S.14: animated `.svg` files from the web, built (2026-11-03, approved by Pavan: "add them as tests").** The import is
+[svg-anim.ts](../compiler/src/svg-anim.ts:1), run by `compileSvgTree` before and after the still-picture compiler. A downloaded
+loader now plays as it is: `import Spinner from "./spinner.svg"` then `<Spinner size={24} color={c.primary} paused={...} />`.
+- **Corpus:** 104 real files from two MIT sets (svg-spinners: 46 SMIL + 46 CSS; SVG-Loaders: 12), kept as test fixtures with
+  their licences ([fixtures/animated-svg](../compiler/test/fixtures/animated-svg/README.md)). **95 compile**; the 9 others fail with
+  a hint: 4 use filters (gooey), 2 animate dashes, 1 stroke width, 2 grow shapes that have a stroke.
+- **How it maps** (all exact, no sampling):
+  - SMIL `values` / `keyTimes` / `keySplines` / `calcMode` / `repeatCount` / `fill`, and CSS `animation-*` / `@keyframes` /
+    keyframe timing functions / `transform-origin` / `transform-box`, become `keyframes` / `times` / one easing per segment
+    (new `z` option) / `repeat` / `delay` / `reverse`. `discrete` and `step-end` use a step easing (id 5).
+  - Transforms (rotate with its centre, scale, translate; CSS lists in translate → rotate → scale order) become the part's
+    transform, with the pivot at the rotate centre or the CSS origin.
+  - Geometry of shapes with no stroke (`cx`, `cy`, `r`, `rx`, `ry`, `x`, `y`, `width`, `height`) becomes a scale and a move
+    around the shape's centre: exact for a fill. A size that starts at 0 is drawn at its largest and scaled down.
+  - `fill-opacity` / `stroke-opacity` on a plain colour become that colour's alpha (exact even with the other paint).
+  - **SMIL begin chains** (`begin="0;b.end-0.1s"`) are worked out over 120 s and flattened into one cycle per animation;
+    several animations of one attribute merge by SMIL's rule (the one that started last wins).
+  - A negative CSS delay turns the loop round to start part way in. Static CSS rules (class, id, tag, `a b`) are written
+    into the elements, so `<style>` with plain colours now works too.
+  - `paused` / `replay` on the `<Svg>` node reach every part inside it, the file's own motion included.
+- **Still refused, with a hint:** filters, `animateMotion`, morphing `d`, stroke width or dash animation (draw the line with
+  trims instead), geometry of stroked shapes, `begin="click"` and other events, `steps(n)` with n > 1, CSS selectors other
+  than class / id / tag / descendant, `@media`, skews, rotations inside stretched groups.
+- **Checked on the Lava** (debug): six loaders in the lab (ring, dots, bars, pulse rings, wifi, bouncing ball) play and look
+  right; pause and play work; 16 loops on screen at once: 0 janky frames in 8 s, GPU median 3 ms.
+- **Tests:** [svg-anim.test.ts](../compiler/test/svg-anim.test.ts:1) (the corpus by name, exact encodings for each rule, errors,
+  TSX use), `segmentEasings` in [ZnAnimationTest.kt](../android/runtime/src/test/java/dev/zeronative/runtime/ZnAnimationTest.kt:1).
+  JS 403, Kotlin 143.
+- **Size:** a loader's draw data plus motion is about the size of the source file (the six lab loaders added ~5 KB to
+  `main.zn.ui`, sources ~6 KB).
+
+**The S.14 proposal, as written before building:** files from icon and loader sites move with SMIL
+(`<animate>`, `<animateTransform>`) or CSS `@keyframes` inside the file. Both are refused today (§5). An import could turn them
+into the same part animations at build time, as most of them only turn, scale, move, fade, recolour or dash a line:
+- SMIL `values` / `keyTimes` / `keySplines` / `repeatCount` / `begin` map onto `keyframes` / `times` / bezier / `repeat` / `delay`;
+  CSS `@keyframes`, `animation-*` and `transform-origin` the same way. `stroke-dashoffset` tricks become trims.
+- Still refused, with a hint: path morphing (animating `d`), `animateMotion` (move along a path), JS-driven files (SVGator's
+  player, GSAP), triggers like `begin="click"`, animated filters.
+- Start with a corpus check: 30–50 real animated SVGs (fetched to a scratch folder only), to count how many the import would cover.

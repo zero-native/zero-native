@@ -251,8 +251,9 @@ describe("refused features fail the build with file:line:col and a hint", () => 
     ['<image href="a.png"/>', "<image> isn't supported"],
     ['<defs><pattern id="p"/></defs>', "<pattern> isn't supported"],
     ['<filter id="f"/>', "filters (blur, drop shadow)"],
-    ["<style>.a{fill:red}</style>", "<style> (CSS) isn't supported"],
-    ['<animate attributeName="x"/>', "SMIL animation isn't supported"],
+    ["<style>@media (min-width: 1px) { .a{fill:red} }</style>", "CSS @media isn't supported"],
+    ['<animate attributeName="x" dur="1s"/>', "animating the <svg> itself isn't supported"],
+    ['<rect width="1" height="1"><animateMotion dur="1s" path="M0 0h4"/></rect>', "<animateMotion> (moving along a path) isn't supported"],
     ['<marker id="m"/>', "<marker> isn't supported"],
     ['<foreignObject/>', "<foreignObject> isn't supported"],
     ["<svg/>", "a nested <svg> isn't supported"],
@@ -340,8 +341,37 @@ describe(".svg imports", () => {
     expect(props(dot!).opacity).toBe(0.4)
     expect(props(dot!).stroke).toBe("#fff")
     expect(code).toContain("() => (brand()), 1)")
-    // The registry accepts it: fill / stroke can change at runtime since v10.
-    expect(writeTemplateFile(templates).registry).toBe(10)
+    // The registry accepts it: fill / stroke can change at runtime since v11.
+    expect(writeTemplateFile(templates).registry).toBe(11)
+  })
+  test("part motion: transforms turn around the part's centre, trims, animate with loops (registry 11)", () => {
+    const { templates, code } = compile(`import Logo from "./logo.svg"
+export function F() { return <Logo parts={{
+  ring: { rotate: 360, animate: { rotate: { duration: 1000, easing: "linear", from: 0, repeat: "forever" } } },
+  dot: { trimEnd: progress(), translateX: 4, paused: stopped() },
+}} /> }`)
+    const [ring, dot] = templates[0]!.children
+    // The ring's circle is centred on (25, 25) in viewBox units.
+    expect(props(ring!)).toMatchObject({ part: 0, rotate: 360, pivotX: 25, pivotY: 25 })
+    expect(props(ring!).animate).toBe("95=t1000e3~f0~r-1")
+    // Moving alone needs no pivot.
+    expect(props(dot!)).toMatchObject({ part: 2, translateX: 4 })
+    expect(props(dot!).pivotX).toBeUndefined()
+    expect(props(dot!).trimEnd).toEqual({ $slot: "s0", default: null })
+    expect(props(dot!).paused).toEqual({ $slot: "s1", default: null })
+    expect(code).toContain("() => (progress()), 0)")
+    expect(writeTemplateFile(templates).registry).toBe(11)
+    // A scale animated on the dot (a 10 × 10 box at x 60): its centre.
+    const s = compile(`import Logo from "./logo.svg"\nexport function F() { return <Logo parts={{ dot: { animate: { scale: { duration: 400, keyframes: [1, 1.2, 1] } } } }} /> }`)
+    expect(props(s.templates[0]!.children[0]!)).toMatchObject({ pivotX: 65, pivotY: 5 })
+  })
+  test("part motion build errors", () => {
+    const e = (parts: string) => tsxErr(`import Logo from "./logo.svg"\nexport function F() { return <Logo parts={{ ${parts} }} /> }`)
+    expect(e(`ring: { animate: { width: 400 } }`)).toContain('animate: "width" can\'t be animated')
+    expect(e(`ring: { animate: pick() }`)).toContain("animate must be known at build time")
+    expect(e(`ring: { rotate: 10, animate: { rotate: { duration: 300, repeat: 0 } } }`)).toContain("repeat")
+    expect(e(`ring: { rotate: 10, animate: { rotate: { duration: 300, reverse: true } } }`)).toContain("reverse needs repeat")
+    expect(e(`ring: { trimEnd: 0.5 }`)).toBe("no error")
   })
   test("node indexes count the parts: a branch after the SVG mounts at the right place", () => {
     const { templates, code } = compile(
@@ -356,7 +386,7 @@ describe(".svg imports", () => {
       .toContain('Logo has no part "rim" (its parts: ring, dot)')
     expect(tsxErr(`import Logo from "./logo.svg"\nexport function F() { return <Logo color="#000" /> }`)).toContain("this SVG has none")
     expect(tsxErr(`import Logo from "./logo.svg"\nconst x = Logo\nexport function F() { return <Box /> }`)).toContain("not as a value")
-    expect(tsxErr(`import Logo from "./logo.svg"\nexport function F() { return <Logo parts={{ ring: { rotate: 4 } }} /> }`)).toContain("a part can set fill, stroke, opacity")
+    expect(tsxErr(`import Logo from "./logo.svg"\nexport function F() { return <Logo parts={{ ring: { width: 4 } }} /> }`)).toContain("a part can set fill, stroke, opacity")
     expect(tsxErr(`import Logo from "./logo.svg"\nexport function F() { return <Logo foo={1} /> }`)).toContain('unknown prop "foo" on <Logo>')
     expect(tsxErr(`import { x } from "./logo.svg"\nexport function F() { return <Box /> }`)).toContain("default import")
     const bad = tsxErr(`import Bad from "./bad.svg"\nexport function F() { return <Bad /> }`)
@@ -403,6 +433,24 @@ describe("inline <Svg>", () => {
     expect(props(n.children[0]!).part).toBe(0)
     expect(props(n.children[0]!).fill).toEqual({ $slot: "s0", default: null })
     expect(code).toContain('() => (liked() ? "#f00" : "#999"), 1)')
+  })
+  test("motion props on an element make it a part: rotate around its centre, trims, animate", () => {
+    const { templates, code } = compile(`export function F() { return (
+      <Svg viewBox="0 0 24 24" size={24}>
+        <Circle cx={12} cy={12} r={10} stroke="#047857" fill="none" rotate={spin()} />
+        <Path d="M2 12h20" stroke="#000" trimEnd={0.5} animate={{ trimEnd: { duration: 800, from: 0 } }} />
+      </Svg>) }`)
+    const [circle, line] = templates[0]!.children
+    expect(props(circle!)).toMatchObject({ part: 0, rotate: { $slot: "s0", default: null }, pivotX: 12, pivotY: 12 })
+    expect(props(line!)).toMatchObject({ part: 1, trimEnd: 0.5, animate: "185=t800e0~f0" })
+    expect(props(line!).pivotX).toBeUndefined()
+    expect(code).toContain("() => (spin()), 0)")
+    // They are zn values, not SVG attributes: the draw data has none of them.
+    expect(props(templates[0]!).svg).not.toContain("rotate")
+  })
+  test("motion props inside a .map row in <Svg> fail with a hint", () => {
+    expect(tsxErr(`const D = [1, 2]\nexport function F() { return <Svg viewBox="0 0 10 10">{D.map((d, i) => <Circle key={i} cx={d} r={1} rotate={45} />)}</Svg> }`))
+      .toContain("give the element an id and use parts")
   })
   test(".map over a build-time array is expanded", () => {
     const { templates } = compile(`const DOTS = [{ x: 1 }, { x: 5 }]\nexport function F() { return (

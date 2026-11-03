@@ -263,6 +263,29 @@ class ZnSvgTest {
         assertEquals(1, errors.size)
     }
 
+    @Test
+    fun trimRanges() {
+        val out = FloatArray(4)
+        fun r(s: Float, e: Float, o: Float, total: Float = 100f): FloatArray? =
+            if (znTrimRanges(s, e, o, total, out, 0)) out.copyOf() else null
+        // The whole line, or nothing to measure: no cut.
+        assertNull(r(0f, 1f, 0f))
+        assertNull(r(0f, 1f, 0.3f))
+        assertNull(r(0.2f, 0.5f, 0f, total = 0f))
+        // A plain piece; start > end swaps them; values outside 0–1 are held at the ends.
+        assertArrayEquals(floatArrayOf(20f, 50f, -1f, -50f), r(0.2f, 0.5f, 0f), 1e-3f)
+        assertArrayEquals(floatArrayOf(20f, 50f, -1f, -50f), r(0.5f, 0.2f, 0f), 1e-3f)
+        assertArrayEquals(floatArrayOf(0f, 50f, -1f, -50f), r(-1f, 0.5f, 0f), 1e-3f)
+        // The offset moves the piece round the line and wraps past the end: two ranges.
+        assertArrayEquals(floatArrayOf(80f, 100f, 0f, 10f), r(0f, 0.3f, 0.8f), 1e-3f)
+        // A negative offset wraps the other way.
+        assertArrayEquals(floatArrayOf(90f, 100f, 0f, 20f), r(0f, 0.3f, -0.1f), 1e-3f)
+        // An empty piece cuts everything away.
+        val empty = r(0.4f, 0.4f, 0f)!!
+        assertEquals(empty[0], empty[1], 1e-3f)
+        assertTrue(empty[2] < 0f)
+    }
+
     /** [s] must fail with the reader's own error (not a crash inside it), and readOrNull must give null. */
     private fun bad(s: String) {
         try {

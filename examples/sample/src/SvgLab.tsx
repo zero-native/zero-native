@@ -1,14 +1,21 @@
 // A dev screen for SVG (docs/svg.md, step S.4): .svg files as components, an icon set, an inline <Svg> with gradients
-// and a clip, text over an SVG, parts that change at runtime, and SVGs in a long list.
+// and a clip, text over an SVG, parts that change at runtime, motion (S.12: loops, trims, replay), and SVGs in a long list.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/svg
 import {
-  Circle, ClipPath, Column, Defs, G, LinearGradient, List, Path, Pressable, RadialGradient, Rect, Row, Scroll, Stack,
+  Box, Circle, ClipPath, Column, Defs, G, LinearGradient, List, Path, Pressable, RadialGradient, Rect, Row, Scroll, Stack,
   Stop, Svg, Text,
 } from "@zero-native/ui"
 import { nav, signal } from "@zero-native/core"
 import { c } from "./tokens"
 import { Bell, Done, Heart, HeartFilled, Home, Offer, Person, Receipt, Scan, Search, Wallet } from "./svg/icons"
 import Badge from "./svg/badge.svg"
+// Downloaded animated SVGs (svg-spinners, MIT): SMIL and CSS, compiled into part animations (S.14).
+import Ring from "./svg/loaders/90-ring-with-bg.svg"
+import Dots from "./svg/loaders/3-dots-bounce.svg"
+import Bars from "./svg/loaders/bars-scale.svg"
+import Rings from "./svg/loaders/pulse-rings-multiple.svg"
+import Wifi from "./svg/loaders/wifi.svg"
+import Ball from "./svg/loaders/bouncing-ball.svg"
 
 const like = "#E11D48"
 const RING_COLORS = ["#3D26ED", "#15803D", "#E11D48", "#F59E0B"]
@@ -120,6 +127,135 @@ function Avatar() {
   )
 }
 
+function MotionTile(props: { label: string; onPress?: () => void; children?: unknown }) {
+  return (
+    <Pressable onPress={props.onPress} alignItems="center" style={{ gap: 6, width: 76 }} accessibilityLabel={props.label}>
+      <Column
+        style={{ width: 64, height: 64, borderRadius: 16, backgroundColor: c.white, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" }}
+      >
+        {props.children}
+      </Column>
+      <Text fontSize={12} color={c.ink}>
+        {props.label}
+      </Text>
+    </Pressable>
+  )
+}
+
+const LOOP = { easing: "linear", from: 0, repeat: "forever" } as const
+const GAUGE = [20, 55, 90]
+
+/** Motion (docs/svg.md §9): loops, keyframes, trims and replay on SVG parts and plain elements; one pause for all. */
+function MotionSection() {
+  const paused = signal(false)
+  const gauge = signal(0)
+  const paid = signal(0)
+  const shake = signal(0)
+
+  return (
+    <Section title="Motion" note="Loops, keyframes and trims. Tap a tile to change or replay it">
+      <Row style={{ justifyContent: "space-between" }}>
+        <MotionTile label="Loading">
+          <Svg viewBox="0 0 24 24" size={36}>
+            <Circle cx={12} cy={12} r={9} fill="none" stroke={c.border} strokeWidth={3} />
+            <Circle
+              cx={12} cy={12} r={9} fill="none" stroke={c.primary} strokeWidth={3} strokeLinecap="round"
+              trimEnd={0.28} rotate={360} animate={{ rotate: { duration: 900, ...LOOP } }} paused={paused()}
+            />
+          </Svg>
+        </MotionTile>
+        <MotionTile label="Live">
+          <Svg viewBox="0 0 24 24" size={36}>
+            <Circle
+              cx={12} cy={12} r={11} fill="#C7D2FE" paused={paused()}
+              animate={{
+                scale: { duration: 1400, keyframes: [0.4, 1], repeat: "forever" },
+                opacity: { duration: 1400, keyframes: [0.9, 0], repeat: "forever" },
+              }}
+            />
+            <Circle cx={12} cy={12} r={5} fill={c.primary} />
+          </Svg>
+        </MotionTile>
+        <MotionTile label={`Score ${GAUGE[gauge()]}`} onPress={() => gauge.set((gauge() + 1) % GAUGE.length)}>
+          <Svg viewBox="0 0 32 20" size={44}>
+            <Path d="M4 18 A12 12 0 0 1 28 18" fill="none" stroke={c.border} strokeWidth={4} strokeLinecap="round" />
+            <Path
+              d="M4 18 A12 12 0 0 1 28 18" fill="none" stroke={c.success} strokeWidth={4} strokeLinecap="round"
+              trimEnd={GAUGE[gauge()]! / 100} animate={{ trimEnd: { duration: 600, easing: "ease-out" } }}
+            />
+          </Svg>
+        </MotionTile>
+        <MotionTile label="Pulse">
+          <Svg viewBox="0 0 48 24" size={44}>
+            <Path
+              d="M2 13h11l3-7 5 14 4-11 3 4h18" fill="none" stroke={c.success} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+              trimEnd={1} animate={{ trimEnd: { duration: 1300, ...LOOP, repeatDelay: 400 } }} paused={paused()}
+            />
+          </Svg>
+        </MotionTile>
+      </Row>
+      <Row style={{ alignItems: "center", gap: 12 }}>
+        <MotionTile label="Paid" onPress={() => paid.set(paid() + 1)}>
+          <Badge
+            size={48}
+            parts={{
+              ring: { trimEnd: 1, replay: paid(), animate: { trimEnd: { duration: 500, easing: "ease-out", from: 0 } } },
+              tick: { trimEnd: 1, replay: paid(), animate: { trimEnd: { duration: 300, easing: "ease-out", from: 0, delay: 450 } } },
+            }}
+          />
+        </MotionTile>
+        <MotionTile label="Wrong OTP" onPress={() => shake.set(shake() + 1)}>
+          <Box replay={shake()} animate={{ translateX: { duration: 400, keyframes: [0, -8, 8, -6, 6, -3, 0] } }}>
+            <Text fontSize={15} fontWeight={700} color="#DC2626">
+              4 2 _ _
+            </Text>
+          </Box>
+        </MotionTile>
+        <Column style={{ flex: 1, alignItems: "center" }}>
+          <Box
+            paused={paused()}
+            animate={{ scale: { duration: 700, keyframes: [1, 1.06, 1], repeat: "forever", repeatDelay: 1200 } }}
+            style={{ paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24, backgroundColor: c.primary }}
+          >
+            <Text fontSize={15} fontWeight={700} color={c.white}>
+              Pay ₹249
+            </Text>
+          </Box>
+        </Column>
+      </Row>
+      <Column style={{ gap: 2 }}>
+        <Text fontSize={14} fontWeight={700} color={c.ink}>
+          Downloaded .svg loaders
+        </Text>
+        <Text fontSize={12} color={c.muted}>
+          SMIL and CSS files from svg-spinners, used as they are
+        </Text>
+      </Column>
+      <Row style={{ justifyContent: "space-between" }}>
+        <MotionTile label="Ring"><Ring size={32} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Dots"><Dots size={32} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Bars"><Bars size={32} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Rings"><Rings size={32} color={c.primary} paused={paused()} /></MotionTile>
+      </Row>
+      <Row style={{ gap: 12 }}>
+        <MotionTile label="Wifi"><Wifi size={32} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Ball"><Ball size={32} color={c.primary} paused={paused()} /></MotionTile>
+      </Row>
+      <Pressable
+        onPress={() => paused.set(!paused())}
+        alignItems="center"
+        justifyContent="center"
+        accessibilityLabel={paused() ? "Play the loops" : "Pause the loops"}
+        style={{ height: 48, borderRadius: 24, borderWidth: 1, borderColor: c.border, backgroundColor: c.white }}
+      >
+        <Text fontSize={14} fontWeight={600} color={c.primary}>
+          {paused() ? "Play the loops" : "Pause the loops"}
+        </Text>
+      </Pressable>
+    </Section>
+  )
+}
+
 const ROWS = Array.from({ length: 60 }, (_, i) => ({
   id: i,
   name: ["Sri Sai Stores", "Fresh Basket", "Bangalore Bakery", "Green Leaf Café"][i % 4]!,
@@ -195,6 +331,8 @@ export function SvgLabScreen() {
               <Avatar />
             </Row>
           </Section>
+
+          <MotionSection />
 
           <Section title="In a list" note="60 rows, an SVG in each; scroll fast to check for jank">
             <List

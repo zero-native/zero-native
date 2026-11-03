@@ -108,13 +108,37 @@ export interface TextStyleProps {
 type Style = StyleProps & TextStyleProps
 type StyleInput = Style | false | null | undefined | StyleInput[]
 
-/** 250 (ms, tween) | "spring" | "bouncy" | { duration, easing? } | { spring: { damping?, stiffness? } } */
+/** A named curve, or a CSS cubic-bezier as [x1, y1, x2, y2] (x1 and x2 within 0–1). */
+export type Easing = "standard" | "ease-out" | "ease-in" | "linear" | readonly [number, number, number, number]
+
+/**
+ * Options every timing can have (registry 11). With `from` or `keyframes` the animation plays by itself when the
+ * element appears (and again on `replay`); without them it plays when the value changes, as before.
+ */
+export interface Motion {
+  /** Wait this many ms before it starts (each time it starts). */
+  delay?: number
+  /** How many times it plays in all (CSS iteration-count): 2 = twice. "forever" loops while the element is shown. */
+  repeat?: number | "forever"
+  /** Every second play runs backwards (CSS alternate): a pulse goes 1 → 1.1 → 1 instead of jumping back. */
+  reverse?: boolean
+  /** Wait this many ms between plays. */
+  repeatDelay?: number
+  /** Plays from this value to the style value. A colour for backgroundColor. */
+  from?: number | string
+  /** Plays through these values; the style value is where it rests when animations are off. */
+  keyframes?: readonly (number | string)[]
+  /** When each keyframe is reached, 0–1 of the duration (default: evenly spaced). Same length as keyframes. */
+  times?: readonly number[]
+}
+
+/** 250 (ms, tween) | "spring" | "bouncy" | { duration, easing?, ...Motion } | { spring: { damping?, stiffness? }, ...Motion } */
 export type Timing =
   | number
   | "spring"
   | "bouncy"
-  | { duration: number; easing?: "standard" | "ease-out" | "ease-in" | "linear" }
-  | { spring: { damping?: number; stiffness?: number } }
+  | ({ duration: number; easing?: Easing } & Motion)
+  | ({ spring: { damping?: number; stiffness?: number } } & Omit<Motion, "keyframes" | "times">)
 
 export type AnimatableProp =
   | "opacity"
@@ -139,8 +163,10 @@ export type Transition =
       translateY?: number
       scale?: number
       duration?: number
-      easing?: "standard" | "ease-out" | "ease-in" | "linear"
+      easing?: Easing
       spring?: { damping?: number; stiffness?: number }
+      /** Wait this many ms before it starts: a stagger for list rows (registry 11). */
+      delay?: number
     }
 
 interface Base extends StyleProps {
@@ -150,6 +176,10 @@ interface Base extends StyleProps {
    * `animate={250}` for all of them, or `animate={{ opacity: 200, translateY: "spring" }}`.
    */
   animate?: Timing | Partial<Record<AnimatableProp, Timing>>
+  /** Stops this element's own loops and keyframes where they are (CSS play-state). Can change at runtime. */
+  paused?: boolean
+  /** Each new value plays this element's loops and keyframes again from the start (a shake on a wrong PIN). */
+  replay?: number
   /** On the root of `cond && <X/>`, a ternary branch or a `.map` row: how it appears. */
   enter?: Transition
   /** Same, how it leaves: native keeps it on screen until this finishes. */
@@ -228,8 +258,38 @@ export declare const NativeView: Intrinsic<
 >
 // ---- SVG (docs/svg.md) -------------------------------------------------------------------------------------------
 
-/** What a part of an SVG can change: the paint of every shape inside it, and its opacity as a whole. */
-export interface SvgPartProps {
+/** What a part can animate (docs/svg.md §9). */
+export type SvgPartAnimatable =
+  | "opacity" | "fill" | "stroke" | "rotate" | "scale" | "scaleX" | "scaleY" | "translateX" | "translateY"
+  | "trimStart" | "trimEnd" | "trimOffset"
+
+/**
+ * How a part moves (registry 11): transforms in viewBox units and degrees, around the part's own centre; trims
+ * "draw the line" (0–1 of its length; a group's pieces count as one line). All can change at runtime, except animate.
+ */
+export interface SvgPartMotion {
+  rotate?: number
+  scale?: number
+  scaleX?: number
+  scaleY?: number
+  translateX?: number
+  translateY?: number
+  /** Where the visible piece of the line starts, 0–1 (default 0). It cuts the fill too. */
+  trimStart?: number
+  /** Where it ends, 0–1 (default 1). trimEnd from 0 to 1 draws the line. */
+  trimEnd?: number
+  /** Moves the piece round the line (wraps past the end). */
+  trimOffset?: number
+  /** Animate this part, like `animate` on any element (build time). */
+  animate?: Timing | Partial<Record<SvgPartAnimatable, Timing>>
+  /** Stops this part's loops and keyframes where they are. */
+  paused?: boolean
+  /** Each new value plays this part's loops and keyframes again. */
+  replay?: number
+}
+
+/** What a part of an SVG can change: the paint of every shape inside it, its opacity as a whole, and how it moves. */
+export interface SvgPartProps extends SvgPartMotion {
   fill?: Color
   stroke?: Color
   opacity?: number
@@ -257,8 +317,8 @@ export type SvgFile = Intrinsic<
 >
 
 type SvgNumber = number | string
-/** SVG presentation attributes, as react-native-svg names them. */
-interface SvgPaintProps {
+/** SVG presentation attributes, as react-native-svg names them, plus zn's part motion (it makes the element a part). */
+interface SvgPaintProps extends SvgPartMotion {
   id?: string
   fill?: Color
   fillOpacity?: SvgNumber
@@ -286,7 +346,7 @@ interface SvgPaintProps {
 /** Inline SVG (react-native-svg's shape). The whole subtree is compiled at build time into one element. */
 export declare const Svg: Intrinsic<
   SvgNodeProps &
-    Omit<SvgPaintProps, "color" | "key"> & {
+    Omit<SvgPaintProps, "color" | "key" | keyof SvgPartMotion> & {
       viewBox?: string
       preserveAspectRatio?: string
       width?: number

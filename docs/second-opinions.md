@@ -407,7 +407,87 @@ change, and what evidence would make you change it?"
   That is a real freeze, so it is arguably right; the guide says not to do long sync work in a task (§36).
 - **Evidence wanted:** whether Hermes' time limit fires inside a task's event at all (not tested; the reviewer couldn't confirm it).
 
-## 38. SVG is compiled at build time and drawn by our own small interpreter (SVG design, not built)
+## 38. RN names live in `@zero-native/core`, next to the zn names (RN basics pack)
+- **Where:** `packages/core/src/index.ts` (`Alert`, `Clipboard`, `Share`, `Linking`, `Platform`, `Dimensions`, `PixelRatio`,
+  `Keyboard`, `AppState`, `Vibration`, `ToastAndroid`, `NetInfo`, `useNetInfo`, `useWindowDimensions`, `createRef`).
+- **Chosen (Pavan agreed):** export them from core, not from a `@zero-native/core/rn` entry point. Where a zn name already
+  existed (`Os.share`, `Os.openUrl`, `toast`, `appState`, `onAppState`) it stays; the RN object sits on top of it.
+- **Why:** one import line for authors; the build loads every core file anyway (compiler/src/plugin.ts), so a second
+  entry point would save nothing. Nothing that existed breaks. `AppState` is now both a value and the old type name,
+  which TypeScript allows; `AppStateStatus` is the RN type name.
+- **Risk if wrong:** two names for one thing (`Os.share` and `Share.share`). The docs point ported code to the RN name.
+- **Also:** `docs/rn-compatibility.md` §11 names ZeroBill, as asked. The leak audit wants neutral names in public docs:
+  the public-repo pass must reword it ("the reference RN app").
+
+## 39. `TextField` focus: `ref={createRef()}`, a new event kind (RN basics pack)
+- **Where:** `packages/template/src/registry.ts` (`EventKind.ref = 16`, registry 10), `compiler/src/compile.ts`,
+  `packages/core/src/text-field.ts`, `android/runtime/.../ZnTextField.kt`, `ZnKeyboard.kt` (v2).
+- **Chosen:** `ref` is not a handler. The compiler gives it an event id; native keeps the field's FocusRequester under
+  (instance, id) while it is composed; JS's `focus()` / `blur()` / `clear()` are `Keyboard` module calls with that pair,
+  and native sends true / false on the same id when focus changes (for `isFocused()`). `createRef()`, not `useRef()`.
+- **Why not a `focused={signal}` prop:** if the user blurs the field and the code doesn't set the signal back,
+  setting it true again does nothing. A ref has no state to drift. **Why not `useRef`:** there are no hooks; a body runs
+  once, so `createRef()` does the job without suggesting hooks exist.
+- **Risk if wrong:** `focus()` on a field that is not composed (a lazy list row off screen) rejects `not_shown` (logged).
+  `blur()` clears the window's focus, so it only acts when this field has focus.
+- **Evidence wanted:** the phone check of the OTP demo (`examples/sample/src/RnBasicsLab.tsx`) on a few keyboards
+  (Gboard, SwiftKey): focus from a tap on a box, auto-blur after 4 digits. Passed on the emulator's Gboard.
+- **Also changed:** `onFocus` / `onBlur` (and the ref's focus events) are sent only for a real change. Compose calls
+  `onFocusChanged` when a field appears and when the Activity is made again, and every untouched field sent `onBlur`.
+  **Known edge:** if a field has focus and the phone turns, Compose doesn't give focus back, and no `onBlur` is sent for
+  the lost focus (`isFocused()` stays true until the next change). Sending one when the field leaves composition would
+  log "no handler" warnings each time a screen closes with a focused field, so it isn't done.
+
+## 40. Alert: Android's own dialog, one at a time, shown again after rotation (RN basics pack)
+- **Where:** `android/runtime/.../ZnAlert.kt`, `packages/core/src/alert.ts`.
+- **Chosen (Pavan agreed):** `android.app.AlertDialog` with the app's theme, as RN. Alerts queue and show one at a time.
+  `ZnAlert.Host()` in `ZnNavHost` shows the first one in the live Activity; a new Activity (rotation) shows it again.
+  Only a button or a cancel answers. No buttons → "OK". No Activity (push, background task) → `no_activity`, logged.
+  Alerts of a replaced JS runtime are dropped through the call's cancel, not `ZnNav.generation` (the generation moves
+  only after the new main script ran, so an alert from its top level would be dropped by mistake).
+- **Why:** RN parity, no drawing code. **Risk if wrong:** the dialog follows the app theme, not `colorScheme()`: an app
+  with a light-only theme shows a light alert in dark mode (RN does the same). An app that never shows `ZnNavHost` keeps
+  alerts queued for ever.
+
+## 41. Platform, Dimensions and the keyboard come as app events, not sync constants (RN basics pack)
+- **Where:** `android/runtime/.../ZnWindow.kt`, `ZnNavHost.kt` (`ReportWindow`, `ReportKeyboard`), app events 16–18
+  (host API 7), `packages/core/src/platform.ts`, `dimensions.ts`, `keyboard.ts`.
+- **Chosen:** DEVICE (sdk, release, model, brand, manufacturer) and a first WINDOW go right after the main script, like
+  COLOR_SCHEME. Compose then sends the measured window (`LocalWindowInfo.containerSize`) and the keyboard's target height
+  (`WindowInsets.imeAnimationTarget`, one event per show or hide). JS keeps them in signals.
+- **Why not sync constants:** that needs a new JNI argument and a C++ global for 3 numbers. Every ZeroBill use of
+  `Platform.Version` is inside a function. **Risk if wrong:** a read at a file's top level gives 0 (a warning is logged).
+- **Keyboard height:** dp from the bottom of the window, so it includes the navigation bar under the keyboard. RN's
+  Android number has differed between versions; ours is written in the guide. **Window:** includes the system bars
+  (we draw edge to edge).
+- **Evidence wanted:** split screen and font-size changes on a phone; a keyboard that changes height (emoji panel).
+
+## 42. NetInfo: Android's "validated" for `isInternetReachable`, 250 ms settle (RN basics pack)
+- **Where:** `android/runtime/.../ZnNetInfo.kt`.
+- **Chosen:** `isInternetReachable` = `NET_CAPABILITY_VALIDATED` (Android's own check), no HTTP probe like the library.
+  Type order as the library: bluetooth > cellular > ethernet > wifi > vpn, so a VPN over Wi-Fi reads "wifi". A burst of
+  callbacks sends one event 250 ms after the last one. The network is watched only while JS listens.
+- **Risk if wrong:** a network Android validated may still block our API host (a firewall), and the 250 ms delay makes
+  a change arrive late. For payments, still handle `FetchError` `offline` on each call; don't gate a payment on NetInfo.
+
+## 43. Smaller calls in the RN basics pack
+- **`Vibration` needs `VIBRATE` in the app's manifest** (Pavan agreed: same as RN). The runtime doesn't add it, so apps
+  that never vibrate don't list it. Without it: `not_declared`, logged once.
+- **`Linking.canOpenURL`:** the runtime's manifest gains `<queries>` for VIEW with https, http, mailto, tel (merged into
+  every app). It shows no list of apps; it only lets Android answer for those 4 link kinds.
+- **`Linking.getInitialURL` / `addEventListener("url")`:** read-only copies of links that already opened their route.
+  RN apps route from them; here routing is built in and `onLink` refuses. Kept small on purpose.
+- **`URL`:** no IDNA, so a non-ASCII host throws instead of guessing. Where Bun 1.4.4 and the standard differ (4 setter
+  and backslash cases, listed in `packages/core/test/url.test.ts`), we follow the standard. 791 lines, about 5 KB gzipped.
+- **`requestAnimationFrame`** is a 16 ms timer: JS doesn't draw here, and a real frame callback would cross to native
+  each frame for nothing.
+- **`flowStore` warning at 128 KB** in every build (JS has no "debug build" flag), once per key per run.
+- **`Share.share({ url })`:** RN shares `url` only on iOS; here it is shared as the text when there is no `message`, so
+  iOS-style code doesn't share nothing.
+- **Not built, on purpose:** `StatusBar` (route option; `setBarStyle` later if a screen needs it), toast gravity,
+  `Alert.prompt` (iOS only in RN), RN's Android-only `AppState` `focus` / `blur`.
+
+## 44. SVG is compiled at build time and drawn by our own small interpreter (SVG design, not built)
 - **Where:** `docs/svg.md` §3, §5, §6, §8.
 - **Chosen:** the compiler reads `.svg` files and inline `<Svg>` at bundle build time, checks them against a fixed subset, and writes
   compact draw data. The phone draws it with Compose `DrawScope` calls (paths, strokes, gradient shaders, clips, layers). No XML on the
@@ -421,7 +501,7 @@ change, and what evidence would make you change it?"
   (lose runtime colours and animation).
 - **Evidence wanted:** a side-by-side check of real SVGs (S.4, S.5 in `docs/svg.md`), and how many real files fail the build.
 
-## 39. SVG part overrides are one `parts` prop, grouped by part (SVG design, not built)
+## 45. SVG part overrides are one `parts` prop, grouped by part (SVG design, not built)
 - **Where:** `docs/svg.md` §4.3.
 - **Chosen:** `<Logo parts={{ ring: { fill: brand() }, dot: { opacity: 0.4 } }} />`. Each value is a slot when it changes at runtime; the
   compiler writes one `SvgPart` template node per part. A part's `fill` / `stroke` replaces the paint of every shape inside it.
@@ -433,7 +513,7 @@ change, and what evidence would make you change it?"
   (reuses the existing `style` / `animate` props exactly, but part names can't be typed and children get special rules).
 - **Evidence wanted:** how screens look after porting the RN app's 13 inline SVG files.
 
-## 40. SVG draw data lives in the template file, not in its own file (SVG design, not built)
+## 46. SVG draw data lives in the template file, not in its own file (SVG design, not built)
 - **Where:** `docs/svg.md` §6.1, §7.
 - **Chosen:** the draw data is an ASCII string prop of the `Svg` node in `main.zn.ui`. The template writer stores each distinct string
   once, and the phone parses an SVG only when it is first drawn (cached per string, shared by all instances).
@@ -445,9 +525,9 @@ change, and what evidence would make you change it?"
   file that `ZnBundles`, OTA bundles and the start path must handle); binary data in the template (~30 % smaller, needs a new value kind).
 - **Evidence wanted:** `main.zn.ui` size and template read time with the lab screen (S.6), and whether real apps need runtime choice.
 - **Update (built, 2026-11-03):** the "~30 % smaller binary" number was a guess for the first format (absolute cubics). The built format
-  writes paths as SVG path text (entry 41), which is already compact; a binary form would now save much less.
+  writes paths as SVG path text (entry 47), which is already compact; a binary form would now save much less.
 
-## 41. SVG paths are written as minified SVG path text, arcs kept (SVG phase 1, built)
+## 47. SVG paths are written as minified SVG path text, arcs kept (SVG phase 1, built)
 - **Where:** `docs/svg.md` §6.1, §14; `compiler/src/svg-data.ts` (`writePath`); `ZnSvg.kt` reads paths with Compose's `PathParser`.
 - **Chosen:** each path is SVG path data (`M9.55 15.15l8.47-8.47q.3-.3.7-.3`), relative or absolute per command (whichever is shorter),
   with `Q`, `T`, `S`, `H`, `V` and `A` kept. Arcs become cubics only when a transform changes their shape. Numbers are rounded to
@@ -462,7 +542,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** the lab screen on the Lava next to the source SVGs. The browser side-by-side check of 39 files (draw data turned back
   into SVG) showed no strong pixel differences. **Update:** the lab looks right on the Lava (debug and release).
 
-## 42. A big SVG is still parsed on the main thread at its first draw (SVG phase 1, measured on the Lava)
+## 48. A big SVG is still parsed on the main thread at its first draw (SVG phase 1, measured on the Lava)
 - **Where:** `docs/svg.md` §13, §14; `ZnSvgCache.get` in `ZnSvg.kt`.
 - **Chosen:** no change. Each distinct SVG is parsed when it is first drawn, on the main thread, and cached.
 - **Measured:** a 23 KB SVG (~400 shapes) parses in 6.3–7.3 ms right after an adb install (no AOT code), 1.4–1.5 ms after
@@ -474,3 +554,95 @@ change, and what evidence would make you change it?"
 - **Other options:** parse every SVG of the bundle on the I/O thread after the first frame; a baseline profile with the SVG reader and
   Compose's `PathParser` in it.
 - **Evidence wanted:** first-draw time of a real big illustration on a Play-installed build (cloud profiles), and on a slower phone.
+
+## 49. `repeat` counts all plays, not extra ones (motion, registry 11)
+- **Where:** `docs/svg.md` §9; `timing()` in `compiler/src/compile.ts`; `motionAt` in `ZnAnimation.kt`.
+- **Chosen:** `repeat: 2` plays twice in all; `"forever"` loops. Same as CSS `animation-iteration-count`, Compose `repeatable(iterations)`,
+  RN `Animated.loop({ iterations })` and Reanimated `withRepeat(x, n)`.
+- **Why:** authors coming from any of these get what they expect. The word "repeat" alone could mean "play again n times" (n + 1 in all).
+- **Risk if wrong:** an author who reads it as extra plays sees one play fewer. `repeat: 0` and `1` would mean the same, so `0` is a build
+  error that names the rule.
+- **Other options:** `iterations` as the name (clearer, longer); `repeat` as extra plays (like GSAP).
+- **Evidence wanted:** what authors write first in the lab and in ZeroBill screens; any confusion in review.
+
+## 50. `paused` and `replay` are element props, not timing options (motion, registry 11)
+- **Where:** `docs/svg.md` §9; `Base` in `packages/ui/src/index.ts`; `znMotionInputs` in `ZnAnimation.kt`.
+- **Chosen:** `<Box paused={p()} replay={n()} animate={...} />`. They change at runtime (slots). The timing inside `animate` stays build-time.
+  The approved plan listed `paused` with the timing options; it moved while building.
+- **Why:** `animate` is folded at build time into one string. A runtime `paused` inside it would need a runtime timing, a new value kind.
+  As element props they are plain slots, and one `paused` covers every looping prop of the element (CSS `animation-play-state` works the same).
+- **Risk if wrong:** no way to pause one prop of an element while another loops. Rare; split the element in two.
+- **Other options:** a runtime `animate`; a `paused` per prop (`animate={{ rotate: { ..., paused } }}`) compiled to a slot per prop.
+- **Evidence wanted:** a real screen that needs per-prop pause.
+
+## 51. A new registry entry kind, `format`, for new forms inside a string value (motion, registry 11)
+- **Where:** `Formats` in `packages/template/src/registry.ts`; the check in `writer.ts`; `registry.lock.json` (`format:timing.motion`).
+- **Chosen:** the `~` options in a timing string (`95=t1000e3~f0~r-1`) are a "format" added in registry 11. The writer raises the
+  bundle's registry to 11 only when a value uses them; an old-style `animate` still asks for the old registry.
+- **Why:** an older app reads `t1000e3~f0~r-1` as a plain 1 s tween with the default easing (checked in its parser: `"3~f0~r-1"` is not a
+  number, so the easing falls back to 0) that plays only on a value change. A spinner would never turn.
+  Raising the registry makes the older app refuse the bundle, as for any new prop, instead of drawing it wrong. Bundles without loops
+  still run on old apps.
+- **Risk if wrong:** a future string form that forgets to add a `Formats` entry would slip past the check. The lock file lists the kind, so
+  `gen:registry` shows it in review.
+- **Other options:** a new prop (`animateMotion`) for the new form; always raising the registry for any `animate`.
+- **Evidence wanted:** none; review the idea once.
+
+## 52. SVG moved from registry 10 to 11 (motion, 2026-11-03)
+- **Where:** `packages/template/src/registry.ts` (history comment), `registry.lock.json`, `Registry.kt`; `docs/svg.md` §7.
+- **Chosen:** main took registry 10 for the RN basics `TextField` `ref` (event id 16). The SVG branch's entries are now in 11. The ids did
+  not change and do not clash with main's.
+- **Why:** the version must only grow, and main already shipped 10 in its history.
+- **Risk if wrong:** none for users (nothing shipped with SVG yet). When this branch merges main, `registry.ts`, `registry.lock.json` and
+  `Registry.kt` conflict; keep both sides' entries, then run `bun run gen:registry`.
+- **Other options:** none useful.
+- **Evidence wanted:** a clean `gen:registry` and registry test after the merge.
+- **Merged main (2026-11-03):** done as written: event `ref` (16, since 10) and the SVG entries (since 11) are both in the lock; no id is
+  used twice. The RN basics pack had also taken second-opinions 38–43 and guide §39, so the SVG entries moved to 44–56 and the SVG guide
+  section to §40, with every link fixed.
+
+## 53. Animated .svg files: geometry becomes a scale and a move (S.14, built)
+- **Where:** `docs/svg.md` §15; `motionParts` in `compiler/src/svg-anim.ts`.
+- **Chosen:** SMIL / CSS changes to `cx`, `cy`, `r`, `rx`, `ry`, `x`, `y`, `width`, `height` on a circle, ellipse or rect with no stroke become
+  the part's scale and translate around the shape's centre. A size that starts at 0 is baked at its largest and scaled down. The same
+  change on a stroked shape fails the build (the stroke would grow with it).
+- **Why:** for a filled shape it is exact, and it needs no new runtime feature: the phone already moves parts. 44 of the 104 corpus files
+  animate geometry this way (bars, dots, pulses).
+- **Risk if wrong:** a shape with rounded corners (`rx` on a rect) whose width animates gets its corners stretched too; the corpus
+  has none. A size baked at its largest is drawn at that precision, so a tiny-to-huge pulse may look slightly soft at its smallest.
+- **Other options:** real geometry animation (the phone rebuilds the circle / rect path each frame): exact for strokes and corners,
+  but a new draw-data form and runtime code.
+- **Evidence wanted:** files that people actually bring with stroked growing shapes (`puff`, `ball-triangle` in the corpus).
+
+## 54. SMIL begin chains are solved at build time into one cycle (S.14, built)
+- **Where:** `solveBegins`, `smilTiming`, `mergeSame` in `compiler/src/svg-anim.ts`.
+- **Chosen:** every SMIL start time over the first 120 s is worked out (offsets, `x.begin`, `x.end`, restarts). A series that repeats
+  evenly becomes one loop: period P, its first start as `delay`, and the wait as a hold inside the cycle. Several animations of one
+  attribute merge by SMIL's rule (the one that started last sets the value).
+- **Why:** 24 of the 104 corpus files use chains; the phone has no SMIL clock and needs none.
+- **Risk if wrong:** a chain whose first round differs from the rest shows the steady cycle from the start; before an animation's
+  first start, the phone shows its first keyframe, where SMIL shows the attribute's base value (the same in every corpus file).
+  A chain that never settles fails the build.
+- **Other options:** a small SMIL timeline engine on the phone (exact, more runtime code, per-frame work).
+- **Evidence wanted:** a loader that looks wrong in the lab next to the browser.
+
+## 55. Third-party SVG files live in the repo as test fixtures (S.14)
+- **Where:** `compiler/test/fixtures/animated-svg/` (104 files, with each set's MIT licence), `examples/sample/src/svg/loaders/` (6).
+- **Chosen:** keep unchanged copies with their licence files and a README naming source and commit, so the corpus test runs offline
+  and lists each refused file by name. The sample's six copies only add `fill="currentColor"`.
+- **Why:** Pavan asked for the corpus "as tests"; MIT allows copies with the notice kept.
+- **Risk if wrong:** the public repo later carries third-party files; they must keep the licence files (they do).
+- **Other options:** fetch the corpus in CI (network in tests), or our own handmade SVGs only (misses what real files do).
+- **Evidence wanted:** a licence check before the public repo.
+
+## 56. One easing per keyframe segment, and a step easing, in the timing format (S.14, registry 11)
+- **Where:** the `z` option in `ZnTiming` (`android/runtime/.../ZnAnimation.kt`), `encode` in `compiler/src/svg-anim.ts`.
+- **Chosen:** `~z<seg:seg>`, one easing per segment between keyframes (`3` linear, `5` step, `4,x1,y1,x2,y2` a curve).
+  Easing id 5 is a new step (holds the start value, jumps at the end). `fill-opacity` / `stroke-opacity` go into the colour's
+  alpha, not the part's opacity.
+- **Why:** SMIL `keySplines` and CSS per-keyframe timing need it (16 corpus files), and `calcMode="discrete"` / `step-end`
+  need a step. Registry 11 is not shipped yet, so it is a free change to the format (entry 51). A fill-only fade must not fade the stroke.
+- **Risk if wrong:** a phone on an older runtime reading a newer template ignores `z` (unknown options are skipped) and plays
+  every segment with one easing: a wrong curve, not a crash.
+- **Other options:** split each segment into its own sub-animation (many more parts), or bake the curve into many keyframes (big strings).
+- **Evidence wanted:** none before shipping; the lab's Ring and Bars loaders use it.

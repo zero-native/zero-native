@@ -408,6 +408,24 @@ await SecureStore.set("refreshToken", token)
 - **Why:** JS sends only target values; the spring / tween runs on the UI thread and is read in the draw phase, so an
   animation never recomposes or re-lays out anything and keeps going even while JS is busy.
 
+**Loops, keyframes and delays (registry 11):**
+```tsx
+<Box animate={{ rotate: { duration: 900, easing: "linear", from: 0, repeat: "forever" } }} style={{ transform: [{ rotate: 360 }] }} />
+<Box animate={{ scale: { duration: 700, keyframes: [1, 1.06, 1], repeat: "forever", repeatDelay: 1200 } }} paused={paused()} />
+<Box replay={wrongTries()} animate={{ translateX: { duration: 400, keyframes: [0, -8, 8, -6, 6, 0] } }} />
+{rows().map((r, i) => <Row key={r.id} enter={{ ...FADE_UP, delay: i * 40 }} />)}
+```
+- **Do:** give one prop a timing object with `from` (plays from it to the style value) or `keyframes`; it plays by itself when the
+  element appears. `repeat` is how many plays in all (`2` = twice) or `"forever"`; `reverse` plays every second one backwards;
+  `repeatDelay` waits between plays; `delay` waits before it starts. `easing` takes a cubic-bezier `[x1, y1, x2, y2]` too.
+- **Do:** `paused={...}` stops an element's loops where they are; a new `replay={n}` number plays them again (a shake on a wrong OTP).
+- **Know:** keep the style value as the "rest" value. With Android's "Remove animations" on, that is what shows and nothing loops.
+  **Why:** some people get dizzy from motion; the rest value must make sense on its own.
+- **Don't:** put loop options on the all-props form (`animate={{ duration: 900, repeat: 3 }}`): the build says to give them one prop.
+- **Don't:** loop big things for long: a forever loop redraws every frame. Spinners and small pulses are fine; keep the big moment for success.
+- **Why:** these are the names CSS, Compose and Reanimated use (`iteration-count`, `alternate`, `withRepeat`, `withDelay`), so they
+  carry over. The clock runs natively, so a loop costs JS nothing.
+
 ---
 
 ## 23. What an OTA update can change (bundle loading built, step 4.1; downloads come in 4.5)
@@ -1099,7 +1117,87 @@ In phone scripts, end the app with `stopApp()` (`tools/plugin-phone/helpers.ts`)
 **Know:** a page jump made by script with no tap adds no back step (Chromium's rule against history spam), so Back leaves the page. Use real links for
 steps the user should be able to go back through.
 
-## 39. SVG (docs/svg.md, registry 10)
+## 39. React Native's small APIs, with their RN names (RN basics pack)
+
+Import them from `@zero-native/core` (not `react-native`, `@react-native-clipboard/clipboard` or
+`@react-native-community/netinfo`). The rest of the line stays as it was. The table with each one's status is in
+[rn-compatibility.md](rn-compatibility.md).
+
+```ts
+Alert.alert("Cancel payment?", "The amount is not taken yet.", [{ text: "Keep" }, { text: "Cancel it", onPress: cancel }])
+Clipboard.setString(utr)
+await Share.share({ message: "Try this app", title: "Invite" })
+await Linking.openURL("https://example.com/help")
+if (Platform.OS === "android" && Platform.Version >= 33) await Permissions.request(["notifications"])
+const { width } = Dimensions.get("window")
+const sub = Keyboard.addListener("keyboardDidShow", (e) => lift.set(e.endCoordinates.height))
+AppState.addEventListener("change", (s) => { if (s === "active") checkPayment() })
+const stop = NetInfo.addEventListener((s) => offline.set(s.isConnected === false))
+Vibration.vibrate(10)
+ToastAndroid.show("Copied", ToastAndroid.SHORT)
+const tn = new URL(link).searchParams.get("tn")
+```
+
+**Focus a TextField from code (OTP boxes, "jump to next field").**
+```tsx
+const code = createRef<TextFieldHandle>()   // RN: useRef<TextInput>(null)
+<TextField ref={code} keyboardType="number-pad" maxLength={4} value={otp()} onChangeText={(t) => otp.set(t)} />
+<Pressable onPress={() => code.current?.focus()}>...</Pressable>
+```
+- `ref` works only on `<TextField>`. It has `focus()`, `blur()`, `clear()` and `isFocused()`. `ref.current` is null until
+  the field is built, and again after its screen closes.
+- **Do** make one ref per field, in the screen body. For a list of fields, make an array of refs first.
+- **Do** build OTP boxes the way react-native-otp-entry does: one hidden `TextField` (opacity 0) holds the code, and the
+  boxes only draw it. A tap on a box calls `focus()`.
+- **Know:** `returnKeyType="next"` already moves focus to the next field on screen, with no ref. Use a ref when "next"
+  isn't the field below.
+- **Know:** `clear()` acts like the user deleting the text: `onChangeText("")` follows, so a controlled `value` stays right.
+- **Know:** with a hardware keyboard or a D-pad (Android's "non-touch mode"), `blur()` can make Android give focus to the
+  first field on screen. With touch it doesn't. Seen on the emulator with `adb input text`.
+- `onFocus` / `onBlur` fire only for real changes: not when the field first appears, and not when the phone turns.
+- **Why not `useRef`:** there are no hooks. A screen body runs once, so a plain `createRef()` object does the same job.
+
+**Rules for the rest.**
+- **These run after the main script.** `Platform.Version`, `Dimensions` and `PixelRatio` get their values from native
+  right after the main script runs, before any screen. **Don't** read them at the top level of a file: `Version` is 0
+  there (a warning is logged). **Do** read them in screens, handlers and `startApp`.
+- **`Dimensions` can't size a layout.** Width, height and margin are fixed at build time (rn-compatibility §0). RN code
+  like `width: SCREEN_WIDTH - 32` must become `flex` or a `"N%"` size. **Do** use the values in logic (how many cards fit,
+  is it a small phone).
+- **Reads follow changes inside JSX or `effect`.** `Dimensions.get`, `useWindowDimensions`, `Keyboard.isVisible`,
+  `Keyboard.metrics`, `AppState.currentState` and `useNetInfo()` fields read signals. **Don't** copy them into a variable at
+  the top of a screen body if you need the new value later.
+- **Listeners made in a screen body stop when the screen closes.** This covers `Keyboard`, `Dimensions`, `AppState`,
+  `NetInfo` and `Linking`. `.remove()` / the returned function still work, as in RN.
+- **`Alert`** is Android's own dialog, with the app's theme, as in RN. Up to 3 buttons: 1 → right; 2 → left, right;
+  3 → far left, left, right. `cancelable` is false unless you set it. The alert stays open when the phone turns.
+  `style: "destructive"` and `Alert.prompt` are iOS only, as in RN.
+- **`Linking.openURL`** opens only http, https, mailto and tel; anything else (`upi:`, `whatsapp:`, `intent:`) rejects
+  with `not_allowed`. **Why:** a bundle sent over OTA must not be able to open any app with any data. Other apps go
+  through a plugin (§31). `canOpenURL` says false for those links.
+- **`Linking.getInitialURL` and `addEventListener("url")`** only see links that matched a route with `deepLink: true` and
+  that `onLink` allowed. The screen is already open by then. **Don't** route from them: to refuse a link, use `onLink`.
+- **`Vibration`** needs `<uses-permission android:name="android.permission.VIBRATE"/>` in the app's manifest, as in RN.
+  Without it nothing vibrates and one warning is logged. For a tap feel, `Os.haptic("light")` needs no permission.
+- **`Share.share`:** Android 10+ doesn't show `dialogTitle` on the share sheet for text (RN has the same limit).
+- **`Clipboard.getString`** gives "" when the app is not in front (Android 10+). Android 13+ shows its own "copied" bubble:
+  **don't** add a second toast there.
+- **`Keyboard` listeners:** only `keyboardDidShow` and `keyboardDidHide`, as RN on Android. One event per show or hide,
+  sent when the keyboard starts to move. The height is dp from the bottom of the window. Routes with `keyboard:
+  "resize"` (the default) already move their content: use listeners only for things drawn over the screen.
+- **`NetInfo.isInternetReachable`** is Android's own check that the network reaches the internet. No extra request is made.
+  A captive Wi-Fi reads `isConnected: true`, `isInternetReachable: false`.
+- **`ToastAndroid`** shows zero-native's toast: above the keyboard, kept across navigation. Gravity is ignored.
+- **`requestAnimationFrame`** is a timer of about 16 ms, not a real frame. It stops with its screen. **Don't** animate with
+  it: use `animate`.
+- **`URL` and `URLSearchParams`** follow the web standard. **Know:** a non-ASCII host name (`https://café.com`) throws a
+  TypeError: there is no punycode. `atob`, `btoa`, `TextEncoder` and `TextDecoder` also work.
+- **`StatusBar`** has no component: use the route option `statusBar`. Its height is `insets().top`.
+- **`flowStore`** holds at most `flowStore.MAX_BYTES` (262,128 bytes of JSON) per key. A bigger write returns false and
+  keeps the old value. Over 128 KB a warning is logged once per key. **Do** keep flow state small, and keep big data in
+  `storage`, saved by id.
+
+## 40. SVG (docs/svg.md, registry 11; first planned as 10)
 
 ```tsx
 import Logo from "./art/logo.svg"
@@ -1126,3 +1224,30 @@ The compiler reads every SVG at build time and puts compact draw data in the bun
 - **Do** add `accessibilityLabel` when the SVG means something; without one TalkBack skips it. **Do** use `autoMirror` on arrows and chevrons.
 - **Know:** colours inside an SVG don't follow dark mode. **Do** pass theme colours through `color` or `parts` with `scheme(...)`.
 - Each distinct SVG is parsed once, the first time it is drawn, and shared by every place that shows it, list rows too.
+
+**Moving parts (phase 2):**
+```tsx
+<Gauge parts={{ needle: { rotate: angle(), animate: "spring" }, arc: { trimEnd: score() / 100, animate: 600 } }} />
+<Badge parts={{ tick: { trimEnd: 1, replay: paidCount(), animate: { trimEnd: { duration: 300, from: 0, delay: 450 } } } }} />
+<Svg viewBox="0 0 24 24" size={36}>
+  <Circle cx={12} cy={12} r={9} stroke={c.primary} fill="none" trimEnd={0.28}
+    rotate={360} animate={{ rotate: { duration: 900, easing: "linear", from: 0, repeat: "forever" } }} />
+</Svg>
+```
+- **Do** move parts with `rotate`, `scale`, `translateX` / `translateY` and the trims. A part turns and scales around its own centre.
+  **Know:** move and translate values are in the SVG's viewBox units, not dp. **Why:** the same SVG at 24 dp and 96 dp moves the same way.
+- **Do** "draw the line" with `trimEnd` from 0 to 1 (`trimStart` / `trimOffset` for a moving piece). **Know:** trims cut the fill too, and
+  a group's shapes count as one line, in the order they are drawn.
+- **Do** put `animate` in the part (static only), and `paused` / `replay` like on any element. On inline `<Svg>`, the same props go on the
+  element itself and make it a part.
+- **Don't** expect a downloaded animated `.svg` (SMIL `<animate>`, CSS `@keyframes`) to play: the build refuses it and says so.
+  Rebuild the motion with parts + `animate`.
+  **Update (S.14):** most of them now play as they are: `import Spinner from "./spinner.svg"`, then
+  `<Spinner size={24} color={c.primary} paused={done()} />`. 95 of 104 loaders from two popular sets work.
+  - **Do** add `fill="currentColor"` to the file's `<svg>` when `color` should tint it (most loader files have no fill).
+  - **Know:** `paused` / `replay` on the SVG reach the file's own motion. Its parts are named by the build; `parts` can still
+    change an element that has an `id` (colour, opacity), but not give it a second `animate`.
+  - **Know the limit:** filters, moving along a path, morphing `d`, stroke width or dash animation, a growing shape with a
+    stroke, and click triggers fail the build with a hint. **Why:** each of those would draw differently from the browser.
+  - **Know:** with "Remove animations" on, the file shows its own still state, which is sometimes empty (a loader whose
+    pieces start at opacity 0). Show a plain "Loading…" text next to it if that matters.

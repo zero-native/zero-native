@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -449,20 +451,35 @@ internal class ZnSvgCache {
 
 /** No part fill / stroke here (the override stacks hold ARGB as a non-negative Long, or this). */
 private const val NO_OVERRIDE = -1L
+/** No trim in force at a depth. */
+private const val NO_TRIM = -1
 
 private fun Color?.toOverride(): Long = if (this == null) NO_OVERRIDE else toArgb().toLong() and 0xFFFFFFFFL
 
 /**
- * The <SvgPart> children of one Svg node in one instance, sorted by part index. Values are read from slot cells
- * when asked, inside the draw lambda, so a change only redraws.
+ * One <SvgPart>'s values as draw-phase reads (constants, slots or animations, ZnAnimation.kt): a change or an
+ * animation frame redraws the Svg only. Transforms are in viewBox units around ([pivotX], [pivotY]).
  */
-internal class ZnSvgParts private constructor(
-    private val index: IntArray,
-    private val specs: Array<ZnNodeSpec>,
-    private val fills: Array<MutableState<Any?>?>,
-    private val strokes: Array<MutableState<Any?>?>,
-    private val opacities: Array<MutableState<Any?>?>,
-) {
+internal class ZnSvgPart(
+    val fill: () -> Color?,
+    val stroke: () -> Color?,
+    val opacity: () -> Float,
+    val rotate: () -> Float,
+    val scaleX: () -> Float,
+    val scaleY: () -> Float,
+    val translateX: () -> Float,
+    val translateY: () -> Float,
+    val pivotX: Float,
+    val pivotY: Float,
+    /** Null when the part never cuts its line. */
+    val trim: ZnSvgTrim?,
+)
+
+/** "Draw the line": the visible piece, as fractions 0–1 of the part's whole length; [offset] moves it (wraps round). */
+internal class ZnSvgTrim(val start: () -> Float, val end: () -> Float, val offset: () -> Float)
+
+/** The <SvgPart> children of one Svg node in one instance, sorted by part index. */
+internal class ZnSvgParts(private val index: IntArray, private val parts: Array<ZnSvgPart>) {
     /** Where [find] looks next. Ops are drawn in part order, so one forward walk per draw finds them all. */
     private var cursor = 0
 
@@ -476,28 +493,48 @@ internal class ZnSvgParts private constructor(
         return if (cursor < index.size && index[cursor] == part) cursor else -1
     }
 
-    fun fill(k: Int): Long = (fills[k]?.let { toColor(it.value) } ?: specs[k].fill).toOverride()
-    fun stroke(k: Int): Long = (strokes[k]?.let { toColor(it.value) } ?: specs[k].stroke).toOverride()
-    fun opacity(k: Int): Float = ((opacities[k]?.value as? Double)?.toFloat() ?: specs[k].opacity).coerceIn(0f, 1f)
+    operator fun get(k: Int): ZnSvgPart = parts[k]
+    fun fill(k: Int): Long = parts[k].fill().toOverride()
+    fun stroke(k: Int): Long = parts[k].stroke().toOverride()
+    fun opacity(k: Int): Float = parts[k].opacity().coerceIn(0f, 1f)
+}
 
-    companion object {
-        /** The parts of Svg node [s] (its SvgPart children), or null when it has none. */
-        fun of(t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance): ZnSvgParts? {
-            val specs = s.children.map { t.nodes[it] }
-                .filter { it.type == Registry.Component.SVG_PART && it.part >= 0 }
-                .sortedBy { it.part }
-                .toTypedArray()
-            if (specs.isEmpty()) return null
-            fun cell(slot: Int) = if (slot >= 0) inst.slot(slot) else null
-            return ZnSvgParts(
-                IntArray(specs.size) { specs[it].part },
-                specs,
-                Array(specs.size) { cell(specs[it].fillSlot) },
-                Array(specs.size) { cell(specs[it].strokeSlot) },
-                Array(specs.size) { cell(specs[it].opacitySlot) },
-            )
-        }
+/** The parts of Svg node [s] (its SvgPart children), or null when it has none. The part count is fixed per template. */
+@Composable
+internal fun znSvgParts(t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance): ZnSvgParts? {
+    val specs = remember(t, s) {
+        s.children.map { t.nodes[it] }.filter { it.type == Registry.Component.SVG_PART && it.part >= 0 }.sortedBy { it.part }
     }
+    if (specs.isEmpty()) return null
+    val parts = specs.map { p ->
+        val a = p.animate
+        val m = znMotionInputs(p, s, inst)
+        @Composable fun f(slot: Int, static: Float, prop: Int) = animatedFloat(inst, slot, static, a?.timingFor(prop), m)
+        val trim = if (p.hasTrim) {
+            ZnSvgTrim(
+                f(p.trimStartSlot, p.trimStart, Registry.Prop.TRIM_START),
+                f(p.trimEndSlot, p.trimEnd, Registry.Prop.TRIM_END),
+                f(p.trimOffsetSlot, p.trimOffset, Registry.Prop.TRIM_OFFSET),
+            )
+        } else null
+        val scale = f(p.scaleSlot, p.scaleBase, Registry.Prop.SCALE)
+        val scaleX = f(p.scaleXSlot, p.scaleXOnly, Registry.Prop.SCALE_X)
+        val scaleY = f(p.scaleYSlot, p.scaleYOnly, Registry.Prop.SCALE_Y)
+        ZnSvgPart(
+            fill = animatedColor(inst, p.fillSlot, p.fill, a?.timingFor(Registry.Prop.FILL), m),
+            stroke = animatedColor(inst, p.strokeSlot, p.stroke, a?.timingFor(Registry.Prop.STROKE), m),
+            opacity = f(p.opacitySlot, p.opacity, Registry.Prop.OPACITY),
+            rotate = f(p.rotateSlot, p.rotate, Registry.Prop.ROTATE),
+            scaleX = remember(scale, scaleX) { { scale() * scaleX() } },
+            scaleY = remember(scale, scaleY) { { scale() * scaleY() } },
+            translateX = f(p.translateXSlot, p.translateX, Registry.Prop.TRANSLATE_X),
+            translateY = f(p.translateYSlot, p.translateY, Registry.Prop.TRANSLATE_Y),
+            pivotX = p.pivotX,
+            pivotY = p.pivotY,
+            trim = trim,
+        )
+    }
+    return remember(specs, *parts.toTypedArray()) { ZnSvgParts(IntArray(specs.size) { specs[it].part }, parts.toTypedArray()) }
 }
 
 /**
@@ -518,11 +555,20 @@ internal class ZnSvgDrawing(d: ZnSvgData) {
     private val strokes: Array<Stroke?>
     private val matrices: Array<Matrix?>
 
-    // Draw state, per group depth: the part fill / stroke in force, and whether the group saved the canvas.
+    // Draw state, per group depth: the part fill / stroke in force, and how many times the group saved the canvas.
     private val fillOverride = LongArray(d.maxDepth + 1)
     private val strokeOverride = LongArray(d.maxDepth + 1)
-    private val saved = BooleanArray(d.maxDepth + 1)
+    private val saved = IntArray(d.maxDepth + 1)
+    // The trim in force per depth (one extra, for a shape's own): the op it was measured from (-1: none), and two ranges
+    // [a1, b1] and [a2, b2] (a2 < 0: just one), in line lengths from that op's start.
+    private val trimFrom = IntArray(d.maxDepth + 2)
+    private val trimRange = FloatArray((d.maxDepth + 2) * 4)
     private val layerPaint = Paint()
+    /** Made on the first trimmed draw only: measuring every path would slow down SVGs that never trim. */
+    private val lengths: ZnSvgLengths by lazy(LazyThreadSafetyMode.NONE) { ZnSvgLengths(ops, paths, matrices) }
+    private val measure = android.graphics.PathMeasure()
+    private val trimmed = android.graphics.Path()
+    private val trimmedPath: Path = trimmed.asComposePath()
     /** The node's box in viewBox space, for layers; made again only when the size changes. */
     private var bounds: Rect? = null
 
@@ -589,6 +635,7 @@ internal class ZnSvgDrawing(d: ZnSvgData) {
         var depth = 0
         fillOverride[0] = NO_OVERRIDE
         strokeOverride[0] = NO_OVERRIDE
+        trimFrom[0] = NO_TRIM
         var i = 0
         while (i < ops.size) {
             when (val op = ops[i]) {
@@ -609,20 +656,32 @@ internal class ZnSvgDrawing(d: ZnSvgData) {
                     depth++
                     fillOverride[depth] = f
                     strokeOverride[depth] = st
+                    // A group's trim treats all its pieces as one line, in draw order. The nearest trim wins.
+                    val trim = if (k >= 0) parts!![k].trim else null
+                    if (trim != null) setTrim(depth, i, lengths.before[op.end] - lengths.before[i], trim)
+                    else copyTrim(depth - 1, depth)
                     val layer = opacity < 1f
                     val clip = op.clip >= 0
+                    var saves = 0
                     if (layer) {
-                        // A layer, so overlapping children don't show through each other.
+                        // A layer, so overlapping children don't show through each other. Made before the
+                        // part's transform, so the layer still covers the whole box when the part turns.
                         layerPaint.alpha = opacity
                         canvas.saveLayer(bounds!!, layerPaint)
-                    } else if (clip) {
-                        canvas.save()
+                        saves++
                     }
-                    if (clip) canvas.clipPath(clips[op.clip])
-                    saved[depth] = layer || clip
+                    if (k >= 0 && canvas.partTransform(parts!![k])) saves++
+                    if (clip) {
+                        if (saves == 0) {
+                            canvas.save()
+                            saves++
+                        }
+                        canvas.clipPath(clips[op.clip])
+                    }
+                    saved[depth] = saves
                 }
                 SvgGroupEnd -> {
-                    if (saved[depth]) canvas.restore()
+                    repeat(saved[depth]) { canvas.restore() }
                     depth--
                 }
                 is SvgShape -> {
@@ -630,12 +689,14 @@ internal class ZnSvgDrawing(d: ZnSvgData) {
                     var f = fillOverride[depth]
                     var st = strokeOverride[depth]
                     val k = parts?.find(op.part) ?: -1
+                    var part: ZnSvgPart? = null
                     if (k >= 0) { // the shape's own part wins over a group's
-                        opacity *= parts!!.opacity(k)
+                        part = parts!![k]
+                        opacity *= parts.opacity(k)
                         parts.fill(k).let { if (it != NO_OVERRIDE) f = it }
                         parts.stroke(k).let { if (it != NO_OVERRIDE) st = it }
                     }
-                    drawShape(ds, op, opacity, f, st, current)
+                    drawShape(ds, i, op, opacity, f, st, current, part, depth)
                 }
             }
             i++
@@ -643,12 +704,22 @@ internal class ZnSvgDrawing(d: ZnSvgData) {
         canvas.restore()
     }
 
-    private fun drawShape(ds: DrawScope, op: SvgShape, opacity: Float, f: Long, st: Long, current: Color) {
+    private fun drawShape(
+        ds: DrawScope, at: Int, op: SvgShape, opacity: Float, f: Long, st: Long, current: Color, part: ZnSvgPart?, depth: Int,
+    ) {
         if (opacity <= 0f) return
         val stroke = strokes[op.index]
         val hasFill = op.fillKind != SVG_PAINT_NONE
         val hasStroke = op.strokeKind != SVG_PAINT_NONE && stroke != null
         if (!hasFill && !hasStroke) return
+        // The trim in force: the shape's own, else its group's. The slot after the deepest group holds the shape's own.
+        // An own trim that shows the whole line means no cut, even inside a trimmed group (the nearest trim wins).
+        var d = depth
+        if (part?.trim != null) {
+            d = depth + 1
+            setTrim(d, at, lengths.length(op.index), part.trim)
+        }
+        val path = if (trimFrom[d] != NO_TRIM) trimPath(d, at, op) ?: return else paths[op.index]
         val canvas = ds.drawContext.canvas
         // Translucent with both a fill and a stroke: a layer, so the fill doesn't show through the stroke.
         val layer = opacity < 1f && hasFill && hasStroke
@@ -657,16 +728,59 @@ internal class ZnSvgDrawing(d: ZnSvgData) {
             canvas.saveLayer(bounds!!, layerPaint)
         }
         val alpha = if (layer) 1f else opacity
+        // The part's own move / turn / scale goes outside the shape matrix: its pivot is the centre of the shape as drawn.
+        val moved = part != null && canvas.partTransform(part)
         val m = matrices[op.index]
         if (m != null) { // a shape matrix transforms the stroke too
             canvas.save()
             canvas.concat(m)
         }
-        val path = paths[op.index]
         if (hasFill) paintPath(ds, path, op.fillKind, op.fill, f, op.fillAlpha * alpha, current, Fill)
         if (hasStroke) paintPath(ds, path, op.strokeKind, op.stroke, st, op.strokeAlpha * alpha, current, stroke!!)
         if (m != null) canvas.restore()
+        if (moved) canvas.restore()
         if (layer) canvas.restore()
+    }
+
+    /**
+     * Sets the trim at depth [d], measured from op [from] over a line [total] long. Like Lottie and VectorDrawable:
+     * start > end swaps them, and the offset moves the piece round the line, wrapping at the end.
+     */
+    private fun setTrim(d: Int, from: Int, total: Float, t: ZnSvgTrim) {
+        trimFrom[d] = if (znTrimRanges(t.start(), t.end(), t.offset(), total, trimRange, d * 4)) from else NO_TRIM
+    }
+
+    private fun copyTrim(from: Int, to: Int) {
+        trimFrom[to] = trimFrom[from]
+        System.arraycopy(trimRange, from * 4, trimRange, to * 4, 4)
+    }
+
+    /** Shape [op] (at op [at]) cut to the trim at depth [d], or null when none of it shows. Reuses one path. */
+    private fun trimPath(d: Int, at: Int, op: SvgShape): Path? {
+        val r = d * 4
+        val src = paths[op.index]
+        val contours = lengths.contours[op.index]
+        val k = lengths.scale[op.index]
+        // Where this shape starts on the trimmed line.
+        var c0 = lengths.before[at] - lengths.before[trimFrom[d]]
+        trimmed.reset()
+        measure.setPath(src.asAndroidPath(), false)
+        var any = false
+        for (len in contours) {
+            val c1 = c0 + len * k
+            for (q in 0..1) {
+                val a = trimRange[r + q * 2]
+                if (a < 0f) continue
+                val x0 = maxOf(a, c0)
+                val x1 = minOf(trimRange[r + q * 2 + 1], c1)
+                if (x1 > x0 && measure.getSegment((x0 - c0) / k, (x1 - c0) / k, trimmed, true)) any = true
+            }
+            c0 = c1
+            if (!measure.nextContour()) break
+        }
+        if (!any) return null
+        trimmedPath.fillType = src.fillType
+        return trimmedPath
     }
 
     private fun paintPath(ds: DrawScope, path: Path, kind: Int, value: Int, override: Long, alpha: Float, current: Color, style: DrawStyle) {
@@ -682,6 +796,77 @@ internal class ZnSvgDrawing(d: ZnSvgData) {
             SVG_PAINT_GRADIENT -> brushes[value]?.let { ds.drawPath(path, it, a, style) }
         }
     }
+}
+
+/**
+ * The visible piece of a line [total] long, for trims [start] / [end] / [offset] (fractions). Writes [a1, b1, a2, b2]
+ * to [out] at [at]: a2 < 0 means one range; when the piece wraps past the end, the second range starts at 0.
+ * Returns false when nothing is cut (the whole line shows). An empty piece gives a1 == b1.
+ */
+internal fun znTrimRanges(start: Float, end: Float, offset: Float, total: Float, out: FloatArray, at: Int): Boolean {
+    var s = start.coerceIn(0f, 1f)
+    var e = end.coerceIn(0f, 1f)
+    if (s > e) s = e.also { e = s }
+    val span = e - s
+    if (span >= 1f || total <= 0f) return false
+    val a = (((s + offset) % 1f + 1f) % 1f) * total
+    val b = a + span * total
+    out[at] = a
+    out[at + 1] = minOf(b, total)
+    out[at + 2] = if (b > total) 0f else -1f
+    out[at + 3] = b - total
+    return true
+}
+
+/**
+ * Moves, turns and scales by part [p] around its pivot (viewBox units, degrees). Saves the canvas and returns true,
+ * or returns false when the part leaves things where they are.
+ */
+private fun androidx.compose.ui.graphics.Canvas.partTransform(p: ZnSvgPart): Boolean {
+    val tx = p.translateX()
+    val ty = p.translateY()
+    val r = p.rotate()
+    val sx = p.scaleX()
+    val sy = p.scaleY()
+    if (tx == 0f && ty == 0f && r == 0f && sx == 1f && sy == 1f) return false
+    save()
+    translate(tx + p.pivotX, ty + p.pivotY)
+    if (r != 0f) rotate(r)
+    if (sx != 1f || sy != 1f) scale(sx, sy)
+    translate(-p.pivotX, -p.pivotY)
+    return true
+}
+
+/**
+ * Line lengths for trims, in viewBox units. [contours]: each shape's contour lengths as its path has them;
+ * [scale]: how much the shape's own matrix stretches them (about); [before]: the drawn length of all shapes
+ * before each op, so a group's length is before[its end] - before[it].
+ */
+internal class ZnSvgLengths(ops: Array<SvgOp>, paths: Array<Path>, matrices: Array<Matrix?>) {
+    val contours: Array<FloatArray> = Array(paths.size) { FloatArray(0) }
+    val scale = FloatArray(paths.size) { 1f }
+    val before = FloatArray(ops.size + 1)
+
+    init {
+        val pm = android.graphics.PathMeasure()
+        for (i in paths.indices) {
+            pm.setPath(paths[i].asAndroidPath(), false)
+            val list = ArrayList<Float>()
+            do list.add(pm.length) while (pm.nextContour())
+            contours[i] = list.toFloatArray()
+            matrices[i]?.values?.let { v -> scale[i] = kotlin.math.sqrt(kotlin.math.abs(v[0] * v[5] - v[1] * v[4])) }
+        }
+        var acc = 0f
+        for (i in ops.indices) {
+            before[i] = acc
+            val op = ops[i]
+            if (op is SvgShape) acc += length(op.index)
+        }
+        before[ops.size] = acc
+    }
+
+    /** Shape [index]'s whole drawn length. */
+    fun length(index: Int): Float = contours[index].sum() * scale[index]
 }
 
 private fun SvgPath.toPath(rule: Int): Path {
@@ -773,7 +958,7 @@ private fun brush(g: SvgGradient): Brush? {
 internal fun ZnSvg(t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, mod: Modifier) {
     val data = s.svg
     val cache = t.svgs
-    val parts = remember(t, s, inst) { ZnSvgParts.of(t, s, inst) }
+    val parts = znSvgParts(t, s, inst)
     val current: () -> Color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
     else ({ s.color ?: Color.Black })
     val mirror = s.autoMirror

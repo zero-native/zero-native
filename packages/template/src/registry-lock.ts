@@ -1,7 +1,7 @@
 // The registry as last accepted (`registry.lock.json`), and the rules a registry change must follow so OTA bundles
 // stay safe on older apps (docs/ota.md §3.2). Used by the registry test and by `bun run gen:registry`, which writes the
 // lock only when there are no problems.
-import { Added, BASE_VERSION, Component, DynamicProps, Enum, EventKind, Prop, REGISTRY_VERSION, since } from "./registry"
+import { Added, BASE_VERSION, Component, DynamicProps, Enum, EventKind, Formats, Prop, REGISTRY_VERSION, since } from "./registry"
 
 /** One entry: what must never change about it, and the registry version it needs. */
 export interface LockEntry {
@@ -13,7 +13,10 @@ export interface LockEntry {
 export interface RegistryLock {
   version: number
   base: number
-  /** Keys: "component:Switch", "prop:size", "dynamic:value", "enum:pressFeedback.highlight", "event:onPress". */
+  /**
+   * Keys: "component:Switch", "prop:size", "dynamic:value", "enum:pressFeedback.highlight", "event:onPress",
+   * "format:timing.motion".
+   */
   entries: Record<string, LockEntry>
 }
 
@@ -29,6 +32,7 @@ export function registrySnapshot(): RegistryLock {
     }
   }
   for (const [name, id] of Object.entries(EventKind)) entries[`event:${name}`] = { id, since: since("event", name) }
+  for (const name of Object.keys(Formats)) entries[`format:${name}`] = { since: since("format", name) }
   return { version: REGISTRY_VERSION, base: BASE_VERSION, entries }
 }
 
@@ -62,7 +66,7 @@ export function registryProblems(lock: RegistryLock): string[] {
   }
   // Every Added entry must name something that exists, within the version range.
   const kinds: Record<keyof typeof Added, string> = {
-    component: "component", prop: "prop", dynamic: "dynamic", enumValue: "enum", event: "event",
+    component: "component", prop: "prop", dynamic: "dynamic", enumValue: "enum", event: "event", format: "format",
   }
   for (const [kind, prefix] of Object.entries(kinds) as Array<[keyof typeof Added, string]>) {
     for (const [name, v] of Object.entries(Added[kind] as Record<string, number>)) {

@@ -27,6 +27,7 @@ import {
   similarityScale,
   transformPath,
 } from "./svg-path"
+import { extractAnimations, motionParts } from "./svg-anim"
 import { parseSvgXml, type SvgNode } from "./svg-xml"
 
 export interface CompiledSvg {
@@ -34,6 +35,13 @@ export interface CompiledSvg {
   data: string
   /** Element id → its op index: the parts a screen can change. */
   parts: Map<string, number>
+  /** A part's op index → its box [x0, y0, x1, y1] in viewBox space (none for a part that draws nothing). */
+  boxes: Map<number, [number, number, number, number]>
+  /**
+   * The file's own animations (SMIL / CSS, svg-anim.ts) as SvgPart props, keyed by element id: rest values, pivot and
+   * `animate`. Empty for an SVG that doesn't move.
+   */
+  motion: Map<string, Record<string, unknown>>
   /** Whether the drawing uses currentColor (the Svg node's `color`). */
   usesCurrentColor: boolean
   /** The SVG's own size in dp: its width / height attributes, else the viewBox size. */
@@ -134,12 +142,25 @@ export function compileSvgFile(path: string): CompiledSvg {
 
 /** Compiles a parsed SVG (root: the <svg> element). Throws "file:line:col: message" for anything unsupported. */
 export function compileSvgTree(root: SvgNode): CompiledSvg {
-  return new SvgCompiler(root).run()
+  // SMIL and CSS animations come out first; the rest of the file compiles as a still picture with parts.
+  const { root: still, elements } = extractAnimations(root, parseSvgColor)
+  const c = new SvgCompiler(still)
+  const out = c.run()
+  if (elements.length > 0) {
+    out.motion = motionParts(elements, (id) => {
+      const index = out.parts.get(id)
+      if (index === undefined) return undefined
+      const paint = c.paints.get(index) ?? { fill: false, stroke: false }
+      return { index, box: out.boxes.get(index), ...paint }
+    })
+  }
+  return out
 }
 
 // ---- The compiler --------------------------------------------------------------------------------------------------
 
 type Inherited = Record<InheritedName, string>
+type Box = [number, number, number, number]
 
 /** One op before simplifying: like DrawOp, plus the element id. */
 type IOp =
@@ -155,6 +176,8 @@ class SvgCompiler {
   private usesCurrent = false
   private vb: [number, number, number, number] = [0, 0, 0, 0]
   private useStack: SvgNode[] = []
+  /** A part's op index → whether it (or anything inside it) has a fill / a stroke. */
+  readonly paints = new Map<number, { fill: boolean; stroke: boolean }>()
 
   constructor(private root: SvgNode) {}
 
@@ -192,12 +215,29 @@ class SvgCompiler {
     const rootOp = this.element(root, rootCtm, this.children(root, rootCtm, rootInh))
     const simplified = this.simplify(rootOp ? [rootOp] : [])
 
-    // Number the ops (pre-order) and collect parts.
+    // Number the ops (pre-order) and collect parts, with each part's box in viewBox space (its turning point).
     const parts = new Map<string, number>()
+    const boxes = new Map<number, [number, number, number, number]>()
     let index = 0
+    const union = (a: Box | null, b: Box | null): Box | null =>
+      !a ? b : !b ? a : [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]
+    const boxOf = (o: IOp): Box | null => {
+      if (o.op === "group") return o.children.reduce<Box | null>((acc, c) => union(acc, boxOf(c)), null)
+      const p = o.matrix ? transformPath(o.path, o.matrix) : o.path
+      return pathBBox(p)
+    }
+    const paintOf = (o: IOp): { fill: boolean; stroke: boolean } => {
+      if (o.op === "shape") return { fill: o.fill.kind !== "none", stroke: o.stroke.kind !== "none" }
+      return o.children.map(paintOf).reduce((a, b) => ({ fill: a.fill || b.fill, stroke: a.stroke || b.stroke }), { fill: false, stroke: false })
+    }
     const toDraw = (o: IOp): DrawOp => {
       const i = index++
-      if (o.id !== undefined) parts.set(o.id, i)
+      if (o.id !== undefined) {
+        parts.set(o.id, i)
+        const box = boxOf(o)
+        if (box) boxes.set(i, box)
+        this.paints.set(i, paintOf(o))
+      }
       if (o.op === "group") return { op: "group", opacity: o.opacity, clip: o.clip, children: o.children.map(toDraw) }
       const { id: _id, ...shape } = o
       return shape
@@ -210,6 +250,8 @@ class SvgCompiler {
     return {
       data: writeDrawData(data, decimals),
       parts,
+      boxes,
+      motion: new Map(),
       usesCurrentColor: this.usesCurrent,
       width: w ?? this.vb[2],
       height: h ?? this.vb[3],

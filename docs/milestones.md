@@ -123,20 +123,82 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-03: animated `.svg` files play (S.14) and SVG phase 2 checked on the phone (Claude)
+- **What:** SMIL (`<animate>`, `<animateTransform>`, `<set>`, begin chains) and CSS (`@keyframes`, `animation` shorthand and
+  longhands, `transform-origin`) inside a `.svg` file compile into part animations. New timing option `z` (one easing per segment)
+  and a step easing. `docs/svg.md` §15, guide §40, components §10, rn-compatibility row, second-opinions entries 53–56.
+- **Tests:** 104 real MIT loaders (svg-spinners SMIL + CSS, svg-loaders) as fixtures: 95 compile, the 9 refused are listed by name
+  with their reason. SMIL and CSS copies of the same loader give the same motion. JS 403 tests, both type checks, Kotlin 143 tests,
+  lint, sample debug build.
+- **On the Lava (debug):** every Motion tile and six imported loaders play; pause holds; "Remove animations" shows rest values.
+  16 loops at once: 737 frames in 8 s, 0 janky, GPU median 3 ms. **Bug found on the phone, fixed:** a crash when a shape's own trim
+  was the whole line (`ZnSvg.kt:722`).
+- **Release (R8) on the Lava, after merging main:** the lab opens and everything moves. Motion section and loaders on screen, 4 runs of
+  8 s: 734–739 frames, 0 janky. GPU median moved 11–19 ms between runs on the same screen (CPU at 56 °C), so read it as the phone's
+  clock, not a code number. SVG code in release dex: 12.0 KB (phase 1: 6.6 KB); `ZnAnimation`: 9.4 KB.
+- **TalkBack labels** (read from the accessibility tree, TalkBack itself not turned on): every animated tile and loader has its label.
+- **Not checked yet:** "Remove animations" on imported files (some show empty, guide §40); TalkBack itself, by hand.
+
+### 2026-11-03: SVG phase 2 built: motion for every element, moving SVG parts (Claude)
+- **What:** timing options on every element (`repeat`, `reverse`, `from`, `delay`, `repeatDelay`, `keyframes` + `times`, bezier
+  easing), the element props `paused` and `replay`, `enter` / `exit` `delay`. SVG parts move (`rotate`, `scale`, `translateX` / `Y`
+  around their own centre) and draw themselves (`trimStart` / `trimEnd` / `trimOffset`), with per-part `animate`; inline elements take
+  the same props. Registry 11 (SVG moved from 10, which main took for the RN basics `ref`; second-opinions entry 52), with a new
+  `format` registry kind (entry 51). `docs/svg.md` §9, §15; guide §22, §40; components §10; rn-compatibility rows; entries 49–52.
+- **Checked:** JS 385 tests, both type checks, Kotlin 142 tests, lint, sample bundle build. The SVG lab has a Motion section.
+- **Not checked yet:** on the phone (looks, frame times, "Remove animations"). Animated `.svg` files (SMIL / CSS) are still refused;
+  an import is proposed (`docs/svg.md` §15).
+
 ### 2026-11-03: SVG phase 1 built, static SVG (Claude; Kotlin by an Opus agent, reviewed)
 - **What:** `import Logo from "./logo.svg"` as a component, inline `<Svg>` with react-native-svg's names, runtime `color` and
   `parts` (fill, stroke, opacity), `autoMirror`. Compiled at bundle build time into draw data, a string prop in `main.zn.ui`
   (registry 10; host API and template format unchanged). A fixed subset; text, images, patterns, filters, CSS and SMIL fail the build
-  with a hint. `docs/svg.md` (§14 as built), guide §39, components §10, second-opinions entries 38–41.
+  with a hint. `docs/svg.md` (§14 as built), guide §40, components §10, second-opinions entries 44–47.
 - **Checked:** JS 376 tests (59 new for SVG), Kotlin 139 tests, lint 0 errors, sample debug and R8 release build. The RN app's 27
   `.svg` assets and 95 Material icons compile (180 KB → 112 KB). The draw data of 39 SVGs, turned back into SVG in the browser,
   matches the originals (only anti-aliased edge pixels differ). SVG code: ~7.8 KB of release dex.
 - **Bug found by the new tests, fixed:** number pairs after `M x y` were read as moves, not lines.
 - **On the Lava:** the lab screen (`/dev/svg`) looks right and its taps work, in debug and release. Release cold start **176.5 ms**
-  median (same as before). A 23 KB SVG parses in 6–7 ms on a fresh install, 1.4 ms with AOT code (second-opinions entry 42).
+  median (same as before). A 23 KB SVG parses in 6–7 ms on a fresh install, 1.4 ms with AOT code (second-opinions entry 48).
   Scrolling 20 full-width big SVGs: 0.6 % janky frames.
 - **Not checked yet:** TalkBack on the lab, right to left, an older Android version. Phase 2 (animated parts) waits for a check-in
   with Pavan.
+
+### 2026-11-03: RN basics pack (Claude; URL and four native modules by two Opus agents, reviewed)
+- **What:** React Native's small everyday APIs with their RN names, from `@zero-native/core`: `Alert`, `Clipboard`, `Share`,
+  `Linking` (`openURL`, `canOpenURL`, `openSettings`, `getInitialURL`, `addEventListener("url")`), `Platform`, `Dimensions`,
+  `useWindowDimensions`, `PixelRatio`, `Keyboard` listeners / `isVisible` / `metrics`, `AppState`, `Vibration`, `ToastAndroid`,
+  `NetInfo` / `useNetInfo`, `URL` / `URLSearchParams`, `requestAnimationFrame`. `atob` / `btoa` come from Hermes.
+- **`TextField` `ref`** with `focus()` / `blur()` / `clear()` / `isFocused()` (gap #5 in `docs/rn-compatibility.md` §10; the pilot's OTP login).
+- **ZeroBill's framework asks 7 and 8:** `URL` / `URLSearchParams` built; `flowStore.MAX_BYTES` (262,128) is public, with a warning over 128 KB.
+- **Versions:** host API **7** (app events DEVICE 16, WINDOW 17, KEYBOARD 18), registry **10** (event `ref`), `Os` v2,
+  `Keyboard` v2, new built-in modules `Alert`, `Clipboard`, `Vibration`, `NetInfo` (v1). A new APK is needed; older apps
+  refuse new bundles.
+- **Not built, on purpose:** `StatusBar` component / `setBarStyle`, toast gravity, `Alert.prompt` (iOS only), `WebSocket`, `XMLHttpRequest`.
+- **Docs:** guide §39, `docs/rn-compatibility.md` (rows, §11 usage counts), second-opinions 38–43.
+- **Checked:** JS 723 tests, Kotlin unit tests (148), lint (0 errors), sample debug and R8 release builds. Lab screen: Dev → "RN basics" (`/dev/rn`).
+- **On the emulator** (`Medium_Phone`, Android 13, x86_64 debug; the Lava was busy with another session), every lab check passed:
+  - OTP: a tap on a box focuses, 4 digits auto-blur, and Focus / Blur / Clear / isFocused work. Next jumps to the third field through a ref.
+  - Keyboard: show and hide events, 292 → 336 dp when the keyboard changes.
+  - Alert: buttons placed as in RN, and it stays up through a rotation and answers once. Back closes it with `onDismiss`.
+  - Platform 33; Dimensions 411.4 dp at scale 2.625, and a change event on rotation.
+  - NetInfo: cellular → none → cellular with mobile data off and on.
+  - Clipboard round trip, Share, Toast, openURL https, canOpenURL (https and tel true, whatsapp false), `whatsapp:` refused.
+  - `web ok` (URL, URLSearchParams, Hermes' atob/btoa, TextEncoder), rAF 16 ms. Vibration: a `[0, 200]` vibration recorded by Android.
+  - AppState changed around the share sheet and the browser. The `url` listener heard a link.
+- **Found and fixed there:** `TextField` sent `onBlur` when a field first appeared and after a rotation (an old bug, from 3.3). Now only
+  real focus changes are sent.
+- **Not on a real phone yet:** the Lava check (MediaTek keyboard heights, DuraSpeed, real vibration feel).
+
+### 2026-11-03: emulator support (x86_64, debug builds)
+- The runtime and the sample's **debug** builds also pack x86_64; release stays arm64-only. Hermes already shipped x86_64; the only
+  missing piece was `libjsi.so`, taken from the same `react-android:0.88.1` AAR (`core/third_party/jsi/README.md`). Guide §34.
+- **On the Android 13 x86_64 emulator (`Medium_Phone`):** the sample starts, and the no-hands phone suite passed 49 of 50. The one fail is
+  "scanner torch off on the full screen": the emulator's camera has no flash.
+- Test tools: `stopApp()` falls back to `am force-stop` when the `run-as` kill fails and the device has no DuraSpeed (the emulator's
+  Play image refuses that kill). The webview tel step presses Back until it is back in the app (Google's dialer needs two). The OTA matrix
+  accepts `ANDROID_SERIAL` when a phone and an emulator are both connected. The two changed steps were re-run on the Lava and pass.
+- Not run on the emulator: the hands steps and the OTA matrix.
 
 ### 2026-11-03: P.3b–P.6 done, the rest of the framework plugins (Claude; plugins by three Opus agents, reviewed)
 - **Core:** native screens (`native:` routes, `nav.pushForResult`, `onNavResult`), `<NativeView>` (registry 9), `zn://file`, background

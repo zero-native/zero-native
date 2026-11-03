@@ -84,8 +84,22 @@ const SVG_CAMEL = new Set([
 ])
 /** What a part (and an inline element's runtime value) can set at runtime. */
 const PART_PROPS = ["fill", "stroke", "opacity"] as const
+/**
+ * What else a part can have (docs/svg.md §9, registry 11): transforms around the part's own centre (viewBox units,
+ * degrees), "draw the line" trims (0–1 of its length), and its own animate / paused / replay. Static or runtime.
+ */
+const PART_MOTION = [
+  "rotate", "scale", "scaleX", "scaleY", "translateX", "translateY", "trimStart", "trimEnd", "trimOffset",
+  "animate", "paused", "replay",
+] as const
+const PART_ANIMATABLE = [
+  "opacity", "fill", "stroke", "rotate", "scale", "scaleX", "scaleY", "translateX", "translateY", "trimStart", "trimEnd", "trimOffset",
+]
+const PART_TURNS = ["rotate", "scale", "scaleX", "scaleY"]
 /** Props of the Svg node itself (`.svg` component or inline <Svg>), besides style and the SVG content. */
-const SVG_NODE_PROPS = ["color", "autoMirror", "accessibilityLabel", "accessibilityHint", "accessibilityHidden", "accessibilityRole"]
+const SVG_NODE_PROPS = [
+  "color", "autoMirror", "accessibilityLabel", "accessibilityHint", "accessibilityHidden", "accessibilityRole", "paused", "replay",
+]
 
 /**
  * [svgImports]: local names that are .svg files (absolute path), imported directly or through a `.ts` file that
@@ -521,8 +535,8 @@ export function compileModule(
         const pa = p as ts.PropertyAssignment
         const id = pa.name.getText(sf).replace(/^["']|["']$/g, "")
         const index = svg.parts.get(id)
-        if (index === undefined) {
-          const known = [...svg.parts.keys()]
+        if (index === undefined || id.startsWith("zn-anim-")) {
+          const known = [...svg.parts.keys()].filter((k) => !k.startsWith("zn-anim-"))
           fail(pa.name, `${tag} has no part "${id}" (${known.length > 0 ? `its parts: ${known.join(", ")}` : "it has no elements with an id"})`)
         }
         const value = unwrap(pa.initializer)
@@ -531,13 +545,50 @@ export function compileModule(
         for (const q of (value as ts.ObjectLiteralExpression).properties) {
           if (!ts.isPropertyAssignment(q)) fail(q, "write part values as fill: ..., opacity: ...")
           const k = (q as ts.PropertyAssignment).name.getText(sf)
-          if (!(PART_PROPS as readonly string[]).includes(k)) fail(q, `a part can set ${PART_PROPS.join(", ")} (phase 2 adds transforms), not "${k}"`)
-          setProp(partProps, b, k as PropName, (q as ts.PropertyAssignment).initializer, q)
+          if (!(PART_PROPS as readonly string[]).includes(k) && !(PART_MOTION as readonly string[]).includes(k)) {
+            fail(q, `a part can set ${[...PART_PROPS, ...PART_MOTION].join(", ")}, not "${k}"`)
+          }
+          partProp(partProps, b, k, (q as ts.PropertyAssignment).initializer, q)
         }
+        partPivot(partProps, svg, index!)
         parts.push(el("SvgPart", partProps))
       }
     }
+    // The file's own animations (SMIL / CSS, docs/svg.md §15): parts made by the build. A part the screen also sets
+    // keeps the screen's values; the file's pivot wins, as its motion turns around it.
+    for (const [id, motion] of svg.motion) {
+      const index = svg.parts.get(id)!
+      const mine = parts.find((p) => (p.props as Record<string, unknown>).part === index)
+      if (!mine) {
+        parts.push(el("SvgPart", { part: index, ...motion } as NodeProps))
+        continue
+      }
+      const own = mine.props as Record<string, unknown>
+      if ("animate" in own) fail(node, `part "${id}" is already animated by the .svg file itself: remove its animate (paused and replay still work)`)
+      for (const [k, v] of Object.entries(motion)) if (k === "pivotX" || k === "pivotY" || !(k in own)) own[k] = v
+    }
     return svgNode(node, svg, props, parts, b)
+  }
+
+  /** One value on an SvgPart: `animate` is checked against what a part can animate; the rest as any prop. */
+  function partProp(partProps: Record<string, unknown>, b: Builder, k: string, expr: ts.Expression, at: ts.Node) {
+    if (k === "animate") {
+      const v = fold(expr, scope)
+      if (v === NOT_STATIC) fail(at, "animate must be known at build time (a literal or a const)")
+      partProps.animate = animateSpec(v, at, PART_ANIMATABLE)
+      return
+    }
+    setProp(partProps, b, k as PropName, expr, at)
+  }
+
+  /** A part that turns or scales does it around its own centre (worked out here, in viewBox units). */
+  function partPivot(partProps: Record<string, unknown>, svg: CompiledSvg, index: number) {
+    const anim = typeof partProps.animate === "string" ? partProps.animate : ""
+    const turns = PART_TURNS.some((k) => k in partProps || anim.startsWith("*=") || anim.split(";").some((e) => e.startsWith(`${Prop[k as PropName].id}=`)))
+    const box = svg.boxes.get(index)
+    if (!turns || !box) return
+    partProps.pivotX = Math.round(((box[0] + box[2]) / 2) * 1e4) / 1e4
+    partProps.pivotY = Math.round(((box[1] + box[3]) / 2) * 1e4) / 1e4
   }
 
   /**
@@ -564,6 +615,14 @@ export function compileModule(
         const name = a.name.getText(sf)
         if (isRoot && svgNodeProp(name, a, props, b, allowKey)) continue
         if (name === "key" && inRow) continue
+        if (!isRoot && (PART_MOTION as readonly string[]).includes(name)) {
+          // zn's part values (transforms, trims, animate): not SVG attributes; this element becomes a part.
+          if (inRow) fail(a, `"${name}" inside a build-time .map(...) in <Svg> isn't supported: give the element an id and use parts`)
+          const expr = a.initializer && ts.isJsxExpression(a.initializer) ? a.initializer.expression : undefined
+          if (!expr) fail(a, `"${name}" needs a value in braces: ${name}={...}`)
+          dynamic.push({ prop: name, expr: expr!, at: a })
+          continue
+        }
         const svgName = name === "xlinkHref" ? "xlink:href" : SVG_CAMEL.has(name) ? name : name.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())
         const init = a.initializer
         let v: unknown = NOT_STATIC
@@ -574,7 +633,7 @@ export function compileModule(
           const expr = ts.isJsxExpression(init!) ? init.expression : undefined
           if (!expr || !(PART_PROPS as readonly string[]).includes(svgName)) {
             fail(a, `SVG "${name}" must be known at build time; only ${PART_PROPS.join(", ")} can change at runtime ` +
-              "(geometry is fixed: move it with a part transform in phase 2, or choose between two shapes with a ternary)")
+              "(geometry is fixed: move it with rotate, scale, translateX / translateY or trims, or choose between two shapes with a ternary)")
           }
           if (inRow) fail(a, "inside a build-time .map(...) in <Svg>, values must be known at build time")
           dynamic.push({ prop: svgName, expr: expr!, at: a })
@@ -649,8 +708,9 @@ export function compileModule(
         partProps = { part: index }
         byId.set(r.id, partProps)
       }
-      setProp(partProps, b, r.prop as PropName, r.expr, r.at)
+      partProp(partProps, b, r.prop, r.expr, r.at)
     }
+    for (const p of byId.values()) partPivot(p, svg, p.part as number)
     return svgNode(node, svg, props, [...byId.values()].map((p) => el("SvgPart", p)), b)
   }
 
@@ -848,34 +908,117 @@ export function compileModule(
 
   // ---- Animation (step 3.6, ARCHITECTURE §10): build-time values, encoded for native (registry: animate / enter / exit).
 
-  /** 250 | "spring" | "bouncy" | { duration, easing? } | { spring: { damping?, stiffness? } } → "t250e0" / "s0.75,400". */
-  function timing(v: unknown, at: ts.Node, what: string): string {
-    const ms = (n: unknown) => {
-      if (typeof n !== "number" || !(n >= 0 && n <= 10_000)) fail(at, `${what}: a duration is 0–10000 ms, got ${JSON.stringify(n)}`)
+  /**
+   * 250 | "spring" | "bouncy" | { duration, easing? } | { spring: { damping?, stiffness? } } → "t250e0" / "s0.75,400",
+   * plus the motion options (registry 11, format "timing.motion") after "~", each a letter and its value:
+   * "d<ms>" delay, "r<n>" plays in all (-1 forever), "v" reverse, "g<ms>" repeat delay, "f<value>" from,
+   * "k<v>:<v>:..." keyframes, "m<t>:<t>:..." keyframe times, "b<x1>:<y1>:<x2>:<y2>" cubic-bezier (easing id 4).
+   * Values are numbers, or "#AARRGGBB" for colours. Timings without options stay exactly as before.
+   * [prop]: the one prop this timing animates (null: every prop of the element, or an enter / exit).
+   */
+  function timing(v: unknown, at: ts.Node, what: string, prop: string | null = null, transition = false): string {
+    const ms = (n: unknown, key = "a duration", max = 10_000) => {
+      if (typeof n !== "number" || !(n >= 0 && n <= max)) fail(at, `${what}: ${key} is 0–${max} ms, got ${JSON.stringify(n)}`)
       return Math.round(n as number)
     }
     if (typeof v === "number") return `t${ms(v)}e0`
     if (v === "spring") return "s0.75,400"
     if (v === "bouncy") return "s0.45,400"
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      const o = v as Record<string, unknown>
-      if ("spring" in o) {
-        const sp = (o.spring ?? {}) as Record<string, unknown>
-        const damping = sp.damping ?? 0.75
-        const stiffness = sp.stiffness ?? 400
-        if (typeof damping !== "number" || damping <= 0 || typeof stiffness !== "number" || stiffness <= 0) {
-          fail(at, `${what}: spring needs damping > 0 (1 = no bounce) and stiffness > 0`)
-        }
-        return `s${damping},${stiffness}`
-      }
-      if ("duration" in o) {
-        const easing = o.easing ?? "standard"
-        const e = EASINGS.indexOf(easing as string)
-        if (e < 0) fail(at, `${what}: easing must be one of ${EASINGS.join(", ")}`)
-        return `t${ms(o.duration)}e${e}`
-      }
+    if (!v || typeof v !== "object" || Array.isArray(v)) {
+      return fail(at, `${what}: use a duration in ms (250), "spring", "bouncy", { duration, easing } or { spring: { damping, stiffness } }`)
     }
-    return fail(at, `${what}: use a duration in ms (250), "spring", "bouncy", { duration, easing } or { spring: { damping, stiffness } }`)
+    const o = v as Record<string, unknown>
+    const motionKeys = ["delay", "repeat", "reverse", "repeatDelay", "from", "keyframes", "times"]
+    const allowed = transition ? ["duration", "easing", "spring", "delay"] : ["duration", "easing", "spring", ...motionKeys]
+    for (const k of Object.keys(o)) {
+      if (allowed.includes(k)) continue
+      if (transition && motionKeys.includes(k)) fail(at, `${what}: "${k}" isn't for enter / exit (only delay is); loop with animate`)
+      fail(at, `${what}: unknown key "${k}" (use ${allowed.join(", ")})`)
+    }
+    let base: string
+    const opts: string[] = []
+    if ("spring" in o) {
+      const sp = (o.spring ?? {}) as Record<string, unknown>
+      const damping = sp.damping ?? 0.75
+      const stiffness = sp.stiffness ?? 400
+      if (typeof damping !== "number" || damping <= 0 || typeof stiffness !== "number" || stiffness <= 0) {
+        fail(at, `${what}: spring needs damping > 0 (1 = no bounce) and stiffness > 0`)
+      }
+      if ("keyframes" in o || "times" in o) fail(at, `${what}: keyframes need a duration, not a spring`)
+      if ("easing" in o) fail(at, `${what}: a spring has no easing (use duration + easing, or damping / stiffness)`)
+      base = `s${damping},${stiffness}`
+    } else if ("duration" in o) {
+      const easing = o.easing ?? "standard"
+      if (Array.isArray(easing)) {
+        const b = easing as unknown[]
+        if (b.length !== 4 || !b.every((n) => typeof n === "number" && Number.isFinite(n))) {
+          fail(at, `${what}: a cubic-bezier easing is 4 numbers [x1, y1, x2, y2]`)
+        }
+        const [x1, , x2] = b as number[]
+        if (x1 < 0 || x1 > 1 || x2 < 0 || x2 > 1) fail(at, `${what}: cubic-bezier x1 and x2 must be within 0–1 (as in CSS)`)
+        base = `t${ms(o.duration)}e4`
+        opts.push(`b${(b as number[]).join(":")}`)
+      } else {
+        const e = EASINGS.indexOf(easing as string)
+        if (e < 0) fail(at, `${what}: easing must be one of ${EASINGS.join(", ")}, or [x1, y1, x2, y2]`)
+        base = `t${ms(o.duration)}e${e}`
+      }
+    } else {
+      return fail(at, `${what}: use a duration in ms (250), "spring", "bouncy", { duration, easing } or { spring: { damping, stiffness } }`)
+    }
+
+    if ("delay" in o) opts.push(`d${ms(o.delay, "delay", 60_000)}`)
+    const plays = "from" in o || "keyframes" in o
+    if ((plays || "repeat" in o || "reverse" in o || "repeatDelay" in o || "times" in o) && prop === null) {
+      fail(at, `${what}: repeat, reverse, from and keyframes belong to one prop: animate={{ rotate: { duration: 900, repeat: "forever", from: 0 } }}`)
+    }
+    const color = prop === "backgroundColor" || prop === "fill" || prop === "stroke"
+    const value = (x: unknown, key: string): string => {
+      if (color) {
+        if (typeof x !== "string") fail(at, `${what}: ${key} must be colours for ${prop}`)
+        try {
+          return `#${(parseColor(x as string) >>> 0).toString(16).toUpperCase().padStart(8, "0")}`
+        } catch (e) {
+          return fail(at, `${what}: ${key}: ${(e as Error).message}`)
+        }
+      }
+      if (typeof x !== "number" || !Number.isFinite(x)) fail(at, `${what}: ${key} must be numbers`)
+      return String(x)
+    }
+    if ("from" in o && "keyframes" in o) fail(at, `${what}: use from or keyframes, not both (keyframes start at their first value)`)
+    if ("from" in o) opts.push(`f${value(o.from, "from")}`)
+    if ("keyframes" in o) {
+      const k = o.keyframes
+      if (!Array.isArray(k) || k.length < 2) fail(at, `${what}: keyframes need at least 2 values`)
+      opts.push(`k${(k as unknown[]).map((x) => value(x, "keyframes")).join(":")}`)
+      if ("times" in o) {
+        const t = o.times
+        const ok = Array.isArray(t) && t.length === (k as unknown[]).length &&
+          t.every((x, i) => typeof x === "number" && x >= 0 && x <= 1 && (i === 0 || x >= (t[i - 1] as number))) &&
+          t[0] === 0 && t[t.length - 1] === 1
+        if (!ok) fail(at, `${what}: times needs one number per keyframe, rising from 0 to 1`)
+        opts.push(`m${(t as number[]).join(":")}`)
+      }
+    } else if ("times" in o) {
+      fail(at, `${what}: times goes with keyframes`)
+    }
+    if ("repeat" in o) {
+      const r = o.repeat
+      if (!plays) fail(at, `${what}: repeat needs a start: add from (from: 0) or keyframes`)
+      if (r === "forever") opts.push("r-1")
+      else if (typeof r === "number" && Number.isInteger(r) && r >= 1 && r <= 10_000) opts.push(`r${r}`)
+      else fail(at, `${what}: repeat is how many times it plays in all (1, 2, ...) or "forever"`)
+    }
+    if ("reverse" in o) {
+      if (typeof o.reverse !== "boolean") fail(at, `${what}: reverse is true or false`)
+      if (o.reverse && !("repeat" in o)) fail(at, `${what}: reverse needs repeat (2 or more plays): repeat: "forever", reverse: true`)
+      if (o.reverse) opts.push("v")
+    }
+    if ("repeatDelay" in o) {
+      if (!("repeat" in o)) fail(at, `${what}: repeatDelay needs repeat`)
+      opts.push(`g${ms(o.repeatDelay, "repeatDelay", 60_000)}`)
+    }
+    return opts.length === 0 ? base : `${base}~${opts.join("~")}`
   }
 
   function isTiming(v: unknown): boolean {
@@ -884,13 +1027,13 @@ export function compileModule(
   }
 
   /** animate={250} (every animatable prop of the element) or animate={{ opacity: 200, translateY: "spring" }}. */
-  function animateSpec(v: unknown, at: ts.Node): string {
+  function animateSpec(v: unknown, at: ts.Node, animatable: string[] = ANIMATABLE): string {
     if (isTiming(v)) return `*=${timing(v, at, "animate")}`
     if (!v || typeof v !== "object" || Array.isArray(v)) fail(at, "animate needs a timing (250, \"spring\") or { prop: timing }")
     const parts: string[] = []
     for (const [k, t] of Object.entries(v as object)) {
-      if (!ANIMATABLE.includes(k)) fail(at, `animate: "${k}" can't be animated (use ${ANIMATABLE.join(", ")})`)
-      parts.push(`${Prop[k as PropName].id}=${timing(t, at, `animate.${k}`)}`)
+      if (!animatable.includes(k)) fail(at, `animate: "${k}" can't be animated (use ${animatable.join(", ")})`)
+      parts.push(`${Prop[k as PropName].id}=${timing(t, at, `animate.${k}`, k)}`)
     }
     return parts.join(";")
   }
@@ -913,16 +1056,31 @@ export function compileModule(
     if (!o || typeof o !== "object" || Array.isArray(o)) {
       fail(at, `${kind}: use a preset (${Object.keys(presets).join(", ")}) or { opacity, translateX, translateY, scale, duration }`)
     }
-    const known = ["opacity", "translateX", "translateY", "scale", "duration", "easing", "spring", "timing"]
-    for (const k of Object.keys(o)) if (!known.includes(k)) fail(at, `${kind}: unknown key "${k}"`)
+    const known = ["opacity", "translateX", "translateY", "scale", "duration", "easing", "spring", "timing", "delay"]
+    for (const k of Object.keys(o)) {
+      if (known.includes(k)) continue
+      if (["repeat", "reverse", "repeatDelay", "from", "keyframes", "times"].includes(k)) {
+        fail(at, `${kind}: "${k}" isn't for enter / exit (only delay is); loop with animate`)
+      }
+      fail(at, `${kind}: unknown key "${k}"`)
+    }
     const num = (k: string, d: number) => {
       const x = o[k] ?? d
       if (typeof x !== "number") fail(at, `${kind}.${k} must be a number`)
       return x as number
     }
+    // The timing keys only (the state keys opacity, translateX... are not timing).
+    const own: Record<string, unknown> = {}
+    for (const k of ["duration", "easing", "spring", "delay"]) if (k in o) own[k] = o[k]
+    if ("timing" in o && "delay" in o) fail(at, `${kind}: with delay, give the timing as duration / easing or spring`)
+    if ("delay" in own && !("duration" in own) && !("spring" in own)) {
+      // A delay alone keeps the default timing.
+      if (kind === "enter") own.duration = 220, own.easing = "ease-out"
+      else own.duration = 160, own.easing = "ease-in"
+    }
     const t =
-      "timing" in o ? timing(o.timing, at, kind)
-      : "spring" in o || "duration" in o ? timing(o, at, kind)
+      "timing" in o ? timing(o.timing, at, kind, null, true)
+      : "spring" in own || "duration" in own ? timing(own, at, kind, null, true)
       : kind === "enter" ? "t220e1" // ease-out: arrives fast, settles slowly
       : "t160e2" // ease-in: leaves a little faster than it came
     return `${num("opacity", 1)},${num("translateX", 0)},${num("translateY", 0)},${num("scale", 1)}|${t}`
