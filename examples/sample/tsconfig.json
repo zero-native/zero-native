@@ -8,6 +8,8 @@
     "moduleResolution": "Bundler",
     "jsx": "preserve",
     "skipLibCheck": true,
+    // Reads the part names the build writes next to each .svg (logo.d.svg.ts, docs/svg.md §16).
+    "allowArbitraryExtensions": true,
     "types": []
   },
   "include": ["src"]

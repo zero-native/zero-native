@@ -215,6 +215,22 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         p.containsKey(Registry.Prop.TRIM_OFFSET)
     val pivotX = num(Registry.Prop.PIVOT_X) ?: 0f
     val pivotY = num(Registry.Prop.PIVOT_Y) ?: 0f
+    // <SvgPart> registry 12: stroke width and dash offset (viewBox units; NaN = the shapes' own), the outline
+    // scale of one shape, and morphing (keyframe paths, and where it is in them; -1 = the shape's own path).
+    val strokeWidth = num(Registry.Prop.STROKE_WIDTH) ?: Float.NaN
+    val dashOffset = num(Registry.Prop.DASH_OFFSET) ?: Float.NaN
+    val scaleOutline = p[Registry.Prop.SCALE_OUTLINE] == true
+    val morph: String? = p[Registry.Prop.MORPH] as String?
+    val morphAt = num(Registry.Prop.MORPH_AT) ?: -1f
+    // <SvgPart> registry 13 (set by the compiler): a path to move along and where on it (-1: not moved), skews
+    // (degrees), and the space its transforms happen in ("a b c d e f"; null: viewBox units).
+    val motionPath: String? = p[Registry.Prop.MOTION_PATH] as String?
+    val motionAt = num(Registry.Prop.MOTION_AT) ?: -1f
+    val skewX = num(Registry.Prop.SKEW_X) ?: 0f
+    val skewY = num(Registry.Prop.SKEW_Y) ?: 0f
+    val frame: String? = p[Registry.Prop.FRAME] as String?
+    /** A trimmed piece of length 0 still draws its caps (an SVG dash of length 0, registry 13). */
+    val trimCaps = p[Registry.Prop.TRIM_CAPS] == true
 
     // Pressable
     val disabled = p[Registry.Prop.DISABLED] == true
@@ -364,6 +380,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val trimStartSlot = slotFor(raw, Registry.Prop.TRIM_START)
     val trimEndSlot = slotFor(raw, Registry.Prop.TRIM_END)
     val trimOffsetSlot = slotFor(raw, Registry.Prop.TRIM_OFFSET)
+    val strokeWidthSlot = slotFor(raw, Registry.Prop.STROKE_WIDTH)
+    val dashOffsetSlot = slotFor(raw, Registry.Prop.DASH_OFFSET)
     /** An SvgPart cuts its line: static trims, trims that change at runtime, or animated ones. */
     internal val hasTrim = hasTrimProps || trimStartSlot != NONE || trimEndSlot != NONE || trimOffsetSlot != NONE ||
         animate?.let {

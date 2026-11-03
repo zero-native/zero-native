@@ -211,7 +211,7 @@ class ZnSvgTest {
         bad("Z1 0 0 24 24 4 S c 1 c 1 0 1 1 0 0 4 2 1") // dash spec cut short
         bad("Z1 0 0 24 24 4 K KP 0 M0 0h1") // clip path without its ";"
         // unknown tokens
-        bad("Z1 0 0 24 24 4 X")
+        bad("Z1 0 0 24 24 4 Y")
         bad("Z1 0 0 24 24 4 $ok Q 1 2")
         bad("Z1 0 0 24 24 4 S x 1 - 1 0 1 0 M0 0;")
         bad("Z1 0 0 24 24 4 $ok LG 0 0 1 0 0 0 0") // a def after the ops
@@ -226,7 +226,7 @@ class ZnSvgTest {
         bad("Z1 0 0 --1 24 4")
         bad("Z1 0 0 - 24 4")
         bad("Z1 0 0 1e5 24 4")
-        bad("Z1 0 0 24 24 4 S c 1 - 1 2 1 0 M0 0;") // rule 2
+        bad("Z1 0 0 24 24 4 S c 1 - 1 4 1 0 M0 0;") // rule 4 (2 and 3: paint-order, registry 13)
         bad("Z1 0 0 24 24 4 S c 1 - 1 0 1 2 M0 0;") // matrix flag 2
         bad("Z1 0 0 24 24 4 S #FF00000 1 - 1 0 1 0 M0 0;") // 7 hex digits
         bad("Z1 0 0 24 24 4 S #FF00000G 1 - 1 0 1 0 M0 0;")
@@ -249,18 +249,64 @@ class ZnSvgTest {
         // strokes
         bad("Z1 0 0 24 24 4 S - 1 c 1 0 1 1 0 0 4 3 1 1 1 0 0 M0 0;") // odd dash count
         bad("Z1 0 0 24 24 4 S - 1 c 1 0 1 1 0 0 4 2 1 -1 0 0 M0 0;") // negative dash
-        bad("Z1 0 0 24 24 4 S - 1 c 1 0 1 -1 0 0 4 0 0 0 M0 0;") // negative width
         bad("Z1 0 0 24 24 4 S - 1 c 1 0 1 1 3 0 4 0 0 0 M0 0;") // cap 3
     }
 
     @Test
     fun readOrNullReportsOnce() {
         val errors = ArrayList<String>()
-        assertNull(ZnSvgReader.readOrNull("Z1 0 0 24 24 4 X") { errors += it })
+        assertNull(ZnSvgReader.readOrNull("Z1 0 0 24 24 4 Y") { errors += it })
         assertEquals(1, errors.size)
         assertTrue(errors[0], errors[0].contains("unknown token"))
         assertNotNull(ZnSvgReader.readOrNull("Z1 0 0 24 24 4") { errors += it })
         assertEquals(1, errors.size)
+    }
+
+    @Test
+    fun nonScalingStrokeIsANegativeWidth() {
+        // vector-effect="non-scaling-stroke" (registry 12): the width is dp on screen, written negative.
+        val s = read("Z1 0 0 24 24 4 S - 1 c 1 0 1 -2.5 1 1 4 0 0 0 M0 0h4;").ops[0] as SvgShape
+        assertTrue(s.strokeSpec!!.nonScaling)
+        assertEquals(2.5f, s.strokeSpec.width)
+        val plain = read("Z1 0 0 24 24 4 S - 1 c 1 0 1 2.5 1 1 4 0 0 0 M0 0h4;").ops[0] as SvgShape
+        assertFalse(plain.strokeSpec!!.nonScaling)
+    }
+
+    @Test
+    fun morphMixesKeyframes() {
+        // "MC|...|...": the compiler's morph (SvgPart morph, registry 12): one M and one C, two keyframes.
+        val m = ZnSvgMorph.parse("MC|0 0 3 0 6 0 9 0|0 0 3 3 6 6 9 9") { fail(it) }!!
+        val out = FloatArray(8)
+        m.mix(0f, out)
+        assertArrayEquals(floatArrayOf(0f, 0f, 3f, 0f, 6f, 0f, 9f, 0f), out, 1e-6f)
+        m.mix(0.5f, out)
+        assertArrayEquals(floatArrayOf(0f, 0f, 3f, 1.5f, 6f, 3f, 9f, 4.5f), out, 1e-6f)
+        m.mix(7f, out) // past the end: the last keyframe
+        assertArrayEquals(floatArrayOf(0f, 0f, 3f, 3f, 6f, 6f, 9f, 9f), out, 1e-6f)
+        // Three keyframes: 1.25 is a quarter of the way from the second to the third.
+        val three = ZnSvgMorph.parse("M|0 0|4 0|8 4") { fail(it) }!!
+        val p = FloatArray(2)
+        three.mix(1.25f, p)
+        assertArrayEquals(floatArrayOf(5f, 1f), p, 1e-6f)
+        // Bad data: null, with a reason (the shape then draws its own path).
+        val errors = ArrayList<String>()
+        assertNull(ZnSvgMorph.parse("MC|0 0 1|0 0 1 1 2 2 3 3") { errors += it })
+        assertNull(ZnSvgMorph.parse("MQ|0 0 1 1 2 2") { errors += it })
+        assertNull(ZnSvgMorph.parse("M|0 x") { errors += it })
+        assertEquals(3, errors.size)
+    }
+
+    @Test
+    fun stopLinksAreRead() {
+        // "SL gradient stop part" (registry 13): an animated gradient stop takes the colour of a part after the ops.
+        val two = "LG 0 0 1 0 0 1 4 0 0 4 0 0 2 0 #FFFF0000 1 #8000FF00 LG 0 0 1 0 0 1 4 0 0 4 5 0 2 0 #FFFF0000 1 #8000FF00"
+        val d = read("Z1 0 0 24 24 4 $two SL 0 0 2 SL 1 0 2 S @0 1 - 1 0 1 0 M0 0H4V4H0z; S @1 1 - 1 0 1 0 M5 0H9V4H5z;")
+        assertArrayEquals(intArrayOf(0, 0, 2, 1, 0, 2), d.stopLinks)
+        assertEquals(2, d.ops.size)
+        bad("Z1 0 0 24 24 4 $two SL 2 0 2") // no gradient 2
+        bad("Z1 0 0 24 24 4 $two SL 0 2 2") // gradient 0 has 2 stops
+        bad("Z1 0 0 24 24 4 $two SL 1 0 2 SL 0 0 2") // not in gradient order
+        bad("Z1 0 0 24 24 4 SL 0 0 0") // no gradients
     }
 
     @Test
@@ -284,6 +330,50 @@ class ZnSvgTest {
         val empty = r(0.4f, 0.4f, 0f)!!
         assertEquals(empty[0], empty[1], 1e-3f)
         assertTrue(empty[2] < 0f)
+    }
+
+    @Test
+    fun nestedTrimsShowWhatBothShow() {
+        val out = FloatArray(8)
+        // No group trim: the shape's own piece, moved to where the shape starts on the line (at 100).
+        assertEquals(1, znTrimIntersect(floatArrayOf(20f, 50f, -1f, -50f), 100f, FloatArray(8), 0, -1, out, 0))
+        assertArrayEquals(floatArrayOf(120f, 150f), out.copyOf(2), 1e-4f)
+        // The group shows 130–200 and 0–10 (it wraps): only 130–150 of the shape's 120–150 shows.
+        val group = floatArrayOf(130f, 200f, 0f, 10f, 0f, 0f, 0f, 0f)
+        assertEquals(1, znTrimIntersect(floatArrayOf(20f, 50f, -1f, -50f), 100f, group, 0, 2, out, 0))
+        assertArrayEquals(floatArrayOf(130f, 150f), out.copyOf(2), 1e-4f)
+        // A wrapped own piece (90–100 and 0–5 of a shape at 0) against the group's two ranges: two pieces.
+        assertEquals(2, znTrimIntersect(floatArrayOf(90f, 100f, 0f, 5f), 0f, floatArrayOf(0f, 3f, 95f, 99f, 0f, 0f, 0f, 0f), 0, 2, out, 0))
+        assertArrayEquals(floatArrayOf(95f, 99f, 0f, 3f), out.copyOf(4), 1e-4f)
+        // A piece of length 0 stays where the group shows its point (it draws caps), not elsewhere.
+        assertEquals(1, znTrimIntersect(floatArrayOf(40f, 40f, -1f, 0f), 100f, group, 0, 2, out, 0))
+        assertEquals(0, znTrimIntersect(floatArrayOf(10f, 10f, -1f, 0f), 100f, group, 0, 2, out, 0))
+    }
+
+    @Test
+    fun badMotionPathsAreRefusedBeforeDrawing() {
+        // Registry 13: a motion path the compiler didn't write leaves the part where it is (one error, no crash).
+        // (A good one needs android.graphics.PathMeasure: checked on the phone, SVG lab "Along".)
+        for (s in listOf("", "0 0 0;MC;0 0 1 1 2 2 3 3", "0 0 0 x;MC;0 0 1 1 2 2 3 3", "0 0 0 1;CC;0 0 1 1 2 2", "0 0 0 1;MC")) {
+            var errors = 0
+            assertNull(s, ZnSvgMotion.parse(s) { errors++ })
+            assertEquals(s, 1, errors)
+        }
+    }
+
+    @Test
+    fun bigSvgsAreListedOnceForTheBackground() {
+        val big = "Z1 0 0 24 24 4" + " ".repeat(ZnSvgCache.BIG_SVG)
+        val small = "Z1 0 0 24 24 4"
+        fun template(vararg svgs: String) = ZnTemplate(RawTemplate(
+            component = IntArray(svgs.size + 1) { if (it == 0) Registry.Component.BOX else Registry.Component.SVG },
+            parent = IntArray(svgs.size + 1) { if (it == 0) -1 else 0 },
+            props = Array(svgs.size + 1) { if (it == 0) emptyMap() else mapOf(Registry.Prop.SVG to svgs[it - 1]) },
+            slots = emptyList(),
+            events = emptyList(),
+        ))
+        assertEquals(listOf(big), ZnSvgCache.bigOf(listOf(template(big, small), template(big))))
+        assertEquals(emptyList<String>(), ZnSvgCache.bigOf(listOf(template(small))))
     }
 
     /** [s] must fail with the reader's own error (not a crash inside it), and readOrNull must give null. */

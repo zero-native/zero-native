@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: begin="click". Each tap on the picture makes the heart pop and the ring spread. -->
+  <circle cx="24" cy="25" r="10" fill="none" stroke="#E11D48" stroke-width="2" opacity="0">
+    <animate attributeName="r" values="10;20" dur="0.5s" begin="click"/>
+    <animate attributeName="opacity" values="0.8;0" dur="0.5s" begin="click"/>
+  </circle>
+  <g transform="translate(24 25)">
+    <g>
+      <animateTransform attributeName="transform" type="scale" values="1;1.25;1" dur="0.35s" begin="click"/>
+      <path fill="#E11D48"
+        d="M0 13C-12 5-16-1-16-6.5-16-11-12.5-14-8.5-14-5-14-2-12 0-9 2-12 5-14 8.5-14 12.5-14 16-11 16-6.5 16-1 12 5 0 13z"/>
+    </g>
+  </g>
+</svg>

@@ -261,7 +261,7 @@ export declare const NativeView: Intrinsic<
 /** What a part can animate (docs/svg.md §9). */
 export type SvgPartAnimatable =
   | "opacity" | "fill" | "stroke" | "rotate" | "scale" | "scaleX" | "scaleY" | "translateX" | "translateY"
-  | "trimStart" | "trimEnd" | "trimOffset"
+  | "trimStart" | "trimEnd" | "trimOffset" | "strokeWidth" | "dashOffset"
 
 /**
  * How a part moves (registry 11): transforms in viewBox units and degrees, around the part's own centre; trims
@@ -293,6 +293,10 @@ export interface SvgPartProps extends SvgPartMotion {
   fill?: Color
   stroke?: Color
   opacity?: number
+  /** The stroke width of every stroked shape inside it, in viewBox units (registry 12). Can change at runtime. */
+  strokeWidth?: number
+  /** Moves the dashes of every dashed stroke inside it along the line, in viewBox units (registry 12). */
+  dashOffset?: number
 }
 
 /** Props of an Svg node: the whole SVG as one element. */
@@ -308,11 +312,13 @@ interface SvgNodeProps extends Base {
 /**
  * An .svg file imported as a component: `import Logo from "./logo.svg"`, then `<Logo size={24} color={c.ink} />`.
  * Compiled at build time, so it is only valid as JSX (`icon={<Logo />}`), never as a value.
+ * [Part]: its part names. The build writes them next to the file (`logo.d.svg.ts`, docs/svg.md §16), so `parts`
+ * autocompletes; until then any name type-checks and the build checks it.
  */
-export type SvgFile = Intrinsic<
+export type SvgFile<Part extends string = string> = Intrinsic<
   SvgNodeProps & {
     /** Change elements by their id: `parts={{ ring: { fill: brand() } }}`. Unknown ids fail the build. */
-    parts?: Record<string, SvgPartProps>
+    parts?: Partial<Record<Part, SvgPartProps>>
   }
 >
 

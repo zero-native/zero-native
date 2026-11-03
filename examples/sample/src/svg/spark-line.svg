@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- A chart line whose stroke stays 2 dp at any size (non-scaling-stroke: docs/svg.md §16). Made for the zero-native SVG lab. -->
+  <polyline points="3 17 8 11 12 14 17 7 21 9" vector-effect="non-scaling-stroke"/>
+</svg>

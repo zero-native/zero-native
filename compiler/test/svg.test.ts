@@ -1,13 +1,13 @@
 // SVG at build time (docs/svg.md): the XML reader, path data, the supported subset and its build errors, the draw data,
 // and .svg imports / inline <Svg> in TSX.
 import { describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule } from "../src/compile"
 import { svgReexports } from "../src/plugin"
-import { compileSvgTree, parseSvgColor } from "../src/svg"
+import { compileSvgFile, compileSvgTree, parseSvgColor } from "../src/svg"
 import { type PathCmd, writePath } from "../src/svg-data"
 import { arcToCubics, parsePathData, parseTransform, pathBBox, transformPath } from "../src/svg-path"
 import { parseSvgXml } from "../src/svg-xml"
@@ -197,8 +197,9 @@ describe("the supported subset", () => {
     expect(d).toContain("RG 0.38 0.32 0.78 1 1 20 0 0 20 0 0 2 0 #FFFFFFFF 1 #FF082F49")
     expect(d.match(/RG /g)!.length).toBe(1) // the circle's box and the rect's box are the same: one gradient
     expect(d).toContain("S #FFFF0000 1")
-    expect(err('<defs><radialGradient id="a" fx="0.2"><stop/><stop offset="1"/></radialGradient></defs><rect width="1" height="1" fill="url(#a)"/>'))
-      .toContain("focal point")
+    // Registry 13: a focal point is drawn ("RF").
+    expect(data('<defs><radialGradient id="a" fx="0.2"><stop/><stop offset="1"/></radialGradient></defs><rect width="1" height="1" fill="url(#a)"/>'))
+      .toContain("RF 0.5 0.5 0.5 0.2 0.5 ")
   })
   test("userSpaceOnUse gradients with % and gradientTransform", () => {
     const d = data(
@@ -215,9 +216,11 @@ describe("the supported subset", () => {
       .toContain("K KP 0 M3 0A3 3 0 0 1-3 0 3 3 0 0 1 3 0z; KP 1 M0 0H1V1H0z; G 1 0 S")
     const m = data('<mask id="m" style="mask-type:luminance" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><path d="M0 0h24v24H0z" fill="white"/></mask><g mask="url(#m)"><path d="M0 0h9v9z"/></g>')
     expect(m).toContain("K KP 0 M0 0H24V24H0z; G 1 0 S")
-    expect(err('<mask id="m"><path d="M0 0h1v1z" fill="#888"/></mask><g mask="url(#m)"><path d="M0 0h9v9z"/></g>')).toContain("only a mask of plain white shapes")
-    expect(err('<clipPath id="c" clipPathUnits="objectBoundingBox"><rect width="1" height="1"/></clipPath><g clip-path="url(#c)"><path d="M0 0h1v1z"/></g>'))
-      .toContain("only supported on shapes")
+    // Registry 13: any other mask is a real mask ("MK").
+    expect(data('<mask id="m"><path d="M0 0h1v1z" fill="#888"/></mask><g mask="url(#m)"><path d="M0 0h9v9z"/></g>')).toContain("MK 0 0 ")
+    // Registry 13: an objectBoundingBox clip on a group uses the group's box.
+    expect(data('<clipPath id="c" clipPathUnits="objectBoundingBox"><rect width="1" height="1"/></clipPath><g clip-path="url(#c)"><path d="M0 0h1v1z"/></g>'))
+      .toContain("K KP 0 M0 0H1V1H0z; G 1 0 S")
   })
   test("use and symbol are expanded; the use's id names the part", () => {
     const out = svg('<defs><path id="p" d="M0 0h1v1z"/></defs><use id="u" href="#p" x="5"/><use xlink:href="#p" y="2"/>')
@@ -245,21 +248,45 @@ describe("the supported subset", () => {
   })
 })
 
+describe("the registry 13 corpus: 78 real files (fixtures/svg-features)", () => {
+  test("75 compile; the 3 refused on purpose fail with their hint", () => {
+    const root = join(import.meta.dir, "fixtures", "svg-features")
+    const files: string[] = []
+    const walk = (d: string) => {
+      for (const f of readdirSync(join(root, d), { withFileTypes: true })) {
+        if (f.isDirectory()) walk(`${d}/${f.name}`)
+        else if (f.name.endsWith(".svg")) files.push(`${d}/${f.name}`.slice(1))
+      }
+    }
+    walk("")
+    const failed: Record<string, string> = {}
+    for (const f of files) {
+      try {
+        expect(compileSvgFile(join(root, f)).data).toStartWith("Z1 ")
+      } catch (e) {
+        failed[f] = (e as Error).message.replace(/^.*?\.svg:\d+:\d+: /, "").split(" isn't")[0]!
+      }
+    }
+    expect(files.length).toBe(78)
+    expect(failed).toEqual({
+      "resvg/filters/feComposite/operator=arithmetic.svg": "feComposite arithmetic with k1..k4 = 0.1 0.2 0.3 0.4",
+      "resvg/text/text/dx-and-dy-with-multiple-values.svg": "dx with several values (one per character)",
+      "resvg/text/text/rotate.svg": "rotate on <text>",
+    })
+  })
+})
+
 describe("refused features fail the build with file:line:col and a hint", () => {
   const cases: Array<[string, string]> = [
-    ['<text x="1">Hi</text>', "SVG text isn't supported"],
+    ['<text x="1"><textPath href="#p">Hi</textPath></text>', "<textPath> isn't supported"],
     ['<image href="a.png"/>', "<image> isn't supported"],
-    ['<defs><pattern id="p"/></defs>', "<pattern> isn't supported"],
-    ['<filter id="f"/>', "filters (blur, drop shadow)"],
-    ["<style>@media (min-width: 1px) { .a{fill:red} }</style>", "CSS @media isn't supported"],
+    ['<filter id="f"><feTurbulence/></filter><rect width="1" height="1" filter="url(#f)"/>', "<feTurbulence> isn't supported"],
+    ["<style>@media (min-width: 1px) { .a{fill:red} }</style>", "@media (min-width: 1px) isn't supported"],
     ['<animate attributeName="x" dur="1s"/>', "animating the <svg> itself isn't supported"],
-    ['<rect width="1" height="1"><animateMotion dur="1s" path="M0 0h4"/></rect>', "<animateMotion> (moving along a path) isn't supported"],
-    ['<marker id="m"/>', "<marker> isn't supported"],
     ['<foreignObject/>', "<foreignObject> isn't supported"],
-    ["<svg/>", "a nested <svg> isn't supported"],
-    ['<path vector-effect="non-scaling-stroke" d="M0 0"/>', "vector-effect isn't supported yet"],
-    ['<path paint-order="stroke" d="M0 0"/>', "paint-order isn't supported"],
-    ['<path style="mix-blend-mode:multiply" d="M0 0"/>', "mix-blend-mode isn't supported"],
+    ['<path vector-effect="non-scaling-size" stroke="red" d="M0 0L1 1"/>', `vector-effect="non-scaling-size" isn't supported (only non-scaling-stroke)`],
+    ['<path paint-order="bogus" d="M0 0"/>', "paint-order must be normal or a list of fill, stroke, markers"],
+    ['<path style="mix-blend-mode:bogus" d="M0 0"/>', 'mix-blend-mode "bogus" isn\'t supported'],
     ['<path foo="1" d="M0 0"/>', 'attribute "foo" isn\'t supported on <path>'],
     ['<blink/>', "<blink> isn't supported"],
     ['<path fill="url(#nope)" d="M0 0h1v1z"/>', 'no element with id "nope"'],
@@ -269,7 +296,7 @@ describe("refused features fail the build with file:line:col and a hint", () => 
     ['<rect width="1em" height="1"/>', "use a plain number"],
     ['<path d="M0 0 Q"/>', "expected a number"],
     ['<path stroke="#000" stroke-linecap="pointy" d="M0 0h1"/>', "stroke-linecap must be one of butt, round, square"],
-    ['<path style="font:12px x;foo:1" d="M0 0"/>', 'style property "font" isn\'t supported'],
+    ['<path style="font:12px x;foo:1" d="M0 0"/>', 'style property "foo" isn\'t supported'],
     ['<defs><linearGradient id="g"><stop stop-color="currentColor"/><stop/></linearGradient></defs><rect width="1" height="1" fill="url(#g)"/>', "currentColor in a gradient stop"],
   ]
   for (const [body, hint] of cases) {
@@ -289,7 +316,7 @@ writeFileSync(
   join(dir, "logo.svg"),
   '<svg viewBox="0 0 100 50"><g id="ring"><circle cx="25" cy="25" r="20" fill="#047857"/></g><rect id="dot" x="60" width="10" height="10"/></svg>',
 )
-writeFileSync(join(dir, "bad.svg"), '<svg viewBox="0 0 10 10">\n  <text>no</text>\n</svg>')
+writeFileSync(join(dir, "bad.svg"), '<svg viewBox="0 0 10 10">\n  <textPath>no</textPath>\n</svg>')
 
 function compile(src: string, statics: Record<string, unknown> = {}, svgs = new Map<string, string>()) {
   const templates: NodeSpec[] = []
@@ -390,7 +417,7 @@ export function F() { return <Logo parts={{
     expect(tsxErr(`import Logo from "./logo.svg"\nexport function F() { return <Logo foo={1} /> }`)).toContain('unknown prop "foo" on <Logo>')
     expect(tsxErr(`import { x } from "./logo.svg"\nexport function F() { return <Box /> }`)).toContain("default import")
     const bad = tsxErr(`import Bad from "./bad.svg"\nexport function F() { return <Bad /> }`)
-    expect(bad).toContain("bad.svg:2:3: SVG text isn't supported")
+    expect(bad).toContain("bad.svg:2:3: <textPath> isn't supported")
     expect(bad).toContain("(used at ")
   })
   test("as a JSX prop it is fine", () => {
@@ -472,7 +499,7 @@ describe("inline <Svg>", () => {
     expect(e(`<Circle r={1} />`)).toBe("no error")
   })
   test("an inline SVG error points at the TSX line", () => {
-    expect(tsxErr(`export function F() { return (\n  <Svg viewBox="0 0 10 10">\n    <Path d="M0 0" vectorEffect="non-scaling-stroke" />\n  </Svg>) }`))
-      .toMatch(/Screen\.tsx:3:20: vector-effect isn't supported yet/)
+    expect(tsxErr(`export function F() { return (\n  <Svg viewBox="0 0 10 10">\n    <Path d="M0 0" paintOrder="bogus" />\n  </Svg>) }`))
+      .toMatch(/Screen\.tsx:3:20: paint-order must be normal/)
   })
 })

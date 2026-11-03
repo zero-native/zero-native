@@ -35,10 +35,7 @@ describe("registry changes follow the OTA rules", () => {
   test("something new with since = the new REGISTRY_VERSION is fine", () => {
     const lock = fresh()
     lock.version = REGISTRY_VERSION - 1
-    // The newest entries (since 12)
-    for (const k of ["prop:refreshing", "prop:refreshColor", "prop:refreshBackground", "dynamic:refreshing", "event:onRefresh"]) {
-      delete lock.entries[k]
-    }
+    delete lock.entries["prop:trimCaps"] // one of the newest entries (since 13)
     expect(registryProblems(lock)).toEqual([])
   })
 
@@ -94,6 +91,10 @@ describe("a template file asks for the lowest registry version that has what it 
     expect(writeTemplateFile([el("Box", { animate: "95=t900e3~f0~r-1" })]).registry).toBe(since("format", "timing.motion"))
     expect(writeTemplateFile([el("Box", { enter: "0,0,12,1|t220e1~d120" })]).registry).toBe(since("format", "timing.motion"))
     expect(writeTemplateFile([el("Box", { animate: "*=t250e0" })]).registry).toBe(BASE_VERSION)
+    // SVG draw data with a non-scaling stroke (a negative width) needs the version that reads it.
+    const shape = (width: string) => `Z1 0 0 24 24 4 S - 1 #FF000000 1 0 1 ${width} 1 1 4 0 0 0 M0 0h4;`
+    expect(writeTemplateFile([el("Svg", { svg: shape("-2") })]).registry).toBe(since("format", "svg.nonScaling"))
+    expect(writeTemplateFile([el("Svg", { svg: shape("2") })]).registry).toBe(since("component", "Svg"))
     // Not using them: back to the base.
     expect(writeTemplateFile([el("Column", {}, el("Pressable", { pressFeedback: "ripple" }))]).registry).toBe(BASE_VERSION)
   })

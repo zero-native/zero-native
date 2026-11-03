@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: animated gradient stops. The ring's colours swap back and forth. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3D26ED">
+        <animate attributeName="stop-color" values="#3D26ED;#E11D48;#3D26ED" dur="2.4s" repeatCount="indefinite"/>
+      </stop>
+      <stop offset="1" stop-color="#F59E0B">
+        <animate attributeName="stop-color" values="#F59E0B;#3D26ED;#F59E0B" dur="2.4s" repeatCount="indefinite"/>
+      </stop>
+    </linearGradient>
+  </defs>
+  <circle cx="24" cy="24" r="16" fill="none" stroke="url(#g)" stroke-width="6"/>
+</svg>

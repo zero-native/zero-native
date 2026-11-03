@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: animated polygon points. A pentagon turns into a star and back. -->
+  <polygon fill="#F59E0B" points="24,6 30,18 42,19 33,28 35,41 24,34 13,41 15,28 6,19 18,18">
+    <animate attributeName="points" dur="1.6s" repeatCount="indefinite" calcMode="spline"
+      keyTimes="0;0.5;1" keySplines="0.4 0 0.2 1;0.4 0 0.2 1"
+      values="24,6 30,18 42,19 33,28 35,41 24,34 13,41 15,28 6,19 18,18;24,8 32,14 40,21 37,31 34,40 24,40 14,40 11,31 8,21 16,14;24,6 30,18 42,19 33,28 35,41 24,34 13,41 15,28 6,19 18,18"/>
+  </polygon>
+</svg>

@@ -16,6 +16,24 @@ import Bars from "./svg/loaders/bars-scale.svg"
 import Rings from "./svg/loaders/pulse-rings-multiple.svg"
 import Wifi from "./svg/loaders/wifi.svg"
 import Ball from "./svg/loaders/bouncing-ball.svg"
+import Resize from "./svg/loaders/ring-resize.svg"
+import Puff from "./svg/loaders/puff.svg"
+import Ripple from "./svg/loaders/rings.svg"
+import Triangle from "./svg/loaders/ball-triangle.svg"
+import TickMorph from "./svg/tick-morph.svg"
+import SparkLine from "./svg/spark-line.svg"
+// Registry 13 (docs/svg.md §17): our own small files, one feature each.
+import CoinShadow from "./svg/r13/coin-shadow.svg"
+import StripesFade from "./svg/r13/stripes-fade.svg"
+import Route from "./svg/r13/route.svg"
+import Blend from "./svg/r13/blend.svg"
+import AlongPath from "./svg/r13/along-path.svg"
+import Clock from "./svg/r13/clock.svg"
+import Flag from "./svg/r13/flag.svg"
+import GlowRing from "./svg/r13/glow-ring.svg"
+import StarMorph from "./svg/r13/star-morph.svg"
+import TapHeart from "./svg/r13/tap-heart.svg"
+import CssBars from "./svg/r13/css-bars.svg"
 
 const like = "#E11D48"
 const RING_COLORS = ["#3D26ED", "#15803D", "#E11D48", "#F59E0B"]
@@ -151,6 +169,7 @@ function MotionSection() {
   const gauge = signal(0)
   const paid = signal(0)
   const shake = signal(0)
+  const hearts = signal(0)
 
   return (
     <Section title="Motion" note="Loops, keyframes and trims. Tap a tile to change or replay it">
@@ -228,7 +247,7 @@ function MotionSection() {
           Downloaded .svg loaders
         </Text>
         <Text fontSize={12} color={c.muted}>
-          SMIL and CSS files from svg-spinners, used as they are
+          SMIL and CSS files from svg-spinners and SVG-Loaders, used as they are
         </Text>
       </Column>
       <Row style={{ justifyContent: "space-between" }}>
@@ -237,9 +256,47 @@ function MotionSection() {
         <MotionTile label="Bars"><Bars size={32} color={c.primary} paused={paused()} /></MotionTile>
         <MotionTile label="Rings"><Rings size={32} color={c.primary} paused={paused()} /></MotionTile>
       </Row>
-      <Row style={{ gap: 12 }}>
+      <Row style={{ justifyContent: "space-between" }}>
         <MotionTile label="Wifi"><Wifi size={32} color={c.primary} paused={paused()} /></MotionTile>
         <MotionTile label="Ball"><Ball size={32} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Resize"><Resize size={32} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Puff"><Puff size={36} color={c.primary} paused={paused()} /></MotionTile>
+      </Row>
+      <Row style={{ justifyContent: "space-between" }}>
+        <MotionTile label="Ripple"><Ripple size={36} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Triangle"><Triangle size={36} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Morph"><TickMorph size={32} color={c.success} paused={paused()} /></MotionTile>
+        <MotionTile label="Same line"><SparkLine size={52} color={c.primary} /></MotionTile>
+      </Row>
+      <Column style={{ gap: 2 }}>
+        <Text fontSize={14} fontWeight={700} color={c.ink}>
+          More motion
+        </Text>
+        <Text fontSize={12} color={c.muted}>
+          Along a path, steps, skew, stop colours, points, CSS. Tap the heart
+        </Text>
+      </Column>
+      <Row style={{ justifyContent: "space-between" }}>
+        <MotionTile label="Along"><AlongPath size={40} color={c.primary} paused={paused()} /></MotionTile>
+        <MotionTile label="Clock"><Clock size={40} color={c.ink} paused={paused()} /></MotionTile>
+        <MotionTile label="Flag"><Flag size={40} paused={paused()} /></MotionTile>
+        <MotionTile label="Colours"><GlowRing size={40} paused={paused()} /></MotionTile>
+      </Row>
+      <Row style={{ justifyContent: "space-between" }}>
+        <MotionTile label="Star"><StarMorph size={40} paused={paused()} /></MotionTile>
+        {/* The heart's own begin="click" and this tile's onPress both get each tap (docs/svg.md §17). */}
+        <MotionTile label={hearts() === 0 ? "Tap me" : `Taps ${hearts()}`} onPress={() => hearts.set(hearts() + 1)}>
+          <TapHeart size={40} accessibilityLabel="Heart, tap to pop" />
+        </MotionTile>
+        <MotionTile label="CSS"><CssBars size={40} paused={paused()} /></MotionTile>
+        <Column style={{ width: 76 }} />
+      </Row>
+      <Row style={{ alignItems: "center", gap: 12 }}>
+        <SparkLine size={20} color={c.primary} />
+        <SparkLine size={40} color={c.primary} />
+        <Text fontSize={12} color={c.muted} style={{ flex: 1 }}>
+          The chart line stays 2 dp thick at every size
+        </Text>
       </Row>
       <Pressable
         onPress={() => paused.set(!paused())}
@@ -332,9 +389,18 @@ export function SvgLabScreen() {
             </Row>
           </Section>
 
+          <Section title="Effects" note="Shadow and text, pattern with a fade, route markers, blend">
+            <Row style={{ justifyContent: "space-between" }}>
+              <IconTile label="Shadow"><CoinShadow size={40} /></IconTile>
+              <IconTile label="Pattern"><StripesFade size={40} /></IconTile>
+              <IconTile label="Route"><Route size={40} /></IconTile>
+              <IconTile label="Blend"><Blend size={40} /></IconTile>
+            </Row>
+          </Section>
+
           <MotionSection />
 
-          <Section title="In a list" note="60 rows, an SVG in each; scroll fast to check for jank">
+          <Section title="In a list" note="60 rows, an SVG with a shadow in each; scroll fast to check for jank">
             <List
               data={ROWS}
               key={(r) => r.id}
@@ -343,7 +409,7 @@ export function SvgLabScreen() {
               row={(r) => (
                 <Row style={{ alignItems: "center", gap: 12, padding: 12, borderRadius: 14, backgroundColor: c.white }}>
                   <Column style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: "#EEF2FF", alignItems: "center", justifyContent: "center" }}>
-                    <Receipt size={22} color={c.primary} />
+                    <CoinShadow size={32} accessibilityHidden={true} />
                   </Column>
                   <Column style={{ flex: 1, gap: 2 }}>
                     <Text fontSize={14} fontWeight={600} color={c.ink}>

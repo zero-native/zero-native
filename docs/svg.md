@@ -3,7 +3,8 @@
 **Status: design approved by Pavan (2026-11-03); phase 1 built (static SVG) and checked on the Lava. What changed
 while building, and the phone numbers, are in §14. Phase 2 (motion: part transforms, trims, loops and keyframes for
 every element) is built and checked on the Lava (§15). S.14, animated `.svg` files from the web (SMIL and CSS), is built too:
-95 of 104 real loaders play as they are (§15).** Calls taken as recommended: draw data in the
+95 of 104 real loaders play as they are (§15). Phase 3 (registry 12: stroke width and dash motion, stroked shapes that
+grow, path morphing, `non-scaling-stroke`, typed part names) is built: 100 of 104 play (§16).** Calls taken as recommended: draw data in the
 template file, `parts={{...}}`, no SVG `<text>` in phase 1, part names checked at build time only, `autoMirror` in phase 1,
 `non-scaling-stroke` refused. Looping (`repeat`) is decided at the phase 2 check-in. Reviewed by agy (2026-11-03): its
 points are folded in below. Framework work only: ZeroBill's own
@@ -157,7 +158,7 @@ import { Svg, Defs, RadialGradient, Stop, Path, Circle, G } from "@zero-native/u
 - No Material Symbols conversion script in this repo. For the ZeroBill port, the icons are fetched again as `.svg`
   files (they come from Iconify) or extracted by a one-off script in ZeroBill's repo.
 
-## 5. The supported SVG subset (phase 1)
+## 5. The supported SVG subset (phase 1; registry 13 adds much more, see §17)
 
 Same rules for `.svg` files and inline `<Svg>`.
 
@@ -202,7 +203,7 @@ is turned into a clip at build time (the Figma case); any other mask is an error
 | `animate`, `animateTransform`, `set` (SMIL) | Use parts + `animate` (phase 2) or a Lottie file (later plugin). **Update S.14:** `animate` and `animateTransform` now import (§15); `set` and `animateMotion` still fail |
 | `<style>`, `class` with CSS | Inline the styles (`svgo --config` with `inlineStyles`, or the design tool's "presentation attributes" export). **Update S.14:** plain rules (class, id, tag, descendant) and `@keyframes` now import (§15) |
 | nested `<svg>`, external `href`, `fx` / `fy` not equal to `cx` / `cy`, `paint-order`, `mix-blend-mode` | Flatten, or remove the attribute |
-| `vector-effect="non-scaling-stroke"` | Not supported yet: the stroke would grow with the SVG. Remove it and set the stroke width for the size you use (added later if a real file needs it) |
+| `vector-effect="non-scaling-stroke"` | Not supported yet: the stroke would grow with the SVG. Remove it and set the stroke width for the size you use (added later if a real file needs it). **Update phase 3: supported** (§16); other `vector-effect` values still fail |
 
 ## 6. The build pipeline (compiler)
 
@@ -262,6 +263,11 @@ draw data came out *bigger* than the source SVG (the RN assets: 162 KB of SVG �
 **Renumbered 10 → 11 (2026-11-03):** main took registry 10 for the RN basics `TextField` `ref` while phase 1 was
 being built. The SVG entries moved to 11; the ids below did not change (no clash with main). Read "registry 10" in
 older notes about SVG as 11.
+
+**Phase 3 is registry 12** (§16): SvgPart props `strokeWidth` (192, can change at runtime), `dashOffset` (193, can change
+at runtime), `scaleOutline` (194), `morph` (195), `morphAt` (196). The repo's rule raises the version once per step,
+also when the last one has not shipped (`docs/adding-components.md` §1). A bundle that uses none of them still asks
+for 11 (or less).
 
 **Where the draw data lives (decision, see `docs/second-opinions.md` entry 46):** as a string prop of the `Svg` node,
 inside `main.zn.ui`. The template writer already stores each distinct string once
@@ -404,13 +410,17 @@ TalkBack reads it once, as an image. The SVG's own `<title>` is ignored (design 
 
 - **Typed part names in the editor.** Phase 1: `parts` keys are checked at build time; in the editor they are plain
   strings. Option: the build writes `logo.d.svg.ts` next to each `.svg` (TypeScript's `allowArbitraryExtensions`), so
-  `parts` keys autocomplete. Costs one generated file per SVG in the source folders.
+  `parts` keys autocomplete. Costs one generated file per SVG in the source folders. **Built in phase 3** (§16).
 - **Simple `<text>`** (one line, system font, `x`, `y`, `font-size`, `font-weight`, `text-anchor`, fill). Not used
   by ZeroBill; real text is better as a zn `<Text>` over the SVG.
-- **Runtime choice by value** (`<Svg src={icons[name()]} />`, for server-chosen icons): needs the pack file
-  (§7) so JS can send a small number instead of the data.
-- **Remote SVG** (`https://.../x.svg`): needs a parser on the phone (a plugin, not core).
-- Masks, patterns, drop shadows, sweep gradients, `non-scaling-stroke`.
+- **Later, as an official plugin ("SVG by value", decided 2026-11-03):** both of these draw an SVG the build never
+  saw, so they need an SVG reader on the phone. That belongs in a plugin, not in core:
+  - **Runtime choice by value** (`<Svg src={icons[name()]} />`, for server-chosen icons). (Inside core it would need
+    the pack file, §7, so JS can send a small number instead of the data.)
+  - **Remote SVG** (`https://.../x.svg`): a reader on the phone, with size and time limits, as the files are untrusted.
+- **Later (decided 2026-11-03):** masks other than plain white shapes, patterns. Built only when a real file needs them.
+- **Later, maybe:** drop shadows and blur (filters). Android's blur works on Android 12+ only, so older phones would
+  skip the filter; the 4 corpus files still refused ("gooey" balls) need it. Sweep gradients.
 - **iOS:** the same draw data drawn with Core Graphics (`CGPath`, `CGGradient`).
 
 ## 11. Size and cold start
@@ -463,6 +473,15 @@ agrees, §9), S.11 lab screen with a spinner, a gauge and a line drawing itself;
 | S.13 | Docs | done |
 | S.14 | Animated `.svg` files (SMIL, CSS `@keyframes`) import as part animations; a corpus of 104 real files as tests | done; 95 of 104; checked on the Lava |
 
+**Phase 3 (registry 12), agreed 2026-11-03** (§16):
+| Step | What | Status |
+|---|---|---|
+| S.15 | Stroke motion: stroked shapes that grow (the outline scales, the stroke keeps its width), `strokeWidth` and `dashOffset` on parts, one-dash animations as trims | built |
+| S.16 | `vector-effect="non-scaling-stroke"` | built |
+| S.17 | Path morphing (SMIL `d`, CSS `d: path()`) | built |
+| S.18 | Typed part names (`logo.d.svg.ts`) | built |
+| S.19 | Lab, tests (corpus 100 of 104), docs; phone check | built; checked on the Lava (debug) |
+
 ## 13. Risks
 
 | Risk | What we do |
@@ -472,7 +491,7 @@ agrees, §9), S.11 lab screen with a spinner, a gauge and a line drawing itself;
 | Clip edges look jagged on old Android versions | [check] on an older phone or emulator; else clip with a layer and `DstIn` |
 | Design tools export features we refuse, so authors hit build errors | Clear hints per feature (§5 table); the RN assets show the common cases pass |
 | The RN basics session takes the same registry ids | Renumber at the second merge (agreed); ids picked from the top of the range |
-| Draw data parse on the main thread at first draw for a huge SVG | Measure; if over ~4 ms, parse the bundle's SVGs on the I/O thread after the first frame (not before it, so cold start stays the same). **Measured:** a 23 KB SVG takes 6–7 ms on a fresh install, 1.4 ms with AOT code; kept on first draw for now (entry 48, §14) |
+| Draw data parse on the main thread at first draw for a huge SVG | Measure; if over ~4 ms, parse the bundle's SVGs on the I/O thread after the first frame (not before it, so cold start stays the same). **Measured:** a 23 KB SVG takes 6–7 ms on a fresh install, 1.4 ms with AOT code; kept on first draw for now (entry 48, §14). **Phase 4:** draw data of 8 KB or more is read on a background thread after the first frame ([ZnSvgCache.prefetch](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:688)); an SVG drawn before that still reads on first draw |
 
 ## 14. As built (phase 1, 2026-11-03)
 
@@ -551,8 +570,9 @@ shape whose own trim showed the whole line (`trimEnd={1}` at rest) read index -1
 
 Known limits:
 - Trim lengths ignore a shape's own matrix shape (a skew); they use its average scale. Only matters for a group trim across
-  shapes with different skews.
-- Nested trims: the nearest wins; they don't combine.
+  shapes with different skews. **Fixed in phase 4 (§17):** such a shape is measured on its transformed path.
+- Nested trims: the nearest wins; they don't combine. **Fixed in phase 4 (§17):** they combine, so a shape shows only what
+  every trim above it shows.
 - "Remove animations" reaches us as Compose's `MotionDurationScale` (Android's animator scale). Scale 0 shows the rest values
   (checked on the Lava, above).
 
@@ -578,7 +598,8 @@ loader now plays as it is: `import Spinner from "./spinner.svg"` then `<Spinner 
   - `paused` / `replay` on the `<Svg>` node reach every part inside it, the file's own motion included.
 - **Still refused, with a hint:** filters, `animateMotion`, morphing `d`, stroke width or dash animation (draw the line with
   trims instead), geometry of stroked shapes, `begin="click"` and other events, `steps(n)` with n > 1, CSS selectors other
-  than class / id / tag / descendant, `@media`, skews, rotations inside stretched groups.
+  than class / id / tag / descendant, `@media`, skews, rotations inside stretched groups. **Update phase 3:** morphing,
+  stroke width, dashes and stroked shapes now import (§16); 100 of 104 compile.
 - **Checked on the Lava** (debug): six loaders in the lab (ring, dots, bars, pulse rings, wifi, bouncing ball) play and look
   right; pause and play work; 16 loops on screen at once: 0 janky frames in 8 s, GPU median 3 ms.
 - **Tests:** [svg-anim.test.ts](../compiler/test/svg-anim.test.ts:1) (the corpus by name, exact encodings for each rule, errors,
@@ -595,3 +616,215 @@ into the same part animations at build time, as most of them only turn, scale, m
 - Still refused, with a hint: path morphing (animating `d`), `animateMotion` (move along a path), JS-driven files (SVGator's
   player, GSAP), triggers like `begin="click"`, animated filters.
 - Start with a corpus check: 30–50 real animated SVGs (fetched to a scratch folder only), to count how many the import would cover.
+
+## 16. As built (phase 3, registry 12, 2026-11-03)
+
+What it adds, and how. All of it is framework work.
+
+**Stroke motion** (S.15):
+- **A stroked shape that grows** (`r`, `rx`, `ry`, `width`, `height` animated on a circle, ellipse or rect with a stroke):
+  the compiler sets the part's `scaleOutline` ([svg-anim.ts:1547](../compiler/src/svg-anim.ts:1547)). On the phone the
+  part's scale goes into the path, not the canvas, so the stroke keeps its width, as when the browser changes `r`
+  ([ZnSvg.kt:838](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:838)). A stroked shape that only moves
+  (`cx`, `cy`, `x`, `y`) needs no flag. Inside a stretched group (a stroke under a non-uniform scale) it still fails.
+- **`strokeWidth`** on a part: the width of every stroke inside it, in viewBox units. Animated `stroke-width` in a file
+  maps to it (it starts from the inherited width; a width that starts at 0 is baked at its largest). Authors can set it
+  in `parts` too, and change it at runtime.
+- **Dashes** ([bakeStroke](../compiler/src/svg-anim.ts:604)):
+  - **One dash with a gap at least as long as the line** (the usual "ring that fills" and "draw the line" tricks): only
+    the first dash can ever show, so it becomes the part's trims and the shape is drawn solid. The piece runs from
+    `-offset` to `dash - offset` along the line, cut at its ends (SVG doesn't wrap dashes round). Where a cut end
+    reaches the line's end, the segment is split exactly at that moment ([clampSplit](../compiler/src/svg-anim.ts:1767)).
+    `pathLength` is honoured. Lines of one piece only (a circle, a rect, one path).
+  - **A fixed pattern whose offset moves** ("marching ants"): the dashes stay in the draw data and move with the part's
+    `dashOffset`. Any other changing dash pattern fails with a hint.
+- On the phone a part's width or offset makes one new `Stroke` per shape, made again only when the value changes
+  ([strokeFor](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:870)).
+
+**`vector-effect="non-scaling-stroke"`** (S.16): the stroke is that many dp wide, whatever the SVG's size, the shape's
+matrix or a part's scale. The draw data writes the width negative (format v1, no new token;
+[svg.ts:419](../compiler/src/svg.ts:419), read at [ZnSvg.kt:251](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:251)).
+Dashes on a non-scaling stroke fail (their lengths would need the same rule). Other `vector-effect` values fail. An
+older app refuses a negative width, so the registry `format` "svg.nonScaling" (since 12) makes such a bundle ask for 12.
+
+**Path morphing** (S.17): SMIL `<animate attributeName="d">` and CSS `d: path("...")` keyframes.
+- The compiler writes every keyframe in one form: M, C and Z only (lines become straight cubics, arcs become cubics, both
+  exact; [cubicForm](../compiler/src/svg-anim.ts:1705)). Keyframes with different commands fail with a hint, as SMIL itself
+  needs matching paths.
+- The part gets `morph` ("MCCZ|x y ...|x y ...", in viewBox space) and an animated `morphAt` (0 = the first keyframe, 1.5 =
+  half way from the second to the third), on the same timing as any other motion, so easing, repeat, pause and replay all
+  work. At rest (`morphAt` -1, also with "Remove animations") the shape draws its own `d`.
+- On the phone each frame mixes two keyframes' numbers into one reused path
+  ([ZnSvgMorph](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:495)). A morph and a trim on one shape fail at build.
+
+**Typed part names** (S.18): when a TSX file imports `logo.svg`, the build writes `logo.d.svg.ts` next to it with the
+file's part names ([writeSvgTypes](../compiler/src/compile.ts:1406)), so `parts={{ ri| }}` autocompletes and a typo is a
+type error. It needs `"allowArbitraryExtensions": true` in the app's tsconfig, and `*.d.svg.ts` in `.gitignore` (both set
+for the sample and this repo). Until the first build, the plain `*.svg` type stays, and the build still checks the names.
+
+**Corpus:** 100 of 104 compile (was 95). Fixed: `ball-triangle` (stroked circles that move), `puff` (stroked circles that
+grow), `rings` (grow plus stroke width), `ring-resize` SMIL and CSS (one dash as trims). Still refused: the 4 "gooey" files
+(filters).
+
+**Lab** (`zn://sample/dev/svg`, Motion section): Resize, Puff, Ripple (`rings`), Triangle, a dash that morphs into a tick
+(our own `svg/tick-morph.svg`), and a chart line with a non-scaling stroke at 20, 40 and 52 dp (`svg/spark-line.svg`).
+
+**Checked:** JS 821 tests (corpus by name, exact encodings for each new rule, errors, TSX `parts` and the type file), both
+type checks (and a wrong part name failing in the sample), Kotlin 163 (`nonScalingStrokeIsANegativeWidth`,
+`morphMixesKeyframes`), lint, sample debug build. On the Lava (debug build, 2026-11-03): all six new tiles draw and
+move (Resize trims its arc, Puff's ring grows with a thin stroke, Ripple, Triangle, the dash turns into a tick and back);
+the chart line is the same 2 dp (4 px) at 20, 40 and 52 dp; pause holds every frame; with "Remove animations" each file
+shows its own rest values (Resize a full ring, Puff a dot, Morph the dash); 729 frames in 8 s with every loop running,
+1 slow frame, 99th percentile 19 ms; no app errors in the log. **Not checked yet:** a release build, TalkBack.
+
+**Known limits:**
+- A dash's zero-length start with a round cap: SVG draws a dot, the trims draw nothing (for one frame of `ring-resize`).
+  **Fixed in phase 4 (§17):** the part's `trimCaps` draws the dot.
+- A non-scaling stroke inside a part that scales a group uses the group's average scale (`sqrt(|sx * sy|)`).
+  **Fixed in phase 4 (§17):** when the way to the screen stretches unevenly, the stroke is drawn in screen space.
+- `strokeWidth` on a group part replaces the width of every stroke inside, also a child that set its own (SVG would keep
+  the child's). **Fixed in phase 4 (§17):** the compiler gives such a child its own `strokeWidth`.
+
+## 17. As built (phase 4, registry 13, 2026-11-03)
+
+Pavan's ask: finish SVG and animated SVG on Android. All of it is framework work. A bundle that uses any of it asks for
+registry 13 (registry `format` "svg.effects" for the draw data, "timing.tap" for a tap to start); bundles without it
+still run on older apps. Host API, template format and draw data format v1 are unchanged (new tokens only).
+
+**Corpus first.** A survey (a Haiku agent, 2026-11-03) picked 78 real files that use what was still refused: the resvg
+test suite (one feature per file), Meteocons weather icons, line-md and Fluent emoji. They are test fixtures now, with
+their licences ([fixtures/svg-features](../compiler/test/fixtures/svg-features/README.md)). **75 of 78 compile**; the 3
+others are refused on purpose (below). The animated corpus: **104 of 104** (was 100; the 4 "gooey" files use filters).
+
+### Still pictures
+
+What compiles now that failed before ([svg.ts](../compiler/src/svg.ts:1), tokens in
+[svg-data.ts](../compiler/src/svg-data.ts:1)):
+- **Filters** ("FL", [filterPrims](../compiler/src/svg.ts:1299)): `feGaussianBlur`, `feOffset`, `feFlood`,
+  `feColorMatrix`, `feComposite` (the plain operators, plus the arithmetic forms of a sum and Figma's inner shadow),
+  `feBlend`, `feMerge`, `feDropShadow`, with `in` / `in2` / `result`, the filter region and `primitiveUnits`.
+  Refused with a hint: turbulence, displacement, lighting, morphology, convolve, component transfer, `feImage`,
+  `feTile`, and arithmetic with other numbers ("export the effect as a PNG").
+- **Masks** ("MK", [mask](../compiler/src/svg.ts:1543)): luminance and alpha, `maskUnits` / `maskContentUnits`.
+  A mask of plain white shapes still becomes a clip (cheaper), as before.
+- **Patterns** ("PT", [pattern](../compiler/src/svg.ts:1187)) as fill or stroke paint, with `patternUnits`,
+  `patternContentUnits`, `patternTransform`, `viewBox` and `href` inheritance.
+- **Radial gradients with a focal point** ("RF"): `fx`, `fy`, `fr`. A focal point outside the circle moves onto its
+  edge, as browsers do.
+- **Markers** ([markers](../compiler/src/svg.ts:730)): `marker-start` / `-mid` / `-end` and the `marker` shorthand,
+  `orient` (a number, `auto`, `auto-start-reverse`), `markerUnits`, `viewBox`, `refX` / `refY`, overflow. They are
+  copied into the draw data at build time, so the phone draws plain shapes.
+- **`paint-order`** ([paintOrder](../compiler/src/svg.ts:554)) and **`mix-blend-mode`** (all 15 modes; "X" op).
+  A blend mixes only with what the SVG itself drew, so an SVG with a blend draws in one layer.
+- **Nested `<svg>`** ([nestedSvg](../compiler/src/svg.ts:523)) and **`<switch>`**: the first child whose conditions
+  pass. `systemLanguage` is checked against English (the build can't know the phone's language).
+- **Text** ("T", [text](../compiler/src/svg.ts:801)): `<text>` and `<tspan>` with `x`, `y`, one `dx` / `dy` per piece,
+  `text-anchor`, `font-size`, `font-weight`, `font-style`, a generic `font-family` (sans-serif, serif, monospace: the
+  phone's own fonts), `letter-spacing`, `dominant-baseline`, fill and stroke. The joined text is the Svg's TalkBack
+  label when the author gave none ([compile.ts:516](../compiler/src/compile.ts:516)). Refused: `<textPath>`, `rotate`, `textLength`,
+  several `dx` / `dy` values (one per character), decorations. Text drawn in a design tool is best exported as
+  outlines; this is for simple labels.
+- **Clips** with `clipPathUnits="objectBoundingBox"` on a group now use the group's box.
+
+On the phone ([ZnSvgEffects.kt](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvgEffects.kt:1)):
+- A filter runs as an Android `RenderEffect` on a `RenderNode` (Android 12+, hardware drawing), made again only when
+  the SVG's scale changes. **Below Android 12 (Pavan: "your call")**: the group is drawn without its filter, under the
+  plain drop shadows the compiler found in it (a `BlurMaskFilter`, Android 9+). A blur alone draws the group sharp.
+- Masks and blends use a layer (`saveLayer`) for the group only. A pattern's tile is drawn once into a bitmap at the
+  screen's resolution and used as a shader; it is made again only when the scale changes a lot.
+- **Blur in lists** (Pavan: "sure"): the lab's 60-row list has a coin with a drop shadow in every row.
+
+### More motion
+
+In the importer ([svg-anim.ts](../compiler/src/svg-anim.ts:1)):
+- **`<animateMotion>`** ([motionTrack](../compiler/src/svg-anim.ts:984)): `path`, `<mpath>`, `values`, `from` / `to` /
+  `by`, `keyPoints`, every `calcMode`, `rotate` (a number, `auto`, `auto-reverse`). The path goes to the part's
+  `motionPath` ("ox oy angle mode;MCZ;numbers", in viewBox units) and the animated value is `motionAt` (0–1 of its
+  length). `calcMode="linear"` on a path moves at an even speed, like `paced` (browsers do the same for a path).
+  **CSS `offset-path: path(...)`** with `offset-distance` keyframes and `offset-rotate` maps the same way
+  ([cssMotion](../compiler/src/svg-anim.ts:1606)). A turning motion inside a stretched or skewed group fails with a hint.
+- **`<set>`**: a step to its value that holds (for `dur` or for ever).
+- **CSS `steps(n)`** with every jump term, and `step-start` / `step-end` ([expandSteps](../compiler/src/svg-anim.ts:210)).
+- **Skews**: `skewX` / `skewY` in SMIL and CSS transform lists; the part gets `skewX` / `skewY` (after rotate, before
+  scale, around the pivot). CSS matrices are split into move, turn, skew and scale.
+- **A rotated, skewed or stretched group** around a moving element: the part gets a `frame` (the group's matrix) and
+  draws its motion inside it, so the motion stays in the element's own units.
+- **Animated gradient stops** (`stop-color`, `stop-opacity`): each stop becomes a part with a fill ("SL" token). On the
+  phone the gradient's brush is made again only on a frame where a stop changed
+  ([updateStops](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:1145)).
+- **Polygon and polyline `points`** morph like `d` (§16).
+- **CSS extras**: `@media` (`all`, `screen`, `print` is skipped, `prefers-reduced-motion`; others fail), selectors with
+  `>` `+` `~` and descendant combinators, attribute selectors (`=` `~=` `^=` `$=` `*=`), `:first-child`,
+  `:last-child`, `:nth-child()`, `:nth-last-child()`, `:root`, `:not(simple)`, real specificity order, custom
+  properties with `var()` and fallbacks (inherited), and static `d: path()`.
+- **A tap to start** (`begin="click"`, `begin="id.click"`, and chains that start from them; Pavan: "follow the industry
+  standard"): the timing gets the `~w` option. On the phone a tap anywhere on the Svg starts it, and each tap plays it
+  again from the start ([ZnSvg.kt:2021](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:2021)). The tap
+  is counted, not taken, so a Pressable around the Svg still gets it. Before the first tap the part shows its rest
+  values. A tap mixed with a time (`begin="click;2s"`) fails with a hint. Other events (`mouseover`, `focusin`) fail.
+
+### Known limits fixed (Pavan: "sure fix it")
+
+1. **Trims on skewed shapes** (§15): a shape whose matrix doesn't keep shapes is measured on its transformed path.
+2. **Nested trims** (§15): they combine; a shape shows only what every trim above it shows
+   ([znTrimIntersect](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:1758)).
+3. **A dash of length 0 with a round cap** (§16): the part's `trimCaps` draws the dot.
+4. **Non-scaling stroke under an uneven scale** (§16): when the way from the shape to the screen stretches one axis
+   more than the other, the stroke is drawn in screen space at its dp width
+   ([screenStroke](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:1699)). Not inside a filter, a
+   mask's content or a pattern tile (those keep the average scale).
+5. **A group part's `strokeWidth` over a child's own width** (§16): the compiler gives such a child its own
+   `strokeWidth` ([pinWidths](../compiler/src/compile.ts:589)).
+
+### Speed (Pavan: "your call")
+
+- Draw data of 8 KB or more is read on a background thread after the first frame
+  ([prefetch](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvg.kt:688)), so a big SVG further down the
+  screen doesn't cost a main-thread parse when it first shows. An SVG drawn in the first frame still reads on first
+  draw (cold start stays the same, §13).
+- The part transform uses one shared matrix, and the effects reuse their paints, nodes and tiles.
+
+### Lab
+
+`zn://sample/dev/svg`, our own small files in `examples/sample/src/svg/r13/`, one feature each:
+- **Effects**: Shadow (drop shadow and `<text>` with ₹), Pattern (stripes faded by a gradient mask), Route (markers on a
+  dashed line), Blend (multiply).
+- **More motion** (in the Motion section, under the pause button's control): Along (an arrow that follows a curve and
+  turns with it), Clock (`steps(12)` and a `<set>` after 3 s), Flag (skews), Colours (animated stops), Star (points
+  morph), Tap me (`begin="click"`), CSS (`var()`, `:nth-child`, `:not`, `@media`).
+- **In a list**: every row's icon is the coin with the drop shadow.
+
+### Checked
+
+JS 829 tests (both corpora by name, exact encodings for each new rule, the refusals), both type checks, Kotlin 168
+(stop links, nested trims, tap timing, bad motion paths, the big-SVG list), lint (no new warnings), sample debug build.
+
+**On the Lava (Android 14, 90 Hz), 2026-11-03, debug and release:**
+- Every new tile draws and moves as in a browser: the shadow under the coin and its ₹, stripes faded by the mask, route
+  markers (the arrow follows the line's direction), multiply blend, the arrow along the curve turning with it, the clock in
+  12 steps and its `<set>` dot green after 3 s, the flag's skews, the ring's stop colours, the star morph, the CSS bars
+  (`:nth-child` delays, `:not` colour). A tap on the heart pops it and spreads the ring; each tap plays it again, and the
+  tile's own `onPress` gets the tap too. Pause holds every loop (0 frames in 8 s). With the three animation scales at 0
+  every tile shows its still state (0 frames; scales put back to 1.0). Force RTL: the layout flips, the SVGs don't
+  (no `autoMirror`); put back.
+- **Release:** the template file reads in 65 ms (480 ms in debug). 8 s with every loop on screen: 731 frames, 0 janky,
+  99th percentile 16 ms. Fast flings over the 60 shadowed list rows: 818 frames, 0 janky, 99th percentile 15 ms.
+- Accessibility tree: tiles read by their labels, the heart by its own. The SVG text became the label as planned, which
+  made every list row start with "₹"; the lab now hides that decorative coin (`accessibilityHidden`, guide §40).
+- **Found and fixed:** a filter's `RenderNode` lived in the parsed drawing, which every instance shares. A RenderNode is
+  drawn by reference, so the list's 32 dp coins showed the disc recorded for the 40 dp coin (wrong size and place). The
+  nodes now belong to each Svg node on screen and are freed when it leaves
+  ([ZnSvgFilterNodes](../android/runtime/src/main/java/dev/zeronative/runtime/ZnSvgEffects.kt:151)).
+
+**Not checked yet:** TalkBack itself (the tree only), and an older Android (the below-12 fallback).
+
+### Known limits
+
+- A loop with a delay shows its first keyframe during the delay (SMIL shows the base value). Only a single play gets
+  the base value first.
+- CSS `offset-path` coordinates are read in the parent's space; `offset-anchor` / `offset-position` other than `auto` fail.
+- `@media (prefers-reduced-motion: reduce)` rules are never used: "Remove animations" already shows the rest values
+  (§15).
+- Custom property names are read in lower case (CSS keeps their case).
+- A stroked shape whose size moves under a `frame` fails with a hint.
+- Text uses the phone's own fonts; a named font family falls back to sans-serif.

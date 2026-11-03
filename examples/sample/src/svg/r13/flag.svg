@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: skewX keyframes, so the flag waves on its pole. -->
+  <style>
+    .cloth { transform-origin: 12px 10px; animation: wave 1.2s ease-in-out infinite alternate; }
+    @keyframes wave { from { transform: skewX(0deg) skewY(-6deg); } to { transform: skewX(-8deg) skewY(6deg); } }
+  </style>
+  <path d="M12 6V42" stroke="#6B7280" stroke-width="3" stroke-linecap="round"/>
+  <g class="cloth">
+    <rect x="12" y="8" width="26" height="6" fill="#F97316"/>
+    <rect x="12" y="14" width="26" height="6" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="0.5"/>
+    <rect x="12" y="20" width="26" height="6" fill="#15803D"/>
+    <circle cx="25" cy="17" r="2" fill="none" stroke="#1E3A8A" stroke-width="0.8"/>
+  </g>
+</svg>

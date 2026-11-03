@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: mix-blend-mode. Where the circles cross, multiply makes a darker colour. -->
+  <circle cx="18" cy="20" r="11" fill="#F59E0B"/>
+  <circle cx="30" cy="20" r="11" fill="#3D26ED" style="mix-blend-mode: multiply" opacity="0.85"/>
+  <circle cx="24" cy="30" r="11" fill="#E11D48" style="mix-blend-mode: multiply" opacity="0.85"/>
+</svg>

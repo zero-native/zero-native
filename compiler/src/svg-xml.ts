@@ -13,8 +13,10 @@ export interface SvgNode {
   tag: string
   attrs: Map<string, SvgAttr>
   children: SvgNode[]
-  /** Text directly inside the element (only kept to refuse `<text>` / `<style>` content clearly). */
+  /** Text directly inside the element (all of it, for `<style>`; for checks elsewhere). */
   text: string
+  /** `<text>` and `<tspan>` only (registry 13): their text and child elements in document order. */
+  content?: Array<string | SvgNode>
   /** "file.svg:line:col" of the element. */
   at: string
 }
@@ -95,6 +97,7 @@ export function parseSvgXml(src: string, file: string): SvgNode {
     i++ // <
     const tag = nameAt()
     const node: SvgNode = { tag, attrs: new Map(), children: [], text: "", at: where(start) }
+    if (tag === "text" || tag === "tspan") node.content = []
     while (true) {
       skipWs()
       if (src.startsWith("/>", i)) {
@@ -137,17 +140,22 @@ export function parseSvgXml(src: string, file: string): SvgNode {
         const end = src.indexOf("]]>", i)
         if (end < 0) fail(i, "unclosed CDATA")
         node.text += src.slice(i + 9, end)
+        node.content?.push(src.slice(i + 9, end))
         i = end + 3
         continue
       }
       if (src[i] === "<") {
         if (skipSpecial()) continue
-        node.children.push(element())
+        const child = element()
+        node.children.push(child)
+        node.content?.push(child)
         continue
       }
       const next = src.indexOf("<", i)
       const end = next < 0 ? src.length : next
-      node.text += decode(src.slice(i, end), i)
+      const piece = decode(src.slice(i, end), i)
+      node.text += piece
+      node.content?.push(piece)
       i = end
     }
   }

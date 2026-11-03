@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 12
+    const val VERSION = 13
 
     object Component {
         const val COLUMN = 1
@@ -138,10 +138,26 @@ object Registry {
         const val HIGHLIGHT_COLOR = 146
         const val VIEW_NAME = 147
         const val VIEW_PROPS = 148
-        const val SELECTED = 149
-        const val REFRESHING = 170
-        const val REFRESH_COLOR = 171
-        const val REFRESH_BACKGROUND = 172
+        const val SVG = 180
+        const val PART = 181
+        const val FILL = 182
+        const val STROKE = 183
+        const val TRIM_START = 184
+        const val TRIM_END = 185
+        const val TRIM_OFFSET = 186
+        const val AUTO_MIRROR = 187
+        const val PIVOT_X = 188
+        const val PIVOT_Y = 189
+        const val PAUSED = 190
+        const val REPLAY = 191
+        const val STROKE_WIDTH = 192
+        const val DASH_OFFSET = 193
+        const val SCALE_OUTLINE = 194
+        const val MORPH = 195
+        const val MORPH_AT = 196
+        const val MOTION_PATH = 197
+        const val MOTION_AT = 198
+        const val SKEW_X = 199
         const val TRACK_COLOR = 200
         const val ACTIVE_TRACK_COLOR = 201
         const val THUMB_COLOR = 202
@@ -156,6 +172,9 @@ object Registry {
         const val ACCESSIBILITY_ROLE = 211
         const val ACCESSIBILITY_HIDDEN = 212
         const val MAX_FONT_SCALE = 213
+        const val SKEW_Y = 250
+        const val FRAME = 251
+        const val TRIM_CAPS = 252
     }
 
     object Event {
@@ -282,12 +301,12 @@ object Registry {
     }
 
     /** Every id this app knows: templates from an OTA bundle that use any other id are refused (TemplateReader). */
-    val COMPONENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24, 30)
-    val PROP_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 30, 31, 32, 33, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 90, 91, 92, 93, 94, 95, 100, 101, 102, 103, 104, 105, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 80, 81, 82, 83, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 170, 171, 172, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213)
+    val COMPONENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+    val PROP_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 30, 31, 32, 33, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 90, 91, 92, 93, 94, 95, 100, 101, 102, 103, 104, 105, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 80, 81, 82, 83, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 250, 251, 252)
     /** The value type of each prop in PROP_IDS (same order): 0 number, 1 size, 2 string, 3 color, 4 enum, 5 bool. */
-    val PROP_TYPES = intArrayOf(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 3, 0, 0, 3, 0, 4, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 2, 3, 0, 0, 4, 0, 0, 0, 4, 4, 2, 4, 2, 5, 5, 0, 0, 5, 2, 0, 0, 5, 3, 3, 0, 2, 5, 2, 5, 2, 2, 2, 3, 4, 5, 0, 5, 5, 4, 5, 4, 5, 3, 2, 2, 2, 4, 3, 0, 0, 5, 0, 0, 3, 2, 2, 0, 5, 3, 3, 3, 3, 3, 3, 0, 2, 4, 3, 0, 2, 2, 4, 5, 0)
-    val DYNAMIC_PROP_IDS = intArrayOf(50, 51, 40, 44, 90, 91, 92, 93, 94, 95, 60, 80, 23, 24, 25, 26, 118, 119, 123, 124, 132, 209, 148, 149, 170)
-    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 25, 30)
+    val PROP_TYPES = intArrayOf(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 3, 0, 0, 3, 0, 4, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 2, 3, 0, 0, 4, 0, 0, 0, 4, 4, 2, 4, 2, 5, 5, 0, 0, 5, 2, 0, 0, 5, 3, 3, 0, 2, 5, 2, 5, 2, 2, 2, 3, 4, 5, 0, 5, 5, 4, 5, 4, 5, 3, 2, 2, 2, 4, 3, 0, 0, 5, 0, 0, 3, 2, 2, 2, 0, 3, 3, 0, 0, 0, 5, 0, 0, 5, 0, 0, 0, 5, 2, 0, 2, 0, 0, 3, 3, 3, 3, 0, 2, 4, 3, 0, 2, 2, 4, 5, 0, 0, 2, 5)
+    val DYNAMIC_PROP_IDS = intArrayOf(50, 51, 40, 44, 90, 91, 92, 93, 94, 95, 60, 80, 23, 24, 25, 26, 118, 119, 123, 124, 132, 209, 148, 182, 183, 184, 185, 186, 190, 191, 192, 193)
+    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 30)
     /** Enum prop id → the values this app knows. */
     val ENUM_VALUES = mapOf(
         31 to intArrayOf(0, 1, 2, 3, 4, 5),

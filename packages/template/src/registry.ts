@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 12 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 13 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -18,9 +18,14 @@ export const REGISTRY_VERSION = 12 // 2: Anchor. 3: transforms, shadow, absolute
 //    accessibilityLabel, accessibilityRole, maxFontScale.
 // 9: NativeView, a plugin's Compose view inside a screen (docs/plugins.md §5): viewName, viewProps, onNativeEvent.
 // 10: TextField `ref` (RN basics pack): focus(), blur(), clear() from JS; focus changes come back on its event id.
-// 11: Tabs, a container that draws only its selected child (docs/guide-notes.md §40): selected.
-// 12: pull to refresh on a vertical Scroll and on List (docs/guide-notes.md §41): refreshing, refreshColor,
-//     refreshBackground, onRefresh.
+// 11: SVG (docs/svg.md): Svg, SvgPart, svg, part, fill, stroke (fill and stroke can change at runtime), autoMirror;
+//     trimStart / trimEnd / trimOffset, pivotX / pivotY. Timing options for every animation (format "timing.motion":
+//     delay, repeat, reverse, keyframes, cubic-bezier easing) and the element props paused / replay.
+// 12: SVG phase 3 (docs/svg.md §16): SvgPart strokeWidth / dashOffset (can change at runtime), scaleOutline,
+//     morph / morphAt (for animated .svg files).
+// 13: SVG phase 4 (docs/svg.md §17): draw data with masks, patterns, filters, text, focal gradients, paint-order and
+//     blend modes (format "svg.effects"); SvgPart motionPath / motionAt (animateMotion), skewX / skewY, frame,
+//     trimCaps; animations that start on a tap (format "timing.tap").
 
 export const Component = {
   Column: 1,
@@ -225,17 +230,49 @@ export const Prop = {
   viewName: { id: 147, type: "string" },
   /** <NativeView props={...}>: the props as JSON text. */
   viewProps: { id: 148, type: "string" },
-  /** <Tabs>: the position of the child to draw (default 0). */
-  selected: { id: 149, type: "number" },
-  // Pull to refresh (vertical Scroll, List). Ids from the middle of Claude's range, so a branch taking the next free id
-  // (150) doesn't clash.
-  /** Whether the list is refreshing (the spinner shows). Owned by JS: a pull sends onRefresh, JS sets this. */
-  refreshing: { id: 170, type: "bool" },
-  /** The spinner's arc (RN RefreshControl `colors[0]` / `tintColor`). Default: dark grey. */
-  refreshColor: { id: 171, type: "color" },
-  /** The round disc behind the arc (RN `progressBackgroundColor`). Default: white. */
-  refreshBackground: { id: 172, type: "color" },
-  // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief).
+  // SVG (docs/svg.md). Ids from the top of Claude's range, so a parallel branch taking the next free ids doesn't clash.
+  /** <Svg>: the draw data the compiler made from the SVG (format: compiler/src/svg-data.ts). */
+  svg: { id: 180, type: "string" },
+  /** <SvgPart>: which element of the parent Svg's draw list (its index among the draw data's shapes and groups). */
+  part: { id: 181, type: "number" },
+  /** <SvgPart>: replaces the fill of every shape in the part that has one. */
+  fill: { id: 182, type: "color" },
+  /** <SvgPart>: replaces the stroke of every shape in the part that has one. */
+  stroke: { id: 183, type: "color" },
+  /** <SvgPart>: "draw the line": the visible piece of the part's paths, as fractions 0–1 of their whole length. */
+  trimStart: { id: 184, type: "number" },
+  trimEnd: { id: 185, type: "number" },
+  /** <SvgPart>: moves the visible piece along the line (0–1; it wraps round). */
+  trimOffset: { id: 186, type: "number" },
+  /** <Svg>: flipped left to right when the layout is right to left (back arrows, chevrons). */
+  autoMirror: { id: 187, type: "bool" },
+  /** <SvgPart>: the point it turns and scales around, in viewBox units (the compiler writes the part's centre). */
+  pivotX: { id: 188, type: "number" },
+  pivotY: { id: 189, type: "number" },
+  /** Stops this element's own animations (loops, keyframes) where they are; false plays on (CSS play-state). */
+  paused: { id: 190, type: "bool" },
+  /** Each new value plays this element's own animations (loops, keyframes) again from the start. */
+  replay: { id: 191, type: "number" },
+  /** <SvgPart>: the stroke width of every shape in the part that has a stroke (viewBox units). */
+  strokeWidth: { id: 192, type: "number" },
+  /** <SvgPart>: moves the dash pattern of every dashed stroke in the part along its line (viewBox units). */
+  dashOffset: { id: 193, type: "number" },
+  /** <SvgPart> of one shape (set by the compiler): its scale changes the outline, and the stroke keeps its width. */
+  scaleOutline: { id: 194, type: "bool" },
+  /** <SvgPart> of one shape (set by the compiler): the keyframe paths it morphs through (docs/svg.md §15). */
+  morph: { id: 195, type: "string" },
+  /** <SvgPart>: where in [morph] it is (0 = the first path, 1.5 = half way from the second to the third); -1 = its own. */
+  morphAt: { id: 196, type: "number" },
+  /**
+   * <SvgPart> (registry 13, set by the compiler): a path to move along (animateMotion), with how the part turns on it:
+   * "ox oy angle mode;path" (svg-anim.ts). The part's origin (ox, oy) rides on the path.
+   */
+  motionPath: { id: 197, type: "string" },
+  /** <SvgPart>: where on [motionPath] it is, 0–1 of its length. */
+  motionAt: { id: 198, type: "number" },
+  /** <SvgPart>: skews around the pivot, in degrees (after rotate, before scale). */
+  skewX: { id: 199, type: "number" },
+  // 136-199: Claude (milestone 3). 200-249: Gemini (milestone 3 brief). 250-299: Claude (SVG phase 4 on).
   trackColor: { id: 200, type: "color" },
   activeTrackColor: { id: 201, type: "color" },
   thumbColor: { id: 202, type: "color" },
@@ -250,6 +287,15 @@ export const Prop = {
   accessibilityRole: { id: 211, type: "enum" },
   accessibilityHidden: { id: 212, type: "bool" },
   maxFontScale: { id: 213, type: "number" },
+  /** <SvgPart>: skews around the pivot, in degrees (after skewX). */
+  skewY: { id: 250, type: "number" },
+  /**
+   * <SvgPart> (set by the compiler): "a b c d e f", the space the part's own transforms happen in (its parent's, when
+   * that space is stretched): the part draws through frame · its transform · frame⁻¹.
+   */
+  frame: { id: 251, type: "string" },
+  /** <SvgPart> (set by the compiler): a trimmed piece of length 0 still draws its caps (an SVG dash of length 0). */
+  trimCaps: { id: 252, type: "bool" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -359,8 +405,15 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "editable",
   "accessibilityLabel",
   "viewProps",
-  "selected",
-  "refreshing",
+  "fill",
+  "stroke",
+  "trimStart",
+  "trimEnd",
+  "trimOffset",
+  "paused",
+  "replay",
+  "strokeWidth",
+  "dashOffset",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -388,11 +441,20 @@ export const Added: {
   /** A newer form of a string prop's value (key: a name in [Formats]). */
   format: Partial<Record<FormatName, number>>
 } = {
-  component: { NativeView: 9, Tabs: 11 },
-  prop: { viewName: 9, viewProps: 9, selected: 11, refreshing: 12, refreshColor: 12, refreshBackground: 12 },
-  dynamic: { viewProps: 9, selected: 11, refreshing: 12 },
+  component: { NativeView: 9, Svg: 11, SvgPart: 11 },
+  prop: {
+    viewName: 9, viewProps: 9, svg: 11, part: 11, fill: 11, stroke: 11, autoMirror: 11,
+    trimStart: 11, trimEnd: 11, trimOffset: 11, pivotX: 11, pivotY: 11, paused: 11, replay: 11,
+    strokeWidth: 12, dashOffset: 12, scaleOutline: 12, morph: 12, morphAt: 12,
+    motionPath: 13, motionAt: 13, skewX: 13, skewY: 13, frame: 13, trimCaps: 13,
+  },
+  dynamic: {
+    viewProps: 9, fill: 11, stroke: 11, trimStart: 11, trimEnd: 11, trimOffset: 11, paused: 11, replay: 11, strokeWidth: 12,
+    dashOffset: 12,
+  },
   enumValue: {},
-  event: { onNativeEvent: 9, ref: 10, onRefresh: 12 },
+  event: { onNativeEvent: 9, ref: 10 },
+  format: { "timing.motion": 11, "svg.nonScaling": 12, "svg.effects": 13, "timing.tap": 13 },
 }
 
 /**
@@ -402,6 +464,24 @@ export const Added: {
 export const Formats = {
   /** Timings with "~" options: delay, repeat, reverse, from, keyframes, times, cubic-bezier (see compiler timing()). */
   "timing.motion": { props: ["animate", "enter", "exit"] as PropName[], uses: (raw: string) => raw.includes("~") },
+  /**
+   * SVG draw data with a non-scaling stroke (docs/svg.md §16): a shape whose stroke width is negative. A false match
+   * (a path that looks like a shape op) only asks for a newer app than needed.
+   */
+  "svg.nonScaling": {
+    props: ["svg"] as PropName[],
+    uses: (raw: string) => /(?:^| )S (?:-|c|#[0-9A-F]{8}|@\d+) \S+ (?:c|#[0-9A-F]{8}|@\d+) \S+ [01] \S+ -\d/.test(raw),
+  },
+  /**
+   * SVG draw data with registry 13's ops (docs/svg.md §17): RF, SL, FL, PT, MK, X or T tokens, a pattern paint, or a
+   * shape whose rule says paint-order. A false match only asks for a newer app than needed.
+   */
+  "svg.effects": {
+    props: ["svg"] as PropName[],
+    uses: (raw: string) => /(?:^| )(?:RF|SL|FL|PT|MK|X|T) |(?:^| )%\d|(?:^| )S \S+ \S+ \S+ \S+ [23] /.test(raw),
+  },
+  /** Timings that start on a tap ("~w", SMIL begin="click"; docs/svg.md §17). */
+  "timing.tap": { props: ["animate"] as PropName[], uses: (raw: string) => /~w(?:[~;,]|$)/.test(raw) },
 } as const
 export type FormatName = keyof typeof Formats
 

@@ -77,7 +77,7 @@ object ZnTemplates {
     /** The file's templates, sharing one SVG cache: it lives as long as the bundle that holds them (ZnSvg.kt). */
     private fun templatesOf(f: TemplateFile): List<ZnTemplate> {
         val svgs = ZnSvgCache()
-        return f.templates.map { ZnTemplate(it, svgs) }
+        return f.templates.map { ZnTemplate(it, svgs) }.also { svgs.big = ZnSvgCache.bigOf(it) }
     }
 
     /** The template files loaded or loading (main thread): an update applied while the app runs reloads each. */

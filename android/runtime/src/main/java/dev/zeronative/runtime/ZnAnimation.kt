@@ -57,7 +57,8 @@ import kotlinx.coroutines.launch
  * "v" reverse, "g<ms>" repeat delay, "f<v>" from, "k<v>:<v>..." keyframes, "m<t>:..." times, "b<x1>:<y1>:<x2>:<y2>"
  * cubic-bezier (easing 4), "z<e>:<e>..." an easing per keyframe segment (from imported .svg animations: an easing id,
  * or "4,x1,y1,x2,y2"). A value is a number, or "#AARRGGBB" for backgroundColor. Easing 5 is a step: it holds, then
- * jumps at the end of its segment (SMIL calcMode="discrete", CSS step-end).
+ * jumps at the end of its segment (SMIL calcMode="discrete", CSS step-end). Registry 13: "w" waits for a tap on the
+ * Svg (SMIL begin="click"): the resting value until then, and each tap plays it again from the start.
  */
 internal class ZnTiming(
     private val ms: Int,
@@ -78,6 +79,8 @@ internal class ZnTiming(
     private val bezier: FloatArray? = null,
     /** An easing per keyframe segment, or null (every segment uses this timing's curve). */
     private val segments: List<Easing>? = null,
+    /** Starts on a tap on its Svg, not by itself ("w", registry 13). */
+    val waitsForTap: Boolean = false,
 ) {
     /** True when it plays by itself (when the element appears, and on replay), not when a value changes. */
     val selfPlaying = from != null || keyframes != null
@@ -115,6 +118,7 @@ internal class ZnTiming(
             var times: FloatArray? = null
             var bezier: FloatArray? = null
             var segments: List<Easing>? = null
+            var tap = false
             for (o in pieces.drop(1)) {
                 if (o.isEmpty()) continue
                 val v = o.substring(1)
@@ -122,6 +126,7 @@ internal class ZnTiming(
                     'd' -> delay = v.toIntOrNull() ?: return null
                     'r' -> plays = v.toIntOrNull() ?: return null
                     'v' -> reverse = true
+                    'w' -> tap = true
                     'g' -> gap = v.toIntOrNull() ?: return null
                     'f' -> from = v
                     'k' -> keys = v.split(':')
@@ -141,12 +146,12 @@ internal class ZnTiming(
                     val e = b.indexOf('e')
                     ZnTiming(b.substring(1, if (e > 0) e else b.length).toIntOrNull() ?: return null,
                         if (e > 0) b.substring(e + 1).toIntOrNull() ?: 0 else 0, 1f, 0f,
-                        delay, plays, reverse, gap, from, keys, times, bezier, segments)
+                        delay, plays, reverse, gap, from, keys, times, bezier, segments, tap)
                 }
                 b.startsWith("s") -> {
                     val parts = b.substring(1).split(',')
                     ZnTiming(-1, 0, parts.getOrNull(0)?.toFloatOrNull() ?: 0.75f, parts.getOrNull(1)?.toFloatOrNull() ?: 400f,
-                        delay, plays, reverse, gap, from, keys, times, bezier, segments)
+                        delay, plays, reverse, gap, from, keys, times, bezier, segments, tap)
                 }
                 else -> null
             }
@@ -172,6 +177,8 @@ internal class ZnAnimate(private val byProp: Map<Int, ZnTiming>, private val all
     fun timingFor(prop: Int): ZnTiming? = byProp[prop] ?: all
     /** Some prop has a loop or keyframes. */
     val selfPlaying = byProp.values.any { it.selfPlaying }
+    /** Some prop starts on a tap on the Svg (registry 13). */
+    val waitsForTap = byProp.values.any { it.waitsForTap } || all?.waitsForTap == true
 
     companion object {
         fun parse(s: String): ZnAnimate {
@@ -364,8 +371,11 @@ internal fun animatedColor(inst: ZnInstance, slot: Int, static: Color?, timing: 
 private fun motionColor(s: String): Color? =
     if (s.length == 9 && s[0] == '#') s.substring(1).toLongOrNull(16)?.let { Color(it.toInt()) } else null
 
-/** The element's `paused` and `replay`, read where the motion needs them (both can change at runtime). */
-internal class ZnMotionInputs(val paused: () -> Boolean, val replay: () -> Any?)
+/**
+ * The element's `paused` and `replay`, read where the motion needs them (both can change at runtime), and how many
+ * times its Svg was tapped (for timings that wait for a tap, registry 13).
+ */
+internal class ZnMotionInputs(val paused: () -> Boolean, val replay: () -> Any?, val taps: () -> Int = { 0 })
 
 @Composable
 internal fun znMotionInputs(s: ZnNodeSpec, inst: ZnInstance): ZnMotionInputs = remember(s, inst) {
@@ -383,10 +393,10 @@ internal fun znMotionInputs(s: ZnNodeSpec, inst: ZnInstance): ZnMotionInputs = r
  * the file, including its own SMIL / CSS animations (which have no part props of their own).
  */
 @Composable
-internal fun znMotionInputs(part: ZnNodeSpec, svg: ZnNodeSpec, inst: ZnInstance): ZnMotionInputs {
+internal fun znMotionInputs(part: ZnNodeSpec, svg: ZnNodeSpec, inst: ZnInstance, taps: () -> Int = { 0 }): ZnMotionInputs {
     val own = znMotionInputs(part, inst)
     val outer = znMotionInputs(svg, inst)
-    return remember(own, outer) { ZnMotionInputs({ own.paused() || outer.paused() }, { own.replay() to outer.replay() }) }
+    return remember(own, outer, taps) { ZnMotionInputs({ own.paused() || outer.paused() }, { own.replay() to outer.replay() }, taps) }
 }
 
 /** The phone's animation speed ("Animation duration scale" in developer options): 0 when animations are off. */
@@ -418,9 +428,15 @@ internal fun <T, V : AnimationVector> znMotion(
     val value = remember(t) { mutableStateOf(keys?.first() ?: from ?: rest()) }
     val off = remember(t) { mutableStateOf(false) }
     LaunchedEffect(t) {
-        // Keyframes don't depend on the resting value; `from` plays towards it, so a new one starts again.
-        val restart = if (keys != null) snapshotFlow { m.replay() } else snapshotFlow { m.replay() to rest() }
+        // Keyframes don't depend on the resting value; `from` plays towards it, so a new one starts again. A timing
+        // that waits for a tap also starts again on each tap.
+        val taps = { if (t.waitsForTap) m.taps() else 0 }
+        val restart = if (keys != null) snapshotFlow { m.replay() to taps() } else snapshotFlow { Triple(m.replay(), rest(), taps()) }
         restart.collectLatest {
+            if (t.waitsForTap && taps() == 0) {
+                off.value = true // the resting value until the first tap
+                return@collectLatest
+            }
             if (motionScale() == 0f) {
                 off.value = true
                 return@collectLatest

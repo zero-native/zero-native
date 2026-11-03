@@ -10,5 +10,5 @@ The files are unchanged copies; each set keeps its licence file next to it.
 | `svg-spinners/svg-css` | same repo, `svg-css/` | same | 46 (CSS `@keyframes`) |
 | `svg-loaders` | [SamHerbert/SVG-Loaders](https://github.com/SamHerbert/SVG-Loaders) `svg-loaders/`, commit `561eaca` | MIT, Sam Herbert (`svg-loaders/LICENSE.md`) | 12 (SMIL) |
 
-Fetched 2026-11-03. Expected result: 95 of 104 compile; the other 9 fail with a hint (filters, dash animations,
+Fetched 2026-11-03. Expected result at first: 95 of 104 compile; the other 9 failed with a hint (filters, dash animations,
 stroke width, and growing shapes that have a stroke). The test lists them by name, so a change shows up in review.

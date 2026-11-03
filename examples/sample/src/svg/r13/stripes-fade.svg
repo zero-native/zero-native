@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: a pattern fill, faded out by a gradient mask. -->
+  <defs>
+    <pattern id="stripes" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="3" height="6" fill="#3D26ED"/>
+    </pattern>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="soft">
+      <rect width="48" height="48" fill="url(#fade)"/>
+    </mask>
+  </defs>
+  <rect x="4" y="4" width="40" height="40" rx="10" fill="url(#stripes)" mask="url(#soft)"/>
+</svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: CSS steps(12) on the long hand, and SMIL <set> that turns the dot green after 3 s. -->
+  <style>
+    .hand { transform-origin: 24px 24px; animation: tick 6s steps(12) infinite; }
+    @keyframes tick { to { transform: rotate(360deg); } }
+  </style>
+  <circle cx="24" cy="24" r="18" fill="#FFFFFF" stroke="currentColor" stroke-width="3"/>
+  <path d="M24 24V11" stroke="currentColor" stroke-width="3" stroke-linecap="round" class="hand"/>
+  <path d="M24 24H31" stroke="#6B7280" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="24" cy="24" r="2.5" fill="#6B7280">
+    <set attributeName="fill" to="#15803D" begin="3s"/>
+  </circle>
+</svg>

@@ -260,8 +260,13 @@ const tabs = useTabs("home")
 
 | Prop | Type | Dynamic Slot | Description |
 |---|---|---|---|
-| `selected` | `number` | Yes | The position of the child to draw (default 0). Pass `tabs.index()`. |
-| `style` | `Style` | No | Usually `flex: 1`. Padding and gap don't apply to the panels: put them inside each panel. |
+| `size` | `number` | No | Width and height in dp. Or `style` width / height; with only one, the other comes from the viewBox. With none, the file's `width` / `height`, else the viewBox size. |
+| `style` | `Style` | As on any element | Size, margin, position; `opacity` and transforms can change at runtime. |
+| `color` | `Color` | Yes | The value of `currentColor`. The build fails if the SVG has none. |
+| `parts` | `{ [id]: { fill?, stroke?, opacity?, rotate?, scale?, scaleX?, scaleY?, translateX?, translateY?, trimStart?, trimEnd?, trimOffset?, strokeWidth?, dashOffset?, animate?, paused?, replay? } }` | Yes, per value (not `animate`) | Changes the element with that `id`. Unknown ids fail the build. `.svg` files only. Transforms are in viewBox units and degrees, around the part's own centre; trims are 0–1 of its line. `strokeWidth` / `dashOffset` (registry 12) are viewBox units. The build writes the names as types (`logo.d.svg.ts`, guide §40). |
+| `paused` / `replay` | `boolean` / `number` | Yes | On any element: stop its loops where they are; a new `replay` number plays them again. |
+| `autoMirror` | `boolean` | No | Flip left to right on right-to-left screens. |
+| `accessibilityLabel` / `accessibilityHidden` | `string` / `boolean` | As today | With a label, TalkBack reads it as an image; without, it is skipped. |
 
 ### Behaviour
 - Children are the panels, one per tab, in the route's `tabs` order.
@@ -270,22 +275,17 @@ const tabs = useTabs("home")
 - A `NativeView` in a panel that is not selected is made again when the panel comes back (a WebView reloads).
 - The tab bar is not part of it: it is the app's own JSX. Details: `docs/guide-notes.md` §40.
 
-## 11. Pull to refresh on `<Scroll>` and `<List>` (registry 12)
-
-A vertical `<Scroll>` and a `<List>` take these props. Not on `<Scroll horizontal>` (build error).
-
-| Prop | Type | Dynamic Slot | Description |
-|---|---|---|---|
-| `refreshing` | `boolean` | Yes | The spinner shows while true. Owned by JS: set it in `onRefresh`. |
-| `onRefresh` | `() => void` | (event) | A pull past the line ended. Without it there is no pull (only `refreshing` shows the spinner). |
-| `refreshColor` | `Color` | No | The arc. Default `#374151`. |
-| `refreshBackground` | `Color` | No | The round disc behind the arc. Default white. |
-| `refreshControl` | `<RefreshControl />` | No | React Native's shape; the compiler turns it into the props above. |
-
-### Behaviour
-- The disc slides down over the content (Android's look). The disc must come down 80 dp; it moves half as far as the
-  finger. Below that, letting go does nothing.
-- After the pull, the spinner shows at once and then follows `refreshing`. If `refreshing` is not true within 1 second,
-  it goes away.
-- A pull while the spinner shows does nothing. The pull runs natively: no JS until the finger is up.
-- Details and do / don't: `docs/guide-notes.md` §41.
+### When to Use
+- **Do:** icons, logos, illustrations, gradient cards, simple charts with a fixed shape.
+- **Don't:** text inside the SVG (use `<Text>` over it in a `<Stack>`), photos (`<Image>`), or a shape that changes with data every frame.
+- Phase 2 (not built): part transforms, "draw the line" trims, `animate` on parts.
+  **Update 2026-11-03: built** (`docs/svg.md` §9): spinners, pulse rings, gauges, a line that draws itself, a tick on a paid badge.
+- **Update 2026-11-03 (S.14):** an animated `.svg` file (SMIL `<animate>`, CSS `@keyframes`) plays as it is: the build turns its
+  motion into part animations. `paused` / `replay` on the component reach it; `parts` can't add a second `animate` to a part the
+  file already moves. Limits: `docs/svg.md` §15.
+  Try them on the SVG lab's Motion section.
+- **Update 2026-11-03 (phase 4, registry 13):** `.svg` files may use filters (blur, drop shadow), masks, patterns, markers,
+  blend modes, focal gradients, nested `<svg>`, `<switch>` and simple `<text>` (the TalkBack label when you set none);
+  animated files may move along a path, use `<set>`, `steps()`, skews, animated stops, `points` morphs, more CSS and
+  `begin="click"` (a tap on the Svg starts it). Below Android 12 a filter draws a plain shadow or nothing. Inline `<Svg>`
+  has none of the new elements yet: put such art in a `.svg` file. `docs/svg.md` §17; the lab's Effects and More motion rows.

@@ -28,6 +28,16 @@ class ZnAnimationTest {
     }
 
     @Test
+    fun tapToStart() {
+        // Registry 13: "~w" (SMIL begin="click") waits for a tap on the Svg; it still plays by itself after that.
+        val pop = ZnTiming.parse("t350e3~k1:1.25:1~m0:0.5:1~w")!!
+        assertEquals(true, pop.waitsForTap)
+        assertEquals(false, ZnTiming.parse("t350e3~k1:1.25:1~m0:0.5:1")!!.waitsForTap)
+        assertEquals(true, ZnAnimate.parse("44=t500e3~k0.8:0~m0:1~w;91=t350e3~k1:2~m0:1").waitsForTap)
+        assertEquals(false, ZnAnimate.parse("44=t500e3~k0.8:0~m0:1").waitsForTap)
+    }
+
+    @Test
     fun motionOptions() {
         // Old timings: nothing plays by itself.
         assertEquals(false, ZnTiming.parse("t250e0")!!.selfPlaying)

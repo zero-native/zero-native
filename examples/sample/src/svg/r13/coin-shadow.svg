@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: a drop shadow (filter) and SVG text. -->
+  <defs>
+    <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#3D26ED" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <circle cx="24" cy="22" r="15" fill="#F59E0B" filter="url(#shadow)"/>
+  <circle cx="24" cy="22" r="11.5" fill="none" stroke="#FDE68A" stroke-width="1.5"/>
+  <text x="24" y="28" font-size="16" font-weight="700" text-anchor="middle" fill="#FFFFFF">₹</text>
+</svg>

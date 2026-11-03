@@ -4,15 +4,37 @@
 //   data    = "Z1" vx vy vw vh aspect def* op*
 //   def     = "LG" x1 y1 x2 y2 spread mat stops          linear gradient (numbered from 0 with the RGs, in order)
 //           | "RG" cx cy r spread mat stops               radial gradient
-//           | "K" ("KP" rule path)+                       clip (numbered from 0, in order): the union of its paths
+//           | "RF" cx cy r fx fy fr spread mat stops      radial gradient with a focal circle (registry 13; numbered
+//                                                         with the LGs and RGs)
+//           | "SL" gradient stop part                     an animated stop (registry 13): stop number [stop] of
+//                                                         gradient [gradient] takes the colour of SvgPart [part] (a
+//                                                         part number after the ops'); written after the gradients,
+//                                                         in gradient order
+//           | "K" ("KP" rule path)+                      clip (numbered from 0, in order): the union of its paths
+//           | "FL" x0 y0 x1 y1 n prim{n} m shadow{m}      filter (registry 13; numbered from 0): see "Filters" below
+//           | "PT" x y w h mat op* "pt"                   pattern (registry 13; numbered from 0): one tile, x y w h in
+//                                                         the pattern's space, mat: that space → the shape's space;
+//                                                         the ops are in the pattern's space, cut to the tile
+//           | "MK" type region op* "mk"                   mask (registry 13; numbered from 0): type 0 luminance,
+//                                                         1 alpha; region: a clip number (in viewBox space) or -1;
+//                                                         the ops are in viewBox space
 //   op      = "G" opacity clip                            push a group: drawn in a layer when opacity < 1;
 //                                                         clip = a clip number, or -1
+//           | "X" opacity clip mask filter blend          push a group with effects (registry 13): mask and filter
+//                                                         numbers or -1; blend: 0 normal, else mix-blend-mode (below)
 //           | "g"                                         pop the group
 //           | "S" fill fillAlpha stroke strokeAlpha rule opacity stroke? mat path    a shape
-//   stroke  = width cap join miter n dash{n} dashOffset   only when the shape's stroke paint is not "-"
+//           | "T" x y anchor mat n run{n}                 text (registry 13): one line from x y (in the matrix's
+//                                                         space), anchor 0 start 1 middle 2 end for all its runs
+//   run     = fill fillAlpha stroke strokeAlpha opacity stroke? size weight italic family spacing baseline dx dy text
+//             size: font size; weight 100–900; italic 0 | 1; family 0 sans-serif 1 serif 2 monospace (the phone's
+//             own fonts); spacing: letter spacing; baseline 0 alphabetic 1 central 2 hanging; dx dy: moves the pen
+//             before the run (and for the runs after it); text: the characters, URI-encoded (no spaces)
+//   stroke  = width cap join miter n dash{n} dashOffset   only when the shape's stroke paint is not "-"; a negative
+//                                                         width: a non-scaling stroke, that many dp wide
 //   mat     = "0" | "1" a b c d e f                       x' = a*x + c*y + e, y' = b*x + d*y + f (SVG's order)
 //   stops   = n (offset color){n}                         offset 0–1, increasing
-//   paint   = "-" (none) | "c" (currentColor) | color | "@" n (gradient n)
+//   paint   = "-" (none) | "c" (currentColor) | color | "@" n (gradient n) | "%" n (pattern n, registry 13)
 //   color   = "#" AARRGGBB (8 hex digits, upper case)
 //   path    = SVG path data, then ";"                     one token, ends at the ";" (it may hold spaces)
 //             Commands M m L l H h V v C c S s Q q T t A a Z z, minified as in SVG files ("M9.5 15.1l8.4-8.4z":
@@ -20,8 +42,29 @@
 //             Compose's PathParser (as Icon does). Arcs appear only where no transform changed their shape.
 //   aspect  = 0–8: alignment (x + 3*y, x and y: 0 min, 1 mid, 2 max) with "meet"; 9–17: the same with "slice"
 //             (the box is clipped); 18: "none" (stretch)
-//   spread  = 0 pad | 1 reflect | 2 repeat; rule = 0 nonzero | 1 evenodd; cap = 0 butt | 1 round | 2 square;
+//   spread  = 0 pad | 1 reflect | 2 repeat; rule = 0 nonzero | 1 evenodd, plus 2 when the stroke is drawn before the
+//             fill (paint-order, registry 13); cap = 0 butt | 1 round | 2 square;
 //   join    = 0 miter | 1 round | 2 bevel
+//   blend   = 1 multiply 2 screen 3 overlay 4 darken 5 lighten 6 color-dodge 7 color-burn 8 hard-light 9 soft-light
+//             10 difference 11 exclusion 12 hue 13 saturation 14 color 15 luminosity
+//
+// Patterns and masks may hold groups, shapes and paints that use earlier patterns and masks: each one is written
+// after the ones it uses. Their ops have no part indexes.
+//
+// Filters (registry 13): x0 y0 x1 y1 is the filter region in viewBox space. Each primitive's result is numbered from 0;
+// `in` is an earlier result, -1 the group's own drawing (SourceGraphic) or -2 its alpha (SourceAlpha). The filter's
+// output is the last primitive. Lengths are in viewBox units, colours #AARRGGBB, all in sRGB.
+//   prim    = "b" in sx sy                                Gaussian blur (standard deviations)
+//           | "o" in dx dy                                offset
+//           | "f" color                                   flood (fills the region)
+//           | "m" in v{20}                                colour matrix, 4 rows of 5 (SVG's order and units)
+//           | "c" in in2 op                               composite: 0 over 1 in 2 out 3 atop 4 xor 5 plus
+//                                                         6 in2 minus in (feComposite arithmetic k2=-1 k3=1)
+//           | "B" in in2 blend                            blend (0 normal, else the blend list)
+//           | "M" n in{n}                                 merge
+//   shadow  = dx dy std color                             a plain drop shadow a phone draws under the group when it
+//                                                         can't run the filter (Android below 12); m = 0: it draws the
+//                                                         group without the filter
 //
 // Meaning:
 // - Coordinates are in the viewBox's space. All transforms are already applied to the coordinates, except a matrix on
@@ -38,7 +81,12 @@
 // - currentColor is the Svg node's `color` (default black).
 // - Numbers: decimal, optional "-", no exponent, at most 4 decimals.
 
-export type Paint = { kind: "none" } | { kind: "current" } | { kind: "color"; argb: number } | { kind: "gradient"; index: number }
+export type Paint =
+  | { kind: "none" }
+  | { kind: "current" }
+  | { kind: "color"; argb: number }
+  | { kind: "gradient"; index: number }
+  | { kind: "pattern"; index: number }
 
 /** An affine matrix in SVG's order [a, b, c, d, e, f]. */
 export type Matrix = [number, number, number, number, number, number]
@@ -57,7 +105,7 @@ export type PathCmd =
 
 export interface GradientDef {
   kind: "linear" | "radial"
-  /** linear: x1 y1 x2 y2; radial: cx cy r. */
+  /** linear: x1 y1 x2 y2; radial: cx cy r, plus fx fy fr when the focal circle is not the centre ("RF"). */
   coords: number[]
   spread: 0 | 1 | 2
   matrix: Matrix | null
@@ -75,10 +123,66 @@ export interface StrokeSpec {
   miter: number
   dashes: number[]
   dashOffset: number
+  /** vector-effect="non-scaling-stroke": [width] is in dp on screen (written as a negative width). */
+  nonScaling?: boolean
+}
+
+/** One filter primitive (see "Filters" above). */
+export type FilterPrim =
+  | { p: "b"; in: number; sx: number; sy: number }
+  | { p: "o"; in: number; dx: number; dy: number }
+  | { p: "f"; argb: number }
+  | { p: "m"; in: number; values: number[] }
+  | { p: "c"; in: number; in2: number; op: number }
+  | { p: "B"; in: number; in2: number; blend: number }
+  | { p: "M"; ins: number[] }
+
+export interface FilterDef {
+  region: [number, number, number, number]
+  prims: FilterPrim[]
+  shadows: Array<{ dx: number; dy: number; std: number; argb: number }>
+}
+
+export interface PatternDef {
+  /** The tile: x y w h in the pattern's space. */
+  tile: [number, number, number, number]
+  /** The pattern's space → the shape's space (the viewBox's, or the shape's own when it keeps a matrix). */
+  matrix: Matrix | null
+  ops: DrawOp[]
+}
+
+export interface MaskDef {
+  luminance: boolean
+  /** A clip number (the mask region, in viewBox space), or -1. */
+  region: number
+  ops: DrawOp[]
+}
+
+/** Patterns and masks, in the order they are written (each after the ones it uses). */
+export type EffectDef = ({ kind: "pattern" } & PatternDef) | ({ kind: "mask" } & MaskDef)
+
+/** One run of a text op: a piece of the line in one style. */
+export interface TextRun {
+  fill: Paint
+  fillAlpha: number
+  stroke: Paint
+  strokeAlpha: number
+  opacity: number
+  strokeSpec: StrokeSpec | null
+  size: number
+  weight: number
+  italic: boolean
+  family: 0 | 1 | 2
+  spacing: number
+  baseline: 0 | 1 | 2
+  dx: number
+  dy: number
+  text: string
 }
 
 export type DrawOp =
-  | { op: "group"; opacity: number; clip: number; children: DrawOp[] }
+  | { op: "group"; opacity: number; clip: number; mask?: number; filter?: number; blend?: number; children: DrawOp[] }
+  | { op: "text"; x: number; y: number; anchor: 0 | 1 | 2; matrix: Matrix | null; runs: TextRun[] }
   | {
       op: "shape"
       fill: Paint
@@ -86,6 +190,8 @@ export type DrawOp =
       stroke: Paint
       strokeAlpha: number
       rule: 0 | 1
+      /** paint-order: the stroke is drawn before the fill. */
+      strokeFirst?: boolean
       opacity: number
       strokeSpec: StrokeSpec | null
       matrix: Matrix | null
@@ -97,6 +203,10 @@ export interface DrawData {
   aspect: number
   gradients: GradientDef[]
   clips: ClipDef[]
+  filters?: FilterDef[]
+  effects?: EffectDef[]
+  /** Animated gradient stops (registry 13): [gradient, stop, part], sorted by gradient. */
+  stopLinks?: Array<[number, number, number]>
   ops: DrawOp[]
 }
 
@@ -257,6 +367,8 @@ function paint(p: Paint): string {
       return hex(p.argb)
     case "gradient":
       return `@${p.index}`
+    case "pattern":
+      return `%${p.index}`
   }
 }
 
@@ -276,7 +388,7 @@ export function writeDrawData(d: DrawData, decimals: number): string {
   d.viewBox.forEach(n)
   out.push(String(d.aspect))
   for (const g of d.gradients) {
-    out.push(g.kind === "linear" ? "LG" : "RG")
+    out.push(g.kind === "linear" ? "LG" : g.coords.length > 3 ? "RF" : "RG")
     g.coords.forEach(n)
     out.push(String(g.spread))
     mat(g.matrix)
@@ -286,6 +398,7 @@ export function writeDrawData(d: DrawData, decimals: number): string {
       out.push(hex(s.argb))
     }
   }
+  for (const [g, s, p] of d.stopLinks ?? []) out.push("SL", String(g), String(s), String(p))
   for (const c of d.clips) {
     out.push("K")
     for (const p of c.paths) {
@@ -293,11 +406,80 @@ export function writeDrawData(d: DrawData, decimals: number): string {
       path(p.path)
     }
   }
+  for (const f of d.filters ?? []) {
+    out.push("FL")
+    f.region.forEach(n)
+    out.push(String(f.prims.length))
+    for (const p of f.prims) {
+      out.push(p.p)
+      switch (p.p) {
+        case "b":
+          out.push(String(p.in)), n(p.sx), n(p.sy)
+          break
+        case "o":
+          out.push(String(p.in)), n(p.dx), n(p.dy)
+          break
+        case "f":
+          out.push(hex(p.argb))
+          break
+        case "m":
+          out.push(String(p.in))
+          p.values.forEach(a)
+          break
+        case "c":
+          out.push(String(p.in), String(p.in2), String(p.op))
+          break
+        case "B":
+          out.push(String(p.in), String(p.in2), String(p.blend))
+          break
+        case "M":
+          out.push(String(p.ins.length), ...p.ins.map(String))
+          break
+      }
+    }
+    out.push(String(f.shadows.length))
+    for (const s of f.shadows) {
+      n(s.dx), n(s.dy), n(s.std)
+      out.push(hex(s.argb))
+    }
+  }
+  const strokeOut = (s: StrokeSpec) => {
+    n(s.nonScaling ? -s.width : s.width)
+    out.push(String(s.cap), String(s.join))
+    a(s.miter)
+    out.push(String(s.dashes.length))
+    s.dashes.forEach(n)
+    n(s.dashOffset)
+  }
   const op = (o: DrawOp) => {
+    if (o.op === "text") {
+      out.push("T")
+      n(o.x), n(o.y)
+      out.push(String(o.anchor))
+      mat(o.matrix)
+      out.push(String(o.runs.length))
+      for (const r of o.runs) {
+        out.push(paint(r.fill))
+        a(r.fillAlpha)
+        out.push(paint(r.stroke))
+        a(r.strokeAlpha)
+        a(r.opacity)
+        if (r.stroke.kind !== "none") strokeOut(r.strokeSpec!)
+        n(r.size)
+        out.push(String(r.weight), r.italic ? "1" : "0", String(r.family))
+        n(r.spacing)
+        out.push(String(r.baseline))
+        n(r.dx), n(r.dy)
+        out.push(encodeURIComponent(r.text))
+      }
+      return
+    }
     if (o.op === "group") {
-      out.push("G")
+      const fx = (o.mask ?? -1) >= 0 || (o.filter ?? -1) >= 0 || (o.blend ?? 0) !== 0
+      out.push(fx ? "X" : "G")
       a(o.opacity)
       out.push(String(o.clip))
+      if (fx) out.push(String(o.mask ?? -1), String(o.filter ?? -1), String(o.blend ?? 0))
       o.children.forEach(op)
       out.push("g")
       return
@@ -306,19 +488,24 @@ export function writeDrawData(d: DrawData, decimals: number): string {
     a(o.fillAlpha)
     out.push(paint(o.stroke))
     a(o.strokeAlpha)
-    out.push(String(o.rule))
+    out.push(String(o.rule + (o.strokeFirst ? 2 : 0)))
     a(o.opacity)
-    if (o.stroke.kind !== "none") {
-      const s = o.strokeSpec!
-      n(s.width)
-      out.push(String(s.cap), String(s.join))
-      a(s.miter)
-      out.push(String(s.dashes.length))
-      s.dashes.forEach(n)
-      n(s.dashOffset)
-    }
+    if (o.stroke.kind !== "none") strokeOut(o.strokeSpec!)
     mat(o.matrix)
     path(o.path)
+  }
+  for (const e of d.effects ?? []) {
+    if (e.kind === "pattern") {
+      out.push("PT")
+      e.tile.forEach(n)
+      mat(e.matrix)
+      e.ops.forEach(op)
+      out.push("pt")
+    } else {
+      out.push("MK", e.luminance ? "0" : "1", String(e.region))
+      e.ops.forEach(op)
+      out.push("mk")
+    }
   }
   d.ops.forEach(op)
   return out.join(" ")

@@ -1295,35 +1295,84 @@ async function refresh() {
 <List data={stores()} key={(s) => s.id} row={(s) => <StoreRow s={s} />}
   refreshing={refreshing()} onRefresh={() => void refresh()} refreshColor={c.primary} />
 ```
-React Native's shape works too, so a ported screen keeps its code:
+
+The compiler reads every SVG at build time and puts compact draw data in the bundle. The phone never reads XML, and an OTA can add or change SVGs.
+- **Do** use `.svg` files for icons and pictures; `Icon` stays for old code. **Why:** a `.svg` file is what designers hand over, and the build checks it.
+- **Know:** an imported SVG is a build-time name, not a value. `icon={<Logo />}` works; `icon={Logo}` or `const all = { Logo }` fails the build.
+- **Do** add `fill="currentColor"` where the colour should change. **Know:** Material Symbols files come with no fill (that means black), so
+  `color` fails the build on them until you add it to the `<svg>`. **Why:** a `color` that silently does nothing is worse than a build error.
+- **Do** give an element an `id` to change it at runtime: `parts={{ id: { fill, stroke, opacity } }}`. A part's `fill` / `stroke` repaints every
+  shape inside it. A wrong id fails the build and lists the ids the file has.
+- **Inline `<Svg>`:** the same names as react-native-svg. Geometry is fixed at build time: `cx={x()}` fails. Only `fill`, `stroke` and `opacity`
+  may change; such an element becomes a part by itself. `.map` works over a `const` array; `cond && <X />` doesn't: use `opacity`.
+- **Don't** put text in an SVG. **Do** put a zn `<Text>` over it in a `<Stack>`. **Why:** real text follows the font size and TalkBack reads it.
+- **Know the limit:** no `<image>`, `<pattern>`, filters (blur, shadow), `<style>` / CSS classes, SMIL, markers, nested `<svg>`,
+  `non-scaling-stroke`. The build says which and how to fix it. A mask of plain white shapes is fine (it becomes a clip).
+  (Since S.14 and phase 3: plain CSS rules, SMIL and `non-scaling-stroke` work; since phase 4, in `.svg` files: patterns,
+  filters, markers, nested `<svg>`, any mask and simple `<text>`; see below.)
+- **Do** add `accessibilityLabel` when the SVG means something; without one TalkBack skips it. **Do** use `autoMirror` on arrows and chevrons.
+- **Know:** colours inside an SVG don't follow dark mode. **Do** pass theme colours through `color` or `parts` with `scheme(...)`.
+- Each distinct SVG is parsed once, the first time it is drawn, and shared by every place that shows it, list rows too.
+
+**Moving parts (phase 2):**
 ```tsx
 import { RefreshControl } from "@zero-native/ui"
 <List ... refreshControl={<RefreshControl refreshing={refreshing()} onRefresh={onRefresh} colors={[PRIMARY]} tintColor={PRIMARY} />} />
 ```
-The compiler turns it into the props above: `colors[0]` (or `tintColor` when there is no `colors`) becomes
-`refreshColor`, `progressBackgroundColor` becomes `refreshBackground`. Any other `RefreshControl` prop is a build error.
-Example: all four tabs of [TabsLab.tsx](../examples/sample/src/TabsLab.tsx) (two use each shape).
+- **Do** move parts with `rotate`, `scale`, `translateX` / `translateY` and the trims. A part turns and scales around its own centre.
+  **Know:** move and translate values are in the SVG's viewBox units, not dp. **Why:** the same SVG at 24 dp and 96 dp moves the same way.
+- **Do** "draw the line" with `trimEnd` from 0 to 1 (`trimStart` / `trimOffset` for a moving piece). **Know:** trims cut the fill too, and
+  a group's shapes count as one line, in the order they are drawn.
+- **Do** put `animate` in the part (static only), and `paused` / `replay` like on any element. On inline `<Svg>`, the same props go on the
+  element itself and make it a part.
+- **Don't** expect a downloaded animated `.svg` (SMIL `<animate>`, CSS `@keyframes`) to play: the build refuses it and says so.
+  Rebuild the motion with parts + `animate`.
+  **Update (S.14):** most of them now play as they are: `import Spinner from "./spinner.svg"`, then
+  `<Spinner size={24} color={c.primary} paused={done()} />`. 95 of 104 loaders from two popular sets work.
+  - **Do** add `fill="currentColor"` to the file's `<svg>` when `color` should tint it (most loader files have no fill).
+  - **Know:** `paused` / `replay` on the SVG reach the file's own motion. Its parts are named by the build; `parts` can still
+    change an element that has an `id` (colour, opacity), but not give it a second `animate`.
+  - **Know the limit:** filters, moving along a path, morphing `d`, stroke width or dash animation, a growing shape with a
+    stroke, and click triggers fail the build with a hint. **Why:** each of those would draw differently from the browser.
+  - **Know:** with "Remove animations" on, the file shows its own still state, which is sometimes empty (a loader whose
+    pieces start at opacity 0). Show a plain "Loading…" text next to it if that matters.
+  - **Update (phase 3, registry 12):** 100 of 104 now play: also morphing `d` (keyframes with the same commands), stroke
+    width, dash tricks (one dash with a long gap, or a fixed pattern that moves), and stroked shapes that grow (the stroke
+    keeps its width, as in the browser). Still refused: filters (the "gooey" loaders), moving along a path, click triggers.
+    (Phase 4: all three work now; 104 of 104 play. See below.)
+    **Do** use `stroke="currentColor"` on line loaders (most come black or white), like `fill` above.
 
-**How it behaves.**
-- The pull starts when the content is at its top and the finger keeps going down. A round disc with an arc slides down
-  over the content (Android's look: the content doesn't move). The arc grows with the pull and turns solid when letting
-  go would refresh. The disc must come down 80 dp, and it moves half as far as the finger.
-- When you let go past that point, `onRefresh` runs and the spinner shows at once. From then on it follows `refreshing`:
-  it stays while `refreshing` is true, and slides away when it goes back to false.
-- If `refreshing` is not set to true within 1 second of the pull, the spinner goes away by itself.
-- `refreshing={true}` without a pull shows the spinner too (for a first load).
-- While the spinner shows, a new pull does nothing: the list scrolls as usual.
-- Pulling works only when `onRefresh` is set.
-- No JS runs during the pull, only when the finger is up. A pull costs no frames.
+**Strokes, part names (phase 3, registry 12, docs/svg.md §16):**
+```tsx
+<Ring parts={{ arc: { strokeWidth: busy() ? 3 : 2, animate: 200 } }} />   // viewBox units, can change at runtime
+<Route parts={{ dashes: { dashOffset: 0, animate: { dashOffset: { duration: 800, from: 8, repeat: "forever", easing: "linear" } } } }} />
+```
+- **Do** set `strokeWidth` / `dashOffset` in `parts` of an `.svg` file. **Know:** on inline `<Svg>`, `strokeWidth` stays the
+  plain SVG attribute (fixed at build time).
+- **Do** use `vector-effect="non-scaling-stroke"` in a file when a line must stay the same thickness at every size (a chart
+  line in a card and full screen). The width is then dp. **Know:** dashes on such a stroke fail the build.
+- **Do** let the editor help with part names: the build writes `logo.d.svg.ts` next to each imported `.svg`, so `parts`
+  autocompletes and a typo is a type error. **Do** add `"allowArbitraryExtensions": true` to the app's tsconfig and
+  `*.d.svg.ts` to `.gitignore`. **Know:** before the first build any name type-checks; the build still checks it.
 
-**Do / don't.**
-- **Do** set `refreshing` to true in `onRefresh`, and back to false when the data is in (also on errors: use `finally`).
-  **Why:** the spinner follows it. If you never set it, the spinner goes away after 1 second, before your data arrives.
-- **Do** skip a second refresh while one runs (`if (refreshing()) return`). A pull can't start one, but your own code
-  (a reload on focus) can.
-- **Don't** keep the `<RefreshControl>` in a variable (`const rc = <RefreshControl/>`, as RN code often does). Write it
-  inside `refreshControl={...}`. **Why:** the compiler reads it there, at build time.
-- **Don't** put pull to refresh on `<Scroll horizontal>`: it is a build error.
-- **Know:** one colour only. RN's `colors` array (colours that take turns) uses its first colour.
-- **Know:** the content doesn't move down with the pull, as on Android. On iOS it will (SwiftUI's own refresh).
-- **Know:** TalkBack has no pull gesture (the same as in RN). If reloading matters, give screen reader users a button.
+**Effects, text and more motion (phase 4, registry 13, docs/svg.md §17):**
+- **Do** use files with filters (blur, drop shadow, colour matrix), masks, patterns, markers, blend modes, `paint-order`,
+  nested `<svg>`, `<switch>` and focal radial gradients as the designer exported them. **Know:** below Android 12 a filter
+  is not run: the group is drawn sharp, with a plain drop shadow when the filter had one. **Why:** Android has no filter
+  engine before 12; a missing shadow is better than a wrong blur. Don't put meaning in a blur alone.
+- **Do** keep a blur or shadow small and off long lists when you can. **Know:** each filtered SVG draws in its own layer.
+  The lab list has one in all 60 rows, so check yours there first on a low-end phone.
+- **Know:** simple SVG `<text>` works now (one line, the phone's own sans, serif or mono font, no `rotate` or `<textPath>`).
+  The joined text is the TalkBack label unless you set one. **Do** set `accessibilityHidden` on such an SVG when it is
+  decoration (a ₹ on a coin in every list row). **Why:** TalkBack would read "₹" before each row. **Still do** use a zn `<Text>` over the SVG for anything
+  people read: it follows the user's font size and language; SVG text doesn't.
+- **Do** use downloaded files that move along a path (`<animateMotion>`, CSS `offset-path`), use `<set>`, `steps()`, skews,
+  animated gradient stops, `points` morphs or CSS `var()` / `:nth-child()` / `@media`: they compile now. 104 of 104
+  corpus loaders play.
+- **Do** use `begin="click"` in a file for a small "tap to play" effect (a heart that pops). **Know:** a tap anywhere on the
+  Svg starts it, and each tap starts it again; a `Pressable` around the Svg still gets the tap. **Don't** use it as the
+  only way to do something: it has no TalkBack action. Use a `Pressable` with `replay` for real actions.
+- **Know:** `@media (prefers-reduced-motion: reduce)` rules in a file are skipped. "Remove animations" already shows each
+  file's still state.
+- **Know:** a big `.svg` (8 KB of draw data or more) is read in the background after the first frame, so one further down
+  the screen costs nothing on the main thread. One on the first frame is read when it is first drawn, as before.

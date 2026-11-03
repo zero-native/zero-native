@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: markers (a dot at the start, an arrow at the end) on a dashed route. -->
+  <defs>
+    <marker id="dot" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5">
+      <circle cx="5" cy="5" r="4" fill="#15803D"/>
+    </marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M1 1L9 5L1 9z" fill="#3D26ED"/>
+    </marker>
+  </defs>
+  <path d="M8 40C8 24 40 28 40 10" fill="none" stroke="#3D26ED" stroke-width="2.5" stroke-dasharray="4 3"
+    stroke-linecap="round" marker-start="url(#dot)" marker-end="url(#arrow)"/>
+</svg>

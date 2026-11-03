@@ -13,6 +13,7 @@
 //     object become slots like any prop
 //   - children: elements, `{cond && <X/>}`, `{cond ? <A/> : <B/>}`, `{list.map(item => <Row key={...}/>)}`;
 //     inside <Text>: literal text and `{expressions}`
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, resolve as resolvePath } from "node:path"
 import ts from "typescript"
 import {
@@ -68,8 +69,49 @@ type JsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment
 // Animation (step 3.6): what `animate` can name, and the easings a tween can use (index = native easing id).
 const ANIMATABLE = ["opacity", "backgroundColor", "scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"]
 const EASINGS = ["standard", "ease-out", "ease-in", "linear"]
-// Pull to refresh (guide notes §41): only on a vertical Scroll and on List.
-const REFRESH_PROPS = ["refreshing", "onRefresh", "refreshColor", "refreshBackground"]
+
+// SVG (docs/svg.md): react-native-svg element names inside <Svg> → SVG tags.
+const SVG_TAGS: Record<string, string> = {
+  G: "g", Path: "path", Rect: "rect", Circle: "circle", Ellipse: "ellipse", Line: "line", Polyline: "polyline",
+  Polygon: "polygon", Defs: "defs", LinearGradient: "linearGradient", RadialGradient: "radialGradient", Stop: "stop",
+  ClipPath: "clipPath", Mask: "mask", Use: "use", Symbol: "symbol",
+  // Refused by the SVG compiler with a hint; named here so the message is about SVG, not about zn's own Text / Image.
+  Text: "text", TSpan: "tspan", TextPath: "textPath", Image: "image", Pattern: "pattern",
+}
+/** SVG attributes that are camelCase in SVG itself; every other camelCase prop becomes kebab-case (strokeWidth). */
+const SVG_CAMEL = new Set([
+  "viewBox", "gradientUnits", "gradientTransform", "spreadMethod", "clipPathUnits", "preserveAspectRatio", "maskUnits",
+  "maskContentUnits", "patternUnits", "patternContentUnits", "patternTransform",
+])
+/** What a part (and an inline element's runtime value) can set at runtime. */
+const PART_PROPS = ["fill", "stroke", "opacity"] as const
+/**
+ * What else a part can have (docs/svg.md §9, registry 11): transforms around the part's own centre (viewBox units,
+ * degrees), "draw the line" trims (0–1 of its length), and its own animate / paused / replay. Static or runtime.
+ */
+const PART_MOTION = [
+  "rotate", "scale", "scaleX", "scaleY", "translateX", "translateY", "trimStart", "trimEnd", "trimOffset",
+  "animate", "paused", "replay",
+] as const
+/**
+ * What a part of an .svg file can also set (registry 12, docs/svg.md §16): the stroke width and dash offset of the
+ * strokes inside it (viewBox units). Not on inline elements: there strokeWidth is the SVG attribute.
+ */
+const FILE_PART_PROPS = ["strokeWidth", "dashOffset"] as const
+const PART_ANIMATABLE = [
+  "opacity", "fill", "stroke", "rotate", "scale", "scaleX", "scaleY", "translateX", "translateY", "trimStart", "trimEnd", "trimOffset",
+  "strokeWidth", "dashOffset",
+]
+const PART_TURNS = ["rotate", "scale", "scaleX", "scaleY"]
+/** Props of the Svg node itself (`.svg` component or inline <Svg>), besides style and the SVG content. */
+const SVG_NODE_PROPS = [
+  "color", "autoMirror", "accessibilityLabel", "accessibilityHint", "accessibilityHidden", "accessibilityRole", "paused", "replay",
+]
+
+/**
+ * [svgImports]: local names that are .svg files (absolute path), imported directly or through a `.ts` file that
+ * re-exports them (plugin.ts finds both). `<Name .../>` becomes an Svg node; the name is not a JS value.
+ */
 export function compileModule(
   source: string,
   fileName: string,
@@ -478,6 +520,10 @@ export function compileModule(
       props.aspectRatio = svg.width / svg.height
     }
     props.svg = svg.data
+    // SVG <text> is read out by TalkBack, as a browser reads it (registry 13), unless the screen names it itself.
+    if (svg.text && props.accessibilityLabel === undefined && props.accessibilityHidden === undefined) {
+      props.accessibilityLabel = svg.text
+    }
     b.nodes += parts.length // SvgPart children, in tree order right after the Svg node
     return el("Svg", props, ...parts)
   }
@@ -490,6 +536,7 @@ export function compileModule(
     }
     const path = svgImports.get(tag)!
     const svg = svgCompile(() => (ctx.svg ? ctx.svg(path) : compileSvgFile(path)), node)
+    writeSvgTypes(path, svg)
     b.nodes++
     const props: NodeProps & Record<string, unknown> = {}
     const parts: NodeSpec[] = []
@@ -518,9 +565,8 @@ export function compileModule(
         for (const q of (value as ts.ObjectLiteralExpression).properties) {
           if (!ts.isPropertyAssignment(q)) fail(q, "write part values as fill: ..., opacity: ...")
           const k = (q as ts.PropertyAssignment).name.getText(sf)
-          if (!(PART_PROPS as readonly string[]).includes(k) && !(PART_MOTION as readonly string[]).includes(k)) {
-            fail(q, `a part can set ${[...PART_PROPS, ...PART_MOTION].join(", ")}, not "${k}"`)
-          }
+          const allowed: readonly string[] = [...PART_PROPS, ...PART_MOTION, ...FILE_PART_PROPS]
+          if (!allowed.includes(k)) fail(q, `a part can set ${allowed.join(", ")}, not "${k}"`)
           partProp(partProps, b, k, (q as ts.PropertyAssignment).initializer, q)
         }
         partPivot(partProps, svg, index!)
@@ -540,7 +586,29 @@ export function compileModule(
       if ("animate" in own) fail(node, `part "${id}" is already animated by the .svg file itself: remove its animate (paused and replay still work)`)
       for (const [k, v] of Object.entries(motion)) if (k === "pivotX" || k === "pivotY" || !(k in own)) own[k] = v
     }
+    pinWidths(parts, svg)
     return svgNode(node, svg, props, parts, b)
+  }
+
+  /**
+   * A strokeWidth on a group part leaves alone a child that set its own stroke-width, as SVG does (registry 13): that
+   * child gets a part of its own with its width, which wins over the group's.
+   */
+  function pinWidths(parts: NodeSpec[], svg: CompiledSvg) {
+    const widthKey = `${Prop.strokeWidth.id}=`
+    const sets = (i: number) =>
+      parts.some((p) => {
+        const q = p.props as Record<string, unknown>
+        if (q.part !== i) return false
+        const anim = typeof q.animate === "string" ? q.animate : ""
+        return "strokeWidth" in q || anim.startsWith("*=") || anim.split(";").some((e) => e.startsWith(widthKey))
+      })
+    for (const pin of svg.widthPins) {
+      if (!pin.above.some(sets) || pin.below.some(sets)) continue
+      const mine = parts.find((p) => (p.props as Record<string, unknown>).part === pin.shape)
+      if (!mine) parts.push(el("SvgPart", { part: pin.shape, strokeWidth: pin.width } as NodeProps))
+      else if (!sets(pin.shape)) (mine.props as Record<string, unknown>).strokeWidth = pin.width
+    }
   }
 
   /** One value on an SvgPart: `animate` is checked against what a part can animate; the rest as any prop. */
@@ -630,7 +698,7 @@ export function compileModule(
       }
       for (const child of ts.isJsxElement(jsx) ? jsx.children : []) {
         if (ts.isJsxText(child)) {
-          if (child.text.trim() !== "") fail(child, "text inside <Svg> isn't supported (SVG text isn't either): put a <Text> over the SVG in a <Stack>")
+          if (child.text.trim() !== "") fail(child, "text inside <Svg> isn't supported: put a <Text> over the SVG in a <Stack> (a .svg file may use simple <text>)")
         } else if (ts.isJsxExpression(child)) {
           if (!child.expression) continue
           const e = unwrap(child.expression)
@@ -1433,6 +1501,33 @@ export function compileModule(
 }
 
 // ---- Helpers ------------------------------------------------------------------------------------------------------
+
+/** What each `.d.svg.ts` written in this process holds, so it is written again only when it changes. */
+const svgTypes = new Map<string, string>()
+
+/**
+ * Writes `logo.d.svg.ts` next to `logo.svg` (docs/svg.md §16): the file's part names as a type, so `parts`
+ * autocompletes in the editor (TypeScript's allowArbitraryExtensions). Made again on every build; never committed.
+ * A folder that can't be written (a read-only checkout) only loses the types.
+ */
+function writeSvgTypes(path: string, svg: CompiledSvg) {
+  const names = [...svg.parts.keys()].filter((k) => !k.startsWith("zn-anim-")).sort()
+  const file = path.replace(/\.svg$/i, ".d.svg.ts")
+  const base = path.slice(path.replace(/\\/g, "/").lastIndexOf("/") + 1)
+  const text =
+    `// Made by the zero-native build from ${base}: its part names, for \`parts\` (docs/svg.md §16). Don't edit or commit.\n` +
+    `import type { SvgFile } from "@zero-native/ui"\n` +
+    `declare const svg: SvgFile<${names.length > 0 ? names.map((n) => JSON.stringify(n)).join(" | ") : "never"}>\n` +
+    `export default svg\n`
+  if (svgTypes.get(file) === text) return
+  svgTypes.set(file, text)
+  try {
+    if (existsSync(file) && readFileSync(file, "utf8") === text) return
+    writeFileSync(file, text)
+  } catch {
+    // No types; the build still checks the part names.
+  }
+}
 
 function isCapitalized(name: string) {
   return /^[A-Z]/.test(name)
