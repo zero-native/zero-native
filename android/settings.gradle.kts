@@ -25,3 +25,5 @@ for (name in listOf("scanner", "media", "auth", "webview")) {
 }
 include(":plugin-pdf")
 project(":plugin-pdf").projectDir = file("../plugins/pdf/android")
+include(":plugin-location")
+project(":plugin-location").projectDir = file("../plugins/location/android")

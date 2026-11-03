@@ -61,6 +61,7 @@ export function DevScreen() {
           <Entry title="RN basics" step="RN pack" detail="Alert, Clipboard, Share, Linking, Platform, Dimensions, Keyboard, NetInfo, Vibration, URL, OTP focus" onOpen={() => nav.push("rnLab")} />
           <Entry title="Tabs" step="tabs" detail="A home with 4 tabs, own bar, Scan button, data from the test server; back, focus, links" onOpen={() => nav.push("tabsLab")} />
           <Entry title="PDF plugin" step="PDF" detail="Download and cache, a card preview, the full viewer with zoom, bad files" onOpen={() => nav.push("pdfLab")} />
+          <Entry title="Location plugin" step="location" detail="One fix, updates, permission, location off, geocoder" onOpen={() => nav.push("locationLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

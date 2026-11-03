@@ -891,11 +891,29 @@ const { camera } = await Permissions.request(["camera"])
 if (camera === "blocked") Os.openSettings()
 ```
 - Each permission must be in a manifest (a plugin's own counts). If not, the call fails with `not_declared`.
+- **Do:** list what you use in the app's `AndroidManifest.xml`. A plugin's manifest already brings its own (the scanner
+  brings the camera, `@zero-native/location` both location lines), so with a plugin you add nothing.
+  ```xml
+  <uses-permission android:name="android.permission.CAMERA" />                <!-- "camera" -->
+  <uses-permission android:name="android.permission.READ_CONTACTS" />         <!-- "contacts" -->
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />  <!-- "location": both lines, -->
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" /><!-- or only this one for "approximate only" -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />          <!-- "microphone" -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />    <!-- "notifications" -->
+  ```
+  **Why not built in:** the runtime lists none of these, on purpose. Google Play asks every app that lists a permission
+  why it needs it, and some (location, contacts) need a form. An app gets only what it uses.
+- **Know:** `location` with only the precise line fails with `not_declared` (for `ACCESS_COARSE_LOCATION`), as Android
+  12+ would show no dialog at all.
 - **Know the states:** `granted`; `denied` (you can ask again); `blocked` (Android won't show the dialog again).
 - **Do:** ask at the moment the user needs the feature, and explain why first if it isn't obvious.
 - **Don't:** ask again right after `denied`. Android turns a second "no" into `blocked`.
 - **Know:** closing the dialog with no answer stays `denied`, not `blocked`. `status` shows `denied` for a permission never asked for.
-- Errors: `busy` (a request is open), `no_activity`.
+- **`location`** asks for precise and approximate together, and is `granted` if the user gave either. `"location.precise"`
+  in the answer says if precise was given too. **Why:** Android 12+ ignores a request for precise alone, and the user
+  may pick "approximate". For fixes, prefer `@zero-native/location` (§45): it answers `{ permission, precise }`.
+  (Changed 2026-11-04; before, `location` asked for precise only.)
+- Errors: `busy` (a request is open), `no_activity`, `not_declared`.
 
 ## 33. Small native helpers (P.2)
 ```ts
@@ -1457,3 +1475,35 @@ The compiler reads every SVG at build time and puts compact draw data in the bun
   call `pdfFile` again (a cached file comes back at once).
 - **Know:** a PDF that crashes pdfium kills the app, and no code can catch that. **Do** show PDFs only from servers you trust.
 - **Know:** a password PDF is `reason: "password"`. There is no way to type the password.
+
+## 45. Location (`@zero-native/location`)
+
+The phone's location from Android's own `LocationManager`; Play services only for Google's "Turn on location" dialog. API
+and limits: `plugins/location/README.md`.
+
+- **Do** ask for the permission only from a tap: `Location.requestPermission()`. `getCurrentPosition` and `status` never show
+  a dialog. **Why:** a dialog the moment a tab opens is the top reason users press "Don't allow", and two of those make it
+  `blocked` for good.
+- **Do** check the answer, not a thrown error: every call answers `{ position, reason }` and none rejects. `blocked` →
+  `Os.openSettings()` (the app's page). `off` → `Location.turnOn()` (below). After a settings screen, read again on
+  `onAppState("active")`.
+- **Do** use `Location.requestPermission()`, not core's `Permissions.request(["location"])`. **Why:** that short name is the
+  precise permission alone. Android's docs say 12+ may ignore such a request (on the Lava, Android 14, it still showed a
+  dialog). The plugin asks for both, as Android wants, and reads "approximate only" as granted.
+- **Do** use `"balanced"` (the default) for "near me" lists. It answers from the network provider in 1–3 s indoors.
+  **Know:** `"high"` waits for a fix within 25 m until the timeout; indoors that is often the whole timeout.
+- **Know:** without a new fix you get `lastKnown`, of any age. **Do** look at `ageMs` before you use it, and say so on
+  screen ("Showing stores near your last location"). **Don't** turn it into a silent default.
+- **Know:** the user can pick "Approximate". Then `precise` is false and fixes are blurred to about 2 km. Android also sends
+  such an app a new fix at most every 10 minutes, so you get the cached rough one at once (up to 10 minutes old). Plan the
+  screen for it (a wider radius), and don't ask again and again for precise.
+- **Do** answer `off` with `Location.turnOn()` from a tap: Google's dialog, and "Turn on" switches location on at once.
+  **Do** fall back to `Location.openSettings()` on `unavailable` (no Play services). **Don't** call `turnOn` again
+  right after `declined`: the user just said no.
+- **Know:** a hidden app gets no fix. A one-shot answers `background` (or the best fix so far) and a watch pauses until
+  the app comes back. **Don't** expect location in a background task.
+- **Do** stop a watch you no longer need. A watch started in a screen stops with the screen; one started in a store or
+  `detached` runs until you stop it.
+- **Know:** the Geocoder needs the internet on most phones and can take seconds. `postalCode` is a string. **Do** cache
+  its answers by rounded coordinates.
+- **Don't** log coordinates or addresses. The plugin never does.

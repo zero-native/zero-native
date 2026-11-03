@@ -142,6 +142,43 @@ Parked ideas: `docs/after-foundations.md`.
 - **Size:** about **15 KB** of Play download (5,602,360 → 5,618,052 bytes, brotli method), 43 KB of classes.
 - **Not done:** pinch by a finger (adb can't), the Lava, the R8 release run on a phone, low-RAM memory numbers.
 
+### 2026-11-03: official location plugin (Claude)
+- **What:** `@zero-native/location` (`plugins/location/`): one fix, updates, permission (precise or approximate,
+  denied, blocked), location off with the Location screen, last known fix, geocoder both ways, and an RN-named
+  `Geolocation`. Android's `LocationManager` and `Geocoder` only: no Play services, no new library. ZeroBill's pilot gap G1
+  (Stores and Offers need coordinates). Guide §45, second-opinions 85–89. No registry or host API change (module
+  `Location` v1, host API 6).
+- **Added 2026-11-04 (Pavan, after his Lava test):** Google's "Turn on location" dialog, `Location.turnOn()`, from Play's
+  `SettingsClient` (`play-services-location` 21.4.0, in this plugin), opened through `ZnLaunch`. Module `Location` v2.
+  Fixes still come from `LocationManager`. On the Lava: no dialog when on; the dialog when off ("Device location",
+  No, thanks / Turn on); No thanks → `declined`, location stays off; Turn on → location on, a fix 25 ms later.
+  Size now: the whole plugin adds **50 KB** to the R8 release APK (14,265,581 → 14,315,536 bytes, main with PDF):
+  `classes.dex` +45 KB raw (+21 KB compressed; it was +25 / +13 before the dialog), `main.hbc` +33 KB with the lab.
+  JS 25 tests (all 881 pass), Kotlin 14, lint clean, all 9 location phone steps pass.
+- **Lab:** `/dev/location` ("Location plugin" on the dev screen). Phone steps: `bun run tools/plugin-phone.ts location`.
+- **Tests:** JS 19 (all 867 pass), Kotlin 13 rules tests, `:plugin-location:assembleDebug`, lint (no issues), R8 release.
+- **Size:** release APK 14,229,589 → 14,275,941 bytes (**+46 KB**): `classes.dex` +25 KB raw (+13 KB compressed),
+  `main.hbc` +30 KB, which includes the sample's lab screen. The manifest gains the two location permissions. Measured
+  before the rough-permission fix below (a few lines).
+- **Verified on the Lava (debug, Android 14, indoors), `bun run tools/plugin-phone.ts location`, 7 steps pass:**
+  - A real fix: network, 14–100 m, in 0.1–1.4 s. The GPS never answered indoors. Reverse geocode found a pincode;
+    forward geocode found the place. No coordinate in the log.
+  - Cached (`maxAgeMs`) answers with nothing started; `"low"` asks the network only; a 1 s `"high"` ends at 1.0 s with
+    the best fix so far, or `timeout` and the last known fix.
+  - A watch: 2 live requests in `dumpsys location`, 0 after Home, and fixes again on return. Stop and closing the screen
+    both remove it. A one-shot running when the app goes to the background answers at once.
+  - Location off: one-shot `off`, watch `off`, then fixes again when turned back on; the Location screen opens and the
+    lab reads the state again on return.
+  - Permission, through Android's real dialog: denied, then blocked after the second "Don't allow" (no dialog after
+    that), then "Approximate": granted, not precise, a 2000 m network fix.
+- **Fixed after the phone run:** with "Approximate" only, every one-shot ran to its timeout. Android sends a rough-only
+  app a new fix at most every 10 minutes and the cached one at once, which the "fresh" rule threw away. Now a fix up to
+  11 minutes old counts there and the first one wins (22–32 ms on the Lava). Second-opinions 89.
+- **Found:** core's `Permissions.request(["location"])` asks for the precise permission alone (`ZnPermissions.kt:24`).
+  Android's docs say 12+ may ignore that, but on the Lava a dialog still showed. Not changed (second-opinions 88).
+- **Not checked:** a GPS fix outdoors, Android 12 or 13, the emulator (`adb emu geo fix`; the PDF session had it), a
+  release build on the phone, battery use over time.
+
 ### 2026-11-03: SVG branch merged with main; all SVG at registry 13 (Claude)
 - Main took registry 11 (Tabs) and 12 (pull to refresh) while SVG was built as 11–13 on its branch. None of it had
   shipped, so all SVG entries (phases 1–4: components, props, dynamic props, the four formats) moved to 13, one number

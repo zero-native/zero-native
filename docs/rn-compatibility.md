@@ -224,7 +224,8 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | `WebView` (`react-native-webview`) | [`@zero-native/webview`](../plugins/webview/README.md) | different | `<WebView>` with `allowedHosts`, `postMessage` both ways, links that leave the app, cookies, file upload. Debugging is opt-in (`WebViewPlugin(inspect = true)`). |
 | Phone number hint, SMS auto-read | [`@zero-native/auth`](../plugins/auth/README.md) | different | `Auth.phoneHint`, `Auth.listenForOtp`. Every Play services failure gives a reason, never a crash: show "type it by hand". |
 | UPI app list and launch | none | missing | Not in the framework: the app owns this plugin (`plugins.md` D7). `ZnLaunch` and `launches` do the hard part. The icon part is built: `<Image src="zn://app-icon/<package>" />` ([ZnHandles.kt:24](../android/runtime/src/main/java/dev/zeronative/runtime/ZnHandles.kt:24)). |
-| Biometrics, location, contacts, maps, video | none | missing | Not planned yet. `Permissions.request` can ask for the permission, but no API uses it. |
+| Location (`@react-native-community/geolocation`, `expo-location`) | [`@zero-native/location`](../plugins/location/README.md) | different | `Location.getCurrentPosition` / `watchPosition` answer `{ position, reason }` and never reject. A `Geolocation` object keeps RN's names, callbacks and error codes 1/2/3. Fixes from Android's `LocationManager`, not Play's fused provider. Google's "Turn on location" dialog is `Location.turnOn()` (RN apps call Play's `SettingsClient` in their own module); without Play services, `Location.openSettings()`. Timeout at most 60 s; a watch pauses while the app is hidden. Geocoder included. Added 2026-11-03. |
+| Biometrics, contacts, maps, video | none | missing | Not planned yet. `Permissions.request` can ask for the permission, but no API uses it. |
 
 ## 7. Opening another app for a result
 

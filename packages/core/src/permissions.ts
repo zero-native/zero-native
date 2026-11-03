@@ -12,13 +12,20 @@ export type PermissionState = "granted" | "denied" | "blocked"
 /** A short name, or a full `android.permission.X`. */
 export type PermissionName = "camera" | "contacts" | "location" | "microphone" | "notifications" | (string & {})
 
+/**
+ * Each name's state. "location" asks for precise and approximate together (Android 12+ ignores precise alone), and is
+ * "granted" if the user gave either. `"location.precise"` says if precise was given too.
+ */
+export type PermissionAnswer<N extends PermissionName> = Record<N, PermissionState> &
+  ("location" extends N ? { "location.precise": PermissionState } : unknown)
+
 const call = (method: string, names: readonly PermissionName[]) =>
   callNative<Record<string, PermissionState>>("Permissions", method, { names, __v: 1 }, { owned: false })
 
 export const Permissions = {
   /** Shows Android's dialog for what isn't granted. Errors: `busy`, `no_activity`, `not_declared`. */
-  request: <N extends PermissionName>(names: readonly N[]) => call("request", names) as Promise<Record<N, PermissionState>>,
+  request: <N extends PermissionName>(names: readonly N[]) => call("request", names) as Promise<PermissionAnswer<N>>,
 
   /** The state now, with no dialog. A permission never asked for is "denied". */
-  status: <N extends PermissionName>(names: readonly N[]) => call("status", names) as Promise<Record<N, PermissionState>>,
+  status: <N extends PermissionName>(names: readonly N[]) => call("status", names) as Promise<PermissionAnswer<N>>,
 }

@@ -922,3 +922,80 @@ change, and what evidence would make you change it?"
 - **Other options:** put a hash of the headers in the name; send `If-None-Match` and check the server each time.
 - **Evidence wanted:** whether a ZeroBill receipt can change after it is first served (a corrected bill under the same
   file key).
+
+## 85. Location from Android's LocationManager, not Play's fused provider (location plugin, built)
+- **Where:** `plugins/location/android/.../LocationModule.kt`; `plugins/location/README.md`.
+- **Chosen:** fixes from `LocationManager` (through `LocationManagerCompat`) and `Geocoder`. GPS and network start
+  together. **Changed 2026-11-04 (Pavan):** Google's "Turn on location" dialog is in, from Play's `SettingsClient`
+  (`play-services-location` 21.4.0, in the plugin itself, not a second plugin), as `Location.turnOn()` (module v2). It
+  opens through core's `ZnLaunch` with the dialog's `IntentSender`, so its answer survives a kill. Only status 6
+  (RESOLUTION_REQUIRED) opens it; any other answer is "unavailable" and the app opens the Location screen.
+- **Why:** first, no new library and no Play services version to break (Pavan's first ask). Then, after testing on the
+  Lava, Pavan wanted the usual one-tap dialog: the Location screen is one more step for the user, and ZeroBill ships Play
+  services anyway. ZeroBill's RN app uses the fused provider today (`ZLocationModule.kt`), but only for one fix within
+  8 s, which the network provider gives indoors in 1–3 s.
+- **Risk if wrong:** on a phone where "Google Location Accuracy" is off, the network provider is missing, so only the GPS
+  is left: slow, and indoors nothing. The fused provider uses Wi-Fi and cell data more cleverly. Every app with this
+  plugin now carries `play-services-location` (about 8 KB compressed code in the sample's release, after R8).
+- **Swap later (not built):** fixes from Play's `FusedLocationProviderClient`, behind the same JS API and module version,
+  chosen at `LocationPlugin(fused = true)`. The library is already in. Android 12+ also has
+  `LocationManager.FUSED_PROVIDER`, the platform's own mix of GPS and network: a middle option, but each phone maker
+  fills it in differently.
+- **Other options for the dialog:** a separate `@zero-native/location-play` plugin, so a non-Play build (Huawei) carries
+  no Play code. Not chosen: no such build is planned, and the fallback to the Location screen already covers it.
+- **Evidence wanted:** time to the first fix and its accuracy on the Lava, indoors and outdoors, with and without Google
+  Location Accuracy, against the RN app's fused fix at the same spot.
+
+## 86. Location calls answer a reason and never reject (location plugin, built)
+- **Where:** `plugins/location/src/index.ts`.
+- **Chosen:** `{ position, reason, lastKnown }`, like `@zero-native/auth`. The last known fix is handed back on its own,
+  with its age, never used as the answer by itself. An RN-style `Geolocation` object gives RN's callbacks and error codes.
+- **Why:** a rejected promise that no one catches leaves a "Detecting location..." spinner forever. ZeroBill's RN code
+  wraps every call in try/catch for this. Its native module also falls back to a cached fix of any age, while its screen
+  says "never reuse stale coordinates": the two disagree, so the plugin makes the app choose.
+- **Risk if wrong:** an author who wants errors as exceptions writes an `if` instead. Small.
+- **Other options:** reject with `NativeError` codes, as most zn modules do.
+- **Evidence wanted:** none.
+
+## 87. A hidden app: one-shots answer at once, watches pause (location plugin, built)
+- **Where:** `LocationModule.onBack` / `onFront`.
+- **Chosen:** on the Activity's stop, a running one-shot answers `background` (or the best fix so far), and every watch
+  removes its requests. On start, watches ask again. JS keeps its watch and sees no gap but time.
+- **Why:** Android gives a hidden app no fix without the background permission, which we never ask, so a running request
+  only costs battery and ends in a timeout. Pausing in native means an author can't forget it.
+- **Risk if wrong:** a see-through window from another app pauses the Activity without stopping it, so a watch keeps
+  running then. That is right: the user can still see our app.
+- **Other options:** keep one-shots running to their timeout; stop watches for good and make JS start them again.
+- **Evidence wanted:** none (checked with `dumpsys location` on the Lava, see milestones).
+
+## 88. The plugin asks for both location permissions; core's "location" stays the precise one alone (location plugin)
+- **Where:** `plugins/location/src/index.ts` (`requestPermission`), `ZnPermissions.kt:24`.
+- **Chosen:** the plugin asks for `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION` by full name. Granted if either one
+  is; blocked only when neither is and Android won't ask again (ZeroBill's rule). Core's short name was not changed.
+- **Why:** Android's docs say 12+ may ignore a request for the precise permission alone from an app that targets 31 or
+  higher, and they want both asked together so the user can pick "Approximate". Changing core is outside this plugin's
+  work, so it is a question for Pavan.
+- **Seen on the Lava (Android 14, target 36):** core's `Permissions.request(["location"])` still showed a dialog. So the
+  feared "no dialog" did not happen there. Not checked: which choices that dialog offered.
+- **Risk if wrong:** other phones may follow the docs and show nothing for core's "location".
+- **Other options:** make core's "location" ask for both (one line in `ZnPermissions.kt`, no host API change), or remove
+  the short name and point to the plugin.
+- **Evidence wanted:** the same button on an Android 12 or 13 phone.
+- **Also seen:** after `pm revoke` + `clear-permission-flags` (a test reset, not a user action), core still says
+  `blocked` until the next dialog, because it remembers "the user refused" in its own store (`ZnPermissions` `asked`).
+  Real users can't reset a permission that way, so it only matters for test scripts.
+
+## 89. Accuracy levels, limits, and the geocoder in the same plugin (location plugin, built)
+- **Where:** `LocationRules.kt`; `plugins/location/README.md`.
+- **Chosen:** `"high"` waits for 25 m, `"balanced"` (default) for 100 m, `"low"` takes any fix and never starts the GPS when
+  the network can answer. Timeout default 10 s, cap 60 s. Watch interval at least 1 s. A fix more than 2 s older than the
+  request counts as cached and is skipped. With the rough permission only, a fix up to 11 minutes old counts and the first
+  one wins, because Android sends such an app a new fix at most every 10 minutes (on the Lava, before this rule, every
+  approximate one-shot ran to its timeout). 0,0 and out-of-range fixes are dropped. The Geocoder (reverse and forward) is
+  part of the plugin, with a 10 s wait on Android 13+.
+- **Why:** "near me" lists need 100 m, not 5 m; the cap stops a forgotten call from keeping the GPS on; ZeroBill had to
+  filter 0,0 itself. ZeroBill shows "Area, pincode" from the geocoder, and it is the same `android.location` package.
+- **Risk if wrong:** `"high"` indoors often runs to the timeout, then gives the network fix. RN code that maps
+  `enableHighAccuracy: true` to it waits longer than on RN's fused provider.
+- **Other options:** RN's limits (no timeout cap); a separate geocoder plugin.
+- **Evidence wanted:** accuracy numbers from the Lava at a few spots.

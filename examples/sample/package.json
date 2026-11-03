@@ -9,6 +9,7 @@
     "@zero-native/core": "workspace:*",
     "@zero-native/auth": "workspace:*",
     "@zero-native/device-test": "workspace:*",
+    "@zero-native/location": "workspace:*",
     "@zero-native/media": "workspace:*",
     "@zero-native/scanner": "workspace:*",
     "@zero-native/webview": "workspace:*",

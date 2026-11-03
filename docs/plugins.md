@@ -32,6 +32,7 @@ breaks somewhere. So first one plugin system, then the features as plugins on to
 | Background JS tasks, secure screens, dark mode, low memory, right to left | **built** 2026-11-03 (host API 6) | `ZnBackground.kt`, `tasks.ts`, `appearance.ts`, `docs/guide-notes.md` §36–37 |
 | Official plugins `auth`, `scanner`, `media`, `webview` | **built** 2026-11-03, opt-in | `plugins/<name>/README.md`, `docs/guide-notes.md` §38 |
 | Official plugin `pdf`: download and cache, a card preview, a viewer with zoom, on Android's own PdfRenderer | **built** 2026-11-03, opt-in | `plugins/pdf/README.md`, `docs/guide-notes.md` §44 |
+| Official plugin `location` (Android's `LocationManager` and `Geocoder`; Play services only for the turn-on dialog) | **built** 2026-11-03, opt-in | `plugins/location/README.md`, `docs/guide-notes.md` §45 |
 | Permissions, "open another app and get its result" | **built** (P.2) | `ZnPermissions.kt`, `ZnLaunch.kt`, `docs/guide-notes.md` §31–32 |
 | Codegen (Kotlin interface from the TS interface) | **not built** | ARCHITECTURE §15.1 |
 
@@ -162,6 +163,7 @@ app owns** (D7).
 | Screenshot blocking | core: route option `secure: true` | `FLAG_SECURE` while that screen is on top |
 | Certificate pinning | core: `fetch` option / app config | OkHttp `CertificatePinner`; needs a pin-rotation plan. **Not built:** RN has none today, so the pilot doesn't need it |
 | Dark mode, low memory, right-to-left | core | Colour tokens with light / dark values; `onTrimMemory` clears caches; `start` / `end` already exist |
+| Location: one fix, updates, permission, location off, geocoder | plugin `@zero-native/location` | **Built 2026-11-03.** Fixes from `LocationManager`; Google's "Turn on location" dialog from Play's `SettingsClient` (added 2026-11-04, module v2). A swap to Play's fused provider for fixes is written up in `docs/second-opinions.md` entry 85, not built |
 | Maps, video, charts | plugins, later | When an app needs them |
 
 ## 8. Decisions (taken 2026-11-02)

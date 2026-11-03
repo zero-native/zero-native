@@ -38,8 +38,32 @@ class ZnPermissionsTest {
     }
 
     @Test fun names() {
-        assertEquals("android.permission.CAMERA", Rules.androidName("camera"))
-        assertEquals("android.permission.READ_SMS", Rules.androidName("android.permission.READ_SMS"))
-        assertNull(Rules.androidName("cammera"))
+        assertEquals(listOf("android.permission.CAMERA"), Rules.androidNames("camera"))
+        assertEquals(listOf("android.permission.READ_SMS"), Rules.androidNames("android.permission.READ_SMS"))
+        assertNull(Rules.androidNames("cammera"))
+    }
+
+    @Test fun locationAsksPreciseAndApproximate() {
+        // Android 12+ ignores a request for the precise one alone. Precise first: the answer reads it as location.precise.
+        assertEquals(
+            listOf("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"),
+            Rules.androidNames("location"),
+        )
+    }
+
+    @Test fun locationNeedsApproximateInTheManifest() {
+        val fine = "android.permission.ACCESS_FINE_LOCATION"
+        val coarse = "android.permission.ACCESS_COARSE_LOCATION"
+        assertTrue(Rules.missingCoarse("location", setOf(fine))) // the trap: no dialog on Android 12+
+        assertFalse(Rules.missingCoarse("location", setOf(fine, coarse)))
+        assertFalse(Rules.missingCoarse("location", setOf(coarse))) // approximate only, on purpose
+        assertFalse(Rules.missingCoarse("camera", emptySet()))
+    }
+
+    @Test fun eitherLocationGrantIsGranted() {
+        assertEquals("granted", Rules.combined(listOf("denied", "granted"))) // the user picked "approximate"
+        assertEquals("granted", Rules.combined(listOf("granted", "granted")))
+        assertEquals("blocked", Rules.combined(listOf("blocked", "blocked")))
+        assertEquals("denied", Rules.combined(listOf("denied", "denied")))
     }
 }

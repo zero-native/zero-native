@@ -21,6 +21,15 @@ test("request names the permissions and gives each one's state", async () => {
   expect(await p).toEqual({ camera: "granted", contacts: "blocked" })
 })
 
+test("location is granted with approximate only, and says precise apart", async () => {
+  const p = Permissions.request(["location"])
+  const [c] = host.calls
+  reply({ id: c.id, ok: true, value: { location: "granted", "location.precise": "denied" } })
+  const r = await p
+  expect(r.location).toBe("granted")
+  expect(r["location.precise"]).toBe("denied")
+})
+
 test("a request while one is open fails with busy", async () => {
   const p = Permissions.status(["camera"])
   const [c] = host.calls
