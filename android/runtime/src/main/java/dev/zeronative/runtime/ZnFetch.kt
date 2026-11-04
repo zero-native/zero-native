@@ -89,6 +89,19 @@ object ZnFetch : ZnModuleBase("Fetch") {
         configure = block
     }
 
+    private val plugins = java.util.concurrent.CopyOnWriteArrayList<(OkHttpClient.Builder) -> Unit>()
+
+    /**
+     * Add-only, for plugins (a performance monitor's interceptor): runs after the app's [configure], in the order
+     * added, so a plugin never replaces the app's own setup (pins, Chucker). Before the first fetch, like [configure];
+     * after it, the block is left out and this answers false.
+     */
+    fun addClientSetup(block: (OkHttpClient.Builder) -> Unit): Boolean {
+        if (built) return false
+        plugins += block
+        return true
+    }
+
     /** The shared client (also for app code that wants the same pool and settings). Built on first use. */
     val client: OkHttpClient by lazy { build() }
     private val noRedirectClient: OkHttpClient by lazy { client.newBuilder().followRedirects(false).build() }
@@ -119,6 +132,7 @@ object ZnFetch : ZnModuleBase("Fetch") {
             .dispatcher(Dispatcher().apply { maxRequestsPerHost = 10 }) // default 5: the 6th call to a host waits
             .cookieJar(okhttp3.CookieJar.NO_COOKIES) // cookies are off (ARCHITECTURE §14)
         configure?.invoke(builder)
+        for (p in plugins) p(builder)
         val built = builder.build()
         watchNetwork(built)
         return built

@@ -1756,3 +1756,18 @@ Firebase Remote Config with RN Firebase's API; reads need no call. API: `plugins
 - **Don't** store secrets or personal data. **Why:** every user can read every value.
 - **Know:** `onConfigUpdated` keeps a connection open while you listen; updates arrive in seconds to a minute or two.
   Call `activate()` in the handler when the new values may be used at once.
+
+## 55. Performance (`@zero-native/perf`)
+
+Firebase Performance Monitoring: the app start, every `fetch` and every screen traced by themselves; custom traces from
+JS. API: `plugins/perf/README.md`.
+
+- **Do** register `PerfPlugin()` with the other plugins, before anything fetches. **Why:** it adds its interceptor to
+  core's fetch client, which is built once at the first fetch.
+- **Do** use `Perf.trace(name, fn)` for your own steps (a receipt render, a checkout load). **Why:** it stops the trace
+  also when `fn` throws; a trace never stopped is never sent.
+- **Don't** let personal data reach Firebase in a URL path, a trace name or an attribute. **Know:** the query is left
+  out by default; use `PerfPlugin(url = ...)` to rewrite or drop URLs.
+- **Do** compare `frames_slow` / `frames_frozen` of `screen_<route>` traces between bundles (`zn_bundle`).
+- **Plugin authors:** add to core's OkHttp client with `ZnFetch.addClientSetup { builder -> ... }` (add-only, runs after
+  the app's `ZnFetch.configure`). **Don't** call `ZnFetch.configure` from a plugin: it replaces the app's own setup.

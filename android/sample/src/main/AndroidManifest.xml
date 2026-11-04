@@ -27,6 +27,8 @@
         <!-- Notifications (plugins/push): the status bar icon for ours, and for those FCM shows by itself. -->
         <meta-data android:name="dev.zeronative.push.small_icon" android:resource="@drawable/ic_zn_notification" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_zn_notification" />
+        <!-- Firebase Performance writes its traces to logcat too (tools/plugin-phone/perf.ts reads them). A dev app only. -->
+        <meta-data android:name="firebase_performance_logcat_enabled" android:value="true" />
         <!-- Opt-in (plugins/push README): sets scheduled notifications again after a reboot or an app update. -->
         <receiver
             android:name="dev.zeronative.plugins.push.ZnNotificationBoot"

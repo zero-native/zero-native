@@ -1260,3 +1260,16 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a very large template (hundreds of keys, long JSON values) crosses the bridge on each answer.
 - **Other options:** an async `getValue`; a native snapshot read at runtime start (core change).
 - **Evidence wanted:** none.
+
+## 126. Performance: on by default, URLs without the query, network traces through a new add-only core hook (Perf plugin, built)
+- **Where:** `plugins/perf/android/.../PerfPlugin.kt`, `ZnFetch.addClientSetup` (core).
+- **Chosen:** collection on by default (Firebase's default; it is diagnostics, like Crashlytics). An OkHttp interceptor
+  on core's client makes one HttpMetric per request, with the URL's query and fragment removed (`url` rewrites or
+  drops). Screen traces per top route with frame counts from Android's FrameMetrics on the Activity's window. Core
+  gets `ZnFetch.addClientSetup` (add-only, after the app's `configure`), like `addJsErrorListener` (Pavan's B).
+- **Why:** the app is one Activity, so Firebase's automatic screen traces would be one screen; its Gradle plugin's
+  bytecode rewrite isn't needed because all fetches go through one client. A plugin must not replace the app's pins.
+- **Risk if wrong:** a team that treats performance data as needing consent must turn it off until then
+  (`setPerformanceCollectionEnabled(false)` or `firebase_performance_collection_enabled=false` in the manifest).
+- **Other options:** off until consent like Analytics; the Firebase Perf Gradle plugin.
+- **Evidence wanted:** whether ZeroBill's consent screen covers diagnostics.
