@@ -3,7 +3,14 @@
 // Each step proves the report left the phone (Firebase's transport logs its request to crashlyticsreports-pa and
 // "Status Code: 200"); the Firebase console shows it a few minutes later.
 // The native crash step runs only for a build with `-PznCrashlyticsNdk`: set ZN_NDK=1.
-import { adb, check, CLEAR_TASK, clearLog, expectLog, ok, openFresh, PKG, see, shell, sleep, stopApp, tap, texts, type Step } from "./helpers"
+// The OTA step (ZN_OTA=1) builds a bundle into a test store of its own (.zn-ota-test/plugin-phone/ota-store, signed
+// with the sample's key in ~/.zero-native/keys), serves it on this computer only (port 8790, `adb reverse`), and
+// clears the sample's data before and after. Nothing is published anywhere else.
+import { spawnSync } from "node:child_process"
+import { rmSync } from "node:fs"
+import { join, resolve } from "node:path"
+import { startServer } from "../ota/server"
+import { adb, check, CLEAR_TASK, clearLog, expectLog, ok, OUT, openFresh, PKG, see, shell, sleep, stopApp, tap, texts, type Step } from "./helpers"
 
 /** Opens the lab. False (and a SKIP line) when Firebase is off in this build. */
 async function lab(): Promise<boolean> {
@@ -47,6 +54,58 @@ async function dismissDevError() {
 
 /** Crashlytics logs its uploads only at debug level. */
 const debugLogs = () => shell("setprop", "log.tag.FirebaseCrashlytics", "DEBUG")
+
+const otaLog = () => adb("logcat", "-d", "-v", "brief", "-s", "zn-ota:*", "zn:*", "zn-sample:*")
+async function expectOta(re: RegExp, ms = 30000) {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    const hit = otaLog().split(/\r?\n/).filter((l) => re.test(l)).at(-1)
+    if (hit) return hit.replace(/^.*?: /, "").trim()
+    await sleep(500)
+  }
+  throw new Error(`never logged ${re}`)
+}
+
+/** `bun run ota <args>` against the step's own test store. */
+function otaCli(store: string, ...args: string[]): string {
+  const root = resolve(import.meta.dir, "../..")
+  const p = spawnSync("bun", ["run", "tools/ota/cli.ts", ...args, "--store", store], { cwd: root, encoding: "utf8" })
+  if (p.status !== 0) throw new Error(`ota ${args[0]} failed:\n${(p.stdout + p.stderr).trim().split("\n").slice(-6).join("\n")}`)
+  return p.stdout
+}
+
+/** A JS error from a downloaded (OTA) bundle: the report must say zn_built_in=false and that bundle's id. */
+async function otaBundleError() {
+  const store = join(OUT, "ota-store")
+  rmSync(store, { recursive: true, force: true })
+  shell("pm", "clear", PKG) // no OTA bundle or setting kept from earlier runs
+  const out = otaCli(store, "build")
+  const m = /released #(\d+) \((\S+)\)/.exec(out)
+  if (!m) throw new Error(`ota build said:\n${out.trim().split("\n").slice(-4).join("\n")}`)
+  const [, serial, id] = m
+  otaCli(store, "publish", "--channel", "staging", "--bundle", serial)
+  const server = startServer({ storeRoot: store, dataDir: join(OUT, "ota-data"), port: 8790, log: false })
+  adb("reverse", "tcp:8790", "tcp:8790")
+  try {
+    debugLogs()
+    await openFresh("dev/crashlytics", "Read status")
+    ok("downloaded", await expectOta(new RegExp(`installed ${id}; it runs from the next start`), 60000))
+    await openFresh("dev/crashlytics", "Read status")
+    ok("running", await expectOta(new RegExp(`running bundle ${id}@`)))
+    await tap("Read status")
+    const s = await expectLog(/crashlytics-lab status /)
+    if (!s.includes("available=true")) return console.log(`SKIP crashlytics ota: Firebase is off in this build: ${s}`)
+    await tap("Record a caught error")
+    ok("caught", await expectLog(/crashlytics-lab caught error recorded ok=true/))
+    await startAgainAndSee(`a JS non-fatal from OTA bundle ${id}`)
+    console.log(`    console check: the event's keys say zn_built_in=false, zn_bundle_id=${id}`)
+  } finally {
+    adb("reverse", "--remove", "tcp:8790")
+    server.stop(true)
+    await stopApp()
+    shell("pm", "clear", PKG) // back to the APK's own bundle for the next steps
+  }
+}
 
 export const steps: Step[] = [
   {
@@ -111,4 +170,5 @@ export const steps: Step[] = [
         } satisfies Step,
       ]
     : []),
+  ...(process.env.ZN_OTA === "1" ? [{ name: "crashlytics error from an OTA bundle", run: otaBundleError } satisfies Step] : []),
 ]
