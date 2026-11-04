@@ -8,8 +8,8 @@ How to ask for a review: give the reviewer this file, the design doc section nam
 points to. Ask: "Is the choice right for a payments app with many Android users on low-end phones? What would you
 change, and what evidence would make you change it?"
 
-**Numbers:** entries 105–119 are free. The numbers jump from 104 to 120 because parallel sessions reserved ranges
-(104 was the last one used before the jump). Do not take a number above 120 that is already used.
+**Numbers:** entries 108–119 are free. The numbers jump from 107 to 120 because parallel sessions reserved ranges
+(107 was the last one used before the jump). Do not take a number above 120 that is already used.
 
 ---
 
@@ -1327,6 +1327,41 @@ change, and what evidence would make you change it?"
   comes before `/pay`).
 - **Evidence wanted:** a phone with a nearly full disk: the first save returns `false`, and a second save of an existing
   key still works. Tested on the Android 13 emulator (ext4) with a file size limit standing in for a full disk.
+
+## 107. SQL on Android's own SQLite, with live queries from day 1; Drizzle later and optional (sqlite plugin, study only, not built)
+- **Where:** `docs/sqlite-plugin-proposal.md` (the whole study; decisions in §1, §2.6, §3.3, §4, §6). Nothing is built.
+- **Asked:** Pavan (2026-11-04). ZeroBill's Flutter app dropped drift because the bundled SQLite `.so` made the app
+  bigger; zn's `storage` saves a whole value, which is bad for long lists. Does not block the pilot.
+- **Chosen:** an official opt-in plugin `@zero-native/sqlite` on `android.database.sqlite`, called from Kotlin
+  (0 native bytes). Async calls on one serial thread per database, through `callNative`. Bound values only, a `sql`
+  tag, `batch` first, an exclusive `transaction`, a 1,000-row cap. `watch(tables, query)` from day 1: Room-style
+  temp triggers mark changed tables, one event per commit, the query runs again into a signal. Migrations in the JS
+  bundle, run at open in one transaction, add-only (checked natively, plus a lock file test). A Drizzle adapter on
+  `drizzle-orm/sqlite-proxy` later, as an option.
+- **Why:** 0 bytes keeps the reason ZeroBill left drift. Room's queries are compile-time Kotlin, so OTA could not add
+  one. Android's `SQLiteDatabase` has no update hook (checked on developer.android.com), so triggers are the only way
+  to catch every write, cascades included; Room uses the same method. Add-only migrations keep an OTA rollback safe:
+  older code meets a newer database and doesn't see the additions (WatermelonDB has the same limit). Drizzle is
+  optional because it costs bundle size (estimate 60–120 KB minified against a 346 KB sample bundle) and its proxy
+  `transaction()` can't be made safe over an async callback.
+- **Risk if wrong:** (1) old phones: Android 7 has SQLite 3.9, so no UPSERT, window functions, RETURNING, generated
+  columns or safe JSON until API 30–34, and makers can ship other versions; SQL that works on the test phone fails in
+  the field. (2) If Android ever runs a write on a connection without our temp triggers, a watch misses it. (3) The
+  JSON answer and the JS thread limit (2 s) make big results costly; the cap may be too low or too high. (4) If teams
+  bypass add-only (`unsafe`), an OTA rollback breaks older code against the newer database.
+- **Other options:** a bundled SQLite (same new version everywhere, update hook, but ~1.2–1.7 MB per ABI, requery's
+  README); Room (no OTA queries); write-side table lists given by the app (fragile); SQL parsing for table names
+  (fragile); `setCustomScalarFunction` as a hook (API 30+ only); SQLCipher (own SQLite again, ~1.25 MB per ARM ABI,
+  dated forum number); keep everything in `storage` (simple, but every change rewrites the list).
+- **Evidence wanted:** DB.7's benchmark (emulator, then the Lava, release): 1,000 and 10,000 receipt-like rows,
+  SQLite vs one big `storage` JSON value vs one key per row, with JS thread time per action, and the trigger cost on a
+  10,000-row load. DB.8: the test suite passing on an API 24 image. DB.10: Drizzle's real bundle size and whether it
+  runs on Hermes V1.
+- **Pavan's decisions (2026-11-04):** minSdk 24 stays (SQL for 3.9); expo-style names; 100,000-row tables are a v1
+  goal (the 1,000-row cap is per answer; counts and sums run in SQL; lists page; DB.6 and DB.7 test 100,000 rows);
+  unsafe migrations are an opt-in, not refused (the OTA release tool warns). Added for that: `unsafe` / `reset`
+  migrations with a schema epoch, so an older bundle after a rollback resets to its own shape and the app syncs again
+  (`onReset`), proposal §3.5. Risk 4 above is handled by the epoch instead of a refusal.
 
 ## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
 - **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.
