@@ -41,7 +41,7 @@ class SampleApp : Application() {
         // JS errors, OTA outcomes, bundle and route keys go to Crashlytics by themselves. Off with no google-services.json.
         ZnPlugins.register(this, CrashlyticsPlugin())
         ZnPlugins.register(this, PushPlugin())
-        ZnPlugins.register(this, AnalyticsPlugin()) // off until JS turns it on (consent); screen views by route
+        ZnPlugins.register(this, AnalyticsPlugin()) // on from the first start; screen views by route
         ZnPlugins.register(this, RemoteConfigPlugin())
         ZnPlugins.register(this, PerfPlugin()) // before the first fetch: it adds an interceptor to core's client
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call

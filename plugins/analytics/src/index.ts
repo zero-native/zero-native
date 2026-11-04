@@ -1,8 +1,8 @@
 // The Analytics plugin's JS side (RN Firebase's `analytics()`). Native side: android/.../AnalyticsPlugin.kt.
 //
-// Analytics is OFF until the app turns it on, after the user agrees:
+// Analytics is ON from the first start (Firebase's default). The user opts out:
 //
-//   await Analytics.setAnalyticsCollectionEnabled(true)        // Firebase keeps it across starts
+//   await Analytics.setAnalyticsCollectionEnabled(false)       // Firebase keeps it across starts
 //   Analytics.logEvent("pay_tapped", { amount: 499, method: "upi" })
 //   Analytics.logPurchase({ value: 499, currency: "INR", transaction_id: txnId })
 //   Analytics.setUserId(customerCode)                          // an id of yours. Never a phone number or an email
@@ -93,7 +93,7 @@ export const Analytics = {
   /** `{ available }`. No dialog, no network. */
   status: (): Promise<AnalyticsStatus> => Native.status({}, unowned).catch(() => ({ available: false })),
 
-  /** On after the user agrees, off when they opt out. Firebase keeps it across starts. Starts off (README). */
+  /** Off when the user opts out, on again when they agree. Firebase keeps it across starts. Starts on (README). */
   setAnalyticsCollectionEnabled: (on: boolean): Promise<boolean> => quietly(Native.setCollectionEnabled({ on }, unowned)),
 
   /** Consent mode: what Google may store and use. Keys left out are not changed. */

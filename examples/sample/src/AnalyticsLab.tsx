@@ -1,5 +1,5 @@
 // A dev screen for the Analytics plugin. The phone test (tools/plugin-phone/analytics.ts) reads the log lines
-// "analytics-lab ...", so keep their wording. Analytics starts off: "Collection on" is the user's yes.
+// "analytics-lab ...", so keep their wording. Analytics starts on: "Collection off" is the user's opt-out.
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { nav, scheme, signal } from "@zero-native/core"
 import { Analytics } from "@zero-native/analytics"

@@ -31,6 +31,16 @@ async function lab(): Promise<boolean> {
 
 export const steps: Step[] = [
   {
+    name: "analytics on from the first start",
+    run: async () => {
+      // Fresh app data: no setting kept from earlier runs, as on a new install. Then no tap at all.
+      shell("pm", "clear", PKG)
+      adb("logcat", "-c")
+      if (!(await lab())) return
+      ok("first start", await expectFa(/Logging event.*name=(first_open|session_start)/, 30000))
+    },
+  },
+  {
     name: "analytics events after consent",
     run: async () => {
       if (!(await lab())) return

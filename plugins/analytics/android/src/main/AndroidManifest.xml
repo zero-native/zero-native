@@ -6,9 +6,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application>
-        <!-- Off until the app turns it on (after the user agrees): Analytics.setAnalyticsCollectionEnabled(true),
-             which Firebase keeps across starts. An app can set it to true in its own manifest (tools:replace). -->
-        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <!-- Collection is on from the first start (Firebase's default, as in RN Firebase). An app that asks for
+             consent first sets firebase_analytics_collection_enabled=false in its own manifest (README). -->
         <!-- The whole app is one Activity: Firebase's own screen views would all say "MainActivity". The plugin sends
              one per route instead. -->
         <meta-data android:name="google_analytics_automatic_screen_reporting_enabled" android:value="false" />

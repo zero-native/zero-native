@@ -2,8 +2,9 @@
 
 Google Analytics for Firebase in zero-native apps, on Android, with RN Firebase's `analytics()` API.
 
-- **Off until the app turns it on.** The plugin's manifest sets `firebase_analytics_collection_enabled=false`. The
-  app calls `Analytics.setAnalyticsCollectionEnabled(true)` after the user agrees; Firebase keeps that across starts.
+- **On from the first start**, as in RN Firebase: adding the plugin is the app's choice, and the app declares it in
+  Play's data safety form. The usual off switches are there: `setAnalyticsCollectionEnabled(false)` (when the user
+  opts out; Firebase keeps it across starts) and consent mode (`setConsent`).
 - **Screen views by themselves**, one `screen_view` per top route, named after the route (`home`, `amount`). The app is
   one Activity, so Firebase's own screen views (which would all say "MainActivity") are turned off.
 - **`zn_bundle` on every event**: the running bundle (`sample_12@1a2b3c4d5e6f`), to compare OTA bundles.
@@ -35,8 +36,10 @@ Google Analytics for Firebase in zero-native apps, on Android, with RN Firebase'
 With no `google-services.json`, Firebase doesn't start: `status()` says `available: false`, and every call does
 nothing. Permissions: `INTERNET`, `ACCESS_NETWORK_STATE`, `WAKE_LOCK` (Firebase's own needs).
 
-To have it on from the first start (no consent step), put this in the app's manifest:
-`<meta-data android:name="firebase_analytics_collection_enabled" android:value="true" tools:replace="android:value" />`.
+To have it off until the user agrees (a consent step first), put this in the app's `<application>`, then call
+`setAnalyticsCollectionEnabled(true)` after the yes:
+`<meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />`.
+Only the manifest can stop the first start's events (`first_open`, `session_start`): Firebase starts before JS.
 
 ## Use it
 ```ts
@@ -60,7 +63,7 @@ Each call answers and never rejects.
 | Call | Answers | What it does |
 |---|---|---|
 | `status()` | `{ available }` | Firebase is set up |
-| `setAnalyticsCollectionEnabled(on)` | true / false | On or off, kept across starts. Starts off |
+| `setAnalyticsCollectionEnabled(on)` | true / false | On or off, kept across starts. Starts on |
 | `setConsent({ analytics_storage, ad_storage, ad_user_data, ad_personalization })` | true / false | Consent mode. Keys left out stay as they are |
 | `logEvent(name, params?)` | true / false | Name: letters, digits, `_`, 40 characters, starts with a letter. 25 parameters at most |
 | `logScreenView({ screen_name, screen_class? })` | true / false | A screen view of your own (parts of a screen, or with `screenViews = false`) |
@@ -79,8 +82,10 @@ RN Firebase's names work for ported code: `analytics().logEvent(...)`, `getAnaly
 `true` / `false` instead of `void`; `isAnalyticsCollectionEnabled` doesn't exist (Firebase has no way to read it).
 
 ## Do and don't
-- **Do** turn it on only after the user agrees, and off when they opt out. **Why:** India's DPDP Act and Play's data
-  safety form both ask for it; Firebase keeps the setting, so call it once, not on every start.
+- **Do** give users a way to opt out, and call `setAnalyticsCollectionEnabled(false)` when they do. **Why:** India's
+  DPDP Act and Play's data safety form expect it; Firebase keeps the setting, so call it once, not on every start.
+- **Do** list Analytics in Play's data safety form. **Know:** an app that needs consent before any data (some
+  markets) turns it off in the manifest (above).
 - **Do** use your own id in `setUserId` (a customer code). **Don't** put a phone number, an email, a VPA or an amount
   tied to a person in the id, a property or a parameter. **Why:** Google's terms forbid personal data in Analytics,
   and everyone with console access sees it.

@@ -1145,17 +1145,21 @@ change, and what evidence would make you change it?"
   Firebase's Gradle classes): if Firebase renames it, the build fails at once, which is the safe side.
 - **Evidence wanted:** none.
 
-## 96. Analytics starts off, in the plugin's manifest; the app turns it on (Analytics plugin, built)
-- **Where:** `plugins/analytics/android/src/main/AndroidManifest.xml`.
-- **Chosen:** the plugin's manifest sets `firebase_analytics_collection_enabled=false`. JS calls
-  `setAnalyticsCollectionEnabled(true)` after consent; Firebase keeps it. An app that wants it on from the first start
-  overrides the value in its own manifest (`tools:replace`).
-- **Why:** Pavan's call (2026-11-04): off until consent. Firebase starts before JS, so only the manifest can stop the
-  first launch's events (first_open, session_start).
-- **Risk if wrong:** an app that forgets the call collects nothing, silently. The README and §50 say it first.
-- **Other options:** on by default like RN Firebase (the app opts out); a plugin option (but the manifest is read
+## 96. Analytics is on from the first start; the app gives the opt-out (Analytics plugin, built; changed 2026-11-04)
+- **Where:** `plugins/analytics/android/src/main/AndroidManifest.xml` (no collection flag: Firebase's default).
+- **Chosen:** on by default, as in RN Firebase and like Crashlytics and Perf. Off switches: JS
+  `setAnalyticsCollectionEnabled(false)` (Firebase keeps it), consent mode (`setConsent`), and for consent-first apps
+  `firebase_analytics_collection_enabled=false` in the app's manifest.
+- **Why:** Pavan's call (2026-11-04, changed from "off until consent" the same day): adding the plugin is the app's
+  choice, and the app declares it in the store's data forms; the industry's usual opt-out switches stay.
+- **Risk if wrong:** a market or a team that needs consent before any data must set the manifest flag; JS can't stop
+  the first start's events (first_open, session_start), since Firebase starts before JS. The README says so.
+- **Other options:** off until consent (the first version, same day); a plugin option (but the manifest is read
   before any Kotlin code runs).
-- **Evidence wanted:** none.
+- **Privacy, said plainly:** collection now starts **before any consent**: the first start sends `first_open`,
+  `session_start`, screen views and the app instance id before the app can ask anything.
+- **Evidence wanted:** a check against India's DPDP Act and rules before real users: is analytics data from the first
+  start allowed with only a privacy notice, or must consent come first (then ZeroBill sets the manifest flag)?
 
 ## 97. One screen_view per top route, Firebase's own screen views off (Analytics plugin, built)
 - **Where:** `AnalyticsPlugin.watchRoute`, the plugin's manifest (`google_analytics_automatic_screen_reporting_enabled=false`).

@@ -1675,11 +1675,19 @@ version, one Gradle file for the app, `Firebase.app()` and Installations.
 
 ## 50. Analytics (`@zero-native/analytics`)
 
-Google Analytics for Firebase with RN Firebase's API. Off until the app turns it on; a `screen_view` per route by
-itself. API, Gradle lines and size: `plugins/analytics/README.md`.
+Google Analytics for Firebase with RN Firebase's API. On from the first start, as in RN Firebase; a `screen_view`
+per route by itself. API, Gradle lines and size: `plugins/analytics/README.md`.
 
-- **Do** call `Analytics.setAnalyticsCollectionEnabled(true)` once, after the user agrees, and `false` when they opt
-  out. **Why:** it starts off (the plugin's manifest), and Firebase keeps the setting across starts.
+- **Know (privacy): collection starts before any consent.** From the first start, before the app shows any screen,
+  Firebase sends `first_open`, `session_start` and screen views, with the app instance id. **Do** check this against
+  India's DPDP rules (and Play's data safety form) before real users; if consent must come first, use the manifest
+  flag below. (Pavan's call 2026-11-04: on by default; to be checked against DPDP.)
+
+- **Do** give users an opt-out and call `Analytics.setAnalyticsCollectionEnabled(false)` when they use it. **Why:** it
+  starts on, and Firebase keeps the setting across starts, so call it once. List Analytics in Play's data safety form.
+- **Know:** to wait for consent, set `firebase_analytics_collection_enabled=false` in the app's manifest and call
+  `setAnalyticsCollectionEnabled(true)` after the yes. **Why:** Firebase starts before JS, so only the manifest can
+  stop the first start's events.
 - **Don't** send personal data: no phone number, email, VPA or a person's amount in `setUserId`, properties or
   parameters. Use your own customer code. **Why:** Google's terms forbid it, and everyone with console access sees it.
 - **Do** give routes names you want in reports: each top route is a `screen_view` named after it.

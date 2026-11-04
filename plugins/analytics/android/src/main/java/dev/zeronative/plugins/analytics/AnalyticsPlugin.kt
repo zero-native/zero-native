@@ -26,8 +26,8 @@ import org.json.JSONObject
 private const val TAG = "zn-analytics"
 
 /**
- * Add it with `ZnPlugins.register(this, AnalyticsPlugin())`. Analytics stays off until JS calls
- * `Analytics.setAnalyticsCollectionEnabled(true)` (after the user agrees); Firebase keeps that across starts.
+ * Add it with `ZnPlugins.register(this, AnalyticsPlugin())`. Analytics is on from the first start (Firebase's default);
+ * JS turns it off with `Analytics.setAnalyticsCollectionEnabled(false)`, and Firebase keeps that across starts.
  *
  * By itself it sends a `screen_view` for each top route ([screenViews]): the whole app is one Activity, so Firebase's
  * own screen views would all say "MainActivity". [screenName] renames a route or leaves it out (null).
