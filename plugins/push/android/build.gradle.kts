@@ -21,7 +21,8 @@ android {
 dependencies {
     // Also gives androidx.core (NotificationCompat, NotificationManagerCompat), through the runtime's androidx.activity.
     implementation(project(":runtime"))
-    implementation(platform("com.google.firebase:firebase-bom:35.1.0"))
+    // The Firebase version (BoM) comes from plugins/firebase-app.
+    implementation(project(":plugin-firebase-app"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")
 }

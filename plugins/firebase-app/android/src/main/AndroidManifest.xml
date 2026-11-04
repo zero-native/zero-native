@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- No permission of its own. Firebase's libraries add INTERNET and ACCESS_NETWORK_STATE. -->
+</manifest>

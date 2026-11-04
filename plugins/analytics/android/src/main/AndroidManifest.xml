@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- What FirebaseAnalytics needs (Firebase's libraries add the same ones). Play services also adds AD_ID: the app
+         removes that one itself if it shows no ads (README). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <application>
+        <!-- Off until the app turns it on (after the user agrees): Analytics.setAnalyticsCollectionEnabled(true),
+             which Firebase keeps across starts. An app can set it to true in its own manifest (tools:replace). -->
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <!-- The whole app is one Activity: Firebase's own screen views would all say "MainActivity". The plugin sends
+             one per route instead. -->
+        <meta-data android:name="google_analytics_automatic_screen_reporting_enabled" android:value="false" />
+        <!-- No advertising id. -->
+        <meta-data android:name="google_analytics_adid_collection_enabled" android:value="false" />
+    </application>
+</manifest>

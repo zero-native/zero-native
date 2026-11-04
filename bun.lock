@@ -21,10 +21,12 @@
     "examples/sample": {
       "name": "@zero-native/example-sample",
       "dependencies": {
+        "@zero-native/analytics": "workspace:*",
         "@zero-native/auth": "workspace:*",
         "@zero-native/core": "workspace:*",
         "@zero-native/crashlytics": "workspace:*",
         "@zero-native/device-test": "workspace:*",
+        "@zero-native/firebase-app": "workspace:*",
         "@zero-native/location": "workspace:*",
         "@zero-native/media": "workspace:*",
         "@zero-native/pdf": "workspace:*",
@@ -52,6 +54,13 @@
       "name": "@zero-native/ui",
       "version": "0.0.0",
     },
+    "plugins/analytics": {
+      "name": "@zero-native/analytics",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
     "plugins/auth": {
       "name": "@zero-native/auth",
       "version": "0.0.0",
@@ -68,6 +77,13 @@
     },
     "plugins/device-test": {
       "name": "@zero-native/device-test",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
+    "plugins/firebase-app": {
+      "name": "@zero-native/firebase-app",
       "version": "0.0.0",
       "peerDependencies": {
         "@zero-native/core": "workspace:*",
@@ -120,6 +136,8 @@
     },
   },
   "packages": {
+    "@zero-native/analytics": ["@zero-native/analytics@workspace:plugins/analytics"],
+
     "@zero-native/auth": ["@zero-native/auth@workspace:plugins/auth"],
 
     "@zero-native/compiler": ["@zero-native/compiler@workspace:compiler"],
@@ -131,6 +149,8 @@
     "@zero-native/device-test": ["@zero-native/device-test@workspace:plugins/device-test"],
 
     "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
+
+    "@zero-native/firebase-app": ["@zero-native/firebase-app@workspace:plugins/firebase-app"],
 
     "@zero-native/location": ["@zero-native/location@workspace:plugins/location"],
 

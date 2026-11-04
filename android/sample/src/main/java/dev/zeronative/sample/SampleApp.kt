@@ -6,9 +6,11 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import dev.zeronative.plugins.analytics.AnalyticsPlugin
 import dev.zeronative.plugins.auth.AuthPlugin
 import dev.zeronative.plugins.crashlytics.CrashlyticsPlugin
 import dev.zeronative.plugins.devicetest.DeviceTestPlugin
+import dev.zeronative.plugins.firebase.FirebaseAppPlugin
 import dev.zeronative.plugins.location.LocationPlugin
 import dev.zeronative.plugins.media.MediaPlugin
 import dev.zeronative.plugins.pdf.PdfPlugin
@@ -33,9 +35,11 @@ class SampleApp : Application() {
         ZnPlugins.register(this, DeviceTestPlugin(), ScannerPlugin(), MediaPlugin(), AuthPlugin(), WebViewPlugin())
         ZnPlugins.register(this, PdfPlugin()) // its own line, so plugins added in parallel merge cleanly
         ZnPlugins.register(this, LocationPlugin())
+        ZnPlugins.register(this, FirebaseAppPlugin()) // Firebase.app() and Installations for JS
         // JS errors, OTA outcomes, bundle and route keys go to Crashlytics by themselves. Off with no google-services.json.
         ZnPlugins.register(this, CrashlyticsPlugin())
         ZnPlugins.register(this, PushPlugin())
+        ZnPlugins.register(this, AnalyticsPlugin()) // off until JS turns it on (consent); screen views by route
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call
         // Crashlytics' recordException(e.asThrowable()). The sample logs the full JS stack (with columns: the exact
         // TSX line with `bun run ota symbolicate`) and the Throwable a crash reporter would get.

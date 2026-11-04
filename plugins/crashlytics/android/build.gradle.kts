@@ -21,8 +21,9 @@ android {
 dependencies {
     // Also gives Compose's runtime (the top route, ZnNav.stack) and coroutines.
     implementation(project(":runtime"))
-    // api: the app's own Crashlytics calls (and the opt-in -ndk line) take versions from the same BoM.
-    api(platform("com.google.firebase:firebase-bom:35.1.0"))
+    // api: the Firebase version (BoM) comes from plugins/firebase-app, so the app's own Crashlytics calls (and the
+    // opt-in -ndk line) take versions from the same BoM.
+    api(project(":plugin-firebase-app"))
     api("com.google.firebase:firebase-crashlytics")
     testImplementation("junit:junit:4.13.2")
 }

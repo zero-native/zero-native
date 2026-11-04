@@ -1658,3 +1658,36 @@ API and rules: `plugins/push/README.md`.
 - **Do** put "where it came from" in the link (`?from=push`) to count opens: the tap goes through `onLink` like any link.
 - **Do** give the app a white-on-clear icon in the manifest (`dev.zeronative.push.small_icon` and FCM's
   `default_notification_icon`). **Why:** Android draws the app icon as a white square in the status bar.
+
+## 49. Firebase base (`@zero-native/firebase-app`)
+
+Every Firebase plugin stands on it (RN Firebase's `app` module, `plugins/firebase-app/README.md`): the one Firebase
+version, one Gradle file for the app, `Firebase.app()` and Installations.
+
+- **Do** add Firebase to an app with `apply(from = ".../plugins/firebase-app/firebase.gradle.kts")` at the end of its
+  `build.gradle.kts`, not your own `apply(plugin = ...)` lines. **Why:** it turns Firebase off by itself when
+  `google-services.json` is missing (CI, other machines), and it uploads the R8 mapping only with `-PznUploadMapping`.
+- **Don't** add a Firebase BoM of your own in the app. **Why:** two BoMs fight over versions; the plugins' one is in
+  `plugins/firebase-app/android/build.gradle.kts`. Add Firebase libraries with no version: they take it from there.
+- **Do** put `firebase_data_collection_default_enabled=false` in the manifest when the user must agree first, then
+  `Firebase.setDataCollectionDefault(true)`. **Why:** Firebase starts before JS, so JS alone is too late for the first
+  launch.
+
+## 50. Analytics (`@zero-native/analytics`)
+
+Google Analytics for Firebase with RN Firebase's API. Off until the app turns it on; a `screen_view` per route by
+itself. API, Gradle lines and size: `plugins/analytics/README.md`.
+
+- **Do** call `Analytics.setAnalyticsCollectionEnabled(true)` once, after the user agrees, and `false` when they opt
+  out. **Why:** it starts off (the plugin's manifest), and Firebase keeps the setting across starts.
+- **Don't** send personal data: no phone number, email, VPA or a person's amount in `setUserId`, properties or
+  parameters. Use your own customer code. **Why:** Google's terms forbid it, and everyone with console access sees it.
+- **Do** give routes names you want in reports: each top route is a `screen_view` named after it.
+  `AnalyticsPlugin(screenName = { ... })` renames or leaves out routes (return null).
+- **Don't** call `logScreenView` for whole screens. **Why:** they are counted already, so each would count twice.
+- **Do** read the console warning when a call answers `false`: the name broke Analytics' rules (letters, digits, `_`,
+  40 characters, no `firebase_` / `google_` / `ga_` start). **Why:** Firebase would drop the event with no error.
+- **Do** remove Play services' ad id permissions in the app's manifest if it shows no ads (README step 5). **Why:**
+  only the app's manifest can remove what a library adds, and Play's data safety form asks about them.
+- **Know:** booleans in parameters are sent as 1 or 0. Events reach the console about an hour later; DebugView shows
+  them at once with `adb shell setprop debug.firebase.analytics.app <package>`.

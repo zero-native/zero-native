@@ -1131,7 +1131,8 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** the group on the Lava and one Android 8–10 phone.
 
 ## 95. Firebase Gradle plugins only when google-services.json is there; R8 mapping upload only on request (Firebase plugins)
-- **Where:** `android/sample/build.gradle.kts` (end), `.gitignore`.
+- **Where:** `plugins/firebase-app/firebase.gradle.kts` (applied at the end of `android/sample/build.gradle.kts` since
+  2026-11-04, first written in that file), `.gitignore`.
 - **Chosen:** the sample applies `com.google.gms.google-services` and `com.google.firebase.crashlytics` only when
   `android/sample/google-services.json` exists (never committed), and logs one line when not. Release builds upload the
   R8 mapping only with `-PznUploadMapping`.
@@ -1140,5 +1141,51 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a release build sent to testers without `-PznUploadMapping` has obfuscated Kotlin stacks in the
   console (JS stacks are not affected).
 - **Other options:** commit a dummy json (Crashlytics then reports to nowhere); always upload (ZeroBill's production
-  flavour does).
+  flavour does). The shared file sets Crashlytics' `mappingFileUploadEnabled` by name (a script file can't see
+  Firebase's Gradle classes): if Firebase renames it, the build fails at once, which is the safe side.
+- **Evidence wanted:** none.
+
+## 96. Analytics starts off, in the plugin's manifest; the app turns it on (Analytics plugin, built)
+- **Where:** `plugins/analytics/android/src/main/AndroidManifest.xml`.
+- **Chosen:** the plugin's manifest sets `firebase_analytics_collection_enabled=false`. JS calls
+  `setAnalyticsCollectionEnabled(true)` after consent; Firebase keeps it. An app that wants it on from the first start
+  overrides the value in its own manifest (`tools:replace`).
+- **Why:** Pavan's call (2026-11-04): off until consent. Firebase starts before JS, so only the manifest can stop the
+  first launch's events (first_open, session_start).
+- **Risk if wrong:** an app that forgets the call collects nothing, silently. The README and §50 say it first.
+- **Other options:** on by default like RN Firebase (the app opts out); a plugin option (but the manifest is read
+  before any Kotlin code runs).
+- **Evidence wanted:** none.
+
+## 97. One screen_view per top route, Firebase's own screen views off (Analytics plugin, built)
+- **Where:** `AnalyticsPlugin.watchRoute`, the plugin's manifest (`google_analytics_automatic_screen_reporting_enabled=false`).
+- **Chosen:** each change of the top route (`ZnNav.stack`) sends `screen_view` with `screen_name` and `screen_class`
+  set to the route's name. `screenName` renames or leaves out routes; `screenViews = false` turns it off.
+- **Why:** the app is one Activity, so Firebase's own screen views would all be "MainActivity". RN apps get the same
+  thing by hand from React Navigation's `onStateChange`; here routes are known natively.
+- **Risk if wrong:** tabs inside a screen are not separate screens (one route); a sheet over a screen is one if it is a
+  route. Apps call `logScreenView` for parts of a screen.
+- **Other options:** screen_class = "zero-native" for all; no automatic views at all (RN Firebase's default).
+- **Evidence wanted:** what ZeroBill's reports need (route names vs friendlier names) once Pavan uses it.
+
+## 98. Names checked in the plugin; booleans sent as 1 or 0 (Analytics plugin, built)
+- **Where:** `AnalyticsRules.kt`.
+- **Chosen:** bad event, parameter or property names (Analytics' published rules) answer `false` with the reason as a
+  JS console warning, and nothing is sent. Strings are cut to 100 characters, property values to 36. Booleans become
+  1 / 0; only `items` can be a list.
+- **Why:** Firebase drops a bad event with only a logcat line, so authors never see it. Analytics has no booleans: a
+  Bundle boolean would be dropped.
+- **Risk if wrong:** if Google relaxes a rule, the plugin refuses names Firebase would take, until the rule is updated.
+- **Other options:** pass everything to Firebase and let it drop; booleans as "true" / "false" strings.
+- **Evidence wanted:** none.
+
+## 99. The app removes the ad id permissions, not the plugin (Analytics plugin, built)
+- **Where:** `android/sample/src/main/AndroidManifest.xml`, the plugin README step 5.
+- **Chosen:** the plugin turns ad id collection off (`google_analytics_adid_collection_enabled=false`), but leaves
+  Play services' `AD_ID`, `ACCESS_ADSERVICES_AD_ID` and `ACCESS_ADSERVICES_ATTRIBUTION` permissions in. The app removes
+  them with `tools:node="remove"` (the sample does).
+- **Why:** a library's remove marker is not a sure thing against other libraries in the manifest merge, and an app
+  with ads needs them. The app's own manifest wins every time.
+- **Risk if wrong:** an app that forgets step 5 ships the permissions, and Play's data safety form asks about the ad id.
+- **Other options:** remove them in the plugin's manifest; exclude `play-services-ads-identifier` in Gradle.
 - **Evidence wanted:** none.

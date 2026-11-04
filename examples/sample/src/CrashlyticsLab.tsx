@@ -4,6 +4,7 @@
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { nav, scheme, signal } from "@zero-native/core"
 import { Crashlytics } from "@zero-native/crashlytics"
+import { Firebase, Installations } from "@zero-native/firebase-app"
 import { c } from "./tokens"
 
 function CrashlyticsLabButton(props: { label: string; onPress: () => void }) {
@@ -38,6 +39,15 @@ export function CrashlyticsLabScreen() {
       say(`status available=${s.available} enabled=${s.enabled}`)
     })
   void readStatus()
+
+  // plugins/firebase-app: the project this build talks to, and this install's id (only its length is logged).
+  const app = signal("")
+  const readApp = async () => {
+    const a = await Firebase.app()
+    const id = a.available ? await Installations.getId() : null
+    app.set(a.available ? `${a.projectId}, install id ${id ? "yes" : "none"}` : "Firebase off")
+    say(`firebase available=${a.available} project=${a.projectId ?? "-"} installId=${id ? id.length : 0}`)
+  }
 
   const setUser = () => {
     void Crashlytics.setUserId("lab-user-1")
@@ -80,7 +90,9 @@ export function CrashlyticsLabScreen() {
       <Column gap={10} style={{ padding: 16 }}>
         <CrashlyticsLabLine text={`status: ${status()}`} />
         <CrashlyticsLabLine text={`state: ${state()}`} />
+        <CrashlyticsLabLine text={`firebase: ${app()}`} />
         <CrashlyticsLabButton label="Read status" onPress={() => void readStatus()} />
+        <CrashlyticsLabButton label="Firebase app" onPress={() => void readApp()} />
         <CrashlyticsLabButton label="Set user and keys" onPress={setUser} />
         <CrashlyticsLabButton label="Record a caught error" onPress={caught} />
         <CrashlyticsLabButton label="Throw in a tap handler" onPress={handlerThrows} />

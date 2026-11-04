@@ -50,6 +50,16 @@ const debugLogs = () => shell("setprop", "log.tag.FirebaseCrashlytics", "DEBUG")
 
 export const steps: Step[] = [
   {
+    name: "firebase app and installations",
+    run: async () => {
+      if (!(await lab())) return
+      await tap("Firebase app")
+      const line = await expectLog(/crashlytics-lab firebase /)
+      check(/available=true project=\S+ installId=[1-9]/.test(line), `no project or install id: ${line}`)
+      ok("firebase", line)
+    },
+  },
+  {
     name: "crashlytics status and opt-out",
     run: async () => {
       if (!(await lab())) return

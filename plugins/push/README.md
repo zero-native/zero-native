@@ -11,8 +11,9 @@ Push messages (Firebase Cloud Messaging) and notifications the app shows itself,
 Each call answers with a value and never rejects. Nothing asks for a permission by itself.
 
 ## Add it
-1. Firebase as for `@zero-native/crashlytics` (README there): `google-services.json` and the google-services Gradle
-   plugin, applied only when the json is there. Without it the app builds, `Push.status()` says `available: false`,
+1. Firebase as for `@zero-native/crashlytics` (README there): `google-services.json`, `:plugin-firebase-app` in
+   `settings.gradle.kts`, and `apply(from = "../../plugins/firebase-app/firebase.gradle.kts")`, which applies the
+   google-services Gradle plugin only when the json is there. Without it the app builds, `Push.status()` says `available: false`,
    and `Notifications` still work.
 2. In the app's `build.gradle.kts`: `implementation(project(":plugin-push"))`.
 3. In `Application.onCreate`, with the other plugins: `ZnPlugins.register(this, PushPlugin())`.
@@ -97,7 +98,7 @@ with `m.inFront`. Notifee's `displayNotification` maps to `Notifications.show`.
 ## Size
 | Dependency | Version | Why |
 |---|---|---|
-| `com.google.firebase:firebase-bom` | 35.1.0 | Firebase versions |
+| `com.google.firebase:firebase-bom` | 35.1.0 | Firebase versions (from `@zero-native/firebase-app`) |
 | `com.google.firebase:firebase-messaging` | from the BoM (26.0.x) | FCM |
 | `androidx.core` | the app's | `NotificationCompat`, already in every app |
 

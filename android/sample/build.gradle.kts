@@ -74,10 +74,12 @@ dependencies {
     implementation(project(":plugin-webview"))
     implementation(project(":plugin-pdf"))
     implementation(project(":plugin-location"))
+    implementation(project(":plugin-firebase-app"))
     implementation(project(":plugin-crashlytics"))
     // Native crashes (Hermes, C++) in Crashlytics: opt-in, so only with `-PznCrashlyticsNdk` (size: plugins/crashlytics/README.md).
     if (project.hasProperty("znCrashlyticsNdk")) implementation("com.google.firebase:firebase-crashlytics-ndk")
     implementation(project(":plugin-push"))
+    implementation(project(":plugin-analytics"))
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
@@ -94,14 +96,5 @@ dependencies {
 
 // Firebase (plugins/crashlytics, plugins/push) only when google-services.json is here. It is never committed (.gitignore):
 // other machines and CI build the same app with Firebase off, and the Firebase plugins then answer `available: false`.
-if (file("google-services.json").exists()) {
-    apply(plugin = "com.google.gms.google-services")
-    apply(plugin = "com.google.firebase.crashlytics")
-    // The R8 mapping goes to Crashlytics only with `-PznUploadMapping`, so no everyday release build uploads anything.
-    android.buildTypes.getByName("release").extensions
-        .configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
-            mappingFileUploadEnabled = project.hasProperty("znUploadMapping")
-        }
-} else {
-    logger.lifecycle("zero-native: no android/sample/google-services.json, so Firebase is off in this build")
-}
+// The R8 mapping goes to Crashlytics only with `-PznUploadMapping`. All of it lives in the shared file below.
+apply(from = "../../plugins/firebase-app/firebase.gradle.kts")
