@@ -23,12 +23,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -152,7 +155,23 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val elevation = num(Registry.Prop.ELEVATION) ?: 0f
     val shadowColor: Color = color(Registry.Prop.SHADOW_COLOR) ?: Color.Black
     val clip = enum(Registry.Prop.OVERFLOW) == Registry.Overflow.HIDDEN
-    val shape: Shape = if (radius > 0f) RoundedCornerShape(radius.dp) else RectangleShape
+    // Per corner (registry 15), as in RN: the corner's own value, else borderRadius. Start / End beat Left / Right;
+    // Left / Right are drawn as Start / End (the same left to right).
+    private fun corner(left: Int, start: Int) = num(start) ?: num(left) ?: radius
+    private val topStart = corner(Registry.Prop.BORDER_TOP_LEFT_RADIUS, Registry.Prop.BORDER_TOP_START_RADIUS)
+    private val topEnd = corner(Registry.Prop.BORDER_TOP_RIGHT_RADIUS, Registry.Prop.BORDER_TOP_END_RADIUS)
+    private val bottomEnd = corner(Registry.Prop.BORDER_BOTTOM_RIGHT_RADIUS, Registry.Prop.BORDER_BOTTOM_END_RADIUS)
+    private val bottomStart = corner(Registry.Prop.BORDER_BOTTOM_LEFT_RADIUS, Registry.Prop.BORDER_BOTTOM_START_RADIUS)
+    /** Any rounded corner: rounded nodes clip press feedback and images to their shape. */
+    val rounded = topStart > 0f || topEnd > 0f || bottomEnd > 0f || bottomStart > 0f
+    val shape: Shape = when {
+        !rounded -> RectangleShape
+        topStart == topEnd && topEnd == bottomEnd && bottomEnd == bottomStart -> RoundedCornerShape(topStart.dp)
+        else -> RoundedCornerShape(
+            topStart = topStart.coerceAtLeast(0f).dp, topEnd = topEnd.coerceAtLeast(0f).dp,
+            bottomEnd = bottomEnd.coerceAtLeast(0f).dp, bottomStart = bottomStart.coerceAtLeast(0f).dp,
+        )
+    }
 
     // Transform
     val scaleX = (num(Registry.Prop.SCALE) ?: 1f) * (num(Registry.Prop.SCALE_X) ?: 1f)
@@ -197,6 +216,24 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     )
     /** Nested <Text> spans: one style per span; the text holds the spans' texts joined by U+001F. */
     val spans: List<SpanStyle>? = (p[Registry.Prop.SPANS] as String?)?.let(::parseSpans)
+    /** RN textTransform (registry 15): applied to the text as it is drawn, so text from a slot changes case too. */
+    val textTransform = enum(Registry.Prop.TEXT_TRANSFORM)
+    /** RN testID (registry 15): a Compose test tag; ZnNavHost shows tags to UI tests as resource ids. */
+    val testID: String? = p[Registry.Prop.TEST_ID] as String?
+    /** RN pointerEvents (registry 15, ZnTouch.kt): the static value, or -1 when not written. */
+    val pointerEvents = enum(Registry.Prop.POINTER_EVENTS)
+    val pointerEventsSlot = slotFor(raw, Registry.Prop.POINTER_EVENTS)
+    /**
+     * A layer drawn over its siblings: an absolute Box / Column / Row / Stack with a background or children. Without
+     * pointerEvents it stops taps, as a React Native view does, so a ported "busy" overlay blocks the button under it
+     * (second-opinions 74). Other elements without handlers still let taps through.
+     */
+    val absoluteLayer = absolute &&
+        (type == Registry.Component.BOX || type == Registry.Component.COLUMN ||
+            type == Registry.Component.ROW || type == Registry.Component.STACK) &&
+        (background != null || slotFor(raw, Registry.Prop.BACKGROUND_COLOR) >= 0 || children.isNotEmpty())
+    /** Pressable hitSlop (registry 15): start, top, end, bottom in dp, or null. */
+    val hitSlop: FloatArray? = parseHitSlop(p[Registry.Prop.HIT_SLOP] as String?)
     val src: String? = p[Registry.Prop.SRC] as String?
     val contentScale = enum(Registry.Prop.CONTENT_SCALE)
     val icon: ZnIcon? = (p[Registry.Prop.ICON] as String?)?.let(ZnIcon::parse)
@@ -267,6 +304,24 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val detents: List<String> = (p[Registry.Prop.DETENTS] as String?)?.split(',')?.map { it.trim() }
         ?.filter { it == "content" || it == "half" || it == "full" }?.ifEmpty { null } ?: listOf("content")
     val dismissible = p[Registry.Prop.DISMISSIBLE] != false
+    /** `visible` written on the node (a Modal without it is shown, as in RN). */
+    val hasVisibleProp = p.containsKey(Registry.Prop.VISIBLE)
+    // Modal (registry 15, ZnModal.kt)
+    val transparent = p[Registry.Prop.TRANSPARENT] == true
+    val animationType = enum(Registry.Prop.ANIMATION_TYPE)
+    val statusBarTranslucent = p[Registry.Prop.STATUS_BAR_TRANSLUCENT] == true
+    val navigationBarTranslucent = p[Registry.Prop.NAVIGATION_BAR_TRANSLUCENT] == true
+    val onRequestClose = eventFor(raw, Registry.Event.ON_REQUEST_CLOSE)
+    // StatusBar / NavigationBar (registry 15, ZnSystemBars.kt)
+    val barStyle = enum(Registry.Prop.BAR_STYLE)
+    val barStyleSlot = slotFor(raw, Registry.Prop.BAR_STYLE)
+    val hidden = p[Registry.Prop.HIDDEN] == true
+    val hasHiddenProp = p.containsKey(Registry.Prop.HIDDEN)
+    val hiddenSlot = slotFor(raw, Registry.Prop.HIDDEN)
+    /** <List> RN stickyHeaderIndices (registry 15): "1,30", or a slot with that text. */
+    val stickyHeaderIndices: String? = p[Registry.Prop.STICKY_HEADER_INDICES] as String?
+    val stickySlot = slotFor(raw, Registry.Prop.STICKY_HEADER_INDICES)
+    val onShow = eventFor(raw, Registry.Event.ON_SHOW)
     // TextField
     val rawValue: Any? = p[Registry.Prop.VALUE]
     val value: String? = rawValue as? String
@@ -415,14 +470,29 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)
     val onPressOut = eventFor(raw, Registry.Event.ON_PRESS_OUT)
     val onLongPress = eventFor(raw, Registry.Event.ON_LONG_PRESS)
+    /** Registry 14: whether onLongPress holds a handler right now (a slot), when it isn't written in place. */
+    val hasLongPressSlot = slotFor(raw, Registry.Prop.HAS_LONG_PRESS)
     val onPressRepeat = eventFor(raw, Registry.Event.ON_PRESS_REPEAT)
     val onValueChange = eventFor(raw, Registry.Event.ON_VALUE_CHANGE)
     val onNativeEvent = eventFor(raw, Registry.Event.ON_NATIVE_EVENT)
 
+    /** Border width and colour bound to slots (registry 15; NONE = static). */
+    val borderWidthSlot = slotFor(raw, Registry.Prop.BORDER_WIDTH)
+    val borderColorSlot = slotFor(raw, Registry.Prop.BORDER_COLOR)
+    /** RN onLayout (registry 15): sent from the modifier chain, so the node builds its chain per instance. */
+    val onLayout = eventFor(raw, Registry.Event.ON_LAYOUT)
+    // <Image> (registry 15): tint, and its load events (JSON payloads, see registry.ts).
+    val tintColor: Color? = color(Registry.Prop.TINT_COLOR)
+    val tintColorSlot = slotFor(raw, Registry.Prop.TINT_COLOR)
+    val onLoad = eventFor(raw, Registry.Event.ON_LOAD)
+    val onError = eventFor(raw, Registry.Event.ON_ERROR)
+    val onLoadEnd = eventFor(raw, Registry.Event.ON_LOAD_END)
+
     /** True when the drawing chain reads a slot, so it must be built per instance instead of once here. */
     val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || hasDynamicPadding ||
         type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null ||
-        accessibilityLabelSlot != NONE || hasMotion
+        accessibilityLabelSlot != NONE || hasMotion || borderWidthSlot != NONE || borderColorSlot != NONE ||
+        onLayout != 0
 
     /** Pre-built chain for nodes whose chain never changes (most nodes). */
     val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null, staticAccessibility)
@@ -438,10 +508,14 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         background: (() -> Color)?,
         press: Modifier?,
         pad: (() -> Edges)?,
-        accessibility: Modifier? = null
+        accessibility: Modifier? = null,
+        border: ZnBorder? = null,
+        layout: Modifier? = null,
     ): Modifier {
         var m: Modifier = Modifier
         margin?.let { m = m.padding(it.toPadding()) }
+        layout?.let { m = m.then(it) } // RN onLayout: the box inside the margin, as RN reports it
+        testID?.let { m = m.testTag(it) } // inside the margin: the element's own box, as RN reports it
         when (val w = width) {
             is Double -> m = m.width(w.toFloat().dp)
             is ZnPercent -> m = m.fillMaxWidth(w.fraction.toFloat())
@@ -490,7 +564,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
                 onDrawBehind { drawOutline(outline, brush) }
             }
         }
-        if (borderWidth > 0f) m = m.border(borderWidth.dp, borderColor, shape)
+        if (border != null) m = m.znBorder(this, border)
+        else if (borderWidth > 0f) m = m.border(borderWidth.dp, borderColor, shape)
         if (borderTopWidth > 0f || borderBottomWidth > 0f) {
             val c = borderColor
             val topW = borderTopWidth
@@ -507,7 +582,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         // pressed highlight shows square corners on a rounded button (found on the Lava, step 1.2).
         // Images clip to their rounded shape by default, as in React Native.
         // A borderless ripple must draw outside the shape, so such a Pressable isn't clipped by default.
-        val clipsByDefault = radius > 0f && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE || type == Registry.Component.SHIMMER)
+        val clipsByDefault = rounded && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE || type == Registry.Component.SHIMMER)
         if (clip || clipsByDefault) m = m.clip(shape)
         press?.let { m = m.then(it) } ?: accessibility?.let { m = m.then(it) }
         // Borders take space: content sits inside them (zn flex rule 2).
@@ -517,6 +592,14 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         if (paddingIsContent) {
             if (borderWidth > 0f || borderTopWidth > 0f || borderBottomWidth > 0f) {
                 m = m.padding(Edges(0f, 0f, 0f, 0f).plus(bs, bt, bs, bb).toPadding())
+            }
+        } else if (border != null) {
+            // A border width that changes at runtime: read while measuring, so a change re-measures only this node.
+            val top = borderTopWidth
+            val bottom = borderBottomWidth
+            m = m.layoutPadding {
+                val w = border.width()
+                (pad?.invoke() ?: staticPadding).plus(w, w + top, w, w + bottom)
             }
         } else if (pad != null) {
             m = m.layoutPadding { pad().plus(bs, bt, bs, bb) }
@@ -528,6 +611,12 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
 
     /** The static padding edges (0 where none), for [buildChain]'s dynamic padding to fill slot values into. */
     val staticPadding: Edges = padding ?: Edges(0f, 0f, 0f, 0f)
+
+    /** This node's shape with every corner [w] dp smaller (the inside edge of a border [w] wide). */
+    internal fun insetShape(w: Float): Shape = if (!rounded) RectangleShape else RoundedCornerShape(
+        topStart = (topStart - w).coerceAtLeast(0f).dp, topEnd = (topEnd - w).coerceAtLeast(0f).dp,
+        bottomEnd = (bottomEnd - w).coerceAtLeast(0f).dp, bottomStart = (bottomStart - w).coerceAtLeast(0f).dp,
+    )
 
     private fun num(prop: Int): Float? = (p[prop] as Double?)?.toFloat()
     private fun enum(prop: Int): Int = (p[prop] as ZnEnum?)?.value ?: NONE
@@ -550,6 +639,31 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
 }
 
 private fun Float?.orUnspecified(): Dp = this?.dp ?: Dp.Unspecified
+
+/** A border whose width or colour changes at runtime (registry 15): both read as it draws or measures, in dp. */
+internal class ZnBorder(val width: () -> Float, val color: () -> Color)
+
+/**
+ * The border of [spec] drawn as Compose's own border is: the shape minus the shape [width] smaller, over the content.
+ * The ring is rebuilt when the size or the width changes; a colour change only redraws.
+ */
+private fun Modifier.znBorder(spec: ZnNodeSpec, border: ZnBorder): Modifier = drawWithCache {
+    val wDp = border.width().coerceAtLeast(0f)
+    val w = wDp.dp.toPx()
+    val ring = if (w <= 0f || size.minDimension <= 0f) null else {
+        val outer = Path().apply { addOutline(spec.shape.createOutline(size, layoutDirection, this@drawWithCache)) }
+        val innerSize = Size((size.width - 2 * w).coerceAtLeast(0f), (size.height - 2 * w).coerceAtLeast(0f))
+        val inner = Path().apply {
+            addOutline(spec.insetShape(wDp).createOutline(innerSize, layoutDirection, this@drawWithCache))
+            translate(Offset(w, w))
+        }
+        Path().apply { op(outer, inner, PathOperation.Difference) }
+    }
+    onDrawWithContent {
+        drawContent()
+        if (ring != null) drawPath(ring, border.color())
+    }
+}
 
 /**
  * This size times [f] when it is in sp; unset sizes (a span that keeps its parent's size) and em sizes stay as they

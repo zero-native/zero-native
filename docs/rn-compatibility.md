@@ -48,7 +48,8 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `Image` (`source={{ uri }}`) | [`Image src`](../packages/ui/src/index.ts:175) | renamed | `source={{ uri: u }}` becomes `src={u}`. `require("./a.png")` becomes `src="asset:images/a.png"` (an `assets/` folder next to `src/`). |
 | `Image resizeMode` | [`contentScale`](../packages/ui/src/index.ts:179) | renamed | `cover`, `contain` same. `stretch` becomes `fill`. `center`, `repeat` are missing. |
 | `Image defaultSource` | [`fallbackSrc`](../packages/ui/src/index.ts:178) | different | `fallbackSrc` shows on **error**, not while loading. For a loading look use `loading="shimmer"`. |
-| `Image onLoad` / `onError` / `tintColor` / `blurRadius` / `Image.getSize` | none | missing | No events or tint. A single-colour image: use `Icon` (SVG path data, `color`). |
+| `Image onLoad` / `onError` / `onLoadEnd` / `tintColor` | same names | same | Registry 15. `e.nativeEvent.source` `{ width, height, uri }`, `e.nativeEvent.error`. For `src` only (a `fallbackSrc` sends nothing). `tintColor` can change at runtime. [guide-notes §43](guide-notes.md). |
+| `Image blurRadius` / `Image.getSize` | none | missing | Not built (no use in the reference app). |
 | `ImageBackground` | `Stack` + `Image` | missing | Put an `Image` and the content in a `Stack`. A gradient is `backgroundImage` on a style. |
 | `Icon` (react-native-vector-icons, svg) | [`Icon`](../packages/ui/src/index.ts:183) | different | SVG path data in a `.ts` file, fill paths only. No icon font, no `react-native-svg`. New code: `.svg` files (next rows). |
 | `react-native-svg` (`Svg`, `Path`, `G`, `Circle`, `Rect`, `Defs`, gradients, `ClipPath`, `Use`) | [`Svg`](../packages/ui/src/index.ts:280) and the same element names | different | Same names and camelCase props. Compiled at build time into one node: geometry must be known at build time; only `fill`, `stroke`, `opacity` may change. `.map` over a `const` array works; `cond && <X/>` inside `<Svg>` doesn't (use `opacity`). [svg.md](svg.md) §4.2. |
@@ -57,18 +58,19 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | Animated SVG (`Animated.createAnimatedComponent(Path)`, Reanimated `useAnimatedProps`) | part `rotate` / `scale` / `translateX` / trims + `animate` ([svg.md](svg.md) §9) | different | Built 2026-11-03 (registry 11). Say the target value and how it animates; no animated props from JS. `strokeDashoffset` "draw the line" tricks become `trimEnd`. Path morphing (animating `d`): missing from JS; an `.svg` file's SMIL / CSS `d` animation morphs (registry 12, [svg.md](svg.md) §16). `strokeWidth` / `dashOffset` on `.svg` parts (registry 12). |
 | Animated `.svg` files (SMIL `<animate>`, CSS `@keyframes` inside the file; loaders from icon sites) | `import Spinner from "./spinner.svg"` | **better** | RN's `react-native-svg` ignores SMIL and CSS animation (the file shows still). zn compiles them into native part animations at build time ([svg.md](svg.md) §15): 104 of 104 real loaders play (§17; 95 before phase 3, 100 before phase 4), path morphing, dash and stroke-width animation, filters, moving along a path (`animateMotion`, CSS `offset-path`) and `begin="click"` (a tap on the Svg) included. Other events (`mouseover`) fail with a hint. |
 | `ScrollView` | [`Scroll`](../packages/ui/src/index.ts:261) | different | Props: `horizontal`, pull to refresh. `refreshControl` works on a vertical `Scroll` (see `RefreshControl`). Missing: `onScroll`, `scrollTo` / refs, `contentContainerStyle` (padding on `Scroll` scrolls with the content), `showsVerticalScrollIndicator`, `keyboardShouldPersistTaps`. Long vertical data must use `List`. |
-| `FlatList` | [`List`](../packages/ui/src/index.ts:343) | different | `data` same. `keyExtractor` → the `key` prop. `renderItem` → `row`. `ItemSeparatorComponent` → `gap`. `onEndReached` same. [lists.md](lists.md). |
+| `FlatList` | [`List`](../packages/ui/src/index.ts:343) | different | `data` same. `keyExtractor` → the `key` prop. `renderItem` → `row`. `ItemSeparatorComponent` → `gap`. `onEndReached` same. `stickyHeaderIndices` same (registry 15). [lists.md](lists.md). |
 | `FlatList` headers, empty, footer | row kinds in `row` | different | Put a header or footer item in `data` and choose its row with `cond ? <A/> : <B/>`. |
 | `FlatList` `refreshing` / `onRefresh` / `refreshControl` | same names on [`List`](../packages/ui/src/index.ts:397) | same | Pull to refresh, [guide-notes §41](guide-notes.md). |
 | `FlatList` `numColumns`, `horizontal`, `inverted`, `scrollToIndex`, `getItemLayout`, `ListEmptyComponent` | none | missing | Horizontal: use `Scroll horizontal`. Grid, `scrollToIndex`: no equivalent. Show the empty state with a `cond && <X/>` outside the list. |
 | `SectionList` | none | missing | Flatten sections into one `data` array with header items. |
 | `FlatList onViewableItemsChanged` | [`useImpressions`](../packages/core/src/nav.ts:143) + `impressionKey` | different | Counted natively once a card is visible enough. No scroll events in JS. |
 | `.map()` in JSX | `{items.map(i => <Row key={i.id}/>)}` | same | Up to ~100 items. The `key` goes on the row's root. |
-| `Pressable` | [`Pressable`](../packages/ui/src/index.ts:276) | different | `onPress`, `onPressIn`, `onLongPress`, `disabled` same. A handler that is `undefined` does nothing, and a handler that changes is used from the next tap, as in RN ([latest](../packages/core/src/view.ts:80), 2026-11-03). Differs: an `onLongPress` written on the element but `undefined` at that moment still makes a long hold give no `onPress` (RN gives one). `onPressOut` gets `cancelled` (a boolean), not an event. Layout nodes take no `onPress`: only `Pressable`. |
+| `Pressable` | [`Pressable`](../packages/ui/src/index.ts:276) | different | `onPress`, `onPressIn`, `onLongPress`, `disabled` same. A handler that is `undefined` does nothing, and a handler that changes is used from the next tap, as in RN ([latest](../packages/core/src/view.ts:80), 2026-11-03). An `onLongPress` that holds no handler at that moment lets a long hold give `onPress`, as in RN (registry 14). `onPressOut` gets `cancelled` (a boolean), not an event. Layout nodes take no `onPress`: only `Pressable`. |
 | `Pressable style={({ pressed }) => ...}` | `pressFeedback`, `pressScale`, `pressOpacity`, `highlightColor` | different | The style function is not supported. Pick the effect by prop: native draws it with no JS. |
 | `Pressable android_ripple` | `rippleColor`, `rippleBorderless`, `rippleRadius`, `rippleOpacity` | renamed | Move each field to its own prop. The ripple is on by default. |
 | `TouchableOpacity` / `TouchableHighlight` | `Pressable pressOpacity` / `pressFeedback="highlight"` | renamed | `activeOpacity` → `pressOpacity`. `underlayColor` → `highlightColor`. |
-| `Pressable hitSlop`, `delayLongPress`, `testID` | none | missing | Make the `Pressable` bigger with padding. No `testID` today. |
+| `Pressable hitSlop`, `testID` | same names | different | Registry 15. `hitSlop`: build-time; each axis reaches its larger side on both sides, and a tap in it loses to another tappable element under the finger. `testID` (every element): the resource id UI tests see. [guide-notes §43](guide-notes.md). |
+| `Pressable delayLongPress` | none | missing | The system long-press time. |
 | `Button` | none | missing | Build it from `Pressable` + `Text`. |
 | `TextInput` | [`TextField`](../packages/ui/src/index.ts:312) | renamed | See the prop rows below. |
 | `TextInput` `value`, `onChangeText`, `placeholder`, `maxLength`, `multiline`, `autoFocus`, `editable`, `autoCorrect`, `selectionColor`, `onFocus`, `onBlur` | same names | same | Set `value` in `onChangeText` synchronously (the field always ends up showing `value`). |
@@ -83,12 +85,12 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `Checkbox` (community) | [`Checkbox`](../packages/ui/src/index.ts:201) | different | `value`, `onValueChange`, `color`, `activeColor`. |
 | (progress bar libs) | [`Progress`](../packages/ui/src/index.ts:222) | different | `value` 0–1, omit for endless. |
 | (skeleton libs) | [`Shimmer`](../packages/ui/src/index.ts:232) | different | All shimmers on screen move in step. |
-| `Modal` | [`Sheet`](../packages/ui/src/index.ts:250) or route `transition: "modal"` | different | `Sheet` is a controlled bottom sheet (`visible`, `onDismiss`). Centred dialogs / `Modal` `transparent` are missing. |
+| `Modal` | [`Modal`](../packages/ui/src/index.ts) | same | Registry 15: a full-screen window, your content in it. `visible`, `transparent`, `animationType`, `statusBarTranslucent`, `navigationBarTranslucent`, `onRequestClose`, `onShow`; iOS-only props accepted. For a bottom sheet with drag and detents, `Sheet` is still there. [guide-notes §43](guide-notes.md). |
 | `Alert.alert` | [`Alert.alert`](../packages/core/src/alert.ts:39) | same | Android's own dialog with the app's theme, up to 3 buttons, `cancelable`, `onDismiss`. Stays open when the phone turns. `Alert.prompt` is iOS only in RN too. |
 | `Dimensions.get` / `addEventListener`, `useWindowDimensions` | [`Dimensions`](../packages/core/src/dimensions.ts:43), [`useWindowDimensions`](../packages/core/src/dimensions.ts:70) | different | Same values (dp, `scale`, `fontScale`). They can't size a layout (§0): use `flex` and `%` there, and these in logic. Read inside JSX or `effect` to follow changes. Not ready at a file's top level. |
 | `PixelRatio` | [`PixelRatio`](../packages/core/src/dimensions.ts:74) | same | `get`, `getFontScale`, `getPixelSizeForLayoutSize`, `roundToNearestPixel`. |
 | `SafeAreaView` / `react-native-safe-area-context` | route option `safeArea` + [`insets()`](../packages/core/src/insets.ts:23) | different | Delete `SafeAreaView`. Set `safeArea` on the route ([routes.ts:20](../packages/core/src/routes.ts:20)); for a coloured header use `insets().top`. |
-| `StatusBar` | route option `statusBar: "dark" \| "light"` | different | Per route, not per component. [routes.ts:22](../packages/core/src/routes.ts:22). `StatusBar.currentHeight` → `insets().top`. `setBarStyle` at runtime: not built (no screen needs it yet). |
+| `StatusBar` | [`StatusBar`](../packages/ui/src/index.ts) | same | Registry 15: `barStyle`, `backgroundColor` (drawn by zn, works on Android 15+), `hidden`, all at runtime; belongs to its screen. `translucent` does nothing (the route's `safeArea` decides). `StatusBar.setBarStyle` / `currentHeight`: not built (`insets().top`). zn adds `<NavigationBar>`. [guide-notes §43](guide-notes.md). |
 | `KeyboardAvoidingView` | route option `keyboard: "resize"` | different | On by default. Delete the component. [routes.ts:29](../packages/core/src/routes.ts:29). |
 | `RefreshControl` | [`RefreshControl`](../packages/ui/src/index.ts:282) | same | Only inside `refreshControl={...}` on a vertical `Scroll` or a `List`, written there (not kept in a variable). `refreshing`, `onRefresh`, `colors` (first colour only), `tintColor`, `progressBackgroundColor`. Other props are a build error. Or use the flat props `refreshing`, `onRefresh`, `refreshColor`, `refreshBackground`. Android's look on both (the disc slides over the content). [guide-notes §41](guide-notes.md). |
 | `Animated`, `LayoutAnimation`, `Easing` | `animate`, `enter`, `exit` props, [`Timing`](../packages/ui/src/index.ts:104) | different | No `Animated.Value`. Say how a change should animate: `animate={250}` or `animate={{ opacity: 200, translateY: "spring" }}`. `enter` / `exit` for mount and unmount. Gesture-driven animation is missing. `Easing.bezier(x1, y1, x2, y2)` → `easing: [x1, y1, x2, y2]`. |
@@ -96,11 +98,12 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `Animated.delay`, `Animated.stagger`, Reanimated `withDelay` | timing `delay`; `enter={{ ..., delay: i * 40 }}` for a stagger | different | One delay per timing, each time it starts. |
 | `Animated.sequence`, Reanimated `withSequence` | timing `keyframes` + `times` | different | One prop through several values (a shake: `keyframes: [0, -8, 8, 0]`). A sequence across different props or elements: give each its own `delay`. |
 | `Reanimated` | none | missing | Same as above. Only opacity, background colour, scale, translate, rotate can animate. |
-| `StyleSheet.create` | [`StyleSheet.create`](../packages/ui/src/index.ts:353) | same | Folded at build time. `StyleSheet.flatten`, `hairlineWidth`, `absoluteFill` are missing. |
+| `StyleSheet.create` | [`StyleSheet.create`](../packages/ui/src/index.ts:353) | same | Folded at build time. `absoluteFill` / `absoluteFillObject` too (registry 15: an absolute child with both `start` and `end`, or `top` and `bottom`, stretches between them). `StyleSheet.flatten`, `hairlineWidth` are missing. |
 | `accessibilityLabel`, `accessibilityHint` | same names | same | [ui/index.ts:153](../packages/ui/src/index.ts:153). |
 | `accessibilityRole` | same name | different | Values: `button`, `header`, `image`, `link`, `text`, `switch`, `checkbox`, `none`. Others are a build error. |
 | `accessibilityElementsHidden` / `importantForAccessibility` | `accessibilityHidden` | renamed | One boolean. |
-| `accessible`, `accessibilityState`, `accessibilityActions`, `testID`, `onLayout`, `pointerEvents`, `ref` | none | missing | No equivalent. Remove them. `accessibilityState` for toggles: use `Switch` / `Checkbox`. |
+| `onLayout`, `pointerEvents` | same names | different | Registry 15. `onLayout`: `e.nativeEvent.layout` in dp, on a change. `pointerEvents` as in RN, at runtime too. Without it, an absolute layer with a background or children stops taps as in RN; any other element without handlers lets them through (RN stops them). [guide-notes §43](guide-notes.md). |
+| `accessible`, `accessibilityState`, `accessibilityActions`, `ref` | none | missing | No equivalent. Remove them. `accessibilityState` for toggles: use `Switch` / `Checkbox`. |
 
 ## 2. Style keys
 
@@ -117,10 +120,11 @@ known at build time (section 0).
 | `flexDirection` | `Row` / `Column` | different | Build error with a hint. |
 | `flexWrap`, `flexGrow`, `flexShrink`, `flexBasis`, `alignContent`, `rowGap`, `columnGap`, `display` | none | missing | Wrap: no replacement yet. `flexGrow` → `flex`. `display: "none"` → `cond && <X/>`. |
 | `backgroundColor`, `opacity`, `elevation`, `shadowColor` | same | same | `backgroundColor` and `opacity` can change at runtime. |
-| `borderRadius`, `borderWidth`, `borderColor` | same | different | One radius for all corners only. |
+| `borderRadius`, `borderWidth`, `borderColor` | same | same | `borderWidth` and `borderColor` can change at runtime (registry 15). |
 | `borderTopWidth`, `borderBottomWidth` | same | same | Both use the one `borderColor`. |
-| `borderTopLeftRadius` and the other corner keys, `borderLeftWidth`, `borderRightWidth`, `borderStyle`, per-side colours | none | missing | Nest a `Box`, or draw a divider as a thin `Box`. |
-| `shadowOffset`, `shadowOpacity`, `shadowRadius` | none | missing | Use `elevation` and `shadowColor`. |
+| `borderTopLeftRadius` and the other corner keys | same | same | Registry 15. `Left` / `Right` are drawn as `Start` / `End`. |
+| `borderLeftWidth`, `borderRightWidth`, `borderStyle`, per-side colours | none | missing | Nest a `Box`, or draw a divider as a thin `Box`. |
+| `shadowOffset`, `shadowOpacity`, `shadowRadius` | accepted, dropped | same | As RN on Android: the shadow comes from `elevation` and `shadowColor` (registry 15 build; no registry need). |
 | `overflow` | same | different | `visible` or `hidden` only (`scroll` is missing). |
 | `zIndex` | same | different | Only inside `Stack`. |
 | `transform` | same | different | `scale`, `scaleX`, `scaleY`, `translateX`, `translateY`, `rotate` (`"45deg"` or a number). No `skew`, `perspective`, `matrix`. |
@@ -129,8 +133,9 @@ known at build time (section 0).
 | `fontWeight` | same | different | Numbers 100–900 in steps of 100, `"normal"`, `"bold"`. Strings like `"500"` work too (`compiler/src/compile.ts` `fontWeight`). |
 | `textAlign` | same | renamed | `left` → `start`, `right` → `end`, `center` same. `justify` is missing. |
 | `maxFontScale` | same | different | New key (RN has `maxFontSizeMultiplier`). |
-| `fontFamily`, `textTransform`, `textAlignVertical`, `includeFontPadding`, `textShadow*`, `userSelect` | none | missing | Only the system font. Change case in the string yourself. Custom fonts are not built. |
-| `tintColor`, `resizeMode` (as a style) | none / `contentScale` prop | missing | See Image. |
+| `textTransform` | same | same | Registry 15, also on runtime text. |
+| `fontFamily`, `textAlignVertical`, `includeFontPadding`, `textShadow*`, `userSelect` | none | missing | Only the system font. Custom fonts are not built. |
+| `resizeMode` (as a style) | `contentScale` prop | renamed | See Image. `tintColor` on `Image`: see Image. |
 
 ## 3. Navigation
 
@@ -290,7 +295,7 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 4. **`ScrollView` / `FlatList` features** (different / missing). No `onScroll`, no `scrollTo`, no refs, no
    `SectionList`, no `numColumns`, no list header / footer / empty components (use row
    kinds). Apps that animate on scroll or have grids need a new design. Pull to refresh (`RefreshControl`) is built
-   (registry 12, 2026-11-03). ([§1](#1-components))
+   (registry 12, 2026-11-03), and sticky rows (`stickyHeaderIndices`, registry 15). ([§1](#1-components))
 5. **`TextInput` control** (missing, partly built). `ref.focus()` / `blur()` / `clear()` are built (RN basics pack), so
    OTP boxes and "jump to next field" port with small edits. Still no `onKeyPress`, no selection API, no `autoComplete`.
    ([§1](#1-components))
@@ -302,8 +307,8 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 7. **Other apps and results through JS** (different). In RN a module can start any Intent. Here only Kotlin plugins can,
    and results come back through `launches` with `ack`. Every `Linking.openURL("upi://...")` or `intent:` call must
    move into a plugin. ([§6](#6-device-and-os), [§7](#7-opening-another-app-for-a-result))
-8. **Styling gaps** (missing). No `flexWrap`, `fontFamily` (custom fonts), `textTransform`, per-corner radius,
-   per-side border colours, `shadowOffset` / `shadowRadius`, `Image` `tintColor`. Designs that use them need a
+8. **Styling gaps** (missing). No `flexWrap`, `fontFamily` (custom fonts), per-side border colours. (`textTransform`,
+   per-corner radius, `Image` `tintColor` and the iOS shadow keys came in RN props pack 2.) Designs that use them need a
    workaround or a framework change. ([§2](#2-style-keys))
 9. **Animation model** (different). `Animated.Value`, `Reanimated`, `LayoutAnimation` and gesture-driven motion do not
    exist. `animate` / `enter` / `exit` cover simple changes only. Drag-to-dismiss cards, parallax, and custom
@@ -320,8 +325,8 @@ a "compiler pack" will plan them):
 - **No NativeWind / Tailwind `className`.** Every class must be rewritten as a `style` object. Apps built with
   NativeWind have hundreds of them.
 
-Smaller known gaps not in the list: `testID` (no test hook for UI tests), `Image` `onLoad` / `onError`, `Button`,
-`Modal` as a centred dialog, `Text` `onPress` and `selectable`, `StyleSheet.flatten`.
+Smaller known gaps not in the list: `Button`, `Text` `onPress` and `selectable`, `StyleSheet.flatten`. (`testID`,
+`Image` events, `Modal`, `StatusBar`, `pointerEvents`, `hitSlop`, `onLayout` came in RN props pack 2, guide-notes §43.)
 
 ## 11. What the reference app uses most (ZeroBill)
 
@@ -344,5 +349,5 @@ Rough counts of member uses in ZeroBill's React Native app (2026-11-03), to orde
 | `Share.share` | 2 | same |
 | `BackHandler.addEventListener` | 3 | renamed: `useBack` |
 | `Linking.getInitialURL` / `addEventListener` | 1 / 1 | different: the app's link router becomes routes with `deepLink` + `onLink` |
-| `<StatusBar barStyle>` | 2 | different: route option `statusBar` |
+| `<StatusBar barStyle>` | 2 | same (registry 15); the "only while focused" trick isn't needed |
 | `react-native-otp-entry` (login) | 1 screen | different: one hidden `TextField` with `ref`, drawn boxes (guide-notes §39) |

@@ -17,6 +17,7 @@
 import { parseColor } from "./color"
 import {
   BASE_VERSION,
+  ABSOLUTE_STRETCH_SINCE,
   Component,
   type ComponentName,
   DynamicProps,
@@ -226,6 +227,10 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
 
       const { style, ...direct } = spec.props
       const merged: Record<string, unknown> = { ...(style ?? {}), ...direct }
+      // An absolute child with both sides of a pair stretches between them only on newer apps (registry 15).
+      if (merged.position === "absolute" && (("start" in merged && "end" in merged) || ("top" in merged && "bottom" in merged))) {
+        needs(ABSOLUTE_STRETCH_SINCE)
+      }
       for (const [key, raw] of Object.entries(merged)) {
         if (raw === undefined) continue
         if (key in EventKind) {

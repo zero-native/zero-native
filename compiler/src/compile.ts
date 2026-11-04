@@ -71,6 +71,17 @@ const ANIMATABLE = ["opacity", "backgroundColor", "scale", "scaleX", "scaleY", "
 const EASINGS = ["standard", "ease-out", "ease-in", "linear"]
 // Pull to refresh (guide notes §41): only on a vertical Scroll and on List.
 const REFRESH_PROPS = ["refreshing", "onRefresh", "refreshColor", "refreshBackground"]
+// iOS shadow keys: React Native on Android ignores them (its shadows come from elevation and shadowColor), so zn
+// accepts and drops them too, and a shared style ports as it is (RN props pack 2).
+const IGNORED_STYLE_KEYS = new Set(["shadowOffset", "shadowOpacity", "shadowRadius"])
+// Events whose payload is JSON from native, handed over as RN's event object: `(e) => e.nativeEvent.layout.width`.
+const NATIVE_EVENT_EVENTS = new Set(["onLoad", "onError", "onLayout"])
+const IMAGE_EVENTS = new Set(["onLoad", "onError", "onLoadEnd"])
+// React Native Modal props that do nothing on Android: accepted and dropped, so a Modal ports as it is.
+const MODAL_IOS_ONLY = new Set(["presentationStyle", "hardwareAccelerated", "supportedOrientations", "onOrientationChange"])
+// React Native StatusBar props that zn doesn't need: accepted and dropped. `translucent`: each route's safeArea decides
+// whether a screen draws under the bar; `animated` and the iOS ones change nothing on Android.
+const STATUS_BAR_DROPPED = new Set(["animated", "translucent", "networkActivityIndicatorVisible", "showHideTransition"])
 
 // SVG (docs/svg.md): react-native-svg element names inside <Svg> → SVG tags.
 const SVG_TAGS: Record<string, string> = {
@@ -143,10 +154,11 @@ export function compileModule(
   }
   // An event handler: a function written in place stays as it is; anything else (`props.onPress`, `cond ? f : undefined`)
   // is read when the event comes, and an undefined one does nothing, as in React Native (core view.ts latest()).
-  const handlerCode = (e: ts.Expression) => {
+  const isInPlaceFunction = (e: ts.Expression) => {
     const u = unwrap(e)
-    return ts.isArrowFunction(u) || ts.isFunctionExpression(u) ? text(e) : `${RUNTIME}.latest(() => (${text(e)}))`
+    return ts.isArrowFunction(u) || ts.isFunctionExpression(u)
   }
+  const handlerCode = (e: ts.Expression) => (isInPlaceFunction(e) ? text(e) : `${RUNTIME}.latest(() => (${text(e)}))`)
 
   const uiImports = new Set<string>()
   // ---- Module scan --------------------------------------------------------------------------------------------
@@ -368,11 +380,25 @@ export function compileModule(
         if (!init || !ts.isJsxExpression(init) || !init.expression) fail(a, `${name} needs a function`)
         const ev = `e${b.events++}`
         ;(props as any)[name] = eventRef(ev)
-        const handler = handlerCode((init as ts.JsxExpression).expression!)
+        const handlerExpr = (init as ts.JsxExpression).expression!
+        const handler = handlerCode(handlerExpr)
+        if (IMAGE_EVENTS.has(name) && tag !== "Image") fail(a, `${name} works only on <Image>`)
         if (tag === "TextField" && name === "onChangeText") changeText = { ev, handler }
-        else b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${handler});`)
+        else if (NATIVE_EVENT_EVENTS.has(name)) {
+          // A name no app uses: the handler's own `p` or `e` must not be hidden by this wrapper.
+          b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => (${handler})({ nativeEvent: JSON.parse(__znPayload) }));`)
+        } else b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${handler});`)
+        if (name === "onLongPress" && !isInPlaceFunction(handlerExpr)) {
+          // Registry 14: native waits for a long press only while the prop holds a handler, so a wrapper that passes
+          // `onLongPress={props.onLongPress}` without one still gets onPress for a long hold, as in React Native.
+          const s = `s${b.slots++}`
+          props.hasLongPress = slotRef(s, null) as never
+          b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => (${text(handlerExpr)}) != null, 0);`)
+        }
         continue
       }
+      if (IGNORED_STYLE_KEYS.has(name) || (tag === "Modal" && MODAL_IOS_ONLY.has(name))) continue
+      if ((tag === "StatusBar" || tag === "NavigationBar") && STATUS_BAR_DROPPED.has(name)) continue
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
       if (tag === "TextField" && name === "value" && init && ts.isJsxExpression(init) && init.expression) {
         const before = b.slots
@@ -384,6 +410,10 @@ export function compileModule(
       else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)
       else fail(a, `unsupported value for "${name}"`)
+    }
+    if ("hitSlop" in props && tag !== "Pressable") fail(opening, "hitSlop works only on <Pressable> (the element that takes the tap)")
+    if ((tag === "StatusBar" || tag === "NavigationBar") && ts.isJsxElement(node) && node.children.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) {
+      fail(node, `<${tag}> takes no children`)
     }
     const refresh = REFRESH_PROPS.filter((k) => k in props)
     if (refresh.length > 0 && (tag !== "Scroll" || props.horizontal === true)) {
@@ -879,6 +909,21 @@ export function compileModule(
       if (name === "data" || name === "key" || name === "row" || name === "onEndReached") {
         if (!expr) fail(a, `${name} needs an expression: ${name}={...}`)
         special[name] = expr!
+      } else if (name === "stickyHeaderIndices") {
+        // RN's pinned rows (registry 15). Native draws them pinned; JS keeps them mounted wherever the list is.
+        if (!expr) fail(a, "stickyHeaderIndices needs an array of row indices: stickyHeaderIndices={[0]}")
+        special.sticky = expr!
+        const v = fold(expr!, scope)
+        if (v === NOT_STATIC) {
+          const sl = `s${b.slots++}`
+          props.stickyHeaderIndices = slotRef(sl, null) as never
+          b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${sl}@@, () => (${text(expr!)} ?? []).join(","), 0);`)
+        } else {
+          if (!Array.isArray(v) || !v.every((n) => Number.isInteger(n) && (n as number) >= 0)) {
+            fail(a, "stickyHeaderIndices must be an array of row indices (whole numbers, 0 or more)")
+          }
+          props.stickyHeaderIndices = (v as number[]).join(",")
+        }
       } else if (name === "onRefresh") {
         if (!expr) fail(a, "onRefresh needs a function")
         bindEvent(props, b, "onRefresh", expr!)
@@ -893,7 +938,7 @@ export function compileModule(
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, gap, refreshing, onRefresh)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, gap, refreshing, onRefresh, stickyHeaderIndices)`)
       }
     }
     for (const required of ["data", "key", "row"]) {
@@ -945,7 +990,8 @@ export function compileModule(
     b.kids.push(
       `${RUNTIME}.list(${b.inst}, ${index}, { data: () => (${text(special.data)}), key: ${text(special.key)}, ` +
         `row: (${params}) => ${rows.code}, type: (${params}) => ${rows.type}, ` +
-        `rangeEvent: @@E:${range}@@, endEvent: ${end}, onEndReached: ${onEnd} });`,
+        `rangeEvent: @@E:${range}@@, endEvent: ${end}, onEndReached: ${onEnd}` +
+        (special.sticky ? `, sticky: () => (${text(special.sticky)})` : "") + " });",
     )
     return el("List", props)
   }
@@ -1022,7 +1068,32 @@ export function compileModule(
       : name === "backgroundImage" ? linearGradient(value, at)
       : name === "animate" ? animateSpec(value, at)
       : name === "enter" || name === "exit" ? transitionSpec(value, name, at)
+      : name === "hitSlop" ? hitSlopSpec(value, at)
       : value
+  }
+
+  /**
+   * RN hitSlop: a number (all four sides) or { top, bottom, left, right, start, end } in dp → "start,top,end,bottom".
+   * left / right count as start / end (zn's rename for a left-to-right layout); start / end win when both are given.
+   */
+  function hitSlopSpec(value: unknown, at: ts.Node): string {
+    const n = (v: unknown, k: string) => {
+      if (v === undefined || v === null) return 0
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0) fail(at, `hitSlop.${k} must be a number of dp, 0 or more`)
+      return v as number
+    }
+    if (typeof value === "number") {
+      const all = n(value, "value")
+      return `${all},${all},${all},${all}`
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return fail(at, "hitSlop needs a number or { top, bottom, left, right } known at build time")
+    }
+    const o = value as Record<string, unknown>
+    for (const k of Object.keys(o)) {
+      if (!["top", "bottom", "left", "right", "start", "end"].includes(k)) fail(at, `hitSlop: unknown side "${k}" (use top, bottom, left, right)`)
+    }
+    return [n(o.start ?? o.left, "start"), n(o.top, "top"), n(o.end ?? o.right, "end"), n(o.bottom, "bottom")].join(",")
   }
 
   // ---- Animation (step 3.6, ARCHITECTURE §10): build-time values, encoded for native (registry: animate / enter / exit).
@@ -1311,6 +1382,7 @@ export function compileModule(
           transform(v, props, at)
           continue
         }
+        if (IGNORED_STYLE_KEYS.has(k)) continue
         if (!(k in Prop)) fail(at, `unknown style key "${k}"`)
         if (v !== undefined) setStatic(props, k as PropName, v, at)
       }
@@ -1352,6 +1424,7 @@ export function compileModule(
             }
             continue
           }
+          if (IGNORED_STYLE_KEYS.has(key)) continue
           if (!(key in Prop)) fail(p, `unknown style key "${key}"`)
           setProp(props, b, key as PropName, p.initializer, p)
         } else {

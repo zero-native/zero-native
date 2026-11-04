@@ -67,12 +67,29 @@ export interface StyleProps {
   /** React Native's CSS gradient: `"linear-gradient(180deg, rgba(0,0,0,0) 0%, #000 100%)"` (build-time only). */
   backgroundImage?: string
   borderRadius?: number
+  /** One corner (registry 15). A corner's own value beats borderRadius; Start / End beat Left / Right. */
+  borderTopLeftRadius?: number
+  borderTopRightRadius?: number
+  borderBottomLeftRadius?: number
+  borderBottomRightRadius?: number
+  borderTopStartRadius?: number
+  borderTopEndRadius?: number
+  borderBottomStartRadius?: number
+  borderBottomEndRadius?: number
+  /** Can change at runtime (registry 15): a change moves the content, as in RN (borders take space). */
   borderWidth?: number
+  /** Can change at runtime (registry 15): a change only redraws. */
   borderColor?: Color
   borderTopWidth?: number
   borderBottomWidth?: number
   elevation?: number
   shadowColor?: Color
+  /** iOS only, as in React Native on Android: accepted and ignored. Android shadows come from `elevation`. */
+  shadowOffset?: { width: number; height: number }
+  /** iOS only: accepted and ignored (see shadowOffset). */
+  shadowOpacity?: number
+  /** iOS only: accepted and ignored (see shadowOffset). */
+  shadowRadius?: number
   opacity?: number
   overflow?: "visible" | "hidden"
   position?: "relative" | "absolute"
@@ -101,6 +118,8 @@ export interface TextStyleProps {
   letterSpacing?: number
   fontStyle?: "normal" | "italic"
   textDecorationLine?: "none" | "underline" | "line-through"
+  /** As in React Native: changes the case as it draws, also for text that changes at runtime (registry 15). */
+  textTransform?: "none" | "uppercase" | "lowercase" | "capitalize"
   /** Cap the font scale factor (size * min(fontScale, maxFontScale)) for this text node. */
   maxFontScale?: number
 }
@@ -195,6 +214,21 @@ interface Base extends StyleProps {
   accessibilityRole?: "button" | "header" | "image" | "link" | "text" | "switch" | "checkbox" | "none"
   /** Skip this node and its children in accessibility traversal. */
   accessibilityHidden?: boolean
+  /** As in React Native: UI tests (uiautomator, Espresso) find the element by this resource id. Build-time. */
+  testID?: string
+  /**
+   * As in React Native (registry 15): its size or place in its parent changed, in dp (sent once after the first
+   * layout, then only on a change). x / y: from its parent's top-left corner.
+   */
+  onLayout?: (e: { nativeEvent: { layout: { x: number; y: number; width: number; height: number } } }) => void
+  /**
+   * As in React Native (registry 15; can change at runtime): "none" = this element and its children take no taps (they
+   * reach what is under it), "box-none" = only its children take them, "box-only" = only the element itself.
+   * Written "auto" or "box-only", it also stops taps from reaching what is under it, as a React Native view does.
+   * Not written, an absolute Box / Column / Row / Stack with a background or children stops taps too (a "busy" layer),
+   * and any other zn element without handlers lets them through.
+   */
+  pointerEvents?: "auto" | "none" | "box-none" | "box-only"
 }
 
 interface Container extends Base {
@@ -216,6 +250,14 @@ export declare const Image: Intrinsic<
     fallbackSrc?: string | null
     loading?: "none" | "shimmer"
     contentScale?: "cover" | "contain" | "fill"
+    /** As in React Native (registry 15; can change at runtime): every non-clear pixel drawn in this colour. */
+    tintColor?: Color
+    /** As in React Native (registry 15): src loaded. width / height: the picture's size in pixels. */
+    onLoad?: (e: { nativeEvent: { source: { width: number; height: number; uri: string } } }) => void
+    /** As in React Native (registry 15): src failed to load (fallbackSrc, if set, shows next). */
+    onError?: (e: { nativeEvent: { error: string } }) => void
+    /** As in React Native (registry 15): src loaded or failed. */
+    onLoadEnd?: () => void
   }
 >
 export declare const Icon: Intrinsic<Base & { icon?: string; color?: Color }>
@@ -497,6 +539,8 @@ export declare const Pressable: Intrinsic<
     repeatInterval?: number
     disabled?: boolean
     haptic?: boolean
+    /** As in React Native (registry 15): how far past its edges a tap still counts, in dp. Build-time. */
+    hitSlop?: number | { top?: number; bottom?: number; left?: number; right?: number; start?: number; end?: number }
     /** "ripple" (default on Android: from the touch point, inside the shape), "highlight" (a flat overlay) or "none". */
     pressFeedback?: "ripple" | "highlight" | "none"
     /** The ripple's colour; use white (or a light colour) on dark buttons. */
@@ -562,7 +606,71 @@ export declare function List<T>(props: {
   onEndReached?: () => void
   style?: StyleInput
   gap?: number
+  testID?: string
+  /**
+   * As in React Native (registry 15): these rows (by index in data) stay pinned at the top while their part of the
+   * list scrolls under them; the next one pushes the last up. Can change at runtime.
+   */
+  stickyHeaderIndices?: readonly number[]
 } & RefreshProps): never
 
-/** Build-time helper: returns its argument (typed). The compiler folds it. */
-export const StyleSheet = { create: <T extends Record<string, Style>>(styles: T): T => styles }
+/**
+ * React Native's Modal (registry 15): a full-screen window over the app, in which you draw your own content (a
+ * centred dialog, a loading layer, a sheet of your own). Shown while `visible` (shown when not written). Back sends
+ * `onRequestClose`; it closes only when you set `visible` to false. Its children are laid out like a Column that fills
+ * the window. iOS-only props (presentationStyle, supportedOrientations, ...) are accepted and do nothing.
+ */
+export declare const Modal: Intrinsic<{
+  visible?: boolean
+  /** No window background: the screen shows through where your content draws nothing. Default false (white). */
+  transparent?: boolean
+  /** "none" (default), "fade", or "slide" (up from the bottom). */
+  animationType?: "none" | "fade" | "slide"
+  /** Your content may draw under the status bar (else it starts below it). */
+  statusBarTranslucent?: boolean
+  /** Your content may draw under the navigation bar (else it ends above it). */
+  navigationBarTranslucent?: boolean
+  onRequestClose?: () => void
+  onShow?: () => void
+  testID?: string
+  presentationStyle?: string
+  hardwareAccelerated?: boolean
+  supportedOrientations?: string[]
+  onOrientationChange?: () => void
+  children?: unknown
+}>
+
+/**
+ * React Native's StatusBar (registry 15): put it in a screen (or in a Modal / Sheet of that screen). While the screen
+ * is on top, `barStyle` sets the icons ("light-content" over a dark header), `hidden` hides the bar, and
+ * `backgroundColor` is drawn behind the bar (Android 15+ has no bar colour; this works on every version). Several
+ * merge, the newest winning, as in RN. All can change at runtime. `translucent`: each route's `safeArea` decides;
+ * `animated` and iOS props are accepted and do nothing. `StatusBar.setBarStyle(...)` is not built: render one.
+ */
+export declare const StatusBar: Intrinsic<{
+  barStyle?: "default" | "light-content" | "dark-content"
+  backgroundColor?: Color
+  hidden?: boolean
+  animated?: boolean
+  translucent?: boolean
+  networkActivityIndicatorVisible?: boolean
+  showHideTransition?: string
+}>
+/** The same for the navigation bar (zn's own; React Native has none): its icons and the colour behind it. */
+export declare const NavigationBar: Intrinsic<{
+  barStyle?: "default" | "light-content" | "dark-content"
+  backgroundColor?: Color
+}>
+
+/** RN's absoluteFill: fills the parent Stack (RN's left / right are start / end in zn). */
+const absoluteFill = { position: "absolute", top: 0, start: 0, end: 0, bottom: 0 } as const satisfies Style
+
+/**
+ * Build-time helper: `create` returns its argument (typed). The compiler folds it, and `absoluteFill` /
+ * `absoluteFillObject` (the same style, as in React Native).
+ */
+export const StyleSheet = {
+  create: <T extends Record<string, Style>>(styles: T): T => styles,
+  absoluteFill,
+  absoluteFillObject: absoluteFill,
+}

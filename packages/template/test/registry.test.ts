@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { KOTLIN_REGISTRY_PATH, kotlinRegistry, readRegistryLock, REGISTRY_LOCK_PATH, registryLockText } from "../../../tools/gen-registry"
 import { el, event, slot, writeTemplateFile, type NodeSpec } from "../src"
-import { Added, BASE_VERSION, Prop, REGISTRY_VERSION, since } from "../src/registry"
+import { ABSOLUTE_STRETCH_SINCE, Added, BASE_VERSION, Prop, REGISTRY_VERSION, since } from "../src/registry"
 import { registryProblems, registrySnapshot, type RegistryLock } from "../src/registry-lock"
 
 test("the Kotlin registry is generated from the TS registry (run `bun run gen:registry` if this fails)", () => {
@@ -96,6 +96,12 @@ describe("a template file asks for the lowest registry version that has what it 
     const shape = (width: string) => `Z1 0 0 24 24 4 S - 1 #FF000000 1 0 1 ${width} 1 1 4 0 0 0 M0 0h4;`
     expect(writeTemplateFile([el("Svg", { svg: shape("-2") })]).registry).toBe(since("format", "svg.nonScaling"))
     expect(writeTemplateFile([el("Svg", { svg: shape("2") })]).registry).toBe(since("component", "Svg"))
+    // An absolute child with both sides of a pair stretches between them only on newer apps.
+    const abs = (sides: Record<string, number>) => writeTemplateFile([el("Stack", {}, el("Box", { position: "absolute", ...sides }))]).registry
+    expect(abs({ top: 0, start: 0, end: 0, bottom: 0 })).toBe(ABSOLUTE_STRETCH_SINCE)
+    expect(abs({ start: 4, end: 4 })).toBe(ABSOLUTE_STRETCH_SINCE)
+    expect(abs({ top: 0, bottom: 8 })).toBe(ABSOLUTE_STRETCH_SINCE)
+    expect(abs({ top: 8, end: 8 })).toBe(BASE_VERSION)
     // Not using them: back to the base.
     expect(writeTemplateFile([el("Column", {}, el("Pressable", { pressFeedback: "ripple" }))]).registry).toBe(BASE_VERSION)
   })

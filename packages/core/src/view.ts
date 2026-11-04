@@ -296,6 +296,8 @@ export interface ListOptions<T> {
   rangeEvent: number
   endEvent: number
   onEndReached?: () => void
+  /** RN stickyHeaderIndices (registry 15): rows native keeps pinned, so JS keeps them mounted wherever the list is. */
+  sticky?: () => readonly number[] | null | undefined
 }
 
 /**
@@ -315,6 +317,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
   let first = 0
   let last = LIST_INITIAL - 1
   let sent = false
+  let pinned = new Set<number>() // sticky rows' indices
 
   const sync = () => {
     const n = keys.length
@@ -325,19 +328,22 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
     const keepTo = last + 2 * LIST_AHEAD
     for (const [k, r] of mounted) {
       const i = keyIndex.get(k)
-      if (i === undefined || i < keepFrom || i > keepTo || items[i] !== r.item) {
+      if (i === undefined || ((i < keepFrom || i > keepTo) && !pinned.has(i)) || items[i] !== r.item) {
         r.m.dispose(true)
         mounted.delete(k)
       }
     }
-    for (let i = from; i <= to; i++) {
+    const mount = (i: number) => {
       const k = keys[i]
-      if (mounted.has(k)) continue
+      if (mounted.has(k)) return
       const item = items[i]
       const m = mountChild(owner, () => o.row(item, i), inst.id, node, 0)
       globalThis.__zn_listRow(inst.id, node, k, m.id)
       mounted.set(k, { item, m })
     }
+    for (let i = from; i <= to; i++) mount(i)
+    // A pinned row shows at the top wherever the list is scrolled: it stays mounted.
+    for (const i of pinned) if (i < n) mount(i)
   }
 
   effect(() => {
@@ -389,6 +395,16 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
     })
   })
 
+  if (o.sticky) {
+    const read = o.sticky
+    effect(() => {
+      const next = new Set((read() ?? []).filter((i) => Number.isInteger(i) && i >= 0))
+      untrack(() => {
+        pinned = next
+        if (sent) sync()
+      })
+    })
+  }
   if (o.rangeEvent) {
     on(inst, o.rangeEvent, (payload) => {
       const [a, b] = String(payload).split(",").map(Number)

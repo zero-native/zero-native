@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 13
+    const val VERSION = 15
 
     object Component {
         const val COLUMN = 1
@@ -31,6 +31,9 @@ object Registry {
         const val PROGRESS = 23
         const val SHIMMER = 24
         const val TABS = 30
+        const val MODAL = 31
+        const val STATUS_BAR = 32
+        const val NAVIGATION_BAR = 33
     }
 
     object Prop {
@@ -179,6 +182,27 @@ object Registry {
         const val SKEW_Y = 250
         const val FRAME = 251
         const val TRIM_CAPS = 252
+        const val HAS_LONG_PRESS = 260
+        const val TEXT_TRANSFORM = 261
+        const val TEST_ID = 262
+        const val BORDER_TOP_LEFT_RADIUS = 263
+        const val BORDER_TOP_RIGHT_RADIUS = 264
+        const val BORDER_BOTTOM_LEFT_RADIUS = 265
+        const val BORDER_BOTTOM_RIGHT_RADIUS = 266
+        const val BORDER_TOP_START_RADIUS = 267
+        const val BORDER_TOP_END_RADIUS = 268
+        const val BORDER_BOTTOM_START_RADIUS = 269
+        const val BORDER_BOTTOM_END_RADIUS = 270
+        const val POINTER_EVENTS = 271
+        const val HIT_SLOP = 272
+        const val TINT_COLOR = 273
+        const val TRANSPARENT = 274
+        const val ANIMATION_TYPE = 275
+        const val STATUS_BAR_TRANSLUCENT = 276
+        const val NAVIGATION_BAR_TRANSLUCENT = 277
+        const val BAR_STYLE = 278
+        const val HIDDEN = 279
+        const val STICKY_HEADER_INDICES = 280
     }
 
     object Event {
@@ -199,6 +223,12 @@ object Registry {
         const val ON_NATIVE_EVENT = 15
         const val REF = 16
         const val ON_REFRESH = 25
+        const val ON_LOAD = 17
+        const val ON_ERROR = 18
+        const val ON_LOAD_END = 19
+        const val ON_LAYOUT = 20
+        const val ON_REQUEST_CLOSE = 21
+        const val ON_SHOW = 22
         const val ON_VALUE_CHANGE = 30
     }
 
@@ -304,13 +334,39 @@ object Registry {
         const val NONE = 7
     }
 
+    object TextTransform {
+        const val NONE = 0
+        const val UPPERCASE = 1
+        const val LOWERCASE = 2
+        const val CAPITALIZE = 3
+    }
+
+    object PointerEvents {
+        const val AUTO = 0
+        const val NONE = 1
+        const val BOX_NONE = 2
+        const val BOX_ONLY = 3
+    }
+
+    object AnimationType {
+        const val NONE = 0
+        const val SLIDE = 1
+        const val FADE = 2
+    }
+
+    object BarStyle {
+        const val DEFAULT = 0
+        const val LIGHT_CONTENT = 1
+        const val DARK_CONTENT = 2
+    }
+
     /** Every id this app knows: templates from an OTA bundle that use any other id are refused (TemplateReader). */
-    val COMPONENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 30)
-    val PROP_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 30, 31, 32, 33, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 90, 91, 92, 93, 94, 95, 100, 101, 102, 103, 104, 105, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 80, 81, 82, 83, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 170, 171, 172, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 250, 251, 252)
+    val COMPONENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 30, 31, 32, 33)
+    val PROP_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 30, 31, 32, 33, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 90, 91, 92, 93, 94, 95, 100, 101, 102, 103, 104, 105, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 80, 81, 82, 83, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 170, 171, 172, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 250, 251, 252, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280)
     /** The value type of each prop in PROP_IDS (same order): 0 number, 1 size, 2 string, 3 color, 4 enum, 5 bool. */
-    val PROP_TYPES = intArrayOf(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 3, 0, 0, 3, 0, 4, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 2, 3, 0, 0, 4, 0, 0, 0, 4, 4, 2, 4, 2, 5, 5, 0, 0, 5, 2, 0, 0, 5, 3, 3, 0, 2, 5, 2, 5, 2, 2, 2, 3, 4, 5, 0, 5, 5, 4, 5, 4, 5, 3, 2, 2, 2, 4, 3, 0, 0, 5, 0, 0, 3, 2, 2, 0, 5, 3, 3, 2, 0, 3, 3, 0, 0, 0, 5, 0, 0, 5, 0, 0, 0, 5, 2, 0, 2, 0, 0, 3, 3, 3, 3, 0, 2, 4, 3, 0, 2, 2, 4, 5, 0, 0, 2, 5)
-    val DYNAMIC_PROP_IDS = intArrayOf(50, 51, 40, 44, 90, 91, 92, 93, 94, 95, 60, 80, 23, 24, 25, 26, 118, 119, 123, 124, 132, 209, 148, 149, 170, 182, 183, 184, 185, 186, 190, 191, 192, 193)
-    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 25, 30)
+    val PROP_TYPES = intArrayOf(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 3, 0, 0, 3, 0, 4, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 2, 3, 0, 0, 4, 0, 0, 0, 4, 4, 2, 4, 2, 5, 5, 0, 0, 5, 2, 0, 0, 5, 3, 3, 0, 2, 5, 2, 5, 2, 2, 2, 3, 4, 5, 0, 5, 5, 4, 5, 4, 5, 3, 2, 2, 2, 4, 3, 0, 0, 5, 0, 0, 3, 2, 2, 0, 5, 3, 3, 2, 0, 3, 3, 0, 0, 0, 5, 0, 0, 5, 0, 0, 0, 5, 2, 0, 2, 0, 0, 3, 3, 3, 3, 0, 2, 4, 3, 0, 2, 2, 4, 5, 0, 0, 2, 5, 5, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 4, 2, 3, 5, 4, 5, 5, 4, 5, 2)
+    val DYNAMIC_PROP_IDS = intArrayOf(50, 51, 40, 44, 90, 91, 92, 93, 94, 95, 60, 80, 23, 24, 25, 26, 118, 119, 123, 124, 132, 209, 148, 149, 170, 182, 183, 184, 185, 186, 190, 191, 192, 193, 260, 43, 42, 271, 273, 278, 279, 280)
+    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 25, 17, 18, 19, 20, 21, 22, 30)
     /** Enum prop id → the values this app knows. */
     val ENUM_VALUES = mapOf(
         31 to intArrayOf(0, 1, 2, 3, 4, 5),
@@ -328,5 +384,9 @@ object Registry {
         139 to intArrayOf(0, 1, 2),
         206 to intArrayOf(0, 1),
         211 to intArrayOf(0, 1, 2, 3, 4, 5, 6, 7),
+        261 to intArrayOf(0, 1, 2, 3),
+        271 to intArrayOf(0, 1, 2, 3),
+        275 to intArrayOf(0, 1, 2),
+        278 to intArrayOf(0, 1, 2),
     )
 }

@@ -329,3 +329,57 @@ camelCase props. An element's `fill`, `stroke` or `opacity` may change at runtim
   animated files may move along a path, use `<set>`, `steps()`, skews, animated stops, `points` morphs, more CSS and
   `begin="click"` (a tap on the Svg starts it). Below Android 12 a filter draws a plain shadow or nothing. Inline `<Svg>`
   has none of the new elements yet: put such art in a `.svg` file. `docs/svg.md` §17; the lab's Effects and More motion rows.
+
+## 13. RN props pack 2 (registry 14-15): Modal, StatusBar, NavigationBar, and props on every element
+
+How each behaves, with do / don't: `docs/guide-notes.md` §43. Lab: `/dev/rn-props`.
+
+### `<Modal>`
+A full-screen window over the app; its children are what you draw in it, laid out like a Column that fills the window.
+
+| Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|
+| `visible` | `boolean` | Yes | Shown while true. Not written: shown (as in RN). Owned by JS. |
+| `transparent` | `boolean` | No | No window background (else white). |
+| `animationType` | `"none" \| "fade" \| "slide"` | No | How it comes and goes. Default `"none"`. |
+| `statusBarTranslucent` | `boolean` | No | The content may draw under the status bar. |
+| `navigationBarTranslucent` | `boolean` | No | The content may draw under the navigation bar. |
+| `onRequestClose` | `() => void` | (event) | Back was pressed. Set `visible` to false to close. |
+| `onShow` | `() => void` | (event) | It is on screen. |
+| `testID` | `string` | No | As on every element. |
+
+`presentationStyle`, `hardwareAccelerated`, `supportedOrientations`, `onOrientationChange`: accepted, do nothing.
+
+### `<StatusBar>` and `<NavigationBar>`
+Take no space. While their screen is on top they set the bar; several merge, the newest winning.
+
+| Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|
+| `barStyle` | `"default" \| "light-content" \| "dark-content"` | Yes | The icons. `"default"`: the route's `statusBar` option. |
+| `backgroundColor` | `Color` | Yes | Drawn behind the bar for this screen (every Android version). |
+| `hidden` | `boolean` | Yes | `<StatusBar>` only: hides the status bar. |
+
+`<StatusBar>` also accepts `animated`, `translucent`, `networkActivityIndicatorVisible`, `showHideTransition` (they do
+nothing). `<NavigationBar>` is zn's own.
+
+### Props on every element (registry 15)
+| Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|
+| `pointerEvents` | `"auto" \| "none" \| "box-none" \| "box-only"` | Yes | Who takes taps. Written `"auto"` / `"box-only"`, taps stop here. |
+| `onLayout` | `(e) => void` | (event) | `e.nativeEvent.layout` `{ x, y, width, height }` in dp, on a change. |
+| `testID` | `string` | No | The resource id UI tests see. |
+| `borderTopLeftRadius` ... `borderBottomEndRadius` | `number` | No | One corner. |
+| `borderColor`, `borderWidth` | `Color`, `number` | Yes (now) | A colour change redraws; a width change re-measures. |
+| `shadowOffset`, `shadowOpacity`, `shadowRadius` | | | Accepted and dropped, as RN on Android. |
+
+### Per component (registry 15)
+| Component | Prop | Type | Dynamic Slot | Description |
+|---|---|---|---|---|
+| `Pressable` | `hitSlop` | `number \| { top, bottom, left, right }` | No | Taps this far outside still count (dp). |
+| `Text` | `textTransform` | `"none" \| "uppercase" \| "lowercase" \| "capitalize"` | No | Also for runtime text. |
+| `Image` | `tintColor` | `Color` | Yes | Every non-clear pixel in this colour. |
+| `Image` | `onLoad`, `onError`, `onLoadEnd` | events | | `nativeEvent.source` `{ width, height, uri }` / `nativeEvent.error`. |
+| `List` | `stickyHeaderIndices` | `number[]` | Yes | Rows pinned at the top while their part scrolls. |
+
+Registry 14 changes how `Pressable` long press works when `onLongPress` holds no handler (a long hold is a tap then);
+the compiler sets `hasLongPress` for that. Nobody writes it.

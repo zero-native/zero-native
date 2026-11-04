@@ -114,3 +114,33 @@ test("onEndReached reaches the handler", () => {
   globalThis.__zn_onEvent(ROOT, END, null)
   expect(ends).toBe(1)
 })
+
+test("stickyHeaderIndices rows stay mounted wherever the list is (registry 15)", () => {
+  const sticky = signal<number[]>([0, 200])
+  renderRoot(
+    ROOT,
+    () =>
+      view(0, (i) =>
+        list<Item>(i, NODE, {
+          data: () => make(1000),
+          key: (it) => it.id,
+          row: (it) => view(6, (r) => slot(r, 0, () => it.name)),
+          type: () => 6,
+          rangeEvent: RANGE,
+          endEvent: END,
+          sticky: () => sticky(),
+        }),
+      ),
+    {},
+  )
+  // At the start: the first screen, plus row 200 (pinned, so it shows as soon as the list reaches it).
+  expect(of("listRow").map((o) => Number(o[3]))).toContain(200)
+  host.ops.length = 0
+  range(500, 515)
+  // Far down: row 0 is pinned, so it isn't removed with the other first-screen rows.
+  expect(of("remove").length).toBe(27) // the 28 first-screen rows less row 0; row 200 stays too
+  expect(of("listRow").map((o) => Number(o[3]))).not.toContain(0) // still mounted, not mounted again
+  host.ops.length = 0
+  sticky.set([0, 600]) // a new pinned row mounts at once, wherever the list is
+  expect(of("listRow").map((o) => o[3])).toEqual(["600"])
+})

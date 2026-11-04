@@ -267,6 +267,7 @@ object ZnNav {
         appFailed = null
         lastInsets = "" // the new JS must hear the insets again
         ZnWindow.resetForReload()
+        ZnSystemBars.reset()
         started = false
         generation++
         return saved

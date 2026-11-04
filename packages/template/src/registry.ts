@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 13 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 15 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -29,6 +29,13 @@ export const REGISTRY_VERSION = 13 // 2: Anchor. 3: transforms, shadow, absolute
 //     filters, text, focal gradients, paint-order and blend modes (format "svg.effects"); non-scaling strokes
 //     (format "svg.nonScaling"); SvgPart motionPath / motionAt (animateMotion), skewX / skewY, frame, trimCaps;
 //     animations that start on a tap (format "timing.tap") (§17).
+// 14: Pressable long press as in React Native: an onLongPress that holds no handler at that moment doesn't stop the
+//     tap (hasLongPress, set by the compiler).
+// 15: RN props pack 2 (docs/guide-notes.md §43): textTransform, testID; a Stack child with both start and end (or top
+//     and bottom) stretches between them, as RN's absoluteFill; per-corner radius; borderColor and borderWidth can
+//     change at runtime; pointerEvents (can change at runtime), Pressable hitSlop; Image tintColor, onLoad, onError,
+//     onLoadEnd; onLayout; Modal (transparent, animationType, statusBarTranslucent, navigationBarTranslucent,
+//     onRequestClose, onShow); StatusBar and NavigationBar (barStyle, hidden, backgroundColor; can change at runtime); List stickyHeaderIndices.
 
 export const Component = {
   Column: 1,
@@ -74,6 +81,19 @@ export const Component = {
    * the screen but keep their instances, and their scroll positions (Compose saved state).
    */
   Tabs: 30,
+  /**
+   * React Native's Modal (registry 15): a full-screen window over the app; its children are what the app draws in it
+   * (laid out like a Column that fills the window). Shown while `visible`; back sends onRequestClose.
+   */
+  Modal: 31,
+  /**
+   * React Native's StatusBar (registry 15): draws nothing in the layout. While its screen is on top, its barStyle and
+   * hidden set the status bar, and its backgroundColor is drawn behind the bar (Android 15+ has no bar colour).
+   * Several on a screen merge, the newest winning, as in RN.
+   */
+  StatusBar: 32,
+  /** The same for the navigation bar (zn's own; RN has none): barStyle, backgroundColor. */
+  NavigationBar: 33,
 } as const
 export type ComponentName = keyof typeof Component
 
@@ -309,6 +329,54 @@ export const Prop = {
   frame: { id: 251, type: "string" },
   /** <SvgPart> (set by the compiler): a trimmed piece of length 0 still draws its caps (an SVG dash of length 0). */
   trimCaps: { id: 252, type: "bool" },
+  // RN props pack 2 (registry 14-15). Ids from 260, so a parallel branch taking the next free ids doesn't clash.
+  /**
+   * <Pressable> (set by the compiler, registry 14): whether `onLongPress` holds a handler right now, when it isn't a
+   * function written in place (`onLongPress={props.onLongPress}`). Without one, a long hold still gives onPress.
+   */
+  hasLongPress: { id: 260, type: "bool" },
+  /** <Text> (registry 15): RN's textTransform, also on text that changes at runtime. */
+  textTransform: { id: 261, type: "enum" },
+  /** RN's testID (registry 15): a Compose test tag, shown to UI tests (uiautomator) as the resource id. */
+  testID: { id: 262, type: "string" },
+  // Per-corner radius (registry 15), as in RN: a corner's own value beats borderRadius; Start / End beat Left / Right.
+  // Left / Right are drawn as Start / End (the same in a left-to-right layout; zn flips them for right-to-left).
+  borderTopLeftRadius: { id: 263, type: "number" },
+  borderTopRightRadius: { id: 264, type: "number" },
+  borderBottomLeftRadius: { id: 265, type: "number" },
+  borderBottomRightRadius: { id: 266, type: "number" },
+  borderTopStartRadius: { id: 267, type: "number" },
+  borderTopEndRadius: { id: 268, type: "number" },
+  borderBottomStartRadius: { id: 269, type: "number" },
+  borderBottomEndRadius: { id: 270, type: "number" },
+  /**
+   * RN pointerEvents (registry 15; can change at runtime): "none" = this element and its children take no touches
+   * (they go to what is under it), "box-none" = only its children do, "box-only" = only it does. Written "auto" or
+   * "box-only", the element also stops touches from reaching what is under it, as a React Native view does.
+   */
+  pointerEvents: { id: 271, type: "enum" },
+  /** <Pressable> RN hitSlop (registry 15): "start,top,end,bottom" in dp, made by the compiler from a number or object. */
+  hitSlop: { id: 272, type: "string" },
+  /** <Image> RN tintColor (registry 15; can change at runtime): every non-clear pixel drawn in this colour. */
+  tintColor: { id: 273, type: "color" },
+  // <Modal> (registry 15), as in React Native on Android.
+  /** No window background: the screen shows through where the content draws nothing. Default false (white). */
+  transparent: { id: 274, type: "bool" },
+  /** How it comes and goes: "none" (default), "fade", "slide" (up from the bottom). */
+  animationType: { id: 275, type: "enum" },
+  /** The content may draw under the status bar (else it starts below it). */
+  statusBarTranslucent: { id: 276, type: "bool" },
+  /** The content may draw under the navigation bar (else it ends above it). */
+  navigationBarTranslucent: { id: 277, type: "bool" },
+  /** <StatusBar> / <NavigationBar> (registry 15): "dark-content" (dark icons), "light-content", or "default". */
+  barStyle: { id: 278, type: "enum" },
+  /** <StatusBar> (registry 15): hides the status bar while its screen is on top. */
+  hidden: { id: 279, type: "bool" },
+  /**
+   * <List> RN stickyHeaderIndices (registry 15; can change at runtime): "1,30", the rows (by data index) that stay
+   * pinned at the top while their part of the list scrolls; the next one pushes it up.
+   */
+  stickyHeaderIndices: { id: 280, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -345,6 +413,10 @@ export const Enum = {
     checkbox: 6,
     none: 7,
   },
+  textTransform: { none: 0, uppercase: 1, lowercase: 2, capitalize: 3 },
+  pointerEvents: { auto: 0, none: 1, "box-none": 2, "box-only": 3 },
+  animationType: { none: 0, slide: 1, fade: 2 },
+  barStyle: { default: 0, "light-content": 1, "dark-content": 2 },
 } as const satisfies Partial<Record<PropName, Record<string, number>>>
 
 /**
@@ -386,6 +458,19 @@ export const EventKind = {
    * you load. Id from the middle of Claude's range (see refreshing).
    */
   onRefresh: 25,
+  // RN props pack 2 (registry 15). Native sends JSON; the compiler hands it to the handler as RN's `{ nativeEvent }`.
+  /** <Image>: its src loaded. nativeEvent: { source: { width, height, uri } } (the picture's size in pixels). */
+  onLoad: 17,
+  /** <Image>: its src failed (a fallbackSrc may still show). nativeEvent: { error }. */
+  onError: 18,
+  /** <Image>: its src loaded or failed. No payload. */
+  onLoadEnd: 19,
+  /** Any element: its size or place in its parent changed. nativeEvent: { layout: { x, y, width, height } } in dp. */
+  onLayout: 20,
+  /** <Modal>: back was pressed. JS decides: set visible to false to close it. */
+  onRequestClose: 21,
+  /** <Modal>: it is on screen (after its animation). */
+  onShow: 22,
   // 16-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
   onValueChange: 30,
 } as const
@@ -429,6 +514,15 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "replay",
   "strokeWidth",
   "dashOffset",
+  "hasLongPress",
+  // Registry 15: the colour is read in the draw phase, the width in the layout phase (borders take space).
+  "borderColor",
+  "borderWidth",
+  "pointerEvents",
+  "tintColor",
+  "barStyle",
+  "hidden",
+  "stickyHeaderIndices",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -456,22 +550,41 @@ export const Added: {
   /** A newer form of a string prop's value (key: a name in [Formats]). */
   format: Partial<Record<FormatName, number>>
 } = {
-  component: { NativeView: 9, Tabs: 11, Svg: 13, SvgPart: 13 },
+  component: { NativeView: 9, Tabs: 11, Svg: 13, SvgPart: 13, Modal: 15, StatusBar: 15, NavigationBar: 15 },
   prop: {
     viewName: 9, viewProps: 9, selected: 11, refreshing: 12, refreshColor: 12, refreshBackground: 12,
     // SVG phases 1-4 (built as 11-13 on their branch; one number, as none shipped).
     svg: 13, part: 13, fill: 13, stroke: 13, autoMirror: 13, trimStart: 13, trimEnd: 13, trimOffset: 13, pivotX: 13,
     pivotY: 13, paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13, scaleOutline: 13, morph: 13, morphAt: 13,
     motionPath: 13, motionAt: 13, skewX: 13, skewY: 13, frame: 13, trimCaps: 13,
+    hasLongPress: 14,
+    textTransform: 15, testID: 15, borderTopLeftRadius: 15, borderTopRightRadius: 15, borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 15, borderTopStartRadius: 15, borderTopEndRadius: 15, borderBottomStartRadius: 15,
+    borderBottomEndRadius: 15, pointerEvents: 15, hitSlop: 15, tintColor: 15,
+    transparent: 15, animationType: 15, statusBarTranslucent: 15, navigationBarTranslucent: 15, barStyle: 15, hidden: 15,
+    stickyHeaderIndices: 15,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
-    paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13,
+    paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13, hasLongPress: 14, borderColor: 15, borderWidth: 15,
+    pointerEvents: 15, tintColor: 15, barStyle: 15, hidden: 15, stickyHeaderIndices: 15,
   },
-  enumValue: {},
-  event: { onNativeEvent: 9, ref: 10, onRefresh: 12 },
+  enumValue: {
+    "textTransform.none": 15, "textTransform.uppercase": 15, "textTransform.lowercase": 15, "textTransform.capitalize": 15,
+    "pointerEvents.auto": 15, "pointerEvents.none": 15, "pointerEvents.box-none": 15, "pointerEvents.box-only": 15,
+    "animationType.none": 15, "animationType.slide": 15, "animationType.fade": 15,
+    "barStyle.default": 15, "barStyle.light-content": 15, "barStyle.dark-content": 15,
+  },
+  event: { onNativeEvent: 9, ref: 10, onRefresh: 12, onLoad: 15, onError: 15, onLoadEnd: 15, onLayout: 15,
+    onRequestClose: 15, onShow: 15 },
   format: { "timing.motion": 13, "svg.nonScaling": 13, "svg.effects": 13, "timing.tap": 13 },
 }
+
+/**
+ * A `position: "absolute"` node with both start and end (or both top and bottom) stretches between them, as React
+ * Native's absoluteFill does, since this registry version. Older apps place it at one side only (writer.ts).
+ */
+export const ABSOLUTE_STRETCH_SINCE = 15
 
 /**
  * Newer forms of a string prop's value that older apps can't read (an older app would show the old behaviour, so a

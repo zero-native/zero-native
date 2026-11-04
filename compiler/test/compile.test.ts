@@ -68,6 +68,18 @@ describe("templates", () => {
       .toContain("__zn.on(__i0, 1, (() => 1));")
   })
 
+  test("onLongPress passed through also tells native whether it holds a handler (registry 14)", () => {
+    const { templates, code } = compile(`
+      export function Tile(props: { onPress?: () => void; onLongPress?: () => void }) {
+        return <Pressable onPress={props.onPress} onLongPress={props.onLongPress}><Text>a</Text></Pressable>
+      }`)
+    expect((templates[0].props as any).hasLongPress).toEqual({ $slot: "s0", default: null })
+    expect(code).toContain("__zn.slot(__i0, 0, () => (props.onLongPress) != null, 0);")
+    // Written in place: always a handler, so no slot.
+    const inPlace = compile(`export function F() { return <Pressable onLongPress={() => 1}><Text>a</Text></Pressable> }`)
+    expect((inPlace.templates[0].props as any).hasLongPress).toBeUndefined()
+  })
+
   test("&&, ternary and .map become anchors with their own templates", () => {
     const { templates, code } = compile(`
       export function List(props) {
@@ -113,6 +125,94 @@ describe("templates", () => {
     expect(templates[0].children[0].props).toMatchObject({ position: "absolute", top: 8, end: 8, zIndex: 2, elevation: 4, scale: 0.98, rotate: 45 })
     expect(templates[0].children[1].props).toMatchObject({ repeatDelay: 300, haptic: true, onPressRepeat: { $event: "e0" } })
     expect(code).toContain("__zn.on(__i0, 1, () => p.del());")
+  })
+
+  test("RN props pack 2: iOS shadow keys are dropped, absoluteFill folds, textTransform and testID", () => {
+    const { templates } = compile(`
+      const s = StyleSheet.create({ card: { elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 } })
+      export function A(p) {
+        return (
+          <Stack testID="root">
+            <Box style={[s.card, { shadowOpacity: p.on ? 0.2 : 0.1 }]} />
+            <Box style={StyleSheet.absoluteFill} />
+            <Box style={[StyleSheet.absoluteFillObject, { start: 8 }]} />
+            <Text textTransform="uppercase" testID="title">{p.name}</Text>
+          </Stack>
+        )
+      }`)
+    const [card, fill, fill8, title] = templates[0].children
+    expect(card.props).toEqual({ elevation: 3, shadowColor: "#000" })
+    expect(fill.props).toEqual({ position: "absolute", top: 0, start: 0, end: 0, bottom: 0 })
+    expect(fill8.props).toMatchObject({ start: 8, end: 0 })
+    expect(title.props).toMatchObject({ textTransform: "uppercase", testID: "title" })
+    expect(templates[0].props).toMatchObject({ testID: "root" })
+  })
+
+  test("RN props pack 2: per-corner radius; borderColor and borderWidth can change at runtime", () => {
+    const { templates, code } = compile(`
+      export function Box6(p) {
+        return <Box style={{ borderTopLeftRadius: 16, borderTopEndRadius: 8, borderWidth: p.focused() ? 2 : 1, borderColor: p.focused() ? "#4F46E5" : "#D1D5DB" }} />
+      }`)
+    expect(templates[0].props).toMatchObject({
+      borderTopLeftRadius: 16, borderTopEndRadius: 8,
+      borderWidth: { $slot: "s0", default: null }, borderColor: { $slot: "s1", default: null },
+    })
+    expect(code).toContain('__zn.slot(__i0, 0, () => (p.focused() ? 2 : 1), 0);')
+    expect(code).toContain('__zn.slot(__i0, 1, () => (p.focused() ? "#4F46E5" : "#D1D5DB"), 1);') // colour kind
+  })
+
+  test("RN props pack 2: pointerEvents (static or runtime) and Pressable hitSlop", () => {
+    const { templates, code } = compile(`
+      export function A(p) {
+        return (
+          <Stack pointerEvents="box-none">
+            <Pressable hitSlop={10} onPress={() => 1} />
+            <Pressable hitSlop={{ top: 8, bottom: 8, left: 4, right: 6 }} pointerEvents={p.busy() ? "none" : "auto"} onPress={() => 2} />
+          </Stack>
+        )
+      }`)
+    expect(templates[0].props).toMatchObject({ pointerEvents: "box-none" })
+    expect(templates[0].children[0].props).toMatchObject({ hitSlop: "10,10,10,10" })
+    expect(templates[0].children[1].props).toMatchObject({ hitSlop: "4,8,6,8", pointerEvents: { $slot: "s0", default: null } })
+    expect(code).toContain('__zn.slot(__i0, 0, () => (p.busy() ? "none" : "auto"), 0);')
+    expect(() => compile(`export function B() { return <Box hitSlop={8} /> }`)).toThrow("hitSlop works only on <Pressable>")
+    expect(() => compile(`export function C(p) { return <Pressable hitSlop={p.n} /> }`)).toThrow('"hitSlop" must be known at build time')
+  })
+
+  test("RN props pack 2: Image events and onLayout get RN's { nativeEvent }; Modal as in RN", () => {
+    const { templates, code } = compile(`
+      export function A(p) {
+        return (
+          <Column onLayout={(e) => p.w.set(e.nativeEvent.layout.width)}>
+            <Image src={p.url} tintColor="#16A34A" onError={p.onError} onLoadEnd={() => p.done()} />
+            <Modal visible={p.open()} transparent animationType="fade" statusBarTranslucent onRequestClose={() => p.open.set(false)}
+              presentationStyle="overFullScreen" supportedOrientations={["portrait"]}>
+              <Text>hi</Text>
+            </Modal>
+          </Column>
+        )
+      }`)
+    const [img, modal] = templates[0].children
+    expect(img.props).toMatchObject({ tintColor: "#16A34A", onError: { $event: "e1" }, onLoadEnd: { $event: "e2" } })
+    expect(modal.type).toBe("Modal")
+    expect(modal.props).toEqual({
+      visible: { $slot: "s1", default: null }, transparent: true, animationType: "fade", statusBarTranslucent: true,
+      onRequestClose: { $event: "e3" },
+    })
+    expect(code).toContain("__zn.on(__i0, 1, (__znPayload) => ((e) => p.w.set(e.nativeEvent.layout.width))({ nativeEvent: JSON.parse(__znPayload) }));")
+    expect(code).toContain("(__znPayload) => (__zn.latest(() => (p.onError)))({ nativeEvent: JSON.parse(__znPayload) })")
+    expect(() => compile(`export function B() { return <Box onLoad={() => 1} /> }`)).toThrow("onLoad works only on <Image>")
+  })
+
+  test("RN props pack 2: List stickyHeaderIndices goes to native (prop) and to JS (kept mounted)", () => {
+    const fixed = compile(`export function A(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>{r.t}</Text>} stickyHeaderIndices={[0, 20]} /> }`)
+    expect(fixed.templates[0].props).toMatchObject({ stickyHeaderIndices: "0,20" })
+    expect(fixed.code).toContain("sticky: () => ([0, 20])")
+    const live = compile(`export function B(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>{r.t}</Text>} stickyHeaderIndices={p.pins()} /> }`)
+    expect(live.templates[0].props).toMatchObject({ stickyHeaderIndices: { $slot: "s0", default: null } })
+    expect(live.code).toContain('__zn.slot(__i0, 0, () => (p.pins() ?? []).join(","), 0);')
+    expect(() => compile(`export function C(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>a</Text>} stickyHeaderIndices={[-1]} /> }`))
+      .toThrow("stickyHeaderIndices must be an array of row indices")
   })
 
   test("records which template each component returns", () => {

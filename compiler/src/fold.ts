@@ -2,11 +2,15 @@
 // and computes them. Anything not foldable stays a runtime expression (a slot) or is a build error.
 //
 // Foldable: literals, -number, template strings without ${}, object/array literals of foldables, `StyleSheet.create`,
+// `StyleSheet.absoluteFill`,
 // module-level `const` bindings with foldable initialisers, member access on foldables, and named imports from `.ts`
 // modules (design tokens, styles) that the compiler loads at build time (`staticImports`).
 import ts from "typescript"
 
 export const NOT_STATIC: unique symbol = Symbol("not static")
+
+/** StyleSheet.absoluteFill: fills the parent `Stack` (RN's left / right are start / end in zn). */
+export const ABSOLUTE_FILL = { position: "absolute", top: 0, start: 0, end: 0, bottom: 0 } as const
 export type Folded = unknown | typeof NOT_STATIC
 
 export interface FoldScope {
@@ -69,6 +73,13 @@ export function fold(expr: ts.Expression, scope: FoldScope, seen = new Set<strin
     return v
   }
   if (ts.isPropertyAccessExpression(expr)) {
+    // React Native's StyleSheet.absoluteFill / absoluteFillObject: the same style, known at build time.
+    if (
+      ts.isIdentifier(expr.expression) && expr.expression.text === "StyleSheet" && !scope.consts.has("StyleSheet") &&
+      !scope.staticImports.has("StyleSheet") && (expr.name.text === "absoluteFill" || expr.name.text === "absoluteFillObject")
+    ) {
+      return { ...ABSOLUTE_FILL }
+    }
     const obj = fold(expr.expression, scope, seen)
     if (obj === NOT_STATIC || typeof obj !== "object" || obj === null) return NOT_STATIC
     const name = expr.name.text

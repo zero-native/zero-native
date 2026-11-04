@@ -61,9 +61,8 @@ const paise = computed(() => toPaise(amount()))
 - **Handlers work as in React Native:** a wrapper may pass a handler through (`onPress={props.onPress}`) or switch it
   (`onPress={busy() ? undefined : pay}`). The tap runs the handler the prop holds at that moment; with none, the tap
   does nothing. (Before 2026-11-03 the handler was read once, when the element appeared, and an undefined one threw.)
-  **Know:** the phone still waits for a long press when `onLongPress` is written on the element, even if it holds
-  `undefined` at that moment, so a long hold then gives no `onPress`. RN would give one. **Do** leave `onLongPress` off
-  a wrapper that doesn't need it.
+  Long press too, as in RN (registry 14): while `onLongPress` holds no handler (`onLongPress={props.onLongPress}` in a
+  wrapper, with none passed), a long hold is a normal tap and gives `onPress`. (Before registry 14 it gave nothing.)
 - **Guard actions that must happen once** (pay, submit) against double taps: the second tap can arrive before the
   screen changes. A simple `let done = false` flag in the screen body is enough.
 
@@ -1449,6 +1448,110 @@ The compiler reads every SVG at build time and puts compact draw data in the bun
   file's still state.
 - **Know:** a big `.svg` (8 KB of draw data or more) is read in the background after the first frame, so one further down
   the screen costs nothing on the main thread. One on the first frame is read when it is first drawn, as before.
+
+## 43. React Native props, styles and components (RN props pack 2, registry 14-15)
+
+More of React Native's own names, so a ported screen keeps its code. Lab: Dev → "RN props" (`/dev/rn-props`), phone
+steps `bun run tools/plugin-phone.ts "rn props"`. A bundle that uses any of these asks for registry 15 (the long press
+change: 14).
+
+**Styles.**
+- `shadowOffset`, `shadowOpacity`, `shadowRadius`: accepted and dropped, as RN on Android does (its shadows come from
+  `elevation` and `shadowColor`). A shared iOS + Android style ports as it is. **Know:** the shadow you see is the
+  `elevation` one, as in the RN app on Android today.
+- Per corner: `borderTopLeftRadius`, `borderTopRightRadius`, `borderBottomLeftRadius`, `borderBottomRightRadius`, and the
+  `Start` / `End` forms. A corner's own value beats `borderRadius`; `Start` / `End` beat `Left` / `Right`. **Know:**
+  `Left` / `Right` are drawn as `Start` / `End` (the same in a left-to-right app).
+- `borderColor` and `borderWidth` can change at runtime: `borderColor: focused() ? c.primary : c.line` (an OTP box, a
+  selected chip). A colour change only redraws. A width change moves the content (borders take space, as in RN) and
+  re-measures that one element, without any recompose.
+- `StyleSheet.absoluteFill` / `absoluteFillObject`, and any absolute child with both `start` and `end` (or `top` and
+  `bottom`): it stretches between them inside its `Stack`, as in RN. **Know:** with only one pair (`start: 16, end: 16`),
+  the child is as wide as the Stack may be: right when the Stack has a set or stretched width, the usual overlay case.
+- `textTransform`: `"uppercase"`, `"lowercase"`, `"capitalize"`, also for text that changes at runtime. capitalize works
+  as RN's Android code does: the first letter of each word upper case, the rest lower case ("don't" is one word).
+
+**Touch.**
+- `pointerEvents`: `"none"` (the element and its children take no taps; they reach what is under it), `"box-none"` (only
+  its children take taps), `"box-only"` (only the element itself), `"auto"`. It can change at runtime:
+  `pointerEvents={keyboardShown() ? "none" : "auto"}`.
+- **Know:** an absolute `Box` / `Column` / `Row` / `Stack` with a background or children (a layer over other things,
+  like an RN "busy layer" over the screen while a payment runs) stops taps, as in RN, even without `pointerEvents`.
+  **Know (different from RN):** any other element with no handlers lets taps through to what is under it (in RN it
+  stops them). Inside a `Stack` that matters for a plain, not absolute, child over another one. **Do** write
+  `pointerEvents="auto"` on any layer that must stop taps, to say so in the code. **Why:** a tap that reaches the Pay
+  button under a busy layer can start a second payment. Better still, disable the button too.
+- **Know:** inside `pointerEvents="none"`, `Pressable`s take no taps, but a `Scroll`, a `TextField` or a `Switch` there
+  still does. Put those outside the "none" part.
+- `hitSlop` on `Pressable`: a number, or `{ top, bottom, left, right }`, in dp. Build-time only. **Know:** it uses
+  Compose's minimum touch size, so each axis reaches as far as its larger side on both sides; and a tap in the extra
+  area loses to another tappable element right under the finger (RN gives it to the one on top). Over empty space, the
+  usual icon button, it works as in RN.
+- **Know:** every zn `Pressable` smaller than 48 dp already takes taps up to 48 dp (Compose's minimum touch size). RN
+  has no such minimum. A UI test also sees that bigger box as the element's bounds.
+- `testID`: UI tests (uiautomator, Espresso) find the element by this resource id, on screens, Sheets and Modals.
+  Build-time only. Ours use it: `tools/plugin-phone/rnprops.ts`.
+
+**Events.**
+- `onLayout` on any element: `(e) => e.nativeEvent.layout` gives `{ x, y, width, height }` in dp, as in RN (`x`, `y` from
+  the parent's top-left corner). Sent once laid out, then only on a change, never while the screen scrolls. **Know:**
+  sizes are whole pixels turned into dp, so 60 dp of padding at 2.625 may read 100.19, as in RN.
+- `Image`: `tintColor` (can change at runtime) draws every non-clear pixel in that colour. `onLoad` gives
+  `e.nativeEvent.source` `{ width, height, uri }` (the picture's pixels), `onError` gives `e.nativeEvent.error`, and
+  `onLoadEnd` comes after either. They are for `src` only: a `fallbackSrc` that loads sends nothing (RN's
+  `defaultSource` sends nothing either).
+
+**Modal.** React Native's own `<Modal>`: a full-screen window over the app, in which you draw your own content.
+```tsx
+<Modal visible={open()} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent
+  onRequestClose={() => open.set(false)}>
+  <Pressable onPress={() => open.set(false)} pressFeedback="none" justifyContent="center" alignItems="center"
+    style={{ flex: 1, backgroundColor: "#00000080" }}>
+    <Column style={{ width: 280, padding: 20, borderRadius: 16, backgroundColor: c.white }}>...</Column>
+  </Pressable>
+</Modal>
+```
+- Controlled by JS: shown while `visible` (shown when not written, as in RN). Back sends `onRequestClose`; it closes only
+  when you set `visible` to false. `onShow` comes when it is on screen.
+- `transparent`: no window background (else white). `animationType`: `"none"`, `"fade"`, `"slide"`.
+- Your content stays below the status bar and above the navigation bar, unless `statusBarTranslucent` /
+  `navigationBarTranslucent`. It always stays above the keyboard. **Do** set both translucent props for a dim that covers
+  the whole screen (ZeroBill's dialogs do). **Why:** with only `statusBarTranslucent`, the strip behind the navigation
+  bar shows the screen undimmed, as in RN.
+- An `Alert` opened while it shows draws above it. A toast draws in its window, as for a `Sheet`.
+- iOS-only props (`presentationStyle`, `supportedOrientations`, ...) are accepted and do nothing.
+- **Do** use `Modal` for a centred dialog with your own look (a payment confirm, a "processing" layer). Use `Alert` for
+  Android's own dialog, and `Sheet` for a bottom sheet with drag and detents. **Why:** `Modal` gives no drag or scrim of
+  its own; you draw everything, as in RN.
+
+**StatusBar and NavigationBar.**
+```tsx
+<StatusBar barStyle={onGreenHeader() ? "light-content" : "dark-content"} backgroundColor={onGreenHeader() ? c.success : undefined} />
+```
+- Put it anywhere in a screen (also in its Modal or Sheet). While that screen is on top, `barStyle` sets the icons and
+  `hidden` hides the bar. Several merge, the newest winning, as in RN. All of it can change at runtime.
+- `backgroundColor` is drawn behind the bar, for that screen. **Why:** Android 15+ draws every app edge to edge and
+  ignores the old bar colours (RN's `backgroundColor` does nothing there). zn draws the colour itself, so it works on
+  every Android version. A full-bleed header (route `safeArea: { top: false }`) covers it.
+- `<NavigationBar barStyle backgroundColor />`: the same for the navigation bar. It is zn's own; RN has none.
+- No element: the route's `statusBar` option and the screen's own background decide, as before. The screen background
+  behind the bars now follows a background that changes at runtime.
+- **Don't** render `StatusBar` only while focused, as RN apps do with React Navigation (`isFocused && <StatusBar/>`).
+  **Why:** in zn it already belongs to its screen; the trick only adds work.
+- **Know:** `translucent` is accepted and does nothing: each route's `safeArea` decides whether a screen draws under the
+  bar. `StatusBar.setBarStyle(...)` and `StatusBar.currentHeight` are not built: render a `<StatusBar>`, and read
+  `insets().top`.
+
+**Sticky list rows.** `stickyHeaderIndices` on `<List>`, as on RN's FlatList:
+```tsx
+<List data={rows()} key={(r) => r.id} row={(r) => (r.header ? <SectionHeader r={r} /> : <TxnRow r={r} />)}
+  stickyHeaderIndices={headerIndexes()} />
+```
+- Those rows (by index in `data`) stay pinned at the top while their part of the list scrolls; the next one pushes the
+  last up. The indices can change at runtime. Pull to refresh, `onEndReached` and impressions are unchanged; a pinned
+  row isn't counted in the range that decides which rows JS mounts.
+- A pinned row stays mounted wherever the list is, so it never shows as a placeholder.
+- **Know:** only on `List`, not on `Scroll`.
 
 ## 44. PDFs (`@zero-native/pdf`)
 

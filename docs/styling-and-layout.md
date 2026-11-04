@@ -139,6 +139,8 @@ Handled by **native code per route**, never by a JS `SafeAreaView`:
 - Bar icons: the route option `statusBar: 'dark' | 'light'` sets the **status bar** icons (default dark icons, for
   light screens). The **navigation bar** icons follow the screen root's background (dark icons on a light screen), so
   a full-bleed screen with a dark header doesn't get a grey scrim over a light bottom bar (seen on the Lava).
+  Registry 15: a `<StatusBar>` / `<NavigationBar>` in the screen wins over both while the screen is on top (icons,
+  `hidden`), and its `backgroundColor` is drawn behind the bar for that screen (guide-notes §43).
 - Full-bleed screens (a coloured header behind the status bar) use `safeArea: { top: false }` and read the read-only
   `insets()` signal (`{ top, bottom, start, end }`, dp) to pad their own header: `paddingTop: insets().top + 24`.
   Per-edge padding (`paddingTop/Bottom/Start/End`) may change at runtime for this (registry v4); it is read in the

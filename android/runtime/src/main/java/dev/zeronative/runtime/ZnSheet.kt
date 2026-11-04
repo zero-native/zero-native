@@ -125,7 +125,7 @@ private fun SheetBody(
     val springOpen = remember { spring<Float>(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow) }
     val springClose = remember { spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium) }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().znTestTags()) { // its own window: testID needs its own root
         val screenH = constraints.maxHeight.toFloat()
         val topInset = WindowInsets.statusBars.getTop(density).toFloat()
         val bottomInset = WindowInsets.navigationBars.getBottom(density).toFloat()

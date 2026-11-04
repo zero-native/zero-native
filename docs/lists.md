@@ -37,6 +37,8 @@ The compiler warns when a `<For>` is fed an array that is not obviously small, a
 - A row whose item object changes (same key, new object) is mounted again. Keep items immutable: replace the object.
 - `row`'s index argument is the position when the row was mounted; it is not updated by later inserts.
 - Pull to refresh: `refreshing` + `onRefresh` (or RN's `refreshControl={<RefreshControl/>}`), guide-notes §41.
+- Sticky rows: `stickyHeaderIndices={[0, 20]}` (RN's name; can change at runtime), guide-notes §43. Pinned rows stay
+  mounted wherever the list is.
 
 ## 3. The window protocol (built, 2.4a)
 JS → native (normal batch ops, `core/include/zn/batch.h`):

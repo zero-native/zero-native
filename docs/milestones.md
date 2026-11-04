@@ -123,6 +123,28 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-04: RN props pack 2 (Claude)
+- **What:** more React Native names, so ported screens keep their code (guide-notes §43, components §13,
+  second-opinions 74–79). Registry **14**: `Pressable` long press as in RN (a passed-through `onLongPress` with no
+  handler lets a long hold be a tap). Registry **15**: iOS shadow keys dropped (as RN on Android), per-corner radius,
+  `borderColor` / `borderWidth` at runtime (ZeroBill gap G10), `StyleSheet.absoluteFill` and stretch between `start`
+  and `end` (G16), `textTransform`, `testID`, `pointerEvents`, `hitSlop`, `onLayout`, `Image` `tintColor` / `onLoad` /
+  `onError` / `onLoadEnd`, RN's `<Modal>` (G13), `<StatusBar>` and zn's `<NavigationBar>` with colours drawn by zn
+  (G8), `List` `stickyHeaderIndices` (G9). No host API change.
+- **Found on the way:** Compose's `touchBoundsExpansion` is for a stylus only, so `hitSlop` uses the minimum touch
+  size (entry 75). zn lets taps through an element with no handlers; RN stops them. Pavan chose: an absolute layer with a background
+  or children stops taps as in RN (entry 74).
+- **Lab:** `/dev/rn-props` ("RN props" on the dev screen). Phone steps: `bun run tools/plugin-phone.ts "rn props"`
+  (7 steps; they find elements by `testID`).
+- **Tests:** JS 889 (all pass, with types), Kotlin 181, lint 0 errors, sample debug and R8 release built.
+- **Emulator** (`Medium_Phone_API_33`, Android 13, debug, gesture navigation): all 7 "rn props" steps pass: long press
+  with and without a handler (also changing at runtime), fills and stretches to the pixel, text case at runtime, corner
+  pixels, the OTP border colour and width, every `pointerEvents` mode, `hitSlop` 15 dp out (and 26 dp out: no tap),
+  image events and tint, `onLayout` (and none while scrolling), status and navigation bar colours and icons, `hidden`,
+  both Modals (dim tap, an Alert above it, the keyboard, back), sticky rows (push, far down, indices at runtime).
+- **Not done:** the Lava, 3-button navigation, a Modal over a Sheet, sticky rows with pull to refresh on a phone.
+  Release APK 14,363,588 bytes (with the bigger lab; not compared with main).
+
 ### 2026-11-03: PDF plugin (Claude)
 - `@zero-native/pdf` in `plugins/pdf/`, on Android's own `PdfRenderer`: no PDF library. No registry or host API change
   (module `Pdf` v1, views `pdf.view` and `pdf.preview`). Covers everything ZeroBill's RN app uses from

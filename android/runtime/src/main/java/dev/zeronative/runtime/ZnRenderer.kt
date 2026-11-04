@@ -44,6 +44,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.snapshotFlow
@@ -65,6 +66,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.semantics.semantics
 import coil3.compose.AsyncImage
 
 /**
@@ -119,8 +126,44 @@ private fun addChildRefs(out: ArrayList<ChildRef>, f: List<ZnTemplate>, t: ZnTem
 private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int, outer: Modifier, definiteWidth: Boolean) {
     val s = t.nodes[n]
     if (ZnDebug.countRecompositions) SideEffect { ZnDebug.hit("${ZnDebug.componentName(s.type)}#${inst.id}.$n") }
-    val chain = if (s.hasDynamicChain) dynamicChain(s, inst, root = n == 0) else s.staticChain
-    val mod = if (s.hasImpression) outer.then(impression(s, inst)).then(chain) else outer.then(chain)
+    // pointerEvents (registry 15, ZnTouch.kt): does this node take taps, and do its children?
+    val touchOff = LocalTouchOff.current
+    val pe = if (s.pointerEvents == POINTER_EVENTS_UNSET && s.pointerEventsSlot < 0) POINTER_EVENTS_UNSET else pointerEventsOf(s, inst)
+    val selfTouch = !touchOff && pe != Registry.PointerEvents.NONE && pe != Registry.PointerEvents.BOX_NONE
+    val chain = if (s.hasDynamicChain) dynamicChain(s, inst, root = n == 0, touchable = selfTouch) else s.staticChain
+    // Written "auto" or "box-only": taps stop here, as on a React Native view. Not written: they go through, except
+    // on an absolute layer (ZnNodeSpec.absoluteLayer), which stops them as RN does.
+    val stops = pe == Registry.PointerEvents.AUTO || pe == Registry.PointerEvents.BOX_ONLY ||
+        (pe == POINTER_EVENTS_UNSET && s.absoluteLayer)
+    val blocked = if (selfTouch && stops) outer.znBlockTouches() else outer
+    val mod = if (s.hasImpression) blocked.then(impression(s, inst)).then(chain) else blocked.then(chain)
+    val kidsOff = touchOff || pe == Registry.PointerEvents.NONE || pe == Registry.PointerEvents.BOX_ONLY
+    val slop = s.hitSlop
+    if (slop != null && selfTouch && s.type == Registry.Component.PRESSABLE) {
+        WithHitSlop(slop, s.margin) { measure ->
+            ZnNodeChildren(f, t, inst, n, s, measure.then(mod), definiteWidth, touchOff, kidsOff)
+        }
+    } else {
+        ZnNodeChildren(f, t, inst, n, s, mod, definiteWidth, touchOff, kidsOff)
+    }
+}
+
+/** [ZnNodeContent], with [LocalTouchOff] set for the children when pointerEvents changes it. */
+@Composable
+private fun ZnNodeChildren(
+    f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int, s: ZnNodeSpec, mod: Modifier, definiteWidth: Boolean,
+    touchOff: Boolean, kidsOff: Boolean,
+) {
+    if (kidsOff != touchOff) {
+        CompositionLocalProvider(LocalTouchOff provides kidsOff) { ZnNodeContent(f, t, inst, n, s, mod, definiteWidth) }
+    } else {
+        ZnNodeContent(f, t, inst, n, s, mod, definiteWidth)
+    }
+}
+
+/** What node [n] draws, with its modifier chain [mod] already built ([ZnNode]). */
+@Composable
+private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int, s: ZnNodeSpec, mod: Modifier, definiteWidth: Boolean) {
     when (s.type) {
         // A Fragment inside a parent is expanded by the parent (childRefs); alone (a screen, a list row) it is a Column.
         Registry.Component.COLUMN, Registry.Component.BOX, Registry.Component.PRESSABLE, Registry.Component.FRAGMENT ->
@@ -128,6 +171,9 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
         Registry.Component.TEXT_FIELD -> ZnTextField(s, inst, n, mod)
         Registry.Component.NATIVE_VIEW -> ZnNativeView(s, inst, n, mod)
         Registry.Component.SHEET -> ZnSheet(f, t, s, inst) // drawn in its own window, takes no space here
+        Registry.Component.MODAL -> ZnModal(f, t, s, inst) // the same
+        Registry.Component.STATUS_BAR -> ZnBarElement(s, inst, navigation = false) // takes no space
+        Registry.Component.NAVIGATION_BAR -> ZnBarElement(s, inst, navigation = true)
         Registry.Component.ROW -> Row(
             modifier = mod,
             horizontalArrangement = horizontalArrangement(s),
@@ -150,13 +196,26 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
                 val child = ref.template.nodes[ref.node]
                 var m: Modifier = Modifier
                 if (child.absolute) {
-                    // position: 'absolute' with top/bottom/start/end, relative to the Stack's content box.
-                    val h = if (child.start != null) -1f else if (child.end != null) 1f else stackBias(s).first
-                    val v = if (child.top != null) -1f else if (child.bottom != null) 1f else stackBias(s).second
-                    m = m.align(BiasAlignment(h, v)).offset(
-                        x = (child.start ?: child.end?.let { -it } ?: 0f).dp,
-                        y = (child.top ?: child.bottom?.let { -it } ?: 0f).dp,
-                    )
+                    // position: 'absolute' with top/bottom/start/end, relative to the Stack's content box. Both sides
+                    // of a pair (start + end, top + bottom) stretch it between them, as in RN (registry 15).
+                    val fillW = child.start != null && child.end != null
+                    val fillH = child.top != null && child.bottom != null
+                    if (fillW && fillH) {
+                        // The Stack's own size, after its other children (StyleSheet.absoluteFill).
+                        m = m.matchParentSize().absoluteInsets(child.start, child.top, child.end, child.bottom)
+                    } else {
+                        val h = if (child.start != null) -1f else if (child.end != null) 1f else stackBias(s).first
+                        val v = if (child.top != null) -1f else if (child.bottom != null) 1f else stackBias(s).second
+                        m = m.align(BiasAlignment(h, v))
+                        // One pair: as wide (or tall) as the Stack may be. Right when the Stack has a set or
+                        // stretched size, the usual case for an overlay bar.
+                        if (fillW) m = m.fillMaxWidth().absoluteInsets(child.start, null, child.end, null)
+                        if (fillH) m = m.fillMaxHeight().absoluteInsets(null, child.top, null, child.bottom)
+                        m = m.offset(
+                            x = if (fillW) 0.dp else (child.start ?: child.end?.let { -it } ?: 0f).dp,
+                            y = if (fillH) 0.dp else (child.top ?: child.bottom?.let { -it } ?: 0f).dp,
+                        )
+                    }
                 }
                 child.zIndex?.let { m = m.zIndex(it) }
                 ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = child.width != null)
@@ -201,7 +260,8 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
             }
         }
         Registry.Component.TEXT -> {
-            val text = if (s.textSlot >= 0) display(inst.slot(s.textSlot).value) else s.text.orEmpty()
+            val raw = if (s.textSlot >= 0) display(inst.slot(s.textSlot).value) else s.text.orEmpty()
+            val text = if (s.textTransform > 0) remember(raw) { transformText(raw, s.textTransform) } else raw
             // Read in the draw phase: a colour change redraws, nothing more.
             val color: () -> Color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
             else ({ s.color ?: Color.Black })
@@ -242,6 +302,7 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
                 mod
             }
 
+            val tint = if (s.tintColorSlot >= 0) toColor(inst.slot(s.tintColorSlot).value) else s.tintColor
             AsyncImage(
                 model = activeModel,
                 // The label (and the image role) come from the node's accessibility step in the chain, so TalkBack
@@ -249,11 +310,25 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
                 contentDescription = null,
                 modifier = imageModifier,
                 onLoading = { isLoading = true },
-                onSuccess = { isLoading = false },
+                onSuccess = {
+                    isLoading = false
+                    // RN onLoad / onLoadEnd (registry 15): for src only, as RN's defaultSource sends none.
+                    if (stage == IMAGE_SRC && (s.onLoad != 0 || s.onLoadEnd != 0)) {
+                        val img = it.result.image
+                        val source = org.json.JSONObject().put("width", img.width).put("height", img.height).put("uri", src)
+                        if (s.onLoad != 0) ZnRuntime.dispatchEvent(inst.id, s.onLoad, org.json.JSONObject().put("source", source).toString())
+                        if (s.onLoadEnd != 0) ZnRuntime.dispatchEvent(inst.id, s.onLoadEnd)
+                    }
+                },
                 onError = {
                     if (stage == IMAGE_NONE) return@AsyncImage // no model: nothing was requested
                     val which = if (stage == IMAGE_SRC) src else "fallback $fallback"
                     android.util.Log.w("zn", "image failed: $which — ${it.result.throwable}")
+                    if (stage == IMAGE_SRC) {
+                        val error = it.result.throwable.message ?: it.result.throwable.javaClass.simpleName
+                        if (s.onError != 0) ZnRuntime.dispatchEvent(inst.id, s.onError, org.json.JSONObject().put("error", error).toString())
+                        if (s.onLoadEnd != 0) ZnRuntime.dispatchEvent(inst.id, s.onLoadEnd)
+                    }
                     if (stage == IMAGE_SRC && fallback != null) {
                         stage = IMAGE_FALLBACK // stays loading: the fallback is requested next
                     } else {
@@ -266,6 +341,8 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
                     Registry.ContentScale.FILL -> ContentScale.FillBounds
                     else -> ContentScale.Crop
                 },
+                // RN tintColor: the picture's shape in one colour (SrcIn keeps its transparency).
+                colorFilter = tint?.let { androidx.compose.ui.graphics.ColorFilter.tint(it, androidx.compose.ui.graphics.BlendMode.SrcIn) },
             )
         }
         Registry.Component.SWITCH -> ZnSwitch(s, inst, mod)
@@ -321,7 +398,32 @@ internal fun ZnColumn(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: Z
 /** A node's modifier chain (built once, or per instance when it reads slots). */
 @Composable
 internal fun nodeChain(s: ZnNodeSpec, inst: ZnInstance): Modifier =
-    if (s.hasDynamicChain) dynamicChain(s, inst, root = false) else s.staticChain
+    if (s.hasDynamicChain) dynamicChain(s, inst, root = false, touchable = !LocalTouchOff.current) else s.staticChain
+
+/**
+ * RN testID (registry 15): UI tests (uiautomator, Espresso) see test tags as resource ids. Set on the root of each
+ * window that draws templates (the screens, a Sheet, a Modal).
+ */
+internal fun Modifier.znTestTags(): Modifier = semantics { testTagsAsResourceId = true }
+
+/**
+ * RN onLayout (registry 15): sends { layout: { x, y, width, height } } in dp when the box inside the margin gets a new
+ * size or a new place in its parent. Compose calls this on every move on screen (a scroll); only a real change in
+ * the four numbers builds and sends an event, so a scroll costs a compare.
+ */
+private fun znOnLayout(instId: Int, eventId: Int, density: Float): Modifier {
+    val last = FloatArray(4) { Float.NaN }
+    return Modifier.onGloballyPositioned { c ->
+        val p = c.positionInParent()
+        val now = floatArrayOf(p.x, p.y, c.size.width.toFloat(), c.size.height.toFloat())
+        if (now.contentEquals(last)) return@onGloballyPositioned
+        now.copyInto(last)
+        fun dp(px: Float) = Math.round(px / density * 100f) / 100.0
+        val layout = org.json.JSONObject().put("x", dp(now[0])).put("y", dp(now[1]))
+            .put("width", dp(now[2])).put("height", dp(now[3]))
+        ZnRuntime.dispatchEvent(instId, eventId, org.json.JSONObject().put("layout", layout).toString())
+    }
+}
 
 /** The screen entry a node belongs to (provided per screen by ZnNavHost), for impressions. 0 = none. */
 internal val LocalZnEntry = staticCompositionLocalOf { 0 }
@@ -439,25 +541,44 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     val list = inst.list(node)
     val rows = list.rows
     val state = rememberLazyListState() // saveable: the scroll position survives back navigation and recreation
+    // RN stickyHeaderIndices (registry 15): rows drawn pinned (Compose stickyHeader), in order, inside the list.
+    val stickyText = if (s.stickySlot >= 0) inst.slot(s.stickySlot).value as? String else s.stickyHeaderIndices
+    val sticky = remember(stickyText) { parseSticky(stickyText) }
+    val rowAt: @Composable (Int) -> Unit = { i ->
+        val row = rows.getOrNull(i)
+        if (row != null) {
+            val mounted = list.bound[row.key]?.let(ZnStore::find)
+            val t = f.getOrNull(mounted?.templateId ?: row.type)
+            if (t != null) ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, Modifier.fillMaxWidth(), definiteWidth = true)
+        }
+    }
     LazyColumn(
         modifier = mod.then(znPullRefresh(s, inst)), // pull to refresh, when it has onRefresh / refreshing
         state = state,
         verticalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Top,
     ) {
-        items(count = rows.size, key = { rows[it].key }, contentType = { rows[it].type }) { i ->
-            val row = rows.getOrNull(i) ?: return@items
-            val mounted = list.bound[row.key]?.let(ZnStore::find)
-            val t = f.getOrNull(mounted?.templateId ?: row.type) ?: return@items
-            val ri = mounted ?: ZnStore.placeholder(row.type, t)
-            ZnNode(f, t, ri, 0, Modifier.fillMaxWidth(), definiteWidth = true)
+        // Runs of plain rows between the pinned ones: one `items` per run, so a long list stays a few blocks.
+        var start = 0
+        for (h in sticky) {
+            if (h >= rows.size) break
+            val from = start
+            if (h > from) items(count = h - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
+            stickyHeader(key = rows[h].key, contentType = rows[h].type) { rowAt(h) }
+            start = h + 1
+        }
+        val from = start
+        if (rows.size > from) {
+            items(count = rows.size - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
         }
     }
     if (s.onRange != 0 || s.onEndReached != 0) {
         LaunchedEffect(state, inst.id, node) {
             var endSentAt = -1
             snapshotFlow {
-                val visible = state.layoutInfo.visibleItemsInfo
-                (visible.firstOrNull()?.index ?: 0) to (visible.lastOrNull()?.index ?: 0)
+                // A pinned row shows above rows far below it: leave it out, or JS would mount every row in between.
+                val pinned = parseSticky(if (s.stickySlot >= 0) inst.slot(s.stickySlot).value as? String else s.stickyHeaderIndices)
+                val visible = state.layoutInfo.visibleItemsInfo.filter { it.index !in pinned }.ifEmpty { state.layoutInfo.visibleItemsInfo }
+                (visible.minOfOrNull { it.index } ?: 0) to (visible.maxOfOrNull { it.index } ?: 0)
             }.distinctUntilChanged().collect { (a, b) ->
                 if (s.onRange != 0) ZnRuntime.dispatchEvent(inst.id, s.onRange, "$a,$b")
                 val count = rows.size
@@ -469,6 +590,10 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
         }
     }
 }
+
+/** "1,30" → the sorted, distinct row indices (bad entries dropped). */
+internal fun parseSticky(text: String?): IntArray =
+    text?.split(',')?.mapNotNull { it.trim().toIntOrNull()?.takeIf { i -> i >= 0 } }?.distinct()?.sorted()?.toIntArray() ?: IntArray(0)
 
 // Which image an <Image> shows (its `stage`): its src, its fallbackSrc, or nothing (an empty box).
 private const val IMAGE_SRC = 0
@@ -488,7 +613,7 @@ private fun imageModel(src: String?, context: Context): Any? = when {
 }
 
 @Composable
-private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean): Modifier {
+private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchable: Boolean): Modifier {
     val disabled = if (s.disabledSlot >= 0) inst.slot(s.disabledSlot).value == true else s.disabled
     val view = LocalView.current
     val indication = when (s.pressFeedback) {
@@ -504,9 +629,12 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean): Modifi
     val aLabel = if (s.accessibilityLabelSlot >= 0) {
         inst.slot(s.accessibilityLabelSlot).value as? String
     } else null
-    return remember(s, inst, disabled, indication, layer, background, aLabel) {
+    // Registry 14: read here so TalkBack's long-press action follows it (the touch path reads it at finger-down).
+    val longPressSet = if (s.hasLongPressSlot >= 0) inst.slot(s.hasLongPressSlot).value else null
+    val density = LocalDensity.current.density
+    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density) {
         val press = if (s.type == Registry.Component.PRESSABLE) {
-            Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication)
+            Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication, touchable)
         } else null
         val pad = if (s.hasDynamicPadding) {
             val base = s.staticPadding
@@ -515,8 +643,46 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean): Modifi
             ({ Edges(edge(0, base.start), edge(1, base.top), edge(2, base.end), edge(3, base.bottom)) })
         } else null
         val accessibility = if (s.type != Registry.Component.PRESSABLE) s.accessibilitySemantics(aLabel ?: s.accessibilityLabel) else null
-        s.buildChain(layer, background, press, pad, accessibility)
+        // Registry 15: a border width / colour from a slot, read while measuring / drawing (no recomposition).
+        val border = if (s.borderWidthSlot >= 0 || s.borderColorSlot >= 0) {
+            val wCell = if (s.borderWidthSlot >= 0) inst.slot(s.borderWidthSlot) else null
+            val cCell = if (s.borderColorSlot >= 0) inst.slot(s.borderColorSlot) else null
+            ZnBorder(
+                width = { (wCell?.value as? Double)?.toFloat() ?: s.borderWidth },
+                color = { cCell?.let { toColor(it.value) } ?: s.borderColor },
+            )
+        } else null
+        val layout = if (s.onLayout != 0) znOnLayout(inst.id, s.onLayout, density) else null
+        s.buildChain(layer, background, press, pad, accessibility, border, layout)
     }
+}
+
+/**
+ * RN textTransform (registry 15). Like JavaScript's toUpperCase / toLowerCase (no phone locale, so "i" never becomes
+ * the Turkish "İ"). capitalize works as React Native's Android code does: for each word (java.text.BreakIterator, so
+ * "don't" is one word), the first letter upper case and the rest lower case. Span breaks (U+001F) end a word.
+ */
+internal fun transformText(text: String, transform: Int): String = when (transform) {
+    Registry.TextTransform.UPPERCASE -> text.uppercase(java.util.Locale.ROOT)
+    Registry.TextTransform.LOWERCASE -> text.lowercase(java.util.Locale.ROOT)
+    Registry.TextTransform.CAPITALIZE -> buildString(text.length) {
+        val words = java.text.BreakIterator.getWordInstance(java.util.Locale.ROOT)
+        words.setText(text)
+        var start = words.first()
+        var end = words.next()
+        while (end != java.text.BreakIterator.DONE) {
+            val word = text.substring(start, end)
+            if (word[0].isLetterOrDigit()) {
+                append(word.substring(0, 1).uppercase(java.util.Locale.ROOT))
+                append(word.substring(1).lowercase(java.util.Locale.ROOT))
+            } else {
+                append(word)
+            }
+            start = end
+            end = words.next()
+        }
+    }
+    else -> text
 }
 
 /** Slot values arrive as null, Boolean, Double or String. Whole numbers show without ".0". */
@@ -585,6 +751,33 @@ private fun stackBias(s: ZnNodeSpec): Pair<Float, Float> {
 private fun stackAlignment(s: ZnNodeSpec): Alignment = stackBias(s).let { (h, v) -> BiasAlignment(h, v) }
 
 private fun Float.dp() = androidx.compose.ui.unit.Dp(this)
+
+/**
+ * Insets an absolute child that fills its axis (after matchParentSize / fillMaxWidth / fillMaxHeight): on each axis
+ * that has both sides, it is the full size minus the two insets, placed at the start / top inset. Negative insets make
+ * it bigger than the Stack (it draws outside, as in RN). A null pair leaves that axis as measured.
+ */
+private fun Modifier.absoluteInsets(start: Float?, top: Float?, end: Float?, bottom: Float?): Modifier =
+    layout { measurable, constraints ->
+        val s = start?.dp?.roundToPx() ?: 0
+        val e = end?.dp?.roundToPx() ?: 0
+        val t = top?.dp?.roundToPx() ?: 0
+        val b = bottom?.dp?.roundToPx() ?: 0
+        val w = constraints.maxWidth
+        val h = constraints.maxHeight
+        val stretchW = start != null && end != null && constraints.hasBoundedWidth
+        val stretchH = top != null && bottom != null && constraints.hasBoundedHeight
+        val inner = Constraints(
+            minWidth = if (stretchW) (w - s - e).coerceAtLeast(0) else constraints.minWidth,
+            maxWidth = if (stretchW) (w - s - e).coerceAtLeast(0) else constraints.maxWidth,
+            minHeight = if (stretchH) (h - t - b).coerceAtLeast(0) else constraints.minHeight,
+            maxHeight = if (stretchH) (h - t - b).coerceAtLeast(0) else constraints.maxHeight,
+        )
+        val p = measurable.measure(inner)
+        val outW = if (stretchW) w else p.width
+        val outH = if (stretchH) h else p.height
+        layout(outW, outH) { p.placeRelative(if (stretchW) s else 0, if (stretchH) t else 0) }
+    }
 
 /**
  * Nested <Text> spans: the text holds one piece per span, joined by U+001F (compile.ts `textChildren`). [cap] is the

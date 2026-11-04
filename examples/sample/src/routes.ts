@@ -26,6 +26,7 @@ import { RnBasicsLabScreen } from "./RnBasicsLab"
 import { TabsLabScreen } from "./TabsLab"
 import { PdfLabScreen } from "./PdfLab"
 import { LocationLabScreen } from "./LocationLab"
+import { RnPropsLabScreen } from "./RnPropsLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -60,6 +61,7 @@ export const routes = defineRoutes({
   tabsLab: { path: "/dev/tabs", screen: TabsLabScreen, deepLink: true, tabs: ["pay", "stores", "offers", "rewards"] },
   pdfLab: { path: "/dev/pdf", screen: PdfLabScreen, deepLink: true },
   locationLab: { path: "/dev/location", screen: LocationLabScreen, deepLink: true },
+  rnPropsLab: { path: "/dev/rn-props", screen: RnPropsLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

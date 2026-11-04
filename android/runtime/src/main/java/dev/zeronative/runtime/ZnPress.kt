@@ -43,10 +43,15 @@ internal fun Modifier.znPress(
     view: View,
     interactions: MutableInteractionSource,
     indication: Indication?,
+    touchable: Boolean = true,
 ): Modifier {
     fun send(eventId: Int, payload: Any? = null) {
         if (eventId != 0) ZnRuntime.dispatchEvent(inst.id, eventId, payload)
     }
+    // Registry 14: a long press counts only while onLongPress holds a handler, as in React Native's Pressability.
+    // Without the slot (a handler written in place, or an older bundle) it counts whenever the event is bound.
+    val longPressCell = if (s.hasLongPressSlot >= 0) inst.slot(s.hasLongPressSlot) else null
+    fun longPressOn() = s.onLongPress != 0 && longPressCell?.value != false
 
     val aLabel = if (s.accessibilityLabelSlot >= 0) {
         inst.slot(s.accessibilityLabelSlot).value as? String
@@ -75,9 +80,10 @@ internal fun Modifier.znPress(
                 contentDescription = aLabel
             }
             onClick(label = s.accessibilityHint) { if (enabled) send(s.onPress); enabled }
-            if (s.onLongPress != 0) onLongClick { if (enabled) send(s.onLongPress); enabled }
+            if (longPressOn()) onLongClick { if (enabled) send(s.onLongPress); enabled }
         }
-    if (!enabled) return base
+    // pointerEvents "none" / "box-none" here or above (registry 15): no touch handling, so taps reach what is under it.
+    if (!enabled || !touchable) return base
 
     return base.pointerInput(s, inst) {
         coroutineScope {
@@ -89,7 +95,7 @@ internal fun Modifier.znPress(
                 if (s.haptic) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
 
                 var handled = false // a long press or a repeat already fired: no onPress on release
-                val longPress = if (s.onLongPress != 0) launch {
+                val longPress = if (longPressOn()) launch {
                     delay(viewConfiguration.longPressTimeoutMillis)
                     handled = true
                     send(s.onLongPress)

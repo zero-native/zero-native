@@ -853,6 +853,79 @@ change, and what evidence would make you change it?"
 - **Other options:** 13, 14 and 15, one per phase (keeps the phase history in the numbers).
 - **Evidence wanted:** none.
 
+## 74. An element with no handlers lets taps through, except an absolute layer (RN props pack 2, built)
+- **Where:** `android/runtime/src/main/java/dev/zeronative/runtime/ZnTouch.kt` (`znBlockTouches`), `ZnRenderer.kt`
+  (`ZnNode`), `ZnTemplate.kt` (`absoluteLayer`); guide-notes §43.
+- **Pavan decided (2026-11-04): option B, scoped.** An absolute `Box` / `Column` / `Row` / `Stack` with a background or
+  children stops taps without `pointerEvents`, as an RN view does: that is the "busy layer" case. Everything else keeps
+  Compose's rule (a tap goes past an element that has no handler). Runtime only, no registry change; parents (a
+  `Pressable` around a badge) still get the tap. The rest of this entry is the first build, kept for the record.
+- **Chosen at first:** zn keeps Compose's rule: a tap goes past an element that has no handler to the one under it. Written
+  `pointerEvents="auto"` or `"box-only"`, an element stops taps, as every RN view does. `"none"` / `"box-none"` as in RN.
+- **Why:** making every element stop taps (RN's rule) changes how every zn screen built so far behaves, a big change
+  for one pack. Ported RN code mostly writes `pointerEvents="none"` on overlays, which works either way.
+- **Risk if wrong:** a ported RN "busy layer" (a see-through `View` over the screen during a payment, with no
+  `pointerEvents`) stops taps in RN but not in zn: a second tap on Pay can get through. The guide says to write
+  `pointerEvents="auto"` there. **This is the one I'd most like Pavan to decide.**
+- **Other options:** RN's rule for all `Stack` children (overlapping is only possible there), behind a registry
+  version; or a compile warning for an absolute full-size child with no `pointerEvents`.
+- **Evidence wanted:** how many ZeroBill overlays rely on RN's blocking (a grep for absolute `View`s over pressables).
+
+## 75. hitSlop is Compose's minimum touch size, not touchBoundsExpansion (RN props pack 2, built)
+- **Where:** `ZnTouch.kt` (`WithHitSlop`).
+- **Chosen:** the Pressable's minimum touch size becomes its size plus the slop on each side, through a
+  `ViewConfiguration` for that element. Each axis takes its larger side's slop on both sides.
+- **Why:** Compose 1.12's `touchBoundsExpansion` only works for a stylus (its hit test checks the pointer type; tested
+  on the emulator: a finger tap outside got nothing). The minimum touch size is the only way a finger may hit outside.
+- **Risk if wrong:** a tap in the slop loses to another tappable element right under the finger, where RN would give it
+  to the one on top. Uneven slops (`{ left: 4, right: 20 }`) reach 20 on both sides.
+- **Other options:** a bigger invisible touch box drawn over the element (changes layout); our own hit test.
+- **Evidence wanted:** a phone check of small icon buttons near other buttons in a ported screen.
+
+## 76. The iOS shadow keys are dropped, not drawn (RN props pack 2, built)
+- **Where:** `compiler/src/compile.ts` (`IGNORED_STYLE_KEYS`).
+- **Chosen:** `shadowOffset`, `shadowOpacity`, `shadowRadius` are accepted and dropped, as RN on Android does.
+- **Why:** "same as RN" (Pavan): ZeroBill's Android app shows only the `elevation` shadow today, so a port looks the
+  same. Compose 1.12 has `dropShadow` (offset, radius, opacity) if we ever want iOS-like shadows.
+- **Risk if wrong:** a designer who tuned shadows on iOS sees none of that on Android (as in the RN app).
+- **Other options:** draw them with `dropShadow` when they are set (a visible change from the RN app).
+- **Evidence wanted:** none.
+
+## 77. StatusBar backgroundColor is drawn by zn, per screen (RN props pack 2, built)
+- **Where:** `ZnSystemBars.kt`, `ZnNavHost.kt` (`barStrips`, `BarIcons`).
+- **Chosen:** `<StatusBar>` / `<NavigationBar>` belong to their screen (the screen entry they are drawn in, also from a
+  Modal or Sheet window). The top screen's merged values set the icons and `hidden`; each screen draws its own colour
+  strips behind the bars, under its content. With a navigation bar colour, Android's own scrim is turned off.
+- **Why:** Android 15+ (we target 36) ignores `window.statusBarColor` / `navigationBarColor`. Drawing it ourselves works
+  on every version, and per screen it moves with the screen during a push.
+- **Risk if wrong:** 3-button navigation not checked on a phone (only gesture navigation on the emulator). `hidden` uses
+  "swipe shows it for a moment"; a full-screen app may want a different behaviour.
+- **Other options:** RN's imperative `StatusBar.setBarStyle` (global, not per screen); not built.
+- **Evidence wanted:** a 3-button-navigation phone with `<NavigationBar backgroundColor>`.
+
+## 78. RN's Modal is its own window with no look of its own (RN props pack 2, built)
+- **Where:** `ZnModal.kt`.
+- **Chosen:** a Compose `Dialog` window over the whole screen (no system dim), the content laid out like a Column that
+  fills it, fade / slide of 250 ms, the keyboard always pushes the content up, the bar icons copied from the app window.
+  Back sends `onRequestClose`; only JS closes it.
+- **Why:** as RN on Android: ZeroBill's dialogs draw their own dim and card inside a `transparent` Modal. A separate
+  "centred dialog" component would need a rewrite of each.
+- **Risk if wrong:** a Modal and a Sheet open at once, or a Modal over a native screen: not checked. RN's slide is
+  about 300 ms with its own curve; ours is a plain 250 ms tween.
+- **Other options:** draw it inside the screen's window (cheaper, but it can't cover the status bar or come above a
+  Sheet).
+- **Evidence wanted:** ZeroBill's `TxnV1ProcessingModalSheet` ported and compared side by side.
+
+## 79. Registry 14 is only the long press change; the rest of the pack is 15 (RN props pack 2)
+- **Where:** `packages/template/src/registry.ts`, `registry.lock.json`.
+- **Chosen:** as the parent session planned: 14 = `hasLongPress` (the long press fix the SVG session left), 15 =
+  everything else. The lock steps 13 → 14 → 15, as its rules want.
+- **Why:** 14 was reserved for the long press fix before this pack was planned; bundles without `hasLongPress` behave
+  as before on any app. Nothing between 13 and 15 has shipped.
+- **Risk if wrong:** none for users. A bundle that uses only the long press change runs on a 14 app.
+- **Other options:** all at 14.
+- **Evidence wanted:** none.
+
 ## 80. PDF downloads use the app's OkHttp, so the plugin compiles against it (PDF plugin, built)
 - **Where:** `plugins/pdf/android/build.gradle.kts` (`implementation("com.squareup.okhttp3:okhttp:5.5.1")`),
   `PdfModule.kt` (`client`).

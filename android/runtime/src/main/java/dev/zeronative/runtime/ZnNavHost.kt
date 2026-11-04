@@ -58,6 +58,13 @@ import androidx.core.view.WindowCompat
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 
 /**
  * Draws the back stack ([ZnNav.stack]) with Navigation 3 (ARCHITECTURE §11). Transitions are native and chosen per
@@ -81,10 +88,20 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     // The top route at once (the frame it appears), and any secure screen still drawn: one that is leaving or being covered
     // shows for its whole animation (~300 ms), and a screenshot then must not catch it.
     SecureWindow(top?.route?.secure == true || secureDrawn.intValue > 0)
-    // Status bar icons: the route's `statusBar` option. Navigation bar icons: from the screen's own background
-    // (dark icons on a light screen), so a full-bleed header doesn't get a scrim over the bottom bar.
-    val topBackground = top?.route?.templateId?.let { bundle.templates.getOrNull(it)?.nodes?.firstOrNull()?.background }
-    BarIcons(statusDark = top?.route?.darkBarIcons ?: true, navDark = (topBackground?.luminance() ?: 1f) > 0.5f)
+    // Status bar icons: the top screen's <StatusBar barStyle> (registry 15), else the route's `statusBar` option.
+    // Navigation bar icons: its <NavigationBar barStyle>, else from what is behind the bar (its <NavigationBar>
+    // backgroundColor, else the screen's own background): dark icons on a light screen, so a full-bleed header
+    // doesn't get a scrim over the bottom bar.
+    val topSpec = top?.route?.templateId?.let { bundle.templates.getOrNull(it)?.nodes?.firstOrNull() }
+    val topBackground = topSpec?.let { rootBackground(it, top.let { e -> ZnStore.find(e.id) }) }
+    val statusBar = top?.let { ZnSystemBars.merged(it.id, navigation = false) }
+    val navBar = top?.let { ZnSystemBars.merged(it.id, navigation = true) }
+    BarIcons(
+        statusDark = statusBar?.darkIcons ?: top?.route?.darkBarIcons ?: true,
+        navDark = navBar?.darkIcons ?: (((navBar?.background ?: topBackground)?.luminance() ?: 1f) > 0.5f),
+        statusHidden = statusBar?.hidden == true,
+        navColoured = navBar?.background != null,
+    )
     // Impressions count only while the app is in front.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
@@ -140,7 +157,7 @@ private fun SecureWindow(secure: Boolean) {
 private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
     NavDisplay(
         backStack = ZnNav.stack,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().znTestTags(),
         onBack = { ZnNav.systemBack() },
         entryProvider = { entry ->
             NavEntry(entry, contentKey = entry.id, metadata = transitions(entry.route.transition)) { e ->
@@ -160,11 +177,13 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
                 }
                 val root = ZnStore.find(e.id) ?: return@NavEntry
                 val template = bundle.templates.getOrNull(root.templateId)
-                // The screen's own background fills behind the bars it doesn't avoid.
-                val background = template?.nodes?.firstOrNull()?.background ?: Color.Transparent
+                // The screen's own background fills behind the bars it doesn't avoid (read at runtime when it
+                // changes, registry 15), with its <StatusBar> / <NavigationBar> colours over the bars.
+                val background = template?.nodes?.firstOrNull()?.let { rootBackground(it, root) } ?: Color.Transparent
                 val sides = safeSides(e.route)
                 Box(
                     Modifier.fillMaxSize().background(background)
+                        .then(barStrips(ZnSystemBars.merged(e.id, false)?.background, ZnSystemBars.merged(e.id, true)?.background))
                         .then(if (sides != null) Modifier.windowInsetsPadding(safe.only(sides)) else Modifier)
                         // keyboard: "resize" (default): the screen ends above the keyboard. The bar padding above has
                         // used up the navigation bar's share, so only the rest of the keyboard's height is added.
@@ -282,16 +301,47 @@ private fun ReportKeyboard() {
     LaunchedEffect(height, ZnNav.generation) { ZnWindow.reportKeyboard(height) }
 }
 
-/** Dark bar icons (true) for light backgrounds, light icons (false) for dark ones. */
+/**
+ * Dark bar icons (true) for light backgrounds, light icons (false) for dark ones. [statusHidden]: <StatusBar hidden>.
+ * [navColoured]: a <NavigationBar backgroundColor> is drawn behind the navigation bar, so Android must not lay its
+ * own see-through scrim over it (3-button navigation).
+ */
 @Composable
-private fun BarIcons(statusDark: Boolean, navDark: Boolean) {
+private fun BarIcons(statusDark: Boolean, navDark: Boolean, statusHidden: Boolean, navColoured: Boolean) {
     val view = LocalView.current
-    LaunchedEffect(statusDark, navDark) {
+    LaunchedEffect(statusDark, navDark, statusHidden, navColoured) {
         val window = view.context.findActivity()?.window ?: return@LaunchedEffect
         WindowCompat.getInsetsController(window, view).apply {
             isAppearanceLightStatusBars = statusDark
             isAppearanceLightNavigationBars = navDark
+            if (statusHidden) {
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(WindowInsetsCompat.Type.statusBars())
+            } else {
+                show(WindowInsetsCompat.Type.statusBars())
+            }
         }
+        if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = !navColoured
+    }
+}
+
+/** A screen's root background now: the slot's value when it changes at runtime, else the template's. */
+private fun rootBackground(spec: ZnNodeSpec, root: ZnInstance?): Color? =
+    if (spec.backgroundSlot >= 0 && root != null) toColor(root.slot(spec.backgroundSlot).value) else spec.background
+
+/**
+ * <StatusBar backgroundColor> / <NavigationBar backgroundColor> (registry 15): the colour drawn over the screen's
+ * background behind each bar, under the screen's content (a full-bleed header still covers it).
+ */
+@Composable
+private fun barStrips(status: Color?, navigation: Color?): Modifier {
+    if (status == null && navigation == null) return Modifier
+    val density = LocalDensity.current
+    val top = WindowInsets.statusBars.getTop(density).toFloat()
+    val bottom = WindowInsets.navigationBars.getBottom(density).toFloat()
+    return Modifier.drawBehind {
+        if (status != null && top > 0f) drawRect(status, size = Size(size.width, top))
+        if (navigation != null && bottom > 0f) drawRect(navigation, Offset(0f, size.height - bottom), Size(size.width, bottom))
     }
 }
 
