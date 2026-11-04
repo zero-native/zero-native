@@ -56,7 +56,7 @@ class PerfPlugin(
             return
         }
         ZnBundles.watchRunning { label -> PerfState.bundle = PerfRules.attributeValue(label) }
-        if (network && !ZnFetch.addClientSetup { it.addInterceptor(NetworkTraces(perf, url)) }) {
+        if (network && !ZnFetch.addInterceptor(NetworkTraces(perf, url))) {
             Log.w(TAG, "a fetch ran before PerfPlugin was registered: no network traces in this process")
         }
         if (screens) {

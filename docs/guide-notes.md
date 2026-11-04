@@ -58,11 +58,11 @@ pilot; "known limit" items are built but have a gap we plan to fix before real u
 - **The OTA check started by a push (`zn_ota=check`) runs at once**, without the start-up delays. It may download while a
   payment screen is open. Applying is still held by `Updates.holdApply()` (§28). Do: hold apply while a payment is
   open. Tracked: §51, second-opinions 120.
-- **A `flowStore` save can fail on a full disk.** `flowStore.write` then returns `false` and the old value stays
-  (ARCHITECTURE §13). Do: check the result and stop the payment step; never go on to the UPI app after a failed save.
-  Tracked: §16. (How the app should act on a full disk is not yet decided in the docs.)
-- **A plugin gets the whole OkHttp builder** (`ZnFetch.addClientSetup`). Do: add only interceptors (§30), and read the
-  source of every plugin you add. Tracked: §30.
+- **A `flowStore` save can fail on a full disk, but only the first save of a key** (when its file is made) or a save
+  that needs a bigger file. Since 2026-11-04 the file's disk space is reserved when it is made, so a later save that
+  fits can't fail and can't crash. Do: save the payment record first, before `/pay`; if that save fails, show a
+  "phone storage is full" screen and don't start the payment. Never go on to the UPI app after a failed save. Details:
+  §16.
 - **A link that opens a tabs route already in the stack closes every screen above it**, even a pay screen that waits
   for a UPI result. By design (as React Navigation does). Do: refuse links in `onLink` while a payment is open. Tracked:
   §40 (the `onLink` rule) and §6 (`onLink`); the code is `onOpenLink` in `packages/core/src/nav.ts`.
@@ -324,6 +324,13 @@ const status = await api.verify(paymentId) // the backend decides, not the UPI a
 if (status !== "pending") flowStore.remove(KEY)
 ```
 
+- **Know (full disk, 2026-11-04):** a key's file and its disk space are made by its **first** save. So on a full disk
+  only step 1 can fail, before any money moves. A later save of a record that fits (under about 32 KB) only overwrites
+  space that is already reserved: it can't fail and can't crash. A save that needs a bigger file can fail again.
+- **Do:** when step 1's save returns `false`, show a "phone storage is full" screen (what to free, a retry button),
+  and don't call `/pay`. Keep the record small, so the step 2 save never needs a bigger file.
+- **Don't:** open the UPI app after a failed save "because the user wants to pay". A restart would read "paying" and
+  wrongly decide that no money moved, and the user could pay twice. Second-opinions 106.
 - **Do:** keep normal app data (settings, last tab, caches) in app storage (`storage`, MMKV-like, §21). Losing the last write
   there is fine.
 - **Don't:** use `flowStore` as a settings store. Each key is its own file of at least 64 KB; keep it to a few
@@ -906,14 +913,18 @@ To add it to an app:
   that removes the listener. Crashlytics (§46) uses it.
 - `ZnOta.addReportListener { report -> }` (`ZnOta.kt`): hears every OTA report (a check, a download, a bundle blocked). Same
   rules: many listeners, run after the app's `onReport`, main thread. Crashlytics uses it.
-- `ZnFetch.addClientSetup { builder -> }` (`ZnFetch.kt`): changes the OkHttp client that `fetch` uses. It runs **after the
-  app's own fetch setup**, in the order plugins were added. It must be added before the first fetch; after that it
-  answers `false` and does nothing. Perf (§55) uses it.
-- **Do** add only interceptors in `addClientSetup`. **Don't** change pins, timeouts, retries, the cache or other
-  settings of the builder. **Why:** you get the whole OkHttp builder, so a plugin could turn off the app's certificate
-  pinning, and nothing stops it today. Also, this client makes the OTA check and download calls, so a plugin's
-  interceptor sees those too (OTA files stay signed, so they can't be changed on the way). **Don't** call
-  `ZnFetch.configure` from a plugin: it replaces the app's setup.
+- `ZnFetch.addInterceptor(interceptor)` (`ZnFetch.kt`): adds an OkHttp interceptor to the client that `fetch` uses. It is
+  added **after the app's own fetch setup**, in the order plugins were added. It must be added before the first fetch;
+  after that it answers `false` and does nothing. Perf (§55) uses it.
+- **Know:** a plugin gets no OkHttp builder, so it can't change the app's pins, redirects, retries or timeouts. **Why:**
+  every login and payment call goes through this client. The old `addClientSetup { builder -> }` gave the whole
+  builder; it was removed on 2026-11-04 (second-opinions 105).
+- **Know:** if your interceptor throws a runtime error, that one fetch fails with `connection_lost`, and the request is
+  not sent again. The app doesn't crash. **Do** still catch your own errors: a failed fetch on a payment call is a real
+  cost.
+- **Know:** this client also makes the OTA check and download calls, so your interceptor sees those too (OTA files stay
+  signed, so they can't be changed on the way). **Don't** call `ZnFetch.configure` from a plugin: it replaces the
+  app's setup.
 
 ## 31. Opening another app and getting its result (P.2)
 Only Kotlin opens another app: a plugin builds the Intent, JS calls the plugin. JS can't open any app with any data.
@@ -1934,5 +1945,5 @@ JS. API: `plugins/perf/README.md`.
   `PerfPlugin(url = { u -> ... })` (return null to leave a request out). (Known limit: a safer default is planned
   before real users.)
 - **Do** compare `frames_slow` / `frames_frozen` of `screen_<route>` traces between bundles (`zn_bundle`).
-- **Plugin authors:** add to core's OkHttp client with `ZnFetch.addClientSetup { builder -> ... }` (add-only, runs after
-  the app's `ZnFetch.configure`). **Don't** call `ZnFetch.configure` from a plugin: it replaces the app's own setup.
+- **Plugin authors:** add to core's OkHttp client with `ZnFetch.addInterceptor(interceptor)` (added after the app's
+  `ZnFetch.configure`; no builder, so the app's pins stay). **Don't** call `ZnFetch.configure` from a plugin: it replaces the app's own setup.

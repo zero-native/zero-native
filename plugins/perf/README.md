@@ -76,7 +76,7 @@ RN Firebase's names work for ported code: `perf().startTrace(...)`, `getPerforma
 - **Know:** URL **paths are kept**. An id in a path (`/orders/12345`) goes to Firebase. Only the query and fragment are
   cut. Use the `url` option to shorten such paths.
 - **Know:** other plugins' fetches and the OTA check also go through the interceptor, because it sits on core's shared
-  client (`ZnFetch.addClientSetup`, `docs/fetch.md` §5).
+  client (`ZnFetch.addInterceptor`, `docs/fetch.md` §5).
 
 ## Size
 | Dependency | Version | Why |

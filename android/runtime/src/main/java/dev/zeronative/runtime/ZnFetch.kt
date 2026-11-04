@@ -24,6 +24,7 @@ import okhttp3.Callback
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -89,17 +90,37 @@ object ZnFetch : ZnModuleBase("Fetch") {
         configure = block
     }
 
-    private val plugins = java.util.concurrent.CopyOnWriteArrayList<(OkHttpClient.Builder) -> Unit>()
+    private val plugins = java.util.concurrent.CopyOnWriteArrayList<Interceptor>()
 
     /**
-     * Add-only, for plugins (a performance monitor's interceptor): runs after the app's [configure], in the order
-     * added, so a plugin never replaces the app's own setup (pins, Chucker). Before the first fetch, like [configure];
-     * after it, the block is left out and this answers false.
+     * For plugins (a performance monitor, later a Cronet transport): adds an interceptor to the shared client, after
+     * the app's [configure] and its interceptors, in the order added. A plugin gets no builder, so it can't change the
+     * app's pins, redirects, retries or timeouts. Before the first fetch, like [configure]; after it, the interceptor is
+     * left out and this answers false. If the interceptor throws a runtime error, that fetch fails as
+     * `connection_lost` instead of crashing the app (OkHttp throws such errors again on its own thread).
      */
-    fun addClientSetup(block: (OkHttpClient.Builder) -> Unit): Boolean {
+    fun addInterceptor(interceptor: Interceptor): Boolean {
         if (built) return false
-        plugins += block
+        plugins += interceptor
         return true
+    }
+
+    /**
+     * Turns a plugin interceptor's runtime error into an IOException, so the call fails and the app keeps running.
+     * The request is not sent again: the error may come after it reached the server.
+     */
+    internal class PluginInterceptor(
+        private val inner: Interceptor,
+        private val warn: (String, Throwable) -> Unit = { message, e -> Log.w(TAG, message, e) },
+    ) : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response = try {
+            inner.intercept(chain)
+        } catch (e: IOException) {
+            throw e
+        } catch (e: RuntimeException) {
+            warn("fetch: a plugin's interceptor (${inner::class.java.name}) failed", e)
+            throw IOException("a plugin's interceptor failed (${inner::class.java.simpleName}): ${e.message}", e)
+        }
     }
 
     /** The shared client (also for app code that wants the same pool and settings). Built on first use. */
@@ -132,7 +153,7 @@ object ZnFetch : ZnModuleBase("Fetch") {
             .dispatcher(Dispatcher().apply { maxRequestsPerHost = 10 }) // default 5: the 6th call to a host waits
             .cookieJar(okhttp3.CookieJar.NO_COOKIES) // cookies are off (ARCHITECTURE §14)
         configure?.invoke(builder)
-        for (p in plugins) p(builder)
+        for (p in plugins) builder.addInterceptor(PluginInterceptor(p))
         val built = builder.build()
         watchNetwork(built)
         return built

@@ -770,6 +770,10 @@ state the whole time.
   3. If the payload is over the ceiling, or growing fails (disk full), **the write fails, and the step's effect does
      not run.** The flow moves to its error handling (for an effect: its reconcile step, or the step's `onError`).
      The write-ahead rule (12.3) is never broken: no record, no action.
+  4. **Disk space is reserved when a file is made or grown** (`posix_fallocate`, 2026-11-04). A file sized with
+     `ftruncate` alone has holes, and a store into a hole on a full disk is a SIGBUS (a crash), not an error. So a full
+     disk can fail only the first write of a key or a write that grows the file, cleanly; a write that fits the
+     reserved file can't fail. Older files with holes are filled on their first write. `docs/second-opinions.md` 106.
 
 ### 13.3 Thread
 FlowStore writes happen on the JS thread (the caller of `go()` / `effect()`), synchronously. They are memory copies,
@@ -1136,6 +1140,8 @@ zero-native/
 | 2026-11-04 | Performance plugin `@zero-native/perf` (eae7b49): app start, a network trace per `fetch`, a trace per screen with slow and frozen frames, custom traces. Core change, add-only: `ZnFetch.addClientSetup`, which adds to core's OkHttp client after the app's `configure`. URLs go without the query. On by default, like Crashlytics | `docs/guide-notes.md` §55, `docs/second-opinions.md` entry 126 (its "off until consent like Analytics" option is out of date since d2911e4), `plugins/perf/README.md`. |
 | 2026-11-04 | Crashlytics phone step for an OTA bundle's error (690f5bd; test tool only, no product code): `ZN_OTA=1 bun run tools/plugin-phone.ts crashlytics` builds a bundle into a test store of its own, serves it on this computer only, and checks that a report says `zn_built_in=false` and the bundle id | `tools/plugin-phone/crashlytics.ts`, `docs/milestones.md`. |
 | 2026-11-04 | Analytics is on from the first start (d2911e4; Pavan's call, changed from "off until consent" the same day): as in RN Firebase and like Crashlytics and Perf. Collection starts before any consent, so DPDP must be checked before real users. A consent-first app sets `firebase_analytics_collection_enabled=false` in its manifest. Docs say it plainly (480dc3d) | `docs/guide-notes.md` §50, `docs/second-opinions.md` entry 96. |
+| 2026-11-04 | Plugins add only an interceptor to core's fetch client: `ZnFetch.addInterceptor` replaces `addClientSetup { builder -> }`, so a plugin can't undo the app's pins, redirects or retries. A plugin interceptor's runtime error fails only that fetch (`connection_lost`) instead of crashing the app; the request is not sent again. Kotlin API only | `docs/fetch.md` §5, `docs/guide-notes.md` §30, `docs/second-opinions.md` entry 105. |
+| 2026-11-04 | FlowStore reserves the disk space of a file when it is made or grown (`posix_fallocate`; rewrite-in-place fallback). A full disk now fails only the first write of a key or a growing write, cleanly, never with a SIGBUS crash; a write that fits can't fail. The write-ahead rule stays: never open the UPI app after a failed save. Core C++ only: no API or host API change | §13.2 item 4, `docs/guide-notes.md` §16, `docs/second-opinions.md` entry 106. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).

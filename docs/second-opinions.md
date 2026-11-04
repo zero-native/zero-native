@@ -1282,6 +1282,52 @@ change, and what evidence would make you change it?"
   per value of the signals they read (a memo); a lint rule that asks for `const payOnce = once(pay)` in the body.
 - **Evidence wanted:** none, unless a port shows handlers built from signals.
 
+## 105. Plugins add only an interceptor to core's fetch client, and a throwing one fails only its fetch (core, built 2026-11-04)
+- **Where:** `ZnFetch.addInterceptor` and `ZnFetch.PluginInterceptor` (`android/runtime/.../ZnFetch.kt`); tests in
+  `ZnFetchTest.kt`. Replaces `ZnFetch.addClientSetup { builder -> }` from eae7b49 (entry 126).
+- **Chosen:** a plugin hands core one OkHttp `Interceptor`. Core adds it after the app's `configure`, wrapped so that a
+  runtime error in it becomes an `IOException` (JS sees `connection_lost` with "a plugin's interceptor failed" in the
+  message). The request is never sent again after such an error.
+- **Why:** `addClientSetup` gave each plugin the whole builder after the app's setup. OkHttp's last setter wins, so a
+  plugin could undo the app's certificate pins, allow HTTPS → HTTP redirects, or turn POST retries back on. Every
+  login and payment call uses this client. "Add only interceptors" was a rule in the docs, not in the code. Also, a
+  runtime error in an interceptor is thrown again by OkHttp on its dispatcher thread, which crashes the app (the
+  audit's C11 named the builder path; the interceptor path was the bigger one).
+- **Risk if wrong:** a future plugin that truly needs a client setting (a DNS resolver, an event listener) has no way in.
+  Then add one narrow method for that need, not the builder.
+- **Other options:** keep the builder and trust plugins (they are opt-in and read by the app team); run the builder
+  block and then put the app's settings back on top (fragile: OkHttp has many settings).
+- **Cronet later (Pavan's question, 2026-11-04):** Cronet's OkHttp bridge is an application interceptor (`CronetInterceptor`), so
+  it fits this hook. It must run last, so its plugin is registered last (from Cronet's docs, not tried here).
+- **Evidence wanted:** none.
+
+## 106. FlowStore reserves disk space up front; a failed save still means "don't open the UPI app" (core, built 2026-11-04)
+- **Where:** `reserve()` in `core/src/flowstore.cpp` (used by `open`, `grow` and the first `write` of an older file);
+  test `testFlowStoreReserve` in `core/tests/core_tests.cpp`. Guide §16, ARCHITECTURE §13.2 item 4.
+- **Asked:** Pavan, ZeroBill framework ask 8 (2026-11-04): a FlowStore write must be reliable; the size limit should be
+  the only way it can fail.
+- **Found:** files were sized with `ftruncate`, which leaves holes. A store into a hole needs a new disk block; on a full
+  disk the kernel can't give one and sends SIGBUS, a crash in the middle of a save. A write also failed (cleanly) when
+  the file was first made or grown.
+- **Chosen:** reserve every block when a file is made or grown (`posix_fallocate`, or reading and writing back each
+  block where the file system can't reserve). A file from an older version is filled on its first write. Now a full
+  disk fails only the **first** write of a key, or a write that grows the file, and it returns `false` with the old
+  value kept. A write that fits the reserved file only overwrites reserved blocks, so it can't fail.
+- **Not chosen: "open the UPI app even when the save fails"** (ask 8's note, as the RN reference app does; I first
+  recommended writing that into the guide, which was wrong). The restore rules read a "paying" record as "the UPI app
+  never opened, no money moved". If the "in-upi" save failed and the app opened the UPI app anyway, a kill would lead to
+  that wrong reading, and the user could pay twice. With this fix, the "in-upi" save of a small record can't fail for
+  disk reasons, so the rule costs nothing. A failure at the first save (before `/pay`) shows a low-storage screen
+  instead (Pavan, 2026-11-04).
+- **Risk if wrong:** a file system that drops reserved blocks under pressure (f2fs's copy-on-write overwrites are
+  covered by its reserved space, reasoned, not tested); `posix_fallocate` slow on a phone (it runs once per file, about
+  64 KB).
+- **Other options:** keep sparse files and catch SIGBUS (unsafe in a JS runtime); `msync` checks after each write (too
+  slow for a write that must be a memory copy); a new `flowStore.prepare()` API (not needed: the first save already
+  comes before `/pay`).
+- **Evidence wanted:** a phone with a nearly full disk: the first save returns `false`, and a second save of an existing
+  key still works. Tested on the Android 13 emulator (ext4) with a file size limit standing in for a full disk.
+
 ## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
 - **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.
 - **Chosen:** a data message `zn_ota=check` calls `ZnOta.check()` in the FCM service and waits for it (at most 15 s),
@@ -1354,7 +1400,8 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** none.
 
 ## 126. Performance: on by default, URLs without the query, network traces through a new add-only core hook (Perf plugin, built)
-- **Where:** `plugins/perf/android/.../PerfPlugin.kt`, `ZnFetch.addClientSetup` (core).
+- **Where:** `plugins/perf/android/.../PerfPlugin.kt`, `ZnFetch.addClientSetup` (core; replaced by
+  `ZnFetch.addInterceptor` on 2026-11-04, entry 105: "add-only" was a rule in the docs, not in the code).
 - **Chosen:** collection on by default (Firebase's default; it is diagnostics, like Crashlytics). An OkHttp interceptor
   on core's client makes one HttpMetric per request, with the URL's query and fragment removed (`url` rewrites or
   drops). Screen traces per top route with frame counts from Android's FrameMetrics on the Activity's window. Core

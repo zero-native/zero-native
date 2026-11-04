@@ -10,6 +10,7 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -185,14 +186,14 @@ void testNav() {
   Harness h;
   h.engine->onCall = [](zn::HostApi& host, std::string_view, std::span<const zn::Value>) {
     host.nav(1, 3, 2, zn::Value::null());
-    host.nav(10, 3, 2, zn::Value::null());  // 9 is RESTORE (host API 4)
+    host.nav(11, 3, 2, zn::Value::null());  // 9 is RESTORE (host API 4), 10 is BACK_WANTED (bottom tabs)
   };
   h.runtime.dispatchEvent(0, 2, zn::Value::null());
   std::vector<uint8_t> out = h.runtime.takeBatch();
   Reader r2{out};
   r2.pos += 4;
   CHECK(r2.get<uint32_t>() == 1);
-  CHECK(!h.platform.logs.empty() && h.platform.logs.back().find("unknown kind 10") != std::string::npos);
+  CHECK(!h.platform.logs.empty() && h.platform.logs.back().find("unknown kind 11") != std::string::npos);
 }
 
 void testListOps() {
@@ -549,6 +550,81 @@ void testFlowStoreKill() {
   std::printf("  one 800-byte write: %.2f us (average of 10,000)\n", us);
 }
 
+/** True when every byte of the key's file has a disk block behind it (no holes). */
+bool fullyReserved(const std::string& key) {
+  struct stat st{};
+  if (stat((std::string(kFsDir) + "/" + key + ".znfs").c_str(), &st) != 0) return false;
+  return static_cast<long long>(st.st_blocks) * 512 >= static_cast<long long>(st.st_size);
+}
+
+void testFlowStoreReserve() {
+  std::printf("flowstore: files have no holes; a full disk fails cleanly and keeps the good state\n");
+  freshDir();
+  {
+    // A new file and a grown file are fully reserved.
+    zn::FlowStore fs(kFsDir, 8192);
+    CHECK(fs.write("new", "a"));
+    CHECK(fullyReserved("new"));
+    CHECK(fs.write("new", std::string(20 * 1024, 'b')));
+    CHECK(fullyReserved("new"));
+  }
+  {
+    // A file made the old way (ftruncate: slot B is a hole) is filled on the first write, and keeps its value.
+    zn::FlowStore fs(kFsDir, 8192);
+    CHECK(fs.write("old", "first"));
+  }
+  const std::string p = std::string(kFsDir) + "/old.znfs";
+  const std::string sparse = p + ".sparse";
+  {
+    int in = open(p.c_str(), O_RDONLY);
+    struct stat st{};
+    fstat(in, &st);
+    std::vector<uint8_t> head(4096);
+    pread(in, head.data(), head.size(), 0);  // header + slot A's start, where "first" is
+    close(in);
+    int out = open(sparse.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
+    CHECK(ftruncate(out, st.st_size) == 0);
+    pwrite(out, head.data(), head.size(), 0);
+    close(out);
+    rename(sparse.c_str(), p.c_str());
+  }
+  CHECK(!fullyReserved("old"));
+  {
+    zn::FlowStore fs(kFsDir, 8192);
+    CHECK(fs.read("old").payload == "first");
+    CHECK(fs.write("old", "second"));
+    CHECK(fullyReserved("old"));
+  }
+  {
+    zn::FlowStore fs(kFsDir, 8192);
+    CHECK(fs.read("old").payload == "second");
+  }
+
+  // A full disk, faked with a file size limit (the kernel answers EFBIG where a full disk answers ENOSPC).
+  rlimit before{};
+  getrlimit(RLIMIT_FSIZE, &before);
+  signal(SIGXFSZ, SIG_IGN);
+  rlimit small = before;
+  small.rlim_cur = 12 * 1024;
+  CHECK(setrlimit(RLIMIT_FSIZE, &small) == 0);
+  {
+    zn::FlowStore fs(kFsDir, 8192);
+    std::string err;
+    // A new key can't get its file: the write fails, no crash, and the key still reads as missing (not broken).
+    CHECK(!fs.write("nospace", "x", &err) && !err.empty());
+    CHECK(fs.read("nospace").status == zn::FlowStore::ReadStatus::Missing);
+    // Growing can't get its file: the write fails and the good state stays.
+    err.clear();
+    CHECK(!fs.write("old", std::string(40 * 1024, 'c'), &err) && !err.empty());
+    CHECK(fs.read("old").payload == "second");
+    // A write that fits the reserved file still works on the "full" disk: this is the payment-time write.
+    CHECK(fs.write("old", "third"));
+    CHECK(fs.read("old").payload == "third");
+  }
+  CHECK(setrlimit(RLIMIT_FSIZE, &before) == 0);
+  signal(SIGXFSZ, SIG_DFL);
+}
+
 void testTickAndApply() {
   std::printf("tick → one apply request, coalescing until taken\n");
   Harness h;
@@ -639,6 +715,7 @@ int main() {
   testFlowStoreGrowth();
   testFlowStoreThroughRuntime();
   testFlowStoreKill();
+  testFlowStoreReserve();
   testTickAndApply();
   testNoOpsNoRequest();
   testTimers();

@@ -64,6 +64,7 @@ class FlowStore {
     uint32_t slotSize = 0;
     int current = -1;   // slot index holding the newest valid state, -1 = none
     uint64_t seq = 0;   // its seq
+    bool reserved = false;  // disk blocks are reserved for the whole file (no holes), so a store can't hit a full disk
   };
 
   File* open(const std::string& key, bool create, std::string* error);

@@ -123,6 +123,28 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-04: FlowStore can't crash or fail on a full disk once a key's file exists (Claude)
+- **What:** Pavan's ask 8 (a save must fail only for size). FlowStore files were sized with `ftruncate`, which leaves
+  holes; a store into a hole on a full disk is a SIGBUS crash. Now `posix_fallocate` reserves every block when a file
+  is made or grown (with a rewrite-in-place fallback), and an older file is filled on its first write. A full disk
+  fails only the first save of a key or a growing save, cleanly. The guide keeps the write-ahead rule (never open the
+  UPI app after a failed save) and says to show a low-storage screen when the first save fails. Second-opinions 106,
+  guide §16, ARCHITECTURE §13.2. Core C++ only: no API, host API or registry change.
+- **Tests:** core tests on the Android 13 emulator (x86_64 build): 167 checks, 0 failed. New: files have no holes, an
+  old file with holes is filled and keeps its value, and a fake full disk (`RLIMIT_FSIZE`) fails a new key cleanly
+  (still "missing", not "broken"), fails a grow with the old value kept, and still lets a write that fits go through.
+  Also fixed a stale check from 4cd56c5 (nav kind 10 is now BACK_WANTED, so the "unknown kind" test uses 11). Sample
+  debug build and runtime unit tests pass. Not run on the Lava (arm64) or on f2fs.
+
+### 2026-11-04: plugins add only an interceptor to fetch (Claude)
+- **What:** `ZnFetch.addClientSetup { builder -> }` (eae7b49) is replaced by `ZnFetch.addInterceptor(interceptor)`. A
+  plugin no longer gets the OkHttp builder, so it can't undo the app's pins, redirects, retries or timeouts. A plugin
+  interceptor that throws a runtime error now fails only that fetch (`connection_lost`). Before, OkHttp threw it again
+  on its own thread, which crashed the app. The request is never sent twice. Perf uses the new call. Second-opinions
+  105, guide §30, `docs/fetch.md` §5. Kotlin API only: no host API or registry change.
+- **Tests:** `ZnFetchTest` 6 / 6 (3 new: a working plugin, one that throws before and after the request went out, and an
+  IO error kept as it is); `:plugin-perf` compiles.
+
 ### 2026-11-04: two fixes from a light audit of new work vs old code (Claude)
 - **What:** an audit of the commits since hardening (`eb3f7e0`) for newer work that changed older behaviour, and for
   doc gaps. Findings: `audit-2026-11-04.md` in the session notes (not in the repo). Two framework fixes, asked by Pavan:

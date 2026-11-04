@@ -141,16 +141,19 @@ certificate pinning, an extra trusted root, interceptors (Chucker in debug), a p
 - Don't turn `retryOnConnectionFailure` back on for POSTs, and don't add retry interceptors for non-idempotent
   methods.
 
-### For plugin authors: `ZnFetch.addClientSetup` (2026-11-04)
-`ZnFetch.addClientSetup { builder -> ... }` lets a **plugin** change the shared client too (the Performance plugin adds
-an interceptor this way).
-- It runs **after** the app's own `ZnFetch.configure`, in the order plugins were added. So the app's pins and
-  interceptors are already there.
+### For plugin authors: `ZnFetch.addInterceptor` (2026-11-04)
+`ZnFetch.addInterceptor(interceptor)` lets a **plugin** add an OkHttp interceptor to the shared client (the Performance
+plugin adds its network traces this way).
+- It is added **after** the app's own `ZnFetch.configure` and its interceptors, in the order plugins were added.
+- A plugin gets **no builder**, so it can't change or undo the app's settings (pins, redirects, retries, timeouts).
+  This replaced `addClientSetup { builder -> }`, which gave the whole builder (second-opinions 105).
 - Call it before the first fetch (as `configure`). After that it does nothing and answers `false`.
-- **Known limit:** the plugin gets the **whole** `OkHttpClient.Builder`, not only a way to add an interceptor. A plugin
-  can change or undo the app's settings (pins, timeouts, retries). Only use plugins you trust. A fix is planned: allow
-  only adding interceptors.
+- If the interceptor throws a runtime error, that fetch fails with `connection_lost` and the app keeps running. Without
+  this guard, OkHttp throws the error again on its own thread, which crashes the app. The request is **not** sent
+  again, because the error may come after it reached the server.
 - Interceptors added this way also see the OTA check and download requests, because those use `ZnFetch.client`.
+- **Later, a Cronet transport:** Cronet's OkHttp bridge (`CronetInterceptor`) is also an interceptor, so it fits. It
+  must be the last interceptor, so its plugin must be registered last.
 
 ## 6. Checked on the phone
 `/dev/fetch` in the sample runs 27 cases against `tools/fetch-test-server.ts` (through `adb reverse`) and a few public

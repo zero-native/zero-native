@@ -42,6 +42,34 @@ void fail(std::string* error, std::string message) {
 
 uint8_t* slotAt(uint8_t* map, uint32_t slotSize, int index) { return map + kHeaderSize + slotSize * index; }
 
+/**
+ * Makes the file [size] bytes long with real disk blocks behind every byte, so later stores into the mapping can't fail.
+ * ftruncate alone leaves holes: a store into a hole needs a new block, and on a full disk that is a SIGBUS (a crash),
+ * not an error. Keeps the bytes already there. Returns 0, or an errno value (ENOSPC when the disk is full).
+ */
+int reserve(int fd, size_t size) {
+  int rc;
+  do {
+    rc = posix_fallocate(fd, 0, static_cast<off_t>(size));
+  } while (rc == EINTR);
+  if (rc != EOPNOTSUPP && rc != ENOSYS && rc != EINVAL) return rc;
+  // The file system can't reserve: write each block back with its own bytes (zeros in a hole), which fills the holes.
+  if (ftruncate(fd, static_cast<off_t>(size)) != 0) return errno;
+  uint8_t block[4096];
+  for (size_t at = 0; at < size; at += sizeof block) {
+    const size_t n = size - at < sizeof block ? size - at : sizeof block;
+    const ssize_t got = pread(fd, block, n, static_cast<off_t>(at));
+    if (got < 0) return errno;
+    if (static_cast<size_t>(got) < n) std::memset(block + got, 0, n - static_cast<size_t>(got));
+    if (pwrite(fd, block, n, static_cast<off_t>(at)) != static_cast<ssize_t>(n)) return errno ? errno : EIO;
+  }
+  return 0;
+}
+
+std::string reserveError(const char* what, int rc) {
+  return std::string(what) + (rc == ENOSPC ? "the disk is full" : std::strerror(rc));
+}
+
 uint64_t loadSeq(const uint8_t* slot) {
   // seq is 8-byte aligned (64-byte header, slot sizes are multiples of 8).
   return __atomic_load_n(reinterpret_cast<const uint64_t*>(slot), __ATOMIC_ACQUIRE);
@@ -109,11 +137,14 @@ FlowStore::File* FlowStore::open(const std::string& key, bool create, std::strin
     // New file: header + two empty slots.
     f.slotSize = defaultSlotSize_;
     f.size = kHeaderSize + 2 * static_cast<size_t>(f.slotSize);
-    if (ftruncate(fd, static_cast<off_t>(f.size)) != 0) {
-      fail(error, std::string("can't size the file: ") + std::strerror(errno));
+    if (const int rc = reserve(fd, f.size)) {
+      fail(error, reserveError("can't make the file: ", rc));
+      // Back to empty: a sized file with no header would read as "broken" instead of "missing".
+      if (ftruncate(fd, 0) != 0) unlink(p.c_str());
       ::close(fd);
       return nullptr;
     }
+    f.reserved = true;
   } else {
     f.size = static_cast<size_t>(st.st_size);
   }
@@ -162,8 +193,13 @@ bool FlowStore::grow(const std::string& key, File& f, uint32_t need, std::string
   int fd = ::open(tmp.c_str(), O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
   if (fd < 0) return fail(error, std::string("can't grow: ") + std::strerror(errno)), false;
   const size_t size = kHeaderSize + 2 * static_cast<size_t>(slot);
-  void* m = MAP_FAILED;
-  if (ftruncate(fd, static_cast<off_t>(size)) == 0) m = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (const int rc = reserve(fd, size)) {
+    fail(error, reserveError("can't grow: ", rc));
+    ::close(fd);
+    unlink(tmp.c_str());
+    return false;
+  }
+  void* m = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   if (m == MAP_FAILED) {
     fail(error, std::string("can't grow: ") + std::strerror(errno));
     ::close(fd);
@@ -195,6 +231,7 @@ bool FlowStore::grow(const std::string& key, File& f, uint32_t need, std::string
   f.slotSize = slot;
   f.current = current;
   f.seq = seq;
+  f.reserved = true;
   return true;
 }
 
@@ -203,6 +240,12 @@ bool FlowStore::write(std::string_view keyView, std::string_view payload, std::s
   const std::string key(keyView);
   File* f = open(key, /* create */ true, error);
   if (!f) return false;
+  if (!f->reserved && f->slotSize) {
+    // A file made before reserve() existed (or only read so far) may have holes: fill them once, before any store.
+    // On a full disk this fails here, cleanly, and the good state stays as it is.
+    if (const int rc = reserve(f->fd, f->size)) return fail(error, reserveError("can't reserve the file: ", rc)), false;
+    f->reserved = true;
+  }
   const uint32_t need = static_cast<uint32_t>(payload.size());
   if (f->slotSize == 0 || need > f->slotSize - kSlotHeader) {
     if (!grow(key, *f, need, error)) return false;

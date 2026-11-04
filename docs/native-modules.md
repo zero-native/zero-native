@@ -54,9 +54,9 @@ app's own hook. All three run the plugin's code after the app's own.
   app's `onJsError`. Returns a function that removes it. A listener that throws is logged and does not stop the others.
 - `ZnOta.addReportListener { report -> ... }`: hears every OTA outcome (`ZnOtaReport`), on the main thread, after
   `Config.onReport`. It can be added before `ZnOta.configure`. Each listener runs in its own try/catch.
-- `ZnFetch.addClientSetup { builder -> ... }`: change the shared OkHttp client; it runs after the app's
-  `ZnFetch.configure`. **Known limit:** the plugin gets the whole builder, so it can change the app's settings. A fix
-  (only allow interceptors) is planned. Details: `docs/fetch.md` §5.
+- `ZnFetch.addInterceptor(interceptor)`: adds an OkHttp interceptor to the shared client, after the app's
+  `ZnFetch.configure`. The plugin gets no builder, so it can't change the app's pins or other settings. An interceptor
+  that throws fails only that fetch. Details: `docs/fetch.md` §5.
 The Crashlytics plugin uses the first two; the Performance plugin uses the third.
 
 ## 2. How others do it
