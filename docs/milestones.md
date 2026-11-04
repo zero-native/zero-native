@@ -123,6 +123,19 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-04: two fixes from a light audit of new work vs old code (Claude)
+- **What:** an audit of the commits since hardening (`eb3f7e0`) for newer work that changed older behaviour, and for
+  doc gaps. Findings: `audit-2026-11-04.md` in the session notes (not in the repo). Two framework fixes, asked by Pavan:
+  - **Handler calls made once** (found in d4f97f1, RN-style handlers): `onPress={once(pay)}` was made again on every
+    tap, so once / debounce guards did nothing (a double-pay trap). A handler written as a call is now made once when
+    the element appears; a handler prop of a user component too. Names, `props.onPress` and ternaries are still read
+    at tap time (guide §5, second-opinions 104).
+  - **Remote Config `activate`** read the task result without checking success: a failed task threw on the main thread
+    (a crash). Now the same guard as `fetchAndActivate`.
+- **Tests:** JS 953 (all pass, with types; a runtime test shows `once()` firing once in 3 taps, and 3 times with the
+  old compiler), Remote Config plugin tests and lint, sample debug built. Sample templates unchanged; its JS changes
+  only where 8 `tapped("...")` handlers are now made once (same behaviour: `tapped` keeps no state).
+
 ### 2026-11-04: compiler pack: JSX in variables, build-time values in a component body (Claude)
 - **What:** guide-notes §47, second-opinions 100–103, ARCHITECTURE §3 principle 7. JSX in a `const` (or a `let` never
   assigned again), in a component body or at module level, used as a child, a prop, `return x`, in `.map` / `<List>`

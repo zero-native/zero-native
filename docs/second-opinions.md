@@ -1256,6 +1256,20 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** hours spent on `className` in the pilot port. If it dominates, reconsider only the one-time
   codemod.
 
+## 104. A handler written as a call is made once; everything else is read at tap time (audit fix, built)
+- **Where:** `compiler/src/compile.ts` `handlerCode`, `isHandlerCall`, `propsObject`; guide-notes §5.
+- **Chosen:** `onPress={once(pay)}` (any call) is made once when the element appears and kept; a user component's
+  `on...` prop written as a call is passed as that one value, not a getter. A name, `props.onPress`, a member access or
+  a ternary is still read when the tap comes (RN-style, d4f97f1), and null / undefined does nothing.
+- **Why:** since d4f97f1 every non-inline handler was read at tap time, so a call ran again on each tap and a once /
+  debounce / double-tap guard lost its memory: a double `/pay` risk. Reading a plain name at tap time is still right
+  for wrappers that pass a handler through or switch it off.
+- **Risk if wrong:** a call whose result should follow a signal (`onPress={handlerFor(mode())}`) now keeps the first
+  result. A call inside a ternary is still made on each tap (documented: make it in the body).
+- **Other options:** make every expression once (the old way; breaks `props.onPress` that changes); make calls once
+  per value of the signals they read (a memo); a lint rule that asks for `const payOnce = once(pay)` in the body.
+- **Evidence wanted:** none, unless a port shows handlers built from signals.
+
 ## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
 - **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.
 - **Chosen:** a data message `zn_ota=check` calls `ZnOta.check()` in the FCM service and waits for it (at most 15 s),

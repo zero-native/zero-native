@@ -66,6 +66,11 @@ const paise = computed(() => toPaise(amount()))
   wrapper, with none passed), a long hold is a normal tap and gives `onPress`. (Before registry 14 it gave nothing.)
 - **Guard actions that must happen once** (pay, submit) against double taps: the second tap can arrive before the
   screen changes. A simple `let done = false` flag in the screen body is enough.
+- **Know:** a handler written as a call, `onPress={once(pay)}` or `onPress={debounce(submit, 500)}`, is made once,
+  when the element appears, and kept, so the guard remembers between taps. The same holds for a handler prop of your
+  own component (`<PayButton onPress={once(pay)} />`). (Before 2026-11-04 it was made again on every tap, so a once or
+  debounce guard did nothing.) **Don't** hide the call inside a ternary (`busy() ? undefined : once(pay)`): that is
+  read at each tap. Make it in the body instead, `const payOnce = once(pay)`, then `onPress={busy() ? undefined : payOnce}`.
 
 ## 6. Routes and navigation
 ```ts

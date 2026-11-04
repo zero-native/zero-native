@@ -68,6 +68,23 @@ describe("templates", () => {
       .toContain("__zn.on(__i0, 1, (() => 1));")
   })
 
+  test("a handler made by a call (once(pay)) is made once at mount, not on every tap", () => {
+    const { code } = compile(`
+      function Btn(props) { return <Pressable onPress={props.onPress}><Text>b</Text></Pressable> }
+      export function Pay(p) {
+        return (
+          <Column>
+            <Pressable onPress={once(p.pay)}><Text>a</Text></Pressable>
+            <Btn onPress={once(p.pay)} label={fmt(p.n)} />
+          </Column>
+        )
+      }`)
+    expect(code).toMatch(/const (__zh\d+_\d+) = \(once\(p\.pay\)\);\s*__zn\.on\(__i0, 1, __zn\.latest\(\(\) => \1\)\);/)
+    // A handler prop of a user component: a value made once; other props stay getters (read when used).
+    expect(code).toContain('"onPress": (once(p.pay))')
+    expect(code).toContain('get "label"() { return (fmt(p.n)) }')
+  })
+
   test("onLongPress passed through also tells native whether it holds a handler (registry 14)", () => {
     const { templates, code } = compile(`
       export function Tile(props: { onPress?: () => void; onLongPress?: () => void }) {
@@ -475,6 +492,39 @@ describe("end to end: compiled code runs on the view runtime", () => {
     expect(kinds()).toEqual(["remove", "remove"])
     expect(Component.Anchor).toBe(10)
     expect(Prop.text.id).toBe(50)
+  })
+
+  test("a once() guard written in place holds across taps, also through a component's onPress", async () => {
+    const { code, templates, components } = compile(`
+      export const counts = { pay: 0, card: 0 }
+      function once(f) { let done = false; return () => { if (!done) { done = true; f() } } }
+      function Btn(props) { return <Pressable onPress={props.onPress}><Text>b</Text></Pressable> }
+      export function Screen() {
+        return (
+          <Column>
+            <Pressable onPress={once(() => counts.pay++)}><Text>pay</Text></Pressable>
+            <Btn onPress={once(() => counts.card++)} />
+          </Column>
+        )
+      }`)
+    const dir = join(import.meta.dir, ".tmp")
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `once-${Date.now()}.ts`)
+    writeFileSync(file, code)
+    const { installFakeHost } = await import("../../packages/core/test/fake-host")
+    const host = installFakeHost()
+    const core = await import("@zero-native/core")
+    core.installRuntime()
+    const mod = await import(file)
+    core.renderRoot(0x80000003, mod.Screen, {})
+    // The screen's own instance is the root (drawn by native); the Btn instance is mounted by JS.
+    const btn = host.ops.find((o) => o[0] === "mount" && o[1] === components.Btn)![4] as number
+    expect(templates[components.Screen].children[0].type).toBe("Pressable")
+    for (let i = 0; i < 3; i++) {
+      globalThis.__zn_onEvent(0x80000003, 1, "")
+      globalThis.__zn_onEvent(btn, 1, "")
+    }
+    expect(mod.counts).toEqual({ pay: 1, card: 1 })
   })
 })
 

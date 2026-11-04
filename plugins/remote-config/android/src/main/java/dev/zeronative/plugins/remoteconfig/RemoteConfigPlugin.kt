@@ -60,7 +60,7 @@ internal class RemoteConfigModule(private val rc: FirebaseRemoteConfig?) : ZnMod
 
         function("activate") { call ->
             val rc = rc ?: return@function call.resolve(off())
-            rc.activate().addOnCompleteListener { t -> answer(call, t.isSuccessful, t.exception, changed = t.result == true) }
+            rc.activate().addOnCompleteListener { t -> answer(call, t.isSuccessful, t.exception, changed = t.isSuccessful && t.result == true) }
         }
 
         function("fetchAndActivate") { call ->

@@ -160,7 +160,16 @@ export function compileModule(
     const u = unwrap(e)
     return ts.isArrowFunction(u) || ts.isFunctionExpression(u)
   }
-  const handlerCode = (e: ts.Expression) => (isInPlaceFunction(e) ? text(e) : `${RUNTIME}.latest(() => (${text(e)}))`)
+  // A handler made by a call (`once(pay)`, `debounce(submit)`, `tapped("x")`) is made once, when the element mounts,
+  // and kept: making it again on every tap would reset what it remembers, so a once / double-tap guard would do nothing.
+  const isHandlerCall = (e: ts.Expression) => ts.isCallExpression(unwrap(e))
+  const handlerCode = (e: ts.Expression, b: Builder) => {
+    if (isInPlaceFunction(e)) return text(e)
+    if (!isHandlerCall(e)) return `${RUNTIME}.latest(() => (${text(e)}))`
+    const h = `__zh${b.events}_${b.binds.length}`
+    b.binds.push(`const ${h} = (${text(e)});`)
+    return `${RUNTIME}.latest(() => ${h})`
+  }
 
   const uiImports = new Set<string>()
   // ---- Module scan --------------------------------------------------------------------------------------------
@@ -579,7 +588,7 @@ export function compileModule(
         const ev = `e${b.events++}`
         ;(props as any)[name] = eventRef(ev)
         const handlerExpr = (init as ts.JsxExpression).expression!
-        const handler = handlerCode(handlerExpr)
+        const handler = handlerCode(handlerExpr, b)
         if (IMAGE_EVENTS.has(name) && tag !== "Image") fail(a, `${name} works only on <Image>`)
         if (tag === "TextField" && name === "onChangeText") changeText = { ev, handler }
         else if (NATIVE_EVENT_EVENTS.has(name)) {
@@ -679,7 +688,7 @@ export function compileModule(
         const ev = `e${b.events++}`
         ;(props as any).onNativeEvent = eventRef(ev)
         // A name no app uses: the handler's own `p` or `e` must not be hidden by this wrapper.
-        b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => (${handlerCode(expr!)})(JSON.parse(__znPayload)));`)
+        b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => (${handlerCode(expr!, b)})(JSON.parse(__znPayload)));`)
       } else {
         fail(a, `<NativeView> takes name, props, onEvent and style, not "${name}"`)
       }
@@ -1781,6 +1790,10 @@ export function compileModule(
       else if (ts.isStringLiteral(init)) parts.push(`${JSON.stringify(name)}: ${JSON.stringify(decodeEntities(init.text))}`)
       else if (jsx && isJsx(jsx)) parts.push(`${JSON.stringify(name)}: () => ${compileRoot(jsx as JsxNode, depth).code}`)
       else if (jsx) parts.push(`get ${JSON.stringify(name)}() { return ${pick(jsx)} }`)
+      // A handler prop made by a call (`onPress={once(pay)}`): made once, as on an element (handlerCode).
+      else if (ts.isJsxExpression(init) && init.expression && /^on[A-Z]/.test(name) && isHandlerCall(init.expression)) {
+        parts.push(`${JSON.stringify(name)}: (${text(init.expression)})`)
+      }
       else if (ts.isJsxExpression(init) && init.expression) parts.push(`get ${JSON.stringify(name)}() { return (${text(init.expression)}) }`)
       else fail(a, `unsupported value for "${name}"`)
     }
