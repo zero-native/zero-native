@@ -1,8 +1,12 @@
-# Plugins: adding native features to zero-native (design, for review)
+# Plugins: adding native features to zero-native (design, for review; built)
 
-**Status: P.1 and P.2 are built (2026-11-02): the plugin entry point, typed arg helpers, the test plugin in
-`plugins/device-test`, and section 6's plumbing (not background JS). The rest is design.** Decisions D1–D7 were taken on 2026-11-02 (section 8); section 10 has the
-questions for reviewers. Android only for now; every choice must also work for iOS later.
+**Status (2026-11-04): P.1 to P.6 are built** (tables in sections 1 and 9): the plugin entry point and typed arg helpers
+(P.1), the plumbing (P.2: permissions, results from other apps), an app outside this repo with its own plugin (P.3),
+native screens and `<NativeView>` (P.3b to P.4b), background JS tasks and the core items (P.5, P.6), and the official
+plugins `auth`, `scanner`, `media`, `webview`, `pdf`, `location`, `firebase-app`, `crashlytics`, `push`, `analytics`,
+`remote-config` and `perf`. Not built: codegen, `zn://mem`, certificate pinning, iOS. Parts below that are written as
+design keep their original wording; the tables say what is built. Decisions D1–D7 were taken on 2026-11-02 (section 8);
+section 10 has the questions for reviewers. Android only for now; every choice must also work for iOS later.
 
 **Why now.** The next features (QR scan, WebView, UPI apps, photos, push) each need native code, a native view or
 another app's result. If each one invents its own way to plug in, apps get five different patterns and OTA safety

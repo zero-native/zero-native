@@ -276,7 +276,9 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   after the next APK.
 - **Reporting, never silent:** every outcome goes to the server with the next check and to
   `ZnOta.Config.onReport(ZnOtaReport)` at once on the main thread (`kind`, `bundle`, `detail`, `serious`): the app
-  logs it to Crashlytics (e.g. `recordException` when serious). `bun run ota status` sums the last 7 days of
+  logs it to Crashlytics (e.g. `recordException` when serious). **Update 2026-11-04:** the Crashlytics plugin does this
+  too (through `ZnOta.addReportListener`): a rollback, a blocked bundle or a failed install becomes a non-fatal named
+  `zn.ota.<kind>` (one issue per kind), the other outcomes become log lines. Without the plugin, do it yourself in `onReport`. `bun run ota status` sums the last 7 days of
   telemetry per bundle (phones running it, outcome counts; safety-net ones marked `!`).
 - **Cost** (release, Lava, n=10): cold start median 192–196 ms, as before 4.7 (196 ms); start checks 1–3 ms off the
   main thread; `health.json` is written at start only when something changed.
@@ -292,6 +294,8 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   needed because the APK's own bundle is `<app>_0` in every APK. It is in `ZnJsError.bundleLabel`, in the message of
   `ZnJsError.asThrowable()`, and `ZnBundles.watchRunning { }` gives it at start and on every switch (an update applied
   in place, a rollback): an app sets it as a Crashlytics custom key, so native crashes name the bundle too.
+  **Update 2026-11-04:** the `@zero-native/crashlytics` plugin does this for you: it sets the key `zn_bundle`
+  (and `zn_bundle_id`) at start and on every switch. Without the plugin, do it yourself as above.
 - **Release stacks have positions:** hermesc's default is `-g1` (same bytes as no flag): frames read
   `at HomeScreen (main.js:2051:22)`. `-g0` would save ~16% of the bytecode but lose them: not used.
 - **Same source → same bytes on any machine:** hermesc runs in the input's folder with only the file name (it bakes
@@ -345,7 +349,13 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
 | 4.7 | Safety nets: watchdog, error-before-healthy rollback, healthy mark, startup guard, APK-newer, capability change | **done 2026-10-31** (§3.6; `docs/milestones.md` log) |
 | 4.8 | Crash traces + telemetry: bundle id everywhere, source maps per bundle, `zn symbolicate` | **done 2026-10-31** (§3.7; `docs/milestones.md` log) |
 | 4.9 | Phone test matrix (below), docs, guide notes ("what OTA can and can't change", busy moments, state formats) | **done 2026-10-31** (22 of 22 on the Lava: `docs/ota-test-matrix.md`) |
-| later | BSDiff patches (D5), CDN / signed download links, push-started checks (an `Updates.checkInBackground()` hook for apps' FCM handlers), iOS client | when needed |
+| later | BSDiff patches (D5), CDN / signed download links, push-started checks (an `Updates.checkInBackground()` hook for apps' FCM handlers) *(built 2026-11-04 in push v2, see below)*, iOS client | when needed |
+| push v2 | Push-started checks: a data message `zn_ota=check` runs `ZnOta.check` in native code (`plugins/push`). On by default; turn it off with `PushPlugin(otaCheck = false)`. | **done 2026-11-04** |
+
+**Known limit (push check):** the check from a push runs **at once**. It does not wait for the start delay that normal
+checks use (about 3 s, "never in the way of startup"). A new bundle is still **not applied** while `Updates.holdApply()`
+is held, but it **can download and unzip while a payment screen is open**. If that matters for a payment, send
+this push only at quiet times, or set `otaCheck = false`. The apply itself stays safe.
 
 **Phone test matrix (4.9):** first install → no OTA; publish #1 → downloads, applies on next cold start; `applyNow`
 during a visit; held during checkout; kill during download / install / apply; tampered zip; wrong bundle signature;
@@ -357,6 +367,7 @@ FCM-style background start doesn't count as a launch. **Built:** `bun run ota:ph
 results and what can't be run there: `docs/ota-test-matrix.md`.
 
 ## 5. What stays the app's job (as in the RN app)
-Which moments are safe to apply (the gates), the update banner and its wording, push messages that trigger checks,
+Which moments are safe to apply (the gates), the update banner and its wording, ~~push messages that trigger checks~~
+(*superseded 2026-11-04: the push plugin runs the check; the app only decides when to send the push*),
 and the release workflow's human rules (who approves production). The framework gives the building blocks and a
 sample that shows a sensible default (apply at cold start + after login + back on the start screen).

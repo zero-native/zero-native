@@ -88,12 +88,22 @@ the text is left out.
 newest 8 of a session anyway). The rest are counted in one log line. Reports go out at the next start.
 
 ## Do and don't
+- **Know:** error text goes out **unmasked** unless the app passes `redact`. Every JS error message and stack is sent as
+  it is, and an error text in a payments app can hold a VPA, a phone number or an amount. Pass `redact` before real users.
 - **Do** use your own id in `setUserId` (a customer code). **Don't** use a phone number, an email or a VPA, in the id
   or in a key. **Why:** everyone with console access sees them, and they stay for 90 days.
 - **Don't** put private values in your own `throw new Error(...)`: the message goes to Crashlytics as it is (unless
   `redact` cleans it).
 - **Do** filter the console by `zn_bundle_id` to see one OTA bundle's crashes. **Why:** Crashlytics groups issues by
   stack, not by key; the key tells which bundles an issue happened in.
+
+## Phone test for OTA errors
+`tools/plugin-phone/crashlytics.ts` has one more step, off by default: set `ZN_OTA=1` to run it. It builds a bundle into
+a test store of its own (`.zn-ota-test/plugin-phone/ota-store`, signed with the sample's key), serves it on this computer
+only (port 8790, over `adb reverse`), and clears the sample's data before and after. It installs that bundle, starts it, records a caught error and
+sends it. You then check in the Firebase console, a few minutes later, that the event says `zn_built_in=false` and
+`zn_bundle_id=<that bundle>` (the step prints the id). Nothing is published anywhere else. Like the other steps, it needs a sample built
+with `google-services.json`; without it the step says SKIP.
 
 ## Native crashes (opt-in)
 A crash in Hermes or C++ (a SIGSEGV) kills the process with no Java stack. Only `firebase-crashlytics-ndk` sees it.

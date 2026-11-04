@@ -1,6 +1,6 @@
 # Hardening plan: before the plugin work
 
-**Status: 2026-11-02. H.1 to H.7 are built and tested on the Lava: full matrix 28 of 28, release cold start 180 ms.** This touches OTA and start-up code, so no more code changes until Pavan says go. Findings come from the Fable review
+**Status: 2026-11-02. H.1 to H.7 are built and tested on the Lava: full matrix 28 of 28, release cold start 180 ms.** This touched OTA and start-up code. Pavan gave the go and all of it is built (2026-11-02, `docs/milestones.md`). Findings come from the Fable review
 (`docs/cross-communication/2026-11-02-fable-review-response.md`, F1–F11), Argon's review and `docs/second-opinions.md`.
 
 **Assumptions:**

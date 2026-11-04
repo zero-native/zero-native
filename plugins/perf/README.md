@@ -25,6 +25,14 @@ OkHttp; zero-native's fetch already goes through the interceptor).
    ```
    A fetch made before it (very rare) means no network traces in that process; the plugin logs one line.
 
+**It starts at the first launch, before any consent.** From the first start it collects the app start, the screen
+traces and every fetch (the URL without the query and fragment), plus device data that Firebase adds. To keep it off
+until the user agrees, put this in the app's `<application>` and call `setPerformanceCollectionEnabled(true)` after the
+yes (the flag is Firebase's own; this plugin does not read or change it):
+`<meta-data android:name="firebase_performance_collection_enabled" android:value="false" />`.
+Do this for a DPDP / consent check before real users. (Analytics also collects before consent by default, Pavan's call;
+see its README.)
+
 Permissions: none of its own (Firebase adds `INTERNET` and `ACCESS_NETWORK_STATE`). To see traces in logcat while
 testing: `<meta-data android:name="firebase_performance_logcat_enabled" android:value="true" />` (the sample does).
 
@@ -65,6 +73,10 @@ RN Firebase's names work for ported code: `perf().startTrace(...)`, `getPerforma
   access sees them. The default URL rule drops the query; a path with a phone number in it still shows: use `url`.
 - **Do** read `frames_slow` and `frames_frozen` per screen, and compare `zn_bundle` values after an OTA.
 - **Know:** traces reach the console some minutes later.
+- **Know:** URL **paths are kept**. An id in a path (`/orders/12345`) goes to Firebase. Only the query and fragment are
+  cut. Use the `url` option to shorten such paths.
+- **Know:** other plugins' fetches and the OTA check also go through the interceptor, because it sits on core's shared
+  client (`ZnFetch.addClientSetup`, `docs/fetch.md` §5).
 
 ## Size
 | Dependency | Version | Why |

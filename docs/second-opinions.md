@@ -8,6 +8,9 @@ How to ask for a review: give the reviewer this file, the design doc section nam
 points to. Ask: "Is the choice right for a payments app with many Android users on low-end phones? What would you
 change, and what evidence would make you change it?"
 
+**Numbers:** entries 105–119 are free. The numbers jump from 104 to 120 because parallel sessions reserved ranges
+(104 was the last one used before the jump). Do not take a number above 120 that is already used.
+
 ---
 
 ## 1. Watchdog: one crash blocks a new bundle, but the last good bundle needs two (step 4.8)
@@ -1041,7 +1044,7 @@ change, and what evidence would make you change it?"
 - **Other options:** keep one-shots running to their timeout; stop watches for good and make JS start them again.
 - **Evidence wanted:** none (checked with `dumpsys location` on the Lava, see milestones).
 
-## 88. The plugin asks for both location permissions; core's "location" stays the precise one alone (location plugin)
+## 88. The plugin asks for both location permissions; core's "location" stays the precise one alone (location plugin) (core changed 2026-11-04, see "Changed" below)
 - **Where:** `plugins/location/src/index.ts` (`requestPermission`), `ZnPermissions.kt:24`.
 - **Chosen:** the plugin asks for `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION` by full name. Granted if either one
   is; blocked only when neither is and Android won't ask again (ZeroBill's rule). Core's short name was not changed.
@@ -1057,6 +1060,15 @@ change, and what evidence would make you change it?"
 - **Also seen:** after `pm revoke` + `clear-permission-flags` (a test reset, not a user action), core still says
   `blocked` until the next dialog, because it remembers "the user refused" in its own store (`ZnPermissions` `asked`).
   Real users can't reset a permission that way, so it only matters for test scripts.
+- **Changed 2026-11-04 (Pavan):** core's `Permissions.request(["location"])` now asks for precise and approximate
+  together (the first "other option" above), in commit 8f76d29. The text above is the old state. What is true now:
+  "location" is `granted` if the user gave either one, and `"location.precise"` in the answer says if precise was given.
+  The call asks only for the location lines that are in the manifest, and fails with `not_declared` only when none is
+  there. A manifest with the precise line alone also fails with `not_declared` (it names `ACCESS_COARSE_LOCATION`),
+  because Android 12+ would show no dialog for it. **Why:** the Android docs say 12+ may ignore a request for precise
+  alone, and the user may want to pick "Approximate". No host API change. **What an app must do:** declare both lines
+  (the location plugin's manifest already does). The plugin's own call still answers `{ permission, precise }` and
+  stays the better choice for fixes (guide notes §32, §45).
 
 ## 89. Accuracy levels, limits, and the geocoder in the same plugin (location plugin, built)
 - **Where:** `LocationRules.kt`; `plugins/location/README.md`.
@@ -1351,5 +1363,7 @@ change, and what evidence would make you change it?"
   bytecode rewrite isn't needed because all fetches go through one client. A plugin must not replace the app's pins.
 - **Risk if wrong:** a team that treats performance data as needing consent must turn it off until then
   (`setPerformanceCollectionEnabled(false)` or `firebase_performance_collection_enabled=false` in the manifest).
-- **Other options:** off until consent like Analytics; the Firebase Perf Gradle plugin.
+- **Other options:** ~~off until consent like Analytics~~ (this line was made wrong by d2911e4, 2026-11-04: Analytics is
+  now on by default too, so Perf and Analytics both collect from the first start; to wait for consent, either one needs
+  its manifest flag, `firebase_performance_collection_enabled=false` for Perf); the Firebase Perf Gradle plugin.
 - **Evidence wanted:** whether ZeroBill's consent screen covers diagnostics.

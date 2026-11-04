@@ -4,7 +4,7 @@
 while building, and the phone numbers, are in §14. Phase 2 (motion: part transforms, trims, loops and keyframes for
 every element) is built and checked on the Lava (§15). S.14, animated `.svg` files from the web (SMIL and CSS), is built too:
 95 of 104 real loaders play as they are (§15). Phase 3 (registry 12: stroke width and dash motion, stroked shapes that
-grow, path morphing, `non-scaling-stroke`, typed part names) is built: 100 of 104 play (§16).** Calls taken as recommended: draw data in the
+grow, path morphing, `non-scaling-stroke`, typed part names) is built: 100 of 104 play (§16). Phase 4 (registry 13: filters, masks, patterns, markers, `<text>`, moving along a path) is built too: 104 of 104 play (§17).** Calls taken as recommended: draw data in the
 template file, `parts={{...}}`, no SVG `<text>` in phase 1, part names checked at build time only, `autoMirror` in phase 1,
 `non-scaling-stroke` refused. Looping (`repeat`) is decided at the phase 2 check-in. Reviewed by agy (2026-11-03): its
 points are folded in below. Framework work only: ZeroBill's own

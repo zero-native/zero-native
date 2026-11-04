@@ -4,7 +4,7 @@ Raw material for the public docs (user guide, best practices, sample projects). 
 something an app author will touch.** Each topic says what to do, what not to do, and why, in words an outsider (a
 React Native or Flutter developer) understands. Code here must match what is built; mark unbuilt parts **(planned)**.
 
-Last updated: 2026-10-30 (milestone 3, steps 3.7–3.8).
+Last updated: 2026-11-04.
 
 ---
 
@@ -20,6 +20,52 @@ Last updated: 2026-10-30 (milestone 3, steps 3.7–3.8).
 the value never updates. Use `props.title`.
 **Don't:** put work at module top level (fetching, big loops, building data). Startup runs every module; keep tops of
 files to declarations (startup rule 1, `docs/startup-and-performance.md`).
+
+## What's not built yet (and what to do today)
+One line each: what is missing, what to do today, and where it is tracked. "Framework" items are not planned for the
+pilot; "known limit" items are built but have a gap we plan to fix before real users.
+
+**Not built**
+- **iOS.** No host yet; Android only. Do: build for Android. Tracked: ARCHITECTURE §20 (iOS notes) and §23.
+- **The flow engine** (`@flow`). Parked. Do: save the payment step in `flowStore`, then ask the backend (save-then-verify,
+  §16). Tracked: ARCHITECTURE §12 and §23.
+- **Runtime `width`, `height` and other layout values** (`margin`, `flex`, `fontSize`, `borderRadius`), also from a
+  component prop. Do: two styles and a ternary, or named sizes (§47). Tracked: §3, §47, second-opinions 100.
+- **The NativeWind `className`.** Not planned (decided). Do: write `style` objects. Tracked: second-opinions 103.
+- **React itself** (hooks, context, React libraries). A non-goal. Do: signals (§2). Tracked: ARCHITECTURE §2 and
+  principle 7 in §3.
+- **Maps, biometrics, video.** No plugin yet. Do: open the system app through a plugin of your own (§31), or write a
+  plugin (§30). Tracked: `docs/rn-compatibility.md` (device rows) and `docs/plugins.md`.
+- **`WebSocket` and `XMLHttpRequest`.** Not built. Do: `fetch` and polling, or the server's push (§48). Tracked:
+  `docs/rn-compatibility.md` §5.
+- **A file read / write API** (`react-native-fs`). Not in core. Do: a plugin keeps files and gives JS a handle (§35);
+  PDFs use `Pdf.download` (§44). Tracked: `docs/rn-compatibility.md` (file system row).
+- **A header bar, drawer and nested navigators.** Do: build the header in your screen; one flat stack plus `<Tabs>`
+  (§40). Tracked: `docs/rn-compatibility.md` §3.
+- **`flexWrap`, custom fonts (`fontFamily`), per-side border colours, `SectionList`, grids (`numColumns`),
+  `onScroll` / `scrollTo`.** Do: the workarounds in `docs/rn-compatibility.md` (§2 style keys, §1 components).
+  Tracked: same file, section 10 items 4 and 8.
+- **SVG effects below Android 12.** A blur or filter is drawn without the filter (a plain shadow or none). Do: don't
+  make a design depend on a blur. Tracked: `docs/svg.md` §17.
+- **A TalkBack pass.** The labels and roles exist (§24), but no full screen-reader pass is recorded in the docs. Do:
+  test your payment screens with TalkBack on a real phone. Tracked: nowhere yet (`docs/components.md` has the
+  accessibility props).
+
+**Known limits (fix planned before real users)**
+- **Crashlytics masks nothing by default.** Do: pass `redact` (§46). Tracked: §46.
+- **Perf keeps URL paths, and collects before consent.** Do: no ids in paths, or pass `url` (§55). Tracked: §55 and
+  second-opinions 126.
+- **The OTA check started by a push (`zn_ota=check`) runs at once**, without the start-up delays. It may download while a
+  payment screen is open. Applying is still held by `Updates.holdApply()` (§28). Do: hold apply while a payment is
+  open. Tracked: §51, second-opinions 120.
+- **A `flowStore` save can fail on a full disk.** `flowStore.write` then returns `false` and the old value stays
+  (ARCHITECTURE §13). Do: check the result and stop the payment step; never go on to the UPI app after a failed save.
+  Tracked: §16. (How the app should act on a full disk is not yet decided in the docs.)
+- **A plugin gets the whole OkHttp builder** (`ZnFetch.addClientSetup`). Do: add only interceptors (§30), and read the
+  source of every plugin you add. Tracked: §30.
+- **A link that opens a tabs route already in the stack closes every screen above it**, even a pay screen that waits
+  for a UPI result. By design (as React Navigation does). Do: refuse links in `onLink` while a payment is open. Tracked:
+  §40 (the `onLink` rule) and §6 (`onLink`); the code is `onOpenLink` in `packages/core/src/nav.ts`.
 
 ## 2. Signals
 ```ts
@@ -37,10 +83,12 @@ const paise = computed(() => toPaise(amount()))
 - Unsupported keys are **build errors**, never silently ignored (e.g. `flexDirection`: use `Row` / `Column`).
 - Static styles cost nothing at runtime: they are folded into the template at build time. Design tokens (`c.*`) in a
   side-effect-free `.ts` file are folded too.
-- **Only some style values may change at runtime** (registry v4): `color`, `backgroundColor`, `opacity`, image `src`,
-  `disabled`, and per-edge padding (`paddingTop/Bottom/Start/End`). Everything else must be a build-time value; the
-  compiler says so with file:line. Prefer two styles chosen by a ternary inside the object
-  (`backgroundColor: on ? c.a : c.b`) over toggling layout.
+- **Only some style values may change at runtime.** The full list is `DynamicProps` in
+  `packages/template/src/registry.ts` (registry 15 today; it grows with each registry version). The main ones: `text`,
+  colours (`color`, `backgroundColor`, `borderColor`), `opacity`, transforms (`scale`, `translateX`, `rotate`, ...),
+  per-edge padding (`paddingTop/Bottom/Start/End`), `borderWidth`, `pointerEvents`, image `src`, `disabled`, `visible`.
+  Everything else must be a build-time value; the compiler says so with file:line. Prefer two styles chosen by a
+  ternary inside the object (`backgroundColor: on ? c.a : c.b`) over toggling layout.
 - `fontWeight`: 100–900 in steps of 100, `"normal"` (400) or `"bold"` (700). Anything else is a build error.
 - Colour and opacity changes only redraw; padding changes only re-measure; text changes recompose one `Text`.
   Cheap by design: animate-looking UI (a blinking cursor, a highlighted tab) is fine.
@@ -49,7 +97,7 @@ const paise = computed(() => toPaise(amount()))
 - Plain JS: `{cond && <X/>}`, `{cond ? <A/> : <B/>}`, `{items.map(i => <Row key={i.id}/>)}`. Rows need a `key`.
   Nested ternaries with `null` work, and JSX can sit in a const (`const badge = ok ? <A/> : null`, §47).
 - `.map` is for **short** lists that are part of a layout (up to ~100 items). Long or growing lists use `<List>`
-  (planned, step 2.4).
+  (built, §11).
 
 ## 5. Taps and presses
 - Taps only on `Pressable` (or `Button`). Layout nodes take no `onPress`. This gives every tappable thing the right
@@ -114,7 +162,7 @@ useBack(() => {
 - A timer (`setTimeout` / `setInterval`) created in a screen body, a component body, or a tap handler of one is
   **stopped automatically when that screen closes**. You don't need `clearInterval` on unmount.
 - Timers created at module top level live forever: avoid them.
-- Prefer native behaviour over JS timers whenever it exists (key repeat; carousels and animations (planned)).
+- Prefer native behaviour over JS timers whenever it exists (key repeat; carousels, §11, and animations, §22).
 
 ## 9. Safe areas, status bar, full-bleed screens
 - **Don't** add status-bar or navigation-bar padding yourself. Each screen is kept clear of the system bars natively,
@@ -129,7 +177,7 @@ useBack(() => {
 - `Image src` takes `https://...` or `asset:...`. Give images a fixed size (or aspect ratio): unsized images make rows
   jump when they load. A rounded image clips to its corners automatically.
 - Icons are SVG path data in a `.ts` file (`"minX minY w h|d"`), folded into the template: no icon font, no SVG
-  library. Fill paths only for now.
+  library. `<Icon>` draws fill paths only. For lines (strokes), use a `.svg` file or `<Svg>` (§42): they do strokes.
 - Heavy native things (app icons, camera photos) go by **handle** (`zn://...`, §33), never as Base64 through JS.
 
 ## 11. Long lists and feeds: `<List>`, rails, `<Carousel>`, impressions (built)
@@ -246,7 +294,7 @@ class DeviceModule : ZnModuleBase("Device", version = 1) {
 - Fixed sizes for images and list rows wherever possible.
 - Measure on a low-end phone in a **release** build; debug builds are several times slower.
 
-## 16. Saving data and payments (FlowStore built, step 2.7; app storage comes later)
+## 16. Saving data and payments (FlowStore built, step 2.7; app storage is built too, §21)
 Android often kills the app while the user is inside the UPI app. When they come back, the app starts fresh. The
 payment must not be forgotten, and it must never be sent twice. The flow engine that would do this for you is parked
 (ARCHITECTURE §12), so apps follow this pattern by hand.
@@ -276,7 +324,7 @@ const status = await api.verify(paymentId) // the backend decides, not the UPI a
 if (status !== "pending") flowStore.remove(KEY)
 ```
 
-- **Do:** keep normal app data (settings, last tab, caches) in app storage (planned, MMKV-like). Losing the last write
+- **Do:** keep normal app data (settings, last tab, caches) in app storage (`storage`, MMKV-like, §21). Losing the last write
   there is fine.
 - **Don't:** use `flowStore` as a settings store. Each key is its own file of at least 64 KB; keep it to a few
   records.
@@ -290,7 +338,7 @@ if (status !== "pending") flowStore.remove(KEY)
 ## 17. Live reload and the error screen: `zn dev` (built, step 3.1)
 Run `bun run dev` at the repo root with the phone connected (USB or wireless debugging), then open the app's **debug**
 build. Save a file: the phone shows the change in well under a second and stays on the same screens.
-- **Do:** keep anything you want to survive a reload in FlowStore or (later) storage. A reload starts JS fresh:
+- **Do:** keep anything you want to survive a reload in FlowStore or `storage` (§21). A reload starts JS fresh:
   signals, timers and in-memory stores start again, and the screens are opened again with the same params.
 - **Do:** read the error screen's first line in **your** file (`src/...tsx:line`); the lines under it are usually the
   framework calling your code.
@@ -359,7 +407,7 @@ const offers = await res.json()
   call must be a decision of the app and the server.
 - **Don't:** set `Accept-Encoding`, `Host`, `Content-Length` and other transport headers (they are dropped), or put
   non-ASCII text in a header (encode it).
-- **Don't:** download big files with `fetch` (10 MB limit by default, all in memory). A native download comes later.
+- **Don't:** download big files with `fetch` (10 MB limit by default, all in memory). For a PDF use `Pdf.download` (§44); a general download API is not built.
 - **Why:** the defaults are made for flaky mobile networks: a 30 s limit on the whole request (RN has none), stale
   connections closed when the network changes, clear error codes, and no duplicate POSTs. Details: `docs/fetch.md`.
 
@@ -383,8 +431,8 @@ await SecureStore.set("refreshToken", token)
   "signed in" flag). Every write already survives the app being killed.
 - **Don't:** keep anything you can't rebuild only in `storage`: a power cut right after a write can make a store open
   empty (`docs/storage.md` §4). Money state goes in `flowStore` and on the server.
-- **Don't:** store big blobs (images, long lists) in `storage`: every store is kept in memory while open. Files and a
-  native database come later.
+- **Don't:** store big blobs (images, long lists) in `storage`: every store is kept in memory while open. A plugin can
+  keep files for you (§35). A native database is not built.
 - **Don't:** read a key with a different type than you saved (`getString` on a number): it throws.
 - **Why:** MMKV reads and writes are memory operations (~1 µs read, ~4 µs write on the Lava), so making them async
   would only add `await`s and loading states. Secrets need the Keystore, which is a system service: those are async.
@@ -443,7 +491,7 @@ await SecureStore.set("refreshToken", token)
 
 ---
 
-## 23. What an OTA update can change (bundle loading built, step 4.1; downloads come in 4.5)
+## 23. What an OTA update can change (bundle loading built, step 4.1; downloads built, step 4.5)
 - **An update can change:** your screens and logic (bytecode), layouts and styles (templates), routes, and your own
   images. **It can't change:** Kotlin / Swift code, native modules, the framework's native side, or the Hermes
   engine. Those need a store release.
@@ -517,8 +565,8 @@ await SecureStore.set("refreshToken", token)
   ```
 - **Don't:** call `amount.toLocaleString("en-IN")` or `new Intl.NumberFormat(...)` in a list row or on every change.
 - **Why:** each `toLocaleString` call builds a new formatter through Java: **~2 ms** per call on the Lava. A reused
-  formatter takes **0.004 ms**. Fifty rows formatted the slow way is ~100 ms of jank. (Step 3.9 makes
-  `toLocaleString` cache its formatters, so this trap goes away; reusing a formatter stays the clearest code.)
+  formatter takes **0.004 ms**. Fifty rows formatted the slow way is ~100 ms of jank. (Step 3.9 made
+  `toLocaleString` cache its formatters (`installIntlCache`), so this trap is gone; reusing a formatter stays the clearest code.)
 - What works (checked on the Lava): Indian grouping (`1,25,000`), `₹` currency, compact lakh (`12L`), `30 Oct 2026`,
   `2:35 pm`, the phone's time zone. Dates show in the phone's time zone; pass `timeZone: "Asia/Kolkata"` for
   receipts that must always show Indian time.
@@ -778,11 +826,10 @@ bun run ota serve                                    the reference update server
 ---
 
 ## Open items to write up when built
-- `<List>` rails, carousel, impressions (steps 2.4b–d). See
-  `docs/cross-communication/2026-10-29-feeds-and-lists-proposal.md`.
-- Sheets (2.5), native calls / `fetch` (2.6), flows and payments (2.7–2.8): the "effects" rules are the most important
-  thing to teach well. (Sheets, native calls and FlowStore with the payment pattern are now written up in sections
-  12, 13 and 16; the flow engine is parked.)
+- ~~`<List>` rails, carousel, impressions (steps 2.4b–d).~~ Written up in §11.
+- Flows (2.8): the "effects" rules are the most important thing to teach well. (Sheets, native calls and FlowStore with
+  the payment pattern are written up in §12, §13 and §16, and `fetch` in §20. The flow engine is parked, so there is
+  nothing to write for it until it is built.)
 
 ## 29. Knowing when the user comes back (H.7)
 ```tsx
@@ -805,7 +852,7 @@ onAppState((state) => {
 
 ## 30. Writing a plugin (P.1)
 A plugin adds a native feature: a TS API plus an Android library, in one package. Copy `plugins/device-test`, the
-smallest full plugin. Native views and native screens come later (`docs/plugins.md`).
+smallest full plugin. Native views and native screens are built too (§35, `docs/plugins.md`).
 ```
 plugins/my-plugin/
   package.json     name, "main": "src/index.ts", peerDependencies on @zero-native/core
@@ -851,6 +898,22 @@ To add it to an app:
 - **Know what a failed plugin does:** a debug build stops at once and says why. A release build logs it, skips that plugin
   and still starts. Its module is then missing: calls reject with `unavailable`, and updates that need it are refused.
   **Why:** one optional feature shouldn't stop people from opening the app (`docs/second-opinions.md` entry 10).
+
+**Core hooks a plugin can use.** Call them from `register` or the module's start. They are in
+`android/runtime/src/main/java/dev/zeronative/runtime/`.
+- `ZnRuntime.addJsErrorListener { error -> }` (`ZnRuntime.kt`): hears every JS error. Many listeners can be added. They run
+  after the app's own `onJsError`, on the main thread. One that throws does not stop the others. It returns a function
+  that removes the listener. Crashlytics (§46) uses it.
+- `ZnOta.addReportListener { report -> }` (`ZnOta.kt`): hears every OTA report (a check, a download, a bundle blocked). Same
+  rules: many listeners, run after the app's `onReport`, main thread. Crashlytics uses it.
+- `ZnFetch.addClientSetup { builder -> }` (`ZnFetch.kt`): changes the OkHttp client that `fetch` uses. It runs **after the
+  app's own fetch setup**, in the order plugins were added. It must be added before the first fetch; after that it
+  answers `false` and does nothing. Perf (§55) uses it.
+- **Do** add only interceptors in `addClientSetup`. **Don't** change pins, timeouts, retries, the cache or other
+  settings of the builder. **Why:** you get the whole OkHttp builder, so a plugin could turn off the app's certificate
+  pinning, and nothing stops it today. Also, this client makes the OTA check and download calls, so a plugin's
+  interceptor sees those too (OTA files stay signed, so they can't be changed on the way). **Don't** call
+  `ZnFetch.configure` from a plugin: it replaces the app's setup.
 
 ## 31. Opening another app and getting its result (P.2)
 Only Kotlin opens another app: a plugin builds the Intent, JS calls the plugin. JS can't open any app with any data.
@@ -909,6 +972,8 @@ if (camera === "blocked") Os.openSettings()
   ```
   **Why not built in:** the runtime lists none of these, on purpose. Google Play asks every app that lists a permission
   why it needs it, and some (location, contacts) need a form. An app gets only what it uses.
+- **Do:** declare **both** `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION` in the manifest if you use `location`
+  (the location plugin does it for you). **Why:** see the next line.
 - **Know:** `location` with only the precise line fails with `not_declared` (for `ACCESS_COARSE_LOCATION`), as Android
   12+ would show no dialog at all.
 - **Know the states:** `granted`; `denied` (you can ask again); `blocked` (Android won't show the dialog again).
@@ -1115,6 +1180,13 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 | `@zero-native/auth` | Phone number hint, OTP auto-read | Play services auth |
 | `@zero-native/webview` | A web page in a screen, with a list of allowed hosts | `androidx.webkit` |
 | `@zero-native/pdf` | Download and cache a PDF, a card preview, a viewer with zoom (§44) | Nothing: Android's own PdfRenderer, about 15 KB |
+| `@zero-native/location` | The phone's position, "Turn on location" dialog, address from coordinates (§45) | About 50 KB (Android's own LocationManager; Play services only for the dialog) |
+| `@zero-native/firebase-app` | The base every Firebase plugin stands on: one Firebase version, one Gradle file, `Firebase.app()`, Installations (§49) | No size of its own is measured; the Firebase plugins below show their sizes on top of it |
+| `@zero-native/crashlytics` | Kotlin crashes, JS errors as non-fatals, OTA outcomes, bundle and route keys (§46) | About 232 KB; native (C++) crashes are +1.30 MB more, opt-in |
+| `@zero-native/analytics` | Google Analytics for Firebase, a `screen_view` per route; on from the first start (§50) | About 0.44 MB |
+| `@zero-native/push` | FCM messages as a JS task, notifications (buttons, progress, schedules), taps that open a route, the OTA check push (§48, §51-§53) | About 54 KB on top of Crashlytics |
+| `@zero-native/remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
+| `@zero-native/perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
 
 **Scanner.**
 - **Do** give the route `safeArea: "none"`. The camera runs under the status bar.
@@ -1628,8 +1700,12 @@ route, with no JS code. API, Gradle lines and size: `plugins/crashlytics/README.
   already does it; both together send each error twice.
 - **Do** call `Crashlytics.setUserId(yourOwnId)` after login and `setUserId("")` on logout. **Don't** use a phone
   number, an email or a VPA, in the id or in a key. **Why:** everyone with console access sees them for 90 days.
-- **Don't** put private values in your own error messages. Nothing is masked unless you pass
-  `CrashlyticsPlugin(redact = { ... })`.
+- **Don't** register Crashlytics in a payments app without a `redact`. **Do** pass
+  `CrashlyticsPlugin(redact = { text -> ... })` that hides VPAs (`name@bank`), phone numbers and long digit strings
+  (cards, account numbers, amounts). **Why:** by default **nothing is masked**: every JS error message and stack goes to
+  Firebase as it is, and in a payments app that text can hold a VPA, a phone number or an amount. If your `redact`
+  throws, the text is left out. **Don't** put private values in your own error messages either.
+  (Known limit: the default is open. A safer default is planned before real users.)
 - **Do** filter the console by the key `zn_bundle_id` to see one OTA bundle's crashes. **Know:** Crashlytics groups by
   stack, not by key, so one issue can span bundles; its keys tab says which.
 - **Do** paste a JS stack from the console into `bun run ota symbolicate` for the TSX line: the issue's `zn_bundle`
@@ -1849,6 +1925,14 @@ JS. API: `plugins/perf/README.md`.
   also when `fn` throws; a trace never stopped is never sent.
 - **Don't** let personal data reach Firebase in a URL path, a trace name or an attribute. **Know:** the query is left
   out by default; use `PerfPlugin(url = ...)` to rewrite or drop URLs.
+- **Know (privacy): it collects from the first start, before any consent**, like Analytics (§50). Firebase starts before
+  JS. **Do** check this against India's DPDP rules before real users. To start it off, set
+  `firebase_performance_collection_enabled=false` in the app's manifest, then call
+  `Perf.setPerformanceCollectionEnabled(true)` after the user says yes (Firebase keeps the setting across starts).
+- **Know:** URL **paths are kept** (only the query and fragment are cut). **Don't** put ids, phone numbers or VPAs in URL
+  paths (`/users/9876543210/...`): they would go to Firebase. Use query values, or strip them in
+  `PerfPlugin(url = { u -> ... })` (return null to leave a request out). (Known limit: a safer default is planned
+  before real users.)
 - **Do** compare `frames_slow` / `frames_frozen` of `screen_<route>` traces between bundles (`zn_bundle`).
 - **Plugin authors:** add to core's OkHttp client with `ZnFetch.addClientSetup { builder -> ... }` (add-only, runs after
   the app's `ZnFetch.configure`). **Don't** call `ZnFetch.configure` from a plugin: it replaces the app's own setup.

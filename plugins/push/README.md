@@ -28,8 +28,9 @@ Each call answers with a value and never rejects. Nothing asks for a permission 
    <meta-data android:name="dev.zeronative.push.color" android:resource="@color/brand" />
    ```
 
-The plugin's manifest adds `POST_NOTIFICATIONS` (Android 13+), the FCM service and a receiver for swipes (both not
-exported). Firebase adds `INTERNET`, `WAKE_LOCK` and FCM's receive permission. No exact alarms, no boot receiver, no
+The plugin's manifest adds `POST_NOTIFICATIONS` (Android 13+), the FCM service and three receivers (none exported):
+`ZnNotificationDismissed` (swipes), `ZnNotificationTrigger` (the alarm of a scheduled notification) and
+`ZnNotificationAction` (a button with no link, for `Notifications.onAction`) *(the last two came with push v2)*. Firebase adds `INTERNET`, `WAKE_LOCK` and FCM's receive permission. No exact alarms, no boot receiver, no
 foreground service.
 
 ## Use it

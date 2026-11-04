@@ -151,10 +151,91 @@ Parked ideas: `docs/after-foundations.md`.
 - **Same bytes:** the sample's `main.zn.ui`, manifest, `main.js` and `main.hbc` are identical before and after; the
   ZeroBill prototype's templates and JS too (built with the old and the new compiler). So no phone or emulator run.
 
+### 2026-11-04: Analytics on by default; the docs say collection starts before consent (Claude)
+- **What (d2911e4, docs in 480dc3d):** Pavan's call: Analytics is on from the first start, as in RN Firebase and like
+  Crashlytics and Perf. The first version (cc8853b) was off until the app said yes. The manifest flag that kept it off
+  is gone. `setAnalyticsCollectionEnabled(false)` is the user's opt-out, and Firebase keeps it across starts. An app
+  that must wait for consent sets `firebase_analytics_collection_enabled=false` in its own manifest (JS is too late:
+  Firebase starts before JS). Guide §50, second-opinions 96, `plugins/analytics/README.md`, `plugins.md` §7.
+- **Said plainly in the docs (480dc3d):** `first_open`, `session_start` and screen views, with the app instance id, are
+  sent before any consent.
+- **Phone step:** new step "analytics on from the first start" in `tools/plugin-phone/analytics.ts` (fresh app data, no
+  tap, the first events must be logged).
+- **Not done:** the DPDP check (is data from the first start allowed with a privacy notice only?) before real users.
+  Perf has the same default (second-opinions 126). Its "off until consent like Analytics" option no longer matches
+  how Analytics works.
+
+### 2026-11-04: Crashlytics check for an OTA bundle's error (Claude)
+- **What (690f5bd, test tool only, no product code):** a new phone step "crashlytics error from an OTA bundle" in
+  `tools/plugin-phone/crashlytics.ts`. Run it with `ZN_OTA=1 bun run tools/plugin-phone.ts crashlytics`. It builds a
+  bundle into a test store of its own (`.zn-ota-test/plugin-phone/ota-store`, signed with the sample's key), serves it on
+  this computer only (port 8790, `adb reverse`), clears the sample's data before and after, records a caught error from
+  the downloaded bundle, and sends it at the next start. Nothing is published anywhere else.
+- **Console check by hand:** the event's keys must say `zn_built_in=false` and `zn_bundle_id=<id>`.
+- **Not done:** no run result is recorded here. The step is not in the Tests table or the plugin README yet.
+
+### 2026-11-04: Performance plugin (Claude)
+- **What (eae7b49):** `@zero-native/perf` (`plugins/perf/`): Firebase Performance Monitoring. The app start, a network
+  trace per `fetch` and a trace per screen (with slow and frozen frame counts) happen by themselves; custom traces with
+  `Perf.trace(name, fn)`. On by default (Firebase's default; it is diagnostics, like Crashlytics). URLs go without the
+  query; `PerfPlugin(url = ...)` rewrites or drops them. Guide §55, second-opinions 126, README, `rn-compatibility.md` row.
+- **Core (Kotlin only, add-only):** `ZnFetch.addClientSetup { builder -> ... }`, which adds to core's OkHttp client after
+  the app's `ZnFetch.configure`. A plugin must not call `configure`: it would replace the app's own setup.
+- **Size:** the sample's R8 release APK 15.21 → 15.35 MB (**+0.14 MB**), the lab included.
+- **Lab:** `/dev/perf`. Phone step: `bun run tools/plugin-phone.ts perf`.
+- **Not done:** whether ZeroBill's consent screen covers diagnostics (second-opinions 126). Only the query of a URL is
+  cut, so ids in a path go to Firebase unless the app sets `url`.
+
+### 2026-11-04: Remote Config plugin (Claude)
+- **What (16f0b56):** `@zero-native/remote-config` (`plugins/remote-config/`): Firebase Remote Config with RN Firebase's
+  API. Every answer (`setDefaults`, `fetch`, `activate`, `fetchAndActivate`, `getAll`) carries all values with their
+  source, so `getValue` is a plain call with no promise (second-opinions 125). `onConfigUpdated` gives live updates.
+  Guide §54, README, `rn-compatibility.md` row.
+- **Size:** the sample's R8 release APK 15.16 → 15.21 MB (**+0.06 MB**), together with push native version 2 and the lab.
+- **Lab:** `/dev/remote-config`. Phone steps: `bun run tools/plugin-phone.ts "remote config"` (3 steps); the lab server is
+  `tools/remote-config-lab.ts`.
+- **Fixed later:** `activate` read the task result without checking success (see the audit entry above).
+
+### 2026-11-04: Push v2: taps, buttons, progress, scheduled notifications, the OTA check push (Claude)
+- **What (edd378b; `Notifications` native version 2):** guide §51–53, second-opinions 120–124, `plugins/push/README.md`.
+  - A tap on FCM's own notification: `Push.getInitialNotification()` and `Push.onNotificationOpenedApp(fn)` give the
+    data to JS; the app opens `data.link` itself (121). `Push.setAutoInitEnabled` for apps that wait for consent.
+  - The data message `zn_ota=check` runs `ZnOta.check` natively and never reaches JS (120). `PushPlugin(otaCheck = false)`
+    turns it off.
+  - Buttons (a button with a `link` opens the app; one without runs the JS task `push.action`), progress bars, inbox
+    lists, channel groups. The lock screen default is "private" (122, 123).
+  - `Notifications.schedule(options, { at, repeat?, exact? })`: an alarm shows it with no JS, inexact by default (a
+    10 minute window; 1e9ccc4 fixed the docs). The boot receiver is in the plugin but declared only by an app that
+    wants it (124).
+- **Native files:** `Actions.kt`, `Opens.kt`, `Schedule.kt`, `ZnNotificationTrigger`, `ZnNotificationAction`.
+- **Lab:** `/dev/push` grew. Phone steps are in `tools/plugin-phone/push.ts` (`bun run tools/plugin-phone.ts push`).
+- **Not done:** the OTA server's load when one topic message reaches every phone (120); alarms on Xiaomi or Oppo phones
+  with the app swiped away (124).
+
+### 2026-11-04: Analytics plugin (Claude)
+- **What (cc8853b):** `@zero-native/analytics` (`plugins/analytics/`): Google Analytics for Firebase with RN Firebase's
+  API. A `screen_view` per top route by itself (`AnalyticsPlugin(screenName = ...)` renames or drops routes; do not call
+  `logScreenView` for whole screens). Event names are checked in the plugin (a bad name answers `false` and warns),
+  booleans are sent as 1 or 0, consent mode, and the app removes the ad id permissions (second-opinions 96–99). Guide §50,
+  README, `rn-compatibility.md` row. The first version was "off until consent"; d2911e4 changed it (entry above).
+- **Size:** the sample's R8 release APK 14.71 → 15.16 MB (**+0.44 MB**), the lab included.
+- **Lab:** `/dev/analytics`. Phone steps: `bun run tools/plugin-phone.ts analytics`.
+- **Not done:** the DPDP check (see the entry above).
+
+### 2026-11-04: Firebase base plugin (Claude)
+- **What (7bd50f1):** `@zero-native/firebase-app` (`plugins/firebase-app/`), RN Firebase's `app` module. Every Firebase
+  plugin stands on it: the one Firebase BoM, `firebase.gradle.kts` (an app applies it at the end of its own
+  `build.gradle.kts`; it turns Firebase off when `google-services.json` is missing and uploads the R8 mapping only
+  with `-PznUploadMapping`), `Firebase.app()`, `setDataCollectionDefault`, and Installations `getId` / `getToken` /
+  `delete`. The sample's Gradle lines moved into the shared file; the Crashlytics and push plugins now depend on it.
+  Guide §49, second-opinions 95, README.
+- **Phone step:** "firebase app and installations" in `tools/plugin-phone/crashlytics.ts`.
+- **Not done:** no size number of its own. With Crashlytics or FCM it adds only a few classes (README).
+
 ### 2026-11-04: Firebase plugins: Crashlytics and push (Claude)
 - **What:** `@zero-native/crashlytics` and `@zero-native/push` (`plugins/crashlytics/`, `plugins/push/`), opt-in, like
-  RN Firebase's modules. Firebase project "zero-native-sample" (not ZeroBill's). Analytics planned only
-  (`plugins.md` §7). Guide §46 and §48 (§47 is the compiler pack's), second-opinions 90–95, READMEs, `rn-compatibility.md` rows. No registry or host API
+  RN Firebase's modules. Firebase project "zero-native-sample" (not ZeroBill's). Analytics, Remote Config and Perf
+  were planned here and came later the same day (entries above; `plugins.md` §7). Guide §46 and §48 (§47 is the compiler pack's), second-opinions 90–95, READMEs, `rn-compatibility.md` rows. No registry or host API
   change (modules `Crashlytics` v1, `Push` v1, `Notifications` v1).
 - **Core (Kotlin only, add-only):** `ZnRuntime.addJsErrorListener` and `ZnOta.addReportListener`, next to the single
   `onJsError` / `onReport` hooks, so a plugin and the app can both listen (second-opinions 90).
@@ -218,6 +299,20 @@ Parked ideas: `docs/after-foundations.md`.
 - **Not done:** the Lava, 3-button navigation, a Modal over a Sheet, sticky rows with pull to refresh on a phone.
   Release APK 14,363,588 bytes (with the bigger lab; not compared with main).
 
+### 2026-11-04: core location asks for precise and approximate together (Claude, Pavan's call)
+- **What (8f76d29):** core `Permissions` "location" is now two Android permissions, `ACCESS_FINE_LOCATION` and
+  `ACCESS_COARSE_LOCATION`, asked together. The state is `granted` if the user gave either. The answer of `request` and
+  `status` also has `"location.precise"` (the precise permission alone). Before, "location" asked for precise only,
+  which Android 12+ may ignore. Guide §32 and §45; second-opinions 88 (its title still says core "stays the precise
+  one alone", which is no longer true). No host API change.
+- **Manifest rule:** a manifest with only the precise line fails with `not_declared` (for the coarse one), because
+  Android 12+ would show no dialog. A manifest with only the coarse line is fine ("approximate only"). The location
+  plugin's manifest brings both.
+- **Tests:** two Kotlin tests (`ZnPermissionsTest`: the two names, the manifest rule) and one JS test
+  (`packages/core/test/permissions.test.ts`). Totals not recorded here.
+- **Not done:** the same button on an Android 12 or 13 phone (second-opinions 88, "evidence wanted"). ZeroBill's own
+  manifest must have the coarse line too.
+
 ### 2026-11-03: PDF plugin (Claude)
 - `@zero-native/pdf` in `plugins/pdf/`, on Android's own `PdfRenderer`: no PDF library. No registry or host API change
   (module `Pdf` v1, views `pdf.view` and `pdf.preview`). Covers everything ZeroBill's RN app uses from
@@ -269,8 +364,9 @@ Parked ideas: `docs/after-foundations.md`.
 - **Fixed after the phone run:** with "Approximate" only, every one-shot ran to its timeout. Android sends a rough-only
   app a new fix at most every 10 minutes and the cached one at once, which the "fresh" rule threw away. Now a fix up to
   11 minutes old counts there and the first one wins (22–32 ms on the Lava). Second-opinions 89.
-- **Found:** core's `Permissions.request(["location"])` asks for the precise permission alone (`ZnPermissions.kt:24`).
-  Android's docs say 12+ may ignore that, but on the Lava a dialog still showed. Not changed (second-opinions 88).
+- **Found:** core's `Permissions.request(["location"])` asked for the precise permission alone (`ZnPermissions.kt:24`).
+  Android's docs say 12+ may ignore that, but on the Lava a dialog still showed. Not changed in this entry
+  (second-opinions 88). Changed later the same day: see "core location asks for precise and approximate together" above.
 - **Not checked:** a GPS fix outdoors, Android 12 or 13, the emulator (`adb emu geo fix`; the PDF session had it), a
   release build on the phone, battery use over time.
 

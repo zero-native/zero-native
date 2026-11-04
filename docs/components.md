@@ -1,6 +1,13 @@
 # Small Components & Accessibility Reference
 
-This document covers the UI components and accessibility primitives added in Milestone 3 (Steps 3.7 and 3.8).
+This document covers the small UI components and accessibility primitives of Milestone 3 (Steps 3.7 and 3.8), and the
+components and props added after them: `<NativeView>` (§9), `<Tabs>` (§10), pull to refresh (§11), SVG (§12), and
+`Modal`, `StatusBar` and props on every element (§13, registry 15). *(This intro used to say it covered only steps
+3.7-3.8; it is longer now.)* The main components (`Column`, `Row`, `Text`, `Image`, `List`, ...) are in
+`packages/ui/src/index.ts` and the guide notes.
+
+`StyleSheet` (`create`, `absoluteFill`) is exported from `@zero-native/ui`, as in RN. The compiler folds it at build
+time. `StyleSheet.flatten` and `hairlineWidth` do not exist.
 
 ---
 
@@ -318,7 +325,7 @@ camelCase props. An element's `fill`, `stroke` or `opacity` may change at runtim
 ### When to Use
 - **Do:** icons, logos, illustrations, gradient cards, simple charts with a fixed shape.
 - **Don't:** text inside the SVG (use `<Text>` over it in a `<Stack>`), photos (`<Image>`), or a shape that changes with data every frame.
-- Phase 2 (not built): part transforms, "draw the line" trims, `animate` on parts.
+- Phase 2 (first "not built", now **built**, 2026-11-03): part transforms, "draw the line" trims, `animate` on parts.
   **Update 2026-11-03: built** (`docs/svg.md` §9): spinners, pulse rings, gauges, a line that draws itself, a tick on a paid badge.
 - **Update 2026-11-03 (S.14):** an animated `.svg` file (SMIL `<animate>`, CSS `@keyframes`) plays as it is: the build turns its
   motion into part animations. `paused` / `replay` on the component reach it; `parts` can't add a second `animate` to a part the
@@ -365,7 +372,7 @@ nothing). `<NavigationBar>` is zn's own.
 ### Props on every element (registry 15)
 | Prop | Type | Dynamic Slot | Description |
 |---|---|---|---|
-| `pointerEvents` | `"auto" \| "none" \| "box-none" \| "box-only"` | Yes | Who takes taps. Written `"auto"` / `"box-only"`, taps stop here. |
+| `pointerEvents` | `"auto" \| "none" \| "box-none" \| "box-only"` | Yes | Who takes taps. Written `"auto"` / `"box-only"`, taps stop here. **Not written:** taps go through, except on an absolute `Box` / `Column` / `Row` / `Stack` that has a background or children. That one stops taps by default, as an RN view does, so a "busy" overlay blocks the button under it. To let taps through, write `pointerEvents="none"` (or `"box-none"` to keep taps for the children). Check old sticky bars and overlays. Guide notes §43; second-opinions 74. |
 | `onLayout` | `(e) => void` | (event) | `e.nativeEvent.layout` `{ x, y, width, height }` in dp, on a change. |
 | `testID` | `string` | No | The resource id UI tests see. |
 | `borderTopLeftRadius` ... `borderBottomEndRadius` | `number` | No | One corner. |

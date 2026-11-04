@@ -141,6 +141,17 @@ certificate pinning, an extra trusted root, interceptors (Chucker in debug), a p
 - Don't turn `retryOnConnectionFailure` back on for POSTs, and don't add retry interceptors for non-idempotent
   methods.
 
+### For plugin authors: `ZnFetch.addClientSetup` (2026-11-04)
+`ZnFetch.addClientSetup { builder -> ... }` lets a **plugin** change the shared client too (the Performance plugin adds
+an interceptor this way).
+- It runs **after** the app's own `ZnFetch.configure`, in the order plugins were added. So the app's pins and
+  interceptors are already there.
+- Call it before the first fetch (as `configure`). After that it does nothing and answers `false`.
+- **Known limit:** the plugin gets the **whole** `OkHttpClient.Builder`, not only a way to add an interceptor. A plugin
+  can change or undo the app's settings (pins, timeouts, retries). Only use plugins you trust. A fix is planned: allow
+  only adding interceptors.
+- Interceptors added this way also see the OTA check and download requests, because those use `ZnFetch.client`.
+
 ## 6. Checked on the phone
 `/dev/fetch` in the sample runs 27 cases against `tools/fetch-test-server.ts` (through `adb reverse`) and a few public
 HTTPS hosts. Lava Blaze 2 5G, Android 14, Wi-Fi, 2026-10-30, debug and release (R8): **27 / 27 pass**. Highlights:
