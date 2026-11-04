@@ -70,6 +70,10 @@ must never depend on it until it is proven.
 4. **Every unsafe action is written down before it happens** (section 12).
 5. **Only measured numbers count.** No performance claim goes into docs without a measurement and the device it ran on.
 6. **Small and boring beats clever.** Prefer a proven library or a simple file format over a custom engine.
+7. **React Native names, not React's runtime** (Pavan, 2026-11-04). We keep React Native's names for APIs and props, so
+   ported code reads the same. We don't add what needs React's runtime model (re-rendering, hooks rules, element
+   objects) or a second styling system (`className`). A port helper is only a build-time change, and only after a real
+   port measured what it costs. If zero-native's design doesn't allow something, we don't chase it.
 
 ## 4. The big picture
 
@@ -1111,6 +1115,7 @@ zero-native/
 | 2026-11-03 | SVG phase 4 (registry 13, host API and template format unchanged): draw data v1 gains tokens for filters (Android `RenderEffect` on 12+, a plain shadow below), masks, patterns, focal gradients, blend modes, text and animated stops (format "svg.effects"); markers, `paint-order`, nested `<svg>` and `<switch>` are flattened at build time. Parts gain `motionPath` / `motionAt`, `skewX` / `skewY`, `frame` and `trimCaps`; timing option `~w` starts on a tap (format "timing.tap"). Big draw data is read in the background after the first frame. 104 of 104 loaders, 75 of 78 feature files | `docs/svg.md` §17, `docs/guide-notes.md` §42, `docs/second-opinions.md` entries 68–72 |
 | 2026-11-03 | All SVG moved to registry 13 after merging main (11 = Tabs, 12 = pull to refresh). SVG phases 1–4 had not shipped, so every SVG entry has since 13; ids unchanged. Older SVG rows above that say 11 or 12 mean 13 | `docs/svg.md` §7, `docs/second-opinions.md` entry 73 |
 | 2026-11-04 | RN props pack 2 (registry 14-15, host API unchanged): RN names for props, styles and components so ported screens keep their code: `Modal` (its own window, app-drawn content), `StatusBar` / `NavigationBar` (per screen; colours drawn by zn behind the bars, as Android 15+ has none), `pointerEvents`, `hitSlop` (the minimum touch size), `onLayout`, `testID`, `Image` events and tint, per-corner radius, runtime borders, `absoluteFill`, `textTransform`, `stickyHeaderIndices`. An element without handlers lets taps through (RN stops them), except an absolute layer with a background or children, which stops them as in RN | `docs/guide-notes.md` §43, `docs/components.md` §13, `docs/second-opinions.md` entries 74–79. |
+| 2026-11-04 | Compiler pack (no registry, host API or template format change; the sample's bundle is byte for byte the same): JSX in variables (`const x = <A/>`, `const x = c ? <A/> : null`, a `let` never assigned again), each use compiled as its own copy and the declaration removed from the JS; `return c ? <A/> : <B/>` is a Fragment root with one anchor. Build-time values gain component-body consts, `? :`, `??`, `\|\|`, `&&`, `!`, comparisons, `+ - * / %` and template strings; a name is looked up by JavaScript's scope rules, so a parameter or `let` hides a const. Build errors with hints: a JSX `let` assigned again, `push(<X/>)`, a JSX const used as a value, JSX that would read a different name where it lands, JSX in a lowercase helper. Not built: one template per call-site size for atoms (G3; use named sizes, guide notes §47) and the NativeWind `className` translator (G5, dropped for good). New principle 7 (§3) | `docs/guide-notes.md` §47, `docs/second-opinions.md` entries 100–103. |
 
 ## 25. Open items (to decide while building, not blockers)
 - Public name, npm scope, license (MIT suggested, same as React Native and Hermes).
@@ -1121,7 +1126,8 @@ zero-native/
 - Judgment calls kept for a second opinion (watchdog limits, error text in telemetry, free-space numbers, fallback
   for an unusable bundle, `restorableSignal` across bundles): `docs/second-opinions.md`.
 - How computed row expressions work with a native list data source (`docs/lists.md` §6, v1.1).
-- Whether to build the NativeWind `className` translator (v1.1).
+- ~~Whether to build the NativeWind `className` translator (v1.1).~~ Decided 2026-11-04: no (§3 principle 7,
+  `docs/second-opinions.md` entry 103).
 - Flow tests the framework must pass that v0 left open: restored flows must reach a final state with `/verify`
   actually called; a `/pay` that died mid-call (no `ztc`) means "payment not started" (`docs/v0-findings.md` §D).
 - ~~Nav3 version and stability at build time~~: checked 2026-10-29, 1.2.0 stable, needs Compose 1.10+ (§11); in use.

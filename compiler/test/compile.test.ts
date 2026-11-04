@@ -428,7 +428,9 @@ describe("errors point at the source", () => {
   test("text outside <Text>, missing keys, stray JSX", () => {
     expect(err(`function A() { return <Row>hi</Row> }`)).toMatch(/text must be inside <Text>/)
     expect(err(`function A(p) { return <Row>{p.xs.map((x) => <Text>{x}</Text>)}</Row> }`)).toMatch(/need a key/)
-    expect(err(`const x = <Row />`)).toMatch(/only supported as the return value of a component/)
+    // An unused JSX const is dropped (guide notes §47); JSX in a lowercase helper is still an error, with a hint.
+    expect(err(`const x = <Row />`)).toBe("no error")
+    expect(err(`function row() { return <Row /> }`)).toMatch(/row returns JSX but isn't a component: .*<Row \.\.\. \/>/)
     expect(err(`function A(p) { return <Pressable onPress={() => <Row />} /> }`)).toMatch(/JSX isn't allowed here/)
   })
   test("invalid values are reported by the template writer with the location", () => {

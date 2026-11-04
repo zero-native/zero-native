@@ -123,6 +123,21 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-04: compiler pack: JSX in variables, build-time values in a component body (Claude)
+- **What:** guide-notes §47, second-opinions 100–103, ARCHITECTURE §3 principle 7. JSX in a `const` (or a `let` never
+  assigned again), in a component body or at module level, used as a child, a prop, `return x`, in `.map` / `<List>`
+  rows and branches; each use is its own copy. `return c ? <A/> : <B/>`, `return c && <A/>` and nested ternaries with
+  `null` work. Build-time values: consts in a component body, `? : ?? || && !`, comparisons, `+ - * / %`, template
+  strings; names follow JavaScript's scope (a `.map` parameter no longer folds to a module const of the same name).
+  Errors with hints: a reassigned JSX `let`, `push(<X/>)`, JSX in an array, a JSX const used as a value, JSX that would
+  read a different name where it lands, JSX in a lowercase helper. No registry, host API or Kotlin change.
+- **Not built (decided):** per-call-site sizes for atoms ("G3": named sizes instead, entry 100) and the NativeWind
+  `className` translator ("G5", entry 103).
+- **Tests:** JS 951 (all pass, with types; 23 new in `compiler/test/jsx-vars.test.ts`, with a runtime run on the fake
+  host), Kotlin 181, lint 0 errors, sample debug and R8 release built.
+- **Same bytes:** the sample's `main.zn.ui`, manifest, `main.js` and `main.hbc` are identical before and after; the
+  ZeroBill prototype's templates and JS too (built with the old and the new compiler). So no phone or emulator run.
+
 ### 2026-11-04: Firebase plugins: Crashlytics and push (Claude)
 - **What:** `@zero-native/crashlytics` and `@zero-native/push` (`plugins/crashlytics/`, `plugins/push/`), opt-in, like
   RN Firebase's modules. Firebase project "zero-native-sample" (not ZeroBill's). Analytics planned only

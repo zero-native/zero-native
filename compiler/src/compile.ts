@@ -13,6 +13,8 @@
 //     object become slots like any prop
 //   - children: elements, `{cond && <X/>}`, `{cond ? <A/> : <B/>}`, `{list.map(item => <Row key={...}/>)}`;
 //     inside <Text>: literal text and `{expressions}`
+//   - JSX in a variable (`const x = <A/>`, `const x = c ? <A/> : null`, guide notes §47): each use in JSX gets its own
+//     copy; `return c ? <A/> : <B/>` is a Fragment root with one anchor
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, resolve as resolvePath } from "node:path"
 import ts from "typescript"
@@ -31,7 +33,7 @@ import {
   slot as slotRef,
   templateIds,
 } from "@zero-native/template"
-import { fold, NOT_STATIC, type FoldScope } from "./fold"
+import { declaredIn, fold, NOT_STATIC, type FoldScope } from "./fold"
 import { NATIVE_NAME } from "./routes"
 import { assemble, type LineMap, markCopied } from "./sourcemap"
 import { type CompiledSvg, compileSvgFile, compileSvgTree } from "./svg"
@@ -224,6 +226,55 @@ export function compileModule(
     fail(n, `${n.text} is an SVG file, which is compiled at build time: use it as JSX (<${n.text} />, or icon={<${n.text} />}), not as a value`)
   })
 
+  // ---- JSX in variables (guide notes §47) ---------------------------------------------------------------------
+  // `const x = <A/>` / `const x = c ? <A/> : null` (module level or in a component body; also a `let` never assigned
+  // again). JSX is compiled at build time, so x is not a value at runtime: each place that uses x in JSX gets its own
+  // copy of the JSX (as React: one element shown twice is two instances), and the declaration leaves the JS.
+  interface JsxBinding {
+    name: string
+    decl: ts.VariableDeclaration
+    stmt: ts.VariableStatement
+    /** The block (or the file) that declares it: where its name is looked up. */
+    scope: ts.Node
+    init: ts.Expression
+    used: boolean
+    free?: Array<{ name: string; at: ts.Identifier }>
+  }
+  const jsxBindings = new Map<string, JsxBinding[]>()
+  const consumed = new Set<ts.Identifier>()
+  const collectBindings = (stmt: ts.Statement, scopeNode: ts.Node) => {
+    if (!ts.isVariableStatement(stmt)) return
+    const list = stmt.declarationList
+    const jsxDecls = list.declarations.filter((d) => ts.isIdentifier(d.name) && d.initializer && isJsxValue(d.initializer))
+    if (jsxDecls.length === 0) return
+    if (jsxDecls.length !== list.declarations.length) fail(stmt, "put a JSX const on its own line: const x = <A />")
+    if (!(list.flags & (ts.NodeFlags.Const | ts.NodeFlags.Let))) fail(stmt, "use const for JSX: const x = <A />")
+    if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+      fail(stmt, "JSX can't be exported as a value (it is compiled at build time): export a component instead, " +
+        "export function Header() { return <Title /> }")
+    }
+    for (const d of jsxDecls) {
+      const name = (d.name as ts.Identifier).text
+      const bnd: JsxBinding = { name, decl: d, stmt, scope: scopeNode, init: d.initializer!, used: false }
+      jsxBindings.set(name, [...(jsxBindings.get(name) ?? []), bnd])
+    }
+  }
+  for (const stmt of sf.statements) collectBindings(stmt, sf)
+  for (const { fn } of candidates) {
+    if (!fn.body || !ts.isBlock(fn.body)) continue
+    const visit = (block: ts.Node) => {
+      ts.forEachChild(block, function walk(n): void {
+        if (ts.isFunctionLike(n) || ts.isClassLike(n)) return
+        if (ts.isBlock(n) || ts.isCaseClause(n) || ts.isDefaultClause(n)) {
+          for (const s of n.statements) collectBindings(s, n)
+        }
+        ts.forEachChild(n, walk)
+      })
+    }
+    for (const s of fn.body.statements) collectBindings(s, fn.body)
+    visit(fn.body)
+  }
+
   // ---- Components ---------------------------------------------------------------------------------------------
   for (const { name, fn } of candidates) {
     const body = fn.body
@@ -231,24 +282,48 @@ export function compileModule(
     const roots: ts.Expression[] = []
     if (ts.isBlock(body)) {
       forEachDescendant(body, (n) => {
-        if (ts.isReturnStatement(n) && n.expression && isJsx(unwrap(n.expression))) roots.push(n.expression)
+        if (ts.isReturnStatement(n) && n.expression && isJsxValue(n.expression)) roots.push(n.expression)
       }, /* stopAtFunctions */ true)
-    } else if (isJsx(unwrap(body))) {
+    } else if (isJsxValue(body)) {
       roots.push(body)
     }
     for (const r of roots) {
-      const compiled = compileRoot(unwrap(r) as JsxNode)
-      edits.push({ start: r.getStart(sf), end: r.getEnd(), text: compiled.code, at: unwrap(r).getStart(sf) })
+      const v = seeThrough(r)
+      const compiled = isJsx(v) ? compileRoot(v as JsxNode) : valueTemplate(v, 0)
+      edits.push({ start: r.getStart(sf), end: r.getEnd(), text: compiled.code, at: v.getStart(sf) })
       if (compiled.templateId !== null && !(name in components)) components[name] = compiled.templateId
     }
+  }
+
+  // Every use of a JSX variable must have been compiled: anything else would read a name that is gone from the JS.
+  const allBindings = [...jsxBindings.values()].flat()
+  const dead = allBindings.filter((bnd) => !bnd.used)
+  forEachDescendant(sf, (n) => {
+    if (!ts.isIdentifier(n) || !jsxBindings.has(n.text) || !isReference(n)) return
+    const bnd = bindingOf(n)
+    if (!bnd || n === bnd.decl.name) return
+    if (isAssigned(n)) {
+      fail(n, `${bnd.name} holds JSX and is assigned again: JSX is compiled at build time, so pick with one ternary ` +
+        `instead, const ${bnd.name} = cond ? <A /> : <B /> (use null for "nothing")`)
+    }
+    if (consumed.has(n) || dead.some((d) => inside(n, d.init))) return
+    const p = n.parent
+    if ((ts.isJsxOpeningElement(p) || ts.isJsxSelfClosingElement(p) || ts.isJsxClosingElement(p)) && p.tagName === n) {
+      fail(n, `${bnd.name} holds JSX, not a component: show it with {${bnd.name}}, or make it a component (a function)`)
+    }
+    fail(n, `${bnd.name} holds JSX, which is compiled at build time, so it isn't a value at runtime: use it only in ` +
+      `JSX ({${bnd.name}}, icon={${bnd.name}}, return ${bnd.name}). To pass a piece of screen around, make it a component`)
+  })
+  for (const bnd of allBindings) {
+    if (!edits.some((e) => e.start === bnd.stmt.getStart(sf))) edits.push({ start: bnd.stmt.getStart(sf), end: bnd.stmt.getEnd(), text: "" })
   }
 
   // Any JSX left outside a component's return is unsupported.
   const replaced = edits.filter((e) => e.text !== "")
   forEachDescendant(sf, (n) => {
-    if (isJsx(n) && !replaced.some((e) => n.getStart(sf) >= e.start && n.getEnd() <= e.end)) {
-      fail(n, "JSX is only supported as the return value of a component (a capitalised module-level function)")
-    }
+    if (!isJsx(n) || replaced.some((e) => n.getStart(sf) >= e.start && n.getEnd() <= e.end)) return
+    if (allBindings.some((bnd) => inside(n, bnd.init))) return
+    fail(n, outsideHint(n))
   })
 
   const pieces: Parameters<typeof assemble>[1] = []
@@ -264,6 +339,123 @@ export function compileModule(
   for (const [name, id] of Object.entries(components)) pieces.push({ generatedAt: source.length, text: `\n${name}.__zt = ${ref(id)};` })
   const { code, map } = assemble(source, pieces)
   return { code, components, map }
+
+  // ---- JSX variables --------------------------------------------------------------------------------------------
+
+  /** The JSX variable [id] names where it is written (a parameter or local of the same name hides it), if any. */
+  function bindingOf(id: ts.Identifier): JsxBinding | undefined {
+    const list = jsxBindings.get(id.text)
+    if (!list) return undefined
+    for (let n: ts.Node | undefined = id.parent; n; n = n.parent) {
+      if (ts.isSourceFile(n) || declaredIn(n, id.text) !== undefined) return list.find((bnd) => bnd.scope === n)
+    }
+    return undefined
+  }
+
+  /** JSX, a JSX variable, or `c ? X : Y` / `c && X` whose branches are those (or null), with JSX on at least one side. */
+  function isJsxValue(e: ts.Expression): boolean {
+    const u = unwrap(e)
+    if (isJsx(u)) return true
+    if (ts.isIdentifier(u)) return bindingOf(u) !== undefined
+    if (ts.isConditionalExpression(u)) {
+      const t = isJsxValue(u.whenTrue)
+      const f = isJsxValue(u.whenFalse)
+      return (t || f) && (t || isNullish(u.whenTrue)) && (f || isNullish(u.whenFalse))
+    }
+    if (ts.isBinaryExpression(u) && u.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return isJsxValue(u.right)
+    return false
+  }
+
+  /**
+   * [e] with a JSX variable replaced by the JSX it holds (followed through variables that hold variables). The use is
+   * checked: each name the JSX reads must mean the same thing here as where the JSX is written.
+   */
+  function seeThrough(e: ts.Expression): ts.Expression {
+    const u = unwrap(e)
+    if (!ts.isIdentifier(u)) return u
+    const bnd = bindingOf(u)
+    if (!bnd) return u
+    consumed.add(u)
+    bnd.used = true
+    for (const f of freeNames(bnd, new Set())) {
+      for (let n: ts.Node | undefined = u.parent; n && n !== bnd.scope; n = n.parent) {
+        if (declaredIn(n, f.name) === undefined) continue
+        const { line } = sf.getLineAndCharacterOfPosition(f.at.getStart(sf))
+        fail(u, `${bnd.name} is JSX that reads "${f.name}" (line ${line + 1}), but here "${f.name}" is a different ` +
+          `name (a parameter or local with the same name), so this copy would read the wrong value: rename one of them`)
+      }
+    }
+    return seeThrough(bnd.init)
+  }
+
+  /** The names a JSX variable's JSX reads from outside itself (also through the JSX variables it uses). */
+  function freeNames(bnd: JsxBinding, seen: Set<JsxBinding>): Array<{ name: string; at: ts.Identifier }> {
+    if (bnd.free) return bnd.free
+    seen.add(bnd)
+    const out: Array<{ name: string; at: ts.Identifier }> = []
+    const visit = (n: ts.Node) => {
+      if (ts.isTypeNode(n)) return
+      if (ts.isIdentifier(n) && isReference(n)) {
+        let internal = false
+        for (let p: ts.Node | undefined = n.parent; p && !internal; p = p === bnd.init ? undefined : p.parent) {
+          if (declaredIn(p, n.text) !== undefined) internal = true
+        }
+        if (!internal) {
+          out.push({ name: n.text, at: n })
+          const inner = bindingOf(n)
+          if (inner && !seen.has(inner)) out.push(...freeNames(inner, seen))
+        }
+      }
+      ts.forEachChild(n, visit)
+    }
+    visit(bnd.init)
+    bnd.free = out
+    return out
+  }
+
+  /** `c ? <A/> : <B/>` (or `c && <A/>`) as a whole View: a Fragment holding one anchor that shows the branch. */
+  function valueTemplate(e: ts.Expression, depth: number): { code: string; templateId: number } {
+    return compileTemplate(e, depth, (b) => {
+      b.nodes++
+      return el("Fragment", {}, anchor(e, b))
+    })
+  }
+
+  /** A better message for JSX in a place the compiler doesn't take. */
+  function outsideHint(n: ts.Node): string {
+    let at: ts.Node = n
+    while (ts.isParenthesizedExpression(at.parent) || ts.isAsExpression(at.parent) || ts.isConditionalExpression(at.parent) ||
+      (ts.isBinaryExpression(at.parent) && at.parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken)) {
+      at = at.parent
+    }
+    const p = at.parent
+    if (ts.isCallExpression(p) && ts.isPropertyAccessExpression(p.expression) &&
+      ["push", "unshift", "concat", "splice"].includes(p.expression.name.text)) {
+      return "JSX can't be collected in an array (it is compiled at build time): show a list with .map in JSX, " +
+        "{items.map((it) => <Row key={it.id} ... />)}"
+    }
+    if (ts.isArrayLiteralExpression(p)) {
+      return "JSX can't go in an array (it is compiled at build time): write each element in place, or use " +
+        "{items.map((it) => <Row key={it.id} ... />)} over data"
+    }
+    if (ts.isBinaryExpression(p) && p.right === at && isAssignmentOp(p.operatorToken.kind)) {
+      return "JSX can't be assigned to a variable later (it is compiled at build time): pick with one ternary, " +
+        "const x = cond ? <A /> : <B /> (use null for \"nothing\")"
+    }
+    let fn: ts.Node | undefined = n.parent
+    while (fn && !ts.isFunctionLike(fn)) fn = fn.parent
+    const fnName = fn && (
+      (ts.isFunctionDeclaration(fn) || ts.isFunctionExpression(fn) || ts.isMethodDeclaration(fn)) && fn.name && ts.isIdentifier(fn.name) ? fn.name.text
+      : (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && ts.isVariableDeclaration(fn.parent) && ts.isIdentifier(fn.parent.name) ? fn.parent.name.text
+      : undefined)
+    if (fnName && !isCapitalized(fnName)) {
+      const cap = fnName[0].toUpperCase() + fnName.slice(1)
+      return `${fnName} returns JSX but isn't a component: give it a capital name (function ${cap}(props) ...) and ` +
+        `use it as <${cap} ... />, or write the JSX in place (a const works too: const x = <A />)`
+    }
+    return "JSX works only in a component (a capitalised module-level function): as what it returns, as a child, " +
+      "as a prop, or in a const used in those places"
+  }
 
   // ---- Templates ----------------------------------------------------------------------------------------------
 
@@ -288,6 +480,12 @@ export function compileModule(
     const real = kids.filter((k) => !(ts.isJsxText(k) && k.text.trim() === "") && !(ts.isJsxExpression(k) && !k.expression))
     if (real.length === 1 && (ts.isJsxElement(real[0]) || ts.isJsxSelfClosingElement(real[0]) || ts.isJsxFragment(real[0]))) {
       return compileRoot(real[0] as JsxNode, depth).code
+    }
+    // `<Card>{content}</Card>` with `const content = <A/>`: the same as writing <A/> there.
+    const only = real.length === 1 && ts.isJsxExpression(real[0]) ? real[0].expression : undefined
+    if (only && ts.isIdentifier(unwrap(only))) {
+      const v = seeThrough(only)
+      if (isJsx(v)) return compileRoot(v as JsxNode, depth).code
     }
     return compileTemplate(at, depth, (b) => {
       b.nodes++
@@ -739,7 +937,7 @@ export function compileModule(
           if (child.text.trim() !== "") fail(child, "text inside <Svg> isn't supported: put a <Text> over the SVG in a <Stack> (a .svg file may use simple <text>)")
         } else if (ts.isJsxExpression(child)) {
           if (!child.expression) continue
-          const e = unwrap(child.expression)
+          const e = seeThrough(child.expression)
           if (isJsx(e) && !ts.isJsxFragment(e)) {
             n.children.push(convert(e as ts.JsxElement, local, inRow, false))
             continue
@@ -759,10 +957,10 @@ export function compileModule(
             const row = body && unwrap(body)
             if (!row || !isJsx(row) || ts.isJsxFragment(row)) fail(fn, "a .map row inside <Svg> must return one SVG element")
             ;(list as unknown[]).forEach((item, i) => {
-              const statics = new Map(local.staticImports)
-              if (names[0]) statics.set(names[0], item)
-              if (names[1]) statics.set(names[1], i)
-              n.children.push(convert(row as ts.JsxElement, { consts: local.consts, staticImports: statics }, true, false))
+              const locals = new Map(local.locals)
+              if (names[0]) locals.set(names[0], item)
+              if (names[1]) locals.set(names[1], i)
+              n.children.push(convert(row as ts.JsxElement, { ...local, locals }, true, false))
             })
             continue
           }
@@ -801,7 +999,7 @@ export function compileModule(
         if (child.text.trim() !== "") fail(child, "text must be inside <Text>")
       } else if (ts.isJsxExpression(child)) {
         if (!child.expression) continue // {/* comment */}
-        const e = unwrap(child.expression)
+        const e = seeThrough(child.expression)
         if (isJsx(e)) children.push(...childElement(e as JsxNode, b))
         else children.push(anchor(e, b))
       } else {
@@ -826,13 +1024,11 @@ export function compileModule(
   function anchor(e: ts.Expression, b: Builder): NodeSpec {
     const index = b.nodes++
     const branch = (x: ts.Expression) => {
-      const j = unwrap(x)
-      if (!isJsx(j)) fail(x, "a branch must be JSX or null")
-      return `() => ${compileRoot(j as JsxNode, b.depth + 1).code}`
-    }
-    const isNullish = (x: ts.Expression) => {
-      const u = unwrap(x)
-      return u.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(u) && u.text === "undefined")
+      const j = seeThrough(x)
+      if (isJsx(j)) return `() => ${compileRoot(j as JsxNode, b.depth + 1).code}`
+      // A nested `a ? <A/> : b ? <B/> : null`: the inner choice is a Fragment with its own anchor.
+      if (isJsxValue(j)) return `() => ${valueTemplate(j, b.depth + 1).code}`
+      return fail(x, "a branch must be JSX or null")
     }
 
     if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
@@ -863,7 +1059,7 @@ export function compileModule(
       } else {
         rowJsx = fn.body
       }
-      const root = rowJsx && unwrap(rowJsx)
+      const root = rowJsx && seeThrough(rowJsx)
       if (!root || !isJsx(root) || ts.isJsxFragment(root)) fail(fn, "a .map row must return one JSX element")
       const rootEl = root as ts.JsxElement | ts.JsxSelfClosingElement
       const keyAttr = (ts.isJsxElement(rootEl) ? rootEl.openingElement : rootEl).attributes.properties.find(
@@ -960,7 +1156,7 @@ export function compileModule(
     if (!body) fail(rowFn, "row must return its JSX directly: row={(item) => <Row/>}")
 
     const branches = (e: ts.Expression): { code: string; type: string } => {
-      const u = unwrap(e)
+      const u = seeThrough(e)
       if (ts.isConditionalExpression(u)) {
         const cond = text(u.condition)
         const yes = branches(u.whenTrue)
@@ -1010,7 +1206,7 @@ export function compileModule(
    */
   function refreshControl(a: ts.JsxAttribute, props: Record<string, unknown>, b: Builder) {
     const init = a.initializer
-    const e = init && ts.isJsxExpression(init) && init.expression ? unwrap(init.expression) : undefined
+    const e = init && ts.isJsxExpression(init) && init.expression ? seeThrough(init.expression) : undefined
     if (!e || !(ts.isJsxSelfClosingElement(e) || ts.isJsxElement(e)) || tagName(e) !== "RefreshControl") {
       return fail(a, "refreshControl takes <RefreshControl ... /> written right here " +
         "(or use the props refreshing, onRefresh, refreshColor, refreshBackground)")
@@ -1463,7 +1659,10 @@ export function compileModule(
           if (t) add(style, { lit: t })
         } else if (ts.isJsxExpression(child)) {
           if (!child.expression) continue
-          if (isJsx(unwrap(child.expression))) fail(child, "inside <Text>, write nested text as <Text>...</Text> directly")
+          if (isJsxValue(child.expression)) {
+            fail(child, "inside <Text>, write nested text as <Text>...</Text> directly" +
+              (ts.isIdentifier(unwrap(child.expression)) ? " (a JSX const can't be used inside <Text>)" : ""))
+          }
           const v = fold(child.expression, scope)
           if (v !== NOT_STATIC) add(style, { lit: v === null || v === undefined || v === false ? "" : String(v) })
           else add(style, { expr: child.expression })
@@ -1554,6 +1753,22 @@ export function compileModule(
     }
     const opening = ts.isJsxElement(node) ? node.openingElement : node
     const parts: string[] = []
+    // `icon={c ? <A/> : null}`: a getter that gives the branch's function, or null. The functions are made once (the
+    // arguments of a wrapper call), so the child shows the same View again until the branch really changes.
+    const thunks: string[] = []
+    const pick = (x: ts.Expression): string => {
+      const u = seeThrough(x)
+      if (isNullish(u)) return "null"
+      if (isJsx(u)) {
+        thunks.push(`() => ${compileRoot(u as JsxNode, depth).code}`)
+        return `__zp${depth}_${thunks.length - 1}`
+      }
+      if (ts.isConditionalExpression(u)) return `(${text(u.condition)}) ? ${pick(u.whenTrue)} : ${pick(u.whenFalse)}`
+      if (ts.isBinaryExpression(u) && u.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+        return `(${text(u.left)}) ? ${pick(u.right)} : null`
+      }
+      return fail(u, "a branch must be JSX or null")
+    }
     for (const attr of opening.attributes.properties) {
       if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
       const a = attr as ts.JsxAttribute
@@ -1561,17 +1776,20 @@ export function compileModule(
       if (name === "key") continue
       if (name === "children") fail(a, "write children between the tags: <Card>...</Card>")
       const init = a.initializer
-      const jsx = init && ts.isJsxExpression(init) && init.expression ? unwrap(init.expression) : null
+      const jsx = init && ts.isJsxExpression(init) && init.expression && isJsxValue(init.expression) ? seeThrough(init.expression) : null
       if (!init) parts.push(`${JSON.stringify(name)}: true`)
       else if (ts.isStringLiteral(init)) parts.push(`${JSON.stringify(name)}: ${JSON.stringify(decodeEntities(init.text))}`)
       else if (jsx && isJsx(jsx)) parts.push(`${JSON.stringify(name)}: () => ${compileRoot(jsx as JsxNode, depth).code}`)
+      else if (jsx) parts.push(`get ${JSON.stringify(name)}() { return ${pick(jsx)} }`)
       else if (ts.isJsxExpression(init) && init.expression) parts.push(`get ${JSON.stringify(name)}() { return (${text(init.expression)}) }`)
       else fail(a, `unsupported value for "${name}"`)
     }
     if (ts.isJsxElement(node) && node.children.some((c) => !(ts.isJsxText(c) && c.text.trim() === "") && !(ts.isJsxExpression(c) && !c.expression))) {
       parts.push(`"children": () => ${compileChildren(node, node.children, depth)}`)
     }
-    return `{ ${parts.join(", ")} }`
+    if (thunks.length === 0) return `{ ${parts.join(", ")} }`
+    const names = thunks.map((_, i) => `__zp${depth}_${i}`)
+    return `((${names.join(", ")}) => ({ ${parts.join(", ")} }))(${thunks.join(", ")})`
   }
 
   function tagName(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
@@ -1621,6 +1839,48 @@ function isJsx(n: ts.Node): boolean {
 function unwrap(e: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) e = e.expression
   return e
+}
+
+function isNullish(x: ts.Expression): boolean {
+  const u = unwrap(x)
+  return u.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(u) && u.text === "undefined")
+}
+
+/** [n] lies within [container] (both from the same file). */
+function inside(n: ts.Node, container: ts.Node): boolean {
+  return n.pos >= container.pos && n.end <= container.end
+}
+
+function isAssignmentOp(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment
+}
+
+/** [id] is written to: `x = ...`, `x += ...`, `x++`. */
+function isAssigned(id: ts.Identifier): boolean {
+  let n: ts.Node = id
+  while (ts.isParenthesizedExpression(n.parent)) n = n.parent
+  const p = n.parent
+  if (ts.isBinaryExpression(p) && p.left === n && isAssignmentOp(p.operatorToken.kind)) return true
+  return (ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) &&
+    (p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken)
+}
+
+/** [id] reads a variable (or names a JSX tag): not a property name, a declaration's own name, a label or a type. */
+function isReference(id: ts.Identifier): boolean {
+  const p = id.parent
+  if (!p) return false
+  if (ts.isPropertyAccessExpression(p) && p.name === id) return false
+  if (ts.isQualifiedName(p) || ts.isJsxAttribute(p) || ts.isLabeledStatement(p) || ts.isBreakOrContinueStatement(p)) return false
+  if ((ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isPropertySignature(p) ||
+    ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p) || ts.isEnumMember(p)) && p.name === id) return false
+  if ((ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isFunctionDeclaration(p) || ts.isFunctionExpression(p) ||
+    ts.isClassDeclaration(p) || ts.isClassExpression(p)) && p.name === id) return false
+  if (ts.isBindingElement(p) && (p.name === id || p.propertyName === id)) return false
+  if (ts.isImportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p)) return false
+  // `export { x }` / `export { x as y }` reads x; y is only the exported name.
+  if (ts.isExportSpecifier(p)) return p.propertyName ? p.propertyName === id : true
+  for (let n: ts.Node | undefined = p; n && !ts.isSourceFile(n); n = n.parent) if (ts.isTypeNode(n)) return false
+  return true
 }
 
 function forEachDescendant(node: ts.Node, visit: (n: ts.Node) => void, stopAtFunctions = false) {

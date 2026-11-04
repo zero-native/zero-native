@@ -278,7 +278,8 @@ React Navigation. [nav.ts:73](../packages/core/src/nav.ts:73), [routes.ts](../pa
 | `useCallback`, `React.memo` | not needed | missing | Delete them. |
 | `useWindowDimensions` | [`useWindowDimensions`](../packages/core/src/dimensions.ts:70) | different | See §1. Read it inside JSX or `effect`. |
 | `useColorScheme` | `colorScheme()` | renamed | See §6. |
-| Conditional render `cond && <X/>`, `cond ? <A/> : <B/>` | same | same | [compile.ts:324](../compiler/src/compile.ts:324). A branch must be JSX or `null`. |
+| Conditional render `cond && <X/>`, `cond ? <A/> : <B/>` | same | same | [compile.ts:1025](../compiler/src/compile.ts:1025). A branch must be JSX or `null`; nested ternaries work. `return c ? <A/> : <B/>` works (guide notes §47). |
+| JSX in a variable: `const header = <X/>`, `const badge = c ? <A/> : null` | same | same | Built (compiler pack, 2026-11-04, guide notes §47). Use it in JSX only (child, prop, `return`); each use is its own copy. `let` reassigned and `items.push(<X/>)` are build errors with a hint: one ternary, or `.map`. |
 | Component props, `children` | same | different | `{props.children}` shows them; reading, mapping or counting children is not supported. Spread props `{...p}` are a build error. |
 | Custom hooks | plain functions | different | A function that makes signals in a screen body works. |
 | `Intl.NumberFormat` etc. | same | same | [guide-notes.md](guide-notes.md) §25. |
@@ -291,7 +292,10 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
    must be known at build time. Any RN screen that sets these from state needs a redesign: two styles and a ternary,
    or an `animate` prop. Touches almost every non-trivial screen. ([§0](#0-four-big-differences-to-know-first))
    This also hits a value passed in as a component prop: `style={{ height: props.height }}` is a build error, even
-   when every caller passes a literal. Common in design-system atoms (button heights, icon sizes).
+   when every caller passes a literal. Common in design-system atoms (button heights, icon sizes). The zero-native way:
+   `.svg` icons take a literal `size` where they are used, and atoms list named sizes and pick one with a ternary
+   (guide notes §47). A compiler pass that would do this for free numbers was planned and dropped (second-opinions 100).
+   Constants in a component body and math on constants (`SIZE / 2`, `COMPACT ? 40 : 48`) are build-time values now.
 2. **No React** (missing). Every `useState`, `useEffect`, `useRef`, `useContext`, `useMemo`, and every hook-based
    library (React Query, Formik, React Hook Form, most state libraries) must be replaced. This is a rewrite of screen
    logic, not an edit. ([§9](#9-react-and-js-side-patterns))
@@ -324,12 +328,13 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
     came in P.6. Still missing: `WebSocket`, `XMLHttpRequest`. The import line changes to `@zero-native/core`.
     ([§1](#1-components), [§5](#5-network-and-web-apis), [§6](#6-device-and-os))
 
-Two more compiler rules cost a port as much as the items above (found by the ZeroBill pilot-flow audit, 2026-11-03;
-a "compiler pack" will plan them):
-- **JSX only as a component's return value.** `const header = <X/>`, `let body = c ? <A/> : <B/>` and
-  `items.push(<X/>)` are build errors. Move the JSX into the return (`&&`, `? :`, `.map`) or into a small component.
-- **No NativeWind / Tailwind `className`.** Every class must be rewritten as a `style` object. Apps built with
-  NativeWind have hundreds of them.
+Two more compiler rules were found by the ZeroBill pilot-flow audit (2026-11-03); the compiler pack (2026-11-04)
+settled them:
+- **JSX in variables: built.** `const header = <X/>` and `const body = c ? <A/> : <B/>` work (guide notes §47).
+  Still build errors, each with a hint: a `let` assigned again (use one ternary) and `items.push(<X/>)` (use `.map`).
+- **No NativeWind / Tailwind `className`: not planned.** Every class must be rewritten as a `style` object; apps built
+  with NativeWind have hundreds of them. zero-native keeps one styling system (second-opinions 103), and no port tool
+  is planned.
 
 Smaller known gaps not in the list: `Button`, `Text` `onPress` and `selectable`, `StyleSheet.flatten`. (`testID`,
 `Image` events, `Modal`, `StatusBar`, `pointerEvents`, `hitSlop`, `onLayout` came in RN props pack 2, guide-notes §43.)

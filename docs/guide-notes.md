@@ -47,6 +47,7 @@ const paise = computed(() => toPaise(amount()))
 
 ## 4. Control flow in JSX
 - Plain JS: `{cond && <X/>}`, `{cond ? <A/> : <B/>}`, `{items.map(i => <Row key={i.id}/>)}`. Rows need a `key`.
+  Nested ternaries with `null` work, and JSX can sit in a const (`const badge = ok ? <A/> : null`, §47).
 - `.map` is for **short** lists that are part of a layout (up to ~100 items). Long or growing lists use `<List>`
   (planned, step 2.4).
 
@@ -1634,6 +1635,73 @@ route, with no JS code. API, Gradle lines and size: `plugins/crashlytics/README.
 - **Know:** native crashes (Hermes, C++) need `firebase-crashlytics-ndk`, opt-in (+1.30 MB). Without it they still count
   in the OTA health check, so a bad bundle is still rolled back.
 - **Do** call `Crashlytics.setCrashlyticsCollectionEnabled(false)` if the user opts out. It is kept across starts.
+
+## 47. JSX in variables, build-time values in a component, sized atoms (compiler pack, built 2026-11-04)
+
+Two compiler changes that make React Native code port with fewer edits. No native change, no registry change: the
+sample's bundle is byte for byte the same. Code: [compile.ts:229](../compiler/src/compile.ts:229),
+[fold.ts:30](../compiler/src/fold.ts:30). Tests: `compiler/test/jsx-vars.test.ts`.
+
+**JSX in a variable.**
+- **Do** keep JSX in a `const` when it makes a screen easier to read, as in React Native:
+  `const label = <Text style={t.button}>{props.label}</Text>`, `const badge = p.ok ? <Ok /> : p.wait ? <Wait /> : null`.
+  It works in a component body (also inside an `if` block) and at module level. A `let` works too if it is never
+  assigned again.
+- **Do** use it as a child `{label}`, as a prop (`icon={badge}`, `refreshControl={refresh}`), as `return label`, and
+  inside `.map` rows, `<List>` rows and `? :` branches. `return c ? <A /> : <B />` and `return c && <A />` work too.
+- **Know:** each place gets its own copy, as in React (one element shown twice is two instances). The `const` is gone
+  from the JS; it costs nothing at runtime. An unused JSX const is dropped.
+- **Know:** a prop like `icon={c ? <A /> : null}` is `null` in the child when `c` is false, as in React. The child
+  shows it with `{props.icon}`.
+- **Don't** treat it as a value: no `log(x)`, no `[x, y]`, no `export`, no `show(x)` inside a handler, no `<X />` when
+  `x` holds JSX. **Why:** JSX is compiled at build time into a template; there is no element object at runtime. The
+  build says so with file:line. To pass a piece of screen around, make it a component.
+- **Don't** assign a JSX variable again (`let x = <A />; if (c) x = <B />`) or collect JSX with `rows.push(<Row />)`.
+  **Do** pick with one ternary (`const x = c ? <A /> : <B />`, `null` for "nothing") and build lists with
+  `{items.map((it) => <Row key={it.id} />)}`. Both are build errors with this hint.
+- **Don't** give a `.map` parameter the same name as something your JSX const reads
+  (`const label = <Text>{item.name}</Text>` used inside `.map((item) => ...)`). **Why:** the copy would read the
+  wrong `item`; the build stops and asks you to rename one.
+- **Don't** return JSX from a lowercase helper (`renderRow(r)`). **Do** give it a capital name and use it as
+  `<RenderRow ... />`, or keep the JSX in a const. The build error says this.
+- **Don't** use a JSX const inside `<Text>`. Write nested text as `<Text>...</Text>` directly.
+
+**Build-time values.**
+- **Do** put constants at the top of a component body: `const SIZE = 40` can set `width`, `height`, `borderRadius`
+  and other values that must be known at build time. Module-level consts and imported tokens worked before.
+- **Do** use simple math and choices on constants: `SIZE / 2`, `BASE * 2`, `COMPACT ? 40 : 48`, `PAD ?? 12`, `!COMPACT`,
+  `===`, `<`, and template strings like `` `${RUPEE}${AMOUNT}` ``. Only what is known at build time is folded; the
+  same code on runtime values (`p.big ? 40 : 48`) is still a runtime value, so it only works where runtime values
+  work (colour, opacity, padding, text...).
+- **Know:** a name means what JavaScript says it means where it is written. A `.map((size) => ...)` parameter or a
+  `let size` hides a `const size`, so it is not folded. **Don't** expect a `let` to be a build-time value; use `const`.
+
+**Sized atoms (buttons, chips, icons) without runtime layout.** zero-native has no "size from a prop" for layout values:
+`style={{ height: props.height }}` is a build error (§3). Instead:
+- **Icons: no wrapper.** An `.svg` file is a component that takes a literal size where you use it:
+  `<ShieldCheck size={14} color={c.green} />` (docs/svg.md). Drop RN icon wrappers that only pass `size` through.
+- **Atoms: named sizes, not free numbers.** List the sizes once and pick with a ternary; keep the shared content in a
+  JSX const so it is written once:
+
+  ```tsx
+  const SIZE = StyleSheet.create({
+    md: { height: 48, borderRadius: 16 },
+    lg: { height: 56, borderRadius: 16 },
+  })
+
+  export function PrimaryButton(props: { size?: "md" | "lg"; label: string; onPress: () => void }) {
+    const label = <Text style={t.button}>{props.label}</Text>
+    return props.size === "lg"
+      ? <Pressable onPress={props.onPress} style={[s.base, SIZE.lg]}>{label}</Pressable>
+      : <Pressable onPress={props.onPress} style={[s.base, SIZE.md]}>{label}</Pressable>
+  }
+  ```
+
+  Callers write `<PrimaryButton size="lg" ... />`. Each size is its own small template, as if written by hand.
+  (A test compiles this example straight from this file: `compiler/test/jsx-vars.test.ts`. Keep it compiling.)
+- **Or** use runtime per-edge padding (`paddingTop` / `paddingBottom`) when only the height changes.
+- **Know:** a compiler pass that makes one template per call-site size ("G3") was planned and dropped (second-opinions
+  100). If free-number sizes keep coming up, the fix that fits the design is runtime `width` / `height` in native.
 
 ## 48. Push and notifications (`@zero-native/push`)
 

@@ -1194,6 +1194,68 @@ change, and what evidence would make you change it?"
 - **Other options:** remove them in the plugin's manifest; exclude `play-services-ads-identifier` in Gradle.
 - **Evidence wanted:** none.
 
+## 100. No per-call-site sizes for atoms ("G3"); named sizes instead (compiler pack, decided, not built)
+- **Where:** guide-notes §47 "Sized atoms"; rn-compatibility §10 item 1.
+- **Chosen:** `style={{ height: props.height }}` stays a build error. Atoms list named sizes (`size="md" | "lg"`) and
+  pick one with a ternary; `.svg` icons take a literal size where they are used. The planned pass that would compile
+  one template per value set seen at the call sites (a two-pass build) is not built.
+- **Why:** it needed a second build pass, hidden props, a cap on variants and new errors, for something a design system
+  already does with named sizes. Pavan, 2026-11-04: "our framework itself has different ideology", so suggest the
+  zero-native way instead (principle 7, ARCHITECTURE §3).
+- **Risk if wrong:** a port with many free-number sizes (`size={13}`, `size={17}`...) needs one entry per size, or
+  rounding to the nearest named size, which may change a design by a dp or two.
+- **Other options:** build G3 as planned; or make `width` / `height` runtime values in native (like `borderWidth` and
+  per-edge padding in RN props pack 2), which fits "values are live" (principle 2) but needs a registry bump and Kotlin
+  work for every layout key.
+- **Evidence wanted:** the pilot port's count of atoms whose sizes don't fit 2–3 named sizes. If many, prefer runtime
+  `width` / `height` over G3.
+
+## 101. A JSX variable is copied into each place that uses it (compiler pack, built)
+- **Where:** `compiler/src/compile.ts` `seeThrough`, `bindingOf`, `freeNames` (the "JSX variables" part).
+- **Chosen:** `const x = <A/>` is compiled where it is used, once per use (each use gets its own nodes in the template
+  it lands in), and the declaration is removed from the JS. Names inside the JSX are read where the JSX lands, so the build
+  stops if a name there means something else (a `.map` parameter with the same name). A JSX const used as a value
+  (function argument, array, export, handler) is a build error. An unused JSX const is dropped without a warning.
+- **Why:** it is what React does from the author's view (an element shown twice is two instances), it keeps "structure
+  is compiled", and it costs nothing at runtime.
+- **Risk if wrong:** a JSX const used in many places makes that many copies of its template (bundle size). Authors may
+  expect the JSX to be built where the const is written (React evaluates props there); here it is evaluated where it is
+  shown. Values are signals and read at the place of use, so the difference only shows for a plain `let` changed in
+  between, which zn screens don't rely on.
+- **Other options:** compile each JSX const once into a function and call it per use (one template, a runtime call);
+  or keep the old error and ask authors to make components.
+- **Evidence wanted:** template bytes in a real port with many JSX consts.
+
+## 102. Build-time values: body consts, simple operators, JavaScript scope (compiler pack, built)
+- **Where:** `compiler/src/fold.ts` `fold`, `binary`, `localBinding`, `declaredIn`.
+- **Chosen:** a `const` in a component body (or any block) with a build-time initialiser is a build-time value. Folded
+  operators: `? :`, `??`, `||`, `&&` (only the side that is used must be known), `!`, unary `+ -`, `=== !== == !=`,
+  `< > <= >=` (numbers or strings), `+` (numbers, or text with text or numbers), `- * / %` (numbers; a result that is
+  not finite is not folded), and template strings of primitives. A name is looked up by JavaScript's scope rules; a
+  parameter, `let`, `var`, function or class with the same name hides a const. A key missing from a const object is
+  still not a build-time value (as before), so a typo stays an error.
+- **Why:** design-system code puts sizes in body consts and does small math on them; folding them keeps those values
+  in the template (the only place layout values can live). Scope lookup fixes an old gap: a `.map((size) => ...)`
+  parameter used to be folded to a module `const size`.
+- **Risk if wrong:** a value that was a runtime slot can become a template constant, which changes the bundle bytes
+  (not the behaviour). Checked: the sample and the ZeroBill prototype compile to the same bytes as before.
+- **Other options:** fold only module consts (as before); evaluate the initialisers with a JS engine at build time.
+- **Evidence wanted:** none.
+
+## 103. No NativeWind `className`, and no port tool for it ("G5", dropped)
+- **Where:** ARCHITECTURE §3 principle 7, §25; rn-compatibility §10.
+- **Chosen:** zero-native has one styling system (`style` with RN names). No `className` support and no codemod that
+  turns classes into style objects.
+- **Why:** Pavan, 2026-11-04: "no way we're going to force classnames on our framework". A second styling system means
+  two ways to write every screen, a Tailwind config reader and runtime class strings that don't fit build-time
+  templates.
+- **Risk if wrong:** a NativeWind app (ZeroBill's RN app has about 900 `className` uses) is ported by hand, class by
+  class.
+- **Other options:** a one-time codemod outside the framework (`tools/port/`), which writes `style` objects and a
+  report; it adds nothing to the framework.
+- **Evidence wanted:** hours spent on `className` in the pilot port. If it dominates, reconsider only the one-time
+  codemod.
+
 ## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
 - **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.
 - **Chosen:** a data message `zn_ota=check` calls `ZnOta.check()` in the FCM service and waits for it (at most 15 s),
