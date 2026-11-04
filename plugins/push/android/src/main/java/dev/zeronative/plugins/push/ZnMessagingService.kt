@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dev.zeronative.runtime.ZnBackground
+import dev.zeronative.runtime.ZnOta
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -18,6 +19,7 @@ import org.json.JSONObject
  */
 class ZnMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
+        if (PushState.otaCheck && PushRules.isOtaCheck(message.data)) return otaCheck(message.messageId)
         val data = JSONObject()
         for ((k, v) in message.data) data.put(k, v)
         val payload = JSONObject()
@@ -47,6 +49,17 @@ class ZnMessagingService : FirebaseMessagingService() {
         runAndWait(PushRules.MESSAGE_TASK, JSONObject().put("deleted", true).put("inFront", PushState.inFront).put("data", JSONObject()), PushRules.MESSAGE_TIMEOUT_MS)
     }
 
+    /** "Check for an update now" from the server (PushRules.OTA_KEY): core's normal check, as at a start. */
+    private fun otaCheck(id: String?) {
+        Log.i(TAG, "message $id: OTA check asked")
+        val done = CountDownLatch(1)
+        ZnOta.check { r ->
+            Log.i(TAG, "OTA check from push: ${r.optString("action")} ${r.optString("reason")}")
+            done.countDown()
+        }
+        done.await(PushRules.OTA_WAIT_MS, TimeUnit.MILLISECONDS)
+    }
+
     private fun runAndWait(task: String, payload: JSONObject, timeoutMs: Long) {
         val done = CountDownLatch(1)
         ZnBackground.run(task, payload, timeoutMs) { outcome ->
@@ -71,4 +84,6 @@ class ZnMessagingService : FirebaseMessagingService() {
 internal object PushState {
     /** The app is on screen (from the plugin's Activity events). */
     @Volatile var inFront = false
+    /** PushPlugin(otaCheck): the `zn_ota=check` message runs the OTA check. */
+    @Volatile var otaCheck = true
 }

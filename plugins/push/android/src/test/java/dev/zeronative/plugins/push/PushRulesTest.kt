@@ -64,4 +64,60 @@ class PushRulesTest {
         assertEquals("failed", PushRules.tokenReason("AUTHENTICATION_FAILED"))
         assertEquals("failed", PushRules.tokenReason(null))
     }
+
+    @Test fun `the OTA check push is a data key with one value`() {
+        assertTrue(PushRules.isOtaCheck(mapOf("zn_ota" to "check")))
+        assertFalse(PushRules.isOtaCheck(mapOf("zn_ota" to "now")))
+        assertFalse(PushRules.isOtaCheck(mapOf("lab" to "show")))
+    }
+
+    @Test fun `a tap on FCM's notification gives the message id and its own data only`() {
+        val extras = mapOf<String, Any?>(
+            "google.message_id" to "0:123", "google.sent_time" to 1_700_000_000_000L, "google.ttl" to 2419200,
+            "from" to "866710910996", "collapse_key" to "dev.zeronative.sample", "gcm.n.e" to "1",
+            "lab" to "opened", "link" to "zn://sample/dev/push", "android.intent.extra.X" to 5,
+        )
+        assertTrue(PushRules.isFcmTap(extras))
+        assertFalse(PushRules.isFcmTap(mapOf("lab" to "x")))
+        assertEquals(mapOf("lab" to "opened", "link" to "zn://sample/dev/push"), PushRules.tapData(extras))
+        assertEquals(1_700_000_000_000L, PushRules.sentAt(extras["google.sent_time"]))
+        assertEquals(5L, PushRules.sentAt("5"))
+        assertEquals(0L, PushRules.sentAt(null))
+    }
+
+    @Test fun `inbox lines come after a picture, before big text`() {
+        assertEquals(PushRules.Style.PICTURE, PushRules.style("b", null, hasPicture = true, hasLines = true))
+        assertEquals(PushRules.Style.INBOX, PushRules.style("x".repeat(60), "big", hasPicture = false, hasLines = true))
+    }
+
+    @Test fun `lock screen visibility, categories, colors and progress`() {
+        assertEquals(0, PushRules.visibility(null))
+        assertEquals(-1, PushRules.visibility("secret"))
+        assertNull(PushRules.visibility("hidden"))
+        assertEquals("msg", PushRules.category("message"))
+        assertEquals("", PushRules.category("unknown"))
+        assertNull(PushRules.category(null))
+        assertEquals(0xFFE23744.toInt(), PushRules.color("#E23744"))
+        assertEquals(0x80E23744.toInt(), PushRules.color("#80E23744"))
+        assertNull(PushRules.color("red"))
+        assertNull(PushRules.progress(null, 3, null))
+        assertEquals(100, PushRules.progress(100, 250, null)!!.current)
+        assertTrue(PushRules.progress(null, null, true)!!.indeterminate)
+        assertNull(PushRules.progress(0, 0, false))
+    }
+
+    @Test fun `each button of each notification has its own request code`() {
+        assertTrue(PushRules.actionRequestCode("n1", "pay") != PushRules.actionRequestCode("n1", "later"))
+        assertTrue(PushRules.actionRequestCode("n1", "pay") != PushRules.actionRequestCode("n2", "pay"))
+    }
+
+    @Test fun `a repeat moves to its next time after now, a time ahead stays`() {
+        val day = 86_400_000L
+        assertEquals(1_000L, PushRules.nextAt(1_000L, "daily", 500L))
+        assertEquals(1_000L + day, PushRules.nextAt(1_000L, "daily", 1_000L))
+        assertEquals(1_000L + 3 * day, PushRules.nextAt(1_000L, "daily", 1_000L + 2 * day + 5))
+        assertEquals(1_000L, PushRules.nextAt(1_000L, "yearly", 9_000L))
+        assertNull(PushRules.repeatMs("monthly"))
+        assertEquals(604_800_000L, PushRules.repeatMs("weekly"))
+    }
 }

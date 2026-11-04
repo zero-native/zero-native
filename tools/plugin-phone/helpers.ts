@@ -104,6 +104,15 @@ export async function killInBackground() {
   const before = pid()
   shell("am", "kill", PKG)
   await sleep(800)
+  if (pid() === before) {
+    // Android keeps the last app ("previous", adj 700) out of `am kill`: another app first makes ours a cached one.
+    shell("am", "start", "-a", "android.settings.SETTINGS")
+    await sleep(1500)
+    shell("input", "keyevent", "KEYCODE_HOME")
+    await sleep(1000)
+    shell("am", "kill", PKG)
+    await sleep(800)
+  }
   check(pid() !== before, "the process lived")
 }
 export const pid = () => shell("pidof", PKG).trim()

@@ -10,10 +10,12 @@ const PICTURE = "https://picsum.photos/id/1080/800/400"
 const TOPIC = "zn-sample-lab"
 
 const channels = () =>
-  Promise.all([
-    Notifications.createChannel({ id: "lab_high", name: "Lab alerts", importance: "high", description: "Push lab: pops up" }),
-    Notifications.createChannel({ id: "lab_quiet", name: "Lab quiet", importance: "low", sound: false, vibration: false }),
-  ])
+  Notifications.createChannelGroup({ id: "lab", name: "Push lab" }).then(() =>
+    Promise.all([
+      Notifications.createChannel({ id: "lab_high", name: "Lab alerts", importance: "high", description: "Push lab: pops up", groupId: "lab" }),
+      Notifications.createChannel({ id: "lab_quiet", name: "Lab quiet", importance: "low", sound: false, vibration: false, groupId: "lab" }),
+    ]),
+  )
 
 /**
  * The lab's tasks, named in main.ts so they exist on a start with no screen. A data message with `lab: "show"` shows a
@@ -39,6 +41,18 @@ export function installPushLab() {
   })
   Push.onTokenRefresh(({ token }) => console.info(`push-lab token refreshed ${token.slice(0, 8)}`))
   Notifications.onDismiss((e) => console.info(`push-lab dismissed ${e.id} from=${e.data.from ?? "-"}`))
+  // Taps on notifications FCM showed itself (a `notification` block, app behind or closed).
+  void Push.getInitialNotification().then((m) => console.info(`push-lab initial ${m ? `lab=${m.data.lab ?? "-"}` : "none"}`))
+  Push.onNotificationOpenedApp((m) => console.info(`push-lab fcm opened lab=${m.data.lab ?? "-"}`))
+  // A button with no link. After a reply, show the same id again: Android shows a spinner until then.
+  Notifications.onAction(async (e) => {
+    console.info(`push-lab action ${e.actionId} on ${e.id} from=${e.data.from ?? "-"} input=${e.input ?? "-"}`)
+    if (e.actionId === "reply") {
+      await Notifications.show({ id: e.id, channelId: "lab_quiet", title: "Lab: buttons", body: `You said: ${e.input ?? ""}`, silent: true })
+    } else {
+      await Notifications.cancel(e.id)
+    }
+  })
 }
 
 function PushLabButton(props: { label: string; onPress: () => void }) {
@@ -125,6 +139,40 @@ export function PushLabScreen(props: { from?: string }) {
         <PushLabButton label="Show picture" onPress={() => void show("picture", { body: "With a big picture", imageUrl: PICTURE })} />
         <PushLabButton label="Show with link" onPress={() => void show("link", { body: "Tap to open the push lab", link: "zn://sample/dev/push?from=notification" })} />
         <PushLabButton label="Show group of 3" onPress={() => void showGroup()} />
+        <PushLabButton label="Show with buttons" onPress={() => void show("buttons", {
+          body: "Pay, later, or reply",
+          actions: [
+            { id: "pay", title: "Pay now", link: "zn://sample/dev/push?from=action" },
+            { id: "later", title: "Later" },
+            { id: "reply", title: "Reply", input: { placeholder: "Type a reply" } },
+          ],
+        })} />
+        <PushLabButton label="Show progress" onPress={() => void show("progress", {
+          body: "Uploading the bill", progress: { max: 100, current: 30 }, ongoing: true, onlyAlertOnce: true, category: "progress",
+        })} />
+        <PushLabButton label="Show private" onPress={() => void show("private", {
+          body: "₹499 paid to Lab Store", lines: ["₹499 paid to Lab Store", "Cashback ₹20"], visibility: "secret", number: 2, color: "#E23744",
+        })} />
+        <PushLabButton label="Schedule in 5 s" onPress={() => void channels()
+          .then(() => Notifications.schedule(
+            { id: "lab-scheduled", channelId: "lab_high", title: "Lab: scheduled", body: "Set 5 s before", data: { from: "scheduled" } },
+            { at: Date.now() + 5000 },
+          ))
+          .then((r) => say(`schedule once scheduled=${r.scheduled} reason=${r.reason}`))} />
+        <PushLabButton label="Schedule daily" onPress={() => void channels()
+          .then(() => Notifications.schedule(
+            { id: "lab-daily", channelId: "lab_quiet", title: "Lab: daily", body: "Every day" },
+            { at: Date.now() + 3_600_000, repeat: "daily" },
+          ))
+          .then((r) => say(`schedule daily scheduled=${r.scheduled} reason=${r.reason}`))} />
+        <PushLabButton label="List scheduled" onPress={() => void Notifications.getScheduled().then((l) =>
+          say(`scheduled ${l.length} ${l.map((n) => `${n.id}:${n.repeat ?? "once"}`).join(",")}`))} />
+        <PushLabButton label="Power status" onPress={() => void Promise.all([Notifications.canScheduleExact(), Notifications.isBatteryOptimized()])
+          .then(([exact, optimized]) => say(`power exact=${exact} optimized=${optimized}`))} />
+        <PushLabButton label="List shown" onPress={() => void Notifications.getDisplayed().then((l) =>
+          say(`displayed ${l.length} ${l.map((n) => `${n.id}:${n.data.from ?? "-"}`).join(",")}`))} />
+        <PushLabButton label="List channels" onPress={() => void Notifications.getChannels().then((l) =>
+          say(`channels ${l.length} ${l.map((ch) => `${ch.id}=${ch.importance}/${ch.groupId ?? "-"}${ch.blocked ? "/blocked" : ""}`).join(",")}`))} />
         <PushLabButton label="Cancel all" onPress={() => void Notifications.cancelAll().then(() => say("cancelled all"))} />
         <PushLabButton label="Subscribe topic" onPress={() => void Push.subscribe(TOPIC).then((ok) => say(`subscribe ${ok}`))} />
         <PushLabButton label="Unsubscribe topic" onPress={() => void Push.unsubscribe(TOPIC).then((ok) => say(`unsubscribe ${ok}`))} />

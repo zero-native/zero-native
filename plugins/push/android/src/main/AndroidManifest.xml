@@ -3,7 +3,8 @@
 
     <!-- Android 13+: showing a notification needs it, asked with Permissions.request(["notifications"]). Nothing asks by
          itself. Firebase's own manifest adds INTERNET, WAKE_LOCK and the C2DM receive permission. No exact alarms, no
-         boot receiver, no foreground service. -->
+         boot receiver of its own (the app adds ZnNotificationBoot if it wants scheduled notifications back after a
+         reboot: README), no foreground service. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
@@ -19,6 +20,17 @@
         <!-- A notification swiped away: runs the JS task "push.dismissed", and keeps the group summary right. -->
         <receiver
             android:name="dev.zeronative.plugins.push.ZnNotificationDismissed"
+            android:exported="false" />
+
+        <!-- A scheduled notification's alarm (Notifications.schedule): shows it natively. Never exported. The plugin
+             asks for no exact-alarm permission; an app that wants exact times declares SCHEDULE_EXACT_ALARM itself. -->
+        <receiver
+            android:name="dev.zeronative.plugins.push.ZnNotificationTrigger"
+            android:exported="false" />
+
+        <!-- A notification's button with no link: runs the JS task "push.action" (Notifications.onAction). -->
+        <receiver
+            android:name="dev.zeronative.plugins.push.ZnNotificationAction"
             android:exported="false" />
     </application>
 </manifest>

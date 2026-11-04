@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import dev.zeronative.runtime.ZnCall
 import dev.zeronative.runtime.ZnModuleBase
+import dev.zeronative.runtime.boolean
 import dev.zeronative.runtime.string
 import org.json.JSONObject
 
@@ -14,7 +15,7 @@ import org.json.JSONObject
  * ([ZnMessagingService]), not through this module. With no Firebase in the app (no google-services.json) every call
  * answers `unavailable` and nothing else happens.
  */
-internal class PushModule(context: Context) : ZnModuleBase("Push", version = 1) {
+internal class PushModule(context: Context) : ZnModuleBase("Push", version = 2) {
     private val available = try {
         FirebaseApp.getApps(context).isNotEmpty()
     } catch (e: Exception) {
@@ -47,6 +48,19 @@ internal class PushModule(context: Context) : ZnModuleBase("Push", version = 1) 
 
         function("subscribe") { call -> topic(call, subscribe = true) }
         function("unsubscribe") { call -> topic(call, subscribe = false) }
+
+        // A tap on a notification FCM showed itself (Opens.kt). Also with no Firebase: it reads only the Intent.
+        function("getInitialNotification", onMain = true) { call -> Opens.initial { call.resolve(it) } }
+        Opens.emit = { message -> emit("opened", message) }
+
+        // FCM makes a token at the first start by itself. Off (here, or firebase_messaging_auto_init_enabled=false
+        // in the manifest): no token until getToken(). Firebase keeps it across starts.
+        function("setAutoInitEnabled") { call ->
+            val on = call.boolean("on")
+            if (available) FirebaseMessaging.getInstance().isAutoInitEnabled = on
+            call.resolve(available)
+        }
+        function("isAutoInitEnabled") { call -> call.resolve(available && FirebaseMessaging.getInstance().isAutoInitEnabled) }
     }
 
     private fun topic(call: ZnCall, subscribe: Boolean) {

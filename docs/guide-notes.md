@@ -1691,3 +1691,55 @@ itself. API, Gradle lines and size: `plugins/analytics/README.md`.
   only the app's manifest can remove what a library adds, and Play's data safety form asks about them.
 - **Know:** booleans in parameters are sent as 1 or 0. Events reach the console about an hour later; DebugView shows
   them at once with `adb shell setprop debug.firebase.analytics.app <package>`.
+
+## 51. Push: taps on FCM's notifications, auto-init, the OTA check push (`@zero-native/push`, native version 2)
+
+RN Firebase's `messaging()` calls the push plugin had not covered in §48. API: `plugins/push/README.md`.
+
+- **Do** call `Push.getInitialNotification()` once in the start screen, and `Push.onNotificationOpenedApp(fn)` at the
+  top of main.ts, if your server sends messages with a `notification` block. **Why:** Android shows those itself while
+  the app is behind, and its tap opens the start screen with only the message's data; these two calls give it to you.
+- **Do** put a `link` in such a message's data and open it from those calls. **Why:** FCM's own notification has no
+  link of its own; the plugin's `Notifications.show` does.
+- **Know:** `getInitialNotification()` answers a message once. Asked before the Activity is up (top of main.ts), it
+  waits up to 10 s for it, then answers null.
+- **Do** send `zn_ota=check` as a data message (best to a topic) to make phones check for an OTA bundle now. **Know:**
+  it runs natively and never reaches `Push.onMessage`; it asks only your OTA server, so it can't install anything your
+  server doesn't offer. Phones in Doze get it only with `priority: high`.
+- **Do** turn FCM's auto-init off (`firebase_messaging_auto_init_enabled=false` in the manifest) if a token must wait
+  for consent, then call `Push.setAutoInitEnabled(true)` or `getToken()`. Firebase keeps it across starts.
+
+## 52. Notifications part 1: buttons, progress, lists (`@zero-native/push`, Notifications native version 2)
+
+notifee-like options on `Notifications.show`, a button task, channel groups and lists. API: `plugins/push/README.md`.
+
+- **Do** give money notifications `visibility: "secret"` (nothing on the lock screen) or keep the default `"private"`
+  (only the app name). **Don't** set `"public"` for bills, payments or OTPs. **Why:** anyone holding the phone reads
+  the lock screen.
+- **Do** call `Notifications.onAction(fn)` once, at the top of main.ts. **Why:** a button press can start the app with
+  no screen; a task defined in a screen doesn't exist then.
+- **Do** cancel the notification or show the same id again at the end of `onAction`. **Why:** Android leaves it as it
+  was, and after an inline reply it shows a spinner until you do.
+- **Do** use a button with a `link` to open a screen, and one without a link for work with no screen ("Mark as read").
+  **Why:** Android 12+ forbids starting a screen from a background task; the link button opens it directly.
+- **Do** update a progress bar by showing the same id again with `onlyAlertOnce: true` and `ongoing: true`, and cancel
+  it when done. **Why:** without `onlyAlertOnce` every update rings.
+- **Do** read `Notifications.getChannels()` before asking the user to turn a channel back on: `blocked: true` means
+  they turned it off. Open the settings with core's `Os.openSettings()`.
+- **Know:** Android shows 3 buttons and 6 inbox lines at most; the plugin drops the rest.
+
+## 53. Notifications part 2: scheduled notifications (`@zero-native/push`, Notifications native version 2)
+
+`Notifications.schedule(options, { at, repeat?, exact? })` shows a notification later with no JS. API and the boot
+receiver lines: `plugins/push/README.md`.
+
+- **Do** schedule reminders the server can't send (an offline reminder, "your bill is due tomorrow" from a saved
+  date). **Don't** schedule what the server knows: send a push. **Why:** a push can change or be withdrawn; an alarm
+  on a phone can't, until the app runs again.
+- **Know:** times are not exact by default: within 10 minutes, and in deep Doze when the phone wakes. **Don't** ask for exact alarms for a reminder.
+  **Why:** Play reviews `SCHEDULE_EXACT_ALARM`, and Android 14 turns it off by default.
+- **Do** add the boot receiver (README) if a reminder must show after a reboot before the user opens the app.
+  **Know:** without it, the plugin sets every alarm again at the next app start.
+- **Do** call `Notifications.cancelAll()` on logout: it also removes scheduled ones (as `cancel(id)` does for one id).
+- **Do** use the same id to move a reminder: scheduling an id again replaces it.
+- **Know:** a scheduled notification's options are saved on the phone until it shows. Put no private data in them.

@@ -3,7 +3,7 @@ import { installCalls } from "../../../packages/core/src/calls"
 import { installEvents } from "../../../packages/core/src/events"
 import { installTasks, resetTasksForTests } from "../../../packages/core/src/tasks"
 import { installFakeHost, type FakeHost } from "../../../packages/core/test/fake-host"
-import { DISMISS_TASK, MESSAGE_TASK, messaging, Notifications, Push, TOKEN_TASK, type PushMessage } from "../src/index"
+import { ACTION_TASK, DISMISS_TASK, MESSAGE_TASK, messaging, Notifications, Push, TOKEN_TASK, type PushMessage } from "../src/index"
 
 let host: FakeHost
 
@@ -115,4 +115,101 @@ test("RN Firebase's names: getToken gives a string, topics map over", async () =
   expect(await t).toBe("")
   void m.subscribeToTopic("ota-android-staging")
   expect(last("Push", "subscribe").args).toMatchObject({ topic: "ota-android-staging" })
+})
+
+test("getInitialNotification answers the message or null, and never rejects", async () => {
+  const opened = { messageId: "0:1", from: "866", sentAt: 5, data: { lab: "opened" } }
+  const p = Push.getInitialNotification()
+  reply(last("Push", "getInitialNotification").id, opened)
+  expect(await p).toEqual(opened)
+  const q = messaging().getInitialNotification()
+  refuse(last("Push", "getInitialNotification").id, "unavailable")
+  expect(await q).toBeNull()
+})
+
+test("onNotificationOpenedApp hears the native opened event until unsubscribed", () => {
+  const seen: string[] = []
+  const off = Push.onNotificationOpenedApp((m) => seen.push(m.data.lab ?? "-"))
+  const send = () => globalThis.__zn_onEvent(0, 8, JSON.stringify({ module: "Push", event: "opened", payload: { messageId: "0:2", from: null, sentAt: 0, data: { lab: "tap" } } }))
+  send()
+  off()
+  send()
+  expect(seen).toEqual(["tap"])
+})
+
+test("requestPermission uses core's notifications permission; RN's names answer AuthorizationStatus", async () => {
+  const p = Push.requestPermission()
+  const c = last("Permissions", "request")
+  expect(c.args).toMatchObject({ names: ["notifications"] })
+  reply(c.id, { notifications: "blocked" })
+  expect(await p).toBe("blocked")
+  const r = messaging().hasPermission()
+  reply(last("Permissions", "status").id, { notifications: "granted" })
+  expect(await r).toBe(1)
+})
+
+test("auto init passes through, and is false when the plugin is missing", async () => {
+  void Push.setAutoInitEnabled(false)
+  expect(last("Push", "setAutoInitEnabled").args).toMatchObject({ on: false })
+  const p = Push.isAutoInitEnabled()
+  refuse(last("Push", "isAutoInitEnabled").id, "unavailable")
+  expect(await p).toBe(false)
+})
+
+test("onAction runs as the push.action task with the button, data and typed input", async () => {
+  const seen: string[] = []
+  Notifications.onAction((e) => {
+    seen.push(`${e.id}/${e.actionId}/${e.data.from}/${e.input ?? "-"}`)
+  })
+  runTask("t1", ACTION_TASK, { id: "lab-buttons", actionId: "reply", data: { from: "buttons" }, input: "hi" })
+  await tick()
+  expect(seen).toEqual(["lab-buttons/reply/buttons/hi"])
+})
+
+test("show passes buttons, lines, progress and the lock screen setting through", () => {
+  void Notifications.show({
+    id: "n1",
+    channelId: "c",
+    title: "t",
+    actions: [{ id: "pay", title: "Pay", link: "zn://x" }, { id: "reply", title: "Reply", input: { placeholder: "Say" } }],
+    lines: ["a", "b"],
+    progress: { max: 100, current: 30 },
+    visibility: "secret",
+    number: 2,
+  })
+  expect(last("Notifications", "show").args).toMatchObject({
+    actions: [{ id: "pay", link: "zn://x" }, { id: "reply", input: { placeholder: "Say" } }],
+    lines: ["a", "b"],
+    progress: { max: 100, current: 30 },
+    visibility: "secret",
+    number: 2,
+  })
+})
+
+test("lists answer empty, and a channel null, when the plugin is older or missing", async () => {
+  const d = Notifications.getDisplayed()
+  refuse(last("Notifications", "getDisplayed").id, "unavailable")
+  expect(await d).toEqual([])
+  const c = Notifications.getChannels()
+  refuse(last("Notifications", "getChannels").id, "unavailable")
+  expect(await c).toEqual([])
+  const one = Notifications.getChannel("lab_high")
+  refuse(last("Notifications", "getChannel").id, "unavailable")
+  expect(await one).toBeNull()
+  const g = Notifications.createChannelGroup({ id: "lab", name: "Lab" })
+  refuse(last("Notifications", "createChannelGroup").id, "unavailable")
+  expect(await g).toBe(false)
+})
+
+test("schedule sends the notification with its trigger, and answers not scheduled when the plugin is older", async () => {
+  const p = Notifications.schedule({ id: "remind", channelId: "c", title: "Pay your bill" }, { at: 1_800_000_000_000, repeat: "daily" })
+  const c = last("Notifications", "schedule")
+  expect(c.args).toMatchObject({ notification: { id: "remind", title: "Pay your bill" }, at: 1_800_000_000_000, repeat: "daily" })
+  refuse(c.id, "unavailable")
+  expect(await p).toEqual({ scheduled: false, reason: null })
+  const l = Notifications.getScheduled()
+  refuse(last("Notifications", "getScheduled").id, "unavailable")
+  expect(await l).toEqual([])
+  void Notifications.openSettings("battery")
+  expect(last("Notifications", "openSettings").args).toMatchObject({ page: "battery" })
 })

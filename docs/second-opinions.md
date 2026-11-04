@@ -1189,3 +1189,64 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** an app that forgets step 5 ships the permissions, and Play's data safety form asks about the ad id.
 - **Other options:** remove them in the plugin's manifest; exclude `play-services-ads-identifier` in Gradle.
 - **Evidence wanted:** none.
+
+## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
+- **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.
+- **Chosen:** a data message `zn_ota=check` calls `ZnOta.check()` in the FCM service and waits for it (at most 15 s),
+  without starting the JS task. `PushPlugin(otaCheck = false)` turns it off.
+- **Why:** Pavan's D (2026-11-04): an OTA "check now" push after v1. A broken JS bundle is exactly when a fix must
+  still arrive, so the path must not need JS. The check asks only the app's configured OTA server, with the same
+  signature checks as a start, so a forged push can at most cause one extra check.
+- **Risk if wrong:** a topic message to every phone makes every phone hit the OTA server at once. Send it to a small
+  topic, or in waves.
+- **Other options:** a JS handler that calls `Updates.check()` (fails with a broken bundle); a separate FCM service in
+  core (core would then depend on Firebase).
+- **Evidence wanted:** the OTA server's load from one topic message, before ZeroBill uses it for all phones.
+
+## 121. A tap on FCM's own notification gives the data to JS; the plugin opens no link by itself (push plugin v2, built)
+- **Where:** `Opens.kt`, `Push.getInitialNotification`, `Push.onNotificationOpenedApp`.
+- **Chosen:** as in RN Firebase: the message's data comes to JS once (the app was closed) or as an event (it was
+  behind). The app opens `data.link` itself. The plugin's own `Notifications.show` still opens its `link` natively.
+- **Why:** on a cold start the tap's Intent has no link (FCM builds it), and core's start link is read before plugins
+  can add one; an automatic link would open on some starts and not others. JS deciding is the same on both paths.
+- **Risk if wrong:** apps that forget the two calls land on the start screen after a tap. §51 says to call them.
+- **Other options:** core API to add a start link from a plugin (host API 9); `click_action` intent filters.
+- **Evidence wanted:** none.
+
+## 122. A button with no link runs a JS task; a button with a link opens the app (push plugin, Notifications v2, built)
+- **Where:** `Actions.kt`, `ZnNotificationAction`, `Notifications.onAction`.
+- **Chosen:** like notifee's background `ACTION_PRESS`: a button without `link` goes to a broadcast receiver, which runs
+  the JS task `push.action` (8 s) with the notification's data and the typed reply. A button with `link` is an
+  Activity PendingIntent, the same as a tap on the notification. The notification is not cancelled by itself.
+- **Why:** Android 12+ blocks "trampolines" (a receiver that starts an Activity), so a button that must open a screen
+  has to be an Activity intent from the start. Leaving the notification as it is lets the task decide (update after a
+  reply, cancel after "Mark as read").
+- **Risk if wrong:** apps that forget to cancel leave a stale notification; after a reply, a spinner stays. README and
+  §52 say it.
+- **Other options:** cancel on every press (notifee doesn't); open the app for every button.
+- **Evidence wanted:** none.
+
+## 123. Lock screen default is "private" (push plugin, Notifications v2, built)
+- **Where:** `PushRules.visibility`, `NotificationsModule.show`.
+- **Chosen:** every notification the app shows sets `VISIBILITY_PRIVATE` unless `visibility` says otherwise.
+- **Why:** it is already Android's default for most phones, but some phones and user settings show everything; a
+  payments app should hide amounts unless it chose to show them.
+- **Risk if wrong:** promotional notifications show only "zn sample" on the lock screen; apps set `"public"` for those.
+- **Other options:** Android's own default (no call).
+- **Evidence wanted:** none.
+
+## 124. Scheduled notifications are shown natively by an alarm; inexact by default; the boot receiver is the app's (push plugin, Notifications v2, built)
+- **Where:** `Schedule.kt`, `ZnNotificationTrigger`, `ZnNotificationBoot`.
+- **Chosen:** `schedule` saves the `show` options and sets `setWindow` with a 10-minute window (exact only when asked
+  and allowed). Not `setAndAllowWhileIdle`: on the emulator its window was 3/4 of the wait (+44 min for an alarm an hour
+  ahead), so a reminder for tomorrow could show many hours late. `setWindow` waits in deep Doze until the phone wakes.
+  The alarm's receiver runs the same `show` code with no JS. Repeats (hourly, daily, weekly) set the next alarm after
+  each show. The plugin sets all alarms again at every app start; the boot receiver is in the plugin but declared only
+  by an app that wants it (Pavan: opt-in, 2026-11-04). `cancel` and `cancelAll` remove scheduled ones too (notifee does).
+- **Why:** an alarm must work with the app closed and JS not started, and a broken bundle must not stop a reminder.
+  No exact-alarm or boot permission is added to every app that uses push.
+- **Risk if wrong:** times can be up to 10 minutes late, and later in deep Doze (shown when the phone wakes); on phones with aggressive battery savers (Xiaomi, Oppo) alarms of a
+  swiped-away app may not fire at all (`isBatteryOptimized`, `openSettings("battery")`).
+- **Other options:** WorkManager (no exact times, minimum 15 minutes for periodic); notifee's AlarmManager with exact
+  alarms by default.
+- **Evidence wanted:** a check on a Xiaomi or Oppo phone with the app swiped away.

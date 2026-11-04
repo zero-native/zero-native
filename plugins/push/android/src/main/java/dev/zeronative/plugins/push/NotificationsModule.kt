@@ -1,23 +1,30 @@
 package dev.zeronative.plugins.push
 
+import android.app.Notification
 import android.app.NotificationChannel
+import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import dev.zeronative.runtime.ZnCall
 import dev.zeronative.runtime.ZnModuleBase
 import dev.zeronative.runtime.booleanOrNull
+import dev.zeronative.runtime.doubleOrNull
+import dev.zeronative.runtime.intOrNull
 import dev.zeronative.runtime.string
 import dev.zeronative.runtime.stringOrNull
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -25,7 +32,7 @@ import org.json.JSONObject
  * pictures and groups, cancel, and a check before showing. Works with no Firebase at all. A tap opens the notification's
  * `link` through core's normal link path (the app's `onLink`); a swipe away runs the JS task "push.dismissed".
  */
-internal class NotificationsModule(private val context: Context, private val debug: Boolean) : ZnModuleBase("Notifications", version = 1) {
+internal class NotificationsModule(private val context: Context, private val debug: Boolean) : ZnModuleBase("Notifications", version = 2) {
     private val manager = NotificationManagerCompat.from(context)
 
     init {
@@ -41,6 +48,7 @@ internal class NotificationsModule(private val context: Context, private val deb
                 ch.enableVibration(call.booleanOrNull("vibration") ?: true)
                 ch.enableLights(call.booleanOrNull("lights") ?: false)
                 ch.setShowBadge(call.booleanOrNull("badge") ?: true)
+                call.stringOrNull("groupId")?.let { ch.group = it }
                 // Android keeps a channel's sound, vibration and importance as first made (the user owns them then);
                 // only the name and description change on a second call.
                 manager.createNotificationChannel(ch)
@@ -53,6 +61,88 @@ internal class NotificationsModule(private val context: Context, private val deb
             call.resolve(true)
         }
 
+        // Version 2. Shown later by an alarm, with no JS (Schedule.kt). Same options as show, plus at / repeat / exact.
+        function("schedule") { call ->
+            val options = call.args.optJSONObject("notification")
+                ?: return@function call.reject("invalid_args", "notification is missing")
+            val at = call.doubleOrNull("at")?.toLong() ?: return@function call.reject("invalid_args", "at is missing")
+            val repeat = call.stringOrNull("repeat")
+            if (repeat == null && at <= System.currentTimeMillis()) return@function call.resolve(JSONObject().put("scheduled", false).put("reason", "past"))
+            val reason = Schedule.add(context, options, at, repeat, call.booleanOrNull("exact") ?: false)
+            call.resolve(JSONObject().put("scheduled", reason == null).put("reason", reason ?: JSONObject.NULL))
+        }
+
+        function("getScheduled") { call -> call.resolve(Schedule.list(context)) }
+
+        // Power and alarm settings (notifee's power manager helpers).
+        function("canScheduleExact") { call -> call.resolve(Schedule.canExact(context)) }
+
+        function("isBatteryOptimized") { call ->
+            val pm = context.getSystemService(android.os.PowerManager::class.java)
+            call.resolve(pm?.isIgnoringBatteryOptimizations(context.packageName) == false)
+        }
+
+        function("openSettings", onMain = true) { call ->
+            val action = when (call.string("page")) {
+                "exact_alarms" -> if (Build.VERSION.SDK_INT >= 31) android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM else null
+                "battery" -> android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+                "notifications" -> if (Build.VERSION.SDK_INT >= 26) android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS else null
+                else -> return@function call.reject("invalid_args", "page must be exact_alarms, battery or notifications")
+            } ?: return@function call.resolve(false)
+            val intent = android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (action != android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) {
+                intent.data = android.net.Uri.parse("package:${context.packageName}")
+                intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+            }
+            call.resolve(runCatching { context.startActivity(intent) }.isSuccess)
+        }
+
+        // Version 2. A heading over channels in the phone's settings ("Orders", "Offers").
+        function("createChannelGroup") { call ->
+            if (Build.VERSION.SDK_INT >= 26) {
+                val g = NotificationChannelGroup(call.string("id"), call.string("name"))
+                if (Build.VERSION.SDK_INT >= 28) call.stringOrNull("description")?.let { g.description = it }
+                manager.createNotificationChannelGroup(g)
+            }
+            call.resolve(true)
+        }
+
+        function("deleteChannelGroup") { call ->
+            if (Build.VERSION.SDK_INT >= 26) manager.deleteNotificationChannelGroup(call.string("id"))
+            call.resolve(true)
+        }
+
+        // The app's channels as the user left them: a channel the user turned off says `blocked`.
+        function("getChannels") { call ->
+            val out = JSONArray()
+            if (Build.VERSION.SDK_INT >= 26) for (ch in manager.notificationChannels) out.put(channelJson(ch))
+            call.resolve(out)
+        }
+
+        function("getChannel") { call ->
+            val ch = if (Build.VERSION.SDK_INT >= 26) manager.getNotificationChannel(call.string("id")) else null
+            call.resolve(if (ch != null && Build.VERSION.SDK_INT >= 26) channelJson(ch) else null)
+        }
+
+        // The app's notifications on screen now (not group summaries), newest first.
+        function("getDisplayed") { call ->
+            val out = JSONArray()
+            for (n in active().filter { !PushRules.isSummaryTag(it.tag) }.sortedByDescending { it.postTime }) {
+                val e = n.notification.extras
+                out.put(
+                    JSONObject()
+                        .put("id", n.tag)
+                        .put("title", e.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: JSONObject.NULL)
+                        .put("body", e.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: JSONObject.NULL)
+                        .put("channelId", if (Build.VERSION.SDK_INT >= 26) n.notification.channelId else JSONObject.NULL)
+                        .put("group", n.notification.group ?: JSONObject.NULL)
+                        .put("shownAt", n.postTime)
+                        .put("data", e.getString(EXTRA_DATA)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()),
+                )
+            }
+            call.resolve(out)
+        }
+
         function("canShow") { call -> call.resolve(JSONObject().put("reason", blocked(call.stringOrNull("channelId")) ?: JSONObject.NULL)) }
 
         // On the I/O pool: it may download a picture first.
@@ -60,6 +150,7 @@ internal class NotificationsModule(private val context: Context, private val deb
 
         function("cancel") { call ->
             val id = call.string("id")
+            Schedule.remove(context, id) // like notifee: a scheduled one with this id goes too
             val group = active().firstOrNull { it.tag == id }?.notification?.group
             manager.cancel(id, PushRules.NOTIFICATION_INT_ID)
             if (group != null) Groups.refresh(context, group, without = id)
@@ -67,6 +158,7 @@ internal class NotificationsModule(private val context: Context, private val deb
         }
 
         function("cancelAll") { call ->
+            Schedule.removeAll(context)
             manager.cancelAll()
             call.resolve(true)
         }
@@ -91,6 +183,17 @@ internal class NotificationsModule(private val context: Context, private val deb
         val group = call.args.optJSONObject("group")
         val groupKey = group?.optString("key")?.takeIf { it.isNotEmpty() }
         val data = call.args.optJSONObject("data") ?: JSONObject()
+        val visibility = PushRules.visibility(call.stringOrNull("visibility"))
+            ?: return call.reject("invalid_args", "visibility must be public, private or secret")
+        val categoryName = call.stringOrNull("category")
+        val category = PushRules.category(categoryName)
+        if (category == "") return call.reject("invalid_args", "unknown category \"$categoryName\"")
+        val progress = call.args.optJSONObject("progress")?.let {
+            PushRules.progress(if (it.has("max")) it.optInt("max") else null, it.optInt("current"), it.optBoolean("indeterminate"))
+        }
+        val lines = call.args.optJSONArray("lines")
+            ?.let { a -> List(minOf(a.length(), PushRules.MAX_LINES)) { a.optString(it) } }
+            ?.filter { it.isNotEmpty() }
         blocked(channelId)?.let { reason ->
             Log.w(TAG, "notification $id not shown: $reason")
             return call.resolve(JSONObject().put("shown", false).put("reason", reason))
@@ -105,13 +208,26 @@ internal class NotificationsModule(private val context: Context, private val deb
             .setContentIntent(Groups.tap(context, id, link))
             .setDeleteIntent(Groups.dismissIntent(context, id, groupKey, data))
         body?.let(b::setContentText)
-        color()?.let(b::setColor)
+        (PushRules.color(call.stringOrNull("color")) ?: color())?.let(b::setColor)
         largeIcon?.let(b::setLargeIcon)
-        when (PushRules.style(body, bigText, picture != null)) {
+        when (PushRules.style(body, bigText, picture != null, !lines.isNullOrEmpty())) {
             PushRules.Style.PICTURE -> b.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).setSummaryText(body))
+            PushRules.Style.INBOX -> b.setStyle(NotificationCompat.InboxStyle().also { s -> lines!!.forEach { s.addLine(it) } })
             PushRules.Style.BIG_TEXT -> b.setStyle(NotificationCompat.BigTextStyle().bigText(bigText ?: body))
             PushRules.Style.PLAIN -> {}
         }
+        // Version 2 (notifee-like). The lock screen hides the text by default ("private"): bills and payments are private.
+        b.setVisibility(visibility)
+        category?.let(b::setCategory)
+        progress?.let { b.setProgress(it.max, it.current, it.indeterminate) }
+        call.booleanOrNull("ongoing")?.let(b::setOngoing)
+        call.booleanOrNull("onlyAlertOnce")?.let(b::setOnlyAlertOnce)
+        if (call.booleanOrNull("silent") == true) b.setSilent(true)
+        call.intOrNull("number")?.let(b::setNumber)
+        call.doubleOrNull("timestamp")?.let { b.setWhen(it.toLong()).setShowWhen(true) }
+        call.booleanOrNull("showTimestamp")?.let(b::setShowWhen)
+        b.addExtras(Bundle().apply { putString(EXTRA_DATA, data.toString()) })
+        Actions.add(context, b, id, call.args.optJSONArray("actions"), data)
         if (groupKey != null) {
             b.setGroup(groupKey)
             Groups.remember(context, groupKey, channelId, group)
@@ -185,5 +301,16 @@ internal class NotificationsModule(private val context: Context, private val deb
         /** In the app's manifest: `<meta-data android:name="dev.zeronative.push.small_icon" android:resource="@drawable/..." />`. */
         const val META_SMALL_ICON = "dev.zeronative.push.small_icon"
         const val META_COLOR = "dev.zeronative.push.color"
+        /** The notification's `data`, kept in its extras for getDisplayed. */
+        private const val EXTRA_DATA = "dev.zeronative.push.data"
     }
+
+    @RequiresApi(26)
+    private fun channelJson(ch: NotificationChannel): JSONObject = JSONObject()
+        .put("id", ch.id)
+        .put("name", ch.name.toString())
+        .put("importance", PushRules.importanceName(ch.importance))
+        .put("blocked", ch.importance == NotificationManager.IMPORTANCE_NONE)
+        .put("description", ch.description ?: JSONObject.NULL)
+        .put("groupId", ch.group ?: JSONObject.NULL)
 }
