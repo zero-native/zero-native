@@ -18,6 +18,7 @@
     "@zero-native/webview": "workspace:*",
     "@zero-native/pdf": "workspace:*",
     "@zero-native/push": "workspace:*",
+    "@zero-native/remote-config": "workspace:*",
     "@zero-native/ui": "workspace:*"
   },
   "devDependencies": {

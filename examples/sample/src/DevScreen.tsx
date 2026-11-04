@@ -66,6 +66,7 @@ export function DevScreen() {
           <Entry title="Crashlytics plugin" step="crashlytics" detail="JS errors, keys, user id, opt-out, test crashes" onOpen={() => nav.push("crashlyticsLab")} />
           <Entry title="Push plugin" step="push" detail="FCM token, data messages, notifications: channels, pictures, groups, taps" onOpen={() => nav.push("pushLab")} />
           <Entry title="Analytics plugin" step="analytics" detail="Off until consent, events, purchase, user, screen views by route" onOpen={() => nav.push("analyticsLab")} />
+          <Entry title="Remote Config plugin" step="remote config" detail="Defaults, fetch and activate, values with their source, live updates" onOpen={() => nav.push("remoteConfigLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

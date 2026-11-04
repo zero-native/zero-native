@@ -31,6 +31,7 @@
         "@zero-native/media": "workspace:*",
         "@zero-native/pdf": "workspace:*",
         "@zero-native/push": "workspace:*",
+        "@zero-native/remote-config": "workspace:*",
         "@zero-native/scanner": "workspace:*",
         "@zero-native/ui": "workspace:*",
         "@zero-native/webview": "workspace:*",
@@ -118,6 +119,13 @@
         "@zero-native/core": "workspace:*",
       },
     },
+    "plugins/remote-config": {
+      "name": "@zero-native/remote-config",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
     "plugins/scanner": {
       "name": "@zero-native/scanner",
       "version": "0.0.0",
@@ -159,6 +167,8 @@
     "@zero-native/pdf": ["@zero-native/pdf@workspace:plugins/pdf"],
 
     "@zero-native/push": ["@zero-native/push@workspace:plugins/push"],
+
+    "@zero-native/remote-config": ["@zero-native/remote-config@workspace:plugins/remote-config"],
 
     "@zero-native/scanner": ["@zero-native/scanner@workspace:plugins/scanner"],
 

@@ -1250,3 +1250,13 @@ change, and what evidence would make you change it?"
 - **Other options:** WorkManager (no exact times, minimum 15 minutes for periodic); notifee's AlarmManager with exact
   alarms by default.
 - **Evidence wanted:** a check on a Xiaomi or Oppo phone with the app swiped away.
+
+## 125. Remote Config values are pushed to JS with each answer, so reads are plain calls (Remote Config plugin, built)
+- **Where:** `plugins/remote-config/src/index.ts`, `RemoteConfigModule.result`.
+- **Chosen:** every answer of `setDefaults`, `fetch`, `activate`, `fetchAndActivate` and `getAll` carries all values
+  with their source; JS keeps them and `getValue` reads that copy. Before the first answer, JS's own defaults answer.
+- **Why:** RN Firebase's `getValue` is synchronous (it reads native constants at start); zero-native calls are async,
+  and a payment screen must not wait on a promise to read a switch. Remote Config templates are small (a few KB).
+- **Risk if wrong:** a very large template (hundreds of keys, long JSON values) crosses the bridge on each answer.
+- **Other options:** an async `getValue`; a native snapshot read at runtime start (core change).
+- **Evidence wanted:** none.

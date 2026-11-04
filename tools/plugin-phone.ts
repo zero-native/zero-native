@@ -13,12 +13,13 @@ import { steps as rnprops } from "./plugin-phone/rnprops"
 import { steps as crashlytics } from "./plugin-phone/crashlytics"
 import { steps as push } from "./plugin-phone/push"
 import { steps as analytics } from "./plugin-phone/analytics"
+import { steps as remoteConfig } from "./plugin-phone/remote-config"
 
 const args = process.argv.slice(2)
 const noHands = args.includes("--no-hands")
 const handsOnly = args.includes("--hands")
 const only = args.filter((a) => !a.startsWith("--")) // any of these words in a step's name
-const all: Step[] = [...core, ...scanner, ...media, ...auth, ...webview, ...tabs, ...pdf, ...location, ...rnprops, ...crashlytics, ...push, ...analytics].filter((s) => !only.length || only.some((w) => s.name.includes(w)))
+const all: Step[] = [...core, ...scanner, ...media, ...auth, ...webview, ...tabs, ...pdf, ...location, ...rnprops, ...crashlytics, ...push, ...analytics, ...remoteConfig].filter((s) => !only.length || only.some((w) => s.name.includes(w)))
 const ordered = [...(handsOnly ? [] : all.filter((s) => !s.hands)), ...(noHands ? [] : all.filter((s) => s.hands))]
 const failures: string[] = []
 for (const step of ordered) {

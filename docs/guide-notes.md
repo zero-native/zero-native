@@ -1743,3 +1743,16 @@ receiver lines: `plugins/push/README.md`.
 - **Do** call `Notifications.cancelAll()` on logout: it also removes scheduled ones (as `cancel(id)` does for one id).
 - **Do** use the same id to move a reminder: scheduling an id again replaces it.
 - **Know:** a scheduled notification's options are saved on the phone until it shows. Put no private data in them.
+
+## 54. Remote Config (`@zero-native/remote-config`)
+
+Firebase Remote Config with RN Firebase's API; reads need no call. API: `plugins/remote-config/README.md`.
+
+- **Do** call `RemoteConfig.setDefaults({...})` at start with every key you read. **Why:** its answer also loads the
+  values kept from last time, and the app works the same offline and on the first start.
+- **Do** fetch in the background (`void RemoteConfig.fetchAndActivate()`) and read where it is safe. **Don't** let a
+  value change under the user during a payment. **Why:** a limit or price that changes mid-flow looks like a bug.
+- **Don't** use `minimumFetchIntervalMillis: 0` outside debug builds. **Why:** Firebase throttles the app.
+- **Don't** store secrets or personal data. **Why:** every user can read every value.
+- **Know:** `onConfigUpdated` keeps a connection open while you listen; updates arrive in seconds to a minute or two.
+  Call `activate()` in the handler when the new values may be used at once.

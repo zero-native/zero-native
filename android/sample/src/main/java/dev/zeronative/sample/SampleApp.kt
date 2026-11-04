@@ -15,6 +15,7 @@ import dev.zeronative.plugins.location.LocationPlugin
 import dev.zeronative.plugins.media.MediaPlugin
 import dev.zeronative.plugins.pdf.PdfPlugin
 import dev.zeronative.plugins.push.PushPlugin
+import dev.zeronative.plugins.remoteconfig.RemoteConfigPlugin
 import dev.zeronative.plugins.scanner.ScannerPlugin
 import dev.zeronative.plugins.webview.WebViewPlugin
 import dev.zeronative.runtime.ZnBundles
@@ -40,6 +41,7 @@ class SampleApp : Application() {
         ZnPlugins.register(this, CrashlyticsPlugin())
         ZnPlugins.register(this, PushPlugin())
         ZnPlugins.register(this, AnalyticsPlugin()) // off until JS turns it on (consent); screen views by route
+        ZnPlugins.register(this, RemoteConfigPlugin())
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call
         // Crashlytics' recordException(e.asThrowable()). The sample logs the full JS stack (with columns: the exact
         // TSX line with `bun run ota symbolicate`) and the Throwable a crash reporter would get.
