@@ -139,6 +139,37 @@ object ZnRuntime {
     /** Hears every error JS reported, and JS that hung or didn't start, on the main thread (crash reporting). */
     @Volatile var onJsError: ((ZnJsError) -> Unit)? = null
 
+    private val jsErrorListeners = java.util.concurrent.CopyOnWriteArrayList<(ZnJsError) -> Unit>()
+
+    /**
+     * Like [onJsError], but any number of them, so a plugin (plugins/crashlytics) and the app can both listen. Called
+     * after [onJsError], on the main thread. Returns a function that removes it.
+     */
+    fun addJsErrorListener(listener: (ZnJsError) -> Unit): () -> Unit {
+        jsErrorListeners += listener
+        return { jsErrorListeners -= listener }
+    }
+
+    /** Gives [error] to [onJsError] and every [addJsErrorListener] listener. One that throws doesn't stop the others. */
+    private fun tellJsError(error: ZnJsError) {
+        onJsError?.let { hook ->
+            try {
+                hook(error)
+            } catch (e: Exception) {
+                Log.e(TAG, "onJsError threw", e)
+            }
+        }
+        for (l in jsErrorListeners) {
+            try {
+                l(error)
+            } catch (e: Exception) {
+                Log.e(TAG, "a JS error listener threw", e)
+            }
+        }
+    }
+
+    private val hasJsErrorHook get() = onJsError != null || jsErrorListeners.isNotEmpty()
+
     /**
      * Counts runtimes created in this process. Stays 1 for the life of the process, except after a `zn dev` reload
      * (debug) or an update applied while the app runs ([restart]).
@@ -375,16 +406,11 @@ object ZnRuntime {
             val rolledBack = !taskHang && (kind == "start" || kind == "screen" || kind == "hang") && ZnOta.errorScreen(kind, where, details)
             if (kind == "hang" && !taskHang && !rolledBack) ZnNav.hung(details.substringBefore('\n'))
             if (BuildConfig.DEBUG) ZnDev.onJsError(rest)
-            val hook = onJsError ?: return@post
+            if (!hasJsErrorHook) return@post
             // A screen that failed while being built isn't the top of native's stack yet: its name is in the report.
             val screen = SCREEN_ERROR.find(where)?.groupValues?.get(1) ?: ZnNav.stack.lastOrNull()?.route?.name
             val running = ZnBundles.running
-            val error = ZnJsError(kind, where, details, screen, running.info?.id, running.label)
-            try {
-                hook(error)
-            } catch (e: Exception) {
-                Log.e(TAG, "onJsError threw", e)
-            }
+            tellJsError(ZnJsError(kind, where, details, screen, running.info?.id, running.label))
         }
     }
 
@@ -396,10 +422,10 @@ object ZnRuntime {
         Log.e(TAG, "renderer: $where", e)
         val details = "${e::class.simpleName}: ${e.message}"
         if (BuildConfig.DEBUG) ZnDev.onJsError("renderer: $where\n$details")
-        val hook = onJsError ?: return
+        if (!hasJsErrorHook) return
         try {
             val running = ZnBundles.running
-            hook(ZnJsError("renderer", where, details, ZnNav.stack.lastOrNull()?.route?.name, running.info?.id, running.label))
+            tellJsError(ZnJsError("renderer", where, details, ZnNav.stack.lastOrNull()?.route?.name, running.info?.id, running.label))
         } catch (t: Exception) {
             Log.e(TAG, "onJsError threw", t)
         }

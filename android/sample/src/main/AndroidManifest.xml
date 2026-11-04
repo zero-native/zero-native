@@ -17,6 +17,10 @@
         <!-- Lets macrobenchmark and the Baseline Profile generator trace the release build (:baselineprofile). -->
         <profileable android:shell="true" />
 
+        <!-- Notifications (plugins/push): the status bar icon for ours, and for those FCM shows by itself. -->
+        <meta-data android:name="dev.zeronative.push.small_icon" android:resource="@drawable/ic_zn_notification" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_zn_notification" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

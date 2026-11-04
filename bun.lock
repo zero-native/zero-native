@@ -23,10 +23,12 @@
       "dependencies": {
         "@zero-native/auth": "workspace:*",
         "@zero-native/core": "workspace:*",
+        "@zero-native/crashlytics": "workspace:*",
         "@zero-native/device-test": "workspace:*",
         "@zero-native/location": "workspace:*",
         "@zero-native/media": "workspace:*",
         "@zero-native/pdf": "workspace:*",
+        "@zero-native/push": "workspace:*",
         "@zero-native/scanner": "workspace:*",
         "@zero-native/ui": "workspace:*",
         "@zero-native/webview": "workspace:*",
@@ -52,6 +54,13 @@
     },
     "plugins/auth": {
       "name": "@zero-native/auth",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
+    "plugins/crashlytics": {
+      "name": "@zero-native/crashlytics",
       "version": "0.0.0",
       "peerDependencies": {
         "@zero-native/core": "workspace:*",
@@ -86,6 +95,13 @@
         "@zero-native/ui": "workspace:*",
       },
     },
+    "plugins/push": {
+      "name": "@zero-native/push",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
     "plugins/scanner": {
       "name": "@zero-native/scanner",
       "version": "0.0.0",
@@ -110,6 +126,8 @@
 
     "@zero-native/core": ["@zero-native/core@workspace:packages/core"],
 
+    "@zero-native/crashlytics": ["@zero-native/crashlytics@workspace:plugins/crashlytics"],
+
     "@zero-native/device-test": ["@zero-native/device-test@workspace:plugins/device-test"],
 
     "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
@@ -119,6 +137,8 @@
     "@zero-native/media": ["@zero-native/media@workspace:plugins/media"],
 
     "@zero-native/pdf": ["@zero-native/pdf@workspace:plugins/pdf"],
+
+    "@zero-native/push": ["@zero-native/push@workspace:plugins/push"],
 
     "@zero-native/scanner": ["@zero-native/scanner@workspace:plugins/scanner"],
 

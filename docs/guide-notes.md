@@ -742,7 +742,8 @@ bun run ota serve                                    the reference update server
 - **Why:** an update must never be the reason a user can't take a photo or receive an OTP.
 
 ### Finding the TSX line of a release crash (step 4.8, docs/ota.md §3.7)
-- **Do:** wire Crashlytics once in your `Application`:
+- **Do:** wire Crashlytics once in your `Application` (since 2026-11-04 `@zero-native/crashlytics` does all of this by
+  itself, §46; the lines below are for an app without the plugin):
   ```kotlin
   ZnRuntime.onJsError = { e ->
       FirebaseCrashlytics.getInstance().log(e.details)           // the full JS stack, with columns
@@ -1610,3 +1611,50 @@ and limits: `plugins/location/README.md`.
 - **Know:** the Geocoder needs the internet on most phones and can take seconds. `postalCode` is a string. **Do** cache
   its answers by rounded coordinates.
 - **Don't** log coordinates or addresses. The plugin never does.
+
+## 46. Crashlytics (`@zero-native/crashlytics`)
+
+Firebase Crashlytics: Kotlin crashes, every JS error as a non-fatal, OTA outcomes, and keys for the bundle and the top
+route, with no JS code. API, Gradle lines and size: `plugins/crashlytics/README.md`.
+
+- **Do** register it with the other plugins and stop sending JS errors to Crashlytics yourself in `ZnRuntime.onJsError`
+  (the guide in "Finding the TSX line of a release crash" showed that by hand before the plugin). **Why:** the plugin
+  already does it; both together send each error twice.
+- **Do** call `Crashlytics.setUserId(yourOwnId)` after login and `setUserId("")` on logout. **Don't** use a phone
+  number, an email or a VPA, in the id or in a key. **Why:** everyone with console access sees them for 90 days.
+- **Don't** put private values in your own error messages. Nothing is masked unless you pass
+  `CrashlyticsPlugin(redact = { ... })`.
+- **Do** filter the console by the key `zn_bundle_id` to see one OTA bundle's crashes. **Know:** Crashlytics groups by
+  stack, not by key, so one issue can span bundles; its keys tab says which.
+- **Do** paste a JS stack from the console into `bun run ota symbolicate` for the TSX line: the issue's `zn_bundle`
+  key (`app_12@1a2b3c4d5e6f`) says which map. JS maps never go to Firebase.
+- **Do** build releases for testers with `-PznUploadMapping` (or your own flag), so Kotlin stacks have real names.
+- **Know:** reports go out at the next start. To test, use the lab's buttons or `Crashlytics.crash()`, then start the
+  app again.
+- **Know:** native crashes (Hermes, C++) need `firebase-crashlytics-ndk`, opt-in (+1.30 MB). Without it they still count
+  in the OTA health check, so a bad bundle is still rolled back.
+- **Do** call `Crashlytics.setCrashlyticsCollectionEnabled(false)` if the user opts out. It is kept across starts.
+
+## 48. Push and notifications (`@zero-native/push`)
+
+FCM messages as a JS task, and notifications the app shows itself (channels, pictures, groups, taps that open a route).
+API and rules: `plugins/push/README.md`.
+
+- **Do** call `Push.onMessage`, `Push.onTokenRefresh` and `Notifications.onDismiss` at the top of `main.ts`. **Why:** FCM
+  can start the app with no screen; a handler named inside a screen doesn't exist then (the task answers `no_task`).
+- **Do** send data-only messages and show them with `Notifications.show` when a tap must open a route, or for pictures
+  and groups. **Know:** a message with a `notification` block is shown by Android itself while the app is behind, JS
+  doesn't run for it then, and a tap opens the app on its start screen.
+- **Do** create channels at every start (safe) before `show`. **Know:** a channel's importance, sound and vibration are
+  fixed once made; change them with a new channel id.
+- **Do** ask for the permission from a tap ("Turn on notifications"): `Permissions.request(["notifications"])`. Check
+  with `Notifications.canShow(channelId)` first. `blocked` from the request ("Don't allow" twice) means `Os.openSettings()`.
+- **Do** compare `Push.getToken()` with the token you last sent, at every start and after login, and send it if it
+  changed. **Why:** `onTokenRefresh` can run while the app is closed and your server call can fail then.
+- **Do** call `Push.deleteToken()` and `Notifications.cancelAll()` on logout.
+- **Do** keep `onMessage` short: 15 s at most, and `signal` aborts at the limit. Long work goes to the server.
+- **Don't** log `m.data` as a whole or put private data in a message. **Why:** FCM's servers and the phone's own
+  notification log keep it.
+- **Do** put "where it came from" in the link (`?from=push`) to count opens: the tap goes through `onLink` like any link.
+- **Do** give the app a white-on-clear icon in the manifest (`dev.zeronative.push.small_icon` and FCM's
+  `default_notification_icon`). **Why:** Android draws the app icon as a white square in the status bar.

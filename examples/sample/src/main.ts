@@ -2,6 +2,7 @@
 // route on top of it) and tells JS which ones; JS renders them (packages/core/src/nav.ts).
 import { defineTask, installRuntime, onNavResult, startApp } from "@zero-native/core"
 import { routes } from "./routes"
+import { installPushLab } from "./PushLab"
 
 installRuntime()
 // A link with ?refuse=1 is refused: how the phone test checks the guard, at start and while the app runs.
@@ -20,6 +21,8 @@ defineTask("lab.slow", (_, signal) => {
 defineTask("lab.throw", () => {
   throw new Error("core-lab task threw")
 })
+// The push lab (PushLab.tsx): a message, a new token or a swipe can start the app with no screen.
+installPushLab()
 // With no pushForResult waiting: after a kill, or from nav.push.
 onNavResult<{ code: string }>("fakeScreen", (value, ack) => {
   console.info(`core-lab nav result: ${value?.code}`)

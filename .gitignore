@@ -53,3 +53,7 @@ test-kit/offers-data.json
 
 # Part names the zero-native build writes next to each .svg (docs/svg.md §16)
 *.d.svg.ts
+
+# Firebase config of the "zero-native-sample" project: never committed. The sample builds without it (Firebase off).
+android/sample/google-services.json
+**/google-services.json

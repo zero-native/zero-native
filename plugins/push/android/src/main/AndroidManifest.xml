@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 13+: showing a notification needs it, asked with Permissions.request(["notifications"]). Nothing asks by
+         itself. Firebase's own manifest adds INTERNET, WAKE_LOCK and the C2DM receive permission. No exact alarms, no
+         boot receiver, no foreground service. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- Every FCM message and new token. Data messages run the JS task "push.message". -->
+        <service
+            android:name="dev.zeronative.plugins.push.ZnMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- A notification swiped away: runs the JS task "push.dismissed", and keeps the group summary right. -->
+        <receiver
+            android:name="dev.zeronative.plugins.push.ZnNotificationDismissed"
+            android:exported="false" />
+    </application>
+</manifest>

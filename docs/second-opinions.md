@@ -1072,3 +1072,73 @@ change, and what evidence would make you change it?"
   `enableHighAccuracy: true` to it waits longer than on RN's fused provider.
 - **Other options:** RN's limits (no timeout cap); a separate geocoder plugin.
 - **Evidence wanted:** accuracy numbers from the Lava at a few spots.
+
+## 90. JS errors reach Crashlytics by themselves, through add-only listener lists in core (Crashlytics plugin, built)
+- **Where:** `ZnRuntime.addJsErrorListener`, `ZnOta.addReportListener` (core, Kotlin only); `CrashlyticsPlugin.register`.
+- **Chosen:** core keeps its one `onJsError` / `onReport` hook for the app and adds listener lists next to them. The
+  plugin adds a listener at register time, so every JS error (also hangs, start failures, renderer errors) becomes a
+  non-fatal with no app code. `CrashlyticsPlugin(jsErrors = false)` turns that off.
+- **Why:** Pavan asked for what is nearest to RN and Flutter Firebase. RN Firebase hooks the global JS handler by
+  itself and chains the old one; Flutter asks the app for one line. A single hook would let the app (the sample sets
+  both) silently replace the plugin's, or the other way round. Add-only lists change nothing for existing apps.
+- **Risk if wrong:** an app that also sends JS errors to Crashlytics in its own `onJsError` sends each one twice.
+- **Other options:** the app forwards to the plugin by hand (Flutter style); the plugin chains the old hook (breaks if
+  the app sets it later).
+- **Evidence wanted:** none.
+
+## 91. Nothing is masked before Crashlytics; the app can pass `redact` (Crashlytics plugin, built)
+- **Where:** `CrashlyticsPlugin(redact = ...)`, `CrashlyticsModule.clean`.
+- **Chosen:** JS error text, logs and string keys go to Crashlytics as they are. An app that wants masking passes
+  `redact`; if it throws, the text is left out (never the raw text). The README says: your own id in `setUserId`,
+  never a phone number, email or VPA.
+- **Why:** Pavan: "it's the app developer's call". OTA telemetry masks because it goes to our update server; Crashlytics
+  is the app's own project. Built-in masks (digit runs of 6+) would also hide useful ids in error messages.
+- **Risk if wrong:** an app puts a phone number in an error message and it lands in the console for 90 days. ZeroBill's
+  RN app sends the raw phone today as an attribute (ZeroBill item, not the framework's).
+- **Other options:** core's OTA masks on by default with an opt-out (my first proposal).
+- **Evidence wanted:** none; a privacy review of ZeroBill's keys before the pilot.
+
+## 92. Native crash reporting (firebase-crashlytics-ndk) is opt-in (Crashlytics plugin, built)
+- **Where:** `plugins/crashlytics/README.md` "Native crashes"; the sample adds it only with `-PznCrashlyticsNdk`.
+- **Chosen:** the plugin doesn't bring it. The app adds one Gradle line.
+- **Why:** measured on the sample's R8 release: +1.30 MB in the APK (4 `.so` files, stored uncompressed), about 460 KB
+  to download, against about 232 KB for the rest of Crashlytics. Pavan chose opt-in. Without it a native crash still
+  counts in core's OTA health check (Android's exit record), so a bad bundle is still rolled back.
+- **Risk if wrong:** Hermes or C++ crashes are invisible in the console for apps that skip it.
+- **Other options:** always on (RN Firebase's default); a separate `plugin-crashlytics-ndk` Gradle project.
+- **Evidence wanted:** how often native crashes happen in the pilot (Android vitals shows them without the NDK).
+
+## 93. One JS task for every push message, in front, behind or closed (push plugin, built)
+- **Where:** `ZnMessagingService.onMessageReceived` → `ZnBackground.run("push.message")`; `Push.onMessage`.
+- **Chosen:** no separate "front only" event. Every data message runs the same task, with `inFront`. The service thread
+  waits for the task, at most 15 s (FCM gives about 20).
+- **Why:** RN's split (`onMessage` in front, `setBackgroundMessageHandler` behind) is where "works only when open" bugs
+  come from. One path is tested once. A screen that wants a live refresh reads a store the task writes.
+- **Risk if wrong:** a message that only matters on screen still costs a task when the app is closed (a cold JS start).
+- **Other options:** RN's two handlers.
+- **Evidence wanted:** cold-start time of a task started by FCM on the Lava.
+
+## 94. Group summaries are kept by the plugin, from 2 notifications on; FCM's own notifications open the app only (push plugin, built)
+- **Where:** `Groups.refresh` (after show, cancel and swipe; summary options saved per group in a small prefs file).
+- **Chosen:** a group with 2 or more shows one inbox summary (newest 5 lines), silent; at 1 it is removed. A message with
+  a `notification` block, shown by Android while the app is behind, opens the app on a tap (no route in v1).
+- **Why:** ZeroBill's RN app does exactly this summary by hand on Notifee; Android's own grouping starts at 4 and shows
+  no text. ZeroBill's RN app doesn't route FCM-shown taps either (taps go through Notifee for its custom ones), so
+  v1 loses nothing. Routing them needs core to read the launch intent's extras.
+- **Risk if wrong:** `activeNotifications` right after `notify` can miss the new one (Android posts it later); the plugin
+  adds it by hand. A launcher that hides groups shows the summary only.
+- **Other options:** leave grouping to Android; route FCM-shown taps with a `link` data key (core change).
+- **Evidence wanted:** the group on the Lava and one Android 8–10 phone.
+
+## 95. Firebase Gradle plugins only when google-services.json is there; R8 mapping upload only on request (Firebase plugins)
+- **Where:** `android/sample/build.gradle.kts` (end), `.gitignore`.
+- **Chosen:** the sample applies `com.google.gms.google-services` and `com.google.firebase.crashlytics` only when
+  `android/sample/google-services.json` exists (never committed), and logs one line when not. Release builds upload the
+  R8 mapping only with `-PznUploadMapping`.
+- **Why:** other sessions and CI have no json and must still build and run (Firebase then doesn't start; both plugins
+  answer "not available"). An everyday release build (size numbers) must not send anything to Firebase.
+- **Risk if wrong:** a release build sent to testers without `-PznUploadMapping` has obfuscated Kotlin stacks in the
+  console (JS stacks are not affected).
+- **Other options:** commit a dummy json (Crashlytics then reports to nowhere); always upload (ZeroBill's production
+  flavour does).
+- **Evidence wanted:** none.

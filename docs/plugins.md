@@ -29,10 +29,11 @@ breaks somewhere. So first one plugin system, then the features as plugins on to
 | Android merges a library's `AndroidManifest.xml` (permissions, providers, activities) into the app | Android does it | — |
 | `<NativeView>` | **built** 2026-11-03 (registry 9) | `ZnNativeViews.kt`, ARCHITECTURE §15.2, `docs/guide-notes.md` §35 |
 | Native screens as routes | **built** 2026-11-03 | `ZnNavHost.kt`, `nav.ts`, ARCHITECTURE §15.3, `docs/guide-notes.md` §35 |
-| Background JS tasks, secure screens, dark mode, low memory, right to left | **built** 2026-11-03 (host API 6) | `ZnBackground.kt`, `tasks.ts`, `appearance.ts`, `docs/guide-notes.md` §36–37 |
+| Background JS tasks, secure screens, dark mode, low memory, right to left | **built** 2026-11-03 (host API 6); push uses the tasks since 2026-11-04 | `ZnBackground.kt`, `tasks.ts`, `appearance.ts`, `docs/guide-notes.md` §36–37 |
 | Official plugins `auth`, `scanner`, `media`, `webview` | **built** 2026-11-03, opt-in | `plugins/<name>/README.md`, `docs/guide-notes.md` §38 |
 | Official plugin `pdf`: download and cache, a card preview, a viewer with zoom, on Android's own PdfRenderer | **built** 2026-11-03, opt-in | `plugins/pdf/README.md`, `docs/guide-notes.md` §44 |
 | Official plugin `location` (Android's `LocationManager` and `Geocoder`; Play services only for the turn-on dialog) | **built** 2026-11-03, opt-in | `plugins/location/README.md`, `docs/guide-notes.md` §45 |
+| Official plugins `crashlytics` and `push` (Firebase; FCM messages as JS tasks, notifications shown natively) | **built** 2026-11-04, opt-in; the sample turns Firebase on only when its `google-services.json` is there | `plugins/crashlytics/README.md`, `plugins/push/README.md`, `docs/guide-notes.md` §46, §48 |
 | Permissions, "open another app and get its result" | **built** (P.2) | `ZnPermissions.kt`, `ZnLaunch.kt`, `docs/guide-notes.md` §31–32 |
 | Codegen (Kotlin interface from the TS interface) | **not built** | ARCHITECTURE §15.1 |
 
@@ -159,7 +160,9 @@ app owns** (D7).
 | WebView | plugin `@zero-native/webview` | Native view; cookies per app, file upload, `postMessage` both ways, which links leave the app |
 | Photos / files / PDF | plugin `@zero-native/media` | Pick, compress, crop, rotate natively; JS sees `zn://` handles |
 | Show a PDF | plugin `@zero-native/pdf` (**built** 2026-11-03) | `<PdfView>`, `<PdfPreview>`, `Pdf.download` to `zn://file`. Android's PdfRenderer: no library, ~15 KB |
-| Push (FCM) | plugin `@zero-native/push` on top of core background JS | Token, messages in front / back, tap to open a route. **Later** (Firebase work moved out, 2026-11-02): background JS is built and waits for it |
+| Push (FCM) | plugin `@zero-native/push` on top of core background JS | **Built 2026-11-04.** Token and topics; every data message runs the task `push.message` (front, back, closed); `Notifications`: channels, pictures, groups with a summary, a tap opens `link` through `onLink`. Second-opinions 93–94 |
+| Crash reports | plugin `@zero-native/crashlytics` | **Built 2026-11-04.** JS errors, OTA outcomes, bundle and route keys by themselves (core's add-only `addJsErrorListener` / `addReportListener`). NDK opt-in (+1.30 MB). Second-opinions 90–92, 95 |
+| Analytics | plugin `@zero-native/analytics`, **planned** | Off by default (manifest `firebase_analytics_collection_enabled=false`, ad id off) until the app turns it on after consent (`setCollectionEnabled`, consent mode). Screen views from nav route names by themselves, with an opt-out. `logEvent`, `setUserId`, `setUserProperty`. Not built: no app needs it for the pilot |
 | Screenshot blocking | core: route option `secure: true` | `FLAG_SECURE` while that screen is on top |
 | Certificate pinning | core: `fetch` option / app config | OkHttp `CertificatePinner`; needs a pin-rotation plan. **Not built:** RN has none today, so the pilot doesn't need it |
 | Dark mode, low memory, right-to-left | core | Colour tokens with light / dark values; `onTrimMemory` clears caches; `start` / `end` already exist |
@@ -210,7 +213,7 @@ TS runs alongside from the start, in the app's private repo.
 | P.3b **built 2026-11-03** | `@zero-native/auth`: phone number hint, SMS Retriever | Both work on the Lava; each failure falls back to typing |
 | P.4a **built 2026-11-03** | `@zero-native/scanner` as a native screen (`pushForResult`, route `native:` field). No `<NativeView>` | QR scan on the Lava; camera stops when covered; stale frames ignored; release build size measured |
 | P.4b **built 2026-11-03** (moved before the pilot) | `<NativeView>` (registry 9); the scanner gains a view form | A view draws, sends events, stops when covered; the compiler refuses a name with no module |
-| P.5 **background JS built 2026-11-03**; push later | Background JS + `@zero-native/push` | A task runs with no screen, with a time limit (built). Push: a push in background runs a JS task; tap opens a route (later) |
+| P.5 **built** (background JS 2026-11-03, push 2026-11-04) | Background JS + `@zero-native/push` | A task runs with no screen, with a time limit (built). Push: a push in background runs a JS task; tap opens a route (built) |
 | P.6 **built 2026-11-03**, no pinning | `webview`, `media`, and core items (secure screens, pinning, dark mode, low memory, RTL) | Webview loads, talks both ways, keeps links in or out; media picks, shrinks and uploads by handle; a secure screen blanks screenshots; dark mode follows the phone |
 
 P.4a unblocks the ZeroBill pilot's screens: login, scan, UPI transaction (details in the app's private repo).

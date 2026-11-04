@@ -123,6 +123,51 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-04: Firebase plugins: Crashlytics and push (Claude)
+- **What:** `@zero-native/crashlytics` and `@zero-native/push` (`plugins/crashlytics/`, `plugins/push/`), opt-in, like
+  RN Firebase's modules. Firebase project "zero-native-sample" (not ZeroBill's). Analytics planned only
+  (`plugins.md` §7). Guide §46 and §48 (§47 is the compiler pack's), second-opinions 90–95, READMEs, `rn-compatibility.md` rows. No registry or host API
+  change (modules `Crashlytics` v1, `Push` v1, `Notifications` v1).
+- **Core (Kotlin only, add-only):** `ZnRuntime.addJsErrorListener` and `ZnOta.addReportListener`, next to the single
+  `onJsError` / `onReport` hooks, so a plugin and the app can both listen (second-opinions 90).
+- **Gradle:** google-services 4.5.0 and Crashlytics 3.0.8 work with AGP 9.2.1 / Gradle 9.4.1. The sample applies them
+  only when `android/sample/google-services.json` is there (git-ignored); else one line, and both plugins answer
+  "not available". Mapping upload only with `-PznUploadMapping`. NDK only with `-PznCrashlyticsNdk`.
+- **Crashlytics:** every JS error as a non-fatal (JS stack frames, so `ota symbolicate` works), at most 30 per launch;
+  serious OTA outcomes as `zn.ota.<kind>` non-fatals; keys `zn_bundle`, `zn_bundle_id`, `zn_built_in`, `zn_host_api`,
+  `zn_route`, `zn_js_kind`; screen changes as log lines. Nothing masked unless the app passes `redact` (Pavan).
+- **Push:** every data message, new token and swipe runs a JS task (`push.message`, `push.token`, `push.dismissed`),
+  the FCM service waits for it (15 s). `Notifications`: channels, big text, big picture, large icon, groups with a
+  summary from 2 on, a tap opens `link` through core's link path, `canShow`. `tools/push-send.ts` sends a test message
+  with the FCM v1 API and the developer's gcloud login.
+- **Lab:** `/dev/crashlytics`, `/dev/push` (dev screen). Phone steps: `bun run tools/plugin-phone.ts crashlytics`,
+  `... push` (they say SKIP without the json).
+- **Tests:** JS 896 pass (crashlytics 6, push 8), types clean; Kotlin: crashlytics 8, push 8, runtime 179; lint 0 errors
+  (`:runtime:lintDebug :plugin-crashlytics:lintDebug :plugin-push:lintDebug :sample:lintRelease`); debug builds with
+  and without the json; R8 release built.
+- **Size (R8 release, arm64):** Crashlytics about **+232 KB** (classes.dex +225 KB compressed; JS assets left out of the
+  count, the baseline build had none); NDK **+1.30 MB** more (about 460 KB to download); push about **+54 KB** on top
+  of Crashlytics (they share Firebase's core; push alone not measured). Release APK with both: 14,659,376 bytes.
+- **Verified on the Lava (debug, Android 14), 2026-11-04:**
+  - `bun run tools/plugin-phone.ts crashlytics`, 3 of 3 steps: status and opt-out; a caught error, a tap handler that
+    threw and a promise nobody caught, sent at the next start (`crashlyticsreports-pa`, status 200); a Kotlin crash, sent
+    at the next start (200).
+  - In the console (read with the Firebase MCP): the crash as FATAL, the 3 JS errors as NON_FATAL issues named after
+    their JS function (`main.js - zn.js.handlerThrows`). An event carries the user id, the lab keys and every `zn_` key
+    (`zn_bundle=sample_0@b84baa331430`, `zn_route=crashlyticsLab`, `zn_js_kind=handler`, `zn_host_api=8`), and the
+    logs: screen changes, the bundle, an OTA check, the full JS stack.
+  - The console's stack mapped back with `bun run ota keep-map` + `ota symbolicate`: `main.js:10002` →
+    `CrashlyticsLab.tsx:60`, the `throw` line.
+  - Push, 3 of 3 local steps: the permission (revoked: `canShow` off, `show` refused; Android's dialog, Allow →
+    granted), plain, long, picture (picsum), a group of 3 with its summary, a tap on a notification opens
+    `/dev/push?from=notification` through `onLink`, "Clear all" runs `push.dismissed` with the notification's data.
+    An FCM token and a topic subscribe work.
+- **Fixed after the phone run:** the first breadcrumb was `nav: - -> -` (before any screen); the push lab read
+  `canShow` before it made its channels (`no_channel`).
+- **Not verified yet:** a real FCM message in front and with the app killed (the two FCM steps; gcloud's login had
+  expired), an OTA bundle's error with `zn_built_in=false`, the NDK build and a native crash, a release build on the
+  phone, the R8 mapping upload.
+
 ### 2026-11-04: RN props pack 2 (Claude)
 - **What:** more React Native names, so ported screens keep their code (guide-notes §43, components §13,
   second-opinions 74–79). Registry **14**: `Pressable` long press as in RN (a passed-through `onLongPress` with no

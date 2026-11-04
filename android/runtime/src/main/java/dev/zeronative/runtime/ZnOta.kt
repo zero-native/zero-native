@@ -108,6 +108,16 @@ object ZnOta {
     private val downloadClient by lazy { ZnFetch.client.newBuilder().readTimeout(DOWNLOAD_IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS).build() }
     private val main = Handler(Looper.getMainLooper())
     private val stateLock = Any()
+    private val reportListeners = java.util.concurrent.CopyOnWriteArrayList<(ZnOtaReport) -> Unit>()
+
+    /**
+     * Like [Config.onReport], but any number of them, so a plugin (plugins/crashlytics) and the app can both listen.
+     * Called after `onReport`, on the main thread. Can be added before [configure]. Returns a function that removes it.
+     */
+    fun addReportListener(listener: (ZnOtaReport) -> Unit): () -> Unit {
+        reportListeners += listener
+        return { reportListeners -= listener }
+    }
 
     @Volatile private var phase = "off"
     @Volatile private var progress = 0.0
@@ -564,12 +574,20 @@ object ZnOta {
         st.outcomes += o
         val report = ZnOtaReport(kind, bundle, detail, serious = kind in SERIOUS, stack = stack)
         if (kind in SERIOUS) Log.w(TAG, "report: $report") else Log.i(TAG, "report: $report")
-        val hook = config?.onReport ?: return
+        val hook = config?.onReport
+        if (hook == null && reportListeners.isEmpty()) return
         main.post {
             try {
-                hook(report)
+                hook?.invoke(report)
             } catch (e: Exception) {
                 Log.e(TAG, "onReport threw", e) // an app's logging problem must not break updates
+            }
+            for (l in reportListeners) {
+                try {
+                    l(report)
+                } catch (e: Exception) {
+                    Log.e(TAG, "a report listener threw", e)
+                }
             }
         }
     }
