@@ -1745,3 +1745,20 @@ change, and what evidence would make you change it?"
   links. Checked on the Android 13 emulator: RN props lab "Dashed lines, font padding, spans": dashed pill, dotted
   box, dashed divider, dashed underline and dotted line-through, includeFontPadding 2.3 dp taller, Terms and Privacy
   taps logged (a tap on plain text does nothing), bold spans from data change colour and an `&&` span appears.
+
+## 129. zIndex works on a child of Column / Row / Box / Pressable (runtime + compiler + writer, built 2026-11-05)
+- **Where:** `ZnRenderer.kt` (Column, Row and vertical Scroll child loops apply `Modifier.zIndex`); `compile.ts`
+  `stackChildCheck`; `writer.ts` + `registry.ts` `ZINDEX_ANY_SINCE = 16`.
+- **Asked:** ZeroBill port R23 part 2, checked on the Lava: with R29 fixed, a tooltip bubble in the label's own Stack
+  no longer makes rows jump, but the next row ("Paid amount") draws over it. Pavan: "sure" to letting zIndex work on
+  any child, as in RN.
+- **Chosen:** Compose's `zIndex` orders a child among its siblings in any layout, so Column, Row, Box and Pressable
+  now pass it on (only Stack did). A row with `zIndex: 10` draws its absolute bubble over the rows after it. Still a
+  build error under Scroll, List and Carousel. A template that uses zIndex outside a Stack (or at its root, where the
+  writer can't see the parent) needs registry 16; nothing has shipped with 16, so it joins that number.
+- **Why:** RN orders by zIndex among siblings in every View; a ported tooltip, dropdown or badge row relies on it.
+- **Risk if wrong:** a component with zIndex at its root inside a Stack now asks for registry 16 (a false match: only
+  asks for a newer app). Drawing order changes only where zIndex is written, which was a build error before.
+- **Other options:** an overlay / popover layer (a portal), still possible later for menus that must cover everything.
+- **Evidence wanted:** the port's TxnInfo tooltip on the Lava with RN's shape. Checked on the Android 13 emulator: RN
+  props lab, a bubble from row 1 (`zIndex: 10`) drawn over row 2's yellow background.

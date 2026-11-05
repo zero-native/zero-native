@@ -38,7 +38,7 @@ export const REGISTRY_VERSION = 16 // 2: Anchor. 3: transforms, shadow, absolute
 //     onRequestClose, onShow); StatusBar and NavigationBar (barStyle, hidden, backgroundColor; can change at runtime); List stickyHeaderIndices.
 // 16: from the ZeroBill port (asks R28, R11/R23/R7, R16/R21/R22; second-opinions 128): Text includeFontPadding;
 //     borderStyle dashed / dotted; Text textDecorationStyle dashed / dotted; text spans that change at runtime (spans
-//     from a slot) and onSpanPress (a nested <Text onPress>).
+//     from a slot) and onSpanPress (a nested <Text onPress>); zIndex on a child of Column / Row / Box / Pressable.
 
 export const Component = {
   Column: 1,
@@ -609,6 +609,12 @@ export const Added: {
  * Native's absoluteFill does, since this registry version. Older apps place it at one side only (writer.ts).
  */
 export const ABSOLUTE_STRETCH_SINCE = 15
+
+/**
+ * zIndex on a child of Column / Row / Box / Pressable (not only Stack) orders it among its siblings, as in RN, since
+ * this registry version (R23). Older apps draw such a child in tree order (writer.ts).
+ */
+export const ZINDEX_ANY_SINCE = 16
 
 /**
  * Newer forms of a string prop's value that older apps can't read (an older app would show the old behaviour, so a

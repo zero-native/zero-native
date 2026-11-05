@@ -60,7 +60,7 @@ const s = StyleSheet.create({          // only for typing and reuse; the compile
 | `margin`, `marginHorizontal`, `marginVertical`, `marginTop/Bottom/Start/End` | number ≥ 0 | outer `padding` (§4 step 1) | outer `.padding` |
 | `padding` + same variants | number ≥ 0 | inner `padding` (§4 step 9). On `Scroll`, `Carousel` and `List` it is content padding: it scrolls with the content (RN's `contentContainerStyle`, which is also accepted there, padding keys only) | inner `.padding` |
 | `position: 'absolute'` + `top/bottom/start/end` | only for children of `Stack` | `Box` + `align` + `offset` | `ZStack` + `.offset` / alignment |
-| `zIndex` | number, only inside `Stack` | `zIndex` | `.zIndex` |
+| `zIndex` | number, inside `Stack`; registry 16: also `Column` / `Row` / `Box` / `Pressable` children | `zIndex` | `.zIndex` |
 | `overflow` | `visible` (default), `hidden` | `clip(shape)` | `.clipShape` |
 | `display` | `none` only | not composed | not rendered |
 

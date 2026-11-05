@@ -18,6 +18,7 @@ import { parseColor } from "./color"
 import {
   BASE_VERSION,
   ABSOLUTE_STRETCH_SINCE,
+  ZINDEX_ANY_SINCE,
   Component,
   type ComponentName,
   DynamicProps,
@@ -231,6 +232,9 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
       if (merged.position === "absolute" && (("start" in merged && "end" in merged) || ("top" in merged && "bottom" in merged))) {
         needs(ABSOLUTE_STRETCH_SINCE)
       }
+      // zIndex outside a Stack is drawn only by newer apps (registry 16). A child at a template's root may sit in a
+      // Stack of another template: it asks for 16 too (a false match only asks for a newer app than needed).
+      if ("zIndex" in merged && (parent === ROOT_PARENT || nodes[parent]?.component !== Component.Stack)) needs(ZINDEX_ANY_SINCE)
       for (const [key, raw] of Object.entries(merged)) {
         if (raw === undefined) continue
         if (key in EventKind) {

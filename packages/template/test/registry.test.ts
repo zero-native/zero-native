@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { KOTLIN_REGISTRY_PATH, kotlinRegistry, readRegistryLock, REGISTRY_LOCK_PATH, registryLockText } from "../../../tools/gen-registry"
 import { el, event, slot, writeTemplateFile, type NodeSpec } from "../src"
-import { ABSOLUTE_STRETCH_SINCE, Added, BASE_VERSION, Prop, REGISTRY_VERSION, since } from "../src/registry"
+import { ABSOLUTE_STRETCH_SINCE, Added, BASE_VERSION, Prop, REGISTRY_VERSION, since, ZINDEX_ANY_SINCE } from "../src/registry"
 import { registryProblems, registrySnapshot, type RegistryLock } from "../src/registry-lock"
 
 test("the Kotlin registry is generated from the TS registry (run `bun run gen:registry` if this fails)", () => {
@@ -102,6 +102,10 @@ describe("a template file asks for the lowest registry version that has what it 
     expect(abs({ start: 4, end: 4 })).toBe(ABSOLUTE_STRETCH_SINCE)
     expect(abs({ top: 0, bottom: 8 })).toBe(ABSOLUTE_STRETCH_SINCE)
     expect(abs({ top: 8, end: 8 })).toBe(BASE_VERSION)
+    // zIndex outside a Stack is drawn only by newer apps (R23); in a Stack it is as old as Stack.
+    expect(writeTemplateFile([el("Column", {}, el("Box", { zIndex: 2 }))]).registry).toBe(ZINDEX_ANY_SINCE)
+    expect(writeTemplateFile([el("Box", { zIndex: 2 })]).registry).toBe(ZINDEX_ANY_SINCE)
+    expect(writeTemplateFile([el("Stack", {}, el("Box", { zIndex: 2 }))]).registry).toBe(BASE_VERSION)
     // Not using them: back to the base.
     expect(writeTemplateFile([el("Column", {}, el("Pressable", { pressFeedback: "ripple" }))]).registry).toBe(BASE_VERSION)
   })

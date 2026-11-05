@@ -132,7 +132,7 @@ known at build time (section 0).
 | `borderLeftWidth`, `borderRightWidth`, per-side colours | none | missing | Nest a `Box`, or draw a divider as a thin `Box`. |
 | `shadowOffset`, `shadowOpacity`, `shadowRadius` | accepted, dropped | same | As RN on Android: the shadow comes from `elevation` and `shadowColor` (registry 15 build; no registry need). |
 | `overflow` | same | different | `visible` or `hidden` only (`scroll` is missing). |
-| `zIndex` | same | different | Only inside `Stack`. |
+| `zIndex` | same | different | Inside `Stack`, and since registry 16 (2026-11-05) on a child of `Column`, `Row`, `Box`, `Pressable`: orders it among its siblings, as RN. Not in `Scroll`, `List`, `Carousel` (a build error). |
 | `transform` | same | different | `scale`, `scaleX`, `scaleY`, `translateX`, `translateY`, `rotate` (`"45deg"` or a number). zn always draws move → rotate → scale, one value per key: a list whose RN order would draw differently (a scale or rotate before a move, scaleX / scaleY before rotate, a key twice) is a build error (since 2026-11-05). No `skew`, `perspective`, `matrix`. |
 | `backgroundImage: "linear-gradient(...)"` | same | same | Build-time only. Not for radial gradients. |
 | `color`, `fontSize`, `fontStyle`, `letterSpacing`, `lineHeight`, `textDecorationLine`, `numberOfLines` | same | same | `numberOfLines` is both a prop and a style key. |

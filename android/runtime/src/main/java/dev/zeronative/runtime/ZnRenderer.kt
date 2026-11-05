@@ -191,6 +191,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                 if (child.flex > 0f) m = m.weight(child.flex)
                 if (stretch && child.height == null) m = m.fillMaxHeight()
                 if (child.alignSelf != -1) m = m.align(verticalAlignment(child.alignSelf))
+                child.zIndex?.let { m = m.zIndex(it) } // RN zIndex on any child (registry 16)
                 // In a Row, a child's width is definite when it is set or shared out by flex.
                 ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = child.width != null || child.flex > 0f)
             }
@@ -261,6 +262,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                         (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
                     var m: Modifier = if (stretched) Modifier.fillMaxWidth() else Modifier
                     if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
+                    child.zIndex?.let { m = m.zIndex(it) } // RN zIndex on any child (registry 16)
                     ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
                 }
             }
@@ -407,6 +409,8 @@ internal fun ZnColumn(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: Z
                 (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
             if (stretched) m = m.fillMaxWidth()
             if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
+            // RN zIndex on any child (registry 16, R23): draws it over its later siblings (a row holding a tooltip).
+            child.zIndex?.let { m = m.zIndex(it) }
             ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
         }
     }

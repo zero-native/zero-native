@@ -50,11 +50,13 @@ describe("P0.4: absolute and zIndex only on a child of <Stack>", () => {
   test("a known non-Stack parent fails, with the parent's name", () => {
     expect(err(`function A() { return <Column><Box style={{ position: "absolute", top: 0 }} /></Column> }`))
       .toMatch(/position: "absolute" works only on a child of <Stack>; here the parent is <Column>/)
-    expect(err(`function A() { return <Row><Box style={{ zIndex: 2 }} /></Row> }`)).toMatch(/zIndex works only.*<Row>/)
+    // Registry 16 (R23): zIndex works in Column / Row / Box / Pressable; a List row (drawn one by one) still fails.
+    expect(err(`function A() { return <Row><Box style={{ zIndex: 2 }} /></Row> }`)).toBe("no error")
+    expect(err(`function A() { return <Scroll><Box style={{ zIndex: 2 }} /></Scroll> }`)).toMatch(/zIndex works only.*<Scroll>/)
     // A branch and a .map row are drawn in the element around them.
     expect(err(`function A(p) { return <Column>{p.on && <Box style={{ position: "absolute" }} />}</Column> }`))
       .toMatch(/parent is <Column>/)
-    expect(err(`function A(p) { return <Pressable>{p.xs.map((x) => <Box key={x} style={{ zIndex: 1 }} />)}</Pressable> }`))
+    expect(err(`function A(p) { return <Pressable>{p.xs.map((x) => <Box key={x} style={{ position: "absolute" }} />)}</Pressable> }`))
       .toMatch(/parent is <Pressable>/)
     // A fragment adds no parent: its children are the Column's.
     expect(err(`function A() { return <Column><><Box style={{ position: "absolute" }} /></></Column> }`)).toMatch(/parent is <Column>/)

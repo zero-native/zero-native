@@ -330,6 +330,27 @@ export function RnPropsLabScreen() {
         </Text>
         <HoldTile label="Change the span colour" onPress={() => spanHot.set(!spanHot())} />
 
+        {/* R23 part 2: a tooltip in an earlier row draws over the later rows when that row has zIndex (as in RN). */}
+        <Column testID="z-rows" style={{ backgroundColor: c.white, borderRadius: 8 }}>
+          <Row testID="z-row1" style={{ zIndex: 10, paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Stack>
+              <Text fontSize={13} color={c.ink} style={{ textDecorationLine: "underline", textDecorationStyle: "dashed" }}>
+                Platform Fee
+              </Text>
+              <Column testID="z-bubble" style={{ position: "absolute", top: 26, start: 0, width: 200, padding: 8, borderRadius: 8, backgroundColor: c.ink }}>
+                <Text fontSize={12} color={c.white}>
+                  Bubble from row 1, over row 2
+                </Text>
+              </Column>
+            </Stack>
+          </Row>
+          <Row testID="z-row2" style={{ paddingHorizontal: 12, paddingVertical: 10, backgroundColor: "#FEF3C7" }}>
+            <Text fontSize={13} color={c.ink}>
+              Paid amount ₹499
+            </Text>
+          </Row>
+        </Column>
+
         <PropsTitle text="Modal" />
         <HoldTile label="Open dialog modal" onPress={() => dialog.set(true)} />
         <HoldTile label="Open page modal" onPress={() => page.set(true)} />

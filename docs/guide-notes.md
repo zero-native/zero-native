@@ -2058,7 +2058,9 @@ row: [rn-compatibility.md](rn-compatibility.md). The lab screen `zn://sample/dev
 - **Know: new build errors (before, these built and did nothing, or did the wrong thing):**
   - `onPress` (or another press event) on anything but `Pressable` and the Touchables: wrap it in a `Pressable`.
   - `position: "absolute"` or `zIndex` on a child of anything but `Stack`. Not checked at a component's root (the
-    compiler can't see the parent there).
+    compiler can't see the parent there). Since registry 16, `zIndex` also works on a child of `Column`, `Row`, `Box`
+    and `Pressable` (R23): give the row that holds a tooltip `zIndex: 10` and its absolute bubble draws over the rows
+    after it, as in RN. Still a build error in a `Scroll`, `List` or `Carousel` (their items are drawn one by one).
   - `<List horizontal>` / `<FlatList horizontal>`: use `<Scroll horizontal>`.
   - `row={({ item }) => ...}` on a List: `row` gets the item itself. Use `renderItem` for RN's shape.
   - A `transform` list whose RN order would draw differently from zn's (zn always moves, then rotates, then

@@ -1131,11 +1131,14 @@ export function compileModule(
   /**
    * RN-compat sweep P0.4: `position: "absolute"` and `zIndex` work only on a child of <Stack>. Anywhere else the element
    * was laid out in the flow (zIndex ignored) with no error. Checked only where the parent is known (see [parents]).
+   * Registry 16 (R23): zIndex works on a child of Column, Row, Box and Pressable too (not in a Scroll, List or
+   * Carousel, whose items are drawn one by one).
    */
   function stackChildCheck(props: Record<string, unknown>, at: ts.Node) {
     const parent = parents[parents.length - 1]
     if (parent === undefined || parent === "Stack") return
-    const what = props.position === "absolute" ? 'position: "absolute"' : "zIndex" in props ? "zIndex" : null
+    const zIndexOk = parent === "Column" || parent === "Row" || parent === "Box" || parent === "Pressable"
+    const what = props.position === "absolute" ? 'position: "absolute"' : "zIndex" in props && !zIndexOk ? "zIndex" : null
     if (what) {
       fail(at, `${what} works only on a child of <Stack>; here the parent is <${parent}>, which would lay it out in ` +
         `the flow. Make the parent a <Stack> (its other children overlap too), or wrap this part in a <Stack>`)

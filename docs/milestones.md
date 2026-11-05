@@ -123,6 +123,13 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: zIndex on a child of Column / Row / Box / Pressable (Claude)
+- **What:** R23 part 2 from the ZeroBill port: a row with `zIndex` draws its absolute tooltip over the rows after it,
+  as in RN (before: only a Stack's children took zIndex, elsewhere a build error). Registry 16 (`ZINDEX_ANY_SINCE`),
+  second-opinions 129, guide notes, rn-compatibility and styling rows.
+- **Tests:** 1022 JS tests and type checks, runtime unit tests and lint, debug sample build. Android 13 emulator: RN
+  props lab tooltip rows. Not run on the Lava.
+
 ### 2026-11-05: registry 16: runtime text spans with onPress, dashed / dotted lines, includeFontPadding (Claude)
 - **What:** from the ZeroBill port (asks R16 / R21 / R22, R11 / R23 / R7, R28). (1) Nested `<Text>` spans from data
   (`.map`, `&&`, `? :`), with runtime styles and `onPress` on a span (a Compose link). (2) `borderStyle: "dashed" |
