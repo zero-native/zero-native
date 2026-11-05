@@ -108,6 +108,13 @@ export function InputScreen() {
             onFocus={() => focused.set("pin")}
             style={field}
           />
+          {/* A tall single-line box (an OTP box): its text and placeholder sit in the middle, as in React Native. */}
+          <TextField
+            placeholder="OTP (tall box, centred)"
+            keyboardType="number-pad"
+            maxLength={6}
+            style={{ ...field, height: 64, fontSize: 22 }}
+          />
           <TextField
             value={note()}
             onChangeText={(t) => note.set(t)}

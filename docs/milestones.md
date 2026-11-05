@@ -123,6 +123,25 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: two bugs from the ZeroBill port: screens with two returns, tall single-line fields (Claude)
+- **What:** (1) A route's screen with a second, different JSX return (or `return null`) drew a blank screen with no
+  error: native mounts the root from the manifest's one template, and JS filled in another. The app build now fails
+  with "a screen needs one JSX return" and the fix (`compiler/src/plugin.ts` `checkScreenRoots`, fed by
+  `CompileOutput.roots`). Same-shape returns pass; child components are not checked. `renderRoot` throws a clear
+  error for a screen that returns no View. The bug dates from 288554d (2026-10-29), not the compiler pack.
+  (2) A single-line `TextField` now centres its text, cursor and placeholder in a tall box; multiline stays at the top
+  (`ZnTextField.kt`). Guide §4 and §19, rn-compatibility rows, second-opinions 108 and 109. No registry or host API change.
+- **Tests:** 12 new build tests (`compiler/test/screen-roots.test.ts`): two returns, same shape, `return null`, bare
+  return, a helper's value, another component, switch / case, root ternary, G4 consts, parens and fragment, nested
+  functions, the same component as child and screen, native routes. All 965 JS tests and the type checks pass. Sample
+  JS and debug build, runtime unit tests. The sample and the ZeroBill prototype build with no edits. On the Android 13
+  emulator: the sample's new tall OTP field shows its placeholder and typed digits in the middle; the note field
+  stays at the top. Not run on the Lava.
+- **Later the same day:** an outside review found that moving a whole screen into a child (the easy way past the
+  build error) turns an error screen into a blank one in release, because a failed part is left empty. The build
+  error and guide §4 / §26 now warn about it; a regression test is shaped like ZeroBill's VerifyScreen (13 tests).
+  Checked on the emulator: debug builds already show a part's error on the red dev screen, even with no `zn dev`.
+
 ### 2026-11-04: FlowStore can't crash or fail on a full disk once a key's file exists (Claude)
 - **What:** Pavan's ask 8 (a save must fail only for size). FlowStore files were sized with `ftruncate`, which leaves
   holes; a store into a hole on a full disk is a SIGBUS crash. Now `posix_fallocate` reserves every block when a file

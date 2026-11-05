@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path"
 import { existsSync, readFileSync } from "node:fs"
 import ts from "typescript"
 import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
-import { compileModule } from "./compile"
+import { compileModule, type ComponentRoots } from "./compile"
 import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
 import { nativeModuleUses } from "./modules"
@@ -53,6 +53,8 @@ export function znBuild(): ZnBuild {
   const reservedBy: { file: string; seq: number }[] = []
   /** Component name → reservation number. */
   const components: Record<string, number> = {}
+  /** Component name → what it returns (reservation numbers), to check screens once the route table is known. */
+  const roots = new Map<string, ComponentRoots>()
   const maps = new Map<string, LineMap>()
   let routes: { file: string; entries: RouteEntry[] } | null = null
   let compiling = "" // the file being compiled; compileModule is synchronous, so no two files interleave
@@ -97,6 +99,7 @@ export function znBuild(): ZnBuild {
           }
           components[name] = id
         }
+        for (const [name, r] of Object.entries(out.roots)) roots.set(name, r)
         maps.set(path, out.map)
         return { contents: out.code, loader: "ts" }
       })
@@ -153,6 +156,7 @@ export function znBuild(): ZnBuild {
               `(it must be a component in a .tsx file whose root is a zero-native element)`,
           )
         }
+        checkScreenRoots(r.name, r.component!, roots.get(r.component!), specs)
         return { ...r, screen }
       })
       const file = writeTemplateFile(finalSpecs)
@@ -165,6 +169,37 @@ export function znBuild(): ZnBuild {
       }
     },
   }
+}
+
+/**
+ * Native draws a screen's root from the one template in the manifest before the screen's JS runs; JS then fills in
+ * that root. So a screen must always return the same template: a second, different JSX return (or `return null`)
+ * would be filled into a root that isn't there, and the screen stays blank with no error (guide notes §4). Returns
+ * that compile to the same template (the same JSX shape, other values) are fine. Children don't have this problem:
+ * JS mounts each one with the template it returned.
+ */
+function checkScreenRoots(route: string, component: string, info: ComponentRoots | undefined, specs: NodeSpec[]): void {
+  if (!info) return
+  // Not "move the whole screen into a child": a child that throws is left empty in release builds (guide notes §26),
+  // so the screen would go blank, where an error in the screen itself shows the error screen with "Try again".
+  const fix = `keep one return with the screen's main content in it, and put only the piece that changes in a ` +
+    `branch: {loading() ? <Spinner /> : null}. Don't move the whole screen into a child component: if it throws, a ` +
+    `release build leaves it empty and the screen goes blank (guide notes §4)`
+  if (info.others.length > 0) {
+    throw new Error(
+      `${info.others[0]}: screen ${component} (route "${route}") returns something that isn't its JSX here ` +
+        `(null, or a value): a screen must always return its own JSX, so ${fix}`,
+    )
+  }
+  const first = info.templates[0]!
+  const same = (id: number) =>
+    id === first || (id >= 0 && first >= 0 && JSON.stringify(specs[id]) === JSON.stringify(specs[first]))
+  const other = info.templates.findIndex((id) => !same(id))
+  if (other < 0) return
+  throw new Error(
+    `${info.at[other]}: screen ${component} (route "${route}") has a second JSX return that differs from the ` +
+      `first one (${info.at[0]}): a screen needs one JSX return, so ${fix}`,
+  )
 }
 
 /**

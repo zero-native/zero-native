@@ -59,8 +59,24 @@ export interface CompileOutput {
   code: string
   /** Component name → template id of its (first) returned JSX. */
   components: Record<string, number>
+  /**
+   * Component name → every returned JSX's template id (in source order), and where it returns something that isn't
+   * JSX (`return null`, a bare `return`). The app build checks screens with this: native draws a screen's root from
+   * one template before JS runs, so a screen must always return that same template (guide notes §4).
+   */
+  roots: Record<string, ComponentRoots>
   /** Output position → TSX position (for `zn dev` error screens). */
   map: LineMap
+}
+
+/** What one component returns (CompileOutput.roots). */
+export interface ComponentRoots {
+  /** Template id of each JSX return; -1 for one that returns another component (`return <Other />`). */
+  templates: number[]
+  /** Where each JSX return is (`file:line:col`), same order as [templates]. */
+  at: string[]
+  /** Where each non-JSX return is (`file:line:col`). */
+  others: string[]
 }
 
 const RUNTIME = "__zn"
@@ -285,22 +301,38 @@ export function compileModule(
   }
 
   // ---- Components ---------------------------------------------------------------------------------------------
+  const rootsOf: Record<string, ComponentRoots> = {}
+  const where = (n: ts.Node) => {
+    const { line, character } = sf.getLineAndCharacterOfPosition(n.getStart(sf))
+    return `${fileName}:${line + 1}:${character + 1}`
+  }
   for (const { name, fn } of candidates) {
     const body = fn.body
     if (!body) continue
     const roots: ts.Expression[] = []
+    const others: ts.Node[] = []
     if (ts.isBlock(body)) {
       forEachDescendant(body, (n) => {
-        if (ts.isReturnStatement(n) && n.expression && isJsxValue(n.expression)) roots.push(n.expression)
+        if (!ts.isReturnStatement(n)) return
+        if (n.expression && isJsxValue(n.expression)) roots.push(n.expression)
+        else others.push(n)
       }, /* stopAtFunctions */ true)
     } else if (isJsxValue(body)) {
       roots.push(body)
     }
+    const info: ComponentRoots = { templates: [], at: [], others: [] }
     for (const r of roots) {
       const v = seeThrough(r)
       const compiled = isJsx(v) ? compileRoot(v as JsxNode) : valueTemplate(v, 0)
       edits.push({ start: r.getStart(sf), end: r.getEnd(), text: compiled.code, at: v.getStart(sf) })
+      // -1: returns another component (<Other />), so its View carries that component's template.
+      info.templates.push(compiled.templateId ?? -1)
+      info.at.push(where(r))
       if (compiled.templateId !== null && !(name in components)) components[name] = compiled.templateId
+    }
+    if (roots.length > 0) {
+      info.others = others.map(where)
+      rootsOf[name] = info
     }
   }
 
@@ -347,7 +379,7 @@ export function compileModule(
   // Each component's template id, readable at runtime without running it (a <List> row's type, in any file).
   for (const [name, id] of Object.entries(components)) pieces.push({ generatedAt: source.length, text: `\n${name}.__zt = ${ref(id)};` })
   const { code, map } = assemble(source, pieces)
-  return { code, components, map }
+  return { code, components, roots: rootsOf, map }
 
   // ---- JSX variables --------------------------------------------------------------------------------------------
 

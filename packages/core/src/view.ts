@@ -431,6 +431,8 @@ export function renderRoot<P>(rootId: number, Screen: (props: P) => View, props:
   return createRoot((dispose) => {
     try {
       const v = Screen(props)
+      // The app build already refuses this (compiler/src/plugin.ts checkScreenRoots); a clear error, not "setup of null".
+      if (!isView(v)) throw new Error("a screen must return its JSX, not null or another value (guide notes §4)")
       v.setup({ id: rootId, collecting: null, mount: null })
     } catch (e) {
       dispose()

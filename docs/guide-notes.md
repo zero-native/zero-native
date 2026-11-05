@@ -98,6 +98,22 @@ const paise = computed(() => toPaise(amount()))
   Nested ternaries with `null` work, and JSX can sit in a const (`const badge = ok ? <A/> : null`, §47).
 - `.map` is for **short** lists that are part of a layout (up to ~100 items). Long or growing lists use `<List>`
   (built, §11).
+- **A screen has one JSX return** (2026-11-05). A screen is the component a route names.
+  - **Do:** keep one return with the screen's main content (header, layout, the parts that are always there) in it,
+    and put only the piece that changes in a branch: `{loading() ? <Spinner /> : null}`. With no data yet, leave
+    the screen up and start the jump in the body: `if (!draft) setTimeout(() => nav.replace("login"), 0)`.
+    `return cond ? <A /> : <B />` (one return with a ternary) builds too.
+  - **Don't:** move the whole screen into one child component (`return <Column><Body /></Column>`) or one branch
+    (`{draft ? <Content /> : null}`) just to get past the build error. A child that throws is left empty (§26), so
+    in a release build the user gets a blank screen with no "Try again". An error in the screen itself shows the
+    error screen. (Found by an outside review of the ZeroBill port, 2026-11-05.)
+  - **Don't:** use the React Native habits `if (loading) return <Spinner />` or `if (!user) return null` in a
+    screen. The app build fails with "a screen needs one JSX return". Two returns with the same JSX shape and other
+    values (`<Text>{a}</Text>` and `<Text>{b}</Text>`) still pass.
+  - **Why:** native draws a screen's root from one template, taken from the manifest, before the screen's JS runs.
+    JS then fills that root in. A second, different return was filled into a root that wasn't on screen, so the
+    screen stayed blank with no error. Child components can return early freely: JS mounts each child with the
+    template it returned.
 
 ## 5. Taps and presses
 - Taps only on `Pressable` (or `Button`). Layout nodes take no `onPress`. This gives every tappable thing the right
@@ -387,6 +403,9 @@ function Card(props: { header: Children; children?: Children }) {
 - **Do:** put forms in a `<Scroll>` with the main button outside it, at the bottom. The default route option
   `keyboard: "resize"` keeps that button above the keyboard, and the focused field scrolls into view.
 - **Do:** call `Keyboard.dismiss()` before you navigate away or open a sheet after a form.
+- A single-line field puts its text, cursor and placeholder in the vertical middle of a tall box (an OTP box with
+  `height: 64`), as React Native does on Android. A `multiline` field starts at the top. There is no
+  `textAlignVertical` yet (2026-11-05).
 - **Don't:** set the value later (after an `await`): the field shows your old value first, then jumps.
 - **Don't:** collect a real UPI PIN. The UPI PIN is only ever typed in the bank's / NPCI's own screen. Even a
   `secureTextEntry` field is readable by accessibility services on Android (the Lava's UI dump showed the digits).
@@ -585,7 +604,7 @@ What users see, and what you can do:
 | What fails | What happens |
 |---|---|
 | A screen throws while it is built | It stays on the stack and shows the error screen: **Try again** builds it again, **Go back** works (on the first screen: Try again only) |
-| A part of a screen throws (a child component, an `&&` block, a list row) | Only that part stays empty; the rest of the screen works |
+| A part of a screen throws (a child component, an `&&` or `? :` block, a list row) | Only that part stays empty; the rest of the screen works. **Debug builds** show the full-screen red error screen first (also without `zn dev`); after **Dismiss** the part stays empty, with no marker. **Release builds** leave it empty and report it (kind `part`, Crashlytics). If the part was the whole screen, the screen is blank (§4) |
 | A tap handler, timer, effect or listener throws | Nothing changes on screen; it is reported |
 | An `async` function or a Promise rejects and nothing catches it | Reported (after ~100 ms for TypeError / ReferenceError / RangeError, ~2 s for others) |
 | JS runs too long (an endless loop) | Stopped after the time limit (2 s; 3 s in debug builds); the top screen shows "stopped responding" with Try again. Anything over 200 ms is logged as "slow JS" |
@@ -615,6 +634,9 @@ Every one of these is logged, shown on the red screen in debug builds, and passe
   on every phone. Some phones (the Lava) keep the process alive after the swipe; zero-native then starts a new JS
   runtime itself, the same as a new launch (module-level JS state is gone too, as on a real restart). A rotation or
   dark-mode change keeps the screens and their state.
+- **Don't:** put a screen's whole content in one part (a child component, or one `{cond ? <Content /> : null}`).
+  If that part throws, a release build shows a blank screen with no Try again; in the screen itself the same error
+  shows the error screen. Keep the main content in the screen and branch only the piece that changes (§4).
 - **Don't:** rely on the error screen for flows that move money. A payment screen that fails to build must not leave
   the payment unknown: keep the save-then-verify pattern (§16), which works whatever the UI does.
 - **Don't:** do heavy work in one go on the JS thread (parsing a huge file, a long loop). Taps wait while it runs

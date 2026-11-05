@@ -8,7 +8,7 @@ How to ask for a review: give the reviewer this file, the design doc section nam
 points to. Ask: "Is the choice right for a payments app with many Android users on low-end phones? What would you
 change, and what evidence would make you change it?"
 
-**Numbers:** entries 108–119 are free. The numbers jump from 107 to 120 because parallel sessions reserved ranges
+**Numbers:** entries 110–119 are free. The numbers jump from 107 to 120 because parallel sessions reserved ranges
 (107 was the last one used before the jump). Do not take a number above 120 that is already used.
 
 ---
@@ -1362,6 +1362,46 @@ change, and what evidence would make you change it?"
   unsafe migrations are an opt-in, not refused (the OTA release tool warns). Added for that: `unsafe` / `reset`
   migrations with a schema epoch, so an older bundle after a rollback resets to its own shape and the app syncs again
   (`onReset`), proposal §3.5. Risk 4 above is handled by the epoch instead of a refusal.
+
+## 108. A screen with two different JSX returns fails the build (compiler, built 2026-11-05)
+- **Where:** `compiler/src/plugin.ts` `checkScreenRoots`; `compiler/src/compile.ts` `CompileOutput.roots`;
+  `packages/core/src/view.ts` `renderRoot`; tests in `compiler/test/screen-roots.test.ts`.
+- **Asked:** found by the ZeroBill port on the Lava (app-home-tabs): `if (cond) return <A />; return <B />` in a
+  screen drew a blank screen with no error. Pavan chose "the build fails" (2026-11-05). Blocked the pilot (the app has
+  a workaround).
+- **Chosen:** the app build fails when a route's screen has a second JSX return whose template differs from the
+  first, or a return that isn't JSX (`return null`, a bare `return`, `return helper()`), or returns another
+  component in one branch. Returns that compile to the same template (same JSX shape, other values) pass. Child
+  components are not checked. `renderRoot` also throws a clear error if a screen returns something that isn't a View.
+- **Why:** native mounts a screen's root from the manifest's one template before JS runs; JS fills that root by
+  instance and slot. A different return was filled into a root that wasn't there ("patch for unknown instance"). A
+  build error is cheaper than a runtime fallback, and the fix in app code is small.
+- **Trap (outside review, 2026-11-05):** a second review (Gemini) of the ZeroBill port saw that the easy way past the
+  error, moving the whole screen into a child component or one `{draft ? <Content /> : null}`, swaps the error screen
+  (with Try again) for a blank screen in release: a part that throws is left empty (`view.ts` `mountChild`). The
+  build error and guide §4 / §26 now say: keep the screen's main content in the screen, branch only the piece that
+  changes. No inline red box was built (Pavan, 2026-11-05): debug builds already show a failed part on the
+  full-screen red dev screen, also without `zn dev` (checked on the emulator); after Dismiss the part stays empty with
+  no marker. Release builds leave it empty and report it (kind "part", Crashlytics); a release placeholder is a
+  product choice for later.
+- **Risk if wrong:** RN code with early returns (`if (loading) return <Spinner />`) needs a rewrite before it builds.
+  Shape equality uses the template spec's JSON, so two returns that differ only in a constant (`<Text>a</Text>` vs
+  `<Text>b</Text>`) count as different.
+- **Other options:** let native mount the template JS returns (a host change: the root would be built after JS runs,
+  slower first frame); make the compiler wrap all returns into one template with an anchor per return (hidden cost,
+  and different from what the author wrote); a runtime error screen only (found late, on a phone).
+- **Evidence wanted:** how often the ZeroBill port hits it; if often, the anchor wrap may be worth it.
+
+## 109. A single-line TextField centres its content vertically; multiline starts at the top (runtime, built 2026-11-05)
+- **Where:** `android/runtime/.../ZnTextField.kt` (the decorator's `Box` alignment).
+- **Asked:** found by the ZeroBill port (an OTP box with `height: 64` showed its digits at the top).
+- **Chosen:** single line → `Alignment.CenterStart`; multiline → `Alignment.TopStart`. The placeholder sits in the same
+  Box, so it lines up with the text. `textAlignVertical` stays missing.
+- **Why:** React Native on Android centres a single-line TextInput. It centres multiline too, and apps add
+  `textAlignVertical="top"` for a comment box; with no `textAlignVertical` here, top is the useful default for multiline.
+- **Risk if wrong:** a ported multiline field that relied on RN's centring now starts at the top.
+- **Other options:** centre both (RN's exact default) and add `textAlignVertical` now.
+- **Evidence wanted:** none. Checked on the Android 13 emulator (sample Inputs screen, tall OTP field).
 
 ## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
 - **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.

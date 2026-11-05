@@ -22,6 +22,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -161,8 +162,12 @@ internal fun ZnTextField(s: ZnNodeSpec, inst: ZnInstance, n: Int, mod: Modifier)
         if (s.onSubmitEditing != 0) ZnRuntime.dispatchEvent(inst.id, s.onSubmitEditing, state.text.toString())
         performDefault()
     }
+    // A single-line field shows its text, cursor and placeholder in the middle of a tall box (an OTP box with
+    // height: 64), as React Native does on Android. Multiline starts at the top (React Native centres it too, and apps
+    // add textAlignVertical="top"; zero-native has no textAlignVertical yet, so top is the useful default).
+    // BasicTextField passes the field's min size on to the decorator, so the Box is as tall as the field.
     val decorator = TextFieldDecorator { inner ->
-        Box {
+        Box(contentAlignment = if (s.multiline) Alignment.TopStart else Alignment.CenterStart) {
             if (state.text.isEmpty() && placeholder.isNotEmpty()) {
                 BasicText(placeholder, style = style.copy(color = s.placeholderColor), maxLines = if (s.multiline) Int.MAX_VALUE else 1)
             }

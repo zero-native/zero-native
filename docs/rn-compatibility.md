@@ -138,7 +138,7 @@ known at build time (section 0).
 | `textAlign` | same | renamed | `left` → `start`, `right` → `end`, `center` same. `justify` is missing. |
 | `maxFontScale` | same | different | New key (RN has `maxFontSizeMultiplier`). |
 | `textTransform` | same | same | Registry 15, also on runtime text. |
-| `fontFamily`, `textAlignVertical`, `includeFontPadding`, `textShadow*`, `userSelect` | none | missing | Only the system font. Custom fonts are not built. |
+| `fontFamily`, `textAlignVertical`, `includeFontPadding`, `textShadow*`, `userSelect` | none | missing | Only the system font. Custom fonts are not built. With no `textAlignVertical`, a single-line `TextField` centres its text vertically (as RN on Android) and a multiline one starts at the top (RN centres it; apps add `textAlignVertical="top"`) (2026-11-05). |
 | `resizeMode` (as a style) | `contentScale` prop | renamed | See Image. `tintColor` on `Image`: see Image. |
 
 ## 3. Navigation
@@ -284,6 +284,7 @@ React Navigation. [`nav` in nav.ts](../packages/core/src/nav.ts), [routes.ts](..
 | `useColorScheme` | `colorScheme()` | renamed | See §6. |
 | Conditional render `cond && <X/>`, `cond ? <A/> : <B/>` | same | same | [compile.ts, conditional rendering](../compiler/src/compile.ts). A branch must be JSX or `null`; nested ternaries work. `return c ? <A/> : <B/>` works (guide notes §47). |
 | JSX in a variable: `const header = <X/>`, `const badge = c ? <A/> : null` | same | same | Built (compiler pack, 2026-11-04, guide notes §47). Use it in JSX only (child, prop, `return`); each use is its own copy. `let` reassigned and `items.push(<X/>)` are build errors with a hint: one ternary, or `.map`. |
+| Early return in a screen: `if (loading) return <Spinner />`, `if (!user) return null` | one return | different | A route's screen needs one JSX return (or one `return c ? <A/> : <B/>`); otherwise the app build fails (2026-11-05, guide notes §4, second-opinions 108). Keep the main content in the one return and branch only the piece that changes. Don't move the whole screen into a child component to get past it: a child that throws is left empty, so a release build shows a blank screen. |
 | Component props, `children` | same | different | `{props.children}` shows them; reading, mapping or counting children is not supported. Spread props `{...p}` are a build error. |
 | Custom hooks | plain functions | different | A function that makes signals in a screen body works. |
 | `Intl.NumberFormat` etc. | same | same | [guide-notes.md](guide-notes.md) §25. |
