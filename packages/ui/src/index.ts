@@ -37,14 +37,16 @@ declare global {
 }
 
 export interface StyleProps {
-  width?: Size
-  height?: Size
+  /** "auto" (React Native's default) is dropped: the size of the content. */
+  width?: Size | "auto"
+  height?: Size | "auto"
   minWidth?: number
   maxWidth?: number
   minHeight?: number
   maxHeight?: number
   flex?: number
-  aspectRatio?: number
+  /** A number, or React Native's "16/9" (folded at build time). */
+  aspectRatio?: number | `${number}/${number}` | `${number} / ${number}`
   margin?: number
   marginHorizontal?: number
   marginVertical?: number
@@ -98,6 +100,31 @@ export interface StyleProps {
   start?: number
   end?: number
   zIndex?: number
+  // React Native names, changed at build time (RN-compat sweep P1, guide notes §56).
+  /** = marginStart. Left / right are start / end: the same in a left-to-right app; in right-to-left they flip. */
+  marginLeft?: number
+  /** = marginEnd. */
+  marginRight?: number
+  /** = paddingStart. */
+  paddingLeft?: number
+  /** = paddingEnd. */
+  paddingRight?: number
+  /** = start (absolute children of a Stack). */
+  left?: number
+  /** = end. */
+  right?: number
+  /** = flex: n. */
+  flexGrow?: number
+  /** Only 0 or 1, dropped: zero-native doesn't shrink children (a Text in a Row still wraps). */
+  flexShrink?: 0 | 1
+  /** Only 0 or "auto", dropped. */
+  flexBasis?: 0 | "auto"
+  /** The gap along a Column (or vertical List / Scroll); beats gap. */
+  rowGap?: number
+  /** The gap along a Row (or horizontal Scroll / Carousel); beats gap. */
+  columnGap?: number
+  /** Only on <View>: "row" makes it a <Row>, else a <Column>. Elsewhere a build error: pick <Row> or <Column>. */
+  flexDirection?: "row" | "column"
   transform?: Array<{
     scale?: number
     scaleX?: number
@@ -112,7 +139,8 @@ export interface TextStyleProps {
   color?: Color
   fontSize?: number
   fontWeight?: number | "normal" | "bold"
-  textAlign?: "start" | "center" | "end"
+  /** React Native's "left" / "auto" are "start", "right" is "end" (they flip in right-to-left). */
+  textAlign?: "start" | "center" | "end" | "left" | "right" | "auto"
   numberOfLines?: number
   lineHeight?: number
   letterSpacing?: number
@@ -221,6 +249,16 @@ interface Base extends StyleProps {
   accessibilityRole?: "button" | "header" | "image" | "link" | "text" | "switch" | "checkbox" | "none"
   /** Skip this node and its children in accessibility traversal. */
   accessibilityHidden?: boolean
+  /** React Native's names (RN-compat sweep P1.11): = accessibilityLabel. */
+  "aria-label"?: string
+  /** = accessibilityHidden. */
+  "aria-hidden"?: boolean
+  /** = accessibilityHidden (iOS name). */
+  accessibilityElementsHidden?: boolean
+  /** = accessibilityRole ("heading" is header, "img" image, "presentation" none). */
+  role?: "button" | "header" | "heading" | "image" | "img" | "link" | "text" | "switch" | "checkbox" | "none" | "presentation"
+  /** "no-hide-descendants" = accessibilityHidden; "auto" and "yes" change nothing. */
+  importantForAccessibility?: "auto" | "yes" | "no-hide-descendants"
   /** As in React Native: UI tests (uiautomator, Espresso) find the element by this resource id. Build-time. */
   testID?: string
   /**
@@ -249,7 +287,17 @@ export declare const Column: Intrinsic<Container>
 export declare const Row: Intrinsic<Container>
 export declare const Stack: Intrinsic<Container>
 export declare const Box: Intrinsic<Container>
-export declare const Text: Intrinsic<Base & TextStyleProps & { text?: string; children?: unknown }>
+export declare const Text: Intrinsic<
+  Base &
+    TextStyleProps & {
+      text?: string
+      children?: unknown
+      /** React Native's name: {false} = maxFontScale={1}. */
+      allowFontScaling?: boolean
+      /** zero-native always cuts the end ("tail"). */
+      ellipsizeMode?: "tail"
+    }
+>
 /** `src`: an https URL or "asset:path". null / undefined shows nothing (the box keeps its size). */
 export declare const Image: Intrinsic<
   Base & {
@@ -257,6 +305,10 @@ export declare const Image: Intrinsic<
     fallbackSrc?: string | null
     loading?: "none" | "shimmer"
     contentScale?: "cover" | "contain" | "fill"
+    /** React Native's name for src: source={{ uri }} (a require(...) image is src="asset:images/..."). */
+    source?: { uri: string }
+    /** React Native's name for contentScale ("stretch" is "fill"). */
+    resizeMode?: "cover" | "contain" | "stretch"
     /** As in React Native (registry 15; can change at runtime): every non-clear pixel drawn in this colour. */
     tintColor?: Color
     /** As in React Native (registry 15): src loaded. width / height: the picture's size in pixels. */
@@ -277,9 +329,12 @@ export declare const Switch: Intrinsic<
     value: boolean
     onValueChange?: (value: boolean) => void
     disabled?: boolean
-    trackColor?: Color
+    /** A colour (off), or React Native's {{ false: off, true: on }} (= trackColor + activeTrackColor). */
+    trackColor?: Color | { false?: Color; true?: Color }
     activeTrackColor?: Color
     thumbColor?: Color
+    /** iOS only: accepted and ignored. */
+    ios_backgroundColor?: Color
   }
 >
 /**
@@ -468,7 +523,32 @@ export declare const Shimmer: Intrinsic<
  * A scrolling container. `horizontal` makes a rail: only the visible children are drawn, and scrolling never involves
  * JS. Its padding scrolls with the content (like RN's contentContainerStyle). For long vertical data use <List>.
  */
-export declare const Scroll: Intrinsic<Container & ({ horizontal?: false } & RefreshProps | { horizontal: true; contentContainerStyle?: ContentContainerStyleInput })>
+export declare const Scroll: Intrinsic<Container & RnScrollProps & ({ horizontal?: false } & RefreshProps | { horizontal: true; contentContainerStyle?: ContentContainerStyleInput })>
+/**
+ * React Native ScrollView / FlatList props that change nothing on screen in zero-native (speed hints, iOS only):
+ * accepted and dropped (RN-compat sweep P1.7). zn draws no scroll bar, so the indicator props take only false.
+ */
+export interface RnScrollProps {
+  showsVerticalScrollIndicator?: false
+  showsHorizontalScrollIndicator?: false
+  /** zero-native works like "handled": a tap reaches the button under it; the keyboard stays. */
+  keyboardShouldPersistTaps?: "handled" | "always" | true
+  initialNumToRender?: number
+  maxToRenderPerBatch?: number
+  windowSize?: number
+  updateCellsBatchingPeriod?: number
+  removeClippedSubviews?: boolean
+  extraData?: unknown
+  getItemLayout?: unknown
+  scrollEventThrottle?: number
+  bounces?: boolean
+  alwaysBounceVertical?: boolean
+  alwaysBounceHorizontal?: boolean
+  nestedScrollEnabled?: boolean
+  directionalLockEnabled?: boolean
+  automaticallyAdjustContentInsets?: boolean
+  contentInsetAdjustmentBehavior?: string
+}
 /**
  * Pull to refresh on a vertical <Scroll> or a <List> (guide notes §41). **Controlled**, like RN: a pull past the line
  * sends `onRefresh`; set `refreshing` to true while you load and back to false when done. The spinner shows while
@@ -537,8 +617,7 @@ export declare const Carousel: Intrinsic<
  * `tabs.seen(name) &&` so a tab is built only when first shown. The tab bar is your own JSX, outside it.
  */
 export declare const Tabs: Intrinsic<Container & { selected: number }>
-export declare const Pressable: Intrinsic<
-  Container & {
+type PressableProps = Container & {
     onPress?: () => void
     onPressIn?: () => void
     onPressOut?: (cancelled?: boolean) => void
@@ -566,8 +645,10 @@ export declare const Pressable: Intrinsic<
     pressOpacity?: number
     /** The overlay colour for pressFeedback="highlight" (default black at 10 %). Give it its own alpha. */
     highlightColor?: Color
+    /** React Native's android_ripple (= rippleColor, rippleBorderless, rippleRadius; foreground is ignored). */
+    android_ripple?: { color?: Color; borderless?: boolean; radius?: number; foreground?: boolean }
   }
->
+export declare const Pressable: Intrinsic<PressableProps>
 
 /**
  * A text input. The native field owns the text while the user types (no lag); you hear `onChangeText`.
@@ -582,7 +663,12 @@ export declare const TextField: Intrinsic<
       onChangeText?: (text: string) => void
       placeholder?: string
       placeholderColor?: Color
-      keyboardType?: "default" | "number-pad" | "decimal-pad" | "phone-pad" | "email-address" | "url"
+      /** React Native's name for placeholderColor. */
+      placeholderTextColor?: Color
+      /** React Native's "numeric" is "decimal-pad". */
+      keyboardType?: "default" | "number-pad" | "decimal-pad" | "phone-pad" | "email-address" | "url" | "numeric"
+      /** React Native's name: {false} = maxFontScale={1}. */
+      allowFontScaling?: boolean
       secureTextEntry?: boolean
       maxLength?: number
       multiline?: boolean
@@ -610,8 +696,6 @@ export declare const TextField: Intrinsic<
  */
 export declare function List<T>(props: {
   data: readonly T[] | null | undefined
-  key: (item: T, index: number) => string | number
-  row: (item: T, index: number) => unknown
   onEndReached?: () => void
   style?: StyleInput
   gap?: number
@@ -621,7 +705,18 @@ export declare function List<T>(props: {
    * list scrolls under them; the next one pushes the last up. Can change at runtime.
    */
   stickyHeaderIndices?: readonly number[]
-} & RefreshProps): never
+} & RefreshProps & RnScrollProps & (
+  | {
+      key: (item: T, index: number) => string | number
+      row: (item: T, index: number) => unknown
+    }
+  | {
+      /** React Native's FlatList names (RN-compat sweep P1.5): renderItem gets { item, index }. */
+      renderItem: (info: { item: T; index: number }) => unknown
+      /** Default, as in RN: item.key, else item.id, else the index. */
+      keyExtractor?: (item: T, index: number) => string | number
+    }
+)): never
 
 /**
  * React Native's Modal (registry 15): a full-screen window over the app, in which you draw your own content (a
@@ -671,15 +766,48 @@ export declare const NavigationBar: Intrinsic<{
   backgroundColor?: Color
 }>
 
+// ---- React Native component names (RN-compat sweep P1, guide notes §56) ----------------------------------------------
+// The compiler turns each into a zero-native element; import them from here, not from "react-native".
+
+/** A <Column>, or a <Row> when its style has flexDirection: "row" (known at build time). */
+export declare const View: Intrinsic<Container>
+/** A <List>: data, renderItem, keyExtractor (or row, key), onEndReached, refreshing / onRefresh. */
+export declare const FlatList: typeof List
+/** A <Pressable> with no ripple that dims to activeOpacity (default 0.2) while pressed. */
+export declare const TouchableOpacity: Intrinsic<PressableProps & { activeOpacity?: number }>
+/** A <Pressable> with an overlay of underlayColor (default black) at 1 - activeOpacity (default 0.85) while pressed. */
+export declare const TouchableHighlight: Intrinsic<PressableProps & { underlayColor?: Color; activeOpacity?: number }>
+/** A <Pressable> with no press feedback. */
+export declare const TouchableWithoutFeedback: Intrinsic<PressableProps>
+/** A <Spinner>: size "small" (20 dp, default), "large" (36 dp) or dp; animating={false} hides it (it keeps its space). */
+export declare const ActivityIndicator: Intrinsic<
+  Base & { size?: "small" | "large" | number; color?: Color; animating?: boolean; hidesWhenStopped?: true }
+>
+
 /** RN's absoluteFill: fills the parent Stack (RN's left / right are start / end in zn). */
 const absoluteFill = { position: "absolute", top: 0, start: 0, end: 0, bottom: 0 } as const satisfies Style
 
+/** RN's flatten: one style object from an array (falsy entries skipped, later entries winning). */
+function flatten(style: StyleInput): Style {
+  const out: Style = {}
+  const merge = (s: StyleInput) => {
+    if (Array.isArray(s)) s.forEach(merge)
+    else if (s) Object.assign(out, s)
+  }
+  merge(style)
+  return out
+}
+
 /**
  * Build-time helper: `create` returns its argument (typed). The compiler folds it, and `absoluteFill` /
- * `absoluteFillObject` (the same style, as in React Native).
+ * `absoluteFillObject` (the same style, as in React Native), `hairlineWidth` and `flatten` (RN-compat sweep P1.12).
+ * `hairlineWidth` is 0.4 dp: RN rounds it to one real pixel per phone, which a build can't know (one pixel or a
+ * little more on most phones).
  */
 export const StyleSheet = {
   create: <T extends Record<string, Style>>(styles: T): T => styles,
   absoluteFill,
   absoluteFillObject: absoluteFill,
+  hairlineWidth: 0.4,
+  flatten,
 }

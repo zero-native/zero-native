@@ -63,6 +63,7 @@ export function DevScreen() {
           <Entry title="PDF plugin" step="PDF" detail="Download and cache, a card preview, the full viewer with zoom, bad files" onOpen={() => nav.push("pdfLab")} />
           <Entry title="Location plugin" step="location" detail="One fix, updates, permission, location off, geocoder" onOpen={() => nav.push("locationLab")} />
           <Entry title="RN props" step="RN pack 2" detail="Long press, shadows, corners, pointerEvents, hitSlop, Image, onLayout, Modal, StatusBar, sticky rows" onOpen={() => nav.push("rnPropsLab")} />
+          <Entry title="RN names" step="RN sweep" detail="View, FlatList renderItem, Touchables, ActivityIndicator, marginLeft, colour names, gap with justifyContent, effect cleanup" onOpen={() => nav.push("rnNamesLab")} />
           <Entry title="Crashlytics plugin" step="crashlytics" detail="JS errors, keys, user id, opt-out, test crashes" onOpen={() => nav.push("crashlyticsLab")} />
           <Entry title="Push plugin" step="push" detail="FCM token, data messages, notifications: channels, pictures, groups, taps" onOpen={() => nav.push("pushLab")} />
           <Entry title="Analytics plugin" step="analytics" detail="On by default, opt-out, events, purchase, user, screen views by route" onOpen={() => nav.push("analyticsLab")} />

@@ -1499,6 +1499,97 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** code that returns a function from an effect for another reason now has it called. None exists.
 - **Other options:** a build error on a returned function (RN code would need a rewrite for no reason).
 
+## 115. RN code that built and did nothing (or the wrong thing) now fails the build (compiler, built 2026-11-05)
+- **Where:** `compiler/src/compile.ts`: `stackChildCheck` (P0.4), the `PRESS_EVENTS` check (P0.5), `listElement`
+  (P0.6, P0.7, and P1.5 `renderItem` / `keyExtractor`), `transformOrder` (P0.9), `notInUiCheck`; tests in
+  `compiler/test/rn-compat.test.ts`.
+- **Asked:** RN-compat sweep P0.4–P0.7, P0.9 (Pavan, 2026-11-05).
+- **Chosen:**
+  - `position: "absolute"` or `zIndex` on a child of anything but `Stack` fails. The compiler knows an element's JSX
+    parent from a stack of open tags. At a component's root it can't see the parent, so it isn't checked there (no
+    false errors; a real miss is possible).
+  - A press event on anything but `Pressable` (and the Touchables, which are Pressables) fails: "wrap it".
+  - `<List horizontal>` fails (it drew a vertical list); `horizontal={false}` is allowed.
+  - `row={({ item }) => ...}` fails with the `renderItem` hint. `renderItem` itself works: the compiler wraps the
+    function so it gets RN's `{ item, index }`; with no `keyExtractor` the key is `item.key ?? item.id ?? index`.
+  - `transform`: zn always draws move, then rotate, then scale, with one value per key. A list whose RN order draws
+    differently fails: a key twice, a move after a scale or rotate that isn't 1 / 0, `scaleX` / `scaleY` before
+    `rotate`. Orders that draw the same (move first, or scale and rotate only) build as before.
+  - Found while writing the docs: a tag imported from `@zero-native/ui` that zn doesn't have (`<SafeAreaView>`) was a
+    call of a missing function (the import is removed), a crash when the screen opened. Now a build error with what
+    to use. Pavan's call that SafeAreaView / KeyboardAvoidingView stay build errors was only true in TypeScript.
+- **Before building:** every TSX file in the sample and in the ZeroBill prototype was compiled with the new checks
+  (a script): no new errors. One sample test fixture used `<Column onPress>` and was changed to `<Pressable>`.
+- **Risk if wrong:** the root-of-component gap for absolute children. A new error on a pattern that worked: none found.
+- **Other options:** real taps on Text and real absolute layout in Column (registry work; later, if asked).
+
+## 116. Props are checked per element, from a table generated from the UI types (compiler, built 2026-11-05)
+- **Where:** `tools/gen-tag-props.ts` writes `compiler/src/tag-props.ts` (`bun run gen:tag-props`);
+  `compiler/test/tag-props.test.ts` fails if it is out of date; `tagPropCheck` and `styleKeyCheck` in `compile.ts`.
+- **Asked:** RN-compat sweep P0.8. Any registry prop was accepted on any tag (`<Image horizontal>`).
+- **Chosen:** the TypeScript checker reads each element's props from `packages/ui/src/index.ts`, the list authors
+  already see. So there is one list. A prop not there fails the build with the element's own props as the hint. Style
+  keys are checked against `StyleProps` / `TextStyleProps`, with the RN names the compiler renames.
+- **Why generated, not read at build time:** the TS checker over the UI types takes about 0.8 s; a build shouldn't pay it.
+  The test catches a forgotten `gen:tag-props` the same way `gen:registry` is caught.
+- **Before building:** the sample and the prototype build with no edits (Pavan's condition for P0.8).
+- **Risk if wrong:** a prop that works at run time but is missing from the types now fails. Fix: add it to the type.
+  `hitSlop` and the refresh props are handled by the compiler itself and skipped.
+
+## 117. RN names in the compiler, and the calls made for them (compiler, built 2026-11-05)
+- **Where:** `compile.ts` `RN_TAGS`, `rnStyleKey`, `rnAttribute`, `rnFinish`; `fold.ts` (`hairlineWidth`, `flatten`);
+  `packages/ui/src/index.ts` (the types).
+- **Asked:** RN-compat sweep P1.1–P1.13; Pavan took the recommended answers for left / right and flexGrow.
+- **Chosen, with the judgment calls:**
+  - The RN tags (`View`, `FlatList`, `TouchableOpacity`, `TouchableHighlight`, `TouchableWithoutFeedback`,
+    `ActivityIndicator`) work only when imported from `@zero-native/ui` and not shadowed by the app's own component.
+  - `marginLeft`, `left`, ... = `Start` / `End`: the same in left-to-right, flipped in right-to-left (RN's are fixed).
+    A `Start` / `End` key written too wins, as in RN.
+  - `flexGrow: n` = `flex: n`. zn's `flex` sizes from 0, RN's `flexGrow` from the content: two growing children with
+    different content split the space a little differently.
+  - `StyleSheet.hairlineWidth` = 0.4 dp. RN gives one real pixel of the phone; a build can't know the phone. 0.4 dp is
+    1 px at 2.5x density and close on others.
+  - `TouchableHighlight`: zn's `highlight` feedback draws `underlayColor` at `1 - activeOpacity` over the content. RN
+    shows the underlay under a faded child. Close, not the same pixels.
+  - `TouchableOpacity`: no ripple, `pressOpacity` = `activeOpacity` (default 0.2, as RN).
+  - `ActivityIndicator animating={false}`: opacity 0, so it keeps its space (Android RN does the same).
+  - `keyboardType="numeric"` = `decimal-pad` (RN's Android numeric keyboard has a dot).
+  - `keyboardShouldPersistTaps="handled"` / `"always"` are accepted with no change: zn's taps already reach a
+    Pressable while the keyboard is open. `"never"` fails with a `Keyboard.dismiss()` hint.
+  - Scroll / List speed and iOS props are dropped; `showsVerticalScrollIndicator={false}` only (zn draws no scroll bar).
+- **Risk if wrong:** the four approximations above (left/right, flexGrow, hairline, Highlight). All documented in
+  rn-compatibility.md and guide §56.
+- **Left out:** `borderLeftWidth` (zn has no per-side border width), `SafeAreaView` / `KeyboardAvoidingView` (Pavan).
+
+## 118. RN and React Navigation names in JS core (JS core, built 2026-11-05)
+- **Where:** `packages/core/src/rn.ts` (new); `nav.ts` `addBackHandler`, `exitApp`; `appearance.ts`
+  `onColorSchemeChange`; `timers.ts` `setImmediate`; tests in `packages/core/test/rn.test.ts`.
+- **Asked:** RN-compat sweep P1.14–P1.17.
+- **Chosen:**
+  - `useFocusEffect` over `useFocus`; `useCallback` returns the function; `useRef` is a plain `{ current }`.
+  - `useNavigation()`: `goBack`, `canGoBack`, `push`, `replace`, `pop(n)`, `popToTop`, `isFocused`. No `navigate`
+    (React Navigation's jumps back to a screen already open; `push` never does). `useRoute()`: `{ key, name, params }`.
+  - `AsyncStorage`: Promise API over its own store `rn.async-storage`, apart from `storage`, so RN code that reads
+    strings and `null` never meets zn's typed values. `mergeItem` merges JSON deeply, as RN's.
+  - `BackHandler.addEventListener` adds to the screen being built, else to the top screen, and stops when that screen
+    closes. RN's is global; zn's Back handling is per screen, and a handler left on a closed screen would be a leak.
+  - `useColorScheme()` gives the scheme now (a body runs once). Documented; `scheme(light, dark)` follows changes.
+  - `setImmediate` / `clearImmediate` are globals (a 0 ms timer), as RN code expects them without an import.
+- **Not given on purpose:** `useMemo` (it would never compute again; `computed` does), `useState` / `useEffect` /
+  `useContext` (zn's signals differ; a look-alike would mislead).
+- **Risk if wrong:** the global `setImmediate` could clash with a library that sets its own; none in zn's bundles.
+
+## 119. CSS colour names and `hsl()` in the shared colour parser (JS core + compiler, built 2026-11-05)
+- **Where:** `packages/core/src/color.ts` (used by the compiler and at run time); tests in
+  `packages/template/test/writer.test.ts`.
+- **Asked:** RN-compat sweep P1.3.
+- **Chosen:** the 148 CSS names (RN's list) and `hsl()` / `hsla()` with CSS Color 4 math. The name table is one string,
+  turned into a Map the first time a name is read, so a bundle that uses no names pays nothing at start.
+- **Cost:** about 4.5 KB more JS in the ZeroBill prototype bundle (the table).
+- **Risk if wrong:** a colour that was a build error (`"red"`) now builds. That is the point. `"reddish"` still fails.
+- **Other options:** fold names only at build time (no run-time names from data). Rejected: a colour from the server
+  or a signal would then fail at run time only.
+
 ## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
 - **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.
 - **Chosen:** a data message `zn_ota=check` calls `ZnOta.check()` in the FCM service and waits for it (at most 15 s),

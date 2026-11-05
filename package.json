@@ -14,6 +14,7 @@
     "ota": "bun run tools/ota/cli.ts",
     "ota:phone": "bun run tools/ota/phone-matrix.ts",
     "gen:registry": "bun run tools/gen-registry.ts",
+    "gen:tag-props": "bun run tools/gen-tag-props.ts",
     "test": "bun test packages plugins compiler tools && bun run test:types",
     "test:types": "tsc -p packages/core/test/tsconfig.types.json && tsc -p examples/sample"
   },

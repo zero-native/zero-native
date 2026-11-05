@@ -113,6 +113,21 @@ export {
 } from "./timers"
 export { onError, type ErrorInfo, type ErrorKind } from "./errors"
 export { Updates, type ApplyRefused, type UpdateCheckResult, type UpdateStatus } from "./updates"
+// React Native / React Navigation names over the zn APIs (RN-compat sweep P1.14–P1.17, guide notes §56).
+export {
+  Appearance,
+  AsyncStorage,
+  BackHandler,
+  clearImmediate,
+  setImmediate,
+  useCallback,
+  useColorScheme,
+  useFocusEffect,
+  useNavigation,
+  useRef,
+  useRoute,
+  type Navigation,
+} from "./rn"
 
 /** Installs console, timers and event dispatch on the global object. Call once, first thing in the bundle. */
 export function installRuntime(): void {

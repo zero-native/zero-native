@@ -179,6 +179,27 @@ export function useBack(handler: () => boolean): void {
 }
 
 /**
+ * @internal BackHandler.addEventListener (rn.ts): [handler] on the screen being built or owning the current code, else
+ * on the top screen. Returns the function that removes it; it also goes when its owner goes (or its screen closes).
+ */
+export function addBackHandler(handler: () => boolean): () => void {
+  const e = rendering ?? screenOf(getOwner()) ?? stack[stack.length - 1]
+  if (!e) throw new Error("BackHandler: there is no screen yet (add handlers once the app has started)")
+  e.backs.push(handler)
+  const remove = () => {
+    const i = e.backs.lastIndexOf(handler)
+    if (i >= 0) e.backs.splice(i, 1)
+  }
+  if (getOwner()) onCleanup(remove)
+  return remove
+}
+
+/** @internal Closes the app, as Back on the last screen does (BackHandler.exitApp). */
+export function exitApp(): void {
+  globalThis.__zn_nav(NavKind.Exit, 0, 0, null)
+}
+
+/**
  * Runs [fn] each time this screen gets focus: when it opens on top, and when the screen above it closes (back from
  * checkout, say). If [fn] returns a function, that runs when the screen loses focus (another screen opens on top, or it
  * closes). Like React Navigation's `useFocusEffect`. In a tab, use `tabs.onFocus(name, fn)`: it also follows the tab.

@@ -37,6 +37,7 @@ import { declaredIn, fold, NOT_STATIC, type FoldScope } from "./fold"
 import { NATIVE_NAME } from "./routes"
 import { assemble, type LineMap, markCopied } from "./sourcemap"
 import { type CompiledSvg, compileSvgFile, compileSvgTree } from "./svg"
+import { BASE_PROPS, STYLE_KEYS, TAG_PROPS } from "./tag-props"
 import type { SvgAttr, SvgNode } from "./svg-xml"
 
 export interface CompileContext {
@@ -98,6 +99,51 @@ const PADDING_KEYS = new Set(["padding", "paddingHorizontal", "paddingVertical",
 // app crash while reading the bundle. So it fails the build (second-opinions 113); the runtime also clamps at 0.
 const MARGIN_KEYS = new Set(["margin", "marginHorizontal", "marginVertical", "marginTop", "marginBottom", "marginStart", "marginEnd"])
 const NOT_NEGATIVE_KEYS = new Set([...PADDING_KEYS, "borderWidth", "borderTopWidth", "borderBottomWidth"])
+// Taps are taken only by <Pressable> (RN-compat sweep P0.5): on any other element these did nothing, with no error.
+const PRESS_EVENTS = new Set(["onPress", "onPressIn", "onPressOut", "onLongPress", "onPressRepeat"])
+// ---- React Native names (RN-compat sweep P1, 2026-11-05) ----------------------------------------------------------
+// Each is a rename at build time: no new APK, and nothing changes for code that uses the zn names.
+/** RN component names. Only when imported from @zero-native/ui, so an app's own `View` component is never taken. */
+const RN_TAGS: Record<string, string> = {
+  View: "Column", // or Row, from a build-time flexDirection (viewTag)
+  FlatList: "List",
+  TouchableOpacity: "Pressable",
+  TouchableHighlight: "Pressable",
+  TouchableWithoutFeedback: "Pressable",
+  ActivityIndicator: "Spinner",
+}
+/**
+ * RN style keys with another zn name. Left / right become start / end: the same in a left-to-right app; in a
+ * right-to-left one they flip, where RN's left / right don't. A start / end key written too wins, as in RN.
+ */
+const RN_STYLE_RENAMES: Record<string, string> = {
+  marginLeft: "marginStart",
+  marginRight: "marginEnd",
+  paddingLeft: "paddingStart",
+  paddingRight: "paddingEnd",
+  left: "start",
+  right: "end",
+}
+/** RN ScrollView / FlatList props that change nothing on screen in zn (speed hints, iOS only): accepted and dropped. */
+const SCROLL_DROPPED = new Set([
+  "initialNumToRender", "maxToRenderPerBatch", "windowSize", "updateCellsBatchingPeriod", "removeClippedSubviews",
+  "extraData", "getItemLayout", "scrollEventThrottle", "bounces", "alwaysBounceVertical", "alwaysBounceHorizontal",
+  "nestedScrollEnabled", "directionalLockEnabled", "automaticallyAdjustContentInsets", "contentInsetAdjustmentBehavior",
+])
+/** RN `role` values that zn has (accessibilityRole), by RN name. */
+const RN_ROLES: Record<string, string> = {
+  button: "button", header: "header", heading: "header", image: "image", img: "image", link: "link", text: "text",
+  switch: "switch", checkbox: "checkbox", none: "none", presentation: "none",
+}
+/** What to use for RN components that @zero-native/ui doesn't have, in the build error. */
+const RN_MISSING_TAGS: Record<string, string> = {
+  SafeAreaView: "delete it and set the route option `safeArea` (for a coloured header, use insets().top)",
+  KeyboardAvoidingView: 'delete it: the route option `keyboard: "resize"` (the default) keeps fields above the keyboard',
+  ScrollView: "use <Scroll>",
+  TextInput: "use <TextField>",
+  SectionList: "flatten the sections into one <List> data array with header items",
+  ImageBackground: "put an <Image> and the content in a <Stack>",
+}
 // Events whose payload is JSON from native, handed over as RN's event object: `(e) => e.nativeEvent.layout.width`.
 const NATIVE_EVENT_EVENTS = new Set(["onLoad", "onError", "onLayout"])
 const IMAGE_EVENTS = new Set(["onLoad", "onError", "onLoadEnd"])
@@ -194,6 +240,16 @@ export function compileModule(
   }
 
   const uiImports = new Set<string>()
+  /**
+   * The tags of the elements whose children are being compiled now, innermost last (fragments add none). A branch
+   * (`{c && <X/>}`) or a `.map` row is compiled while its parent is on this list, so it is checked against the
+   * element it is drawn in. A component's root isn't: its parent is in another function (RN-compat sweep P0.4).
+   */
+  const parents: string[] = []
+  /** True while the style of a <View> is read: its flexDirection picked Row or Column (viewTag) and is dropped. */
+  let flexDirectionOk = false
+  /** The style objects whose start / end keys came from RN's left / right (so a written start / end beats them). */
+  const rnAliased = new WeakMap<object, Set<string>>()
   // ---- Module scan --------------------------------------------------------------------------------------------
   for (const stmt of sf.statements) {
     if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
@@ -243,10 +299,19 @@ export function compileModule(
   }
   for (const name of svgImports.keys()) userComponents.delete(name)
   // Intrinsics are registry names that aren't shadowed by a user component of the same name.
-  const isIntrinsic = (tag: string) => tag in Component && tag !== "Anchor" && !userComponents.has(tag)
+  const isRnTag = (tag: string) => tag in RN_TAGS && uiImports.has(tag) && !userComponents.has(tag)
+  const isIntrinsic = (tag: string) => (tag in Component && tag !== "Anchor" && !userComponents.has(tag)) || isRnTag(tag)
   const isSvgFile = (tag: string) => svgImports.has(tag)
   /** An SVG element name (Path, Circle, ...) imported from @zero-native/ui: only valid inside <Svg>. */
   const isSvgChild = (tag: string) => tag in SVG_TAGS && !(tag in Component) && uiImports.has(tag) && !userComponents.has(tag)
+  /**
+   * A tag imported from @zero-native/ui that zn doesn't have (`<SafeAreaView>`): the import is removed, so it would
+   * be a call of a missing function, a crash at run time. A build error instead (RN-compat sweep, guide notes §56).
+   */
+  const notInUiCheck = (node: ts.Node, tag: string) => {
+    if (!uiImports.has(tag) || userComponents.has(tag) || isIntrinsic(tag) || isSvgChild(tag) || tag === "RefreshControl") return
+    fail(node, `<${tag}> is not in @zero-native/ui: ${RN_MISSING_TAGS[tag] ?? "see docs/rn-compatibility.md for what to use"}`)
+  }
 
   // An imported SVG is a build-time name: only `<Name ... />` is allowed (docs/svg.md §4.1).
   forEachDescendant(sf, (n) => {
@@ -514,6 +579,7 @@ export function compileModule(
     if (!ts.isJsxFragment(jsx)) {
       const tag = tagName(jsx)
       if (isSvgChild(tag)) fail(jsx, `<${tag}> is an SVG element: it only works inside <Svg>`)
+      notInUiCheck(jsx, tag)
       if (!isIntrinsic(tag) && !isSvgFile(tag)) return { code: `${tag}(${propsObject(jsx, depth)})`, templateId: null }
     }
     return compileTemplate(jsx, depth, (b) => element(jsx, b, allowKey))
@@ -577,7 +643,10 @@ export function compileModule(
       return el("Fragment", {}, ...childList(jsx.children, b))
     }
     const node = jsx
-    const tag = tagName(node)
+    const written = tagName(node)
+    // RN names (P1): <View> is a Column or a Row; <FlatList> a List; the Touchables a Pressable; ActivityIndicator a Spinner.
+    const rn = isRnTag(written) ? written : null
+    const tag = rn === "View" ? viewTag(node) : rn ? RN_TAGS[rn] : written
     if (isSvgFile(tag)) return svgFileElement(node, b, allowKey)
     if (!isIntrinsic(tag)) fail(node, `"${tag}" is not a zero-native component`)
     if (tag === "Fragment") fail(node, "write a fragment as <>...</>")
@@ -592,11 +661,17 @@ export function compileModule(
     let changeText: { ev: string; handler: string } | null = null
     let valueSlot: { s: string; expr: ts.Expression } | null = null
     let contentStyle: ts.JsxAttribute | null = null
+    const rnLater: RnLater = {}
 
+    // A failed check stops the whole file's compile, so no try / finally is needed to reset it.
+    flexDirectionOk = rn === "View"
     for (const attr of opening.attributes.properties) {
       if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
       const a = attr as ts.JsxAttribute
-      const name = a.name.getText(sf)
+      let name = a.name.getText(sf)
+      const renamed = rnAttribute(tag, rn, name, a, props, b, rnLater)
+      if (renamed === true) continue
+      if (renamed) name = renamed
       if (name === "key") {
         if (!allowKey) fail(a, "`key` is only used on the root element of a `.map(...)` row")
         continue
@@ -634,6 +709,11 @@ export function compileModule(
         const handlerExpr = (init as ts.JsxExpression).expression!
         const handler = handlerCode(handlerExpr, b)
         if (IMAGE_EVENTS.has(name) && tag !== "Image") fail(a, `${name} works only on <Image>`)
+        if (PRESS_EVENTS.has(name) && tag !== "Pressable") {
+          fail(a, `${name} works only on <Pressable>: on <${tag}> the tap would do nothing. Wrap it: ` +
+            `<Pressable ${name}={...}><${tag} .../></Pressable>`)
+        }
+        tagPropCheck(tag, name, a)
         if (tag === "TextField" && name === "onChangeText") changeText = { ev, handler }
         else if (NATIVE_EVENT_EVENTS.has(name)) {
           // A name no app uses: the handler's own `p` or `e` must not be hidden by this wrapper.
@@ -651,6 +731,7 @@ export function compileModule(
       if (IGNORED_STYLE_KEYS.has(name) || (tag === "Modal" && MODAL_IOS_ONLY.has(name))) continue
       if ((tag === "StatusBar" || tag === "NavigationBar") && STATUS_BAR_DROPPED.has(name)) continue
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
+      tagPropCheck(tag, name, a)
       if (tag === "TextField" && name === "value" && init && ts.isJsxExpression(init) && init.expression) {
         const before = b.slots
         setProp(props, b, name, init.expression, a)
@@ -662,8 +743,11 @@ export function compileModule(
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)
       else fail(a, `unsupported value for "${name}"`)
     }
+    flexDirectionOk = false
+    rnFinish(tag, rn, props, b, rnLater, opening)
     if (contentStyle) contentContainerStyle(contentStyle, props, b)
     if ("hitSlop" in props && tag !== "Pressable") fail(opening, "hitSlop works only on <Pressable> (the element that takes the tap)")
+    stackChildCheck(props, opening)
     if ((tag === "StatusBar" || tag === "NavigationBar") && ts.isJsxElement(node) && node.children.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) {
       fail(node, `<${tag}> takes no children`)
     }
@@ -687,9 +771,373 @@ export function compileModule(
     } else if (tag === "TextField") {
       if (kids.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) fail(node, "<TextField> takes no children")
     } else {
-      children = childList(kids, b)
+      parents.push(tag)
+      try {
+        children = childList(kids, b)
+      } finally {
+        parents.pop()
+      }
     }
     return el(tag as keyof typeof Component, props, ...children)
+  }
+
+  // ---- React Native names (RN-compat sweep P1, 2026-11-05) --------------------------------------------------------
+
+  /** What an RN prop leaves for after the attribute loop (rnFinish). */
+  interface RnLater {
+    underlayColor?: unknown
+    activeOpacity?: unknown
+    animating?: ts.Expression | false
+  }
+
+  /** <View>: a <Row> when its style says flexDirection: "row" (known at build time), else a <Column>. */
+  function viewTag(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
+    const opening = ts.isJsxElement(node) ? node.openingElement : node
+    const attr = opening.attributes.properties.find((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "style") as
+      | ts.JsxAttribute
+      | undefined
+    const init = attr?.initializer
+    const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
+    // The last flexDirection written wins, as in a style array. NOT_STATIC: written, but not known at build time.
+    const flat = (x: unknown): unknown =>
+      Array.isArray(x) ? x.reduce((acc: unknown, y) => flat(y) ?? acc, undefined)
+      : x && typeof x === "object" ? (x as Record<string, unknown>).flexDirection : undefined
+    const find = (e: ts.Expression): unknown => {
+      const v = fold(e, scope)
+      if (v !== NOT_STATIC) return flat(v)
+      const u = unwrap(e)
+      let found: unknown = undefined
+      if (ts.isArrayLiteralExpression(u)) {
+        for (const item of u.elements) found = find(item) ?? found
+      } else if (ts.isObjectLiteralExpression(u)) {
+        for (const p of u.properties) {
+          if (ts.isPropertyAssignment(p) && p.name.getText(sf).replace(/^["']|["']$/g, "") === "flexDirection") {
+            found = fold(p.initializer, scope)
+          } else if (ts.isSpreadAssignment(p)) found = find(p.expression) ?? found
+        }
+      }
+      return found
+    }
+    const dir = expr ? find(expr) : undefined
+    if (dir === NOT_STATIC) {
+      fail(attr!, "flexDirection on <View> must be known at build time: zero-native makes it a <Row> or a <Column>")
+    }
+    if (dir === undefined || dir === "column") return "Column"
+    if (dir === "row") return "Row"
+    return fail(attr!, `flexDirection "${String(dir)}" isn't supported: use "row" or "column" (for a reversed order, reverse the children)`)
+  }
+
+  function unknownStyleKey(k: string): string {
+    if (k === "flexDirection") {
+      return 'unknown style key "flexDirection": pick the element instead, <Row> or <Column> (or <View> from ' +
+        "@zero-native/ui, which picks one from a flexDirection known at build time). A Pressable or a Touchable lays " +
+        "out its children as a column: put a <Row> inside it"
+    }
+    return `unknown style key "${k}"`
+  }
+
+  /**
+   * An RN style key → the zn key, or null when it is dropped (it changes nothing in zn) or already set here. [value]
+   * gives the folded value (NOT_STATIC if it is known only at runtime). Keys zn has are returned as they are.
+   */
+  function rnStyleKey(k: string, value: () => unknown, props: Record<string, unknown>, at: ts.Node): string | null {
+    const known = () => {
+      const v = value()
+      if (v === NOT_STATIC) fail(at, `${k} must be known at build time`)
+      return v
+    }
+    if (k === "flexDirection" && flexDirectionOk) return null // <View>: it chose Row or Column (viewTag)
+    let aliased = rnAliased.get(props)
+    const target = RN_STYLE_RENAMES[k]
+    if (target) {
+      // RN: a start / end key beats left / right, whichever is written first.
+      if (!aliased) rnAliased.set(props, (aliased = new Set()))
+      if (target in props && !aliased.has(target)) return null
+      aliased.add(target)
+      return target
+    }
+    aliased?.delete(k) // a start / end key written after left / right replaces it
+    switch (k) {
+      case "flexGrow": {
+        // RN's flexGrow: n shares the free space like zn's flex: n. (Two growing children with different content
+        // widths split it a little differently: RN shares only what is left after their content.)
+        const v = known()
+        if (typeof v !== "number" || v < 0) fail(at, "flexGrow needs a number, 0 or more")
+        if (v !== 0 && !("flex" in props)) props.flex = v
+        return null
+      }
+      case "flexShrink":
+        // zn never shrinks a child below its size (RN's default, flexShrink: 0); a Text in a Row still wraps.
+        if ([0, 1].includes(known() as number)) return null
+        return fail(at, "flexShrink: only 0 or 1 (both dropped: zero-native doesn't shrink children, and a Text in a Row wraps)")
+      case "flexBasis":
+        if (([0, "auto"] as unknown[]).includes(known())) return null
+        return fail(at, 'flexBasis: only 0 or "auto" (dropped); give the element a width or a flex instead')
+      case "rowGap":
+      case "columnGap": {
+        // The gap along the element's own direction (rnFinish); the other one has no effect without wrapping.
+        const v = known()
+        if (typeof v !== "number" || v < 0) fail(at, `${k} needs a number of dp, 0 or more`)
+        props[k === "rowGap" ? "__rowGap" : "__columnGap"] = v
+        return null
+      }
+      case "width":
+      case "height":
+        if (value() === "auto") return null // zn's default: the size of the content
+        return k
+    }
+    return k
+  }
+
+  function rnTextAlign(v: unknown, at: ts.Node): unknown {
+    // left / right are start / end: the same in a left-to-right app (they flip in right-to-left, unlike RN's).
+    if (v === "left" || v === "auto") return "start"
+    if (v === "right") return "end"
+    if (v === "justify") fail(at, 'textAlign: "justify" isn\'t supported (use "start")')
+    return v
+  }
+
+  function rnRatio(v: string, at: ts.Node): number {
+    const m = /^\s*(\d*\.?\d+)\s*\/\s*(\d*\.?\d+)\s*$/.exec(v)
+    if (!m || Number(m[2]) === 0) return fail(at, `aspectRatio "${v}": use a number or "width / height", like "16/9"`)
+    return Number(m[1]) / Number(m[2])
+  }
+
+  /**
+   * One attribute under its RN name. Returns the zn name to use for it, true when it is fully handled here (set, or
+   * dropped because it changes nothing in zn), or null when it isn't an RN name.
+   */
+  function rnAttribute(
+    tag: string,
+    rn: string | null,
+    name: string,
+    a: ts.JsxAttribute,
+    props: Record<string, unknown>,
+    b: Builder,
+    later: RnLater,
+  ): string | true | null {
+    const init = a.initializer
+    const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
+    const value = (): unknown =>
+      init === undefined ? true : ts.isStringLiteral(init) ? init.text : expr ? fold(expr, scope) : NOT_STATIC
+    const known = () => {
+      const v = value()
+      if (v === NOT_STATIC) fail(a, `${name} must be known at build time`)
+      return v
+    }
+    /** {{ key: value }} → each key's expression; other shapes fail. */
+    const entries = (what: string): Map<string, ts.Expression> => {
+      const o = expr && unwrap(expr)
+      if (!o || !ts.isObjectLiteralExpression(o)) return fail(a, `${name} needs an object: ${what}`)
+      const out = new Map<string, ts.Expression>()
+      for (const p of o.properties) {
+        if (!ts.isPropertyAssignment(p)) return fail(p, `${name}: write each key as key: value`)
+        out.set(p.name.getText(sf).replace(/^["']|["']$/g, ""), p.initializer)
+      }
+      return out
+    }
+    const setFrom = (zn: PropName, e: ts.Expression) => setProp(props, b, zn, e, a)
+
+    // Accessibility, on any element.
+    if (name === "aria-label") return "accessibilityLabel"
+    if (name === "aria-hidden" || name === "accessibilityElementsHidden") return "accessibilityHidden"
+    if (name === "role") {
+      const v = known()
+      const role = RN_ROLES[String(v)]
+      if (!role) fail(a, `role "${String(v)}" has no zero-native role (use ${Object.keys(RN_ROLES).join(", ")})`)
+      setStatic(props, "accessibilityRole", role, a)
+      return true
+    }
+    if (name === "importantForAccessibility") {
+      const v = known()
+      if (v === "auto" || v === "yes") return true
+      if (v === "no-hide-descendants") {
+        setStatic(props, "accessibilityHidden", true, a)
+        return true
+      }
+      return fail(a, `importantForAccessibility="${String(v)}" isn't supported: "no-hide-descendants" (hide this element ` +
+        'and its children, the same as accessibilityHidden) works; "no" (hide only this one) has no match')
+    }
+
+    // Text and TextField.
+    if (name === "allowFontScaling" && (tag === "Text" || tag === "TextField")) {
+      if (known() === false) setStatic(props, "maxFontScale", 1, a)
+      return true
+    }
+    if (name === "ellipsizeMode" && tag === "Text") {
+      if (known() === "tail") return true
+      return fail(a, 'ellipsizeMode: zero-native always cuts the end of the text ("tail"); other modes aren\'t supported')
+    }
+    if (name === "placeholderTextColor" && tag === "TextField") return "placeholderColor"
+
+    // Image.
+    if (tag === "Image" && name === "source") {
+      const o = expr && unwrap(expr)
+      if (o && ts.isCallExpression(o) && ts.isIdentifier(o.expression) && o.expression.text === "require") {
+        fail(a, 'require(...) images: put the file in the app\'s assets/images folder and write src="asset:images/name.png"')
+      }
+      const v = value()
+      if (v !== NOT_STATIC) {
+        if (!v || typeof v !== "object" || Array.isArray(v) || typeof (v as { uri?: unknown }).uri !== "string") {
+          fail(a, 'source: only {{ uri: "https://..." }} is supported; or write src="..."')
+        }
+        const extra = Object.keys(v as object).filter((k) => k !== "uri")
+        if (extra.length > 0) fail(a, `source: only uri is supported (not ${extra.join(", ")})`)
+        setStatic(props, "src", (v as { uri: string }).uri, a)
+        return true
+      }
+      const parts = entries("source={{ uri: url }}")
+      if (parts.size !== 1 || !parts.has("uri")) fail(a, "source: only {{ uri }} is supported; or write src={url}")
+      setFrom("src", parts.get("uri")!)
+      return true
+    }
+    if (tag === "Image" && name === "resizeMode") {
+      const v = known()
+      const scale = ({ cover: "cover", contain: "contain", stretch: "fill" } as Record<string, string>)[String(v)]
+      if (!scale) fail(a, `resizeMode "${String(v)}" isn't supported (cover, contain, stretch)`)
+      setStatic(props, "contentScale", scale, a)
+      return true
+    }
+
+    // Switch: trackColor={{ false: off, true: on }}.
+    if (tag === "Switch" && name === "trackColor" && expr && ts.isObjectLiteralExpression(unwrap(expr))) {
+      for (const [k, e] of entries("trackColor={{ false: off, true: on }}")) {
+        if (k === "false") setFrom("trackColor", e)
+        else if (k === "true") setFrom("activeTrackColor", e)
+        else fail(a, `trackColor: only false and true (not ${k})`)
+      }
+      return true
+    }
+    if (tag === "Switch" && name === "ios_backgroundColor") return true // iOS only
+
+    // Pressable: android_ripple={{ color, borderless, radius, foreground }}.
+    if (tag === "Pressable" && name === "android_ripple") {
+      for (const [k, e] of entries("android_ripple={{ color, borderless, radius }}")) {
+        if (k === "color") setFrom("rippleColor", e)
+        else if (k === "borderless") setFrom("rippleBorderless", e)
+        else if (k === "radius") setFrom("rippleRadius", e)
+        else if (k !== "foreground") fail(a, `android_ripple: ${k} isn't supported (color, borderless, radius)`)
+      }
+      return true
+    }
+    if (rn === "TouchableOpacity" && name === "activeOpacity") return "pressOpacity"
+    if (rn === "TouchableHighlight" && (name === "underlayColor" || name === "activeOpacity")) {
+      later[name] = known()
+      return true
+    }
+
+    // ActivityIndicator.
+    if (rn === "ActivityIndicator") {
+      if (name === "size") {
+        const v = known()
+        const dp = v === "small" ? 20 : v === "large" ? 36 : v
+        if (typeof dp !== "number") fail(a, 'size: "small", "large" or a number of dp')
+        setStatic(props, "size", dp, a)
+        return true
+      }
+      if (name === "animating") {
+        const v = value()
+        if (v === NOT_STATIC) later.animating = expr!
+        else if (v === false) later.animating = false
+        return true
+      }
+      if (name === "hidesWhenStopped") {
+        if (known() === false) fail(a, "hidesWhenStopped={false} isn't supported: a stopped spinner is hidden")
+        return true
+      }
+    }
+
+    // ScrollView / FlatList props.
+    if (tag === "Scroll" || tag === "List") {
+      if (SCROLL_DROPPED.has(name)) return true
+      if (name === "showsVerticalScrollIndicator" || name === "showsHorizontalScrollIndicator") {
+        if (known() === false) return true
+        return fail(a, `${name}: zero-native draws no scroll bar, so only {false} is accepted`)
+      }
+      if (name === "keyboardShouldPersistTaps") {
+        // In zn a tap reaches the button under it while the keyboard is open, as with RN's "handled".
+        const v = known()
+        if (v === "handled" || v === "always" || v === true) return true
+        return fail(a, 'keyboardShouldPersistTaps: zero-native works like "handled" (taps reach the button; the ' +
+          'keyboard stays). For "never", call Keyboard.dismiss() in the handler')
+      }
+    }
+    return null
+  }
+
+  /** After the attribute loop: the RN defaults and props that need the whole element (see rnAttribute). */
+  function rnFinish(tag: string, rn: string | null, props: Record<string, unknown>, b: Builder, later: RnLater, at: ts.Node) {
+    // rowGap / columnGap: the gap along the element's own direction beats gap, as in RN.
+    const rowGap = props.__rowGap
+    const columnGap = props.__columnGap
+    delete props.__rowGap
+    delete props.__columnGap
+    const across = tag === "Row" || tag === "Carousel" || (tag === "Scroll" && props.horizontal === true)
+    const main = across ? columnGap : rowGap
+    if (main !== undefined && tag !== "Stack") props.gap = main
+
+    if (rn === "TouchableOpacity") {
+      props.pressFeedback ??= "none"
+      props.pressOpacity ??= 0.2 // RN's default activeOpacity
+    } else if (rn === "TouchableWithoutFeedback") {
+      props.pressFeedback ??= "none"
+    } else if (rn === "TouchableHighlight") {
+      // RN shows underlayColor behind the child and dims the child to activeOpacity (default black and 0.85): about
+      // the same as an overlay of underlayColor at (1 - activeOpacity).
+      props.pressFeedback ??= "highlight"
+      const opacity = later.activeOpacity ?? 0.85
+      if (typeof opacity !== "number" || opacity < 0 || opacity > 1) fail(at, "activeOpacity needs a number from 0 to 1")
+      let argb = 0
+      try {
+        argb = parseColor(String(later.underlayColor ?? "#000000"))
+      } catch (e) {
+        fail(at, `underlayColor: ${(e as Error).message}`)
+      }
+      const alpha = Math.round(((argb >>> 24) / 255) * (1 - (opacity as number)) * 1000) / 1000
+      props.highlightColor ??= `rgba(${(argb >>> 16) & 255}, ${(argb >>> 8) & 255}, ${argb & 255}, ${alpha})`
+    } else if (rn === "ActivityIndicator" && later.animating !== undefined) {
+      // A stopped spinner is hidden but keeps its space, as RN's on Android.
+      if ("opacity" in props) fail(at, "ActivityIndicator: use animating or opacity, not both")
+      if (later.animating === false) props.opacity = 0
+      else {
+        const s = `s${b.slots++}`
+        props.opacity = slotRef(s, null) as never
+        b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => ((${text(later.animating)}) ? 1 : 0), 0);`)
+      }
+    }
+  }
+
+  /**
+   * RN-compat sweep P0.8: a prop the element doesn't take (`<Image horizontal>`, `<Text value>`) fails the build;
+   * before, it was accepted and did nothing. The list per element is its type in @zero-native/ui (tag-props.ts,
+   * generated). Props with their own, clearer check (hitSlop, pull to refresh) are left to it.
+   */
+  function tagPropCheck(tag: string, name: string, at: ts.Node) {
+    const t = TAG_PROPS[tag]
+    if (!t || t.own.has(name) || (t.base && BASE_PROPS.has(name))) return
+    if (name === "hitSlop" || REFRESH_PROPS.includes(name)) return
+    const own = [...t.own].filter((n) => n !== "children")
+    fail(at, `${name} isn't a prop of <${tag}>, so it would do nothing` +
+      (own.length > 0 ? `. <${tag}>'s own props: ${own.join(", ")}` : ""))
+  }
+
+  /** A style holds style keys only (P0.8): `style={{ src }}` used to be accepted. */
+  function styleKeyCheck(key: string, at: ts.Node) {
+    if (!STYLE_KEYS.has(key)) fail(at, `"${key}" isn't a style key: write it on the element as a prop (${key}={...})`)
+  }
+
+  /**
+   * RN-compat sweep P0.4: `position: "absolute"` and `zIndex` work only on a child of <Stack>. Anywhere else the element
+   * was laid out in the flow (zIndex ignored) with no error. Checked only where the parent is known (see [parents]).
+   */
+  function stackChildCheck(props: Record<string, unknown>, at: ts.Node) {
+    const parent = parents[parents.length - 1]
+    if (parent === undefined || parent === "Stack") return
+    const what = props.position === "absolute" ? 'position: "absolute"' : "zIndex" in props ? "zIndex" : null
+    if (what) {
+      fail(at, `${what} works only on a child of <Stack>; here the parent is <${parent}>, which would lay it out in ` +
+        `the flow. Make the parent a <Stack> (its other children overlap too), or wrap this part in a <Stack>`)
+    }
   }
 
   /**
@@ -1067,6 +1515,7 @@ export function compileModule(
     if (ts.isJsxFragment(node)) return childList(node.children, b)
     const tag = tagName(node)
     if (isSvgChild(tag)) fail(node, `<${tag}> is an SVG element: it only works inside <Svg>`)
+    notInUiCheck(node, tag)
     if (isIntrinsic(tag) || isSvgFile(tag)) return [element(node, b)]
     // A user component: an anchor where its instance mounts.
     const index = b.nodes++
@@ -1151,13 +1600,16 @@ export function compileModule(
     const props: NodeProps & Record<string, unknown> = {}
     const special: Record<string, ts.Expression> = {}
     let contentStyle: ts.JsxAttribute | null = null
+    const rnLater: RnLater = {}
     for (const attr of (ts.isJsxElement(node) ? node.openingElement : node).attributes.properties) {
       if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
       const a = attr as ts.JsxAttribute
       const name = a.name.getText(sf)
       const init = a.initializer
       const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
-      if (name === "data" || name === "key" || name === "row" || name === "onEndReached") {
+      if (rnAttribute("List", null, name, a, props, b, rnLater) === true) continue // FlatList's speed hints (P1.7)
+      // FlatList's renderItem / keyExtractor (RN-compat sweep P1.5): the same as row / key, see below.
+      if (["data", "key", "row", "onEndReached", "renderItem", "keyExtractor"].includes(name)) {
         if (!expr) fail(a, `${name} needs an expression: ${name}={...}`)
         special[name] = expr!
       } else if (name === "stickyHeaderIndices") {
@@ -1185,25 +1637,59 @@ export function compileModule(
         styleProps(expr!, props, b)
       } else if (name === "contentContainerStyle") {
         contentStyle = a // after the loop, so it can be checked against style's padding
+      } else if (name === "horizontal") {
+        // RN-compat sweep P0.6: it was accepted and the list still drew vertically. {false} is RN's default.
+        if (fold(expr ?? ts.factory.createTrue(), scope) === false) continue
+        fail(a, "<List> is vertical only. For a horizontal rail use <Scroll horizontal> with {items.map(...)} inside " +
+          "(only the visible cards are drawn)")
       } else if (name in Prop) {
         if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
         else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices; or FlatList's renderItem, keyExtractor)`)
       }
     }
+    rnFinish("List", null, props, b, rnLater, node)
     if (contentStyle) contentContainerStyle(contentStyle, props, b)
-    for (const required of ["data", "key", "row"]) {
+    // FlatList's names (P1.5). renderItem gets { item, index } as in RN; without a key function the key is RN's
+    // default: item.key, else item.id, else the index.
+    if (special.renderItem && special.row) fail(node, "use row or renderItem, not both")
+    if (special.keyExtractor && special.key) fail(node, "use key or keyExtractor, not both")
+    const renderItem = !!special.renderItem
+    if (renderItem) special.row = special.renderItem
+    if (special.keyExtractor) special.key = special.keyExtractor
+    for (const required of renderItem ? ["data"] : ["data", "key", "row"]) {
       if (!special[required]) fail(node, `<List> needs ${required}={...}`)
     }
+    const keyCode = special.key ? text(special.key) : "(__znItem, __znIndex) => (__znItem?.key ?? __znItem?.id ?? __znIndex)"
 
     const fn = unwrap(special.row)
     if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) fail(special.row, "row must be a function: row={(item) => <Row/>}")
     const rowFn = fn as ts.ArrowFunction
-    if (rowFn.parameters.length < 1 || rowFn.parameters.length > 2) fail(rowFn, "row takes (item) or (item, index)")
-    const params = rowFn.parameters.map((p) => text(p)).join(", ")
+    if (renderItem) {
+      if (rowFn.parameters.length !== 1) fail(rowFn, "renderItem takes one parameter: ({ item, index }) => ...")
+      const info = rowFn.parameters[0].name
+      if (ts.isObjectBindingPattern(info)) {
+        for (const e of info.elements) {
+          const k = (e.propertyName ?? e.name).getText(sf)
+          if (k !== "item" && k !== "index") fail(e, `renderItem: only item and index are given (not ${k})`)
+        }
+      }
+    } else {
+      if (rowFn.parameters.length < 1 || rowFn.parameters.length > 2) fail(rowFn, "row takes (item) or (item, index)")
+      const first = rowFn.parameters[0].name
+      if (ts.isObjectBindingPattern(first) && first.elements.some((e) => ["item", "index"].includes((e.propertyName ?? e.name).getText(sf)))) {
+        // RN-compat sweep P0.7: FlatList's renderItem={({ item }) => ...} habit; `row` gets the item itself.
+        fail(first, "row gets the item itself, not { item, index }: write row={(item, index) => ...}, or use " +
+          "renderItem={({ item, index }) => ...} as in React Native")
+      }
+    }
+    const params = renderItem ? "__znItem, __znIndex" : rowFn.parameters.map((p) => text(p)).join(", ")
+    // renderItem: the row function is called with RN's { item, index } (one small object per row built).
+    const wrap = (code: string) =>
+      renderItem ? `((${text(rowFn.parameters[0])}) => ${code})({ item: __znItem, index: __znIndex })` : code
     let body: ts.Expression | undefined
     if (ts.isBlock(rowFn.body)) {
       const only = rowFn.body.statements.length === 1 ? rowFn.body.statements[0] : null
@@ -1229,7 +1715,13 @@ export function compileModule(
       const tag = tagName(u as ts.JsxElement)
       return { code: root.code, type: `(${tag}.__zt ?? 0)` }
     }
-    const rows = branches(body!)
+    parents.push("List")
+    let rows: { code: string; type: string }
+    try {
+      rows = branches(body!)
+    } finally {
+      parents.pop()
+    }
 
     const range = `e${b.events++}`
     ;(props as any).onRange = eventRef(range)
@@ -1242,8 +1734,8 @@ export function compileModule(
       onEnd = text(special.onEndReached)
     }
     b.kids.push(
-      `${RUNTIME}.list(${b.inst}, ${index}, { data: () => (${text(special.data)}), key: ${text(special.key)}, ` +
-        `row: (${params}) => ${rows.code}, type: (${params}) => ${rows.type}, ` +
+      `${RUNTIME}.list(${b.inst}, ${index}, { data: () => (${text(special.data)}), key: ${keyCode}, ` +
+        `row: (${params}) => ${wrap(rows.code)}, type: (${params}) => ${wrap(rows.type)}, ` +
         `rangeEvent: @@E:${range}@@, endEvent: ${end}, onEndReached: ${onEnd}` +
         (special.sticky ? `, sticky: () => (${text(special.sticky)})` : "") + " });",
     )
@@ -1358,6 +1850,9 @@ export function compileModule(
       : name === "animate" ? animateSpec(value, at)
       : name === "enter" || name === "exit" ? transitionSpec(value, name, at)
       : name === "hitSlop" ? hitSlopSpec(value, at)
+      : name === "textAlign" ? rnTextAlign(value, at)
+      : name === "aspectRatio" && typeof value === "string" ? rnRatio(value, at)
+      : name === "keyboardType" && value === "numeric" ? "decimal-pad" // RN's numeric: digits and a decimal point
       : value
   }
 
@@ -1646,6 +2141,10 @@ export function compileModule(
   function transform(list: unknown, props: Record<string, unknown>, at: ts.Node) {
     const allowed = ["scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"]
     if (!Array.isArray(list)) fail(at, "transform must be an array like [{ scale: 0.98 }]")
+    transformOrder((list as unknown[]).map((e) => {
+      const pairs = e && typeof e === "object" ? Object.entries(e) : []
+      return pairs.length === 1 ? { key: pairs[0][0], value: pairs[0][1] } : null
+    }), at)
     for (const entry of list as unknown[]) {
       const pairs = entry && typeof entry === "object" ? Object.entries(entry) : []
       if (pairs.length !== 1) fail(at, "each transform entry has exactly one key, e.g. { rotate: '45deg' }")
@@ -1661,6 +2160,39 @@ export function compileModule(
     }
   }
 
+  /**
+   * RN-compat sweep P0.9. zero-native draws a transform in one fixed order (move, then rotate, then scale, as Compose's
+   * graphicsLayer does), and keeps one value per key. React Native applies the list in its order, so a scale or rotate
+   * before a move also scales or turns the move, and a key written twice adds up. Those lists fail the build. Entries
+   * that do nothing (scale 1, rotate 0, move 0) are skipped; a value known only at runtime counts.
+   */
+  function transformOrder(entries: ({ key: string; value: unknown } | null)[], at: ts.Node) {
+    const seen = new Set<string>()
+    let turned: string | null = null // the first scale / rotate that does something
+    let stretched: string | null = null // the first scaleX / scaleY that does something
+    for (const e of entries) {
+      if (!e) continue // a malformed entry: the usual checks give the error
+      const { key, value } = e
+      if (seen.has(key)) {
+        fail(at, `transform has ${key} twice. React Native applies both (they add up); zero-native keeps one. ` +
+          `Write one ${key} with the total`)
+      }
+      seen.add(key)
+      const identity = value === (key.startsWith("scale") ? 1 : 0)
+      if (identity) continue
+      if ((key === "translateX" || key === "translateY") && turned) {
+        fail(at, `transform: ${key} comes after ${turned}. React Native would ${turned === "rotate" ? "turn" : "scale"} ` +
+          `the move too; zero-native always moves first. Put { ${key} } first in the list (with the value you want on screen)`)
+      }
+      if (key === "rotate" && stretched) {
+        fail(at, `transform: rotate comes after ${stretched}. zero-native always rotates before it scales; put { rotate } ` +
+          "first, or use scale (the same on both axes)")
+      }
+      if (key.startsWith("scale") || key === "rotate") turned ??= key
+      if (key === "scaleX" || key === "scaleY") stretched ??= key
+    }
+  }
+
   function styleProps(expr: ts.Expression, props: Record<string, unknown>, b: Builder) {
     const merge = (obj: unknown, at: ts.Node) => {
       if (obj === null || obj === undefined || obj === false) return
@@ -1672,8 +2204,11 @@ export function compileModule(
           continue
         }
         if (IGNORED_STYLE_KEYS.has(k)) continue
-        if (!(k in Prop)) fail(at, `unknown style key "${k}"`)
-        if (v !== undefined) setStatic(props, k as PropName, v, at)
+        const key = rnStyleKey(k, () => v, props, at)
+        if (key === null) continue
+        if (!(key in Prop)) fail(at, unknownStyleKey(key))
+        styleKeyCheck(key, at)
+        if (v !== undefined) setStatic(props, key as PropName, v, at)
       }
     }
     const folded = fold(expr, scope)
@@ -1697,6 +2232,12 @@ export function compileModule(
             // Entries may change at runtime (step 3.6): [{ translateY: open() ? 0 : 40 }]. Each is its own slot.
             const list = unwrap(p.initializer)
             if (!ts.isArrayLiteralExpression(list)) fail(p, "transform must be an array literal like [{ scale: x }]")
+            transformOrder((list as ts.ArrayLiteralExpression).elements.map((item) => {
+              const obj = unwrap(item)
+              const pa = ts.isObjectLiteralExpression(obj) && obj.properties.length === 1 ? obj.properties[0] : undefined
+              if (!pa || !ts.isPropertyAssignment(pa)) return null
+              return { key: pa.name.getText(sf), value: fold(pa.initializer, scope) }
+            }), p)
             for (const item of (list as ts.ArrayLiteralExpression).elements) {
               const obj = unwrap(item)
               const entry = ts.isObjectLiteralExpression(obj) ? obj.properties : undefined
@@ -1714,8 +2255,11 @@ export function compileModule(
             continue
           }
           if (IGNORED_STYLE_KEYS.has(key)) continue
-          if (!(key in Prop)) fail(p, `unknown style key "${key}"`)
-          setProp(props, b, key as PropName, p.initializer, p)
+          const zk = rnStyleKey(key, () => fold(p.initializer, scope), props, p)
+          if (zk === null) continue
+          if (!(zk in Prop)) fail(p, unknownStyleKey(zk))
+          styleKeyCheck(zk, p)
+          setProp(props, b, zk as PropName, p.initializer, p)
         } else {
           fail(p, "unsupported style entry")
         }

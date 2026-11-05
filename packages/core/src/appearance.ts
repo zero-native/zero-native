@@ -13,6 +13,7 @@ export type ColorScheme = "light" | "dark"
 
 const current = signal<ColorScheme>("light")
 const memoryListeners = new Set<() => void>()
+const schemeListeners = new Set<(scheme: ColorScheme) => void>()
 
 /** The phone's setting now. Reading it inside JSX makes that value follow changes. */
 export function colorScheme(): ColorScheme {
@@ -35,9 +36,31 @@ export function onLowMemory(listener: () => void): () => void {
   return off
 }
 
+/**
+ * Calls [listener] when the phone's setting changes (React Native's Appearance.addChangeListener, rn.ts). Returns a
+ * function that stops listening; while a screen is being built, it stops by itself when the screen closes.
+ */
+export function onColorSchemeChange(listener: (scheme: ColorScheme) => void): () => void {
+  schemeListeners.add(listener)
+  const off = () => void schemeListeners.delete(listener)
+  if (getOwner()) onCleanup(off)
+  return off
+}
+
 /** Called by startApp. */
 export function installAppearance(): void {
-  onEvent(APP, AppEvent.ColorScheme, (payload) => current.set(payload === "dark" ? "dark" : "light"))
+  onEvent(APP, AppEvent.ColorScheme, (payload) => {
+    const next: ColorScheme = payload === "dark" ? "dark" : "light"
+    if (next === current.peek()) return
+    current.set(next)
+    for (const listener of [...schemeListeners]) {
+      try {
+        listener(next)
+      } catch (err) {
+        reportError("Appearance listener", err)
+      }
+    }
+  })
   onEvent(APP, AppEvent.LowMemory, () => {
     for (const listener of [...memoryListeners]) {
       try {

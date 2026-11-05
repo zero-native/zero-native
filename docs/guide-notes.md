@@ -1992,3 +1992,52 @@ JS. API: `plugins/perf/README.md`.
 - **Do** compare `frames_slow` / `frames_frozen` of `screen_<route>` traces between bundles (`zn_bundle`).
 - **Plugin authors:** add to core's OkHttp client with `ZnFetch.addInterceptor(interceptor)` (added after the app's
   `ZnFetch.configure`; no builder, so the app's pins stay). **Don't** call `ZnFetch.configure` from a plugin: it replaces the app's own setup.
+
+## 56. Coming from React Native: the RN names that work, and the new build errors
+
+Since 2026-11-05 a lot of RN code builds as written (RN-compat sweep, second-opinions 115–119). The full list, row by
+row: [rn-compatibility.md](rn-compatibility.md). The lab screen `zn://sample/dev/rn-names` uses them all.
+
+- **Know:** these RN names work. From `@zero-native/ui`: `View` (a `Column`, or a `Row` when its style has
+  `flexDirection: "row"` known at build time), `FlatList` (`renderItem={({ item, index }) => ...}`, `keyExtractor`),
+  `TouchableOpacity`, `TouchableHighlight`, `TouchableWithoutFeedback`, `ActivityIndicator`, `StyleSheet.flatten`,
+  `StyleSheet.hairlineWidth`. Props: `Image source={{ uri }} resizeMode`, `Switch trackColor={{ false, true }}`,
+  `android_ripple`, `placeholderTextColor`, `keyboardType="numeric"`, `allowFontScaling`, `aria-label`, `role`,
+  `aria-hidden`, `importantForAccessibility`. Styles: `marginLeft` / `Right`, `paddingLeft` / `Right`, `left`,
+  `right`, `flexGrow`, `flexShrink` 0 / 1, `flexBasis` 0 / `"auto"`, `rowGap`, `columnGap`, `width: "auto"`,
+  `aspectRatio: "16/9"`, `textAlign: "left" / "right"`, the 148 CSS colour names and `hsl()`. From
+  `@zero-native/core`: `useFocusEffect`, `useCallback`, `useRef`, `useNavigation`, `useRoute`, `AsyncStorage`,
+  `BackHandler`, `Appearance`, `useColorScheme`; `setImmediate` is a global.
+- **Do** use zn's own names in new code (`Column`, `List row`, `Pressable`, `marginStart`, `nav.push`). **Why:** they
+  say what zn does; the RN names are there so ported code builds without a rewrite.
+- **Know:** `Left` / `Right` are `Start` / `End`. **Why:** zn has no fixed sides. Same in a left-to-right app; in a
+  right-to-left one they flip, RN's don't.
+- **Know:** `flexGrow: n` is `flex: n`. Two growing children with different content widths can split the space a
+  little differently from RN. **Do** check such a row on the phone after a port.
+- **Know:** a `TouchableHighlight` draws `underlayColor` over the content, not under it (close to RN, not the same
+  pixels). A Touchable is a `Pressable`: it lays out its children as a column, so a `flexDirection: "row"` on it is a
+  build error. **Do** put a `<Row>` (or a row `View`) inside.
+- **Don't** look for `useMemo` or `navigation.navigate`. **Why:** a body runs once, so `useMemo` would never compute
+  again (use `computed`); React Navigation's `navigate` jumps back to a screen already open, zn has no such step (use
+  `push` or `goBack`).
+- **Know:** `useColorScheme()` gives the scheme now. Kept in a variable, it doesn't change later. **Do** read it inside
+  JSX, or use `scheme(light, dark)`.
+- **Know:** a `BackHandler` handler belongs to a screen (the one being built, else the top one) and stops when that
+  screen closes, even with no `remove()`. Return `true` when you handled the Back press.
+- **Know:** `AsyncStorage` keeps its own store, apart from `storage`. **Why:** RN code reads strings and `null`; zn's
+  `storage` reads typed values and `undefined`. A value written by one is not seen by the other.
+- **Know: new build errors (before, these built and did nothing, or did the wrong thing):**
+  - `onPress` (or another press event) on anything but `Pressable` and the Touchables: wrap it in a `Pressable`.
+  - `position: "absolute"` or `zIndex` on a child of anything but `Stack`. Not checked at a component's root (the
+    compiler can't see the parent there).
+  - `<List horizontal>` / `<FlatList horizontal>`: use `<Scroll horizontal>`.
+  - `row={({ item }) => ...}` on a List: `row` gets the item itself. Use `renderItem` for RN's shape.
+  - A `transform` list whose RN order would draw differently from zn's (zn always moves, then rotates, then
+    scales): for example a `scale` before a `translateX`, or a key twice.
+  - A prop the element's type doesn't have (`<Image horizontal>`, `<Text value>`), checked from the types in
+    `@zero-native/ui` (`bun run gen:tag-props` after changing them, see adding-components.md).
+  - `flexDirection` on anything but `View`; a runtime `flexDirection`; `textAlign: "justify"`.
+  - A tag imported from `@zero-native/ui` that zn doesn't have (`SafeAreaView`, `ScrollView`, `TextInput`, ...),
+    with what to use. Before, the import was removed and the screen crashed at run time.
+- **Still build errors on purpose:** `SafeAreaView`, `KeyboardAvoidingView` (route options do it: `safeArea`,
+  `keyboard`), `numColumns`, `ListEmptyComponent`, `require("./img.png")`.

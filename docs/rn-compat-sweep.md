@@ -27,12 +27,12 @@ These compile and then do the wrong thing with no message. That is the worst kin
 | 0.1 | **Done 2026-11-05 (second-opinions 112).** **`gap` is dropped when `justifyContent` is center, flex-end or space-\*** [checked: [ZnRenderer.kt:714-734](../android/runtime/src/main/java/dev/zeronative/runtime/ZnRenderer.kt:714)]. The ZeroBill prototype has 11 such rows (login, location prompt, rewards UseSheet, empty home tabs, footer), all drawn with no gap today | `spacedBy(gap, alignment)` for center / end; for space-\*, gap becomes the smallest space | runtime | S | **Yes, the look:** those 11 rows show no gap now |
 | 0.2 | **Done 2026-11-05 (second-opinions 113): build error + clamp; it did crash (as the bundle loads).** **`marginTop: -8` (any negative margin) compiles, then very likely crashes the screen.** Compose's `PaddingValues` refuses negative values [checked path: [ZnTemplate.kt:519](../android/runtime/src/main/java/dev/zeronative/runtime/ZnTemplate.kt:519), no clamp in `edges()` :629, no build check; the crash itself not run]. No current code uses it | Build error now, with the hint "use transform: translateY". A real negative margin later (custom layout) | compiler | S | No (not used yet) |
 | 0.3 | **Done 2026-11-05 (second-opinions 114).** **`effect(() => { ...; return () => stop() })` never calls the returned cleanup** [checked: [signals.ts:117](../packages/core/src/signals.ts:117) keeps it as the value]. RN's `useEffect` habit, so intervals and listeners leak | If `fn` returns a function, register it with `onCleanup` | JS core | S | No |
-| 0.4 | `position: "absolute"` (and `zIndex`) on a child of Column / Row / Box is laid out in the flow, silently | Build error "absolute needs a Stack parent" now; maybe real support later (L) | compiler | S | No |
-| 0.5 | `<Text onPress>` (or any event on a non-Pressable) compiles and the tap does nothing | Build error with "wrap it in Pressable" now; real taps on Text later (M, registry) | compiler | S | No |
-| 0.6 | `<List horizontal>` compiles and draws a vertical list | Build error "use Scroll horizontal" | compiler | S | No |
-| 0.7 | `renderItem={({ item }) => ...}` copied into `row` compiles, but `item` is undefined (row gets the raw item) | Covered by alias 1.5 below; until then a build error on a destructured `row` param | compiler | S | No |
-| 0.8 | Any registry prop on any tag is accepted (`<Image horizontal>`, `<Text value>`): no effect, no error | Check props per tag in the compiler | compiler | M | No |
-| 0.9 | `transform: [{ scale: 2 }, { translateX: 10 }]`: order is lost (zn moves 10, RN moves 20) | Build error when the order would matter | compiler | S | No |
+| 0.4 | **Done 2026-11-05 (second-opinions 115).** `position: "absolute"` (and `zIndex`) on a child of Column / Row / Box is laid out in the flow, silently | Build error "absolute needs a Stack parent" now; maybe real support later (L) | compiler | S | No |
+| 0.5 | **Done 2026-11-05 (second-opinions 115): on any element but Pressable (and the Touchables).** `<Text onPress>` (or any event on a non-Pressable) compiles and the tap does nothing | Build error with "wrap it in Pressable" now; real taps on Text later (M, registry) | compiler | S | No |
+| 0.6 | **Done 2026-11-05 (second-opinions 115); `horizontal={false}` is allowed.** `<List horizontal>` compiles and draws a vertical list | Build error "use Scroll horizontal" | compiler | S | No |
+| 0.7 | **Done 2026-11-05 (second-opinions 115), and 1.5 is built too.** `renderItem={({ item }) => ...}` copied into `row` compiles, but `item` is undefined (row gets the raw item) | Covered by alias 1.5 below; until then a build error on a destructured `row` param | compiler | S | No |
+| 0.8 | **Done 2026-11-05 (second-opinions 116): a table generated from the UI types, `bun run gen:tag-props`.** Any registry prop on any tag is accepted (`<Image horizontal>`, `<Text value>`): no effect, no error | Check props per tag in the compiler | compiler | M | No |
+| 0.9 | **Done 2026-11-05 (second-opinions 115).** `transform: [{ scale: 2 }, { translateX: 10 }]`: order is lost (zn moves 10, RN moves 20) | Build error when the order would matter | compiler | S | No |
 
 More silent differences, documented rather than fixed (the guide should say them): timers die with their screen;
 `useWindowDimensions()` read into a variable is a snapshot; `Dimensions.get()` at file top returns 0 with no warning;
@@ -45,28 +45,28 @@ Pressable ripples by default (RN doesn't); a Row stretches children only with a 
 
 | # | RN code | Becomes | Cost |
 |---|---|---|---|
-| 1.1 | `marginLeft`, `paddingRight`, `left`, `right`, `borderLeftWidth` | the `Start` / `End` keys | S |
-| 1.2 | `textAlign: "left" / "right" / "auto"` | start / end / start (`justify`: error) | S |
-| 1.3 | Named colours (`"white"`, `"red"`), `hsl()` | parseColor table (JS core, shared with compiler) | S |
-| 1.4 | `<Image source={{ uri }} resizeMode="stretch">` | `src`, `contentScale` (`stretch` → fill) | S |
-| 1.5 | `<FlatList keyExtractor renderItem={({ item, index }) => ...}>` | `List key row`, param rewritten; default key `item.key ?? item.id` | S–M |
-| 1.6 | `flexGrow: 1`; `flexShrink: 0/1`, `flexBasis: 0/"auto"` | `flex: 1`; the others dropped (they match zn) | S |
-| 1.7 | ScrollView / FlatList perf and iOS props (`showsVerticalScrollIndicator`, `initialNumToRender`, `extraData`, `keyboardShouldPersistTaps="handled"`, ...) | accepted and dropped, like the Modal iOS props | S |
-| 1.8 | `TouchableOpacity activeOpacity`, `TouchableHighlight underlayColor`, `TouchableWithoutFeedback` | Pressable with no ripple + `pressOpacity` / `highlightColor` | S |
-| 1.9 | `TextInput placeholderTextColor`, `keyboardType="numeric"`, `allowFontScaling={false}`, `ellipsizeMode="tail"` | `placeholderColor`, decimal-pad, `maxFontScale={1}`, dropped | S |
-| 1.10 | `Switch trackColor={{ false, true }}`, `android_ripple={{ color, borderless, radius }}`, `ActivityIndicator size="large" animating` | the flat zn props | S |
-| 1.11 | `aria-label`, `role`, `importantForAccessibility="no-hide-descendants"` | the `accessibility*` props | S |
-| 1.12 | `StyleSheet.hairlineWidth`, `StyleSheet.flatten`, `rowGap` / `columnGap`, `width: "auto"`, `aspectRatio: "16/9"` | folded at build time | S |
-| 1.13 | `<View style={{ flexDirection: "row" }}>`, `<SafeAreaView>`, `<KeyboardAvoidingView>` | Row / Column (from a static `flexDirection`); safe area and keyboard are route options already | M |
+| 1.1 | **Done 2026-11-05 (second-opinions 117); `borderLeftWidth` / `borderRightWidth` left out (zn has no per-side border width).** `marginLeft`, `paddingRight`, `left`, `right`, `borderLeftWidth` | the `Start` / `End` keys | S |
+| 1.2 | **Done 2026-11-05.** `textAlign: "left" / "right" / "auto"` | start / end / start (`justify`: error) | S |
+| 1.3 | **Done 2026-11-05 (second-opinions 119): the 148 CSS names.** Named colours (`"white"`, `"red"`), `hsl()` | parseColor table (JS core, shared with compiler) | S |
+| 1.4 | **Done 2026-11-05.** `<Image source={{ uri }} resizeMode="stretch">` | `src`, `contentScale` (`stretch` → fill) | S |
+| 1.5 | **Done 2026-11-05 (second-opinions 115).** `<FlatList keyExtractor renderItem={({ item, index }) => ...}>` | `List key row`, param rewritten; default key `item.key ?? item.id` | S–M |
+| 1.6 | **Done 2026-11-05 (second-opinions 117).** `flexGrow: 1`; `flexShrink: 0/1`, `flexBasis: 0/"auto"` | `flex: 1`; the others dropped (they match zn) | S |
+| 1.7 | **Done 2026-11-05.** ScrollView / FlatList perf and iOS props (`showsVerticalScrollIndicator`, `initialNumToRender`, `extraData`, `keyboardShouldPersistTaps="handled"`, ...) | accepted and dropped, like the Modal iOS props | S |
+| 1.8 | **Done 2026-11-05 (second-opinions 117).** `TouchableOpacity activeOpacity`, `TouchableHighlight underlayColor`, `TouchableWithoutFeedback` | Pressable with no ripple + `pressOpacity` / `highlightColor` | S |
+| 1.9 | **Done 2026-11-05.** `TextInput placeholderTextColor`, `keyboardType="numeric"`, `allowFontScaling={false}`, `ellipsizeMode="tail"` | `placeholderColor`, decimal-pad, `maxFontScale={1}`, dropped | S |
+| 1.10 | **Done 2026-11-05.** `Switch trackColor={{ false, true }}`, `android_ripple={{ color, borderless, radius }}`, `ActivityIndicator size="large" animating` | the flat zn props | S |
+| 1.11 | **Done 2026-11-05; `importantForAccessibility="no"` is a build error.** `aria-label`, `role`, `importantForAccessibility="no-hide-descendants"` | the `accessibility*` props | S |
+| 1.12 | **Done 2026-11-05.** `StyleSheet.hairlineWidth`, `StyleSheet.flatten`, `rowGap` / `columnGap`, `width: "auto"`, `aspectRatio: "16/9"` | folded at build time | S |
+| 1.13 | **Done 2026-11-05 for `View` only. `SafeAreaView` / `KeyboardAvoidingView` stay build errors (Pavan, 2026-11-05).** `<View style={{ flexDirection: "row" }}>`, `<SafeAreaView>`, `<KeyboardAvoidingView>` | Row / Column (from a static `flexDirection`); safe area and keyboard are route options already | M |
 
 ## P1. Cheap RN names, JS core (no new APK)
 
 | # | RN code | Becomes | Cost | Watch out |
 |---|---|---|---|---|
-| 1.14 | `useFocusEffect`, `useCallback(fn) = fn`, `useRef(init)` | `useFocus`; identity; `{ current }` | S | Don't add `useMemo`: it would go stale silently |
-| 1.15 | `useNavigation()` → `goBack`, `canGoBack`, `useRoute().params` | `nav.back`, `depth() > 1`, the screen's params | S | Leave out `navigate`: in React Navigation it jumps back to an existing screen, `push` doesn't |
-| 1.16 | `AsyncStorage` (Promise, strings, `null` for missing, `multiGet`) | its own store over `storage` | S | Keep it apart from `storage` (typed values) |
-| 1.17 | `BackHandler.addEventListener(...).remove()`, `Appearance`, `useColorScheme`, `Easing.out(...)`, `setImmediate`, MMKV / expo SecureStore names | thin wrappers | S each | Handlers stay per screen; `useColorScheme()` read into a variable is a snapshot |
+| 1.14 | **Done 2026-11-05 (second-opinions 118); no `useMemo`.** `useFocusEffect`, `useCallback(fn) = fn`, `useRef(init)` | `useFocus`; identity; `{ current }` | S | Don't add `useMemo`: it would go stale silently |
+| 1.15 | **Done 2026-11-05 (second-opinions 118); no `navigate`.** `useNavigation()` → `goBack`, `canGoBack`, `useRoute().params` | `nav.back`, `depth() > 1`, the screen's params | S | Leave out `navigate`: in React Navigation it jumps back to an existing screen, `push` doesn't |
+| 1.16 | **Done 2026-11-05 (second-opinions 118).** `AsyncStorage` (Promise, strings, `null` for missing, `multiGet`) | its own store over `storage` | S | Keep it apart from `storage` (typed values) |
+| 1.17 | **Done 2026-11-05 for `BackHandler`, `Appearance`, `useColorScheme`, `setImmediate` (second-opinions 118). `Easing.out`, MMKV and SecureStore names: not built (no zn API under them yet).** `BackHandler.addEventListener(...).remove()`, `Appearance`, `useColorScheme`, `Easing.out(...)`, `setImmediate`, MMKV / expo SecureStore names | thin wrappers | S each | Handlers stay per screen; `useColorScheme()` read into a variable is a snapshot |
 
 ## P2. Worth it, more work
 

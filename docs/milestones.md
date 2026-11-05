@@ -123,6 +123,26 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: RN-compat sweep P0.4–P0.9 and P1: new build errors, RN names in the compiler and JS core (Claude)
+- **What:** (1) Build errors for RN code that built and did nothing: absolute / zIndex outside `Stack`, a press event
+  on anything but `Pressable`, `<List horizontal>`, a destructured `row`, a `transform` order zn would draw
+  differently, a tag imported from `@zero-native/ui` that zn doesn't have (`SafeAreaView` crashed at run time)
+  (second-opinions 115). (2) Props checked per element from a table generated from the UI types
+  (`bun run gen:tag-props`, second-opinions 116). (3) RN names: `View`, `FlatList` (`renderItem`, `keyExtractor`),
+  the three Touchables, `ActivityIndicator`, `marginLeft` and friends, `flexGrow`, `rowGap`, `textAlign: "left"`,
+  `StyleSheet.flatten` / `hairlineWidth`, `aria-*`, `role`, Image `source` / `resizeMode`, Switch `trackColor`, ...
+  (second-opinions 117); `useFocusEffect`, `useCallback`, `useRef`, `useNavigation`, `useRoute`, `AsyncStorage`,
+  `BackHandler`, `Appearance`, `useColorScheme`, `setImmediate` (second-opinions 118); 148 CSS colour names and
+  `hsl()` (second-opinions 119). Guide §56, rn-compatibility rows, the sweep doc marks, adding-components step.
+  No registry, host API or Kotlin change: no new APK needed for this part.
+- **Tests:** 1012 JS tests and the type checks pass (new: `rn-compat.test.ts` P0.4–P1, `tag-props.test.ts`,
+  `packages/core/test/rn.test.ts`, colour tests). Sample JS, sample types and debug build. Prototype: every TSX file
+  compiled with the new checks (no new errors), HEAD d804c82 builds (394,210 bytes of JS, about 4.5 KB more for the
+  colour table), 717 tests pass. New lab `zn://sample/dev/rn-names` (Dev screens → RN names) on the Android 13
+  emulator: layout looks right, the three Touchables, spinner hide (keeps its space), effect cleanup (ticker stops),
+  Image `source`, FlatList rows, AsyncStorage, BackHandler (Back kept) and `goBack` all logged as expected. Not run on
+  the Lava; not run in a release build.
+
 ### 2026-11-05: scanner fix: the code reader never started in release builds (Claude)
 - **What:** in a release (R8 full mode) build without Firebase, R8 dropped the empty constructors of ML Kit's 3
   registrar classes. ML Kit creates them by reflection, so the code reader never started and the scanner showed its

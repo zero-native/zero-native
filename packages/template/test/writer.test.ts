@@ -88,7 +88,7 @@ describe("writeTemplateFile", () => {
     expect(() => writeTemplateFile([el("Row", { justifyContent: "middle" as any })])).toThrow(/needs one of/)
     expect(() => writeTemplateFile([el("Row", { style: { width: "wide" } })])).toThrow(/number \(dp\) or "N%"/)
     expect(() => writeTemplateFile([el("Row", { style: { padding: slot("p", 4) } })])).toThrow(/can't change/)
-    expect(() => writeTemplateFile([el("Row", { style: { backgroundColor: "red" } })])).toThrow(/invalid colour/)
+    expect(() => writeTemplateFile([el("Row", { style: { backgroundColor: "reddish" } })])).toThrow(/invalid colour/)
   })
 
   test("rejects a slot name used twice", () => {
@@ -109,6 +109,15 @@ describe("parseColor", () => {
     expect(parseColor("rgba(0,0,0,0.85)")).toBe(0xd9000000)
     expect(parseColor("rgba(0, 0, 0, 30%)")).toBe(0x4d000000)
     expect(() => parseColor("rgba(300,0,0,1)")).toThrow(/channels 0–255/)
-    expect(() => parseColor("red")).toThrow(/invalid colour/)
+    // CSS colour names and hsl() (RN-compat sweep P1.3, 2026-11-05).
+    expect(parseColor("red")).toBe(0xffff0000)
+    expect(parseColor("White")).toBe(0xffffffff)
+    expect(parseColor("rebeccapurple")).toBe(0xff663399)
+    expect(parseColor("hsl(0, 100%, 50%)")).toBe(0xffff0000)
+    expect(parseColor("hsl(120, 100%, 25%)")).toBe(0xff008000)
+    expect(parseColor("hsla(240, 100%, 50%, 0.5)")).toBe(0x800000ff)
+    expect(parseColor("hsl(200deg, 50%, 50%)")).toBe(0xff4095bf)
+    expect(() => parseColor("hsl(0, 120%, 50%)")).toThrow(/saturation and lightness/)
+    expect(() => parseColor("reddish")).toThrow(/invalid colour/)
   })
 })

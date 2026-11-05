@@ -86,6 +86,18 @@ export function activeTimerCount(): number {
   return callbacks.size
 }
 
+/**
+ * React Native's setImmediate (RN-compat sweep P1.17): [fn] runs soon, after the current work. A 0 ms timer here, so
+ * like other timers it stops with its screen.
+ */
+export function setImmediate<A extends unknown[]>(fn: (...args: A) => void, ...args: A): number {
+  return setTimeout(() => fn(...args), 0)
+}
+
+export function clearImmediate(handle: number | undefined | null): void {
+  clearTimeout(handle)
+}
+
 /** `replaceGlobals: false` only wires native fires (used by tests running under Bun's own timers). */
 export function installTimers(options: { replaceGlobals?: boolean } = {}): void {
   globalThis.__zn_onTimer = onTimer
@@ -97,4 +109,6 @@ export function installTimers(options: { replaceGlobals?: boolean } = {}): void 
   g.clearInterval = clearInterval
   g.requestAnimationFrame = requestAnimationFrame
   g.cancelAnimationFrame = cancelAnimationFrame
+  g.setImmediate = setImmediate
+  g.clearImmediate = clearImmediate
 }

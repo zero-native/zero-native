@@ -189,7 +189,7 @@ export function S() {
 export function S(p: { items: string[] }) {
   const pick = (s: string) => { if (!s) return null; return s }
   const tap = () => { if (p.items.length === 0) return; pick("x") }
-  return <Column onPress={tap}>{p.items.map((i) => <Text key={i}>{pick(i)}</Text>)}</Column>
+  return <Pressable onPress={tap}>{p.items.map((i) => <Text key={i}>{pick(i)}</Text>)}</Pressable>
 }`)
   })
 

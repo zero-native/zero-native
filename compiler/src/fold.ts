@@ -2,7 +2,7 @@
 // and computes them. Anything not foldable stays a runtime expression (a slot) or is a build error.
 //
 // Foldable: literals, -number, template strings, object/array literals of foldables, `StyleSheet.create`,
-// `StyleSheet.absoluteFill`,
+// `StyleSheet.absoluteFill`, `StyleSheet.hairlineWidth`, `StyleSheet.flatten` (RN-compat sweep P1.12),
 // `const` bindings with foldable initialisers (module level, or inside a component body: guide notes §47), member
 // access on foldables, and named imports from `.ts` modules (design tokens, styles) that the compiler loads at build
 // time (`staticImports`). Also simple operators on foldables: `c ? a : b`, `??`, `||`, `&&`, `!`,
@@ -16,6 +16,11 @@ export const NOT_STATIC: unique symbol = Symbol("not static")
 
 /** StyleSheet.absoluteFill: fills the parent `Stack` (RN's left / right are start / end in zn). */
 export const ABSOLUTE_FILL = { position: "absolute", top: 0, start: 0, end: 0, bottom: 0 } as const
+/**
+ * StyleSheet.hairlineWidth, in dp. React Native rounds 0.4 dp to one real pixel on each phone; a build can't know the
+ * phone, so it is 0.4 dp: one pixel or a little more on most phones (packages/ui has the same number).
+ */
+export const HAIRLINE_WIDTH = 0.4
 export type Folded = unknown | typeof NOT_STATIC
 
 export interface FoldScope {
@@ -124,6 +129,12 @@ export function fold(expr: ts.Expression, scope: FoldScope, seen = new Set<unkno
     ) {
       return { ...ABSOLUTE_FILL }
     }
+    if (
+      ts.isIdentifier(expr.expression) && expr.expression.text === "StyleSheet" && !scope.consts.has("StyleSheet") &&
+      !scope.staticImports.has("StyleSheet") && expr.name.text === "hairlineWidth"
+    ) {
+      return HAIRLINE_WIDTH
+    }
     const obj = fold(expr.expression, scope, seen)
     if (obj === NOT_STATIC || typeof obj !== "object" || obj === null) return NOT_STATIC
     const name = expr.name.text
@@ -146,6 +157,25 @@ export function fold(expr: ts.Expression, scope: FoldScope, seen = new Set<unkno
     expr.arguments.length === 1
   ) {
     return fold(expr.arguments[0], scope, seen)
+  }
+  // StyleSheet.flatten([a, b]): one object, later entries winning, falsy entries skipped (as in React Native).
+  if (
+    ts.isCallExpression(expr) &&
+    ts.isPropertyAccessExpression(expr.expression) &&
+    ts.isIdentifier(expr.expression.expression) &&
+    expr.expression.expression.text === "StyleSheet" &&
+    expr.expression.name.text === "flatten" &&
+    expr.arguments.length === 1
+  ) {
+    const v = fold(expr.arguments[0], scope, seen)
+    if (v === NOT_STATIC) return NOT_STATIC
+    const out: Record<string, unknown> = {}
+    const merge = (x: unknown) => {
+      if (Array.isArray(x)) x.forEach(merge)
+      else if (x && typeof x === "object") Object.assign(out, x)
+    }
+    merge(v)
+    return out
   }
   return NOT_STATIC
 }

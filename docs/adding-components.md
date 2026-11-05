@@ -38,12 +38,14 @@ only works if every entry's version is right. The rules above keep it right with
 | `X was removed` / `id changed` / `type changed` | Put it back as it was; add a new entry instead |
 | `since went down` / `a changed entry must say since N` | An `Added` version can only go up, to the current version |
 | `the Kotlin registry is generated ...` / `the lock is up to date` (registry test) | Run `bun run gen:registry` |
+| `tag-props.ts matches the element types` (compiler test), or `x isn't a prop of <Tag>` for a prop you just added | Run `bun run gen:tag-props` |
 
 ## 3. Adding a component, step by step
 Follow `Carousel` / `Sheet` / `Switch` as examples.
 1. **Registry:** component id, props, events from your range; `REGISTRY_VERSION` + `Added` (section 1); run
    `bun run gen:registry`.
-2. **Types:** `packages/ui/src/index.ts`.
+2. **Types:** `packages/ui/src/index.ts`. Then run **`bun run gen:tag-props`**: the compiler checks each element's
+   props against these types (`compiler/src/tag-props.ts`, generated), so a prop missing there fails the build.
 3. **Compiler:** `compiler/src/compile.ts` only if the component needs special handling (most don't).
 4. **Kotlin:** a `Zn<Name>.kt` file in `android/runtime/.../runtime/`, one line in the `when` in `ZnRenderer.kt`, prop
    fields in `ZnTemplate.kt`. Props that change at runtime must be in `DynamicProps` and read from slot cells.
