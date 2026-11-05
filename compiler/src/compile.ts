@@ -66,6 +66,8 @@ export interface CompileOutput {
    * one template before JS runs, so a screen must always return that same template (guide notes §4).
    */
   roots: Record<string, ComponentRoots>
+  /** Uses of components with props that can change while they stay mounted (for the props traps, plugin.ts). */
+  propUses: PropUse[]
   /** Output position → TSX position (for `zn dev` error screens). */
   map: LineMap
 }
@@ -78,6 +80,25 @@ export interface ComponentRoots {
   at: string[]
   /** Where each non-JSX return is (`file:line:col`). */
   others: string[]
+  /** React habits that read a value once (checkOnceTraps); the app build turns them into errors (plugin.ts). */
+  traps: OnceTrap[]
+}
+
+/** A use of a component, outside a row, with a prop that can change while it stays mounted (CompileOutput.propUses). */
+export interface PropUse {
+  component: string
+  /** The component whose JSX has this use. */
+  parent: string
+  live: "signal" | "parentProps"
+}
+
+/** A value the component's body reads once, where it can change later (guide notes §61). */
+export interface OnceTrap {
+  /** `file:line:col` */
+  at: string
+  /** Only props were read. A screen's props are its route's params, which don't change while it's open: fine there. */
+  fromProps: boolean
+  message: string
 }
 
 const RUNTIME = "__zn"
@@ -151,6 +172,11 @@ const NATIVE_EVENT_EVENTS = new Set(["onLoad", "onError", "onLayout"])
 const IMAGE_EVENTS = new Set(["onLoad", "onError", "onLoadEnd"])
 // React Native Modal props that do nothing on Android: accepted and dropped, so a Modal ports as it is.
 const MODAL_IOS_ONLY = new Set(["presentationStyle", "hardwareAccelerated", "supportedOrientations", "onOrientationChange"])
+/** RN's other autoComplete names for the same Android autofill hint (registry 17, R36). */
+const AUTOCOMPLETE_ALIASES: Record<string, string> = {
+  "one-time-code": "sms-otp", "name-given": "given-name", "name-family": "family-name", "current-password": "password",
+  "password-new": "new-password", "name-middle-initial": "name-middle",
+}
 // React Native StatusBar props that zn doesn't need: accepted and dropped. `translucent`: each route's safeArea decides
 // whether a screen draws under the bar; `animated` and the iOS ones change nothing on Android.
 const STATUS_BAR_DROPPED = new Set(["animated", "translucent", "networkActivityIndicatorVisible", "showHideTransition"])
@@ -379,6 +405,191 @@ export function compileModule(
     const { line, character } = sf.getLineAndCharacterOfPosition(n.getStart(sf))
     return `${fileName}:${line + 1}:${character + 1}`
   }
+  const lineOf = (n: ts.Node) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1
+
+  /**
+   * React habits that compile but go wrong (guide notes §61, second-opinions 144). A zn component's body runs once,
+   * when it mounts (as in SolidJS; React runs it on every render). So a value the body reads is read once, and the
+   * screen keeps it. Each of these is a build error with the fix, so it can't reach a phone:
+   * - an async component (it gives a Promise, not its JSX);
+   * - destructured props, `function Row({ title })` (each prop read once);
+   * - an early return on a value that can change, `if (loading()) return <Spinner />` (the branch is picked once);
+   * - a body value from props or a signal used in the JSX, `const missing = p.amount <= 0` (worked out once).
+   * "Can change" means: reads the props object, or calls a function with no arguments (how a signal is read) other
+   * than a `use...()` helper. Reads inside a nested function (a handler, `computed(() => ...)`) are fine: they run later.
+   */
+  const signalNames = new Set<string>() // names in this file made with signal(...) / computed(...)
+  forEachDescendant(sf, (n) => {
+    if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name) || !n.initializer) return
+    const init = unwrap(n.initializer)
+    if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && /^(signal|computed)$/.test(init.expression.text)) {
+      signalNames.add(n.name.text)
+    }
+  })
+  /**
+   * Async is always an error. The other traps go to the app build (plugin.ts checkOnceTraps), which knows the screens:
+   * a screen's props are its route's params, which don't change while it is open, so a trap that only reads props is
+   * fine in a screen. A child's props can change.
+   */
+  /**
+   * Where each user component is used with props that can change while it stays mounted (for the props traps). A
+   * use inside a function (a `.map` row, a List's renderItem) isn't recorded: a row mounts again when its item changes,
+   * so its body starts fresh (checked 2026-11-05). `signal`: a prop reads a signal (a call with no arguments);
+   * `parentProps`: a prop passes on the parent's props, so it can change if the parent's can (plugin.ts follows it).
+   */
+  const propUses: PropUse[] = []
+  {
+    const fnName = new Map<ts.Node, string>(candidates.map((c) => [c.fn, c.name]))
+    forEachDescendant(sf, (n) => {
+      if (!ts.isJsxSelfClosingElement(n) && !ts.isJsxOpeningElement(n)) return
+      const tag = n.tagName.getText(sf)
+      if (!userComponents.has(tag) || isIntrinsic(tag)) return
+      let parentFn: ts.Node | undefined
+      let nested = false
+      for (let a: ts.Node = n.parent; a; a = a.parent) {
+        if (fnName.has(a)) { parentFn = a; break }
+        if (ts.isFunctionLike(a)) nested = true
+      }
+      if (!parentFn || nested) return
+      const pfn = parentFn as ts.FunctionLikeDeclaration
+      const parentProps = pfn.parameters[0] && ts.isIdentifier(pfn.parameters[0].name) ? pfn.parameters[0].name.text : undefined
+      let live: PropUse["live"] = null
+      for (const attr of n.attributes.properties) {
+        const e = ts.isJsxSpreadAttribute(attr) ? attr.expression : attr.initializer
+        if (!e) continue
+        const check = (x: ts.Node) => {
+          if (live === "signal") return
+          if (ts.isCallExpression(x) && x.arguments.length === 0) {
+            const c = x.expression
+            const callee = ts.isPropertyAccessExpression(c) ? c.name.text : ts.isIdentifier(c) ? c.text : ""
+            const obj = ts.isPropertyAccessExpression(c) && ts.isIdentifier(c.expression) ? c.expression.text : ""
+            if (callee && !NOT_SIGNAL_METHODS.has(callee) && !NOT_SIGNAL_OBJECTS.has(obj) && !/^use[A-Z]/.test(callee)) live = "signal"
+          } else if (ts.isIdentifier(x) && x.text === parentProps && live === null) {
+            live = "parentProps"
+          }
+        }
+        check(e)
+        forEachDescendant(e, check, /* stopAtFunctions */ true)
+      }
+      if (live) propUses.push({ component: tag, parent: fnName.get(parentFn)!, live })
+    })
+  }
+
+  function checkOnceTraps(name: string, fn: ts.FunctionLikeDeclaration, jsxRoots: ts.Expression[], otherReturns: ts.Node[]): OnceTrap[] {
+    const traps: OnceTrap[] = []
+    if (ts.canHaveModifiers(fn) && ts.getModifiers(fn)?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)) {
+      fail(fn, `${name} is an async function: a component can't wait (it would give a Promise, not its JSX). Load ` +
+        `the data in an effect or a store, keep it in a signal, and show {data() ? <Content /> : <Spinner />}`)
+    }
+    const param = fn.parameters[0]
+    if (param && (ts.isObjectBindingPattern(param.name) || ts.isArrayBindingPattern(param.name))) {
+      traps.push({ at: where(param), fromProps: true, message: `${name} takes its props destructured: a component's ` +
+        `body runs once, so each prop is read once and never updates. Write ${name}(p) and read p.title where you ` +
+        `use it (in the JSX or a handler)` })
+    }
+    const propsName = param && ts.isIdentifier(param.name) ? param.name.text : undefined
+    const body = fn.body
+    if (!body || !ts.isBlock(body)) return traps
+    // Body names worked out from a value that can change → their line, and whether only props were read.
+    const live = new Map<string, { line: number; props: boolean }>()
+
+    /** The first read in [n] of a value that can change (not inside a nested function), or undefined. */
+    const liveRead = (n: ts.Node): { node: ts.Node; props: boolean } | undefined => {
+      let found: { node: ts.Node; props: boolean } | undefined
+      const check = (x: ts.Node) => {
+        if (found) return
+        if (ts.isIdentifier(x)) {
+          const parent = x.parent
+          const isName = (ts.isPropertyAccessExpression(parent) && parent.name === x) ||
+            (ts.isPropertyAssignment(parent) && parent.name === x)
+          if (!isName && x.text === propsName) found = { node: x, props: true }
+          else if (!isName && live.has(x.text)) found = { node: x, props: live.get(x.text)!.props }
+        } else if (ts.isCallExpression(x) && x.arguments.length === 0) {
+          // A signal read: `store.amount()` (a method on an object, not a built-in one), or `loading()` where loading
+          // is a signal / computed made in this file. A factory (`lottieController()`) or an imported bare function
+          // isn't one: zn can't tell them apart, so those aren't checked (guide notes §61).
+          const e = x.expression
+          if (ts.isPropertyAccessExpression(e)) {
+            const obj = ts.isIdentifier(e.expression) ? e.expression.text : ""
+            // `p.title.trim()` reads props: that counts as props, found above (the identifier p comes first).
+            if (!NOT_SIGNAL_METHODS.has(e.name.text) && !NOT_SIGNAL_OBJECTS.has(obj) && !/^use[A-Z]/.test(e.name.text) &&
+              obj !== propsName) found = { node: x, props: false }
+          } else if (ts.isIdentifier(e) && signalNames.has(e.text)) {
+            found = { node: x, props: false }
+          }
+        }
+      }
+      check(n)
+      if (!(ts.isFunctionLike(n))) forEachDescendant(n, check, /* stopAtFunctions */ true)
+      return found
+    }
+    const what = (r: ts.Node) => {
+      const t = r.getText(sf)
+      return `"${t.length > 40 ? t.slice(0, 40) + "…" : t}"`
+    }
+
+    // An early return: more than one return, and one sits under an `if` / `switch` on a value that can change.
+    const returns = [...jsxRoots.map((r) => r.parent), ...otherReturns]
+    if (returns.length > 1) {
+      outer: for (const ret of returns) {
+        for (let a: ts.Node = ret; a && a !== body; a = a.parent) {
+          const cond = ts.isIfStatement(a.parent) && a.parent.expression !== a ? a.parent.expression
+            : ts.isCaseClause(a.parent) || ts.isDefaultClause(a.parent) ? a.parent.parent.parent.expression
+            : undefined
+          const r = cond && liveRead(cond)
+          if (r) {
+            traps.push({ at: where(ret), fromProps: r.props, message: `${name} returns early here, on ` +
+              `${what(cond)} (line ${lineOf(cond)}), which can change. A component's body runs once, so this ` +
+              `choice is made once and the screen keeps the first branch. Choose in one return instead: ` +
+              `return loading() ? <Spinner /> : <Content /> (a child), or put only the changing piece in a branch: ` +
+              `return <Column>{loading() ? <Spinner /> : null}...</Column>` })
+            break outer
+          }
+        }
+      }
+    }
+
+    // A body value from a value that can change, shown by the JSX: it was worked out once. Uses inside a handler are
+    // not checked: keeping a value from mount (`const controller = p.controller ?? make()`) is a real pattern there.
+    for (const stmt of body.statements) {
+      if (!ts.isVariableStatement(stmt)) continue
+      for (const d of stmt.declarationList.declarations) {
+        if (!d.initializer || isJsxValue(d.initializer)) continue
+        if (ts.isIdentifier(d.name) && signalNames.has(d.name.text)) continue // a signal / computed: read live
+        let hasJsx = false
+        forEachDescendant(d.initializer, (x) => void (isJsx(x) && (hasJsx = true)))
+        if (hasJsx) continue
+        const r = liveRead(d.initializer)
+        if (!r) continue
+        const names: string[] = []
+        const collect = (b: ts.BindingName) => {
+          if (ts.isIdentifier(b)) names.push(b.text)
+          else for (const el of b.elements) if (!ts.isOmittedExpression(el)) collect(el.name)
+        }
+        collect(d.name)
+        for (const nm of names) live.set(nm, { line: lineOf(d), props: r.props })
+      }
+    }
+    if (live.size === 0) return traps
+    const seen = new Set<string>()
+    for (const root of jsxRoots) {
+      forEachDescendant(root, (x) => {
+        if (!ts.isIdentifier(x) || !live.has(x.text) || seen.has(x.text)) return
+        const parent = x.parent
+        if ((ts.isPropertyAccessExpression(parent) && parent.name === x) || ts.isJsxAttribute(parent)) return
+        // `store.items()`: the body value holds an object (made from a prop, say) whose method is read live. Fine.
+        if (ts.isPropertyAccessExpression(parent) && parent.expression === x && ts.isCallExpression(parent.parent) &&
+          parent.parent.expression === parent) return
+        seen.add(x.text)
+        const l = live.get(x.text)!
+        traps.push({ at: where(x), fromProps: l.props, message: `${x.text} is worked out once, when ${name} mounts ` +
+          `(line ${l.line}), from a value that can change, so the screen keeps its first value. Work it out where ` +
+          `it is shown, in the JSX ({p.amount <= 0 ? "Missing" : "Applied"}), or make it live: ` +
+          `const ${x.text} = computed(() => ...), and show ${x.text}()` })
+      }, /* stopAtFunctions */ true)
+    }
+    return traps
+  }
   for (const { name, fn } of candidates) {
     const body = fn.body
     if (!body) continue
@@ -393,7 +604,7 @@ export function compileModule(
     } else if (isJsxValue(body)) {
       roots.push(body)
     }
-    const info: ComponentRoots = { templates: [], at: [], others: [] }
+    const info: ComponentRoots = { templates: [], at: [], others: [], traps: roots.length > 0 ? checkOnceTraps(name, fn, roots, others) : [] }
     for (const r of roots) {
       const v = seeThrough(r)
       const compiled = isJsx(v) ? compileRoot(v as JsxNode) : valueTemplate(v, 0)
@@ -452,7 +663,7 @@ export function compileModule(
   // Each component's template id, readable at runtime without running it (a <List> row's type, in any file).
   for (const [name, id] of Object.entries(components)) pieces.push({ generatedAt: source.length, text: `\n${name}.__zt = ${ref(id)};` })
   const { code, map } = assemble(source, pieces)
-  return { code, components, roots: rootsOf, map }
+  return { code, components, roots: rootsOf, propUses, map }
 
   // ---- JSX variables --------------------------------------------------------------------------------------------
 
@@ -656,6 +867,7 @@ export function compileModule(
     if (tag === "SvgPart") fail(node, "<SvgPart> is made by the compiler: use parts={{ id: { fill } }} on the SVG")
     if (tag === "List") return listElement(node, b)
     if (tag === "NativeView") return nativeViewElement(node, b, allowKey)
+    if (tag === "OtpInput") return otpInputElement(node, b, allowKey)
     b.nodes++
     const props: NodeProps & Record<string, unknown> = {}
     const opening = ts.isJsxElement(node) ? node.openingElement : node
@@ -730,7 +942,8 @@ export function compileModule(
         }
         continue
       }
-      if (IGNORED_STYLE_KEYS.has(name) || (tag === "Modal" && MODAL_IOS_ONLY.has(name))) continue
+      // textContentType is iOS's autofill hint: RN ignores it on Android, and so does zn (autoComplete is the one).
+      if (IGNORED_STYLE_KEYS.has(name) || (tag === "Modal" && MODAL_IOS_ONLY.has(name)) || (tag === "TextField" && name === "textContentType")) continue
       if ((tag === "StatusBar" || tag === "NavigationBar") && STATUS_BAR_DROPPED.has(name)) continue
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
       tagPropCheck(tag, name, a)
@@ -1197,6 +1410,178 @@ export function compileModule(
     const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
     ctx.nativeView?.(viewName!, `${fileName}:${line + 1}:${character + 1}`)
     return el("NativeView", props)
+  }
+
+  /**
+   * <OtpInput> (registry 18, guide notes §62): react-native-otp-entry's props. `theme` and `focusColor` must be known
+   * at build time and become `otpTheme` ("key=value;..."); containerStyle is the node's own style, pinCodeTextStyle its
+   * text props. disabled, error, placeholder and accessibilityLabel can change at runtime.
+   */
+  function otpInputElement(node: ts.JsxElement | ts.JsxSelfClosingElement, b: Builder, allowKey: boolean): NodeSpec {
+    b.nodes++
+    const props: NodeProps & Record<string, unknown> = {}
+    const opening = ts.isJsxElement(node) ? node.openingElement : node
+    const theme: Record<string, string | number> = {}
+    let digits = 6
+    let type = "numeric"
+    let keyboard: string | null = null
+    let autoComplete = "sms-otp"
+    let autoFocus = true
+    const known = (v: unknown, at: ts.Node, what: string) => {
+      if (v === NOT_STATIC) fail(at, `${what} must be known at build time (a literal, a const or a design token)`)
+      return v
+    }
+    const argb = (v: unknown, at: ts.Node, what: string) => {
+      if (typeof v !== "string") fail(at, `${what} needs a colour string`)
+      try {
+        return `#${(parseColor(v as string) >>> 0).toString(16).toUpperCase().padStart(8, "0")}`
+      } catch (e) {
+        fail(at, `${what}: ${(e as Error).message}`)
+      }
+    }
+    const num = (v: unknown, at: ts.Node, what: string) => {
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0) fail(at, `${what} needs a number of dp, 0 or more`)
+      return v as number
+    }
+    /** The members of an object literal written in place: name → its value's expression. */
+    const members = (expr: ts.Expression, at: ts.Node, what: string) => {
+      const e = ts.isParenthesizedExpression(expr) ? expr.expression : expr
+      if (!ts.isObjectLiteralExpression(e)) fail(at, `${what} needs an object written in place: ${what}={{ ... }}`)
+      return (e as ts.ObjectLiteralExpression).properties.map((p) => {
+        if (!ts.isPropertyAssignment(p) || !(ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) {
+          fail(p, `${what}: write each entry as name: value (no spread, no methods)`)
+        }
+        const pa = p as ts.PropertyAssignment
+        return { name: (pa.name as ts.Identifier | ts.StringLiteral).text, expr: pa.initializer, at: pa as ts.Node }
+      })
+    }
+    const BOX_KEYS: Record<string, string> = { width: "w", height: "h", borderRadius: "r", borderWidth: "bw", borderColor: "bc", backgroundColor: "bg" }
+    const box = (prefix: string, expr: ts.Expression, at: ts.Node, what: string) => {
+      const v = known(fold(expr, scope), at, `theme.${what}`)
+      if (v == null) return
+      if (typeof v !== "object" || Array.isArray(v)) fail(at, `theme.${what} needs a style object`)
+      for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
+        if (raw === undefined) continue
+        const key = BOX_KEYS[k]
+        if (!key) fail(at, `theme.${what}.${k} isn't supported: a box takes ${Object.keys(BOX_KEYS).join(", ")}`)
+        theme[prefix + key] = key === "bc" || key === "bg" ? argb(raw, at, `theme.${what}.${k}`) : num(raw, at, `theme.${what}.${k}`)
+      }
+    }
+    for (const attr of opening.attributes.properties) {
+      if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
+      const a = attr as ts.JsxAttribute
+      const name = a.name.getText(sf)
+      const init = a.initializer
+      const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
+      const literal = () => (!init ? true : ts.isStringLiteral(init) ? init.text : expr ? fold(expr, scope) : NOT_STATIC)
+      if (name === "key") {
+        if (!allowKey) fail(a, "`key` is only used on the root element of a `.map(...)` row")
+      } else if (name === "ref") {
+        if (!expr) fail(a, "ref needs an object made by createRef(): const r = createRef<OtpInputHandle>(), then ref={r}")
+        const ev = `e${b.events++}`
+        const s = `s${b.slots++}`
+        ;(props as any).ref = eventRef(ev)
+        props.value = slotRef(s, null) as never
+        b.binds.push(`${RUNTIME}.otpRef(${b.inst}, @@E:${ev}@@, @@S:${s}@@, ${text(expr!)});`)
+      } else if (name === "onTextChange" || name === "onFilled" || name === "onFocus" || name === "onBlur") {
+        if (!expr) fail(a, `${name} needs a function`)
+        const ev = `e${b.events++}`
+        ;(props as any)[name === "onTextChange" ? "onChangeText" : name] = eventRef(ev)
+        b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${handlerCode(expr!, b)});`)
+      } else if (name === "numberOfDigits") {
+        const v = known(literal(), a, "numberOfDigits")
+        if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 12) fail(a, "numberOfDigits needs a whole number from 1 to 12")
+        digits = v as number
+      } else if (name === "type") {
+        const v = known(literal(), a, "type")
+        if (typeof v !== "string" || !(v in Enum.otpType)) fail(a, `type needs one of ${Object.keys(Enum.otpType).join(", ")}`)
+        type = v as string
+      } else if (name === "autoFocus" || name === "blurOnFilled" || name === "secureTextEntry" || name === "hideStick") {
+        const v = known(literal(), a, name)
+        if (typeof v !== "boolean") fail(a, `${name} needs true or false`)
+        if (name === "autoFocus") autoFocus = v as boolean
+        else if (name === "hideStick") theme.hs = v ? 1 : 0
+        else setStatic(props, name, v, a)
+      } else if (name === "focusColor") {
+        theme.fc = argb(known(literal(), a, "focusColor"), a, "focusColor")
+      } else if (name === "focusStickBlinkingDuration") {
+        theme.sb = num(known(literal(), a, name), a, name)
+      } else if (name === "disabled" || name === "error" || name === "placeholder" || name === "accessibilityLabel") {
+        const prop = name === "error" ? "invalid" : name
+        if (!init) setStatic(props, prop, true, a)
+        else if (ts.isStringLiteral(init)) setStatic(props, prop, init.text, a)
+        else if (expr) setProp(props, b, prop, expr, a)
+      } else if (name === "testID") {
+        if (!init || !ts.isStringLiteral(init)) fail(a, 'testID needs a string literal, e.g. testID="otp"')
+        setStatic(props, "testID", (init as ts.StringLiteral).text, a)
+      } else if (name === "textInputProps") {
+        if (!expr) fail(a, "textInputProps needs an object: textInputProps={{ ... }}")
+        for (const m of members(expr!, a, "textInputProps")) {
+          if (m.name === "textContentType") continue // iOS only, as RN on Android
+          if (m.name === "accessibilityLabel") setProp(props, b, "accessibilityLabel", m.expr, m.at)
+          else if (m.name === "testID" || m.name === "keyboardType" || m.name === "autoComplete") {
+            const v = known(fold(m.expr, scope), m.at, `textInputProps.${m.name}`)
+            if (typeof v !== "string") fail(m.at, `textInputProps.${m.name} needs a string`)
+            if (m.name === "testID") setStatic(props, "testID", v, m.at)
+            else if (m.name === "keyboardType") keyboard = v === "numeric" ? "decimal-pad" : (v as string)
+            else autoComplete = AUTOCOMPLETE_ALIASES[v as string] ?? (v as string)
+          } else {
+            fail(m.at, `textInputProps.${m.name} isn't supported on <OtpInput>: it takes accessibilityLabel, keyboardType, ` +
+              "autoComplete, textContentType and testID (the boxes' own props cover the rest)")
+          }
+        }
+      } else if (name === "theme") {
+        if (!expr) fail(a, "theme needs an object: theme={{ ... }}")
+        for (const m of members(expr!, a, "theme")) {
+          if (m.name === "containerStyle" || m.name === "inputsContainerStyle") styleProps(m.expr, props, b)
+          else if (m.name === "pinCodeContainerStyle") box("", m.expr, m.at, m.name)
+          else if (m.name === "focusedPinCodeContainerStyle") box("f", m.expr, m.at, m.name)
+          else if (m.name === "filledPinCodeContainerStyle") box("l", m.expr, m.at, m.name)
+          else if (m.name === "disabledPinCodeContainerStyle") box("d", m.expr, m.at, m.name)
+          else if (m.name === "errorPinCodeContainerStyle") box("e", m.expr, m.at, m.name)
+          else if (m.name === "pinCodeTextStyle" || m.name === "focusStickStyle" || m.name === "placeholderTextStyle") {
+            const v = known(fold(m.expr, scope), m.at, `theme.${m.name}`)
+            if (v == null) continue
+            if (typeof v !== "object" || Array.isArray(v)) fail(m.at, `theme.${m.name} needs a style object`)
+            for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
+              if (raw === undefined) continue
+              const what = `theme.${m.name}.${k}`
+              if (m.name === "pinCodeTextStyle") {
+                if (k === "fontWeight") setStatic(props, "fontWeight", fontWeight(raw, m.at), m.at)
+                else if (k === "fontSize" || k === "color" || k === "fontFamily") setStatic(props, k, raw, m.at)
+                else fail(m.at, `${what} isn't supported: the digits take fontSize, fontWeight, color and fontFamily`)
+              } else if (m.name === "focusStickStyle") {
+                if (k === "width") theme.sw = num(raw, m.at, what)
+                else if (k === "height") theme.sh = num(raw, m.at, what)
+                else if (k === "backgroundColor") theme.sc = argb(raw, m.at, what)
+                else fail(m.at, `${what} isn't supported: the caret takes width, height and backgroundColor`)
+              } else {
+                if (k === "color") theme.pc = argb(raw, m.at, what)
+                else fail(m.at, `${what} isn't supported: the placeholder takes color`)
+              }
+            }
+          } else {
+            fail(m.at, `theme.${m.name} isn't supported on <OtpInput>`)
+          }
+        }
+      } else if (name === "style") {
+        fail(a, "<OtpInput> takes theme.containerStyle for its row, as react-native-otp-entry does, not style")
+      } else if (name === "textProps") {
+        fail(a, "textProps isn't supported on <OtpInput>: style the digits with theme.pinCodeTextStyle")
+      } else {
+        fail(a, `unknown prop "${name}" on <OtpInput>`)
+      }
+    }
+    const kids = ts.isJsxElement(node) ? node.children : []
+    if (kids.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) fail(node, "<OtpInput> takes no children")
+    setStatic(props, "maxLength", digits, opening)
+    setStatic(props, "otpType", type, opening)
+    setStatic(props, "keyboardType", keyboard ?? (type === "numeric" ? "number-pad" : "default"), opening)
+    setStatic(props, "autoComplete", autoComplete, opening)
+    if (autoFocus) setStatic(props, "autoFocus", true, opening)
+    const encoded = Object.entries(theme).map(([k, v]) => `${k}=${v}`).join(";")
+    if (encoded) setStatic(props, "otpTheme", encoded, opening)
+    return el("OtpInput", props)
   }
 
   // ---- SVG (docs/svg.md) ------------------------------------------------------------------------------------------
@@ -1861,6 +2246,7 @@ export function compileModule(
       : name === "textAlign" ? rnTextAlign(value, at)
       : name === "aspectRatio" && typeof value === "string" ? rnRatio(value, at)
       : name === "keyboardType" && value === "numeric" ? "decimal-pad" // RN's numeric: digits and a decimal point
+      : name === "autoComplete" && typeof value === "string" && value in AUTOCOMPLETE_ALIASES ? AUTOCOMPLETE_ALIASES[value]
       : value
   }
 
@@ -2683,6 +3069,15 @@ function forEachDescendant(node: ts.Node, visit: (n: ts.Node) => void, stopAtFun
   }
   ts.forEachChild(node, walk)
 }
+
+/** Built-in methods called with no arguments: not signal reads (checkOnceTraps). */
+const NOT_SIGNAL_METHODS = new Set([
+  "toString", "toLocaleString", "valueOf", "trim", "trimStart", "trimEnd", "toUpperCase", "toLowerCase", "toFixed",
+  "toISOString", "toJSON", "getTime", "getDate", "getDay", "getMonth", "getFullYear", "getHours", "getMinutes",
+  "keys", "values", "entries", "slice", "reverse", "sort", "pop", "shift", "flat", "join", "now", "random", "create",
+])
+/** Built-in objects: `Date.now()`, `Math.random()` are not signal reads (checkOnceTraps). */
+const NOT_SIGNAL_OBJECTS = new Set(["Date", "Math", "JSON", "Object", "Number", "String", "Array", "Promise", "console", "StyleSheet"])
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }
 

@@ -15,6 +15,7 @@ import { installPlatform, Platform, resetPlatformForTests } from "../src/platfor
 import { defineRoutes } from "../src/routes"
 import { createRoot, effect } from "../src/signals"
 import { createRef, fieldRef, type TextFieldHandle } from "../src/text-field"
+import { otpRef, type OtpInputHandle } from "../src/otp-input"
 import { cancelAnimationFrame, installTimers, requestAnimationFrame } from "../src/timers"
 import { ToastAndroid } from "../src/toast"
 import { view, type Instance } from "../src/view"
@@ -215,6 +216,27 @@ test("a TextField ref: focus / blur / clear call Keyboard v2; isFocused follows 
   expect(ref.current!.isFocused()).toBe(true)
   globalThis.__zn_onEvent(42, 3, false)
   expect(ref.current!.isFocused()).toBe(false)
+  dispose()
+  expect(ref.current).toBeNull()
+})
+
+test("an OtpInput ref (registry 18): focus / blur / clear as a TextField's; setValue goes through its value slot", () => {
+  const ref = createRef<OtpInputHandle>()
+  const inst = { id: 43 } as Instance
+  let dispose = () => {}
+  createRoot((d) => {
+    dispose = d
+    otpRef(inst, 4, 7, ref)
+  })
+  ref.current!.focus()
+  expect(host.calls.at(-1)).toMatchObject({ module: "Keyboard", method: "focus", args: { inst: 43, id: 4 } })
+  ref.current!.clear()
+  expect(host.calls.at(-1)!.method).toBe("clear")
+  // The SMS fill: numbered, so the same code twice reaches native twice (RN's setValue reports it each time).
+  ref.current!.setValue("4821")
+  ref.current!.setValue("4821")
+  // The first "" is the slot's starting value (in a real mount it goes into the mount); native skips it (no number).
+  expect(host.patches.filter(([i, s]) => i === 43 && s === 7).map(([, , v]) => v)).toEqual(["", "1\u00014821", "2\u00014821"])
   dispose()
   expect(ref.current).toBeNull()
 })

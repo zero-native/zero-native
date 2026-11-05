@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 16 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 18 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -39,6 +39,9 @@ export const REGISTRY_VERSION = 16 // 2: Anchor. 3: transforms, shadow, absolute
 // 16: from the ZeroBill port (asks R28, R11/R23/R7, R16/R21/R22; second-opinions 128): Text includeFontPadding;
 //     borderStyle dashed / dotted; Text textDecorationStyle dashed / dotted; text spans that change at runtime (spans
 //     from a slot) and onSpanPress (a nested <Text onPress>); zIndex on a child of Column / Row / Box / Pressable.
+// 17: from the ZeroBill port (asks R35, R36; second-opinions 145): TextField autoComplete (Android autofill hints); a
+//     Carousel with a height or flex gives its pages the full height, the dots at the bottom (CAROUSEL_FILL_SINCE).
+// 18: OtpInput (react-native-otp-entry's API, second-opinions 146): otpTheme, otpType, blurOnFilled, invalid, onFilled.
 
 export const Component = {
   Column: 1,
@@ -97,6 +100,12 @@ export const Component = {
   StatusBar: 32,
   /** The same for the navigation bar (zn's own; RN has none): barStyle, backgroundColor. */
   NavigationBar: 33,
+  /**
+   * React Native's react-native-otp-entry (registry 18): one hidden native field holds the code, and boxes draw it.
+   * Focus, the blinking caret, paste, autofill and the SMS fill (ref setValue) are native; JS hears onChangeText and
+   * onFilled. The boxes' look is `otpTheme`, written by the compiler from `theme`.
+   */
+  OtpInput: 34,
 } as const
 export type ComponentName = keyof typeof Component
 
@@ -389,6 +398,24 @@ export const Prop = {
   borderStyle: { id: 282, type: "enum" },
   /** <Text> RN textDecorationStyle (registry 16): "solid" (default), "dashed" or "dotted" underline / line-through. */
   textDecorationStyle: { id: 283, type: "enum" },
+  /**
+   * <TextField> RN autoComplete (registry 17): what the field holds, as an Android autofill hint, so the keyboard or
+   * the autofill service can offer the phone number, an SMS code, an email. RN's other names (one-time-code,
+   * name-given, current-password, ...) are folded into these by the compiler.
+   */
+  autoComplete: { id: 284, type: "enum" },
+  /**
+   * <OtpInput> (registry 18): the boxes' look, written by the compiler from RN's `theme` and `focusColor` as
+   * "key=value;..." (w h r bw bc bg; f* focused, l* filled, d* disabled, e* invalid; sw sh sc stick, sb blink ms, hs
+   * hide stick; pc placeholder colour). Colours are #AARRGGBB.
+   */
+  otpTheme: { id: 285, type: "string" },
+  /** <OtpInput> RN `type`: which characters it takes. */
+  otpType: { id: 286, type: "enum" },
+  /** <OtpInput> RN blurOnFilled: the field lets go of focus (the keyboard closes) once every box is filled. */
+  blurOnFilled: { id: 287, type: "bool" },
+  /** <OtpInput> zn's `error` (can change at runtime): the boxes take theme.errorPinCodeContainerStyle (a wrong code). */
+  invalid: { id: 288, type: "bool" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -431,6 +458,13 @@ export const Enum = {
   barStyle: { default: 0, "light-content": 1, "dark-content": 2 },
   borderStyle: { solid: 0, dashed: 1, dotted: 2 },
   textDecorationStyle: { solid: 0, dashed: 1, dotted: 2 },
+  autoComplete: {
+    off: 0, tel: 1, "tel-national": 2, "tel-country-code": 3, "tel-device": 4, "sms-otp": 5, email: 6, name: 7,
+    "given-name": 8, "family-name": 9, "name-middle": 10, username: 11, "username-new": 12, password: 13,
+    "new-password": 14, "postal-code": 15, "street-address": 16, "postal-address": 17, country: 18,
+    "birthdate-full": 19, gender: 20,
+  },
+  otpType: { numeric: 0, alpha: 1, alphanumeric: 2 },
 } as const satisfies Partial<Record<PropName, Record<string, number>>>
 
 /**
@@ -490,6 +524,8 @@ export const EventKind = {
    * JS runs that span's handler (core text-spans.ts).
    */
   onSpanPress: 23,
+  /** <OtpInput> (registry 18): every box is filled. Payload: the code. */
+  onFilled: 24,
   // 16-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
   onValueChange: 30,
 } as const
@@ -544,6 +580,8 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "stickyHeaderIndices",
   // Registry 16: spans from data (core text-spans.ts); JSON as in the build-time form, read when it changes.
   "spans",
+  // Registry 18: <OtpInput error={...}>.
+  "invalid",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -571,7 +609,7 @@ export const Added: {
   /** A newer form of a string prop's value (key: a name in [Formats]). */
   format: Partial<Record<FormatName, number>>
 } = {
-  component: { NativeView: 9, Tabs: 11, Svg: 13, SvgPart: 13, Modal: 15, StatusBar: 15, NavigationBar: 15 },
+  component: { NativeView: 9, Tabs: 11, Svg: 13, SvgPart: 13, Modal: 15, StatusBar: 15, NavigationBar: 15, OtpInput: 18 },
   prop: {
     viewName: 9, viewProps: 9, selected: 11, refreshing: 12, refreshColor: 12, refreshBackground: 12,
     // SVG phases 1-4 (built as 11-13 on their branch; one number, as none shipped).
@@ -585,11 +623,12 @@ export const Added: {
     transparent: 15, animationType: 15, statusBarTranslucent: 15, navigationBarTranslucent: 15, barStyle: 15, hidden: 15,
     stickyHeaderIndices: 15,
     includeFontPadding: 16, borderStyle: 16, textDecorationStyle: 16,
+    autoComplete: 17, otpTheme: 18, otpType: 18, blurOnFilled: 18, invalid: 18,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
     paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13, hasLongPress: 14, borderColor: 15, borderWidth: 15,
-    pointerEvents: 15, tintColor: 15, barStyle: 15, hidden: 15, stickyHeaderIndices: 15, spans: 16,
+    pointerEvents: 15, tintColor: 15, barStyle: 15, hidden: 15, stickyHeaderIndices: 15, spans: 16, invalid: 18,
   },
   enumValue: {
     "textTransform.none": 15, "textTransform.uppercase": 15, "textTransform.lowercase": 15, "textTransform.capitalize": 15,
@@ -598,9 +637,16 @@ export const Added: {
     "barStyle.default": 15, "barStyle.light-content": 15, "barStyle.dark-content": 15,
     "borderStyle.solid": 16, "borderStyle.dashed": 16, "borderStyle.dotted": 16,
     "textDecorationStyle.solid": 16, "textDecorationStyle.dashed": 16, "textDecorationStyle.dotted": 16,
+    ...Object.fromEntries(
+      ["off", "tel", "tel-national", "tel-country-code", "tel-device", "sms-otp", "email", "name", "given-name",
+        "family-name", "name-middle", "username", "username-new", "password", "new-password", "postal-code",
+        "street-address", "postal-address", "country", "birthdate-full", "gender"].map((v) => [`autoComplete.${v}`, 17]),
+    ),
+    ...Object.fromEntries(["numeric", "alpha", "alphanumeric"].map((v) => [`otpType.${v}`, 18]),
+    ),
   },
   event: { onNativeEvent: 9, ref: 10, onRefresh: 12, onLoad: 15, onError: 15, onLoadEnd: 15, onLayout: 15,
-    onRequestClose: 15, onShow: 15, onSpanPress: 16 },
+    onRequestClose: 15, onShow: 15, onSpanPress: 16, onFilled: 18 },
   format: { "timing.motion": 13, "svg.nonScaling": 13, "svg.effects": 13, "timing.tap": 13 },
 }
 
@@ -615,6 +661,13 @@ export const ABSOLUTE_STRETCH_SINCE = 15
  * this registry version (R23). Older apps draw such a child in tree order (writer.ts).
  */
 export const ZINDEX_ANY_SINCE = 16
+
+/**
+ * A Carousel with a height (set, or flex) gives each page the full height and puts the dots at the bottom, as RN's
+ * flex-1 list, since this registry version (R35). Older apps draw it as tall as its tallest page (writer.ts). A
+ * Carousel with no height draws the same on both.
+ */
+export const CAROUSEL_FILL_SINCE = 17
 
 /**
  * Newer forms of a string prop's value that older apps can't read (an older app would show the old behaviour, so a

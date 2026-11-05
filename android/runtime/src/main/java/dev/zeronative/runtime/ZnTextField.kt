@@ -24,6 +24,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -33,6 +35,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 
 /**
  * Keeps a controlled field and JS in step (ARCHITECTURE §9.4), as React Native does. The field owns the text while the
@@ -104,7 +107,14 @@ internal fun ZnTextField(s: ZnNodeSpec, inst: ZnInstance, n: Int, mod: Modifier)
     }
 
     val focus = remember { FocusRequester() }
-    if (s.autoFocus) LaunchedEffect(inst.id, n) { focus.requestFocus() }
+    // With an autofill hint, autoFocus waits until the screen has slid in: Android's autofill reads the field's place
+    // once, when it gets focus, and mid-slide that is off screen, so nothing was offered (R36, pilot login). Without a
+    // hint it focuses at once, as before.
+    val settled = LocalZnScreenSettled.current
+    if (s.autoFocus) LaunchedEffect(inst.id, n) {
+        if (s.autoComplete != Registry.AutoComplete.OFF) snapshotFlow { settled.value }.first { it }
+        focus.requestFocus()
+    }
     // `ref`: JS's focus() / blur() / clear() find the field through ZnKeyboard while it is composed.
     val refField = if (s.ref != 0) remember(state) { ZnKeyboard.Field(focus, state) } else null
     if (refField != null) {
@@ -116,7 +126,9 @@ internal fun ZnTextField(s: ZnNodeSpec, inst: ZnInstance, n: Int, mod: Modifier)
     // Compose calls onFocusChanged once when the field appears (not focused), and again after the Activity is made
     // again: only a real change is sent, so onBlur doesn't fire for a field nobody touched (as in React Native).
     val wasFocused = remember(inst.id, n) { booleanArrayOf(false) }
-    val focusMod = mod.focusRequester(focus).onFocusChanged {
+    val autofill = autofillHint(s.autoComplete)
+    val hinted = if (autofill != null) mod.semantics { contentType = autofill } else mod
+    val focusMod = hinted.focusRequester(focus).onFocusChanged {
         if (it.isFocused == wasFocused[0]) return@onFocusChanged
         wasFocused[0] = it.isFocused
         if (refField != null) {

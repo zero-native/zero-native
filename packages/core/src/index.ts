@@ -64,6 +64,7 @@ export {
 export { SecureStore } from "./secure-store"
 export { Keyboard, type KeyboardEvent, type KeyboardEventName, type KeyboardMetrics, type KeyboardModule } from "./keyboard"
 export { createRef, fieldRef, type Ref, type TextFieldHandle } from "./text-field"
+export { otpRef, type OtpInputHandle } from "./otp-input"
 export { toast, ToastAndroid, type ToastOptions } from "./toast"
 export {
   callNative,

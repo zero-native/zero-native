@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 16
+    const val VERSION = 18
 
     object Component {
         const val COLUMN = 1
@@ -34,6 +34,7 @@ object Registry {
         const val MODAL = 31
         const val STATUS_BAR = 32
         const val NAVIGATION_BAR = 33
+        const val OTP_INPUT = 34
     }
 
     object Prop {
@@ -206,6 +207,11 @@ object Registry {
         const val INCLUDE_FONT_PADDING = 281
         const val BORDER_STYLE = 282
         const val TEXT_DECORATION_STYLE = 283
+        const val AUTO_COMPLETE = 284
+        const val OTP_THEME = 285
+        const val OTP_TYPE = 286
+        const val BLUR_ON_FILLED = 287
+        const val INVALID = 288
     }
 
     object Event {
@@ -233,6 +239,7 @@ object Registry {
         const val ON_REQUEST_CLOSE = 21
         const val ON_SHOW = 22
         const val ON_SPAN_PRESS = 23
+        const val ON_FILLED = 24
         const val ON_VALUE_CHANGE = 30
     }
 
@@ -376,13 +383,43 @@ object Registry {
         const val DOTTED = 2
     }
 
+    object AutoComplete {
+        const val OFF = 0
+        const val TEL = 1
+        const val TEL_NATIONAL = 2
+        const val TEL_COUNTRY_CODE = 3
+        const val TEL_DEVICE = 4
+        const val SMS_OTP = 5
+        const val EMAIL = 6
+        const val NAME = 7
+        const val GIVEN_NAME = 8
+        const val FAMILY_NAME = 9
+        const val NAME_MIDDLE = 10
+        const val USERNAME = 11
+        const val USERNAME_NEW = 12
+        const val PASSWORD = 13
+        const val NEW_PASSWORD = 14
+        const val POSTAL_CODE = 15
+        const val STREET_ADDRESS = 16
+        const val POSTAL_ADDRESS = 17
+        const val COUNTRY = 18
+        const val BIRTHDATE_FULL = 19
+        const val GENDER = 20
+    }
+
+    object OtpType {
+        const val NUMERIC = 0
+        const val ALPHA = 1
+        const val ALPHANUMERIC = 2
+    }
+
     /** Every id this app knows: templates from an OTA bundle that use any other id are refused (TemplateReader). */
-    val COMPONENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 30, 31, 32, 33)
-    val PROP_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 30, 31, 32, 33, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 90, 91, 92, 93, 94, 95, 100, 101, 102, 103, 104, 105, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 80, 81, 82, 83, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 170, 171, 172, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 250, 251, 252, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283)
+    val COMPONENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 30, 31, 32, 33, 34)
+    val PROP_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 30, 31, 32, 33, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 90, 91, 92, 93, 94, 95, 100, 101, 102, 103, 104, 105, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 80, 81, 82, 83, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 170, 171, 172, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 250, 251, 252, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284, 285, 286, 287, 288)
     /** The value type of each prop in PROP_IDS (same order): 0 number, 1 size, 2 string, 3 color, 4 enum, 5 bool. */
-    val PROP_TYPES = intArrayOf(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 3, 0, 0, 3, 0, 4, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 2, 3, 0, 0, 4, 0, 0, 0, 4, 4, 2, 4, 2, 5, 5, 0, 0, 5, 2, 0, 0, 5, 3, 3, 0, 2, 5, 2, 5, 2, 2, 2, 3, 4, 5, 0, 5, 5, 4, 5, 4, 5, 3, 2, 2, 2, 4, 3, 0, 0, 5, 0, 0, 3, 2, 2, 0, 5, 3, 3, 2, 0, 3, 3, 0, 0, 0, 5, 0, 0, 5, 0, 0, 0, 5, 2, 0, 2, 0, 0, 3, 3, 3, 3, 0, 2, 4, 3, 0, 2, 2, 4, 5, 0, 0, 2, 5, 5, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 4, 2, 3, 5, 4, 5, 5, 4, 5, 2, 5, 4, 4)
-    val DYNAMIC_PROP_IDS = intArrayOf(50, 51, 40, 44, 90, 91, 92, 93, 94, 95, 60, 80, 23, 24, 25, 26, 118, 119, 123, 124, 132, 209, 148, 149, 170, 182, 183, 184, 185, 186, 190, 191, 192, 193, 260, 43, 42, 271, 273, 278, 279, 280, 122)
-    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 25, 17, 18, 19, 20, 21, 22, 23, 30)
+    val PROP_TYPES = intArrayOf(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 3, 0, 0, 3, 0, 4, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 2, 3, 0, 0, 4, 0, 0, 0, 4, 4, 2, 4, 2, 5, 5, 0, 0, 5, 2, 0, 0, 5, 3, 3, 0, 2, 5, 2, 5, 2, 2, 2, 3, 4, 5, 0, 5, 5, 4, 5, 4, 5, 3, 2, 2, 2, 4, 3, 0, 0, 5, 0, 0, 3, 2, 2, 0, 5, 3, 3, 2, 0, 3, 3, 0, 0, 0, 5, 0, 0, 5, 0, 0, 0, 5, 2, 0, 2, 0, 0, 3, 3, 3, 3, 0, 2, 4, 3, 0, 2, 2, 4, 5, 0, 0, 2, 5, 5, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 4, 2, 3, 5, 4, 5, 5, 4, 5, 2, 5, 4, 4, 4, 2, 4, 5, 5)
+    val DYNAMIC_PROP_IDS = intArrayOf(50, 51, 40, 44, 90, 91, 92, 93, 94, 95, 60, 80, 23, 24, 25, 26, 118, 119, 123, 124, 132, 209, 148, 149, 170, 182, 183, 184, 185, 186, 190, 191, 192, 193, 260, 43, 42, 271, 273, 278, 279, 280, 122, 288)
+    val EVENT_IDS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 25, 17, 18, 19, 20, 21, 22, 23, 24, 30)
     /** Enum prop id → the values this app knows. */
     val ENUM_VALUES = mapOf(
         31 to intArrayOf(0, 1, 2, 3, 4, 5),
@@ -406,5 +443,7 @@ object Registry {
         278 to intArrayOf(0, 1, 2),
         282 to intArrayOf(0, 1, 2),
         283 to intArrayOf(0, 1, 2),
+        284 to intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
+        286 to intArrayOf(0, 1, 2),
     )
 }

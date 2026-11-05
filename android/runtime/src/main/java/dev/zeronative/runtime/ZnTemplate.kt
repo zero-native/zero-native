@@ -125,6 +125,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val type: Int = raw.component[index]
     private val p: Map<Int, Any?> = raw.props[index]
 
+    /** True when the template sets [prop] (static or a slot), e.g. to tell "not set" from a default value. */
+    fun has(prop: Int): Boolean = p.containsKey(prop)
+
     // Layout of this node
     val margin: Edges? = edges(Registry.Prop.MARGIN, Registry.Prop.MARGIN_HORIZONTAL, Registry.Prop.MARGIN_VERTICAL,
         Registry.Prop.MARGIN_START, Registry.Prop.MARGIN_TOP, Registry.Prop.MARGIN_END, Registry.Prop.MARGIN_BOTTOM)
@@ -366,6 +369,12 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val multiline = p[Registry.Prop.MULTILINE] == true
     val autoFocus = p[Registry.Prop.AUTO_FOCUS] == true
     val returnKeyType = enum(Registry.Prop.RETURN_KEY_TYPE)
+    val autoComplete = enum(Registry.Prop.AUTO_COMPLETE)
+    // OtpInput (registry 18)
+    internal val otpTheme: ZnOtpTheme by lazy { ZnOtpTheme.parse(p[Registry.Prop.OTP_THEME] as String?) }
+    val otpType = enum(Registry.Prop.OTP_TYPE)
+    val blurOnFilled = p[Registry.Prop.BLUR_ON_FILLED] == true
+    val invalid = p[Registry.Prop.INVALID] == true
     val editable = p[Registry.Prop.EDITABLE] != false
     val autoCapitalize = enum(Registry.Prop.AUTO_CAPITALIZE)
     val autoCorrect = p[Registry.Prop.AUTO_CORRECT] != false
@@ -435,7 +444,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     }
 
     private val staticAccessibility: Modifier? =
-        if (type != Registry.Component.PRESSABLE) accessibilitySemantics(accessibilityLabel) else null
+        if (type != Registry.Component.PRESSABLE && type != Registry.Component.OTP_INPUT) accessibilitySemantics(accessibilityLabel) else null
 
     // Slots: the slot id bound to a prop, or -1 when the prop is static.
     val textSlot = slotFor(raw, Registry.Prop.TEXT)
@@ -461,6 +470,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val viewPropsSlot = slotFor(raw, Registry.Prop.VIEW_PROPS)
     val placeholderSlot = slotFor(raw, Registry.Prop.PLACEHOLDER)
     val editableSlot = slotFor(raw, Registry.Prop.EDITABLE)
+    val invalidSlot = slotFor(raw, Registry.Prop.INVALID)
     val fillSlot = slotFor(raw, Registry.Prop.FILL)
     val strokeSlot = slotFor(raw, Registry.Prop.STROKE)
     val pausedSlot = slotFor(raw, Registry.Prop.PAUSED)
@@ -493,6 +503,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val onSubmitEditing = eventFor(raw, Registry.Event.ON_SUBMIT_EDITING)
     val onFocus = eventFor(raw, Registry.Event.ON_FOCUS)
     val onBlur = eventFor(raw, Registry.Event.ON_BLUR)
+    val onFilled = eventFor(raw, Registry.Event.ON_FILLED)
     /** <TextField ref>: names the field for ZnKeyboard's focus / blur / clear; focus changes go to JS on it. */
     val ref = eventFor(raw, Registry.Event.REF)
     val visibleSlot = slotFor(raw, Registry.Prop.VISIBLE)

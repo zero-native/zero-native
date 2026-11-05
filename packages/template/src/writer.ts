@@ -19,6 +19,7 @@ import {
   BASE_VERSION,
   ABSOLUTE_STRETCH_SINCE,
   ZINDEX_ANY_SINCE,
+  CAROUSEL_FILL_SINCE,
   Component,
   type ComponentName,
   DynamicProps,
@@ -235,6 +236,8 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
       // zIndex outside a Stack is drawn only by newer apps (registry 16). A child at a template's root may sit in a
       // Stack of another template: it asks for 16 too (a false match only asks for a newer app than needed).
       if ("zIndex" in merged && (parent === ROOT_PARENT || nodes[parent]?.component !== Component.Stack)) needs(ZINDEX_ANY_SINCE)
+      // A Carousel with a height shares it out to its pages only on newer apps (registry 17, R35).
+      if (spec.type === "Carousel" && ("height" in merged || (typeof merged.flex === "number" && merged.flex > 0))) needs(CAROUSEL_FILL_SINCE)
       for (const [key, raw] of Object.entries(merged)) {
         if (raw === undefined) continue
         if (key in EventKind) {

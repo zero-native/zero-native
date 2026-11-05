@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path"
 import { existsSync, readFileSync } from "node:fs"
 import ts from "typescript"
 import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
-import { compileModule, type ComponentRoots } from "./compile"
+import { compileModule, type ComponentRoots, type OnceTrap, type PropUse } from "./compile"
 import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
 import { nativeModuleUses } from "./modules"
@@ -55,6 +55,8 @@ export function znBuild(): ZnBuild {
   const components: Record<string, number> = {}
   /** Component name → what it returns (reservation numbers), to check screens once the route table is known. */
   const roots = new Map<string, ComponentRoots>()
+  /** File → its components' uses with props that can change (compile.ts propUses), for the props traps. */
+  const propUses = new Map<string, PropUse[]>()
   const maps = new Map<string, LineMap>()
   let routes: { file: string; entries: RouteEntry[] } | null = null
   let compiling = "" // the file being compiled; compileModule is synchronous, so no two files interleave
@@ -100,6 +102,7 @@ export function znBuild(): ZnBuild {
           components[name] = id
         }
         for (const [name, r] of Object.entries(out.roots)) roots.set(name, r)
+        propUses.set(path, out.propUses)
         maps.set(path, out.map)
         return { contents: out.code, loader: "ts" }
       })
@@ -159,6 +162,7 @@ export function znBuild(): ZnBuild {
         checkScreenRoots(r.name, r.component!, roots.get(r.component!), specs)
         return { ...r, screen }
       })
+      checkOnceTraps(roots, new Set(table.map((r) => r.component).filter((c): c is string => !!c)), [...propUses.values()].flat())
       const file = writeTemplateFile(finalSpecs)
       const sortedModules = Object.fromEntries([...modules.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
       return {
@@ -168,6 +172,32 @@ export function znBuild(): ZnBuild {
         requires: { registry: file.registry, hostApi: HOST_API_VERSION, modules: sortedModules },
       }
     },
+  }
+}
+
+/**
+ * A React habit that reads a value once (compile.ts checkOnceTraps, guide notes §61) fails the build.
+ * A trap that reads a signal always counts. A trap that only reads props counts only when that component's props can
+ * change while it stays mounted: it is used outside a row with a prop that reads a signal, or passes on the props of a
+ * parent whose props can change (followed up the tree). Not in a screen (its props are its route's params, which
+ * don't change while it is open), and not in a row (a row mounts again when its item changes, so its body is fresh).
+ */
+function checkOnceTraps(roots: Map<string, ComponentRoots>, screens: Set<string>, uses: PropUse[]): void {
+  const liveProps = new Set<string>()
+  for (const u of uses) if (u.live === "signal") liveProps.add(u.component)
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const u of uses) {
+      if (u.live === "parentProps" && liveProps.has(u.parent) && !liveProps.has(u.component)) {
+        liveProps.add(u.component)
+        grew = true
+      }
+    }
+  }
+  for (const [name, info] of roots) {
+    const counts = (t: OnceTrap) => !t.fromProps || (liveProps.has(name) && !screens.has(name))
+    const trap = info.traps.find(counts)
+    if (trap) throw new Error(`${trap.at}: ${trap.message}`)
   }
 }
 

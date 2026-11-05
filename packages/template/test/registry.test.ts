@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { KOTLIN_REGISTRY_PATH, kotlinRegistry, readRegistryLock, REGISTRY_LOCK_PATH, registryLockText } from "../../../tools/gen-registry"
 import { el, event, slot, writeTemplateFile, type NodeSpec } from "../src"
-import { ABSOLUTE_STRETCH_SINCE, Added, BASE_VERSION, Prop, REGISTRY_VERSION, since, ZINDEX_ANY_SINCE } from "../src/registry"
+import { ABSOLUTE_STRETCH_SINCE, Added, CAROUSEL_FILL_SINCE, BASE_VERSION, Prop, REGISTRY_VERSION, since, ZINDEX_ANY_SINCE } from "../src/registry"
 import { registryProblems, registrySnapshot, type RegistryLock } from "../src/registry-lock"
 
 test("the Kotlin registry is generated from the TS registry (run `bun run gen:registry` if this fails)", () => {
@@ -106,6 +106,13 @@ describe("a template file asks for the lowest registry version that has what it 
     expect(writeTemplateFile([el("Column", {}, el("Box", { zIndex: 2 }))]).registry).toBe(ZINDEX_ANY_SINCE)
     expect(writeTemplateFile([el("Box", { zIndex: 2 })]).registry).toBe(ZINDEX_ANY_SINCE)
     expect(writeTemplateFile([el("Stack", {}, el("Box", { zIndex: 2 }))]).registry).toBe(BASE_VERSION)
+    // A Carousel with a height shares it out to its pages only on newer apps (R35); with no height it draws as before.
+    const carousel = (style: Record<string, unknown>) => writeTemplateFile([el("Carousel", { style }, el("Box", {}))]).registry
+    expect(carousel({ flex: 1 })).toBe(CAROUSEL_FILL_SINCE)
+    expect(carousel({ height: 240 })).toBe(CAROUSEL_FILL_SINCE)
+    expect(carousel({ gap: 12, paddingHorizontal: 16 })).toBe(since("component", "Carousel"))
+    // TextField autoComplete (R36).
+    expect(writeTemplateFile([el("TextField", { autoComplete: "sms-otp" })]).registry).toBe(17)
     // Not using them: back to the base.
     expect(writeTemplateFile([el("Column", {}, el("Pressable", { pressFeedback: "ripple" }))]).registry).toBe(BASE_VERSION)
   })

@@ -144,7 +144,7 @@ The C++ core, Hermes and the template format are shared. **The iOS host doesn't 
 ---
 
 ## The ladder: each step has a pass bar
-1. **Pilot** (now): the Lava pass, Pavan's SMS test, the ZeroBill pilot app.
+1. **Pilot** (now): the Lava pass, Pavan's SMS test (done 2026-11-06), the ZeroBill pilot app.
 2. **10k beta:** A1 32-bit, A2 device farm smoke runs, A3 CI, A4 staged rollout with auto-stop, A6 the audit
    list, A7 the field dashboard.
 3. **100k–1M:** A5 security test and pinning, B1 TalkBack, B2 Hindi, B3 soak tests, B4 keyboards, the A4 key drill.
@@ -154,3 +154,4 @@ The C++ core, Hermes and the template format are shared. **The iOS host doesn't 
 | Date | Item | Commit |
 |---|---|---|
 | 2026-11-05 | A screen with an early `return` fails the build instead of drawing blank (B6, first part) | 50f3bb2 |
+| 2026-11-06 | Pavan's SMS test: a real login on the Lava. Phone hint, real SMS with the app hash, SMS Retriever, OtpInput filled, verified | prototype 5230779, backend dev 930002e |

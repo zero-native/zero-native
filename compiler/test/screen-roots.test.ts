@@ -193,15 +193,22 @@ export function S(p: { items: string[] }) {
 }`)
   })
 
-  test("a child component may have many returns; used as a screen too, the build fails", async () => {
+  test("a child that returns early on a prop fails (the branch is picked once); one ternary return builds", async () => {
+    // Was allowed until 2026-11-05: JS mounts the template the first return gave, but the body runs once, so the
+    // child kept that branch when the prop changed (RN sweep T2, guide notes §61).
     const both = `
 export function Badge(p: { on: boolean }) {
   if (p.on) return <Text>on</Text>
   return <Row />
 }
-export function S() { return <Column><Badge on={true} /></Column> }`
-    await build(both) // Badge only as a child: fine, JS mounts the template it returned
+const on = () => true; export function S() { return <Column><Badge on={on()} /></Column> }`
+    const msg = await fails(both)
+    expect(msg).toContain(`screens.tsx:4:13: Badge returns early here, on "p.on" (line 4), which can change`)
+    expect(msg).toContain("return loading() ? <Spinner /> : <Content />")
     expect(await fails(both, "Badge")).toContain(`screen Badge (route "home") has a second JSX return`)
+    await build(`
+export function Badge(p: { on: boolean }) { return p.on ? <Text>on</Text> : <Row /> }
+export function S() { return <Column><Badge on={true} /></Column> }`)
   })
 
   test("native routes are not checked", async () => {

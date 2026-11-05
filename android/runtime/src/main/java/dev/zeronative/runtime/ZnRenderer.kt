@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -173,6 +174,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
         Registry.Component.COLUMN, Registry.Component.BOX, Registry.Component.PRESSABLE, Registry.Component.FRAGMENT ->
             ZnColumn(f, t, inst, s, mod, definiteWidth)
         Registry.Component.TEXT_FIELD -> ZnTextField(s, inst, n, mod)
+        Registry.Component.OTP_INPUT -> ZnOtpInput(s, inst, n, mod)
         Registry.Component.NATIVE_VIEW -> ZnNativeView(s, inst, n, mod)
         Registry.Component.SHEET -> ZnSheet(f, t, s, inst) // drawn in its own window, takes no space here
         Registry.Component.MODAL -> ZnModal(f, t, s, inst) // the same
@@ -449,6 +451,9 @@ private fun znOnLayout(instId: Int, eventId: Int, density: Float): Modifier {
 /** The screen entry a node belongs to (provided per screen by ZnNavHost), for impressions. 0 = none. */
 internal val LocalZnEntry = staticCompositionLocalOf { 0 }
 
+/** Has the screen's enter transition ended (provided per screen by ZnNavHost)? Outside a screen: always true. */
+internal val LocalZnScreenSettled = staticCompositionLocalOf<androidx.compose.runtime.State<Boolean>> { mutableStateOf(true) }
+
 /**
  * A node with an `impressionKey`: reports how much of it is visible (from its layout position, clipped by the lists
  * and rails around it) whenever it moves, and 0 when it leaves the screen. Only on screens that track impressions.
@@ -499,10 +504,12 @@ private fun ZnTabs(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnIn
 private fun ZnCarousel(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, mod: Modifier) {
     val refs = childRefs(f, t, inst, s)
     val pager = rememberPagerState { refs.size }
-    Column(mod) {
+    // `fill`: the pager takes the height left after the dots, and each page gets all of it. False: as tall as the
+    // tallest page, the dots 10 dp under it (the layout of a carousel with no height, unchanged since 2.4c).
+    val body: @Composable (Modifier, Boolean) -> Unit = { colMod, fill -> Column(colMod) {
         HorizontalPager(
             state = pager,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = if (fill) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth(),
             contentPadding = contentPaddingOf(s, inst),
             pageSize = s.itemWidth?.let { PageSize.Fixed(it.dp) } ?: PageSize.Fill,
             pageSpacing = s.gap.dp,
@@ -510,7 +517,7 @@ private fun ZnCarousel(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: 
             key = { refs.getOrNull(it)?.key ?: it },
         ) { page ->
             val ref = refs.getOrNull(page) ?: return@HorizontalPager
-            ZnNode(f, ref.template, ref.instance, ref.node, Modifier, definiteWidth = true)
+            ZnNode(f, ref.template, ref.instance, ref.node, if (fill) Modifier.fillMaxHeight() else Modifier, definiteWidth = true)
         }
         if (s.dots && refs.size > 1) {
             Row(
@@ -525,6 +532,17 @@ private fun ZnCarousel(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: 
                     )
                 }
             }
+        }
+    } }
+    if (s.height == null && s.flex <= 0f) {
+        body(mod, false)
+    } else {
+        // A carousel with a height (set, or flex) shares it out as RN's flex-1 list does: pages get the full height, so
+        // a page's flex and justifyContent work, and the dots sit at the bottom (prototype ask R35). With no bounded
+        // height to share (flex inside a scroll) it lays out as one with no height.
+        BoxWithConstraints(mod) {
+            val fill = constraints.hasBoundedHeight
+            body(if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth(), fill)
         }
     }
     if (s.autoAdvanceMs > 0 && refs.size > 1) {
@@ -666,7 +684,7 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
             fun edge(i: Int, static: Float) = (cells[i]?.value as? Double)?.toFloat() ?: static
             ({ Edges(edge(0, base.start), edge(1, base.top), edge(2, base.end), edge(3, base.bottom)) })
         } else null
-        val accessibility = if (s.type != Registry.Component.PRESSABLE) s.accessibilitySemantics(aLabel ?: s.accessibilityLabel) else null
+        val accessibility = if (s.type != Registry.Component.PRESSABLE && s.type != Registry.Component.OTP_INPUT) s.accessibilitySemantics(aLabel ?: s.accessibilityLabel) else null
         // Registry 15: a border width / colour from a slot, read while measuring / drawing (no recomposition).
         val border = if (s.borderWidthSlot >= 0 || s.borderColorSlot >= 0) {
             val wCell = if (s.borderWidthSlot >= 0) inst.slot(s.borderWidthSlot) else null

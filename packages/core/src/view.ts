@@ -108,7 +108,10 @@ function mountChild(owner: Owner | null, make: () => View, parent: number, ancho
       let inst: Instance | null = null
       try {
         const v = make() // a component's body runs here, inside the instance's owner
-        inst = { id, collecting: [], mount: { templateId: v.templateId, parent, anchor, index } }
+        // `return null` (or undefined / false), as in React: nothing is drawn. What the body started (effects,
+        // timers) lives on until the parent removes this part. Was a TypeError on `v.templateId` (RN sweep B1).
+        if (v == null || (v as unknown) === false) return { id, dispose() { dispose() } }
+        inst ={ id, collecting: [], mount: { templateId: v.templateId, parent, anchor, index } }
         v.setup(inst)
         ready(inst)
       } catch (e) {

@@ -70,6 +70,7 @@ export function InputScreen() {
             value={name()}
             onChangeText={(t) => name.set(t)}
             placeholder="Your name"
+            autoComplete="name"
             autoCapitalize="words"
             returnKeyType="next"
             onFocus={() => focused.set("name")}
@@ -79,6 +80,9 @@ export function InputScreen() {
             value={phone()}
             onChangeText={(t) => phone.set(t.replace(/\D/g, ""))}
             placeholder="Phone (10 digits)"
+            autoComplete="tel-national"
+            textContentType="telephoneNumber"
+            autoFocus
             keyboardType="phone-pad"
             maxLength={10}
             onFocus={() => focused.set("phone")}
@@ -111,6 +115,7 @@ export function InputScreen() {
           {/* A tall single-line box (an OTP box): its text and placeholder sit in the middle, as in React Native. */}
           <TextField
             placeholder="OTP (tall box, centred)"
+            autoComplete="sms-otp"
             keyboardType="number-pad"
             maxLength={6}
             style={{ ...field, height: 64, fontSize: 22 }}

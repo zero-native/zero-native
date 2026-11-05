@@ -1,6 +1,6 @@
 // A dev screen for RN props pack 2: React Native props, styles and components, with their RN names. Each check logs
 // one "rn-props ..." line; the phone check (tools/plugin-phone/rnprops.ts) reads those lines, so keep their wording.
-import { Box, Column, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Stack, StatusBar, StyleSheet, Svg, Text, TextField } from "@zero-native/ui"
+import { Box, Carousel, Column, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Stack, StatusBar, StyleSheet, Svg, Text, TextField } from "@zero-native/ui"
 import { Alert, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
@@ -349,6 +349,21 @@ export function RnPropsLabScreen() {
               Paid amount ₹499
             </Text>
           </Row>
+        </Column>
+
+        {/* R35: a carousel with a height (here flex: 1 in a 260 dp box) gives each page the full height, so a page's
+            justifyContent works, and the dots sit at the bottom. With no height it stays as tall as its pages. */}
+        <PropsTitle text="Carousel with a height" />
+        <Column testID="carousel-box" style={{ height: 260, backgroundColor: "#EEF2FF", borderRadius: 12 }}>
+          <Carousel testID="carousel-fill" dots style={{ flex: 1, paddingBottom: 12 }}>
+            {["Scan any QR", "Pay with UPI", "Get your receipt"].map((t) => (
+              <Column key={t} justifyContent="center" alignItems="center" style={{ flex: 1, width: "100%" }}>
+                <Text fontSize={18} fontWeight={700} color={c.ink}>
+                  {t}
+                </Text>
+              </Column>
+            ))}
+          </Carousel>
         </Column>
 
         <PropsTitle text="Modal" />

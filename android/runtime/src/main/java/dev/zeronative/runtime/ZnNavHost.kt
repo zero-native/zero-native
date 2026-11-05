@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -38,6 +39,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.scene.Scene
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -202,7 +205,13 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
                             onBack = { ZnNav.systemBack() },
                         )
                     } else {
-                        CompositionLocalProvider(LocalZnEntry provides e.id) {
+                        // Has this screen's enter transition ended? A TextField's autoFocus waits for it, so Android's
+                        // autofill sees the field where it ends up, not off screen mid-slide (R36 on the pilot's login).
+                        val visibility = LocalNavAnimatedContentScope.current.transition
+                        val settled = remember(visibility) {
+                            derivedStateOf { visibility.currentState == EnterExitState.Visible && visibility.targetState == EnterExitState.Visible }
+                        }
+                        CompositionLocalProvider(LocalZnEntry provides e.id, LocalZnScreenSettled provides settled) {
                             ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
                         }
                     }

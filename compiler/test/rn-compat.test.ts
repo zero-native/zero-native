@@ -247,6 +247,17 @@ describe("P1.4, P1.9, P1.11: Image, text, field and accessibility names", () => 
     expect(props(`function A() { return <TextField placeholderTextColor="#999" keyboardType="numeric" allowFontScaling /> }`).props)
       .toEqual({ placeholderColor: "#999", keyboardType: "decimal-pad" })
   })
+  test("TextField autoComplete and textContentType (R36)", () => {
+    // The RN login fields: autofill hints; textContentType is iOS only and is dropped, as RN does on Android.
+    expect(props(`function A() { return <TextField autoComplete="tel-national" textContentType="telephoneNumber" /> }`).props)
+      .toEqual({ autoComplete: "tel-national" })
+    expect(props(`function A() { return <TextField autoComplete="sms-otp" /> }`).props).toEqual({ autoComplete: "sms-otp" })
+    // RN's other names for the same hint.
+    expect(props(`function A() { return <TextField autoComplete="one-time-code" /> }`).props).toEqual({ autoComplete: "sms-otp" })
+    expect(props(`function A() { return <TextField autoComplete="current-password" /> }`).props).toEqual({ autoComplete: "password" })
+    expect(err(`function A() { return <TextField autoComplete="cc-number" /> }`)).toMatch(/autoComplete/)
+    expect(err(`function A() { return <Text autoComplete="email">a</Text> }`)).toMatch(/autoComplete/)
+  })
   test("aria-label, aria-hidden, role, importantForAccessibility", () => {
     expect(props(`function A() { return <Pressable aria-label="Pay" role="button" /> }`).props)
       .toEqual({ accessibilityLabel: "Pay", accessibilityRole: "button" })

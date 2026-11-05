@@ -696,6 +696,17 @@ export declare const TextField: Intrinsic<
       autoCorrect?: boolean
       /** Cursor and selection handle colour. */
       selectionColor?: Color
+      /**
+       * What the field holds, as an Android autofill hint (registry 17): the keyboard or the autofill service can then
+       * offer the phone number ("tel-national"), the code from an SMS ("sms-otp"), an email. RN's names.
+       */
+      autoComplete?:
+        | "off" | "tel" | "tel-national" | "tel-country-code" | "tel-device" | "sms-otp" | "one-time-code" | "email"
+        | "name" | "given-name" | "name-given" | "family-name" | "name-family" | "name-middle" | "name-middle-initial"
+        | "username" | "username-new" | "password" | "current-password" | "new-password" | "password-new"
+        | "postal-code" | "street-address" | "postal-address" | "country" | "birthdate-full" | "gender"
+      /** iOS's autofill hint. Accepted and ignored on Android, as in RN: use autoComplete. */
+      textContentType?: string
       onSubmitEditing?: (text: string) => void
       onFocus?: () => void
       onBlur?: () => void
@@ -703,6 +714,65 @@ export declare const TextField: Intrinsic<
       ref?: { current: TextFieldHandle | null }
     }
 >
+
+/** The same shape as core's OtpInputHandle (packages/core/src/otp-input.ts), as react-native-otp-entry's ref. */
+interface OtpInputHandle {
+  focus(): void
+  blur(): void
+  clear(): void
+  /** Fills the boxes (the SMS auto-read): cut to numberOfDigits, then onTextChange and, when full, onFilled. */
+  setValue(code: string): void
+}
+/** A box's look in `theme` (known at build time). */
+type OtpBoxStyle = { width?: number; height?: number; borderRadius?: number; borderWidth?: number; borderColor?: Color; backgroundColor?: Color }
+/**
+ * OTP boxes, as react-native-otp-entry (registry 18, guide notes §62): one hidden native field holds the code and the
+ * boxes draw it, so typing, paste, the keyboard's autofill (`sms-otp`) and the SMS auto-read (`ref.setValue`) all
+ * fill it. Same props as RN; `theme` must be known at build time. zn's own: `error` (a wrong code) with
+ * `theme.errorPinCodeContainerStyle`.
+ */
+export declare const OtpInput: Intrinsic<{
+  numberOfDigits?: number
+  type?: "numeric" | "alpha" | "alphanumeric"
+  autoFocus?: boolean
+  focusColor?: Color
+  blurOnFilled?: boolean
+  hideStick?: boolean
+  focusStickBlinkingDuration?: number
+  secureTextEntry?: boolean
+  /** One character for every box, or one per box. */
+  placeholder?: string
+  /** Can change at runtime. */
+  disabled?: boolean
+  /** zn's own, can change at runtime: the boxes take theme.errorPinCodeContainerStyle. */
+  error?: boolean
+  onTextChange?: (text: string) => void
+  onFilled?: (code: string) => void
+  onFocus?: () => void
+  onBlur?: () => void
+  textInputProps?: {
+    accessibilityLabel?: string
+    keyboardType?: "default" | "number-pad" | "decimal-pad" | "phone-pad" | "numeric"
+    autoComplete?: "sms-otp" | "one-time-code" | "off"
+    textContentType?: string
+    testID?: string
+  }
+  theme?: {
+    containerStyle?: StyleProps
+    inputsContainerStyle?: StyleProps
+    pinCodeContainerStyle?: OtpBoxStyle
+    focusedPinCodeContainerStyle?: OtpBoxStyle
+    filledPinCodeContainerStyle?: OtpBoxStyle
+    disabledPinCodeContainerStyle?: OtpBoxStyle
+    errorPinCodeContainerStyle?: OtpBoxStyle
+    pinCodeTextStyle?: { fontSize?: number; fontWeight?: number | "normal" | "bold" | "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900"; color?: Color; fontFamily?: string }
+    focusStickStyle?: { width?: number; height?: number; backgroundColor?: Color }
+    placeholderTextStyle?: { color?: Color }
+  }
+  testID?: string
+  accessibilityLabel?: string
+  ref?: { current: OtpInputHandle | null }
+}>
 
 /**
  * A virtualized list for long or growing data (docs/lists.md). `row` is compiled once per row kind: return one JSX

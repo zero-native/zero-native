@@ -248,6 +248,10 @@ useBack(() => {
   when the carousel is off screen, another screen is on top, or the app is in the background.
   **Don't** build a carousel with `setInterval` + `scrollTo` (the RN way): that's a JS timer and a re-render per
   page, even off screen. `onPageChange` is optional; bind it only if you need the index.
+- **Know:** a carousel with no height is as tall as its tallest page, with the dots 10 dp under it (banners). Give it a
+  height (`height`, or `flex: 1` in a Column) for full-screen slides, as on a welcome screen: since registry 17 each
+  page then gets the full height, so the page's `flex: 1` and `justifyContent: "center"` work, and the dots sit at the
+  bottom (RN's flex-1 FlatList with the dots under it). Older apps draw it the old way, so such a bundle asks for 17.
 - **Impressions (analytics "seen" events):**
   ```tsx
   useImpressions((keys) => analytics.track("IMPRESSION", keys))            // once, in the screen body
@@ -433,6 +437,14 @@ function Card(props: { header: Children; children?: Children }) {
   format, set the formatted text; to reject a key, don't set anything: the field goes back to `value`.
 - **Do:** pick the keyboard: `number-pad` (digits only), `decimal-pad`, `phone-pad`, `email-address`, `url`; and
   `returnKeyType` for the action key (`next`, `done`, `search`, ...). `onSubmitEditing` fires on that key.
+- **Do:** say what a field holds with `autoComplete` (registry 17, RN's names): `tel-national` on a phone field,
+  `sms-otp` on an OTP field, `email`, `name`, `password`. **Why:** it is the Android autofill hint, so the keyboard or
+  the phone's autofill service can offer the saved number or the code from the SMS. `textContentType` (iOS) is
+  accepted and ignored, as in RN. **Know:** what is offered is up to the phone (its keyboard and autofill service), not
+  the app; the field always works by typing. For OTP login, SMS Retriever (`@zero-native/auth`) fills the code with no
+  tap at all; `sms-otp` is the fallback for SMSes without the app's hash. Credit card hints are not offered.
+  **Know:** a field with a hint and `autoFocus` focuses after the screen has slid in (about 300 ms later), so autofill
+  sees it in its place (second-opinions 145).
 - **Do:** put forms in a `<Scroll>` with the main button outside it, at the bottom. The default route option
   `keyboard: "resize"` keeps that button above the keyboard, and the focused field scrolls into view.
 - **Do:** call `Keyboard.dismiss()` before you navigate away or open a sheet after a form.
@@ -1279,6 +1291,7 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 - Nothing rejects. Every failure is an answer with a `reason`, and every reason means "type it by hand".
 - **Do** start `listenForOtp` just before you ask the server to send the SMS. **Do** call `stopListening` before a new send, or use a new `key`: the same key joins the last answer.
 - **The app hash differs for each signing key:** debug, release and Play signing each have their own. **Do** read it with `Auth.appHash()` from the real build.
+  **Tested 2026-11-06:** a real SMS with the right hash filled an `OtpInput` (ref `setValue`) in a real login, no typing.
 - **Don't** log the phone number or the OTP. The default pattern takes the first number of 4 or 6 digits: **do** pass your own if your SMS has another number first.
 
 **WebView.**
@@ -2239,3 +2252,92 @@ DocumentScanner.onResult((r, ack) => { if (r.tag === orderId) use(r); ack() })  
   **Why:** a check of one file costs almost nothing at every start, while starting ML Kit at every start would slow every app.
   **Do** test the kill path with `am kill` while the other screen is open; "Don't keep activities" alone keeps the process, so
   it misses this.
+
+## 61. React habits that read a value once
+
+A component's body runs **once**, when it mounts (as in SolidJS). React runs it again on every render, so React code works
+out values in the body all the time. In zn such a value is read once and never changes on screen. Since 2026-11-05 the
+app build fails where this would go wrong, with the fix in the message. Code: `checkOnceTraps` in
+[compile.ts](../compiler/src/compile.ts) and [plugin.ts](../compiler/src/plugin.ts). Tests:
+[once-traps.test.ts](../compiler/test/once-traps.test.ts). Why so narrow: second-opinions 144.
+
+```tsx
+// React habit: stuck on the first value             // zn: read it where it's shown
+function Sheet({ amount }) {                         function Sheet(p) {
+  const missing = amount <= 0                          const missing = computed(() => p.amount <= 0)
+  if (loading()) return <Spinner />                    return loading() ? <Spinner />
+  return <Text>{missing ? "Add money" : "OK"}</Text>     : <Text>{missing() ? "Add money" : "OK"}</Text>
+}                                                    }
+```
+
+- **Don't** work out a shown value in the body: `const missing = p.amount <= 0`, `const shown = total() * 2`.
+  **Do** read it in the JSX (`{p.amount <= 0 ? ... : ...}`), or make it a `computed(() => ...)` and call it there.
+  **Why:** the JSX reads are live; the body ran once. The build says "missing is worked out once, when Sheet mounts".
+- **Don't** return early on a value that can change: `if (loading()) return <Spinner />`. **Do** one return with a
+  ternary: `return loading() ? <Spinner /> : <Content />`. **Why:** the body picked a branch once; a root ternary is live
+  (the old part goes, the new one mounts). A screen has the stricter rule of §4: one template, so only the piece that
+  changes goes in a branch.
+- **Don't** destructure props in a child: `function Row({ title })`. **Do** `function Row(p)` and read `p.title` in the
+  JSX. **Why:** destructuring reads each prop once.
+- **Do** `return null` (or `undefined`, `false`) from a child to draw nothing, as in React. **Know:** what its body
+  started (an effect, a timer) runs on until the parent removes the part. Before 2026-11-05 this was an error and an
+  empty part.
+- **Don't** write `async function Comp()`. It is a build error: a component can't wait. **Do** load in an effect, keep
+  the result in a signal, and show `{data() ? <List /> : <Spinner />}`.
+
+**Where the build checks, and where it doesn't.**
+- **Know:** a read of a signal always counts. The build sees a signal read as a call with no arguments on an object
+  (`store.amount()`, but not a built-in like `name.trim()` or `Date.now()`), or a call of a name made with `signal` /
+  `computed` in the same file.
+- **Know:** a read of props alone counts only where those props can change while the component stays mounted: it is used
+  with a prop that reads a signal (`<Sheet amount={total()} />`), or it gets them from a parent whose props can.
+  So these are fine, and build:
+  - a **screen**: its props are its route's params, which don't change while it is open;
+  - a **row** (`.map`, a List's `renderItem`): a row mounts again when its item changes, so its body is fresh;
+  - a child used with fixed values (`<Badge on={true} />`).
+- **Know:** a read inside a nested function isn't checked: a handler, a `computed`, an effect runs later and reads fresh.
+  So `const amount = p.amount` used only in `onPress` is fine; shown in the JSX, it is not.
+- **Know, the limit:** a bare call of an imported function (`loading()` imported from a store file) isn't seen as a signal
+  read, because the build can't tell it from a factory like `const c = makeController()`. Neither is a prop that changes
+  through a plain `let` in the parent. Those still read once without an error, so the rules above still apply by hand.
+
+## 62. OTP boxes: `<OtpInput>` (registry 18)
+
+react-native-otp-entry, built in: the same props, ref and `theme`. One hidden native field holds the code and the boxes
+draw it, so typing, paste, the keyboard's "Auto-fill code from messages" and the SMS auto-read all fill the same boxes.
+Code: [ZnOtpInput.kt](../android/runtime/src/main/java/dev/zeronative/runtime/ZnOtpInput.kt),
+[otp-input.ts](../packages/core/src/otp-input.ts), `otpInputElement` in [compile.ts](../compiler/src/compile.ts).
+Lab: Dev → OTP input (`zn://sample/dev/otp`). Why native: second-opinions 146.
+
+```tsx
+const otp = createRef<OtpInputHandle>()          // RN: useRef<OtpInputRef>(null)
+<OtpInput ref={otp} numberOfDigits={4} focusColor="#006E67" blurOnFilled disabled={verifying()} error={wrong()}
+  onTextChange={(t) => code.set(t)} onFilled={verify}
+  textInputProps={{ accessibilityLabel: "One-Time Password" }}
+  theme={{ containerStyle: { width: 264, gap: 8, justifyContent: "center" },
+           pinCodeContainerStyle: { width: 60, height: 64, borderRadius: 12, borderWidth: 1.5, borderColor: "#E5E7EB" },
+           focusedPinCodeContainerStyle: { borderWidth: 2 },
+           pinCodeTextStyle: { fontSize: 24, fontWeight: "700", color: "#1F2937" } }} />
+const r = await Auth.listenForOtp(); if (r.code) otp.current?.setValue(r.code)   // fills, then onFilled
+```
+
+- **Do** port RN's `<OtpInput>` as it is: `numberOfDigits`, `type`, `focusColor`, `autoFocus`, `blurOnFilled`,
+  `disabled`, `secureTextEntry`, `placeholder`, `hideStick`, `focusStickBlinkingDuration`, `onTextChange`, `onFilled`,
+  `onFocus`, `onBlur`, `textInputProps` (accessibilityLabel, keyboardType, autoComplete, textContentType, testID), and
+  every `theme` style. The defaults are RN's: 6 boxes, numeric, autoFocus on, `sms-otp`.
+- **Do** write `theme` and `focusColor` in place, with literals or consts. **Why:** the boxes are drawn from the template
+  before JS runs, so their look is fixed at build time (as all layout in zn). A value only known at runtime is a build
+  error. What can change at runtime: `disabled`, `error`, `placeholder`, `accessibilityLabel`.
+- **Do** use `error={wrong()}` with `theme.errorPinCodeContainerStyle` for a wrong code (zn's own, not in RN). Clear and
+  focus again with `otp.current?.clear(); otp.current?.focus()`.
+- **Do** fill from the SMS with `setValue(code)`: it cuts to `numberOfDigits`, keeps only allowed characters, fires
+  `onTextChange` and then `onFilled`, and does nothing while `disabled` (as RN).
+- **Know:** a paste or fill keeps the allowed characters and drops the rest: "Code: 4821." fills 4821. RN drops the whole
+  paste if one character doesn't fit. Digits from other scripts (१२३४) become 0-9.
+- **Know:** `clear()` fires `onTextChange("")` (RN's doesn't); harmless when you set your state to "" anyway.
+- **Know:** the boxes stay left to right in a right-to-left language. TalkBack reads one field: the label, the code typed
+  so far, and "2 of 4 digits".
+- **Know:** a box takes `width`, `height`, `borderRadius`, `borderWidth`, `borderColor`, `backgroundColor`; the digits
+  `fontSize`, `fontWeight`, `color`, `fontFamily`; the caret `width`, `height`, `backgroundColor`. Others are a build
+  error. `style` on `<OtpInput>` is too: use `theme.containerStyle`, as RN. `textProps` isn't supported.
+- **Know:** with autoFocus the keyboard opens after the screen has slid in (§19), so the "Auto-fill code" offer works.

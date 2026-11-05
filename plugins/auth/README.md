@@ -96,6 +96,11 @@ timeout. So:
 - Send `Auth.appHash()` to your server with the OTP request, or map it by package name on the server, as you prefer.
 - A new package name, or a new key, means a new hash.
 
+**Tested on a real phone (2026-11-06):** a real carrier SMS with the hash from `Auth.appHash()` reached
+`listenForOtp`, and the code went straight into `OtpInput` with its ref's `setValue`. The login finished with no typing.
+That build was a release build signed with a debug key. The Play build's hash (Google's key) is still yours to read and
+add before real users.
+
 ## Limits
 - Android only. On any other platform, or with no Play services (Huawei, some emulators), each call answers with a reason.
 - The hint needs a SIM with a number the phone knows. A phone with none gives no sheet.

@@ -2082,3 +2082,111 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** a real ZeroBill receipt link behind a login, end to end, on the Lava. A `content://` link from
   another app's share sheet (only the app's own provider and a missing MediaStore id were checked).
 
+## 144. React habits that read a value once: build errors where the value can really change, `return null` draws nothing (compiler + runtime, 2026-11-05; Pavan's go)
+- **Where:** `compile.ts` `checkOnceTraps`, `propUses`, `NOT_SIGNAL_METHODS`; `plugin.ts` `checkOnceTraps`; `view.ts`
+  `mountChild`. Tests: `compiler/test/once-traps.test.ts`, `screen-roots.test.ts`. Guide §61.
+- **The problem:** a zn component's body runs once (as in SolidJS). React runs it on every render, so RN code is full of
+  values worked out in the body. Probed on 3da5efc: all of these compiled and then went wrong without a word.
+  - B1: a child that returns `null` threw a TypeError; the part stayed empty (and red in debug).
+  - B2: an `async` component compiled, then failed at runtime ("v.setup is not a function").
+  - T1: `const missing = p.amount <= 0` shown in the JSX stayed "missing" after the amount changed (the ZeroBill payment
+    sheet's "missing ₹9" next to "₹9 APPLIED").
+  - T2: `if (loading()) return <Spinner />` in a child kept the spinner for good.
+  - T3: `function Row({ title })` never updated its title.
+- **Chosen:**
+  - B1: `null`, `undefined` or `false` from a child draws nothing, as in React. What its body started lives on until the
+    parent removes the part.
+  - B2: a build error.
+  - T1–T3: build errors with the fix, but only where the value can really change:
+    - A trap that reads a signal always counts. "A signal read" is a call with no arguments: `store.amount()` (not a
+      built-in method such as `trim()` or `Date.now()`), or `loading()` where `loading` is made with `signal` / `computed`
+      in the same file.
+    - A trap that reads only props counts only when that component's props can change while it stays mounted: it is
+      used outside a row with a prop that reads a signal, or it passes on the props of a parent whose props can (followed
+      up the tree, in the app build).
+    - Not in a screen: its props are its route's params, which don't change while it is open.
+    - Not in a row (`.map`, a List's `renderItem`): a row mounts again when its item changes, so its body is fresh
+      (checked 2026-11-05 on the fake host, both kinds).
+    - A read inside a nested function is not checked: a handler or `computed(() => ...)` runs later.
+- **Why so narrow:** the first, wide version (every props read, every no-argument call) flagged our own Lottie and
+  WebView plugins (`const controller = lottieController()`), a signal made in a body, and 19 places in the ZeroBill
+  prototype, nearly all of them rows (fresh on every change). Errors that are wrong get ignored. The narrow version finds
+  0 in the sample and our plugins, and 1 in the prototype: `ChangeFieldScreen` reads `profile.user()` once, which is real.
+- **Risk if wrong:** misses. A bare imported function call (`loading()` imported from a store) isn't seen as a signal
+  read, because zn can't tell it from a factory. A prop that changes through something other than a signal (a parent's
+  plain `let`) isn't followed. A value from props kept on purpose and shown in the JSX of a child whose props change is an
+  error; the fix (`computed`, or read it in the JSX) is always correct, so no way to turn it off was added.
+- **Other options:** rewrite these habits so they just work (destructured props into `p.title`, body values into
+  `computed`, early returns into a ternary). Bigger compiler work; it would also hide what a zn component is. Later, if
+  ports keep hitting it. Warnings instead of errors: easy to miss in a build log.
+- **Evidence wanted:** the ZeroBill prototype building clean after its one fix; a second ported app.
+
+## 145. Registry 17: a Carousel with a height shares it out; TextField autoComplete as Android autofill hints (runtime + compiler, 2026-11-05; prototype asks R35, R36, Pavan's go)
+- **Where:** `ZnRenderer.kt` `ZnCarousel`; `ZnAutofill.kt` `autofillHint`, `ZnTextField.kt`; `registry.ts`
+  (`autoComplete` 284, `CAROUSEL_FILL_SINCE`), `writer.ts`, `compile.ts` `AUTOCOMPLETE_ALIASES`. Guide §11, §19.
+- **R35, chosen:** only a Carousel with `height` or `flex` changes: in a `BoxWithConstraints`, the pager takes the
+  height left after the dots (`weight(1f)`) and each page `fillMaxHeight()`. A Carousel with neither runs the exact
+  old code (`Column(mod)`, pager with no height), so banners can't move. **Checked on the Lava:** the sample's offers
+  banner has the same text positions to the pixel before and after; the lab's full-height carousel centres its page
+  and puts the dots at the bottom. Pavan's hard condition (no change to carousels with no height) is met by that
+  split, not by tuning. The prototype's banner (`BannerCarousel`, no height) takes the same old path; not seen on the
+  Lava (needs a login).
+- **Why a version mark:** it is a visible change to an existing component, so a bundle that uses it asks for 17 (as
+  `ZINDEX_ANY_SINCE`). Only bundles with a Carousel that has a height or flex; others keep their version.
+- **Know:** a page is as wide as its content (a horizontal pager's slot is full width, the page isn't stretched), as
+  RN's horizontal FlatList item. `alignItems: "center"` on a page centres only if the page is full width (`width:
+  "100%"`, or a full-width child). Left as is, because stretching pages would change carousels with no height too.
+- **Risk if wrong:** a Carousel with `flex` inside a Row (flex there means width): it gets the new path; with a
+  bounded height from the Row it fills it, otherwise it falls back to the old layout. Not seen in any app yet.
+- **R36, chosen:** `autoComplete` with RN's names, mapped to Compose's `ContentType` (`semantics { contentType }`), on
+  the `TextFieldState` field (which Compose autofill supports). RN's other names fold into one value in the compiler
+  (`one-time-code` → `sms-otp`, `current-password` → `password`, ...). `textContentType` is dropped, as RN does on
+  Android. An unknown name is a build error that lists the valid ones. "off" adds no hint (RN sets
+  `importantForAutofill="no"`; Compose has no simple twin, so Android may still guess).
+- **autoFocus waits for the screen's slide (found on the pilot's login):** Android's autofill reads a field's place once,
+  when it gets focus. `autoFocus` focused it in the first frame of the push, when it was still 720 px to the right, so
+  nothing was offered, and a later tap on the focused field didn't ask again (Compose keeps `requestAutofill`
+  internal). Now a field with an `autoComplete` hint focuses once the screen's enter transition has ended
+  (`LocalZnScreenSettled`, from navigation3's `LocalNavAnimatedContentScope`); without a hint it focuses at once, as
+  before. Cost: the keyboard opens about 300 ms later on such a screen (after the slide, which most apps do anyway).
+  Checked on the Lava: Dev → Text input (a push), the phone field's session had on-screen bounds and Gboard offered the
+  number. **Still open:** a user who closes the keyboard and taps the still-focused field gets no new autofill offer.
+- **No credit card hints** (`cc-number`, `cc-csc`, ...): a payments app framework shouldn't invite card autofill
+  until an app asks for it with a reason. Easy to add later.
+- **Checked on the Lava:** the sample's phone field with `tel-national`: Gboard's strip offers the phone's own number
+  (not tapped). The prototype's login field (`phone-pad`, no hint, pre-17): nothing offered. Not checked: `sms-otp`
+  with a real SMS, other keyboards and phone brands, TalkBack.
+- **Other options:** a free-text `autofillHints` prop (Android's own strings): more power, but not RN's names, and
+  typos would pass silently.
+- **Evidence wanted:** the pilot's OTP field with a real SMS (with and without the app's hash); a Samsung phone.
+- **Checked 2026-11-06:** a real SMS with the app's hash, in Pavan's real login on the Lava: the SMS Retriever read it and
+  the code reached the field with no typing. Still wanted: Gboard's own `sms-otp` offer from an SMS without the hash, a
+  Samsung phone.
+
+
+## 146. OtpInput is a core native component, with react-native-otp-entry's API (registry 18, 2026-11-06; Pavan's go: "Option A, in the core")
+- **Where:** `ZnOtpInput.kt` (boxes, hidden field, caret, filter, theme), `otp-input.ts` (ref), `compile.ts`
+  `otpInputElement`, `registry.ts` (OtpInput 34, otpTheme 285, otpType 286, blurOnFilled 287, invalid 288,
+  onFilled 24). Guide §62. Read first: react-native-otp-entry 1.8.6 (341 lines), the RN customer app's Verify screen.
+- **Chosen:** native, in core. A zn JS component can't take box sizes from props (layout is fixed at build time,
+  guide §47), so RN's `theme` would not port. As a core element the compiler reads `theme` where it is written and
+  turns it into the template, so the boxes are drawn before JS, and focus, caret, paste and autofill need no JS per key.
+- **Same as RN:** one hidden field over the boxes (react-native-otp-entry's own design), the props and defaults, the ref
+  (`focus`, `blur`, `clear`, `setValue`), the box styles in RN's order (base, focusColor + focused, filled, disabled).
+- **Different, on purpose:** a paste keeps the allowed characters (RN drops the whole paste); Indic digits become 0-9;
+  boxes stay left to right in RTL; TalkBack gets one field (RN: one button per box); `clear()` fires onTextChange("");
+  zn's `error` state. `setValue` travels in a value slot ("n\u0001code"), so the Keyboard module needed no new method.
+- **Found while building:** the hidden field first used `alpha(0)`, as RN uses opacity 0. Compose leaves see-through
+  nodes out of TalkBack, so the field wasn't in the accessibility tree at all. Now the text is drawn in no colour.
+- **Checked on the Lava (debug):** RN's theme looks like RN's; Gboard offers "Auto-fill code from messages" (not
+  tapped); typing, backspace, setValue (change, filled, blur, keyboard closed), a messy fill "12 34 56" → 1234, clear +
+  focus, wrong OTP (red), disabled (typing ignored, no caret), 5-character secure alphanumeric ("a1-B2c3" → 5 dots).
+  The accessibility tree has one focusable field with the code and the label.
+- **Not checked:** TalkBack speaking it (the label shows as a child node of the field in the tree; whether TalkBack reads
+  it as one item needs a person), a real SMS through `@zero-native/auth`, a long-press paste, other keyboards, release.
+- **Checked 2026-11-06:** a real SMS through `@zero-native/auth` filled the boxes with `setValue`, then `onFilled`
+  verified, in Pavan's real login on a release build (pilot app). TalkBack, long-press paste and other keyboards still open.
+- **Risk if wrong:** keyboard quirks (Samsung keyboard, SwiftKey) around the hidden field. Fallback for an app: a plain
+  `TextField` still works.
+- **Other options:** a plugin on `<NativeView>` (theme as runtime JSON: boxes drawn only after JS); a JS component in the
+  app (sizes fixed inside it).

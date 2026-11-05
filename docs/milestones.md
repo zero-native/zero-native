@@ -125,6 +125,51 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-06: SMS hash and OTP auto-read work in a real login (Pavan, on the Lava)
+- **What:** the first real end-to-end login on the pilot app (`my-app-prototype`, R37 in 5230779), with the dev
+  backend (`v1-nodejs-backend-api` dev 930002e) sending a real carrier SMS with the app hash. Phone hint sheet → number
+  picked → OTP sent → `@zero-native/auth` SMS Retriever read it → `OtpInput` `setValue` filled the boxes → `onFilled`
+  verified → logged in. No typing.
+- **The hash:** `Auth.appHash()` on the release APK (signed with the debug key) matched the backend's entry for that key.
+  This closes the "SMS steps not tested" line in the P.3b–P.6 entry and the "a real SMS" lines in registry 17 and 18.
+- **Time:** about 8.5 s from the hash log line to "login done", mostly the SMS on its way.
+- **Still not checked:** a wrong code on the real screen, TalkBack on Verify, a long-press paste, the hash of the Play
+  build (Play App Signing has its own key: read it from the internal test track before real users), other phones.
+
+### 2026-11-06: registry 18: OtpInput, react-native-otp-entry built in (Claude)
+- **What:** `<OtpInput>` in core with RN's props, ref (`focus`, `blur`, `clear`, `setValue`) and `theme`; zn adds
+  `error`. Native boxes over one hidden field: caret, paste, `sms-otp` autofill, TalkBack as one field, LTR in RTL.
+  Registry 18 (component 34, props 285-288, event onFilled 24), guide §62, second-opinions 146, rn-compatibility row,
+  lab Dev → OTP input. Kotlin changed: needs a new APK. The paused G3/G4 would take registry 19.
+- **Tests:** new compiler tests (`otp-input.test.ts`), the ref in `rn-basics.test.ts`, Kotlin `ZnOtpInputTest`
+  (filter, theme, order), all JS tests, type checks, runtime lint, debug sample. Lava (debug): see second-opinions 146.
+  Not checked: TalkBack speaking, a real SMS, long-press paste, other keyboards, a release build.
+  **Update:** a real SMS filled it in a real login the same day (entry above).
+
+### 2026-11-05: registry 17: Carousel with a height, TextField autoComplete (Claude)
+- **What:** from the ZeroBill port (asks R35, R36). (1) A Carousel with `height` or `flex` gives each page the full
+  height and puts the dots at the bottom (a welcome screen's slides); one with no height draws exactly as before.
+  (2) `autoComplete` on TextField with RN's names, as Android autofill hints (`tel-national`, `sms-otp`, `email`,
+  `name`, `password`, ...); `textContentType` accepted and ignored. Registry 17 (`CAROUSEL_FILL_SINCE`, prop 284),
+  second-opinions 145, guide §11 and §19, rn-compatibility rows, labs (RN props: "Carousel with a height"; Inputs:
+  name, phone, OTP hints). Kotlin changed: needs a new APK. The paused G3/G4 would take registry 18.
+- **Tests:** 1115 JS tests and the type checks, runtime unit tests (new `ZnAutofillTest`), runtime lint, debug sample
+  build. A field with a hint and `autoFocus` focuses after the screen's slide (the pilot's login got no offer before).
+  Lava (debug): offers banner positions the same to the pixel before and after; the full-height lab carousel
+  centred, dots at the bottom, swipe ok; the phone field's Gboard strip offers the number (with the hint; nothing
+  without it, on the prototype's login). Not checked: `sms-otp` with a real SMS, a release build, TalkBack.
+  **Update 2026-11-06:** the pilot's login read a real SMS through the SMS Retriever (entry "SMS hash and OTP auto-read").
+
+### 2026-11-05: React habits that read a value once are build errors; `return null` in a child draws nothing (Claude)
+- **What:** from the RN dos / don'ts sweep (B1, B2, T1–T3), all checked again first. (1) A child returning `null` /
+  `undefined` / `false` draws nothing (was a TypeError and an empty part; `view.ts` `mountChild`). (2) An `async`
+  component is a build error. (3) A body value that is shown, an early return, and destructured props are build
+  errors where the value can change: a signal read, or a child's props that can change while it stays mounted. Not in
+  screens or rows. Guide §61, second-opinions 144, rn-compatibility §9 rows. JS only: no APK, registry or host API change.
+- **Tests:** 1114 JS tests and the type checks (new: `once-traps.test.ts`; the "child may return early" test in
+  `screen-roots.test.ts` now expects the error). The sample builds with no trap. Lava (debug): five sample screens,
+  only the expected lab logs. **Breaks a build:** the ZeroBill prototype has one real trap, which its session fixes.
+
 ### 2026-11-05: Document scanner plugin (Claude)
 - **What:** official, opt-in `@zero-native/document-scanner` (`plugins/document-scanner/`), native module `DocumentScanner` v1,
   on Google ML Kit's document scanner (`play-services-mlkit-document-scanner:16.0.0`). react-native-document-scanner-plugin's
@@ -772,6 +817,8 @@ Parked ideas: `docs/after-foundations.md`.
   scanner is about 2.5 MB (`docs/startup-and-performance.md` §4).
 - **Not tested:** the SMS steps (no second phone; Lava to itself did nothing; the emulator can't run the arm64-only sample). Real
   carrier SMS, other phones, real UPI apps wait for the pilot.
+  **Update 2026-11-06:** real carrier SMS with the app hash now tested and working in the pilot's login (entry "SMS hash
+  and OTP auto-read"). Other phones and real UPI apps still wait.
 - **Independent review:** 6 issues found, all fixed the same day (`docs/reviews/2026-11-03-p3b-p6-independent-review.md`): the launch
   marker on the UPI return path, a task's hang judging a bundle, a Back press after a scan closing two screens, FLAG_SECURE during
   animations, and two in media. After the fixes: JS 317, Kotlin tests, lint (0 errors), OTA matrix 38 of 38; the no-hands suite 47 of

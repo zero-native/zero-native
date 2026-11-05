@@ -83,7 +83,8 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `TextInput onSubmitEditing` | `onSubmitEditing(text)` | different | It gets the text, not an event. Key label: `returnKeyType` (`done`, `go`, `next`, `search`, `send`). |
 | `TextInput` `secureTextEntry`, `autoCapitalize` | same names | same | `autoCapitalize`: `none`, `sentences`, `words`, `characters`. |
 | `TextInput` `ref.focus()` / `blur()` / `clear()` / `isFocused()` | [`ref`](../packages/core/src/text-field.ts:37) + [`createRef`](../packages/core/src/text-field.ts:21) | different | `useRef<TextInput>(null)` → `createRef<TextFieldHandle>()`; then `ref={r}` and `r.current?.focus()` as in RN. Only on `TextField`. OTP boxes: one hidden field plus drawn boxes ([guide-notes.md](guide-notes.md) §39). |
-| `TextInput` `onChange`, `onKeyPress`, `onSelectionChange`, `selection`, `defaultValue`, `inputMode`, `autoComplete`, `textContentType`, `numberOfLines` | none | missing | Use `value` as the initial value. Close the keyboard with `Keyboard.dismiss()`. No key events yet. |
+| `TextInput` `autoComplete`, `textContentType` | `autoComplete`; `textContentType` ignored | same | Registry 17 (2026-11-05, R36): RN's names (`tel`, `tel-national`, `sms-otp`, `one-time-code`, `email`, `name`, `password`, ...) as Android autofill hints. `textContentType` is iOS only: accepted and dropped, as RN does on Android. No credit card hints. |
+| `TextInput` `onChange`, `onKeyPress`, `onSelectionChange`, `selection`, `defaultValue`, `inputMode`, `numberOfLines` | none | missing | Use `value` as the initial value. Close the keyboard with `Keyboard.dismiss()`. No key events yet. |
 | `ActivityIndicator` | [`ActivityIndicator`](../packages/ui/src/index.ts) or `Spinner` | same | Since 2026-11-05: `size` `"small"` (20 dp), `"large"` (36 dp) or a number; `color` same; `animating={false}` hides it and keeps its space, as on Android. `hidesWhenStopped={false}`: build error. |
 | `Switch` | [`Switch`](../packages/ui/src/index.ts) | different | `value`, `onValueChange`, `disabled`, `thumbColor` same. `trackColor={{ false, true }}` works (since 2026-11-05; = `trackColor` + `activeTrackColor`); `ios_backgroundColor` is dropped. It is strictly controlled: set the signal or the thumb does not move. |
 | `Checkbox` (community) | [`Checkbox`](../packages/ui/src/index.ts) | different | `value`, `onValueChange`, `color`, `activeColor`. |
@@ -276,6 +277,7 @@ React Navigation. [`nav` in nav.ts](../packages/core/src/nav.ts), [routes.ts](..
 | `requireNativeComponent` / Fabric native view | `<NativeView name="plugin.view">` + `r.view(...)` in Kotlin | different | A Compose composable. Props are one JSON value; events come as `{ name, data }`. The name must be a literal, and its plugin's `nativeModule` must be in the bundle. |
 | Native screen (a native Activity opened for a result) | route `native: "plugin.screen"` + `r.screen(...)` | different | Joins the normal back stack. `nav.pushForResult` gives the answer, `onNavResult` after a kill. |
 | Codegen (TS spec → Kotlin / Swift) | none | missing | You write the Kotlin by hand. Planned only when needed (D2). |
+| `react-native-otp-entry` (`OtpInput`) | [`OtpInput`](../packages/ui/src/index.ts) | same | Built in (registry 18, 2026-11-06, guide notes §62): the same props, ref (`setValue`) and `theme` (written in place, known at build time). A paste keeps the allowed characters; zn adds `error`. `textProps` isn't supported. |
 | JS-only npm libraries | allowed if they use no React and no RN modules | different | A plugin that is plain TS can import `@zero-native/core` / `ui`. Anything using React hooks, `View` or `Platform` must be rewritten. |
 
 ## 9. React and JS-side patterns
@@ -294,6 +296,11 @@ React Navigation. [`nav` in nav.ts](../packages/core/src/nav.ts), [routes.ts](..
 | `useWindowDimensions` | [`useWindowDimensions`](../packages/core/src/dimensions.ts:70) | different | See §1. Read it inside JSX or `effect`. |
 | `useColorScheme` | [`useColorScheme`](../packages/core/src/rn.ts) | different | See §6. |
 | Conditional render `cond && <X/>`, `cond ? <A/> : <B/>` | same | same | [compile.ts, conditional rendering](../compiler/src/compile.ts). A branch must be JSX or `null`; nested ternaries work. `return c ? <A/> : <B/>` works (guide notes §47). |
+| A value worked out in the body and shown: `const missing = p.amount <= 0` | `computed`, or read it in the JSX | different | A body runs once. Where the value can change, the app build fails with the fix (2026-11-05, guide notes §61): a signal read, or a child's props that can change while it stays mounted. Fine in a screen (route params) and in a `.map` / List row (a row mounts again). |
+| Early return in a child: `if (loading()) return <Spinner />` | one return with a ternary | different | Same rule: a build error where the condition can change. `return loading() ? <Spinner /> : <Content />` updates. |
+| Destructured props `function Row({ title })` | `Row(p)`, read `p.title` | different | Same rule: a build error in a child whose props can change. Fine in a screen and in a row. |
+| `return null` from a child | same | same | Draws nothing, as in React (2026-11-05; was an error that left the part empty). |
+| `async function Comp()` | none | missing | A build error: load in an effect, keep it in a signal, show `{data() ? ... : <Spinner />}`. |
 | JSX in a variable: `const header = <X/>`, `const badge = c ? <A/> : null` | same | same | Built (compiler pack, 2026-11-04, guide notes §47). Use it in JSX only (child, prop, `return`); each use is its own copy. `let` reassigned and `items.push(<X/>)` are build errors with a hint: one ternary, or `.map`. |
 | Early return in a screen: `if (loading) return <Spinner />`, `if (!user) return null` | one return | different | A route's screen needs one JSX return (or one `return c ? <A/> : <B/>`); otherwise the app build fails (2026-11-05, guide notes §4, second-opinions 108). Keep the main content in the one return and branch only the piece that changes. Don't move the whole screen into a child component to get past it: a child that throws is left empty, so a release build shows a blank screen. |
 | Component props, `children` | same | different | `{props.children}` shows them; reading, mapping or counting children is not supported. Spread props `{...p}` are a build error. |
@@ -323,7 +330,7 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
    kinds). Apps that animate on scroll or have grids need a new design. Pull to refresh (`RefreshControl`) is built
    (registry 12, 2026-11-03), and sticky rows (`stickyHeaderIndices`, registry 15). ([§1](#1-components))
 5. **`TextInput` control** (missing, partly built). `ref.focus()` / `blur()` / `clear()` are built (RN basics pack), so
-   OTP boxes and "jump to next field" port with small edits. Still no `onKeyPress`, no selection API, no `autoComplete`.
+   OTP boxes and "jump to next field" port with small edits. `autoComplete` is built (registry 17). Still no `onKeyPress`, no selection API.
    ([§1](#1-components))
 6. **Third-party native libraries** (missing). Every RN native library (camera, maps, WebView, push, file system,
    biometrics, image picker) has no zero-native twin yet, except the official plugins: scanner, auth, WebView, media, PDF,
@@ -377,4 +384,4 @@ Rough counts of member uses in ZeroBill's React Native app (2026-11-03), to orde
 | `BackHandler.addEventListener` | 3 | renamed: `useBack` |
 | `Linking.getInitialURL` / `addEventListener` | 1 / 1 | different: the app's link router becomes routes with `deepLink` + `onLink` |
 | `<StatusBar barStyle>` | 2 | same (registry 15); the "only while focused" trick isn't needed |
-| `react-native-otp-entry` (login) | 1 screen | different: one hidden `TextField` with `ref`, drawn boxes (guide-notes §39) |
+| `react-native-otp-entry` (login) | 1 screen | same: `<OtpInput>` (registry 18, guide-notes §62) |
