@@ -2132,9 +2132,14 @@ Built on the runtime text spans of registry 16 (§18). Lab: `zn://sample/dev/mar
 - **Do** give colours and sizes with `style` (body text) and `styles` (`h1`…`h6`, `strong`, `em`, `link`, `code`,
   `quote`, `marker`, ...). Span keys only: `color`, `fontSize`, `fontWeight`, `fontStyle`, `textDecorationLine`,
   `letterSpacing`, `backgroundColor`. They can change at runtime. Bold keeps the body colour; headings and links
-  have their own (change them in `styles`).
-- **Don't** expect to change the layout (block spacing, indents, line height, the quote and code boxes) from props.
-  **Why:** zn fixes layout at build time (§3). For other spacing, put it in your own `Column`; for another line
+  have their own (change them in `styles`). Box colours go in `colors`: `quoteBox`, `quoteBar`, `codeBox`, `rule`.
+- **Know:** the default spacing is chosen for reading (second-opinions 142), not copied from the RN app: 14 dp between
+  blocks, 10 dp between list items, a 16 dp bullet column and a 24 dp number column, 16 dp above a heading and 6 dp
+  under it. **Do** change it with `spacing` (`{ blockGap, itemGap, headingTop, headingBottom, ruleGap, markerWidth,
+  numberWidth, indent, quotePaddingX, quotePaddingY, codePadding }`, only the keys you need); it can change at runtime.
+  **Why it works at runtime:** each gap is per-edge padding on one node, and per-edge padding is a runtime prop (§3).
+- **Don't** expect to change line heights (22 dp body), corner radius or the quote bar's width from props. **Why:** zn
+  fixes them at build time (§3). For other spacing, put it in your own `Column`; for another line
   limit than 1–3, build your own `<Text numberOfLines={4}>` from `inlineSpans(text)`.
 - **Don't** put `testID` on `<Markdown>` (a build-time prop): wrap it in a `<Column testID="...">`.
 - **Don't** name your own component `Markdown` or `MarkdownText`. **Why:** component names are global in a zn app for

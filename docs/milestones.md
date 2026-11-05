@@ -185,6 +185,14 @@ Parked ideas: `docs/after-foundations.md`.
   `onLinkPress` with the right URL and text (the lab's own check refuses `javascript:` and `zn://`); a tap on plain
   text does nothing; text and style changes at runtime; the 2-line note ends with "…"; broken text shows as text, no
   error. Not run on the Lava; TalkBack (headings, links) not tried; no release build.
+- **Then (same day): spacing for reading** (second-opinions 142), after the prototype's offer screen on the Lava
+  looked dense: 22 dp lines, 6 dp between items, 16 / 24 dp marker columns, heading sizes and line heights, a quote
+  with a bar on the start side, runtime box colours (`colors`). Then a runtime `spacing` prop (every gap, the marker
+  columns, the indent and box padding as per-edge padding; `DEFAULT_SPACING`), Pavan's ask. 27 templates (was 19).
+  Tests: 1092 JS tests and both type checks; sample JS. Lava, debug build, before (the committed package) and after
+  in the same lab: before, "10." pushed its text right of the other numbers; after, bullet text 16 dp from the dot,
+  "10." text lined up with 1-9, the quote bar full height. The lab's compact spacing changed at runtime with the text
+  still lined up; a link tap reached `onLinkPress`. Not checked: TalkBack, a release build.
 
 ### 2026-11-05: official image viewer plugin `@zero-native/image-viewer` (Claude)
 - **What:** ZeroBill ask R15. `ImageViewer.open({ images, imageIndex })` opens the native screen `imageviewer.full`

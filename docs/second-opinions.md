@@ -2006,6 +2006,50 @@ change, and what evidence would make you change it?"
   emulator (Play services 26.40): files in `cache/mlkit_docscan_ui_client`, moved out, that folder left empty. The ML Kit start
   time on the Lava after a kill.
 
+## 142. Markdown: spacing chosen for reading, not copied from the RN app (`@zero-native/markdown`, built 2026-11-05)
+- **Where:** `plugins/markdown/src/Markdown.tsx` (line heights, marker columns, quote and code boxes),
+  `render.ts` `spaceAbove`, `DEFAULTS`, `DEFAULT_COLORS`; README "Limits".
+- **Asked:** the ZeroBill prototype's offer screen on the Lava (prototype 347386f): colours exact, but the list was
+  dense: 21 dp lines, 4 dp between items, a 20 dp bullet column, so the text started far from the bullet and lines
+  wrapped early. Pavan: the RN app is "not the gold standard", pick what looks right. The parent session gave the
+  numbers below.
+- **Chosen:**
+  - Line height 22 dp for paragraphs, list items and quotes (14 sp body); `MarkdownText` stays 20; code 20.
+  - 14 dp between blocks, 10 dp between items of one list (14 where a bullet list meets a numbered one), 12 dp above and
+    below a rule line (1 dp, #E5E7EB), nothing under the last block.
+  - Why 10 and 14 (changed from 6 and 10 on 2026-11-05, after a Lava check): one line of text draws about 16.5 dp
+    tall, because the line height is trimmed at the top and bottom. So a gap of g between two text boxes looks like
+    g + 5.5 dp of line spacing. With 6, an item began only 0.5 dp further down than a wrapped line, so a wrapped line
+    looked like a new item. Now: lines 22 dp apart, items 26.5, blocks 30.5. The first version also had a fixed 22 dp
+    marker box, which made one-line items taller than their text, so the gaps were uneven. The box has no height now.
+  - Marker column 16 dp for bullets (the dot and about 10 dp of gap), 24 dp for numbers (fits "10."), so the text lines
+    up inside one list; 16 dp indent per level. Markers • ◦ ▪, colour #9CA3AF.
+  - Headings, size / line height: h1 22/28, h2 19/26, h3 17/24, h4 15/22, h5 and h6 14/20, all 700. 16 dp above a
+    heading (none when first), 6 dp under it, so it sits with the text it introduces. A rule keeps its 12 dp under a
+    heading.
+  - Quote: #F3F4F6 box, radius 8, a 3 dp #D1D5DB bar on the start side, 12 dp from the bar to the text, 8 dp top and
+    bottom, text #4B5563, not italic. Code block: #F3F4F6, radius 8, padding 12.
+  - The quote box and bar, the code box and the rule colours can change at runtime (`colors` prop): backgroundColor is a
+    runtime prop, so this costs nothing. Sizes stay fixed.
+- **Why:** offer terms are 5-10 short bullet lines read on a small phone; a tighter bullet column and a little more air
+  between items and lines make each term read as its own line. Headings close to their text group the content.
+- **Risk if wrong:** a heading font made bigger through `styles` keeps its level's line height (fixed at build time),
+  so it could look tight. Body text above about 16 sp outgrows the 22 dp line. Numbers past 99 overflow the 24 dp column.
+  The quote bar is an absolute child that stretches by `top` + `bottom` (R29 rules); on an older APK without them it
+  could take no height.
+- **Editable spacing (added the same day, Pavan asked whether apps can change it):** a `spacing` prop with these
+  numbers as `DEFAULT_SPACING`, all runtime. Each gap is the padding on the start or top edge of one node: a block's
+  `paddingTop` (block, item, heading and rule gaps), a list row's `paddingStart` (indent), the quote and code boxes'
+  four paddings. The marker column is an empty box whose width is its `paddingStart`, with the marker drawn over it as
+  an absolute child (40 dp wide, so "10." doesn't wrap). **Why padding:** per-edge padding is in the registry's runtime
+  props (`DynamicProps`); `gap`, margin and `width` are build-time, so they would need a template per value or a
+  registry change. Line heights, corner radius and the bar width stay build-time.
+- **Other options:** keep RN's 21 / 4 / 20; a `density: "compact" | "comfortable"` prop (two template sets); a
+  build-time line height choice later if an app needs other line heights.
+- **Evidence wanted:** the prototype's offer screen on the Lava with these numbers. Checked on the Lava in the sample
+  lab, before and after: the old 20 dp column pushed "10." text out of line; now 1-10 line up, bullet text is 16 dp
+  from the dot, the quote bar runs the box's full height, and a compact `spacing` applies at runtime.
+
 ## 143. Image viewer: `file://` only inside the app's own folders, `content://` through ContentResolver, `data:` capped at 5 MB, headers and `data:` in memory only (image viewer plugin, 2026-11-05; Pavan's ask, safe form)
 - **Where:** `ViewerRules.kind` / `filePath` / `insideRoots` / `dataStart` / `safeHeader`, `ImageViewerScreen.kt` `appFile` /
   `imageModel`, `ViewerHeld.kt`, `SharpSource.open`, `src/index.ts` `viewerParts` / `open`. Replaces part of 138.
@@ -2037,3 +2081,4 @@ change, and what evidence would make you change it?"
   `zn://file` (more API, slower first view); `file://` anywhere with a runtime switch (an OTA bundle could flip it).
 - **Evidence wanted:** a real ZeroBill receipt link behind a login, end to end, on the Lava. A `content://` link from
   another app's share sheet (only the app's own provider and a missing MediaStore id were checked).
+

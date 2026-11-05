@@ -47,11 +47,11 @@ export function NoteBody(p: { body: string }) {
 | `~~strike~~`, `<u>underline</u>` | Line-through / underline spans |
 | `` `code` `` | A span with a grey background (no monospace font: spans can't change the font) |
 | `[text](url)`, `[text](url "title")`, `<https://...>` | A link span: tappable only when you pass `onLinkPress` |
-| `- item`, `* item`, `+ item`, `• item`; indented items (up to 4 levels) | A row: marker `•` `◦` `▪` and the item's `<Text>` |
-| `1. item`, `1) item` | Numbered from the first number, then counting up (`1.` on every line gives 1, 2, 3) |
-| `> quote` | A grey rounded box, italic text |
+| `- item`, `* item`, `+ item`, `• item`; indented items (up to 4 levels, 16 dp each) | A row: marker `•` `◦` `▪` in a 16 dp column, then the item's `<Text>` |
+| `1. item`, `1) item` | Numbered from the first number, then counting up (`1.` on every line gives 1, 2, 3). A 24 dp number column (fits `10.`) |
+| `> quote` | A soft grey rounded box with a 3 dp bar on the start side |
 | ```` ``` ```` or `~~~` fenced code | A grey box, text as written (no marks inside) |
-| `---`, `***`, `___` | A thin line |
+| `---`, `***`, `___` | A 1 dp line with 12 dp above and below |
 | `a\` or two spaces at a line end, `<br>` | A line break |
 | `\*`, `\_`, `\[` ... | The character itself |
 
@@ -67,6 +67,12 @@ nothing is loaded from server text), tables, task lists, footnotes, bare URLs wi
   `textDecorationLine`, `letterSpacing`, `backgroundColor`. Can change at runtime.
 - `styles`: one element's look on top of its default: `h1`…`h6`, `strong`, `em`, `del`, `u`, `code`, `link`, `quote`,
   `marker`. Same span keys.
+- `colors`: box colours `{ quoteBox, quoteBar, codeBox, rule }`. Can change at runtime.
+- `spacing`: the space around blocks, in dp. Can change at runtime. Keys and defaults (`DEFAULT_SPACING`):
+  `blockGap` 14, `itemGap` 10, `headingTop` 16, `headingBottom` 6, `ruleGap` 12, `markerWidth` 16 (bullets),
+  `numberWidth` 24 (numbers, fits `10.`), `indent` 16 (per level), `quotePaddingX` 12, `quotePaddingY` 8,
+  `codePadding` 12. Give only the keys you change: `spacing={{ itemGap: 4 }}`. A negative or non-number value keeps
+  its default.
 - `limits`: `{ maxChars, maxBlocks }` (default 20000 and 200).
 
 **`<MarkdownText>`**: inline marks only (block syntax `#`, `-`, `>` stays as text), one `<Text>`.
@@ -74,13 +80,18 @@ nothing is loaded from server text), tables, task lists, footnotes, bare URLs wi
 - `numberOfLines`: `1`, `2` or `3` (each its own template: layout is fixed at build time).
 
 **Plain functions** (no UI): `parseMarkdown(text)` → blocks, `parseInline(text)` → runs, `markdownRows`,
-`inlineSpans`, `DEFAULTS`. Use them to build your own look (for example a `<Text>` with `numberOfLines={4}`).
+`inlineSpans`, `DEFAULTS`, `DEFAULT_COLORS`, `DEFAULT_SPACING`, `spacingOf`. Use them to build your own look (for example a `<Text>` with `numberOfLines={4}`).
 
 ## Limits (know these)
 
-- **Layout is fixed:** the space between blocks, list indents, the quote and code boxes, and line heights (21 for
-  paragraphs and items, 20 for `MarkdownText`) are set at build time. Only span looks change. Body text up to about
-  16 sp fits the line height. For other spacing, put `<Markdown>` in your own `Column`.
+- **Spacing is yours, line heights are not.** The `spacing` prop changes every gap, the marker columns, the indent and
+  the box padding at runtime (defaults chosen for reading, second-opinions 142). These stay fixed at build time:
+  - Line height 22 dp for paragraphs, list items and quotes; 20 for code and `MarkdownText`.
+  - Headings (size / line height): h1 22/28, h2 19/26, h3 17/24, h4 15/22, h5 and h6 14/20, all bold.
+  - Corner radius 8 (quote and code boxes), the quote bar's 3 dp width, the rule's 1 dp height.
+  - A marker may be up to 40 dp wide before it wraps; a `numberWidth` smaller than the number lets it run under the text.
+  Body text up to about 16 sp fits the 22 dp line; a heading font set bigger in `styles` keeps its level's line
+  height. Space around the whole `<Markdown>` is your own `Column`'s padding or margin.
 - **No `testID` on the component** (zn takes `testID` at build time only): wrap it in a `<Column testID="...">`.
 - **No monospace for code:** a span can't change the font. Code is a grey background.
 - **Component names are global in a zn app:** don't name your own component `Markdown` or `MarkdownText`.
@@ -91,8 +102,8 @@ nothing is loaded from server text), tables, task lists, footnotes, bare URLs wi
 
 ## Size
 
-About 10 KB of minified JS (3.7 KB gzip); about 27 KB of Hermes bytecode in the bundle, plus 19 small templates
-(1.4 KB in `.zn.ui`). Measured 2026-11-05.
+About 12 KB of minified JS (4.4 KB gzip); about 35 KB of Hermes bytecode in the bundle, plus 27 small templates
+(about 2.2 KB in `.zn.ui`, estimated from the first 19 templates' 1.4 KB). Measured 2026-11-05, with `spacing`.
 
 ## Tests
 

@@ -44,7 +44,37 @@ Bad link: [pay me](javascript:alert(1))`
 
 const NOTE = "You got **₹400** cashback at **Ravi Stores**. It will show in your *wallet* within 2 hours. Tap [details](zn://sample/dev/markdown) for more."
 
+// Offer terms as the server sends them: 10 short bullets, then numbered steps that reach "10.".
+const TERMS = `### Terms & conditions
+- Valid on bills of **₹199** and above
+- Cashback up to **₹250** per bill
+- One cashback per customer per day
+- Valid only at the store shown above
+- Pay with any UPI app through ZeroBill
+- Cashback lands in your wallet within 2 hours
+- Not valid with other offers at the same store
+- Not valid on gift cards, fuel or tobacco
+- ZeroBill can change or end this offer at any time without notice to customers
+- [Full terms](https://example.com/terms)
+
+1. One
+2. Two
+3. Three
+4. Four
+5. Five
+6. Six
+7. Seven
+8. Eight
+9. Nine
+10. Ten: the number column fits two digits, so this text lines up with the others`
+
+const QUOTE = `> Best deal near you this week: **5% back** at Ravi Stores.
+> Ends Sunday.`
+
 const OTHER = "**Changed text.** The rows and spans were made again from the new text."
+
+// A tighter spacing an app might pick for a small card (all runtime padding: no new template).
+const COMPACT = { blockGap: 6, itemGap: 2, headingTop: 10, headingBottom: 4, ruleGap: 8, markerWidth: 12, numberWidth: 20, indent: 12, quotePaddingX: 8, quotePaddingY: 4, codePadding: 8 }
 
 function MdLabButton(props: { label: string; onPress: () => void }) {
   return (
@@ -71,6 +101,7 @@ export function MarkdownLabScreen() {
   const status = signal("tap a link")
   const changed = signal(false)
   const green = signal(false)
+  const compact = signal(false)
   const say = (text: string) => {
     console.info(`md-lab ${text}`)
     status.set(text)
@@ -93,6 +124,27 @@ export function MarkdownLabScreen() {
         <MdLabCard title="ABOUT THIS OFFER">
           <Column testID="md-offer">
             <Markdown text={OFFER} onLinkPress={onLink} styles={{ link: { color: "#047857" }, strong: { color: "#111827" } }} />
+          </Column>
+        </MdLabCard>
+
+        <MdLabCard title="OFFER TERMS (10 ITEMS)">
+          <Column testID="md-terms">
+            <Markdown text={TERMS} onLinkPress={onLink} spacing={compact() ? COMPACT : undefined} />
+          </Column>
+          <Row style={{ gap: 8 }}>
+            <MdLabButton
+              label={compact() ? "Default spacing" : "Compact spacing"}
+              onPress={() => {
+                compact.set(!compact())
+                say(`spacing ${compact() ? "compact" : "default"}`)
+              }}
+            />
+          </Row>
+        </MdLabCard>
+
+        <MdLabCard title="QUOTE WITH APP COLOURS">
+          <Column testID="md-quote">
+            <Markdown text={QUOTE} spacing={compact() ? COMPACT : undefined} colors={{ quoteBox: green() ? "#ECFDF5" : "#F3F4F6", quoteBar: green() ? "#059669" : "#D1D5DB" }} />
           </Column>
         </MdLabCard>
 
