@@ -13,6 +13,7 @@
     "@zero-native/document-scanner": "workspace:*",
     "@zero-native/crashlytics": "workspace:*",
     "@zero-native/firebase-app": "workspace:*",
+    "@zero-native/image-viewer": "workspace:*",
     "@zero-native/location": "workspace:*",
     "@zero-native/lottie": "workspace:*",
     "@zero-native/media": "workspace:*",

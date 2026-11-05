@@ -72,6 +72,7 @@ export function DevScreen() {
           <Entry title="Lottie plugin" step="lottie" detail="JSON and .lottie files, play, pause, reset by ref, progress, finish, colours, bad files" onOpen={() => nav.push("lottieLab")} />
           <Entry title="Markdown package" step="markdown" detail="Server Markdown as native text: offer details, lists, links through the app, notifications" onOpen={() => nav.push("markdownLab")} />
           <Entry title="Document scanner plugin" step="docscan" detail="ML Kit scanner: module status, download, pages and PDF, cancel, a kill while it is open" onOpen={() => nav.push("docScanLab")} />
+          <Entry title="Image viewer plugin" step="image viewer" detail="Full-screen photos: pinch, pan, double tap, swipe between and to close, sharp zoom, errors" onOpen={() => nav.push("imageViewerLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

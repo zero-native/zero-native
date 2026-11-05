@@ -186,6 +186,34 @@ Parked ideas: `docs/after-foundations.md`.
   text does nothing; text and style changes at runtime; the 2-line note ends with "…"; broken text shows as text, no
   error. Not run on the Lava; TalkBack (headings, links) not tried; no release build.
 
+### 2026-11-05: official image viewer plugin `@zero-native/image-viewer` (Claude)
+- **What:** ZeroBill ask R15. `ImageViewer.open({ images, imageIndex })` opens the native screen `imageviewer.full`
+  (the app adds one route) for store photos and receipts: pinch 1x–5x, pan, double tap 2.5x, swipe between pictures
+  and up / down to close, Back, a "2 / 5" count, loading and error states. Coil's screen-size copy plus a sharp part read
+  from the original once the zoom rests (region decoder, EXIF turns), so big photos stay sharp without running out of
+  memory. react-native-image-viewing's names. The close button is the RN app's back arrow (asked by Pavan). A debug-only
+  two-finger gesture tool for adb. Sample lab, README, guide §59, second-opinions 136–138, plugins and rn-compatibility rows.
+- **Tests:** 1032 JS tests and the type checks; 19 plugin unit tests; plugin lint; debug and R8 release sample builds
+  (the plugin's package is 25.5 KB of dex). Lava (debug): open from a thumbnail on the right picture, pinch to 5x
+  (injected), pan stops at the edges, sharp at 5x on a 5000 x 3333 photo (app graphics 33 MB), EXIF 6 upright when
+  zoomed, swipe between pictures, swipe down and Back close with `{ index }`, rotation keeps the picture, a kill -9 in
+  the background restores the viewer on the same picture and `onNavResult` hears the close, TalkBack tree has a
+  48 dp "Close" button. Pavan tried pinch, double tap, swipes and close by hand on the Lava. Not checked: TalkBack
+  turned on, real two-finger pinch speed in release by hand (see the report), GIFs.
+- **Follow-up, same day (Pavan's asks):** more kinds of links. `content://` links, read with ContentResolver. `file://`
+  links, but only inside the app's own folders, checked after `../` is resolved. `data:image/...;base64` up to 5 MB
+  (20 MB held in all). Per-picture `headers`, sent with Coil's request and never logged. Headers and `data:` stay in
+  native memory, not in the saved params: module v2 `ImageViewer.hold`. A pinch can go to 0.8x (this was already in;
+  now in the docs). Second-opinions 143 (138 points to it), guide §59, README, rn-compatibility and plugins rows. A
+  `/image-auth` route in `tools/fetch-test-server.ts` for the lab. **Tests:** 1096 JS tests (17 in the plugin), 24 plugin
+  unit tests, plugin lint (warnings only), debug and R8 release sample builds. Android 13 emulator (debug): pinch held
+  at 0.8x, then back to fit; a `data:` picture shows, too-big and bad ones show the error; the header picture loads
+  (the server saw the header) and the same link without it gets 401 and the error; the token is in no logcat line;
+  `file://` in the cache and `content://` from the media plugin's own provider load (EXIF upright); a missing MediaStore
+  id, a `../` escape and a real file on `/sdcard` show the error. R8 release on the emulator: `data:` and the header
+  picture. Not checked: the Lava, a `content://` from another app's share, a kill with held pictures on screen.
+
+
 ### 2026-11-05: zIndex on a child of Column / Row / Box / Pressable (Claude)
 - **What:** R23 part 2 from the ZeroBill port: a row with `zIndex` draws its absolute tooltip over the rows after it,
   as in RN (before: only a Stack's children took zIndex, elsewhere a build error). Registry 16 (`ZINDEX_ANY_SINCE`),

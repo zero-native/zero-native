@@ -36,6 +36,7 @@ import { PerfLabScreen } from "./PerfLab"
 import { LottieLabScreen } from "./LottieLab"
 import { MarkdownLabScreen } from "./MarkdownLab"
 import { DocScanLabScreen } from "./DocScanLab"
+import { ImageViewerLabScreen } from "./ImageViewerLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -80,6 +81,8 @@ export const routes = defineRoutes({
   lottieLab: { path: "/dev/lottie", screen: LottieLabScreen, deepLink: true },
   markdownLab: { path: "/dev/markdown", screen: MarkdownLabScreen, deepLink: true },
   docScanLab: { path: "/dev/document-scanner", screen: DocScanLabScreen, deepLink: true },
+  imageViewerLab: { path: "/dev/image-viewer", screen: ImageViewerLabScreen, deepLink: true },
+  imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

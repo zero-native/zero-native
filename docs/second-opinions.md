@@ -1882,6 +1882,57 @@ change, and what evidence would make you change it?"
   emulator: the lab's links reach `onLinkPress` with URL and text; `javascript:` and `zn://` were refused by the lab's
   own check; with no `onLinkPress` nothing is tappable (unit test).
 
+## 136. Image viewer: sharp zoom from our own region decoder on Coil's disk copy, not a library (image viewer plugin, built 2026-11-05)
+- **Where:** `plugins/image-viewer/android/.../SharpSource.kt`, `ImageViewerScreen.kt` `rememberSharp`, `ViewerRules.kt`
+  (`visibleArea`, `snapped`, `sampleSize`, `storedRect`).
+- **Asked:** ZeroBill ask R15: an official viewer for store photos and receipts (RN zooms 0.8x–5x with
+  react-native-gesture-handler).
+- **Chosen:** Coil decodes each picture at the screen's size (as `<Image>` does). When the zoom rests and Coil's copy
+  would be stretched, Android's `BitmapRegionDecoder` reads only the part on screen from the original (Coil's disk copy
+  for https, the file for `asset:` and `zn://file`), at screen pixels, and draws it over Coil's copy. EXIF turns of
+  90 / 180 / 270 degrees are mapped; mirror images get no sharp part. One part per page, at most 2.5 screens of pixels,
+  dropped on low memory. The pdf viewer does the same with PdfRenderer.
+- **Why:** a receipt photo is tall: at fit it is small, and reading it needs 2–3x zoom. A screen-size copy is blurry
+  there; a full decode of a 12 MP photo is 48 MB (out of memory on low-end phones). No new library (0 bytes added;
+  `exifinterface` already comes with Coil).
+- **Risk if wrong:** a server that answers `Cache-Control: no-store` leaves no disk copy, so zoom stays soft (logged
+  "no disk copy"). While moving, only Coil's copy shows; the sharp part appears ~120 ms after the fingers stop (a short
+  soft-to-sharp change, as in Google Photos). One part, not tiles: a big zoomed area costs up to 2.5 screens of memory.
+- **Other options:** Telephoto (`me.saket.telephoto:zoomable-image-coil3`): tiles, edge handoff to the pager, well
+  tested, but a new dependency to keep in step with Compose and Coil, and its gestures differ from RN's screen. A
+  second, bigger Coil decode (2x screen) when zoomed: simpler, still soft at 5x on a receipt, more memory.
+- **Evidence wanted:** on the Lava, a real ZeroBill receipt photo zoomed to read the line items; a store's CDN
+  photo's `Cache-Control` header (must allow a disk copy).
+
+## 137. Image viewer: Back, the close button and a swipe all answer `{ index }` (image viewer plugin, built 2026-11-05)
+- **Where:** `ImageViewerScreen.kt` (`BackHandler` inside the screen), `plugins/image-viewer/src/index.ts` `open`.
+- **Chosen:** every way the user closes the viewer gives `{ index }` (the picture on screen). Null only when the app
+  closed it (`nav.back()`, `nav.reset()`) or the promise was lost to a kill. The screen takes Back itself with a Compose
+  `BackHandler`, which comes before the host's.
+- **Why:** an app that keeps a photo strip in step (react-native-image-viewing's `onImageIndexChange`) needs the last
+  index whatever way the user left. With the core default (Back gives null), the answer would depend on which button
+  the user pressed.
+- **Risk if wrong:** unlike the scanner, Back is not null here, so "null means the user backed out" is not true for this
+  screen (the README says so). If an app turns on Android's predictive back, its preview won't play for this screen
+  (not checked: the sample doesn't use it).
+- **Other options:** keep the core rule (Back → null) and give the index only from the close button and swipe; or no
+  answer at all (`Promise<void>`).
+
+## 138. Image viewer: only https, `asset:` and `zn://file` links; no headers, no `data:` (image viewer plugin, built 2026-11-05)
+- **Where:** `ViewerRules.kind`, `ImageViewerScreen.kt` `imageModel`, README "Links that load".
+- **Chosen:** the viewer loads `http(s)://`, `asset:<path>` and `zn://file/<name>`. `file://`, `content://`, other `zn://`
+  kinds and `data:` URLs show the error state. Request headers are not supported.
+- **Why:** the params come from a bundle that can come over the air, so they must not name a file path (guide §35).
+  The params are also saved with the back stack (for a restore after a kill), so a login token in headers would be
+  written to disk in plain text, and a base64 `data:` picture would make that save big. The RN screen took `data:`
+  URLs (from the web bridge), but no ZeroBill screen in the port sends one.
+- **Risk if wrong:** a receipt image that needs a login header can't be shown. Fix then: the app downloads it to a
+  `zn://file` handle first (as `Pdf.download` does), or a later version takes headers from a native store by key.
+- **Other options:** pass headers and keep them out of the saved params (native memory only; lost after a kill).
+- **Changed 2026-11-05 (Pavan's ask):** `content://`, `file://` inside the app's own folders, `data:` up to 5 MB and
+  headers are now supported, with headers and `data:` held in native memory only. See 143; the rest of this entry is the
+  first version.
+
 ## 139. Document scanner: ML Kit's Play services module, the one exception to "bundle, don't download from Play" (document-scanner plugin, built 2026-11-05; Pavan's call)
 - **Where:** `plugins/document-scanner/android/build.gradle.kts` (`play-services-mlkit-document-scanner:16.0.0`),
   `DocScanModule.status` / `download`, `DocScanRules.status` / `playProblem` / `scanRefusal`.
@@ -1954,3 +2005,35 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** ML Kit's link scheme and folder on more phones and Play services versions. Checked only on the Android 13
   emulator (Play services 26.40): files in `cache/mlkit_docscan_ui_client`, moved out, that folder left empty. The ML Kit start
   time on the Lava after a kill.
+
+## 143. Image viewer: `file://` only inside the app's own folders, `content://` through ContentResolver, `data:` capped at 5 MB, headers and `data:` in memory only (image viewer plugin, 2026-11-05; Pavan's ask, safe form)
+- **Where:** `ViewerRules.kind` / `filePath` / `insideRoots` / `dataStart` / `safeHeader`, `ImageViewerScreen.kt` `appFile` /
+  `imageModel`, `ViewerHeld.kt`, `SharpSource.open`, `src/index.ts` `viewerParts` / `open`. Replaces part of 138.
+- **Chosen (`file://`):** loads only when the resolved path (`File.canonicalPath`: `../` and symlinks followed) is inside
+  `cacheDir`, `filesDir`, `getExternalFilesDir(null)` or `externalCacheDir`, and is a file. Any other path shows the error and
+  logs a refusal. A `file://` with a host other than empty or `localhost` is refused.
+- **Why:** Pavan asked for `file://` (RN viewers take it). A bundle comes over the air, so a free `file://` would let a bad
+  or broken OTA bundle read any path the app can read (`/sdcard/...`, shared folders) and show it. The app's own folders are
+  what a real app needs (its downloads, media plugin photos, cache), and match the `zn://file` rule (guide §35).
+- **Chosen (`content://`):** opened with `ContentResolver`, for Coil and for the sharp zoom. No extra check: Android decides
+  (a provider the app may not read throws, and the picture shows the error).
+- **Why:** a `content://` link only works when Android gave the app a grant (a picker, a share) or the provider is open to
+  it. That is the same rule RN's `Image` follows.
+- **Chosen (`data:`):** only `data:image/...;base64,`. The size is checked from the text length before decoding: over 5 MB
+  decoded, or not base64, keeps no bytes and the picture shows the error. All `data:` pictures held together are capped at
+  20 MB; over that, the oldest viewer's go first, and inside one viewer the later ones are dropped.
+- **Chosen (headers and `data:` storage):** `ImageViewer.open` sends them to native (`ImageViewer.hold`, module v2) under a new
+  key, then pushes the route with only the key. The params say `held:data` in place of a `data:` link. The held parts live in
+  a process-wide map (newest 8 viewers), removed when the user closes that viewer. After a kill they are gone: those pictures
+  show the error. Header names must be plain tokens and values have no CR / LF / NUL; others are dropped and only the name is
+  logged. Values are never logged; `data:` content is never logged (only its first part up to the comma).
+- **Why:** the route params are saved in the Activity's saved state (`ZnNav` writes the back stack there). That has a size
+  limit (a big string risks `TransactionTooLargeException`) and is handed to the system, so a token there leaves the app.
+- **Risk if wrong:** a picture fetched with a token sits in Coil's memory and disk cache under its link, like any picture; the
+  same link opened later without the token shows the cached copy (README says so). A `nav.push` straight to the route with a
+  `data:` link or headers doesn't get them (README: use `open`). A viewer closed from JS (`nav.back()`) keeps its held parts
+  until newer viewers push them out (no core hook says "this screen left for good").
+- **Other options:** headers in params (refused: token in saved state); a native "download first" call that writes a
+  `zn://file` (more API, slower first view); `file://` anywhere with a runtime switch (an OTA bundle could flip it).
+- **Evidence wanted:** a real ZeroBill receipt link behind a login, end to end, on the Lava. A `content://` link from
+  another app's share sheet (only the app's own provider and a missing MediaStore id were checked).

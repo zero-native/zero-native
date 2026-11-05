@@ -12,6 +12,7 @@ import dev.zeronative.plugins.crashlytics.CrashlyticsPlugin
 import dev.zeronative.plugins.devicetest.DeviceTestPlugin
 import dev.zeronative.plugins.documentscanner.DocumentScannerPlugin
 import dev.zeronative.plugins.firebase.FirebaseAppPlugin
+import dev.zeronative.plugins.imageviewer.ImageViewerPlugin
 import dev.zeronative.plugins.location.LocationPlugin
 import dev.zeronative.plugins.lottie.LottiePlugin
 import dev.zeronative.plugins.media.MediaPlugin
@@ -48,6 +49,7 @@ class SampleApp : Application() {
         ZnPlugins.register(this, PerfPlugin()) // before the first fetch: it adds an interceptor to core's client
         ZnPlugins.register(this, LottiePlugin())
         ZnPlugins.register(this, DocumentScannerPlugin()) // ML Kit's scanner; Play downloads it on first use
+        ZnPlugins.register(this, ImageViewerPlugin()) // the full-screen photo viewer ("imageviewer.full")
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call
         // Crashlytics' recordException(e.asThrowable()). The sample logs the full JS stack (with columns: the exact
         // TSX line with `bun run ota symbolicate`) and the Throwable a crash reporter would get.

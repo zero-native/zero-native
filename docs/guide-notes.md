@@ -2149,6 +2149,38 @@ Built on the runtime text spans of registry 16 (§18). Lab: `zn://sample/dev/mar
   (looks only, no custom components). Note: the RN view's default link ignored `onLinkPress` and always called
   `Linking.openURL`; here a link does only what `onLinkPress` does.
 
+## 59. Full-screen photos (`@zero-native/image-viewer`)
+
+```ts
+imageViewer: { path: "/image-viewer", native: "imageviewer.full", safeArea: "none", transition: "fade" },  // routes.ts
+<Pressable onPress={() => ImageViewer.open({ images: photos, imageIndex: i })}>                            // a thumbnail
+```
+
+- **Do** add the route once. `open` uses the name `imageViewer`; pass `route` if yours is named differently. **Why:** a native
+  screen is a route (§35); without it `open` rejects with the line to add.
+- **Do** use the same links as your thumbnails' `<Image src>`. **Why:** one Coil cache, so the picture opens at once.
+- **Do** give `alt` for a picture with meaning ("Shop front", "Receipt"). TalkBack reads it; without it, "Photo 2 of 5".
+- **Do** use `file://` only for a file your app wrote (its cache or files folder, a download, a media photo). Any other
+  path shows the error. **Why:** a bundle comes over the air, so it must not read any path it likes; the path is resolved
+  (`../` followed) before the check (second-opinions 143).
+- **Do** pass `content://` links as you got them from a picker or a share. Android decides if the app may read it; if not,
+  that picture shows the error.
+- **Do** put a login token in `headers` (`{ uri, headers: { Authorization: "Bearer ..." } }`), never in the link. **Why:**
+  headers stay in native memory, never in the saved back stack, and are never logged.
+- **Don't** open `data:` pictures or headers with `nav.push("imageViewer", ...)`: only `ImageViewer.open` hands them to
+  native first. **Know:** after a kill those pictures show the error; other pictures come back.
+- **Don't** pass a `data:` picture over 5 MB (decoded): it shows the error. **Why:** it is all in memory twice (the text and
+  the bytes). Use a file or an https link for big pictures.
+- **Don't** wait on the answer for anything that matters. `{ index }` comes on any close by the user, null when the app
+  closed it; after a kill the promise is gone (only pictures were shown, so nothing is lost).
+- **Know:** `open` twice while the viewer is open gives the same promise, so a double tap opens one screen.
+- **Know:** a pinch can go down to 0.8x; it springs back to fit when the fingers lift (as in RN).
+- **Know:** zoom goes back to fit when the screen turns, and when you move to another picture.
+- **Know:** a zoomed picture is sharp from the original once the fingers stop (a short soft-to-sharp change). It stays
+  soft when the server says `no-store` (no disk copy) or for GIFs (second-opinions 136).
+- **Know (RN):** react-native-image-viewing's `visible` / `onRequestClose` become the promise. `HeaderComponent`,
+  `FooterComponent` and `onLongPress` have no twin: the screen is native, so it takes no JSX.
+
 ## 60. Document scanner (`@zero-native/document-scanner`)
 
 Google ML Kit's document scanner: the camera finds the page, the user crops, rotates and adds pages, and the app gets JPEG

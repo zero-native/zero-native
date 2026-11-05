@@ -4,7 +4,7 @@
 (P.1), the plumbing (P.2: permissions, results from other apps), an app outside this repo with its own plugin (P.3),
 native screens and `<NativeView>` (P.3b to P.4b), background JS tasks and the core items (P.5, P.6), and the official
 plugins `auth`, `scanner`, `media`, `webview`, `pdf`, `location`, `firebase-app`, `crashlytics`, `push`, `analytics`,
-`remote-config`, `perf`, `lottie` and `document-scanner` (2026-11-05). Not built: codegen, `zn://mem`, certificate pinning, iOS. Parts below that are written as
+`remote-config`, `perf`, `lottie`, `document-scanner` and `image-viewer` (2026-11-05). Not built: codegen, `zn://mem`, certificate pinning, iOS. Parts below that are written as
 design keep their original wording; the tables say what is built. Decisions D1–D7 were taken on 2026-11-02 (section 8);
 section 10 has the questions for reviewers. Android only for now; every choice must also work for iOS later.
 
@@ -40,6 +40,7 @@ breaks somewhere. So first one plugin system, then the features as plugins on to
 | Official plugins `crashlytics` and `push` (Firebase; FCM messages as JS tasks, notifications shown natively), on the base `firebase-app`; `analytics`, `remote-config`, `perf` | **built** 2026-11-04, opt-in; the sample turns Firebase on only when its `google-services.json` is there | `plugins/crashlytics/README.md`, `plugins/push/README.md`, `plugins/firebase-app/README.md`, `plugins/analytics/README.md`, `docs/guide-notes.md` §46, §48–§55 |
 | Official plugin `lottie`: `<LottieView>` with lottie-react-native's names, `.json` and `.lottie` files from the app's assets, on Airbnb's lottie-compose | **built** 2026-11-05, opt-in | `plugins/lottie/README.md`, `docs/guide-notes.md` §57 |
 | Official plugin `document-scanner`: Google ML Kit's document scanner (pages and / or a PDF), the Play module's state and download, results through `ZnLaunch` that survive a kill | **built** 2026-11-05, opt-in | `plugins/document-scanner/README.md`, `docs/guide-notes.md` §60 |
+| Official plugin `image-viewer`: a full-screen photo viewer (native screen `imageviewer.full`, `ImageViewer.open`) | **built** 2026-11-05, opt-in | `plugins/image-viewer/README.md`, `docs/guide-notes.md` §59 |
 | Permissions, "open another app and get its result" | **built** (P.2) | `ZnPermissions.kt`, `ZnLaunch.kt`, `docs/guide-notes.md` §31–32 |
 | Codegen (Kotlin interface from the TS interface) | **not built** | ARCHITECTURE §15.1 |
 
@@ -172,6 +173,7 @@ app owns** (D7).
 | Remote Config | plugin `@zero-native/remote-config` | **Built 2026-11-04.** RN Firebase's API, reads with no call (values come with each answer), sources, live updates (`onConfigUpdated`). Guide §54, second-opinions 125 |
 | Performance | plugin `@zero-native/perf` | **Built 2026-11-04.** App start, every `fetch` (through core's `ZnFetch.addInterceptor`; it was `addClientSetup` until 2026-11-04), a trace per screen with slow / frozen frames, custom traces. Guide §55, second-opinions 126 |
 | Analytics | plugin `@zero-native/analytics` | **Built 2026-11-04.** RN Firebase's API. On from the first start (Firebase's default; opt-out kept across starts, ad id off), consent mode. A `screen_view` per route by itself. `logEvent` (names checked), recommended events (`logPurchase`, ...), user id and properties, `zn_bundle` on every event. +0.44 MB. Guide §50, second-opinions 96–99 |
+| Photo viewer | plugin `@zero-native/image-viewer` | **Built 2026-11-05** (ZeroBill ask R15). `ImageViewer.open({ images, imageIndex })` opens the native screen `imageviewer.full` (the app adds one route). Pinch 1x–5x (0.8x springs back), pan, double tap 2.5x, swipe between pictures and to close, Back. Coil's screen-size copy plus a sharp part read from the original when zoomed (region decoder, EXIF turns). Links: https with headers, `asset:`, `zn://file`, `content://`, `data:` up to 5 MB, `file://` in the app's own folders (module v2 `hold` keeps headers and `data:` in memory). react-native-image-viewing's names. Guide §59, second-opinions 136–138, 143 |
 | SQL database | plugin `@zero-native/sqlite` | **Proposed 2026-11-04, not built.** Android's own SQLite (0 bytes added), expo-style API, live queries (`watch`), add-only migrations with an opt-in reset, 100,000-row tables. `docs/sqlite-plugin-proposal.md`, second-opinions 107 |
 | Markdown from the server | package `@zero-native/markdown` (JS only) | **Built 2026-11-05.** `<Markdown>` (blocks: headings, lists, quotes, code, lines) and `<MarkdownText>` (inline, 1–3 lines). Each block is one native `<Text>` with spans (registry 16); links only through the app's `onLinkPress`; no HTML, no images. Own parser, ~10 KB minified. `plugins/markdown/README.md`, guide §58, second-opinions 133–135 |
 | Screenshot blocking | core: route option `secure: true` | `FLAG_SECURE` while that screen is on top |

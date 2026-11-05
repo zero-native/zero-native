@@ -14,6 +14,10 @@ import { tabsAnswer } from "./plugin-phone/tabs-server"
 const HTTP_PORT = 8788
 const RAW_PORT = 8789
 
+// A 64 x 64 blue and white checker (PNG).
+const LAB_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAaElEQVR42u3XMQ0AIAxFwZpBGfIrAgzQqQuEI4wM3PTyY8w83lWc294HAAAAAEAL8MpHq/cAAAAAAD2AEgMAAADYA0oMAAAAYA8oMQAAAIA9oMQAAAAA9oASAwAAANgDSgwAAADwDWADMWSCDlyYVuEAAAAASUVORK5CYII="
+
 const json = (data: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(data), { ...init, headers: { "content-type": "application/json", ...init.headers } })
 
@@ -53,6 +57,13 @@ Bun.serve({
       return new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${HTTP_PORT}/auth` } })
     }
     if (path === "/auth") return json({ authorization: req.headers.get("authorization") })
+    // The image viewer lab (/dev/image-viewer): a picture only with the lab's header, else 401. Logs yes or no, not the value.
+    if (path === "/image-auth") {
+      const ok = req.headers.get("authorization") === "Bearer zn-lab"
+      console.log(`image-auth: header ${ok ? "ok" : "missing or wrong"}`)
+      if (!ok) return new Response("no", { status: 401 })
+      return new Response(Buffer.from(LAB_PNG, "base64"), { headers: { "content-type": "image/png", "cache-control": "no-store" } })
+    }
     if (path === "/gzip") {
       const body = gzipSync(new TextEncoder().encode(JSON.stringify({ zipped: true, filler: "x".repeat(5000) })))
       return new Response(body, { headers: { "content-type": "application/json", "content-encoding": "gzip" } })

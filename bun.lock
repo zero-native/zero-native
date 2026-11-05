@@ -28,6 +28,7 @@
         "@zero-native/device-test": "workspace:*",
         "@zero-native/document-scanner": "workspace:*",
         "@zero-native/firebase-app": "workspace:*",
+        "@zero-native/image-viewer": "workspace:*",
         "@zero-native/location": "workspace:*",
         "@zero-native/lottie": "workspace:*",
         "@zero-native/markdown": "workspace:*",
@@ -96,6 +97,13 @@
     },
     "plugins/firebase-app": {
       "name": "@zero-native/firebase-app",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
+    "plugins/image-viewer": {
+      "name": "@zero-native/image-viewer",
       "version": "0.0.0",
       "peerDependencies": {
         "@zero-native/core": "workspace:*",
@@ -195,6 +203,8 @@
     "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
 
     "@zero-native/firebase-app": ["@zero-native/firebase-app@workspace:plugins/firebase-app"],
+
+    "@zero-native/image-viewer": ["@zero-native/image-viewer@workspace:plugins/image-viewer"],
 
     "@zero-native/location": ["@zero-native/location@workspace:plugins/location"],
 
