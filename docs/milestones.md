@@ -123,6 +123,17 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: registry 16: runtime text spans with onPress, dashed / dotted lines, includeFontPadding (Claude)
+- **What:** from the ZeroBill port (asks R16 / R21 / R22, R11 / R23 / R7, R28). (1) Nested `<Text>` spans from data
+  (`.map`, `&&`, `? :`), with runtime styles and `onPress` on a span (a Compose link). (2) `borderStyle: "dashed" |
+  "dotted"` on borders and top / bottom lines. (3) `textDecorationStyle: "dashed" | "dotted"` on a whole Text.
+  (4) `includeFontPadding: true` (default false, Pavan's option A). Registry 16, second-opinions 128, guide §18 and
+  styling notes, rn-compatibility rows. Kotlin changed: needs a new APK; bundles that use these need registry 16.
+- **Tests:** 1020+ JS tests and the type checks pass (new: runtime span compiler tests, `text-spans.test.ts`, style
+  key tests). Runtime unit tests, runtime and sample lint, debug sample build. Android 13 emulator: RN props lab
+  "Dashed lines, font padding, spans" (all drawn right, span taps logged, runtime colour and `&&` span). Not run on
+  the Lava; not run in a release build; TalkBack on span links not tried.
+
 ### 2026-11-05: absolute Stack children take no room, absolute Svg size, missing-plugin warning (Claude)
 - **What:** from the ZeroBill port (asks R29–R31). (1) An absolute child of a `Stack` no longer makes the Stack bigger,
   as in RN (`ZnRenderer.kt` `absoluteChild`). (2) An absolute `<Svg>` with `start` + `end` (or `top` + `bottom`) gets no

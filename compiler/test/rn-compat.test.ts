@@ -312,3 +312,20 @@ describe("P0.8: a prop the element doesn't take fails the build", () => {
     ]) expect(err(src)).toBe("no error")
   })
 })
+
+describe("registry 16: includeFontPadding, borderStyle, textDecorationStyle (asks R28, R11/R23/R7)", () => {
+  test("written as RN style keys; kept as written for the writer", () => {
+    const t = compile(`function A() { return <Text style={{ includeFontPadding: true, textDecorationLine: "underline", textDecorationStyle: "dashed" }}>Fee</Text> }`).templates[0]!
+    const p = t.props as Record<string, unknown>
+    expect(p.includeFontPadding).toBe(true)
+    expect(p.textDecorationStyle).toBe("dashed")
+    const b = compile(`function A() { return <Box style={{ borderBottomWidth: 1, borderStyle: "dotted", borderColor: "#ccc" }} /> }`).templates[0]!
+    expect((b.props as Record<string, unknown>).borderStyle).toBe("dotted")
+  })
+  test("RN's other values fail with the list; not on a nested span", () => {
+    expect(err(`function A() { return <Text style={{ textDecorationStyle: "wavy" }}>a</Text> }`)).toMatch(/solid.*dashed.*dotted/)
+    expect(err(`function A() { return <Box style={{ borderStyle: "double" }} /> }`)).toMatch(/solid.*dashed.*dotted/)
+    expect(err(`function A() { return <Text>a <Text style={{ textDecorationStyle: "dashed" }}>b</Text></Text> }`))
+      .toMatch(/isn't supported on a nested <Text> span/)
+  })
+})

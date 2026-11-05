@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
@@ -159,6 +160,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val borderTopWidth = num(Registry.Prop.BORDER_TOP_WIDTH) ?: 0f
     val borderBottomWidth = num(Registry.Prop.BORDER_BOTTOM_WIDTH) ?: 0f
     val borderColor: Color = color(Registry.Prop.BORDER_COLOR) ?: Color.Black
+    /** RN borderStyle (registry 16): dashed or dotted borders and top / bottom lines; solid otherwise. */
+    val borderDashed = enum(Registry.Prop.BORDER_STYLE).let { it == Registry.BorderStyle.DASHED || it == Registry.BorderStyle.DOTTED }
+    val borderStyle = enum(Registry.Prop.BORDER_STYLE)
     val opacity = num(Registry.Prop.OPACITY) ?: 1f
     val elevation = num(Registry.Prop.ELEVATION) ?: 0f
     val shadowColor: Color = color(Registry.Prop.SHADOW_COLOR) ?: Color.Black
@@ -205,15 +209,29 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val text: String? = p[Registry.Prop.TEXT] as String?
     val color: Color? = color(Registry.Prop.COLOR)
     val maxLines = num(Registry.Prop.NUMBER_OF_LINES)?.toInt() ?: Int.MAX_VALUE
+    /**
+     * RN textDecorationStyle "dashed" / "dotted" (registry 16) with an underline or line-through: the line is drawn by
+     * the renderer (ZnRenderer.kt drawTextDecoration), as Compose only draws solid ones. 0 = Compose draws it.
+     */
+    val dashedDecoration: Int = enum(Registry.Prop.TEXT_DECORATION_STYLE).let { style ->
+        val line = enum(Registry.Prop.TEXT_DECORATION_LINE)
+        val dashed = style == Registry.TextDecorationStyle.DASHED || style == Registry.TextDecorationStyle.DOTTED
+        if (dashed && (line == Registry.TextDecorationLine.UNDERLINE || line == Registry.TextDecorationLine.LINE_THROUGH)) line else 0
+    }
+    val textDecorationStyle = enum(Registry.Prop.TEXT_DECORATION_STYLE)
     val textStyle = TextStyle(
         fontSize = (num(Registry.Prop.FONT_SIZE) ?: 14f).sp,
         fontWeight = num(Registry.Prop.FONT_WEIGHT)?.let { FontWeight(it.toInt().coerceIn(1, 1000)) },
         fontStyle = if (enum(Registry.Prop.FONT_STYLE) == Registry.FontStyle.ITALIC) FontStyle.Italic else null,
-        textDecoration = when (enum(Registry.Prop.TEXT_DECORATION_LINE)) {
+        textDecoration = if (dashedDecoration != 0) null else when (enum(Registry.Prop.TEXT_DECORATION_LINE)) {
             Registry.TextDecorationLine.UNDERLINE -> TextDecoration.Underline
             Registry.TextDecorationLine.LINE_THROUGH -> TextDecoration.LineThrough
             else -> null
         },
+        // RN includeFontPadding (registry 16): only when written true; Compose's default leaves the padding out.
+        platformStyle = if (p[Registry.Prop.INCLUDE_FONT_PADDING] == true) {
+            @Suppress("DEPRECATION") androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = true)
+        } else null,
         textAlign = when (enum(Registry.Prop.TEXT_ALIGN)) {
             Registry.TextAlign.CENTER -> TextAlign.Center
             Registry.TextAlign.END -> TextAlign.End
@@ -224,6 +242,10 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     )
     /** Nested <Text> spans: one style per span; the text holds the spans' texts joined by U+001F. */
     val spans: List<SpanStyle>? = (p[Registry.Prop.SPANS] as String?)?.let(::parseSpans)
+    /** Registry 16: spans that change at runtime (core text-spans.ts) come in this slot, as the same JSON. */
+    val spansSlot = slotFor(raw, Registry.Prop.SPANS)
+    /** Registry 16: a span with onPress was tapped; the payload is its index. */
+    val onSpanPress = eventFor(raw, Registry.Event.ON_SPAN_PRESS)
     /** RN textTransform (registry 15): applied to the text as it is drawn, so text from a slot changes case too. */
     val textTransform = enum(Registry.Prop.TEXT_TRANSFORM)
     /** RN testID (registry 15): a Compose test tag; ZnNavHost shows tags to UI tests as resource ids. */
@@ -575,13 +597,32 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
                 onDrawBehind { drawOutline(outline, brush) }
             }
         }
-        if (border != null) m = m.znBorder(this, border)
+        if (borderDashed && (border != null || borderWidth > 0f)) {
+            val static = borderWidth
+            val staticColor = borderColor
+            m = m.znDashedBorder(this, border?.width ?: { static }, border?.color ?: { staticColor })
+        } else if (border != null) m = m.znBorder(this, border)
         else if (borderWidth > 0f) m = m.border(borderWidth.dp, borderColor, shape)
         if (borderTopWidth > 0f || borderBottomWidth > 0f) {
             val c = borderColor
             val topW = borderTopWidth
             val bottomW = borderBottomWidth
+            val dashed = borderDashed
+            val style = borderStyle
             m = m.drawBehind {
+                if (dashed) {
+                    // A dashed line along the edge, its stroke centred inside the border's width (registry 16).
+                    if (topW > 0f) {
+                        val h = topW.dp.toPx()
+                        drawLine(c, Offset(0f, h / 2), Offset(size.width, h / 2), h, pathEffect = borderDashes(style, h))
+                    }
+                    if (bottomW > 0f) {
+                        val h = bottomW.dp.toPx()
+                        val y = size.height - h / 2
+                        drawLine(c, Offset(0f, y), Offset(size.width, y), h, pathEffect = borderDashes(style, h))
+                    }
+                    return@drawBehind
+                }
                 if (topW > 0f) drawRect(c, Offset.Zero, Size(size.width, topW.dp.toPx()))
                 if (bottomW > 0f) {
                     val h = bottomW.dp.toPx()
@@ -677,6 +718,34 @@ private fun Modifier.znBorder(spec: ZnNodeSpec, border: ZnBorder): Modifier = dr
 }
 
 /**
+ * RN Android's dash pattern for a line [w] px thick (ReactViewBackgroundDrawable): "dashed" is 3 widths on and 3 off,
+ * "dotted" is 1 on and 1 off (square dots). Also the textDecorationStyle lines (ZnRenderer.kt).
+ */
+internal fun borderDashes(style: Int, w: Float): PathEffect {
+    val on = if (style == Registry.BorderStyle.DOTTED) w else 3 * w
+    return PathEffect.dashPathEffect(floatArrayOf(on.coerceAtLeast(1f), on.coerceAtLeast(1f)))
+}
+
+/**
+ * A dashed or dotted border (RN borderStyle, registry 16): the node's shape stroked along the middle of the border's
+ * [width] (dp), over the content. Width and colour may come from slots (read as it draws).
+ */
+private fun Modifier.znDashedBorder(spec: ZnNodeSpec, width: () -> Float, color: () -> Color): Modifier = drawWithCache {
+    val wDp = width().coerceAtLeast(0f)
+    val w = wDp.dp.toPx()
+    val path = if (w <= 0f || size.minDimension <= 0f) null else Path().apply {
+        val inner = Size((size.width - w).coerceAtLeast(0f), (size.height - w).coerceAtLeast(0f))
+        addOutline(spec.insetShape(wDp / 2).createOutline(inner, layoutDirection, this@drawWithCache))
+        translate(Offset(w / 2, w / 2))
+    }
+    val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = w, pathEffect = borderDashes(spec.borderStyle, w))
+    onDrawWithContent {
+        drawContent()
+        if (path != null) drawPath(path, color(), style = stroke)
+    }
+}
+
+/**
  * This size times [f] when it is in sp; unset sizes (a span that keeps its parent's size) and em sizes stay as they
  * are. Compose throws on arithmetic with an unset size, so maxFontScale must never scale one.
  */
@@ -722,6 +791,12 @@ class ZnTemplate internal constructor(val raw: RawTemplate, internal val svgs: Z
  * Span styles written by the compiler for nested <Text> (compile.ts `spanStyle`): a JSON array, one object per span,
  * with colours as ARGB numbers and enums as their numbers. Unset fields inherit the outer Text's style.
  */
+/** Registry 16: which spans have onPress (`"p": 1`, core text-spans.ts), by index. */
+internal fun parseSpanPresses(json: String): BooleanArray {
+    val list = org.json.JSONArray(json)
+    return BooleanArray(list.length()) { i -> list.optJSONObject(i)?.optInt("p", 0) == 1 }
+}
+
 internal fun parseSpans(json: String): List<SpanStyle> {
     val list = org.json.JSONArray(json)
     return List(list.length()) { i ->

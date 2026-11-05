@@ -64,6 +64,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.layout
@@ -269,15 +273,26 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             else ({ s.color ?: Color.Black })
             val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
             val textStyle = s.effectiveTextStyle(fontScale)
-            val spans = s.spans
+            // Registry 16: spans that change at runtime come as JSON in a slot (core text-spans.ts); else the template's.
+            val spansJson = if (s.spansSlot >= 0) inst.slot(s.spansSlot).value as? String else null
+            val spans = if (s.spansSlot >= 0) remember(spansJson) { spansJson?.let(::parseSpans) } else s.spans
+            val presses = if (s.spansSlot >= 0 && s.onSpanPress != 0) remember(spansJson) { spansJson?.let(::parseSpanPresses) } else null
+            // textDecorationStyle dashed / dotted (registry 16): drawn here from the laid-out lines.
+            val layout = if (s.dashedDecoration != 0) remember { mutableStateOf<TextLayoutResult?>(null) } else null
+            val textMod = if (layout == null) mod else mod.drawWithContent {
+                drawContent()
+                layout.value?.let { drawTextDecoration(it, s.dashedDecoration, s.textDecorationStyle, textStyle, color()) }
+            }
+            val onLayout: (TextLayoutResult) -> Unit = { r -> layout?.value = r }
             if (spans == null) {
-                BasicText(text = text, modifier = mod, style = textStyle, maxLines = s.maxLines,
-                    overflow = TextOverflow.Ellipsis, color = color)
+                BasicText(text = text, modifier = textMod, style = textStyle, maxLines = s.maxLines,
+                    overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
             } else {
                 val cap = s.fontScaleCap(fontScale)
-                val styled = remember(text, spans, cap) { spannedText(text, spans, cap) }
-                BasicText(text = styled, modifier = mod, style = textStyle, maxLines = s.maxLines,
-                    overflow = TextOverflow.Ellipsis, color = color)
+                val press: ((Int) -> Unit)? = if (presses == null) null else { i -> ZnRuntime.dispatchEvent(inst.id, s.onSpanPress, i) }
+                val styled = remember(text, spans, cap, presses) { spannedText(text, spans, cap, presses, press) }
+                BasicText(text = styled, modifier = textMod, style = textStyle, maxLines = s.maxLines,
+                    overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
             }
         }
         Registry.Component.SPACER -> Spacer(modifier = mod)
@@ -828,15 +843,45 @@ private fun spannedText(
     text: String,
     spans: List<androidx.compose.ui.text.SpanStyle>,
     cap: Float = 1f,
+    presses: BooleanArray? = null,
+    press: ((Int) -> Unit)? = null,
 ) = androidx.compose.ui.text.buildAnnotatedString {
     text.split('\u001f').forEachIndexed { i, piece ->
         val style = spans.getOrNull(i)
-        if (style == null) {
-            append(piece)
-        } else {
-            val capped = if (cap == 1f) style
-            else style.copy(fontSize = style.fontSize.scaledSp(cap), letterSpacing = style.letterSpacing.scaledSp(cap))
-            withStyle(capped) { append(piece) }
+        // Registry 16: a span with onPress is a link (Compose handles the tap and TalkBack's link action).
+        val link = if (press != null && presses?.getOrNull(i) == true) {
+            androidx.compose.ui.text.LinkAnnotation.Clickable("zn-span-$i") { press(i) }
+        } else null
+        val appendPiece: androidx.compose.ui.text.AnnotatedString.Builder.() -> Unit = {
+            if (style == null) {
+                append(piece)
+            } else {
+                val capped = if (cap == 1f) style
+                else style.copy(fontSize = style.fontSize.scaledSp(cap), letterSpacing = style.letterSpacing.scaledSp(cap))
+                withStyle(capped) { append(piece) }
+            }
         }
+        if (link != null) withLink(link) { appendPiece() } else appendPiece()
+    }
+}
+
+/**
+ * textDecorationStyle "dashed" / "dotted" (registry 16): an underline ([line] UNDERLINE) or line-through under or
+ * across each laid-out line, with RN Android's dash pattern. Thickness and place follow the font size, close to the
+ * lines Android draws itself (about 1/18 of the size thick, a tenth of the size below the baseline).
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTextDecoration(
+    r: TextLayoutResult, line: Int, style: Int, textStyle: androidx.compose.ui.text.TextStyle, color: Color,
+) {
+    val size = if (textStyle.fontSize.isSp) textStyle.fontSize.toPx() else 14.sp.toPx()
+    val thick = (size / 18f).coerceAtLeast(1f)
+    val effect = borderDashes(style, thick)
+    for (i in 0 until r.lineCount) {
+        val left = r.getLineLeft(i)
+        val right = r.getLineRight(i)
+        if (right <= left) continue
+        val base = r.getLineBaseline(i)
+        val y = if (line == Registry.TextDecorationLine.LINE_THROUGH) base - size * 0.27f else base + size * 0.11f
+        drawLine(color, Offset(left, y), Offset(right, y), thick, pathEffect = effect)
     }
 }

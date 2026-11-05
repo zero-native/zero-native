@@ -48,7 +48,7 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `View` (overlay, `position: "absolute"`) | [`Stack`](../packages/ui/src/index.ts) | different | Absolute children work only inside `Stack`. `zIndex` too: on a child of any other element it is a build error (since 2026-11-05; before, it was laid out in the flow), except at a component's root, where the compiler can't see the parent. `left` / `right` are `start` / `end`. Normal children stretch to the Stack's width as in RN (since 2026-11-05), but they overlap instead of flowing down. |
 | `View` (plain box) | [`Box`](../packages/ui/src/index.ts) | renamed | Use for a decoration layer or one-child wrapper. |
 | `Fragment` / `<>` | `<>...</>` ([compile.ts](../compiler/src/compile.ts), fragments) | same | `<React.Fragment>` is rejected: write `<>`. |
-| `Text` | [`Text`](../packages/ui/src/index.ts) | different | Text lives only in `Text`. Nested `<Text>` spans work. `allowFontScaling={false}` = `maxFontScale={1}`; `ellipsizeMode="tail"` is accepted (zn always cuts the end) (since 2026-11-05). Missing: `selectable`, `adjustsFontSizeToFit`, `onPress` (a build error since 2026-11-05: wrap it in `Pressable`). |
+| `Text` | [`Text`](../packages/ui/src/index.ts) | different | Text lives only in `Text`. Nested `<Text>` spans work, also from data (`{parts.map((p) => <Text>...)}`, `&&`, runtime styles) and with `onPress` on a span (registry 16, since 2026-11-05; guide §18). `allowFontScaling={false}` = `maxFontScale={1}`; `ellipsizeMode="tail"` is accepted (zn always cuts the end) (since 2026-11-05). Missing: `selectable`, `adjustsFontSizeToFit`, `onPress` on a whole `Text` (a build error since 2026-11-05: wrap it in `Pressable`; on a nested span it works). |
 | `Image` (`source={{ uri }}`) | [`Image src`](../packages/ui/src/index.ts) | renamed | `source={{ uri: u }}` becomes `src={u}`. `require("./a.png")` becomes `src="asset:images/a.png"` (an `assets/` folder next to `src/`). |
 | `Image source={{ uri }}`, `resizeMode` | `src`, [`contentScale`](../packages/ui/src/index.ts) | same | Both RN names work (since 2026-11-05): `source={{ uri }}` (also a runtime uri) is `src`; `resizeMode` `cover`, `contain`, `stretch` (= `fill`). `require("./a.png")`, `center`, `repeat`: build errors with a hint. |
 | `Image defaultSource` | [`fallbackSrc`](../packages/ui/src/index.ts) | different | `fallbackSrc` shows on **error**, not while loading. For a loading look use `loading="shimmer"`. |
@@ -128,7 +128,8 @@ known at build time (section 0).
 | `borderRadius`, `borderWidth`, `borderColor` | same | same | `borderWidth` and `borderColor` can change at runtime (registry 15). |
 | `borderTopWidth`, `borderBottomWidth` | same | same | Both use the one `borderColor`. |
 | `borderTopLeftRadius` and the other corner keys | same | same | Registry 15. `Left` / `Right` are drawn as `Start` / `End`. |
-| `borderLeftWidth`, `borderRightWidth`, `borderStyle`, per-side colours | none | missing | Nest a `Box`, or draw a divider as a thin `Box`. |
+| `borderStyle` | same | same | Registry 16 (since 2026-11-05): `"solid"`, `"dashed"`, `"dotted"`, for `borderWidth` and the top / bottom lines, with RN Android's dash lengths. |
+| `borderLeftWidth`, `borderRightWidth`, per-side colours | none | missing | Nest a `Box`, or draw a divider as a thin `Box`. |
 | `shadowOffset`, `shadowOpacity`, `shadowRadius` | accepted, dropped | same | As RN on Android: the shadow comes from `elevation` and `shadowColor` (registry 15 build; no registry need). |
 | `overflow` | same | different | `visible` or `hidden` only (`scroll` is missing). |
 | `zIndex` | same | different | Only inside `Stack`. |
@@ -139,7 +140,9 @@ known at build time (section 0).
 | `textAlign` | same | same | `left` / `auto` = `start`, `right` = `end` (since 2026-11-05 as written; they flip in right-to-left). `justify` is a build error. |
 | `maxFontScale` | same | different | New key (RN has `maxFontSizeMultiplier`). |
 | `textTransform` | same | same | Registry 15, also on runtime text. |
-| `fontFamily`, `textAlignVertical`, `includeFontPadding`, `textShadow*`, `userSelect` | none | missing | Only the system font. Custom fonts are not built. With no `textAlignVertical`, a single-line `TextField` centres its text vertically (as RN on Android) and a multiline one starts at the top (RN centres it; apps add `textAlignVertical="top"`) (2026-11-05). |
+| `includeFontPadding` | same | different | Registry 16 (since 2026-11-05). zn's default is `false` (RN Android's is `true`): write `true` to get RN's 2-3 dp taller lines. |
+| `textDecorationStyle` | same | different | Registry 16: `"solid"`, `"dashed"`, `"dotted"` with an underline or line-through, on a whole `Text` (not a span). RN draws this on iOS only; zn draws it on Android too. `"double"` / `"wavy"` are a build error. |
+| `fontFamily`, `textAlignVertical`, `textShadow*`, `userSelect` | none | missing | Only the system font. Custom fonts are not built. With no `textAlignVertical`, a single-line `TextField` centres its text vertically (as RN on Android) and a multiline one starts at the top (RN centres it; apps add `textAlignVertical="top"`) (2026-11-05). |
 | `resizeMode` (as a style) | `contentScale` prop | renamed | See Image. `tintColor` on `Image`: see Image. |
 
 ## 3. Navigation

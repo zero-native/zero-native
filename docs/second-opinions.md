@@ -1708,3 +1708,40 @@ change, and what evidence would make you change it?"
   "Absolute children take no room" (Stack 41 dp from its text, shape 120 dp stretched over the next row, end/bottom
   dot, 220 dp bubble from a 120 dp Stack), Tabs lab (Scan button 25 dp up and centred, badges incl. "₹22.1k+"),
   Offers banner, the older contentContainerStyle FAB; no missing-module error in the sample.
+
+## 128. Registry 16: runtime text spans with onPress, dashed and dotted lines, includeFontPadding (compiler + JS core + runtime, built 2026-11-05)
+- **Where:** `compile.ts` `needsRuntimeSpans` / `runtimeSpans`; `packages/core/src/text-spans.ts`; `ZnRenderer.kt` TEXT
+  branch, `spannedText`, `drawTextDecoration`; `ZnTemplate.kt` `znDashedBorder`, `borderDashes`, `parseSpanPresses`;
+  `registry.ts` (16: `includeFontPadding` 281, `borderStyle` 282, `textDecorationStyle` 283, `spans` dynamic,
+  `onSpanPress` event 23).
+- **Asked:** ZeroBill port asks R28, R11 / R23 / R7, R16 / R21 / R22. Pavan: R28 option A (opt-in, off by default);
+  dashed lines and spans "required" before the pilot (checkout divider, Platform Fee label, Welcome Terms / Privacy).
+- **Chosen:**
+  1. Spans: when a `<Text>` has JSX inside an expression (`.map`, `&&`, `? :`) or a nested `<Text>` with a runtime
+     value or `onPress`, the compiler turns its children into one JS expression (`span(style, onPress, children)`,
+     spliced into the code as written) and `runs()` flattens it in a `computed` into the same two values as
+     build-time spans: texts joined by U+001F, styles as JSON. Two slots, one event (`onSpanPress`, payload = span
+     index). Native makes each `onPress` span a Compose `LinkAnnotation.Clickable`. Static spans are unchanged.
+  2. `borderStyle` dashed / dotted: the shape stroked along the middle of the border, and the top / bottom lines as
+     dashed lines, with RN Android's pattern (dashed 3w on 3w off, dotted 1w 1w). Works with a runtime border width
+     or colour.
+  3. `textDecorationStyle` dashed / dotted: Compose has only solid lines, so the renderer draws the line itself from
+     the text layout (each line's left, right and baseline; about size/18 thick, size/10 under the baseline). Whole
+     `Text` only, not spans.
+  4. `includeFontPadding: true` = Compose `PlatformTextStyle(includeFontPadding = true)`. Default stays false.
+  Registry 16 had been held for the paused compiler pack G3 / G4; it is used here (G3 / G4 take the next number).
+- **Why:** RN code builds bold parts from server text, links inside sentences and dashed dividers this way; LLMs and
+  migrators write it first time. Two slots keep native's one format for spans, so nothing new to parse.
+- **Risk if wrong:** a runtime-spans `<Text>` is empty until JS runs (a skeleton without that text). Unknown style keys
+  at runtime are dropped silently (written ones fail the build). Span handlers are the ones from the last rebuild of
+  the text (a handler that reads a signal still reads it when tapped). RN Android draws textDecorationStyle solid, so
+  zn now differs from RN Android there (on purpose: it matches the design and iOS). The underline place is close to
+  Android's, not exact. `PlatformTextStyle(includeFontPadding)` is deprecated in Compose and may go; then R28 needs
+  another way.
+- **Other options:** spans: a `<Text spans={[...]}>` prop (not RN's shape; an LLM won't write it), or a Markdown
+  plugin first (later, on top of this). Dashes: a per-span textDecorationStyle (needs drawing per span range).
+  includeFontPadding on by default (every existing zn screen would grow 2-3 dp per line).
+- **Evidence wanted:** Lava: the port's Welcome Terms / Privacy, checkout divider, TxnInfo labels; TalkBack on the
+  links. Checked on the Android 13 emulator: RN props lab "Dashed lines, font padding, spans": dashed pill, dotted
+  box, dashed divider, dashed underline and dotted line-through, includeFontPadding 2.3 dp taller, Terms and Privacy
+  taps logged (a tap on plain text does nothing), bold spans from data change colour and an `&&` span appears.

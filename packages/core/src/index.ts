@@ -37,6 +37,7 @@ export {
   type View,
 } from "./view"
 export { onEvent } from "./events"
+export { pressSpan, runs, span, type Runs, type Span } from "./text-spans"
 export { nav, onNavResult, restorableSignal, startApp, useBack, useFocus, useImpressions, type AppOptions, type ImpressionOptions, type OpenedLink, type Register } from "./nav"
 export { useTabs, type TabsHandle, type TabsOptions } from "./tabs"
 export { insets, type Insets } from "./insets"

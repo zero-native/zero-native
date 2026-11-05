@@ -410,8 +410,18 @@ function Card(props: { header: Children; children?: Children }) {
 - **Do:** style part of a sentence with nested `<Text>`: `Pay <Text fontWeight="bold">₹400</Text> now`. It is one
   native text, so it wraps and ellipsizes as one.
 - **Don't:** read, count or `.map` children: they are a recipe the component places, not data. Pass data as props.
-- **Don't:** change a span's style at runtime yet (colour from a signal, etc.) or put `onPress` on a span: build
-  error. Use separate `<Text>` elements in a `<Row>` for that for now.
+- **Do (since 2026-11-05, registry 16):** build spans from data and tap them, as in RN:
+  ```tsx
+  <Text>By continuing you agree to <Text style={link} onPress={openTerms}>Terms</Text>.</Text>
+  <Text>{parts.map((p, i) => <Text key={i} style={p.bold ? bold : null}>{p.text}</Text>)}</Text>
+  ```
+  A span's style can change at runtime, and `&&` / `? :` work inside `<Text>`. It is still one native text, and
+  each `onPress` span is a link for TalkBack.
+- **Know:** a span can change only `color`, `fontSize`, `fontWeight`, `fontStyle`, `textDecorationLine`,
+  `letterSpacing`, `backgroundColor`, and take `onPress` (no other event). Written keys outside that list fail the
+  build; at runtime they are dropped. A `<Text>` whose spans change at runtime is empty until JS runs (the
+  skeleton shows no text for it). Spans fixed at build time still show at once.
+- **Don't:** put `onPress` on a whole `<Text>`: wrap it in a `<Pressable>` (a build error).
 - **Why:** the parent's JSX keeps its own template and its own variables; the child only says where it goes. That
   keeps one template per piece of UI, with no copying of props through layers.
 
@@ -1615,6 +1625,13 @@ change: 14).
   height, and a scroll has no content height.
 - An absolute `<Svg>` with `start` + `end` (or `top` + `bottom`) takes that size from its Stack, so
   `preserveAspectRatio="none"` stretches it to the box (R30). Before, the viewBox shape set the other side.
+- `borderStyle: "dashed" | "dotted"` (registry 16) on `borderWidth` and on `borderTopWidth` / `borderBottomWidth` (a
+  dashed divider: `borderBottomWidth: 1, borderStyle: "dashed"`). `textDecorationStyle: "dashed" | "dotted"` with
+  `textDecorationLine` on a whole `Text` (a "Platform Fee" label). **Know:** RN draws textDecorationStyle on iOS only;
+  zn draws it on Android too, so a ported screen now shows the dashed line its designer meant.
+- `includeFontPadding: true` (registry 16) gives a `Text` RN Android's extra 2-3 dp per line. **Know:** zn's default
+  is false, as in Compose and Flutter, so text blocks are a little shorter than in RN. Only set it where a screen must
+  match RN to the dp.
 - `textTransform`: `"uppercase"`, `"lowercase"`, `"capitalize"`, also for text that changes at runtime. capitalize works
   as RN's Android code does: the first letter of each word upper case, the rest lower case ("don't" is one word).
 

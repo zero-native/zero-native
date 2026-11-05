@@ -4,6 +4,14 @@ import { Box, Column, Image, List, Modal, NavigationBar, Polygon, Pressable, Row
 import { Alert, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
+/** Bold parts from data, as a server's "**₹400** cashback" turned into parts (ask R21). */
+const SPAN_PARTS = [
+  { text: "You got ", bold: false },
+  { text: "₹400", bold: true },
+  { text: " cashback at ", bold: false },
+  { text: "Ravi Stores", bold: true },
+]
+
 function PropsTitle(props: { text: string }) {
   return (
     <Text fontSize={15} fontWeight={700} color={c.ink} style={{ marginTop: 8 }}>
@@ -51,6 +59,7 @@ export function RnPropsLabScreen() {
   const page = signal(false)
   const note = signal("")
   const lightBars = signal(false)
+  const spanHot = signal(false)
   const barHidden = signal(false)
   const stickyAt = signal<number[]>([0, 20])
 
@@ -268,6 +277,58 @@ export function RnPropsLabScreen() {
           </Column>
         </Stack>
         <Box style={{ height: 56 }} />
+
+        {/* 2026-11-05, registry 16 from the ZeroBill port (R11 / R23 / R7, R28, R16 / R21 / R22). */}
+        <PropsTitle text="Dashed lines, font padding, spans" />
+        <Row gap={12} alignItems="center">
+          <Box testID="dash-pill" style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5, borderStyle: "dashed", borderColor: c.primary }}>
+            <Text fontSize={14} fontWeight={700} color={c.primary}>
+              ZB4K2Q
+            </Text>
+          </Box>
+          <Box testID="dot-box" style={{ width: 48, height: 32, borderWidth: 2, borderStyle: "dotted", borderColor: c.ink }} />
+        </Row>
+        <Row testID="dash-divider" style={{ paddingVertical: 8, borderBottomWidth: 1, borderStyle: "dashed", borderColor: "#9CA3AF" }}>
+          <Text fontSize={13} color={c.ink}>
+            Row with a dashed bottom line
+          </Text>
+        </Row>
+        <Row gap={16}>
+          <Text testID="fee-label" fontSize={14} color={c.ink} style={{ textDecorationLine: "underline", textDecorationStyle: "dashed" }}>
+            Platform Fee
+          </Text>
+          <Text fontSize={14} color={c.ink} style={{ textDecorationLine: "line-through", textDecorationStyle: "dotted" }}>
+            ₹499
+          </Text>
+        </Row>
+        <Row gap={12} alignItems="flex-start">
+          <Text testID="pad-off" fontSize={14} color={c.ink} style={{ backgroundColor: "#E5E7EB" }}>
+            No font padding
+          </Text>
+          <Text testID="pad-on" fontSize={14} color={c.ink} style={{ backgroundColor: "#E5E7EB", includeFontPadding: true }}>
+            includeFontPadding
+          </Text>
+        </Row>
+        <Text testID="span-terms" fontSize={13} color={c.ink}>
+          By continuing you agree to{" "}
+          <Text style={{ color: c.primary, textDecorationLine: "underline" }} onPress={() => say("span terms")}>
+            Terms
+          </Text>{" "}
+          and{" "}
+          <Text style={{ color: c.primary, textDecorationLine: "underline" }} onPress={() => say("span privacy")}>
+            Privacy
+          </Text>
+          .
+        </Text>
+        <Text testID="span-bold" fontSize={13} color={c.ink}>
+          {SPAN_PARTS.map((p, i) => (
+            <Text key={i} style={p.bold ? { fontWeight: "bold", color: spanHot() ? "#B91B1B" : "#047857" } : null}>
+              {p.text}
+            </Text>
+          ))}
+          {spanHot() && <Text style={{ fontStyle: "italic" }}> (changed)</Text>}
+        </Text>
+        <HoldTile label="Change the span colour" onPress={() => spanHot.set(!spanHot())} />
 
         <PropsTitle text="Modal" />
         <HoldTile label="Open dialog modal" onPress={() => dialog.set(true)} />

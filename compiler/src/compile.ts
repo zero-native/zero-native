@@ -81,6 +81,8 @@ export interface ComponentRoots {
 }
 
 const RUNTIME = "__zn"
+/** What a nested <Text> span can change (ZnTemplate.kt parseSpans; core text-spans.ts for spans at runtime). */
+const SPAN_STYLE_KEYS = ["color", "fontSize", "fontWeight", "fontStyle", "textDecorationLine", "letterSpacing", "backgroundColor"]
 const UI_MODULE = "@zero-native/ui"
 type JsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment
 
@@ -2283,6 +2285,7 @@ export function compileModule(
 
   /** <Text> content: literal text and {expressions}. All constant → static text; otherwise one text slot. */
   function textChildren(node: ts.Node, kids: ts.NodeArray<ts.JsxChild>, props: Record<string, unknown>, b: Builder) {
+    if (needsRuntimeSpans(kids)) return runtimeSpans(node, kids, props, b)
     type Part = { lit: string } | { expr: ts.Expression }
     // Spans: nested <Text> elements. Each run of text with one style is a span; the outer text's own runs have style {}.
     const spans: Array<{ style: Record<string, unknown>; parts: Part[] }> = []
@@ -2335,12 +2338,154 @@ export function compileModule(
   }
 
   /**
+   * Whether a <Text>'s spans change at runtime (registry 16): a `{expression}` child that holds <Text> spans
+   * (`{parts.map((p) => <Text ...>)}`, `{cond && <Text>}`), or a nested <Text> with a runtime value or an `onPress`.
+   * A JSX const inside <Text> still fails (in textChildren): it is a View, not a span.
+   */
+  function needsRuntimeSpans(kids: ts.NodeArray<ts.JsxChild>): boolean {
+    const dynamicSpan = (el: ts.JsxElement | ts.JsxSelfClosingElement): boolean => {
+      for (const attr of (ts.isJsxElement(el) ? el.openingElement : el).attributes.properties) {
+        if (ts.isJsxSpreadAttribute(attr)) return false // spanStyle says spreads aren't supported
+        const name = attr.name.getText(sf)
+        if (name === "key") continue
+        if (name in EventKind) return true
+        const init = attr.initializer
+        if (init && ts.isJsxExpression(init) && init.expression && fold(init.expression, scope) === NOT_STATIC) return true
+      }
+      return ts.isJsxElement(el) && needsRuntimeSpans(el.children)
+    }
+    for (const k of kids) {
+      if (ts.isJsxExpression(k) && k.expression) {
+        let jsx = isJsx(unwrap(k.expression))
+        forEachDescendant(k.expression, (n) => {
+          if (isJsx(n)) jsx = true
+        })
+        if (jsx) return true
+      } else if ((ts.isJsxElement(k) || ts.isJsxSelfClosingElement(k)) && tagName(k) === "Text" && dynamicSpan(k)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * A <Text> whose spans change at runtime (registry 16, core text-spans.ts). Its children become one JS expression:
+   * text and `{expressions}` as they are, each nested <Text> as `span(style, onPress, children)` (also inside `.map`,
+   * `&&` and `? :`). `runs()` flattens it, in a computed, into two slots: the spans' texts joined by U+001F and their
+   * styles as JSON, the same form as build-time spans. A span's onPress comes back on onSpanPress with its index.
+   * Before JS runs the text is empty.
+   */
+  function runtimeSpans(node: ts.Node, kids: ts.NodeArray<ts.JsxChild>, props: Record<string, unknown>, b: Builder) {
+    if ("text" in props) fail(node, "use either the text prop or children, not both")
+    const keys = SPAN_STYLE_KEYS
+    let press = false
+    const checkStatic = (v: unknown, at: ts.Node) => {
+      if (v === null || v === undefined || v === false) return
+      if (Array.isArray(v)) return v.forEach((x) => checkStatic(x, at))
+      if (typeof v !== "object") fail(at, "style entries must be objects")
+      for (const k of Object.keys(v as object)) {
+        if (!keys.includes(k)) fail(at, `"${k}" isn't supported on a nested <Text> span (use ${keys.join(", ")})`)
+      }
+    }
+    const children = (list: ts.NodeArray<ts.JsxChild>): string => {
+      const out: string[] = []
+      for (const c of list) {
+        if (ts.isJsxText(c)) {
+          const t = jsxText(c.text)
+          if (t) out.push(JSON.stringify(t))
+        } else if (ts.isJsxExpression(c)) {
+          if (c.expression) out.push(spliced(c.expression))
+        } else if (ts.isJsxFragment(c)) {
+          out.push(`[${children(c.children)}]`)
+        } else if ((ts.isJsxElement(c) || ts.isJsxSelfClosingElement(c)) && tagName(c) === "Text") {
+          out.push(spanCall(c))
+        } else {
+          fail(c, "<Text> can only contain text, {expressions} and nested <Text> spans")
+        }
+      }
+      return out.join(", ")
+    }
+    const spanCall = (el: ts.JsxElement | ts.JsxSelfClosingElement): string => {
+      const style: string[] = []
+      let onPress = "undefined"
+      for (const attr of (ts.isJsxElement(el) ? el.openingElement : el).attributes.properties) {
+        if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
+        const a = attr as ts.JsxAttribute
+        const name = a.name.getText(sf)
+        if (name === "key") continue
+        const init = a.initializer
+        const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
+        const code =
+          !init ? "true"
+          : ts.isStringLiteral(init) ? JSON.stringify(init.text)
+          : expr ? spliced(expr)
+          : fail(a, `unsupported value for "${name}"`)
+        if (name === "onPress") {
+          press = true
+          onPress = code
+          continue
+        }
+        if (name in EventKind) fail(a, `${name} on a nested <Text> span isn't supported (only onPress)`)
+        if (name === "style") {
+          if (expr) {
+            const v = fold(expr, scope)
+            if (v !== NOT_STATIC) checkStatic(v, a)
+          }
+          style.push(code)
+        } else if (keys.includes(name)) {
+          style.push(`{ ${JSON.stringify(name)}: ${code} }`)
+        } else {
+          fail(a, `"${name}" isn't supported on a nested <Text> span (use ${keys.join(", ")}, or onPress)`)
+        }
+      }
+      const inner = ts.isJsxElement(el) ? children(el.children) : ""
+      return `${RUNTIME}.span([${style.join(", ")}], ${onPress}, [${inner}])`
+    }
+    // An expression as written, with each JSX in it (a span, or a fragment of spans) replaced by its span call.
+    const spliced = (e: ts.Expression): string => {
+      const jsx: ts.Node[] = []
+      const visit = (n: ts.Node) => {
+        if (isJsx(n)) jsx.push(n)
+        else ts.forEachChild(n, visit)
+      }
+      visit(e)
+      let out = ""
+      let at = e.getStart(sf)
+      for (const j of jsx) {
+        const start = j.getStart(sf)
+        if (start > at) out += markCopied(at, source.slice(at, start))
+        if (ts.isJsxFragment(j)) out += `[${children(j.children)}]`
+        else if (tagName(j as ts.JsxElement) === "Text") out += spanCall(j as ts.JsxElement)
+        else fail(j, `<${tagName(j as ts.JsxElement)}> can't be inside <Text>: only nested <Text> spans`)
+        at = j.getEnd()
+      }
+      if (e.getEnd() > at) out += markCopied(at, source.slice(at, e.getEnd()))
+      return out
+    }
+
+    const code = children(kids)
+    const r = `__znr${b.slots}`
+    const text = `s${b.slots++}`
+    const spans = `s${b.slots++}`
+    props.text = slotRef(text, "") as never
+    props.spans = slotRef(spans, "[]") as never
+    b.binds.push(`const ${r} = ${RUNTIME}.computed(() => ${RUNTIME}.runs([${code}]));`)
+    b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${text}@@, () => ${r}().text, 0);`)
+    b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${spans}@@, () => ${r}().spans, 0);`)
+    if (press) {
+      const ev = `e${b.events++}`
+      props.onSpanPress = eventRef(ev)
+      b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => ${RUNTIME}.pressSpan(${r}(), __znPayload));`)
+    }
+  }
+
+  /**
    * A nested <Text>'s own style, for its span. Build-time values only, and only what a span can change: colour, size,
    * weight, italic, underline / line-through, letter spacing, background. Values go to native as in templates
    * (colours as ARGB numbers, enums as their numbers).
    */
   function spanStyle(node: ts.JsxElement | ts.JsxSelfClosingElement): Record<string, unknown> {
-    const allowed = ["color", "fontSize", "fontWeight", "fontStyle", "textDecorationLine", "letterSpacing", "backgroundColor"]
+    const allowed = SPAN_STYLE_KEYS
     const out: Record<string, unknown> = {}
     const put = (key: string, value: unknown, at: ts.Node) => {
       if (!allowed.includes(key)) fail(at, `"${key}" isn't supported on a nested <Text> span (use ${allowed.join(", ")})`)

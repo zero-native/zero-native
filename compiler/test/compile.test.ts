@@ -675,13 +675,45 @@ describe("fragments, children and spans (step 3.2)", () => {
     expect(code).toContain(`() => "Hi " + ${sep} + __zn.str(name()) + ${sep} + "!"`)
   })
 
-  test("spans reject runtime styles and events", () => {
-    expect(() =>
-      compile(`export function T() { const c = signal("#000"); return <Text>a <Text color={c()}>b</Text></Text> }`),
-    ).toThrow(/must be known at build time/)
-    expect(() => compile(`export function T() { return <Text>a <Text onPress={() => 1}>b</Text></Text> }`)).toThrow(
-      /isn't supported yet/,
+  test("registry 16: a runtime span style becomes runtime spans (two slots from one runs() computed)", () => {
+    const { templates, code } = compile(`export function T() { const c = signal("#000"); return <Text>a <Text color={c()}>b</Text></Text> }`)
+    const t = templates[0]
+    expect((t.props as any).text).toEqual({ $slot: "s0", default: "" })
+    expect((t.props as any).spans).toEqual({ $slot: "s1", default: "[]" })
+    expect(code).toContain(`const __znr0 = __zn.computed(() => __zn.runs(["a ", __zn.span([{ "color": c() }], undefined, ["b"])]));`)
+    expect(code).toContain("__zn.slot(__i0, 0, () => __znr0().text, 0);")
+    expect(code).toContain("__zn.slot(__i0, 1, () => __znr0().spans, 0);")
+    expect((t.props as any).onSpanPress).toBeUndefined()
+  })
+
+  test("registry 16: onPress on a span, spans from .map and &&, with style and key", () => {
+    const { templates, code } = compile(`
+      export function T(props) {
+        return (
+          <Text style={{ fontSize: 14 }}>
+            By continuing you agree to <Text style={{ color: "#3D26ED" }} onPress={() => open("terms")}>Terms</Text>
+            {props.parts.map((p, i) => <Text key={i} style={p.bold ? { fontWeight: "bold" } : null}>{p.text}</Text>)}
+            {props.vip && <Text color="#047857"> (VIP)</Text>}
+          </Text>
+        )
+      }`)
+    const t = templates[0]
+    expect((t.props as any).onSpanPress).toEqual({ $event: "e0" })
+    expect(code).toContain(`__zn.span([{ color: "#3D26ED" }], () => open("terms"), ["Terms"])`)
+    expect(code).toContain(`props.parts.map((p, i) => __zn.span([p.bold ? { fontWeight: "bold" } : null], undefined, [p.text]))`)
+    expect(code).toContain(`props.vip && __zn.span([{ "color": "#047857" }], undefined, [" (VIP)"])`)
+    expect(code).toMatch(/__zn\.on\(__i0, \d+, \(__znPayload\) => __zn\.pressSpan\(__znr0\(\), __znPayload\)\);/)
+  })
+
+  test("runtime spans: only <Text> inside, only span keys, only onPress", () => {
+    expect(() => compile(`export function T(p) { return <Text>{p.on && <Column />}</Text> }`)).toThrow(/can't be inside <Text>/)
+    expect(() => compile(`export function T(p) { return <Text>a <Text style={{ padding: 4 }} onPress={p.go}>b</Text></Text> }`)).toThrow(
+      /"padding" isn't supported on a nested <Text> span/,
     )
+    expect(() => compile(`export function T(p) { return <Text>a <Text onLongPress={p.go}>b</Text></Text> }`)).toThrow(/only onPress/)
+    expect(() => compile(`export function T(p) { return <Text>a <Text numberOfLines={p.n}>b</Text></Text> }`)).toThrow(/isn't supported on a nested/)
+    // A whole <Text> still can't take a tap: wrap it.
+    expect(() => compile(`export function T(p) { return <Text onPress={p.go}>b</Text> }`)).toThrow(/works only on <Pressable>/)
   })
 
   test("a controlled TextField wraps onChangeText with textInput()", () => {

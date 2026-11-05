@@ -84,6 +84,8 @@ export interface StyleProps {
   borderColor?: Color
   borderTopWidth?: number
   borderBottomWidth?: number
+  /** As in React Native (registry 16): the border and the top / bottom lines drawn dashed or dotted. */
+  borderStyle?: "solid" | "dashed" | "dotted"
   elevation?: number
   shadowColor?: Color
   /** iOS only, as in React Native on Android: accepted and ignored. Android shadows come from `elevation`. */
@@ -146,6 +148,16 @@ export interface TextStyleProps {
   letterSpacing?: number
   fontStyle?: "normal" | "italic"
   textDecorationLine?: "none" | "underline" | "line-through"
+  /**
+   * The underline / line-through drawn dashed or dotted (registry 16). RN draws this on iOS only; zn draws it on
+   * Android too. Not on a nested span.
+   */
+  textDecorationStyle?: "solid" | "dashed" | "dotted"
+  /**
+   * RN Android's extra space above and below each line (registry 16). zn's default is false (as Compose); true makes a
+   * line 2-3 dp taller, as an RN <Text> on Android.
+   */
+  includeFontPadding?: boolean
   /** As in React Native: changes the case as it draws, also for text that changes at runtime (registry 15). */
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize"
   /** Cap the font scale factor (size * min(fontScale, maxFontScale)) for this text node. */
@@ -296,6 +308,11 @@ export declare const Text: Intrinsic<
       allowFontScaling?: boolean
       /** zero-native always cuts the end ("tail"). */
       ellipsizeMode?: "tail"
+      /**
+       * Only on a nested <Text> span (registry 16): a tap on that piece of text, as an RN link
+       * (`By continuing you agree to <Text onPress={openTerms}>Terms</Text>`). On a whole <Text>, wrap it in a Pressable.
+       */
+      onPress?: () => void
     }
 >
 /** `src`: an https URL or "asset:path". null / undefined shows nothing (the box keeps its size). */

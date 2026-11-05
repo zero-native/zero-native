@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 15 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 16 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -36,6 +36,9 @@ export const REGISTRY_VERSION = 15 // 2: Anchor. 3: transforms, shadow, absolute
 //     change at runtime; pointerEvents (can change at runtime), Pressable hitSlop; Image tintColor, onLoad, onError,
 //     onLoadEnd; onLayout; Modal (transparent, animationType, statusBarTranslucent, navigationBarTranslucent,
 //     onRequestClose, onShow); StatusBar and NavigationBar (barStyle, hidden, backgroundColor; can change at runtime); List stickyHeaderIndices.
+// 16: from the ZeroBill port (asks R28, R11/R23/R7, R16/R21/R22; second-opinions 128): Text includeFontPadding;
+//     borderStyle dashed / dotted; Text textDecorationStyle dashed / dotted; text spans that change at runtime (spans
+//     from a slot) and onSpanPress (a nested <Text onPress>).
 
 export const Component = {
   Column: 1,
@@ -377,6 +380,15 @@ export const Prop = {
    * pinned at the top while their part of the list scrolls; the next one pushes it up.
    */
   stickyHeaderIndices: { id: 280, type: "string" },
+  /**
+   * <Text> RN includeFontPadding (registry 16): true keeps Android's extra space above and below each line, as an RN
+   * <Text> on Android has by default (2-3 dp per line). zn's default is false (as Compose and Flutter draw text).
+   */
+  includeFontPadding: { id: 281, type: "bool" },
+  /** RN borderStyle (registry 16): "solid" (default), "dashed" or "dotted", for borderWidth and the top / bottom lines. */
+  borderStyle: { id: 282, type: "enum" },
+  /** <Text> RN textDecorationStyle (registry 16): "solid" (default), "dashed" or "dotted" underline / line-through. */
+  textDecorationStyle: { id: 283, type: "enum" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -417,6 +429,8 @@ export const Enum = {
   pointerEvents: { auto: 0, none: 1, "box-none": 2, "box-only": 3 },
   animationType: { none: 0, slide: 1, fade: 2 },
   barStyle: { default: 0, "light-content": 1, "dark-content": 2 },
+  borderStyle: { solid: 0, dashed: 1, dotted: 2 },
+  textDecorationStyle: { solid: 0, dashed: 1, dotted: 2 },
 } as const satisfies Partial<Record<PropName, Record<string, number>>>
 
 /**
@@ -471,6 +485,11 @@ export const EventKind = {
   onRequestClose: 21,
   /** <Modal>: it is on screen (after its animation). */
   onShow: 22,
+  /**
+   * <Text> (registry 16, bound by the compiler): a nested <Text onPress> span was tapped. Payload: the span's index;
+   * JS runs that span's handler (core text-spans.ts).
+   */
+  onSpanPress: 23,
   // 16-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
   onValueChange: 30,
 } as const
@@ -523,6 +542,8 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "barStyle",
   "hidden",
   "stickyHeaderIndices",
+  // Registry 16: spans from data (core text-spans.ts); JSON as in the build-time form, read when it changes.
+  "spans",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -563,20 +584,23 @@ export const Added: {
     borderBottomEndRadius: 15, pointerEvents: 15, hitSlop: 15, tintColor: 15,
     transparent: 15, animationType: 15, statusBarTranslucent: 15, navigationBarTranslucent: 15, barStyle: 15, hidden: 15,
     stickyHeaderIndices: 15,
+    includeFontPadding: 16, borderStyle: 16, textDecorationStyle: 16,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
     paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13, hasLongPress: 14, borderColor: 15, borderWidth: 15,
-    pointerEvents: 15, tintColor: 15, barStyle: 15, hidden: 15, stickyHeaderIndices: 15,
+    pointerEvents: 15, tintColor: 15, barStyle: 15, hidden: 15, stickyHeaderIndices: 15, spans: 16,
   },
   enumValue: {
     "textTransform.none": 15, "textTransform.uppercase": 15, "textTransform.lowercase": 15, "textTransform.capitalize": 15,
     "pointerEvents.auto": 15, "pointerEvents.none": 15, "pointerEvents.box-none": 15, "pointerEvents.box-only": 15,
     "animationType.none": 15, "animationType.slide": 15, "animationType.fade": 15,
     "barStyle.default": 15, "barStyle.light-content": 15, "barStyle.dark-content": 15,
+    "borderStyle.solid": 16, "borderStyle.dashed": 16, "borderStyle.dotted": 16,
+    "textDecorationStyle.solid": 16, "textDecorationStyle.dashed": 16, "textDecorationStyle.dotted": 16,
   },
   event: { onNativeEvent: 9, ref: 10, onRefresh: 12, onLoad: 15, onError: 15, onLoadEnd: 15, onLayout: 15,
-    onRequestClose: 15, onShow: 15 },
+    onRequestClose: 15, onShow: 15, onSpanPress: 16 },
   format: { "timing.motion": 13, "svg.nonScaling": 13, "svg.effects": 13, "timing.tap": 13 },
 }
 
