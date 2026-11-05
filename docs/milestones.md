@@ -123,6 +123,16 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: scanner fix: the code reader never started in release builds (Claude)
+- **What:** in a release (R8 full mode) build without Firebase, R8 dropped the empty constructors of ML Kit's 3
+  registrar classes. ML Kit creates them by reflection, so the code reader never started and the scanner showed its
+  camera error (the ZeroBill pilot on the Lava). Cause: ML Kit pulls `firebase-components` 16.1.0, whose rule keeps
+  only the class names; 20.0.0 fixed it, and the sample got 20.0.0 through its Firebase plugin, so it never showed.
+  Fix: `plugins/scanner/android/consumer-rules.pro`, the same one rule as 20.0.0 (keep only `<init>()`).
+- **Tests:** the pilot's release APK read with `dexdump`: without the rule the 3 classes have no constructor; with it
+  they have one, and nothing else changes (APK 14,146,110 bytes both ways). Not yet run on the Lava with a real QR.
+- **Lesson:** the plugin phone tests ran only on debug builds. Plugins that use reflection need one release run.
+
 ### 2026-11-05: RN-compat sweep P0.1–P0.3: gap with justifyContent, no negative margin crash, effect cleanup (Claude)
 - **What:** (1) `gap` is kept with `justifyContent` center / flex-end / space-* (before, it was dropped), with
   Yoga's numbers: for space-* the gap is the smallest space (`ZnArrangement.kt`, second-opinions 112). (2) A negative

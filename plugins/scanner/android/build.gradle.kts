@@ -10,6 +10,8 @@ android {
 
     defaultConfig {
         minSdk = 24
+        // Keeps ML Kit's registrar constructors in the app's release (R8) build: see the file.
+        consumerProguardFiles("consumer-rules.pro")
     }
 
     buildFeatures {
