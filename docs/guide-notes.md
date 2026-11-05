@@ -2111,3 +2111,39 @@ inside the APK. The README has the API, the limits and the size (+85 KB). Code:
 - **Don't** use `colorFilters` colours from user data without care: a bad colour is left out with a warning, not shown.
 - **Know:** not supported: `imageAssetsFolder`, `textFiltersAndroid`, `duration`, `onAnimationLoop`, `onLayout`,
   `containerStyle`. Images inside the file (base64, or inside a `.lottie`) work.
+
+## 58. Markdown from the server (`@zero-native/markdown`)
+
+JS only, opt-in: add the package, nothing native ([README](../plugins/markdown/README.md), second-opinions 133–135).
+Built on the runtime text spans of registry 16 (§18). Lab: `zn://sample/dev/markdown`.
+
+```tsx
+<Markdown text={offer.details} onLinkPress={(url) => url.startsWith("https://") && Linking.openURL(url)} />
+<MarkdownText text={note.body} numberOfLines={2} style={{ fontSize: 13 }} />
+```
+
+- **Do** use `<Markdown>` for server text with blocks (offer details: headings, lists, links) and `<MarkdownText>` for
+  one line or a few (a notification card). **Why:** each block is one native `<Text>` with spans, so it wraps,
+  ellipsizes and reads in TalkBack as one text. No WebView, so no web page cost and no web page risks.
+- **Do** check every URL in `onLinkPress` (scheme and host) before you open it. **Why:** server text can hold any link
+  (`upi://`, `intent:`, `tel:`, a look-alike host). The package opens nothing by itself; with no `onLinkPress`, links
+  are not tappable at all.
+- **Do** give colours and sizes with `style` (body text) and `styles` (`h1`…`h6`, `strong`, `em`, `link`, `code`,
+  `quote`, `marker`, ...). Span keys only: `color`, `fontSize`, `fontWeight`, `fontStyle`, `textDecorationLine`,
+  `letterSpacing`, `backgroundColor`. They can change at runtime. Bold keeps the body colour; headings and links
+  have their own (change them in `styles`).
+- **Don't** expect to change the layout (block spacing, indents, line height, the quote and code boxes) from props.
+  **Why:** zn fixes layout at build time (§3). For other spacing, put it in your own `Column`; for another line
+  limit than 1–3, build your own `<Text numberOfLines={4}>` from `inlineSpans(text)`.
+- **Don't** put `testID` on `<Markdown>` (a build-time prop): wrap it in a `<Column testID="...">`.
+- **Don't** name your own component `Markdown` or `MarkdownText`. **Why:** component names are global in a zn app for
+  now; the build fails with "used in two files".
+- **Know:** lines inside a paragraph stay lines (ZeroBill's RN `MarkDownView` did the same; CommonMark joins them).
+  HTML stays text except `<u>` and `<br>`; images show only their alt text; tables and bare URLs are plain text.
+  Inline code has a grey background but no monospace font (a span can't change the font).
+- **Know:** the text is empty until JS runs (spans from data). For long articles (hundreds of blocks) use a `List`;
+  the parser stops at 20000 characters and 200 blocks by default (`limits`).
+- **Coming from RN `MarkDownView`:** `<MarkDownView onLinkPress={f}>{text}</MarkDownView>` becomes
+  `<Markdown text={text} onLinkPress={f} />`. The `components={{ h1: ... }}` overrides become `styles={{ h1: {...} }}`
+  (looks only, no custom components). Note: the RN view's default link ignored `onLinkPress` and always called
+  `Linking.openURL`; here a link does only what `onLinkPress` does.

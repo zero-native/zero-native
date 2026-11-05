@@ -150,6 +150,18 @@ Parked ideas: `docs/after-foundations.md`.
 - **Also:** the sample's and the runtime's release builds take `-PznX86Release` (also x86_64) for R8 checks on the
   emulator; the runtime needed it too for `libzn.so`.
 
+### 2026-11-05: `@zero-native/markdown`: server Markdown as native text (Claude)
+- **What:** asks R16 / R21 from the ZeroBill port (offer details, notifications). A JS-only, opt-in package:
+  `<Markdown>` (each block one native `<Text>` with spans from registry 16, in a `<Column>`) and `<MarkdownText>`
+  (inline, 1–3 lines). Own parser (~10 KB minified with the components, 3.7 KB gzip, ~27 KB Hermes bytecode). Links
+  only through the app's `onLinkPress`; no HTML, no images. Sample lab `zn://sample/dev/markdown`. README, guide §58,
+  second-opinions 133–135, plugins and rn-compatibility rows. No Kotlin, no registry change.
+- **Tests:** 34 package tests (parser, span styles, link taps, a compile of `Markdown.tsx`); the full `bun run test`
+  and type checks. Android 13 emulator, debug build: the lab draws every part right; four link taps reach
+  `onLinkPress` with the right URL and text (the lab's own check refuses `javascript:` and `zn://`); a tap on plain
+  text does nothing; text and style changes at runtime; the 2-line note ends with "…"; broken text shows as text, no
+  error. Not run on the Lava; TalkBack (headings, links) not tried; no release build.
+
 ### 2026-11-05: zIndex on a child of Column / Row / Box / Pressable (Claude)
 - **What:** R23 part 2 from the ZeroBill port: a row with `zIndex` draws its absolute tooltip over the rows after it,
   as in RN (before: only a Stack's children took zIndex, elsewhere a build error). Registry 16 (`ZINDEX_ANY_SINCE`),

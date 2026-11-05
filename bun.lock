@@ -29,6 +29,7 @@
         "@zero-native/firebase-app": "workspace:*",
         "@zero-native/location": "workspace:*",
         "@zero-native/lottie": "workspace:*",
+        "@zero-native/markdown": "workspace:*",
         "@zero-native/media": "workspace:*",
         "@zero-native/pdf": "workspace:*",
         "@zero-native/perf": "workspace:*",
@@ -101,6 +102,14 @@
     },
     "plugins/lottie": {
       "name": "@zero-native/lottie",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+        "@zero-native/ui": "workspace:*",
+      },
+    },
+    "plugins/markdown": {
+      "name": "@zero-native/markdown",
       "version": "0.0.0",
       "peerDependencies": {
         "@zero-native/core": "workspace:*",
@@ -180,6 +189,8 @@
     "@zero-native/location": ["@zero-native/location@workspace:plugins/location"],
 
     "@zero-native/lottie": ["@zero-native/lottie@workspace:plugins/lottie"],
+
+    "@zero-native/markdown": ["@zero-native/markdown@workspace:plugins/markdown"],
 
     "@zero-native/media": ["@zero-native/media@workspace:plugins/media"],
 

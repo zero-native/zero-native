@@ -1830,3 +1830,54 @@ change, and what evidence would make you change it?"
 - **Other options:** show the first frame with motion off; a `reducedMotion` prop; `https` sources through `ZnFetch`
   into a file, then `LottieCompositionSpec.File`.
 - **Evidence wanted:** ZeroBill's `.lottie` files in use (9) with motion off on the Lava (is each last frame a good still?).
+
+## 133. Markdown: our own small parser, not a library (`@zero-native/markdown`, built 2026-11-05)
+- **Where:** `plugins/markdown/src/parse.ts`; README; guide §58.
+- **Asked:** ZeroBill port asks R16 / R21 (offer details and notifications need bold, italic and links from server
+  Markdown). Pavan suggested a Markdown plugin; the parent session asked for "a small, fast parser of your own or a
+  small library: measure its JS size".
+- **Chosen:** our own parser, about 490 lines with comments: 5.3 KB minified for the parser, about 10 KB with the components (3.7 KB
+  gzip, about 27 KB of Hermes bytecode). It reads what ZeroBill's RN `MarkDownView` read (headings, lists, quotes,
+  lines, bold, italic, strike, `<u>`, code, links) plus fenced code, nested lists, escapes, `<br>` and autolinks. It
+  gives plain data (blocks of runs); the component maps runs to span styles.
+- **Why:** a library would either give HTML (snarkdown, marked: we'd parse it again) or a big token tree
+  (markdown-it: about 100 KB minified, many features we must then turn off for safety). We need a narrow, safe subset
+  and data we can map straight to spans. Every search in the parser is bounded, so broken server text stays linear
+  (a test parses 20000 characters of nothing but `*`, `_`, `[`, backticks, `~`, `<` and `(` in well under 0.5 s).
+- **Risk if wrong:** edge cases differ from CommonMark (emphasis rules are simpler: a closer is the next matching
+  delimiter with no space before it; lazy paragraph lines don't join list items). A server author who tests in a web
+  Markdown preview may see a small difference.
+- **Other options:** markdown-it with a token walker (full CommonMark, ~10× the size); micromark (exact, larger and
+  slower on Hermes); keep the RN view's regex split (smaller, but no nesting, and `*a **b** c*` breaks).
+- **Evidence wanted:** a dump of real `offer.details` and notification bodies from the server, run through
+  `parseMarkdown`, compared with what the RN app shows today.
+
+## 134. Markdown: lines inside a paragraph stay lines (`@zero-native/markdown`, built 2026-11-05)
+- **Where:** `parse.ts` `joinLines`, `parseMarkdown`.
+- **Chosen:** a single newline inside a paragraph is a line break, as in ZeroBill's RN `MarkDownView` (it joined lines
+  with `\n` and RN `Text` showed them). CommonMark would join them with a space. A list ends at a line that is neither
+  an item nor indented under one (also as the RN view did); CommonMark would join that line to the last item.
+- **Why:** the server's texts were written and checked against the RN view. Matching it keeps offers looking the
+  same after the port.
+- **Risk if wrong:** text written for a CommonMark renderer (a CMS, an admin tool with a web preview) shows hard line
+  breaks where the author wrapped lines.
+- **Other options:** a `softBreaks: "space" | "newline"` option (cheap to add when an app needs it).
+- **Evidence wanted:** the same server dump as entry 133: do offer texts contain wrapped lines meant as one line?
+
+## 135. Markdown: links do nothing unless the app says so; no HTML, no images (`@zero-native/markdown`, built 2026-11-05)
+- **Where:** `Markdown.tsx` `linkPress`; `parse.ts` (HTML, images); README "Limits".
+- **Chosen:** a link span is tappable only when the app passes `onLinkPress`, and the package opens nothing itself.
+  The URL goes to the app as written: no allow-list inside the package. HTML tags show as text (only `<u>` and `<br>`
+  are read, as in the RN view); `![alt](url)` shows only its alt text, so server text can't make the app load
+  anything.
+- **Why:** a payments app must decide which links open (https to its own hosts, `tel:`), and RN's `MarkDownView`
+  silently called `Linking.openURL` for any link (its default link ignored `onLinkPress`). Making the app write the
+  check keeps that decision in one visible place.
+- **Risk if wrong:** an app may write `onLinkPress={Linking.openURL}` and open whatever the server sends (`upi://`,
+  `intent:`). A built-in default allow-list (https only) would be safer by default but would surprise apps that want
+  `tel:` or deep links.
+- **Other options:** an `allowSchemes` prop with `["https"]` as default; showing a link's host before opening (a
+  confirm sheet) for hosts not on a list.
+- **Evidence wanted:** a security review of how the ZeroBill port writes `onLinkPress`. Checked on the Android 13
+  emulator: the lab's links reach `onLinkPress` with URL and text; `javascript:` and `zn://` were refused by the lab's
+  own check; with no `onLinkPress` nothing is tappable (unit test).

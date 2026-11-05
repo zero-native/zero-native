@@ -34,6 +34,7 @@ import { AnalyticsLabScreen } from "./AnalyticsLab"
 import { RemoteConfigLabScreen } from "./RemoteConfigLab"
 import { PerfLabScreen } from "./PerfLab"
 import { LottieLabScreen } from "./LottieLab"
+import { MarkdownLabScreen } from "./MarkdownLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -76,6 +77,7 @@ export const routes = defineRoutes({
   remoteConfigLab: { path: "/dev/remote-config", screen: RemoteConfigLabScreen, deepLink: true },
   perfLab: { path: "/dev/perf", screen: PerfLabScreen, deepLink: true },
   lottieLab: { path: "/dev/lottie", screen: LottieLabScreen, deepLink: true },
+  markdownLab: { path: "/dev/markdown", screen: MarkdownLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
