@@ -26,6 +26,7 @@
         "@zero-native/core": "workspace:*",
         "@zero-native/crashlytics": "workspace:*",
         "@zero-native/device-test": "workspace:*",
+        "@zero-native/document-scanner": "workspace:*",
         "@zero-native/firebase-app": "workspace:*",
         "@zero-native/location": "workspace:*",
         "@zero-native/lottie": "workspace:*",
@@ -81,6 +82,13 @@
     },
     "plugins/device-test": {
       "name": "@zero-native/device-test",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
+    "plugins/document-scanner": {
+      "name": "@zero-native/document-scanner",
       "version": "0.0.0",
       "peerDependencies": {
         "@zero-native/core": "workspace:*",
@@ -181,6 +189,8 @@
     "@zero-native/crashlytics": ["@zero-native/crashlytics@workspace:plugins/crashlytics"],
 
     "@zero-native/device-test": ["@zero-native/device-test@workspace:plugins/device-test"],
+
+    "@zero-native/document-scanner": ["@zero-native/document-scanner@workspace:plugins/document-scanner"],
 
     "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
 

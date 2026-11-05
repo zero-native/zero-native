@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nothing of our own. ML Kit's library brings its invisible delegate Activity, and no permission: the camera runs in
+     Google Play services, not in this app, so the app needs no CAMERA permission for a scan. -->
+<manifest />

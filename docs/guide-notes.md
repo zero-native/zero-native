@@ -1258,6 +1258,7 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 | `@zero-native/remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
 | `@zero-native/perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
 | `@zero-native/lottie` | Lottie animations (`.json`, `.lottie`) with lottie-react-native's names and `ref` methods (§57) | About 85 KB (lottie-compose, bundled) |
+| `@zero-native/document-scanner` | Google ML Kit's document scanner: pages as JPEG and / or a PDF, results that survive a kill (§60) | About 135 KB of code; the scanner itself is a Play services download, not in the APK |
 
 **Scanner.**
 - **Do** give the route `safeArea: "none"`. The camera runs under the status bar.
@@ -2147,3 +2148,57 @@ Built on the runtime text spans of registry 16 (§18). Lab: `zn://sample/dev/mar
   `<Markdown text={text} onLinkPress={f} />`. The `components={{ h1: ... }}` overrides become `styles={{ h1: {...} }}`
   (looks only, no custom components). Note: the RN view's default link ignored `onLinkPress` and always called
   `Linking.openURL`; here a link does only what `onLinkPress` does.
+
+## 60. Document scanner (`@zero-native/document-scanner`)
+
+Google ML Kit's document scanner: the camera finds the page, the user crops, rotates and adds pages, and the app gets JPEG
+pages and / or one PDF as `zn://file` handles plus `file://` uris. Names follow `react-native-document-scanner-plugin`
+(`scanDocument`, `maxNumDocuments`, `scannedImages`, `status: "success" | "cancel"`). The README has the whole API. Code:
+[DocScanModule.kt](../plugins/document-scanner/android/src/main/java/dev/zeronative/plugins/documentscanner/DocScanModule.kt),
+[DocScanRules.kt](../plugins/document-scanner/android/src/main/java/dev/zeronative/plugins/documentscanner/DocScanRules.kt),
+[index.ts](../plugins/document-scanner/src/index.ts). Lab: `zn://sample/dev/document-scanner`.
+
+```ts
+const r = await DocumentScanner.scanDocument({ maxNumDocuments: 5, formats: ["pdf"], tag: orderId })
+DocumentScanner.onResult((r, ack) => { if (r.tag === orderId) use(r); ack() })     // while the screen is built
+```
+
+**The scanner is a Play services download.** ML Kit has no bundled document scanner, so this plugin is the one exception to
+"bundle, don't download from Play" (second-opinions 139).
+- **Do** call `getStatus()` before you show the scan button, and `download()` early when it says `not_downloaded`. **Why:** the
+  first scan on a phone otherwise waits for Play's download, or answers `unavailable` / `not_downloaded`.
+- **Do** always keep another way in: typing the numbers, or picking a photo with `@zero-native/media`. **Why:** a phone with no
+  Play services, an old one, a full one or one with no network can't get the scanner. Every such case is a status
+  (`unavailable` or `failed`) with a `reason`, never a throw.
+- **Do** show progress from `onStatus` while `status` is `downloading`. **Know:** only a download this app started in this run
+  says `downloading`; after a restart Play's ongoing download shows as `not_downloaded`, and `download()` joins it.
+- **Know:** on a phone that can download, a scan before the download doesn't fail: ML Kit shows Play's own "Downloading updates
+  to Google Play services…" screen first, then the scanner. Its Cancel gives `cancel`.
+- **Know:** right after the phone starts, Play services can take over 15 s to answer. `getStatus` then says
+  `failed` / `timeout`. **Do** ask again later instead of hiding the scan button for good.
+
+**A scan and a kill** (the same way as `Media`, on `ZnLaunch`, §31, §35).
+- **Do** call `DocumentScanner.onResult` while the screen that scans is built. **Why:** on a low-memory phone Android can kill
+  the app while the scanner is open. It starts the app again and hands over ML Kit's answer, but the promise is gone. The answer
+  was saved on disk before JS heard it, and it stays there until `ack`. ("Don't keep activities" only destroys the screens:
+  the process and JS live on, and the promise still gets the answer.)
+- **Do** pass a `tag` (your order id) and check `r.tag` in `onResult`. **Why:** the answer that comes after a kill can belong to
+  an order other than the one now on screen.
+- **Do** call `ack` after you acted on it (saved the handle, started the upload). **Why:** until then it comes again at each
+  start, so a kill in the middle never loses it.
+- **Know:** each answer goes to one place in a run: the waiting promise, else the first `onResult` handler. A second handler
+  never gets the same answer in the same run, and after `ack` nobody gets it again. **Do** still make the handler safe to run
+  twice across starts (key your upload on `r.id`): a kill between your upload and `ack` brings it back once more.
+- **Do** read `DocumentScanner.pending()` to draw a restored screen's first frame ("Finishing your scan..."). It is a sync read.
+- **Know:** if no screen listens, an answer is dropped when the next scan starts. One a handler holds and hasn't acked makes the
+  next scan fail with `unacked`.
+- **Don't** keep a handle for days: the files are in the cache folder, which Android may clear on a full phone. Upload, then
+  forget. The plugin deletes its own files after 7 days.
+- **Know:** no camera permission is needed: the camera runs in Play services. The scanner's look and words are Google's.
+- **Plugin authors, know:** an ML Kit (or Play) flow that runs one of the library's own Activities in your app's process can crash
+  after a kill. Android rebuilds that Activity in the new process before any of your code runs except `Application.onCreate`.
+  Here ML Kit's helper Activity needs ML Kit started, and `@zero-native/scanner` removes ML Kit's start-up provider. **Do**
+  what this plugin does: a marker file while the flow is open, and in `register` start the library only if the file exists.
+  **Why:** a check of one file costs almost nothing at every start, while starting ML Kit at every start would slow every app.
+  **Do** test the kill path with `am kill` while the other screen is open; "Don't keep activities" alone keeps the process, so
+  it misses this.

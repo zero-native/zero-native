@@ -85,6 +85,7 @@ dependencies {
     implementation(project(":plugin-remote-config"))
     implementation(project(":plugin-perf"))
     implementation(project(":plugin-lottie"))
+    implementation(project(":plugin-document-scanner"))
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)

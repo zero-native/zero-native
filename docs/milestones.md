@@ -125,6 +125,30 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: Document scanner plugin (Claude)
+- **What:** official, opt-in `@zero-native/document-scanner` (`plugins/document-scanner/`), native module `DocumentScanner` v1,
+  on Google ML Kit's document scanner (`play-services-mlkit-document-scanner:16.0.0`). react-native-document-scanner-plugin's
+  names (`scanDocument`, `maxNumDocuments`, `scannedImages`, `status: "success" | "cancel"`), plus `formats` (JPEG pages and / or
+  a PDF), `mode`, `galleryImport`, `tag`, `pages`, `pdf`. ML Kit's scanner is a Play services download (Pavan: the one exception
+  to "bundle"): `getStatus`, `download`, `onStatus`, each Play failure a status with a reason. Results on `ZnLaunch` (on disk
+  first, one handler per run, until `ack`), files moved into `zn://file` handles. No registry or core change. Sample: lab
+  `zn://sample/dev/document-scanner`. Guide §60, second-opinions 139–141, plugins.md and rn-compatibility rows.
+- **Found on the emulator and fixed:** (1) `GmsDocumentScanning.getClient` throws "MlKitContext has not been initialized" in an
+  app with `@zero-native/scanner` (its manifest removes ML Kit's start-up provider): the plugin starts ML Kit itself, off the main
+  thread. (2) After a kill while the scanner was open, Android rebuilt ML Kit's helper Activity in the new process and crashed the
+  same way, and the scan came back `lost`: a marker file, and ML Kit started in `register` only when it exists (12 ms debug,
+  21 ms release). The ZeroBill prototype's own `plugins/docscan` likely has the same crash (told app-home-tabs).
+- **Size (release, R8):** about 135 KB of uncompressed dex (ML Kit client 127 KB, plugin 11 KB). No R8 rule needed.
+- **Tests:** JS 13 (plugin) of 1045 and both type checks; Kotlin 10 (`DocScanRulesTest`); `:plugin-document-scanner:assembleDebug`;
+  lint 0 errors.
+- **Emulator (Android 13, Play services 26.40), debug and R8 release:** status `not_downloaded`, then a first scan showed Play's
+  download screen and then the scanner; status `available`; cancel (X and Back); a gallery scan with 1 page + 1-page PDF, moved
+  out of `cache/mlkit_docscan_ui_client`; "Don't keep activities" (both our Activities rebuilt, the promise got the answer);
+  `am kill` with the scanner open, then cancel and then a real scan: each came to `onResult` once after the restart, and not again
+  after ack; `cleanup`; a wrong option rejects with `invalid_args`. **Not tested:** the camera (the emulator gives no frames),
+  `download()` with progress events (the module came through the first scan, and it can't be removed again), a phone with no
+  space or no Play services.
+
 ### 2026-11-05: Lottie plugin (Claude)
 - **What:** official, opt-in `@zero-native/lottie` (`plugins/lottie/`): `<LottieView>` with lottie-react-native 7.x's
   props, defaults and events, `ref` with `play` / `pause` / `resume` / `reset` (callback or `useRef`), the default

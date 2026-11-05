@@ -10,6 +10,7 @@
     "@zero-native/analytics": "workspace:*",
     "@zero-native/auth": "workspace:*",
     "@zero-native/device-test": "workspace:*",
+    "@zero-native/document-scanner": "workspace:*",
     "@zero-native/crashlytics": "workspace:*",
     "@zero-native/firebase-app": "workspace:*",
     "@zero-native/location": "workspace:*",

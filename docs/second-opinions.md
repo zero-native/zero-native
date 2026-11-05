@@ -1881,3 +1881,76 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** a security review of how the ZeroBill port writes `onLinkPress`. Checked on the Android 13
   emulator: the lab's links reach `onLinkPress` with URL and text; `javascript:` and `zn://` were refused by the lab's
   own check; with no `onLinkPress` nothing is tappable (unit test).
+
+## 139. Document scanner: ML Kit's Play services module, the one exception to "bundle, don't download from Play" (document-scanner plugin, built 2026-11-05; Pavan's call)
+- **Where:** `plugins/document-scanner/android/build.gradle.kts` (`play-services-mlkit-document-scanner:16.0.0`),
+  `DocScanModule.status` / `download`, `DocScanRules.status` / `playProblem` / `scanRefusal`.
+- **Chosen:** Google ML Kit's document scanner. It has **no bundled version**: the models and the screens are a Google Play
+  services module that Play downloads on first use and all apps share. Our rule for the QR scanner and others is "bundle"
+  (downloads fail on full, low-end phones), and Pavan made this plugin the one exception (2026-11-05). To make it safe:
+  - `getStatus()` from Play's `ModuleInstallClient.areModulesAvailable` (checked with `javap` on play-services-base 18.5.0),
+    after `GoogleApiAvailability.isGooglePlayServicesAvailable`: `available`, `not_downloaded`, `downloading` (with Play's
+    state, bytes and total), `failed` (try again), `unavailable` (not on this phone), each with a `reason`.
+  - `download()` with `installModules` and a status listener; progress goes to JS as `status` events. A second call joins.
+  - Every Play Task has a 15 s limit for its first answer (`timeout`): a Task that never ends must not hang a screen. Seen
+    once on the emulator right after a reboot (`getStatus` answered `failed` / `timeout`; a later check said `available`).
+  - A scan with the module missing doesn't fail: ML Kit shows Play's own download screen, then the scanner (emulator, ~20 s).
+  - Nothing throws for a Play problem: `scanDocument` answers `unavailable` (`not_downloaded`, `play_services_old`, ...).
+- **Why:** ZeroBill's receipt capture already uses this scanner in the RN app, and no bundled scanner of the same quality
+  exists for Android (edge finding, crop, ML clean-up). Our own (CameraX + an edge model) is weeks of work.
+- **Risk if wrong:** on a full or offline phone the scanner never arrives, so the user can't scan at all. The app must keep
+  "type by hand" or "pick a photo" (README, guide §60). Play can also change or retire the module; ML Kit's client is the only
+  piece in our APK.
+- **Other options:** (a) bundle our own scanner: CameraX + an edge model (OpenCV or a small TFLite model) + our own crop
+  screen; (b) take a photo with `@zero-native/media` and crop with `Media.edit` (no edge finding); (c) a server-side crop.
+- **Evidence wanted:** on ZeroBill's users, how often `getStatus` says `not_downloaded` / `failed` at the receipt screen, and
+  how long the first download takes on the Lava with low storage. If often, (a) or (b) as a fallback.
+
+## 140. Document scanner results: on ZnLaunch, one handler per run, until ack; the promise path acks before it answers (document-scanner plugin, built 2026-11-05)
+- **Where:** `plugins/document-scanner/src/index.ts` (`waiting`, `handed`, `scanDocument`, `onResult`), `DocScanModule.onResult`
+  / `collect` / `forget`, `DocScanRules.withResult` / `collect`.
+- **Chosen:** the same flow as `Media` (§31, §35, guide §38): the job (id, tag) is on disk before ML Kit opens; ML Kit's answer
+  goes in the job on disk before JS hears it (ZnLaunch's `readResult`); the result comes at every start until `ack`. On top,
+  for "once, never twice":
+  - **One handler per run:** a result goes to the waiting promise, else to the first `onResult` handler. A second handler in
+    the same run never gets it (the RN app uploaded every scan twice when it listened two ways). If the first handler's
+    screen goes away without `ack`, a later handler in the run may take it.
+  - **First answer wins** in native: a second answer for the same job is dropped (`withResult` returns null).
+  - **The promise path acks, then answers** (as `Media`). A kill in the moment between the ack and the app's own save loses
+    that answer; the files stay on disk (7 days) but nothing points to them.
+  - A `tag` per scan (the app's order id), given back in every result: the RN app needed this ("cached result for another
+    target", its `DOC_SCAN_TARGET`).
+- **Why:** "never lost" is ZnLaunch's ack rule; "never twice" in one run is what a screen expects; across runs only the app can
+  make an upload safe to repeat (key it on `r.id`).
+- **Risk if wrong:** a handler that never acks keeps the answer coming at each start and makes the next scan fail with
+  `unacked`. A second listener (main.ts and the screen) doesn't get the answer, which may surprise someone who expects every
+  listener to hear it.
+- **Other options:** give the promise result an `ack` too (no loss in that moment, but an API RN users don't expect);
+  deliver to every listener (RN `DeviceEventEmitter` style); native read-and-clear (refused: guide §31, a rollback could lose it).
+- **Evidence wanted:** a kill test right after the promise answers (hard to time); ZeroBill's ReceiptCapture code using
+  `onResult` with `tag`.
+
+## 141. Document scanner files: ML Kit's files are moved, not copied; own names; its own launch key; ML Kit started early only after a kill (document-scanner plugin, built 2026-11-05)
+- **Where:** `DocScanModule.take` / `ours` / `trim`, `DocScanRules.pageName` / `pdfName` / `toDelete`, `DocScanModule.KEY`,
+  `DocScanModule.startIfScanOpen` / `startMlKit`.
+- **Chosen (ML Kit start):** the scanner plugin removes ML Kit's start-up provider, so this plugin starts ML Kit itself:
+  off the main thread before the first status check or scan, and, after a kill while the scanner was open, synchronously in
+  `register` (Application.onCreate), because Android rebuilds ML Kit's helper Activity in the new process before anything else
+  runs and its constructor needs ML Kit (without this: a crash and a `lost` scan, found on the emulator). A marker file in
+  `noBackupFilesDir` says "the scanner is open"; every app start pays one file check, and ML Kit's start (12 ms debug, 21 ms
+  release on the emulator) only in that case.
+- **Other options (ML Kit start):** keep ML Kit's provider (every app start pays for ML Kit, the scanner plugin's reason to
+  remove it); start ML Kit in every `register` (same cost); an `androidx.startup` initializer (same cost, more code).
+- **Chosen:** ML Kit's invisible delegate Activity runs in our process, and ML Kit's files land in our own cache folder
+  (`file://` links). `collect` **moves** each file into `ZnHandles.fileDir` with our names (`docscanner-<id>-<n>.jpg`,
+  `docscanner-<id>.pdf`), so a full phone never needs room for two copies. A link outside our folders (a `content://` one)
+  is copied to a dot name first and renamed when whole. Only `file` and `content` links are opened. The launch key is
+  `docscanner` and the file prefix `docscanner-`, not `docscan`, because the ZeroBill prototype's own plugin uses `docscan`
+  for both; an app with both would otherwise mix their results and our cleanup would delete its PDFs.
+- **Why:** low-storage phones are ZeroBill's normal case; a move is instant and atomic on the same disk.
+- **Risk if wrong:** if a later ML Kit version writes somewhere else (another app's provider), the copy path runs; if its link
+  then needs a grant that ends with our Activity, a kill gives `access_lost` (scan again), as `Media` documents.
+- **Other options:** copy and leave ML Kit's file (ML Kit cleans its own folder at some point); give JS ML Kit's own link.
+- **Evidence wanted:** ML Kit's link scheme and folder on more phones and Play services versions. Checked only on the Android 13
+  emulator (Play services 26.40): files in `cache/mlkit_docscan_ui_client`, moved out, that folder left empty. The ML Kit start
+  time on the Lava after a kill.
