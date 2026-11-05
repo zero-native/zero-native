@@ -1403,6 +1403,102 @@ change, and what evidence would make you change it?"
 - **Other options:** centre both (RN's exact default) and add `textAlignVertical` now.
 - **Evidence wanted:** none. Checked on the Android 13 emulator (sample Inputs screen, tall OTP field).
 
+## 111. List padding scrolls with the rows; `contentContainerStyle` is the same padding; Stack stretches its children (runtime + compiler, built 2026-11-05)
+- **Where:** `ZnTemplate.kt` `paddingIsContent` (now also LIST), `ZnRenderer.kt` `contentPaddingOf` (List, Scroll,
+  Carousel) and the STACK branch; `compiler/src/compile.ts` `contentContainerStyle()`.
+- **Asked:** found by the ZeroBill port on the Lava. `paddingBottom: 100` on a `<List>` left a fixed blank strip and cut
+  the last card. A styled `Column` row inside a `<Stack>` was only as wide as its text. Pavan: these must match RN, so
+  migrators and LLMs get it right first time.
+- **Chosen:**
+  1. A List's padding is LazyColumn `contentPadding`, as on Scroll. Padding from a slot is now read too (before, a
+     slot's padding on a Scroll was silently dropped).
+  2. `contentContainerStyle` on `<Scroll>` / `<List>` is a compile-time alias: padding keys only. Padding in both
+     `style` and `contentContainerStyle` fails the build. Pavan chose this (option a) over making `style.padding`
+     outer padding as in RN (option b), which would silently change every existing Scroll.
+  3. A Stack's normal children follow zn flex rule 4: with a definite Stack width and `alignItems` unset or `stretch`,
+     a child with no width and no `alignSelf` gets `fillMaxWidth`, and counts as definite for its own children.
+- **Why:** RN's FlatList `contentContainerStyle` padding is the usual way to keep the last row above a floating button.
+  RN's default `alignItems: 'stretch'` applies to every View, and Stack was the one container that skipped it.
+- **Risk if wrong:** (1) and (3) change old bundles too once the new APK is on the phone. A List that wanted fixed
+  padding around it now needs margin. A default Stack holding a styled child now draws it full width. All 29 `<Stack>`
+  uses in the sample and the ZeroBill prototype were read: two change on purpose (prototype TransactionsSection,
+  BannerCarousel offer card); three get wider but look the same, as they have no background (sample RnPropsLab
+  fill-stack Text, RnBasicsLab OTP Row, SvgLab wallet card Column); the rest are centred, sized or absolute.
+- **Other options:** keep List padding outside and only accept `contentContainerStyle` (two meanings for padding on
+  List vs Scroll); stretch only when the Stack has an explicit width.
+- **Evidence wanted:** the 4 ZeroBill home tabs on the Lava. Checked on the Android 13 emulator (RN props lab,
+  "contentContainerStyle, Stack stretch": the last row scrolls 72 dp above the button, rows are full width).
+
+## 112. `gap` is kept with every `justifyContent`, with Yoga's numbers (runtime, built 2026-11-05)
+- **Where:** `android/runtime/.../ZnArrangement.kt` (new), used by `verticalArrangement` / `horizontalArrangement` in
+  `ZnRenderer.kt`; tests in `ZnArrangementTest.kt`.
+- **Asked:** RN-compat sweep P0.1 (`docs/rn-compat-sweep.md`). The ZeroBill prototype has 11 rows with `gap` and
+  `justifyContent: center` or `space-between`; all were drawn with no gap. Pavan said yes, carefully: no new bugs, no
+  slowdown.
+- **Chosen:** no gap → the same Compose arrangements as before (the same objects). With a gap: flex-start is
+  `spacedBy(gap)` as before; center / flex-end / space-* use one small arrangement that follows Yoga: free = size -
+  items - gap × (n - 1); center starts at free / 2, flex-end at free; for space-* free is never below 0 and is shared
+  out **on top of** the gap (between: gap + free / (n - 1); around: gap + free / n, half of that at the ends; evenly:
+  gap + free / (n + 1) everywhere). Its `spacing` is the gap, so a Row that wraps its content makes room for the gaps.
+  The gap is rounded to whole pixels, as Row rounds `spacing` when it reserves the room. Right to left mirrors.
+- **Why:** this is what RN (Yoga) and CSS do: `gap` is the smallest space between items. Compose's own
+  `spacedBy(gap, alignment)` was not used: it makes a new, unequal object each call, so Row / Column would rebuild their
+  measure policy on every recomposition (the test caught it). The new class is a data class, equal across calls.
+- **Risk if wrong:** a visible change on old bundles once the new APK is on the phone (no registry bump, like 111):
+  14 rows today, listed below. Rows with room to spare (space-* with no `flex` child) look the same. Overflow (items
+  wider than the row) follows Yoga's fallback to flex-start for space-*; Compose's Row rarely lets it happen.
+- **Rows that change** (found by compiling every TSX file and listing nodes with gap > 0 and justifyContent other than
+  flex-start): sample [AmountScreen.tsx:228](../examples/sample/src/AmountScreen.tsx:228) (the amount and the hint:
+  10 dp further apart), [AmountScreen.tsx:230](../examples/sample/src/AmountScreen.tsx:230) (₹, the amount and the
+  cursor: 8 dp apart), [OffersScreen.tsx:31](../examples/sample/src/OffersScreen.tsx:31) (banner name and title: 2 dp).
+  Prototype (`C:\work\projects\my-app-prototypepp\src`): `home/components/LocationPrompt.tsx` :52, :67, :82
+  (three button rows, center, 8); `home/components/rewards/UseSheet.tsx:73` ("Scan to Pay", center, 8);
+  `home/components/stores/StoresMessages.tsx:38` ("Expand Radius", center, 8);
+  `home/components/transactions/FooterFollowUs.tsx:22` (4 social icons, center, 14);
+  `home/components/transactions/HomeEmptyTransactionTabs.tsx` :139, :151 ("Scan QR", "Find Stores", center, 8);
+  `screens/LoginScreen.tsx:134` (login button, center, 10); `home/components/offers/MessageOffersList.tsx:61` and
+  `home/components/stores/StoresListParts.tsx:47` (space-between, 12: the gap shows only where the row is full).
+- **Other options:** keep dropping the gap and document it (RN code looks wrong); make it a build error (RN code fails
+  for no good reason).
+- **Evidence wanted:** the 11 prototype rows on the Lava (app-home-tabs). Checked on the Android 13 emulator (sample
+  Amount and Offers screens, before and after).
+
+## 113. A negative margin, padding or border width fails the build; the runtime clamps at 0 (compiler + runtime, built 2026-11-05)
+- **Where:** `compiler/src/compile.ts` `setStatic` (`MARGIN_KEYS`, `NOT_NEGATIVE_KEYS`); `ZnTemplate.kt`
+  `Edges.toPadding()`; tests in `compiler/test/rn-compat.test.ts` and `ZnEdgesTest.kt`.
+- **Asked:** RN-compat sweep P0.2: does `marginTop: -8` crash?
+- **Audit:** yes. Margin, padding and border widths all become Compose `PaddingValues`, which throws on a negative
+  value (`ZnEdgesTest` shows it). Most nodes build their modifier chain when the template file loads
+  (`staticChain`), so one negative margin anywhere would crash the app as the bundle loads, not just one screen.
+  A negative border width did the same when the node also had padding (the width is added to the padding).
+  Margin can't come from a slot (it is build-time only). Per-edge padding can: `paddingTop: offset()`. On a normal
+  node that path (`layoutPadding`) already clamped at 0; on a Scroll / List / Carousel the slot padding
+  (`contentPaddingOf`, new in 111) went to `PaddingValues` unclamped and could crash. Nothing in the sample or the
+  prototype uses a negative value.
+- **Chosen:** (1) build error for a negative margin, with the hint "use transform: [{ translateY: -8 }]" (translateX
+  for start / end / horizontal), or take the space from the neighbour's padding or the parent's gap; (2) build error
+  for a negative padding or border width ("can't be negative, RN treats it as 0"); (3) `Edges.toPadding()` clamps
+  every edge at 0, which covers slot padding and old bundles.
+- **Why:** a crash on load is the worst outcome, and a negative padding means nothing in RN either (Yoga uses 0).
+- **Risk if wrong:** RN code with a negative margin (an overlapping avatar, a pulled-up card) needs a translate,
+  which keeps the layout space (RN's negative margin also pulls the next items up).
+- **Later (not built):** a real negative margin needs a custom layout modifier (measure the child, report a smaller
+  size, place it shifted). About half a day, plus checks with fill / weight children. Worth it only if ported apps hit
+  it often; the build error will tell us.
+
+## 114. An effect that returns a function gets it as its cleanup (JS core, built 2026-11-05)
+- **Where:** `packages/core/src/signals.ts` `Computation.run` and `effect`; tests in `packages/core/test/signals.test.ts`.
+- **Asked:** RN-compat sweep P0.3. `effect(() => { ...; return () => stop() })` (React's `useEffect` habit) kept the
+  function as the effect's value and never called it, so intervals and listeners leaked silently.
+- **Chosen:** after a run that returns normally, an effect whose result is a function pushes it to its own cleanups,
+  after any `onCleanup` from the same run (so it runs first: cleanups run latest first). It runs before the next run
+  and on dispose. Not after a run that throws (the old value would run twice). Computeds are unchanged.
+- **Before building:** every `effect(` call in zn, the sample and the prototype was checked by a script (30 calls). None
+  returns a function; 14 return a value by accident (`effect(() => seen.push(a()))`, the prototype's
+  `effect(() => once(...))`), which stays ignored.
+- **Risk if wrong:** code that returns a function from an effect for another reason now has it called. None exists.
+- **Other options:** a build error on a returned function (RN code would need a rewrite for no reason).
+
 ## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
 - **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.
 - **Chosen:** a data message `zn_ota=check` calls `ZnOta.check()` in the FCM service and waits for it (at most 15 s),

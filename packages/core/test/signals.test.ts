@@ -142,3 +142,68 @@ test("an effect writing a signal is handled in the same flush", () => {
   a.set(2)
   expect(seen).toEqual([10, 20])
 })
+
+// RN's useEffect habit (second-opinions 114): a returned function is the effect's cleanup.
+test("an effect's returned function runs before the next run and when it stops", () => {
+  const a = signal(1)
+  const log: string[] = []
+  const stop = effect(() => {
+    const v = a()
+    log.push(`run ${v}`)
+    return () => log.push(`stop ${v}`)
+  })
+  a.set(2)
+  stop()
+  a.set(3)
+  expect(log).toEqual(["run 1", "stop 1", "run 2", "stop 2"])
+})
+
+test("a returned cleanup runs when its root is disposed, before the onCleanup ones", () => {
+  const log: string[] = []
+  const dispose = createRoot((d) => {
+    effect(() => {
+      onCleanup(() => log.push("onCleanup"))
+      return () => log.push("returned")
+    })
+    return d
+  })
+  dispose()
+  expect(log).toEqual(["returned", "onCleanup"])
+})
+
+test("an effect that returns something that isn't a function is unchanged", () => {
+  const a = signal(1)
+  const seen: number[] = []
+  effect(() => seen.push(a())) // push returns a number: not a cleanup
+  a.set(2)
+  expect(seen).toEqual([1, 2])
+})
+
+test("a run that throws doesn't run the last cleanup a second time", () => {
+  const a = signal(1)
+  let stops = 0
+  const stop = effect(() => {
+    if (a() === 2) throw new Error("boom")
+    return () => stops++
+  })
+  a.set(2) // the cleanup of run 1 runs once here; this run throws and leaves none
+  expect(stops).toBe(1)
+  stop()
+  expect(stops).toBe(1)
+  a.set(3)
+  expect(stops).toBe(1)
+})
+
+test("a computed that returns a function keeps it as its value (no cleanup)", () => {
+  const a = signal(1)
+  let called = 0
+  const f = computed(() => {
+    a()
+    return () => called++
+  })
+  const first = f()
+  a.set(2)
+  expect(typeof f()).toBe("function")
+  expect(f()).not.toBe(first)
+  expect(called).toBe(0)
+})

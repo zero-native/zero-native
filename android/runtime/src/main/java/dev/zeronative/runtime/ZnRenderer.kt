@@ -192,9 +192,18 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             }
         }
         Registry.Component.STACK -> Box(modifier = mod, contentAlignment = stackAlignment(s)) {
+            // A normal (not absolute) child stretches to the Stack's width like a Column's (zn flex rule 4, RN's
+            // default alignItems: 'stretch'), so a styled row inside a Stack is full width (2026-11-05).
+            val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
             for (ref in childRefs(f, t, inst, s)) key(ref.key) {
                 val child = ref.template.nodes[ref.node]
                 var m: Modifier = Modifier
+                var stretched = false
+                if (!child.absolute) {
+                    stretched = stretch && child.width == null && child.type != Registry.Component.SPACER &&
+                        (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
+                    if (stretched) m = m.fillMaxWidth()
+                }
                 if (child.absolute) {
                     // position: 'absolute' with top/bottom/start/end, relative to the Stack's content box. Both sides
                     // of a pair (start + end, top + bottom) stretch it between them, as in RN (registry 15).
@@ -218,7 +227,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                     }
                 }
                 child.zIndex?.let { m = m.zIndex(it) }
-                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = child.width != null)
+                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
             }
         }
         Registry.Component.ANCHOR -> Unit // expanded by the parent (childRefs)
@@ -230,7 +239,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             val refs = childRefs(f, t, inst, s)
             LazyRow(
                 modifier = mod,
-                contentPadding = s.contentPadding ?: PaddingValues(0.dp),
+                contentPadding = contentPaddingOf(s, inst),
                 horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
                 verticalAlignment = verticalAlignment(s.alignItems),
             ) {
@@ -243,7 +252,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
         } else {
             Column(
                 modifier = mod.then(znPullRefresh(s, inst)).verticalScroll(rememberScrollState())
-                    .padding(s.contentPadding ?: PaddingValues(0.dp)),
+                    .padding(contentPaddingOf(s, inst)),
                 verticalArrangement = verticalArrangement(s),
                 horizontalAlignment = horizontalAlignment(s.alignItems),
             ) {
@@ -482,7 +491,7 @@ private fun ZnCarousel(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: 
         HorizontalPager(
             state = pager,
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = s.contentPadding ?: PaddingValues(0.dp),
+            contentPadding = contentPaddingOf(s, inst),
             pageSize = s.itemWidth?.let { PageSize.Fixed(it.dp) } ?: PageSize.Fill,
             pageSpacing = s.gap.dp,
             verticalAlignment = Alignment.Top,
@@ -555,6 +564,9 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     LazyColumn(
         modifier = mod.then(znPullRefresh(s, inst)), // pull to refresh, when it has onRefresh / refreshing
         state = state,
+        // Its padding scrolls with the rows (RN's contentContainerStyle), so the last row can scroll above a floating
+        // button. The fixed space around the list is margin.
+        contentPadding = contentPaddingOf(s, inst),
         verticalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Top,
     ) {
         // Runs of plain rows between the pinned ones: one `items` per run, so a long list stays a few blocks.
@@ -699,27 +711,10 @@ internal fun toColor(v: Any?): Color? = when (v) {
     else -> null
 }
 
-private fun verticalArrangement(s: ZnNodeSpec): Arrangement.Vertical =
-    if (s.gap > 0f && s.justify in listOf(-1, Registry.JustifyContent.FLEX_START)) Arrangement.spacedBy(s.gap.dp())
-    else when (s.justify) {
-        Registry.JustifyContent.CENTER -> Arrangement.Center
-        Registry.JustifyContent.FLEX_END -> Arrangement.Bottom
-        Registry.JustifyContent.SPACE_BETWEEN -> Arrangement.SpaceBetween
-        Registry.JustifyContent.SPACE_AROUND -> Arrangement.SpaceAround
-        Registry.JustifyContent.SPACE_EVENLY -> Arrangement.SpaceEvenly
-        else -> Arrangement.Top
-    }
+// gap is kept with every justifyContent, as in RN (ZnArrangement.kt, second-opinions 112).
+private fun verticalArrangement(s: ZnNodeSpec): Arrangement.Vertical = znVerticalArrangement(s.justify, s.gap)
 
-private fun horizontalArrangement(s: ZnNodeSpec): Arrangement.Horizontal =
-    if (s.gap > 0f && s.justify in listOf(-1, Registry.JustifyContent.FLEX_START)) Arrangement.spacedBy(s.gap.dp())
-    else when (s.justify) {
-        Registry.JustifyContent.CENTER -> Arrangement.Center
-        Registry.JustifyContent.FLEX_END -> Arrangement.End
-        Registry.JustifyContent.SPACE_BETWEEN -> Arrangement.SpaceBetween
-        Registry.JustifyContent.SPACE_AROUND -> Arrangement.SpaceAround
-        Registry.JustifyContent.SPACE_EVENLY -> Arrangement.SpaceEvenly
-        else -> Arrangement.Start
-    }
+private fun horizontalArrangement(s: ZnNodeSpec): Arrangement.Horizontal = znHorizontalArrangement(s.justify, s.gap)
 
 private fun horizontalAlignment(align: Int): Alignment.Horizontal = when (align) {
     Registry.AlignItems.CENTER -> Alignment.CenterHorizontally
@@ -750,7 +745,20 @@ private fun stackBias(s: ZnNodeSpec): Pair<Float, Float> {
 
 private fun stackAlignment(s: ZnNodeSpec): Alignment = stackBias(s).let { (h, v) -> BiasAlignment(h, v) }
 
-private fun Float.dp() = androidx.compose.ui.unit.Dp(this)
+/**
+ * The content padding of a Scroll, Carousel or List (it scrolls with the content). Padding from a slot is read here,
+ * so a change recomposes only this node. Before 2026-11-05 a slot's padding on a Scroll was dropped: the modifier
+ * chain leaves content padding out, and only the static value reached the content.
+ */
+private fun contentPaddingOf(s: ZnNodeSpec, inst: ZnInstance): PaddingValues {
+    if (!s.hasDynamicPadding) return s.contentPadding ?: PaddingValues(0.dp)
+    val b = s.staticPadding
+    fun edge(i: Int, static: Float): Float {
+        val slot = s.paddingSlots[i]
+        return if (slot >= 0) (inst.slot(slot).value as? Double)?.toFloat() ?: static else static
+    }
+    return Edges(edge(0, b.start), edge(1, b.top), edge(2, b.end), edge(3, b.bottom)).toPadding()
+}
 
 /**
  * Insets an absolute child that fills its axis (after matchParentSize / fillMaxWidth / fillMaxHeight): on each axis

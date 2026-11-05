@@ -113,8 +113,10 @@ class Computation extends Owner implements Source {
     observer = this
     owner = this
     let next: unknown
+    let ran = false
     try {
       next = this.fn()
+      ran = true
     } catch (e) {
       // An error must not break the reactive graph; effects log it, computeds keep their old value.
       reportError(this.isEffect ? "effect" : "computed", e)
@@ -123,6 +125,10 @@ class Computation extends Owner implements Source {
       observer = prevObserver
       owner = prevOwner
     }
+    // RN's useEffect habit (second-opinions 114): an effect that returns a function gets it as its cleanup, run before
+    // the next run and when the effect is disposed. After onCleanup ones, so it runs first (latest first). Not after a
+    // throw: `next` is then the old value, whose cleanup already ran in clear().
+    if (ran && this.isEffect && typeof next === "function") (this.cleanups ??= []).push(next as Cleanup)
     if (!this.equals(this.value, next)) {
       this.value = next
       // Direct observers that were only "maybe changed" are now definitely dirty.
@@ -215,8 +221,12 @@ export function computed<T>(fn: () => T, options?: { equals?: (a: T, b: T) => bo
   }
 }
 
-/** Runs fn now and again whenever what it read changes. Returns a function that stops it. */
-export function effect(fn: () => void): () => void {
+/**
+ * Runs fn now and again whenever what it read changes. Returns a function that stops it.
+ * If fn returns a function (as with React's useEffect), that is its cleanup: it runs before the next run and when the
+ * effect stops. Same as calling onCleanup inside fn.
+ */
+export function effect(fn: () => void | Cleanup): () => void {
   const e = new Computation(fn, true)
   owner?.own(e)
   e.updateIfNecessary()

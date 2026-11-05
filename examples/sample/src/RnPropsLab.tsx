@@ -207,6 +207,39 @@ export function RnPropsLabScreen() {
           style={{ height: 320 }}
         />
 
+        {/* 2026-11-05, from the ZeroBill port: the last row scrolls above the floating button (contentContainerStyle),
+            and a styled Column in a Stack is full width (a Stack stretches like a Column). */}
+        <PropsTitle text="contentContainerStyle, Stack stretch" />
+        <Stack testID="ccs-stack" style={{ height: 240 }}>
+          <List
+            testID="ccs-list"
+            data={STICKY_ROWS.slice(1, 13)}
+            key={(r) => r.id}
+            contentContainerStyle={{ paddingBottom: 72 }}
+            row={(r) => (
+              <Stack>
+                <Column style={{ paddingHorizontal: 12, paddingVertical: 12, backgroundColor: c.white }}>
+                  <Text fontSize={13} color={c.ink}>
+                    {r.title}
+                  </Text>
+                </Column>
+                <Box style={{ position: "absolute", start: 0, end: 0, bottom: 0, height: 1, backgroundColor: "#E5E7EB" }} />
+              </Stack>
+            )}
+            style={{ height: 240 }}
+          />
+          <Pressable
+            testID="ccs-fab"
+            onPress={() => say("ccs fab")}
+            alignItems="center"
+            style={{ position: "absolute", end: 12, bottom: 12, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 24, backgroundColor: c.primary }}
+          >
+            <Text fontSize={13} fontWeight={700} color={c.white}>
+              Scan
+            </Text>
+          </Pressable>
+        </Stack>
+
         <PropsTitle text="Modal" />
         <HoldTile label="Open dialog modal" onPress={() => dialog.set(true)} />
         <HoldTile label="Open page modal" onPress={() => page.set(true)} />

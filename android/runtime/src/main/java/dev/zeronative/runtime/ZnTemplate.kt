@@ -56,7 +56,15 @@ private const val NONE = -1
 /** Padding or margin per edge, in dp. */
 class Edges(val start: Float, val top: Float, val end: Float, val bottom: Float) {
     fun plus(s: Float, t: Float, e: Float, b: Float) = Edges(start + s, top + t, end + e, bottom + b)
-    fun toPadding() = PaddingValues(start.dp, top.dp, end.dp, bottom.dp)
+    /**
+     * Never below 0: Compose's PaddingValues throws on a negative value, and margin, padding and border widths all go
+     * through here. The compiler already refuses negative values written in a style; this catches the rest (a slot's
+     * padding on a Scroll or List, an old bundle), so nothing can crash (second-opinions 113). RN also treats a
+     * negative padding as 0.
+     */
+    fun toPadding() = PaddingValues(
+        start.coerceAtLeast(0f).dp, top.coerceAtLeast(0f).dp, end.coerceAtLeast(0f).dp, bottom.coerceAtLeast(0f).dp,
+    )
 }
 
 /**
@@ -282,8 +290,11 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val highlightColor: Color = color(Registry.Prop.HIGHLIGHT_COLOR) ?: Color(0x1A000000)
     // Scroll: horizontal rails; its padding becomes content padding (it scrolls with the content, as in RN's
     // contentContainerStyle), so it is left out of the modifier chain.
+    // List too (2026-11-05): `paddingBottom: 100` must let the last row scroll above a floating button, not leave a
+    // fixed blank strip under the list.
     val horizontal = p[Registry.Prop.HORIZONTAL] == true
-    private val paddingIsContent = type == Registry.Component.SCROLL || type == Registry.Component.CAROUSEL
+    private val paddingIsContent = type == Registry.Component.SCROLL || type == Registry.Component.CAROUSEL ||
+        type == Registry.Component.LIST
     val contentPadding: PaddingValues? = if (paddingIsContent) padding?.toPadding() else null
     val gradient: ZnGradient? = (p[Registry.Prop.BACKGROUND_IMAGE] as String?)?.let(ZnGradient::parse)
     // Carousel

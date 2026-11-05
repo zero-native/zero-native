@@ -123,6 +123,35 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: RN-compat sweep P0.1–P0.3: gap with justifyContent, no negative margin crash, effect cleanup (Claude)
+- **What:** (1) `gap` is kept with `justifyContent` center / flex-end / space-* (before, it was dropped), with
+  Yoga's numbers: for space-* the gap is the smallest space (`ZnArrangement.kt`, second-opinions 112). (2) A negative
+  margin crashed the app as the bundle loaded (Compose's padding refuses negative values). Now a negative margin,
+  padding or border width fails the build with a translate hint, and `Edges.toPadding()` clamps at 0 for slot
+  padding and old bundles (second-opinions 113). (3) An `effect` that returns a function gets it as its cleanup, as
+  React's `useEffect` (second-opinions 114). Guide §2, §3, §8; rn-compatibility rows; the sweep doc marks them done.
+  No registry or host API change. (1) and the clamp in (2) need a new APK.
+- **Tests:** 10 Kotlin tests for the arrangement math (one caught that Compose's `spacedBy(gap, alignment)` is a new,
+  unequal object each call, which would remeasure rows on every recomposition), 3 for the clamp, 3 compiler tests,
+  5 signal tests. 976 JS tests, type checks, 197 runtime unit tests and runtime lint pass. Sample JS and debug build.
+  Prototype: 539 tests, typecheck, app:check, JS build, with no edits. On the Android 13 emulator, before and after:
+  sample Amount screen (₹, amount and cursor 8 dp apart; hint 10 dp lower) and the Offers banner (2 dp between its
+  lines). The 11 prototype rows that change are listed in second-opinions 112; not run on the Lava.
+
+### 2026-11-05: RN layout matches from the ZeroBill port: List padding, contentContainerStyle, Stack stretch (Claude)
+- **What:** (1) A `<List>`'s padding is now content padding: it scrolls with the rows, so `paddingBottom: 100` keeps
+  the last row above a floating button (`ZnTemplate.kt` `paddingIsContent`, `ZnRenderer.kt` `contentPaddingOf`).
+  Padding from a slot on Scroll, Carousel and List is read now; before, it was dropped on a Scroll. (2) RN's
+  `contentContainerStyle` on `<Scroll>` and `<List>`: padding keys only, and padding in both it and `style` fails the
+  build (`compile.ts` `contentContainerStyle()`, `packages/ui` types). (3) A `<Stack>`'s normal children stretch to
+  its width like a Column's (zn flex rule 4). Second-opinions 111, guide §11, styling-and-layout §3 and §5,
+  rn-compatibility rows. No registry or host API change, but (1) and (3) need a new APK.
+- **Tests:** 2 new compiler tests (alias on List and Scroll, a slot value, 5 errors). All 968 JS tests and the type
+  checks pass. Sample JS and debug build. On the Android 13 emulator (RN props lab, new section): the last row
+  scrolls 72 dp above the button, and Stack rows with a background are full width. All 29 `<Stack>` uses in the
+  sample and the ZeroBill prototype read by hand (second-opinions 111). Not run on the Lava.
+- **Also:** an RN-compat sweep (3 read-only subagents: props, styles, APIs). Its ranked list waits for Pavan's picks.
+
 ### 2026-11-05: two bugs from the ZeroBill port: screens with two returns, tall single-line fields (Claude)
 - **What:** (1) A route's screen with a second, different JSX return (or `return null`) drew a blank screen with no
   error: native mounts the root from the manifest's one template, and JS filled in another. The app build now fails

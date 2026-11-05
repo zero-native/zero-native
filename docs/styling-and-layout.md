@@ -58,7 +58,7 @@ const s = StyleSheet.create({          // only for typing and reuse; the compile
 | `minWidth`, `maxWidth`, `minHeight`, `maxHeight` | number | `widthIn / heightIn` | `.frame(min:max:)` |
 | `aspectRatio` | number | `aspectRatio` | `.aspectRatio` |
 | `margin`, `marginHorizontal`, `marginVertical`, `marginTop/Bottom/Start/End` | number ≥ 0 | outer `padding` (§4 step 1) | outer `.padding` |
-| `padding` + same variants | number ≥ 0 | inner `padding` (§4 step 9) | inner `.padding` |
+| `padding` + same variants | number ≥ 0 | inner `padding` (§4 step 9). On `Scroll`, `Carousel` and `List` it is content padding: it scrolls with the content (RN's `contentContainerStyle`, which is also accepted there, padding keys only) | inner `.padding` |
 | `position: 'absolute'` + `top/bottom/start/end` | only for children of `Stack` | `Box` + `align` + `offset` | `ZStack` + `.offset` / alignment |
 | `zIndex` | number, only inside `Stack` | `zIndex` | `.zIndex` |
 | `overflow` | `visible` (default), `hidden` | `clip(shape)` | `.clipShape` |
@@ -123,8 +123,16 @@ These follow React Native wherever Compose and SwiftUI make it cheap, and say so
    (step 1.3: a cashback badge wrongly went full width). **In `Row`, stretch only applies when the Row has a fixed height**; otherwise it behaves as
    `flex-start`, because stretching to an unknown height needs intrinsic measurement, which is slow. This is a known
    difference from RN, listed in `docs/platform-differences.md`.
+   **`Stack` follows the Column rule for its normal (not absolute) children** (since 2026-11-05): with a definite
+   width and `alignItems` unset or `stretch`, a child with no width and no `alignSelf` fills the Stack's width. So a
+   styled `Column` row inside a `Stack` is full width, like an absolute `start: 0, end: 0` sibling. A Stack with
+   `alignItems: 'center'` or `'flex-end'` still places its children at their own size. Normal children of a Stack
+   still overlap (they don't flow down as in an RN `View`).
 5. **Percentages** are of the parent's content box (inside its padding).
 6. **Margins never collapse.** `gap` is preferred for space between siblings; margins are allowed for porting.
+   `gap` works with every `justifyContent`, as in Yoga: with `space-*` it is the smallest space between two items
+   (second-opinions 112). Margin, padding and border widths can't be negative: a build error, and the runtime clamps
+   at 0 (second-opinions 113).
 7. **Text** measures natively (Compose text layout / CoreText). Line height, font metrics and wrapping can differ by a
    pixel or two between platforms; the conformance tests (§9.5 of ARCHITECTURE) set the tolerance.
 

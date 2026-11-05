@@ -418,6 +418,48 @@ describe("pull to refresh", () => {
   })
 })
 
+describe("RN's contentContainerStyle (2026-11-05)", () => {
+  const err = (src: string) => {
+    try {
+      compile(src)
+    } catch (e) {
+      return (e as Error).message
+    }
+    return "no error"
+  }
+  test("padding keys become the padding that scrolls with the content, on <List> and <Scroll>", () => {
+    const { templates } = compile(
+      `
+      export function A(p) {
+        return (
+          <Column>
+            <List data={p.x} key={(i) => i.id} row={(i) => <Row/>} style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: s.pad }} />
+            <Scroll contentContainerStyle={[{ padding: 16 }, { paddingTop: p.big ? 40 : 16 }]} />
+            <Scroll horizontal contentContainerStyle={{ paddingStart: p.inset() }} />
+          </Column>
+        )
+      }`,
+      { s: { pad: 12 } },
+    )
+    const root = templates.find((t) => t?.type === "Column" && t.children.length === 3)!
+    expect(root.children[0].props).toMatchObject({ flex: 1, paddingBottom: 100, paddingHorizontal: 12 })
+    expect(root.children[1].props).toMatchObject({ padding: 16, paddingTop: { $slot: expect.any(String) } })
+    expect(root.children[2].props).toMatchObject({ horizontal: true, paddingStart: { $slot: expect.any(String) } })
+  })
+  test("errors", () => {
+    expect(err(`function A(p) { return <Scroll contentContainerStyle={{ alignItems: "center" }} /> }`))
+      .toMatch(/takes only padding keys.*"alignItems"/)
+    expect(err(`function A(p) { return <Scroll style={{ padding: 8 }} contentContainerStyle={{ paddingBottom: 100 }} /> }`))
+      .toMatch(/padding is set in both style and contentContainerStyle/)
+    expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={(i) => <Row/>}
+      contentContainerStyle={{ paddingTop: 4 }} style={{ paddingHorizontal: 8 }} /> }`))
+      .toMatch(/padding is set in both/)
+    expect(err(`function A(p) { return <Column contentContainerStyle={{ padding: 8 }} /> }`)).toMatch(/only on <Scroll> and <List>/)
+    expect(err(`function A(p) { return <Scroll contentContainerStyle /> }`)).toMatch(/needs an object/)
+  })
+})
+
 describe("errors point at the source", () => {
   const err = (src: string) => {
     try {

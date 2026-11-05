@@ -126,6 +126,13 @@ export interface TextStyleProps {
 
 type Style = StyleProps & TextStyleProps
 type StyleInput = Style | false | null | undefined | StyleInput[]
+type PaddingStyle = Pick<StyleProps, "padding" | "paddingHorizontal" | "paddingVertical" | "paddingTop" | "paddingBottom" | "paddingStart" | "paddingEnd">
+/**
+ * React Native's `contentContainerStyle` on a <Scroll> or <List>: padding that scrolls with the content (so the last
+ * row can scroll above a floating button). Only padding keys. On these two, the padding in `style` scrolls with the
+ * content too, so set padding in one place only (the build fails if both have it); use margin for space outside.
+ */
+type ContentContainerStyleInput = PaddingStyle | false | null | undefined | ContentContainerStyleInput[]
 
 /** A named curve, or a CSS cubic-bezier as [x1, y1, x2, y2] (x1 and x2 within 0–1). */
 export type Easing = "standard" | "ease-out" | "ease-in" | "linear" | readonly [number, number, number, number]
@@ -461,7 +468,7 @@ export declare const Shimmer: Intrinsic<
  * A scrolling container. `horizontal` makes a rail: only the visible children are drawn, and scrolling never involves
  * JS. Its padding scrolls with the content (like RN's contentContainerStyle). For long vertical data use <List>.
  */
-export declare const Scroll: Intrinsic<Container & ({ horizontal?: false } & RefreshProps | { horizontal: true })>
+export declare const Scroll: Intrinsic<Container & ({ horizontal?: false } & RefreshProps | { horizontal: true; contentContainerStyle?: ContentContainerStyleInput })>
 /**
  * Pull to refresh on a vertical <Scroll> or a <List> (guide notes §41). **Controlled**, like RN: a pull past the line
  * sends `onRefresh`; set `refreshing` to true while you load and back to false when done. The spinner shows while
@@ -476,6 +483,8 @@ export interface RefreshProps {
   refreshBackground?: Color
   /** React Native's shape: `refreshControl={<RefreshControl refreshing={...} onRefresh={...} colors={[c]} />}`. */
   refreshControl?: ZnElement
+  /** RN's name for padding that scrolls with the content. Only padding keys (see ContentContainerStyleInput). */
+  contentContainerStyle?: ContentContainerStyleInput
 }
 /**
  * React Native's RefreshControl, for porting: only as `refreshControl={<RefreshControl ... />}` on a vertical <Scroll>

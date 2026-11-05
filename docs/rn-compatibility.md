@@ -45,7 +45,7 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 |---|---|---|---|
 | `View` (column) | [`Column`](../packages/ui/src/index.ts) | renamed | `flexDirection` is not a style key: pick the component. `View` with default direction becomes `Column`. |
 | `View` (`flexDirection: "row"`) | [`Row`](../packages/ui/src/index.ts) | renamed | Replace `flexDirection: "row"` with `<Row>`. `alignItems: "stretch"` in a Row needs a fixed height ([platform-differences.md](platform-differences.md)). |
-| `View` (overlay, `position: "absolute"`) | [`Stack`](../packages/ui/src/index.ts) | different | Absolute children work only inside `Stack`. `zIndex` too. Use `start` / `end` instead of `left` / `right`. |
+| `View` (overlay, `position: "absolute"`) | [`Stack`](../packages/ui/src/index.ts) | different | Absolute children work only inside `Stack`. `zIndex` too. Use `start` / `end` instead of `left` / `right`. Normal children stretch to the Stack's width as in RN (since 2026-11-05), but they overlap instead of flowing down. |
 | `View` (plain box) | [`Box`](../packages/ui/src/index.ts) | renamed | Use for a decoration layer or one-child wrapper. |
 | `Fragment` / `<>` | `<>...</>` ([compile.ts](../compiler/src/compile.ts), fragments) | same | `<React.Fragment>` is rejected: write `<>`. |
 | `Text` | [`Text`](../packages/ui/src/index.ts) | different | Text lives only in `Text`. Nested `<Text>` spans work. Missing props: `ellipsizeMode`, `selectable`, `adjustsFontSizeToFit`, `onPress`, `allowFontScaling` (use `maxFontScale`). Make a tappable text with `Pressable` around it. |
@@ -61,8 +61,8 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `react-native-svg` `Text`, `TSpan`, `Image`, `Pattern`, `Mask` (non-white), `Marker`, filters | in `.svg` files only (registry 13) | different | A `.svg` file may use `<text>` / `<tspan>` (simple, one line, the phone's fonts), patterns, any mask, markers and filters (blur, drop shadow, colour matrix, ...; below Android 12 a plain shadow or none) ([svg.md](svg.md) §17). As inline `<Svg>` elements: missing, build error with a hint. Image: `<Image>` in a `<Stack>`. Text people read: zn `<Text>` over the SVG. |
 | Animated SVG (`Animated.createAnimatedComponent(Path)`, Reanimated `useAnimatedProps`) | part `rotate` / `scale` / `translateX` / trims + `animate` ([svg.md](svg.md) §9) | different | Built 2026-11-03 (registry 11). Say the target value and how it animates; no animated props from JS. `strokeDashoffset` "draw the line" tricks become `trimEnd`. Path morphing (animating `d`): missing from JS; an `.svg` file's SMIL / CSS `d` animation morphs (registry 12, [svg.md](svg.md) §16). `strokeWidth` / `dashOffset` on `.svg` parts (registry 12). |
 | Animated `.svg` files (SMIL `<animate>`, CSS `@keyframes` inside the file; loaders from icon sites) | `import Spinner from "./spinner.svg"` | **better** | RN's `react-native-svg` ignores SMIL and CSS animation (the file shows still). zn compiles them into native part animations at build time ([svg.md](svg.md) §15): 104 of 104 real loaders play (§17; 95 before phase 3, 100 before phase 4), path morphing, dash and stroke-width animation, filters, moving along a path (`animateMotion`, CSS `offset-path`) and `begin="click"` (a tap on the Svg) included. Other events (`mouseover`) fail with a hint. |
-| `ScrollView` | [`Scroll`](../packages/ui/src/index.ts) | different | Props: `horizontal`, pull to refresh. `refreshControl` works on a vertical `Scroll` (see `RefreshControl`). Missing: `onScroll`, `scrollTo` / refs, `contentContainerStyle` (padding on `Scroll` scrolls with the content), `showsVerticalScrollIndicator`, `keyboardShouldPersistTaps`. Long vertical data must use `List`. |
-| `FlatList` | [`List`](../packages/ui/src/index.ts) | different | `data` same. `keyExtractor` → the `key` prop. `renderItem` → `row`. `ItemSeparatorComponent` → `gap`. `onEndReached` same. `stickyHeaderIndices` same (registry 15). [lists.md](lists.md). |
+| `ScrollView` | [`Scroll`](../packages/ui/src/index.ts) | different | Props: `horizontal`, pull to refresh. `refreshControl` works on a vertical `Scroll` (see `RefreshControl`). `contentContainerStyle` works with padding keys only (since 2026-11-05). The padding in `style` also scrolls with the content, unlike RN, so put padding in one place: the build fails if both have it. Use margin for space outside. Missing: `onScroll`, `scrollTo` / refs, `showsVerticalScrollIndicator`, `keyboardShouldPersistTaps`. Long vertical data must use `List`. |
+| `FlatList` | [`List`](../packages/ui/src/index.ts) | different | `data` same. `keyExtractor` → the `key` prop. `renderItem` → `row`. `ItemSeparatorComponent` → `gap`. `onEndReached` same. `stickyHeaderIndices` same (registry 15). `contentContainerStyle={{ paddingBottom: 100 }}` same (padding keys only); padding in `style` scrolls with the rows too, since 2026-11-05. [lists.md](lists.md). |
 | `FlatList` headers, empty, footer | row kinds in `row` | different | Put a header or footer item in `data` and choose its row with `cond ? <A/> : <B/>`. |
 | `FlatList` `refreshing` / `onRefresh` / `refreshControl` | same names on [`List`](../packages/ui/src/index.ts) | same | Pull to refresh, [guide-notes §41](guide-notes.md). |
 | `FlatList` `numColumns`, `horizontal`, `inverted`, `scrollToIndex`, `getItemLayout`, `ListEmptyComponent` | none | missing | Horizontal: use `Scroll horizontal`. Grid, `scrollToIndex`: no equivalent. Show the empty state with a `cond && <X/>` outside the list. |
@@ -117,8 +117,8 @@ known at build time (section 0).
 
 | RN key | zero-native | Status | How to move |
 |---|---|---|---|
-| `flex`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `aspectRatio`, `gap`, `justifyContent`, `alignItems`, `alignSelf` | same | same | `width` / `height` take a number or `"N%"`. `alignItems` has no `baseline`. `justifyContent` has all six values. |
-| `margin*`, `padding*` (`Horizontal`, `Vertical`, `Top`, `Bottom`) | same | same | Negative margins are a build error: use `transform: translate`. |
+| `flex`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `aspectRatio`, `gap`, `justifyContent`, `alignItems`, `alignSelf` | same | same | `width` / `height` take a number or `"N%"`. `alignItems` has no `baseline`. `justifyContent` has all six values. `gap` works with every `justifyContent` (before 2026-11-05 it was dropped unless `flex-start`); with `space-*` it is the smallest space, as in RN ([second-opinions 112](second-opinions.md)). |
+| `margin*`, `padding*` (`Horizontal`, `Vertical`, `Top`, `Bottom`) | same | same | Negative margins are a build error (since 2026-11-05; before, they crashed the app): use `transform: [{ translateY: -8 }]`. Negative padding and border widths too (RN treats them as 0) ([second-opinions 113](second-opinions.md)). |
 | `marginLeft`, `marginRight`, `paddingLeft`, `paddingRight` | `marginStart`, `marginEnd`, `paddingStart`, `paddingEnd` | renamed | `Left` → `Start`, `Right` → `End` (these also flip for right-to-left). |
 | `left`, `right`, `top`, `bottom` | `start`, `end`, `top`, `bottom` | renamed | `position: "absolute"` only for children of `Stack`. `position: "relative"` with offsets is a build error. |
 | `flexDirection` | `Row` / `Column` | different | Build error with a hint. |
@@ -192,7 +192,7 @@ React Navigation. [`nav` in nav.ts](../packages/core/src/nav.ts), [routes.ts](..
 | `URL`, `URLSearchParams` | installed by the runtime ([url.ts](../packages/core/src/url.ts)) | same | The web standard, tested against Bun. Non-ASCII host names (`https://café.com`) throw a TypeError: no punycode. No `createObjectURL`. |
 | `atob`, `btoa` | Hermes | same | Built into Hermes V1. |
 | `crypto.getRandomValues`, `structuredClone` | none | missing | Not provided. |
-| `setTimeout`, `setInterval` | [timers.ts:57](../packages/core/src/timers.ts:57) | different | Timers made in a screen **stop when the screen closes**. For work that must go on, use [`detached`](../packages/core/src/signals.ts:278). `setImmediate`, `InteractionManager` are missing. |
+| `setTimeout`, `setInterval` | [timers.ts:57](../packages/core/src/timers.ts:57) | different | Timers made in a screen **stop when the screen closes**. For work that must go on, use [`detached`](../packages/core/src/signals.ts:288). `setImmediate`, `InteractionManager` are missing. |
 | `requestAnimationFrame`, `cancelAnimationFrame` | [timers.ts:78](../packages/core/src/timers.ts:78) | different | A timer of about 16 ms, not a real frame; it stops with its screen. Fine for "after this frame"; don't animate with it (use `animate`). |
 | `TextEncoder` / `TextDecoder`, `Intl` | installed by the runtime ([text.ts:78](../packages/core/src/text.ts:78)) | same | |
 | `console.log` | installed by the runtime | same | |
@@ -272,9 +272,9 @@ React Navigation. [`nav` in nav.ts](../packages/core/src/nav.ts), [routes.ts](..
 
 | RN / React | zero-native | Status | How to move |
 |---|---|---|---|
-| `useState` | [`signal`](../packages/core/src/signals.ts:189) | renamed | `const [a, setA] = useState(0)` → `const a = signal(0)`; read `a()`, write `a.set(1)`. |
-| `useMemo` | [`computed`](../packages/core/src/signals.ts:208) | renamed | |
-| `useEffect` | [`effect`](../packages/core/src/signals.ts:219), [`onCleanup`](../packages/core/src/signals.ts:249) | different | Runs when the signals it read change. No dependency array. A component body runs once. |
+| `useState` | [`signal`](../packages/core/src/signals.ts:195) | renamed | `const [a, setA] = useState(0)` → `const a = signal(0)`; read `a()`, write `a.set(1)`. |
+| `useMemo` | [`computed`](../packages/core/src/signals.ts:214) | renamed | |
+| `useEffect` | [`effect`](../packages/core/src/signals.ts:229), [`onCleanup`](../packages/core/src/signals.ts:259) | different | Runs when the signals it read change. No dependency array. A component body runs once. Return a cleanup function as in RN (since 2026-11-05): it runs before the next run and when the screen closes ([second-opinions 114](second-opinions.md)). |
 | `useRef` for a `TextInput` | [`createRef`](../packages/core/src/text-field.ts:21) | different | `ref={r}` on `TextField` only ([§1](#1-components)). |
 | `useRef` for a value, `forwardRef`, `useImperativeHandle` | none | missing | A screen body runs once: a plain `let` or a signal does it. |
 | `useContext` | module-level signals / imports | missing | No context. Share state through a module. |

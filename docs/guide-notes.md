@@ -75,6 +75,11 @@ const paise = computed(() => toPaise(amount()))
 - `set()` with an equal value does nothing (no update is sent). For objects, pass `{ equals }`.
 - Keep signals small and specific: one per thing that changes on its own. A signal holding a big object makes every
   reader update when any field changes.
+- **An `effect` may return its cleanup, as React's `useEffect` does** (since 2026-11-05):
+  `effect(() => { const id = setInterval(tick, 1000 * rate()); return () => clearInterval(id) })`. It runs before the
+  next run and when the effect stops (the screen closes). **Same as** calling `onCleanup(...)` inside. **Why:** RN code
+  ports as it is, and a listener added in an effect no longer leaks. **Don't** return a function for any other reason
+  from an effect: it will be called. A `computed` that returns a function just keeps it as its value.
 
 ## 3. Styling
 - React Native `style` names, as objects, arrays or `StyleSheet.create`. The framework applies them in **one fixed
@@ -90,6 +95,16 @@ const paise = computed(() => toPaise(amount()))
   Everything else must be a build-time value; the compiler says so with file:line. Prefer two styles chosen by a
   ternary inside the object (`backgroundColor: on ? c.a : c.b`) over toggling layout.
 - `fontWeight`: 100–900 in steps of 100, `"normal"` (400) or `"bold"` (700). Anything else is a build error.
+- **`gap` works with every `justifyContent`, as in RN** (since 2026-11-05; before, it was dropped unless the row was
+  `flex-start`). With `center` / `flex-end` the items keep the gap and move as a group. With `space-between` /
+  `space-around` / `space-evenly`, the gap is the **smallest** space between two items: with room to spare they look
+  the same as before; in a tight row (or next to a `flex: 1` child) the gap now shows. **Know:** this needs the new
+  APK; an older app still draws these rows with no gap.
+- **No negative margin or padding** (build error since 2026-11-05; before, it crashed the app). **Do** move an
+  element over its neighbour with `transform: [{ translateY: -8 }]`: it moves the drawing and keeps its layout space.
+  **Or** take the space out of the neighbour's padding or the parent's `gap`. **Why:** Compose has no negative
+  padding; a real RN-style negative margin needs a custom layout (not built). `top: -4` / `start: -2` on an absolute
+  child of a `<Stack>` are fine.
 - Colour and opacity changes only redraw; padding changes only re-measure; text changes recompose one `Text`.
   Cheap by design: animate-looking UI (a blinking cursor, a highlighted tab) is fine.
 
@@ -178,6 +193,8 @@ useBack(() => {
 - A timer (`setTimeout` / `setInterval`) created in a screen body, a component body, or a tap handler of one is
   **stopped automatically when that screen closes**. You don't need `clearInterval` on unmount.
 - Timers created at module top level live forever: avoid them.
+- A listener or interval you start in an `effect` stops with it if you return the stop function (§2):
+  `effect(() => NetInfo.addEventListener((s) => offline.set(s.isConnected === false)))` (it returns its stop function).
 - Prefer native behaviour over JS timers whenever it exists (key repeat; carousels, §11, and animations, §22).
 
 ## 9. Safe areas, status bar, full-bleed screens
@@ -212,6 +229,12 @@ useBack(() => {
   A changed object re-creates just that row; mutating an object in place shows nothing.
 - `data={feed()}`: read the signal inside the prop so the list follows changes. Inserting at the top keeps the
   user's scroll position (they don't get pushed down).
+- **Space under the last row** (a floating Scan button): `contentContainerStyle={{ paddingBottom: 100 }}`, as in RN,
+  or the same padding in `style`. A List's padding scrolls with the rows (since 2026-11-05). **Don't** put padding in
+  both: the build fails. **Do** use margin for space that must stay fixed around the list. **Why:** RN's `style`
+  padding is outside the scroll and `contentContainerStyle` is inside; in zn both mean inside, so two would be unclear.
+- **Rows with a background inside a `<Stack>`** (a row with an absolute divider or badge) fill the row's width, as in
+  RN (since 2026-11-05). **Know:** a Stack's normal children still overlap; they don't flow down as in an RN `View`.
 - **Rails (horizontal product lists) inside a row:** `<Scroll horizontal style={{ gap: 12, paddingHorizontal: 16 }}>`
   with `{offers.map(o => <ProductCard key={o.id} o={o} />)}` inside. Only the visible cards are drawn and scrolling a
   rail never involves JS. Its padding scrolls with the cards (like RN's `contentContainerStyle`), so the first card

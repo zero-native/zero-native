@@ -92,6 +92,12 @@ const REFRESH_PROPS = ["refreshing", "onRefresh", "refreshColor", "refreshBackgr
 // iOS shadow keys: React Native on Android ignores them (its shadows come from elevation and shadowColor), so zn
 // accepts and drops them too, and a shared style ports as it is (RN props pack 2).
 const IGNORED_STYLE_KEYS = new Set(["shadowOffset", "shadowOpacity", "shadowRadius"])
+// RN's contentContainerStyle on <Scroll> / <List> (2026-11-05): only padding, which scrolls with the content.
+const PADDING_KEYS = new Set(["padding", "paddingHorizontal", "paddingVertical", "paddingTop", "paddingBottom", "paddingStart", "paddingEnd"])
+// Compose refuses a negative padding, and margin and border widths are drawn as padding: a negative value here made the
+// app crash while reading the bundle. So it fails the build (second-opinions 113); the runtime also clamps at 0.
+const MARGIN_KEYS = new Set(["margin", "marginHorizontal", "marginVertical", "marginTop", "marginBottom", "marginStart", "marginEnd"])
+const NOT_NEGATIVE_KEYS = new Set([...PADDING_KEYS, "borderWidth", "borderTopWidth", "borderBottomWidth"])
 // Events whose payload is JSON from native, handed over as RN's event object: `(e) => e.nativeEvent.layout.width`.
 const NATIVE_EVENT_EVENTS = new Set(["onLoad", "onError", "onLayout"])
 const IMAGE_EVENTS = new Set(["onLoad", "onError", "onLoadEnd"])
@@ -585,6 +591,7 @@ export function compileModule(
     // <TextField value={...} onChangeText={...}>: the handler is bound after the loop, wrapped by textInput().
     let changeText: { ev: string; handler: string } | null = null
     let valueSlot: { s: string; expr: ts.Expression } | null = null
+    let contentStyle: ts.JsxAttribute | null = null
 
     for (const attr of opening.attributes.properties) {
       if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
@@ -613,6 +620,11 @@ export function compileModule(
       }
       if (name === "refreshControl") {
         refreshControl(a, props, b)
+        continue
+      }
+      if (name === "contentContainerStyle") {
+        if (tag !== "Scroll") fail(a, "contentContainerStyle works only on <Scroll> and <List>")
+        contentStyle = a // after the loop, so it can be checked against style's padding
         continue
       }
       if (name in EventKind) {
@@ -650,6 +662,7 @@ export function compileModule(
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)
       else fail(a, `unsupported value for "${name}"`)
     }
+    if (contentStyle) contentContainerStyle(contentStyle, props, b)
     if ("hitSlop" in props && tag !== "Pressable") fail(opening, "hitSlop works only on <Pressable> (the element that takes the tap)")
     if ((tag === "StatusBar" || tag === "NavigationBar") && ts.isJsxElement(node) && node.children.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) {
       fail(node, `<${tag}> takes no children`)
@@ -1137,6 +1150,7 @@ export function compileModule(
     }
     const props: NodeProps & Record<string, unknown> = {}
     const special: Record<string, ts.Expression> = {}
+    let contentStyle: ts.JsxAttribute | null = null
     for (const attr of (ts.isJsxElement(node) ? node.openingElement : node).attributes.properties) {
       if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
       const a = attr as ts.JsxAttribute
@@ -1169,15 +1183,18 @@ export function compileModule(
       } else if (name === "style") {
         if (!expr) fail(a, "style needs an object: style={{ ... }}")
         styleProps(expr!, props, b)
+      } else if (name === "contentContainerStyle") {
+        contentStyle = a // after the loop, so it can be checked against style's padding
       } else if (name in Prop) {
         if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
         else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, gap, refreshing, onRefresh, stickyHeaderIndices)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices)`)
       }
     }
+    if (contentStyle) contentContainerStyle(contentStyle, props, b)
     for (const required of ["data", "key", "row"]) {
       if (!special[required]) fail(node, `<List> needs ${required}={...}`)
     }
@@ -1241,6 +1258,32 @@ export function compileModule(
   }
 
   /**
+   * React Native's `contentContainerStyle={{ paddingBottom: 100 }}` on a <Scroll> or <List> (2026-11-05). In
+   * zero-native the padding in `style` on these two already scrolls with the content, so this is the same padding under
+   * RN's name. Only padding keys. Padding in both places fails: in RN they are two different paddings (outside and
+   * inside the scroll), and merging them would silently change the layout.
+   */
+  function contentContainerStyle(a: ts.JsxAttribute, props: Record<string, unknown>, b: Builder) {
+    const init = a.initializer
+    if (!init || !ts.isJsxExpression(init) || !init.expression) {
+      return fail(a, "contentContainerStyle needs an object: contentContainerStyle={{ paddingBottom: 100 }}")
+    }
+    const own: Record<string, unknown> = {}
+    styleProps(init.expression, own, b)
+    for (const k of Object.keys(own)) {
+      if (!PADDING_KEYS.has(k)) {
+        fail(a, `contentContainerStyle takes only padding keys in zero-native ("${k}" isn't supported there). ` +
+          "gap goes in style, where it already spaces the content")
+      }
+    }
+    if (Object.keys(own).length > 0 && Object.keys(props).some((k) => PADDING_KEYS.has(k))) {
+      fail(a, "padding is set in both style and contentContainerStyle. On <Scroll> and <List> the padding in style " +
+        "already scrolls with the content: keep it in one place, and use margin for space outside the list")
+    }
+    Object.assign(props, own)
+  }
+
+  /**
    * React Native's `refreshControl={<RefreshControl refreshing onRefresh colors tintColor progressBackgroundColor />}`
    * on a Scroll / List → the flat props refreshing, onRefresh, refreshColor, refreshBackground (guide notes §41).
    * `colors` (Android) gives the colour; `tintColor` (iOS) only when there is no `colors`.
@@ -1300,6 +1343,15 @@ export function compileModule(
 
   /** A build-time prop value → the template. Values with React Native aliases are normalised here. */
   function setStatic(props: Record<string, unknown>, name: PropName, value: unknown, at: ts.Node) {
+    if (typeof value === "number" && value < 0) {
+      if (MARGIN_KEYS.has(name)) {
+        fail(at, `${name}: ${value}: a negative margin isn't supported in zero-native yet. To pull an element up or ` +
+          `to the side so it overlaps, use transform: [{ ${/Start|End|Horizontal/.test(name) ? "translateX" : "translateY"}: ${value} }] ` +
+          "(it moves the drawing and keeps the space in the layout), or take the space out of the neighbour's padding " +
+          "or the parent's gap")
+      }
+      if (NOT_NEGATIVE_KEYS.has(name)) fail(at, `${name}: ${value}: can't be negative (React Native treats it as 0). Use 0`)
+    }
     props[name] =
       name === "fontWeight" ? fontWeight(value, at)
       : name === "backgroundImage" ? linearGradient(value, at)
