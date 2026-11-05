@@ -33,6 +33,8 @@ android {
                 abiFilters += listOf("x86_64")
             }
         }
+        // `-PznX86Release` (with the sample's same flag): also x86_64, to check an R8 build on the emulator. Off by default.
+        if (project.hasProperty("znX86Release")) release { ndk { abiFilters += listOf("x86_64") } }
     }
 
     buildFeatures {

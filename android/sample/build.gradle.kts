@@ -31,6 +31,8 @@ android {
             }
         }
         release {
+            // `-PznX86Release`: also x86_64, to check an R8 build on the emulator. Off by default (sizes stay arm64-only).
+            if (project.hasProperty("znX86Release")) ndk { abiFilters += listOf("x86_64") }
             isMinifyEnabled = true
             isShrinkResources = true
             // Debug keystore on purpose: this app is never published.
@@ -82,6 +84,7 @@ dependencies {
     implementation(project(":plugin-analytics"))
     implementation(project(":plugin-remote-config"))
     implementation(project(":plugin-perf"))
+    implementation(project(":plugin-lottie"))
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)

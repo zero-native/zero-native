@@ -13,6 +13,7 @@
     "@zero-native/crashlytics": "workspace:*",
     "@zero-native/firebase-app": "workspace:*",
     "@zero-native/location": "workspace:*",
+    "@zero-native/lottie": "workspace:*",
     "@zero-native/media": "workspace:*",
     "@zero-native/scanner": "workspace:*",
     "@zero-native/webview": "workspace:*",

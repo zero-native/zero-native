@@ -4,7 +4,7 @@
 (P.1), the plumbing (P.2: permissions, results from other apps), an app outside this repo with its own plugin (P.3),
 native screens and `<NativeView>` (P.3b to P.4b), background JS tasks and the core items (P.5, P.6), and the official
 plugins `auth`, `scanner`, `media`, `webview`, `pdf`, `location`, `firebase-app`, `crashlytics`, `push`, `analytics`,
-`remote-config` and `perf`. Not built: codegen, `zn://mem`, certificate pinning, iOS. Parts below that are written as
+`remote-config`, `perf` and `lottie` (2026-11-05). Not built: codegen, `zn://mem`, certificate pinning, iOS. Parts below that are written as
 design keep their original wording; the tables say what is built. Decisions D1–D7 were taken on 2026-11-02 (section 8);
 section 10 has the questions for reviewers. Android only for now; every choice must also work for iOS later.
 
@@ -38,6 +38,7 @@ breaks somewhere. So first one plugin system, then the features as plugins on to
 | Official plugin `pdf`: download and cache, a card preview, a viewer with zoom, on Android's own PdfRenderer | **built** 2026-11-03, opt-in | `plugins/pdf/README.md`, `docs/guide-notes.md` §44 |
 | Official plugin `location` (Android's `LocationManager` and `Geocoder`; Play services only for the turn-on dialog) | **built** 2026-11-03, opt-in | `plugins/location/README.md`, `docs/guide-notes.md` §45 |
 | Official plugins `crashlytics` and `push` (Firebase; FCM messages as JS tasks, notifications shown natively), on the base `firebase-app`; `analytics`, `remote-config`, `perf` | **built** 2026-11-04, opt-in; the sample turns Firebase on only when its `google-services.json` is there | `plugins/crashlytics/README.md`, `plugins/push/README.md`, `plugins/firebase-app/README.md`, `plugins/analytics/README.md`, `docs/guide-notes.md` §46, §48–§55 |
+| Official plugin `lottie`: `<LottieView>` with lottie-react-native's names, `.json` and `.lottie` files from the app's assets, on Airbnb's lottie-compose | **built** 2026-11-05, opt-in | `plugins/lottie/README.md`, `docs/guide-notes.md` §57 |
 | Permissions, "open another app and get its result" | **built** (P.2) | `ZnPermissions.kt`, `ZnLaunch.kt`, `docs/guide-notes.md` §31–32 |
 | Codegen (Kotlin interface from the TS interface) | **not built** | ARCHITECTURE §15.1 |
 
@@ -175,6 +176,7 @@ app owns** (D7).
 | Certificate pinning | core: `fetch` option / app config | OkHttp `CertificatePinner`; needs a pin-rotation plan. **Not built:** RN has none today, so the pilot doesn't need it |
 | Dark mode, low memory, right-to-left | core | Colour tokens with light / dark values; `onTrimMemory` clears caches; `start` / `end` already exist |
 | Location: one fix, updates, permission, location off, geocoder | plugin `@zero-native/location` | **Built 2026-11-03.** Fixes from `LocationManager`; Google's "Turn on location" dialog from Play's `SettingsClient` (added 2026-11-04, module v2). A swap to Play's fused provider for fixes is written up in `docs/second-opinions.md` entry 85, not built |
+| Lottie animations | plugin `@zero-native/lottie` | **Built 2026-11-05.** `<LottieView>` with lottie-react-native's props and `ref` methods (`play`, `pause`, `resume`, `reset`), `.json` and `.lottie` from `asset:` paths (in the bundle, so OTA can change them), "Remove animations" shows the last frame, `Lottie.preload`. lottie-compose 6.7.1 bundled, +85 KB, no R8 rule. Guide §57, second-opinions 130–132 |
 | Maps, video, charts | plugins, later | When an app needs them |
 
 ## 8. Decisions (taken 2026-11-02)

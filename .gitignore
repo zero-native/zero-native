@@ -39,6 +39,7 @@ android/sample/src/main/assets/*.zn.ui.json
 android/sample/src/main/assets/zn-bundle.json
 # Copied from examples/sample/assets/ by the sample build
 android/sample/src/main/assets/images/
+android/sample/src/main/assets/lottie/
 
 # Compiler test artifacts
 compiler/test/.tmp/

@@ -12,6 +12,7 @@ import dev.zeronative.plugins.crashlytics.CrashlyticsPlugin
 import dev.zeronative.plugins.devicetest.DeviceTestPlugin
 import dev.zeronative.plugins.firebase.FirebaseAppPlugin
 import dev.zeronative.plugins.location.LocationPlugin
+import dev.zeronative.plugins.lottie.LottiePlugin
 import dev.zeronative.plugins.media.MediaPlugin
 import dev.zeronative.plugins.pdf.PdfPlugin
 import dev.zeronative.plugins.perf.PerfPlugin
@@ -44,6 +45,7 @@ class SampleApp : Application() {
         ZnPlugins.register(this, AnalyticsPlugin()) // on from the first start; screen views by route
         ZnPlugins.register(this, RemoteConfigPlugin())
         ZnPlugins.register(this, PerfPlugin()) // before the first fetch: it adds an interceptor to core's client
+        ZnPlugins.register(this, LottiePlugin())
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call
         // Crashlytics' recordException(e.asThrowable()). The sample logs the full JS stack (with columns: the exact
         // TSX line with `bun run ota symbolicate`) and the Throwable a crash reporter would get.

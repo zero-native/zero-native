@@ -4,7 +4,7 @@ Raw material for the public docs (user guide, best practices, sample projects). 
 something an app author will touch.** Each topic says what to do, what not to do, and why, in words an outsider (a
 React Native or Flutter developer) understands. Code here must match what is built; mark unbuilt parts **(planned)**.
 
-Last updated: 2026-11-04.
+Last updated: 2026-11-05.
 
 ---
 
@@ -1257,6 +1257,7 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 | `@zero-native/push` | FCM messages as a JS task, notifications (buttons, progress, schedules), taps that open a route, the OTA check push (§48, §51-§53) | About 54 KB on top of Crashlytics |
 | `@zero-native/remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
 | `@zero-native/perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
+| `@zero-native/lottie` | Lottie animations (`.json`, `.lottie`) with lottie-react-native's names and `ref` methods (§57) | About 85 KB (lottie-compose, bundled) |
 
 **Scanner.**
 - **Do** give the route `safeArea: "none"`. The camera runs under the status bar.
@@ -2072,3 +2073,41 @@ row: [rn-compatibility.md](rn-compatibility.md). The lab screen `zn://sample/dev
     with what to use. Before, the import was removed and the screen crashed at run time.
 - **Still build errors on purpose:** `SafeAreaView`, `KeyboardAvoidingView` (route options do it: `safeArea`,
   `keyboard`), `numColumns`, `ListEmptyComponent`, `require("./img.png")`.
+
+## 57. Lottie animations (`@zero-native/lottie`)
+
+`<LottieView>` keeps lottie-react-native's names: `source`, `autoPlay`, `loop`, `speed`, `progress`, `resizeMode`,
+`colorFilters`, `onAnimationFinish`, `onAnimationFailure`, `onAnimationLoaded`, and `ref` with `play`, `pause`,
+`resume`, `reset`. `import LottieView from "@zero-native/lottie"` works as in RN. Drawing is Airbnb's lottie-compose,
+inside the APK. The README has the API, the limits and the size (+85 KB). Code:
+[LottieView.kt](../plugins/lottie/android/src/main/java/dev/zeronative/plugins/lottie/LottieView.kt),
+[LottieRules.kt](../plugins/lottie/android/src/main/java/dev/zeronative/plugins/lottie/LottieRules.kt),
+[api.ts](../plugins/lottie/src/api.ts). Lab: `zn://sample/dev/lottie`.
+
+- **Do** put the files in the app's `assets/` folder and write `source="asset:lottie/x.lottie"` (or `.json`). **Why:**
+  they ship in the bundle like `asset:` images, so an OTA update can change or add one. Both `.json` and `.lottie`
+  work; Lottie reads the first bytes, not the name.
+- **Do** put the size on a `View` around it: `<View style={{ width: 140, height: 140 }}><LottieView ... /></View>`.
+  **Don't** write `style` on `LottieView`: it is a type error. **Why:** layout is fixed at build time, and a component
+  can't pass a style through (§35, §47). The view fills its parent, as `PdfView` does.
+- **Don't** use `require("./x.json")`, a JSON object, or an `https` URL as `source`. **Why:** `require` of a file is a
+  build error in zn; a network file would bypass the app's `fetch` setup (pins, interceptors). `onAnimationFailure`
+  says `bad_source`.
+- **Do** expect `loop` to be on unless you say `loop={false}`, and `autoPlay` to be off. **Why:** those are RN's
+  defaults, so ported code behaves the same.
+- **Know:** `ref` works as in RN, with a callback (`ref={(v) => ...}`) or `useRef<LottieView | null>(null)`. The ref
+  gets the controller when the view is built and `null` when it goes. Calls in one tick count together, so
+  `reset(); play()` starts from frame 0, as on RN.
+- **Know:** `onAnimationFinish(false)` comes only for a play without `loop`. `onAnimationFinish(true)` comes only from
+  `reset()` on a running play. `pause()` sends nothing.
+- **Know:** with "Remove animations" on (or battery saver), a play shows its last frame at once, and a play without
+  `loop` finishes at once. **Do** make the last frame a good still picture (a full tick, a full icon). **Why:** some
+  users can't stand motion, and Android's own animations stop too. A "reduced motion" marker in the file wins.
+- **Know:** a pushed screen covers yours and its animations stop (the covered screen isn't drawn). Coming back makes
+  the view again: `autoPlay` starts from the start; a paused one stays paused. In the background no frames are drawn.
+- **Do** call `Lottie.preload({ source })` for a big file the user will see right after a tap (a success screen).
+  **Why:** the file is parsed off the main thread when a view first needs it, so a big one can show a frame late.
+  Preload fills the same cache.
+- **Don't** use `colorFilters` colours from user data without care: a bad colour is left out with a warning, not shown.
+- **Know:** not supported: `imageAssetsFolder`, `textFiltersAndroid`, `duration`, `onAnimationLoop`, `onLayout`,
+  `containerStyle`. Images inside the file (base64, or inside a `.lottie`) work.

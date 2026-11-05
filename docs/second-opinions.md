@@ -1762,3 +1762,71 @@ change, and what evidence would make you change it?"
 - **Other options:** an overlay / popover layer (a portal), still possible later for menus that must cover everything.
 - **Evidence wanted:** the port's TxnInfo tooltip on the Lava with RN's shape. Checked on the Android 13 emulator: RN
   props lab, a bubble from row 1 (`zIndex: 10`) drawn over row 2's yellow background.
+
+## 130. Lottie: RN's `ref` methods are state sent as view props, not native calls by view id (lottie plugin, built 2026-11-05)
+- **Where:** `plugins/lottie/src/api.ts` (`lottieController`, `lottieProps`), `LottieView.tsx`, `LottieRules.start` /
+  `cancelled` in `plugins/lottie/android/.../LottieRules.kt`, the play effect in `LottieView.kt`.
+- **Asked:** the ZeroBill port needs RN's `ref` methods: the Welcome slides call `view.reset(); view.play()` on the
+  visible slide and `pause()` on the others, and `resume()` / `pause()` on focus changes.
+- **Chosen:** the controller keeps `{ mode: auto | play | pause | stop, restart, plays, from, to }` in a JS signal and
+  sends it with the view's props. `reset()` and `play(start, end)` raise `restart`; native goes back to the start when
+  it sees a new `restart`. Every `play()` and `resume()` raises `plays`, so a second `play()` after a play ended still
+  reaches native (the rest of the state would be equal). Native remembers the (restart, plays) of a play without loop
+  that reached its end and treats it as stopped until the next call, as RN does (a new `progress` then only shows that
+  frame). So calls in one tick count together (`reset(); play()` = start again), and a call made before the view
+  exists is not lost. `ref` is a plain prop in zn: the component hands the controller to a callback or a `useRef`
+  object, and `null` on cleanup. The webview plugin's pattern (a module call with the view's id, after a "ready" event)
+  was not used.
+- **Why:** state is easy to make right with props that coalesce per tick; commands are not. No native view table, no
+  race between "ready" and the first call, no async answers to handle, and one way for JS to reach the view.
+- **Risk if wrong:** a call is a state, not an event: two `play()` calls in a row look like one (on RN the second
+  `play()` while playing does nothing visible either). `onAnimationFinish(true)` needs native to remember that a play
+  was running when the effect was cut (`Last.running`), which is the subtlest code here. A future method that is truly
+  an event (`seekAndPlay` twice in one tick) would need a counter like `restart`.
+- **Other options:** module calls by view id (webview); a command list in the props with a sequence number (native acks).
+- **Evidence wanted:** the ZeroBill Welcome carousel (4 slides, loop clones) on the Lava: only the visible slide plays,
+  it starts from frame 0 each time it comes into view, and slides pause under Login. Checked on the Android 13 emulator
+  (debug and R8 release) in the lottie lab: play, pause, resume (also after 3 s), reset, a second play after the end,
+  parts both ways, reset while playing, `progress` after an ended play. The first emulator run found two bugs in this
+  design (no `plays`, no "ended" rule), both fixed and covered by `LottieRulesTest`.
+
+## 131. Lottie: `LottieView` fills its parent; `style` on it is a type error, no compiler change (lottie plugin, built 2026-11-05)
+- **Where:** `plugins/lottie/src/LottieView.tsx` (`style={{ width: "100%", height: "100%" }}`), `LottieViewProps.style?: never`.
+- **Asked:** RN code sizes the animation with `style` on `LottieView` itself (`style={{ width: 140, height: 140 }}`,
+  `style={styles.lottie}`). A zn component can't pass a style through: layout is folded at build time (§35, §47).
+- **Chosen:** the view fills its parent, as `PdfView` and `WebView` do. Ported code moves the style to a `View` around
+  it. `style?: never` in the props makes `tsc` say so at the call site ("not assignable to type 'undefined'"), with the
+  prop's doc comment saying what to do.
+- **Why:** no compiler or registry change for one plugin, and the same rule as the other native views.
+- **Risk if wrong:** the zn build itself does not check a component's props against its type, so an app that skips
+  `tsc` gets a `style` that is silently dropped and a view the size of its parent. Every ZeroBill call site needs the
+  small edit (7 places in its RN code).
+- **Other options:** a compiler rule that turns `<LottieView style={X} />` into `<View style={X}><LottieView /></View>`
+  (works for every NativeView wrapper, a compiler change); runtime `width` / `height` on native views (the bigger fix
+  second-opinions 100 names); an aspect-ratio box from the file's size (a jump in layout when the file loads).
+- **Evidence wanted:** how often ported RN code passes a style to plugin components. If often, the compiler rule.
+
+## 132. Lottie: assets only, "Remove animations" shows the last frame, one parse thread, lottie-compose 6.7.1 with its appcompat (lottie plugin, built 2026-11-05)
+- **Where:** `LottieFiles.kt`, `LottieRules.assetPath` / `motionOff` / `newPlay`, `plugins/lottie/android/build.gradle.kts`.
+- **Chosen:**
+  - **Sources:** only `asset:` paths, from the running bundle (an OTA copy if it has the file, else the APK), like
+    `asset:` images. No `https` URLs: Lottie's `fromUrl` uses its own `HttpURLConnection` and disk cache, outside
+    `ZnFetch` (pins, interceptors). Paths with `..`, `/` at the start or `\` are refused. The cache key names the
+    bundle's copy, so an update never shows an old cached file.
+  - **Motion:** with the animator scale at 0 (Remove animations, battery saver), a play shows its end frame at once and a
+    play without `loop` sends `onAnimationFinish(false)` (what Lottie's own `LottieAnimationView` does, so what RN does).
+    A "reduced motion" marker in the file wins (Lottie's drawing does that). Other scales divide the speed, as
+    lottie-compose does.
+  - **Threads:** one `zn-lottie` thread parses files, so 4 slides don't fight the start of the app for CPU.
+  - **Library:** `com.airbnb.android:lottie-compose:6.7.1` (2025-10-31), Lottie 6.x like lottie-react-native 7.x. It
+    brings appcompat 1.6.1 and okio 1.x as dependencies; Gradle picks the app's okio 3.x (OkHttp 5), whose Java API
+    Lottie's calls still match, and R8 drops appcompat.
+- **Why:** files ZeroBill ships are in the app; a network path would be a second HTTP stack in a payments app. Showing
+  the end frame keeps the meaning (a tick, a full icon) for users who turned motion off.
+- **Risk if wrong:** a file whose last frame is empty (a fade-out) shows nothing with motion off. An okio 1 → 3 API
+  difference would crash only when Lottie reads a file; the lab reads JSON and `.lottie` in debug and release, so the
+  calls Lottie makes today work. An app without appcompat elsewhere pays more if R8 can't drop it (measured +85 KB
+  in the sample, which has no new appcompat classes).
+- **Other options:** show the first frame with motion off; a `reducedMotion` prop; `https` sources through `ZnFetch`
+  into a file, then `LottieCompositionSpec.File`.
+- **Evidence wanted:** ZeroBill's `.lottie` files in use (9) with motion off on the Lava (is each last frame a good still?).

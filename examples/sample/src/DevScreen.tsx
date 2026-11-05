@@ -69,6 +69,7 @@ export function DevScreen() {
           <Entry title="Analytics plugin" step="analytics" detail="On by default, opt-out, events, purchase, user, screen views by route" onOpen={() => nav.push("analyticsLab")} />
           <Entry title="Remote Config plugin" step="remote config" detail="Defaults, fetch and activate, values with their source, live updates" onOpen={() => nav.push("remoteConfigLab")} />
           <Entry title="Performance plugin" step="perf" detail="Custom traces, fetch traces, a trace per screen with slow frames" onOpen={() => nav.push("perfLab")} />
+          <Entry title="Lottie plugin" step="lottie" detail="JSON and .lottie files, play, pause, reset by ref, progress, finish, colours, bad files" onOpen={() => nav.push("lottieLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

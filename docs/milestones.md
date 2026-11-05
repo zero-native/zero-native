@@ -34,6 +34,8 @@ kept with `-dontobfuscate`, so traces stay readable):
 ```bash
 .\gradlew.bat :sample:installRelease
 ```
+The release build is arm64 only (size numbers are for phones). To check it on the x86_64 emulator, add
+`-PznX86Release` (the sample and the runtime then also pack x86_64; added 2026-11-05).
 While working on screens, run `bun run dev` instead of `bun run sample:js` + reinstall: saved changes reach the
 debug build on the phone in under a second (`docs/guide-notes.md` §17). Install the debug build once first.
 Logs: `adb logcat -s zn zn-js zn-sample zn-dev`. Measure cold start as in `docs/startup-and-performance.md` §3 (release only).
@@ -123,6 +125,31 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: Lottie plugin (Claude)
+- **What:** official, opt-in `@zero-native/lottie` (`plugins/lottie/`): `<LottieView>` with lottie-react-native 7.x's
+  props, defaults and events, `ref` with `play` / `pause` / `resume` / `reset` (callback or `useRef`), the default
+  import, `Lottie.preload`. `.json` and `.lottie` files from `asset:` paths (in the bundle, so OTA can change them).
+  "Remove animations" shows the last frame. Airbnb lottie-compose 6.7.1, bundled. On `<NativeView>`: no registry
+  change (still 16), module `Lottie` v1. Sample: lottie lab (`zn://sample/dev/lottie`), 3 animations of our own made
+  by `examples/sample/make-lottie.ts`. Guide §57, second-opinions 130–132, plugins.md and rn-compatibility rows.
+- **Size (release, R8, arm64):** +85 KB for the plugin (`classes.dex` +83.6 KB compressed, `resources.arsc` +0.5 KB).
+  No R8 rule needed (dexdump: 161 Lottie classes kept; appcompat adds no classes).
+- **Tests:** JS 1032 (lottie 10) and both type checks; Kotlin 11 (`LottieRulesTest`); `:plugin-lottie:assembleDebug`;
+  lint 0 errors (`:plugin-lottie:lintRelease :sample:lintRelease`); sample debug and R8 release built.
+  Android 13 emulator, debug and R8 release, same results (screen hashes equal): JSON and `.lottie` draw; play, pause,
+  resume, reset; a play at the end starts again; frame parts both ways; `onAnimationFinish` false / true (reset while
+  playing); resume after a 3 s pause goes on (no jump); `progress` 0 / 0.5 / 1; colour filter; speed −1; resizeMode
+  cover / center; ref null after hide; the 3 failure reasons; preload; "Remove animations" (last frame, finish at once,
+  moves again when turned back on); 0 frames drawn in the background. The emulator run found 3 bugs, all fixed:
+  resume / play jumped ahead (`continueFromPreviousAnimate`), a second `play()` after an ended play did nothing (now a
+  `plays` counter and an "ended" rule), preload's size was in pixels.
+- **Cold start (emulator, x86_64 release, home screen, 2 × 10 runs each):** median 1631 ms without the plugin and
+  1668 ms with it; round medians swing from 1140 to 3060 ms, so the emulator's noise is far bigger than any effect.
+  The plugin does no work at start (`register` makes 3 small objects; Lottie's classes load with the first view).
+  Not measured on the Lava.
+- **Also:** the sample's and the runtime's release builds take `-PznX86Release` (also x86_64) for R8 checks on the
+  emulator; the runtime needed it too for `libzn.so`.
+
 ### 2026-11-05: zIndex on a child of Column / Row / Box / Pressable (Claude)
 - **What:** R23 part 2 from the ZeroBill port: a row with `zIndex` draws its absolute tooltip over the rows after it,
   as in RN (before: only a Stack's children took zIndex, elsewhere a build error). Registry 16 (`ZINDEX_ANY_SINCE`),
