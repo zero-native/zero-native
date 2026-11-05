@@ -33,7 +33,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
@@ -54,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
+import kotlin.math.roundToInt
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -213,17 +213,10 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                         // The Stack's own size, after its other children (StyleSheet.absoluteFill).
                         m = m.matchParentSize().absoluteInsets(child.start, child.top, child.end, child.bottom)
                     } else {
-                        val h = if (child.start != null) -1f else if (child.end != null) 1f else stackBias(s).first
-                        val v = if (child.top != null) -1f else if (child.bottom != null) 1f else stackBias(s).second
-                        m = m.align(BiasAlignment(h, v))
-                        // One pair: as wide (or tall) as the Stack may be. Right when the Stack has a set or
-                        // stretched size, the usual case for an overlay bar.
-                        if (fillW) m = m.fillMaxWidth().absoluteInsets(child.start, null, child.end, null)
-                        if (fillH) m = m.fillMaxHeight().absoluteInsets(null, child.top, null, child.bottom)
-                        m = m.offset(
-                            x = if (fillW) 0.dp else (child.start ?: child.end?.let { -it } ?: 0f).dp,
-                            y = if (fillH) 0.dp else (child.top ?: child.bottom?.let { -it } ?: 0f).dp,
-                        )
+                        // R29 (2026-11-05): it takes no room, as in RN. In matchParentSize the Box sizes itself
+                        // from its normal children only, then measures this child at that size (absoluteChild).
+                        // Before, the Box grew to fit it (a 220 dp header shape made a 90 dp Stack 220 tall).
+                        m = m.matchParentSize().absoluteChild(child, stackBias(s))
                     }
                 }
                 child.zIndex?.let { m = m.zIndex(it) }
@@ -759,6 +752,45 @@ private fun contentPaddingOf(s: ZnNodeSpec, inst: ZnInstance): PaddingValues {
     }
     return Edges(edge(0, b.start), edge(1, b.top), edge(2, b.end), edge(3, b.bottom)).toPadding()
 }
+
+/**
+ * An absolute Stack child without a full fill (R29), inside matchParentSize, so the incoming size is the Stack's own.
+ * Each axis: both sides (start + end, top + bottom) = the Stack's size minus the two; else its own size: a set dp size
+ * is kept even when bigger than the Stack, a % is of the Stack, no width is at most the Stack's width, no height is the
+ * content's height. Placed at its inset (end / bottom from the far side), or by the Stack's alignment
+ * ([bias]) when it has none. Reports the Stack's size, so it never makes the Stack bigger. Draws outside when bigger.
+ */
+private fun Modifier.absoluteChild(child: ZnNodeSpec, bias: Pair<Float, Float>): Modifier =
+    layout { measurable, constraints ->
+        val w = constraints.maxWidth
+        val h = constraints.maxHeight
+        val s = child.start?.dp?.roundToPx()
+        val e = child.end?.dp?.roundToPx()
+        val t = child.top?.dp?.roundToPx()
+        val b = child.bottom?.dp?.roundToPx()
+        val fillW = s != null && e != null
+        val fillH = t != null && b != null
+        val fullW = (w - (s ?: 0) - (e ?: 0)).coerceAtLeast(0)
+        val fullH = (h - (t ?: 0) - (b ?: 0)).coerceAtLeast(0)
+        val inner = Constraints(
+            minWidth = if (fillW) fullW else 0,
+            maxWidth = when {
+                fillW -> fullW
+                child.width is Double -> Constraints.Infinity
+                else -> w // a % of the Stack; no width: at most the Stack's width (Yoga's rule, and zn's before)
+            },
+            minHeight = if (fillH) fullH else 0,
+            maxHeight = when {
+                fillH -> fullH
+                child.height is ZnPercent -> h
+                else -> Constraints.Infinity
+            },
+        )
+        val p = measurable.measure(inner)
+        val x = s ?: e?.let { w - p.width - it } ?: ((1f + bias.first) / 2f * (w - p.width)).roundToInt()
+        val y = t ?: b?.let { h - p.height - it } ?: ((1f + bias.second) / 2f * (h - p.height)).roundToInt()
+        layout(w, h) { p.placeRelative(x, y) }
+    }
 
 /**
  * Insets an absolute child that fills its axis (after matchParentSize / fillMaxWidth / fillMaxHeight): on each axis

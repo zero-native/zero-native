@@ -256,7 +256,29 @@ object ZnBundles {
         }
         Log.i(TAG, "bundle: running $running (${running.label}), chosen in %.2f ms".format((System.nanoTime() - t0) / 1e6))
         ZnOtaHealth.onChosen(running)
+        warnMissingModules(running)
         return running
+    }
+
+    /**
+     * R31 (2026-11-05): the running bundle needs a native module that no plugin registered, for example a plugin added
+     * in Gradle but not in `ZnPlugins.register(...)`. Its calls fail with "unavailable" and nothing else says why, so
+     * log one clear error, and in a debug build show it on the dev error screen too. The app still starts. (A downloaded
+     * bundle with a missing module never gets here: the OTA check refuses it. This catches the APK's own bundle.)
+     */
+    private fun warnMissingModules(running: Running) {
+        val needs = running.info?.requires?.modules ?: return
+        val have = ZnModules.versions()
+        val missing = needs.filter { (name, version) -> (have[name] ?: 0) < version }
+        if (missing.isEmpty()) return
+        val list = missing.entries.joinToString { (name, version) ->
+            have[name]?.let { "$name v$version (this app has v$it)" } ?: name
+        }
+        val message = "the bundle needs native modules this app didn't register: $list. Add the plugin to " +
+            "ZnPlugins.register(...) in Application.onCreate (its README has the line). Until then its calls fail " +
+            "with \"unavailable\"."
+        Log.e(TAG, "bundle: $message")
+        if (BuildConfig.DEBUG) android.os.Handler(android.os.Looper.getMainLooper()).post { ZnDev.onJsError("native modules missing\n$message") }
     }
 
     /**

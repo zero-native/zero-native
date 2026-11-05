@@ -2025,7 +2025,9 @@ internal fun ZnSvg(t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, mod: Modifier
     // This node's own filter nodes (Android 12+; ZnSvgEffects.kt), freed when it leaves the screen.
     val filterNodes = remember { ZnSvgFilterNodes() }
     DisposableEffect(filterNodes) { onDispose { filterNodes.release() } }
-    val sized = (if (s.width == null && s.height == null) mod.size(24.dp) else mod).let { m ->
+    // An absolute Svg sized by its Stack (start + end or top + bottom, R30) has no size of its own on purpose.
+    val sizedByStack = s.absolute && ((s.start != null && s.end != null) || (s.top != null && s.bottom != null))
+    val sized = (if (s.width == null && s.height == null && s.aspectRatio == null && !sizedByStack) mod.size(24.dp) else mod).let { m ->
         if (!tapped) m else m.pointerInput(taps) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)

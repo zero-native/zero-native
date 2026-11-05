@@ -452,6 +452,22 @@ describe("inline <Svg>", () => {
     expect(props(n).svg).toContain("RG 0.5 0.5 0.5 0 1 192 0 0 192 4 4 2 0 #66FFFFFF 1 #FF000000")
     expect(props(n).svg).toContain("S - 1 #FFFF0000 1 0 1 4 1 0 4 0 0 0 M0 0H10;")
   })
+  test("R30: an absolute Svg sized by start + end (or top + bottom) gets no aspect ratio on that axis", () => {
+    const shape = `<Polygon points="0,0 100,0 100,146 0,220" fill="#0a0" />`
+    // The receipt header: start + end give the width, height 220; "none" stretches the viewBox to 360 x 220.
+    const a = compile(`export function F() { return <Stack><Svg style={{ position: "absolute", top: 0, start: 0, end: 0, height: 220 }} viewBox="0 0 100 220" preserveAspectRatio="none">${shape}</Svg></Stack> }`).templates[0]!.children[0]!
+    expect(props(a).height).toBe(220)
+    expect(props(a).width).toBeUndefined()
+    expect(props(a).aspectRatio).toBeUndefined()
+    // Full fill: the Stack's size on both axes.
+    const b = compile(`export function F() { return <Stack><Svg style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0 }} viewBox="0 0 100 220">${shape}</Svg></Stack> }`).templates[0]!.children[0]!
+    expect([props(b).width, props(b).height, props(b).aspectRatio]).toEqual([undefined, undefined, undefined])
+    // One side only: the viewBox shape still gives the other side, as before.
+    const c = compile(`export function F() { return <Svg style={{ height: 220 }} viewBox="0 0 100 220">${shape}</Svg> }`).templates[0]!
+    expect(props(c).aspectRatio).toBeCloseTo(100 / 220)
+    const d = compile(`export function F() { return <Stack><Svg style={{ position: "absolute", top: 0, start: 0, end: 0 }} viewBox="0 0 100 220">${shape}</Svg></Stack> }`).templates[0]!.children[0]!
+    expect(props(d).aspectRatio).toBeCloseTo(100 / 220)
+  })
   test("a runtime fill makes the element a part by itself", () => {
     const { templates, code } = compile(`const HEART = "M0 0h10v10z"\nexport function F() { return (
       <Svg viewBox="0 0 10 10" size={24}><Path d={HEART} fill={liked() ? "#f00" : "#999"} /></Svg>) }`)

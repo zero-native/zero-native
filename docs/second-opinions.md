@@ -1676,3 +1676,35 @@ change, and what evidence would make you change it?"
   now on by default too, so Perf and Analytics both collect from the first start; to wait for consent, either one needs
   its manifest flag, `firebase_performance_collection_enabled=false` for Perf); the Firebase Perf Gradle plugin.
 - **Evidence wanted:** whether ZeroBill's consent screen covers diagnostics.
+
+## 127. An absolute Stack child takes no room; an absolute Svg sized by its insets gets no aspect ratio; a missing plugin is reported at start (runtime + compiler, built 2026-11-05)
+- **Where:** `ZnRenderer.kt` STACK branch + `absoluteChild()`; `compile.ts` `svgNode()`; `ZnSvg.kt` (24 dp fallback);
+  `ZnBundles.kt` `warnMissingModules()`.
+- **Asked:** ZeroBill port on the Lava, asks R29, R30, R31 (prototype `docs/framework-asks.md`). Pavan: fix if it doesn't
+  break the port (app-home-tabs read all 31 `<Stack>` in the port: none breaks).
+- **Chosen:**
+  1. R29: an absolute child without a full fill (start + end + top + bottom) goes in `matchParentSize`, so Compose's
+     Box sizes itself from the normal children only and then measures the absolute one at that size. `absoluteChild`
+     measures it (set dp size: unbounded, so it is kept; `%`: of the Stack; no width: at most the Stack's width; no
+     height: unbounded) and places it at its inset, or by the Stack's alignment. It reports the Stack's size.
+     Before, the Box grew to fit it (a 220 dp header shape made a 90 dp Stack 220 tall; a tooltip made lines jump).
+  2. R30 was not the aspect code: an Svg with only `height` gets `aspectRatio` from its viewBox, and an absolute Svg
+     with `start` + `end` got it too, so 360 dp wide gave 792 dp tall. Now `start` + `end` (or `top` + `bottom`) on an
+     absolute Svg count as that axis's size. The 24 dp fallback in `ZnSvg` skips such an Svg.
+  3. R31: after the bundle is chosen, its `requires.modules` is compared with the registered modules. A missing one is
+     one `Log.e` naming the modules and the fix (`ZnPlugins.register`), and in debug the dev error screen (not a
+     blocking screen). The app still starts. Downloaded bundles were already refused by the OTA check; this catches
+     the APK's own bundle.
+- **Why:** RN's `position: 'absolute'` is out of the flow; ported headers, badges and tooltips depend on it. A plugin
+  in Gradle but not registered failed with only "failed" / an endless progress bar.
+- **Risk if wrong:** (1) changes old bundles once the new APK is on the phone. A Stack whose size came only from an
+  absolute child is now smaller: a Stack with only absolute children and no size is 0 x 0, and a child with no width
+  in it gets 0 width. An absolute child with no height is measured with unbounded height, so a vertical `Scroll` or
+  `List` inside one needs a height (Compose throws on an unbounded scroll). (3) could warn about a module an app
+  leaves out on purpose: the port and the sample have none.
+- **Other options:** (1) a custom Layout for Stack (more code, same result); keep growing the Stack and document it.
+  (2) skip the aspect ratio only for `preserveAspectRatio="none"`. (3) refuse to start in debug.
+- **Evidence wanted:** the port's receipt and TxnInfo on the Lava. Checked on the Android 13 emulator: RN props lab
+  "Absolute children take no room" (Stack 41 dp from its text, shape 120 dp stretched over the next row, end/bottom
+  dot, 220 dp bubble from a 120 dp Stack), Tabs lab (Scan button 25 dp up and centred, badges incl. "₹22.1k+"),
+  Offers banner, the older contentContainerStyle FAB; no missing-module error in the sample.

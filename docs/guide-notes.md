@@ -938,6 +938,10 @@ To add it to an app:
 
 - **Do:** call `ZnPlugins.register` before `ZnTemplates.preload` and `ZnRuntime.start`. **Why:** the OTA check compares the
   modules registered by then with what a downloaded bundle needs. Too late fails in debug builds.
+- **Know (since 2026-11-05, R31):** if the APK's own bundle needs a module no plugin registered (the plugin is in Gradle
+  but not in `ZnPlugins.register`), the app logs one `zn` error naming it, and a debug build shows it on the dev error
+  screen. The app still starts, and calls to that module fail with "unavailable". **Do** check logcat for
+  "native modules this app didn't register" when a plugin call fails with no clear reason.
 - **Don't:** do work in `register`: no disk, no network, no heavy objects. **Why:** it runs on the main thread during app
   start, and every plugin adds to that.
 - **Don't:** use a module name that is taken. A plugin can't replace `Fetch` or another plugin's module.
@@ -1603,6 +1607,14 @@ change: 14).
 - `StyleSheet.absoluteFill` / `absoluteFillObject`, and any absolute child with both `start` and `end` (or `top` and
   `bottom`): it stretches between them inside its `Stack`, as in RN. **Know:** with only one pair (`start: 16, end: 16`),
   the child is as wide as the Stack may be: right when the Stack has a set or stretched width, the usual overlay case.
+- **Know (since 2026-11-05, R29):** an absolute child takes no room, as in RN. The Stack is as big as its normal children
+  (or its own size), and a tall header shape or a tooltip draws over what follows instead of pushing it down. A set
+  `width` / `height` is kept even when bigger than the Stack. **Don't** rely on an absolute child to give a Stack its
+  size: a Stack with only absolute children and no size is 0 x 0. **Do** give an absolute child that holds a `Scroll`
+  or `List` a height (or `top` + `bottom`). **Why:** an absolute child with no height is measured at its content's
+  height, and a scroll has no content height.
+- An absolute `<Svg>` with `start` + `end` (or `top` + `bottom`) takes that size from its Stack, so
+  `preserveAspectRatio="none"` stretches it to the box (R30). Before, the viewBox shape set the other side.
 - `textTransform`: `"uppercase"`, `"lowercase"`, `"capitalize"`, also for text that changes at runtime. capitalize works
   as RN's Android code does: the first letter of each word upper case, the rest lower case ("don't" is one word).
 

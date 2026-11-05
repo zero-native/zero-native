@@ -1249,8 +1249,11 @@ export function compileModule(
     if ("color" in props && !svg.usesCurrentColor) {
       fail(node, 'color sets currentColor, but this SVG has none: add fill="currentColor" where the colour should change, or use parts')
     }
-    const hasW = props.width !== undefined
-    const hasH = props.height !== undefined
+    // An absolute Svg with both sides of a pair (start + end, top + bottom) gets that size from its Stack: no aspect
+    // ratio on that axis, or the viewBox shape would size it from the other one (R30: a 360 wide header drawn 792 tall).
+    const abs = props.position === "absolute"
+    const hasW = props.width !== undefined || (abs && props.start !== undefined && props.end !== undefined)
+    const hasH = props.height !== undefined || (abs && props.top !== undefined && props.bottom !== undefined)
     if (!hasW && !hasH) {
       props.width = svg.width
       props.height = svg.height

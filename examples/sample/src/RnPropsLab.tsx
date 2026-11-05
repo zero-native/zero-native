@@ -1,6 +1,6 @@
 // A dev screen for RN props pack 2: React Native props, styles and components, with their RN names. Each check logs
 // one "rn-props ..." line; the phone check (tools/plugin-phone/rnprops.ts) reads those lines, so keep their wording.
-import { Box, Column, Image, List, Modal, NavigationBar, Pressable, Row, Scroll, Stack, StatusBar, StyleSheet, Text, TextField } from "@zero-native/ui"
+import { Box, Column, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Stack, StatusBar, StyleSheet, Svg, Text, TextField } from "@zero-native/ui"
 import { Alert, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
@@ -239,6 +239,35 @@ export function RnPropsLabScreen() {
             </Text>
           </Pressable>
         </Stack>
+
+        {/* 2026-11-05, R29 / R30 from the ZeroBill port: an absolute child takes no room (the Stack is as tall as its
+            text, the 220 dp shape draws over what follows), and an absolute Svg with start + end + height and
+            preserveAspectRatio="none" stretches to that box. The bubble keeps its 220 dp width in a narrower Stack. */}
+        <PropsTitle text="Absolute children take no room" />
+        <Stack testID="abs-header">
+          <Svg style={{ position: "absolute", top: 0, start: 0, end: 0, height: 120 }} viewBox="0 0 100 120" preserveAspectRatio="none">
+            <Polygon points="0,0 100,0 100,80 0,120" fill="#16A34A" fillOpacity={0.3} />
+          </Svg>
+          <Column style={{ paddingStart: 16, paddingVertical: 12 }}>
+            <Text fontSize={14} fontWeight={700} color={c.ink}>
+              Stack sized by this text only
+            </Text>
+          </Column>
+          <Box testID="abs-dot" style={{ position: "absolute", end: 8, bottom: 8, width: 12, height: 12, borderRadius: 6, backgroundColor: c.primary }} />
+        </Stack>
+        <Row style={{ height: 24 }} alignItems="center">
+          <Text fontSize={12} color={c.ink}>
+            Next row (the green shape draws over it)
+          </Text>
+        </Row>
+        <Stack testID="abs-narrow" style={{ width: 120, height: 32, backgroundColor: "#E5E7EB" }}>
+          <Column testID="abs-bubble" style={{ position: "absolute", top: 36, start: 8, width: 220, padding: 8, borderRadius: 8, backgroundColor: c.ink }}>
+            <Text fontSize={12} color={c.white}>
+              A 220 dp bubble from a 120 dp Stack
+            </Text>
+          </Column>
+        </Stack>
+        <Box style={{ height: 56 }} />
 
         <PropsTitle text="Modal" />
         <HoldTile label="Open dialog modal" onPress={() => dialog.set(true)} />

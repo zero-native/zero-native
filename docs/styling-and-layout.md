@@ -128,6 +128,11 @@ These follow React Native wherever Compose and SwiftUI make it cheap, and say so
    styled `Column` row inside a `Stack` is full width, like an absolute `start: 0, end: 0` sibling. A Stack with
    `alignItems: 'center'` or `'flex-end'` still places its children at their own size. Normal children of a Stack
    still overlap (they don't flow down as in an RN `View`).
+   **An absolute child takes no room** (since 2026-11-05, R29), as in RN: the Stack's size comes from its normal
+   children and its own size only, then each absolute child is placed in that box. A set dp width or height is kept
+   even when it is bigger than the Stack (the child draws outside), a `%` is of the Stack, no width is at most the
+   Stack's width, and no height is the content's height. A Stack with only absolute children and no size of its own
+   is 0 x 0, as in RN: give it a size (second-opinions 127).
 5. **Percentages** are of the parent's content box (inside its padding).
 6. **Margins never collapse.** `gap` is preferred for space between siblings; margins are allowed for porting.
    `gap` works with every `justifyContent`, as in Yoga: with `space-*` it is the smallest space between two items

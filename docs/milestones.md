@@ -123,6 +123,17 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-05: absolute Stack children take no room, absolute Svg size, missing-plugin warning (Claude)
+- **What:** from the ZeroBill port (asks R29–R31). (1) An absolute child of a `Stack` no longer makes the Stack bigger,
+  as in RN (`ZnRenderer.kt` `absoluteChild`). (2) An absolute `<Svg>` with `start` + `end` (or `top` + `bottom`) gets no
+  aspect ratio on that axis, so `preserveAspectRatio="none"` stretches it to its box (it drew 360 x 792 in a 360 x 220
+  slot). (3) At start, a bundle that needs a module no plugin registered gives one clear `zn` error, and the dev error
+  screen in debug. second-opinions 127, guide notes, styling-and-layout §4. Kotlin changed: needs a new APK; no
+  registry or host API change.
+- **Tests:** 1013 JS tests and the type checks pass (new: R30 test in `svg.test.ts`). Runtime unit tests and the debug
+  sample build. Android 13 emulator: RN props lab "Absolute children take no room", Tabs lab (Scan button, badges),
+  Offers banner, the older Stack FAB, no missing-module error. Not run on the Lava; not run in a release build.
+
 ### 2026-11-05: RN-compat sweep P0.4–P0.9 and P1: new build errors, RN names in the compiler and JS core (Claude)
 - **What:** (1) Build errors for RN code that built and did nothing: absolute / zIndex outside `Stack`, a press event
   on anything but `Pressable`, `<List horizontal>`, a destructured `row`, a `transform` order zn would draw
