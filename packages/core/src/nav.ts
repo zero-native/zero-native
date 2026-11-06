@@ -35,7 +35,7 @@ import { installTasks } from "./tasks"
 import type { NativeValue } from "./native"
 import type { AnyRouteDef, NativeRouteDef, RouteDef, RouteName, RouteParams } from "./routes"
 import { launches, type LaunchRecord } from "./launches"
-import { effect, getOwner, onCleanup, signal, untrack, type Owner, type Signal } from "./signals"
+import { effect, getOwner, onCleanup, runWithOwner, signal, untrack, type Owner, type Signal } from "./signals"
 import { allocInstanceId, renderRoot, type View } from "./view"
 
 /** Apps register their routes for typed navigation (in routes.ts):
@@ -631,11 +631,16 @@ function render(e: Entry): void {
   try {
     // Screens return JSX, which the compiler turned into a View.
     const build = screen as (props: Record<string, unknown>) => View
-    e.dispose = renderRoot(e.id, (props: Record<string, unknown>) => {
-      const root = getOwner()
-      if (root) screenOwners.set(root, e)
-      return build(props)
-    }, e.params)
+    // With no owner: a push from a tap runs under the tapped part (a list row), and from an effect under that effect.
+    // The screen must not belong to them: when the row is built again (its item changed) or the effect runs again, the
+    // screen was stopped with it, while native still showed it (dead taps, Lava 2026-11-06). Only close() stops it.
+    e.dispose = runWithOwner(null, () =>
+      renderRoot(e.id, (props: Record<string, unknown>) => {
+        const root = getOwner()
+        if (root) screenOwners.set(root, e)
+        return build(props)
+      }, e.params),
+    )
     e.failed = false
   } catch (err) {
     // renderRoot has already stopped whatever the screen started. Handlers it set up belong to the failed build.
@@ -728,10 +733,13 @@ function mountLayer(layer: "top" | "overlay", Layer: (() => unknown) | undefined
   const params = JSON.stringify({ layer })
   let sent = false
   try {
-    renderRoot(id, Layer as () => View, undefined, (templateId) => {
-      globalThis.__zn_nav(NavKind.Layer, id, templateId, params)
-      sent = true
-    })
+    // With no owner, as screens (render): a layer lives as long as the app.
+    runWithOwner(null, () =>
+      renderRoot(id, Layer as () => View, undefined, (templateId) => {
+        globalThis.__zn_nav(NavKind.Layer, id, templateId, params)
+        sent = true
+      }),
+    )
   } catch (err) {
     if (sent) globalThis.__zn_nav(NavKind.Layer, 0, 0, params)
     reportError(`app layer "${layer}"`, err, "part")

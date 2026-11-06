@@ -350,27 +350,32 @@ object ZnRuntime {
     /**
      * Sends an event to JS whose String payload is read **when the JS thread runs it**, not now: a busy JS thread gets
      * the newest value once instead of a queue of old ones (native module events with latestOnly).
+     * Not dropped while the runtime is replaced, unlike a tap: it goes to the runtime that is current when the JS thread
+     * runs it, and the new JS ignores an event it has no listener for. Dropping it here also left its key in
+     * ZnModules.latest, so that event never reached JS again.
      */
     internal fun dispatchLatest(instance: Int, eventId: Int, payload: () -> String?) {
         checkStarted()
-        if (reloading) return
         js.post {
             val p = payload() ?: return@post
             ZnNative.dispatchEvent(jsRuntime, instance, eventId, 3, 0.0, p)
         }
     }
 
-    /** A native call's answer (JSON) for the runtime of [gen]; dropped if a dev reload replaced that runtime. */
+    /**
+     * A native call's answer (JSON) for the runtime of [gen]; dropped if a reload or restart replaced that runtime.
+     * Only the generation decides, not [reloading]: the new runtime's main script calls native (Os.info, SecureStore)
+     * before the main thread attaches it, and those answers come while [reloading] is still true. Dropping them left
+     * the promises waiting forever (Lava 2026-11-06, reopened from the launcher: [ZnNav.startFresh]).
+     */
     internal fun dispatchAnswer(eventId: Int, json: String, gen: Int) {
         checkStarted()
-        if (reloading) return
         js.post { if (gen == generation) ZnNative.dispatchEvent(jsRuntime, 0, eventId, 3, 0.0, json) }
     }
 
     /** Same, with binary data: JS gets one ArrayBuffer [u32 LE head size][head][body] (jni_bridge.cpp). */
     internal fun dispatchAnswerBytes(eventId: Int, head: ByteArray, body: ByteArray, gen: Int) {
         checkStarted()
-        if (reloading) return
         js.post { if (gen == generation) ZnNative.dispatchBytes(jsRuntime, 0, eventId, head, body) }
     }
 

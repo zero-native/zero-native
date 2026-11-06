@@ -206,7 +206,8 @@ object ZnModules {
     /** Sends a module event to JS (any thread). See [ZnModuleBase.emit]. */
     fun emit(module: String, event: String, payload: Any?, latestOnly: Boolean) {
         val json = JSONObject().put("module", module).put("event", event).put("payload", payload ?: JSONObject.NULL).toString()
-        if (!latestOnly) return ZnRuntime.dispatchEvent(APP, EVENT_MODULE, json)
+        // Through dispatchLatest too: like it, not dropped while the runtime is replaced (dispatchEvent drops taps then)
+        if (!latestOnly) return ZnRuntime.dispatchLatest(APP, EVENT_MODULE) { json }
         val key = "$module\u0000$event"
         val first = synchronized(latest) { latest.put(key, json) == null }
         // One delivery is queued at a time per event; it takes whatever is newest when the JS thread gets to it.
@@ -319,7 +320,9 @@ object ZnModules {
                 }
                 done = true
             }
-            active.remove(id)
+            // Only this call: after a restart the new JS numbers its calls from 1 again, and a late answer of an old call
+            // must not take the new call with the same id out of [active] (it could no longer be cancelled)
+            active.remove(id, this)
             if (isCancelled || id == NO_REPLY) return // JS gave up on it: drop the answer
             if (body == null) ZnRuntime.dispatchAnswer(EVENT_RESULT, payload.toString(), generation)
             else ZnRuntime.dispatchAnswerBytes(EVENT_RESULT_BYTES, payload.toString().toByteArray(), body, generation)

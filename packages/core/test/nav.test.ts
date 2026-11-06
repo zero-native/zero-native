@@ -4,7 +4,7 @@ import { installEvents } from "../src/events"
 import { insets } from "../src/insets"
 import { AppEvent, nav, resetNavForTests, restorableSignal, startApp, useBack, useImpressions } from "../src/nav"
 import { defineRoutes } from "../src/routes"
-import { detached, signal } from "../src/signals"
+import { createRoot, detached, effect, signal } from "../src/signals"
 import { activeTimerCount, installTimers, setInterval, setTimeout } from "../src/timers"
 import { on, slot, view, when } from "../src/view"
 
@@ -524,4 +524,30 @@ test("a value that isn't JSON or is too big is not kept (one warning), and an ol
   expect(host.logs.filter(([, m]) => m.includes("won't come back"))).toHaveLength(1)
   amount!.set("7")
   expect(restoreOps().at(-1)).toEqual(["nav", RESTORE, NATIVE_ROOT, 0, `{"key":"amount","value":"7"}`])
+})
+
+// Lava 2026-11-06: a screen pushed from a list row's tap was stopped when that row was built again (its item changed),
+// while native still showed it: every tap said "no handler". A screen belongs to the stack, not to what opened it.
+test("a screen pushed from a tap or an effect lives until it closes, not until that part goes away", () => {
+  start()
+  const before = activeTimerCount()
+  // A tap on a list row: the handler runs under the row's owner. Then the row is built again.
+  createRoot((disposeRow) => {
+    nav.push("amount", { merchantId: "m1" })
+    disposeRow()
+  })
+  expect(activeTimerCount()).toBe(before + 1) // the screen's interval still runs
+  // An effect that pushes, then runs again
+  const step = signal(0)
+  const stop = effect(() => {
+    if (step() === 1) nav.push("amount", { merchantId: "m2" })
+  })
+  step.set(1)
+  step.set(2)
+  stop()
+  expect(activeTimerCount()).toBe(before + 2)
+  expect(nav.depth()).toBe(3)
+  nav.back()
+  nav.back()
+  expect(activeTimerCount()).toBe(before) // closing is what stops a screen
 })
