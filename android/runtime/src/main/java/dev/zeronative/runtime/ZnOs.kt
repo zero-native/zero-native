@@ -32,6 +32,7 @@ internal object ZnOs : ZnModuleBase("Os", version = 2) { // 2: share's subject a
             val build = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
             call.resolve(
                 JSONObject().put("appVersion", info.versionName ?: "").put("appBuild", build)
+                    .put("packageName", app.packageName)
                     .put("android", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT)
                     .put("model", Build.MODEL).put("manufacturer", Build.MANUFACTURER)
                     .put("rtl", app.resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL),

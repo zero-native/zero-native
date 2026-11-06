@@ -8,6 +8,11 @@ import { callNative } from "./calls"
 export interface OsInfo {
   appVersion: string
   appBuild: number
+  /**
+   * The installed app's id (Gradle's applicationId, with any flavor suffix), as RN's DeviceInfo.getBundleId().
+   * Missing on APKs from before 2026-11-06: an OTA bundle must not treat "missing" as production.
+   */
+  packageName?: string
   android: string
   sdk: number
   model: string

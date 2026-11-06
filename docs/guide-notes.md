@@ -1086,6 +1086,10 @@ await Os.openUrl("https://example.com/help")
   OTA must not be able to open a payment link. Payment apps go through a plugin.
 - **`Os`:** `info()` gives the app version and phone; `openSettings()` opens the app's page; `share({ text })` opens the share
   sheet. `no_app`: nothing on the phone can open it.
+- **`Os.info().packageName`** is the installed app's id, flavor suffix included (`com.example.app.dev`), as RN's
+  `DeviceInfo.getBundleId()`. **Do** pick the backend from it with an exact match for production, and anything else
+  (also a missing value, on an older APK) means "not production". **Why:** one JS bundle serves every flavor, and an OTA
+  bundle can land on an APK that doesn't send it yet.
 - **`zn://` handles** are short strings for native images: the pixels never enter JS. `zn://app-icon/<package>` is built.
   On Android 11+, list the package in `<queries>` or the image fails. Add `fallback`. A plugin adds its own kind with
   `ZnHandles.kind("name") { context, path -> drawable }`; that code runs off the main thread.

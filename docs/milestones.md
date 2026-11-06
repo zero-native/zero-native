@@ -125,6 +125,16 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-06: `Os.info().packageName`, and Crashlytics' Gradle setup in an included build (asked by app-home-tabs, R38)
+- **What:** `Os.info()` gives `packageName` (applicationId with the flavor suffix), as RN's `DeviceInfo.getBundleId()`.
+  Optional in the type: older APKs don't send it. Guide §33. `firebase.gradle.kts` now asks the app's own dependencies
+  for `plugin-crashlytics`, so an app that takes zero-native with `includeBuild` gets Crashlytics' Gradle plugin too
+  (before: none, and the Crashlytics SDK stopped the app at start).
+- **Tests:** JS tests, type checks, runtime compile; the sample still gets Crashlytics' Gradle tasks. app-home-tabs then
+  used the fixed script in the pilot's included build: Crashlytics' tasks are there, and Crashlytics starts on the Lava
+  with no crash (prototype 764e315). The pilot picks its backend from `packageName`.
+- **Next (Pavan, 2026-11-06):** a sync flavor value, as a DeviceInfo-style plugin. Not built yet.
+
 ### 2026-11-06: SMS hash and OTP auto-read work in a real login (Pavan, on the Lava)
 - **What:** the first real end-to-end login on the pilot app (`my-app-prototype`, R37 in 5230779), with the dev
   backend (`v1-nodejs-backend-api` dev 930002e) sending a real carrier SMS with the app hash. Phone hint sheet → number

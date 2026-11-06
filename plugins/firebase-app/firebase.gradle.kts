@@ -14,7 +14,11 @@
 
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
-    if (rootProject.findProject(":plugin-crashlytics") != null) {
+    // Asks this app's own dependencies, so it also works when zero-native comes in as an included build (there
+    // `:plugin-crashlytics` lives in zero-native's build, and the app asks for "dev.zeronative:plugin-crashlytics").
+    // Without the Gradle plugin, the Crashlytics SDK stops the app at start (no build id).
+    val usesCrashlytics = configurations.any { c -> c.dependencies.any { it.name == "plugin-crashlytics" } }
+    if (usesCrashlytics) {
         apply(plugin = "com.google.firebase.crashlytics")
         val upload = project.hasProperty("znUploadMapping")
         val buildTypes = extensions.getByName("android").withGroovyBuilder { getProperty("buildTypes") }
