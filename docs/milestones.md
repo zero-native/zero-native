@@ -125,6 +125,17 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-06: app layers, `startApp(routes, { top, overlay })` (Claude; asked by app-home-tabs, Pavan's go)
+- **What:** `top`, an app-wide bar above every screen (the offline strip); the screens move down by its height, with
+  its own height animation. `overlay`, content over every screen (one "No internet" sheet). NAV LAYER, host API 9.
+  Guide §64, second-opinions 148. Sample: "App layers" lab (`/dev/layers`), strip on NetInfo plus a fake switch.
+- **Tests:** all JS tests (1133) and type checks, runtime Kotlin tests, debug sample build.
+- **On the emulator (Android 13, debug sample):** strip shows red with light icons; screens, a native screen and the
+  core lab all sit under it; the sheet stays open over a screen push and Back closes it; "Back online" green for
+  1.5 s, then closed; data and Wi-Fi off and on drive it through NetInfo. The first run showed no strip: core's C++
+  refused NAV kinds above 10 (fixed in `runtime.cpp`).
+- **Not checked:** smoothness on the Lava, a dev reload, a release build, the pilot app.
+
 ### 2026-11-06: device-info, push presses and HTML, unmatched links (Claude; Pavan's go, asks R39 R40 from app-home-tabs)
 - **What:**
   - Core: native constants before the JS starts (`ZnModule.constants()`, JS `nativeConstants()`; engine

@@ -68,6 +68,17 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 
 /**
  * Draws the back stack ([ZnNav.stack]) with Navigation 3 (ARCHITECTURE §11). Transitions are native and chosen per
@@ -99,8 +110,11 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     val topBackground = topSpec?.let { rootBackground(it, top.let { e -> ZnStore.find(e.id) }) }
     val statusBar = top?.let { ZnSystemBars.merged(it.id, navigation = false) }
     val navBar = top?.let { ZnSystemBars.merged(it.id, navigation = true) }
+    // While startApp's `top` layer shows, it is under the status bar: its <StatusBar>, else its background, picks the icons.
+    val layer = ZnNav.layers[ZnNav.LAYER_TOP]?.let { ZnStore.find(it) }?.takeIf { topLayerShown.value }
+    val layerDark = layer?.let { ZnSystemBars.merged(it.id, navigation = false)?.darkIcons ?: ((layerBackground(bundle, it).luminance()) > 0.5f) }
     BarIcons(
-        statusDark = statusBar?.darkIcons ?: top?.route?.darkBarIcons ?: true,
+        statusDark = layerDark ?: statusBar?.darkIcons ?: top?.route?.darkBarIcons ?: true,
         navDark = navBar?.darkIcons ?: (((navBar?.background ?: topBackground)?.luminance() ?: 1f) > 0.5f),
         statusHidden = statusBar?.hidden == true,
         navColoured = navBar?.background != null,
@@ -134,7 +148,10 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
 
     Box(modifier) {
         // A dev reload bumps the generation: the old screens are dropped at once instead of animating out.
-        key(ZnNav.generation) { Screens(bundle, safe) }
+        key(ZnNav.generation) {
+            TopLayerAndScreens(bundle, safe)
+            OverlayLayer(bundle)
+        }
         Cover()
         ZnToast.Host()
         ZnAlert.Host()
@@ -153,6 +170,83 @@ private fun SecureWindow(secure: Boolean) {
         val ours = secure && window != null && window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE == 0
         if (ours) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { if (ours) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+}
+
+/** Does startApp's `top` layer have any height now (for the status bar icons)? */
+private val topLayerShown = mutableStateOf(false)
+
+/** The `top` layer's height animations (RN's offline strip: opens in 200 ms, closes in 250 ms). */
+private const val LAYER_OPEN_MS = 200
+private const val LAYER_CLOSE_MS = 250
+
+private fun layerBackground(bundle: ZnBundle, root: ZnInstance): Color =
+    bundle.templates.getOrNull(root.templateId)?.nodes?.firstOrNull()?.let { rootBackground(it, root) } ?: Color.Transparent
+
+/**
+ * The screens, with startApp's `top` layer above them (host API 9). The layer's content takes its own height c. While
+ * c > 0 the layer is the status bar area (filled with the layer root's background) plus the content, and the screens
+ * move down by c: they keep their own status bar padding, which is now under the layer. So the layer covers nothing
+ * and no screen's insets change. Native screens move with them.
+ * The layer's height animates to its new size (open 200 ms, close 250 ms) and clips the content; the screens follow
+ * frame by frame. Content removed when it closes is gone at once: the layer shrinks in its root's background colour.
+ */
+@Composable
+private fun TopLayerAndScreens(bundle: ZnBundle, safe: WindowInsets) {
+    val root = ZnNav.layers[ZnNav.LAYER_TOP]?.let { ZnStore.find(it) }
+    val inset = safe.getTop(LocalDensity.current)
+    val content = remember { mutableIntStateOf(0) }
+    val c = if (root == null) 0 else content.intValue
+    val target = if (c > 0) c + inset else 0
+    val height = remember { Animatable(0f) }
+    LaunchedEffect(target) {
+        height.animateTo(target.toFloat(), tween(if (target > height.value) LAYER_OPEN_MS else LAYER_CLOSE_MS, easing = FastOutSlowInEasing))
+    }
+    LaunchedEffect(Unit) { snapshotFlow { height.value > 0f }.collect { topLayerShown.value = it } }
+    Layout(
+        contents = listOf(
+            { Screens(bundle, safe) },
+            {
+                if (root != null) {
+                    Box(Modifier.background(layerBackground(bundle, root)).clipToBounds()) {
+                        CompositionLocalProvider(LocalZnEntry provides root.id) {
+                            ZnScreen(
+                                bundle.templates,
+                                root,
+                                Modifier.offset { IntOffset(0, inset) }
+                                    .wrapContentHeight(Alignment.Top, unbounded = true)
+                                    .onSizeChanged { content.intValue = it.height },
+                            )
+                        }
+                    }
+                }
+            },
+        ),
+        modifier = Modifier.fillMaxSize(),
+    ) { (screens, layer), k ->
+        val width = k.maxWidth
+        // Read here (layout), so the animation moves things without composing again.
+        val h = height.value.roundToInt().coerceIn(0, k.maxHeight)
+        val down = (h - inset).coerceAtLeast(0)
+        val screensPlaced = screens.map { it.measure(Constraints.fixed(width, k.maxHeight - down)) }
+        // Measured also at height 0: its content must report its own height to open the layer.
+        val layerPlaced = layer.firstOrNull()?.measure(Constraints.fixed(width, h))
+        layout(width, k.maxHeight) {
+            screensPlaced.forEach { it.place(0, down) }
+            layerPlaced?.place(0, 0) // last: drawn over the screens' own status bar padding
+        }
+    }
+}
+
+/**
+ * startApp's `overlay` layer (host API 9): over the whole window, under toasts and alerts. Where it draws nothing it
+ * takes no touches (no node of it handles them), so the screen under it works. A <Sheet> in it is its own window.
+ */
+@Composable
+private fun OverlayLayer(bundle: ZnBundle) {
+    val root = ZnNav.layers[ZnNav.LAYER_OVERLAY]?.let { ZnStore.find(it) } ?: return
+    CompositionLocalProvider(LocalZnEntry provides root.id) {
+        ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
     }
 }
 

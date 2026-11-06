@@ -2224,3 +2224,26 @@ change, and what evidence would make you change it?"
   `constants()` throws gives none that start (logged), the app still starts.
 - **Other options:** constants in the app's storage (sync reads exist), written by native at each start: a disk
   write per start and a misuse of storage. A sync native call API: a bigger change, and a way to block the JS thread.
+
+## 148. App layers: `startApp(routes, { top, overlay })` (core, 2026-11-06; asked by app-home-tabs for the offline strip, Pavan's go)
+- **What:** two roots outside the screen stack. `top` sits above the screens and pushes them down by its height;
+  `overlay` is over every screen. New NAV kind 11 LAYER (entry = root id, route = template id); host API 9.
+- **Why this way:**
+  - No compiler change: JS runs the layer component, reads its template id from the View, and sends LAYER before the
+    slots, so native makes the root first (`renderRoot`'s new `beforeSetup`). Screens need the template in the
+    manifest because native draws them before JS; a layer can wait for JS.
+  - The screens are not given a smaller top inset. They keep their own status bar padding and are moved down by the
+    layer's content height, so that padding sits under the layer. Shrinking the inset (RN's way) would change every
+    screen's `insets()` and redraw full-bleed screens on each animation frame; this way nothing in a screen changes
+    and the layer can animate in the layout phase with no JS.
+  - The layer animates its own height (200 ms open, 250 ms close: RN's strip). `animate` can't do height yet, and
+    the strip needs it. Removed content is gone at once, so the bar closes in its root's background colour (guide §64).
+- **Checked:** JS tests (layers built after the first screens and before NAV STARTED; LAYER before slots; a layer that
+  throws is left out), Kotlin tests, the debug sample on the emulator (strip on, screens moved down, native screen moved
+  down, sheet kept over a screen change, Back closes it, green "Back online" then closed, real data and Wi-Fi off and on).
+- **Not checked:** how smooth the animation is on a real phone (the emulator screenshots were too slow to catch it), a
+  dev reload with layers, landscape with a side cutout (the strip's text isn't kept clear of it), a release build.
+- **Risk if wrong:** the layout of every screen now goes through one more Layout node; with no `top` it places the
+  screens at 0 as before. A layer root that grows very tall would push the screens off: the app's choice.
+- **Other options:** shrink the screens' top inset (above); draw the strip inside each screen (what the app would do
+  without this: every screen changes).

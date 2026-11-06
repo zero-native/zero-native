@@ -3,6 +3,7 @@
 import { defineTask, installRuntime, onNavResult, startApp } from "@zero-native/core"
 import { routes } from "./routes"
 import { installPushLab } from "./PushLab"
+import { AppOverlay, AppTop } from "./AppLayers"
 
 installRuntime()
 // A link with ?refuse=1 is refused: how the phone test checks the guard, at start and while the app runs.
@@ -15,6 +16,9 @@ startApp(routes, {
   onUnmatchedLink: (link) => {
     console.info(`sample: unmatched link ${link.url} atStart=${link.atStart}`)
   },
+  // An offline strip above every screen and one sheet over all of them (AppLayers.tsx).
+  top: AppTop,
+  overlay: AppOverlay,
 })
 // The core phone check (CoreLabScreen.tsx). Tasks are named here, so they exist on a start with no screen.
 defineTask("lab.echo", (data: { from: string }) => console.info(`core-lab task echo from ${data.from}`))

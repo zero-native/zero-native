@@ -78,6 +78,8 @@ object ZnNav {
     private const val EVENT_OPEN = ZnAppEvent.OPEN
     /** OPEN's route for a link that matches no route (onUnmatchedLink). */
     private const val UNMATCHED_ROUTE = -1
+    internal const val LAYER_TOP = "top"
+    internal const val LAYER_OVERLAY = "overlay"
     private const val EVENT_INSETS = ZnAppEvent.INSETS
     private const val EVENT_RETRY = ZnAppEvent.RETRY
     private const val EVENT_NAV_RESULT = ZnAppEvent.NAV_RESULT
@@ -99,6 +101,12 @@ object ZnNav {
      * the first. Without it the system takes Back on the last screen at once (the app goes to the background).
      */
     internal val backWanted: SnapshotStateMap<Int, Unit> = mutableStateMapOf()
+
+    /**
+     * App layers (startApp's `top` and `overlay`, NAV LAYER, host API 9): layer name → its root instance id. They live
+     * as long as the JS that built them; the host draws them around the screens.
+     */
+    internal val layers: SnapshotStateMap<String, Int> = mutableStateMapOf()
 
     /** Set when the app's JS failed to start (its bytecode threw): no screen can be built, so all show the error. */
     var appFailed: String? by mutableStateOf(null)
@@ -268,6 +276,8 @@ object ZnNav {
         composed.clear()
         failed.clear()
         backWanted.clear()
+        layers.values.forEach(ZnStore::removeRoot)
+        layers.clear()
         appFailed = null
         lastInsets = "" // the new JS must hear the insets again
         ZnWindow.resetForReload()
@@ -436,12 +446,25 @@ object ZnNav {
             BatchOp.Nav.BACK_WANTED -> {
                 if (op.route != 0 && stack.any { it.id == op.entry }) backWanted[op.entry] = Unit else backWanted.remove(op.entry)
             }
+            BatchOp.Nav.LAYER -> layer(op)
             else -> Log.e(TAG, "nav: unknown kind ${op.kind}")
         }
         // The top screen may have changed: impressions count only on the top screen.
         if (op.kind == BatchOp.Nav.PUSH || op.kind == BatchOp.Nav.REMOVE || op.kind == BatchOp.Nav.CLEAR) {
             main.post { ZnImpressions.refresh() }
         }
+    }
+
+    /** NAV LAYER: makes the layer's root from its template (entry = root id, route = template id); entry 0 removes it. */
+    private fun layer(op: BatchOp.Nav) {
+        val name = op.params?.let { runCatching { JSONObject(it).optString("layer") }.getOrNull() }
+        if (name != LAYER_TOP && name != LAYER_OVERLAY) return Unit.also { Log.e(TAG, "nav: unknown layer $name") }
+        layers.remove(name)?.let(ZnStore::removeRoot)
+        if (op.entry == 0) return
+        val template = bundle?.templates?.getOrNull(op.route)
+            ?: return Unit.also { Log.e(TAG, "nav: layer $name has no template ${op.route}") }
+        ZnStore.mountRoot(op.entry, op.route, template)
+        layers[name] = op.entry
     }
 
     private var lastInsets = ""

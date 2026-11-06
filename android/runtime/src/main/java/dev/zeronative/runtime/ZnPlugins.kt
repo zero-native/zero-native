@@ -73,7 +73,7 @@ object ZnPlugins {
      * The host API of this runtime, the same as kHostApiVersion in core/include/zn/engine.h (a test compares them). A
      * constant, so a plugin's check doesn't load the native library in Application.onCreate.
      */
-    const val HOST_API = 8
+    const val HOST_API = 9
 
     fun register(context: Context, vararg plugins: ZnPlugin) {
         val app = context.applicationContext

@@ -29,6 +29,9 @@
 //                    START's "values" when Android restores the app (host API 4)
 //  10 BACK_WANTED    route = 1: when `entry` is the only screen, native sends Back presses to JS instead of letting
 //                    the system take them; route = 0: stop (host API 8). Tabs send it while a later tab is shown.
+//  11 LAYER          an app layer (startApp's `top` / `overlay`); params = {"layer":"top"|"overlay"}. native makes
+//                    root `entry` from template `route` and draws it there, in place of that layer's old root;
+//                    entry 0: no layer there any more (host API 9)
 // A NAV op is structural: it keeps its place in the batch and is never merged.
 //
 // List ops (<List>, docs/lists.md): the list is node `node` of `instance`. LIST_SET gives native every row's key and
@@ -47,7 +50,7 @@
 namespace zn {
 
 enum class OpCode : uint8_t { Patch = 1, Mount = 2, Remove = 3, Move = 4, Nav = 5, ListSet = 6, ListSplice = 7, ListRow = 8 };
-enum class NavKind : uint8_t { Push = 1, Remove = 2, Clear = 3, Exit = 4, BackAnswered = 5, Impressions = 6, Failed = 7, Started = 8, Restore = 9, BackWanted = 10 };
+enum class NavKind : uint8_t { Push = 1, Remove = 2, Clear = 3, Exit = 4, BackAnswered = 5, Impressions = 6, Failed = 7, Started = 8, Restore = 9, BackWanted = 10, Layer = 11 };
 
 constexpr uint32_t kBatchMagic = 0x31424E5A;  // "ZNB1" read as little-endian bytes
 

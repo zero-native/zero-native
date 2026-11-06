@@ -429,13 +429,21 @@ export function allocInstanceId(): number {
 /**
  * Runs a screen component on a root instance that native already created from the template (no MOUNT). If it
  * throws, everything it started is stopped before the error goes on to the caller (nav shows the error screen).
+ * [beforeSetup]: for a root native makes only once JS knows its template (an app layer, nav.ts mountLayer): called
+ * with the template id after the component ran and before its slots are sent.
  */
-export function renderRoot<P>(rootId: number, Screen: (props: P) => View, props: P): () => void {
+export function renderRoot<P>(
+  rootId: number,
+  Screen: (props: P) => View,
+  props: P,
+  beforeSetup?: (templateId: number) => void,
+): () => void {
   return createRoot((dispose) => {
     try {
       const v = Screen(props)
       // The app build already refuses this (compiler/src/plugin.ts checkScreenRoots); a clear error, not "setup of null".
       if (!isView(v)) throw new Error("a screen must return its JSX, not null or another value (guide notes §4)")
+      beforeSetup?.(v.templateId)
       v.setup({ id: rootId, collecting: null, mount: null })
     } catch (e) {
       dispose()

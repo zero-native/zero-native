@@ -46,6 +46,7 @@ export type Routes = Register extends { routes: infer R } ? R : Record<string, A
 
 const NavKind = {
   Push: 1, Remove: 2, Clear: 3, Exit: 4, BackAnswered: 5, Impressions: 6, Failed: 7, Started: 8, Restore: 9, BackWanted: 10,
+  Layer: 11,
 } as const
 export { AppEvent } from "./app-events"
 
@@ -79,6 +80,7 @@ let table: Record<string, AnyRouteDef> | null = null
 let names: string[] = []
 let onLink: AppOptions["onLink"] | null = null
 let onUnmatchedLink: AppOptions["onUnmatchedLink"] | null = null
+let layers: Pick<AppOptions, "top" | "overlay"> = {}
 const stack: Entry[] = []
 /** Entry id → the `pushForResult` promise that waits for its native screen. */
 const waiting = new Map<number, (value: unknown) => void>()
@@ -457,6 +459,21 @@ export interface AppOptions {
    * open. Without it such links are dropped. Links are outside input: check their values.
    */
   onUnmatchedLink?: (link: UnmatchedLink) => void
+  /**
+   * An app-wide bar above every screen, such as an "offline" strip (host API 9). Written like a screen with no
+   * props; built once after the first screens and kept while the app runs, whatever screen is open. Its root takes
+   * its own height (0 while it shows nothing); while it has height, it sits under the status bar, zn fills the status
+   * bar area above it with its root's background colour, and the screens (native ones too) move down by its height.
+   * Nothing is covered and no screen changes: their `insets()` stay as they are. Status bar icons follow the bar
+   * (its <StatusBar>, else its background) while it shows. Don't add the status bar height yourself.
+   */
+  top?: () => unknown
+  /**
+   * App-wide content over every screen, such as one "No internet" <Sheet> that stays open while screens change under
+   * it (host API 9). Built once after the first screens and kept while the app runs. It covers the whole window and
+   * takes no touches where it draws nothing. Toasts and alerts stay above it.
+   */
+  overlay?: () => unknown
 }
 
 export interface UnmatchedLink {
@@ -470,6 +487,7 @@ export function startApp(routes: Record<string, AnyRouteDef>, options: AppOption
   names = Object.keys(routes)
   onLink = options.onLink ?? null
   onUnmatchedLink = options.onUnmatchedLink ?? null
+  layers = { top: options.top, overlay: options.overlay }
   onEvent(APP, AppEvent.Start, (payload) => start(payload))
   onEvent(APP, AppEvent.Back, (payload) => onSystemBack(payload))
   onEvent(APP, AppEvent.ForcedBack, (payload) => onForcedBack(payload))
@@ -690,11 +708,34 @@ function start(payload: NativeValue): void {
     show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, backs: [], restored: values })
   }
   syncTop()
+  mountLayer("top", layers.top)
+  mountLayer("overlay", layers.overlay)
   started = true
   for (const resolve of startWaiters.splice(0)) resolve(startLink)
   // The first screens are built (a screen that threw has already sent FAILED): the OTA safety nets count the bundle
   // as on screen from here (docs/ota.md §3.6).
   globalThis.__zn_nav(NavKind.Started, 0, 0, null)
+}
+
+/**
+ * Builds an app layer (`startApp`'s `top` / `overlay`) on a root of its own. Its template is known only once the
+ * component ran, so NAV LAYER (entry = root id, route = template id) goes before its slots, and native makes the root
+ * from it. A layer that throws is reported and left out (entry 0 clears the slot); the screens still work.
+ */
+function mountLayer(layer: "top" | "overlay", Layer: (() => unknown) | undefined): void {
+  if (!Layer) return
+  const id = allocInstanceId()
+  const params = JSON.stringify({ layer })
+  let sent = false
+  try {
+    renderRoot(id, Layer as () => View, undefined, (templateId) => {
+      globalThis.__zn_nav(NavKind.Layer, id, templateId, params)
+      sent = true
+    })
+  } catch (err) {
+    if (sent) globalThis.__zn_nav(NavKind.Layer, 0, 0, params)
+    reportError(`app layer "${layer}"`, err, "part")
+  }
 }
 
 /** [payload]: the screen native had on top when Back was pressed. */

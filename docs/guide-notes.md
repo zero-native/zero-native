@@ -2365,3 +2365,28 @@ const level = await DeviceInfo.getBatteryLevel()
 - **A plugin of your own** can give sync values too: override `constants()` in its `ZnModule` (a `JSONObject`), and
   read them in JS with `nativeConstants<T>("ModuleName")` (undefined on an older APK: always have a fallback).
   **Don't** do disk or network work there: it runs before the JS on every start.
+
+## 64. App layers: a bar above every screen, content over all of them (`startApp`'s `top` and `overlay`)
+```tsx
+startApp(routes, { top: OfflineStrip, overlay: AppSheets })
+
+function OfflineStrip() {          // built once, kept while the app runs
+  return (
+    <Column style={{ backgroundColor: stripColor() }}>
+      {offline() && <Row style={{ height: 24 }}><Text>You are offline</Text></Row>}
+    </Column>
+  )
+}
+```
+- **Do** use `top` for an app-wide bar (offline strip): it sits above the screens and they move down by its height,
+  native screens (camera, WebView) too. Nothing is covered, and no screen changes: `insets()` stay as they are.
+- **Don't** add the status bar height to it yourself: while it has height, zn puts it under the status bar and fills
+  the status bar area with its root's background colour.
+- **Do** put the strip's colour on the layer's **root** and keep it while it closes. **Why:** the layer animates its own
+  height (opens in 200 ms, closes in 250 ms); content you remove is gone at once, so the bar shrinks in the root's colour.
+- **Know:** status bar icons follow the layer while it shows (its `<StatusBar>`, else light icons on a dark
+  background); when it has no height, the screen decides, as before.
+- **Do** use `overlay` for one app-level `<Sheet>` (a "No internet" sheet): it stays open while screens change under
+  it, and Back or the backdrop closes it as usual. Where the overlay draws nothing, taps reach the screen.
+- **Know:** both are written like a screen with no props, are built after the first screens, and an error in one is
+  reported and leaves it out (the screens still work). Bundles that use them need host API 9 (a new APK).

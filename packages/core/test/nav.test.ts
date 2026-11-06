@@ -228,6 +228,50 @@ test("without onUnmatchedLink, or when it throws, an unmatched link changes noth
   expect(nav.depth()).toBe(1)
 })
 
+test("app layers: built after the first screens, NAV LAYER (root, template) before their slots, then STARTED", () => {
+  const LAYER = 11
+  const online = signal(true)
+  resetNavForTests()
+  startApp(routes, {
+    top: () => view(7, (i) => slot(i, 0, () => (online() ? "" : "offline"))),
+    overlay: () => view(8, (i) => slot(i, 0, () => "sheet")),
+  })
+  send(AppEvent.Start, JSON.stringify([{ entry: NATIVE_ROOT, route: 0, params: {} }]))
+  const ops = host.ops
+  expect(ops[0]).toEqual(["patch", NATIVE_ROOT, 0, "home"])
+  const top = ops[1]!
+  const overlay = ops[3]!
+  expect(top.slice(0, 2)).toEqual(["nav", LAYER])
+  expect(top.slice(3)).toEqual([7, JSON.stringify({ layer: "top" })])
+  expect(ops[2]).toEqual(["patch", top[2], 0, ""])
+  expect(overlay.slice(0, 2)).toEqual(["nav", LAYER])
+  expect(overlay.slice(3)).toEqual([8, JSON.stringify({ layer: "overlay" })])
+  expect(ops[4]).toEqual(["patch", overlay[2], 0, "sheet"])
+  expect(ops[5]).toEqual(["nav", STARTED, 0, 0, null])
+  // A layer keeps working while screens change under it.
+  nav.push("receipt", { ztc: "Z1" })
+  nav.back()
+  host.ops.length = 0
+  online.set(false)
+  expect(host.ops).toEqual([["patch", top[2], 0, "offline"]])
+})
+
+test("an app layer that throws is reported and left out; the screens still start", () => {
+  const LAYER = 11
+  resetNavForTests()
+  startApp(routes, {
+    top: () => view(7, () => {
+      throw new Error("broken strip")
+    }),
+  })
+  send(AppEvent.Start, JSON.stringify([{ entry: NATIVE_ROOT, route: 0, params: {} }]))
+  const layerOps = navOps().filter((o) => o[1] === LAYER)
+  // Native was told about the root, then told to drop it (entry 0).
+  expect(layerOps.map((o) => o[2] === 0)).toEqual([false, true])
+  expect(navOps().at(-1)).toEqual(["nav", STARTED, 0, 0, null])
+  expect(nav.current()?.name).toBe("home")
+})
+
 test("an onLink that throws refuses the link and reports the error", () => {
   resetNavForTests()
   startApp(routes, {
