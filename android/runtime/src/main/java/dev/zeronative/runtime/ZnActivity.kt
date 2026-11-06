@@ -87,7 +87,7 @@ object ZnActivity {
         current = activity
         val registry = activity.activityResultRegistry
         permissions = registry.register("zn.permissions", activity, ActivityResultContracts.RequestMultiplePermissions()) {
-            ZnPermissions.onResult()
+            ZnPermissions.onResult(activity, it.keys)
         }
         launchIntent = registry.register("zn.launch.intent", activity, ActivityResultContracts.StartActivityForResult()) {
             ZnLaunch.onResult(it.resultCode, it.data)

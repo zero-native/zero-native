@@ -49,6 +49,12 @@ class ZnInstance internal constructor(
      */
     internal val patchWatchers = HashMap<Int, (Any?) -> Unit>()
 
+    /**
+     * Text a field keeps itself, per node, for as long as the instance lives (the process): an <OtpInput>'s code. A new
+     * Activity draws the field again from it, as a <TextField> does from its value slot (R51). Main thread.
+     */
+    internal val keptText = HashMap<Int, String>()
+
     /** Its root has an `exit` transition (set when drawn): a REMOVE then plays it before the instance goes. */
     internal var hasExit = false
 

@@ -125,6 +125,57 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-06: SecureStore keeps a value it can't read right now; notification settings link (Claude; old-phone audit, Pavan's go)
+- **SecureStore** (`ZnSecureStore.kt`, `secure-store.ts`): before, any error on a read deleted the value and answered
+  null. An app that reads "no token" as "logged out" then signs the user out and wipes their data (the zn ZeroBill app
+  does). Now each step is tried 3 times (waits 50 and 200 ms). Only "this can never be read again" deletes
+  (`Rules.lostForGood`: bad tag, broken or missing key, damaged file; Android 13+'s own "key gone" codes). Anything else
+  keeps the file and rejects with code `"temporarily_unavailable"`; JS: `SecureStore.isTemporary(e)`. On save, a known
+  passing error (busy Keystore, disk) no longer makes a new key.
+- **Notification settings link** (`NotificationsModule.openSettings`): the notifications page took `package:` data,
+  which stock Android doesn't match, so the tap did nothing. Now it sends only `EXTRA_APP_PACKAGE`, and falls back to
+  the app's info page.
+- **Tests:** 6 Kotlin tests (`ZnSecureStoreTest`), 1 JS test, all JS tests (1144), types, lint (runtime, push) 0 errors.
+- **Emulator (API 33, debug), storage lab's new "Save / Read kept secret" buttons:**
+  - File made unreadable (`chmod 000` with run-as): 3 tries, then `temporary (kept)`; the file is still there. After
+    `chmod 600`: reads `kept-1`.
+  - One ciphertext byte changed: `AEADBadTagException` (Keystore code -30), reads `null`, the file is deleted.
+  - Push lab's 3 new buttons: notifications, exact alarms and battery each open the right Settings page and answer true.
+- **Not checked:** a real busy Keystore (an Android 7-9 phone); the Lava; an R8 release build.
+
+### 2026-11-06: R50 permission answer after a kill, R51 OtpInput after a new Activity, R52 restorableSignal start value (Claude; asks from app-home-tabs' process-death audit, Pavan's go)
+- **R50** (`ZnPermissions.onResult`, `ZnActivity`): Android gives the dialog's answer to the new process when the app
+  was killed under it; no request waits there, and the answer was dropped, so a first "no" was never kept and two
+  refusals read "denied" (a request then shows no dialog). Now it is kept with no request waiting; JS isn't told.
+- **R51** (`ZnOtpInput`, `ZnInstance.keptText`): the typed code is kept with the instance (the process), and a new
+  Activity draws the boxes from it, as RN. The kept code is the start text, so `onTextChange` / `onFilled` don't fire
+  again (no second verify).
+- **R52** (compiler): `restorableSignal` and `persistedSignal` count as signals, like `signal` / `computed`: a start
+  value from a signal no longer fails the build. Guide: the "worked out once" rule notes it.
+- **Tests:** 2 compiler tests (one fails without the fix), all JS tests (1143), types, Kotlin tests, debug sample build.
+- **Emulator (API 33, debug):**
+  - R51: typed 4821, then a font-size change made a new Activity in the same process ("template skeleton composed"
+    again, same pid): boxes show 4821, no `change` / `filled` line again; typing goes on (482, 4820, filled).
+  - R50: camera dialog open, app killed in the background (`am kill`), back from Recents (new pid), "Don't allow";
+    then a normal request and "Don't allow" again: `camera: blocked`, status `blocked`, and the next request shows no
+    dialog. Without the fix the second answer reads "denied" (from the code; the old build wasn't run).
+- **Found on the way:** `am start` from the shell while the dialog is on top makes a second MainActivity (singleTop
+  only checks the top); come back through Recents to test this. And `settings put global always_finish_activities 1`
+  didn't make the emulator finish the Activity; a font-size change did rebuild it.
+
+### 2026-11-06: a tap's native calls and timeouts belong to the screen (Claude; Pavan's pick "option 3", same family as bug A below)
+- **What:** directly in an event handler, native calls, `setTimeout` and `useAbortSignal()` belong to the screen, so
+  they end even if the tapped part went away first (before: the call never settled, the timeout never fired, no
+  error). `setInterval` and listeners still stop with the part. A native call made in an effect rejects "cancelled"
+  when the effect runs again (before: it never settled). Guide §8, second-opinions 151. JS only.
+- **Tests:** `one-shot-owner.test.ts` (6; 4 fail on the old code), all JS tests (1141), types; the zn ZeroBill app's
+  tests (870) and typecheck pass against it.
+- **Emulator (API 33, debug):** core lab "Hide me, then answer" (the button hides itself right after it asks native
+  and starts a timeout): call answered and timeout fired, 3 of 3. `tools/plugin-phone.ts --no-hands`: 107 of 112, no
+  crash. The 5 that fail (scanner torch, location denied blocked approximate, rn props slop, sticky, modal) fail on the
+  build without this change too (106 of 112 there; "location off" also failed once and passed on a re-run): emulator
+  limits or older issues, not this change. Not looked into yet.
+
 ### 2026-11-06: two runtime bugs from the Lava: dead taps after a refresh, lost answers after a restart (Claude; found by Pavan in the zn ZeroBill app, Pavan's go)
 - **A, dead taps:** `nav.push` built the new screen under the caller's owner. From a tap that is the tapped part (a
   list row), from an effect that effect. When the row was built again (its item changed: the refresh wrote the
@@ -142,7 +193,10 @@ Parked ideas: `docs/after-foundations.md`.
 - **Emulator (API 33, debug):** same-process restart with `am start -f 0x10008000` (a new Activity without saved
   state): old build 0 of 2 answered, fixed build 3 of 3 (1-23 ms, before the new runtime was attached); a store row
   tap after the restarts opens the amount screen.
-- **Not run:** the OTA phone matrix (`applyNow` uses the same restart path), and the Lava repeat in the zn ZeroBill app.
+- **Lava, zn ZeroBill app (dev release, 16:28):** A: 6 refreshes of the transaction info screen, then Back and a card:
+  taps work, the icon stops, no "no handler" lines. B: `am start -f 0x10008000` in the same process (pid 10018):
+  "starting fresh", then the session was ready in 45 ms (at 16:03, before the fix, it never got ready).
+- **Not run:** the OTA phone matrix (`applyNow` uses the same restart path).
 
 ### 2026-11-06: `<List inverted>` for chats (Claude; ask R13 from app-home-tabs, Pavan's go)
 - **What:** RN FlatList's `inverted` (registry 19): Compose reverseLayout, bottom arrangement, a new row 0 stays in view

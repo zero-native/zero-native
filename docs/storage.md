@@ -67,8 +67,17 @@ and a boolean back, JS reads all three with their types.
   user authentication). One file per key in `noBackupFilesDir/zn-secure`, named by SHA-256 of the key; format
   `[version][IV length][IV][ciphertext + tag]`, with the key name as GCM associated data (a file copied over another
   key's file fails instead of returning the wrong secret). Written to a temp file, `fsync`ed, renamed. A value that
-  can't be decrypted (Keystore key lost after an OS bug or restore, damaged file) is deleted and reads as `null`. If
-  the Keystore key itself is unusable when saving, a new key is made once.
+  can never be decrypted again (the Keystore key is gone or broken, `AEADBadTagException`, a damaged file) is deleted
+  and reads as `null`. If the Keystore key itself is unusable when saving, a new key is made once.
+- **"Can't right now" is not "gone"** (2026-11-06, old-phone audit): every Keystore or file step is tried 3 times (50,
+  200 ms apart). Still failing with anything else (a `ProviderException` "Keystore operation failed", seen on some
+  Android 7-9 phones, a busy or not-ready Keystore, a file that can't be read now), `get` / `set` reject with code
+  `"temporarily_unavailable"` and **nothing is deleted**; `SecureStore.isTemporary(e)` tells it. Saving never makes a
+  new key for a failure known to pass (it would make every other value unreadable). Before, any Keystore error deleted
+  the value, and an app that logs out on "no token" signed the user out and wiped their data on such a phone. Android
+  13+ also uses the Keystore's own code and "transient" flag. The rules: `ZnSecureStore.Rules`, `ZnSecureStoreTest`.
+  **App rule:** on `isTemporary`, keep the user signed in, retry, and offer "Log in again" (a key really broken in a
+  way the phone doesn't tell would otherwise keep failing).
 
 ## 3. When data can be lost (and when it can't)
 - **The app is killed (swipe away, low memory, crash, force-stop) after `set` returned:** the value is safe. MMKV's

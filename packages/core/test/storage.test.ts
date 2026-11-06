@@ -114,3 +114,16 @@ test("SecureStore calls native, isn't tied to the screen, and maps missing to nu
   await expect(SecureStore.set("token", 5 as any)).rejects.toThrow("must be a string")
   await expect(SecureStore.get("")).rejects.toThrow("non-empty")
 })
+
+test("SecureStore: 'can't right now' rejects and is told apart from 'no value' (old-phone audit, 2026-11-06)", async () => {
+  const p = SecureStore.get("refreshToken")
+  const c = host.calls.at(-1)!
+  globalThis.__zn_onEvent(0, 7, JSON.stringify({ id: c.id, ok: false, code: "temporarily_unavailable", error: "busy Keystore" }))
+  const err = await p.catch((e) => e)
+  expect(SecureStore.isTemporary(err)).toBe(true)
+  expect(SecureStore.isTemporary(new Error("temporarily_unavailable"))).toBe(false)
+  const q = SecureStore.get("refreshToken")
+  const d = host.calls.at(-1)!
+  globalThis.__zn_onEvent(0, 7, JSON.stringify({ id: d.id, ok: false, code: "failed", error: "x" }))
+  expect(SecureStore.isTemporary(await q.catch((e) => e))).toBe(false)
+})

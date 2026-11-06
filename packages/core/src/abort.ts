@@ -3,7 +3,7 @@
 // Also: a small DOMException (Hermes has none) so abort reasons have the web names "AbortError" / "TimeoutError",
 // which libraries check, and useAbortSignal() for requests that should stop when the screen closes.
 import { reportError } from "./errors"
-import { getOwner, onCleanup } from "./signals"
+import { onCleanup, oneShotOwner, runWithOwner } from "./signals"
 
 type AbortListener = (event: { type: "abort" }) => void
 
@@ -113,7 +113,9 @@ class ZnAbortController {
  */
 export function useAbortSignal(): AbortSignal {
   const controller = new AbortController()
-  if (getOwner()) onCleanup(() => controller.abort(domException("The screen closed", "AbortError")))
+  // In a tap handler: the screen's, not the tapped part's (signals.ts oneShotOwner), as the request it aborts
+  const owner = oneShotOwner()
+  if (owner) runWithOwner(owner, () => onCleanup(() => controller.abort(domException("The screen closed", "AbortError"))))
   return controller.signal
 }
 

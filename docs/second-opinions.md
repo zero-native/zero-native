@@ -2289,3 +2289,48 @@ change, and what evidence would make you change it?"
   moves the task to the back on Android 12+, so the emulator check used `am start -f 0x10008000`).
 - **Risk if wrong:** A: a screen that relied on being stopped by its opener (none known; close() and reset() still stop
   screens). B: an event from the old runtime's last moments reaching the new one (it has no listener yet, so ignored).
+
+## 151. What a tap's work belongs to: one-shot work to the screen, repeating work to the part (core, 2026-11-06; Pavan's pick "option 3")
+- **What:** `on()` runs handlers through `runEventHandler`. Directly in a handler, `oneShotOwner()` gives the root above the
+  part (the screen, an app layer). Native calls (`calls.ts`), `setTimeout` (and `requestAnimationFrame`, `setImmediate`)
+  and `useAbortSignal()` attach to it. `setInterval` and listeners keep the current owner. A native call whose owner is
+  an effect that runs again rejects `"cancelled"`; a call whose owner is disposed is still dropped quietly.
+- **Why this way:**
+  - Same family as bug A (150): the tapped part can go away before the tap's work ends (a tap that hides its own button,
+    a list refresh that builds the row again). A native call then never settled and a timeout never fired, with no
+    error: spinners forever, a frozen "Resend OTP".
+  - Option 1 (everything to the screen) piles intervals and listeners up on the start screen, which never closes, and on
+    `<List>` rows that scroll away. Option 2 (keep the part, reject "cancelled") leaves frozen timers and makes every
+    tap handle "cancelled". Work that ends by itself costs nothing when moved up; work that repeats does.
+  - Rejecting on an effect re-run: the code that waits is still on screen, so it must not hang. On dispose the screen
+    is gone; rejecting there would show error toasts for a screen the user left.
+- **Checked:** 6 tests (`one-shot-owner.test.ts`; 4 of them fail on the old code, 2 pin what didn't change), all JS
+  tests (1141), types, the zn ZeroBill app's tests (870) and typecheck. ZeroBill: no `setInterval` started from a tap,
+  and the UPI launch runs after an `await` (no owner).
+- **Not checked:** a phone run (JS only, nothing native changed); every native call site in the ZeroBill app.
+- **Risk if wrong:** a timeout or call started in a tap now lives until its screen closes instead of until its part
+  goes. A timeout whose callback touched the gone part's signals now runs: harmless (no native node), but it runs.
+  An unhandled "cancelled" from an effect re-run is now reported as an async error where it used to hang silently.
+## 152. SecureStore: only "lost for good" deletes; "can't right now" rejects `temporarily_unavailable` (runtime + core, 2026-11-06; old-phone audit, Pavan's go)
+- **What:** a read that fails is tried 3 times. It deletes the value and answers null only for errors that mean it can
+  never be read again (`ZnSecureStore.Rules.lostForGood`). Every other error keeps the file and rejects with code
+  `"temporarily_unavailable"` (`SecureStore.isTemporary(e)` in JS). A save makes a new key only when the error is not a
+  known passing one (`Rules.passes`).
+- **Why this way:**
+  - Before, any read error deleted the value. Busy or not-ready Keystore errors are known on some Android 7-9 phones
+    (and right after boot or an update). One such error meant: no token, logout, local data wiped, for a user who did
+    nothing wrong. At 100M users a rare error is many users a day.
+  - Deny-list, not allow-list: "lost for good" is a short known list (bad tag, broken or missing key, damaged file,
+    Android 13+ "key does not exist / corrupted"). Unknown errors keep the value. A wrong "keep" costs a retry screen
+    with "Log in again"; a wrong "delete" costs a logout and lost data.
+  - A new code, not `"unavailable"`: zn already uses that for "no such module", and an app may treat it as "feature
+    missing".
+  - Older apps that don't know the code: the promise rejects instead of answering null. An app that catches and signs
+    out is no worse than before; one that doesn't catch now shows an error instead of a silent logout.
+- **Checked:** 6 Kotlin tests on the rules, 1 JS test, emulator: unreadable file → kept and rejected; damaged byte →
+  null and deleted.
+- **Not checked:** a real busy Keystore on an old phone (none here); vendor Keystores that report a lost key with an
+  error outside the list (they now keep a dead file and reject every time: the app's "Log in again" button is the way
+  out, and a save after login makes a new key, as before).
+- **Risk if wrong:** an app that never offers "Log in again" on `temporarily_unavailable` could leave a user stuck on a
+  retry screen if a vendor reports a lost key in a new way. The guide says to always offer it.

@@ -189,7 +189,10 @@ export function PushLabScreen(props: { from?: string }) {
           say(`scheduled ${l.length} ${l.map((n) => `${n.id}:${n.repeat ?? "once"}`).join(",")}`))} />
         <PushLabButton label="Power status" onPress={() => void Promise.all([Notifications.canScheduleExact(), Notifications.isBatteryOptimized()])
           .then(([exact, optimized]) => say(`power exact=${exact} optimized=${optimized}`))} />
-        <PushLabButton label="List shown" onPress={() => void Notifications.getDisplayed().then((l) =>
+        <PushLabButton label="Open notification settings" onPress={() => void Notifications.openSettings("notifications").then((ok) => say(`settings notifications opened ${ok}`))} />
+        <PushLabButton label="Open exact alarm settings" onPress={() => void Notifications.openSettings("exact_alarms").then((ok) => say(`settings exact_alarms opened ${ok}`))} />
+        <PushLabButton label="Open battery settings" onPress={() => void Notifications.openSettings("battery").then((ok) => say(`settings battery opened ${ok}`))} />
+        <PushLabButton label="List shown"onPress={() => void Notifications.getDisplayed().then((l) =>
           say(`displayed ${l.length} ${l.map((n) => `${n.id}:${n.data.from ?? "-"}`).join(",")}`))} />
         <PushLabButton label="List channels" onPress={() => void Notifications.getChannels().then((l) =>
           say(`channels ${l.length} ${l.map((ch) => `${ch.id}=${ch.importance}/${ch.groupId ?? "-"}${ch.blocked ? "/blocked" : ""}`).join(",")}`))} />

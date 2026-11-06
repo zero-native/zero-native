@@ -196,6 +196,21 @@ useBack(() => {
 - A listener or interval you start in an `effect` stops with it if you return the stop function (§2):
   `effect(() => NetInfo.addEventListener((s) => offline.set(s.isConnected === false)))` (it returns its stop function).
 - Prefer native behaviour over JS timers whenever it exists (key repeat; carousels, §11, and animations, §22).
+- **What a tap's work belongs to** (2026-11-06, second-opinions 151). The button you tapped can go away before the
+  work ends: the tap hides its own button, or a list refresh builds the row again. So:
+  - **Ends by itself** (a native call, `setTimeout`, `useAbortSignal()`): belongs to the **screen**. It still ends
+    after the button went away, and stops only when the screen closes.
+  - **Repeats** (`setInterval`, `X.on(...)`, `NetInfo.addEventListener`): belongs to **the tapped part** and stops
+    with it. The start screen never closes, so taps there can't pile intervals up.
+  - **Do:** start a countdown that must outlive its button in the screen body, or as a `setTimeout` chain. **Don't**
+    start a `setInterval` in a tap on a button that then hides itself: it freezes with no error.
+  - A native call made in an `effect` rejects with code `"cancelled"` when the effect runs again (catch it, or use the
+    newest answer only). When its screen closes, it is dropped quietly: the Promise never settles, so its `finally`
+    doesn't run. **Don't** release a lock kept outside the screen (a module-level "paying" flag) in such a `finally`.
+  - `fetch` is not tied to anything: it always settles, unless you pass a signal.
+- **Code after an `await` belongs to nothing** (as in RN): an interval or a listener it starts never stops, and
+  `nav.replace()` / `nav.back()` act on whatever screen is on top **now**, which may not be yours if the user left
+  meanwhile. Check before navigating from a late answer (for example `useAbortSignal()`, then `if (signal.aborted) return`).
 
 ## 9. Safe areas, status bar, full-bleed screens
 - **Don't** add status-bar or navigation-bar padding yourself. Each screen is kept clear of the system bars natively,
@@ -493,6 +508,10 @@ await SecureStore.set("refreshToken", token)
 - **Do:** use `persistedSignal` for a setting the UI shows (language, theme, last tab): one line, always in sync.
 - **Do:** give each signed-in user their own store (`createStorage(\`user.${id}\`)`) and `clear()` it on sign-out.
 - **Do:** put tokens and keys in `SecureStore`, and treat `null` as "sign in again" (a secret can become unreadable).
+- **Don't:** sign the user out when `SecureStore` rejects with `SecureStore.isTemporary(e)` ("can't right now", seen on
+  some Android 7-9 phones): the value is kept. Show "Try again" plus a "Log in again" button, never only a retry: a
+  phone that keeps failing must still have a way out. Why: before 2026-11-06 any error deleted the token, and the app
+  logged the user out and wiped their data for nothing.
 - **Do:** use `ZnStorage.store(context)` when Kotlin code (a widget, a push handler) needs the same data: same stores,
   same types. Each key should have one writer: a push handler and JS both doing "read, add 1, write" can lose an
   update. JS `onChange` doesn't fire for Kotlin writes: send a module event, or re-read when the screen shows.
@@ -2281,6 +2300,8 @@ function Sheet({ amount }) {                         function Sheet(p) {
 - **Don't** work out a shown value in the body: `const missing = p.amount <= 0`, `const shown = total() * 2`.
   **Do** read it in the JSX (`{p.amount <= 0 ? ... : ...}`), or make it a `computed(() => ...)` and call it there.
   **Why:** the JSX reads are live; the body ran once. The build says "missing is worked out once, when Sheet mounts".
+  A start value is the exception: `signal(...)`, `restorableSignal(...)` and `persistedSignal(...)` take theirs once
+  on purpose, so `const name = restorableSignal("name", user()?.name ?? "")` is fine (R52, 2026-11-06).
 - **Don't** return early on a value that can change: `if (loading()) return <Spinner />`. **Do** one return with a
   ternary: `return loading() ? <Spinner /> : <Content />`. **Why:** the body picked a branch once; a root ternary is live
   (the old part goes, the new one mounts). A screen has the stricter rule of §4: one template, so only the piece that

@@ -173,6 +173,18 @@ export function StorageScreen() {
   }
   setTimeout(run, 200)
 
+  const kept = signal("kept secret: not read yet")
+  const keptSay = (text: string) => {
+    console.info(`storage-lab secure ${text}`)
+    kept.set(`kept secret: ${text}`)
+  }
+  const keptSave = () => SecureStore.set("dev.kept", "kept-1").then(() => keptSay("saved"), (e) => keptSay(`save failed ${e?.code ?? e}`))
+  const keptRead = () =>
+    SecureStore.get("dev.kept").then(
+      (v) => keptSay(`read ${v === null ? "null" : v}`),
+      (e) => keptSay(SecureStore.isTemporary(e) ? "temporary (kept)" : `failed ${e?.code ?? e}`),
+    )
+
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
       <Row style={{ gap: 8, alignItems: "center", paddingHorizontal: 20, paddingVertical: 12 }}>
@@ -194,6 +206,23 @@ export function StorageScreen() {
         </Text>
         <Text fontSize={13} color={c.muted}>
           {summary()}
+        </Text>
+        {/* SecureStore's "can't right now" vs "gone" (docs/storage.md, 2026-11-06): the phone check saves a secret,
+            makes its file unreadable or damaged with run-as, and reads it. The log lines "storage-lab secure ...". */}
+        <Row style={{ gap: 8, paddingTop: 6 }}>
+          <Pressable onPress={() => void keptSave()} style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: c.white }}>
+            <Text fontSize={13} color={c.ink}>
+              Save kept secret
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => void keptRead()} style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: c.white }}>
+            <Text fontSize={13} color={c.ink}>
+              Read kept secret
+            </Text>
+          </Pressable>
+        </Row>
+        <Text fontSize={12} color={c.muted}>
+          {kept()}
         </Text>
       </Column>
       <Scroll style={{ flex: 1 }}>

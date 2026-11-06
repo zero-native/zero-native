@@ -33,6 +33,15 @@ export function CoreLabScreen() {
       say(`file: ${r.handle} outside refused: ${r.outsideRefused}`)
     })
   const info = () => Os.info().then((r) => say(`rtl: ${r.rtl}`))
+  // A tap whose button hides itself right after it asks native and starts a timeout (second-opinions 151): both must
+  // still answer. Before, the hidden button's part took the call and the timeout with it (no answer, no error).
+  const oneShotHidden = signal(false)
+  const hideThenAsk = () => {
+    const asked = Os.info()
+    setTimeout(() => say("one-shot timeout fired"), 300)
+    oneShotHidden.set(true)
+    void asked.then(() => console.info("core-lab one-shot call answered"))
+  }
 
   return (
     <Scroll style={{ flex: 1, backgroundColor: scheme("#FFFFFF", "#202020") }}>
@@ -55,6 +64,8 @@ export function CoreLabScreen() {
         <Box style={{ height: 48 }}>{file() !== "" && <Image src={file()} style={{ width: 48, height: 48 }} />}</Box>
         <CoreButton label="Show rtl" onPress={info} />
         <CoreButton label="Open secure screen" onPress={() => nav.push("secureLab")} />
+        {!oneShotHidden() && <CoreButton label="Hide me, then answer" onPress={hideThenAsk} />}
+        {oneShotHidden() && <CoreButton label="Show it again" onPress={() => oneShotHidden.set(false)} />}
       </Column>
     </Scroll>
   )

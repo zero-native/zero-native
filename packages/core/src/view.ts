@@ -10,7 +10,7 @@ import { parseColor } from "./color"
 import { reportError } from "./errors"
 import { onEvent } from "./events"
 import type { NativeValue } from "./native"
-import { createRoot, effect, getOwner, onCleanup, runWithOwner, untrack, type Owner } from "./signals"
+import { createRoot, effect, getOwner, onCleanup, runEventHandler, runWithOwner, untrack, type Owner } from "./signals"
 
 export interface View {
   templateId: number
@@ -64,12 +64,13 @@ export function slot(inst: Instance, slotId: number, fn: () => unknown, kind: nu
 }
 
 /**
- * Binds a native event (tap, ...) of this instance to a handler. The handler runs under the instance's owner, so a
- * timer it starts stops when the instance (its screen) is disposed.
+ * Binds a native event (tap, ...) of this instance to a handler. The handler runs under the instance's owner: an
+ * interval or a listener it starts stops when the instance is disposed. Its native calls, timeouts and abort signals
+ * belong to the screen (signals.ts oneShotOwner), so they end even if this instance goes away first.
  */
 export function on(inst: Instance, eventId: number, handler: (payload: NativeValue) => void): void {
   const owner = getOwner()
-  onCleanup(onEvent(inst.id, eventId, (payload) => runWithOwner(owner, () => handler(payload))))
+  onCleanup(onEvent(inst.id, eventId, (payload) => runEventHandler(owner, () => handler(payload))))
 }
 
 /**

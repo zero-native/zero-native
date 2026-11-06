@@ -96,17 +96,33 @@ internal object ZnPermissions : ZnModuleBase("Permissions", version = 1) {
         }
     }
 
-    /** Main thread: Android answered, or dropped the request (the answer is then read from what is true now). */
-    internal fun onResult() {
-        val p = pending ?: return
+    /**
+     * Main thread: Android answered, or dropped the request (the answer is then read from what is true now).
+     * [answered]: the Android permissions in Android's answer, from [host], the Activity it went to.
+     */
+    internal fun onResult(host: ComponentActivity, answered: Set<String>) {
+        val p = pending
+        if (p == null) {
+            // The process died while the dialog was open (R50): Android gives the answer to the new process, where no
+            // request waits. Keep what it tells (the user said no), so two refusals still read "blocked", not
+            // "denied" with a request that would show no dialog. JS isn't told: nothing waits, and status() reads this.
+            recordAsked(host, answered)
+            return
+        }
         pending = null
         val activity = ZnActivity.current ?: return p.call.reject("no_activity", "no Activity")
+        recordAsked(activity, p.names.flatMap { Rules.androidNames(it)!! }.toSet())
+        p.call.resolve(answer(activity, p.names))
+    }
+
+    /** Marks [androids] as asked where Android now shows a rationale (the user said no at least once). */
+    private fun recordAsked(activity: ComponentActivity, androids: Set<String>) {
+        if (androids.isEmpty()) return
         val store = ZnStorage.store(activity, STORE)
-        for (android in p.names.flatMap { Rules.androidNames(it)!! }.distinct()) {
+        for (android in androids) {
             val asked = store.getBoolean(ASKED + android) == true
             if (Rules.askedAfter(asked, activity.shouldShowRequestPermissionRationale(android)) != asked) store.set(ASKED + android, true)
         }
-        p.call.resolve(answer(activity, p.names))
     }
 
     /** Main thread: the Activity is gone for good, so Android will never answer. */

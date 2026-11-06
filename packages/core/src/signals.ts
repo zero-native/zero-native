@@ -279,6 +279,41 @@ export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
   }
 }
 
+// The event handler running now (view.ts `on()`): its part's owner, and the root above it (the screen, an app layer).
+let eventOwner: Owner | null = null
+let eventRoot: Owner | null = null
+
+/**
+ * Runs an event handler (a tap, a text change, a native view's event) under its part's owner, as [runWithOwner] does.
+ * One-shot work it starts belongs to the screen instead (see [oneShotOwner]).
+ */
+export function runEventHandler<T>(o: Owner | null, fn: () => T): T {
+  const prevOwner = eventOwner
+  const prevRoot = eventRoot
+  eventOwner = o
+  let root = o
+  while (root?.parent) root = root.parent
+  eventRoot = root
+  try {
+    return runWithOwner(o, fn)
+  } finally {
+    eventOwner = prevOwner
+    eventRoot = prevRoot
+  }
+}
+
+/**
+ * The owner one-shot work attaches to: native calls, setTimeout, useAbortSignal. Work that ends by itself.
+ * Directly in an event handler this is the screen, not the part that was tapped: that part can go away before the work
+ * ends (the tap hid its own button; a list refresh built the row again), and its call never settled or its timer
+ * stopped, with no error (second-opinions 151). Everywhere else it is the current owner. Work that repeats
+ * (setInterval, listeners) keeps the current owner even in a handler, so it can't pile up on a screen that stays open
+ * (the start screen).
+ */
+export function oneShotOwner(): Owner | null {
+  return eventOwner !== null && owner === eventOwner ? eventRoot : owner
+}
+
 /**
  * Runs fn with an owner no screen owns, on purpose: its timers, effects and native calls go on when the screen that
  * started it closes (a payment check must outlive its screen). They end when `stop` runs (fn gets it, and it is

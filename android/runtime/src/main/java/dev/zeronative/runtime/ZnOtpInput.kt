@@ -178,7 +178,8 @@ private val main by lazy { Handler(Looper.getMainLooper()) }
 internal fun ZnOtpInput(s: ZnNodeSpec, inst: ZnInstance, n: Int, mod: Modifier) {
     val max = (s.maxLength ?: 6).coerceIn(1, 12)
     val theme = s.otpTheme
-    val state = remember(inst.id, n) { TextFieldState("") }
+    // From the code typed so far: a new Activity (the process lives on) shows the digits JS still has, as RN does (R51)
+    val state = remember(inst.id, n) { TextFieldState(inst.keptText[n].orEmpty()) }
     val disabled = if (s.disabledSlot >= 0) inst.slot(s.disabledSlot).value == true else s.disabled
     val invalid = if (s.invalidSlot >= 0) inst.slot(s.invalidSlot).value == true else s.invalid
     val focusManager = LocalFocusManager.current
@@ -194,7 +195,14 @@ internal fun ZnOtpInput(s: ZnNodeSpec, inst: ZnInstance, n: Int, mod: Modifier) 
             if (s.blurOnFilled) focusManager.clearFocus()
         }
     }
-    LaunchedEffect(state) { snapshotFlow { state.text.toString() }.drop(1).collect { emit(it) } }
+    // drop(1): the start text (empty, or the kept code on a new Activity) is no change, so JS isn't told it again (no
+    // second onFilled, so no second verify)
+    LaunchedEffect(state) {
+        snapshotFlow { state.text.toString() }.drop(1).collect {
+            inst.keptText[n] = it
+            emit(it)
+        }
+    }
 
     // ref.setValue(code): "n\u0001code" through the value slot (core otp-input.ts). Ignored while disabled, as RN.
     if (s.valueSlot >= 0) {

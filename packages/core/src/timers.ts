@@ -7,10 +7,11 @@
 // - An error in a callback is logged and never stops other timers.
 // - A timer created while an owner is active (a screen, a component, an event handler of one) is cleared when that
 //   owner is disposed: closing a screen stops its timers (ARCHITECTURE §14). Timers created outside any owner
-//   (module level) live until cleared.
+//   (module level) live until cleared. A setTimeout made in an event handler belongs to the screen, not to the tapped
+//   part; a setInterval made there stays with the part (signals.ts oneShotOwner).
 import { reportError } from "./errors"
 import "./native"
-import { getOwner, onCleanup, type Owner } from "./signals"
+import { getOwner, onCleanup, oneShotOwner, runWithOwner, type Owner } from "./signals"
 
 type Callback = () => void
 
@@ -35,7 +36,10 @@ function forget(handle: number): void {
 }
 
 function register(handle: number, fn: Callback, repeat: boolean): number {
-  const owner = getOwner()
+  // A timeout ends by itself: from a tap it belongs to the screen, so it still fires if the tapped part went away (a
+  // countdown started by a button that then hid itself). An interval never ends by itself: it stays with the part, so
+  // taps on a screen that stays open can't pile intervals up (signals.ts oneShotOwner).
+  const owner = repeat ? getOwner() : oneShotOwner()
   let owned: Set<number> | null = null
   if (owner && !owner.disposed) {
     owned = byOwner.get(owner) ?? null
@@ -43,10 +47,12 @@ function register(handle: number, fn: Callback, repeat: boolean): number {
       const set = new Set<number>()
       owned = set
       byOwner.set(owner, set)
-      onCleanup(() => {
-        byOwner.delete(owner)
-        for (const h of [...set]) clearTimeout(h)
-      })
+      runWithOwner(owner, () =>
+        onCleanup(() => {
+          byOwner.delete(owner)
+          for (const h of [...set]) clearTimeout(h)
+        }),
+      )
     }
     owned.add(handle)
   }

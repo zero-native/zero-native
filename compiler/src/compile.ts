@@ -418,11 +418,13 @@ export function compileModule(
    * "Can change" means: reads the props object, or calls a function with no arguments (how a signal is read) other
    * than a `use...()` helper. Reads inside a nested function (a handler, `computed(() => ...)`) are fine: they run later.
    */
-  const signalNames = new Set<string>() // names in this file made with signal(...) / computed(...)
+  // Names in this file made with a zn function that gives a Signal: signal, computed, restorableSignal (nav.ts) and
+  // persistedSignal (storage.ts). Their start value is read once on purpose; the name itself is read live (R52).
+  const signalNames = new Set<string>()
   forEachDescendant(sf, (n) => {
     if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name) || !n.initializer) return
     const init = unwrap(n.initializer)
-    if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && /^(signal|computed)$/.test(init.expression.text)) {
+    if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && /^(signal|computed|restorableSignal|persistedSignal)$/.test(init.expression.text)) {
       signalNames.add(n.name.text)
     }
   })

@@ -5,7 +5,9 @@
 //   neither thread ever waits.
 // - Cancellation: an AbortSignal rejects at once with code "cancelled" and tells native (`__zn_cancel`), which marks
 //   the call cancelled and drops its late reply. A call made while a screen is active is dropped quietly (never
-//   settles, native is told to stop) when that screen closes, like its timers.
+//   settles, native is told to stop) when that screen closes, like its timers. A call made in a tap handler belongs to
+//   the screen, not to the tapped part (signals.ts oneShotOwner). A call made in an effect rejects "cancelled" when the
+//   effect runs again.
 // - Errors are `NativeError { code, message, module, method }`: "unavailable" (no such module, method or version),
 //   "cancelled", "invalid_args", "failed", or a module's own code.
 // - Binary data: `bytes` (an ArrayBuffer or typed array) goes to native as raw bytes (`call.bytes`), and a native
@@ -19,7 +21,7 @@ import { APP, AppEvent } from "./app-events"
 import { reportError } from "./errors"
 import { onEvent } from "./events"
 import type { NativeValue } from "./native"
-import { getOwner, onCleanup, type Owner } from "./signals"
+import { getOwner, onCleanup, oneShotOwner, runWithOwner, type Owner } from "./signals"
 
 export class NativeError extends Error {
   constructor(
@@ -105,21 +107,33 @@ function finish(id: number): boolean {
   return true
 }
 
-/** The calls of the current owner (screen, component), dropped together when it is disposed. */
+/**
+ * The calls of the owner that asked (signals.ts oneShotOwner: the screen when asked from a tap), dropped together when
+ * it is disposed, or rejected with "cancelled" when it is an effect that runs again.
+ */
 function ownedSet(): Set<number> | null {
-  const owner = getOwner()
+  const owner = oneShotOwner()
   if (!owner || owner.disposed) return null
   let set = byOwner.get(owner)
   if (!set) {
     const s = new Set<number>()
     set = s
     byOwner.set(owner, s)
-    onCleanup(() => {
-      byOwner.delete(owner)
-      for (const id of [...s]) {
-        if (finish(id)) globalThis.__zn_cancel(id) // dropped quietly: the screen that asked is gone
-      }
-    })
+    runWithOwner(owner, () =>
+      onCleanup(() => {
+        byOwner.delete(owner)
+        // Disposed: the screen (or part) that asked is gone, so the call is dropped quietly and never settles (its
+        // `finally` doesn't run). Not disposed: an effect running again; the code that waits is still there, so the
+        // call rejects "cancelled" instead of hanging (second-opinions 151).
+        const rerun = !owner.disposed
+        for (const id of [...s]) {
+          const p = pending.get(id)
+          if (!finish(id)) continue
+          globalThis.__zn_cancel(id)
+          if (rerun && p) p.reject(new NativeError("cancelled", `${p.module}.${p.method} was cancelled: the effect that asked ran again`, p.module, p.method))
+        }
+      }),
+    )
   }
   return set
 }

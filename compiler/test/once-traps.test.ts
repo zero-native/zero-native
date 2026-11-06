@@ -193,3 +193,27 @@ describe("B1: a child that returns null", () => {
     expect(host.ops.filter((o) => o[0] === "mount")).toEqual([])
   })
 })
+
+// R52 (app-home-tabs, 2026-11-06): a restorableSignal / persistedSignal is a Signal, like signal(...). Its start value is
+// read once on purpose (as signal's); the name was wrongly taken for "a value worked out once".
+describe("restorableSignal and persistedSignal are signals", () => {
+  test("a start value from a signal, read live in the JSX: fine", async () => {
+    await build(`
+import { persistedSignal, restorableSignal } from "@zero-native/core"
+const profile = { user: () => ({ name: "Ravi", city: "Pune" }) }
+export function S() {
+  const user = profile.user()
+  const name = restorableSignal("name", user?.name || "")
+  const city = persistedSignal("city", user?.city || "")
+  return <Column><Text>{name()}</Text><Text>{city()}</Text></Column>
+}`)
+  })
+  test("a plain value from the same signal is still a build error", async () => {
+    expect(await fails(`
+const profile = { user: () => ({ name: "Ravi" }) }
+export function S() {
+  const name = profile.user()?.name || ""
+  return <Column><Text>{name}</Text></Column>
+}`)).toContain("name is worked out once")
+  })
+})

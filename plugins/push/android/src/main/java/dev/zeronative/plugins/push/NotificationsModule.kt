@@ -96,11 +96,24 @@ internal class NotificationsModule(private val context: Context, private val deb
                 else -> return@function call.reject("invalid_args", "page must be exact_alarms, battery or notifications")
             } ?: return@function call.resolve(false)
             val intent = android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (action != android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) {
-                intent.data = android.net.Uri.parse("package:${context.packageName}")
-                intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+            val pkg = android.net.Uri.parse("package:${context.packageName}")
+            // The app's notification page takes the package as an extra only: Settings' filter for it has no data, so
+            // an intent with `package:` data matched nothing and the call did nothing (old-phone audit 2026-11-06,
+            // checked on Android 13). The exact-alarm page takes it as data.
+            when (action) {
+                android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS ->
+                    intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM -> intent.data = pkg
             }
-            call.resolve(runCatching { context.startActivity(intent) }.isSuccess)
+            val opened = runCatching { context.startActivity(intent) }.isSuccess ||
+                // A phone whose Settings lacks that page: the app's info page, which links to both
+                (action != android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS && runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }.isSuccess)
+            call.resolve(opened)
         }
 
         // Version 2. A heading over channels in the phone's settings ("Orders", "Offers").
