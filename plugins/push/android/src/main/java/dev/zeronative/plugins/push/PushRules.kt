@@ -181,6 +181,11 @@ internal object PushRules {
     /** How long `getInitialNotification` waits for the app's Activity when JS asks before it is there. */
     const val INITIAL_WAIT_MS = 10_000L
 
+    private val HTML = Regex("<[a-zA-Z/!]|&[a-zA-Z]+;|&#[0-9]+;|&#x[0-9a-fA-F]+;")
+
+    /** True when notification text has a tag or an entity, so it is read as HTML (Groups.html). "a < b" isn't. */
+    fun looksLikeHtml(text: String): Boolean = HTML.containsMatchIn(text)
+
     /** The Intent a tap on FCM's own notification opens has this extra (and the message's data as extras). */
     const val EXTRA_MESSAGE_ID = "google.message_id"
     fun isFcmTap(extras: Map<String, Any?>): Boolean = extras[EXTRA_MESSAGE_ID] is String

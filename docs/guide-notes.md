@@ -672,6 +672,10 @@ Every one of these is logged, shown on the red screen in debug builds, and passe
 - **Do:** pass `onLink` to `startApp(routes, { onLink })` if a link must not interrupt something: return false to
   refuse it, for example while a payment is open. It gets `{ route, params, url }`; `params` has path and query values.
   **Don't** trust those values: a link is outside input. `onLink` is also called for the link that started the app (`atStart: true`); refused, the user stays on the start screen.
+- **Do:** pass `onUnmatchedLink` to `startApp` if your app takes links that no route describes (a QR code's path, a
+  web page that sends any path): it gets `{ url, atStart }` with the whole link, and you `nav.push` what fits. Without
+  it such links are dropped, as before. **Why:** routes match paths only; this is where your own rules read the raw link.
+  It runs after the start screen is open, so `atStart: true` means "push on top of home". `onLink` isn't asked first.
   Mark screens that must never reopen on their own with `restore: false` in `routes.ts` (a "payment done" screen).
   Screens come back with their route params; their signals start fresh, except `restorableSignal` (§26.1). Keep what
   must survive a normal close too in `storage` or `flowStore`.

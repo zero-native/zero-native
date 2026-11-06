@@ -2190,3 +2190,37 @@ change, and what evidence would make you change it?"
   `TextField` still works.
 - **Other options:** a plugin on `<NativeView>` (theme as runtime JSON: boxes drawn only after JS); a JS component in the
   app (sizes fixed inside it).
+
+## 147. Native constants before the JS starts; device-info; push HTML and presses; links that match no route (core + plugins, 2026-11-06; Pavan's go)
+- **What:**
+  - Core: a native module can give constants (`ZnModule.constants()`), read in JS with `nativeConstants(name)`.
+    Native sets them as one JSON string on the global `__zn_constants` before the main script (new engine call
+    `setGlobalString`, JNI `ZnNative.setGlobalString` with UTF-8 bytes).
+  - `@zero-native/device-info`: react-native-device-info's API on top of it.
+  - Push: notification text is HTML when it has a tag or an entity; `Notifications.onPress` and
+    `Notifications.getInitialNotification` for taps with no `link` (native version 3).
+  - `startApp(routes, { onUnmatchedLink })`: a link that matches no route reaches JS with the whole URL.
+- **Why this way:**
+  - Constants: Hermes here runs bytecode only, so JS can't be set up by a source snippet; a global string is the
+    smallest engine change. It is not part of the host API (no version raise): JS treats it as optional, and a bundle
+    that needs device-info already needs the `DeviceInfo` module, which an older APK lacks.
+  - Device-info's changing values have no `Sync` form: a sync call into native would block the JS thread on binder
+    calls. RN code that uses them gets a type error, not a silent stale value.
+  - HTML only when the text has a tag or entity: Android's HTML reader turns line breaks into spaces, so always
+    parsing (as notifee does) would change plain text with `\n`. Text with tags gets `\n` → `<br>` first.
+  - Press keys: one per show (`id@nanoTime`), kept in memory, as FCM's taps. A notification with `autoCancel: false`
+    tapped twice counts once per show.
+  - Presses can't be faked by another app (found by app-home-tabs the same day): the launcher Activity is exported, so
+    any app could send it the press extras. Each press PendingIntent now also carries a random value per install
+    (private SharedPreferences "zn-push-press"), compared in constant time; without it the Intent is ignored. Chosen
+    over a non-exported trampoline Activity: no extra Activity hop next to `singleTop` and `handleExtraActivity`.
+    **Still open, older than this:** FCM's own notification taps (`Push.getInitialNotification`,
+    `onNotificationOpenedApp`) read the launcher Intent's extras and can be faked the same way, as in RN Firebase.
+    Treat their data as outside input; a fix would need FCM's tap to go through our own PendingIntent.
+  - Unmatched links go as the existing OPEN event with route -1: a bundle from before this logs "unknown route" and
+    ignores it, so no host API raise.
+- **Checked:** see the milestones entry of 2026-11-06 ("device-info, push presses, unmatched links").
+- **Risk if wrong:** constants add to every cold start (measured in the milestones entry). A module whose
+  `constants()` throws gives none that start (logged), the app still starts.
+- **Other options:** constants in the app's storage (sync reads exist), written by native at each start: a disk
+  write per start and a misuse of storage. A sync native call API: a bigger change, and a way to block the JS thread.

@@ -185,6 +185,49 @@ test("onLink can refuse a deep link; it sees the route, params and the whole lin
   expect(nav.current()?.name).toBe("amount")
 })
 
+test("a link that matches no route reaches onUnmatchedLink with the whole link; the app may push a screen", () => {
+  const seen: unknown[] = []
+  resetNavForTests()
+  startApp(routes, {
+    onLink: () => {
+      throw new Error("onLink is only for links that matched a route")
+    },
+    onUnmatchedLink: (link) => {
+      seen.push(link)
+      if (link.url.includes("/o/")) nav.push("receipt", { ztc: new URL(link.url).searchParams.get("z") ?? "" })
+    },
+  })
+  start()
+  host.ops.length = 0
+  send(AppEvent.Open, JSON.stringify({ route: -1, params: {}, url: "myapp://anything/at/all?x=1", atStart: true }))
+  send(AppEvent.Open, JSON.stringify({ route: -1, params: {}, url: "https://o.example.com/o/qr?z=ZT9", atStart: false }))
+  expect(seen).toEqual([
+    { url: "myapp://anything/at/all?x=1", atStart: true },
+    { url: "https://o.example.com/o/qr?z=ZT9", atStart: false },
+  ])
+  expect(nav.current()).toEqual({ name: "receipt", params: { ztc: "ZT9" } })
+})
+
+test("without onUnmatchedLink, or when it throws, an unmatched link changes nothing", () => {
+  resetNavForTests()
+  startApp(routes)
+  start()
+  host.ops.length = 0
+  send(AppEvent.Open, JSON.stringify({ route: -1, params: {}, url: "zn://sample/nowhere" }))
+  expect(navOps()).toEqual([])
+  resetNavForTests()
+  startApp(routes, {
+    onUnmatchedLink: () => {
+      throw new Error("broken")
+    },
+  })
+  start()
+  host.ops.length = 0
+  send(AppEvent.Open, JSON.stringify({ route: -1, params: {}, url: "zn://sample/nowhere" }))
+  expect(navOps()).toEqual([])
+  expect(nav.depth()).toBe(1)
+})
+
 test("an onLink that throws refuses the link and reports the error", () => {
   resetNavForTests()
   startApp(routes, {

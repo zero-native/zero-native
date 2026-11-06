@@ -41,6 +41,9 @@ export function installPushLab() {
   })
   Push.onTokenRefresh(({ token }) => console.info(`push-lab token refreshed ${token.slice(0, 8)}`))
   Notifications.onDismiss((e) => console.info(`push-lab dismissed ${e.id} from=${e.data.from ?? "-"}`))
+  // Taps on the app's own notifications that had no link (notifee's PRESS).
+  Notifications.onPress((n) => console.info(`push-lab pressed ${n.id} from=${n.data.from ?? "-"} txn=${n.data.txn ?? "-"}`))
+  void Notifications.getInitialNotification().then((n) => console.info(`push-lab initial press ${n ? `${n.id} from=${n.data.from ?? "-"}` : "none"}`))
   // Taps on notifications FCM showed itself (a `notification` block, app behind or closed).
   void Push.getInitialNotification().then((m) => console.info(`push-lab initial ${m ? `lab=${m.data.lab ?? "-"}` : "none"}`))
   Push.onNotificationOpenedApp((m) => console.info(`push-lab fcm opened lab=${m.data.lab ?? "-"}`))
@@ -107,7 +110,8 @@ export function PushLabScreen(props: { from?: string }) {
       .then(() => Notifications.show({ id: `lab-${name}`, channelId: "lab_high", title: `Lab: ${name}`, data: { from: name }, ...extra }))
       .then((r) => say(`show ${name} shown=${r.shown} reason=${r.reason}`))
 
-  const showGroup = async () => {
+  // linked = false: a tap on the summary is a press (onPress with the group key and data).
+  const showGroup = async (linked = true) => {
     await channels()
     for (const n of [1, 2, 3]) {
       await Notifications.show({
@@ -115,7 +119,12 @@ export function PushLabScreen(props: { from?: string }) {
         channelId: "lab_quiet",
         title: `Store ${n}`,
         body: `Offer number ${n}`,
-        group: { key: "lab-group", title: "Lab offers", summaryFormat: "%d stores have offers", link: "zn://sample/dev/push?from=summary" },
+        group: {
+          key: "lab-group",
+          title: "Lab offers",
+          summaryFormat: "%d stores have offers",
+          ...(linked ? { link: "zn://sample/dev/push?from=summary" } : { data: { from: "summary" } }),
+        },
         data: { from: `group-${n}` },
       })
     }
@@ -138,7 +147,18 @@ export function PushLabScreen(props: { from?: string }) {
         <PushLabButton label="Show long text" onPress={() => void show("long", { body: "A longer message that does not fit on one line, so it expands when pulled down." })} />
         <PushLabButton label="Show picture" onPress={() => void show("picture", { body: "With a big picture", imageUrl: PICTURE })} />
         <PushLabButton label="Show with link" onPress={() => void show("link", { body: "Tap to open the push lab", link: "zn://sample/dev/push?from=notification" })} />
+        <PushLabButton
+          label="Show HTML, tap = press"
+          onPress={() =>
+            void show("html", {
+              title: "You got <b>₹25</b> cashback",
+              body: 'From <b><span style="color:#0A8F08">Store 1</span></b> &amp; more\nTap me: no link, so onPress hears it',
+              data: { from: "html", txn: "T9" },
+            })
+          }
+        />
         <PushLabButton label="Show group of 3" onPress={() => void showGroup()} />
+        <PushLabButton label="Show group, tap = press" onPress={() => void showGroup(false)} />
         <PushLabButton label="Show with buttons" onPress={() => void show("buttons", {
           body: "Pay, later, or reply",
           actions: [

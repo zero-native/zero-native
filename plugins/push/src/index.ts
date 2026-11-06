@@ -132,18 +132,28 @@ export interface ShowOptions {
   /** Yours. Showing the same id again replaces it. */
   id: string
   channelId: string
+  /**
+   * Title, body, bigText and lines may be HTML, as in notifee: `<b>`, `<i>`, `<u>`, `<span style="color:#E23744">`.
+   * Text with no tag stays exactly as given. Native version 3 (older apps show the tags as text).
+   */
   title: string
   body?: string
   /** The text when expanded. Without it, a body longer than ~40 characters expands by itself. */
   bigText?: string
-  /** Opened on a tap, through the app's link path. Another app's or a web link opens there. None: the app opens. */
+  /**
+   * Opened on a tap, through the app's link path. Another app's or a web link opens there. None: the app opens, and
+   * `Notifications.onPress` hears it with the `id` and `data`.
+   */
   link?: string
   /** https only (http also in debug builds). Downloaded natively in at most 4 s, else left out. */
   largeIconUrl?: string
   /** A big picture when expanded. Same rules as largeIconUrl. */
   imageUrl?: string
-  /** Notifications with the same key are grouped. From 2 on, a summary shows (the newest 5 lines). */
-  group?: { key: string; title?: string; summaryFormat?: string; link?: string }
+  /**
+   * Notifications with the same key are grouped. From 2 on, a summary shows (the newest 5 lines). A tap on the
+   * summary opens its `link`; with none, `onPress` hears `{ id: key, data }` (native version 3).
+   */
+  group?: { key: string; title?: string; summaryFormat?: string; link?: string; data?: Record<string, string> }
   /** Strings given back to `onDismiss`. */
   data?: Record<string, string>
   /** Removed when tapped. Default true. */
@@ -209,6 +219,14 @@ export interface PushModule {
   events: { opened: OpenedMessage }
 }
 
+/** A tap on one of the app's own notifications that had no `link` (notifee's PRESS event). Native version 3. */
+export interface PressedNotification {
+  /** The `id` it was shown with. */
+  id: string
+  /** Its `data`. */
+  data: Record<string, string>
+}
+
 export interface NotificationsModule {
   createChannel(args: Channel, options?: CallOptions): Promise<boolean>
   deleteChannel(args: { id: string }, options?: CallOptions): Promise<boolean>
@@ -226,6 +244,8 @@ export interface NotificationsModule {
   canScheduleExact(args?: Record<string, never>, options?: CallOptions): Promise<boolean>
   isBatteryOptimized(args?: Record<string, never>, options?: CallOptions): Promise<boolean>
   openSettings(args: { page: SettingsPage }, options?: CallOptions): Promise<boolean>
+  getInitialNotification(args?: Record<string, never>, options?: CallOptions): Promise<PressedNotification | null>
+  events: { pressed: PressedNotification }
 }
 
 const NativePush = nativeModule<PushModule>("Push", { version: 1 })
@@ -347,6 +367,20 @@ export const Notifications = {
 
   /** Opens a settings page for the user: exact alarms (Android 12+), battery optimisation, or the app's notifications. */
   openSettings: (page: SettingsPage): Promise<boolean> => NativeNotifications.openSettings({ page }, unowned).catch(no),
+
+  /**
+   * The app's own notification (no `link`) whose tap started the app, once; null otherwise (notifee's
+   * `getInitialNotification`). FCM's own notifications: `Push.getInitialNotification`. Native version 3.
+   */
+  getInitialNotification: (): Promise<PressedNotification | null> =>
+    NativeNotifications.getInitialNotification({}, unowned).catch(() => null),
+
+  /**
+   * A tap on one of the app's own notifications with no `link`, while the app runs (notifee's PRESS event), with its
+   * `id` and `data`. A notification with a `link` opens the link instead. Returns the unsubscribe function. Native
+   * version 3.
+   */
+  onPress: (handler: (notification: PressedNotification) => void): (() => void) => NativeNotifications.on("pressed", handler),
 }
 
 /** RN Firebase's names, for code that ports over: `messaging().getToken()`. */

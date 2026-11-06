@@ -137,6 +137,25 @@ test("onNotificationOpenedApp hears the native opened event until unsubscribed",
   expect(seen).toEqual(["tap"])
 })
 
+test("the app's own notifications: a press with id and data, at start or while running (notifee's PRESS)", async () => {
+  const p = Notifications.getInitialNotification()
+  reply(last("Notifications", "getInitialNotification").id, { id: "cb-1", data: { type: "cashback", txn: "T9" } })
+  expect(await p).toEqual({ id: "cb-1", data: { type: "cashback", txn: "T9" } })
+  // An older app (native version 2) answers "unavailable": null, never a rejection.
+  const q = Notifications.getInitialNotification()
+  refuse(last("Notifications", "getInitialNotification").id, "unavailable")
+  expect(await q).toBeNull()
+
+  const seen: string[] = []
+  const off = Notifications.onPress((n) => seen.push(`${n.id}:${n.data.type}`))
+  const send = () =>
+    globalThis.__zn_onEvent(0, 8, JSON.stringify({ module: "Notifications", event: "pressed", payload: { id: "o-2", data: { type: "offer" } } }))
+  send()
+  off()
+  send()
+  expect(seen).toEqual(["o-2:offer"])
+})
+
 test("requestPermission uses core's notifications permission; RN's names answer AuthorizationStatus", async () => {
   const p = Push.requestPermission()
   const c = last("Permissions", "request")

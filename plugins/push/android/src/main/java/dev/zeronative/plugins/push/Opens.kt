@@ -8,20 +8,22 @@ import dev.zeronative.runtime.ZnActivity
 import org.json.JSONObject
 
 /**
- * Taps on the notifications FCM shows itself (a message with a `notification` block while the app is behind or closed).
- * FCM's tap opens the app's launch Activity with the message in its extras; RN Firebase's two calls read it:
- * - `getInitialNotification()`: the message that started this Activity, once.
- * - `onNotificationOpenedApp`: a tap while the Activity is alive (a new Intent, singleTop).
- * Main thread only. Notifications the app shows itself (`Notifications.show`) open their `link` instead.
+ * Taps that open the app's launch Activity with what was tapped in the Intent's extras. Two kinds, the same rules:
+ * - [Opens]: the notifications FCM shows itself (a message with a `notification` block while the app is behind or
+ *   closed). RN Firebase's `getInitialNotification()` and `onNotificationOpenedApp`.
+ * - [Presses]: the app's own notifications (`Notifications.show`) with no `link`. notifee's `getInitialNotification()`
+ *   and its PRESS event (`Notifications.onPress`).
+ * For each: `initial` is the tap that started this Activity, once; a tap while the Activity is alive comes as a new
+ * Intent (singleTop) and is sent to JS. Main thread only.
  */
-internal object Opens {
+internal class Taps(private val kind: String, private val read: (Intent) -> Pair<String, JSONObject>?) {
     private val main = Handler(Looper.getMainLooper())
     private val seen = HashSet<String>()
     private val waiting = ArrayList<(JSONObject?) -> Unit>()
-    /** Set by PushModule: sends "opened" to JS. */
+    /** Set by the module: sends the tap to JS. */
     var emit: ((JSONObject) -> Unit)? = null
 
-    /** The tap that started the app's Activity, once per message. Waits for the Activity if JS asks before it is there. */
+    /** The tap that started the app's Activity, once per tap. Waits for the Activity if JS asks before it is there. */
     fun initial(done: (JSONObject?) -> Unit) {
         val activity = ZnActivity.current
         if (activity != null) return done(take(activity.intent))
@@ -54,26 +56,57 @@ internal object Opens {
     private var startTap: JSONObject? = null
 
     fun onNewIntent(intent: Intent) {
-        val message = take(intent) ?: return
-        Log.i(TAG, "opened from FCM's notification ${message.optString("messageId")}")
-        if (waiting.isNotEmpty()) startTap = message else emit?.invoke(message)
+        val tap = take(intent) ?: return
+        Log.i(TAG, "opened from $kind")
+        if (waiting.isNotEmpty()) startTap = tap else emit?.invoke(tap)
     }
 
+    /** What was tapped, once: the same Intent read again (a recreated Activity, a second JS call) gives null. */
     private fun take(intent: Intent?): JSONObject? {
-        val extras = intent?.extras ?: return null
+        val (key, tap) = intent?.let(read) ?: return null
+        return if (seen.add(key)) tap else null
+    }
+
+    private companion object {
+        const val TAG = "zn-push"
+    }
+}
+
+/** Taps on FCM's own notifications. */
+internal val Opens = Taps("FCM's notification") { intent ->
+    val extras = intent.extras
+    if (extras == null) {
+        null
+    } else {
         val map = HashMap<String, Any?>()
         for (key in extras.keySet()) @Suppress("DEPRECATION") map[key] = extras.get(key)
-        if (!PushRules.isFcmTap(map)) return null
-        val id = map[PushRules.EXTRA_MESSAGE_ID] as String
-        if (!seen.add(id)) return null
-        val data = JSONObject()
-        for ((k, v) in PushRules.tapData(map)) data.put(k, v)
-        return JSONObject()
-            .put("messageId", id)
-            .put("from", map["from"] as? String ?: JSONObject.NULL)
-            .put("sentAt", PushRules.sentAt(map["google.sent_time"]))
-            .put("data", data)
+        if (!PushRules.isFcmTap(map)) {
+            null
+        } else {
+            val id = map[PushRules.EXTRA_MESSAGE_ID] as String
+            val data = JSONObject()
+            for ((k, v) in PushRules.tapData(map)) data.put(k, v)
+            id to JSONObject()
+                .put("messageId", id)
+                .put("from", map["from"] as? String ?: JSONObject.NULL)
+                .put("sentAt", PushRules.sentAt(map["google.sent_time"]))
+                .put("data", data)
+        }
     }
+}
 
-    private const val TAG = "zn-push"
+/** Taps on the app's own notifications with no `link` (Groups.tap puts these extras in). */
+internal val Presses = Taps("the app's notification") { intent ->
+    val id = intent.getStringExtra(Groups.EXTRA_PRESS_ID)
+    val key = intent.getStringExtra(Groups.EXTRA_PRESS_KEY)
+    if (id == null || key == null) {
+        null
+    } else if (!Groups.isOurPress(intent)) {
+        // Another app sent our (exported) launcher Activity press extras: not a tap on our notification.
+        Log.w("zn-push", "a press without this install's secret: ignored")
+        null
+    } else {
+        val data = intent.getStringExtra(Groups.EXTRA_PRESS_DATA)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
+        key to JSONObject().put("id", id).put("data", data)
+    }
 }

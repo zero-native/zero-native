@@ -11,7 +11,10 @@ import android.net.Uri
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.text.HtmlCompat
 import dev.zeronative.runtime.ZnBackground
+import java.security.MessageDigest
+import java.security.SecureRandom
 import org.json.JSONObject
 
 /**
@@ -27,11 +30,46 @@ internal object Groups {
     private const val EXTRA_ID = "dev.zeronative.push.id"
     private const val EXTRA_GROUP = "dev.zeronative.push.group"
     private const val EXTRA_DATA = "dev.zeronative.push.data"
+    const val EXTRA_PRESS_ID = "dev.zeronative.push.press.id"
+    const val EXTRA_PRESS_DATA = "dev.zeronative.push.press.data"
+    const val EXTRA_PRESS_KEY = "dev.zeronative.push.press.key"
+    private const val EXTRA_PRESS_SECRET = "dev.zeronative.push.press.secret"
+    private const val ACTION_PRESS = "dev.zeronative.push.PRESS"
+    private const val SECRET_PREFS = "zn-push-press"
 
-    /** Saves the group's summary options from the latest `show` ({ key, title, summaryFormat, link } and the channel). */
+    /** The app's context, for [isOurPress] (set by PushPlugin at registration). */
+    @Volatile private var app: Context? = null
+
+    fun init(context: Context) {
+        app = context.applicationContext
+    }
+
+    /**
+     * A random value per install, in the app's private storage, put in every press PendingIntent. The launcher
+     * Activity is exported, so any other app can send it an Intent with the press extras; it can't know this value.
+     */
+    private fun pressSecret(context: Context): String = synchronized(this) {
+        val prefs = context.getSharedPreferences(SECRET_PREFS, Context.MODE_PRIVATE)
+        prefs.getString("secret", null) ?: ByteArray(16).also { SecureRandom().nextBytes(it) }
+            .joinToString("") { "%02x".format(it) }
+            .also { prefs.edit().putString("secret", it).commit() }
+    }
+
+    /** True only for an Intent from one of our own notifications' PendingIntents ([tap]). */
+    fun isOurPress(intent: Intent): Boolean {
+        val context = app ?: return false
+        val given = intent.getStringExtra(EXTRA_PRESS_SECRET) ?: return false
+        return MessageDigest.isEqual(given.toByteArray(), pressSecret(context).toByteArray())
+    }
+
+    /**
+     * Saves the group's summary options from the latest `show` ({ key, title, summaryFormat, link, data } and the
+     * channel).
+     */
     fun remember(context: Context, key: String, channelId: String, group: JSONObject) {
         val saved = JSONObject().put("channelId", channelId)
         for (k in listOf("title", "summaryFormat", "link")) group.optString(k).takeIf { it.isNotEmpty() }?.let { saved.put(k, it) }
+        group.optJSONObject("data")?.let { saved.put("data", it) }
         prefs(context).edit().putString(key, saved.toString()).apply()
     }
 
@@ -57,7 +95,7 @@ internal object Groups {
         for (l in lines.take(PushRules.SUMMARY_LINES)) inbox.addLine(PushRules.inboxLine(l.title, l.body))
         val summary = NotificationCompat.Builder(context, saved.getString("channelId"))
             .setSmallIcon(smallIcon(context))
-            .setContentTitle(saved.optString("title").takeIf { it.isNotEmpty() } ?: text)
+            .setContentTitle(saved.optString("title").takeIf { it.isNotEmpty() }?.let(::html) ?: text)
             .setContentText(text)
             .setStyle(inbox)
             .setGroup(key)
@@ -66,7 +104,10 @@ internal object Groups {
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setOnlyAlertOnce(true)
             .setAutoCancel(true)
-            .setContentIntent(tap(context, tag, saved.optString("link").takeIf { it.isNotEmpty() }))
+            // With no link, a tap on the summary is a press with the group's key as its id and the group's data.
+            .setContentIntent(
+                tap(context, tag, saved.optString("link").takeIf { it.isNotEmpty() }, press = saved.optJSONObject("data") ?: JSONObject(), pressId = key),
+            )
             .build()
         try {
             manager.notify(tag, PushRules.NOTIFICATION_INT_ID, summary)
@@ -76,11 +117,32 @@ internal object Groups {
     }
 
     /**
+     * Notification text as notifee shows it on Android: HTML (`<b>`, `<i>`, `<span style="color:...">`). Text with no
+     * tag and no entity stays exactly as given; in HTML text a line break stays a line break.
+     */
+    fun html(text: String): CharSequence =
+        if (!PushRules.looksLikeHtml(text)) text
+        else HtmlCompat.fromHtml(text.replace("\n", "<br>"), HtmlCompat.FROM_HTML_MODE_COMPACT).trimEnd()
+
+    /**
      * The app's own link (it has a route) opens the app through core's link path; another http(s) link opens the
      * browser; no link opens the app where it was.
+     * With [press] (the notification's data), a tap that opens the app carries it, for `Notifications.onPress` and
+     * `getInitialNotification` ([Presses]).
      */
-    fun tap(context: Context, id: String, link: String?): PendingIntent {
-        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()
+    fun tap(context: Context, id: String, link: String?, press: JSONObject? = null, pressId: String = id): PendingIntent {
+        val launch = (context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()).also { i ->
+            if (press != null) {
+                // Not the launcher's own action: Android drops an Intent equal to the task's first one when the app
+                // already runs (it only brings the app to the front), so the press would never reach onNewIntent.
+                i.setAction(ACTION_PRESS).removeCategory(Intent.CATEGORY_LAUNCHER)
+                i.putExtra(EXTRA_PRESS_ID, pressId)
+                    .putExtra(EXTRA_PRESS_DATA, press.toString())
+                    .putExtra(EXTRA_PRESS_SECRET, pressSecret(context))
+                    // One per show: the same notification's Intent read twice (a recreated Activity) is one press.
+                    .putExtra(EXTRA_PRESS_KEY, "$id@${System.nanoTime()}")
+            }
+        }
         val intent = link?.let { Uri.parse(it) }?.let { uri ->
             val own = Intent(Intent.ACTION_VIEW, uri).setPackage(context.packageName)
             when {

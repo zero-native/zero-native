@@ -76,6 +76,8 @@ object ZnNav {
     private const val EVENT_BACK = ZnAppEvent.BACK
     private const val EVENT_FORCED_BACK = ZnAppEvent.FORCED_BACK
     private const val EVENT_OPEN = ZnAppEvent.OPEN
+    /** OPEN's route for a link that matches no route (onUnmatchedLink). */
+    private const val UNMATCHED_ROUTE = -1
     private const val EVENT_INSETS = ZnAppEvent.INSETS
     private const val EVENT_RETRY = ZnAppEvent.RETRY
     private const val EVENT_NAV_RESULT = ZnAppEvent.NAV_RESULT
@@ -172,7 +174,7 @@ object ZnNav {
         // A link to the start screen itself (one of its tabs, say) opens it with the link's params (host API 8). JS
         // asks the app's link guard; refused, the start screen opens as usual.
         else if (match != null) first[0] = Opening(home, JSONObject(match.params).toString(), link = link.toString())
-        startWith(bundle, first)
+        startWith(bundle, first, unmatched = link?.takeIf { match == null })
     }
 
     /**
@@ -211,7 +213,7 @@ object ZnNav {
      */
     private class Opening(val route: ZnRoute, val params: String, val values: String? = null, val link: String? = null)
 
-    private fun startWith(bundle: ZnBundle, first: List<Opening>) {
+    private fun startWith(bundle: ZnBundle, first: List<Opening>, unmatched: Uri? = null) {
         val payload = JSONArray()
         for (o in first) {
             val id = nextNativeId++
@@ -229,6 +231,8 @@ object ZnNav {
         // After a kill, a screen must read the other app's result when it is built, not "still waiting".
         ZnLaunch.whenSettled {
             ZnRuntime.dispatchEvent(APP, EVENT_START, payload.toString())
+            // The app's first screens are there: a start link that matched no route goes to JS now (onUnmatchedLink).
+            unmatched?.let { openUnmatched(it, atStart = true) }
             ZnAppState.sendAfterStart()
             // JS answers NAV STARTED once these screens are built (host API 3). A bundle built for host API 2 doesn't, so
             // for it "the JS thread has handled START" stands in (it can't tell a bundle that never calls startApp).
@@ -348,8 +352,18 @@ object ZnNav {
     }
 
     private fun open(link: Uri) {
-        val m = match(link) ?: return
+        val m = match(link) ?: return openUnmatched(link, atStart = false)
         val payload = JSONObject().put("route", m.route.index).put("params", JSONObject(m.params)).put("url", link.toString())
+        ZnRuntime.dispatchEvent(APP, EVENT_OPEN, payload.toString())
+    }
+
+    /**
+     * A link to this app that matches no route: JS's `onUnmatchedLink` (startApp) gets the whole link and opens what it
+     * wants. Sent as OPEN with route -1: a bundle from before this ignores it (it logs "unknown route"), as it always did.
+     */
+    private fun openUnmatched(link: Uri, atStart: Boolean) {
+        val payload = JSONObject().put("route", UNMATCHED_ROUTE).put("params", JSONObject()).put("url", link.toString())
+            .put("atStart", atStart)
         ZnRuntime.dispatchEvent(APP, EVENT_OPEN, payload.toString())
     }
 

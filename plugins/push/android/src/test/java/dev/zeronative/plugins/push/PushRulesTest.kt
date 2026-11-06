@@ -120,4 +120,17 @@ class PushRulesTest {
         assertNull(PushRules.repeatMs("monthly"))
         assertEquals(604_800_000L, PushRules.repeatMs("weekly"))
     }
+
+    @Test
+    fun htmlOnlyWhenTheTextHasATagOrAnEntity() {
+        // The cashback push, as the backend sends it.
+        assertTrue(PushRules.looksLikeHtml("You got <b><span style=\"color:#0A8F08\">₹25</span></b> cashback"))
+        assertTrue(PushRules.looksLikeHtml("Tom &amp; Jerry"))
+        assertTrue(PushRules.looksLikeHtml("&#8377;25"))
+        assertTrue(PushRules.looksLikeHtml("line<br/>break"))
+        // Plain text stays exactly as given (Android's HTML reader would turn its line breaks into spaces).
+        assertFalse(PushRules.looksLikeHtml("Paid ₹499 to Ravi\nRef 1234"))
+        assertFalse(PushRules.looksLikeHtml("2 < 3 and 5 > 4"))
+        assertFalse(PushRules.looksLikeHtml("Save 10% & more"))
+    }
 }

@@ -11,6 +11,10 @@ startApp(routes, {
     console.info(`sample: link ${link.url} atStart=${link.atStart}`)
     return link.params.refuse !== "1"
   },
+  // A link that matches no route: logged (phone test: `adb shell am start -a android.intent.action.VIEW -d zn://sample/nowhere`).
+  onUnmatchedLink: (link) => {
+    console.info(`sample: unmatched link ${link.url} atStart=${link.atStart}`)
+  },
 })
 // The core phone check (CoreLabScreen.tsx). Tasks are named here, so they exist on a start with no screen.
 defineTask("lab.echo", (data: { from: string }) => console.info(`core-lab task echo from ${data.from}`))

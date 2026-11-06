@@ -131,6 +131,15 @@ RN Firebase's names for ported code: `messaging().getToken()`, `onTokenRefresh`,
   </receiver>
   ```
   A missed one-time notification (phone off) shows at the next chance; a missed repeat moves to its next time.
+- **HTML text, as notifee:** `title`, `body`, `bigText` and `lines` may use `<b>`, `<i>`, `<u>`, `<br>` and
+  `<span style="color:#E23744">`. Text with no tag and no entity (`&amp;`) is shown exactly as given, so plain text
+  keeps its line breaks. In HTML text a `\n` is a line break too. Older apps (native version 2) show the tags as text.
+- **A tap with no `link`** opens the app and calls `Notifications.onPress({ id, data })` while it runs, or answers
+  `Notifications.getInitialNotification()` if the tap started it (notifee's PRESS event). One answer per tap; after a
+  low-memory kill the tap counts as the start. A notification with a `link` opens the link instead. A group summary
+  with no `link` is a press too: `{ id: <group key>, data: group.data }`. Each press carries a random value kept in the
+  app's private storage, so another app can't fake one by sending your launcher Activity the same extras. FCM's own
+  notifications keep their own calls (`Push.getInitialNotification`, `onNotificationOpenedApp`).
 - **Not built yet:** foreground services, messaging style, full-screen intents, iOS.
 
 ## Size

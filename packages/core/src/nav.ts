@@ -78,6 +78,7 @@ const seenThisSession = new Set<string>()
 let table: Record<string, AnyRouteDef> | null = null
 let names: string[] = []
 let onLink: AppOptions["onLink"] | null = null
+let onUnmatchedLink: AppOptions["onUnmatchedLink"] | null = null
 const stack: Entry[] = []
 /** Entry id → the `pushForResult` promise that waits for its native screen. */
 const waiting = new Map<number, (value: unknown) => void>()
@@ -450,6 +451,17 @@ export interface AppOptions {
    * values. A link refused at start leaves the user on the start screen.
    */
   onLink?: (link: OpenedLink) => boolean
+  /**
+   * A link to this app that matches no route (or only routes without `deepLink: true`), with the whole link: the app
+   * opens what it wants (`nav.push`), or nothing. `atStart`: it started the app, and the start screen is already
+   * open. Without it such links are dropped. Links are outside input: check their values.
+   */
+  onUnmatchedLink?: (link: UnmatchedLink) => void
+}
+
+export interface UnmatchedLink {
+  url: string
+  atStart: boolean
 }
 
 /** Starts the app: registers the routes and waits for native's START event with the first stack. */
@@ -457,6 +469,7 @@ export function startApp(routes: Record<string, AnyRouteDef>, options: AppOption
   table = routes
   names = Object.keys(routes)
   onLink = options.onLink ?? null
+  onUnmatchedLink = options.onUnmatchedLink ?? null
   onEvent(APP, AppEvent.Start, (payload) => start(payload))
   onEvent(APP, AppEvent.Back, (payload) => onSystemBack(payload))
   onEvent(APP, AppEvent.ForcedBack, (payload) => onForcedBack(payload))
@@ -478,7 +491,13 @@ export function startApp(routes: Record<string, AnyRouteDef>, options: AppOption
  * first, so an app refuses links while a payment is open.
  */
 function onOpenLink(payload: NativeValue): void {
-  const { route, params, url } = JSON.parse(String(payload)) as { route: number; params: Record<string, string>; url?: string }
+  const { route, params, url, atStart } = JSON.parse(String(payload)) as {
+    route: number
+    params: Record<string, string>
+    url?: string
+    atStart?: boolean
+  }
+  if (route === UNMATCHED_ROUTE) return openUnmatched({ url: url ?? "", atStart: atStart === true })
   const name = names[route]
   if (name === undefined) return globalThis.__zn_log(3, `nav: link to unknown route ${route}`)
   if (!linkAllowed({ route: name, params, url: url ?? "", atStart: false })) return
@@ -499,6 +518,18 @@ function onOpenLink(payload: NativeValue): void {
         reportError("Linking url listener", err)
       }
     }
+  }
+}
+
+/** OPEN's route for a link that matches no route (ZnNav.kt). */
+const UNMATCHED_ROUTE = -1
+
+function openUnmatched(link: UnmatchedLink): void {
+  if (!onUnmatchedLink) return globalThis.__zn_log(2, "nav: a link matches no route and the app has no onUnmatchedLink: dropped")
+  try {
+    onUnmatchedLink(link)
+  } catch (err) {
+    reportError("onUnmatchedLink", err)
   }
 }
 

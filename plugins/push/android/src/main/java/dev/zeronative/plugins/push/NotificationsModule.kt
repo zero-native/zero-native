@@ -30,12 +30,18 @@ import org.json.JSONObject
 /**
  * Notifications shown by the app itself (plugins/push/src/index.ts `Notifications`), notifee-like: channels, show with
  * pictures and groups, cancel, and a check before showing. Works with no Firebase at all. A tap opens the notification's
- * `link` through core's normal link path (the app's `onLink`); a swipe away runs the JS task "push.dismissed".
+ * `link` through core's normal link path (the app's `onLink`); with no link it opens the app and JS hears it as a press
+ * (version 3: event "pressed", `getInitialNotification`). A swipe away runs the JS task "push.dismissed".
+ * Title, body, big text and lines are HTML (version 3), as notifee shows them: `<b>`, `<i>`, `<span style="color">`.
  */
-internal class NotificationsModule(private val context: Context, private val debug: Boolean) : ZnModuleBase("Notifications", version = 2) {
+internal class NotificationsModule(private val context: Context, private val debug: Boolean) : ZnModuleBase("Notifications", version = 3) {
     private val manager = NotificationManagerCompat.from(context)
 
     init {
+        // A tap on one of the app's own notifications with no link (Opens.kt, Presses).
+        function("getInitialNotification", onMain = true) { call -> Presses.initial { call.resolve(it) } }
+        Presses.emit = { press -> emit("pressed", press) }
+
         function("createChannel") { call ->
             val id = call.string("id")
             val name = call.string("name")
@@ -203,17 +209,17 @@ internal class NotificationsModule(private val context: Context, private val deb
         val largeIcon = call.stringOrNull("largeIconUrl")?.let { download(it, PushRules.ICON_MAX_PX) }
         val b = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(smallIcon())
-            .setContentTitle(title)
+            .setContentTitle(Groups.html(title))
             .setAutoCancel(autoCancel)
-            .setContentIntent(Groups.tap(context, id, link))
+            .setContentIntent(Groups.tap(context, id, link, press = data))
             .setDeleteIntent(Groups.dismissIntent(context, id, groupKey, data))
-        body?.let(b::setContentText)
+        body?.let { b.setContentText(Groups.html(it)) }
         (PushRules.color(call.stringOrNull("color")) ?: color())?.let(b::setColor)
         largeIcon?.let(b::setLargeIcon)
         when (PushRules.style(body, bigText, picture != null, !lines.isNullOrEmpty())) {
-            PushRules.Style.PICTURE -> b.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).setSummaryText(body))
-            PushRules.Style.INBOX -> b.setStyle(NotificationCompat.InboxStyle().also { s -> lines!!.forEach { s.addLine(it) } })
-            PushRules.Style.BIG_TEXT -> b.setStyle(NotificationCompat.BigTextStyle().bigText(bigText ?: body))
+            PushRules.Style.PICTURE -> b.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).setSummaryText(body?.let(Groups::html)))
+            PushRules.Style.INBOX -> b.setStyle(NotificationCompat.InboxStyle().also { s -> lines!!.forEach { s.addLine(Groups.html(it)) } })
+            PushRules.Style.BIG_TEXT -> b.setStyle(NotificationCompat.BigTextStyle().bigText((bigText ?: body)?.let(Groups::html)))
             PushRules.Style.PLAIN -> {}
         }
         // Version 2 (notifee-like). The lock screen hides the text by default ("private"): bills and payments are private.

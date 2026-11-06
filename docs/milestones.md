@@ -125,6 +125,30 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-06: device-info, push presses and HTML, unmatched links (Claude; Pavan's go, asks R39 R40 from app-home-tabs)
+- **What:**
+  - Core: native constants before the JS starts (`ZnModule.constants()`, JS `nativeConstants()`; engine
+    `setGlobalString`).
+  - `@zero-native/device-info`: react-native-device-info's API, with sync fixed values (guide §63).
+  - Push native version 3: HTML text when it has a tag or entity; `Notifications.onPress` /
+    `getInitialNotification` for taps with no link, group summaries too (`group.data`). Each press carries a secret
+    per install, so another app can't fake one through the exported launcher (found by app-home-tabs).
+  - `startApp({ onUnmatchedLink })`: links that match no route reach JS whole.
+  - second-opinions 147.
+- **Tests:** all JS tests (1131 before the last fixes; push and device-info again after), type checks, Kotlin tests
+  (runtime, device-info, push), lint (runtime, device-info, push), debug sample with the C++ change.
+- **On the Lava (debug sample):**
+  - Every fixed value shows, also one read at module level. The read takes 10-13 ms, on its own thread from
+    Application.onCreate: the JS start waited 0 ms on 3 cold starts.
+  - Unmatched links: while running (`atStart=false`) and at a cold start (`atStart=true`).
+  - HTML notification: bold amount, green store name, `&amp;`, the line break.
+  - A tap while running → `onPress` with id and data. The first try reported nothing: the tap Intent was the launcher's
+    own, which Android drops when the app runs; press Intents now have their own action.
+  - A tap that starts the app → `getInitialNotification`. A group summary with no link → press with the group key.
+  - Faked press Intents from adb (no secret, a wrong secret): ignored, with a warning.
+- **Not checked:** a release build, the pilot app, an app whose Activity isn't `singleTop` (a press would make a
+  second Activity there and be lost; the guide asks for `singleTop`).
+
 ### 2026-11-06: `Os.info().packageName`, and Crashlytics' Gradle setup in an included build (asked by app-home-tabs, R38)
 - **What:** `Os.info()` gives `packageName` (applicationId with the flavor suffix), as RN's `DeviceInfo.getBundleId()`.
   Optional in the type: older APKs don't send it. Guide §33. `firebase.gradle.kts` now asks the app's own dependencies

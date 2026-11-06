@@ -17,6 +17,7 @@ class PushPlugin(private val otaCheck: Boolean = true) : ZnPlugin {
     override fun register(r: ZnPluginRegistry) {
         r.requireHostApi(8)
         PushState.otaCheck = otaCheck
+        Groups.init(r.context)
         val debug = (r.context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         r.module(PushModule(r.context))
         r.module(NotificationsModule(r.context, debug))
@@ -25,9 +26,13 @@ class PushPlugin(private val otaCheck: Boolean = true) : ZnPlugin {
             override fun onFront() {
                 PushState.inFront = true
                 Opens.onFront()
+                Presses.onFront()
             }
 
-            override fun onNewIntent(intent: Intent) = Opens.onNewIntent(intent)
+            override fun onNewIntent(intent: Intent) {
+                Opens.onNewIntent(intent)
+                Presses.onNewIntent(intent)
+            }
 
             override fun onBack() {
                 PushState.inFront = false
