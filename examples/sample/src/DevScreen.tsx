@@ -71,6 +71,7 @@ export function DevScreen() {
           <Entry title="Performance plugin" step="perf" detail="Custom traces, fetch traces, a trace per screen with slow frames" onOpen={() => nav.push("perfLab")} />
           <Entry title="Lottie plugin" step="lottie" detail="JSON and .lottie files, play, pause, reset by ref, progress, finish, colours, bad files" onOpen={() => nav.push("lottieLab")} />
           <Entry title="OTP input" step="registry 18" detail="OtpInput as the RN Verify screen: SMS fill, paste, disabled, wrong OTP, TalkBack" onOpen={() => nav.push("otpLab")} />
+          <Entry title="Device info" step="plugin" detail="react-native-device-info: sync values at module level, battery, disk, network" onOpen={() => nav.push("deviceInfoLab")} />
           <Entry title="Markdown package" step="markdown" detail="Server Markdown as native text: offer details, lists, links through the app, notifications" onOpen={() => nav.push("markdownLab")} />
           <Entry title="Document scanner plugin" step="docscan" detail="ML Kit scanner: module status, download, pages and PDF, cancel, a kill while it is open" onOpen={() => nav.push("docScanLab")} />
           <Entry title="Image viewer plugin" step="image viewer" detail="Full-screen photos: pinch, pan, double tap, swipe between and to close, sharp zoom, errors" onOpen={() => nav.push("imageViewerLab")} />

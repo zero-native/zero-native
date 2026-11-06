@@ -2345,3 +2345,19 @@ const r = await Auth.listenForOtp(); if (r.code) otp.current?.setValue(r.code)  
   `fontSize`, `fontWeight`, `color`, `fontFamily`; the caret `width`, `height`, `backgroundColor`. Others are a build
   error. `style` on `<OtpInput>` is too: use `theme.containerStyle`, as RN. `textProps` isn't supported.
 - **Know:** with autoFocus the keyboard opens after the screen has slid in (§19), so the "Auto-fill code" offer works.
+
+## 63. Device info (`@zero-native/device-info`) and native constants
+```ts
+import DeviceInfo from "@zero-native/device-info"
+const BASE_URL = DeviceInfo.getBundleId() === "com.example.app" ? PROD_URL : DEV_URL   // module level: fine
+const level = await DeviceInfo.getBatteryLevel()
+```
+- **Do** use it as react-native-device-info: same names, same values, default or named imports (plugin README lists
+  what differs).
+- **Do** pick a production backend only on an **exact** match (`=== "com.example.app"`), and treat anything else as
+  not production. **Why:** an APK without the plugin, or an older one, answers `"unknown"`.
+- **Know:** the plain and `Sync` getters are values native read before the JS started. Changing values (battery, disk,
+  network, airplane mode) are Promises only; there is no `getBatteryLevelSync`.
+- **A plugin of your own** can give sync values too: override `constants()` in its `ZnModule` (a `JSONObject`), and
+  read them in JS with `nativeConstants<T>("ModuleName")` (undefined on an older APK: always have a fallback).
+  **Don't** do disk or network work there: it runs before the JS on every start.

@@ -66,6 +66,8 @@ class Runtime final : private HostApi {
   size_t activeTimers() const { return timers_.size(); }
   // Each entry into JS may run at most `ms` (0 = no limit); see Engine::setTimeLimit.
   void setTimeLimit(uint32_t ms) { engine_->setTimeLimit(ms); }
+  // See Engine::setGlobalString. JS thread, before the main script.
+  void setGlobalString(std::string_view name, std::string_view value) { engine_->setGlobalString(name, value); }
 
   // UI thread: the pending batch as bytes (see batch.h), or empty if there is nothing to apply.
   std::vector<uint8_t> takeBatch();

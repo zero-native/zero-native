@@ -214,6 +214,12 @@ class HermesEngine final : public Engine {
     watchWake_.notify_all();
   }
 
+  void setGlobalString(std::string_view name, std::string_view value) override {
+    jsi::Runtime& rt = *runtime_;
+    rt.global().setProperty(rt, std::string(name).c_str(),
+                            jsi::String::createFromUtf8(rt, reinterpret_cast<const uint8_t*>(value.data()), value.size()));
+  }
+
   EvalResult evalBytecode(const Bytes& bytecode, std::string_view url) override {
     if (bytecode.data == nullptr || bytecode.size == 0) {
       return {false, "empty bytecode: " + std::string(url)};

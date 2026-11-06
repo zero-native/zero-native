@@ -35,6 +35,7 @@ import { RemoteConfigLabScreen } from "./RemoteConfigLab"
 import { PerfLabScreen } from "./PerfLab"
 import { LottieLabScreen } from "./LottieLab"
 import { OtpLabScreen } from "./OtpLab"
+import { DeviceInfoLabScreen } from "./DeviceInfoLab"
 import { MarkdownLabScreen } from "./MarkdownLab"
 import { DocScanLabScreen } from "./DocScanLab"
 import { ImageViewerLabScreen } from "./ImageViewerLab"
@@ -81,6 +82,7 @@ export const routes = defineRoutes({
   perfLab: { path: "/dev/perf", screen: PerfLabScreen, deepLink: true },
   lottieLab: { path: "/dev/lottie", screen: LottieLabScreen, deepLink: true },
   otpLab: { path: "/dev/otp", screen: OtpLabScreen, deepLink: true },
+  deviceInfoLab: { path: "/dev/device-info", screen: DeviceInfoLabScreen, deepLink: true },
   markdownLab: { path: "/dev/markdown", screen: MarkdownLabScreen, deepLink: true },
   docScanLab: { path: "/dev/document-scanner", screen: DocScanLabScreen, deepLink: true },
   imageViewerLab: { path: "/dev/image-viewer", screen: ImageViewerLabScreen, deepLink: true },

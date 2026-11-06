@@ -86,6 +86,14 @@ interface ZnModule {
 
     /** How many JS listeners [event] has now (sent on every change). Start or stop the source accordingly. */
     fun onListenerCount(event: String, count: Int) {}
+
+    /**
+     * Values JS reads synchronously, before any screen (RN's `getConstants`): JS gets them with
+     * `nativeConstants("<name>")`. Called once per JS start, on the JS thread, before the main script runs, so it adds
+     * to every cold start: keep it to a few cheap reads (no disk or network work, no waiting). An error here is logged
+     * and the module gives no constants that start. Null: none.
+     */
+    fun constants(): JSONObject? = null
 }
 
 /**
@@ -170,6 +178,24 @@ object ZnModules {
 
     /** True if a module has this name (built-in or registered). */
     internal fun has(name: String) = modules.containsKey(name)
+
+    /**
+     * Every module's [ZnModule.constants] as one JSON object (module name → its object), or null if none gives any.
+     * JS thread, before the main script ([ZnRuntime]).
+     */
+    internal fun constantsJson(): String? {
+        val all = JSONObject()
+        for (m in modules.values) {
+            val c = try {
+                m.constants()
+            } catch (t: Throwable) {
+                Log.e(TAG, "native module ${m.name}: constants() failed; it gives none this start", t)
+                null
+            } ?: continue
+            all.put(m.name, c)
+        }
+        return if (all.length() == 0) null else all.toString()
+    }
 
     /** Module name → version, for the capability check. Marks the module list as used ([register] warns after). */
     internal fun versions(): Map<String, Int> {

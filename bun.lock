@@ -25,6 +25,7 @@
         "@zero-native/auth": "workspace:*",
         "@zero-native/core": "workspace:*",
         "@zero-native/crashlytics": "workspace:*",
+        "@zero-native/device-info": "workspace:*",
         "@zero-native/device-test": "workspace:*",
         "@zero-native/document-scanner": "workspace:*",
         "@zero-native/firebase-app": "workspace:*",
@@ -76,6 +77,13 @@
     },
     "plugins/crashlytics": {
       "name": "@zero-native/crashlytics",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
+    "plugins/device-info": {
+      "name": "@zero-native/device-info",
       "version": "0.0.0",
       "peerDependencies": {
         "@zero-native/core": "workspace:*",
@@ -195,6 +203,8 @@
     "@zero-native/core": ["@zero-native/core@workspace:packages/core"],
 
     "@zero-native/crashlytics": ["@zero-native/crashlytics@workspace:plugins/crashlytics"],
+
+    "@zero-native/device-info": ["@zero-native/device-info@workspace:plugins/device-info"],
 
     "@zero-native/device-test": ["@zero-native/device-test@workspace:plugins/device-test"],
 

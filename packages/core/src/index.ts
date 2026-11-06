@@ -68,10 +68,12 @@ export { otpRef, type OtpInputHandle } from "./otp-input"
 export { toast, ToastAndroid, type ToastOptions } from "./toast"
 export {
   callNative,
+  nativeConstants,
   nativeModule,
   NativeError,
   onNativeEvent,
   pendingCallCount,
+  resetNativeConstantsForTests,
   type BytesResult,
   type CallOptions,
   type ModuleHandle,

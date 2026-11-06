@@ -102,6 +102,11 @@ class Engine {
   // runs longer is stopped: it returns an error whose text starts with kTimeLimitError. Bytecode must be compiled
   // with async break checks (hermesc -emit-async-break-check), or loops can't be interrupted.
   virtual void setTimeLimit(uint32_t /* ms */) {}
+
+  // Sets global `name` to the string `value`, before the main script runs: native modules' constants
+  // (`__zn_constants`, a JSON string), read synchronously by JS. Not part of the host API: JS must treat the global
+  // as optional, as an older APK never sets it.
+  virtual void setGlobalString(std::string_view /* name */, std::string_view /* value */) {}
 };
 
 // The start of the error text of a JS entry stopped by the time limit (Engine::setTimeLimit).

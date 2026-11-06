@@ -229,6 +229,7 @@ object ZnRuntime {
         mainScript = name
         js.post {
             val t0 = SystemClock.uptimeMillis()
+            setConstants(jsRuntime)
             val result = evalResult(evalScript(jsRuntime, name), t0)
             if (result.ok) afterMainScript(jsRuntime)
             // The app's JS didn't start: no screen can be built. Show the error screen with "Restart app" instead of a
@@ -250,6 +251,12 @@ object ZnRuntime {
     }
 
     /** JS thread: runs bytecode file [name] of the running bundle on [rt]; "ok:..." or "error:...". */
+    /** JS thread, before a main script: native modules' constants as global `__zn_constants` (ZnModule.constants). */
+    private fun setConstants(rt: Long) {
+        val json = ZnModules.constantsJson() ?: return
+        ZnNative.setGlobalString(rt, "__zn_constants", json.toByteArray(Charsets.UTF_8))
+    }
+
     private fun evalScript(rt: Long, name: String): String {
         val file = ZnBundles.file(name)
         return if (file != null) ZnNative.evalFile(rt, file.path, name) else ZnNative.evalAsset(rt, appContext.assets, name)
@@ -269,7 +276,7 @@ object ZnRuntime {
      */
     internal fun reload(bytecode: ByteArray, onLoaded: (result: EvalResult, attach: () -> Unit) -> Unit) {
         check(BuildConfig.DEBUG) { "reload is for debug builds only" }
-        replaceRuntime({ rt -> ZnNative.evalBytes(rt, bytecode, "main.hbc") }, onLoaded)
+        replaceRuntime({ rt -> setConstants(rt); ZnNative.evalBytes(rt, bytecode, "main.hbc") }, onLoaded)
     }
 
     /** True while [reload] or [restart] swaps runtimes (UI events are dropped, back presses wait). */
@@ -286,7 +293,7 @@ object ZnRuntime {
      */
     internal fun restart(onLoaded: (result: EvalResult, attach: () -> Unit) -> Unit) {
         val name = checkNotNull(mainScript) { "evalAsset was not called" }
-        replaceRuntime({ rt -> evalScript(rt, name) }, onLoaded)
+        replaceRuntime({ rt -> setConstants(rt); evalScript(rt, name) }, onLoaded)
     }
 
     private fun replaceRuntime(eval: (Long) -> String, onLoaded: (result: EvalResult, attach: () -> Unit) -> Unit) {

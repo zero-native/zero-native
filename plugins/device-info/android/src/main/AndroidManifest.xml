@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- getIpAddress. Core's runtime already has it (fetch); a normal permission: the user is never asked. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- hasGms / hasHms: Android 11+ hides other apps unless they are listed here. No permission is asked for. -->
+    <queries>
+        <package android:name="com.google.android.gms" />
+        <package android:name="com.huawei.hwid" />
+    </queries>
+</manifest>

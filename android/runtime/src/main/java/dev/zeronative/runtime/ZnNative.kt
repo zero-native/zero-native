@@ -32,6 +32,9 @@ internal object ZnNative {
     /** JS thread. Each entry into JS may run at most [ms] (0 = no limit). */
     @JvmStatic external fun setTimeLimit(runtime: Long, ms: Int)
 
+    /** JS thread, before the main script: global [name] = the string in [utf8] (ZnModules.constantsJson). */
+    @JvmStatic external fun setGlobalString(runtime: Long, name: String, utf8: ByteArray)
+
     /** Returns "ok:<value>" or "error:<message>". */
     @JvmStatic external fun evalAsset(runtime: Long, assets: AssetManager, name: String): String
 

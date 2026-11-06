@@ -174,6 +174,17 @@ Java_dev_zeronative_runtime_ZnNative_setTimeLimit(JNIEnv* /* env */, jclass /* c
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_dev_zeronative_runtime_ZnNative_setGlobalString(JNIEnv* e, jclass /* clazz */, jlong handle, jstring jName,
+                                                     jbyteArray jUtf8) {
+  // The value comes as real UTF-8 bytes: GetStringUTFChars gives "modified UTF-8", which breaks emoji (a phone's
+  // name can have one).
+  const jsize length = e->GetArrayLength(jUtf8);
+  std::string value(static_cast<size_t>(length), '\0');
+  e->GetByteArrayRegion(jUtf8, 0, length, reinterpret_cast<jbyte*>(value.data()));
+  holder(handle)->runtime.setGlobalString(toStdString(e, jName), value);
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_dev_zeronative_runtime_ZnNative_destroyRuntime(JNIEnv* /* env */, jclass /* clazz */, jlong handle) {
   delete holder(handle);
 }

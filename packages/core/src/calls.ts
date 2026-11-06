@@ -228,6 +228,35 @@ export function nativeModule<T>(name: string, config: { version?: number } = {})
   })
 }
 
+declare global {
+  /** Native modules' constants (ZnModule.constants), a JSON string set before the main script. Missing on older APKs. */
+  // eslint-disable-next-line no-var
+  var __zn_constants: string | undefined
+}
+
+let constants: Record<string, unknown> | null = null
+
+/**
+ * Native module [name]'s constants, read synchronously (RN's `getConstants`): values native gave before the app's JS
+ * started, so module-level code can use them (`const BASE_URL = ...`). Undefined if the module gave none, or the app's
+ * native side is older than this feature: always have a fallback.
+ */
+export function nativeConstants<T = Record<string, unknown>>(name: string): T | undefined {
+  if (constants === null) {
+    try {
+      constants = JSON.parse(globalThis.__zn_constants ?? "{}") as Record<string, unknown>
+    } catch {
+      constants = {}
+    }
+  }
+  return constants[name] as T | undefined
+}
+
+/** Tests only: forget the parsed constants, so a new `__zn_constants` is read. */
+export function resetNativeConstantsForTests(): void {
+  constants = null
+}
+
 /** Number of calls still waiting for native (for tests and leak checks). */
 export function pendingCallCount(): number {
   return pending.size
