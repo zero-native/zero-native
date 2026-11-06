@@ -2390,3 +2390,16 @@ function OfflineStrip() {          // built once, kept while the app runs
   it, and Back or the backdrop closes it as usual. Where the overlay draws nothing, taps reach the screen.
 - **Know:** both are written like a screen with no props, are built after the first screens, and an error in one is
   reported and leaves it out (the screens still work). Bundles that use them need host API 9 (a new APK).
+
+## 65. Chats: `<List inverted>` (registry 19)
+```tsx
+<List inverted data={messages()} key={(m) => String(m.id)} row={(m) => <Bubble m={m} />} onEndReached={loadOlder} style={{ flex: 1 }} />
+```
+- **Do** keep the newest message first in `data` (index 0) and use `inverted`, as React Native's FlatList: row 0 sits at
+  the bottom, the list opens there, and a short chat sits at the bottom too.
+- **Know:** while the user is at the newest message, a new row 0 stays in view; if they scrolled up to read, nothing
+  moves. `onEndReached` fires near the top: load older messages there (append them to the end of `data`).
+- **Don't** flip a list with `transform: [{ scaleY: -1 }]` (RN's old trick) or rebuild it to open at the bottom. **Why:**
+  on Android the fling after the finger lifts runs the wrong way, so the chat scrolls against the finger. The build
+  refuses a list with that transform.
+- **Know:** `inverted` is fixed at build time. Not checked yet with `stickyHeaderIndices` or pull to refresh.

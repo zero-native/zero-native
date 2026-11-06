@@ -39,6 +39,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -591,13 +593,20 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             if (t != null) ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, Modifier.fillMaxWidth(), definiteWidth = true)
         }
     }
+    if (s.inverted) FollowNewestRow(state, rows.firstOrNull()?.key)
     LazyColumn(
         modifier = mod.then(znPullRefresh(s, inst)), // pull to refresh, when it has onRefresh / refreshing
         state = state,
         // Its padding scrolls with the rows (RN's contentContainerStyle), so the last row can scroll above a floating
         // button. The fixed space around the list is margin.
         contentPadding = contentPaddingOf(s, inst),
-        verticalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Top,
+        // RN inverted (registry 19): row 0 at the bottom, growing upwards; a short list sits at the bottom.
+        reverseLayout = s.inverted,
+        verticalArrangement = when {
+            s.gap > 0f -> Arrangement.spacedBy(s.gap.dp, if (s.inverted) Alignment.Bottom else Alignment.Top)
+            s.inverted -> Arrangement.Bottom
+            else -> Arrangement.Top
+        },
     ) {
         // Runs of plain rows between the pinned ones: one `items` per run, so a long list stays a few blocks.
         var start = 0
@@ -632,6 +641,22 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
         }
     }
 }
+
+/**
+ * <List inverted>: a new row 0 (a new chat message) stays in view when the user was at the newest row. Compose keeps
+ * the old first row where it was (by key), which would leave the new one hidden below it. Read before the new rows
+ * are laid out: "were we at the newest row" is the old layout's answer. Scrolled up to read: nothing moves.
+ */
+@Composable
+private fun FollowNewestRow(state: LazyListState, firstKey: String?) {
+    val slop = with(LocalDensity.current) { FOLLOW_SLOP.roundToPx() }
+    val atNewest by remember(state) { derivedStateOf { state.firstVisibleItemIndex == 0 && state.firstVisibleItemScrollOffset <= slop } }
+    val follow = remember(firstKey) { atNewest }
+    LaunchedEffect(firstKey) { if (follow && firstKey != null) state.scrollToItem(0) }
+}
+
+/** How far from the newest row (scrolled up) still counts as "at the newest row" for [FollowNewestRow]. */
+private val FOLLOW_SLOP = 24.dp
 
 /** "1,30" → the sorted, distinct row indices (bad entries dropped). */
 internal fun parseSticky(text: String?): IntArray =

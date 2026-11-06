@@ -2241,9 +2241,51 @@ change, and what evidence would make you change it?"
 - **Checked:** JS tests (layers built after the first screens and before NAV STARTED; LAYER before slots; a layer that
   throws is left out), Kotlin tests, the debug sample on the emulator (strip on, screens moved down, native screen moved
   down, sheet kept over a screen change, Back closes it, green "Back online" then closed, real data and Wi-Fi off and on).
-- **Not checked:** how smooth the animation is on a real phone (the emulator screenshots were too slow to catch it), a
-  dev reload with layers, landscape with a side cutout (the strip's text isn't kept clear of it), a release build.
+- **On the Lava:** a screen recording shows it opening in about 190 ms (one hitch of about 38 ms) and closing in about
+  235 ms.
+- **Not checked:** a dev reload with layers, landscape with a side cutout (the strip's text isn't kept clear of it), a release build.
 - **Risk if wrong:** the layout of every screen now goes through one more Layout node; with no `top` it places the
   screens at 0 as before. A layer root that grows very tall would push the screens off: the app's choice.
 - **Other options:** shrink the screens' top inset (above); draw the strip inside each screen (what the app would do
   without this: every screen changes).
+
+## 149. `<List inverted>` and a build error for a flipped List (registry 19, 2026-11-06; ask R13 from app-home-tabs, Pavan's go)
+- **What:** RN FlatList's `inverted` on `<List>`, as Compose `LazyColumn(reverseLayout = true)`, bottom arrangement
+  (also with `gap`), and a "follow the newest row" rule. A `<List>` with a static `scaleY: -1` (or `scale: -1`)
+  transform fails the build.
+- **Why this way:**
+  - The merchant chat flipped the list and its rows with `scaleY -1` (how RN apps do it; RN's own `inverted` does the same
+    internally). In Compose the drag follows the finger but the fling after it runs the other way (seen on the Lava and
+    the emulator; likely Compose measures the fling speed outside the flipped layer). Fixing Compose's scrolling under a
+    flip would be deep; reverseLayout is Compose's own way to do this.
+  - Follow rule: Compose keeps the old first row in place by key when a row is added at index 0, which would hide a
+    new message below. If the list was within 24 dp of the newest row before the change, it scrolls to row 0. Read
+    from the old layout (a `derivedStateOf`, remembered per first key), so a user reading older messages is never moved.
+  - The build error stops ported RN code from failing silently, as this chat did.
+- **Checked:** compiler test (prop, refusal, flipped rows allowed), all JS tests, Kotlin tests, sample build; phone: see
+  the milestones entry.
+- **Not checked:** `stickyHeaderIndices` and pull to refresh on an inverted list.
+- **Risk if wrong:** only lists that set `inverted` change; others get the same arrangement as before.
+
+## 150. Screens have no owner; native answers count only the runtime generation (core + runtime, 2026-11-06; bugs Pavan hit on the Lava, Pavan's go)
+- **What:** (A) `nav.ts` `render()` and `mountLayer()` build with `runWithOwner(null, ...)`. (B) `ZnRuntime.dispatchAnswer`,
+  `dispatchAnswerBytes` and `dispatchLatest` no longer drop while `reloading`; non-latest module events go through
+  `dispatchLatest` too; `CallImpl.send` uses `active.remove(id, this)`.
+- **Why this way:**
+  - A: every root made by `createRoot` joins the current owner, which is right for parts of a screen and wrong for a
+    screen: its life is the stack's, not the life of what opened it. Before, a push from a tap made the tapped row own
+    the new screen, and a push from an effect made that effect own it. Detaching at the one place screens are built
+    fixes every caller. The other choice, making `on()` handlers run with no owner, would break the rule that a
+    timer a tap starts stops with its screen.
+  - B: the generation check (JS thread) already drops answers for a replaced runtime, exactly. The `reloading` check
+    (any thread) also dropped answers for the new runtime made before it was attached, which is when a main script's
+    first calls come back. Taps (`dispatchEvent`) are still dropped while `reloading`: their instance ids belong to the
+    old screens. Module events go to the runtime current on the JS thread; the new JS ignores events it has no
+    listener for.
+  - Batches the new JS makes before it is attached wait in native: `applyPending` takes nothing while `runtime == 0`,
+    and the first apply after `attach()` takes them (unchanged).
+- **Checked:** nav test (fails without A), all JS tests, Kotlin tests; emulator restart 0/2 answered before, 3/3 after.
+- **Not checked:** the OTA phone matrix; the zn ZeroBill app on the Lava (its Back finishes the Activity, the sample's
+  moves the task to the back on Android 12+, so the emulator check used `am start -f 0x10008000`).
+- **Risk if wrong:** A: a screen that relied on being stopped by its opener (none known; close() and reset() still stop
+  screens). B: an event from the old runtime's last moments reaching the new one (it has no listener yet, so ignored).

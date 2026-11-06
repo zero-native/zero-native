@@ -387,6 +387,7 @@ nothing). `<NavigationBar>` is zn's own.
 | `Image` | `tintColor` | `Color` | Yes | Every non-clear pixel in this colour. |
 | `Image` | `onLoad`, `onError`, `onLoadEnd` | events | | `nativeEvent.source` `{ width, height, uri }` / `nativeEvent.error`. |
 | `List` | `stickyHeaderIndices` | `number[]` | Yes | Rows pinned at the top while their part scrolls. |
+| `List` | `inverted` | `boolean` | No | Row 0 at the bottom, growing upwards (chats; registry 19). |
 
 Registry 14 changes how `Pressable` long press works when `onLongPress` holds no handler (a long hold is a tap then);
 the compiler sets `hasLongPress` for that. Nobody writes it.

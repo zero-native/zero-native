@@ -1,5 +1,8 @@
 # OTA updates for zero-native apps (milestone 4): design
 
+> **Next (plan, 2026-11-06):** the self-hosted server (zn-updates image), the `zn` CLI and the phone changes for a
+> production release are planned in `docs/ota-architecture-plan.md`. This doc stays the record of what is built.
+
 **Status: built on Android (steps 4.0–4.9 done 2026-10-31; the phone test matrix passed 28 of 28 on the Lava after the hardening steps, 2026-11-02;
 `docs/ota-test-matrix.md`). Decided 2026-10-30 (Pavan accepted D1–D5 as recommended, §2). Not built: the GCS store
 adapter (waits for a test bucket), BSDiff patches, iOS (§4 "later").** Built from

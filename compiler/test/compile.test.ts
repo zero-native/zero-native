@@ -232,6 +232,18 @@ describe("templates", () => {
       .toThrow("stickyHeaderIndices must be an array of row indices")
   })
 
+  test("List inverted (RN FlatList, registry 19) is a prop; a list flipped with scaleY -1 is refused", () => {
+    const inv = compile(`export function A(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>{r.t}</Text>} inverted /> }`)
+    expect(inv.templates[0].props).toMatchObject({ inverted: true })
+    const off = compile(`export function B(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>{r.t}</Text>} inverted={false} /> }`)
+    expect(off.templates[0].props.inverted).toBe(false)
+    expect(() => compile(`export function C(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>a</Text>} style={{ flex: 1, transform: [{ scaleY: -1 }] }} /> }`))
+      .toThrow("use <List inverted>")
+    // A flipped row is fine (only the list's own flip breaks the fling).
+    expect(() => compile(`export function D(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text style={{ transform: [{ scaleY: -1 }] }}>a</Text>} inverted /> }`))
+      .not.toThrow()
+  })
+
   test("records which template each component returns", () => {
     const { components } = compile(`export function AScreen() { return <Column /> }
       const B = () => <Row />`)

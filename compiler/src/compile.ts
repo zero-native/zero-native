@@ -2041,10 +2041,16 @@ export function compileModule(
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices; or FlatList's renderItem, keyExtractor)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted; or FlatList's renderItem, keyExtractor)`)
       }
     }
     rnFinish("List", null, props, b, rnLater, node)
+    // RN's old chat trick (the list and each row flipped with scaleY -1): on Android the fling after the finger lifts
+    // runs the wrong way (Compose measures its speed outside the flip). `inverted` does the same without a flip.
+    if ((props as Record<string, unknown>).scaleY === -1 || (props as Record<string, unknown>).scale === -1) {
+      fail(node, "<List> flipped with transform scaleY -1 flings the wrong way on Android: use <List inverted> " +
+        "(row 0 at the bottom, as RN's inverted FlatList) and remove the flip from the list and its rows")
+    }
     if (contentStyle) contentContainerStyle(contentStyle, props, b)
     // FlatList's names (P1.5). renderItem gets { item, index } as in RN; without a key function the key is RN's
     // default: item.key, else item.id, else the index.

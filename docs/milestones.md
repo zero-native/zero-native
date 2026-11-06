@@ -125,6 +125,33 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-06: two runtime bugs from the Lava: dead taps after a refresh, lost answers after a restart (Claude; found by Pavan in the zn ZeroBill app, Pavan's go)
+- **A, dead taps:** `nav.push` built the new screen under the caller's owner. From a tap that is the tapped part (a
+  list row), from an effect that effect. When the row was built again (its item changed: the refresh wrote the
+  transaction) or the effect ran again, the screen was stopped with it, and native kept showing it: every tap said
+  "no handler", the refresh spinner never stopped. Screens and app layers are now built with no owner (nav.ts); only
+  closing a screen stops it. JS only.
+- **B, lost answers:** while the runtime is replaced (Back then the launcher icon: `ZnNav.startFresh`;
+  `Updates.applyNow`; dev reload), `ZnRuntime.dispatchAnswer` dropped every native answer until the main thread attached
+  the new runtime. The new main script's calls (Os.info, SecureStore) are answered in that window, so their promises
+  never settled. Now only the runtime generation decides. Same window: module events are no longer dropped (a
+  dropped latest-only event stayed stuck for good), and a late answer of an old call no longer takes a new call with
+  the same id out of the active list. Kotlin: needs a new APK.
+- **Tests:** new nav test (fails without the fix); all JS tests (1135), types, Kotlin tests, debug sample build.
+  Sample: `main.ts` logs `sample: Os.info answered at start after N ms` (a call from the main script).
+- **Emulator (API 33, debug):** same-process restart with `am start -f 0x10008000` (a new Activity without saved
+  state): old build 0 of 2 answered, fixed build 3 of 3 (1-23 ms, before the new runtime was attached); a store row
+  tap after the restarts opens the amount screen.
+- **Not run:** the OTA phone matrix (`applyNow` uses the same restart path), and the Lava repeat in the zn ZeroBill app.
+
+### 2026-11-06: `<List inverted>` for chats (Claude; ask R13 from app-home-tabs, Pavan's go)
+- **What:** RN FlatList's `inverted` (registry 19): Compose reverseLayout, bottom arrangement, a new row 0 stays in view
+  while at the newest row. A List flipped with `scaleY -1` is a build error (its fling ran the wrong way in the merchant
+  chat). Guide §65, second-opinions 149, rn-compatibility row. Sample: "Chat list" lab (`/dev/chat`).
+- **Tests:** all JS tests (1134), Kotlin tests, debug sample build.
+- **Phone:** Pavan checked it on the Lava in the zn ZeroBill app's chat (2026-11-06, dev release build, registry 19): works.
+  The sample's chat lab (`zn://sample/dev/chat`: fling both ways, add a message, older rows at the top) has not been run.
+
 ### 2026-11-06: app layers, `startApp(routes, { top, overlay })` (Claude; asked by app-home-tabs, Pavan's go)
 - **What:** `top`, an app-wide bar above every screen (the offline strip); the screens move down by its height, with
   its own height animation. `overlay`, content over every screen (one "No internet" sheet). NAV LAYER, host API 9.
@@ -134,7 +161,9 @@ Parked ideas: `docs/after-foundations.md`.
   core lab all sit under it; the sheet stays open over a screen push and Back closes it; "Back online" green for
   1.5 s, then closed; data and Wi-Fi off and on drive it through NetInfo. The first run showed no strip: core's C++
   refused NAV kinds above 10 (fixed in `runtime.cpp`).
-- **Not checked:** smoothness on the Lava, a dev reload, a release build, the pilot app.
+- **On the Lava (debug sample, screen recording):** opens in about 190 ms (one hitch of about 38 ms in the middle),
+  closes in about 235 ms with no hitch; green shows about 1.6 s.
+- **Not checked:** a dev reload, a release build, the pilot app.
 
 ### 2026-11-06: device-info, push presses and HTML, unmatched links (Claude; Pavan's go, asks R39 R40 from app-home-tabs)
 - **What:**

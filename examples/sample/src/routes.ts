@@ -40,6 +40,7 @@ import { MarkdownLabScreen } from "./MarkdownLab"
 import { DocScanLabScreen } from "./DocScanLab"
 import { ImageViewerLabScreen } from "./ImageViewerLab"
 import { LayerLabScreen } from "./AppLayers"
+import { ChatListLabScreen } from "./ChatListLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -62,6 +63,7 @@ export const routes = defineRoutes({
   launch: { path: "/dev/launch", screen: LaunchScreen, deepLink: true },
   coreLab: { path: "/dev/core", screen: CoreLabScreen, deepLink: true },
   layerLab: { path: "/dev/layers", screen: LayerLabScreen, deepLink: true },
+  chatLab: { path: "/dev/chat", screen: ChatListLabScreen, deepLink: true },
   fakeScreen: { path: "/dev/core/native", native: "device.fake-screen" },
   secureLab: { path: "/dev/core/secure", screen: SecureLabScreen, secure: true },
   scannerLab: { path: "/dev/scanner", screen: ScannerLabScreen, deepLink: true },

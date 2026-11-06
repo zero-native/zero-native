@@ -792,6 +792,13 @@ export declare function List<T>(props: {
    * list scrolls under them; the next one pushes the last up. Can change at runtime.
    */
   stickyHeaderIndices?: readonly number[]
+  /**
+   * As React Native's FlatList (registry 19): row 0 sits at the bottom and the list grows upwards, for a chat with the
+   * newest message first in `data`. It opens at the bottom; while you are at the bottom a new row 0 stays in view;
+   * `onEndReached` fires near the top (older messages). A short list sits at the bottom. Fixed at build time.
+   * Don't flip a list with `transform: [{ scaleY: -1 }]` instead: the build refuses it (flings go the wrong way).
+   */
+  inverted?: boolean
 } & RefreshProps & RnScrollProps & (
   | {
       key: (item: T, index: number) => string | number
