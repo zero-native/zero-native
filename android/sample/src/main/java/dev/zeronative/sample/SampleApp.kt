@@ -111,7 +111,7 @@ class SampleApp : Application() {
             private set
     }
 
-    private fun systemProperty(name: String): String? = try {
+    internal fun systemProperty(name: String): String? = try {
         Class.forName("android.os.SystemProperties").getMethod("get", String::class.java)
             .invoke(null, name) as String?
     } catch (_: Exception) {

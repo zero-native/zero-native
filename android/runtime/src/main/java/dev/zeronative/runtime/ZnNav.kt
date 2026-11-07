@@ -128,6 +128,19 @@ object ZnNav {
     /** Whether the first screens were opened ([start]). */
     internal val isStarted: Boolean get() = started
 
+    /**
+     * Main thread: JS has built the screens opened last by [start] / [restart] (NAV STARTED). False again while new first
+     * screens are being built (a fresh start). [ZnSplash] waits for it.
+     */
+    internal var firstScreensUp = false
+        private set
+
+    /** Main thread: JS built the first screens. */
+    private fun screensBuilt() {
+        firstScreensUp = true
+        ZnOta.screensUp()
+    }
+
     private val main = Handler(Looper.getMainLooper())
     private var bundle: ZnBundle? = null
     private var started = false
@@ -222,6 +235,7 @@ object ZnNav {
     private class Opening(val route: ZnRoute, val params: String, val values: String? = null, val link: String? = null)
 
     private fun startWith(bundle: ZnBundle, first: List<Opening>, unmatched: Uri? = null) {
+        firstScreensUp = false
         val payload = JSONArray()
         for (o in first) {
             val id = nextNativeId++
@@ -246,7 +260,7 @@ object ZnNav {
             // for it "the JS thread has handled START" stands in (it can't tell a bundle that never calls startApp).
             if ((ZnBundles.running.info?.requires?.hostApi ?: 3) < 3) {
                 val gen = generation
-                ZnRuntime.afterJs { if (gen == generation) ZnOta.screensUp() }
+                ZnRuntime.afterJs { if (gen == generation) screensBuilt() }
             }
         }
     }
@@ -344,6 +358,7 @@ object ZnNav {
      */
     private fun startFresh(bundle: ZnBundle, link: Uri?) {
         Log.i(TAG, "nav: a new Activity without saved state while the app still runs (closed from recents?): starting fresh")
+        firstScreensUp = false // the old screens go; a splash hold waits for the new ones (ZnSplash)
         ZnOta.startFresh(link) {
             ZnRuntime.restart { result, attach ->
                 resetForReload()
@@ -441,7 +456,7 @@ object ZnNav {
                 failed[op.entry] = op.params?.let { runCatching { JSONObject(it).optString("message") }.getOrNull() } ?: ""
             }
             // After this batch is drawn the first screens are on screen (OTA safety nets, step 4.7).
-            BatchOp.Nav.STARTED -> main.post { ZnOta.screensUp() }
+            BatchOp.Nav.STARTED -> main.post { screensBuilt() }
             BatchOp.Nav.RESTORE -> stack.firstOrNull { it.id == op.entry }?.let { keepValue(it, op.params) }
             BatchOp.Nav.BACK_WANTED -> {
                 if (op.route != 0 && stack.any { it.id == op.entry }) backWanted[op.entry] = Unit else backWanted.remove(op.entry)

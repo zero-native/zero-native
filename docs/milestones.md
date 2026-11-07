@@ -125,6 +125,24 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: `ZnSplash.holdUntilReady`, Android's splash until the first screens are built (Claude; R53 from app-home-tabs, Pavan's pick "(b)")
+- **Why:** the ZeroBill app's 780 templates are ready ~50 ms after Android's first frame, so a cold start showed an
+  empty box, then the home. Android takes its splash away at the first frame.
+- **What:** `ZnSplash.holdUntilReady(activity, capMs = 1000)` cancels frames until JS's NAV STARTED (new
+  `ZnNav.firstScreensUp`) or the cap. Guide §66, second-opinions 153. Sample: off unless
+  `adb shell setprop debug.zn.splash_hold_ms 1000`.
+- **Tests:** Kotlin tests, runtime lint 0 errors, debug sample build.
+- **Emulator (API 33, debug, busy: load ~14, cold starts 3-5 s):** splash held, then the first frame came right after
+  "first JS batch applied" (screenshot: icon during the hold); cap 1500 with JS late: drew at the cap; Activity rebuilt
+  by a font-size change: no frame held; fresh start in a kept process (`-f 0x10008000`): held 14 frames for the new
+  screens; hold off: no splash line.
+- **Lava (app-home-tabs, ZeroBill zn app, staging release, speed-profile, 3 cold starts):** held 10-14 frames; first
+  frame 345-348 ms after process start, the home already built; `am start -W` TotalTime 501-510 ms; cap never hit.
+  Recording: splash goes straight to the home, no empty frame. Templates still take 158-178 ms to prepare.
+- **Found on the way (not fixed, debug only):** `debug.zn.js_delay_ms` loses the START event (sent before the delayed
+  JS exists: "global function not defined: __zn_onEvent", error screen), with or without the hold.
+- **Still open in R53:** making template prepare faster (measure first), and the stray `main.hbc.*` file in assets.
+
 ### 2026-11-06: SecureStore keeps a value it can't read right now; notification settings link (Claude; old-phone audit, Pavan's go)
 - **SecureStore** (`ZnSecureStore.kt`, `secure-store.ts`): before, any error on a read deleted the value and answered
   null. An app that reads "no token" as "logged out" then signs the user out and wipes their data (the zn ZeroBill app

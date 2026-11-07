@@ -2334,3 +2334,20 @@ change, and what evidence would make you change it?"
   out, and a save after login makes a new key, as before).
 - **Risk if wrong:** an app that never offers "Log in again" on `temporarily_unavailable` could leave a user stuck on a
   retry screen if a vendor reports a lost key in a new way. The guide says to always offer it.
+## 153. `ZnSplash.holdUntilReady`: hold Android's splash until NAV STARTED, 1 s cap (runtime, 2026-11-07; R53 from app-home-tabs, Pavan's pick "(b)")
+- **What:** a pre-draw listener on the Activity's content view cancels frames until `ZnNav.firstScreensUp` (set by
+  NAV STARTED, or by START handled for a host API 2 bundle; reset when new first screens are opened) or until
+  `capMs` (default 1000) has passed. Opt-in for each host; the sample turns it on only with
+  `debug.zn.splash_hold_ms`, so its cold-start numbers keep their meaning.
+- **Why this way:**
+  - Android's own documented way to keep its splash (a pre-draw listener returning false); no
+    `core-splashscreen` dependency. On Android 7-11 the theme's background shows instead.
+  - NAV STARTED, not "first JS batch": it is the signal that the first screens are built, already used by the OTA
+    safety nets. A first batch can be anything (an app layer, a timer's work).
+  - A cap, because a JS error at start must reach the error screen, and a hung start must not look like a frozen icon.
+- **Checked:** emulator API 33, debug: held until screens built (first frame right after "first JS batch"); cap
+  reached → draws; recreated Activity → no frame held; fresh start in a kept process → held for the new screens;
+  off → no listener.
+- **Not checked:** a phone; Android 7-11 (no system splash there); the time cost on a real cold start.
+- **Risk if wrong:** a start whose NAV STARTED never comes (a bundle that never calls `startApp`) always waits the full
+  cap. The template-speed part of R53 (prepare faster) is still open; this only hides the blank frame.

@@ -2424,3 +2424,20 @@ function OfflineStrip() {          // built once, kept while the app runs
   on Android the fling after the finger lifts runs the wrong way, so the chat scrolls against the finger. The build
   refuses a list with that transform.
 - **Know:** `inverted` is fixed at build time. Not checked yet with `stickyHeaderIndices` or pull to refresh.
+
+## 66. Cold start: keep Android's splash until the first screen is filled (`ZnSplash`, host side)
+```kotlin
+setContent { ... }
+ZnSplash.holdUntilReady(this)            // MainActivity.onCreate, after setContent; capMs = 1000 by default
+```
+- **Do** use it when the first frame would show an empty box or a half-filled skeleton (a big app: the ZeroBill app
+  has 780 templates, ready after Android's first frame). The user then goes from the splash straight to the filled
+  start screen.
+- **Do** give the theme's `android:windowBackground` the start screen's background colour. Android 7-11 have no
+  system splash: that background is what shows while it waits. Android 12+ shows the app icon on it.
+- **Know:** it waits for JS's NAV STARTED (the first screens are built), at most `capMs`. After the cap the app draws
+  anyway, so a slow phone or a JS error at start still shows something (the error screen must be seen).
+- **Know:** a recreated Activity (rotation, dark mode) doesn't wait. A fresh start in a kept process (closed from
+  Recents) waits for its new screens.
+- **Don't** set the cap high to hide slow JS. **Why:** the user stares at a still icon; past ~1 s it feels like a hang.
+  Fix the start work instead.

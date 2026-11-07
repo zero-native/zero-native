@@ -21,6 +21,7 @@ import dev.zeronative.runtime.ZnDebug
 import dev.zeronative.runtime.ZnNav
 import dev.zeronative.runtime.ZnNavHost
 import dev.zeronative.runtime.ZnRuntime
+import dev.zeronative.runtime.ZnSplash
 import dev.zeronative.runtime.ZnTemplates
 import java.util.concurrent.atomic.AtomicLong
 
@@ -85,6 +86,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Off by default, so the sample's cold-start numbers keep meaning "first frame = template skeleton".
+        // `adb shell setprop debug.zn.splash_hold_ms 1000` keeps Android's splash until JS built the first screens
+        // (ZnSplash, R53); `... 0` turns it off again.
+        val hold = (application as SampleApp).systemProperty("debug.zn.splash_hold_ms")?.toLongOrNull() ?: 0L
+        if (hold > 0) ZnSplash.holdUntilReady(this, capMs = hold)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
