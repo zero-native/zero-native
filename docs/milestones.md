@@ -125,6 +125,14 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: phone steps scroll the RN props lab by its edge (Claude)
+- `rnprops.ts` has its own `tap`, and `byId` scrolls at x=20 (the page's padding), so a swipe no longer lands on the
+  sticky list. `push.ts` opens the lab again before "Show plain" (it sits above "Cancel all").
+- **Emulator:** `push local notifications` passes. `rn props bars`, `sticky`, `modal` now reach their real checks and
+  fail there: the status bar hidden doesn't move the screen up (105 -> 105), "Today" isn't pinned after a drag, and
+  the dialog card doesn't move up for the keyboard in the step (by hand, without the Alert first, it does: 871 -> 461).
+  All 7 passed on 2026-11-04; sticky and modal already failed on 2026-11-06. **Open, not looked into.**
+
 ### 2026-11-07: hitSlop on an absolute child measured the whole Stack (Claude; found by the phone steps)
 - **Bug:** a Pressable with `hitSlop` placed absolutely in a Stack took taps 100 dp away (a 24 dp icon with
   `hitSlop={20}`). Since R29 (2026-11-05) an absolute child is laid out in a box the Stack's size and placed inside

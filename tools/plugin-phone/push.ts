@@ -104,6 +104,8 @@ export const steps: Step[] = [
       shell("pm", "grant", PKG, NOTIFY)
       await lab()
       await tap("Cancel all")
+      // Back to the top: on a shorter screen (the emulator) "Cancel all" is below the fold, and tap() only scrolls down.
+      await lab()
       await tap("Show plain")
       ok("plain", await expectLog(/push-lab show plain shown=true/))
       await seeShown("lab-plain")

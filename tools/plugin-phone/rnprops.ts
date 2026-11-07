@@ -1,8 +1,22 @@
 // Phone steps for RN props pack 2 (examples/sample/src/RnPropsLab.tsx). Run: bun run tools/plugin-phone.ts "rn props"
 import { inflateSync } from "node:zlib"
-import { check, clearLog, expectLog, lines, ok, openFresh, see, shell, shot, sleep, tap, texts, type Step } from "./helpers"
+import { check, clearLog, expectLog, lines, ok, openFresh, see, shell, shot, sleep, texts, type Step } from "./helpers"
 
 const lab = () => openFresh("dev/rn-props", /^status: /)
+
+/**
+ * Taps [text], scrolling the page down to find it. Not helpers' tap: that swipes in the middle of the screen, which on
+ * this lab lands on the sticky list and scrolls only the list. This swipes on the page's left padding (16 dp).
+ */
+async function tap(text: string | RegExp) {
+  for (let i = 0; i < 30; i++) {
+    const n = texts().find((t) => (typeof text === "string" ? t.text === text : text.test(t.text)))
+    if (n && n.y < 2250) return void shell("input", "tap", String(n.x), String(n.y))
+    if (i % 2 === 1) shell("input", "swipe", "20", "1500", "20", "800", "600")
+    await sleep(500)
+  }
+  throw new Error(`no "${text}" on the page: ${texts().map((t) => t.text).join(" | ")}`)
+}
 
 /** Holds the finger on [text] for [ms] (a swipe that doesn't move). */
 async function hold(text: string | RegExp, ms = 1200) {
@@ -34,7 +48,7 @@ async function byId(id: string, ms = 45000) {
     if (hit && hit.y1 < screenHeight() - 220 && hit.y0 > 20) return hit
     if (hit) {
       const by = hit.y1 >= screenHeight() - 220 ? 500 : -500
-      shell("input", "swipe", "360", "1400", "360", String(1400 - by), "1200")
+      shell("input", "swipe", "20", "1400", "20", String(1400 - by), "1200") // by the page's padding: not on the sticky list
       await sleep(700)
       continue
     }
