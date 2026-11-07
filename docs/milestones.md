@@ -125,6 +125,21 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: `@zero-native/ad-id`, the Google advertising id (Claude; ask from the ZeroBill app via app-home-tabs, Pavan's go: for ad attribution)
+- **What:** an opt-in plugin, not part of device-info, because its library adds the `AD_ID` permission. `AdId.get()`
+  answers `{ id, limitAdTracking }` and never rejects. `id` is null for all zeros (id deleted, or no `AD_ID` on
+  Android 13+), for no or failing Play services, and for an APK without the plugin. A real id with
+  `limitAdTracking: true` is given: the app decides (Pavan). Its own thread, not the shared 2-thread call pool.
+  README (Play's rules), guide §67.
+- **Tests:** 4 Kotlin tests (`AdIdRules`), 2 JS tests, all JS tests (1146), types, plugin lint 0 errors, debug
+  sample build.
+- **Emulator (API 33, Google Play image):**
+  - The sample as it is (its manifest removes `AD_ID`): `ad id none, limit ad tracking true` (550 ms, first read).
+  - A scratch build that kept `AD_ID` (the manifest was put back after): `ad id 1936c422-…, limit ad tracking
+    false` in 154 ms.
+- **Not checked:** a phone without Play services; an id the user deleted in Settings (the same zeros as the
+  no-permission case); Android 11 and older with personalisation off.
+
 ### 2026-11-07: `ZnSplash.holdUntilReady`, Android's splash until the first screens are built (Claude; R53 from app-home-tabs, Pavan's pick "(b)")
 - **Why:** the ZeroBill app's 780 templates are ready ~50 ms after Android's first frame, so a cold start showed an
   empty box, then the home. Android takes its splash away at the first frame.

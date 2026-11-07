@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "@zero-native/core": "workspace:*",
+    "@zero-native/ad-id": "workspace:*",
     "@zero-native/analytics": "workspace:*",
     "@zero-native/auth": "workspace:*",
     "@zero-native/device-info": "workspace:*",

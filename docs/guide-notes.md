@@ -2441,3 +2441,16 @@ ZnSplash.holdUntilReady(this)            // MainActivity.onCreate, after setCont
   Recents) waits for its new screens.
 - **Don't** set the cap high to hide slow JS. **Why:** the user stares at a still icon; past ~1 s it feels like a hang.
   Fix the start work instead.
+
+## 67. The advertising id (`@zero-native/ad-id`, for ad attribution)
+```ts
+const { id, limitAdTracking } = await AdId.get()   // never rejects; id null when there is none
+```
+- **Do** send `limitAdTracking` with the id to your attribution partner, and read the id each time (the user can
+  delete or reset it).
+- **Do** keep the `AD_ID` permission in the app's manifest (the library adds it). **Why:** without it, Android 13+
+  gives all zeros, so `id` is always null and attribution silently stops.
+- **Don't** use it to identify a user or for fraud checks, and never link it to a phone number, email or ANDROID_ID.
+  **Why:** Play's advertising id policy allows ads and analytics only; breaking it can get the app removed.
+- **Know:** with `limitAdTracking` true the id can still be there (Android 11 and older). zn gives it to the app on
+  purpose (Pavan, 2026-11-07): the app decides, within Play's rules (README).

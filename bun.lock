@@ -21,6 +21,7 @@
     "examples/sample": {
       "name": "@zero-native/example-sample",
       "dependencies": {
+        "@zero-native/ad-id": "workspace:*",
         "@zero-native/analytics": "workspace:*",
         "@zero-native/auth": "workspace:*",
         "@zero-native/core": "workspace:*",
@@ -60,6 +61,13 @@
     "packages/ui": {
       "name": "@zero-native/ui",
       "version": "0.0.0",
+    },
+    "plugins/ad-id": {
+      "name": "@zero-native/ad-id",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
     },
     "plugins/analytics": {
       "name": "@zero-native/analytics",
@@ -194,6 +202,8 @@
     },
   },
   "packages": {
+    "@zero-native/ad-id": ["@zero-native/ad-id@workspace:plugins/ad-id"],
+
     "@zero-native/analytics": ["@zero-native/analytics@workspace:plugins/analytics"],
 
     "@zero-native/auth": ["@zero-native/auth@workspace:plugins/auth"],

@@ -4,6 +4,7 @@
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { signal } from "@zero-native/core"
 import DeviceInfo from "@zero-native/device-info"
+import { AdId } from "@zero-native/ad-id"
 import { c } from "./tokens"
 
 const AT_MODULE_LOAD = `${DeviceInfo.getBundleId()} ${DeviceInfo.getVersion()} (${DeviceInfo.getBuildNumber()})`
@@ -25,6 +26,7 @@ const fixed = () =>
 
 export function DeviceInfoLabScreen() {
   const changing = signal("not read yet")
+  const adId = signal("ad id not read yet")
 
   const read = async () => {
     const [battery, power, disk, total, airplane, location, headphones, secure, font, carrier, ip, gms, ua] = await Promise.all([
@@ -73,6 +75,25 @@ export function DeviceInfoLabScreen() {
         </Pressable>
         <Text testID="device-info-changing" fontSize={13} color={c.muted}>
           {changing()}
+        </Text>
+        {/* @zero-native/ad-id (2026-11-07): logs "device-info-lab ad id ..." */}
+        <Pressable
+          onPress={() =>
+            void AdId.get().then((a) => {
+              const text = `ad id ${a.id ?? "none"}, limit ad tracking ${a.limitAdTracking}`
+              console.info(`device-info-lab ${text}`)
+              adId.set(text)
+            })
+          }
+          alignItems="center"
+          style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: c.primary }}
+        >
+          <Text fontSize={13} fontWeight={600} color={c.white}>
+            Read advertising id
+          </Text>
+        </Pressable>
+        <Text testID="device-info-ad-id" fontSize={13} color={c.muted}>
+          {adId()}
         </Text>
       </Column>
     </Scroll>

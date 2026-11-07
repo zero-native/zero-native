@@ -18,6 +18,7 @@ import dev.zeronative.plugins.lottie.LottiePlugin
 import dev.zeronative.plugins.media.MediaPlugin
 import dev.zeronative.plugins.pdf.PdfPlugin
 import dev.zeronative.plugins.perf.PerfPlugin
+import dev.zeronative.plugins.adid.AdIdPlugin
 import dev.zeronative.plugins.deviceinfo.DeviceInfoPlugin
 import dev.zeronative.plugins.push.PushPlugin
 import dev.zeronative.plugins.remoteconfig.RemoteConfigPlugin
@@ -42,6 +43,7 @@ class SampleApp : Application() {
         ZnPlugins.register(this, PdfPlugin()) // its own line, so plugins added in parallel merge cleanly
         ZnPlugins.register(this, LocationPlugin())
         ZnPlugins.register(this, DeviceInfoPlugin())
+        ZnPlugins.register(this, AdIdPlugin())
         ZnPlugins.register(this, FirebaseAppPlugin()) // Firebase.app() and Installations for JS
         // JS errors, OTA outcomes, bundle and route keys go to Crashlytics by themselves. Off with no google-services.json.
         ZnPlugins.register(this, CrashlyticsPlugin())

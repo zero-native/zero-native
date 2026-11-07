@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- AD_ID comes from play-services-ads-identifier's own manifest. Android 13+ gives all zeros without it. -->
+    <!-- The id comes from a Play services service: Android 11+ hides other apps unless they are listed here. -->
+    <queries>
+        <package android:name="com.google.android.gms" />
+    </queries>
+</manifest>
