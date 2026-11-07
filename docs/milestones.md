@@ -125,6 +125,40 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: open items at the end of the day (Claude, parent session)
+Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB] = ZeroBill app.
+- **[zn] Processing Sheet stuck on a live cancel** (Lava, release build, ZeroBill payment pass): the sheet went into
+  its closing state (taps pass through) but never slid down or went away. Not seen on Android 13 (plain, Back, tap,
+  covered app, changing content). Fix (a), no dim layer, is done (entry below). On hold by Pavan ("we'll see if
+  needed"): (b) a 1 s safety net that removes a closing window that didn't finish; (c) release-build log lines for
+  the close steps. Next: app-home-tabs retests the live cancel on the Lava; if it sticks again, do (c) first.
+  Doesn't block the release unless it shows again.
+- **[zn] Lava retests waiting (app-home-tabs):** the smooth auto-zoom glide; the live-cancel sheet above.
+- **[ZB] QR cold start:** `Splash.holdUntil` hit its 400 ms limit by ~30 ms (entry below). App decides: larger
+  `maxMs` or `/init` earlier.
+- **[zn] Not committed yet:** the auto-zoom glide (`CameraSession.kt`) and `Splash.holdUntil` (core + runtime +
+  sample + docs). Ready for `/git`.
+- **[zn] Gestures v1:** plan only (`docs/gestures-v1-plan.md`), nothing built. Not like RNGH in full: no worklets, two
+  pointers at most, no gesture graph, no rotation or manual gestures. After the release.
+- **[zn] Declined:** our own auto zoom-out for the scanner (Pavan: "let's leave it here").
+- **[zn] RN props phone steps that fail:** bars, sticky, modal (see their entries); not looked into yet.
+
+### 2026-11-07: `Splash.holdUntil(promise, { maxMs })` (Claude; ask from app-home-tabs, Pavan's go "Sure")
+- **Why:** a QR link cold-starts ZeroBill: splash, Home, a black "starting" screen, then checkout. Now the splash can
+  wait for `/init` (at most 400 ms) and lift straight onto checkout.
+- **JS** (`packages/core/src/splash.ts`, new module `Splash` v1, so a bundle using it needs a new APK; no host API
+  bump): `hold` now, `release` one JS turn after the promise settles, so a push made then reaches native first.
+- **Native** (`ZnSplash.kt`): app holds keep the splash up to their `maxMs` after the first screens, then until the
+  top screen is composed (`ZnNav.topComposed`; without it Home showed for one frame). `capMs` still wins. A PUSH
+  while the splash is held gets no slide (`openedAtStart`). Too late: ignored, with a log line.
+- **Tests:** `splash.test.ts` (4); core JS tests (613); Kotlin tests.
+- **Emulator (API 33), sample dev hook** (two tiles in the RN props lab; Home calls `holdUntil` at the next start):
+  work ending 1.2 s after the first screens lifts straight onto the pushed lab, no Home frame, no slide (shots every
+  250 ms); work that never ends lifts at maxMs (412 ms). Not on the Lava.
+- **Lava, ZeroBill QR cold start (app-home-tabs, after this was built):** the splash lifted at the 400 ms limit;
+  `/init` answered about 30 ms later, so the black "starting" screen still showed. [ZB] app's call, not decided: a
+  larger `maxMs`, or start `/init` earlier. Second-opinions 160.
+
 ### 2026-11-07: scanner zoom: `zoom`, `autoZoom`, `pinchZoom` (Claude; ask from app-home-tabs, Pavan's go "get all of them done")
 - `@zero-native/scanner`, on `<QrScanner>` and the full screen's params. Plugin props: no registry or host API change, a
   new APK only. README "The full screen" and "The view".
@@ -138,6 +172,10 @@ Parked ideas: `docs/after-foundations.md`.
 - **Emulator (API 33):** "Open zoomed scanner" in the scanner lab: `scanner: zoom 1.4x on` 0.6 s after "camera on". The
   emulator's camera gives no frames, so the picture, ML Kit's suggestions and the pinch are **not checked**: Lava only.
   Log lines to look for: `scanner: auto-zoom on, up to Nx`, `scanner: zoom Nx (ML Kit's suggestion)`.
+- **Lava (20:42 APK, app-home-tabs and Pavan):** all three work (1.4x on 0.65 s after camera on; ML Kit 1.6x, then 4x,
+  then the code read; pinch). Pavan: auto-zoom "steppy". Now each suggestion glides over 300 ms, easing out
+  (`ValueAnimator`, one `setZoomRatio` per frame: CameraX 1.4 has no smooth zoom; checked in the jar). A new
+  suggestion goes on from where it is; a pinch stops the glide. With animations off in Android settings, it jumps.
 
 ### 2026-11-07: Sheet and Modal windows have no dim layer (Claude; found on the Lava by app-home-tabs, Pavan's go)
 - **Bug:** on Android 14 the first keypad taps after closing the offers sheet were dropped ("untrusted touch",
@@ -145,6 +183,7 @@ Parked ideas: `docs/after-foundations.md`.
 - **Fix** (`ZnSheet.kt`, `ZnModal.kt`): clear `FLAG_DIM_BEHIND`; the dim was 0 already and our own scrim draws it.
 - **Emulator (API 33):** `rn props sheet close` passes (Sheet and Modal). Android 13 never dropped these taps, so
   only the Lava can prove the fix.
+- **Lava (Android 14):** taps right after the close now land. Second-opinions 158.
 
 ### 2026-11-07: Sheet `animateIn={expr}` (registry 22) (Claude; ask from app-home-tabs, Pavan's go)
 - `animateIn` can be a value, not only a literal: read when the sheet opens (its window fade and its slide). So an

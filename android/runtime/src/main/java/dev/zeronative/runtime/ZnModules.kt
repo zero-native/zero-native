@@ -158,7 +158,7 @@ object ZnModules {
     init {
         // Built-in modules are always there, whatever order the app starts things in: the bundle check needs them.
         // Their setup with a Context (ZnFetch.init, ZnSecureStore.init) stays in ZnRuntime.start.
-        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnSecureStore, ZnToast, ZnOta.Module, ZnPermissions, ZnLaunch, ZnOs, ZnBackground, ZnAlert, ZnClipboard, ZnVibration, ZnNetInfo)) modules[m.name] = m
+        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnSecureStore, ZnToast, ZnOta.Module, ZnPermissions, ZnLaunch, ZnOs, ZnBackground, ZnAlert, ZnClipboard, ZnVibration, ZnNetInfo, ZnSplash.Module)) modules[m.name] = m
     }
 
     /**

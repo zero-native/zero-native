@@ -150,6 +150,9 @@ object ZnNav {
     private var nextNativeId = 0x80000001.toInt()
     /** Entries whose screen is on screen now (including during an exit animation). */
     private val composed = HashSet<Int>()
+
+    /** Main thread: the top screen is composed (its first frame draws now). [ZnSplash] waits for it after an app hold. */
+    internal val topComposed: Boolean get() = stack.lastOrNull()?.let { it.id in composed } ?: true
     private var backFallback: Runnable? = null
 
     /**
@@ -442,7 +445,8 @@ object ZnNav {
                 }
                 mount(op.entry, route, b)
                 // Before NAV STARTED, JS is still opening the first screens (nav.ts: a push while START builds them).
-                stack += ZnEntry(op.entry, route, op.params ?: "{}").apply { openedAtStart = !firstScreensUp }
+                // Or while the splash is still held (Splash.holdUntil): the user sees this screen first, not a slide to it.
+                stack += ZnEntry(op.entry, route, op.params ?: "{}").apply { openedAtStart = !firstScreensUp || ZnSplash.holding }
             }
             BatchOp.Nav.REMOVE -> {
                 if (stack.removeAll { it.id == op.entry }) release(op.entry)

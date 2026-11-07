@@ -1,7 +1,7 @@
 // The sample's start screen (route "/"): 10,000 merchants in a virtualized <List> with two row kinds (an area header
 // every 100 rows, merchant rows). "New payment arrives" inserts a row at the top: the visible rows must not move.
 import { Box, Column, List, Pressable, Row, Text } from "@zero-native/ui"
-import { createStorage, nav, signal } from "@zero-native/core"
+import { createStorage, nav, signal, Splash } from "@zero-native/core"
 import { c } from "./tokens"
 import { generatedMerchant, type Merchant } from "./merchants"
 
@@ -28,6 +28,18 @@ export function HomeScreen() {
   if (devStart.getString("push") === "rnPropsLab") {
     devStart.delete("push")
     nav.push("rnPropsLab")
+  }
+  // Dev hook for Splash.holdUntil, set by two tiles in the RN props lab: "hold" is ms, or "never". Like a QR-link
+  // start: the splash waits for the work, then the pushed screen is the first thing shown, with no slide.
+  const hold = devStart.getString("hold")
+  if (hold) {
+    devStart.delete("hold")
+    // "never": the work never ends, so the splash goes at maxMs, onto Home.
+    const work = hold === "never" ? new Promise<void>(() => {}) : new Promise<void>((done) => setTimeout(() => {
+      nav.push("rnPropsLab")
+      done()
+    }, Number(hold)))
+    Splash.holdUntil(work, { maxMs: hold === "never" ? 400 : 2 * Number(hold) })
   }
   const feed = signal(buildFeed())
   let arrivals = 0

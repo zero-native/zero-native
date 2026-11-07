@@ -2458,6 +2458,15 @@ ZnSplash.holdUntilReady(this)            // MainActivity.onCreate, after setCont
   Recents) waits for its new screens.
 - **Don't** set the cap high to hide slow JS. **Why:** the user stares at a still icon; past ~1 s it feels like a hang.
   Fix the start work instead.
+- **Hold a little longer for one piece of work** (JS, since 2026-11-07): `Splash.holdUntil(init(), { maxMs: 400 })`,
+  called while a first screen is built (a QR-link start that needs `/init` before checkout).
+  - The splash stays until the promise settles (resolved or rejected) and the screen it pushed is drawn, or `maxMs`
+    after the first screens are up. `capMs` above still wins.
+  - A push or replace while it is held comes in with no slide: the user's first screen is checkout, not Home, then a slide.
+  - Too late (the splash is gone) or no `holdUntilReady` in the host: nothing happens.
+  - **Don't** use it for slow work in general. **Why:** the same as the cap: keep `maxMs` to the time a fast answer takes
+    (ZeroBill: its 400 ms slow-network mark), and show your own screen past that.
+  - Logs: `splash: held until the app said ready, N ms after the first screens`, or `... hit its maxMs`.
 
 ## 67. The advertising id (`@zero-native/ad-id`, for ad attribution)
 ```ts

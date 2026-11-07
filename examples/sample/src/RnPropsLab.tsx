@@ -431,6 +431,8 @@ export function RnPropsLabScreen() {
             say("next start opens the lab")
           }}
         />
+        <HoldTile label="Splash waits 1.5 s at next start" onPress={() => { devStart.set("hold", "1500"); say("next start holds the splash") }} />
+        <HoldTile label="Splash waits forever at next start" onPress={() => { devStart.set("hold", "never"); say("next start holds the splash") }} />
         <HoldTile label="Open restored sheet now (slides)" onPress={() => restSheet.set(true)} />
         <Sheet visible={restSheet()} animateIn={!restored()} onDismiss={() => { restSheet.set(false); restored.set(false) }} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
           <Text fontSize={16} fontWeight={700} color={c.ink}>

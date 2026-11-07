@@ -2405,3 +2405,58 @@ change, and what evidence would make you change it?"
   `late-result-after-kill`, `result-after-the-wait` added, not run in the full matrix yet.
 - **Not checked:** the Lava; the full matrix (the see-through and swipe cases now take 1 s more).
 - **Risk if wrong:** a start after a kill with a waiting launch takes up to 1 s more. No change when nothing waits.
+
+## 157. Sheet `animateIn` can be a value, read once when the sheet opens (registry 22, 2026-11-07; ask from app-home-tabs, Pavan's go)
+- **What:** `animateIn` is in DynamicProps, so `animateIn={expr}` becomes a slot. Native reads it when the sheet opens
+  (window fade and slide) and keeps that value while the sheet is open. A change while open does nothing.
+- **Why:** one sheet for two cases: opened by the user (slides in) and brought back with the screen after a restart
+  (already at rest). Before, an app needed two sheets or a key change.
+- **Why read once:** the open animation happens once. A live value could stop a slide half way, with no gain.
+- **Checked:** compiler test (literal = prop, expression = slot); emulator, RN props lab both ways.
+- **Not checked:** the Lava.
+- **Risk if wrong:** low. A literal works as before.
+
+## 158. Sheet and Modal windows clear `FLAG_DIM_BEHIND` (runtime, 2026-11-07; found on the Lava by app-home-tabs, Pavan's go)
+- **What:** `Window.noDimLayer()` clears the flag on our Sheet and Modal dialog windows (only when it is set).
+- **Why:** Android 14 drops a tap that passes through a window with a dim layer, even at alpha 0 ("untrusted touch",
+  "Dim Layer for Task"). The closing sheet passed taps through but kept the flag, so the first keypad taps after
+  closing the offers sheet were lost. Our own scrim draws the dim, so the system dim was never used.
+- **Checked:** emulator (no change seen; Android 13 never dropped them); the Lava (Android 14): taps right after the
+  close now land.
+- **Risk if wrong:** a phone that draws its own dim from the flag would now show none. We set the amount to 0 before,
+  so nothing visible changes.
+
+## 159. Scanner zoom: preview hidden until the zoom takes; auto-zoom glides; zoom in only (plugin, 2026-11-07; asks from app-home-tabs, Pavan's go)
+- **`zoom`:** CameraX goes back to 1x at each camera open, so we set it at each open. The preview stays hidden until
+  `setZoomRatio` takes (at most 600 ms), so no 1x frame shows. A refusal before the camera is active tries again,
+  3 times, 120 ms apart. After 600 ms the preview shows anyway.
+- **`autoZoom`:** ML Kit's `ZoomSuggestionOptions`. Each suggestion glides over 300 ms (`ValueAnimator`, decelerate,
+  one `setZoomRatio` per frame). CameraX 1.4.2 has no smooth zoom (checked in the jar). Pavan called plain jumps
+  "steppy". A new suggestion goes on from the current value; a pinch stops the glide and ML Kit's suggestions for
+  that scan. With animations off in Android settings it jumps.
+- **Zoom in only:** ML Kit only suggests zooming in (Google's docs). Our own zoom-out (for example after N s with no
+  code) was offered; Pavan said no ("let's leave it here"). An app can still pass a lower `zoom` next time.
+- **Checked:** `ScannerRulesTest` (3); Lava: zoom, auto-zoom steps and pinch work (before the glide).
+- **Not checked:** the glide on the Lava (the emulator camera gives no frames).
+- **Risk if wrong:** the glide calls CameraX up to ~18 times per suggestion. CameraX drops a call when a newer one
+  comes, so this costs little; if a phone stutters, go back to jumps.
+
+## 160. `Splash.holdUntil`: release one JS turn late, then wait for the top screen to draw (core, 2026-11-07; ask from app-home-tabs, Pavan's go "Sure")
+- **What:** `Splash.holdUntil(work, { maxMs })` asks native to keep Android's splash up. When `work` settles, JS sends
+  `release` one JS turn later (`setTimeout 0`). Native lifts the splash when all holds are released AND the top screen
+  is composed (`ZnNav.topComposed`), or at `maxMs` after the first screens are up. `capMs` still wins. A push while
+  the splash is held comes in with no slide. A hold after the splash is gone is ignored, with a log line.
+- **Why one turn late:** the app pushes its screen in the same `then` that ends the work. The nav batch goes out
+  at the end of that turn; a release sent at once could reach native first, and the splash would lift onto Home.
+- **Why `topComposed`:** even with the order right, the pushed screen needs one frame to draw. Without the wait,
+  Home showed for one frame (emulator shots, 2026-11-07).
+- **Why `maxMs` counts from the first screens:** the app can't know how long the cold start before JS takes. It
+  knows how long it is willing to wait for its own work.
+- **New module `Splash` v1, no host API bump:** a bundle that calls it needs a new APK; an old APK gives the normal
+  "module missing" error.
+- **Checked:** `splash.test.ts` (4); emulator: work done after 1.2 s lifts straight onto the pushed screen; work that
+  never ends lifts at 412 ms (maxMs 400).
+- **Lava, ZeroBill QR cold start (app-home-tabs):** the splash lifted at the 400 ms limit; `/init` answered about 30 ms
+  later, so the black "starting" screen still showed. This is the app's call ([ZB]): a larger `maxMs`, or start
+  `/init` earlier (before the first screens). Not decided yet.
+- **Risk if wrong:** a cold start waits up to `maxMs` longer. A stuck `work` can't hold past `maxMs` or `capMs`.
