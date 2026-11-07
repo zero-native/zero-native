@@ -481,6 +481,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val placeholderSlot = slotFor(raw, Registry.Prop.PLACEHOLDER)
     val editableSlot = slotFor(raw, Registry.Prop.EDITABLE)
     val invalidSlot = slotFor(raw, Registry.Prop.INVALID)
+    /** Sheet `animateIn={expr}` (registry 22): read when the sheet opens. */
+    val animateInSlot = slotFor(raw, Registry.Prop.ANIMATE_IN)
     val fillSlot = slotFor(raw, Registry.Prop.FILL)
     val strokeSlot = slotFor(raw, Registry.Prop.STROKE)
     val pausedSlot = slotFor(raw, Registry.Prop.PAUSED)

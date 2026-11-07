@@ -125,6 +125,14 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: Sheet `animateIn={expr}` (registry 22) (Claude; ask from app-home-tabs, Pavan's go)
+- `animateIn` can be a value, not only a literal: read when the sheet opens (its window fade and its slide). So an
+  app uses one sheet for "opened by the user" (slides) and "restored with the screen" (at rest). Guide §12.
+- **Tests:** compiler test (literal = prop, expression = slot); all JS tests (1161), types; Kotlin tests.
+- **Emulator (API 33):** RN props lab, `animateIn={!restored()}`: opened from a tile it fades and slides in (no
+  sheet in the first two shots); opened with the lab at the next start, it is at rest in the first frame after the
+  splash. Not on the Lava.
+
 ### 2026-11-07: after a kill, a late launch result is waited for, up to 1 s (Claude; found on the Lava in the ZeroBill payment pass, Pavan's go)
 - **Bug:** after a kill, Android brought a UPI result 24 ms after the app's first resume (a process a service had
   started). ZnLaunch had already marked it `lost`, so the first screen showed "lost", then the result.

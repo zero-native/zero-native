@@ -102,8 +102,14 @@ internal fun Window.passTouchesThrough(on: Boolean) {
 @Composable
 internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance) {
     val visible = if (s.visibleSlot >= 0) inst.slot(s.visibleSlot).value == true else s.visible
+    // animateIn={expr} (registry 22): the value when the sheet opens counts, so read it then, not on every change.
+    val animateInNow = { if (s.animateInSlot >= 0) inst.slot(s.animateInSlot).value != false else s.animateIn }
     var shown by remember { mutableStateOf(false) } // the window exists (open, or animating)
-    if (visible && !shown) shown = true
+    var animateIn by remember { mutableStateOf(true) } // read when the window opens (its fade-in)
+    if (visible && !shown) {
+        shown = true
+        animateIn = animateInNow()
+    }
     if (!shown) return
 
     val activityView = LocalView.current
@@ -125,9 +131,9 @@ internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
             window?.setDimAmount(0f) // our own scrim follows the drag
             window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
             // animateIn={false}: no window fade-in either (the sheet is already there, as part of a restored screen).
-            if (!s.animateIn) window?.setWindowAnimations(0)
+            if (!animateIn) window?.setWindowAnimations(0)
         }
-        SheetBody(f, t, s, inst, visible, window, onGone = { shown = false }) { closing ->
+        SheetBody(f, t, s, inst, visible, window, animateInNow, onGone = { shown = false }) { closing ->
             val w = window ?: return@SheetBody
             val to = WindowCompat.getInsetsController(w, view)
             // Android takes the bar icons from the top full-screen window, and the sheet's stays on top until its slide
@@ -152,7 +158,7 @@ internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
 @Composable
 private fun SheetBody(
     f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, visible: Boolean, window: Window?,
-    onGone: () -> Unit, bars: (closing: Boolean) -> Unit,
+    animateInNow: () -> Boolean, onGone: () -> Unit, bars: (closing: Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     // The user asked to close (scrim, Back, drag) and native is waiting for JS's answer (KEEP_OPEN_MS).
@@ -249,7 +255,8 @@ private fun SheetBody(
             if (visible) {
                 dismissing = false // opened again while a user's dismiss waited (its wait was cancelled)
                 // animateIn={false}: from closed (opening), it is at rest at once; later size changes still animate.
-                if (!s.animateIn && offset.value >= closed - 1f) offset.snapTo(restOffsets.getValue(detent))
+                // Read here, as it opens: a later change of the value doesn't move an open sheet.
+                if (offset.value >= closed - 1f && !animateInNow()) offset.snapTo(restOffsets.getValue(detent))
                 else offset.animateTo(restOffsets.getValue(detent), springOpen)
             } else {
                 offset.animateTo(closed, springClose)

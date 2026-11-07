@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 21 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 22 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -45,6 +45,7 @@ export const REGISTRY_VERSION = 21 // 2: Anchor. 3: transforms, shadow, absolute
 // 19: List inverted (RN FlatList's `inverted`, for chats; ask R13, second-opinions 149).
 // 20: transformOrigin (RN's, keywords and percents; ask R11 from the ZeroBill port).
 // 21: Sheet animateIn (false: opens already at rest, no slide-up; a payment restored after a kill).
+// 22: Sheet animateIn can change at runtime (read when the sheet opens; ask from app-home-tabs, Pavan's go).
 
 export const Component = {
   Column: 1,
@@ -597,6 +598,8 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "spans",
   // Registry 18: <OtpInput error={...}>.
   "invalid",
+  // Registry 22: <Sheet animateIn={!restored}>, read when the sheet opens.
+  "animateIn",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -645,6 +648,7 @@ export const Added: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
     paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13, hasLongPress: 14, borderColor: 15, borderWidth: 15,
     pointerEvents: 15, tintColor: 15, barStyle: 15, hidden: 15, stickyHeaderIndices: 15, spans: 16, invalid: 18,
+    animateIn: 22,
   },
   enumValue: {
     "textTransform.none": 15, "textTransform.uppercase": 15, "textTransform.lowercase": 15, "textTransform.capitalize": 15,

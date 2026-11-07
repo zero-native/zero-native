@@ -232,6 +232,13 @@ describe("templates", () => {
       .toThrow("stickyHeaderIndices must be an array of row indices")
   })
 
+  test("Sheet animateIn: a literal is a prop; an expression is a slot (registry 22)", () => {
+    const fixed = compile(`export function A(p) { return <Sheet visible={p.open()} animateIn={false}><Text>a</Text></Sheet> }`)
+    expect(fixed.templates[0].props).toMatchObject({ animateIn: false })
+    const live = compile(`export function B(p) { return <Sheet visible={p.open()} animateIn={!p.restored}><Text>a</Text></Sheet> }`)
+    expect(live.templates[0].props.animateIn).toMatchObject({ $slot: expect.any(String) })
+  })
+
   test("List inverted (RN FlatList, registry 19) is a prop; a list flipped with scaleY -1 is refused", () => {
     const inv = compile(`export function A(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>{r.t}</Text>} inverted /> }`)
     expect(inv.templates[0].props).toMatchObject({ inverted: true })

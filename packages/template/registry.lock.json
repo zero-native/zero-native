@@ -1,5 +1,5 @@
 {
-  "version": 21,
+  "version": 22,
   "base": 8,
   "entries": {
     "component:Column": {"id":1,"since":8},
@@ -252,6 +252,7 @@
     "dynamic:stickyHeaderIndices": {"since":15},
     "dynamic:spans": {"since":16},
     "dynamic:invalid": {"since":18},
+    "dynamic:animateIn": {"since":22},
     "enum:justifyContent.flex-start": {"id":0,"since":8},
     "enum:justifyContent.center": {"id":1,"since":8},
     "enum:justifyContent.flex-end": {"id":2,"since":8},

@@ -310,6 +310,9 @@ const pickerOpen = signal(false)
   sheet that is part of a screen restored at start (the "processing payment" sheet after a kill, §70), so the user
   doesn't see it arrive. **Why:** a sheet the user opens should slide up; that motion says where it came from. It is
   read when `visible` turns true; closing still slides down.
+  - **Do** use one sheet with a value when the same sheet opens both ways (registry 22, since 2026-11-07):
+    `<Sheet visible={processing()} animateIn={!restored}>`. Not two sheets, one per literal. A change of the value
+    while the sheet is open does nothing; the next open reads it again.
 
 ## 13. Native modules: calling your own Kotlin (Swift later) code (built: foundations)
 ```ts

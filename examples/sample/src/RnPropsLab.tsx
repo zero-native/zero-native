@@ -58,11 +58,14 @@ export function RnPropsLabScreen() {
   const dialog = signal(false)
   const page = signal(false)
   const shimmerOn = signal(false)
+  const overlay = signal<"" | "processing" | "cancelled">("") // one set() swaps two sheets (ZeroBill cancel)
   const sheet = signal(false) // a closing Sheet passes the next tap to the page (ZeroBill payment pass)
   // Opened by Home at start (devStart in HomeScreen): this sheet is already open then, at rest, with no slide-up.
   const devStart = createStorage("dev.start")
   const restSheet = signal(devStart.getString("sheet") === "1")
   if (restSheet()) devStart.delete("sheet")
+  // animateIn={expr} (registry 22): no slide only when the sheet comes back with the restored screen.
+  const restored = signal(restSheet())
   const note = signal("")
   const lightBars = signal(false)
   const spanHot = signal(false)
@@ -428,11 +431,35 @@ export function RnPropsLabScreen() {
             say("next start opens the lab")
           }}
         />
-        <Sheet visible={restSheet()} animateIn={false} onDismiss={() => restSheet.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+        <HoldTile label="Open restored sheet now (slides)" onPress={() => restSheet.set(true)} />
+        <Sheet visible={restSheet()} animateIn={!restored()} onDismiss={() => { restSheet.set(false); restored.set(false) }} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
           <Text fontSize={16} fontWeight={700} color={c.ink}>
             Processing secure payment
           </Text>
-          <HoldTile label="Close restored sheet" onPress={() => restSheet.set(false)} />
+          <HoldTile label="Close restored sheet" onPress={() => { restSheet.set(false); restored.set(false) }} />
+        </Sheet>
+        {/* ZeroBill's cancelled payment: one set() closes a sheet that can't be dismissed and opens another. The first
+            must go away (Lava, 2026-11-07: it stayed at rest for good). */}
+        <HoldTile label="Open processing sheet" onPress={() => overlay.set("processing")} />
+        <Sheet visible={overlay() === "processing"} dismissible={false} onDismiss={() => {}} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+          <Text fontSize={16} fontWeight={700} color={c.ink}>
+            Processing payment (swap)
+          </Text>
+          <HoldTile label="Answer cancelled in 1 s" onPress={() => setTimeout(() => overlay.set("cancelled"), 1000)} />
+          <HoldTile label="Answer cancelled in 6 s" onPress={() => setTimeout(() => overlay.set("cancelled"), 6000)} />
+          {/* As ZeroBill's: a beam that never stops, and content that changes in the same update that closes it. */}
+          <Box animate={{ translateX: { duration: 1500, easing: "linear", repeat: "forever", from: -60 } }} style={{ width: 60, height: 6, borderRadius: 3, backgroundColor: "#4F46E5" }} />
+          {overlay() !== "processing" && (
+            <Text fontSize={14} color={c.ink}>
+              Response is taking longer than usual...
+            </Text>
+          )}
+        </Sheet>
+        <Sheet visible={overlay() === "cancelled"} onDismiss={() => overlay.set("")} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+          <Text fontSize={16} fontWeight={700} color={c.ink}>
+            Payment cancelled (swap)
+          </Text>
+          <HoldTile label="Okay, close cancelled" onPress={() => overlay.set("")} />
         </Sheet>
         {/* A centred dialog with the app's own look: transparent, fade, the dim is the app's own Box. */}
         <Modal
