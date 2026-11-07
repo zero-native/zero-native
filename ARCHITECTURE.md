@@ -981,6 +981,10 @@ toolkit, so the choice is made per component, from the i.1 spike (`docs/mileston
   Column / Row so flex and the fixed style order match Compose (`docs/styling-and-layout.md`).
 - Why: SwiftUI decides more on its own than Compose does (navigation path changes from outside, cursor in a
   controlled field, list cells). React Native, Lynx and Valdi all draw with UIKit for the same reasons.
+- **Decided 2026-11-08 (step i.1c, measured on the simulator):** UIKit for press handling (`UIControl`), the back
+  stack (`UINavigationController`), sheets (`UISheetPresentationController`), text fields (`UITextField`) and lists
+  (`UICollectionView` with SwiftUI cells). SwiftUI for what is inside a screen. Evidence: `docs/milestones.md` log
+  2026-11-08 (i.1c).
 - **Why iOS at all:** zn's first reason, download size on low-end Android phones, matters little on iOS. On iOS the
   win is one codebase, OTA and native UI. Judge the iOS track on those, not on size.
 
@@ -1156,6 +1160,8 @@ zero-native/
 | 2026-11-04 | Analytics is on from the first start (d2911e4; Pavan's call, changed from "off until consent" the same day): as in RN Firebase and like Crashlytics and Perf. Collection starts before any consent, so DPDP must be checked before real users. A consent-first app sets `firebase_analytics_collection_enabled=false` in its manifest. Docs say it plainly (480dc3d) | `docs/guide-notes.md` §50, `docs/second-opinions.md` entry 96. |
 | 2026-11-04 | Plugins add only an interceptor to core's fetch client: `ZnFetch.addInterceptor` replaces `addClientSetup { builder -> }`, so a plugin can't undo the app's pins, redirects or retries. A plugin interceptor's runtime error fails only that fetch (`connection_lost`) instead of crashing the app; the request is not sent again. Kotlin API only | `docs/fetch.md` §5, `docs/guide-notes.md` §30, `docs/second-opinions.md` entry 105. |
 | 2026-11-08 | iOS starts now, before Android is proven in the field (Pavan; changes `docs/production-readiness.md` D, which said "start only after"). The iOS renderer mixes SwiftUI and UIKit, chosen per component by the i.1 spike; minimum iOS version still open (17 suggested, for `@Observable`) | §20. SwiftUI is less controllable than Compose for a JS-owned back stack, controlled text input and long lists. Fixes the iOS port shows on Android are made as it goes. |
+| 2026-11-08 | iOS host: `zn::Platform` in Objective-C++ (`ZNHost`), the `zn-js` thread as an `NSThread` with its own run loop, one `@Observable` cell per slot, our own SwiftUI `Layout` for Column / Row (step i.1b) | Measured on the simulator: a digit redraws 2 SwiftUI bodies of ~169, a cursor blink 1, so SwiftUI keeps §9.1's leaf-level updates. Swift can't subclass a C++ class, so the platform side is Objective-C++. `docs/milestones.md` log 2026-11-08. |
+| 2026-11-08 | iOS: UIKit for press handling, back stack, sheets, text fields and lists; SwiftUI inside screens (step i.1c) | Built both ways and tried on the simulator: SwiftUI `Button` dropped instant taps and has no repeat / long press; `NavigationStack` has no hook for a JS-owned stack or the swipe; SwiftUI `.sheet` cannot let JS keep a sheet open; SwiftUI `TextField` lost the caret and its own text after JS changed it; `LazyVStack` grew 88 MB over 500 rows against 16 MB for `UICollectionView`. Details: `docs/milestones.md` log 2026-11-08. |
 | 2026-11-04 | FlowStore reserves the disk space of a file when it is made or grown (`posix_fallocate`; rewrite-in-place fallback). A full disk now fails only the first write of a key or a growing write, cleanly, never with a SIGBUS crash; a write that fits can't fail. The write-ahead rule stays: never open the UPI app after a failed save. Core C++ only: no API or host API change | §13.2 item 4, `docs/guide-notes.md` §16, `docs/second-opinions.md` entry 106. |
 
 ## 25. Open items (to decide while building, not blockers)

@@ -123,8 +123,8 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 |---|---|---|---|
 | i.0 | Shared ground: Mac versions of the Windows-only tools; `gen:registry` also writes Swift; golden `.zn.ui` and batch files read by both test suites; OTA decision logic (bundle choice, health, signature) moved from Kotlin to C++, with each platform only reporting facts (Android: `ApplicationExitInfo`) | Android tests and the OTA phone matrix still pass; the C++ core tests run on the Mac | not started |
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
-| i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | not started |
-| i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents. Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | not started |
+| i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
+| i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe never starts in our host [check on a device]; the Layout checked by eye only (side-by-side tests in i.2) |
 | i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | not started |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
@@ -146,6 +146,61 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS step i.1c, SwiftUI or UIKit for the hard parts (Claude)
+Each part built both ways in `ios/ZnRuntime/Swift/` behind a launch switch (`ZnImpl.swift`, `ZN_IOS_<PART>=swiftui|uikit`)
+and tried on the iPhone 16 simulator (iOS 18.0, debug) with the Android sample's bundle, unchanged.
+
+| Part | Choice | What was seen |
+|---|---|---|
+| Press handling | **UIKit** (`UIControl` over the content, `ZnPress.swift`) | 5 zero-length taps in a row: UIKit 5 / 5 in order, SwiftUI `Button` 1 of 3 (and one landed late). Press-repeat (backspace held 0.7 s: 3 deletes) and long press (amount held 0.8 s: cleared, no stray tap) are native timers, as on Android; `Button` does taps only. A `UIControl` *under* SwiftUI content gets no touches (SwiftUI's hosting view takes them), so it sits over it; a nested Pressable wins by a hit-test rule (the smaller control on the same screen) |
+| Back stack | **UIKit** (`UINavigationController`, one `UIHostingController` per entry, `ZnNavHost.swift`) | Push: tap → JS → PUSH in 11–12 ms, transition settles in ~580 ms (simulator). Replace (REMOVE + PUSH in one batch) → one `setViewControllers`. `useBack` through the ← button keeps the screen ("Discard ₹6?"). UIKit has every hook (a batch = one `setViewControllers`; `gestureRecognizerShouldBegin` can send the swipe to JS; `didShow` reports native pops as FORCED_BACK); `NavigationStack(path:)` has none, and hiding its bar turns swipe-back off. **Open:** a synthetic edge swipe reaches the pop gesture (once we are its delegate: it is nil in `makeUIViewController`) but never begins, in both variants, while the same swipe pops in Settings. [check on a device]; likely fix: our own pan recognizer driving the transition |
+| Sheet | **UIKit** (`UISheetPresentationController`, `ZnSheet.swift`) | Both sized to content (the UPI picker). UIKit keeps Android's contract exactly: `presentationControllerShouldDismiss` → false, `didAttemptToDismiss` → onDismiss, JS sets `visible` false → dismissed 2 ms later. SwiftUI's `.sheet` has no "attempted" callback: it dismisses first and tells JS after, so JS cannot keep it open. Picking an app closes the sheet and pushes the receipt in one batch (1 ms apart) |
+| Text field | **UIKit** (`UITextField`, `ZnTextField.swift`) | Phone field: letters rejected by JS ("98a7b6" → "987", then "x" undone), answers to older changes skipped, ~3 ms per JS round trip; amount reformats ("1234" → "1,234") with the cursor kept by its distance from the end; marked text (IME) never replaced. SwiftUI `TextField`: after JS rewrote the text the caret sat in the middle, and the next digit gave "987985" (field and binding out of step); its tap area is only the text, not the box. One key was lost at 5 ms per key (machine typing) in UIKit; none at a human pace [check on a device] |
+| List | **UIKit** (`UICollectionView` + `UIHostingConfiguration` cells, `ZnList.swift`) | Both follow the window protocol (JS keeps ~38 rows mounted, `onRange` moves it; rows real even mid-fling at row 340+). Memory after ~500 rows: `LazyVStack` 34 → **122 MB** (peak 133), `UICollectionView` 45 → **61 MB**. LazyVStack keeps every row view it made; the collection view reuses cells |
+
+- **SwiftUI keeps:** everything inside a screen and a sheet (text, stacks, images, our flex `Layout`) and the cells.
+- **Bugs found and fixed on the way:** a covered screen's Pressables took taps from the top screen (the nested-Pressable
+  rule now looks only at the same screen); a UIKit field filled all the height a Scroll offered (needs
+  `sizeThatFits`); a UIKit field re-applied JS's last value on every SwiftUI update and undid typing (applies a value
+  only when it changes).
+- **Not built yet (i.2):** route options (`transition: "modal"`, `safeArea`; the receipt pushes like any screen),
+  `multiline` fields (UITextView), `onEndReached`, sticky headers, `inverted`, a diffable data source (inserts at the
+  top keep the scroll position), Image clipping, percent sizes.
+- **Android:** the back swipe question applies to Android 14+ predictive back too: `android-issues-found-when-building-ios.md` A8.
+
+### 2026-11-08: iOS step i.1b, the amount screen drawn by SwiftUI (Claude)
+- **Built:** `ios/` (on the `ios` branch). `ZnRuntime/Host/ZNHost.mm`: `zn::Platform` in Objective-C++, the `zn-js`
+  thread (an `NSThread` with its own run loop and an 8 MB stack; tasks are run-loop blocks, timers run-loop timers),
+  batches handed to the main thread. `ZnRuntime/Swift/`: template and batch readers (ports of the Kotlin ones, same
+  checks), `ZnStore` with one `@Observable` cell per slot, prepared node specs, `ZnFlexLayout` (our own SwiftUI
+  `Layout` with zn's flex rules), the renderer, an SVG path parser for `<Icon>`, body counters. `Registry.swift` is
+  generated by `gen:registry` (and checked by `registry.test.ts`, like `Registry.kt`). The app builds with CMake's
+  Xcode generator: `bun run tools/ios-sample.ts` builds, installs on the booted simulator and launches.
+- **Results** (debug, iPhone 16 simulator, iOS 18.0; the Android sample's bundle unchanged, route `amount`):
+  - The skeleton draws from the template before JS (checked with `--delay 3000`): header, back icon, Passbook pill,
+    ₹ and cursor, hint. Then JS fills it: merchant name and photo, the 12 keys (components JS mounts), the button.
+  - `main.hbc` evaluated in 3–4 ms (simulator on a Mac: not a phone number). The first batch: 38 ops.
+  - **Leaf-only updates hold.** A cursor blink (1 op) runs 1 SwiftUI body (the cursor's opacity). Typing "5" runs 2
+    bodies: the amount text and the "You pay" text. Typing the digit that first shows the cashback pill (5 ops, 2
+    mounts) runs 14: the new views, their parent Column once, and the amount text. ~169 views on screen. No Row,
+    Column or Key body runs for a plain digit.
+- **Found, for i.1c:**
+  - Zero-duration synthetic taps (the simulator tool's default) were dropped by SwiftUI `Button`, then one landed
+    late (the amount got a digit nobody pressed at that moment). Taps of 120 ms always worked. [check on a device
+    with fast typing]; press handling is now an i.1c item (SwiftUI `Button` vs a UIKit gesture, as Android has its
+    own press handling).
+  - The amount text body ran 3 times for the first digit (once per batch while the first tap's batches arrived
+    within the report window, or SwiftUI measuring; [check]).
+  - Not drawn yet: `<Sheet>`, `<List>`, `<TextField>`, `<Modal>`, press-repeat and long press, `Image` clipping to
+    `borderRadius` (the avatar is square), percent sizes (treated as fill). Native modules answer "unavailable".
+- **Spike shortcuts** (each to be removed before i.2): Swift 5 language mode (Swift 6 strict concurrency later); one
+  CMake build folder per SDK (CMake picks the Hermes slice when it configures); the bundle is copied from
+  `android/sample/src/main/assets`; one screen at a time, no transitions.
+- **Xcode 26 note:** with only the simulator runtime installed (no iOS 26.2 device platform), `xcodebuild -scheme`
+  finds no destination; building with `-target ZnSample -sdk iphonesimulator` works.
+- No new Android issue from this step (the grey skeleton in the first screenshot was iOS's launch transition, not a
+  template default).
+
 ### 2026-11-08: iOS step i.1a, Hermes and the core on the iOS simulator (Claude)
 - `com.facebook.hermes:hermes-ios:260318099.0.5` (same release as `hermes-android`) has `hermesvm.xcframework`
   (iOS device, simulator, Catalyst, tvOS, visionOS), a macOS `hermesvm.framework` and the headers. JSI is built into

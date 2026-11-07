@@ -16,11 +16,12 @@ Each entry says:
 |---|---|---|---|---|
 | A1 | 2026-11-07 | OTA | Bundle choice, health and signature rules exist only in Kotlin | open (iOS step i.0) |
 | A2 | 2026-11-07 | Tools | Tools and docs assume Windows | open (core tests done, A2 below) |
-| A3 | 2026-11-08 | Core tests | The "unknown NAV kind" test used kind 11, which is now `LAYER` | fixed on ios |
-| A4 | 2026-11-08 | Sample | The sample doesn't build from a fresh clone (`offers-data.json` not in git) | fixed on ios |
-| A5 | 2026-11-08 | Core build | Shared core assumed Android: `posix_fallocate`, MMKV headers, `liblog` | fixed on ios |
-| A6 | 2026-11-08 | FlowStore | Without space reservation, the first write of a key rewrote the whole file and could fail on a full disk | fixed on ios |
+| A3 | 2026-11-08 | Core tests | The "unknown NAV kind" test used kind 11, which is now `LAYER` | fixed on ios (736b8eb) |
+| A4 | 2026-11-08 | Sample | The sample doesn't build from a fresh clone (`offers-data.json` not in git) | fixed on ios (736b8eb) |
+| A5 | 2026-11-08 | Core build | Shared core assumed Android: `posix_fallocate`, MMKV headers, `liblog` | fixed on ios (736b8eb) |
+| A6 | 2026-11-08 | FlowStore | Without space reservation, the first write of a key rewrote the whole file and could fail on a full disk | fixed on ios (736b8eb) |
 | A7 | 2026-11-08 | JS tests | `app-events.test.ts` passes alone but fails in the full `bun test` run on the Mac | open |
+| A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | open, [check] on a gesture-navigation phone |
 
 ---
 
@@ -44,7 +45,7 @@ Each entry says:
 - **Check on Android:** nothing yet.
 
 ## A3. Stale core test for unknown NAV kinds
-- **Status:** fixed on ios.
+- **Status:** fixed on ios (commit `736b8eb`).
 - **Problem:** `core/tests/core_tests.cpp` ("nav ops") sent NAV kind 11 and expected the runtime to drop it as
   unknown. Kind 11 became `LAYER` with the app layers (commit 96418b4), so the test has failed (2 checks) on the phone
   since then. Core tests only run by hand on the phone, so nobody saw it.
@@ -54,7 +55,7 @@ Each entry says:
 - **Check on Android:** `.\tools\run-core-tests.ps1` on the phone: 166 checks, 0 failed.
 
 ## A4. The sample doesn't build from a fresh clone
-- **Status:** fixed on ios.
+- **Status:** fixed on ios (commit `736b8eb`).
 - **Problem:** `examples/sample/src/offers.ts` imports `test-kit/offers-data.json`, which is in `.gitignore` (real
   offers). On a fresh clone `bun run sample:js` fails with "Cannot find module '../../../test-kit/offers-data.json'".
 - **Why it matters:** anyone new (or a new machine) can't build the sample. It's a community project.
@@ -64,7 +65,7 @@ Each entry says:
 - **Check on Android:** none needed on a machine that has the real file. On a fresh clone: `bun run sample:js` works.
 
 ## A5. The shared core assumed Android
-- **Status:** fixed on ios.
+- **Status:** fixed on ios (commit `736b8eb`).
 - **Problem:** three things in `core/` only built on Android:
   1. `flowstore.cpp` called `posix_fallocate`, which Apple platforms don't have.
   2. `storage.cpp` uses MMKV's C++ API. On Apple, MMKV's headers switch to their Objective-C API (`NSString` logs, a
@@ -77,7 +78,7 @@ Each entry says:
 - **Check on Android:** `.\gradlew.bat :sample:assembleDebug` (the CMake change), then `.\tools\run-core-tests.ps1`.
 
 ## A6. FlowStore: the first write of a key could fail on a full disk
-- **Status:** fixed on ios.
+- **Status:** fixed on ios (commit `736b8eb`).
 - **Problem:** `reserve()` in `core/src/flowstore.cpp` makes sure every byte of a FlowStore file has a disk block, so a
   write into the memory map can't crash (SIGBUS) on a full disk. A file opened in a new process isn't marked reserved,
   so its first write calls `reserve()` again. Where `posix_fallocate` isn't supported, the fallback rewrites the whole
@@ -104,3 +105,20 @@ Each entry says:
 - **Fix (proposed):** find which file installs the handlers without resetting them (run `bun test packages` and
   bisect the file list), and reset app-event handlers in `installEvents()` or in that file's teardown.
 - **Check on Android:** `bun test` on Windows, and the full run on the Mac.
+
+## A8. Back gestures that animate before JS answers skip `useBack`
+- **Status:** open. Not seen on Android yet: the Lava uses 3-button navigation, and predictive back was never tested
+  (`milestones.md` 2026-10-29, `production-readiness.md` A2).
+- **Problem:** every back press goes to JS first (`ZnNav.systemBack` → BACK → `useBack` handlers may keep the screen).
+  But `ZnNavHost` gives Navigation 3 a `predictivePopTransitionSpec`, so with gesture navigation on Android 14+ the pop
+  preview (the previous screen sliding in) plays during the gesture, and JS is asked only when it commits. A screen
+  whose `useBack` keeps it (the sample's amount screen with an amount typed: "Discard ₹6?") would show the preview,
+  then stay. On iOS the same thing is worse: the swipe-back is interactive and cannot wait for JS at all.
+- **Why it matters:** the amount screen's guard is a payment-flow guard. A preview that shows "leaving", then doesn't
+  leave, looks broken; on iOS the swipe would skip the guard (or has to be turned off everywhere).
+- **Fix (proposed, shared):** JS tells native which entries have back handlers right now (the `useBack` count per
+  entry, like NAV BACK_WANTED but for any entry; a host API change). Entries without handlers get the native
+  interactive back (Android predictive pop, iOS swipe); entries with handlers get no preview, and the gesture goes to
+  JS as a plain BACK. iOS needs this before the swipe can be turned on (i.2).
+- **Check on Android:** on a phone with gesture navigation (Android 14+), open the amount screen, type a digit, swipe
+  back slowly: does the previous screen slide in before "Discard ₹…?" shows?

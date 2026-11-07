@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
-import { KOTLIN_REGISTRY_PATH, kotlinRegistry, readRegistryLock, REGISTRY_LOCK_PATH, registryLockText } from "../../../tools/gen-registry"
+import { KOTLIN_REGISTRY_PATH, kotlinRegistry, readRegistryLock, REGISTRY_LOCK_PATH, registryLockText, SWIFT_REGISTRY_PATH, swiftRegistry } from "../../../tools/gen-registry"
 import { el, event, slot, writeTemplateFile, type NodeSpec } from "../src"
 import { ABSOLUTE_STRETCH_SINCE, Added, CAROUSEL_FILL_SINCE, BASE_VERSION, Prop, REGISTRY_VERSION, since, ZINDEX_ANY_SINCE } from "../src/registry"
 import { registryProblems, registrySnapshot, type RegistryLock } from "../src/registry-lock"
@@ -8,6 +8,11 @@ import { registryProblems, registrySnapshot, type RegistryLock } from "../src/re
 test("the Kotlin registry is generated from the TS registry (run `bun run gen:registry` if this fails)", () => {
   expect(existsSync(KOTLIN_REGISTRY_PATH)).toBe(true)
   expect(readFileSync(KOTLIN_REGISTRY_PATH, "utf8").replace(/\r\n/g, "\n")).toBe(kotlinRegistry())
+})
+
+test("the Swift registry is generated from the TS registry (run `bun run gen:registry` if this fails)", () => {
+  expect(existsSync(SWIFT_REGISTRY_PATH)).toBe(true)
+  expect(readFileSync(SWIFT_REGISTRY_PATH, "utf8").replace(/\r\n/g, "\n")).toBe(swiftRegistry())
 })
 
 test("prop ids are unique", () => {
