@@ -1,8 +1,11 @@
 package dev.zeronative.plugins.scanner
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.view.ScaleGestureDetector
+import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,6 +43,7 @@ internal fun ScannerCamera(
     running: Boolean,
     torch: Boolean,
     formats: List<Int>,
+    zoom: ZoomWish,
     attempt: Int,
     onCode: (value: String, format: String) -> Unit,
     onFailed: (Boolean) -> Unit,
@@ -52,6 +56,7 @@ internal fun ScannerCamera(
     val failed by rememberUpdatedState(onFailed)
     val flash by rememberUpdatedState(onFlash)
     val left by rememberUpdatedState(onLeft)
+    val wish by rememberUpdatedState(zoom) // read when a camera run starts: a change doesn't restart the camera
     val surface = remember { previewView(context) }
     var session by remember { mutableStateOf<CameraSession?>(null) }
 
@@ -80,7 +85,7 @@ internal fun ScannerCamera(
     DisposableEffect(owner, running, attempt, formats) {
         if (!running) return@DisposableEffect onDispose {}
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) gate.start() // "scan again": a new stale window
-        val next = CameraSession(context, owner, surface, gate, formats, { v, f -> code(v, f) }, { failed(it) }, { flash(it) })
+        val next = CameraSession(context, owner, surface, gate, formats, wish, { v, f -> code(v, f) }, { failed(it) }, { flash(it) })
         session = next
         next.start()
         onDispose {
@@ -90,6 +95,27 @@ internal fun ScannerCamera(
     }
 
     LaunchedEffect(session, torch) { session?.torch(torch) }
+
+    // Pinch to zoom on the preview. While two fingers are down, a Scroll around the view must not take the gesture.
+    DisposableEffect(session, zoom.pinch) {
+        val run = session
+        if (run == null || !zoom.pinch) return@DisposableEffect onDispose {}
+        val detector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(d: ScaleGestureDetector): Boolean {
+                run.pinch(d.scaleFactor)
+                return true
+            }
+        })
+        surface.setOnTouchListener(pinchListener(detector))
+        onDispose { surface.setOnTouchListener(null) }
+    }
+}
+
+@SuppressLint("ClickableViewAccessibility") // no tap here: only two fingers zoom, and TalkBack has nothing to click
+private fun pinchListener(detector: ScaleGestureDetector) = View.OnTouchListener { view, event ->
+    if (event.pointerCount > 1) view.parent?.requestDisallowInterceptTouchEvent(true)
+    detector.onTouchEvent(event)
+    true
 }
 
 private fun previewView(context: Context) = PreviewView(context).apply {

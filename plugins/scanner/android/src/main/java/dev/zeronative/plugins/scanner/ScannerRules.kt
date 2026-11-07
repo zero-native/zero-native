@@ -136,3 +136,23 @@ internal object TorchRule {
 
     fun heldAfterProp(wanted: Boolean, held: Boolean) = wanted && held
 }
+
+/**
+ * What the app asks of the zoom. [start]: the ratio when the camera starts (null: the camera's own, 1x). [auto]: ML Kit
+ * says how far to zoom when a code is small or far. [pinch]: two fingers on the preview.
+ */
+internal data class ZoomWish(val start: Float?, val auto: Boolean, val pinch: Boolean) {
+    companion object {
+        /** From a prop or param: a start that isn't a positive number means none. */
+        fun of(start: Double, auto: Boolean, pinch: Boolean) =
+            ZoomWish(start.takeIf { it.isFinite() && it > 0.0 }?.toFloat(), auto, pinch)
+    }
+}
+
+internal object ZoomRule {
+    /** A ratio the camera can take: phones differ (some go below 1x with a wide lens, most stop at 8x or 10x). */
+    fun clamp(ratio: Float, min: Float, max: Float): Float = if (max <= min) min else ratio.coerceIn(min, max)
+
+    /** After a pinch: the user's zoom, so ML Kit's suggestions stop for this scan. */
+    fun autoAllowed(wish: ZoomWish, pinched: Boolean) = wish.auto && !pinched
+}

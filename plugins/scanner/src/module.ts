@@ -37,8 +37,19 @@ export interface ScannerLook {
   buttonTextColor?: string
 }
 
+/** Zoom. All read when the camera starts: a change while it runs waits for the next scan. */
+export interface ScannerZoom {
+  /** The zoom when the camera starts, e.g. 1.4 (the old ZeroBill app's). Kept inside what the camera can do. The preview
+   *  shows only once it is on, so no 1x frame flashes. Default: the camera's own (1x). */
+  zoom?: number
+  /** ML Kit zooms in by itself when a code is too small to read (far or tiny). Stops after the user pinches. Default false. */
+  autoZoom?: boolean
+  /** Two fingers on the preview zoom in and out. Default true. */
+  pinchZoom?: boolean
+}
+
 /** Params of the full screen: `nav.pushForResult<ScanResult>("scan", params)`. */
-export interface ScannerParams extends ScannerLook {
+export interface ScannerParams extends ScannerLook, ScannerZoom {
   title?: string
   /** A line at the bottom. */
   hint?: string
@@ -54,7 +65,7 @@ export interface ScannerParams extends ScannerLook {
   torchOffLabel?: string
 }
 
-export interface QrScannerProps extends ScannerLook {
+export interface QrScannerProps extends ScannerLook, ScannerZoom {
   /** The first code. The camera then stops until `scanKey` changes. */
   onScan: (result: ScanResult) => void
   /** On at the start, and at each change. */

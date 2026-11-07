@@ -125,6 +125,20 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: scanner zoom: `zoom`, `autoZoom`, `pinchZoom` (Claude; ask from app-home-tabs, Pavan's go "get all of them done")
+- `@zero-native/scanner`, on `<QrScanner>` and the full screen's params. Plugin props: no registry or host API change, a
+  new APK only. README "The full screen" and "The view".
+- **`zoom`:** CameraX `setZoomRatio`, inside the camera's range, set at each camera open (CameraX goes back to 1x when
+  it closes). The preview is hidden until it takes, 0.6 s at most, so no 1x frame shows. A refusal before the camera is
+  active tries again (3 tries).
+- **`autoZoom`:** ML Kit's `ZoomSuggestionOptions` (in `play-services-mlkit-barcode-scanning` 18.3.1, which
+  `barcode-scanning` 17.3.0 brings; checked in the jar), up to the camera's max zoom. **`pinchZoom`** (default on): a
+  `ScaleGestureDetector` on the preview; a pinch stops ML Kit's suggestions for that scan.
+- **Tests:** `ScannerRulesTest` (zoom range, start value, pinch stops auto); scanner JS tests; sample types.
+- **Emulator (API 33):** "Open zoomed scanner" in the scanner lab: `scanner: zoom 1.4x on` 0.6 s after "camera on". The
+  emulator's camera gives no frames, so the picture, ML Kit's suggestions and the pinch are **not checked**: Lava only.
+  Log lines to look for: `scanner: auto-zoom on, up to Nx`, `scanner: zoom Nx (ML Kit's suggestion)`.
+
 ### 2026-11-07: Sheet and Modal windows have no dim layer (Claude; found on the Lava by app-home-tabs, Pavan's go)
 - **Bug:** on Android 14 the first keypad taps after closing the offers sheet were dropped ("untrusted touch",
   occluded by "Dim Layer for Task", alpha 0). The closing window passed taps through, but kept `FLAG_DIM_BEHIND`.

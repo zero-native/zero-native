@@ -28,6 +28,8 @@ internal class ScannerTexts(from: JSONObject) {
     val button = from.color("buttonColor", Color.White)
     val buttonText = from.color("buttonTextColor", Color(0xFF111111))
     val formats = ScannerRules.formatCodes(from.names("formats"))
+    /** `zoom` (starting ratio), `autoZoom` (ML Kit's suggestions), `pinchZoom` (default on). Read when the camera starts. */
+    val zoom = ZoomWish.of(from.optDouble("zoom", Double.NaN), from.optBoolean("autoZoom", false), from.optBoolean("pinchZoom", true))
 }
 
 private fun JSONObject.text(name: String, default: String): String = if (isNull(name)) default else optString(name, default)

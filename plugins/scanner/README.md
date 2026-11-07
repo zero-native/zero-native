@@ -35,6 +35,11 @@ Params, all optional (`ScannerParams`):
 - Colours, as `#RRGGBB`: `accentColor` (frame and line), `buttonColor`, `buttonTextColor`. The defaults are white on black.
 - `formats`: `qr`, `aztec`, `datamatrix`, `pdf417`, `ean13`, `ean8`, `upca`, `upce`, `code128`, `code39`, `code93`, `codabar`, `itf`.
   The default is `qr` only: fewer false reads, and each frame is read faster.
+- Zoom (`ScannerZoom`), read when the camera starts:
+  - `zoom`: the zoom at the start, e.g. `1.4`. Kept inside what the camera can do. The picture shows only once the zoom is
+    on (up to 0.6 s of black at most), so the user never sees 1x and then a jump. Set again after each return.
+  - `autoZoom: true`: ML Kit zooms in by itself when a code is too small to read (far, or a tiny sticker). Off by default.
+  - `pinchZoom`: two fingers zoom in and out. On by default. After a pinch, `autoZoom` stops for that scan: the user wins.
 
 `linkUrl` opens only `http` and `https`: an OTA bundle sets it, and it must not be able to open a payment link.
 
@@ -60,7 +65,7 @@ const again = signal(0)
 - After the first code the camera stops and waits, as it does while your app starts a session. A new `scanKey` scans again. Use the
   view when a wrong code needs a sheet with "Scan again" over the camera: the full screen closes when it answers.
 - `onPermission(state)`: `granted`, `denied` or `blocked`. `onError({ code, message })`: `camera_failed`. `active={false}` stops the camera.
-- The view also takes the message words and button colours above.
+- The view also takes the message words and button colours above, and the zoom props: `<QrScanner zoom={1.4} autoZoom ... />`.
 
 `<NativeView name="scanner.qr" props={...} onEvent={...} />` works too. Events: `scanned`, `permission`, `error`, `torch`.
 

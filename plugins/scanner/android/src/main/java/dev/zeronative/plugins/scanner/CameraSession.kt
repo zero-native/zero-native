@@ -1,10 +1,12 @@
 package dev.zeronative.plugins.scanner
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.Size
+import android.view.animation.DecelerateInterpolator
 import androidx.annotation.OptIn
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -24,11 +26,19 @@ import com.google.mlkit.common.MlKit
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.ZoomSuggestionOptions
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 internal const val TAG = "zn"
+
+/** The longest the preview stays hidden for a starting zoom. */
+private const val REVEAL_MS = 600L
+/** CameraX refuses a zoom just before the camera is active: try again after this. */
+private const val RETRY_MS = 120L
+/** How long a zoom change from ML Kit takes: a glide, not a jump. */
+private const val GLIDE_MS = 300L
 
 /** Our manifest removes ML Kit's own start. It allows one start per process, and a second one throws, so one scanner after another needs this. */
 private object MlKitStart {
@@ -59,6 +69,7 @@ internal class CameraSession(
     private val surface: PreviewView,
     private val gate: ScanGate,
     private val formats: List<Int>,
+    private val zoom: ZoomWish,
     private val onCode: (value: String, format: String) -> Unit,
     private val onCamera: (failed: Boolean) -> Unit,
     private val onFlash: (Boolean) -> Unit,
@@ -82,10 +93,22 @@ internal class CameraSession(
     private var torch = false
     private var opened = false
     @Volatile private var closed = false
+    /** The zoom we want (the start, then the user's or ML Kit's). Null: leave the camera's own. */
+    private var ratio: Float? = zoom.start
+    /** The user pinched: ML Kit's suggestions stop for this scan. Read on the camera's thread too. */
+    @Volatile private var pinched = false
+    /** For ML Kit's suggestions; read when the reader is made, on the camera's thread. */
+    @Volatile private var maxRatio = 1f
+    private val reveal = Runnable { surface.alpha = 1f }
+    /** The zoom gliding to ML Kit's suggestion (main thread). */
+    private var glide: ValueAnimator? = null
 
     private val stateObserver = Observer<CameraState> { state ->
         val open = state.type == CameraState.Type.OPEN
         if (open) applyTorch() // a torch asked for before the camera opened has failed: ask again
+        if (open && !opened) applyZoom(tries = 3) // CameraX goes back to 1x each time the camera closes
+        // Hidden until the zoom is on again, so a return doesn't show 1x for a moment, then a jump.
+        if (!open && opened && ratio != null) surface.alpha = 0f
         if (open && !opened) Log.i(TAG, "scanner: camera on")
         if (!open && opened) Log.i(TAG, "scanner: camera off")
         opened = open
@@ -114,8 +137,11 @@ internal class CameraSession(
         this.provider = provider
         preview.surfaceProvider = surface.surfaceProvider
         analysis.setAnalyzer(thread, ::read)
+        // A starting zoom: the preview stays hidden (the black behind it) until the zoom is on, so no 1x frame shows.
+        surface.alpha = if (ratio != null) 0f else 1f
         val camera = provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
         this.camera = camera
+        maxRatio = camera.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
         onFlash(camera.cameraInfo.hasFlashUnit())
         // Forever, not with the owner: that would go deaf while the screen is stopped, the moment the camera closes. close() removes it.
         camera.cameraInfo.cameraState.observeForever(stateObserver)
@@ -132,6 +158,83 @@ internal class CameraSession(
     private fun applyTorch() {
         // Fails when the camera isn't open, and the answer can be ignored: the state observer asks again when it opens.
         camera?.takeIf { it.cameraInfo.hasFlashUnit() }?.cameraControl?.enableTorch(torch)
+    }
+
+    /**
+     * Sets [ratio] on the camera, inside its range. CameraX refuses a zoom while the camera isn't active yet (the future
+     * fails, and the value isn't kept), so a failure tries again a moment later. The preview shows when it's done, or
+     * after [REVEAL_MS] whatever happens: a black view would look like a dead camera.
+     */
+    private fun applyZoom(tries: Int) {
+        val camera = camera ?: return
+        val want = ratio ?: return
+        main.removeCallbacks(reveal)
+        main.postDelayed(reveal, REVEAL_MS)
+        val range = camera.cameraInfo.zoomState.value
+        val value = if (range != null) ZoomRule.clamp(want, range.minZoomRatio, range.maxZoomRatio) else want
+        val future = camera.cameraControl.setZoomRatio(value)
+        future.addListener({
+            if (closed) return@addListener
+            val ok = try {
+                future.get()
+                true
+            } catch (_: Exception) {
+                false
+            }
+            if (ok || tries <= 1) {
+                main.removeCallbacks(reveal)
+                surface.alpha = 1f
+                if (ok) Log.i(TAG, "scanner: zoom ${"%.1f".format(value)}x on") else Log.w(TAG, "scanner: the zoom ${"%.1f".format(value)}x didn't take")
+            } else main.postDelayed({
+                // Shown already (the [REVEAL_MS] limit came first): glide there, don't jump in front of the user.
+                if (!closed) if (surface.alpha == 1f) glideTo(want) else applyZoom(tries - 1)
+            }, RETRY_MS)
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    /**
+     * Main thread: moves the zoom to [target] over [GLIDE_MS], easing out. CameraX 1.4 has no smooth zoom (only
+     * setZoomRatio / setLinearZoom), so this sets it once per frame; each call replaces the one before. A new target
+     * during a glide goes on from where the zoom is now. ML Kit's suggestions were single jumps (1.4x, 1.6x, 4x).
+     */
+    private fun glideTo(target: Float) {
+        val camera = camera ?: return
+        val from = (glide?.animatedValue as? Float) ?: camera.cameraInfo.zoomState.value?.zoomRatio ?: target
+        glide?.cancel()
+        ratio = target
+        glide = ValueAnimator.ofFloat(from, target).apply {
+            duration = GLIDE_MS
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { if (!closed) camera.cameraControl.setZoomRatio(it.animatedValue as Float) }
+            start()
+        }
+    }
+
+    /** Main thread: two fingers on the preview. [factor]: how much they spread since the last call. */
+    fun pinch(factor: Float) {
+        val camera = camera ?: return
+        if (closed || !zoom.pinch) return
+        pinched = true
+        glide?.cancel() // the fingers lead now
+        glide = null
+        val range = camera.cameraInfo.zoomState.value ?: return
+        val now = ratio ?: range.zoomRatio
+        ratio = ZoomRule.clamp(now * factor, range.minZoomRatio, range.maxZoomRatio)
+        camera.cameraControl.setZoomRatio(ratio!!) // a refusal (camera not open) is fine: the next open sets it
+    }
+
+    /** ML Kit's suggestion, on its thread. True: we take it (on the main thread, right after). */
+    private fun suggested(value: Float): Boolean {
+        if (closed || !ZoomRule.autoAllowed(zoom, pinched)) return false
+        main.post {
+            val camera = camera ?: return@post
+            if (closed || pinched) return@post
+            val range = camera.cameraInfo.zoomState.value ?: return@post
+            val target = ZoomRule.clamp(value, range.minZoomRatio, range.maxZoomRatio)
+            Log.i(TAG, "scanner: zoom ${"%.1f".format(target)}x (ML Kit's suggestion)")
+            glideTo(target)
+        }
+        return true
     }
 
     @OptIn(ExperimentalGetImage::class)
@@ -168,12 +271,21 @@ internal class CameraSession(
         MlKitStart.once(context)
         val first = formats.first()
         val rest = formats.drop(1).toIntArray()
-        return BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(first, *rest).build())
+        val options = BarcodeScannerOptions.Builder().setBarcodeFormats(first, *rest)
+        // ML Kit's auto-zoom: it asks for more zoom when a code is too small to read (a far or small QR).
+        if (zoom.auto && maxRatio > 1f) {
+            options.setZoomSuggestionOptions(ZoomSuggestionOptions.Builder(::suggested).setMaxSupportedZoomRatio(maxRatio).build())
+            Log.i(TAG, "scanner: auto-zoom on, up to ${"%.1f".format(maxRatio)}x")
+        } else if (zoom.auto) Log.i(TAG, "scanner: auto-zoom off: this camera can't zoom")
+        return BarcodeScanning.getClient(options.build())
     }
 
     fun close() {
         if (closed) return
         closed = true
+        main.removeCallbacks(reveal)
+        glide?.cancel()
+        surface.alpha = 1f // the next session starts from a shown view
         camera?.cameraInfo?.cameraState?.removeObserver(stateObserver)
         analysis.clearAnalyzer()
         preview.surfaceProvider = null

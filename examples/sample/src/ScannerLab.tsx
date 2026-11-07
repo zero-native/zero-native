@@ -60,6 +60,8 @@ export function ScannerLabScreen() {
         <Text fontSize={16}>Scanner lab</Text>
         <Text fontSize={13}>{`status: ${status()}`}</Text>
         <ScannerLabButton label="Open full scanner" onPress={plain} />
+        {/* Zoom (as ZeroBill's old app): starts at 1.4x, ML Kit zooms in on a far code, two fingers zoom. */}
+        <ScannerLabButton label="Open zoomed scanner" onPress={() => open({ zoom: 1.4, autoZoom: true })} />
         <ScannerLabButton label="Open dressed scanner" onPress={dressed} />
         <ScannerLabButton label="Push full scanner" onPress={() => nav.push("scan", {})} />
         <ScannerLabButton label="Show view" onPress={() => showView.set(true)} />

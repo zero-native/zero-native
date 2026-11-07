@@ -67,6 +67,7 @@ internal fun ScannerView(scope: ZnViewScope) {
             running = active && !locked,
             torch = TorchRule.isOn(wanted, held),
             formats = texts.formats,
+            zoom = texts.zoom,
             attempt = attempt,
             onCode = { value, format ->
                 locked = true

@@ -75,6 +75,7 @@ internal fun ScannerScreen(scope: ZnScreenScope) {
                         running = !locked, // the camera stops while the code is handled, also behind the closing animation
                         torch = torch,
                         formats = texts.formats,
+                        zoom = texts.zoom,
                         attempt = attempt,
                         onCode = { value, format ->
                             locked = true

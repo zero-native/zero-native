@@ -124,4 +124,29 @@ class ScannerRulesTest {
         assertNull(ScannerRules.safeLink(""))
         assertNull(ScannerRules.safeLink(null))
     }
+
+    @Test
+    fun `a starting zoom must be a positive number`() {
+        assertEquals(1.4f, ZoomWish.of(1.4, auto = false, pinch = true).start)
+        assertNull(ZoomWish.of(Double.NaN, auto = false, pinch = true).start) // no prop
+        assertNull(ZoomWish.of(0.0, auto = false, pinch = true).start)
+        assertNull(ZoomWish.of(-2.0, auto = false, pinch = true).start)
+        assertNull(ZoomWish.of(Double.POSITIVE_INFINITY, auto = false, pinch = true).start)
+    }
+
+    @Test
+    fun `the zoom stays inside the camera's range`() {
+        assertEquals(1.4f, ZoomRule.clamp(1.4f, 1f, 8f))
+        assertEquals(8f, ZoomRule.clamp(20f, 1f, 8f))
+        assertEquals(0.6f, ZoomRule.clamp(0.1f, 0.6f, 10f)) // a wide lens goes below 1x
+        assertEquals(1f, ZoomRule.clamp(1.4f, 1f, 1f)) // a camera with no zoom
+    }
+
+    @Test
+    fun `a pinch stops ML Kit's suggestions`() {
+        val wish = ZoomWish(1.4f, auto = true, pinch = true)
+        assertTrue(ZoomRule.autoAllowed(wish, pinched = false))
+        assertFalse(ZoomRule.autoAllowed(wish, pinched = true))
+        assertFalse(ZoomRule.autoAllowed(wish.copy(auto = false), pinched = false))
+    }
 }
