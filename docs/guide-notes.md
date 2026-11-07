@@ -1061,6 +1061,12 @@ launches.onResult("upi", async (r) => {                        // 3. a result, e
 - **Don't:** trust the result. It comes from another app, so it's outside input. It only says when to ask your server.
 - **Do:** handle `lost`. It means no result came: the user swiped the app away, or Android dropped our screen while a
   see-through window was on top. Ask your server. A late result can still follow it.
+- **Treat `lost` as "not known yet", not as "failed".** After a kill, Android can bring the result just after the app comes
+  back (seen 24 ms late on a phone). The first screen now waits up to 1 s for it before saying `lost` (the app's first
+  screens start only after that), but a later result can still come. So keep listening with `onResult`: a `result` for
+  the same id replaces `lost`, and then you use it. Since 2026-11-07.
+- **Do:** let your splash wait about 2 s when a launch waits. **Why:** the first screens start up to 1 s later after a
+  kill, and a shorter splash cap shows the plain template first.
 - **Know why a launch is refused:** `no_app` (not installed), `no_activity`, `no_storage`, `busy` (one launch at a time),
   `unacked` (this key has a result you haven't acked: `ack` it first, usually at the start of a new payment).
 - **Know:** while a launch waits, a link doesn't restart JS or bring your app forward, and `Updates.applyNow` answers `held`.

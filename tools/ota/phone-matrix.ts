@@ -842,6 +842,65 @@ const cases: Case[] = [
     },
   },
   {
+    id: "late-result-after-kill",
+    title: "The same, with the result after the resume (seen on the Lava): the resume waits for it; the first read is the result",
+    async run() {
+      shell("setprop", "debug.zn.launch_result_delay_ms", "300")
+      try {
+        await launchScreen()
+        await openMock(true)
+        const before = shell("pidof", PKG).trim()
+        shell("am", "kill", PKG)
+        await sleep(1000)
+        if (shell("pidof", PKG).trim()) asApp(`kill -9 ${before}`)
+        await sleep(1000)
+        check(!shell("pidof", PKG).trim(), "the process didn't end")
+        clearLog()
+        await leaveMock()
+        await expectLog(/launch results come 300 ms late/)
+        await expectLog(/no result yet at the resume; waiting up to 1000 ms/)
+        const line = await expectLog(/launch-test first read: /)
+        check(/first read: result t\d+ code/.test(line), `the first read must be the result: ${line}`)
+        await expectNoLog(/no result came/, 0)
+        await sleep(800)
+        await tap("Ack")
+        await expectLog(/launch-test ack: true/)
+        return line
+      } finally {
+        shell("setprop", "debug.zn.launch_result_delay_ms", "0")
+      }
+    },
+  },
+  {
+    id: "result-after-the-wait",
+    title: "A result later than the wait: marked lost, then the result replaces it",
+    async run() {
+      shell("setprop", "debug.zn.launch_result_delay_ms", "1800")
+      try {
+        await launchScreen()
+        await openMock(true)
+        const before = shell("pidof", PKG).trim()
+        shell("am", "kill", PKG)
+        await sleep(1000)
+        if (shell("pidof", PKG).trim()) asApp(`kill -9 ${before}`)
+        await sleep(1000)
+        check(!shell("pidof", PKG).trim(), "the process didn't end")
+        clearLog()
+        await leaveMock()
+        // A busy main thread at a cold start can run both late, so the first read may already be the result.
+        const line = await expectLog(/launch mock-upi: no result came/)
+        await expectLog(/launch-test first read: (lost|result) t\d+/)
+        await expectLog(/launch-test heard: result t\d+ code/)
+        await sleep(800)
+        await tap("Ack")
+        await expectLog(/launch-test ack: true/)
+        return line
+      } finally {
+        shell("setprop", "debug.zn.launch_result_delay_ms", "0")
+      }
+    },
+  },
+  {
     id: "result-under-see-through",
     title: "The process dies under a see-through window: Android can't keep our Activity; the next open reads lost",
     async run() {
@@ -1104,6 +1163,7 @@ async function main() {
   } finally {
     console.log("• putting things back…")
     shell("setprop", "debug.zn.ota_free_bytes", "0")
+    shell("setprop", "debug.zn.launch_result_delay_ms", "0")
     if (/^\d+$/.test(timeout)) shell("settings", "put", "system", "screen_off_timeout", timeout)
     adb("reverse", "--remove", `tcp:${PORT}`)
     proxy?.stop(true)

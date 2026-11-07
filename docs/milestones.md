@@ -125,6 +125,15 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: after a kill, a late launch result is waited for, up to 1 s (Claude; found on the Lava in the ZeroBill payment pass, Pavan's go)
+- **Bug:** after a kill, Android brought a UPI result 24 ms after the app's first resume (a process a service had
+  started). ZnLaunch had already marked it `lost`, so the first screen showed "lost", then the result.
+- **Fix** (`ZnLaunch.kt`): at that resume, a launch with no result waits up to 1 s, START still held; a result in that
+  time settles at once. The marker now goes after the `lost` record is saved. Guide §31; second-opinions 156.
+- **Tests:** emulator with the new debug prop `debug.zn.launch_result_delay_ms` (sample): 300 ms late gives the result
+  at the first read, 1800 ms gives `lost` then the result, 0 as before. Two matrix cases added
+  (`late-result-after-kill`, `result-after-the-wait`), not run in a full matrix yet. Not on the Lava.
+
 ### 2026-11-07: phone steps scroll the RN props lab by its edge (Claude)
 - `rnprops.ts` has its own `tap`, and `byId` scrolls at x=20 (the page's padding), so a swipe no longer lands on the
   sticky list. `push.ts` opens the lab again before "Show plain" (it sits above "Cancel all").

@@ -2388,3 +2388,20 @@ change, and what evidence would make you change it?"
   held), and the push still comes in without a slide.
 - **Not checked:** the Lava; `nav.replace` / `reset` / `pushForResult` during a build (not queued: rare).
 - **Risk if wrong:** an app that pushed from a screen body and relied on the old order (no known one).
+
+## 156. After a kill, the first resume waits up to 1 s for a late result before "lost" (runtime, 2026-11-07; found on the Lava in the ZeroBill payment pass, Pavan's go "start working on fixes")
+- **What:** `ZnLaunch.onResumed`, at the first resume after a kill while a launch still waits: if the record has no
+  result, it waits up to 1000 ms with START still held. A result in that time saves, then START runs at once. With
+  none, the record becomes `lost` as before. A later result still replaces `lost` (unchanged).
+- **Why:** on the Lava, in a process that a Firebase service had started before the Activity came back, the result
+  came 24 ms after the resume. The app first saw `lost`, then the result. ZeroBill treats both right, but the first
+  screen flashed the "we couldn't tell" state.
+- **Why 1 s:** long enough for Android's late delivery (tens of ms) plus a busy cold start; short enough that a real
+  `lost` (swipe away, see-through window) only adds 1 s behind the splash. Not a setting: no app needs another value yet.
+- **Also changed:** the marker file is now deleted after the `lost` record is saved, not before. Before, a kill between
+  the two left a "waiting" record nothing settles, and that key answered `busy` until it was acked.
+- **Checked:** emulator, debug prop `debug.zn.launch_result_delay_ms`: 300 ms late, the first read is the result (no
+  `lost`); 1800 ms late, `lost` then the result; 0, as before. Kotlin `ZnLaunchTest`. Matrix cases
+  `late-result-after-kill`, `result-after-the-wait` added, not run in the full matrix yet.
+- **Not checked:** the Lava; the full matrix (the see-through and swipe cases now take 1 s more).
+- **Risk if wrong:** a start after a kill with a waiting launch takes up to 1 s more. No change when nothing waits.

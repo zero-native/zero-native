@@ -25,6 +25,7 @@ import dev.zeronative.plugins.remoteconfig.RemoteConfigPlugin
 import dev.zeronative.plugins.scanner.ScannerPlugin
 import dev.zeronative.plugins.webview.WebViewPlugin
 import dev.zeronative.runtime.ZnBundles
+import dev.zeronative.runtime.ZnLaunch
 import dev.zeronative.runtime.ZnOta
 import dev.zeronative.runtime.ZnPlugins
 import dev.zeronative.runtime.ZnRuntime
@@ -73,6 +74,12 @@ class SampleApp : Application() {
             systemProperty("debug.zn.ota_free_bytes")?.toLongOrNull()?.takeIf { it > 0 }?.let {
                 ZnOta.freeSpaceOverride = it
                 Log.w("zn-sample", "OTA sees $it bytes free (debug.zn.ota_free_bytes)")
+            }
+            // `adb shell setprop debug.zn.launch_result_delay_ms 300` handles another app's result 300 ms late, as if
+            // it came after the resume (matrix case late-result-after-kill). Reset with `... launch_result_delay_ms 0`.
+            systemProperty("debug.zn.launch_result_delay_ms")?.toLongOrNull()?.takeIf { it > 0 }?.let {
+                ZnLaunch.resultDelayForTests = it
+                Log.w("zn-sample", "launch results come $it ms late (debug.zn.launch_result_delay_ms)")
             }
         }
         // OTA updates from the reference server on this computer (`bun run ota serve`, reached over

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.activity.result.IntentSenderRequest
@@ -97,6 +98,17 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
     /** A launch from an earlier process, or from an Activity that is gone, may be waiting: settled at the next resume. */
     private var unsettled = false
     private val afterSettled = ArrayList<Runnable>()
+    private val main by lazy { Handler(Looper.getMainLooper()) }
+    /** Set while the first resume after a kill waits for a result that is late (see [onResumed]). */
+    private var giveUp: Runnable? = null
+    /** How long that resume waits before it marks the launch lost. */
+    private const val LATE_RESULT_MS = 1000L
+
+    /**
+     * Tests only (debug builds): Android's answer is handled this many ms late, to fake a result that comes after the
+     * resume (the sample sets it from `adb shell setprop debug.zn.launch_result_delay_ms N`). 0: at once.
+     */
+    @Volatile var resultDelayForTests = 0L
 
     /** True while a launch made in this process waits and its Activity lives: JS must not be replaced now (H.1, P.2). */
     internal val waitingHere: Boolean get() = launchedHere && ZnActivity.current != null
@@ -187,6 +199,26 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
 
     /** Main thread: Android's answer. The record is on disk before JS hears it. */
     internal fun onResult(resultCode: Int, data: Intent?) {
+        val delay = resultDelayForTests
+        if (delay > 0) {
+            Log.w(TAG, "launch: the result is handled $delay ms late (debug.zn.launch_result_delay_ms)")
+            main.postDelayed({ handleResult(resultCode, data) }, delay)
+            return
+        }
+        handleResult(resultCode, data)
+    }
+
+    private fun handleResult(resultCode: Int, data: Intent?) {
+        saveResult(resultCode, data)
+        // The resume was waiting for this result: the app's first screens can start now, and read it.
+        giveUp?.let {
+            main.removeCallbacks(it)
+            giveUp = null
+            settle()
+        }
+    }
+
+    private fun saveResult(resultCode: Int, data: Intent?) {
         val context = ZnActivity.current ?: app ?: return
         launchedHere = false
         val store = store(context)
@@ -225,24 +257,48 @@ object ZnLaunch : ZnModuleBase("Launches", version = 1) {
     /** Main thread, in [ZnActivity.attach]. Only a stat of the [marker]: a normal start must not touch storage here. */
     internal fun onAttach(activity: Context) {
         app = activity.applicationContext
+        if (giveUp != null) return // a new Activity during the wait: the wait still settles the same launch
         unsettled = !launchedHere && marker(activity).exists()
     }
 
-    /** Main thread: Android has delivered any result it had by now. */
+    /**
+     * Main thread: Android has usually delivered any result it had by now. Not always: in a process that a service had
+     * started before the Activity came back, a result came 24 ms after this resume (Lava, 2026-11-07). So if the launch
+     * still has no result, this waits up to [LATE_RESULT_MS] for it, with START still held, before marking it lost.
+     */
     internal fun onResumed() {
-        if (!unsettled) return
-        unsettled = false
+        if (!unsettled || giveUp != null) return
         val context = app ?: return
-        marker(context).delete()
         val store = store(context)
         val key = store.getString(CURRENT)
-        val lost = key?.let { read(store, it) }?.let(Rules::lost)
-        if (lost != null) {
-            store.set(RECORD + key, lost.toString())
-            store.flush()
-            Log.w(TAG, "launch $key: no result came; the app must ask its server")
-            emit("result", lost)
+        if (key != null && read(store, key)?.let(Rules::lost) != null) {
+            Log.i(TAG, "launch $key: no result yet at the resume; waiting up to $LATE_RESULT_MS ms for it")
+            giveUp = Runnable {
+                giveUp = null
+                markLost()
+                settle()
+            }.also { main.postDelayed(it, LATE_RESULT_MS) }
+            return
         }
+        settle()
+    }
+
+    /** The wait ended with no result. Read again: only a record that still waits becomes lost. */
+    private fun markLost() {
+        val context = app ?: return
+        val store = store(context)
+        val key = store.getString(CURRENT) ?: return
+        val lost = read(store, key)?.let(Rules::lost) ?: return
+        store.set(RECORD + key, lost.toString())
+        store.flush()
+        Log.w(TAG, "launch $key: no result came; the app must ask its server")
+        emit("result", lost)
+    }
+
+    /** START and anything else held may run now. The marker goes after the record is saved, as in [saveResult]. */
+    private fun settle() {
+        unsettled = false
+        app?.let { marker(it).delete() }
         afterSettled.toList().also { afterSettled.clear() }.forEach { it.run() }
     }
 
