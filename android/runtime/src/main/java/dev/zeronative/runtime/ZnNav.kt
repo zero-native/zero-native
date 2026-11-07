@@ -23,6 +23,8 @@ import org.json.JSONObject
 class ZnEntry(val id: Int, val route: ZnRoute, val params: String) {
     /** The screen's `restorableSignal` values (key → JSON value), saved with the back stack (NAV RESTORE). */
     internal val values = JSONObject()
+    /** Pushed by JS before the first screens were up: it is one of them, so it comes in with no slide (its back still slides). */
+    internal var openedAtStart = false
 
     override fun equals(other: Any?) = other is ZnEntry && other.id == id
     override fun hashCode() = id
@@ -439,7 +441,8 @@ object ZnNav {
                     return
                 }
                 mount(op.entry, route, b)
-                stack += ZnEntry(op.entry, route, op.params ?: "{}")
+                // Before NAV STARTED, JS is still opening the first screens (nav.ts: a push while START builds them).
+                stack += ZnEntry(op.entry, route, op.params ?: "{}").apply { openedAtStart = !firstScreensUp }
             }
             BatchOp.Nav.REMOVE -> {
                 if (stack.removeAll { it.id == op.entry }) release(op.entry)

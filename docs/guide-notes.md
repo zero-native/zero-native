@@ -306,6 +306,10 @@ const pickerOpen = signal(false)
   once, while the sheet still slides down; so does a `<Modal>` fading out. `onDismiss` fires once per close.
   Since 2026-11-07; before, the first tap after the close was lost on the sheet's scrim (ZeroBill's keypad after
   "Continue to checkout") and sent `onDismiss` again.
+- `animateIn={false}` (registry 21): the sheet opens already at rest, with no slide-up. **Do** use it only for a
+  sheet that is part of a screen restored at start (the "processing payment" sheet after a kill, §70), so the user
+  doesn't see it arrive. **Why:** a sheet the user opens should slide up; that motion says where it came from. It is
+  read when `visible` turns true; closing still slides down.
 
 ## 13. Native modules: calling your own Kotlin (Swift later) code (built: foundations)
 ```ts
@@ -2478,3 +2482,19 @@ const { id, limitAdTracking } = await AdId.get()   // never rejects; id null whe
   changes what the part reads, the branch runs first and removes the part, as in React. The part's slots and effects
   don't run with the value the condition ruled out. Since 2026-11-07; before that, the `!` inside could throw.
 - **Don't** rely on a part's effect running before its parent's condition: parents decide first.
+
+## 70. Open a screen as one of the first screens (a payment restored after a kill)
+```tsx
+function Home() {
+  const saved = launches.pending("upi")
+  if (saved && saved.status !== "waiting") nav.push("checkout", { restore: "1" })   // in the body: no setTimeout
+  return <Column>…</Column>
+}
+```
+- **Know:** a `nav.push` made while START builds the first screens (in their body, or an effect they start) waits
+  until all of them are in, then goes on top, before the app counts as started. Native opens it with no slide-in,
+  so with `ZnSplash.holdUntilReady` (§66) the first thing the user sees is checkout over Home. Since 2026-11-07.
+- **Know:** any `nav.push` made while a screen is being built now goes on top of that screen. Before, it went in
+  below it in JS while native put it on top, so Back went the wrong way.
+- **Don't** wrap it in `setTimeout(..., 0)` or `await`: that runs after the start, and the screen slides in over a
+  Home the user already sees.

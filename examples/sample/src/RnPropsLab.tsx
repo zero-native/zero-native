@@ -1,7 +1,7 @@
 // A dev screen for RN props pack 2: React Native props, styles and components, with their RN names. Each check logs
 // one "rn-props ..." line; the phone check (tools/plugin-phone/rnprops.ts) reads those lines, so keep their wording.
 import { Box, Carousel, Column, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField } from "@zero-native/ui"
-import { Alert, signal } from "@zero-native/core"
+import { Alert, createStorage, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
 /** Bold parts from data, as a server's "**₹400** cashback" turned into parts (ask R21). */
@@ -59,6 +59,10 @@ export function RnPropsLabScreen() {
   const page = signal(false)
   const shimmerOn = signal(false)
   const sheet = signal(false) // a closing Sheet passes the next tap to the page (ZeroBill payment pass)
+  // Opened by Home at start (devStart in HomeScreen): this sheet is already open then, at rest, with no slide-up.
+  const devStart = createStorage("dev.start")
+  const restSheet = signal(devStart.getString("sheet") === "1")
+  if (restSheet()) devStart.delete("sheet")
   const note = signal("")
   const lightBars = signal(false)
   const spanHot = signal(false)
@@ -413,6 +417,22 @@ export function RnPropsLabScreen() {
             2 offers on this store
           </Text>
           <HoldTile label="Continue to checkout" onPress={() => sheet.set(false)} />
+        </Sheet>
+        {/* A payment restored after a kill: kill the app after this tile, open it again; this lab is one of the first
+            screens (no slide-in) and its sheet is already up (animateIn={false}). */}
+        <HoldTile
+          label="Open this lab at next start"
+          onPress={() => {
+            devStart.set("push", "rnPropsLab")
+            devStart.set("sheet", "1")
+            say("next start opens the lab")
+          }}
+        />
+        <Sheet visible={restSheet()} animateIn={false} onDismiss={() => restSheet.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+          <Text fontSize={16} fontWeight={700} color={c.ink}>
+            Processing secure payment
+          </Text>
+          <HoldTile label="Close restored sheet" onPress={() => restSheet.set(false)} />
         </Sheet>
         {/* A centred dialog with the app's own look: transparent, fade, the dim is the app's own Box. */}
         <Modal

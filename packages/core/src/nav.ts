@@ -107,6 +107,14 @@ type NativeRouteName = string extends RouteName<Routes>
 export const nav = {
   /** Opens a screen on top of the current one. */
   push<K extends RouteName<Routes>>(name: K, ...[params]: ParamsArg<K>): void {
+    // Asked for while a screen is being built (its body, or an effect it starts): wait until that screen is in the
+    // stack, else the new screen went in below it (JS) while native put it on top. At START, until all the first
+    // screens are in: then it is one of them, under the splash hold, with no slide-in (ZeroBill: a payment restored
+    // after a kill opens checkout over Home).
+    if (rendering !== null || starting) {
+      afterBuild.push(() => nav.push(name, ...([params] as ParamsArg<K>)))
+      return
+    }
     const e = open(name, (params ?? {}) as Record<string, unknown>)
     globalThis.__zn_nav(NavKind.Push, e.id, e.route, JSON.stringify(e.params))
     show(e)
@@ -603,6 +611,8 @@ export function resetNavForTests(): void {
   startLink = null
   startWaiters.length = 0
   linkListeners.clear()
+  afterBuild.length = 0
+  starting = false
 }
 
 function open(name: string, params: Record<string, unknown>): Entry {
@@ -612,10 +622,26 @@ function open(name: string, params: Record<string, unknown>): Entry {
   return { id: allocInstanceId(), route, name, params, dispose: () => {}, backs: [] }
 }
 
+/** Pushes asked for while a screen was being built or the first screens were being opened (nav.push). */
+const afterBuild: Array<() => void> = []
+/** START is opening the first screens. */
+let starting = false
+
 /** Renders an entry's screen on its root instance and puts it on top of the stack. */
 function show(e: Entry): void {
   render(e)
   stack.push(e)
+  if (rendering === null && !starting) runAfterBuild()
+}
+
+function runAfterBuild(): void {
+  for (const push of afterBuild.splice(0)) {
+    try {
+      push()
+    } catch (err) {
+      reportError("nav.push while a screen was built", err)
+    }
+  }
 }
 
 /**
@@ -694,6 +720,28 @@ function start(payload: NativeValue): void {
     /** The whole link that started the app, on the screen it opens. Older bundles ignore it and open the screen. */
     link?: string
   }>
+  starting = true
+  try {
+    startEntries(entries)
+  } finally {
+    starting = false
+  }
+  // Pushes asked for while the first screens were built go on top of all of them, before NAV STARTED: native opens
+  // them with no slide-in (ZnNav: a push before the first screens are up).
+  runAfterBuild()
+  syncTop()
+  mountLayer("top", layers.top)
+  mountLayer("overlay", layers.overlay)
+  started = true
+  for (const resolve of startWaiters.splice(0)) resolve(startLink)
+  // The first screens are built (a screen that threw has already sent FAILED): the OTA safety nets count the bundle
+  // as on screen from here (docs/ota.md §3.6).
+  globalThis.__zn_nav(NavKind.Started, 0, 0, null)
+}
+
+function startEntries(
+  entries: Array<{ entry: number; route: number; params: Record<string, unknown>; values?: Record<string, unknown>; link?: string }>,
+): void {
   for (const { entry, route, params, values, link } of entries) {
     const name = names[route]
     if (name === undefined) {
@@ -712,14 +760,6 @@ function start(payload: NativeValue): void {
     if (link !== undefined) startLink ??= link
     show({ id: entry, route, name, params: params ?? {}, dispose: () => {}, backs: [], restored: values })
   }
-  syncTop()
-  mountLayer("top", layers.top)
-  mountLayer("overlay", layers.overlay)
-  started = true
-  for (const resolve of startWaiters.splice(0)) resolve(startLink)
-  // The first screens are built (a screen that threw has already sent FAILED): the OTA safety nets count the bundle
-  // as on screen from here (docs/ota.md §3.6).
-  globalThis.__zn_nav(NavKind.Started, 0, 0, null)
 }
 
 /**

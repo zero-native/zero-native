@@ -135,6 +135,21 @@ Parked ideas: `docs/after-foundations.md`.
 - **Also:** the RN props lab's shimmer now shows only after a tap: a shimmer redraws every frame, and uiautomator then
   takes ~8 s per screen read, so the phone steps timed out.
 
+### 2026-11-07: a push at START joins the first screens; Sheet `animateIn` (registry 21) (Claude; asks from app-home-tabs, Pavan's go "op1 with no slide in")
+- **Why:** after a kill during a payment, ZeroBill showed Home, then checkout sliding in, then the processing sheet
+  sliding up. The app pushed checkout in a `setTimeout`, because a push during Home's build went below Home.
+- **nav.ts:** a `nav.push` while a screen is being built waits until it is in the stack; at START until all the
+  first screens are in, before NAV STARTED. **ZnNav / ZnNavHost:** a PUSH before NAV STARTED comes in with no
+  slide (`openedAtStart`); Back from it slides as usual. No host API change.
+- **Sheet `animateIn={false}`** (registry 21, prop 291): opens at rest, no window fade. Guide §12, §70;
+  second-opinions 155.
+- **Tests:** `nav-start-push.test.ts` (5); all JS tests (1160) and types; Kotlin tests, runtime lint.
+- **Emulator (API 33), 10x animations:** sample dev hook ("Open this lab at next start" in the RN props lab; Home
+  pushes it at the next start). With the splash hold on: the splash fades straight onto the lab with its sheet at
+  rest, no Home frame. With it off: Home's frames show for ~1.5 s first (the sample doesn't hold), then the lab with
+  no slide.
+- **Not checked:** the Lava, ZeroBill's checkout itself.
+
 ### 2026-11-07: fetch pings its HTTP/2 connections; a closing Sheet passes taps through (Claude; asks from the ZeroBill payment pass via app-home-tabs, Pavan's go for the ping)
 - **PAY-5** (`ZnFetch.kt`): after a start in the background from the UPI result, one HTTP/2 connection to the API
   went dead silently (on the Lava: ESTABLISHED, 7.6 KB never acknowledged, retransmitting; a new connection from the

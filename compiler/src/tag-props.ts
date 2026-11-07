@@ -27,7 +27,7 @@ export const TAG_PROPS: Readonly<Record<string, { base: boolean; own: ReadonlySe
   Progress: { base: true, own: new Set(["color", "trackColor", "value"]) },
   Row: { base: true, own: new Set(["children"]) },
   Scroll: { base: true, own: new Set(["alwaysBounceHorizontal", "alwaysBounceVertical", "automaticallyAdjustContentInsets", "bounces", "children", "contentContainerStyle", "contentInsetAdjustmentBehavior", "directionalLockEnabled", "extraData", "getItemLayout", "horizontal", "initialNumToRender", "keyboardShouldPersistTaps", "maxToRenderPerBatch", "nestedScrollEnabled", "onRefresh", "refreshBackground", "refreshColor", "refreshControl", "refreshing", "removeClippedSubviews", "scrollEventThrottle", "showsHorizontalScrollIndicator", "showsVerticalScrollIndicator", "updateCellsBatchingPeriod", "windowSize"]) },
-  Sheet: { base: true, own: new Set(["children", "detents", "dismissible", "onDetentChange", "onDismiss", "visible"]) },
+  Sheet: { base: true, own: new Set(["animateIn", "children", "detents", "dismissible", "onDetentChange", "onDismiss", "visible"]) },
   Shimmer: { base: true, own: new Set(["baseColor", "highlightColor", "period"]) },
   Spacer: { base: true, own: new Set([]) },
   Spinner: { base: true, own: new Set(["color", "size"]) },

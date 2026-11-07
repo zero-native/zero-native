@@ -2368,3 +2368,23 @@ change, and what evidence would make you change it?"
   read from outside the part can still run with the new value.
 - **Risk if wrong:** a screen that relied on a part's effect running before its branch (no known one). Cost: one walk
   up the owner chain per effect run, usually 2-5 steps.
+
+## 155. A push while START builds the first screens joins them, with no slide-in; Sheet `animateIn` (core + runtime, registry 21, 2026-11-07; asks from app-home-tabs, Pavan's go)
+- **What:** `nav.push` while a screen is being built (or while START opens the first screens) is queued and done
+  after that screen (or all the first screens) is in the stack, before NAV STARTED. Native marks a PUSH that comes
+  before NAV STARTED `openedAtStart`: its push transition is none, its pop stays the route's. `<Sheet
+  animateIn={false}>` snaps to its rest offset when opening and has no window animation.
+- **Why this way:**
+  - No new API for the app: the restore code it already has, moved out of a `setTimeout`. An explicit
+    `startApp({ firstScreens })` hook was the other option; it needs the app to know at `startApp` time, before
+    the store and launches are read in the first screen.
+  - The queue also fixes a real bug: a push from a screen's body went below that screen in JS (show() renders, then
+    adds to the stack) while native put it on top.
+  - Native keys on "before NAV STARTED", the same signal the splash hold and OTA nets use, not on a new flag in the op:
+    no host API bump, and an older APK still opens the screen (with a slide).
+- **Checked:** `nav-start-push.test.ts` (body, effect, a restored stack of two, after START); all JS tests; emulator
+  at 10x animations with the splash hold on: the splash fades straight onto the pushed screen with its
+  `animateIn={false}` sheet at rest; with the hold off, the first screen shows for a moment first (its frames are not
+  held), and the push still comes in without a slide.
+- **Not checked:** the Lava; `nav.replace` / `reset` / `pushForResult` during a build (not queued: rare).
+- **Risk if wrong:** an app that pushed from a screen body and relied on the old order (no known one).

@@ -1,7 +1,7 @@
 // The sample's start screen (route "/"): 10,000 merchants in a virtualized <List> with two row kinds (an area header
 // every 100 rows, merchant rows). "New payment arrives" inserts a row at the top: the visible rows must not move.
 import { Box, Column, List, Pressable, Row, Text } from "@zero-native/ui"
-import { nav, signal } from "@zero-native/core"
+import { createStorage, nav, signal } from "@zero-native/core"
 import { c } from "./tokens"
 import { generatedMerchant, type Merchant } from "./merchants"
 
@@ -20,7 +20,15 @@ function buildFeed(): Item[] {
   return out
 }
 
+// Dev check (RN props lab, "Open this lab at next start"): a push while START builds Home is one of the first screens,
+// with no slide-in, as a payment restored after a kill opens checkout over Home.
+const devStart = createStorage("dev.start")
+
 export function HomeScreen() {
+  if (devStart.getString("push") === "rnPropsLab") {
+    devStart.delete("push")
+    nav.push("rnPropsLab")
+  }
   const feed = signal(buildFeed())
   let arrivals = 0
   const newPayment = () => {

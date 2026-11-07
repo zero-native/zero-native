@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 20 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 21 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -44,6 +44,7 @@ export const REGISTRY_VERSION = 20 // 2: Anchor. 3: transforms, shadow, absolute
 // 18: OtpInput (react-native-otp-entry's API, second-opinions 146): otpTheme, otpType, blurOnFilled, invalid, onFilled.
 // 19: List inverted (RN FlatList's `inverted`, for chats; ask R13, second-opinions 149).
 // 20: transformOrigin (RN's, keywords and percents; ask R11 from the ZeroBill port).
+// 21: Sheet animateIn (false: opens already at rest, no slide-up; a payment restored after a kill).
 
 export const Component = {
   Column: 1,
@@ -428,6 +429,8 @@ export const Prop = {
    * compiler from RN's keywords / percents. The pivot for scale and rotate. Absent: the centre.
    */
   transformOrigin: { id: 290, type: "string" },
+  /** Sheet (registry 21): false = opens already at rest (no slide-up, no window fade). Read when `visible` turns true. */
+  animateIn: { id: 291, type: "bool" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -636,7 +639,7 @@ export const Added: {
     stickyHeaderIndices: 15,
     includeFontPadding: 16, borderStyle: 16, textDecorationStyle: 16,
     autoComplete: 17, otpTheme: 18, otpType: 18, blurOnFilled: 18, invalid: 18,
-    inverted: 19, transformOrigin: 20,
+    inverted: 19, transformOrigin: 20, animateIn: 21,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,

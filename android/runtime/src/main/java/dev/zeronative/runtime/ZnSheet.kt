@@ -124,6 +124,8 @@ internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
         SideEffect {
             window?.setDimAmount(0f) // our own scrim follows the drag
             window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
+            // animateIn={false}: no window fade-in either (the sheet is already there, as part of a restored screen).
+            if (!s.animateIn) window?.setWindowAnimations(0)
         }
         SheetBody(f, t, s, inst, visible, window, onGone = { shown = false }) { closing ->
             val w = window ?: return@SheetBody
@@ -246,7 +248,9 @@ private fun SheetBody(
             if (contentH <= 0f) return@LaunchedEffect
             if (visible) {
                 dismissing = false // opened again while a user's dismiss waited (its wait was cancelled)
-                offset.animateTo(restOffsets.getValue(detent), springOpen)
+                // animateIn={false}: from closed (opening), it is at rest at once; later size changes still animate.
+                if (!s.animateIn && offset.value >= closed - 1f) offset.snapTo(restOffsets.getValue(detent))
+                else offset.animateTo(restOffsets.getValue(detent), springOpen)
             } else {
                 offset.animateTo(closed, springClose)
                 onGone()

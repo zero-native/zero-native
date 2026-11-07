@@ -346,6 +346,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val detents: List<String> = (p[Registry.Prop.DETENTS] as String?)?.split(',')?.map { it.trim() }
         ?.filter { it == "content" || it == "half" || it == "full" }?.ifEmpty { null } ?: listOf("content")
     val dismissible = p[Registry.Prop.DISMISSIBLE] != false
+    /** Sheet `animateIn={false}` (registry 21): opens already at rest. */
+    val animateIn = p[Registry.Prop.ANIMATE_IN] != false
     /** `visible` written on the node (a Modal without it is shown, as in RN). */
     val hasVisibleProp = p.containsKey(Registry.Prop.VISIBLE)
     // Modal (registry 15, ZnModal.kt)

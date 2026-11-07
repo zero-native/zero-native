@@ -615,6 +615,11 @@ export declare const Sheet: Intrinsic<
     detents?: string
     dismissible?: boolean
     onDetentChange?: (detent: "content" | "half" | "full") => void
+    /**
+     * false: opens already at rest, with no slide-up (registry 21). For a sheet that is part of a screen restored at
+     * start (a payment after a kill), so the user doesn't see it arrive. Closing still slides down. Default true.
+     */
+    animateIn?: boolean
   }
 >
 /**

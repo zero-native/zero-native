@@ -1,5 +1,5 @@
 {
-  "version": 20,
+  "version": 21,
   "base": 8,
   "entries": {
     "component:Column": {"id":1,"since":8},
@@ -207,6 +207,7 @@
     "prop:invalid": {"id":288,"type":"bool","since":18},
     "prop:inverted": {"id":289,"type":"bool","since":19},
     "prop:transformOrigin": {"id":290,"type":"string","since":20},
+    "prop:animateIn": {"id":291,"type":"bool","since":21},
     "dynamic:text": {"since":8},
     "dynamic:color": {"since":8},
     "dynamic:backgroundColor": {"since":8},

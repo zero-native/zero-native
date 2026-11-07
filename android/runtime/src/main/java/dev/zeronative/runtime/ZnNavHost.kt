@@ -257,7 +257,7 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
         modifier = Modifier.fillMaxSize().znTestTags(),
         onBack = { ZnNav.systemBack() },
         entryProvider = { entry ->
-            NavEntry(entry, contentKey = entry.id, metadata = transitions(entry.route.transition)) { e ->
+            NavEntry(entry, contentKey = entry.id, metadata = transitions(entry.route.transition, entry.openedAtStart)) { e ->
                 DisposableEffect(e.id) {
                     ZnNav.shown(e.id)
                     onDispose { ZnNav.hidden(e.id) }
@@ -458,8 +458,8 @@ private const val DURATION_MS = 300
 private fun <T> spec() = tween<T>(DURATION_MS, easing = FastOutSlowInEasing)
 
 /** A route's transition as Navigation 3 metadata: how it comes in, how it leaves on back (also predictive back). */
-private fun transitions(t: ZnRoute.Transition): Map<String, Any> {
-    val push: AnimatedContentTransitionScope<Scene<*>>.() -> ContentTransform
+private fun transitions(t: ZnRoute.Transition, atStart: Boolean = false): Map<String, Any> {
+    var push: AnimatedContentTransitionScope<Scene<*>>.() -> ContentTransform
     val pop: AnimatedContentTransitionScope<Scene<*>>.() -> ContentTransform
     when (t) {
         // Slides from the end edge (right in LTR, left in RTL); the old screen moves a little behind it.
@@ -492,6 +492,8 @@ private fun transitions(t: ZnRoute.Transition): Map<String, Any> {
             pop = push
         }
     }
+    // One of the first screens (ZnEntry.openedAtStart): it is simply there, under the splash hold.
+    if (atStart) push = { EnterTransition.None togetherWith ExitTransition.None }
     return NavDisplay.transitionSpec(push) +
         NavDisplay.popTransitionSpec(pop) +
         NavDisplay.predictivePopTransitionSpec { _ -> pop() }
