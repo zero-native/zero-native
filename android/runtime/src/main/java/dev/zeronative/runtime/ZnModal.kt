@@ -77,6 +77,7 @@ internal fun ZnModal(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
         SideEffect {
             window?.let {
                 it.setDimAmount(0f) // RN draws no dim: a transparent Modal's content brings its own
+                it.noDimLayer() // see ZnSheet: Android 14 drops taps through a dim layer
                 @Suppress("DEPRECATION") // still how a window resizes for the keyboard (imePadding below)
                 it.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
                 WindowCompat.setDecorFitsSystemWindows(it, false)

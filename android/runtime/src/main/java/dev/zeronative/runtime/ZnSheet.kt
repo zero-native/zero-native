@@ -79,6 +79,12 @@ private tailrec fun android.content.Context.findActivityWindow(): Window? = when
     else -> null
 }
 
+/** Drops the window's dim layer (we draw our own scrim). Only when set: each change re-lays out the window. */
+internal fun Window.noDimLayer() {
+    val dim = WindowManager.LayoutParams.FLAG_DIM_BEHIND
+    if (attributes.flags and dim != 0) clearFlags(dim)
+}
+
 internal fun Window.passTouchesThrough(on: Boolean) {
     val flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
     if (on == ((attributes.flags and flags) == flags)) return
@@ -129,6 +135,9 @@ internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
         val openStatusIcons = remember { window?.let { WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars } }
         SideEffect {
             window?.setDimAmount(0f) // our own scrim follows the drag
+            // No dim layer at all: Android 14 drops a tap that passes through a closing sheet when its window keeps
+            // FLAG_DIM_BEHIND, even at 0 dim ("untrusted touch", Lava 2026-11-07: the keypad after the offers sheet).
+            window?.noDimLayer()
             window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
             // animateIn={false}: no window fade-in either (the sheet is already there, as part of a restored screen).
             if (!animateIn) window?.setWindowAnimations(0)

@@ -125,6 +125,13 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: Sheet and Modal windows have no dim layer (Claude; found on the Lava by app-home-tabs, Pavan's go)
+- **Bug:** on Android 14 the first keypad taps after closing the offers sheet were dropped ("untrusted touch",
+  occluded by "Dim Layer for Task", alpha 0). The closing window passed taps through, but kept `FLAG_DIM_BEHIND`.
+- **Fix** (`ZnSheet.kt`, `ZnModal.kt`): clear `FLAG_DIM_BEHIND`; the dim was 0 already and our own scrim draws it.
+- **Emulator (API 33):** `rn props sheet close` passes (Sheet and Modal). Android 13 never dropped these taps, so
+  only the Lava can prove the fix.
+
 ### 2026-11-07: Sheet `animateIn={expr}` (registry 22) (Claude; ask from app-home-tabs, Pavan's go)
 - `animateIn` can be a value, not only a literal: read when the sheet opens (its window fade and its slide). So an
   app uses one sheet for "opened by the user" (slides) and "restored with the screen" (at rest). Guide §12.
