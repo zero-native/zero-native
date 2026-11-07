@@ -2,7 +2,7 @@
 // wrong thing now builds right or fails with a hint.
 import { describe, expect, test } from "bun:test"
 import { type NodeSpec } from "@zero-native/template"
-import { compileModule } from "../src/compile"
+import { compileModule, transformOriginOf } from "../src/compile"
 
 function compile(src: string, statics: Record<string, unknown> = {}) {
   const templates: NodeSpec[] = []
@@ -340,5 +340,37 @@ describe("registry 16: includeFontPadding, borderStyle, textDecorationStyle (ask
     expect(err(`function A() { return <Box style={{ borderStyle: "double" }} /> }`)).toMatch(/solid.*dashed.*dotted/)
     expect(err(`function A() { return <Text>a <Text style={{ textDecorationStyle: "dashed" }}>b</Text></Text> }`))
       .toMatch(/isn't supported on a nested <Text> span/)
+  })
+})
+
+describe("transformOrigin (registry 20, ask R11 from the ZeroBill port)", () => {
+  test("RN's keywords and percents become x y fractions", () => {
+    expect(transformOriginOf("left")).toBe("0 0.5")
+    expect(transformOriginOf("right")).toBe("1 0.5")
+    expect(transformOriginOf("top")).toBe("0.5 0")
+    expect(transformOriginOf("center")).toBe("0.5 0.5")
+    expect(transformOriginOf("top left")).toBe("0 0") // either order, as CSS
+    expect(transformOriginOf("left bottom")).toBe("0 1")
+    expect(transformOriginOf("50% 100%")).toBe("0.5 1")
+    expect(transformOriginOf("25%")).toBe("0.25 0.5")
+    expect(transformOriginOf(["0%", "50%", 0])).toBe("0 0.5")
+  })
+  test("lengths, a z value, and nonsense fail with a hint", () => {
+    expect(transformOriginOf("10px 20px")).toMatchObject({ error: expect.stringMatching(/isn't a horizontal keyword or a percent.*percents/) })
+    expect(transformOriginOf([10, 20])).toMatchObject({ error: expect.any(String) })
+    expect(transformOriginOf("left top 5px")).toMatchObject({ error: expect.stringMatching(/z value/) })
+    expect(transformOriginOf("left right")).toMatchObject({ error: expect.any(String) })
+  })
+  test("it is written on the element, and a value known only at runtime fails", () => {
+    expect(props(`function A() { return <Box style={{ transformOrigin: "left", transform: [{ scaleX: 0.5 }] }} /> }`).props)
+      .toMatchObject({ transformOrigin: "0 0.5", scaleX: 0.5 })
+    expect(err(UI + `function A(p: { o: string }) { return <Box style={{ transformOrigin: p.o }} /> }`)).toMatch(/transformOrigin must be known at build time/)
+  })
+})
+
+describe("Shimmer colours (ask from the ZeroBill payment pass, 2026-11-07)", () => {
+  test("a brand-tinted sweep: baseColor and highlightColor keep their alpha, period kept", () => {
+    expect(props(`function A() { return <Shimmer baseColor="rgba(52,29,236,0.12)" highlightColor="rgba(52,29,236,0.28)" period={1000} /> }`))
+      .toMatchObject({ type: "Shimmer", props: { baseColor: "rgba(52,29,236,0.12)", highlightColor: "rgba(52,29,236,0.28)", period: 1000 } })
   })
 })

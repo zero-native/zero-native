@@ -90,6 +90,8 @@ internal fun ZnModal(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
                 }
             }
         }
+        // Closing (fade / slide out): the screen below takes the next tap at once (ZnSheet's passTouchesThrough).
+        SideEffect { window?.passTouchesThrough(!visible) }
         ModalBody(f, t, s, inst, visible, onGone = { shown = false })
         // A toast shown while the Modal is open draws in its window, above it (ZnToast.Host), as for a Sheet.
         val toastWindow = remember { ZnToast.openWindow() }

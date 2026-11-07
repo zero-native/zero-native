@@ -116,6 +116,34 @@ const REFRESH_PROPS = ["refreshing", "onRefresh", "refreshColor", "refreshBackgr
 // iOS shadow keys: React Native on Android ignores them (its shadows come from elevation and shadowColor), so zn
 // accepts and drops them too, and a shared style ports as it is (RN props pack 2).
 const IGNORED_STYLE_KEYS = new Set(["shadowOffset", "shadowOpacity", "shadowRadius"])
+
+/**
+ * RN / CSS transformOrigin → "x y" as fractions of the element's size (registry 20). One to three values, as a string
+ * ("left", "top left", "50% 100%") or an array (["0%", "50%"]): keywords left / center / right / top / bottom and
+ * percents. One value: a keyword sets its own axis, a percent sets x; the other axis is the centre. "top left" works in
+ * either order. A third value (z) must be 0. Lengths (dp, px) fail: zn's pivot is a fraction of the size.
+ */
+export function transformOriginOf(v: unknown): string | { error: string } {
+  const bad = (why: string) => ({ error: `transformOrigin ${JSON.stringify(v)}: ${why}. Use keywords (left, center, right, top, bottom) or percents, e.g. "left" or "0% 50%"` })
+  const parts = typeof v === "string" ? v.trim().split(/\s+/) : Array.isArray(v) ? v.map((x) => (typeof x === "number" ? String(x) : x)) : null
+  if (!parts || parts.length < 1 || parts.length > 3 || parts.some((p) => typeof p !== "string" || p === "")) return bad("must be 1 to 3 values")
+  if (parts.length === 3 && !/^0(px|dp)?$/.test(parts[2]!)) return bad("a z value other than 0 isn't supported")
+  const xs: Record<string, number> = { left: 0, center: 0.5, right: 1 }
+  const ys: Record<string, number> = { top: 0, center: 0.5, bottom: 1 }
+  const pct = (p: string) => (/^-?\d+(\.\d+)?%$/.test(p) ? Number(p.slice(0, -1)) / 100 : null)
+  let [a, b] = parts as string[]
+  if (b === undefined) {
+    if (a! in ys && a !== "center") return `0.5 ${ys[a!]}`
+    const x = xs[a!] ?? pct(a!)
+    return x === null || x === undefined ? bad(`"${a}" isn't a keyword or a percent`) : `${x} 0.5`
+  }
+  if ((a! in ys && a !== "center") || (b in xs && b !== "center")) [a, b] = [b, a!] // "top left" → "left top"
+  const x = xs[a!] ?? pct(a!)
+  const y = ys[b] ?? pct(b)
+  if (x === null || x === undefined) return bad(`"${a}" isn't a horizontal keyword or a percent`)
+  if (y === null || y === undefined) return bad(`"${b}" isn't a vertical keyword or a percent`)
+  return `${x} ${y}`
+}
 // RN's contentContainerStyle on <Scroll> / <List> (2026-11-05): only padding, which scrolls with the content.
 const PADDING_KEYS = new Set(["padding", "paddingHorizontal", "paddingVertical", "paddingTop", "paddingBottom", "paddingStart", "paddingEnd"])
 // Compose refuses a negative padding, and margin and border widths are drawn as padding: a negative value here made the
@@ -1075,6 +1103,13 @@ export function compileModule(
     }
     aliased?.delete(k) // a start / end key written after left / right replaces it
     switch (k) {
+      case "transformOrigin": {
+        // RN's keywords and percents → "x y" fractions (registry 20; ask R11). Native turns scale / rotate around it.
+        const origin = transformOriginOf(known())
+        if (typeof origin !== "string") return fail(at, origin.error)
+        props.transformOrigin = origin
+        return null
+      }
       case "flexGrow": {
         // RN's flexGrow: n shares the free space like zn's flex: n. (Two growing children with different content
         // widths split it a little differently: RN shares only what is left after their content.)

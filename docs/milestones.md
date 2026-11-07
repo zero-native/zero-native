@@ -125,6 +125,92 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-07: hitSlop on an absolute child measured the whole Stack (Claude; found by the phone steps)
+- **Bug:** a Pressable with `hitSlop` placed absolutely in a Stack took taps 100 dp away (a 24 dp icon with
+  `hitSlop={20}`). Since R29 (2026-11-05) an absolute child is laid out in a box the Stack's size and placed inside
+  it (`absoluteChild`); `WithHitSlop` measured outside that box, so its touch size was the Stack's plus the slop.
+- **Fix** (`ZnRenderer.kt`): measure after the parent's modifiers, where the press handling sits.
+- **Emulator:** `rn props pointer events slop` passes again (15 dp outside counts, 26 dp doesn't); before the fix a tap
+  100 dp right of the edge pressed it.
+- **Also:** the RN props lab's shimmer now shows only after a tap: a shimmer redraws every frame, and uiautomator then
+  takes ~8 s per screen read, so the phone steps timed out.
+
+### 2026-11-07: fetch pings its HTTP/2 connections; a closing Sheet passes taps through (Claude; asks from the ZeroBill payment pass via app-home-tabs, Pavan's go for the ping)
+- **PAY-5** (`ZnFetch.kt`): after a start in the background from the UPI result, one HTTP/2 connection to the API
+  went dead silently (on the Lava: ESTABLISHED, 7.6 KB never acknowledged, retransmitting; a new connection from the
+  phone worked, the app was allowed on the network). Every verify for minutes was queued on it; the pool only drops
+  idle connections. Now `pingInterval` 10 s: no answer by the next ping drops the connection and its calls. Not
+  closing on a timeout (it would also end healthy calls sharing it). Why the connection died is not known.
+  `ZnFetchPingTest`: a silent fake HTTP/2 server; with the ping the call fails in ~1 s and the next call opens a new
+  connection; without it the call waits its whole timeout and the dead connection stays pooled.
+- **Sheet / Modal** (`ZnSheet.kt`, `ZnModal.kt`): while closing, the window is not touchable or focusable
+  (`passTouchesThrough`), so the next tap reaches the screen below; one `onDismiss` per close. Lab case "Open offers
+  sheet" and step `rn props sheet close` (animations at 5x so the tap lands during the close).
+- **Shimmer `highlightColor`:** already built (step 3.7); only `components.md` missed it. Row added, compiler test.
+- Native: needs a new APK.
+- **Status bar:** the closing sheet's window takes the screen's bar icons at once (Pavan saw white icons ~1 s after a
+  close: the sheet's window stays on top until its slide ends, and Android takes the icons from it).
+- **Emulator:** `rn props sheet close` passes (the sheet and the dialog Modal; no second onDismiss). Measured: the
+  window stops taking taps 50-90 ms after "Continue" (the JS round trip); Android still routes taps by the old window
+  for ~150 ms more, so a tap within ~0.25 s of the close can still be lost; from ~0.29 s on, every tap got through.
+  Screenshots: bar icons white while open, dark 0.7 s into the close. The shimmer inside a `scaleX` 0.6 fill: the band
+  sweeps across the visible fill (squeezed by the same factor). Not run against the old code.
+- **Not checked:** the Lava; PAY-5 itself again.
+
+### 2026-11-07: A branch goes away before its parts update (core; ask from the ZeroBill payment pass via app-home-tabs, Pavan's go)
+- **Bug:** one store write `set({ sessionData: null, activeTransaction: null })` ran a slot inside
+  `{txn !== null && <TxnDetailsBody/>}` with `txn` null, before the branch removed the body: "Cannot read property
+  'merchant' of null" (caught and reported, not a crash). Effects ran in the order they went stale, and a part's
+  root is owned by the screen, not by the branch effect, so nothing put the branch first.
+- **Fix** (`signals.ts` `runTop`, `view.ts` `mountChild`): each part's root keeps a `guard`, the `when` / `insert` /
+  `each` / `<List>` effect that mounted it. Before an effect runs, flush runs the stale guards above it, outermost
+  first; if one removed the part, its effect doesn't run. Same as Solid's `runTop`; React gets it from rendering
+  top-down. JS only: no registry or host API change, reaches apps with their next bundle.
+- **Tests:** `packages/core/test/branch-order.test.ts`: `when`, `insert`, `each`, a branch in a branch (all four fail
+  without the fix), and a branch that stays open still updates once. All JS tests (1154) and types pass.
+- **Emulator (API 33):** all no-hands steps: 106 of 112 pass, 0 crashes. The 6 failures are the same with the fix
+  switched off: torch (no flash), a location timeout, and four steps that can't scroll to their tile (a swipe lands on
+  the sticky list in the RN props lab; the push step looks for a tile above the one it scrolled to). `rn props
+  pointer events slop` also measures the 24 dp hitSlop button as 277 dp wide, with or without R44: a real regression,
+  fixed the same day (next entry).
+- **Not checked:** the Lava; ZeroBill's TxnDetailsSheet itself (app-home-tabs scouts ZeroBill for the same shape).
+
+### 2026-11-07: R44 absolute child pinned on both sides; `transformOrigin` (registry 20) (Claude; asks from the ZeroBill payment pass via app-home-tabs)
+- **R44** (`ZnRenderer.kt`, Stack): an absolute child with `start` + `end` now has a set width for its children, as in
+  RN, so they stretch (a centred spinner inside one sat at the left; the scan screen's dim drew nothing). Not gated
+  by registry: a bug fix; an older APK keeps the old layout (the app's workaround stays harmless).
+- **R11 `transformOrigin`** (registry 20, prop 290): RN's keywords and percents, turned into "x y" fractions by the
+  compiler (`transformOriginOf`), Compose `graphicsLayer.transformOrigin` in both the static and the animated layer.
+  Physical left / right, as RN. Guide §68, rn-compatibility row.
+- **Tests:** compiler tests (keywords, either order, percents, arrays; px, z and nonsense fail; runtime value fails),
+  Kotlin `TransformOriginTest`, all JS tests (1149), types, runtime lint 0 errors, debug sample build.
+- **Emulator (API 33), RN props lab:** R44 dot centred (centre x 540.5 in a box centred at 540, and vertically);
+  `transformOrigin: "left"` + `scaleX: 0.5`: the bar fills the left half; with keyframes 0 → 1 it grows from the left
+  edge (two screenshots).
+- **Not checked:** the Lava; right-to-left.
+
+### 2026-11-07: R53 rest: no stray `main.hbc.*`, split template timing (Claude; asks from app-home-tabs, Pavan's go)
+- **zn-build:** hermesc's temp file (`main.hbc.<hex>`, left by a stopped build) once went into a ZeroBill AAB. hermesc
+  now writes into `<app>/build/`; the finished file is copied into the assets, and leftovers there are deleted at the
+  start of each build. Checked: a planted `main.hbc.dead01` was gone after `bun run sample:js`.
+- **Timing:** a second log line `template <asset> timing: started N ms after process start (waited W ms for zn-io);
+  read R ms, prepare P ms (K nodes), manifest M ms`. The old line stays as it was.
+- **Emulator (debug, just booted, slow: seconds, not ms):** sample, 232 templates / 1603 nodes: prepare 1.15–1.42 s,
+  read 0.07–0.71 s, manifest 30–90 ms. Only the shares mean anything; the Lava numbers decide the fix.
+- **Lava (app-home-tabs, ZeroBill zn app, staging release, speed-profile, 3 cold starts, built-in bundle):** started
+  70-101 ms after process start, zn-io wait 0-2 ms; read 41-48 ms, **prepare 121-140 ms (3156 nodes)**, manifest
+  ~1 ms; first frame (splash held) 329-398 ms. No `main.hbc.*` in the assets, the APK or the AAB.
+- **Where prepare goes (a JVM probe on ZeroBill's file, then deleted):** no single slow part. About 2 µs per node
+  warm on the JVM, spread over ~150 small field reads per node (on the Lava, cold, ~40 µs).
+- **Tried and taken out: prepare on 4 threads.** Lava: an even split, helpers on time, but all 4 threads took as long
+  as one (107-119 ms against 121-140): they wait on something shared, not found. A GC check on the emulator showed
+  11 MB allocated and 0 GCs, so GC is not proven either. Removed: no gain, more moving parts.
+- **Parked (Pavan, 2026-11-07: stop the micro-optimising).** The user-visible problem (a blank frame) is solved by
+  `ZnSplash`; prepare runs off the main thread behind the splash, and cold start is ~520 ms TotalTime. If start time
+  matters again: (1) store props without boxing (ids go to 289; `HashMap<Int, …>` makes an object per lookup above
+  127), (2) prepare on first use, route screens first. Kept: the one-line timing split, to spot a regression.
+- Gestures v1 plan: `docs/gestures-v1-plan.md`.
+
 ### 2026-11-07: `@zero-native/ad-id`, the Google advertising id (Claude; ask from the ZeroBill app via app-home-tabs, Pavan's go: for ad attribution)
 - **What:** an opt-in plugin, not part of device-info, because its library adds the `AD_ID` permission. `AdId.get()`
   answers `{ id, limitAdTracking }` and never rejects. `id` is null for all zeros (id deleted, or no `AD_ID` on

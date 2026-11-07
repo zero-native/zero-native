@@ -2351,3 +2351,20 @@ change, and what evidence would make you change it?"
 - **Not checked:** a phone; Android 7-11 (no system splash there); the time cost on a real cold start.
 - **Risk if wrong:** a start whose NAV STARTED never comes (a bundle that never calls `startApp`) always waits the full
   cap. The template-speed part of R53 (prepare faster) is still open; this only hides the blank frame.
+
+## 154. A branch runs before its parts: a `guard` on each part's root, and `runTop` in flush (core, 2026-11-07; ask from the ZeroBill payment pass, Pavan's go)
+- **What:** `mountChild` sets `root.guard` to the `when` / `insert` / `each` / `<List>` effect that mounted the part.
+  flush runs each queued effect through `runTop`: it walks up the owner chain, runs every stale guard it meets,
+  outermost first, and skips the effect if a guard disposed it.
+- **Why this way:**
+  - Solid's answer to the same problem (`runTop`), and the order React gives by rendering top-down.
+  - The part's root stays owned by the screen, not by the branch effect, as before: moving ownership would change
+    what one-shot work and cleanups belong to (second-opinions 150, 151). A pointer changes only the run order.
+  - The other fix, sorting the queue by depth, costs a sort on every flush and still needs a depth on each owner.
+- **Checked:** the four shapes in `branch-order.test.ts` fail without it and pass with it; all JS tests; the sample's
+  no-hands steps on the emulator.
+- **Not checked:** a guard that throws (it is reported as today; the part stays, and its effect then runs with the new
+  value, as before the fix). A `computed` inside a part is pulled by whoever reads it, not through `runTop`: a computed
+  read from outside the part can still run with the new value.
+- **Risk if wrong:** a screen that relied on a part's effect running before its branch (no known one). Cost: one walk
+  up the owner chain per effect run, usually 2-5 steps.

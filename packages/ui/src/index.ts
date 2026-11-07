@@ -135,6 +135,13 @@ export interface StyleProps {
     translateY?: number
     rotate?: string | number
   }>
+  /**
+   * RN transformOrigin (registry 20): the point that scale and rotate turn around (also for `animate` and keyframes).
+   * Keywords and percents, as RN: "left" (grows from the left edge), "right", "top", "bottom", "center" (default),
+   * "top left", "50% 100%", or ["0%", "50%"]. "left" / "right" are the physical sides, as in RN (not flipped for
+   * right-to-left). Lengths in dp aren't supported: use a percent. Fixed at build time.
+   */
+  transformOrigin?: string | Array<string | number>
 }
 
 export interface TextStyleProps {

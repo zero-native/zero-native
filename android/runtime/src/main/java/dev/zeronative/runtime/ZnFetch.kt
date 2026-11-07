@@ -49,6 +49,7 @@ import org.json.JSONObject
  * - Only idempotent methods may be retried by OkHttp. Other bodies are "one-shot": OkHttp never sends them twice.
  * - Redirects: followed (OkHttp drops `Authorization` across hosts), but never from HTTPS to HTTP.
  * - Pooled connections are closed when the default network changes (Wi-Fi ↔ mobile), and live only 30 s idle.
+ *   An HTTP/2 connection in use is checked every 10 s (ping); one that stops answering is dropped.
  * - Errors get a code (offline, dns, timeout, tls, ...), so apps and crash reports can tell them apart.
  */
 object ZnFetch : ZnModuleBase("Fetch") {
@@ -138,7 +139,25 @@ object ZnFetch : ZnModuleBase("Fetch") {
     private fun build(): OkHttpClient {
         built = true
         userAgent = buildUserAgent()
-        val builder = OkHttpClient.Builder()
+        val builder = baseBuilder()
+        configure?.invoke(builder)
+        for (p in plugins) builder.addInterceptor(PluginInterceptor(p))
+        val built = builder.build()
+        watchNetwork(built)
+        return built
+    }
+
+    /**
+     * How often an open HTTP/2 connection is checked. With no answer by the next check, OkHttp drops the connection and
+     * fails the calls on it, and the next call opens a new one. Without it a silently dead connection is used forever:
+     * ZeroBill PAY-5 (2026-11-07), a start in the background from the UPI result, every verify for minutes was written
+     * onto one connection the server never acknowledged, while a new connection worked.
+     */
+    internal const val PING_INTERVAL_MS = 10_000L
+
+    /** The shared client's own settings, before the app's [configure] and plugins (tests build it as it is). */
+    internal fun baseBuilder(pingIntervalMs: Long = PING_INTERVAL_MS): OkHttpClient.Builder =
+        OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             // Try IPv6 and IPv4 addresses together (RFC 8305) instead of waiting out a broken IPv6 route first.
             .fastFallback(true)
@@ -150,14 +169,10 @@ object ZnFetch : ZnModuleBase("Fetch") {
             .followSslRedirects(false) // never follow HTTPS → HTTP; send() turns it into an error
             // Mobile carriers drop idle NAT mappings after 30–60 s; reusing such a connection hangs. Default: 5 min.
             .connectionPool(ConnectionPool(5, 30, TimeUnit.SECONDS))
+            // A connection still in use is never idle, so the 30 s above never drops a dead one: check it (PAY-5).
+            .pingInterval(pingIntervalMs, TimeUnit.MILLISECONDS)
             .dispatcher(Dispatcher().apply { maxRequestsPerHost = 10 }) // default 5: the 6th call to a host waits
             .cookieJar(okhttp3.CookieJar.NO_COOKIES) // cookies are off (ARCHITECTURE §14)
-        configure?.invoke(builder)
-        for (p in plugins) builder.addInterceptor(PluginInterceptor(p))
-        val built = builder.build()
-        watchNetwork(built)
-        return built
-    }
 
     /** Closes pooled connections when the default network changes: they belong to the old network and would hang. */
     private fun watchNetwork(client: OkHttpClient) {

@@ -101,10 +101,20 @@ export function ready(inst: Instance): void {
  * Mounts a view as a child of `parent` at template node `anchor`, position `index`, owned by `owner`.
  * If building it throws, only this part fails (like Flutter's error widget, step 3.9): what it started is stopped,
  * what it already sent to native is removed, the error is reported, and the rest of the screen keeps working.
+ * `guard` is the effect that mounted it (when / insert / each / list): it runs before this part's own effects
+ * (signals.ts [runTop]), so the part is removed before it updates with a value the guard ruled out.
  */
-function mountChild(owner: Owner | null, make: () => View, parent: number, anchor: number, index: number): Mounted {
+function mountChild(
+  owner: Owner | null,
+  make: () => View,
+  parent: number,
+  anchor: number,
+  index: number,
+  guard: Owner | null = null,
+): Mounted {
   return runWithOwner(owner, () =>
     createRoot((dispose) => {
+      getOwner()!.guard = guard
       const id = allocInstanceId()
       let inst: Instance | null = null
       try {
@@ -151,11 +161,12 @@ export function insert(inst: Instance, anchor: number, value: () => unknown): vo
     const v = value()
     if (v === shown) return
     shown = v
+    const self = getOwner() // this effect: the guard of what it mounts
     untrack(() => {
       current?.dispose(true)
       current = null
-      if (typeof v === "function") current = mountChild(owner, v as () => View, inst.id, anchor, 0)
-      else if (isView(v)) current = mountChild(owner, () => v, inst.id, anchor, 0)
+      if (typeof v === "function") current = mountChild(owner, v as () => View, inst.id, anchor, 0, self)
+      else if (isView(v)) current = mountChild(owner, () => v, inst.id, anchor, 0, self)
       else if (v !== null && v !== undefined && v !== false && v !== true) {
         globalThis.__zn_log(3, `can't show ${typeof v} "${String(v)}" here: only JSX (text must be inside <Text>)`)
       }
@@ -208,11 +219,12 @@ export function when(inst: Instance, anchor: number, cond: () => unknown, a: () 
   effect(() => {
     const next = cond() ? 0 : b ? 1 : -1
     if (next === branch) return
+    const self = getOwner() // this effect: the guard of the branch it mounts
     untrack(() => {
       current?.dispose(true)
       current = null
       branch = next
-      if (next >= 0) current = mountChild(owner, next === 0 ? a : b!, inst.id, anchor, 0)
+      if (next >= 0) current = mountChild(owner, next === 0 ? a : b!, inst.id, anchor, 0, self)
     })
   })
 }
@@ -236,6 +248,7 @@ export function each<T>(
 
   effect(() => {
     const list = items() ?? []
+    const self = getOwner() // this effect: the guard of the rows it mounts
     untrack(() => {
       const keys: unknown[] = []
       const seen = new Set<unknown>()
@@ -274,7 +287,7 @@ export function each<T>(
           }
         } else {
           const item = itemsByKey.get(k)!
-          const mounted = mountChild(owner, () => row(item, i), inst.id, anchor, i)
+          const mounted = mountChild(owner, () => row(item, i), inst.id, anchor, i, self)
           next.set(k, { item, mounted })
           current.splice(i, 0, k)
         }
@@ -322,6 +335,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
   let last = LIST_INITIAL - 1
   let sent = false
   let pinned = new Set<number>() // sticky rows' indices
+  let dataEffect: Owner | null = null // the effect below: the guard of the rows (sync also runs from onRange)
 
   const sync = () => {
     const n = keys.length
@@ -341,7 +355,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
       const k = keys[i]
       if (mounted.has(k)) return
       const item = items[i]
-      const m = mountChild(owner, () => o.row(item, i), inst.id, node, 0)
+      const m = mountChild(owner, () => o.row(item, i), inst.id, node, 0, dataEffect)
       globalThis.__zn_listRow(inst.id, node, k, m.id)
       mounted.set(k, { item, m })
     }
@@ -352,6 +366,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
 
   effect(() => {
     const next = o.data() ?? []
+    dataEffect = getOwner()
     untrack(() => {
       const nextKeys: string[] = new Array(next.length)
       const nextTypes: number[] = new Array(next.length)

@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import android.view.Window
+import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -66,6 +68,23 @@ private const val KEEP_OPEN_MS = 400L
 private const val FLING_VELOCITY = 1200f
 /** Dragged down more than this part of its lowest height: it closes on release. */
 private const val DISMISS_FRACTION = 0.35f
+
+/**
+ * A Sheet's or Modal's window while it closes (its exit animation still plays): touches and Back go to the screen
+ * below at once, as in RN, so the first tap after the close isn't lost. Set back if it opens again.
+ */
+private tailrec fun android.content.Context.findActivityWindow(): Window? = when (this) {
+    is android.app.Activity -> window
+    is android.content.ContextWrapper -> baseContext.findActivityWindow()
+    else -> null
+}
+
+internal fun Window.passTouchesThrough(on: Boolean) {
+    val flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    if (on == ((attributes.flags and flags) == flags)) return
+    if (on) addFlags(flags) else clearFlags(flags)
+    if (BuildConfig.DEBUG) android.util.Log.i("zn", "sheet window: ${if (on) "passes taps to the screen (closing)" else "takes taps"}")
+}
 
 /**
  * A <Sheet> (ARCHITECTURE §9.2, §9.7, §10.3): a bottom sheet over the whole screen, in its own window so the scrim
@@ -87,6 +106,7 @@ internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
     if (visible && !shown) shown = true
     if (!shown) return
 
+    val activityView = LocalView.current
     Dialog(
         onDismissRequest = { /* handled by SheetBody's back handling below */ },
         properties = DialogProperties(
@@ -99,15 +119,27 @@ internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
         val view = LocalView.current
         val window = (view.parent as? DialogWindowProvider)?.window
         val lightSheet = (s.background ?: Color.White).luminance() > 0.5f
+        // The status bar icons the sheet's window has when it opens (it draws the scrim under the status bar).
+        val openStatusIcons = remember { window?.let { WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars } }
         SideEffect {
             window?.setDimAmount(0f) // our own scrim follows the drag
-            window?.let {
-                WindowCompat.setDecorFitsSystemWindows(it, false)
+            window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
+        }
+        SheetBody(f, t, s, inst, visible, window, onGone = { shown = false }) { closing ->
+            val w = window ?: return@SheetBody
+            val to = WindowCompat.getInsetsController(w, view)
+            // Android takes the bar icons from the top full-screen window, and the sheet's stays on top until its slide
+            // down ends: while it closes, the icons are the screen's, at once (Pavan saw white icons ~1 s after a close).
+            val app = activityView.context.findActivityWindow()?.let { WindowCompat.getInsetsController(it, activityView) }
+            if (closing && app != null) {
+                to.isAppearanceLightStatusBars = app.isAppearanceLightStatusBars
+                to.isAppearanceLightNavigationBars = app.isAppearanceLightNavigationBars
+            } else {
+                if (openStatusIcons != null) to.isAppearanceLightStatusBars = openStatusIcons
                 // The sheet is under the navigation bar: its buttons must contrast with the sheet, not the screen.
-                WindowCompat.getInsetsController(it, view).isAppearanceLightNavigationBars = lightSheet
+                to.isAppearanceLightNavigationBars = lightSheet
             }
         }
-        SheetBody(f, t, s, inst, visible, onGone = { shown = false })
         // A toast shown while the sheet is open draws in the sheet's window, above it (ZnToast.Host).
         val toastWindow = remember { ZnToast.openWindow() }
         DisposableEffect(toastWindow) { onDispose { ZnToast.closeWindow(toastWindow) } }
@@ -117,9 +149,19 @@ internal fun ZnSheet(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: Zn
 
 @Composable
 private fun SheetBody(
-    f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, visible: Boolean, onGone: () -> Unit,
+    f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, visible: Boolean, window: Window?,
+    onGone: () -> Unit, bars: (closing: Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    // The user asked to close (scrim, Back, drag) and native is waiting for JS's answer (KEEP_OPEN_MS).
+    var dismissing by remember { mutableStateOf(false) }
+    // Closing: the screen below takes the next tap at once, not after the slide down (ZeroBill payment pass: the
+    // first keypad tap after "Continue" was lost on the scrim, and sent onDismiss a second time).
+    val closing = !visible || dismissing
+    SideEffect {
+        window?.passTouchesThrough(closing)
+        bars(closing)
+    }
     val density = LocalDensity.current
     val currentVisible by rememberUpdatedState(visible)
     val springOpen = remember { spring<Float>(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow) }
@@ -163,11 +205,16 @@ private fun SheetBody(
                 scope.launch { offset.animateTo(restOffsets.getValue(detent), springOpen, velocity) }
                 return
             }
+            if (dismissing || !currentVisible) return // already closing: one onDismiss per close
+            dismissing = true
             scope.launch {
                 if (s.onDismiss != 0) ZnRuntime.dispatchEvent(inst.id, s.onDismiss)
                 offset.animateTo(closed, springClose, velocity)
                 delay(KEEP_OPEN_MS)
-                if (currentVisible) offset.animateTo(restOffsets.getValue(detent), springOpen)
+                if (currentVisible) {
+                    dismissing = false // JS kept it open: it takes touches again
+                    offset.animateTo(restOffsets.getValue(detent), springOpen)
+                }
             }
         }
 
@@ -198,6 +245,7 @@ private fun SheetBody(
         LaunchedEffect(visible, boxH) {
             if (contentH <= 0f) return@LaunchedEffect
             if (visible) {
+                dismissing = false // opened again while a user's dismiss waited (its wait was cancelled)
                 offset.animateTo(restOffsets.getValue(detent), springOpen)
             } else {
                 offset.animateTo(closed, springClose)

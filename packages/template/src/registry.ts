@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 19 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 20 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -43,6 +43,7 @@ export const REGISTRY_VERSION = 19 // 2: Anchor. 3: transforms, shadow, absolute
 //     Carousel with a height or flex gives its pages the full height, the dots at the bottom (CAROUSEL_FILL_SINCE).
 // 18: OtpInput (react-native-otp-entry's API, second-opinions 146): otpTheme, otpType, blurOnFilled, invalid, onFilled.
 // 19: List inverted (RN FlatList's `inverted`, for chats; ask R13, second-opinions 149).
+// 20: transformOrigin (RN's, keywords and percents; ask R11 from the ZeroBill port).
 
 export const Component = {
   Column: 1,
@@ -422,6 +423,11 @@ export const Prop = {
    * first in data). Built on Compose's reverseLayout, with no transform, so flings go the right way.
    */
   inverted: { id: 289, type: "bool" },
+  /**
+   * RN transformOrigin (registry 20): "x y", each a fraction of the element's size (0 0 = top left), written by the
+   * compiler from RN's keywords / percents. The pivot for scale and rotate. Absent: the centre.
+   */
+  transformOrigin: { id: 290, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -630,7 +636,7 @@ export const Added: {
     stickyHeaderIndices: 15,
     includeFontPadding: 16, borderStyle: 16, textDecorationStyle: 16,
     autoComplete: 17, otpTheme: 18, otpType: 18, blurOnFilled: 18, invalid: 18,
-    inverted: 19,
+    inverted: 19, transformOrigin: 20,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,

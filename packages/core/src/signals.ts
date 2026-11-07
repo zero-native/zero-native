@@ -24,6 +24,12 @@ export class Owner {
   cleanups: Cleanup[] | null = null
   disposed = false
   parent: Owner | null = null
+  /**
+   * The effect that decides whether this owner lives: a `when` / `insert` / `each` / `<List>` effect, for the part it
+   * mounted. flush runs it before anything below it, so a part goes away before it updates with a value its guard
+   * just ruled out (`txn && <Body/>`, then txn = null). As React does: parents first. See [runTop].
+   */
+  guard: Owner | null = null
 
   own(child: Owner) {
     child.parent = this
@@ -167,11 +173,33 @@ function flush() {
     while (queue.length > 0) {
       const effects = queue
       queue = []
-      for (const e of effects) e.updateIfNecessary()
+      for (const e of effects) runTop(e)
     }
   } finally {
     flushing = false
   }
+}
+
+/**
+ * Runs a queued effect, but first the stale guards above it, outermost first (Solid's runTop). Effects are queued in
+ * the order they went stale, so without this a part's slot could run before the branch that removes the part: one
+ * update `set({ session: null, txn: null })` ran `txn()!.merchant` inside `txn && <Body/>` (ZeroBill payment pass,
+ * 2026-11-07). If a guard disposes the effect, the effect doesn't run.
+ */
+function runTop(e: Computation) {
+  if (e.disposed) return
+  let guards: Computation[] | null = null
+  for (let o = e.parent; o; o = o.parent) {
+    const g = o.guard
+    if (g instanceof Computation && g.state !== CLEAN && !g.disposed) (guards ??= []).push(g)
+  }
+  if (guards) {
+    for (let i = guards.length - 1; i >= 0; i--) {
+      guards[i].updateIfNecessary()
+      if (e.disposed) return
+    }
+  }
+  e.updateIfNecessary()
 }
 
 function runSafely(fn: () => void, what: string) {

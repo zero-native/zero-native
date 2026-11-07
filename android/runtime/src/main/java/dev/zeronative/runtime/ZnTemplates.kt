@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
@@ -37,14 +39,30 @@ object ZnTemplates {
         val state = mutableStateOf<ZnBundle?>(null)
         files[asset] = state
         ZnBundles.init(context)
+        val posted = SystemClock.uptimeMillis()
         io.post {
             val t0 = System.nanoTime()
+            val queued = SystemClock.uptimeMillis() - posted
+            val startedAt = SystemClock.uptimeMillis() - Process.getStartUptimeMillis()
             // From the running bundle: the APK's assets or a downloaded OTA bundle (ZnBundles, docs/ota.md). A downloaded
             // bundle's templates were already read (and their ids checked) while choosing it.
-            val bundle = load(asset, ZnBundles.running, ZnBundles.takeTemplateFile(asset))
-            val ms = (System.nanoTime() - t0) / 1e6
+            // The same steps as [load], timed one by one (R53, 2026-11-07: where a big app's start time goes).
+            val r = ZnBundles.running
+            val preRead = ZnBundles.takeTemplateFile(asset)
+            val f = preRead ?: TemplateReader.read(checkNotNull(ZnBundles.map(asset, r)) { "bundle $r has no $asset" })
+            val t1 = System.nanoTime()
+            val templates = templatesOf(f)
+            val t2 = System.nanoTime()
+            val bundle = readManifest("$asset.json", templates, r)
+            val t3 = System.nanoTime()
+            val ms = (t3 - t0) / 1e6
             Log.i(TAG, "template $asset: ${bundle.templates.size} template(s), ${bundle.routes.all.size} route(s) " +
                 "read and prepared in %.2f ms".format(ms))
+            Log.i(TAG, ("template $asset timing: started %d ms after process start (waited %d ms for zn-io); " +
+                "read %.2f ms (%s), prepare %.2f ms (%d nodes), manifest %.2f ms").format(
+                    startedAt, queued,
+                    (t1 - t0) / 1e6, if (preRead != null) "already read while choosing the bundle" else "from the file",
+                    (t2 - t1) / 1e6, f.templates.sumOf { it.component.size }, (t3 - t2) / 1e6))
             main.post {
                 state.value = bundle
                 waiting.remove(asset)?.forEach { it(bundle) }

@@ -1,6 +1,6 @@
 // A dev screen for RN props pack 2: React Native props, styles and components, with their RN names. Each check logs
 // one "rn-props ..." line; the phone check (tools/plugin-phone/rnprops.ts) reads those lines, so keep their wording.
-import { Box, Carousel, Column, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Stack, StatusBar, StyleSheet, Svg, Text, TextField } from "@zero-native/ui"
+import { Box, Carousel, Column, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField } from "@zero-native/ui"
 import { Alert, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
@@ -57,6 +57,8 @@ export function RnPropsLabScreen() {
   const wide = signal(false)
   const dialog = signal(false)
   const page = signal(false)
+  const shimmerOn = signal(false)
+  const sheet = signal(false) // a closing Sheet passes the next tap to the page (ZeroBill payment pass)
   const note = signal("")
   const lightBars = signal(false)
   const spanHot = signal(false)
@@ -89,6 +91,39 @@ export function RnPropsLabScreen() {
           <Box testID="fill-bar" style={{ position: "absolute", start: 16, end: 16, bottom: 8, height: 24, borderRadius: 6, backgroundColor: "#16A34A" }} />
           <Box testID="fill-side" style={{ position: "absolute", top: 8, bottom: 8, end: 8, width: 12, borderRadius: 6, backgroundColor: "#F59E0B" }} />
         </Stack>
+        {/* R44 (2026-11-07): an absolute child pinned on four sides stretches its children; the dot is centred. */}
+        <Stack testID="r44-stack" style={{ width: "100%", height: 80, backgroundColor: "#E5E7EB", borderRadius: 12 }}>
+          <Column style={{ position: "absolute", top: 8, start: 8, end: 8, bottom: 0 }}>
+            <Column style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+              <Box testID="r44-dot" style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "#4F46E5" }} />
+            </Column>
+          </Column>
+        </Stack>
+        {/* R11 (registry 20): transformOrigin "left": the bar is half width from the LEFT edge, not the middle. */}
+        <Stack testID="origin-track" style={{ height: 24, backgroundColor: "#E5E7EB", borderRadius: 6 }}>
+          <Box testID="origin-left" style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0, backgroundColor: "#16A34A", transformOrigin: "left", transform: [{ scaleX: 0.5 }] }} />
+        </Stack>
+        {/* The same with keyframes (the ZeroBill UPI tile's fill): it grows from the left edge, slowly, and holds. */}
+        <Stack style={{ height: 24, backgroundColor: "#E5E7EB", borderRadius: 6 }}>
+          <Box
+            testID="origin-grow"
+            animate={{ scaleX: { duration: 10000, keyframes: [0, 0.5, 1], repeat: "forever" } }}
+            style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0, backgroundColor: "#4F46E5", transformOrigin: "left" }}
+          />
+        </Stack>
+        {/* The UPI tile's shimmer (old Flutter app): a brand-tinted sweep inside a fill scaled from the left. Only
+            after a tap: a shimmer redraws every frame, and uiautomator then waits ~8 s for each dump (phone steps). */}
+        <HoldTile label={shimmerOn() ? "Hide shimmer fill" : "Show shimmer fill"} onPress={() => shimmerOn.set(!shimmerOn())} />
+        {shimmerOn() && (
+          <Stack style={{ height: 56, backgroundColor: "#FFFFFF", borderRadius: 12 }}>
+            <Box
+              testID="shimmer-fill"
+              style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0, transformOrigin: "left", transform: [{ scaleX: 0.6 }] }}
+            >
+              <Shimmer baseColor="rgba(52,29,236,0.12)" highlightColor="rgba(52,29,236,0.28)" period={1000} style={{ width: "100%", height: "100%" }} />
+            </Box>
+          </Stack>
+        )}
         <Text testID="tt-upper" textTransform="uppercase" fontSize={14} color={c.ink}>
           {`pay ${name()}`}
         </Text>
@@ -369,6 +404,16 @@ export function RnPropsLabScreen() {
         <PropsTitle text="Modal" />
         <HoldTile label="Open dialog modal" onPress={() => dialog.set(true)} />
         <HoldTile label="Open page modal" onPress={() => page.set(true)} />
+        {/* A Sheet over the page: after "Continue", the very next tap on the page counts, even under the sheet still
+            sliding down (ZeroBill: the first keypad tap after closing the offers sheet was lost). */}
+        <HoldTile label="Open offers sheet" onPress={() => sheet.set(true)} />
+        <HoldTile label="Page tap" onPress={() => say("page tap")} />
+        <Sheet visible={sheet()} onDismiss={() => say("sheet dismissed")} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+          <Text fontSize={16} fontWeight={700} color={c.ink}>
+            2 offers on this store
+          </Text>
+          <HoldTile label="Continue to checkout" onPress={() => sheet.set(false)} />
+        </Sheet>
         {/* A centred dialog with the app's own look: transparent, fade, the dim is the app's own Box. */}
         <Modal
           visible={dialog()}

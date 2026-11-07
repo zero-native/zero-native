@@ -410,6 +410,56 @@ export const steps: Step[] = [
     },
   },
   {
+    // ZeroBill payment pass: the first keypad tap after closing the offers sheet was lost on the closing sheet's scrim
+    // (and sent onDismiss again). Animations at 5x, so the close is still playing when the page tap comes.
+    name: "rn props sheet close",
+    run: async () => {
+      await lab()
+      const scale = shell("settings", "get", "global", "animator_duration_scale").trim()
+      shell("settings", "put", "global", "animator_duration_scale", "5")
+      // Scrolls the page by its left padding (16 dp): a swipe in the middle lands on the sticky list and scrolls that.
+      const onPage = async (label: string) => {
+        for (let i = 0; i < 30; i++) {
+          const t = texts().find((x) => x.text === label)
+          if (t && t.y < 2250) return t
+          shell("input", "swipe", "20", "1500", "20", "800", "600")
+          await sleep(500)
+        }
+        throw new Error(`no "${label}" on the page: ${texts().map((x) => x.text).join(" | ")}`)
+      }
+      try {
+        await onPage("Open offers sheet")
+        await onPage("Page tap")
+        await sleep(1500) // the scroll settles: positions read before it are off
+        const page = await onPage("Page tap")
+        const tapThenPage = async (button: string) => {
+          const b = texts().find((t) => t.text === button)
+          check(b, `no "${button}" on screen`)
+          clearLog()
+          // A person's next tap, ~0.4 s later (the close still plays for ~1.5 s at 5x). Android routes taps by the old
+          // window for ~0.25 s after it stops taking them (measured on the emulator), so a faster tap can still be lost.
+          shell(`input tap ${b.x} ${b.y}; sleep 0.3; input tap ${page.x} ${page.y}`)
+          ok(`page takes the tap right after "${button}"`, await expectLog(/rn-props page tap/, 4000))
+          await sleep(2500) // the close ends
+          check(lines(/rn-props sheet dismissed/).length === 0, `the closing sheet sent onDismiss: ${lines(/rn-props sheet dismissed/).join(" | ")}`)
+        }
+        const open = await onPage("Open offers sheet")
+        shell("input", "tap", String(open.x), String(open.y))
+        await see("2 offers on this store")
+        await sleep(2500) // the open ends
+        await tapThenPage("Continue to checkout")
+        const dialogTile = await onPage("Open dialog modal")
+        shell("input", "tap", String(dialogTile.x), String(dialogTile.y))
+        await see("Pay ₹120 to Ravi Stores?")
+        await sleep(1500)
+        await tapThenPage("Close modal")
+      } finally {
+        if (scale && scale !== "null") shell("settings", "put", "global", "animator_duration_scale", scale)
+        else shell("settings", "delete", "global", "animator_duration_scale")
+      }
+    },
+  },
+  {
     name: "rn props modal",
     run: async () => {
       await lab()

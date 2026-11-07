@@ -136,6 +136,7 @@ known at build time (section 0).
 | `overflow` | same | different | `visible` or `hidden` only (`scroll` is missing). |
 | `zIndex` | same | different | Inside `Stack`, and since registry 16 (2026-11-05) on a child of `Column`, `Row`, `Box`, `Pressable`: orders it among its siblings, as RN. Not in `Scroll`, `List`, `Carousel` (a build error). |
 | `transform` | same | different | `scale`, `scaleX`, `scaleY`, `translateX`, `translateY`, `rotate` (`"45deg"` or a number). zn always draws move → rotate → scale, one value per key: a list whose RN order would draw differently (a scale or rotate before a move, scaleX / scaleY before rotate, a key twice) is a build error (since 2026-11-05). No `skew`, `perspective`, `matrix`. |
+| `transformOrigin` | same | built (registry 20, 2026-11-07) | Keywords and percents (`"left"`, `"top left"`, `"50% 100%"`, `["0%", "50%"]`), fixed at build time. Used by scale, rotate, `animate` and keyframes. Lengths (px / dp) and a z value other than 0 are build errors. `left` / `right` are physical, as RN. Guide §68. |
 | `backgroundImage: "linear-gradient(...)"` | same | same | Build-time only. Not for radial gradients. |
 | `color`, `fontSize`, `fontStyle`, `letterSpacing`, `lineHeight`, `textDecorationLine`, `numberOfLines` | same | same | `numberOfLines` is both a prop and a style key. |
 | `fontWeight` | same | different | Numbers 100–900 in steps of 100, `"normal"`, `"bold"`. Strings like `"500"` work too (`compiler/src/compile.ts` `fontWeight`). |

@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.layout
@@ -195,6 +196,11 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val translateY = num(Registry.Prop.TRANSLATE_Y) ?: 0f
     val rotate = num(Registry.Prop.ROTATE) ?: 0f
     private val hasTransform = scaleX != 1f || scaleY != 1f || translateX != 0f || translateY != 0f || rotate != 0f
+    /**
+     * RN transformOrigin (registry 20): the pivot of scale and rotate, as fractions of the size ("0 0.5" = the left
+     * edge's middle; the compiler writes it). Absent or unreadable: the centre, as before.
+     */
+    val transformOrigin: TransformOrigin = parseTransformOrigin(p[Registry.Prop.TRANSFORM_ORIGIN] as String?)
     // The parts of scaleX / scaleY above, kept apart because each can have its own slot (step 3.6).
     val scaleBase = num(Registry.Prop.SCALE) ?: 1f
     val scaleXOnly = num(Registry.Prop.SCALE_X) ?: 1f
@@ -575,21 +581,25 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         aspectRatio?.let { m = m.aspectRatio(it) }
         if (layer != null) {
             // Values that change at runtime (slots, animations): read here, in the draw phase (step 3.6).
+            val origin = transformOrigin
             m = m.graphicsLayer {
                 this.alpha = layer.alpha()
                 this.scaleX = layer.scaleX()
                 this.scaleY = layer.scaleY()
                 rotationZ = layer.rotate()
+                transformOrigin = origin
                 translationX = layer.translateX().dp.toPx()
                 translationY = layer.translateY().dp.toPx()
             }
         } else if (opacity < 1f || hasTransform) {
             val staticAlpha = opacity
+            val origin = transformOrigin
             m = m.graphicsLayer {
                 this.alpha = staticAlpha
                 this.scaleX = this@ZnNodeSpec.scaleX
                 this.scaleY = this@ZnNodeSpec.scaleY
                 rotationZ = rotate
+                transformOrigin = origin
                 translationX = translateX.dp.toPx()
                 translationY = translateY.dp.toPx()
             }
@@ -805,6 +815,12 @@ class ZnTemplate internal constructor(val raw: RawTemplate, internal val svgs: Z
  * with colours as ARGB numbers and enums as their numbers. Unset fields inherit the outer Text's style.
  */
 /** Registry 16: which spans have onPress (`"p": 1`, core text-spans.ts), by index. */
+/** "x y" fractions (registry 20 transformOrigin, written by the compiler) → Compose's pivot; else the centre. */
+internal fun parseTransformOrigin(s: String?): TransformOrigin {
+    val parts = s?.trim()?.split(' ')?.mapNotNull { it.toFloatOrNull() } ?: return TransformOrigin.Center
+    return if (parts.size == 2) TransformOrigin(parts[0], parts[1]) else TransformOrigin.Center
+}
+
 internal fun parseSpanPresses(json: String): BooleanArray {
     val list = org.json.JSONArray(json)
     return BooleanArray(list.length()) { i -> list.optJSONObject(i)?.optInt("p", 0) == 1 }

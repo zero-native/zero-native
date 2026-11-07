@@ -13,7 +13,7 @@
 // <appDir>/build/main.js.map). The map maps release stack traces back to TSX (`bun run ota symbolicate`, step 4.8); it is
 // never part of the bundle, so it must not go inside --out.
 import { basename, join, resolve } from "node:path"
-import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import { parseArgs } from "node:util"
 import { buildApp } from "../compiler/src"
 import { bytecodeVersion, hermesc } from "./hermesc"
@@ -60,7 +60,13 @@ export async function znBuild(defaults: { appDir?: string; name?: string; assets
 
   const jsPath = join(tmpDir, "main.js")
   await Bun.write(jsPath, app.js)
-  await hermesc(jsPath, join(assets, "main.hbc"))
+  // hermesc writes to a temp file next to its output (main.hbc.<hex>) and renames it at the end. A stopped build
+  // left one in the assets once, and it went into an AAB (R53, 2026-11-07). So hermesc writes into build/, the
+  // finished file is copied in, and leftovers in the assets are deleted.
+  for (const f of readdirSync(assets)) if (/^main\.hbc\..+/.test(f)) rmSync(join(assets, f), { force: true })
+  const hbcBuilt = join(tmpDir, "main.hbc")
+  await hermesc(jsPath, hbcBuilt)
+  copyFileSync(hbcBuilt, join(assets, "main.hbc"))
   console.log(`${name}: wrote main.hbc`)
 
   // The app's own images (`asset:` paths) are part of the bundle, so an OTA update can change or add them too.

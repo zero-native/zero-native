@@ -129,6 +129,7 @@ A standalone rectangular or rounded skeleton placeholder component.
 | Prop | Type | Dynamic Slot | Default | Description |
 |---|---|---|---|---|
 | `baseColor` | `string \| number` | No | `#E5E7EB` | Base background color of the placeholder. |
+| `highlightColor` | `string \| number` | No | white at 55 % | Colour of the moving band. For a brand-tinted sweep, give both colours the brand with their own alpha (`rgba(52,29,236,0.12)` → `rgba(52,29,236,0.28)`). |
 | `period` | `number` | No | `1200` | Sweep period in milliseconds. |
 | `style` | `Style` | No | — | Dimensions (`width`, `height`, `borderRadius`). |
 

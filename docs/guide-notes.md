@@ -302,6 +302,10 @@ const pickerOpen = signal(false)
 - Style the sheet's content with `style` (padding, gap); its background is white unless you set `backgroundColor`.
   Don't set `borderRadius` on it (the top corners are rounded for you).
 - Close the sheet **before** navigating (`pickerOpen.set(false); nav.push(...)`), as in the sample.
+- **Know:** once it starts closing (`visible` false, or the user dismissed it), the screen below takes taps and Back at
+  once, while the sheet still slides down; so does a `<Modal>` fading out. `onDismiss` fires once per close.
+  Since 2026-11-07; before, the first tap after the close was lost on the sheet's scrim (ZeroBill's keypad after
+  "Continue to checkout") and sent `onDismiss` again.
 
 ## 13. Native modules: calling your own Kotlin (Swift later) code (built: foundations)
 ```ts
@@ -2454,3 +2458,23 @@ const { id, limitAdTracking } = await AdId.get()   // never rejects; id null whe
   **Why:** Play's advertising id policy allows ads and analytics only; breaking it can get the app removed.
 - **Know:** with `limitAdTracking` true the id can still be there (Android 11 and older). zn gives it to the app on
   purpose (Pavan, 2026-11-07): the app decides, within Play's rules (README).
+
+## 68. Grow from an edge: `transformOrigin` (registry 20)
+```tsx
+<Box style={{ transformOrigin: "left", transform: [{ scaleX: 0.5 }] }} />                       // half width, from the left
+<Box animate={{ scaleX: { duration: 2400, keyframes: [0, 0.42, 0.6, 1] } }} style={{ transformOrigin: "left" }} />
+```
+- **Do** use it for a fill that grows from one side (a progress fill, the UPI tile's tint): `scaleX` with
+  `transformOrigin: "left"`. **Why:** scale and rotate turn around the centre by default, so the fill grows from the
+  middle outwards. Animating `width` instead re-measures the layout every frame.
+- **Know:** keywords and percents only, fixed at build time; `"left"` / `"right"` are the physical sides, as in RN
+  (not flipped for right-to-left). A length (`"10px"`) is a build error: use a percent.
+
+## 69. `cond && <Part/>`: the part goes away before it sees the new value (core)
+```tsx
+{txn() !== null && <TxnDetailsBody txn={txn()!} />}   // set({ session: null, txn: null }): the body is removed first
+```
+- **Know:** when one update both closes a branch (`&&`, `? :`, `{props.children}`, a list row whose item is gone) and
+  changes what the part reads, the branch runs first and removes the part, as in React. The part's slots and effects
+  don't run with the value the condition ruled out. Since 2026-11-07; before that, the `!` inside could throw.
+- **Don't** rely on a part's effect running before its parent's condition: parents decide first.

@@ -143,12 +143,16 @@ private fun ZnNode(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, n: Int,
     val stops = pe == Registry.PointerEvents.AUTO || pe == Registry.PointerEvents.BOX_ONLY ||
         (pe == POINTER_EVENTS_UNSET && s.absoluteLayer)
     val blocked = if (selfTouch && stops) outer.znBlockTouches() else outer
-    val mod = if (s.hasImpression) blocked.then(impression(s, inst)).then(chain) else blocked.then(chain)
+    val own = if (s.hasImpression) impression(s, inst).then(chain) else chain
+    val mod = blocked.then(own)
     val kidsOff = touchOff || pe == Registry.PointerEvents.NONE || pe == Registry.PointerEvents.BOX_ONLY
     val slop = s.hitSlop
     if (slop != null && selfTouch && s.type == Registry.Component.PRESSABLE) {
         WithHitSlop(slop, s.margin) { measure ->
-            ZnNodeChildren(f, t, inst, n, s, measure.then(mod), definiteWidth, touchOff, kidsOff)
+            // Measured after the parent's modifiers: an absolute child in a Stack is laid out in a box the Stack's size
+            // and placed inside it (absoluteChild), so measuring outside that box gave the Stack's size, and a tap
+            // 100 dp away still pressed a 24 dp icon (found 2026-11-07; broken since R29, 2026-11-05).
+            ZnNodeChildren(f, t, inst, n, s, blocked.then(measure).then(own), definiteWidth, touchOff, kidsOff)
         }
     } else {
         ZnNodeChildren(f, t, inst, n, s, mod, definiteWidth, touchOff, kidsOff)
@@ -229,7 +233,10 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                     }
                 }
                 child.zIndex?.let { m = m.zIndex(it) }
-                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
+                // R44 (2026-11-07): an absolute child pinned on both sides (start + end) has a set width, as in RN, so
+                // its own children stretch to it. Before, a centred spinner inside one sat at the left.
+                val pinnedW = child.absolute && child.start != null && child.end != null
+                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null || pinnedW)
             }
         }
         Registry.Component.ANCHOR -> Unit // expanded by the parent (childRefs)
