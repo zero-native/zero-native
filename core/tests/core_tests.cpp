@@ -2,7 +2,9 @@
 // the NDK, pushes it to the device and runs it. Exit code 0 = all passed.
 // They use a fake engine and a fake platform, so they test the runtime rules without Hermes.
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -28,6 +30,13 @@ namespace {
 
 int g_failed = 0;
 int g_checks = 0;
+
+// Base folder for test files: $ZN_TEST_DIR if set (the Mac, the iOS simulator), else the phone's /data/local/tmp
+// (tools/run-core-tests.ps1).
+std::string testPath(const char* name) {
+  const char* base = std::getenv("ZN_TEST_DIR");
+  return std::string(base && *base ? base : "/data/local/tmp") + "/" + name;
+}
 
 #define CHECK(cond)                                                              \
   do {                                                                           \
@@ -56,8 +65,8 @@ struct FakePlatform : zn::Platform {
   }
   std::vector<uint32_t> cancelled;
   void cancelNative(uint32_t id) override { cancelled.push_back(id); }
-  std::string flowStoreDir() override { return "/data/local/tmp/zn-flowstore-test"; }
-  std::string storageDir() override { return "/data/local/tmp/zn-storage-test"; }
+  std::string flowStoreDir() override { return testPath("zn-flowstore-test"); }
+  std::string storageDir() override { return testPath("zn-storage-test"); }
   double nowMs() override { return 0; }
 };
 
@@ -186,14 +195,14 @@ void testNav() {
   Harness h;
   h.engine->onCall = [](zn::HostApi& host, std::string_view, std::span<const zn::Value>) {
     host.nav(1, 3, 2, zn::Value::null());
-    host.nav(11, 3, 2, zn::Value::null());  // 9 is RESTORE (host API 4), 10 is BACK_WANTED (bottom tabs)
+    host.nav(12, 3, 2, zn::Value::null());  // 9 RESTORE (host API 4), 10 BACK_WANTED (bottom tabs), 11 LAYER
   };
   h.runtime.dispatchEvent(0, 2, zn::Value::null());
   std::vector<uint8_t> out = h.runtime.takeBatch();
   Reader r2{out};
   r2.pos += 4;
   CHECK(r2.get<uint32_t>() == 1);
-  CHECK(!h.platform.logs.empty() && h.platform.logs.back().find("unknown kind 11") != std::string::npos);
+  CHECK(!h.platform.logs.empty() && h.platform.logs.back().find("unknown kind 12") != std::string::npos);
 }
 
 void testListOps() {
@@ -287,7 +296,8 @@ void testUtf8() {
 
 void testStorage() {
   std::printf("storage: tagged values in MMKV, keys, delete, clear, separate stores\n");
-  const char* dir = "/data/local/tmp/zn-storage-test";
+  const std::string dirPath = testPath("zn-storage-test");
+  const char* dir = dirPath.c_str();
   mkdir(dir, 0700);
   std::vector<std::string> logs;
   zn::Storage s(dir, [&](int, std::string_view m) { logs.emplace_back(m); });
@@ -335,7 +345,8 @@ void testStorage() {
 // Each round uses a new store id: in single-process mode MMKV never re-reads a file it already has open.
 void testStorageKill() {
   std::printf("storage: killed mid-write 100 times, every value still reads back whole\n");
-  const char* dir = "/data/local/tmp/zn-storage-kill";
+  const std::string dirPath = testPath("zn-storage-kill");
+  const char* dir = dirPath.c_str();
   mkdir(dir, 0700);
   std::mt19937 rng(7);
   int rounds = 0, good = 0, recovered = 0;
@@ -411,11 +422,12 @@ void testStorageKill() {
 
 // ---- FlowStore (ARCHITECTURE §13.2) --------------------------------------------------------------------------------
 
-const char* kFsDir = "/data/local/tmp/zn-flowstore-test";
+const std::string kFsDirPath = testPath("zn-flowstore-test");
+const char* kFsDir = kFsDirPath.c_str();
 
 void freshDir() {
-  std::string cmd = std::string("rm -rf ") + kFsDir;
-  std::system(cmd.c_str());
+  std::error_code ec;  // std::system is unavailable on iOS
+  std::filesystem::remove_all(kFsDir, ec);
   mkdir(kFsDir, 0700);
 }
 
@@ -588,7 +600,13 @@ void testFlowStoreReserve() {
     close(out);
     rename(sparse.c_str(), p.c_str());
   }
-  CHECK(!fullyReserved("old"));
+  // ext4 / f2fs (Android) leave a hole here. APFS backs small files fully (checked 2026-11-08: a 16 KB file has no
+  // hole, a 100 MB one does), so on Apple the fill-in below has nothing to fill.
+  const bool hole = !fullyReserved("old");
+#ifdef __ANDROID__
+  CHECK(hole);
+#endif
+  if (!hole) std::printf("  (no hole: this file system backs small files fully; the fill-in is not tested here)\n");
   {
     zn::FlowStore fs(kFsDir, 8192);
     CHECK(fs.read("old").payload == "first");

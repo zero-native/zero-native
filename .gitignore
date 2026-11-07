@@ -58,3 +58,7 @@ test-kit/offers-data.json
 # Firebase config of the "zero-native-sample" project: never committed. The sample builds without it (Firebase off).
 android/sample/google-services.json
 **/google-services.json
+
+# Hermes for Apple platforms (bun run tools/fetch-hermes-apple.ts)
+ios/third_party/hermes/
+core/build-apple/

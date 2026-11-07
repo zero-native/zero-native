@@ -132,7 +132,8 @@ The C++ core, Hermes and the template format are shared. **The iOS host doesn't 
   fully on server verify and coming back to the app. The "never trust the UPI result, always verify" rule fits, but
   the screens and timings change.
 - [view] Size: about as much work as Android milestones 1–3 plus the plugins, minus the design work. Months, not weeks.
-  Start only after Android is proven in the field.
+  ~~Start only after Android is proven in the field.~~ Started 2026-11-08 (Pavan): steps i.0–i.4 in
+  `milestones.md`; renderer mixes SwiftUI and UIKit (`ARCHITECTURE.md` §20).
 
 ## E. Beyond code
 - [ ] **Bus factor:** today it is Pavan plus Claude. A human Android or iOS expert reviewing `second-opinions.md`

@@ -972,7 +972,21 @@ Comparisons with the RN app in `RESULTS.md` are directional only: cold start and
 full app, and the RN tap-latency figures are estimates (the RN app has no tap instrumentation).
 
 ## 20. iOS notes (design is checked against these from day one)
-- Hermes runs on iOS as an interpreter; no JIT is needed (and Apple forbids it).
+**Renderer: SwiftUI and UIKit mixed (decided 2026-11-08, Pavan).** "SwiftUI on iOS" (§1) now means SwiftUI by
+default, with UIKit wherever SwiftUI can't be driven the way the templates need. Templates don't depend on the
+toolkit, so the choice is made per component, from the i.1 spike (`docs/milestones.md`), not up front. Expected:
+- **UIKit:** the back stack (`UINavigationController`, because JS owns the stack: §11), controlled text input
+  (`UITextField` / `UITextView`, OtpInput), possibly long lists (`UICollectionView`).
+- **SwiftUI:** what is inside a screen: text, stacks, images, small components, through one `Layout` of our own for
+  Column / Row so flex and the fixed style order match Compose (`docs/styling-and-layout.md`).
+- Why: SwiftUI decides more on its own than Compose does (navigation path changes from outside, cursor in a
+  controlled field, list cells). React Native, Lynx and Valdi all draw with UIKit for the same reasons.
+- **Why iOS at all:** zn's first reason, download size on low-end Android phones, matters little on iOS. On iOS the
+  win is one codebase, OTA and native UI. Judge the iOS track on those, not on size.
+
+- Hermes runs on iOS as an interpreter; no JIT is needed (and Apple forbids it). Meta publishes it as
+  `com.facebook.hermes:hermes-ios` on Maven Central at the same version as `hermes-android`, so the same `hermesc`
+  bytecode can run on both [check in i.1].
 - One `SlotCell` object per slot (9.1). Changes only on the main actor.
 - `NavigationStack(path:)` for the back stack; sheets with `presentationDetents`.
 - Process death on iOS (jetsam) follows the same FlowStore and restore rules.
@@ -1141,6 +1155,7 @@ zero-native/
 | 2026-11-04 | Crashlytics phone step for an OTA bundle's error (690f5bd; test tool only, no product code): `ZN_OTA=1 bun run tools/plugin-phone.ts crashlytics` builds a bundle into a test store of its own, serves it on this computer only, and checks that a report says `zn_built_in=false` and the bundle id | `tools/plugin-phone/crashlytics.ts`, `docs/milestones.md`. |
 | 2026-11-04 | Analytics is on from the first start (d2911e4; Pavan's call, changed from "off until consent" the same day): as in RN Firebase and like Crashlytics and Perf. Collection starts before any consent, so DPDP must be checked before real users. A consent-first app sets `firebase_analytics_collection_enabled=false` in its manifest. Docs say it plainly (480dc3d) | `docs/guide-notes.md` §50, `docs/second-opinions.md` entry 96. |
 | 2026-11-04 | Plugins add only an interceptor to core's fetch client: `ZnFetch.addInterceptor` replaces `addClientSetup { builder -> }`, so a plugin can't undo the app's pins, redirects or retries. A plugin interceptor's runtime error fails only that fetch (`connection_lost`) instead of crashing the app; the request is not sent again. Kotlin API only | `docs/fetch.md` §5, `docs/guide-notes.md` §30, `docs/second-opinions.md` entry 105. |
+| 2026-11-08 | iOS starts now, before Android is proven in the field (Pavan; changes `docs/production-readiness.md` D, which said "start only after"). The iOS renderer mixes SwiftUI and UIKit, chosen per component by the i.1 spike; minimum iOS version still open (17 suggested, for `@Observable`) | §20. SwiftUI is less controllable than Compose for a JS-owned back stack, controlled text input and long lists. Fixes the iOS port shows on Android are made as it goes. |
 | 2026-11-04 | FlowStore reserves the disk space of a file when it is made or grown (`posix_fallocate`; rewrite-in-place fallback). A full disk now fails only the first write of a key or a growing write, cleanly, never with a SIGBUS crash; a write that fits can't fail. The write-ahead rule stays: never open the UPI app after a failed save. Core C++ only: no API or host API change | §13.2 item 4, `docs/guide-notes.md` §16, `docs/second-opinions.md` entry 106. |
 
 ## 25. Open items (to decide while building, not blockers)

@@ -33,6 +33,7 @@ until it is proven.
 | `svg.md` | **phases 1–4 built (2026-11-03, registry 13):** first-class SVG: `.svg` imports, inline `<Svg>`, parts, the supported subset, build-time draw data, motion, animated files, effects |
 | `components.md` | reference for the small components (Switch, Checkbox, Spinner / Progress, Toast, image fallback), accessibility props, tabs, SVG, and the React Native props (`Modal`, `StatusBar`, `pointerEvents`, ...) |
 | `startup-and-performance.md` | startup rules and budget, how to measure, every number measured so far |
+| `android-issues-found-when-building-ios.md` | problems in the Android side or shared code found by the iOS port (`ios` branch): status, fix, and what to check on Android, one entry each |
 | `platform-differences.md` | known differences between Android, iOS and React Native semantics |
 | `rn-compatibility.md` | React Native components, style keys, navigation, storage, `fetch`, `Linking`, permissions and native modules mapped to zero-native, each with a status (same / renamed / different / missing) and how to move; ends with the 10 costliest gaps |
 | `v0-findings.md` | lessons and bugs from v0 (and from building v1, §P), with where the spec handles each |

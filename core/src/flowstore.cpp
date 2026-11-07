@@ -48,11 +48,23 @@ uint8_t* slotAt(uint8_t* map, uint32_t slotSize, int index) { return map + kHead
  * not an error. Keeps the bytes already there. Returns 0, or an errno value (ENOSPC when the disk is full).
  */
 int reserve(int fd, size_t size) {
+#if !defined(__APPLE__)
   int rc;
   do {
     rc = posix_fallocate(fd, 0, static_cast<off_t>(size));
   } while (rc == EINTR);
   if (rc != EOPNOTSUPP && rc != ENOSYS && rc != EINVAL) return rc;
+#endif
+  // Apple has no posix_fallocate. F_PREALLOCATE reserves space, but whether APFS backs the range a later ftruncate
+  // adds is [check], so Apple always takes the path below. The files are small (≤ 256 KB per slot).
+  // A file that already has a block behind every byte needs nothing. This matters at the first write of a key in a
+  // process (its file isn't marked reserved yet): rewriting it there would fail on a full disk although the write
+  // fits.
+  struct stat st{};
+  if (fstat(fd, &st) == 0 && static_cast<size_t>(st.st_size) >= size &&
+      static_cast<long long>(st.st_blocks) * 512 >= static_cast<long long>(size)) {
+    return 0;
+  }
   // The file system can't reserve: write each block back with its own bytes (zeros in a hole), which fills the holes.
   if (ftruncate(fd, static_cast<off_t>(size)) != 0) return errno;
   uint8_t block[4096];

@@ -113,10 +113,31 @@ measurement (planned separately, after plugins P.3); **plugins** (`docs/plugins.
 Hermes debugger (Chrome DevTools), the flow engine (parked), iOS.
 Parked ideas: `docs/after-foundations.md`.
 
+## iOS track (started 2026-11-08)
+Agreed with Pavan 2026-11-08: the renderer mixes SwiftUI and UIKit, chosen per component (`ARCHITECTURE.md` §20).
+Android fixes the port shows are made as it goes and recorded in `android-issues-found-when-building-ios.md`.
+All iOS work happens on the `ios` branch (Pavan, 2026-11-08).
+Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRuntime` Swift package + `Sample` app).
+
+| Step | What | Done when | Status |
+|---|---|---|---|
+| i.0 | Shared ground: Mac versions of the Windows-only tools; `gen:registry` also writes Swift; golden `.zn.ui` and batch files read by both test suites; OTA decision logic (bundle choice, health, signature) moved from Kotlin to C++, with each platform only reporting facts (Android: `ApplicationExitInfo`) | Android tests and the OTA phone matrix still pass; the C++ core tests run on the Mac | not started |
+| i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
+| i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | not started |
+| i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents. Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | not started |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | not started |
+| i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
+| i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
+
+### Android fixes found by iOS
+Kept in `android-issues-found-when-building-ios.md` (one entry per issue, with what to check on Android). Pavan
+forwards them to the Android machine. Work on the `ios` branch.
+
 ## Tests
 | What | How | Where |
 |---|---|---|
 | C++ core (batch, coalescing, ticks, timers) | `.\tools\run-core-tests.ps1` (builds with the NDK, runs on the phone) | `core/tests/core_tests.cpp` |
+| C++ core on a Mac and the iOS simulator; the sample's `main.hbc` on Apple's Hermes (engine tests) | `bun run tools/fetch-hermes-apple.ts` once, `bun run sample:js`, then `bun run tools/run-core-tests-apple.ts` (add `--sim` with a booted simulator) | `core/tests/core_tests.cpp`, `core/tests/engine_tests.cpp`, `core/tests/apple/` |
 | JS (runtime timers/events, template writer, registry drift) | `bun test packages` at the root | `packages/*/test/` |
 | Kotlin (batch reader, template reader) | `.\gradlew.bat :runtime:testDebugUnitTest` in `android/` | `android/runtime/src/test/` |
 | Lint | `.\gradlew.bat :runtime:lintDebug :sample:lintDebug` | 0 errors expected |
@@ -125,6 +146,21 @@ Parked ideas: `docs/after-foundations.md`.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS step i.1a, Hermes and the core on the iOS simulator (Claude)
+- `com.facebook.hermes:hermes-ios:260318099.0.5` (same release as `hermes-android`) has `hermesvm.xcframework`
+  (iOS device, simulator, Catalyst, tvOS, visionOS), a macOS `hermesvm.framework` and the headers. JSI is built into
+  `hermesvm` on Apple (no `libjsi`). Its JSI headers match `core/third_party/jsi` except one comment.
+  `tools/fetch-hermes-apple.ts` downloads it into `ios/third_party/hermes/` (not in git), checking a pinned SHA-256.
+- `core/tests/apple/CMakeLists.txt` is a host for the core on a Mac or the iOS simulator. `hermes_engine.cpp` built
+  unchanged.
+- Results (debug, Mac and iPhone 16 simulator on iOS 18.0): core tests 166 / 166 (MMKV killed mid-write 100 / 100,
+  FlowStore 200 / 200, one 800-byte FlowStore write ≈ 2.3–2.5 µs). The new engine test runs the **Android sample's
+  `main.hbc` unchanged** (bytecode 99) and sends START for route 0: a 122,867-byte batch, 7 native calls, no JS error.
+  So one OTA bundle can serve both platforms [check: a release build and a real device].
+- Android fixes found on the way: `android-issues-found-when-building-ios.md` A3–A7. Not rebuilt on Android yet (no Android SDK on
+  this Mac): the Android-side changes are `core/CMakeLists.txt` (`log` only on Android), `flowstore.cpp` (the skip in
+  the fallback path) and the tests. Run `run-core-tests.ps1` and a sample build on the phone before relying on them.
+
 ### 2026-11-07: open items at the end of the day (Claude, parent session)
 Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB] = ZeroBill app.
 - **[zn] Processing Sheet stuck on a live cancel** (Lava, release build, ZeroBill payment pass): the sheet went into

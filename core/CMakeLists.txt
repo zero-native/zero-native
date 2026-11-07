@@ -28,7 +28,15 @@ target_include_directories(zn_core_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inclu
 
 # MMKV (app storage). Its own CMake file, unchanged from upstream, so upgrading = replacing third_party/mmkv/Core.
 add_subdirectory(third_party/mmkv/Core mmkv EXCLUDE_FROM_ALL)
-target_link_libraries(zn_core_base PRIVATE core log)
+target_link_libraries(zn_core_base PRIVATE core)
+if(ANDROID)
+  target_link_libraries(zn_core_base PRIVATE log)
+endif()
+if(APPLE)
+  # MMKV's CMake sets FORCE_POSIX for its own files only. Without it here too, MMKV's headers switch to their
+  # Objective-C API (NSString logs, a namespace) in storage.cpp. With it, Apple uses the same C++ API as Android.
+  target_compile_definitions(zn_core_base PRIVATE FORCE_POSIX)
+endif()
 
 # The engine adapter is only built when the host provides Hermes (the test build doesn't).
 if(TARGET hermes-engine::hermesvm)
