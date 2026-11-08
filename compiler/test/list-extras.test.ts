@@ -57,4 +57,57 @@ describe("H3: List Header, Footer, and Empty Component", () => {
     expect(code).toContain("header: () => MyHeader({})")
     expect(code).toContain("empty: () => MyEmpty({})")
   })
+
+  test("controller and ref bind list controller", () => {
+    const res1 = compile(`
+      import { List, Text } from "@zero-native/ui"
+      export function Screen(props: { items: string[]; ctrl: any }) {
+        return (
+          <List
+            data={props.items}
+            key={(item) => item}
+            row={(item) => <Text>{item}</Text>}
+            controller={props.ctrl}
+          />
+        )
+      }
+    `)
+    expect(res1.code).toContain("__zn.bindListController(props.ctrl,")
+    expect(res1.templates[0].props.scrollCommand).toEqual({ $slot: "s0", default: null } as any)
+
+    const res2 = compile(`
+      import { List, Text } from "@zero-native/ui"
+      export function Screen(props: { items: string[]; listRef: any }) {
+        return (
+          <List
+            data={props.items}
+            key={(item) => item}
+            row={(item) => <Text>{item}</Text>}
+            ref={props.listRef}
+          />
+        )
+      }
+    `)
+    expect(res2.code).toContain("__zn.bindListController(props.listRef,")
+    expect(res2.templates[0].props.scrollCommand).toEqual({ $slot: "s0", default: null } as any)
+  })
+
+  test("ref and controller together fails", () => {
+    expect(() =>
+      compile(`
+        import { List, Text } from "@zero-native/ui"
+        export function Screen(props: { items: string[]; ctrl: any; listRef: any }) {
+          return (
+            <List
+              data={props.items}
+              key={(item) => item}
+              row={(item) => <Text>{item}</Text>}
+              ref={props.listRef}
+              controller={props.ctrl}
+            />
+          )
+        }
+      `),
+    ).toThrow("use ref or controller, not both")
+  })
 })

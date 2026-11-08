@@ -1,6 +1,6 @@
 // A dev screen for RN props pack 2: React Native props, styles and components, with their RN names. Each check logs
 // one "rn-props ..." line; the phone check (tools/plugin-phone/rnprops.ts) reads those lines, so keep their wording.
-import { Box, Carousel, Column, FlatList, Icon, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField, TouchableOpacity } from "@zero-native/ui"
+import { Box, Carousel, Column, FlatList, Icon, Image, List, listController, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField, TouchableOpacity } from "@zero-native/ui"
 import { Alert, createStorage, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
@@ -74,11 +74,10 @@ export function RnPropsLabScreen() {
   const spanHot = signal(false)
   const barHidden = signal(false)
   const stickyAt = signal<number[]>([0, 20])
-  const listItems = signal<Array<{ id: string; title: string }>>([
-    { id: "1", title: "Apple" },
-    { id: "2", title: "Banana" },
-    { id: "3", title: "Cherry" },
-  ])
+  const listCtrl = listController()
+  const listItems = signal<Array<{ id: string; title: string }>>(
+    Array.from({ length: 30 }, (_, i) => ({ id: String(i + 1), title: `Item ${i + 1}` })),
+  )
 
   return (
     <Scroll style={{ flex: 1, backgroundColor: c.bg }}>
@@ -299,13 +298,25 @@ export function RnPropsLabScreen() {
           </Pressable>
         </Stack>
 
-        <PropsTitle text="List Header, Footer, Empty (RN parity)" />
-        <HoldTile
-          label={listItems().length > 0 ? "Empty the list" : "Fill the list"}
-          onPress={() => listItems.set(listItems().length > 0 ? [] : [{ id: "1", title: "Apple" }, { id: "2", title: "Banana" }, { id: "3", title: "Cherry" }])}
-        />
+        <PropsTitle text="List Header, Footer, Empty & Scroll Commands (RN parity)" />
+        <Row gap={8}>
+          <HoldTile
+            label={listItems().length > 0 ? "Empty the list" : "Fill the list"}
+            onPress={() =>
+              listItems.set(
+                listItems().length > 0
+                  ? []
+                  : Array.from({ length: 30 }, (_, i) => ({ id: String(i + 1), title: `Item ${i + 1}` })),
+              )
+            }
+          />
+          <HoldTile label="Scroll 15" onPress={() => listCtrl.scrollToIndex({ index: 15, animated: true })} />
+          <HoldTile label="Scroll End" onPress={() => listCtrl.scrollToEnd({ animated: true })} />
+          <HoldTile label="Scroll Top" onPress={() => listCtrl.scrollToIndex({ index: 0, animated: true })} />
+        </Row>
         <List
           testID="extras-list"
+          controller={listCtrl}
           data={listItems()}
           key={(r) => r.id}
           ListHeaderComponent={

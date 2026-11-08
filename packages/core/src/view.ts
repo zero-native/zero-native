@@ -510,3 +510,90 @@ export function renderRoot<P>(
     return dispose
   })
 }
+
+export interface ListScrollToIndexOptions {
+  index: number
+  animated?: boolean
+  viewOffset?: number
+}
+
+export interface ListScrollToEndOptions {
+  animated?: boolean
+}
+
+export interface ListScrollToOffsetOptions {
+  offset: number
+  animated?: boolean
+}
+
+export interface ListController {
+  scrollToIndex(options: ListScrollToIndexOptions): void
+  scrollToEnd(options?: ListScrollToEndOptions): void
+  scrollToOffset(options: ListScrollToOffsetOptions): void
+}
+
+export interface ListRef {
+  current: ListController | null
+  scrollToIndex(options: ListScrollToIndexOptions): void
+  scrollToEnd(options?: ListScrollToEndOptions): void
+  scrollToOffset(options: ListScrollToOffsetOptions): void
+}
+
+export function listController(): ListController & ListRef {
+  let target: ListController | null = null
+  const queue: Array<() => void> = []
+
+  const forward = (fn: (c: ListController) => void) => {
+    if (target) fn(target)
+    else queue.push(() => target && fn(target))
+  }
+
+  const ctrl: ListController & ListRef = {
+    get current() {
+      return target ?? ctrl
+    },
+    set current(val: ListController | null) {
+      target = val
+      if (val && queue.length > 0) {
+        const queued = [...queue]
+        queue.length = 0
+        queued.forEach((q) => q())
+      }
+    },
+    scrollToIndex: (opts) => forward((c) => c.scrollToIndex(opts)),
+    scrollToEnd: (opts) => forward((c) => c.scrollToEnd(opts)),
+    scrollToOffset: (opts) => forward((c) => c.scrollToOffset(opts)),
+  }
+  return ctrl
+}
+
+export function bindListController(ctrl: any, inst: Instance, slotId: number): void {
+  if (!ctrl) return
+  let seq = 0
+  const send = (cmd: string) => {
+    globalThis.__zn_patch(inst.id, slotId, `${cmd}:${++seq}`)
+  }
+  const handler: ListController = {
+    scrollToIndex: (opts) => {
+      const idx = opts.index ?? 0
+      const anim = opts.animated !== false ? 1 : 0
+      const offset = opts.viewOffset ?? 0
+      send(`index:${idx}:${anim}:${offset}`)
+    },
+    scrollToEnd: (opts) => {
+      const anim = opts?.animated !== false ? 1 : 0
+      send(`end:0:${anim}:0`)
+    },
+    scrollToOffset: (opts) => {
+      const off = opts.offset ?? 0
+      const anim = opts.animated !== false ? 1 : 0
+      send(`offset:${off}:${anim}:0`)
+    },
+  }
+  if (ctrl && typeof ctrl === "object") {
+    if ("current" in ctrl) {
+      ctrl.current = handler
+    }
+    Object.assign(ctrl, handler)
+  }
+}

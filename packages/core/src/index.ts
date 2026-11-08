@@ -19,9 +19,16 @@ export { parseColor } from "./color"
 export { batch, computed, createRoot, detached, effect, onCleanup, signal, untrack, type Signal } from "./signals"
 export {
   allocInstanceId,
+  bindListController,
   component,
   each,
   insert,
+  listController,
+  type ListController,
+  type ListRef,
+  type ListScrollToIndexOptions,
+  type ListScrollToEndOptions,
+  type ListScrollToOffsetOptions,
   textInput,
   latest,
   list,

@@ -437,6 +437,8 @@ export const Prop = {
   animateIn: { id: 291, type: "bool" },
   /** RN display: "none" hides and takes no space in layout; "flex" is default (registry 23). */
   display: { id: 292, type: "enum" },
+  /** <List> scroll command string slot: "action:param:anim:offset:seq" (registry 23). */
+  scrollCommand: { id: 293, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -643,6 +645,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "lineHeight",
   "letterSpacing",
   "display",
+  "scrollCommand",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -685,7 +688,7 @@ export const Added: {
     stickyHeaderIndices: 15,
     includeFontPadding: 16, borderStyle: 16, textDecorationStyle: 16,
     autoComplete: 17, otpTheme: 18, otpType: 18, blurOnFilled: 18, invalid: 18,
-    inverted: 19, transformOrigin: 20, animateIn: 21, display: 23,
+    inverted: 19, transformOrigin: 20, animateIn: 21, display: 23, scrollCommand: 23,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -700,7 +703,7 @@ export const Added: {
     gap: 23, top: 23, bottom: 23, start: 23, end: 23,
     borderRadius: 23, borderTopLeftRadius: 23, borderTopRightRadius: 23, borderBottomLeftRadius: 23, borderBottomRightRadius: 23,
     borderTopStartRadius: 23, borderTopEndRadius: 23, borderBottomStartRadius: 23, borderBottomEndRadius: 23,
-    fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23,
+    fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23,
   },
   enumValue: {
     "display.flex": 23, "display.none": 23,

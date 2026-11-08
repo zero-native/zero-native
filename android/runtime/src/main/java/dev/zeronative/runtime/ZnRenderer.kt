@@ -41,6 +41,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
@@ -631,6 +633,34 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     val hasEmpty = emptyInst != null && f.getOrNull(emptyInst.templateId) != null
 
     val state = rememberLazyListState() // saveable: the scroll position survives back navigation and recreation
+    val scrollCmd = if (s.scrollCommandSlot >= 0) inst.slot(s.scrollCommandSlot).value as? String else null
+    LaunchedEffect(scrollCmd) {
+        if (scrollCmd != null) {
+            val parts = scrollCmd.split(":")
+            val action = parts.getOrNull(0) ?: return@LaunchedEffect
+            val param = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            val anim = (parts.getOrNull(2)?.toIntOrNull() ?: 1) == 1
+            val viewOffset = parts.getOrNull(3)?.toIntOrNull() ?: 0
+            val headerOffset = if (hasHeader && !s.inverted) 1 else 0
+            when (action) {
+                "index" -> {
+                    val target = (param + headerOffset).coerceIn(0, (rows.size + (if (hasHeader) 1 else 0) + (if (hasFooter) 1 else 0) - 1).coerceAtLeast(0))
+                    if (anim) state.animateScrollToItem(target, viewOffset)
+                    else state.scrollToItem(target, viewOffset)
+                }
+                "end" -> {
+                    val lastIdx = (rows.size + (if (hasHeader) 1 else 0) + (if (hasFooter) 1 else 0) - 1).coerceAtLeast(0)
+                    if (anim) state.animateScrollToItem(lastIdx)
+                    else state.scrollToItem(lastIdx)
+                }
+                "offset" -> {
+                    val delta = param.toFloat()
+                    if (anim) state.animateScrollBy(delta)
+                    else state.scrollBy(delta)
+                }
+            }
+        }
+    }
     // RN stickyHeaderIndices (registry 15): rows drawn pinned (Compose stickyHeader), in order, inside the list.
     val stickyText = if (s.stickySlot >= 0) inst.slot(s.stickySlot).value as? String else s.stickyHeaderIndices
     val sticky = remember(stickyText) { parseSticky(stickyText) }

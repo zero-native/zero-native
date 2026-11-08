@@ -825,6 +825,9 @@ export declare function List<T>(props: {
   ListFooterComponent?: unknown
   /** Component or element rendered when the list has no data (RN FlatList parity). */
   ListEmptyComponent?: unknown
+  /** Controller or ref to command list scrolling (scrollToIndex, scrollToEnd, scrollToOffset). */
+  ref?: unknown
+  controller?: unknown
 } & RefreshProps & RnScrollProps & (
   | {
       key: (item: T, index: number) => string | number
@@ -837,6 +840,36 @@ export declare function List<T>(props: {
       keyExtractor?: (item: T, index: number) => string | number
     }
 )): never
+
+export interface ListScrollToIndexOptions {
+  index: number
+  animated?: boolean
+  viewOffset?: number
+}
+
+export interface ListScrollToEndOptions {
+  animated?: boolean
+}
+
+export interface ListScrollToOffsetOptions {
+  offset: number
+  animated?: boolean
+}
+
+export interface ListController {
+  scrollToIndex(options: ListScrollToIndexOptions): void
+  scrollToEnd(options?: ListScrollToEndOptions): void
+  scrollToOffset(options: ListScrollToOffsetOptions): void
+}
+
+export interface ListRef {
+  current: ListController | null
+  scrollToIndex(options: ListScrollToIndexOptions): void
+  scrollToEnd(options?: ListScrollToEndOptions): void
+  scrollToOffset(options: ListScrollToOffsetOptions): void
+}
+
+export declare function listController(): ListController & ListRef
 
 /**
  * React Native's Modal (registry 15): a full-screen window over the app, in which you draw your own content (a

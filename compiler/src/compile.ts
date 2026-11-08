@@ -2698,6 +2698,12 @@ export function compileModule(
           }
           props.stickyHeaderIndices = (v as number[]).join(",")
         }
+      } else if (name === "ref" || name === "controller") {
+        if (!expr) fail(a, `${name} needs a ref or controller: ${name}={myList}`)
+        special[name] = expr!
+        const sl = `s${b.slots++}`
+        props.scrollCommand = slotRef(sl, null) as never
+        b.binds.push(`${RUNTIME}.bindListController(${text(expr!)}, ${b.inst}, @@S:${sl}@@);`)
       } else if (name === "onRefresh") {
         if (!expr) fail(a, "onRefresh needs a function")
         bindEvent(props, b, "onRefresh", expr!)
@@ -2722,10 +2728,11 @@ export function compileModule(
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal; or FlatList's renderItem, keyExtractor)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, ref, controller; or FlatList's renderItem, keyExtractor)`)
       }
     }
     rnFinish("List", null, props, b, rnLater, node)
+    if (special.ref && special.controller) fail(node, "use ref or controller, not both")
     if (props.horizontal === true) {
       if (props.inverted === true || (props.inverted !== undefined && props.inverted !== false)) {
         fail(node, "<List horizontal> does not support inverted (vertical chat lists only)")

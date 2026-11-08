@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test"
 import { installFakeHost, type FakeHost } from "./fake-host"
 import { installEvents } from "../src/events"
 import { signal } from "../src/signals"
-import { list, renderRoot, slot, view } from "../src/view"
+import { bindListController, list, listController, renderRoot, slot, view } from "../src/view"
 
 let host: FakeHost
 const ROOT = 0x80000001
@@ -170,3 +170,34 @@ test("ListHeaderComponent, ListFooterComponent, ListEmptyComponent mount as spec
   expect(boundKeys).toContain("__zn_footer")
   expect(boundKeys).toContain("__zn_empty")
 })
+
+test("listController sends scroll commands via patch slot", () => {
+  const ctrl = listController()
+  const mockInst = { id: 42 } as any
+  const slotId = 7
+  bindListController(ctrl, mockInst, slotId)
+
+  ctrl.scrollToIndex({ index: 5, animated: true, viewOffset: 10 })
+  const patch1 = host.ops.filter((o) => o[0] === "patch").pop()
+  expect(patch1).toEqual(["patch", 42, 7, "index:5:1:10:1"])
+
+  ctrl.scrollToEnd({ animated: false })
+  const patch2 = host.ops.filter((o) => o[0] === "patch").pop()
+  expect(patch2).toEqual(["patch", 42, 7, "end:0:0:0:2"])
+
+  ctrl.scrollToOffset({ offset: 120, animated: true })
+  const patch3 = host.ops.filter((o) => o[0] === "patch").pop()
+  expect(patch3).toEqual(["patch", 42, 7, "offset:120:1:0:3"])
+})
+
+test("listController queues commands before bindListController", () => {
+  const ctrl = listController()
+  ctrl.scrollToIndex({ index: 15 })
+
+  const mockInst = { id: 99 } as any
+  bindListController(ctrl, mockInst, 3)
+
+  const patch = host.ops.filter((o) => o[0] === "patch").pop()
+  expect(patch).toEqual(["patch", 99, 3, "index:15:1:0:1"])
+})
+
