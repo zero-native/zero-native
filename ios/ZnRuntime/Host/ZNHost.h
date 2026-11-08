@@ -19,10 +19,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^onJsError)(NSString* kind, NSString* where, NSString* details);
 /// Any thread: a log line from JS or the core. level: 0 debug, 1 info, 2 warn, 3 error.
 @property (nonatomic, copy, nullable) void (^onLog)(NSInteger level, NSString* message);
-/// JS thread: a native module call. Return YES if the call was taken; the answer must then come later through
-/// `answerCall:...`. With no handler, or NO, the call is rejected with "unavailable".
+/// JS thread: a native module call. `bytes`: binary input from JS (an ArrayBuffer or typed array), copied, or nil.
+/// Return YES if the call was taken; the answer must then come later through `answerCall:...`. With no handler, or NO,
+/// the call is rejected with "unavailable". Must not block.
 @property (nonatomic, copy, nullable) BOOL (^onNativeCall)
-    (NSString* module, NSString* method, NSString* argsJson, uint32_t callbackId);
+    (NSString* module, NSString* method, NSString* argsJson, uint32_t callbackId, NSData* _Nullable bytes);
+/// JS thread: JS gave up on a call (AbortSignal, or its screen closed). Its answer will be dropped by JS anyway.
+@property (nonatomic, copy, nullable) void (^onCancelCall)(uint32_t callbackId);
 
 /// JS thread, before the main script: a global string for JS (ZnRuntime's `__zn_constants`).
 - (void)setGlobalString:(NSString*)name value:(NSString*)value;
@@ -35,11 +38,17 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event string:(NSString*)payload;
 - (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event number:(double)payload;
 - (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event boolean:(BOOL)payload;
+/// Posts an event whose string payload is made on the JS thread, when JS gets to it: for "only the newest value"
+/// events (a module event sent often), [payload] takes whatever is newest then. nil: nothing is sent.
+- (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event stringFrom:(NSString* _Nullable (^)(void))payload;
 
 /// The answer to a call taken by `onNativeCall`. `valueJson` is JSON text (or nil for null) when `ok`; else `code`
 /// ("invalid_args", "failed", "unavailable", or the module's own) and `message`. Any thread.
 - (void)answerCall:(uint32_t)callbackId ok:(BOOL)ok valueJson:(nullable NSString*)valueJson
               code:(nullable NSString*)code message:(nullable NSString*)message;
+
+/// A successful answer with binary data (app event 9: JS gets `{ value, bytes }`, bytes a Uint8Array). Any thread.
+- (void)answerCall:(uint32_t)callbackId valueJson:(nullable NSString*)valueJson bytes:(NSData*)bytes;
 
 @end
 

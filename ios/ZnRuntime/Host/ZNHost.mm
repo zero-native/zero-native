@@ -62,17 +62,21 @@ class IosPlatform final : public zn::Platform {
   }
 
   void callNative(std::string_view module, std::string_view method, std::string_view argsJson, uint32_t callbackId,
-                  std::optional<std::span<const uint8_t>> /* bytes: not yet on iOS */) override {
+                  std::optional<std::span<const uint8_t>> bytes) override {
     ZNHost* host = host_;
     NSString* m = toNS(module);
     NSString* fn = toNS(method);
-    if (host.onNativeCall && host.onNativeCall(m, fn, toNS(argsJson), callbackId)) return;
+    // Copied: the span points into a JS ArrayBuffer that JS may change or free after this call.
+    NSData* data = bytes ? [NSData dataWithBytes:bytes->data() length:bytes->size()] : nil;
+    if (host.onNativeCall && host.onNativeCall(m, fn, toNS(argsJson), callbackId, data)) return;
     // Answered later, never inside the call (JS is running).
     NSString* message = [NSString stringWithFormat:@"no native module \"%@\" in this app (iOS)", m];
     [host answerCall:callbackId ok:NO valueJson:nil code:@"unavailable" message:message];
   }
 
-  void cancelNative(uint32_t /* callbackId */) override {}
+  void cancelNative(uint32_t callbackId) override {
+    if (host_.onCancelCall) host_.onCancelCall(callbackId);
+  }
 
   std::string flowStoreDir() override {
     static std::string dir = privateDir(@"zn");
@@ -215,6 +219,26 @@ class IosPlatform final : public zn::Platform {
 
 - (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event boolean:(BOOL)payload {
   [self post:^{ self->_runtime->dispatchEvent(instance, event, zn::Value::boolean(payload)); }];
+}
+
+- (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event stringFrom:(NSString* (^)(void))payload {
+  [self post:^{
+    NSString* text = payload();
+    if (text) self->_runtime->dispatchEvent(instance, event, zn::Value::string(toStd(text)));
+  }];
+}
+
+- (void)answerCall:(uint32_t)callbackId valueJson:(NSString*)valueJson bytes:(NSData*)bytes {
+  // App event 9 (CALL_RESULT_BYTES, calls.ts): [u32 LE head size][head: the same JSON as event 7][body bytes].
+  NSString* head = [NSString stringWithFormat:@"{\"id\":%u,\"ok\":true,\"value\":%@}", callbackId, valueJson ?: @"null"];
+  const std::string h = toStd(head);
+  std::vector<uint8_t> buffer(4 + h.size() + bytes.length);
+  const uint32_t size = static_cast<uint32_t>(h.size());
+  for (int i = 0; i < 4; i++) buffer[i] = static_cast<uint8_t>(size >> (8 * i));
+  memcpy(buffer.data() + 4, h.data(), h.size());
+  if (bytes.length) memcpy(buffer.data() + 4 + h.size(), bytes.bytes, bytes.length);
+  auto shared = std::make_shared<std::vector<uint8_t>>(std::move(buffer));
+  [self post:^{ self->_runtime->dispatchBytes(0, 9, std::move(*shared)); }];
 }
 
 - (void)answerCall:(uint32_t)callbackId ok:(BOOL)ok valueJson:(NSString*)valueJson code:(NSString*)code

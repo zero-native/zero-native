@@ -21,7 +21,8 @@ Each entry says:
 | A5 | 2026-11-08 | Core build | Shared core assumed Android: `posix_fallocate`, MMKV headers, `liblog` | fixed on ios (736b8eb) |
 | A6 | 2026-11-08 | FlowStore | Without space reservation, the first write of a key rewrote the whole file and could fail on a full disk | fixed on ios (736b8eb) |
 | A7 | 2026-11-08 | JS tests | `app-events.test.ts` passes alone but fails in the full `bun test` run on the Mac | open |
-| A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | fixed on ios (not committed; Android side not compiled) |
+| A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | fixed on ios (ca20a4d; Android side not compiled) |
+| A9 | 2026-11-08 | JS (shared) | `Platform.OS` was hard-coded "android"; `Platform.select` never looked at `ios` | fixed on ios (no Android change expected) |
 
 ---
 
@@ -135,3 +136,18 @@ Each entry says:
   shows. Dev screens (no handler): the predictive preview plays as before. 3-button phone: Back on the amount screen
   still asks. A sheet open on the amount screen: Back closes the sheet first. Tabs lab: Back on a later tab goes to the
   first tab; on the first tab it leaves the app.
+
+## A9. `Platform.OS` was always "android"
+- **Status:** fixed on ios (2026-11-08, the native modules commit). Shared JS only; nothing changes on Android.
+- **Problem:** `packages/core/src/platform.ts` had `OS: "android"` as a constant and `select` returned `android`,
+  then `native`, then `default`, never `ios`.
+- **Why it matters:** shared app code (and plugins) branch on `Platform.OS`; on iOS every branch would take the
+  Android path.
+- **Fix:** `OS` is a getter: "ios" when native gave `nativeConstants("Platform").os === "ios"` (iOS sets it before
+  the main script, so top-level reads work), else "android" (Android sends no such constants, so nothing changes
+  there). `select` picks the entry for the current OS. On iOS `Version` is the major iOS version as a number. New
+  test in `packages/core/test/rn-basics.test.ts`; the Android test is unchanged and passes.
+- **Also changed, shared sample:** `examples/sample/src/FetchScreen.tsx` "gzip offered" accepted only exactly
+  `gzip` (OkHttp's header); it now accepts any Accept-Encoding list that has gzip (URLSession sends "gzip, deflate").
+- **Check on Android:** `bun test packages/core/test/rn-basics.test.ts`; on the phone, RN basics lab → Platform
+  shows `platform android <sdk> …`; Dev → fetch checks still 27 / 27 (or as many as before).

@@ -42,7 +42,8 @@ const checks: Array<[string, Check]> = [
     const e = await (await fetch(`${L}/echo`, { method: "POST", headers: { "Content-Type": "application/json" }, body: sent })).json()
     must(e.method === "POST" && e.bodyText === sent, `body came back as ${e.bodyText}`)
     must(String(e.headers["user-agent"]).includes("zero-native/"), `user-agent ${e.headers["user-agent"]}`)
-    must(e.headers["accept-encoding"] === "gzip", `accept-encoding ${e.headers["accept-encoding"]}`)
+    // OkHttp offers "gzip", URLSession "gzip, deflate" (iOS): either way the network stack unzips it.
+    must(String(e.headers["accept-encoding"]).split(/,\s*/).includes("gzip"), `accept-encoding ${e.headers["accept-encoding"]}`)
     return e.headers["user-agent"]
   }],
   ["gzip answer is unzipped", async () => {

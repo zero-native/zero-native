@@ -1,7 +1,6 @@
 // The app side of the runtime on iOS: loads a bundle, draws the first screen's skeleton from its template before JS
 // runs, starts JS, applies batches, sends events. The counterpart of android/runtime's ZnRuntime.kt + ZnNav.kt
-// (start sequence, ARCHITECTURE.md §8.1). i.1b spike: one screen at a time, no transitions (i.1c tries the back
-// stack with UIKit and SwiftUI), no native modules (calls answer "unavailable").
+// (start sequence, ARCHITECTURE.md §8.1). Native modules: ZnModules.swift.
 import Foundation
 import Observation
 import SwiftUI
@@ -33,7 +32,7 @@ struct ZnRoute {
 
 /// App-level events to JS (instance 0), as in ZnAppEvent.kt.
 enum ZnAppEvent {
-    static let start = 1, back = 2, forcedBack = 3, insets = 5, callResult = 7, colorScheme = 14
+    static let start = 1, back = 2, forcedBack = 3, insets = 5, callResult = 7, colorScheme = 14, device = 16, window = 17
 }
 
 @MainActor
@@ -105,12 +104,15 @@ final class ZnApp {
             store.onNav = { [weak self] kind, entry, route, params in self?.nav(kind, entry, route, params) }
             store.onError = { message in ZnDebug.log.error("\(message, privacy: .public)") }
             host.onApply = { [weak self] data in self?.apply(data) }
+            // JS's console and the core's log lines, on the console as well as os_log (the debug run reads them).
+            host.onLog = { level, message in print("zn-js \(["D", "I", "W", "E"][min(max(level, 0), 3)]) \(message)") }
             host.onJsError = { kind, whereText, details in
                 ZnDebug.log.error("js error \(whereText, privacy: .public) [\(kind, privacy: .public)]: \(details, privacy: .public)")
             }
             let delayMs = Double(ProcessInfo.processInfo.environment["ZN_JS_DELAY_MS"] ?? "") ?? 0
             let startPayload = "[{\"entry\":\(entry),\"route\":\(routeIndex),\"params\":\(params)}]"
             let mainScript = bundle.appendingPathComponent("main.hbc").path
+            ZnModules.install()  // before the main script: its constants are read as it starts
             DispatchQueue.main.asyncAfter(deadline: .now() + delayMs / 1000) { [host] in
                 host.evalFile(mainScript) { ok, result, ms in
                     guard ok else {
@@ -118,6 +120,9 @@ final class ZnApp {
                         return
                     }
                     print("zn: main.hbc evaluated in \(String(format: "%.1f", ms)) ms")
+                    // Fixed facts and the window, before any screen (ZnWindow.kt afterMainScript).
+                    host.dispatchEvent(0, event: UInt16(ZnAppEvent.device), string: Self.deviceJson())
+                    host.dispatchEvent(0, event: UInt16(ZnAppEvent.window), string: Self.windowJson())
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.colorScheme), string: "light")
                     self.jsStarted = true
                     self.sendInsets()  // before START, so a full-bleed first screen pads its header at once
@@ -127,6 +132,23 @@ final class ZnApp {
         } catch {
             failure = "can't start: \(error)"
         }
+    }
+
+    /// DEVICE (platform.ts): Android's keys, with iOS's values; `os` says which platform it is.
+    static func deviceJson() -> String {
+        ZnModules.json(["os": "ios", "sdk": 0, "release": znIosVersion(), "model": ZnOs.model, "brand": "Apple",
+                        "manufacturer": "Apple"]) ?? "{}"
+    }
+
+    /// WINDOW (dimensions.ts): the screen in points (dp), its scale and the text size setting as a scale.
+    static func windowJson() -> String {
+        let screen = UIScreen.main
+        let size = screen.bounds.size
+        let fontScale = UIFontMetrics.default.scaledValue(for: 100) / 100
+        let r = { (v: CGFloat) in (Double(v) * 10).rounded() / 10 }
+        return ZnModules.json(["width": r(size.width), "height": r(size.height), "scale": Double(screen.scale),
+                               "fontScale": (Double(fontScale) * 1000).rounded() / 1000,
+                               "screenWidth": r(size.width), "screenHeight": r(size.height)]) ?? "{}"
     }
 
     /// The batch being applied (or just applied) changes the back stack: a sheet closing in the same batch closes

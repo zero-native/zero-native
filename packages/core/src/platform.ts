@@ -6,7 +6,12 @@
 // Native sends the facts once, right after the main script runs (app event DEVICE, android/runtime/.../ZnWindow.kt),
 // before any screen is built. So read them in screens, handlers and startApp; at the top level of a file they are not
 // there yet (Version reads 0, with a warning).
+//
+// iOS (2026-11-08): native gives `nativeConstants("Platform")` = { os: "ios", release } before any JS runs, so `OS` is
+// right even at the top level of a file. Android gives none: "android". On iOS, `Version` is the major iOS version as
+// a number (18), where React Native gives the string "18.0": read `constants.Release` for that.
 import { APP, AppEvent } from "./app-events"
+import { nativeConstants } from "./calls"
 import { onEvent } from "./events"
 import type { NativeValue } from "./native"
 
@@ -32,27 +37,38 @@ function facts(): Device {
   return { sdk: 0, release: "", model: "", brand: "", manufacturer: "" }
 }
 
-export const Platform = {
-  /** Always "android" today. iOS comes later. */
-  OS: "android" as PlatformOSType,
+let os: PlatformOSType | null = null
 
-  /** The Android API level (33 is Android 13), a number, as in React Native. */
-  get Version(): number {
-    return facts().sdk
+function readOS(): PlatformOSType {
+  if (os === null) os = nativeConstants<{ os?: string }>("Platform")?.os === "ios" ? "ios" : "android"
+  return os
+}
+
+export const Platform = {
+  /** "android" or "ios". */
+  get OS(): PlatformOSType {
+    return readOS()
   },
 
-  /** React Native's Android constants that apps use. */
+  /** Android: the API level (33 is Android 13), as in React Native. iOS: the major version (18). */
+  get Version(): number {
+    const d = facts()
+    return readOS() === "ios" ? Number.parseInt(d.release, 10) || 0 : d.sdk
+  },
+
+  /** React Native's constants that apps use (Android's names; on iOS Brand and Manufacturer are "Apple"). */
   get constants(): { Version: number; Release: string; Model: string; Brand: string; Manufacturer: string } {
     const d = facts()
-    return { Version: d.sdk, Release: d.release, Model: d.model, Brand: d.brand, Manufacturer: d.manufacturer }
+    return { Version: this.Version, Release: d.release, Model: d.model, Brand: d.brand, Manufacturer: d.manufacturer }
   },
 
   isTV: false,
   isTesting: false,
 
-  /** The value for this OS: `android`, else `native`, else `default`. */
+  /** The value for this OS (`android` or `ios`), else `native`, else `default`. */
   select<T>(specifics: { android?: T; ios?: T; native?: T; default?: T } & Record<string, T | undefined>): T | undefined {
-    if ("android" in specifics) return specifics.android
+    const here = readOS()
+    if (here in specifics) return specifics[here]
     if ("native" in specifics) return specifics.native
     return specifics.default
   },
@@ -67,5 +83,6 @@ export function installPlatform(): void {
 
 export function resetPlatformForTests(): void {
   device = null
+  os = null
   warned = false
 }

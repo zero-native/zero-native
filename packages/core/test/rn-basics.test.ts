@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test"
 import { installFakeHost, type FakeHost } from "./fake-host"
 import { AppEvent } from "../src/app-events"
 import { AppState, resetAppStateForTests, installAppState } from "../src/app-state"
-import { installCalls } from "../src/calls"
+import { installCalls, resetNativeConstantsForTests } from "../src/calls"
 import { Dimensions, installDimensions, PixelRatio, resetDimensionsForTests, useWindowDimensions } from "../src/dimensions"
 import { installEvents } from "../src/events"
 import { flowStore } from "../src/flowstore"
@@ -56,6 +56,26 @@ test("Platform: OS, Version and constants come from DEVICE; select picks android
   expect(Platform.select({ android: 1, ios: 2, default: 3 })).toBe(1)
   expect(Platform.select({ ios: 2, native: 4, default: 3 })).toBe(4)
   expect(Platform.select({ ios: 2, default: 3 })).toBe(3)
+})
+
+test("Platform on iOS: OS from the Platform constants (before DEVICE), Version is the major version, select picks ios", () => {
+  const g = globalThis as { __zn_constants?: string }
+  const before = g.__zn_constants
+  g.__zn_constants = JSON.stringify({ Platform: { os: "ios", release: "18.0" } })
+  resetNativeConstantsForTests()
+  resetPlatformForTests()
+  try {
+    expect(Platform.OS).toBe("ios")
+    send(AppEvent.Device, JSON.stringify({ os: "ios", sdk: 0, release: "18.0", model: "iPhone17,3", brand: "Apple", manufacturer: "Apple" }))
+    expect(Platform.Version).toBe(18)
+    expect(Platform.constants).toEqual({ Version: 18, Release: "18.0", Model: "iPhone17,3", Brand: "Apple", Manufacturer: "Apple" })
+    expect(Platform.select({ android: 1, ios: 2, default: 3 })).toBe(2)
+    expect(Platform.select({ android: 1, native: 4 })).toBe(4)
+  } finally {
+    g.__zn_constants = before
+    resetNativeConstantsForTests()
+    resetPlatformForTests()
+  }
 })
 
 test("Dimensions and PixelRatio follow WINDOW; listeners hear changes only; reads are reactive", () => {
