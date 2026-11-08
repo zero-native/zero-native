@@ -127,7 +127,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
 | i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, Svg, layout conformance (48 / 48), Switch, Checkbox, Spinner, Progress, OtpInput, Tabs, pull to refresh, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
-| i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
+| i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | **in progress**: plugins, native screens and views, scanner (simulator; camera untested) |
 
 ### Android fixes found by iOS
 Kept in `android-issues-found-when-building-ios.md` (one entry per issue, with what to check on Android). Pavan
@@ -146,6 +146,28 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.4, the scanner plugin (Claude, `ios` branch)
+- **plugins/scanner/ios** (ScannerCamera.swift, ScannerPlugin.swift), as the Android plugin: module `Scanner`
+  (`available`), the full screen `scanner.full` and the view `scanner.qr`, with the same params, props, events, texts
+  and defaults. AVFoundation: AVCaptureSession, a preview layer, AVCaptureMetadataOutput (iOS's own reader, no
+  download). The same rules: codes ignored for 500 ms from the first frame of each start; the first code locks (only
+  `scanKey` releases it); torch off when the camera stops, a view's torch held until its prop goes false then true;
+  zoom clamped to the camera's range, pinch on by default; the camera off when covered, in the background or gone.
+  The screen: shade with a cut-out, corner marks, a moving line, title, hint, link button (http / https only), torch
+  and close buttons; permission and "can't start" messages over the whole page.
+- **iOS differences:** `autoZoom` is ignored (AVFoundation has no "zoom to this code"); iOS asks once, so refused is
+  `blocked` (Settings button) and not yet asked is `denied`; a UPC-A comes as an EAN-13 starting with 0 and is named
+  `upca` only when the app asked for upca and not ean13. The plugin's Swift is compiled into the app (CMake glob of
+  `plugins/scanner/ios/*.swift`); packaging a plugin's iOS code is still open.
+- **Debug hook:** the simulator has no camera. In a debug build with no camera, the launch environment
+  `ZN_SCANNER_FAKE=<code>` makes the scanner read that code (format qr) after the warm-up
+  (`ZN_SCANNER_FAKE='upi://…' bun run tools/ios-sample.ts --route scannerLab --params '{}'`).
+- **Checked on the simulator:** dressed full screen answered `upi://pay?pa=ravi@upi&am=120 qr`; the view sent
+  `permission granted`, `scanned`, and scanned again after "Scan again"; without the fake: the iOS dialog, Don't
+  Allow → "Camera is off / Open settings", Close → answer null; allowed with no camera → "Camera can't start" over the
+  page, Close on top.
+- **Not checked:** real camera reads, torch, zoom and pinch, the haptic (no iPhone with the device platform here).
+
 ### 2026-11-08: iOS i.2, alignSelf stretch in Stack and Row (Claude, `ios` branch)
 - From the Android session's reading of A11: `alignSelf: "stretch"` didn't stretch in a Stack or a Row whose
   `alignItems` doesn't (iOS had the Column fix only). Fixed in ZnRenderer.swift (stack, childLayout); two new

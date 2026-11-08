@@ -196,7 +196,7 @@ Totals: 20 sized rows: 16 missing, 3 partial, 1 not checked. 8 L (10.5 days with
 
 ## 5. Plugins
 
-None has an iOS side yet. All wait for plugin loading (§4). Android files are under `plugins/<name>/android/src/main/java/...`.
+Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done except packaging: an iOS side is compiled into the app. Android files are under `plugins/<name>/android/src/main/java/...`.
 
 | Plugin | What it does | iOS side | Android files | Size | Note |
 |---|---|---|---|---|---|
@@ -217,7 +217,7 @@ None has an iOS side yet. All wait for plugin loading (§4). Android files are u
 | perf | Firebase Performance (Perf) | no | PerfPlugin.kt | M | Needs batch listeners (§4). |
 | push | FCM token, topics, data messages as JS tasks; local notifications (Push, Notifications) | no | PushPlugin.kt, PushModule.kt, NotificationsModule.kt, ZnMessagingService.kt, Opens.kt, Schedule.kt, Actions.kt, Groups.kt, PushRules.kt | L (2.5 d) | APNs through FCM, UNUserNotificationCenter, actions, groups, schedules, background runs. Needs background tasks. |
 | remote-config | Firebase Remote Config (RemoteConfig) | no | RemoteConfigPlugin.kt | M | |
-| scanner | QR / barcode scan, full screen and a view (Scanner, screen scanner.full, view scanner.qr) | no | ScannerPlugin.kt, ScannerModule.kt, ScannerScreen.kt, ScannerView.kt, ScannerParts.kt, ScannerCamera.kt, CameraSession.kt, ScannerTexts.kt, ScannerRules.kt | L (1.5 d) | AVFoundation metadata output. Needs native screens (and NativeView for the view). |
+| scanner | QR / barcode scan, full screen and a view (Scanner, screen scanner.full, view scanner.qr) | done (simulator) | ScannerPlugin.kt, ScannerModule.kt, ScannerScreen.kt, ScannerView.kt, ScannerParts.kt, ScannerCamera.kt, CameraSession.kt, ScannerTexts.kt, ScannerRules.kt | L (1.5 d) | plugins/scanner/ios: AVFoundation metadata output. `autoZoom` ignored. Real camera, torch and zoom not tried (simulator: ZN_SCANNER_FAKE). |
 | webview | Web page in a screen, host allow-list, messages both ways (WebView, view webview.page) | no | WebViewPlugin.kt, WebViewModule.kt, WebViewPage.kt, WebViewRules.kt | L (1.5 d) | WKWebView. Needs NativeView. |
 
 Each plugin also has a Kotlin `*RulesTest.kt` (17 in all); the iOS side needs the same checks.

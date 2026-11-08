@@ -82,7 +82,8 @@ const again = signal(0)
 
 ## Limits
 
-- Android only, like the rest of zero-native today.
+- Android, and iOS on the `ios` branch (AVFoundation; `autoZoom` is ignored there, and iOS's one permission ask means a refusal
+  is `blocked`).
 - One camera at a time: don't put two `QrScanner` on one screen.
 - `Permissions.status(["camera"])` says `denied`, not `blocked`, if only the scanner asked: the scanner has its own dialog, as a native
   screen can't call JS. The scanner itself is always right.
