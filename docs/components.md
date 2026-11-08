@@ -416,9 +416,10 @@ Native apps use `@shopify/react-native-skia` for, without adding an 8-15 MB Skia
 | `accessibilityLabel` | `string` | — | — | What TalkBack reads for the drawing (for example "Sales, last 12 months, going up"). |
 | `style` | `Style` | — | — | Width, height, margins, background, border. |
 
-- `<Canvas>` takes no children: it only draws.
-- `CanvasCommand` and the other types (`CanvasPaint`, `CanvasLinearGradient`, `CanvasRadialGradient`,
-  `CanvasTextOptions`) come from `@zero-native/core`.
+- `<Canvas>` takes no children: it only draws. It takes a `gesture` like any element (`gesture={pan}`, registry 24).
+- `CanvasCommand` and the other types (`CanvasPaint`, `CanvasNum`, `CanvasLinearGradient`, `CanvasRadialGradient`,
+  `CanvasSweepGradient`, `CanvasTextOptions`, `CanvasParagraphOptions`, `CanvasImageOptions`, `CanvasPathOptions`)
+  come from `@zero-native/core`.
 - **A string:** it is sent to native as it is (a literal `commands='[...]'` or an expression), so its colours must be
   ARGB numbers. Prefer a list: core's `canvasJson` turns a list's colour strings into numbers and checks it.
 
@@ -443,12 +444,55 @@ const chart = () => [
 ### Commands
 - **Shapes:** `rect(x, y, w, h)`, `roundRect(x, y, w, h, r)`, `circle(cx, cy, r)`, `oval(x, y, w, h)`,
   `line(x1, y1, x2, y2)`, `arc(x, y, w, h, start, sweep, useCenter)`, `path(d)` (SVG path data). Each takes a paint last.
+- **Path trim:** `path(d, paint, { trimStart, trimEnd, trimOffset })` draws only a piece of the path: fractions 0 to 1
+  of its length, like `<Svg>` trims (start > end swaps them; the offset moves the piece round and wraps). With motion
+  values, a line draws itself (an "order placed" tick).
+- **Lines through points:** `polyline(points, paint)` (straight) and `path(smoothPath(points), paint)` (smooth).
+  `points` is `[[x, y], ...]` or flat `[x0, y0, x1, y1, ...]`. `smoothPath` is a monotone curve: it never goes above
+  the highest point or below the lowest, so a chart doesn't show a price that never happened. Points must go left to
+  right. Points that aren't finite are left out, with a warning.
 - **Text:** `text(str, x, y, { fontSize, fontWeight, color, align })`. `y` is the **baseline** (the line the letters sit
   on), not the top. `align` is `"left"`, `"center"` or `"right"` around `x`. Weights 100-900 work on Android 9+; below
   that, 600 and up is bold, the rest regular.
-- **State:** `save()`, `restore()`, `translate(dx, dy)`, `scale(sx, sy)`, `rotate(degrees, px, py)`, `clipRect(x, y, w, h)`.
-  A transform or clip without its own `save` / `restore` still ends at the end of the list: it never moves the view's
+- **Paragraph:** `paragraph(str, x, y, width, { fontSize, fontWeight, color, align, lineHeight, maxLines })`: text that
+  wraps at `width`. Here `y` is the **top** of the first line. After `maxLines` lines the text is cut, the last line
+  ending with "…". `lineHeight` is dp from one line to the next (default: the font's own). Laid out once per list.
+- **Image:** `image(src, x, y, w, h, { fit, radius, opacity })`. `src` takes what `<Image>` takes: an http(s) URL,
+  `"asset:images/x.png"`, a `zn://` handle. `fit`: `"cover"` (default: fills the box, cut to fit), `"contain"` (all of
+  it shows, centred), `"fill"` (stretched). `radius` rounds the corners. Loaded with the app's image loader (the same
+  one and the same cache as `<Image>`), decoded at about the drawn size. Nothing is drawn while it loads or if it
+  fails (a warning in logcat). A list that changes keeps an image it already had at the same size: no blink.
+- **State:** `save()`, `restore()`, `translate(dx, dy)`, `scale(sx, sy)`, `rotate(degrees, px, py)`.
+- **Clips:** `clipRect(x, y, w, h, { op })`, `clipRoundRect(x, y, w, h, r, { op })`, `clipPath(d, { op, fillType })`.
+  `op` is `"intersect"` (default: draw only inside) or `"difference"` (draw everywhere but inside: a dark cover with a
+  hole for a QR scanner frame).
+- A transform or clip without its own `save` / `restore` still ends at the end of the list: it never moves the view's
   border or the views after it.
+
+### Motion values
+A command's numbers may be **motion values** (`useMotion`, `pan.touchX`, `v.map(...)`, `derive(...)`;
+docs/motion.md). Native reads them while drawing, so they move every frame with **no JS and no new list**: a moving
+value only redraws this canvas (no recompose, no re-measure). A chart cursor that follows a finger:
+```tsx
+const pan = usePan({ axis: "x" })
+const x = pan.touchX.map([16, 324], [16, 324])          // clamped to the chart
+const y = pan.touchX.map(XS, YS)                         // the chart's own points
+const price = pan.touchX.map(XS, PRICES)
+<Text>{price.format({ prefix: "₹" })}</Text>
+<Canvas gesture={pan} commands={[draw.polyline(points, line), draw.line(x, 0, x, 160, cursor), draw.circle(x, y, 5, dot)]} />
+```
+- **May move:** every number of a shape, text, paragraph, image, transform and clip (positions, sizes, radii, angles,
+  `rotate`'s pivot, path trims, image `radius` and `opacity`), and paint `color`, `opacity`, `strokeWidth`, text
+  `color`. A colour takes a motion colour (`v.mapColor(...)`, a `derive` ending in `interpolateColor`).
+- **May not move:** gradient points and colours, `dash`, path data `d`, `fontSize`, `fontWeight`, paragraph `width`,
+  `lineHeight`, `maxLines`, shadow and blur. These are built once per list (a gradient's shader, a dash effect, a path,
+  a text layout); moving them would rebuild them every frame. A motion value there is a JS warning and native skips
+  the command (as for a bad number). To change them, send a new list, or move the whole drawing with `translate` /
+  `scale` / `rotate`.
+- A number motion value as a colour draws black, with a warning: use `.mapColor`. A motion value that is gone when the
+  list is read draws as 0, with a warning.
+- A moving `strokeWidth` makes a new stroke only when the width changes (one small object per new width, not per frame).
+- The image's decode size is its size when the list is read: a moving `w` / `h` scales that picture.
 
 ### Units and angles
 - Everything is in **dp**: positions, sizes, stroke widths, dash lengths, gradient points, font size.
@@ -459,7 +503,20 @@ const chart = () => [
 ### Paint
 `color`, `style` (`"fill"` or `"stroke"`), `strokeWidth`, `strokeCap` (`"butt"`, `"round"`, `"square"`), `strokeJoin`
 (`"miter"`, `"round"`, `"bevel"`), `dash`, `opacity` (0-1), `linearGradient { x0, y0, x1, y1, colors, stops? }`,
-`radialGradient { cx, cy, r, colors, stops? }`.
+`radialGradient { cx, cy, r, colors, stops? }`, `sweepGradient { cx, cy, colors, stops?, startAngle? }`, `fillType`,
+`blendMode`, `shadow { dx, dy, blur, color }`, `blur`.
+- **`sweepGradient`:** colours round a centre (a gradient ring). It starts at 3 o'clock and goes clockwise;
+  `startAngle: -90` starts it at 12 o'clock. Repeat the first colour last for a smooth join.
+- **`fillType`** (paths): `"nonZero"` (default) or `"evenOdd"`: a path with a shape inside another draws a hole.
+- **`blendMode`:** how a shape mixes with what this canvas drew before it: `"srcOver"` (default), `"multiply"`,
+  `"screen"`, `"overlay"`, `"darken"`, `"lighten"`, `"plus"`, `"clear"`, `"srcIn"`, `"srcOut"`, `"srcAtop"`,
+  `"dstIn"`, `"dstOut"`, `"dstOver"`, `"dstAtop"`, `"xor"`. All of these work in hardware on Android 7+ (below Android
+  10 `multiply` is drawn as Modulate: the same for opaque colours). A list that uses one draws into its own layer
+  (one offscreen picture the size of the canvas), so it mixes only with this canvas, never with the screen behind it:
+  `"clear"` makes a transparent hole, not a black one.
+- **`shadow`:** a soft shadow under a shape. Android 9+ only: below that, the shape draws without it. Text has no
+  paint, so no shadow. `blur` 0 is 1 px.
+- **`blur`:** a blur radius in dp (soft edges, a glow). Android 9+ only: below that, the shape draws sharp.
 - **Colours:** the same formats as everywhere in zero-native: `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`, `rgb()`, `rgba()`,
   `hsl()`, `hsla()`, CSS names and `"transparent"`. JS turns them into ARGB numbers (core's `parseColor`); native never
   reads colour strings. A bad colour draws black, with a warning.
@@ -472,22 +529,35 @@ const chart = () => [
 A bad command never crashes the app.
 - A command with a missing or wrong number (`NaN`, `Infinity`, a string) is skipped; the rest still draws. A
   `restore()` without a `save()` is skipped too.
-- JS logs a warning naming the command's index (once per message). In a debug build, native also shows one dev error
-  per command list, listing the bad indexes.
-- More than 10,000 commands: nothing is drawn, with an error.
-- If drawing still fails, that canvas stays empty until its list changes, and the error is reported once.
+- JS logs a warning naming the command's index (once per message). Native logs one warning per command list (logcat,
+  tag `zn`), listing the bad indexes. It is **not** a red dev screen: the good commands still draw, so the screen
+  stays usable (second-opinions 197).
+- More than 10,000 commands: nothing is drawn, with a warning.
+- If drawing itself still fails (an Android error), that canvas stays empty until its list changes, and a dev error is
+  reported once: that one is a real bug.
 
 ### Performance
-- The list is turned into JSON once per change. Native reads it once per change; brushes, strokes, dashes and paths are
-  built once per list, not on every frame.
+- The list is turned into JSON once per change. Native reads it once per change; brushes, strokes, dashes, paths,
+  paragraph layouts and images are built once per list, not on every frame.
 - A change of `commands` recomposes the Canvas node itself (one small node) and redraws it. It never re-measures or
   moves other views.
+- A moving motion value redraws only: no new list, no JSON, no recompose. Prefer it to a new list per frame.
 - At most 10,000 commands per canvas.
 
 ### Not in v1
-- Touch input (taps, drags), so no signature pad yet. A `gesture` on the Canvas's parent gives touchX / touchY
-  (registry 24); a smooth signature pad still needs a native view (plan §10).
-- Measuring text from JS, images, shaders.
+- A smooth signature pad: a `gesture` gives touchX / touchY, but a stroke made of points still needs a new list per
+  point; it needs a native view (plan §10).
+- Measuring text from JS, shaders, text with a shadow.
+
+### iOS port
+New since the first port: motion values in numbers and paint `color` / `opacity` / `strokeWidth` / text `color`
+("\u0000m<id>", found once when the list is read, read on every draw with no allocation; a gone value draws as 0, a
+number value as a colour draws black); `path` trims (`trimStart` / `trimEnd` / `trimOffset`, the same maths as Svg
+trims); `paragraph` (y is the top; `maxLines` with "…"); `image` (same sources and cache as `<Image>`, decoded at the
+drawn size, nothing while loading, loads cancelled when the list changes); `clipRoundRect`, `clipPath`, `op`
+(`intersect` / `difference`) on every clip; paint `fillType`, `sweepGradient` (`startAngle`), `blendMode` (a list
+with any non-srcOver mode draws into its own layer), `shadow`, `blur`. Parse problems are warnings in the log, not a
+dev screen. JS helpers `polyline` and `smoothPath` are plain JS (no port needed).
 
 ## 15. Gestures and motion props (registry 24)
 Reference: `docs/motion.md`.

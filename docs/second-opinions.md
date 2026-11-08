@@ -2912,36 +2912,44 @@ change, and what evidence would make you change it?"
   in the frame the screen is added); (b) build the screen before it is pushed (needs JS to mount it hidden first);
   (c) a baseline profile that covers first screen builds (the sample's profile covers start only); (d) leave it: the
   real app's screens are smaller than the Dev list. Needs a Perfetto trace of one slow push first.
-- **Trace result (2026-11-09, atrace on the Lava, HEAD ec2a895; push-slide perf session):** Navigation 3 1.2.0 starts
-  the slide in `LaunchedEffect(scene) { transitionState.animateTo(scene) }`, so its clock starts at the frame that
-  composes and measures the new screen. When that frame is long, the first frame the user sees is part way through
-  the slide (FastOutSlowIn: 33% of the time is ~45% of the distance).
-  - release, Home → Dev, first push in a new process (4 runs): build frame 99–123 ms (Compose build 22–48 ms,
-    measure + layout 60–93 ms); 33–42% of the slide time gone. Second push in the same process: 59–70 ms, 21–24% gone.
-  - release, Home → Offers: first push 67–96 ms (measure + layout 56–84 ms), 24–33% gone; second push 44 ms, 15% gone.
-  - debug: Dev 1077 ms first push (Skipped 97 frames), 938 ms second push; Offers 524 ms. No slide frame is shown.
-  - Class loading and JIT are a small part. The repo has **no** baseline profile at all (generation is parked,
-    docs/after-foundations.md), so (c) above is wrong about "covers start only". Upper limit of any profile: with
-    the whole app AOT-compiled (`cmd package compile -m speed`), Dev took 73–107 ms and Offers 71–82 ms: a small win.
-  - So (c) and (d) don't fix it: even second pushes lose part of the slide.
-- **Proposed fix (not built; Pavan: check later):** build the new screen one frame before NavDisplay sees it.
-  `ZnNav.stack` changes as today; NavDisplay gets the stack without the new entry for one frame, while `ZnNavHost`
-  composes and measures the screen body hidden (in a `movableContentOf`, measured, not placed or drawn). Next frame
-  the entry joins NavDisplay, the body moves in with its state, and the slide clock starts on a cheap frame.
-  Expected: the full slide in release and debug; the first pixel comes ~1 frame later, and the slide ends 60–120 ms
-  later in release. To check when built: a second measure after the move (could still cost 30–60 ms),
-  `LocalNavAnimatedContentScope` / `sharedTag` must stay outside the hidden part, a pop during the hidden frame.
-  Not for start screens, native screens or `transition: none`. A time-shifted animation spec doesn't work: Compose
-  reads the duration once at the start.
 
-## 194. `keyboardDismissMode` on Scroll / List: Compose imeNestedScroll for "interactive", focus cleared for "on-drag" (2026-11-09; Opus, Pavan's chat idea)
-- **What:** RN's prop, registry 24 (not shipped, so no new number). "interactive" = `Modifier.imeNestedScroll()` on the
-  scrolling element (Android 11+): a drag down hides the keyboard first (pre-scroll), a drag up that the list can't use
-  shows it (post-scroll). "on-drag" = a nested scroll parent that, once per drag and only while the keyboard is open,
-  clears focus and hides the keyboard (`ZnKeyboardScroll.kt`).
-- **Calls made:** (1) "on-drag" clears focus, as zn's `Keyboard.dismiss()` and iOS (resign first responder); RN Android
-  only hides the keyboard. (2) It does nothing when no keyboard is open, so a drag never takes focus from a button.
-  (3) Below Android 11 and on horizontal scrolling, "interactive" works like "on-drag" (imeNestedScroll does nothing
-  there). (4) Fixed at build time, like `inverted`.
-- **Not checked:** inside a `Sheet` (its own window) and with pull to refresh on the same list; TalkBack.
-- **Risk if wrong:** only elements that set the prop change.
+## 197. Canvas parse problems are warnings, not a red dev screen (runtime, 2026-11-09; Opus, canvas session)
+- **Chosen:** a bad command in a `<Canvas>` list (a NaN, an odd dash, an unknown type, a motion value where none may
+  go) is logged with `Log.w` (tag `zn`), once per distinct text per node, naming the indexes. JS warns as before
+  (`__zn_log` level 2). No ZnDev screen, no onJsError.
+- **Why:** the bad command is skipped and the rest of the canvas draws; the screen still works. A full-screen red error
+  in debug for a half-drawn chart hid the whole screen (the lab's tile 8 did this by design) and taught people to
+  ignore the dev screen. Real crashes still show it.
+- **Kept as a dev error:** a throw while drawing (an Android error). That one leaves the canvas empty and is a bug in
+  the runtime or a case the parse checks missed.
+- **Option not taken:** a small dev badge on the canvas itself: needs a draw of its own and a design; the log is enough
+  while the JS warning names the same index.
+
+## 198. Motion values in canvas commands: what may move, what may not (core + runtime, 2026-11-09; Opus, canvas session)
+- **Chosen:** every number of a shape, text, paragraph, image, transform and clip may be a motion value, and paint
+  `color` / `opacity` / `strokeWidth` and text `color`. They go as "\u0000m<id>" (as `<NativeView props>` do), are
+  found once when the list is read (`ZnMotion.ref`) and are read inside drawBehind, so a moving value redraws only.
+  No allocation per frame: a number is a small object (constant or source), read through one getter.
+- **May not move:** gradient points and colours, `dash`, path `d`, `fontSize` / `fontWeight`, paragraph `width` /
+  `lineHeight` / `maxLines`, shadow, blur. **Why:** each is built once per list into an Android object (a shader, a
+  dash effect, a parsed path, a StaticLayout, a mask filter). Moving one would rebuild it each frame: allocations and
+  GC on the frame path, the thing this design avoids. A motion value there is a JS warning and native skips the
+  command, like a bad number. Authors move the whole drawing with transforms instead.
+- **Small costs accepted:** a moving `strokeWidth` makes a new Stroke only when the width changes; an image's decode
+  size is its size when the list is read. A gradient's shader is made once even when its shape's size moves (our
+  gradients have fixed points, so the size never changes the shader).
+- **Option not taken:** moving gradient stops (a shimmer). Possible later with a shader matrix that moves (a translate
+  of a fixed shader, no rebuild); not needed by the labs or ZeroBill now.
+
+## 199. Canvas blend modes draw into their own layer; canvas images are software bitmaps (runtime, 2026-11-09; Opus, canvas session)
+- **Blend modes:** a list with any blendMode other than srcOver is drawn inside one `saveLayer` the size of the canvas.
+  **Why:** without it, "clear" or "dstOut" erase the window under the canvas (a black hole on screen), and "multiply"
+  mixes with whatever is behind the view, which changes with the theme. With it, a mode mixes only with what this
+  canvas drew. **Cost:** one offscreen picture per such canvas per frame; lists without a blend mode pay nothing.
+- **Images:** `draw.image` asks Coil for a software bitmap (`allowHardware(false)`). **Why:** a hardware bitmap throws
+  when the canvas is drawn into a software canvas (a screenshot, a software layer); the draw-failure net would catch it
+  but leave the whole canvas empty. **Cost:** the bitmap's pixels are in app memory, at the drawn size (decoded at about
+  w × h × density, at most 4096 px a side).
+- **Image source forms:** the runtime's `imageModel` (ZnRenderer.kt) is private, so ZnCanvasImage.kt has its own copy
+  of the same three rules (`asset:`, `zn://`, URL). If `<Image>` learns a new form, add it in both places (or make
+  that function internal and share it).

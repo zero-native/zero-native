@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { canvasJson, draw, MAX_CANVAS_COMMANDS, resetCanvasWarnings, type CanvasCommand } from "../src/canvas"
+import { canvasJson, draw, MAX_CANVAS_COMMANDS, resetCanvasWarnings, smoothPath, type CanvasCommand } from "../src/canvas"
+import type { MotionSource } from "../src/motion"
 
 // ARGB numbers, as core parseColor gives them.
 const RED = 0xffff0000
@@ -195,5 +196,157 @@ describe("H4: Canvas validation warnings", () => {
   test("the same warning is logged once, not on every update", () => {
     for (let i = 0; i < 5; i++) canvasJson([draw.line(0, 0, 10, 0, { dash: [4] })])
     expect(logs.length).toBe(1)
+  })
+})
+
+// A stand-in for a motion value (useMotion, pan.touchX, v.map(...)): canvas only reads its __znMotion id.
+const motion = (id: number) => Object.assign(() => 0, { __znMotion: id }) as unknown as MotionSource
+const motionColor = (id: number) => ({ __znMotion: id, __znColor: true as const })
+
+describe("C1: motion values in Canvas commands", () => {
+  test("numbers, paint colour, opacity and strokeWidth are sent as references", () => {
+    const x = motion(301)
+    const list = [
+      draw.circle(x, 20, 4, { color: motionColor(302), opacity: motion(303), strokeWidth: motion(304), style: "stroke" }),
+      draw.arc(0, 0, 100, 100, -90, motion(305), false, { color: "#F00" }),
+      draw.text("a", x, 10, { color: motionColor(306) }),
+    ]
+    expect((list[0] as any).cx).toBe(x) // the helper keeps the value; canvasJson turns it into a reference
+    const json = JSON.parse(canvasJson(list))
+    expect(json[0].cx).toBe("\u0000m301")
+    expect(json[0].paint).toEqual({ color: "\u0000m302", opacity: "\u0000m303", strokeWidth: "\u0000m304", style: "stroke" })
+    expect(json[1].sweep).toBe("\u0000m305")
+    expect(json[1].paint.color).toBe(RED)
+    expect(json[2].x).toBe("\u0000m301")
+    expect(json[2].options.color).toBe("\u0000m306")
+    expect(logs).toEqual([])
+  })
+
+  test("path trims may move", () => {
+    const end = motion(310)
+    const c = draw.path("M 0 0 L 10 0", { style: "stroke" }, { trimStart: 0, trimEnd: end })
+    expect(c).toEqual({ type: "path", d: "M 0 0 L 10 0", paint: { style: "stroke" }, trimStart: 0, trimEnd: end })
+    expect(JSON.parse(canvasJson([c]))[0].trimEnd).toBe("\u0000m310")
+    expect(draw.path("M 0 0")).toEqual({ type: "path", d: "M 0 0", paint: undefined })
+    canvasJson([draw.path("M 0 0", undefined, { trimOffset: NaN })])
+    expect(logs).toEqual(["Canvas: command 0 (path).trimOffset must be a finite number; skipped"])
+  })
+
+  test("a motion value where none is allowed is warned about", () => {
+    const m = motion(320) as any
+    canvasJson([
+      draw.rect(0, 0, 10, 10, { linearGradient: { x0: m, y0: 0, x1: 10, y1: 0, colors: [RED, BLUE] } }),
+      draw.line(0, 0, 10, 0, { dash: [m, 4] }),
+      draw.paragraph("a", 0, 0, m),
+      draw.text("a", 0, 0, { fontSize: m }),
+    ])
+    expect(logs.length).toBe(4)
+    expect(logs[0]).toContain("command 0 (rect) linearGradient.x0 can't be a motion value")
+    expect(logs[1]).toContain("command 1 (line) dash")
+    expect(logs[2]).toContain("command 2 (paragraph).width can't be a motion value")
+    expect(logs[3]).toContain("command 3 (text) fontSize")
+  })
+
+  test("a list without motion values is the same JSON as before", () => {
+    const list = [draw.rect(0, 0, 10, 10, { color: "#F00", strokeWidth: 2, opacity: 0.5 })]
+    expect(canvasJson(list)).toBe(JSON.stringify(list))
+  })
+})
+
+describe("C4-C7: new commands", () => {
+  test("paragraph, image and clips", () => {
+    expect(draw.paragraph("Hi", 10, 20, 100, { fontSize: 12, color: "#F00", maxLines: 2 })).toEqual({
+      type: "paragraph",
+      text: "Hi",
+      x: 10,
+      y: 20,
+      width: 100,
+      options: { fontSize: 12, color: RED, maxLines: 2 },
+    })
+    expect(draw.image("asset:images/a.png", 0, 0, 80, 40, { fit: "contain", radius: 8 })).toEqual({
+      type: "image",
+      src: "asset:images/a.png",
+      x: 0,
+      y: 0,
+      w: 80,
+      h: 40,
+      options: { fit: "contain", radius: 8 },
+    })
+    expect(draw.clipRect(0, 0, 10, 10, { op: "difference" })).toEqual({ type: "clipRect", x: 0, y: 0, w: 10, h: 10, op: "difference" })
+    expect(draw.clipRoundRect(0, 0, 10, 10, 4)).toEqual({ type: "clipRoundRect", x: 0, y: 0, w: 10, h: 10, r: 4 })
+    expect(draw.clipPath("M 0 0 L 10 0 Z", { op: "difference", fillType: "evenOdd" })).toEqual({
+      type: "clipPath",
+      d: "M 0 0 L 10 0 Z",
+      op: "difference",
+      fillType: "evenOdd",
+    })
+    expect(logs).toEqual([])
+  })
+
+  test("paint effects: colours become ARGB numbers", () => {
+    const r = draw.rect(0, 0, 10, 10, {
+      sweepGradient: { cx: 5, cy: 5, colors: ["#F00", "#00F"], startAngle: -90 },
+      shadow: { dx: 0, dy: 2, blur: 6, color: "#F00" },
+      blendMode: "multiply",
+      blur: 2,
+    }) as any
+    expect(r.paint.sweepGradient.colors).toEqual([RED, BLUE])
+    expect(r.paint.shadow).toEqual({ dx: 0, dy: 2, blur: 6, color: RED })
+    canvasJson([r])
+    expect(logs).toEqual([])
+  })
+
+  test("bad new commands are warned about", () => {
+    canvasJson([
+      { type: "image", x: 0, y: 0, w: 1, h: 1 } as unknown as CanvasCommand,
+      { type: "clipRect", x: 0, y: 0, w: 1, h: 1, op: "union" } as unknown as CanvasCommand,
+      draw.rect(0, 0, 1, 1, { blendMode: "hue" as any }),
+      draw.rect(0, 0, 1, 1, { sweepGradient: { cx: 0, cy: 0, colors: [RED] } }),
+      draw.paragraph("a", 0, 0, 10, { maxLines: 0 }),
+    ])
+    expect(logs.length).toBe(5)
+    expect(logs[0]).toContain("command 0 (image).src")
+    expect(logs[1]).toContain("command 1 (clipRect).op")
+    expect(logs[2]).toContain('command 2 (rect) blendMode "hue"')
+    expect(logs[3]).toContain("command 3 (rect) sweepGradient needs at least 2 colours")
+    expect(logs[4]).toContain("command 4 (paragraph) maxLines")
+  })
+})
+
+describe("C8: polyline and smoothPath", () => {
+  test("polyline is a path through the points, nested or flat", () => {
+    expect(draw.polyline([[0, 0], [10, 5], [20, 0]], { style: "stroke" })).toEqual({
+      type: "path",
+      d: "M 0 0 L 10 5 L 20 0",
+      paint: { style: "stroke" },
+    })
+    expect((draw.polyline([0, 0, 10, 5]) as any).d).toBe("M 0 0 L 10 5")
+  })
+
+  test("smoothPath: empty, one point, and the same curve for both point forms", () => {
+    expect(smoothPath([])).toBe("")
+    expect(smoothPath([[3, 4]])).toBe("M 3 4")
+    expect(smoothPath([[0, 0], [10, 10]])).toBe("M 0 0 C 3.33 3.33 6.67 6.67 10 10")
+    expect(smoothPath([0, 0, 10, 20, 20, 5])).toBe(smoothPath([[0, 0], [10, 20], [20, 5]]))
+  })
+
+  test("smoothPath never overshoots: control points stay between the points they join", () => {
+    const pts: [number, number][] = [[0, 50], [10, 10], [20, 10], [30, 90], [40, 85], [50, 0], [60, 0]]
+    const nums = smoothPath(pts).replace(/[MC]/g, " ").trim().split(/\s+/).map(Number)
+    // After "M x y", each C has 6 numbers: c1x c1y c2x c2y x y.
+    for (let i = 0; i < pts.length - 1; i++) {
+      const y0 = pts[i][1]
+      const y1 = pts[i + 1][1]
+      const c = nums.slice(2 + i * 6, 2 + i * 6 + 6)
+      const lo = Math.min(y0, y1) - 1e-9
+      const hi = Math.max(y0, y1) + 1e-9
+      expect(c[1] >= lo && c[1] <= hi).toBe(true)
+      expect(c[3] >= lo && c[3] <= hi).toBe(true)
+    }
+  })
+
+  test("points that aren't finite are left out with one warning", () => {
+    expect(smoothPath([[0, 0], [NaN, 3], [10, 0]])).toBe(smoothPath([[0, 0], [10, 0]]))
+    expect(logs).toEqual(["Canvas: smoothPath: points that aren't finite numbers are left out"])
   })
 })

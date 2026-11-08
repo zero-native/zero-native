@@ -1,7 +1,7 @@
 // A dev screen for <Canvas> (registry 23, docs/components.md §14). Each tile says what you should see.
 // Tiles draw their own background (c.white), so they look the same in light and dark mode.
-import { Box, Canvas, Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { draw, type CanvasCommand, onCleanup, setInterval, signal } from "@zero-native/core"
+import { Box, Canvas, Column, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
+import { draw, type CanvasCommand, onCleanup, setInterval, signal, smoothPath, useMotion, usePan } from "@zero-native/core"
 import { c } from "./tokens"
 
 // Lab colours (the tokens have no chart colours).
@@ -47,6 +47,125 @@ function Tile(props: { title: string; expect: string; children?: unknown }) {
 
 // A smooth-ish series for the area chart.
 const AREA = [42, 48, 45, 60, 58, 72, 66, 80, 76, 90, 84, 96]
+
+// Chart scrub: 24 prices (₹) and where each point is drawn (dp), worked out once.
+const SCRUB_W = 340
+const SCRUB_H = 160
+const SCRUB_PAD = 16
+const PRICES = [4210, 4235, 4228, 4262, 4290, 4275, 4301, 4344, 4320, 4388, 4410, 4395, 4372, 4420, 4466, 4440, 4485, 4512, 4498, 4530, 4575, 4551, 4590, 4620]
+const PRICE_MIN = Math.min(...PRICES)
+const PRICE_MAX = Math.max(...PRICES)
+const SCRUB_XS = PRICES.map((_, i) => SCRUB_PAD + (i * (SCRUB_W - SCRUB_PAD * 2)) / (PRICES.length - 1))
+const SCRUB_YS = PRICES.map((p) => SCRUB_H - SCRUB_PAD - ((p - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * (SCRUB_H - SCRUB_PAD * 2))
+
+// A tick in a circle, for the path trim tile (dp).
+const TICK = "M 38 62 L 54 78 L 84 44"
+const RING = "M 60 16 A 44 44 0 1 1 59.99 16"
+
+const LONG_TEXT =
+  "ZeroBill keeps every bill you pay in one place. Scan the QR at the counter, pay with any UPI app, and the bill lands here with its cashback. No paper, no lost receipts, no waiting at the counter."
+
+function CanvasButton(props: { label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={props.onPress} style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.pillBg, borderRadius: 6 }}>
+      <Text fontSize={12} fontWeight={600} color={c.ink}>
+        {props.label}
+      </Text>
+    </Pressable>
+  )
+}
+
+// 9. A line chart you scrub with a finger: the cursor, the dot and the ₹ price all follow pan.touchX natively.
+function ChartScrubTile() {
+  const pan = usePan({ axis: "x" })
+  // Clamped to the chart (map clamps by default); the dot's y and the price come from the chart's own arrays.
+  const cx = pan.touchX.map([SCRUB_PAD, SCRUB_W - SCRUB_PAD], [SCRUB_PAD, SCRUB_W - SCRUB_PAD])
+  const cy = pan.touchX.map(SCRUB_XS, SCRUB_YS)
+  const price = pan.touchX.map(SCRUB_XS, PRICES)
+  const points = SCRUB_XS.map((x, i) => [x, SCRUB_YS[i]] as [number, number])
+  const commands = (): CanvasCommand[] => [
+    draw.rect(0, 0, SCRUB_W, SCRUB_H, { color: c.white }),
+    draw.line(SCRUB_PAD, SCRUB_H - SCRUB_PAD, SCRUB_W - SCRUB_PAD, SCRUB_H - SCRUB_PAD, { color: c.border, strokeWidth: 1 }),
+    draw.polyline(points, { style: "stroke", strokeWidth: 2, strokeJoin: "round", color: UP }),
+    draw.line(cx, SCRUB_PAD / 2, cx, SCRUB_H - SCRUB_PAD, { color: c.muted, strokeWidth: 1, dash: [4, 4] }),
+    draw.circle(cx, cy, 9, { color: "rgba(22, 163, 74, 0.25)" }),
+    draw.circle(cx, cy, 5, { color: UP }),
+    draw.circle(cx, cy, 5, { style: "stroke", strokeWidth: 2, color: c.white }),
+  ]
+  return (
+    <Tile
+      title="9. Chart scrub (motion values in commands)"
+      expect="drag sideways on the chart: a dashed line and a green dot follow your finger along the line, and the ₹ price above changes with it, smoothly, with no JS per frame. Before the first touch the cursor sits on the first point."
+    >
+      <Text fontSize={22} fontWeight={700} color={c.ink}>
+        {price.format({ prefix: "₹", decimals: 2 })}
+      </Text>
+      <Box style={{ width: SCRUB_W, height: SCRUB_H, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+        <Canvas gesture={pan} style={{ width: SCRUB_W, height: SCRUB_H }} commands={commands()} accessibilityLabel="Price, last 24 days, going up" />
+      </Box>
+    </Tile>
+  )
+}
+
+// 10. A progress ring whose sweep is a motion value: the buttons move it natively; the % is v.format in a <Text>.
+function MotionRingTile() {
+  const progress = useMotion(65)
+  let target = 65
+  const go = (to: number) => {
+    target = Math.max(0, Math.min(100, to))
+    progress.to(target, { duration: 600, easing: "standard" })
+  }
+  const sweep = progress.map([0, 100], [0, 360])
+  const commands = (): CanvasCommand[] => [
+    draw.circle(80, 80, 60, { style: "stroke", strokeWidth: 14, color: c.border }),
+    draw.arc(20, 20, 120, 120, -90, sweep, false, { style: "stroke", strokeWidth: 14, strokeCap: "round", color: c.primary }),
+  ]
+  return (
+    <Tile title="10. Progress ring from a motion value" expect="tap the buttons: the ring grows or shrinks smoothly from 12 o'clock, and the % in the middle counts with it.">
+      <Row gap={8} alignItems="center">
+        <CanvasButton label="0%" onPress={() => go(0)} />
+        <CanvasButton label="-25%" onPress={() => go(target - 25)} />
+        <CanvasButton label="+25%" onPress={() => go(target + 25)} />
+        <CanvasButton label="100%" onPress={() => go(100)} />
+      </Row>
+      <Stack style={{ width: 160, height: 160, alignSelf: "center" }}>
+        <Canvas style={{ width: 160, height: 160 }} commands={commands()} />
+        <Box style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0, alignItems: "center", justifyContent: "center" }}>
+          <Text fontSize={24} fontWeight={700} color={c.ink}>
+            {progress.format({ suffix: "%" })}
+          </Text>
+        </Box>
+      </Stack>
+    </Tile>
+  )
+}
+
+// 11. Path trim: a tick in a circle drawn by trimEnd (a motion value), like an "order placed" mark.
+function PathTrimTile() {
+  const t = useMotion(0)
+  let on = false
+  const commands = (): CanvasCommand[] => [
+    draw.rect(0, 0, 120, 120, { color: c.white }),
+    draw.path(RING, { style: "stroke", strokeWidth: 6, strokeCap: "round", color: c.success }, { trimEnd: t.map([0, 0.6], [0, 1]) }),
+    draw.path(TICK, { style: "stroke", strokeWidth: 8, strokeCap: "round", strokeJoin: "round", color: c.success }, { trimEnd: t.map([0.6, 1], [0, 1]) }),
+  ]
+  return (
+    <Tile title="11. Path trim" expect="tap Draw: a green circle draws itself, then the tick inside it. Tap again: it goes back the same way.">
+      <Row gap={8}>
+        <CanvasButton
+          label="Draw"
+          onPress={() => {
+            on = !on
+            t.to(on ? 1 : 0, { duration: 900, easing: "standard" })
+          }}
+        />
+      </Row>
+      <Box style={{ width: 120, height: 120, alignSelf: "center" }}>
+        <Canvas style={{ width: 120, height: 120 }} commands={commands()} />
+      </Box>
+    </Tile>
+  )
+}
 
 export function CanvasLabScreen() {
   const candles = signal<Candle[]>(generateInitialCandles(200))
@@ -195,9 +314,9 @@ export function CanvasLabScreen() {
     const pad = 12
     const step = (w - pad * 2) / (AREA.length - 1)
     const toY = (v: number) => h - pad - (v / 100) * (h - pad * 2)
-    let line = ""
-    for (let i = 0; i < AREA.length; i++) line += `${i === 0 ? "M" : "L"} ${pad + i * step} ${toY(AREA[i])} `
-    const area = `${line}L ${w - pad} ${h - pad} L ${pad} ${h - pad} Z`
+    // A smooth curve that never overshoots (core smoothPath): it never goes above the highest point.
+    const line = smoothPath(AREA.map((v, i) => [pad + i * step, toY(v)] as [number, number]))
+    const area = `${line} L ${w - pad} ${h - pad} L ${pad} ${h - pad} Z`
     return [
       draw.rect(0, 0, w, h, { color: c.white }),
       draw.path(area, { linearGradient: { x0: 0, y0: pad, x1: 0, y1: h - pad, colors: ["rgba(61, 38, 237, 0.45)", "rgba(61, 38, 237, 0)"] } }),
@@ -210,7 +329,8 @@ export function CanvasLabScreen() {
     draw.rect(0, 0, 340, 120, { color: c.white }),
     draw.save(),
     draw.clipRect(20, 20, 120, 80),
-    draw.circle(80, 60, 70, { color: c.primary }),
+    // r 50 at (80, 60): wider than the 80 dp tall clip, so its top and bottom are cut flat; its sides stay round.
+    draw.circle(80, 60, 50, { color: c.primary }),
     draw.restore(),
     draw.rect(20, 20, 120, 80, { style: "stroke", strokeWidth: 1, color: c.border }),
     draw.save(),
@@ -230,8 +350,8 @@ export function CanvasLabScreen() {
     draw.roundRect(180, 20, 140, 60, 16, { style: "stroke", strokeWidth: 2, color: c.success }),
   ]
 
-  // Bad commands: each one is wrong on purpose. The app must not crash; the good parts draw; a debug build shows one
-  // dev error that names the bad indexes.
+  // Bad commands: each one is wrong on purpose. The app must not crash; the good parts draw; logcat (tag zn) has one
+  // warning that names the bad indexes. No red dev screen: the rest of the canvas is fine (second-opinions 197).
   const badCommands = (): CanvasCommand[] => [
     draw.rect(0, 0, 340, 80, { color: c.white }),
     // 1: a gradient with one colour: drawn solid in that colour.
@@ -244,6 +364,68 @@ export function CanvasLabScreen() {
     draw.restore(),
     // 5: still drawn.
     draw.circle(260, 40, 16, { color: UP }),
+  ]
+
+  // 12. Images: an asset with cover and a radius, the same with contain, a photo from the web, and a broken URL.
+  const imageCommands = (): CanvasCommand[] => [
+    draw.rect(0, 0, 340, 110, { color: c.white }),
+    draw.image("asset:images/offer-placeholder.png", 10, 10, 100, 90, { fit: "cover", radius: 12 }),
+    draw.rect(120, 10, 100, 90, { color: c.pillBg }),
+    draw.image("asset:images/offer-placeholder.png", 120, 10, 100, 90, { fit: "contain" }),
+    draw.image("https://picsum.photos/id/292/400/360", 230, 10, 100, 90, { fit: "cover", radius: 45, opacity: 0.9 }),
+    // Broken on purpose: draws nothing, with a warning in logcat.
+    draw.image("https://zeronative.dev/nonexistent_canvas_404.png", 0, 0, 40, 40),
+  ]
+
+  // 13. Paragraphs: wrapped text cut at 3 lines with "…", and a centred one.
+  const paragraphCommands = (): CanvasCommand[] => [
+    draw.rect(0, 0, 340, 150, { color: c.white }),
+    draw.paragraph(LONG_TEXT, 16, 12, 308, { fontSize: 14, lineHeight: 20, maxLines: 3, color: c.ink }),
+    draw.line(16, 80, 324, 80, { color: c.border, strokeWidth: 1 }),
+    draw.paragraph("Paid ₹499 to Sharma Stores", 16, 92, 308, { fontSize: 16, fontWeight: "bold", align: "center", color: c.success }),
+    draw.paragraph("Today, 4:32 PM · UPI", 16, 118, 308, { fontSize: 12, align: "center", color: c.muted }),
+  ]
+
+  // 14. A QR scanner frame: a dark cover with a rounded hole (clipRoundRect "difference"), a white border and corners.
+  const scannerCommands = (): CanvasCommand[] => {
+    const cmds: CanvasCommand[] = []
+    // Stand-in for the camera picture: coloured stripes.
+    const stripes = [UP, c.primary, ACCENT, DOWN, "#F59E0B", "#0EA5E9"]
+    for (let i = 0; i < 12; i++) cmds.push(draw.rect(i * 30, 0, 30, 220, { color: stripes[i % stripes.length] }))
+    const x = 90
+    const y = 30
+    const s = 160
+    cmds.push(
+      draw.save(),
+      draw.clipRoundRect(x, y, s, s, 20, { op: "difference" }),
+      draw.rect(0, 0, 340, 220, { color: "rgba(0, 0, 0, 0.65)" }),
+      draw.restore(),
+      draw.roundRect(x, y, s, s, 20, { style: "stroke", strokeWidth: 2, color: "rgba(255, 255, 255, 0.6)" }),
+    )
+    // Corner marks, as one path with round ends.
+    const k = 28
+    const corners =
+      `M ${x} ${y + k} L ${x} ${y} L ${x + k} ${y} M ${x + s - k} ${y} L ${x + s} ${y} L ${x + s} ${y + k} ` +
+      `M ${x + s} ${y + s - k} L ${x + s} ${y + s} L ${x + s - k} ${y + s} M ${x + k} ${y + s} L ${x} ${y + s} L ${x} ${y + s - k}`
+    cmds.push(draw.path(corners, { style: "stroke", strokeWidth: 5, strokeCap: "round", strokeJoin: "round", color: c.white }))
+    cmds.push(draw.paragraph("Point at the shop's QR", 0, 198, 340, { fontSize: 13, align: "center", color: c.white }))
+    return cmds
+  }
+
+  // 15. Paint effects: a sweep gradient ring, multiply, a shadow, a blur glow, and an even-odd donut.
+  const effectsCommands = (): CanvasCommand[] => [
+    draw.rect(0, 0, 340, 130, { color: c.white }),
+    draw.circle(55, 65, 38, {
+      style: "stroke",
+      strokeWidth: 14,
+      sweepGradient: { cx: 55, cy: 65, colors: [c.primary, ACCENT, UP, c.primary], startAngle: -90 },
+    }),
+    draw.circle(130, 55, 24, { color: "#F87171" }),
+    draw.circle(150, 75, 24, { color: "#60A5FA", blendMode: "multiply" }),
+    draw.roundRect(195, 35, 60, 60, 12, { color: c.white, shadow: { dx: 0, dy: 4, blur: 10, color: "rgba(15, 23, 42, 0.35)" } }),
+    draw.circle(300, 45, 18, { color: ACCENT, blur: 10 }),
+    draw.circle(300, 45, 8, { color: c.white }),
+    draw.path("M 280 80 h 40 v 40 h -40 Z M 290 90 h 20 v 20 h -20 Z", { color: c.ink, fillType: "evenOdd" }),
   ]
 
   return (
@@ -313,7 +495,7 @@ export function CanvasLabScreen() {
           </Box>
         </Tile>
 
-        <Tile title="6. clipRect and scale" expect="left: a blue circle cut to a box; right: a green rounded square, 80 dp. The grey border of this tile stays in place.">
+        <Tile title="6. clipRect and scale" expect="left: a blue circle with its top and bottom cut flat by the grey box (its round sides show); right: a green rounded square, 80 dp. The grey border of this tile stays in place.">
           <Box style={{ width: 340, height: 120, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
             <Canvas style={{ width: 340, height: 120 }} commands={clipScaleCommands()} />
           </Box>
@@ -325,9 +507,37 @@ export function CanvasLabScreen() {
           </Box>
         </Tile>
 
-        <Tile title="8. Bad commands" expect="a green box, a solid blue line (no dash) and a green dot. No crash. In a debug build: one dev error naming commands 1-4.">
+        <Tile title="8. Bad commands" expect="a green box, a solid blue line (no dash) and a green dot. No crash and no red screen. Logcat (tag zn): one warning naming commands 1-4.">
           <Box style={{ width: 340, height: 80, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
             <Canvas style={{ width: 340, height: 80 }} commands={badCommands()} />
+          </Box>
+        </Tile>
+
+        <ChartScrubTile />
+        <MotionRingTile />
+        <PathTrimTile />
+
+        <Tile title="12. Images" expect="left: the offer picture filling a rounded box (cut to fit); middle: the whole picture on a grey box; right: a photo from the web in a circle (needs internet). Nothing at the top-left corner: that URL is broken on purpose (a warning in logcat).">
+          <Box style={{ width: 340, height: 110, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+            <Canvas style={{ width: 340, height: 110 }} commands={imageCommands()} />
+          </Box>
+        </Tile>
+
+        <Tile title="13. Paragraphs" expect="3 lines of wrapped text, the third ending with …; under a line, a green bold centred title and a grey centred time.">
+          <Box style={{ width: 340, height: 150, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+            <Canvas style={{ width: 340, height: 150 }} commands={paragraphCommands()} />
+          </Box>
+        </Tile>
+
+        <Tile title="14. Scanner frame (clip difference)" expect="coloured stripes, dark everywhere except a bright rounded square in the middle with white corner marks, and white text at the bottom.">
+          <Box style={{ width: 340, height: 220, borderRadius: 8, overflow: "hidden" }}>
+            <Canvas style={{ width: 340, height: 220 }} commands={scannerCommands()} />
+          </Box>
+        </Tile>
+
+        <Tile title="15. Paint effects" expect="left to right: a ring that fades blue → purple → green from 12 o'clock; a red and a blue circle whose overlap is dark purple (multiply); a white card with a soft shadow (Android 9+); a soft purple glow with a white dot (blur, Android 9+); a black square with a square hole (evenOdd).">
+          <Box style={{ width: 340, height: 130, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+            <Canvas style={{ width: 340, height: 130 }} commands={effectsCommands()} />
           </Box>
         </Tile>
       </Column>

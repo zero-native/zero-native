@@ -611,42 +611,60 @@ export declare const Shimmer: Intrinsic<
     period?: number
   }
 >
-/** The same shapes as core's canvas types (packages/core/src/canvas.ts). Colours: a colour string or an ARGB number. */
+/**
+ * The same shapes as core's canvas types (packages/core/src/canvas.ts). Colours: a colour string or an ARGB number.
+ * A CanvasNum (and paint color / opacity / strokeWidth, text color) may be a motion value: native reads it each draw.
+ */
 type CanvasColor = string | number
+type CanvasNum = number | MotionInput
+type CanvasColorValue = CanvasColor | MotionInput
 interface CanvasLinearGradient { x0: number; y0: number; x1: number; y1: number; colors: CanvasColor[]; stops?: number[] }
 interface CanvasRadialGradient { cx: number; cy: number; r: number; colors: CanvasColor[]; stops?: number[] }
+interface CanvasSweepGradient { cx: number; cy: number; colors: CanvasColor[]; stops?: number[]; startAngle?: number }
 interface CanvasPaint {
-  color?: CanvasColor
+  color?: CanvasColorValue
   style?: "fill" | "stroke"
-  strokeWidth?: number
+  strokeWidth?: CanvasNum
   strokeCap?: "butt" | "round" | "square"
   strokeJoin?: "miter" | "round" | "bevel"
   dash?: number[]
-  opacity?: number
+  opacity?: CanvasNum
   linearGradient?: CanvasLinearGradient
   radialGradient?: CanvasRadialGradient
+  sweepGradient?: CanvasSweepGradient
+  fillType?: "nonZero" | "evenOdd"
+  blendMode?:
+    | "srcOver" | "multiply" | "screen" | "overlay" | "darken" | "lighten" | "plus" | "clear"
+    | "srcIn" | "srcOut" | "srcAtop" | "dstIn" | "dstOut" | "dstOver" | "dstAtop" | "xor"
+  shadow?: { dx: number; dy: number; blur: number; color: CanvasColor }
+  blur?: number
 }
 interface CanvasTextOptions {
   fontSize?: number
   fontWeight?: number | "normal" | "bold"
-  color?: CanvasColor
+  color?: CanvasColorValue
   align?: "left" | "center" | "right"
 }
+type CanvasClipOp = "intersect" | "difference"
 type CanvasCommand =
-  | { type: "rect"; x: number; y: number; w: number; h: number; paint?: CanvasPaint }
-  | { type: "roundRect"; x: number; y: number; w: number; h: number; r: number; paint?: CanvasPaint }
-  | { type: "circle"; cx: number; cy: number; r: number; paint?: CanvasPaint }
-  | { type: "oval"; x: number; y: number; w: number; h: number; paint?: CanvasPaint }
-  | { type: "line"; x1: number; y1: number; x2: number; y2: number; paint?: CanvasPaint }
-  | { type: "arc"; x: number; y: number; w: number; h: number; start: number; sweep: number; useCenter?: boolean; paint?: CanvasPaint }
-  | { type: "path"; d: string; paint?: CanvasPaint }
-  | { type: "text"; text: string; x: number; y: number; options?: CanvasTextOptions }
+  | { type: "rect"; x: CanvasNum; y: CanvasNum; w: CanvasNum; h: CanvasNum; paint?: CanvasPaint }
+  | { type: "roundRect"; x: CanvasNum; y: CanvasNum; w: CanvasNum; h: CanvasNum; r: CanvasNum; paint?: CanvasPaint }
+  | { type: "circle"; cx: CanvasNum; cy: CanvasNum; r: CanvasNum; paint?: CanvasPaint }
+  | { type: "oval"; x: CanvasNum; y: CanvasNum; w: CanvasNum; h: CanvasNum; paint?: CanvasPaint }
+  | { type: "line"; x1: CanvasNum; y1: CanvasNum; x2: CanvasNum; y2: CanvasNum; paint?: CanvasPaint }
+  | { type: "arc"; x: CanvasNum; y: CanvasNum; w: CanvasNum; h: CanvasNum; start: CanvasNum; sweep: CanvasNum; useCenter?: boolean; paint?: CanvasPaint }
+  | { type: "path"; d: string; paint?: CanvasPaint; trimStart?: CanvasNum; trimEnd?: CanvasNum; trimOffset?: CanvasNum }
+  | { type: "text"; text: string; x: CanvasNum; y: CanvasNum; options?: CanvasTextOptions }
+  | { type: "paragraph"; text: string; x: CanvasNum; y: CanvasNum; width: number; options?: CanvasTextOptions & { lineHeight?: number; maxLines?: number } }
+  | { type: "image"; src: string; x: CanvasNum; y: CanvasNum; w: CanvasNum; h: CanvasNum; options?: { fit?: "cover" | "contain" | "fill"; radius?: CanvasNum; opacity?: CanvasNum } }
   | { type: "save" }
   | { type: "restore" }
-  | { type: "translate"; dx: number; dy: number }
-  | { type: "scale"; sx: number; sy?: number }
-  | { type: "rotate"; degrees: number; px?: number; py?: number }
-  | { type: "clipRect"; x: number; y: number; w: number; h: number }
+  | { type: "translate"; dx: CanvasNum; dy: CanvasNum }
+  | { type: "scale"; sx: CanvasNum; sy?: CanvasNum }
+  | { type: "rotate"; degrees: CanvasNum; px?: CanvasNum; py?: CanvasNum }
+  | { type: "clipRect"; x: CanvasNum; y: CanvasNum; w: CanvasNum; h: CanvasNum; op?: CanvasClipOp }
+  | { type: "clipRoundRect"; x: CanvasNum; y: CanvasNum; w: CanvasNum; h: CanvasNum; r: CanvasNum; op?: CanvasClipOp }
+  | { type: "clipPath"; d: string; op?: CanvasClipOp; fillType?: "nonZero" | "evenOdd" }
 /**
  * A native 2D drawing canvas (registry 23). Draws shapes, paths, text and gradients from a command list, in the draw
  * phase only. Build the list with core's `draw.*` helpers; `null` and `false` entries are skipped. Units are dp. A

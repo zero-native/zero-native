@@ -2675,19 +2675,27 @@ Reference: `docs/motion.md`. The short version for authors:
   the text becomes its prefix and suffix. Two in one `<Text>`: only the first is drawn; use one `<Text>` each.
 - Every motion API needs the `Motion` module: an older APK refuses such a bundle and keeps its own (normal OTA rule).
 
-## 76. Chats: `keyboardDismissMode` (registry 24)
-```tsx
-<List inverted keyboardDismissMode="interactive" data={messages()} key={(m) => String(m.id)} row={(m) => <Bubble m={m} />} style={{ flex: 1 }} />
-```
-- **Do** use `"interactive"` on a chat's list. A drag down on the messages pushes the keyboard away with the finger;
-  at the newest message, a drag up pulls it back. **Why:** this is what users know from chat apps; the field keeps
-  focus, so the keyboard can come back without a tap.
-- **Do** use `"on-drag"` on a search results list or a form. The first drag closes the keyboard and the field loses
-  focus (as `Keyboard.dismiss()`). A drag with no keyboard open changes nothing.
-- **Know:** `"interactive"` needs Android 11+; older Android works like `"on-drag"`. It moves the keyboard only for
-  vertical drags; a horizontal `Scroll` or `List` works like `"on-drag"`. With no focused field, a drag up can't open
-  the keyboard (also on iOS).
-- **Know:** the value is fixed at build time: `"none"` (the default), `"on-drag"` or `"interactive"`. Anything else
-  fails the build.
-- The bar under the list still has to move with the keyboard: the route's `keyboard: "resize"` (default) does it, or
-  `keyboard: "none"` and `translateY` by `env.keyboardHeight` (Sheets lab, Keyboard tab).
+## 77. Canvas: drawing from motion values, images, paragraphs, clips
+Reference: `docs/components.md` §14. The short version for authors:
+- **Do** give a chart cursor, a ring's sweep or a tick's trim a motion value (`draw.circle(x, y, 5, paint)` with
+  `x = pan.touchX.map(...)`). **Don't** rebuild the command list from a signal on every frame. **Why:** a motion value
+  is read natively while drawing (a redraw only); a new list is JSON, a parse and a recompose per frame.
+- **Do** use the chart's own arrays for the dot and the price: `pan.touchX.map(XS, YS)`, `pan.touchX.map(XS, PRICES)`,
+  and show the price with `price.format({ prefix: "₹" })` in a `<Text>`. **Why:** the dot then sits exactly on a
+  `polyline` line. (On a `smoothPath` curve it sits on the straight line between points, slightly off the curve.)
+- **Don't** put a motion value in gradient points or colours, `dash`, path `d`, `fontSize`, paragraph `width`, shadow
+  or blur. **Why:** these are built once per list; JS warns and native skips the command. Move the whole drawing with
+  `translate` / `scale` / `rotate`, or send a new list.
+- **Do** use `.mapColor(...)` for a colour that moves. **Why:** a plain number value as a colour draws black.
+- **Do** use `smoothPath(points)` for chart curves. **Don't** hand-write cubic curves through data. **Why:** it never
+  overshoots, so the curve never shows a price above the highest or below the lowest.
+- **Do** remember `paragraph`'s `y` is the top of the text, while `text`'s `y` is the baseline. **Why:** a paragraph
+  is a block that wraps; a single line is placed on its baseline like in SVG.
+- **Do** give `image` the same sources as `<Image>` (https URL, `asset:images/x.png`, `zn://`). **Why:** nothing shows
+  while it loads or if it fails; draw a grey box under it if the empty space would look broken.
+- **Do** use `clipRoundRect(..., { op: "difference" })` for a scanner frame (dark cover, clear hole). **Don't** draw
+  four dark rects round the hole. **Why:** one clip gives round corners and no seams.
+- **Don't** count on `shadow` or `blur` below Android 9: the shape draws without them. **Why:** Android's hardware
+  drawing ignores them there.
+- A canvas problem is a warning in logcat (tag `zn`) and a JS warning, not a red screen. Check logcat when a part of a
+  drawing is missing.
