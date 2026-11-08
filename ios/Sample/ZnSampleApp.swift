@@ -13,7 +13,7 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let env = ProcessInfo.processInfo.environment
         // Plugins first, before the bundle runs (docs/plugins.md).
-        ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin())
+        ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin())
         ZnApp.shared.start(bundle: Bundle.main.resourceURL!,
                            routeName: env["ZN_ROUTE"] ?? "amount",
                            params: env["ZN_PARAMS"] ?? "{\"merchantId\":\"m1\"}")

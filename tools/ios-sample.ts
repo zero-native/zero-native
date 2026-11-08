@@ -6,6 +6,7 @@
 //   bun run tools/ios-sample.ts --delay 3000           start JS 3 s late, to see the skeleton alone
 //   bun run tools/ios-sample.ts --route home --params '{}'
 //   bun run tools/ios-sample.ts --build-only
+//   bun run tools/ios-sample.ts --no-symbols           don't upload the dSYM to Crashlytics (it does when Firebase is on)
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
@@ -36,6 +37,16 @@ if (!existsSync(join(buildDir, "zn_ios.xcodeproj"))) {
 // By -target, not -scheme: Xcode 26 lists no destinations while the iOS device platform isn't installed.
 must(["xcodebuild", "-project", join(buildDir, "zn_ios.xcodeproj"), "-target", "ZnSample", "-sdk", "iphonesimulator",
   "-configuration", "Debug", "ARCHS=arm64", "ONLY_ACTIVE_ARCH=YES", "build"], /error|BUILD (SUCCEEDED|FAILED)/)
+// Crashlytics needs the build's dSYM to turn a native crash's addresses into function names: without it the console
+// keeps the crash "unprocessed". Uploaded after each build when Firebase is on (SDK fetched and the app's plist there);
+// a few seconds, skipped with --no-symbols. JS errors don't need it (their frames are sent as text).
+const uploadSymbols = join(root, "ios/third_party/firebase/FirebaseCrashlytics/upload-symbols")
+const plist = join(root, "ios/Sample/GoogleService-Info.plist")
+const dsym = join(buildDir, "Debug-iphonesimulator/ZnSample.app.dSYM")
+if (!args.includes("--no-symbols") && existsSync(uploadSymbols) && existsSync(plist) && existsSync(dsym)) {
+  const up = Bun.spawnSync([uploadSymbols, "-gsp", plist, "-p", "ios", dsym], { stdout: "pipe", stderr: "pipe" })
+  console.log(up.exitCode === 0 ? "crashlytics: dSYM uploaded" : `crashlytics: dSYM upload failed: ${up.stderr.toString().trim()}`)
+}
 if (args.includes("--build-only")) process.exit(0)
 
 const app = join(buildDir, "Debug-iphonesimulator/ZnSample.app")

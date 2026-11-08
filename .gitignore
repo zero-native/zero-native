@@ -62,3 +62,7 @@ android/sample/google-services.json
 # Hermes for Apple platforms (bun run tools/fetch-hermes-apple.ts)
 ios/third_party/hermes/
 core/build-apple/
+
+# iOS Firebase config (project keys): each developer adds their own, never committed
+**/GoogleService-Info.plist
+ios/third_party/firebase/

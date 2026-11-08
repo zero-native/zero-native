@@ -67,9 +67,31 @@ add_executable(ZnSample MACOSX_BUNDLE
 )
 target_include_directories(ZnSample PRIVATE ZnRuntime/Host)
 target_link_libraries(ZnSample PRIVATE zn_core "-framework QuartzCore")
+
+# Firebase (bun run tools/fetch-firebase-apple.ts; ios/third_party/firebase, not in git): Google's static XCFrameworks,
+# linked when they are there. The plugins' Swift checks `canImport(FirebaseCore)`, so the app builds without them.
+# Firebase starts only when the app has its GoogleService-Info.plist (Sample/, not in git), like Android's
+# google-services.json. Left out: the IDFA part of Analytics (GoogleAppMeasurementIdentitySupport, it would need the
+# tracking prompt) and on-device ad conversion.
+set(firebase_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/firebase")
+file(GLOB firebase_marker "${firebase_dir}/.version-*")
+if(firebase_marker)
+  file(GLOB firebase_xcfs "${firebase_dir}/FirebaseAnalytics/*.xcframework" "${firebase_dir}/FirebaseCrashlytics/*.xcframework")
+  list(FILTER firebase_xcfs EXCLUDE REGEX "GoogleAppMeasurementIdentitySupport|GoogleAdsOnDeviceConversion")
+  target_link_libraries(ZnSample PRIVATE ${firebase_xcfs} "-ObjC" "-lc++" "-lsqlite3" "-lz")
+  message(STATUS "Firebase: linked from ${firebase_dir}")
+else()
+  message(STATUS "Firebase: not downloaded (bun run tools/fetch-firebase-apple.ts); the Firebase plugins answer \"unavailable\"")
+endif()
+set(firebase_plist "${CMAKE_CURRENT_SOURCE_DIR}/Sample/GoogleService-Info.plist")
+set(app_resources ${bundle_files})
+if(EXISTS "${firebase_plist}")
+  target_sources(ZnSample PRIVATE "${firebase_plist}")
+  list(APPEND app_resources "${firebase_plist}")
+endif()
 set_target_properties(ZnSample PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Sample/Info.plist"
-  RESOURCE "${bundle_files}"
+  RESOURCE "${app_resources}"
   XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "dev.zeronative.sample"
   XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/ZnRuntime/Host/ZnRuntime-Bridging-Header.h"
   XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES

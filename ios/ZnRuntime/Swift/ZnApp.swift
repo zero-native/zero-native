@@ -47,7 +47,7 @@ final class ZnApp {
     static let shared = ZnApp()
 
     /// Back-stack entries (screen root instance ids), bottom first. The top one is drawn.
-    private(set) var stack: [UInt32] = []
+    private(set) var stack: [UInt32] = [] { didSet { topRouteMaybeChanged() } }
     /// A start failure (bad bundle, JS that didn't run), shown instead of a screen.
     private(set) var failure: String?
     /// startApp's app layers (NAV LAYER): "top" / "overlay" → its root instance id (ZnLayers.swift).
@@ -62,6 +62,33 @@ final class ZnApp {
     @ObservationIgnored private var jsStarted = false
 
     func route(of entry: UInt32) -> ZnRoute? { entryRoutes[entry] }
+
+    // MARK: Listeners for plugins (Crashlytics, Analytics), as Android's ZnRuntime.addJsErrorListener and ZnNav.stack
+
+    /// JS threw and nothing caught it, hung, or didn't start: kind ("screen", "handler", "async", "hang", "start", ...),
+    /// where, and the details with the JS stack. Main thread.
+    typealias JsErrorListener = (_ kind: String, _ whereText: String, _ details: String) -> Void
+    @ObservationIgnored private var jsErrorListeners: [JsErrorListener] = []
+    @ObservationIgnored private var routeListeners: [(String?) -> Void] = []
+    @ObservationIgnored private var lastTopRoute: String??
+
+    func addJsErrorListener(_ listener: @escaping JsErrorListener) { jsErrorListeners.append(listener) }
+
+    /// The top screen's route name, now and after each change (nil before the first screen). Main thread.
+    func addTopRouteListener(_ listener: @escaping (String?) -> Void) {
+        routeListeners.append(listener)
+        listener(topRoute)
+    }
+
+    /// The top screen's route name.
+    var topRoute: String? { stack.last.flatMap { entryRoutes[$0]?.name } }
+
+    private func topRouteMaybeChanged() {
+        let now = topRoute
+        guard lastTopRoute != .some(now) else { return }
+        lastTopRoute = .some(now)
+        routeListeners.forEach { $0(now) }
+    }
 
     /// The window's safe-area insets changed (start, rotation): JS's insets() hears them (INSETS, as on Android).
     func reportInsets(top: CGFloat, bottom: CGFloat, start: CGFloat, end: CGFloat) {
@@ -118,8 +145,9 @@ final class ZnApp {
             host.onApply = { [weak self] data in self?.apply(data) }
             // JS's console and the core's log lines, on the console as well as os_log (the debug run reads them).
             host.onLog = { level, message in print("zn-js \(["D", "I", "W", "E"][min(max(level, 0), 3)]) \(message)") }
-            host.onJsError = { kind, whereText, details in
+            host.onJsError = { [weak self] kind, whereText, details in
                 ZnDebug.log.error("js error \(whereText, privacy: .public) [\(kind, privacy: .public)]: \(details, privacy: .public)")
+                self?.jsErrorListeners.forEach { $0(kind, whereText, details) }
             }
             let delayMs = Double(ProcessInfo.processInfo.environment["ZN_JS_DELAY_MS"] ?? "") ?? 0
             let startPayload = "[{\"entry\":\(entry),\"route\":\(routeIndex),\"params\":\(params)}]"

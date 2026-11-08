@@ -146,6 +146,35 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.4, Firebase: firebase-app, Crashlytics, Analytics (Claude, `ios` branch)
+- **The SDK:** `bun run tools/fetch-firebase-apple.ts` downloads Google's prebuilt Firebase 13.1.1 XCFrameworks
+  (GitHub release zip, SHA-256 pinned) into `ios/third_party/firebase` (not in git): Analytics, Crashlytics, Messaging.
+  CMake links them when they are there (static, `-ObjC`), leaving out Analytics' IDFA part and on-device ad conversion.
+  Without them the app still builds: the plugins' Swift checks `canImport(...)`.
+- **Config:** `ios/Sample/GoogleService-Info.plist` (Firebase project zero-native-sample, bundle id
+  `dev.zeronative.sample`), added to the app by CMake when present; `.gitignore` keeps every `GoogleService-Info.plist`
+  out of git. No plist (or no SDK): Firebase off, every call answers "not available", as on Android without
+  google-services.json.
+- **firebase-app** (`plugins/firebase-app/ios`): `ZnFirebase.start()` (configure once; the first Firebase plugin calls
+  it), the Firebase module (app info, data collection default) and Installations (id, token, delete).
+- **Crashlytics** (`plugins/crashlytics/ios`): native crashes by Crashlytics itself; every JS error as a non-fatal with
+  its JS frames as the stack and the full stack as a log line (30 per launch); keys zn_bundle ("built-in": no OTA yet),
+  zn_host_api, zn_route; screen changes as log lines; the module's calls as on Android.
+- **Analytics** (`plugins/analytics/ios`): AnalyticsRules ported (names, limits, items), a screen_view per top route,
+  zn_bundle on every event. Firebase's own screen views are off in the sample's Info.plist
+  (FirebaseAutomaticScreenReportingEnabled = NO): they would name UIKit classes.
+- **Runtime:** `ZnApp.addJsErrorListener` and `addTopRouteListener` (Android's ZnRuntime.addJsErrorListener and
+  ZnNav.stack), used by both plugins.
+- **Checked on the simulator:** Crashlytics lab: available, app info (project zero-native-sample, install id), user and
+  keys, a caught error, a handler error and a rejected promise recorded, a test crash, the next start's upload task ran
+  (network ok). Analytics lab: available, an event and a purchase sent, a bad name refused with its reason, user set,
+  app instance id. A build with no SDK and no plist: builds, Firebase off, labs say available false.
+- **dSYMs:** the console showed the test crash as "unprocessed: upload 1 dSYM". Not a bug: Crashlytics needs each build's
+  dSYM to name the frames of a native crash (JS errors don't: their frames are sent as text). `tools/ios-sample.ts` now
+  uploads `ZnSample.app.dSYM` with Crashlytics' upload-symbols after every build when Firebase is on (`--no-symbols`
+  skips it). A release build (not made yet) needs the same step. A second test crash was sent after the upload.
+- **Not checked:** the reports and events in the Firebase console (Pavan); push (next, needs an APNs key in Firebase).
+
 ### 2026-11-08: iOS i.4, auth, device-info and location plugins (Claude, `ios` branch)
 - **auth** (`plugins/auth/ios`): iOS has no phone number sheet, no SMS Retriever and no app hash, so the Auth module
   answers the way Android does without Play services (hint and OTP "unavailable", hash ""). The app's fallback (type

@@ -196,7 +196,7 @@ Totals: 15 modules. Done 10, partial 2, missing 3 (sized in §4). Sized here: 1 
 | `zn://` handles | ZnHandles.kt | missing | M | Loader per kind, off the main thread. Android's `app-icon` kind (installed apps' icons) can't exist on iOS. |
 | Native views | ZnNativeViews.kt | done | | ZnPlugins.swift. |
 | Native screens (route `native`, NAV_RESULT event 12, answer saved before JS hears it) | ZnNativeScreens.kt, ZnNavHost.kt NativeScreen, ZnNav.kt answer | done | | ZnPlugins.swift, ZnApp.answer: a UIViewController per entry. |
-| Plugins loading (modules, views, screens, activity events, host call, JS error and batch listeners, register before bundle choice) | ZnPlugins.kt, ZnActivity.kt, ZnRuntime.kt (addJsErrorListener, addBatchListener) | partial | M | Modules, screens, views, host API check done (ZnPlugins.swift). Missing: activity events, JS error and batch listeners, packaging a plugin's iOS code (today the app compiles it). |
+| Plugins loading (modules, views, screens, activity events, host call, JS error and batch listeners, register before bundle choice) | ZnPlugins.kt, ZnActivity.kt, ZnRuntime.kt (addJsErrorListener, addBatchListener) | partial | M | Modules, screens, views, host API check done (ZnPlugins.swift); JS error and top-route listeners (ZnApp, 2026-11-08). Missing: activity events, batch listeners, packaging a plugin's iOS code (today the app compiles it). |
 | Registry claim vs what iOS draws | Registry.swift, Readers.swift | partial | S | iOS says it knows registry 22 and accepts Tabs, OtpInput, NativeView, StatusBar templates, then draws them as nothing in release. Fine while bundles ship inside the app; once iOS has OTA its capability manifest must not claim what it can't draw. |
 | A push before NAV STARTED comes in with no slide (`openedAtStart`, also while the splash is held) | ZnNav.kt, ZnNavHost.kt | missing | S | iOS animates any push once a screen is there. NAV STARTED is ignored. |
 | Screens kept until their exit transition ends | ZnNavHost.kt | partial | S | iOS frees a removed screen after a fixed 0.6 s ("spike" in ZnApp.swift). |
@@ -222,13 +222,13 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 | Plugin | What it does | iOS side | Android files | Size | Note |
 |---|---|---|---|---|---|
 | ad-id | Google advertising id (module AdId) | no | AdIdPlugin.kt, AdIdRules.kt | M | IDFA needs the App Tracking Transparency prompt. |
-| analytics | Firebase Analytics, RN Firebase API (Analytics) | no | AnalyticsPlugin.kt, AnalyticsRules.kt | M | After firebase-app. |
+| analytics | Firebase Analytics, RN Firebase API (Analytics) | done (simulator) | AnalyticsPlugin.kt, AnalyticsRules.kt | M | After firebase-app. |
 | auth | Phone number hint sheet, SMS Retriever (Auth) | done (stubs) | AuthPlugin.kt, AuthModule.kt, AuthRules.kt | S | iOS has neither. Answer "unavailable" so the app falls back to typing; the OTP fills from the keyboard via OtpInput's `.oneTimeCode`. |
-| crashlytics | Firebase Crashlytics, JS errors (Crashlytics) | no | CrashlyticsPlugin.kt, CrashlyticsModule.kt, CrashlyticsRules.kt | M | dSYM upload; needs the JS error listener (§4). |
+| crashlytics | Firebase Crashlytics, JS errors (Crashlytics) | done (simulator) | CrashlyticsPlugin.kt, CrashlyticsModule.kt, CrashlyticsRules.kt | M | dSYM upload; needs the JS error listener (§4). |
 | device-info | react-native-device-info values (DeviceInfo) | done (simulator) | DeviceInfoPlugin.kt, DeviceInfoRules.kt | M | |
 | device-test | Test plugin for the sample (Device) | no | DeviceTestPlugin.kt, DeviceModule.kt, FakeNative.kt | S | Port it first: the template for every iOS plugin. |
 | document-scanner | ML Kit document scanner, pages and PDF as handles (DocumentScanner) | no | DocumentScannerPlugin.kt, DocScanModule.kt, DocScanRules.kt | L | VisionKit `VNDocumentCameraViewController`, PDFKit for the PDF. |
-| firebase-app | Firebase base, one Firebase version (Firebase, Installations) | no | FirebaseAppPlugin.kt, firebase.gradle.kts | L | Getting the Firebase iOS SDK into the CMake build, GoogleService-Info.plist. |
+| firebase-app | Firebase base, one Firebase version (Firebase, Installations) | done (simulator) | FirebaseAppPlugin.kt, firebase.gradle.kts | L | Getting the Firebase iOS SDK into the CMake build, GoogleService-Info.plist. |
 | image-viewer | Full-screen photo viewer, pinch zoom (ImageViewer, screen imageviewer.full) | no | ImageViewerPlugin.kt, ImageViewerScreen.kt, ViewerParts.kt, ZoomState.kt, SharpSource.kt, ViewerSpec.kt, ViewerHeld.kt, ViewerRules.kt, DebugGestures.kt | L (1.5 d) | Needs native screens. |
 | location | Location and geocoding (Location) | done (simulator) | LocationPlugin.kt, LocationModule.kt, LocationRules.kt | L | CoreLocation, CLGeocoder. |
 | lottie | Lottie view, lottie-react-native names (Lottie, view lottie.view) | no | LottiePlugin.kt, LottieView.kt, LottieModule.kt, LottieFiles.kt, LottieRules.kt | M | lottie-ios. Needs NativeView. |
