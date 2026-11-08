@@ -480,6 +480,19 @@ export function RnPropsLabScreen() {
           </Carousel>
         </Column>
 
+        <PropsTitle text="Carousel with 80% page width (peeking)" />
+        <Column style={{ height: 140, backgroundColor: "#F3F4F6", borderRadius: 12 }}>
+          <Carousel testID="carousel-percent" itemWidth="80%" gap={12} dots style={{ flex: 1, padding: 12 }}>
+            {["Offer 1: 50% Off", "Offer 2: ₹100 Cashback", "Offer 3: Free Delivery"].map((t) => (
+              <Box key={t} style={{ flex: 1, backgroundColor: c.primary, borderRadius: 8, justifyContent: "center", alignItems: "center" }}>
+                <Text fontSize={15} fontWeight={700} color={c.white}>
+                  {t}
+                </Text>
+              </Box>
+            ))}
+          </Carousel>
+        </Column>
+
         <PropsTitle text="Modal" />
         <HoldTile label="Open dialog modal" onPress={() => dialog.set(true)} />
         <HoldTile label="Open page modal" onPress={() => page.set(true)} />

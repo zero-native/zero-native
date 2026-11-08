@@ -13,7 +13,7 @@ export const BASE_PROPS: ReadonlySet<string> = new Set(["accessibilityElementsHi
  */
 export const TAG_PROPS: Readonly<Record<string, { base: boolean; own: ReadonlySet<string> }>> = {
   Box: { base: true, own: new Set(["children"]) },
-  Carousel: { base: true, own: new Set(["activeDotColor", "autoAdvance", "children", "dotColor", "dots", "itemWidth", "onPageChange", "pauseAfterTouch"]) },
+  Carousel: { base: true, own: new Set(["activeDotColor", "autoAdvance", "children", "dotColor", "dots", "itemWidth", "onPageChange", "pageWidth", "pauseAfterTouch"]) },
   Checkbox: { base: true, own: new Set(["activeColor", "color", "disabled", "onValueChange", "value"]) },
   Column: { base: true, own: new Set(["children"]) },
   Icon: { base: true, own: new Set(["color", "icon"]) },

@@ -639,7 +639,8 @@ export declare const Sheet: Intrinsic<
  */
 export declare const Carousel: Intrinsic<
   Container & {
-    itemWidth?: number
+    itemWidth?: number | `${number}%`
+    pageWidth?: number | `${number}%`
     autoAdvance?: number
     pauseAfterTouch?: number
     dots?: boolean

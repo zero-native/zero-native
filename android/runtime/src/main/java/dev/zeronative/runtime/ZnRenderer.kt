@@ -609,7 +609,14 @@ private fun ZnCarousel(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: 
             state = pager,
             modifier = if (fill) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth(),
             contentPadding = contentPaddingOf(s, inst),
-            pageSize = s.itemWidth?.let { PageSize.Fixed(it.dp) } ?: PageSize.Fill,
+            pageSize = when {
+                s.itemWidthPercent != null -> object : PageSize {
+                    override fun androidx.compose.ui.unit.Density.calculateMainAxisPageSize(availableSpace: Int, pageSpacing: Int): Int =
+                        (availableSpace * (s.itemWidthPercent / 100f)).roundToInt()
+                }
+                s.itemWidth != null -> PageSize.Fixed(s.itemWidth.dp)
+                else -> PageSize.Fill
+            },
             pageSpacing = s.gap.dp,
             verticalAlignment = Alignment.Top,
             key = { refs.getOrNull(it)?.key ?: it },

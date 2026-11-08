@@ -445,6 +445,8 @@ export const Prop = {
   adjustsFontSizeToFit: { id: 295, type: "bool" },
   /** RN Text minimumFontScale (registry 23): smallest font scale fraction for adjustsFontSizeToFit (e.g. 0.5). */
   minimumFontScale: { id: 296, type: "number" },
+  /** Carousel page width as a percentage 0–100 of available space (registry 23). */
+  itemWidthPercent: { id: 297, type: "number" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -696,7 +698,7 @@ export const Added: {
     includeFontPadding: 16, borderStyle: 16, textDecorationStyle: 16,
     autoComplete: 17, otpTheme: 18, otpType: 18, blurOnFilled: 18, invalid: 18,
     inverted: 19, transformOrigin: 20, animateIn: 21, display: 23, scrollCommand: 23,
-    selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23,
+    selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23, itemWidthPercent: 23,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,

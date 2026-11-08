@@ -1550,6 +1550,18 @@ export function compileModule(
       if (IGNORED_STYLE_KEYS.has(name) || (tag === "Modal" && MODAL_IOS_ONLY.has(name)) || (tag === "TextField" && name === "textContentType")) continue
       if ((tag === "StatusBar" || tag === "NavigationBar") && STATUS_BAR_DROPPED.has(name)) continue
       if (name === "flexDirection" && (flexDirectionOk || isRowTouchable)) continue
+      if (tag === "Carousel" && (name === "itemWidth" || name === "pageWidth")) {
+        const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
+        const strVal = ts.isStringLiteral(init) ? init.text : expr ? fold(expr, scope) : undefined
+        if (typeof strVal === "string" && strVal.endsWith("%")) {
+          const numVal = parseFloat(strVal.slice(0, -1))
+          if (isNaN(numVal) || numVal <= 0 || numVal > 100) fail(a, `${name} percent must be between 1% and 100%`)
+          setStatic(props, "itemWidthPercent", numVal, a)
+          continue
+        } else if (name === "pageWidth") {
+          name = "itemWidth"
+        }
+      }
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
       tagPropCheck(tag, name, a)
       if (tag === "TextField" && name === "value" && init && ts.isJsxExpression(init) && init.expression) {

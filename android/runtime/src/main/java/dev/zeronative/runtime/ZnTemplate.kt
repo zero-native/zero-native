@@ -340,6 +340,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val dotColor: Color = color(Registry.Prop.DOT_COLOR) ?: Color(0xFFD1D5DB)
     val activeDotColor: Color = color(Registry.Prop.ACTIVE_DOT_COLOR) ?: Color(0xFF047857)
     val itemWidth = num(Registry.Prop.ITEM_WIDTH)
+    val itemWidthPercent = num(Registry.Prop.ITEM_WIDTH_PERCENT)
     // Tabs: the child to draw
     val selected = num(Registry.Prop.SELECTED)?.toInt() ?: 0
     // Pull to refresh (vertical Scroll, List; ZnPullRefresh.kt)
