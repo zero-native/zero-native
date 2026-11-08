@@ -281,11 +281,12 @@ struct ZnSizeFrame: ViewModifier {
         // A percent fills what its parent offers (the parent takes the fraction: ZnPercentKey).
         let fillW = (outer.fillWidth && s.width == nil) || wf != nil
         let fillH = (outer.fillHeight && s.height == nil) || hf != nil
-        // A fill (stretch, flex) still stops at maxWidth / maxHeight.
+        // A fill (stretch, flex) still stops at maxWidth / maxHeight; a min beats a max (RN), and SwiftUI wants min <= max.
+        let maxW = s.maxWidth.map { max($0, s.minWidth ?? 0) }, maxH = s.maxHeight.map { max($0, s.minHeight ?? 0) }
         content
             .frame(width: w, height: h, alignment: alignment)
-            .frame(minWidth: s.minWidth, maxWidth: fillW ? s.maxWidth ?? .infinity : s.maxWidth,
-                   minHeight: s.minHeight, maxHeight: fillH ? s.maxHeight ?? .infinity : s.maxHeight, alignment: alignment)
+            .frame(minWidth: s.minWidth, maxWidth: fillW ? maxW ?? .infinity : maxW,
+                   minHeight: s.minHeight, maxHeight: fillH ? maxH ?? .infinity : maxH, alignment: alignment)
             .modifier(ZnRatioFrame(ratio: w == nil && h == nil && wf == nil && hf == nil ? s.aspectRatio : nil))
     }
 }

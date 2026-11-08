@@ -71,6 +71,8 @@ const EXPECT: Record<string, Frame> = {
   c27a: [0, 0, 200, 10],
   // 28. alignSelf stretch in a Row with a height and alignItems flex-start.
   c28a: [0, 0, 50, 40],
+  // 29. min beats max (RN): a fixed width and a stretched child, each with minWidth above maxWidth.
+  c29a: [0, 0, 80, 10], c29b: [0, 10, 120, 10],
 }
 
 const TOLERANCE = 1
@@ -303,6 +305,12 @@ export function LayoutLabScreen() {
           <Row alignItems="flex-start" style={{ width: 200, height: 40, backgroundColor: BG }}>
             <Box testID="c28a" onLayout={L("c28a")} style={{ width: 50, alignSelf: "stretch", backgroundColor: B }} />
           </Row>
+        </Case>
+        <Case title="29. min beats max">
+          <Column style={{ width: 200, backgroundColor: BG }}>
+            <Box testID="c29a" onLayout={L("c29a")} style={{ width: 50, height: 10, minWidth: 80, maxWidth: 60, alignSelf: "flex-start", backgroundColor: A }} />
+            <Box testID="c29b" onLayout={L("c29b")} style={{ height: 10, minWidth: 120, maxWidth: 100, backgroundColor: B }} />
+          </Column>
         </Case>
       </Column>
     </Scroll>

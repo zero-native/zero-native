@@ -125,7 +125,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
 | i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, Svg, layout conformance (48 / 48), Switch, Checkbox, Spinner, Progress, OtpInput, Tabs, pull to refresh, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, Svg, layout conformance (50 / 50), registry 23 read (not all drawn, checklist §1b), Switch, Checkbox, Spinner, Progress, OtpInput, Tabs, pull to refresh, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | **in progress**: plugins, native screens and views, scanner (simulator; camera untested) |
 
@@ -146,6 +146,22 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: main merged into `ios`; iOS reads registry 23 (Claude, `ios` branch)
+- **Merge** of origin/main (25364bc: Gemini's batches 1 and 2, the review fixes, A11 and A12 on Android) into `ios`,
+  a merge commit, no rebase. Two doc conflicts (this log and second-opinions), both sides kept. The iOS second
+  opinion on BACK_WANTED (A8) was 161, which main also used: now **183**.
+- **Registry 23 on iOS:** `Registry.swift` regenerated (`tools/gen-registry.ts`; Kotlin and the lock unchanged), so a
+  23 bundle starts. What 23 adds isn't drawn yet: Canvas shows the debug marker, slot-driven sizes keep the
+  template's value, display / selectable / adjustsFontSizeToFit / itemWidthPercent / scroll commands are ignored.
+  Debug builds log each one once. The list and sizes are in ios-parity-checklist.md §1b (about 4.5 days). ZeroBill's
+  bundle is still 22, so this waits.
+- **Min beats max** (RN): iOS passed SwiftUI a min above the max (no promise which wins); now the max is raised to the
+  min. New LayoutLab case 29 (c29a fixed width, c29b stretched). **iOS 50 / 50.** Android should pass it too (its
+  A11-3 fix says min beats max); not run there.
+- **Checked:** sample JS built (needs registry 23); iOS build; LayoutLab 50 / 50; DynamicLayoutLab and CanvasLab open
+  (no crash, gaps as listed); JS tests 1290 pass, 1 known fail (A7).
+- **Not done:** push (waits for Pavan), the §1b items.
+
 ### 2026-11-08: iOS i.4, the scanner plugin (Claude, `ios` branch)
 - **plugins/scanner/ios** (ScannerCamera.swift, ScannerPlugin.swift), as the Android plugin: module `Scanner`
   (`available`), the full screen `scanner.full` and the view `scanner.qr`, with the same params, props, events, texts

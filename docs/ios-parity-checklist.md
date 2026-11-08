@@ -61,6 +61,27 @@ Missing work: 1 L, 2 M, 2 S = **2.5 days**.
 
 ---
 
+## 1b. Registry 23 (from main, merged into `ios` 2026-11-08)
+
+Main's Gemini batches and their review raised the registry to 23. iOS now reads 23 templates (Registry.swift
+regenerated), so a 23 bundle starts, but these aren't drawn yet. Debug builds log each one once ("iOS doesn't draw …
+yet (registry 23)"). ZeroBill's bundle is still 22 (Android session, 2026-11-08), so none blocks its checkout.
+
+| Item | Android | iOS | Size | Note |
+|---|---|---|---|---|
+| Layout values from slots (#171): width, height, min / max, flex, aspectRatio, gap, top / bottom / start / end, radii, fontSize, lineHeight, letterSpacing | ZnRenderer.kt dynamicSize, ZnLayoutBox.kt | missing | L | iOS keeps the template's value. Padding and margin slots already work. Check: DynamicLayoutLab. |
+| `display: "none"` (written or a slot) | ZnRenderer.kt displayNone | missing | M | Row / Column leave the child out, its gap too. |
+| Canvas (component 35, `commands`) | ZnCanvas.kt | missing | L | Core Graphics, as Svg. Debug shows ⟨Canvas⟩, release nothing. Check: CanvasLab. |
+| List header / footer / empty, `scrollCommand` | ZnRenderer.kt, ZnTemplate.kt | missing | M | Second-opinions 174. |
+| Text `selectable`, `adjustsFontSizeToFit`, `minimumFontScale` | ZnRenderer.kt | missing | S | |
+| Carousel `itemWidthPercent` | ZnCarousel | missing | S | |
+| Negative margins | ZnLayoutBox.kt | not checked | S | SwiftUI takes negative padding; needs a LayoutLab case. |
+| WebSocket module (#161, #179), new fetch options | ZnWebSocket.kt, ZnFetch.kt | missing | M + S | URLSessionWebSocketTask. |
+
+Missing work: 2 L, 3 M (with WebSocket), 4 S = **about 4.5 days**.
+
+---
+
 ## 2. Props and events where iOS is missing or partial
 
 Only props whose iOS support is missing or partial. Everything else in the registry is read and used on iOS.

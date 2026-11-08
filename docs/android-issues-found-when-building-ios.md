@@ -215,6 +215,9 @@ Each entry says:
     Fix: apply the max inside, i.e. the size limits before the fill (or clamp the stretched width to maxWidth).
   - None of these is used by ZeroBill (no alignSelf, onLayout or maxWidth there), so none blocks its release. The
     fixes are Pavan's call, in their own commit, re-run until 48 / 48.
+- **Case 29 added (2026-11-08, after the merge of main into `ios`):** min beats max. c29a: a 50-wide child with
+  `minWidth: 80, maxWidth: 60, alignSelf: "flex-start"` → 0,0,80,10. c29b: a stretched child with `minWidth: 120,
+  maxWidth: 100` → 0,10,120,10. iOS 50 / 50. Expected on Android: `50/50 pass` (the A11-3 fix makes min beat max).
 
 ## A12. zn dev: a reload that adds a screen draws it from another screen's template
 - **Status:** open. Found by the Android session (2026-11-08, Lava) and not looked into; not tried on iOS.

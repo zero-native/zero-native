@@ -61,6 +61,6 @@ enum ZnDebug {
                 C.pressable: "Pressable", C.spacer: "Spacer", C.icon: "Icon", C.anchor: "Anchor", C.list: "List",
                 C.scroll: "Scroll", C.carousel: "Carousel", C.sheet: "Sheet", C.fragment: "Fragment",
                 C.textField: "TextField", C.svg: "Svg", C.switch: "Switch", C.checkbox: "Checkbox",
-                C.spinner: "Spinner", C.progress: "Progress", C.shimmer: "Shimmer", C.tabs: "Tabs", C.modal: "Modal"]
+                C.spinner: "Spinner", C.progress: "Progress", C.shimmer: "Shimmer", C.tabs: "Tabs", C.modal: "Modal", C.canvas: "Canvas"]
     }()
 }

@@ -542,7 +542,41 @@ final class ZnTemplate {
         for i in 1..<max(raw.component.count, 1) { children[raw.parent[i]].append(i) }
         nodes = (0..<raw.component.count).map { ZnNodeSpec(raw: raw, index: $0, children: children[$0]) }
         for n in nodes where n.onLayout != 0 && n.parent >= 0 { nodes[n.parent].namesSpace = true }
+        #if DEBUG
+        Self.reportNotDrawn(raw)
+        #endif
     }
+
+    // Registry 23 (Android's dynamic layout values, display, Text and List extras): iOS reads the templates but doesn't
+    // draw these yet. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
+    // once per prop, so a screen that looks wrong on iOS points at the reason.
+    #if DEBUG
+    private static let slotsNotDrawn: Set<Int> = {
+        typealias P = Registry.Prop
+        let layout: Set<Int> = [P.width, P.height, P.minWidth, P.maxWidth, P.minHeight, P.maxHeight, P.flex, P.aspectRatio, P.gap,
+                P.borderRadius, P.top, P.bottom, P.start, P.end, P.fontSize, P.lineHeight, P.letterSpacing,
+                P.borderTopLeftRadius, P.borderTopRightRadius, P.borderBottomLeftRadius, P.borderBottomRightRadius,
+                P.borderTopStartRadius, P.borderTopEndRadius, P.borderBottomStartRadius, P.borderBottomEndRadius]
+        return layout.union(propsNotDrawn)
+    }()
+    private static let propsNotDrawn: Set<Int> = {
+        typealias P = Registry.Prop
+        let all: Set<Int> = [P.display, P.scrollCommand, P.selectable, P.adjustsFontSizeToFit, P.minimumFontScale, P.itemWidthPercent,
+                P.commands]
+        return all
+    }()
+    nonisolated(unsafe) private static var reported: Set<String> = []
+
+    private static func reportNotDrawn(_ raw: RawTemplate) {
+        func say(_ what: String) {
+            guard reported.insert(what).inserted else { return }
+            print("zn: iOS doesn't draw \(what) yet (registry 23); it is left as the template has it")
+        }
+        for s in raw.slots where slotsNotDrawn.contains(s.prop) { say("a runtime value for prop \(s.prop)") }
+        for p in raw.props { for k in p.keys where propsNotDrawn.contains(k) { say("prop \(k)") } }
+        if raw.component.contains(Registry.Component.canvas) { say("Canvas") }
+    }
+    #endif
 }
 
 extension Array {
