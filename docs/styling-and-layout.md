@@ -128,6 +128,8 @@ These follow React Native wherever Compose and SwiftUI make it cheap, and say so
    height. Before, an `alignItems` of `center` or `flex-start` won and the child kept its own size.
    **`maxWidth` / `maxHeight` beat a stretch and a % size** (since 2026-11-08, A11-3), as in RN: a stretched child with
    `maxWidth: 80` is 80 wide, at the start of its row; `width: '100%', maxWidth: 384` is 384 on a wide screen.
+   **A fixed `width` / `height` obeys its own min and max** (since 2026-11-08, LayoutLab c29a), as in RN: the max
+   first, then the min. `width: 50, minWidth: 80, maxWidth: 60` is 80 wide. Before, a fixed size ignored them.
    **`Stack` follows the Column rule for its normal (not absolute) children** (since 2026-11-05): with a definite
    width and `alignItems` unset or `stretch`, a child with no width and no `alignSelf` fills the Stack's width. So a
    styled `Column` row inside a `Stack` is full width, like an absolute `start: 0, end: 0` sibling. A Stack with

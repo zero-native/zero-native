@@ -2631,6 +2631,8 @@ feed.scrollToOffset({ offset: 0 })                   // back to the top
 - A `maxWidth` beats a stretch or `width: "100%"` (A11-3): `{ width: "100%", maxWidth: 420 }` gives a dialog card that
   is full width on a phone and 420 dp on a tablet. The box sits at the start of the room it was given; centre it with
   the parent's `alignItems: "center"` if you want it centred.
+- A fixed `width` or `height` now obeys its own `min…` / `max…` (2026-11-08, c29a), as in RN: `{ width: 300, maxWidth: 200 }`
+  is 200 wide. Before, the fixed number won.
 - `onLayout` x / y now come from the parent's top-left corner, its padding and border included, as in RN and as this
   guide always said (A11-2). Before 2026-11-08 they started inside the parent's padding. Rows of a List keep x / y
   inside their row, as before.

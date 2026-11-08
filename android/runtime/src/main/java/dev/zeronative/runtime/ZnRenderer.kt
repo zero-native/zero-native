@@ -1175,8 +1175,9 @@ internal fun dynamicSize(s: ZnNodeSpec, inst: ZnInstance, density: Float): Modif
         var minH = constraints.minHeight
         var maxH = constraints.maxHeight
 
+        // A set width or height takes its own min / max first, as RN does (c29a), then the parent's room.
         if (wPx != null) {
-            val clampedW = wPx.coerceIn(minW, maxW)
+            val clampedW = znClampSize(wPx, minWPx, maxWPx).coerceIn(minW, maxW)
             minW = clampedW
             maxW = clampedW
         } else {
@@ -1186,7 +1187,7 @@ internal fun dynamicSize(s: ZnNodeSpec, inst: ZnInstance, density: Float): Modif
         }
 
         if (hPx != null) {
-            val clampedH = hPx.coerceIn(minH, maxH)
+            val clampedH = znClampSize(hPx, minHPx, maxHPx).coerceIn(minH, maxH)
             minH = clampedH
             maxH = clampedH
         } else {

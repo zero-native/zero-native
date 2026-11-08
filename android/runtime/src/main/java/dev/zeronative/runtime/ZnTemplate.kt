@@ -688,17 +688,24 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         if (sizeLayout != null) {
             m = m.then(sizeLayout)
         } else {
+            // A fixed width or height takes its own min / max first, as RN does (c29a); those are then done with.
+            val fixedW = width is Double
+            val fixedH = height is Double
             when (val w = width) {
-                is Double -> m = m.width(w.toFloat().dp)
+                is Double -> m = m.width(znClampSize(w.toFloat(), minWidth, maxWidth).dp)
                 is ZnPercent -> m = m.fillMaxWidth(w.fraction.toFloat())
             }
             when (val h = height) {
-                is Double -> m = m.height(h.toFloat().dp)
+                is Double -> m = m.height(znClampSize(h.toFloat(), minHeight, maxHeight).dp)
                 is ZnPercent -> m = m.fillMaxHeight(h.fraction.toFloat())
             }
             // A11-3 (2026-11-08): not widthIn / heightIn, which can't go below a stretch or a % size from outside.
-            if (minWidth != null || maxWidth != null || minHeight != null || maxHeight != null) {
-                m = m.znSizeIn(minWidth?.dp, maxWidth?.dp, minHeight?.dp, maxHeight?.dp)
+            val minW = if (fixedW) null else minWidth
+            val maxW = if (fixedW) null else maxWidth
+            val minH = if (fixedH) null else minHeight
+            val maxH = if (fixedH) null else maxHeight
+            if (minW != null || maxW != null || minH != null || maxH != null) {
+                m = m.znSizeIn(minW?.dp, maxW?.dp, minH?.dp, maxH?.dp)
             }
             aspectRatio?.let { m = m.aspectRatio(it) }
         }

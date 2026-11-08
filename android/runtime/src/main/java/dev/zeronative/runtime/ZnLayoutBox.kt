@@ -90,6 +90,25 @@ internal data class ZnOnLayoutElement(val instId: Int, val eventId: Int, val den
 }
 
 /**
+ * A fixed size between its min and max, as RN does: the max first, then the min, so a min beats the max (c29a,
+ * 2026-11-08: `width: 50, minWidth: 80, maxWidth: 60` is 80 wide). Before, a fixed width or height ignored its min / max.
+ */
+internal fun znClampSize(size: Float, min: Float?, max: Float?): Float {
+    var r = size
+    if (max != null) r = minOf(r, max)
+    if (min != null) r = maxOf(r, min)
+    return r
+}
+
+/** [znClampSize] in px, for sizes read from slots. */
+internal fun znClampSize(size: Int, min: Int?, max: Int?): Int {
+    var r = size
+    if (max != null) r = minOf(r, max)
+    if (min != null) r = maxOf(r, min)
+    return r
+}
+
+/**
  * The room a box with min / max sizes (px, null = not set) gets. A max beats the parent's minimum (a stretch, a %
  * size, a flex share) as in RN; a min beats the max, as in RN, but stays inside the parent's room as widthIn does.
  */

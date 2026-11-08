@@ -66,6 +66,16 @@ class ZnLayoutGuardsTest {
     }
 
     @Test
+    fun aFixedSizeTakesItsOwnMinAndMax() {
+        // LayoutLab c29a: width 50, minWidth 80, maxWidth 60 → 80 (the min beats the max, both beat the width).
+        assertEquals(80f, znClampSize(50f, 80f, 60f))
+        assertEquals(60f, znClampSize(100f, null, 60f))
+        assertEquals(80f, znClampSize(50f, 80f, null))
+        assertEquals(50f, znClampSize(50f, null, null))
+        assertEquals(120, znClampSize(40, 120, 100))
+    }
+
+    @Test
     fun aWrittenEdgeBeatsASlotsAxis() {
         // paddingStart: 4 written, paddingHorizontal from a slot: RN keeps 4 at the start and uses the slot at the end.
         val s = spec(mapOf(Registry.Prop.PADDING_START to 4.0), listOf(Registry.Prop.PADDING_HORIZONTAL))
