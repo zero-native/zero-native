@@ -379,6 +379,11 @@ write instead:
 - **Early returns inside `switch`, loops or `try`**: use if / else, or a lookup.
 - **Render props and function children** (`render={(n) => <X/>}`, `{(n) => ...}` as children): lists have their own
   `renderItem`; elsewhere pass the data and render inside the component. Revisit if a real port needs many.
+- **A style passed in from outside** (`style={props.style}`, `style={[base, props.style]}`, `style={on ? s.a : s.b}`,
+  `style={sizeFor(20)}`) and **spread props** (`<Pressable {...rest}>`): a template knows its style keys at build
+  time, so a wrapper says what it varies: `style={{ marginTop: props.gap }}`, `{ color: on ? a : b }`, or two elements.
+  Pavan, 2026-11-08: "why should we do unnecessary things.. given ideology of our framework". A runtime style bag
+  would cost a binding and a native state per style key on every wrapper (65 per node in a List of cards).
 
 Smaller known gaps not in the list: `Button`, `StyleSheet.flatten`. (`testID`,
 `Image` events, `Modal`, `StatusBar`, `pointerEvents`, `hitSlop`, `onLayout` came in RN props pack 2, guide-notes §43.)
