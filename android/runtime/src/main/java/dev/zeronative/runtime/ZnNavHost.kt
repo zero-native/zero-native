@@ -75,6 +75,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
@@ -98,6 +100,7 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
     ReportInsets(safe)
     ReportWindow()
     ReportKeyboard()
+    val motionEnv = motionEnv(safe)
     val top = ZnNav.stack.lastOrNull()
     // The top route at once (the frame it appears), and any secure screen still drawn: one that is leaving or being covered
     // shows for its whole animation (~300 ms), and a screenshot then must not catch it.
@@ -140,7 +143,7 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
         onDispose { if (ZnKeyboard.focusManager === focusManager) ZnKeyboard.focusManager = null }
     }
 
-    Box(modifier) {
+    Box(modifier.then(motionEnv)) {
         // A dev reload bumps the generation: the old screens are dropped at once instead of animating out.
         key(ZnNav.generation) {
             TopLayerAndScreens(bundle, safe)
@@ -407,6 +410,33 @@ private fun ReportKeyboard() {
     val density = LocalDensity.current
     val height = WindowInsets.imeAnimationTarget.getBottom(density) / density.density
     LaunchedEffect(height, ZnNav.generation) { ZnWindow.reportKeyboard(height) }
+}
+
+/**
+ * The window values motion formulas read (`env`, docs/gestures-and-motion-v1.md §2.2), in dp. Read while measuring the
+ * host's root box, so the keyboard's height can change every frame of its animation without recomposing anything.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun motionEnv(safe: WindowInsets): Modifier {
+    val ime = WindowInsets.ime
+    val imeTarget = WindowInsets.imeAnimationTarget
+    return Modifier.layout { measurable, constraints ->
+        val d = density
+        if (constraints.hasBoundedWidth) ZnMotion.env(ZnMotion.ENV_WIDTH).set(constraints.maxWidth / d)
+        if (constraints.hasBoundedHeight) ZnMotion.env(ZnMotion.ENV_HEIGHT).set(constraints.maxHeight / d)
+        ZnMotion.env(ZnMotion.ENV_INSET_TOP).set(safe.getTop(this) / d)
+        ZnMotion.env(ZnMotion.ENV_INSET_BOTTOM).set(safe.getBottom(this) / d)
+        val left = safe.getLeft(this, LayoutDirection.Ltr) / d
+        val right = safe.getRight(this, LayoutDirection.Ltr) / d
+        val ltr = layoutDirection == LayoutDirection.Ltr
+        ZnMotion.env(ZnMotion.ENV_INSET_START).set(if (ltr) left else right)
+        ZnMotion.env(ZnMotion.ENV_INSET_END).set(if (ltr) right else left)
+        ZnMotion.env(ZnMotion.ENV_KEYBOARD).set(ime.getBottom(this) / d)
+        ZnMotion.env(ZnMotion.ENV_KEYBOARD_TARGET).set(imeTarget.getBottom(this) / d)
+        val p = measurable.measure(constraints)
+        layout(p.width, p.height) { p.place(0, 0) }
+    }
 }
 
 /**

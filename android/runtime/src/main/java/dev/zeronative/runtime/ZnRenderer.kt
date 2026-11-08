@@ -947,7 +947,15 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
     // Dynamic sizes & offsets (registry 23, brief H1): read inside layout pass (no recomposition!)
     val sizeLayout = if (s.hasDynamicSize) dynamicSize(s, inst, density) else null
 
-    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density, dynamicMargin, dynamicShape, sizeLayout) {
+    // Registry 24: the gesture JS gave this node (core motion.ts), and its size for `self` in bound formulas.
+    val gestureId = if (s.gestureSlot >= 0) (inst.slot(s.gestureSlot).value as? Double)?.toInt() else null
+    val gesture = gestureId?.let { ZnGestures.find(it) }
+    // A layer slot that follows a motion formula reading `self` / `parent` needs the node's size.
+    val needsSite = s.hasTransformSlots || s.opacitySlot >= 0
+    val siteUsed = needsSite && intArrayOf(s.opacitySlot, s.scaleSlot, s.scaleXSlot, s.scaleYSlot, s.rotateSlot, s.translateXSlot,
+        s.translateYSlot, s.rotateXSlot, s.rotateYSlot, s.blurRadiusSlot).any { it >= 0 && ZnMotion.ref(inst.slot(it).value)?.usesSite == true }
+
+    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density, dynamicMargin, dynamicShape, sizeLayout, gesture, siteUsed) {
         val press = if (s.type == Registry.Component.PRESSABLE) {
             Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication, touchable)
         } else null
@@ -966,7 +974,13 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
             )
         } else null
         val layout = if (s.onLayout != 0) ZnOnLayoutElement(inst.id, s.onLayout, density) else null
-        s.buildChain(layer, background, press, pad, accessibility, border, layout, sizeLayout, dynamicShape, dynamicMargin)
+        val site = layer?.site?.takeIf { siteUsed }
+        val gestureMod = when {
+            gesture != null -> Modifier.znGesture(gesture, view, layer).then(if (site != null) Modifier.znSite(site, view) else Modifier)
+            site != null -> Modifier.znSite(site, view)
+            else -> null
+        }
+        s.buildChain(layer, background, press, pad, accessibility, border, layout, sizeLayout, dynamicShape, dynamicMargin, gestureMod)
     }
 }
 

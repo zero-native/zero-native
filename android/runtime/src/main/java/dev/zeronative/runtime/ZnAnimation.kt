@@ -162,6 +162,9 @@ internal class ZnTiming(
 /** Holds, then jumps at the very end (easing 5). */
 private val StepEasing = Easing { if (it < 1f) 0f else 1f }
 
+/** [easingOf] for motion values (ZnMotion.kt): the same ids. */
+internal fun znEasing(id: Int, bezier: FloatArray?): Easing = easingOf(id, bezier)
+
 /** An easing by the compiler's id (`EASINGS` in compile.ts; 4 = [bezier], 5 = step). */
 private fun easingOf(id: Int, bezier: FloatArray?): Easing = when (id) {
     1 -> LinearOutSlowInEasing // ease-out
@@ -217,6 +220,13 @@ internal class ZnLayer(
     val rotate: () -> Float,
     val translateX: () -> Float,
     val translateY: () -> Float,
+    // Registry 24 (motion targets): read only when the node uses them (ZnNodeSpec.hasDepth).
+    val rotateX: () -> Float = { 0f },
+    val rotateY: () -> Float = { 0f },
+    val cameraDistance: () -> Float = { 8f },
+    val blur: () -> Float = { 0f },
+    /** The node's size, for `self` / `parent` in formulas bound on it (ZnMotion.kt). */
+    val site: ZnSite? = null,
 )
 
 private fun lerp(from: Float, to: Float, t: Float) = from + (to - from) * t
@@ -228,16 +238,23 @@ private fun lerp(from: Float, to: Float, t: Float) = from + (to - from) * t
 @Composable
 internal fun znLayer(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, pressed: ZnPressed? = null): ZnLayer? {
     val hasExit = root && s.exit != null
-    if (s.opacitySlot < 0 && !s.hasTransformSlots && s.enter == null && !hasExit && pressed == null && !s.hasMotion) return null
+    if (s.opacitySlot < 0 && !s.hasTransformSlots && s.enter == null && !hasExit && pressed == null && !s.hasMotion &&
+        s.gestureSlot < 0 && !s.hasDepth) return null
     val a = s.animate
     val m = znMotionInputs(s, inst)
-    val opacity = animatedFloat(inst, s.opacitySlot, s.opacity, a?.timingFor(Registry.Prop.OPACITY), m)
-    val scale = animatedFloat(inst, s.scaleSlot, s.scaleBase, a?.timingFor(Registry.Prop.SCALE), m)
-    val scaleX = animatedFloat(inst, s.scaleXSlot, s.scaleXOnly, a?.timingFor(Registry.Prop.SCALE_X), m)
-    val scaleY = animatedFloat(inst, s.scaleYSlot, s.scaleYOnly, a?.timingFor(Registry.Prop.SCALE_Y), m)
-    val rotate = animatedFloat(inst, s.rotateSlot, s.rotate, a?.timingFor(Registry.Prop.ROTATE), m)
-    val tx = animatedFloat(inst, s.translateXSlot, s.translateX, a?.timingFor(Registry.Prop.TRANSLATE_X), m)
-    val ty = animatedFloat(inst, s.translateYSlot, s.translateY, a?.timingFor(Registry.Prop.TRANSLATE_Y), m)
+    // The node's own size, for formulas bound on it that read `self` / `parent` (set by the gesture or size modifier).
+    val site = remember(inst) { ZnSite() }
+    val opacity = animatedFloat(inst, s.opacitySlot, s.opacity, a?.timingFor(Registry.Prop.OPACITY), m, site)
+    val scale = animatedFloat(inst, s.scaleSlot, s.scaleBase, a?.timingFor(Registry.Prop.SCALE), m, site)
+    val scaleX = animatedFloat(inst, s.scaleXSlot, s.scaleXOnly, a?.timingFor(Registry.Prop.SCALE_X), m, site)
+    val scaleY = animatedFloat(inst, s.scaleYSlot, s.scaleYOnly, a?.timingFor(Registry.Prop.SCALE_Y), m, site)
+    val rotate = animatedFloat(inst, s.rotateSlot, s.rotate, a?.timingFor(Registry.Prop.ROTATE), m, site)
+    val tx = animatedFloat(inst, s.translateXSlot, s.translateX, a?.timingFor(Registry.Prop.TRANSLATE_X), m, site)
+    val ty = animatedFloat(inst, s.translateYSlot, s.translateY, a?.timingFor(Registry.Prop.TRANSLATE_Y), m, site)
+    val rx = animatedFloat(inst, s.rotateXSlot, s.rotateX, null, m, site)
+    val ry = animatedFloat(inst, s.rotateYSlot, s.rotateY, null, m, site)
+    val camera = animatedFloat(inst, s.cameraDistanceSlot, s.cameraDistance, null, m, site)
+    val blur = animatedFloat(inst, s.blurRadiusSlot, s.blurRadius, null, m, site)
 
     // Enter: from the `enter` state to the element's own values, once, when the node first appears.
     val enter = s.enter
@@ -265,7 +282,7 @@ internal fun znLayer(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, pressed: Zn
         p
     } else null
 
-    return remember(inst, opacity, scale, scaleX, scaleY, rotate, tx, ty, inP, outP, pressed) {
+    return remember(inst, opacity, scale, scaleX, scaleY, rotate, tx, ty, inP, outP, pressed, rx, ry, camera, blur) {
         fun inV(from: Float?, rest: Float): Float = if (inP == null || from == null) rest else lerp(from, rest, inP.value)
         fun outV(to: Float?, rest: Float): Float = if (outP == null || to == null) rest else lerp(rest, to, outP.value)
         ZnLayer(
@@ -275,6 +292,11 @@ internal fun znLayer(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, pressed: Zn
             rotate = rotate,
             translateX = { tx() + inV(enter?.translateX, 0f) + outV(exit?.translateX, 0f) },
             translateY = { ty() + inV(enter?.translateY, 0f) + outV(exit?.translateY, 0f) },
+            rotateX = rx,
+            rotateY = ry,
+            cameraDistance = { camera().coerceAtLeast(0.1f) },
+            blur = { blur().coerceAtLeast(0f) },
+            site = site,
         )
     }
 }
@@ -284,22 +306,38 @@ internal fun znLayer(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, pressed: Zn
  * The first value is shown as it is; only later changes animate. A new target mid-animation continues from where it is.
  */
 @Composable
-internal fun animatedFloat(inst: ZnInstance, slot: Int, static: Float, timing: ZnTiming?, m: ZnMotionInputs): () -> Float {
+internal fun animatedFloat(
+    inst: ZnInstance,
+    slot: Int,
+    static: Float,
+    timing: ZnTiming?,
+    m: ZnMotionInputs,
+    site: ZnSite? = null,
+): () -> Float {
     val cell: MutableState<Any?>? = if (slot >= 0) inst.slot(slot) else null
-    val read: () -> Float = remember(cell, static) {
-        if (cell == null) ({ static }) else ({ (cell.value as? Double)?.toFloat() ?: static })
+    // A slot may hold a motion value (ZnMotion.ref): then it is read as it is, frame by frame, never through
+    // `animate`'s timing (it already moves smoothly). NaN / Infinity from JS count as not set.
+    val read: () -> Float = remember(cell, static, site) {
+        if (cell == null) ({ static }) else ({
+            when (val v = cell.value) {
+                is Double -> v.toFloat().takeIf { it.isFinite() } ?: static
+                is String -> ZnMotion.ref(v)?.read(site) ?: static
+                else -> static
+            }
+        })
     }
     // A loop or keyframes: plays by itself, also on a value that never changes.
     if (timing != null && timing.selfPlaying) return znMotion(timing, Float.VectorConverter, String::toFloatOrNull, read, m)
     if (cell == null || timing == null) return read
     val anim = remember(cell) { Animatable(read()) }
     LaunchedEffect(cell, timing) {
-        snapshotFlow(read).collectLatest {
+        snapshotFlow { if (ZnMotion.isRef(cell.value)) null else read() }.collectLatest {
+            if (it == null) return@collectLatest
             znDelay(timing.delayMs)
             anim.animateTo(it, timing.spec())
         }
     }
-    return remember(anim) { { anim.value } }
+    return remember(anim) { { if (ZnMotion.isRef(cell.value)) read() else anim.value } }
 }
 
 /** A dynamic background colour, animated when the element's `animate` covers backgroundColor. */
@@ -309,19 +347,27 @@ internal fun znBackground(s: ZnNodeSpec, inst: ZnInstance): (() -> Color)? {
     if (s.backgroundSlot < 0 && timing?.selfPlaying != true) return null
     val cell = if (s.backgroundSlot >= 0) inst.slot(s.backgroundSlot) else null
     val static = s.background ?: Color.Transparent
-    val read: () -> Color = remember(cell) { if (cell == null) ({ static }) else ({ toColor(cell.value) ?: Color.Transparent }) }
+    // A motion colour (`v.mapColor`, or a formula ending in interpolateColor) is read frame by frame (ZnMotion.kt).
+    val read: () -> Color = remember(cell) {
+        if (cell == null) ({ static }) else ({
+            val v = cell.value
+            val src = ZnMotion.ref(v)
+            if (src != null && src.isColor) Color(src.readColor(null)) else toColor(v) ?: Color.Transparent
+        })
+    }
     if (timing != null && timing.selfPlaying) {
         return znMotion(timing, Color.VectorConverter(ColorSpaces.Srgb), ::motionColor, read, znMotionInputs(s, inst))
     }
     if (timing == null) return read
     val anim = remember(cell) { ColorAnimatable(read()) }
     LaunchedEffect(cell, timing) {
-        snapshotFlow(read).collectLatest {
+        snapshotFlow { if (ZnMotion.isRef(cell?.value)) null else read() }.collectLatest {
+            if (it == null) return@collectLatest
             znDelay(timing.delayMs)
             anim.animateTo(it, timing.spec())
         }
     }
-    return remember(anim) { { anim.value } }
+    return remember(anim) { { if (ZnMotion.isRef(cell?.value)) read() else anim.value } }
 }
 
 /** Where a run of plays is: [time] inside one play (0..length) to show, and whether the run has ended. */

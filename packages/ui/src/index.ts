@@ -11,6 +11,16 @@ interface TextFieldHandle {
   isFocused(): boolean
 }
 
+/**
+ * A motion value, mapping or formula (core motion.ts: useMotion, pan.x, v.map(...), derive(...)): a style key that
+ * takes one follows it natively, frame by frame (docs/motion.md). Structural, so this file doesn't import core.
+ */
+export type MotionInput = { readonly __znMotion: number }
+/** A colour that follows a motion value (v.mapColor(...), a derive ending in interpolateColor). */
+export type MotionColorInput = { readonly __znMotion: number; readonly __znColor: true }
+/** A gesture from usePan / usePinch / useTap / ... or Gesture.simultaneous(...) (core motion.ts). */
+export type GestureInput = { readonly __znGesture: number }
+
 declare const znElement: unique symbol
 /** What JSX makes (a template instance to show). Opaque: return it from a component or pass it on. */
 export type ZnElement = { readonly [znElement]: true }
@@ -65,7 +75,7 @@ export interface StyleProps {
   justifyContent?: "flex-start" | "center" | "flex-end" | "space-between" | "space-around" | "space-evenly"
   alignItems?: "flex-start" | "center" | "flex-end" | "stretch"
   alignSelf?: "flex-start" | "center" | "flex-end" | "stretch"
-  backgroundColor?: Color
+  backgroundColor?: Color | MotionColorInput
   /** React Native's CSS gradient: `"linear-gradient(180deg, rgba(0,0,0,0) 0%, #000 100%)"` (build-time only). */
   backgroundImage?: string
   borderRadius?: number
@@ -94,7 +104,14 @@ export interface StyleProps {
   shadowOpacity?: number
   /** iOS only: accepted and ignored (see shadowOffset). */
   shadowRadius?: number
-  opacity?: number
+  opacity?: number | MotionInput
+  /** Blurs the element and its children (dp, registry 24). Android 12+; older phones draw it sharp. Can follow motion. */
+  blurRadius?: number | MotionInput
+  /**
+   * How far the camera is for rotateX / rotateY (registry 24): Compose's units, default 8; bigger looks flatter.
+   * Can follow motion.
+   */
+  cameraDistance?: number | MotionInput
   overflow?: "visible" | "hidden"
   /** React Native display: "none" hides the node and takes no room in layout; "flex" is default (registry 23). */
   display?: "flex" | "none"
@@ -130,12 +147,17 @@ export interface StyleProps {
   /** Only on <View>: "row" makes it a <Row>, else a <Column>. Elsewhere a build error: pick <Row> or <Column>. */
   flexDirection?: "row" | "column"
   transform?: Array<{
-    scale?: number
-    scaleX?: number
-    scaleY?: number
-    translateX?: number
-    translateY?: number
-    rotate?: string | number
+    scale?: number | MotionInput
+    scaleX?: number | MotionInput
+    scaleY?: number | MotionInput
+    translateX?: number | MotionInput
+    translateY?: number | MotionInput
+    /** "45deg", or degrees as a number or a motion value. */
+    rotate?: string | number | MotionInput
+    /** 3D turn around the horizontal axis (registry 24): "45deg", degrees, or a motion value. */
+    rotateX?: string | number | MotionInput
+    /** 3D turn around the vertical axis (registry 24). */
+    rotateY?: string | number | MotionInput
   }>
   /**
    * RN transformOrigin (registry 20): the point that scale and rotate turn around (also for `animate` and keyframes).
@@ -246,6 +268,11 @@ export type Transition =
 
 interface Base extends StyleProps {
   style?: StyleInput
+  /**
+   * The gesture this element handles (registry 24): usePan(...), usePinch(...), useTap(...), Gesture.simultaneous(...)
+   * (core motion.ts). The touch area moves with the element.
+   */
+  gesture?: GestureInput
   /**
    * Animate changes of this element's opacity, background colour and transforms natively (build-time value):
    * `animate={250}` for all of them, or `animate={{ opacity: 200, translateY: "spring" }}`.

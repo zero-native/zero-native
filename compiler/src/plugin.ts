@@ -10,6 +10,7 @@ import { compileModule, type ComponentRoots, type OnceTrap, type PropUse } from 
 import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
 import { nativeModuleUses } from "./modules"
+import { compileDerives } from "./motion"
 import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
 
 /** One route in the manifest: the route entry with its screen's template id (-1 for a native screen). */
@@ -104,7 +105,8 @@ export function znBuild(): ZnBuild {
         for (const [name, r] of Object.entries(out.roots)) roots.set(name, r)
         propUses.set(path, out.propUses)
         maps.set(path, out.map)
-        return { contents: out.code, loader: "ts" }
+        // derive(() => ...) → formula data (compiler motion.ts); line count kept, so the map stays right per line.
+        return { contents: compileDerives(out.code, path), loader: "ts" }
       })
       // .svg files are compiled into the templates where they are used (docs/svg.md §6); the compiler removes their
       // imports from .tsx files. What Bun still bundles (an icons.ts that re-exports them) gets an empty value.
@@ -120,7 +122,7 @@ export function znBuild(): ZnBuild {
             routes = { file: path, entries }
           }
         }
-        return { contents: source, loader: "ts" }
+        return { contents: compileDerives(source, path), loader: "ts" }
       })
     },
   }

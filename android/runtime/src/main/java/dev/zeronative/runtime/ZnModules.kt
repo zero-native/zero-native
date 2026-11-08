@@ -158,7 +158,7 @@ object ZnModules {
     init {
         // Built-in modules are always there, whatever order the app starts things in: the bundle check needs them.
         // Their setup with a Context (ZnFetch.init, ZnSecureStore.init) stays in ZnRuntime.start.
-        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnWebSocket, ZnSecureStore, ZnToast, ZnOta.Module, ZnPermissions, ZnLaunch, ZnOs, ZnBackground, ZnAlert, ZnClipboard, ZnVibration, ZnNetInfo, ZnSplash.Module)) modules[m.name] = m
+        for (m in listOf<ZnModule>(ZnKeyboard, ZnFetch, ZnWebSocket, ZnSecureStore, ZnToast, ZnOta.Module, ZnPermissions, ZnLaunch, ZnOs, ZnBackground, ZnAlert, ZnClipboard, ZnVibration, ZnNetInfo, ZnSplash.Module, ZnMotion)) modules[m.name] = m
     }
 
     /**
@@ -267,6 +267,7 @@ object ZnModules {
      */
     internal fun resetForReload() {
         ZnWebSocket.reset()
+        ZnMotion.reset()
         for (id in active.keys.toList()) cancel(id)
         for ((key, _) in listening.toList()) {
             val (module, event) = key.split('\u0000', limit = 2)

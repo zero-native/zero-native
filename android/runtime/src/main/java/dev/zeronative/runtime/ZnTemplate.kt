@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
@@ -484,8 +485,22 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val translateXSlot = slotFor(raw, Registry.Prop.TRANSLATE_X)
     val translateYSlot = slotFor(raw, Registry.Prop.TRANSLATE_Y)
     val rotateSlot = slotFor(raw, Registry.Prop.ROTATE)
+    // Registry 24 (gestures and motion): 3D turns, camera distance, blur, and the gesture this node handles.
+    val rotateX = num(Registry.Prop.ROTATE_X) ?: 0f
+    val rotateY = num(Registry.Prop.ROTATE_Y) ?: 0f
+    val cameraDistance = num(Registry.Prop.CAMERA_DISTANCE) ?: 8f
+    val blurRadius = num(Registry.Prop.BLUR_RADIUS) ?: 0f
+    val rotateXSlot = slotFor(raw, Registry.Prop.ROTATE_X)
+    val rotateYSlot = slotFor(raw, Registry.Prop.ROTATE_Y)
+    val cameraDistanceSlot = slotFor(raw, Registry.Prop.CAMERA_DISTANCE)
+    val blurRadiusSlot = slotFor(raw, Registry.Prop.BLUR_RADIUS)
+    val gestureSlot = slotFor(raw, Registry.Prop.GESTURE)
+    /** Something of registry 24's layer is used: the layer sets 3D turns and blur too. */
+    val hasDepth = rotateX != 0f || rotateY != 0f || blurRadius != 0f || rotateXSlot != NONE || rotateYSlot != NONE ||
+        cameraDistanceSlot != NONE || blurRadiusSlot != NONE
     val hasTransformSlots = scaleSlot != NONE || scaleXSlot != NONE || scaleYSlot != NONE || translateXSlot != NONE ||
-        translateYSlot != NONE || rotateSlot != NONE
+        translateYSlot != NONE || rotateSlot != NONE || rotateXSlot != NONE || rotateYSlot != NONE ||
+        cameraDistanceSlot != NONE || blurRadiusSlot != NONE
     val srcSlot = slotFor(raw, Registry.Prop.SRC)
     val impressionKey: String? = p[Registry.Prop.IMPRESSION_KEY] as String?
     val impressionKeySlot = slotFor(raw, Registry.Prop.IMPRESSION_KEY)
@@ -635,7 +650,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         hasDynamicSize || hasDynamicRadius ||
         type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null ||
         accessibilityLabelSlot != NONE || hasMotion || borderWidthSlot != NONE || borderColorSlot != NONE ||
-        onLayout != 0
+        onLayout != 0 || gestureSlot != NONE || hasDepth
 
     /** Pre-built chain for nodes whose chain never changes (most nodes). */
     val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null, staticAccessibility)
@@ -657,6 +672,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         sizeLayout: Modifier? = null,
         dynamicShape: Shape? = null,
         dynamicMargin: Edges? = null,
+        gesture: Modifier? = null,
     ): Modifier {
         if (display == Registry.Display.NONE) {
             return Modifier.layout { _, _ -> layout(0, 0) {} }
@@ -730,6 +746,14 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
                 transformOrigin = origin
                 translationX = layer.translateX().dp.toPx()
                 translationY = layer.translateY().dp.toPx()
+                // Registry 24: 3D turns and blur (motion targets). Read only when the node uses them.
+                if (hasDepth) {
+                    rotationX = layer.rotateX()
+                    rotationY = layer.rotateY()
+                    cameraDistance = layer.cameraDistance()
+                    val blur = layer.blur().dp.toPx()
+                    renderEffect = if (blur > 0f) BlurEffect(blur, blur) else null
+                }
             }
         } else if (opacity < 1f || hasTransform) {
             val staticAlpha = opacity
@@ -744,6 +768,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
                 translationY = translateY.dp.toPx()
             }
         }
+        // Inside the layer: the touch area moves, scales and turns with the node (ZnGesture.kt).
+        gesture?.let { m = m.then(it) }
         if (elevation > 0f) m = m.shadow(elevation.dp, effShape, clip = false, ambientColor = shadowColor, spotColor = shadowColor)
         if (background != null) {
             val s = effShape

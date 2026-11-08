@@ -20,14 +20,41 @@ const CALLS_IMPL = /[\\/]core[\\/]src[\\/]calls\.ts$/
  * callNative("WebSocket") still counts. Add a module here only if it fails safely the same way (second-opinions).
  */
 export const SOFT_CORE_MODULES: ReadonlySet<string> = new Set(["Splash", "WebSocket"])
+
+/**
+ * Core modules a bundle needs only when the app uses their API (registry 24 motion: docs/gestures-and-motion-v1.md §5).
+ * Core's own calls don't count; an app file that imports one of these names from @zero-native/core does, so an older
+ * APK without the module refuses that bundle, and keeps running bundles that don't use it.
+ */
+export const GATED_CORE_MODULES: Readonly<Record<string, { version: number; names: ReadonlySet<string> }>> = {
+  Motion: {
+    version: 1,
+    names: new Set(["useMotion", "useTimeline", "follow", "derive", "env", "usePan", "usePinch", "useRotate", "useTap",
+      "useLongPress", "useFling", "Gesture"]),
+  },
+}
 /** A file of @zero-native/core itself: the repo's packages/core/src, or the package as an app installs it. */
 const CORE_SRC = /[\\/](?:packages|@zero-native)[\\/]core[\\/]src[\\/]/
 
 export function nativeModuleUses(source: string, fileName: string): ModuleUse[] {
-  if (!source.includes("nativeModule") && !source.includes("callNative")) return [] // quick skip (`nativeModule<T>(` too)
+  const gated = !CORE_SRC.test(fileName) && source.includes("@zero-native/core")
+  if (!gated && !source.includes("nativeModule") && !source.includes("callNative")) return [] // quick skip (`nativeModule<T>(` too)
   const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind)
   const uses: ModuleUse[] = []
+  // An app file importing a gated core API (GATED_CORE_MODULES) needs that module.
+  if (gated) {
+    for (const st of sf.statements) {
+      if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== "@zero-native/core") continue
+      const named = st.importClause?.namedBindings
+      const names = named && ts.isNamedImports(named) ? named.elements.map((e) => (e.propertyName ?? e.name).text) : []
+      // `import * as zn from "@zero-native/core"` can reach anything: it counts for every gated module.
+      const star = !!named && ts.isNamespaceImport(named)
+      for (const [module, g] of Object.entries(GATED_CORE_MODULES)) {
+        if (star || names.some((n) => g.names.has(n))) uses.push({ name: module, version: g.version })
+      }
+    }
+  }
   const where = (n: ts.Node) => {
     const { line, character } = sf.getLineAndCharacterOfPosition(n.getStart(sf))
     return `${fileName}:${line + 1}:${character + 1}`
@@ -53,7 +80,8 @@ export function nativeModuleUses(source: string, fileName: string): ModuleUse[] 
           if (version === null) {
             throw new Error(`${where(n)}: ${fn}("${first.text}"): the version must be a number literal (read at build time)`)
           }
-          if (!(SOFT_CORE_MODULES.has(first.text) && CORE_SRC.test(fileName))) uses.push({ name: first.text, version: version ?? 1 })
+          const coreOwn = CORE_SRC.test(fileName) && (SOFT_CORE_MODULES.has(first.text) || first.text in GATED_CORE_MODULES)
+          if (!coreOwn) uses.push({ name: first.text, version: version ?? 1 })
         } else if (!CALLS_IMPL.test(fileName)) {
           throw new Error(
             `${where(n)}: ${fn}(...): the module name must be a string literal, so the build can list the native ` +

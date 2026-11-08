@@ -6,6 +6,7 @@
 //   3. setup mounts children at anchors: components, conditionals (`&&`, `? :`) and lists (`.map`).
 // Every instance has an owner (signals.ts). Disposing it stops its effects, events and child instances; only the
 // top instance of a removed subtree sends REMOVE, because native removes the whole subtree.
+import { motionSlotValue } from "./motion"
 import { parseColor } from "./color"
 import { reportError } from "./errors"
 import { onEvent } from "./events"
@@ -43,6 +44,9 @@ export function view(templateId: number, setup: (inst: Instance) => void): View 
 
 function toNative(v: unknown, kind: number): NativeValue {
   if (v === undefined || v === null) return null
+  // A motion value or gesture (motion.ts): native follows it frame by frame.
+  const motion = motionSlotValue(v)
+  if (motion !== undefined) return motion
   if (kind === SlotKind.Color && typeof v === "string") return parseColor(v)
   if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") return v
   return String(v)

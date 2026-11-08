@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 23 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 24 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -49,6 +49,8 @@ export const REGISTRY_VERSION = 23 // 2: Anchor. 3: transforms, shadow, absolute
 // 23: from the RN parity batch 1 and 2 (brief G5, H1; second-opinions 163, 171): top-level Text onPress and onLongPress;
 //     row-laid Touchable / Pressable with flexDirection: "row" wrapped in Row at build time; horizontal List (LazyRow);
 //     dynamic layout values (sizes, margins, paddings, flex, gap, radii, font, display); Canvas primitive; List header/footer/empty/scroll.
+// 24: gestures and motion (docs/gestures-and-motion-v1.md): `gesture` on any element; rotateX, rotateY, cameraDistance,
+//     blurRadius (draw-phase targets that follow motion values). A slot holding a motion value needs the Motion module.
 
 export const Component = {
   Column: 1,
@@ -453,6 +455,17 @@ export const Prop = {
   itemWidthPercent: { id: 297, type: "number" },
   /** Canvas drawing commands JSON slot (registry 23). */
   commands: { id: 298, type: "string" },
+  // Gestures and motion (registry 24, docs/gestures-and-motion-v1.md). Ids 150-169 were free in Claude's range.
+  /** The gesture this element handles: the id of a usePan / usePinch / ... object (core motion.ts). Set from JS. */
+  gesture: { id: 150, type: "number" },
+  /** Turn around the horizontal axis (degrees), drawn in 3D with [cameraDistance]. */
+  rotateX: { id: 151, type: "number" },
+  /** Turn around the vertical axis (degrees). */
+  rotateY: { id: 152, type: "number" },
+  /** How far the camera is for rotateX / rotateY (dp, as RN's perspective). Default 8 × 72 dp (Compose's). */
+  cameraDistance: { id: 153, type: "number" },
+  /** Blurs the element and its children (dp). Android 12+; older phones draw it sharp. */
+  blurRadius: { id: 154, type: "number" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -662,6 +675,12 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "scrollCommand",
   "selectable",
   "commands",
+  // Registry 24: gestures and motion.
+  "gesture",
+  "rotateX",
+  "rotateY",
+  "cameraDistance",
+  "blurRadius",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -707,6 +726,7 @@ export const Added: {
     inverted: 19, transformOrigin: 20, animateIn: 21, display: 23, scrollCommand: 23,
     selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23, itemWidthPercent: 23,
     commands: 23,
+    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -723,6 +743,7 @@ export const Added: {
     borderTopStartRadius: 23, borderTopEndRadius: 23, borderBottomStartRadius: 23, borderBottomEndRadius: 23,
     fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23, selectable: 23,
     commands: 23,
+    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24,
   },
   enumValue: {
     "display.flex": 23, "display.none": 23,

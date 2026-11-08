@@ -3341,7 +3341,7 @@ export function compileModule(
 
   /** RN transform list → flat props: [{ scale: 0.9 }, { rotate: "45deg" }] → scale: 0.9, rotate: 45. */
   function transform(list: unknown, props: Record<string, unknown>, at: ts.Node) {
-    const allowed = ["scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"]
+    const allowed = ["scale", "scaleX", "scaleY", "translateX", "translateY", "rotate", "rotateX", "rotateY"]
     if (!Array.isArray(list)) fail(at, "transform must be an array like [{ scale: 0.98 }]")
     transformOrder((list as unknown[]).map((e) => {
       const pairs = e && typeof e === "object" ? Object.entries(e) : []
@@ -3353,7 +3353,7 @@ export function compileModule(
       const [key, raw] = pairs[0]
       if (!allowed.includes(key)) fail(at, `unsupported transform "${key}" (use ${allowed.join(", ")})`)
       let value = raw
-      if (key === "rotate") {
+      if (key === "rotate" || key === "rotateX" || key === "rotateY") {
         const m = typeof raw === "string" ? /^(-?\d+(\.\d+)?)deg$/.exec(raw) : null
         if (typeof raw !== "number" && !m) fail(at, 'rotate needs degrees, e.g. "45deg"')
         value = typeof raw === "number" ? raw : Number(m![1])
@@ -3450,7 +3450,7 @@ export function compileModule(
               const tk = pa.name.getText(sf)
               const tv = fold(pa.initializer, scope)
               if (tv !== NOT_STATIC) transform([{ [tk]: tv }], props, pa)
-              else if (["scale", "scaleX", "scaleY", "translateX", "translateY", "rotate"].includes(tk)) {
+              else if (["scale", "scaleX", "scaleY", "translateX", "translateY", "rotate", "rotateX", "rotateY"].includes(tk)) {
                 setProp(props, b, tk as PropName, pa.initializer, pa) // rotate at runtime: a number of degrees
               } else fail(pa, `unsupported transform "${tk}"`)
             }
