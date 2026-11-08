@@ -26,7 +26,7 @@ describe("H4: Canvas compilation", () => {
       }
     `)
     expect(code).toContain("__zn.slot(")
-    expect(code).toContain("JSON.stringify(props.cmds())")
+    expect(code).toContain("__zn.canvasJson(props.cmds())")
     expect(templates[0].type).toBe("Canvas" as any)
     expect(templates[0].props.commands).toMatchObject({ $slot: "s0" })
     expect(templates[0].props.width).toBe(300)

@@ -40,5 +40,17 @@ describe("native modules a bundle needs (docs/ota.md §3.2)", () => {
     expect(app.requires.hostApi).toBe(HOST_API_VERSION)
     // The fixture pulls in @zero-native/core's storage and keyboard code (via the compiler's runtime import).
     expect(app.requires.modules.Keyboard).toBe(2) // v2: focus / blur / clear of a TextField ref
+    // B4 (2026-11-08): core's own WebSocket and Splash calls are soft, so an older APK still takes this bundle.
+    expect(app.requires.modules.WebSocket).toBeUndefined()
+    expect(app.requires.modules.Splash).toBeUndefined()
+  })
+
+  test("soft core modules count only when the app calls them itself (B4)", () => {
+    const call = `callNative("WebSocket", "connect", { id, url })`
+    expect(nativeModuleUses(call, "C:\\work\\zero-native\\packages\\core\\src\\websocket.ts")).toEqual([])
+    expect(nativeModuleUses(call, "/app/node_modules/@zero-native/core/src/websocket.ts")).toEqual([])
+    expect(nativeModuleUses(call, "/app/src/chat.ts")).toEqual([{ name: "WebSocket", version: 1 }])
+    // Any other core module still counts.
+    expect(nativeModuleUses(`callNative("Toast", "show", {})`, "/x/packages/core/src/toast.ts")).toEqual([{ name: "Toast", version: 1 }])
   })
 })

@@ -12,6 +12,17 @@ export interface ModuleUse {
 /** `@zero-native/core`'s calls.ts implements nativeModule() with a variable name; it is the only file allowed to. */
 const CALLS_IMPL = /[\\/]core[\\/]src[\\/]calls\.ts$/
 
+/**
+ * Core modules added after the first APKs went out (B4, 2026-11-08 review). Core loads all its files, so every bundle
+ * "called" them, and every older APK refused every new bundle, even one that never opens a socket. These fail safely
+ * when the app lacks them (native answers "unavailable"): WebSocket gives error, then close 1006; Splash.holdUntil
+ * just doesn't hold the splash. So core's own calls to them are left out of the requirements. An app's own
+ * callNative("WebSocket") still counts. Add a module here only if it fails safely the same way (second-opinions).
+ */
+export const SOFT_CORE_MODULES: ReadonlySet<string> = new Set(["Splash", "WebSocket"])
+/** A file of @zero-native/core itself: the repo's packages/core/src, or the package as an app installs it. */
+const CORE_SRC = /[\\/](?:packages|@zero-native)[\\/]core[\\/]src[\\/]/
+
 export function nativeModuleUses(source: string, fileName: string): ModuleUse[] {
   if (!source.includes("nativeModule") && !source.includes("callNative")) return [] // quick skip (`nativeModule<T>(` too)
   const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
@@ -42,7 +53,7 @@ export function nativeModuleUses(source: string, fileName: string): ModuleUse[] 
           if (version === null) {
             throw new Error(`${where(n)}: ${fn}("${first.text}"): the version must be a number literal (read at build time)`)
           }
-          uses.push({ name: first.text, version: version ?? 1 })
+          if (!(SOFT_CORE_MODULES.has(first.text) && CORE_SRC.test(fileName))) uses.push({ name: first.text, version: version ?? 1 })
         } else if (!CALLS_IMPL.test(fileName)) {
           throw new Error(
             `${where(n)}: ${fn}(...): the module name must be a string literal, so the build can list the native ` +

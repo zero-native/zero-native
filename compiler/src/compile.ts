@@ -30,6 +30,7 @@ import {
   type NodeSpec,
   Prop,
   type PropName,
+  LIST_EXTRAS_SINCE,
   slot as slotRef,
   templateIds,
 } from "@zero-native/template"
@@ -342,7 +343,15 @@ export function compileModule(
         // Intrinsic components are only imported for types; the compiler handles them.
         edits.push({ start: stmt.getStart(sf), end: stmt.getEnd(), text: "" })
         const named = clause?.namedBindings
-        if (named && ts.isNamedImports(named)) for (const e of named.elements) uiImports.add(e.name.text)
+        if (named && ts.isNamedImports(named)) for (const e of named.elements) {
+          // ui holds components (compiled into templates) and types. A lower-case value name is a runtime function,
+          // and the import is removed, so it would throw ReferenceError when it runs (2026-11-08, B2).
+          const name = (e.propertyName ?? e.name).text
+          if (!clause!.isTypeOnly && !e.isTypeOnly && /^[a-z]/.test(name)) {
+            fail(e, `"${name}" is not part of @zero-native/ui at runtime. Import it from "@zero-native/core"`)
+          }
+          uiImports.add(e.name.text)
+        }
       } else if (stmt.moduleSpecifier.text.endsWith(".svg") || namedSvgOnly) {
         // SVG files are compiled into the templates; nothing of them is left in the JS (docs/svg.md §4.1).
         if (stmt.moduleSpecifier.text.endsWith(".svg")) {
@@ -465,6 +474,16 @@ export function compileModule(
 
   const destructuredByFn = new Map<ts.Node, ComponentDestructureInfo>()
 
+  /** The expression that reads a destructured prop: __p.name, with its default when it has one. */
+  function propExprOf(info: DestructuredPropInfo): string {
+    const propAccess = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(info.propName)
+      ? `__p.${info.propName}`
+      : `__p[${JSON.stringify(info.propName)}]`
+    return info.defaultValueText !== undefined
+      ? `(${propAccess} === undefined ? ${info.defaultValueText} : ${propAccess})`
+      : propAccess
+  }
+
   for (const { name, fn } of candidates) {
     const param = fn.parameters[0]
     if (!param) continue
@@ -522,6 +541,18 @@ export function compileModule(
           break
         }
         defaultValueText = source.slice(el.initializer.getStart(sf), el.initializer.getEnd(sf))
+        // { a, b = a }: the default names another prop. The rewrite removes the local `a`, so it must read the prop
+        // itself (before 2026-11-08 it compiled to "... ? a : ..." and threw ReferenceError when it ran; M5).
+        const init = unwrap(el.initializer)
+        if (ts.isIdentifier(init) && propMap.has(init.text)) {
+          defaultValueText = propExprOf(propMap.get(init.text)!)
+        } else if (ts.isIdentifier(init) && param.name.elements.some((o) => ts.isIdentifier(o.name) && o.name.text === init.text)) {
+          patternError = {
+            node: el.initializer,
+            message: `${name}: the default of prop "${propName}" names "${init.text}", which comes after it (or is itself). In JavaScript that throws; give a literal default, or list "${init.text}" first.`,
+          }
+          break
+        }
       }
 
       propMap.set(localName, { localName, propName, defaultValueText })
@@ -560,12 +591,7 @@ export function compileModule(
         if (isShadowed(n, n.text, fn)) return
 
         const info = propMap.get(n.text)!
-        const propAccess = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(info.propName)
-          ? `__p.${info.propName}`
-          : `__p[${JSON.stringify(info.propName)}]`
-        const propExpr = info.defaultValueText !== undefined
-          ? `(${propAccess} === undefined ? ${info.defaultValueText} : ${propAccess})`
-          : propAccess
+        const propExpr = propExprOf(info)
 
         if (ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n) {
           compReplacements.set(n.parent.getStart(sf), { end: n.parent.getEnd(sf), text: `${info.localName}: ${propExpr}` })
@@ -985,6 +1011,11 @@ export function compileModule(
         fail(guardStmts[guardStmts.length - 1], `${name} ends in an early return: a component must end in a return statement`)
       }
       const lastTailStmt = tailStmts[tailStmts.length - 1]
+      if (ts.isFunctionDeclaration(lastTailStmt)) {
+        // A helper after the last return (JS hoists it). With guards the body is split up, so the function must
+        // come before the guards; the old message ("does not end in a return") pointed at the wrong thing.
+        fail(lastTailStmt, `${name} declares function ${lastTailStmt.name?.text ?? ""} after its return. With early return guards, declare helper functions before the first guard, or outside the component`)
+      }
       if (!ts.isReturnStatement(lastTailStmt)) {
         fail(lastTailStmt, `${name} has early return guards but the rest of the body does not end in a return statement`)
       }
@@ -1552,6 +1583,8 @@ export function compileModule(
       if ((tag === "StatusBar" || tag === "NavigationBar") && STATUS_BAR_DROPPED.has(name)) continue
       if (name === "flexDirection" && (flexDirectionOk || isRowTouchable)) continue
       if (tag === "Carousel" && (name === "itemWidth" || name === "pageWidth")) {
+        // `<Carousel itemWidth>` with no value crashed the compiler with a TypeError (2026-11-08 review).
+        if (!init) fail(a, `${name} needs a value: a number of dp or a percent such as "80%"`)
         const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
         const strVal = ts.isStringLiteral(init) ? init.text : expr ? fold(expr, scope) : undefined
         if (typeof strVal === "string" && strVal.endsWith("%")) {
@@ -1574,7 +1607,8 @@ export function compileModule(
       if (tag === "Canvas" && name === "commands" && init && ts.isJsxExpression(init) && init.expression) {
         const s = `s${b.slots++}`
         props.commands = slotRef(s, null) as never
-        b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => JSON.stringify(${text(init.expression)}), 0);`)
+        // core's canvasJson turns colour strings into ARGB numbers and checks the list (native never parses colours).
+        b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => ${RUNTIME}.canvasJson(${text(init.expression)}), 0);`)
         continue
       }
       if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
@@ -1587,7 +1621,7 @@ export function compileModule(
     if (contentStyle) contentContainerStyle(contentStyle, props, b)
     if ("hitSlop" in props && tag !== "Pressable") fail(opening, "hitSlop works only on <Pressable> (the element that takes the tap)")
     stackChildCheck(props, opening)
-    if ((tag === "StatusBar" || tag === "NavigationBar") && ts.isJsxElement(node) && node.children.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) {
+    if ((tag === "StatusBar" || tag === "NavigationBar" || tag === "Canvas") && ts.isJsxElement(node) && node.children.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) {
       fail(node, `<${tag}> takes no children`)
     }
     const refresh = REFRESH_PROPS.filter((k) => k in props)
@@ -1617,7 +1651,10 @@ export function compileModule(
         rowProps.gap = props.gap
         delete props.gap
       }
-      if ("height" in props || "flex" in props) {
+      // The inner Row fills the button's height when that height is set: a written height, or flex in a column
+      // (flex sets the height there). In a Row, flex sets the width only. Before 2026-11-08 a flex: 1 button in a
+      // bottom bar filled the bar's whole free height (M6).
+      if ("height" in props || ("flex" in props && parents[parents.length - 1] !== "Row")) {
         rowProps.height = "100%"
       }
     }
@@ -1752,7 +1789,8 @@ export function compileModule(
         return null
       }
       case "flexGrow": {
-        // RN's flexGrow: n shares the free space like zn's flex: n.
+        // RN's flexGrow: n shares the free space like zn's flex: n. (Two growing children with different content
+        // widths split it a little differently: RN shares only what is left after their content.)
         const v = value()
         if (v === NOT_STATIC) return "flex"
         if (typeof v !== "number" || v < 0) fail(at, "flexGrow needs a number, 0 or more")
@@ -1761,14 +1799,16 @@ export function compileModule(
       }
       case "flexShrink": {
         // zn never shrinks a child below its size (RN's default, flexShrink: 0); a Text in a Row still wraps.
+        // From a slot it is a build error, as before batch 1: native can't drop a value it never knows, and the
+        // author must learn it has no effect (2026-11-08 review; Gemini's H1 dropped it silently).
         const v = value()
-        if (v === NOT_STATIC) return null
+        if (v === NOT_STATIC) return fail(at, "flexShrink must be known at build time (zero-native drops 0 and 1, and doesn't shrink children)")
         if ([0, 1].includes(v as number)) return null
         return fail(at, "flexShrink: only 0 or 1 (both dropped: zero-native doesn't shrink children, and a Text in a Row wraps)")
       }
       case "flexBasis": {
         const v = value()
-        if (v === NOT_STATIC) return null
+        if (v === NOT_STATIC) return fail(at, 'flexBasis must be known at build time (only 0 or "auto", both dropped)')
         if (([0, "auto"] as unknown[]).includes(v)) return null
         return fail(at, 'flexBasis: only 0 or "auto" (dropped); give the element a width or a flex instead')
       }
@@ -2850,26 +2890,44 @@ export function compileModule(
       end = `@@E:${ev}@@`
       onEnd = text(special.onEndReached)
     }
+    // ListHeaderComponent / Footer / Empty: an element, a component, a function with no props that gives one
+    // (`() => (<X/>)` or a block with one `return <X/>`), `cond ? <X/> : null`, `cond && <X/>`, or any other value
+    // (`props.header`, which core's list() calls when it is a function). Before 2026-11-08 the parenthesised, block,
+    // and conditional forms failed with "JSX isn't allowed here", and props.header drew nothing.
+    const extraView = (e: ts.Expression): string | null => {
+      const u = seeThrough(e)
+      if (isJsx(u)) return compileRoot(u as JsxNode, b.depth + 1).code
+      if (u.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(u) && u.text === "undefined")) return "null"
+      if (ts.isConditionalExpression(u)) {
+        const yes = extraView(u.whenTrue)
+        const no = extraView(u.whenFalse)
+        if (yes !== null && no !== null) return `((${text(u.condition)}) ? ${yes} : ${no})`
+      }
+      if (ts.isBinaryExpression(u) && u.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+        const yes = extraView(u.right)
+        if (yes !== null) return `((${text(u.left)}) ? ${yes} : null)`
+      }
+      return null
+    }
     const compileExtra = (extraExpr: ts.Expression): string => {
       const u = seeThrough(extraExpr)
-      if (isJsx(u)) {
-        const root = compileRoot(u as JsxNode, b.depth + 1)
-        return `() => ${root.code}`
-      }
+      const direct = extraView(u)
+      if (direct !== null) return `() => ${direct}`
       if (ts.isIdentifier(u) && isCapitalized(u.text)) {
         return `() => ${u.text}({})`
       }
-      if (ts.isArrowFunction(u) || ts.isFunctionExpression(u)) {
-        const fn = u as ts.FunctionLikeDeclaration
-        if (fn.parameters.length === 0) {
-          if (fn.body && isJsx(fn.body)) {
-            const root = compileRoot(fn.body as JsxNode, b.depth + 1)
-            return `() => ${root.code}`
-          }
+      if ((ts.isArrowFunction(u) || ts.isFunctionExpression(u)) && u.parameters.length === 0) {
+        let body: ts.Node = u.body
+        if (ts.isBlock(body) && body.statements.length === 1 && ts.isReturnStatement(body.statements[0]) && body.statements[0].expression) {
+          body = body.statements[0].expression
+        }
+        if (!ts.isBlock(body)) {
+          const view = extraView(body as ts.Expression)
+          if (view !== null) return `() => ${view}`
         }
         return `() => (${text(u)})({})`
       }
-      return `() => ${text(u)}`
+      return `() => (${text(u)})`
     }
     const headerCode = special.ListHeaderComponent ? `, header: ${compileExtra(special.ListHeaderComponent)}` : ""
     const footerCode = special.ListFooterComponent ? `, footer: ${compileExtra(special.ListFooterComponent)}` : ""
@@ -2882,7 +2940,10 @@ export function compileModule(
         (special.sticky ? `, sticky: () => (${text(special.sticky)})` : "") +
         headerCode + footerCode + emptyCode + " });",
     )
-    return el("List", props)
+    const listNode = el("List", props)
+    // Header / footer / empty live only in the JS: mark the node so an older app refuses the bundle (B5).
+    if (headerCode || footerCode || emptyCode) listNode.needs = LIST_EXTRAS_SINCE
+    return listNode
   }
 
   /** An event prop bound to [handler] on this template's instance. */

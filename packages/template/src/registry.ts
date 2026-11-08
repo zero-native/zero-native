@@ -777,6 +777,19 @@ export const TEXT_PRESS_SINCE = 23
 export const LIST_HORIZONTAL_SINCE = 23
 
 /**
+ * A List's ListHeaderComponent / ListFooterComponent / ListEmptyComponent are drawn since this registry version. They
+ * live only in the JS (core's list()), so the compiler marks the List node (NodeSpec.needs) for the writer. Older apps
+ * drop them with no error (B5, 2026-11-08 review).
+ */
+export const LIST_EXTRAS_SINCE = 23
+
+/**
+ * A margin below 0 (a full-bleed row, an overlap) is drawn since this registry version. Older apps draw it as 0, so
+ * the screen looks wrong with no error (B5, 2026-11-08 review).
+ */
+export const NEGATIVE_MARGIN_SINCE = 23
+
+/**
  * Newer forms of a string prop's value that older apps can't read (an older app would show the old behaviour, so a
  * bundle that uses one must ask for the version that brought it). [uses]: does this value use the form?
  */

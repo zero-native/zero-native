@@ -142,6 +142,17 @@ function mountChild(
   )
 }
 
+/**
+ * A List header / footer / empty value as a View. `ListHeaderComponent={props.header}` hands over what the parent
+ * passed: JSX there is already a function that makes a View (see insert), and a component is a function too. So a
+ * function is called (twice at most); null / undefined / false draw nothing. Before 2026-11-08 a function was mounted
+ * as if it were a View, and nothing was drawn.
+ */
+function listExtra(v: unknown, depth = 0): View {
+  if (typeof v === "function" && depth < 2) return listExtra((v as (p: object) => unknown)({}), depth + 1)
+  return v as View
+}
+
 /** A component used in a template: mounted once at its anchor. */
 export function component<P>(inst: Instance, anchor: number, Comp: (props: P) => View, props: P): void {
   ready(inst)
@@ -347,7 +358,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
     let headerM: Mounted | null = null
     effect(() => {
       if (headerM) headerM.dispose(true)
-      headerM = mountChild(owner, () => o.header!(), inst.id, node, 0, dataEffect)
+      headerM = mountChild(owner, () => listExtra(o.header!()), inst.id, node, 0, dataEffect)
       globalThis.__zn_listRow(inst.id, node, "__zn_header", headerM.id)
     })
     onCleanup(() => {
@@ -359,7 +370,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
     let footerM: Mounted | null = null
     effect(() => {
       if (footerM) footerM.dispose(true)
-      footerM = mountChild(owner, () => o.footer!(), inst.id, node, 0, dataEffect)
+      footerM = mountChild(owner, () => listExtra(o.footer!()), inst.id, node, 0, dataEffect)
       globalThis.__zn_listRow(inst.id, node, "__zn_footer", footerM.id)
     })
     onCleanup(() => {
@@ -371,7 +382,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
     let emptyM: Mounted | null = null
     effect(() => {
       if (emptyM) emptyM.dispose(true)
-      emptyM = mountChild(owner, () => o.empty!(), inst.id, node, 0, dataEffect)
+      emptyM = mountChild(owner, () => listExtra(o.empty!()), inst.id, node, 0, dataEffect)
       globalThis.__zn_listRow(inst.id, node, "__zn_empty", emptyM.id)
     })
     onCleanup(() => {
@@ -415,6 +426,9 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
       const seen = new Set<string>()
       next.forEach((item, i) => {
         let k = String(o.key(item, i))
+        // "__zn_header" / "__zn_footer" / "__zn_empty" name the list's extras on the same channel; a row key that
+        // starts with "__zn_" gets one more "_" so it can't take their place (2026-11-08 review).
+        if (k.startsWith("__zn_")) k = `_${k}`
         if (seen.has(k)) {
           // Compose needs unique keys; a duplicate would crash the list. Keep the row, under a made-up key.
           globalThis.__zn_log(3, `list: duplicate key ${k} at row ${i}; give every row a unique key`)
@@ -571,7 +585,11 @@ export function bindListController(ctrl: any, inst: Instance, slotId: number): v
   if (!ctrl) return
   let seq = 0
   const send = (cmd: string) => {
-    globalThis.__zn_patch(inst.id, slotId, `${cmd}:${++seq}`)
+    const value = `${cmd}:${++seq}`
+    // Before this part's MOUNT, a PATCH would reach an instance native doesn't have yet and be lost (M7, 2026-11-08):
+    // the value goes with the MOUNT instead, as slot() does. Native runs it once the List draws (lastScrollSeq).
+    if (inst.collecting) inst.collecting[slotId] = value
+    else globalThis.__zn_patch(inst.id, slotId, value)
   }
   const handler: ListController = {
     scrollToIndex: (opts) => {
@@ -592,8 +610,15 @@ export function bindListController(ctrl: any, inst: Instance, slotId: number): v
   }
   if (ctrl && typeof ctrl === "object") {
     if ("current" in ctrl) {
+      // A listController() or a { current } ref: only `current` is set, so its own methods keep forwarding to
+      // whichever List holds it now. Before 2026-11-08 they were overwritten with this List's handler and kept
+      // sending to it after it was gone.
       ctrl.current = handler
+      onCleanup(() => {
+        if (ctrl.current === handler) ctrl.current = null
+      })
+    } else {
+      Object.assign(ctrl, handler)
     }
-    Object.assign(ctrl, handler)
   }
 }

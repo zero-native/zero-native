@@ -33,7 +33,11 @@ import {
   since,
   TEXT_PRESS_SINCE,
   LIST_HORIZONTAL_SINCE,
+  NEGATIVE_MARGIN_SINCE,
 } from "./registry"
+
+/** The margin keys a negative value can be written in (RN's left / right are already start / end here). */
+const MARGIN_KEYS = ["margin", "marginHorizontal", "marginVertical", "marginStart", "marginEnd", "marginTop", "marginBottom"]
 
 export const TEMPLATE_MAGIC = 0x49554e5a // "ZNUI" as little-endian bytes
 export const FORMAT_VERSION = 1
@@ -64,6 +68,11 @@ export interface NodeSpec {
   type: ComponentName
   props: NodeProps
   children: NodeSpec[]
+  /**
+   * The lowest registry version this node needs for something the template can't show, such as a List header that
+   * lives only in the JS (LIST_EXTRAS_SINCE). Not written to the file; it only raises the bundle's requirement.
+   */
+  needs?: number
 }
 
 /** Builds a node. `style` keys and direct props are the same registry props; `style` is applied first. */
@@ -244,6 +253,9 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
       if (spec.type === "Text" && ("onPress" in merged || "onLongPress" in merged)) needs(TEXT_PRESS_SINCE)
       // A horizontal List uses LazyRow on newer apps (registry 23).
       if (spec.type === "List" && merged.horizontal === true) needs(LIST_HORIZONTAL_SINCE)
+      // A negative margin is drawn only by newer apps (registry 23); older ones clamp it to 0.
+      if (MARGIN_KEYS.some((k) => typeof merged[k] === "number" && (merged[k] as number) < 0)) needs(NEGATIVE_MARGIN_SINCE)
+      if (spec.needs !== undefined) needs(spec.needs)
       for (const [key, raw] of Object.entries(merged)) {
         if (raw === undefined) continue
         if (key in EventKind) {

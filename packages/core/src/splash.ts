@@ -12,8 +12,12 @@ import { callNative } from "./calls"
 
 let next = 0
 
-const failed = (what: string) => (err: unknown) =>
+// "unavailable": an app built before Splash (2026-11-07). The splash just isn't held, so say nothing. Splash is a soft
+// core module: bundles don't require it, so an older app runs new bundles (compiler/src/modules.ts, B4).
+const failed = (what: string) => (err: unknown) => {
+  if ((err as { code?: unknown } | null)?.code === "unavailable") return
   globalThis.__zn_log(2, `Splash.${what} failed: ${err instanceof Error ? err.message : String(err)}`)
+}
 
 export const Splash = {
   /** Holds the splash until [work] settles (resolved or rejected), at most [maxMs] after the first screens are up. */
