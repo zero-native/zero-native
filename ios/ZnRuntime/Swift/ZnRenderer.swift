@@ -90,9 +90,9 @@ struct ZnNodeView: View {
         let _ = ZnDebug.hit(s, inst)
         if s.isPressable {
             ZnPressable(ctx: ctx, s: s, inst: inst) { inner(s) }
-                .padding(s.margin?.insets ?? EdgeInsets())
+                .padding(s.marginInsets(inst))
         } else {
-            inner(s).padding(s.margin?.insets ?? EdgeInsets())
+            inner(s).padding(s.marginInsets(inst))
         }
     }
 
@@ -108,7 +108,7 @@ struct ZnNodeView: View {
     @ViewBuilder
     private func styled(_ s: ZnNodeSpec) -> some View {
         content(s)
-            .padding(s.type == Registry.Component.list ? EdgeInsets() : (s.padding?.insets ?? EdgeInsets()))
+            .padding(s.type == Registry.Component.list ? EdgeInsets() : s.paddingInsets(inst))
             .modifier(ZnSizeFrame(s: s, outer: outer, alignment: contentAlignment(s)))
             .modifier(ZnPaint(s: s, inst: inst))
     }

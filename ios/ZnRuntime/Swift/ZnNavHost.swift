@@ -14,19 +14,38 @@
 import SwiftUI
 import UIKit
 
-/// One back-stack entry's screen.
+/// One back-stack entry's screen, with its route's safe area: the sides it doesn't keep clear of the system bars are
+/// drawn under them (a full-bleed header pads itself with insets().top), and the screen's root background fills
+/// behind the bars either way (as android/runtime's ZnNavHost does).
 struct ZnEntryScreen: View {
     let app: ZnApp
     let entry: UInt32
 
     var body: some View {
         if let ctx = app.ctx, let root = app.store.find(entry) {
+            let route = app.route(of: entry)
+            let node = ctx.templates[safe: root.templateId]?.nodes.first
+            let background = node.flatMap { $0.backgroundSlot >= 0 ? znColor(root.slot($0.backgroundSlot).value) : $0.background }
             ZnScreenView(ctx: ctx, root: root)
-                .background(Color.white)
+                .ignoresSafeArea(.container, edges: unsafeEdges(route))
+                .background((background ?? .white).ignoresSafeArea())
         } else {
             Color.white
         }
     }
+
+    private func unsafeEdges(_ route: ZnRoute?) -> Edge.Set {
+        var e: Edge.Set = []
+        if route?.safeTop == false { e.insert(.top) }
+        if route?.safeBottom == false { e.insert(.bottom) }
+        return e
+    }
+}
+
+/// A screen's controller: its route's status bar style.
+final class ZnScreenController: UIHostingController<ZnEntryScreen> {
+    var lightStatusBar = false
+    override var preferredStatusBarStyle: UIStatusBarStyle { lightStatusBar ? .lightContent : .darkContent }
 }
 
 // MARK: - SwiftUI: NavigationStack(path:)
@@ -114,7 +133,8 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         }
         let vcs = stack.map { entry in
             screens[entry] ?? {
-                let vc = UIHostingController(rootView: ZnEntryScreen(app: app, entry: entry))
+                let vc = ZnScreenController(rootView: ZnEntryScreen(app: app, entry: entry))
+                vc.lightStatusBar = app.route(of: entry)?.lightStatusBar ?? false
                 vc.view.backgroundColor = .white
                 screens[entry] = vc
                 return vc
@@ -130,6 +150,19 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     private func entry(of vc: UIViewController) -> UInt32? { screens.first { $0.value === vc }?.key }
 
     // A swipe that finished: native popped; JS is told (FORCED_BACK).
+    override var childForStatusBarStyle: UIViewController? { topViewController }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        let i = view.safeAreaInsets
+        let ltr = view.effectiveUserInterfaceLayoutDirection == .leftToRight
+        app.reportInsets(top: i.top, bottom: i.bottom, start: ltr ? i.left : i.right, end: ltr ? i.right : i.left)
+    }
+
+    func navigationController(_ nav: UINavigationController, willShow vc: UIViewController, animated: Bool) {
+        setNeedsStatusBarAppearanceUpdate()  // the new top screen's route says light or dark
+    }
+
     func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
         print("zn t=\(ZnDebug.ms()) uikit: didShow")
         let shown = viewControllers.compactMap(entry(of:))
@@ -139,6 +172,9 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard g === backPan, viewControllers.count > 1, transitionCoordinator == nil,
               let top = app.stack.last else { return false }
+        // The edge swipe pops screens that pushed in from the side; a modal / fade / none screen closes with its
+        // own button (as an iOS modal does), not with a sideways swipe.
+        guard app.route(of: top)?.transition ?? .push == .push else { return false }
         let start = backPan.location(in: view).x - backPan.translation(in: view).x
         let v = backPan.velocity(in: view)
         guard start <= edge, v.x > 0, abs(v.x) > abs(v.y) else { return false }  // from the left edge, moving right
@@ -176,10 +212,14 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         }
     }
 
-    // The swipe drives our pop animation; every other transition is UIKit's own.
+    // The swipe drives our pop animation. Otherwise the route's transition, as on Android: a push uses the new
+    // screen's, a pop the leaving screen's. "push" is UIKit's own slide.
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
                               from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-        interaction != nil && operation == .pop ? ZnPopAnimator() : nil
+        if interaction != nil && operation == .pop { return ZnPopAnimator() }
+        guard let entry = entry(of: operation == .push ? to : from),
+              let transition = app.route(of: entry)?.transition, transition != .push else { return nil }
+        return ZnTransitionAnimator(transition: transition, opening: operation == .push)
     }
 
     func navigationController(_ nav: UINavigationController,
@@ -217,5 +257,57 @@ final class ZnPopAnimator: NSObject, UIViewControllerAnimatedTransitioning {
             to.transform = .identity
             ctx.completeTransition(!ctx.transitionWasCancelled)
         })
+    }
+}
+
+/// A route's transition other than "push" (routes.ts `transition`, as android/runtime's ZnNavHost.transitions):
+/// "modal" comes up from the bottom over the old screen and goes back down; "fade" cross-fades; "none" is instant.
+final class ZnTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
+    let transition: ZnRoute.Transition
+    let opening: Bool
+
+    init(transition: ZnRoute.Transition, opening: Bool) {
+        self.transition = transition
+        self.opening = opening
+    }
+
+    func transitionDuration(using ctx: UIViewControllerContextTransitioning?) -> TimeInterval {
+        transition == .none ? 0 : transition == .fade ? 0.25 : 0.4
+    }
+
+    func animateTransition(using ctx: UIViewControllerContextTransitioning) {
+        guard let from = ctx.view(forKey: .from), let to = ctx.view(forKey: .to),
+              let toVC = ctx.viewController(forKey: .to) else { return ctx.completeTransition(false) }
+        print("zn t=\(ZnDebug.ms()) uikit: \(transition.rawValue) transition, \(opening ? "opening" : "closing")")
+        let box = ctx.containerView
+        to.frame = ctx.finalFrame(for: toVC)
+        let height = box.bounds.height
+        switch (transition, opening) {
+        case (.modal, true):
+            box.addSubview(to)
+            to.transform = CGAffineTransform(translationX: 0, y: height)
+        case (.modal, false):
+            box.insertSubview(to, belowSubview: from)
+        case (.fade, _):
+            box.addSubview(to)
+            to.alpha = 0
+        default:
+            box.addSubview(to)
+        }
+        let done = { (finished: Bool) in
+            to.transform = .identity
+            from.transform = .identity
+            to.alpha = 1
+            ctx.completeTransition(!ctx.transitionWasCancelled)
+        }
+        guard transition != .none else { return done(true) }
+        UIView.animate(withDuration: transitionDuration(using: ctx), delay: 0,
+                       usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [], animations: {
+            switch (self.transition, self.opening) {
+            case (.modal, true): to.transform = .identity
+            case (.modal, false): from.transform = CGAffineTransform(translationX: 0, y: height)
+            default: to.alpha = 1
+            }
+        }, completion: done)
     }
 }

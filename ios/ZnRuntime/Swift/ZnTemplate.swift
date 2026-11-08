@@ -40,6 +40,8 @@ final class ZnNodeSpec {
     let alignSelf: Int
     let margin: ZnEdges?
     let padding: ZnEdges?
+    /// Padding / margin props whose value changes at runtime (a slot), prop id → slot: `paddingTop: insets().top + 32`.
+    let edgeSlots: [Int: Int]
     let gap: CGFloat
     let justify: Int
     let alignItems: Int
@@ -127,6 +129,12 @@ final class ZnNodeSpec {
         flex = num(P.flex) ?? 0
         alignSelf = en(P.alignSelf)
         margin = edges(P.margin, P.marginHorizontal, P.marginVertical, P.marginStart, P.marginTop, P.marginEnd, P.marginBottom)
+        var slots: [Int: Int] = [:]
+        for prop in Self.paddingProps + Self.marginProps {
+            let i = slotFor(prop)
+            if i >= 0 { slots[prop] = i }
+        }
+        edgeSlots = slots
         padding = edges(P.padding, P.paddingHorizontal, P.paddingVertical, P.paddingStart, P.paddingTop, P.paddingEnd, P.paddingBottom)
         gap = num(P.gap) ?? 0
         justify = en(P.justifyContent)
@@ -187,6 +195,28 @@ final class ZnNodeSpec {
     }
 
     var isPressable: Bool { type == Registry.Component.pressable }
+
+    static let paddingProps = [Registry.Prop.padding, Registry.Prop.paddingHorizontal, Registry.Prop.paddingVertical,
+                               Registry.Prop.paddingStart, Registry.Prop.paddingTop, Registry.Prop.paddingEnd,
+                               Registry.Prop.paddingBottom]
+    static let marginProps = [Registry.Prop.margin, Registry.Prop.marginHorizontal, Registry.Prop.marginVertical,
+                              Registry.Prop.marginStart, Registry.Prop.marginTop, Registry.Prop.marginEnd,
+                              Registry.Prop.marginBottom]
+
+    /// Padding with runtime values filled in (reading those slots makes the caller's body follow them).
+    @MainActor func paddingInsets(_ inst: ZnInstance) -> EdgeInsets { edgeInsets(Self.paddingProps, padding, inst) }
+    @MainActor func marginInsets(_ inst: ZnInstance) -> EdgeInsets { edgeInsets(Self.marginProps, margin, inst) }
+
+    @MainActor private func edgeInsets(_ group: [Int], _ fixed: ZnEdges?, _ inst: ZnInstance) -> EdgeInsets {
+        guard group.contains(where: { edgeSlots[$0] != nil }) else { return fixed?.insets ?? EdgeInsets() }
+        func num(_ prop: Int) -> CGFloat? {
+            if let slot = edgeSlots[prop] { return inst.slot(slot).value.number.map { CGFloat($0) } }
+            return props[prop]?.number.map { CGFloat($0) }
+        }
+        let a = num(group[0]) ?? 0
+        let h = num(group[1]) ?? a, v = num(group[2]) ?? a
+        return EdgeInsets(top: num(group[4]) ?? v, leading: num(group[3]) ?? h, bottom: num(group[6]) ?? v, trailing: num(group[5]) ?? h)
+    }
 }
 
 final class ZnTemplate {

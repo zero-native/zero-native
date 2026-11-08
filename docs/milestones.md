@@ -146,6 +146,23 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.2, route options (Claude, `ios` branch)
+- **Transitions** (routes.ts `transition`, same rule as Android: a push uses the new screen's, a pop the leaving
+  screen's): `push` is UIKit's slide; `modal` slides up over the old screen and back down; `fade` cross-fades;
+  `none` is instant (`ZnTransitionAnimator`). The back swipe only pops `push` screens: a modal closes with its own
+  button, as iOS modals do.
+- **Safe area per route** (`safeArea`: "all", "none", `{ top, bottom }`): unsafe sides draw under the bars, and the
+  screen's root background fills behind the bars either way. **INSETS** go to JS (dp) once JS has started, before
+  START, and on every change, so `insets()` works. **Status bar** per route (`statusBar: "light"`).
+- **Runtime padding and margin** (a slot, e.g. `paddingTop: insets().top + 32`) are now applied; before, the iOS
+  renderer used static padding only.
+- Checked on the simulator: the receipt (modal, `safeArea: { top: false }`, light bar) slides up, its green header is
+  full-bleed under a white status bar, and its text clears the notch (insets top 59, bottom 34). Done (a
+  `nav.reset`) slides Home in from the side, as the resulting stack says.
+- **Found:** a batch that closes a sheet and pushes (UPI picker → receipt) starts the push ~0.5 s late: UIKit waits for
+  the sheet's dismiss animation. Fix for later: when a batch also changes the stack, dismiss the sheet without
+  animation. No Android issue from this step.
+
 ### 2026-11-08: A8, native back gestures only where JS has no back handler (Claude, `ios` branch)
 - JS sends NAV BACK_WANTED for any screen with a `useBack` / `BackHandler` (tabs as before); Android puts its back
   handler after `NavDisplay` so such screens get no predictive preview; iOS has its own edge pan. The iOS app shell is
