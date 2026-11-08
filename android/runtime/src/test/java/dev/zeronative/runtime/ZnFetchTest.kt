@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -97,5 +98,81 @@ class ZnFetchTest {
         val client = clientWith({ throw SocketTimeoutException("plugin timeout") }, sent)
         val e = assertThrows(IOException::class.java) { client.newCall(request).execute() }
         assertEquals("timeout", code(e))
+    }
+
+    // ---- Upload and Download Progress (ZnFetch.CountingRequestBody, ProgressThrottler) ----
+
+    @Test
+    fun countingBodyCountsBytesAndMatchesLength() {
+        val payload = "Hello, zero-native upload progress!".toByteArray()
+        val inner = payload.toRequestBody(null)
+        val progressReports = mutableListOf<Pair<Long, Long>>()
+        var doneCalled = false
+
+        val counting = ZnFetch.CountingRequestBody(
+            inner = inner,
+            onProgress = { loaded, total -> progressReports += (loaded to total) },
+            onDone = { doneCalled = true },
+        )
+
+        assertEquals(payload.size.toLong(), counting.contentLength())
+        val sink = okio.Buffer()
+        counting.writeTo(sink)
+
+        assertTrue(doneCalled)
+        assertEquals(payload.size.toLong(), sink.size)
+        assertTrue(progressReports.isNotEmpty())
+        assertEquals(payload.size.toLong(), progressReports.last().first)
+        assertEquals(payload.size.toLong(), progressReports.last().second)
+    }
+
+    @Test
+    fun countingBodyPreservesOneShot() {
+        val oneShotInner = object : okhttp3.RequestBody() {
+            override fun contentType() = null
+            override fun contentLength() = 10L
+            override fun isOneShot() = true
+            override fun writeTo(sink: okio.BufferedSink) {
+                sink.write(ByteArray(10))
+            }
+        }
+        val counting = ZnFetch.CountingRequestBody(oneShotInner, onProgress = { _, _ -> })
+        assertTrue("counting body must preserve oneShot", counting.isOneShot())
+    }
+
+    @Test
+    fun progressThrottlerThrottlesAndEmitsFinal() {
+        var clockTime = 1000L
+        val emitted = mutableListOf<Pair<Long, Long>>()
+        val throttler = ZnFetch.ProgressThrottler(
+            minIntervalMs = 100L,
+            clock = { clockTime },
+            onEmit = { loaded, total -> emitted += (loaded to total) },
+        )
+
+        // First event at t=1000 -> emitted
+        throttler.update(10L, 100L)
+        assertEquals(1, emitted.size)
+        assertEquals(10L to 100L, emitted[0])
+
+        // Event at t=1050 (< 100ms interval) -> throttled
+        clockTime = 1050L
+        throttler.update(30L, 100L)
+        assertEquals(1, emitted.size)
+
+        // Event at t=1110 (>= 100ms interval) -> emitted
+        clockTime = 1110L
+        throttler.update(60L, 100L)
+        assertEquals(2, emitted.size)
+        assertEquals(60L to 100L, emitted[1])
+
+        // Finish call -> always emits the final state if changed
+        throttler.finish(100L, 100L)
+        assertEquals(3, emitted.size)
+        assertEquals(100L to 100L, emitted[2])
+
+        // Calling finish again with same loaded does not duplicate
+        throttler.finish(100L, 100L)
+        assertEquals(3, emitted.size)
     }
 }

@@ -9,10 +9,19 @@
 //   be set per request, or for the whole app with setFetchDefaults().
 // - HTTP errors are not exceptions (`res.ok` is false). Network problems reject with a FetchError that has a `code`.
 // - The body is read completely before the Promise resolves; `res.body` (streams) is not supported.
-import { callNative, NativeError, type BytesResult } from "./calls"
+import { callNative, NativeError, onNativeEvent, type BytesResult } from "./calls"
+import { reportError } from "./errors"
 import { FormData } from "./formdata"
 import { Headers, type HeadersInit } from "./headers"
+import { runWithOwner } from "./signals"
 import { byteRange, decodeUtf8, encodeUtf8 } from "./text"
+
+export interface FetchProgress {
+  /** Bytes transferred so far. */
+  loaded: number
+  /** Total bytes expected, or -1 when not known. */
+  total: number
+}
 
 declare global {
   // Lets app code pass zero-native's extra options to the global fetch (typed by TypeScript's DOM lib).
@@ -21,6 +30,10 @@ declare global {
     timeout?: number
     /** zero-native: the biggest response body accepted, in bytes. Default 10 MB. */
     maxBodySize?: number
+    /** zero-native: called as request bytes are sent to the server. Not a web standard. */
+    onUploadProgress?: (progress: FetchProgress) => void
+    /** zero-native: called as response bytes arrive from the server. Not a web standard. */
+    onDownloadProgress?: (progress: FetchProgress) => void
   }
 }
 
@@ -60,6 +73,10 @@ export interface FetchInit {
   redirect?: RedirectMode
   timeout?: number
   maxBodySize?: number
+  /** zero-native: called as request bytes are sent to the server. Not a web standard. */
+  onUploadProgress?: (progress: FetchProgress) => void
+  /** zero-native: called as response bytes arrive from the server. Not a web standard. */
+  onDownloadProgress?: (progress: FetchProgress) => void
   // Accepted and ignored (no meaning in an app): mode, credentials, cache, referrer, referrerPolicy, integrity,
   // keepalive, priority, window.
   [ignored: string]: unknown
@@ -133,6 +150,8 @@ export class Request {
   readonly redirect: RedirectMode
   readonly timeout: number
   readonly maxBodySize: number
+  readonly onUploadProgress?: (progress: FetchProgress) => void
+  readonly onDownloadProgress?: (progress: FetchProgress) => void
   /** Internal: the body as given (encoded when sent). */
   readonly _body: BodyInit | null
 
@@ -149,6 +168,8 @@ export class Request {
     this.redirect = redirect
     this.timeout = checkLimit("timeout", init.timeout, from?.timeout ?? defaults.timeout, true)
     this.maxBodySize = checkLimit("maxBodySize", init.maxBodySize, from?.maxBodySize ?? defaults.maxBodySize, false)
+    this.onUploadProgress = init.onUploadProgress ?? from?.onUploadProgress
+    this.onDownloadProgress = init.onDownloadProgress ?? from?.onDownloadProgress
     this._body = init.body !== undefined ? init.body : (from?._body ?? null)
     if (this._body !== null && (this.method === "GET" || this.method === "HEAD")) {
       throw new TypeError(`fetch: a ${this.method} request can't have a body`)
@@ -365,6 +386,8 @@ interface NativeHead {
   headers: string[]
 }
 
+let fetchSeq = 0
+
 export function fetch(input: string | Request | { toString(): string }, init?: FetchInit): Promise<Response> {
   let request: Request
   let args: Record<string, unknown>
@@ -394,18 +417,74 @@ export function fetch(input: string | Request | { toString(): string }, init?: F
   const signal = request.signal
   if (signal?.aborted) return Promise.reject(signal.reason)
 
+  const uploadCallback = request.onUploadProgress
+  const downloadCallback = request.onDownloadProgress
+  const hasUpload = typeof uploadCallback === "function"
+  const hasDownload = typeof downloadCallback === "function"
+
+  let reqId: number | undefined
+  if (hasUpload || hasDownload) {
+    reqId = ++fetchSeq
+    args.reqId = reqId
+    if (hasUpload) args.uploadProgress = true
+    if (hasDownload) args.downloadProgress = true
+  }
+
+  let offUpload: (() => void) | undefined
+  let offDownload: (() => void) | undefined
+  let active = true
+
+  const stop = () => {
+    if (!active) return
+    active = false
+    offUpload?.()
+    offDownload?.()
+    signal?.removeEventListener("abort", stop)
+  }
+
+  if (hasUpload && reqId !== undefined) {
+    offUpload = runWithOwner(null, () =>
+      onNativeEvent("Fetch", "uploadProgress", (p: any) => {
+        if (!active || p?.id !== reqId) return
+        try {
+          uploadCallback!({ loaded: p.loaded ?? 0, total: p.total ?? -1 })
+        } catch (e) {
+          reportError("fetch onUploadProgress", e)
+        }
+      })
+    )
+  }
+
+  if (hasDownload && reqId !== undefined) {
+    offDownload = runWithOwner(null, () =>
+      onNativeEvent("Fetch", "downloadProgress", (p: any) => {
+        if (!active || p?.id !== reqId) return
+        try {
+          downloadCallback!({ loaded: p.loaded ?? 0, total: p.total ?? -1 })
+        } catch (e) {
+          reportError("fetch onDownloadProgress", e)
+        }
+      })
+    )
+  }
+
+  signal?.addEventListener("abort", stop)
+
   return callNative<BytesResult<NativeHead>>("Fetch", "send", args, {
     signal: signal ?? undefined,
     bytes: body.bytes,
     owned: false,
   }).then(
-    ({ value: head, bytes }) =>
-      new Response(
+    ({ value: head, bytes }) => {
+      stop()
+      return new Response(
         null,
         { status: head.status, statusText: head.statusText, headers: Headers._fromFlat(head.headers) },
         { bytes, url: head.url, redirected: head.redirected, type: "basic" },
-      ),
+      )
+    },
     (e: unknown) => {
+      stop()
       if (signal?.aborted) throw signal.reason // web rule: reject with the signal's reason (AbortError, TimeoutError)
       if (e instanceof NativeError) throw new FetchError(e.code as FetchErrorCode, e.message)
       throw e

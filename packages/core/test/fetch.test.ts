@@ -245,3 +245,159 @@ test("app-wide defaults apply to later requests; a request's own value still win
     setFetchDefaults({ timeout: 30_000, maxBodySize: 10_000_000 })
   }
 })
+
+test("onUploadProgress and onDownloadProgress receive throttled events and clean up on settle", async () => {
+  const uploadEvents: Array<{ loaded: number; total: number }> = []
+  const downloadEvents: Array<{ loaded: number; total: number }> = []
+
+  const p = fetch("https://api.test/progress", {
+    method: "POST",
+    body: "hello world",
+    onUploadProgress: (p) => uploadEvents.push(p),
+    onDownloadProgress: (p) => downloadEvents.push(p),
+  })
+
+  const c = host.calls.find((x) => x.method === "send")!
+  expect(c.args.uploadProgress).toBe(true)
+  expect(c.args.downloadProgress).toBe(true)
+  const reqId = c.args.reqId
+  expect(typeof reqId).toBe("number")
+
+  // Simulate progress events from native (app event 8: ModuleEvent)
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "uploadProgress",
+      payload: { id: reqId, loaded: 5, total: 11 },
+    }),
+  )
+  // Event for a different request id should be ignored
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "uploadProgress",
+      payload: { id: reqId + 99, loaded: 100, total: 100 },
+    }),
+  )
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "uploadProgress",
+      payload: { id: reqId, loaded: 11, total: 11 },
+    }),
+  )
+
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "downloadProgress",
+      payload: { id: reqId, loaded: 50, total: 200 },
+    }),
+  )
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "downloadProgress",
+      payload: { id: reqId, loaded: 200, total: 200 },
+    }),
+  )
+
+  expect(uploadEvents).toEqual([
+    { loaded: 5, total: 11 },
+    { loaded: 11, total: 11 },
+  ])
+  expect(downloadEvents).toEqual([
+    { loaded: 50, total: 200 },
+    { loaded: 200, total: 200 },
+  ])
+
+  // Answer the request
+  answer(head(), '{"ok":true}', c.id)
+  const res = await p
+  expect(await res.json()).toEqual({ ok: true })
+
+  // Late events after settle must be ignored
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "downloadProgress",
+      payload: { id: reqId, loaded: 300, total: 300 },
+    }),
+  )
+  expect(downloadEvents.length).toBe(2)
+})
+
+test("onUploadProgress error does not break fetch or throw out of native event", async () => {
+  let thrown = false
+  const p = fetch("https://api.test/error-in-progress", {
+    method: "POST",
+    body: "data",
+    onUploadProgress: () => {
+      thrown = true
+      throw new Error("progress callback crashed")
+    },
+  })
+  const sendCall = host.calls.find((x) => x.method === "send")!
+  const reqId = sendCall.args.reqId
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "uploadProgress",
+      payload: { id: reqId, loaded: 1, total: 4 },
+    }),
+  )
+  expect(thrown).toBe(true)
+
+  answer(head(), "done", sendCall.id)
+  const res = await p
+  expect(await res.text()).toBe("done")
+})
+
+test("aborting fetch halts progress callbacks", async () => {
+  const ac = new AbortController()
+  const uploads: any[] = []
+  const p = fetch("https://api.test/abort-progress", {
+    signal: ac.signal,
+    onUploadProgress: (p) => uploads.push(p),
+  })
+  const sendCall = host.calls.find((x) => x.method === "send")!
+  const reqId = sendCall.args.reqId
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "uploadProgress",
+      payload: { id: reqId, loaded: 10, total: 100 },
+    }),
+  )
+  expect(uploads.length).toBe(1)
+
+  ac.abort()
+  await expect(p).rejects.toThrow()
+
+  globalThis.__zn_onEvent(
+    0,
+    8,
+    JSON.stringify({
+      module: "Fetch",
+      event: "uploadProgress",
+      payload: { id: reqId, loaded: 50, total: 100 },
+    }),
+  )
+  expect(uploads.length).toBe(1)
+})

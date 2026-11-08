@@ -146,6 +146,13 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: fetch upload and download progress (Gemini, batch 1)
+- Added `onUploadProgress` and `onDownloadProgress` to `FetchInit` (`{ loaded, total }`, `total = -1` when unknown).
+- Android runtime (`ZnFetch.kt`): `CountingRequestBody` wrapping Okio `Sink`, and throttled response body read
+  with `ProgressThrottler` (≥ 100 ms interval, always emits final byte count).
+- JS tests in `packages/core/test/fetch.test.ts` (616 pass), Kotlin unit tests in `ZnFetchTest.kt`.
+- Docs updated: `docs/fetch.md`, `docs/guide-notes.md` §20.
+
 ### 2026-11-08: dynamic layout survey (Gemini, batch 1)
 - Fact survey in `docs/dynamic-layout-survey.md` covering all 30 layout-related style keys: build-time errors, compiler
   and runtime locations, affected Compose phases, and end-to-end trace of dynamic `paddingTop`.

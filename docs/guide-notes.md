@@ -509,6 +509,7 @@ const offers = await res.json()
   when the screen closes.
 - **Do:** for payments and other money calls, save first, then call, then verify after a restart (§16). Send an
   `Idempotency-Key` header if the server supports one.
+- **Do:** track uploads or downloads with `onUploadProgress` / `onDownloadProgress: ({ loaded, total }) => { ... }`. They are throttled to ≥ 100 ms with the final count guaranteed (`total` is -1 when unknown / chunked).
 - **Don't:** retry POSTs in a loop. `fetch` never retries them (not even OkHttp's hidden retry); a retry of a payment
   call must be a decision of the app and the server.
 - **Don't:** set `Accept-Encoding`, `Host`, `Content-Length` and other transport headers (they are dropped), or put

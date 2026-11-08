@@ -34,6 +34,8 @@ import okhttp3.RequestBody
 import okhttp3.Response
 import okio.Buffer
 import okio.BufferedSink
+import okio.ForwardingSink
+import okio.buffer
 import okio.source
 import org.json.JSONArray
 import org.json.JSONObject
@@ -228,6 +230,31 @@ object ZnFetch : ZnModuleBase("Fetch") {
 
     private class TooLarge(message: String) : IOException(message)
 
+    internal class ProgressThrottler(
+        private val minIntervalMs: Long = 100L,
+        private val clock: () -> Long = { SystemClock.elapsedRealtime() },
+        private val onEmit: (loaded: Long, total: Long) -> Unit,
+    ) {
+        private var lastEmitTime = 0L
+        private var lastLoaded = -1L
+
+        fun update(loaded: Long, total: Long) {
+            val now = clock()
+            if (now - lastEmitTime >= minIntervalMs) {
+                lastEmitTime = now
+                lastLoaded = loaded
+                onEmit(loaded, total)
+            }
+        }
+
+        fun finish(loaded: Long, total: Long) {
+            if (lastLoaded != loaded) {
+                lastLoaded = loaded
+                onEmit(loaded, total)
+            }
+        }
+    }
+
     private fun send(call: ZnCall) {
         val shared = client // builds the client (and the User-Agent) on the first fetch
         val a = call.args
@@ -239,6 +266,9 @@ object ZnFetch : ZnModuleBase("Fetch") {
         val timeoutMs = a.optLong("timeout", DEFAULT_TIMEOUT_MS)
         val maxBody = a.optLong("maxBodySize", DEFAULT_MAX_BODY)
         val redirect = a.optString("redirect", "follow")
+        val reqId = a.optInt("reqId", -1)
+        val trackUpload = a.optBoolean("uploadProgress", false)
+        val trackDownload = a.optBoolean("downloadProgress", false)
 
         val request = try {
             val builder = Request.Builder().url(url)
@@ -255,7 +285,7 @@ object ZnFetch : ZnModuleBase("Fetch") {
             }
             if (!hasUserAgent) builder.header("User-Agent", userAgent)
             if (!hasAccept) builder.header("Accept", "*/*") // what browsers send; some servers need an Accept
-            builder.method(method, requestBody(method, call)).build()
+            builder.method(method, requestBody(method, call, reqId, trackUpload)).build()
         } catch (e: IllegalArgumentException) {
             return call.reject("invalid_request", "$where: ${e.message}")
         }
@@ -285,12 +315,21 @@ object ZnFetch : ZnModuleBase("Fetch") {
             }
 
             override fun onResponse(c: Call, response: Response) {
-                response.use { answer(call, it, where, redirect, maxBody, t0) }
+                response.use { answer(call, it, where, redirect, maxBody, t0, reqId, trackDownload) }
             }
         })
     }
 
-    private fun answer(call: ZnCall, response: Response, where: String, redirect: String, maxBody: Long, t0: Long) {
+    private fun answer(
+        call: ZnCall,
+        response: Response,
+        where: String,
+        redirect: String,
+        maxBody: Long,
+        t0: Long,
+        reqId: Int,
+        trackDownload: Boolean,
+    ) {
         if (call.isCancelled) return
         if (response.isRedirect) {
             if (redirect == "error") {
@@ -303,7 +342,7 @@ object ZnFetch : ZnModuleBase("Fetch") {
             }
         }
         val bytes = try {
-            readBody(response, maxBody)
+            readBody(response, maxBody, reqId, trackDownload, call)
         } catch (e: TooLarge) {
             return call.reject("too_large", "$where: ${e.message}")
         } catch (e: IOException) {
@@ -324,19 +363,41 @@ object ZnFetch : ZnModuleBase("Fetch") {
     }
 
     /** The whole body, refusing more than [max] bytes (early when Content-Length says so). */
-    private fun readBody(response: Response, max: Long): ByteArray {
-        val body = response.body ?: return ByteArray(0)
+    private fun readBody(
+        response: Response,
+        max: Long,
+        reqId: Int = -1,
+        trackDownload: Boolean = false,
+        call: ZnCall? = null,
+    ): ByteArray {
+        val body = response.body ?: run {
+            if (trackDownload && reqId != -1 && call != null && !call.isCancelled) {
+                emit("downloadProgress", JSONObject().put("id", reqId).put("loaded", 0L).put("total", 0L))
+            }
+            return ByteArray(0)
+        }
         val declared = body.contentLength()
         if (declared > max) throw TooLarge("the body is $declared bytes; maxBodySize is $max")
+
+        val throttler = if (trackDownload && reqId != -1 && call != null) {
+            ProgressThrottler { loaded, total ->
+                if (!call.isCancelled) {
+                    emit("downloadProgress", JSONObject().put("id", reqId).put("loaded", loaded).put("total", total))
+                }
+            }
+        } else null
+
         val source = body.source()
         val buffer = Buffer()
         while (source.read(buffer, 8192) != -1L) {
             if (buffer.size > max) throw TooLarge("the body is over maxBodySize ($max bytes)")
+            throttler?.update(buffer.size, declared)
         }
+        throttler?.finish(buffer.size, declared)
         return buffer.readByteArray()
     }
 
-    private fun requestBody(method: String, call: ZnCall): RequestBody? {
+    private fun requestBody(method: String, call: ZnCall, reqId: Int, trackUpload: Boolean): RequestBody? {
         val oneShot = method.uppercase() !in IDEMPOTENT
         val form = call.args.optJSONArray("form")
         val inner: RequestBody = when {
@@ -345,7 +406,49 @@ object ZnFetch : ZnModuleBase("Fetch") {
             method.uppercase() in NEEDS_BODY -> BytesBody(ByteArray(0)) // OkHttp refuses POST without a body
             else -> return null
         }
-        return Guarded(inner, oneShot)
+        val guarded = Guarded(inner, oneShot)
+        if (!trackUpload || reqId == -1) return guarded
+
+        val throttler = ProgressThrottler { loaded, total ->
+            if (!call.isCancelled) {
+                emit("uploadProgress", JSONObject().put("id", reqId).put("loaded", loaded).put("total", total))
+            }
+        }
+        return CountingRequestBody(
+            inner = guarded,
+            onProgress = { loaded, total -> throttler.update(loaded, total) },
+            onDone = { throttler.finish(guarded.contentLength(), guarded.contentLength()) },
+        )
+    }
+
+    /**
+     * Wraps a body to track upload progress using Okio ForwardingSink.
+     * Delegates isOneShot() and contentType() to [inner].
+     */
+    internal class CountingRequestBody(
+        internal val inner: RequestBody,
+        private val onProgress: (loaded: Long, total: Long) -> Unit,
+        private val onDone: () -> Unit = {},
+    ) : RequestBody() {
+        override fun contentType(): MediaType? = inner.contentType()
+        override fun contentLength(): Long = inner.contentLength()
+        override fun isOneShot(): Boolean = inner.isOneShot()
+
+        override fun writeTo(sink: BufferedSink) {
+            val total = contentLength()
+            var bytesWritten = 0L
+            val countingSink = object : ForwardingSink(sink) {
+                override fun write(source: Buffer, byteCount: Long) {
+                    super.write(source, byteCount)
+                    bytesWritten += byteCount
+                    onProgress(bytesWritten, total)
+                }
+            }
+            val bufferedSink = countingSink.buffer()
+            inner.writeTo(bufferedSink)
+            bufferedSink.flush()
+            onDone()
+        }
     }
 
     private fun multipart(parts: JSONArray): RequestBody {

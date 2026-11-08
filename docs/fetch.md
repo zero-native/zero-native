@@ -16,6 +16,8 @@ const res = await fetch("https://api.example.com/v1/offers?page=2", {
   timeout: 30_000,     // zero-native extra: whole request limit in ms (default 30 s; 0 = no total limit, but
                        // still fails after 60 s without any data moving)
   maxBodySize: 10e6,   // zero-native extra: biggest response body in bytes (default 10 MB)
+  onUploadProgress: ({ loaded, total }) => { /* ... */ },   // zero-native extra: throttled to ≥ 100 ms
+  onDownloadProgress: ({ loaded, total }) => { /* ... */ }, // zero-native extra: total = -1 when unknown
 })
 if (!res.ok) throw new Error(`offers: HTTP ${res.status}`)
 const data = await res.json()
@@ -176,7 +178,7 @@ HTTPS hosts. Lava Blaze 2 5G, Android 14, Wi-Fi, 2026-10-30, debug and release (
 | Item | Why later |
 |---|---|
 | Streaming bodies (`res.body` reader, server-sent events) | Not needed for APIs. `res.body` is `null` today. |
-| Upload / download progress events | Needs throttled events; first real use is uploads. |
+| Upload / download progress events | **Done 2026-11-08:** `onUploadProgress` and `onDownloadProgress` in `FetchInit`, throttled to ≥ 100 ms with the final count guaranteed. |
 | Download to a file (big files without JS memory) | Native `download(url, path)`. |
 | `Blob`, `File`, byte parts in `FormData` | Hermes has no `Blob`; files go as `{ uri }`. |
 | Cookie jar, HTTP cache | Off on purpose; add only if an app needs it. |
