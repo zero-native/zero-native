@@ -66,3 +66,4 @@ core/build-apple/
 # iOS Firebase config (project keys): each developer adds their own, never committed
 **/GoogleService-Info.plist
 ios/third_party/firebase/
+ios/third_party/lottie/

@@ -146,6 +146,36 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.4, the straight ports: lottie, pdf, webview, image-viewer; markdown checked (Claude, `ios` branch)
+- **lottie** (`plugins/lottie/ios`): lottie-ios 4.6.1, static XCFramework (`bun run tools/fetch-lottie-apple.ts`, SHA-256
+  pinned, `ios/third_party/lottie`, linked by CMake when there; the bundle's `lottie/` folder now ships in the app).
+  `lottie.view` and `preload` with Android's play rules (LottieRules ported): autoPlay, loop, parts and backwards parts,
+  progress, pause / resume / reset with onAnimationFinish(true) only for a reset that cut a play, colour filters, .json
+  and .lottie, the same failure reasons. iOS: Reduce Motion shows the end frame (Android's "Remove animations");
+  renderMode maps to Lottie's engines. Lottie lab: all of it, preload 200x200 36 frames 1200 ms as on Android.
+- **pdf** (`plugins/pdf/ios`): downloads with Android's rules (https; debug http to localhost; redirects by hand, 5 at
+  most, headers only to the same origin; size limit; `%PDF-` check; a dot part file renamed once PDFKit opens it; one
+  download per file; cleanup by age), `pdf.view` on PDFKit's PDFView (scroll, pinch, double tap 2.5x, page and zoom
+  events, debugZoom) and `pdf.preview` drawn by PDFKit. PDF lab with tools/plugin-phone/pdf-server.ts on this Mac: one
+  page, 50 pages, password, broken, html, missing 404, both redirects, too big, not https, no server, bad handle.
+- **ZnHandles** (`ios/ZnRuntime/Swift/ZnHandles.swift`): `zn://file/<name>` handles in Caches/zn-files, the same name
+  rule as Android, for pdf now and document-scanner / media later.
+- **webview** (`plugins/webview/ios`): WKWebView with Android's rules (WebViewRules ported: host list, link decisions,
+  never-schemes, leave gate), an origin-checked bridge (`window.ZeroNative` only in allowed frames, native checks the
+  sender, replies only to the main frame that wrote first, also after a back to a cached page), cookies and storage
+  clearing, pause / resume. iOS: third-party cookies always blocked (WebKit), iOS's own file picker, no renderer kill.
+  WebView lab with tools/plugin-phone/webview-server.ts: bridge echo, blocked host, upi out, intent / content refused,
+  page2 and back, redirect to a blocked host, form post to a blocked host refused, blocked / network / 500 errors,
+  inline page with a base, cookie set / kept / cleared, paused / resumed.
+- **image-viewer** (`plugins/image-viewer/ios`): the `imageviewer.full` screen (paging, pinch, double tap, swipe up or
+  down to close, counter, error and retry, VoiceOver labels and actions) and `hold` (data: pictures and headers in
+  memory). Pictures decoded with ImageIO at most 4096 px (EXIF applied). Lab: strip (closed on 2), EXIF upright,
+  broken / refused / good, data good / too big / bad, empty list rejects.
+- **markdown**: JS only; the Markdown lab draws and its links reach JS.
+- **Not checked:** a real iPhone; double tap and pinch by hand (the simulator tool can't do two quick taps); webview
+  file upload; the header-only-to-same-origin rule of pdf redirects (the code follows Android, the server's record
+  wasn't read).
+
 ### 2026-11-08: iOS i.4, Firebase: firebase-app, Crashlytics, Analytics (Claude, `ios` branch)
 - **The SDK:** `bun run tools/fetch-firebase-apple.ts` downloads Google's prebuilt Firebase 13.1.1 XCFrameworks
   (GitHub release zip, SHA-256 pinned) into `ios/third_party/firebase` (not in git): Analytics, Crashlytics, Messaging.

@@ -229,17 +229,17 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 | device-test | Test plugin for the sample (Device) | no | DeviceTestPlugin.kt, DeviceModule.kt, FakeNative.kt | S | Port it first: the template for every iOS plugin. |
 | document-scanner | ML Kit document scanner, pages and PDF as handles (DocumentScanner) | no | DocumentScannerPlugin.kt, DocScanModule.kt, DocScanRules.kt | L | VisionKit `VNDocumentCameraViewController`, PDFKit for the PDF. |
 | firebase-app | Firebase base, one Firebase version (Firebase, Installations) | done (simulator) | FirebaseAppPlugin.kt, firebase.gradle.kts | L | Getting the Firebase iOS SDK into the CMake build, GoogleService-Info.plist. |
-| image-viewer | Full-screen photo viewer, pinch zoom (ImageViewer, screen imageviewer.full) | no | ImageViewerPlugin.kt, ImageViewerScreen.kt, ViewerParts.kt, ZoomState.kt, SharpSource.kt, ViewerSpec.kt, ViewerHeld.kt, ViewerRules.kt, DebugGestures.kt | L (1.5 d) | Needs native screens. |
+| image-viewer | Full-screen photo viewer, pinch zoom (ImageViewer, screen imageviewer.full) | done (simulator) | ImageViewerPlugin.kt, ImageViewerScreen.kt, ViewerParts.kt, ZoomState.kt, SharpSource.kt, ViewerSpec.kt, ViewerHeld.kt, ViewerRules.kt, DebugGestures.kt | L (1.5 d) | Needs native screens. |
 | location | Location and geocoding (Location) | done (simulator) | LocationPlugin.kt, LocationModule.kt, LocationRules.kt | L | CoreLocation, CLGeocoder. |
-| lottie | Lottie view, lottie-react-native names (Lottie, view lottie.view) | no | LottiePlugin.kt, LottieView.kt, LottieModule.kt, LottieFiles.kt, LottieRules.kt | M | lottie-ios. Needs NativeView. |
-| markdown | Markdown drawn as Text with spans | JS only | none | 0 | Should work: Text spans and onSpanPress are on iOS. Not run on iOS yet. |
+| lottie | Lottie view, lottie-react-native names (Lottie, view lottie.view) | done (simulator) | LottiePlugin.kt, LottieView.kt, LottieModule.kt, LottieFiles.kt, LottieRules.kt | M | lottie-ios. Needs NativeView. |
+| markdown | Markdown drawn as Text with spans | done (JS only; checked) | none | 0 | Should work: Text spans and onSpanPress are on iOS. Not run on iOS yet. |
 | media | Pick photos / files, camera, compress, edit, as handles (Media) | no | MediaPlugin.kt, MediaModule.kt, MediaImage.kt, MediaFileProvider.kt, MediaRules.kt | L (1.5 d) | PHPicker, UIImagePickerController, UIDocumentPicker. |
-| pdf | Download, keep and show PDFs (Pdf, views pdf.preview, pdf.view) | no | PdfPlugin.kt, PdfModule.kt, PdfDoc.kt, PdfPreview.kt, PdfViewer.kt, PdfViews.kt, PdfRules.kt | L | PDFKit. Needs NativeView. |
+| pdf | Download, keep and show PDFs (Pdf, views pdf.preview, pdf.view) | done (simulator) | PdfPlugin.kt, PdfModule.kt, PdfDoc.kt, PdfPreview.kt, PdfViewer.kt, PdfViews.kt, PdfRules.kt | L | PDFKit. Needs NativeView. |
 | perf | Firebase Performance (Perf) | no | PerfPlugin.kt | M | Needs batch listeners (§4). |
 | push | FCM token, topics, data messages as JS tasks; local notifications (Push, Notifications) | no | PushPlugin.kt, PushModule.kt, NotificationsModule.kt, ZnMessagingService.kt, Opens.kt, Schedule.kt, Actions.kt, Groups.kt, PushRules.kt | L (2.5 d) | APNs through FCM, UNUserNotificationCenter, actions, groups, schedules, background runs. Needs background tasks. |
 | remote-config | Firebase Remote Config (RemoteConfig) | no | RemoteConfigPlugin.kt | M | |
 | scanner | QR / barcode scan, full screen and a view (Scanner, screen scanner.full, view scanner.qr) | done (simulator) | ScannerPlugin.kt, ScannerModule.kt, ScannerScreen.kt, ScannerView.kt, ScannerParts.kt, ScannerCamera.kt, CameraSession.kt, ScannerTexts.kt, ScannerRules.kt | L (1.5 d) | plugins/scanner/ios: AVFoundation metadata output. `autoZoom` ignored. Real camera, torch and zoom not tried (simulator: ZN_SCANNER_FAKE). |
-| webview | Web page in a screen, host allow-list, messages both ways (WebView, view webview.page) | no | WebViewPlugin.kt, WebViewModule.kt, WebViewPage.kt, WebViewRules.kt | L (1.5 d) | WKWebView. Needs NativeView. |
+| webview | Web page in a screen, host allow-list, messages both ways (WebView, view webview.page) | done (simulator) | WebViewPlugin.kt, WebViewModule.kt, WebViewPage.kt, WebViewRules.kt | L (1.5 d) | WKWebView. Needs NativeView. |
 
 Each plugin also has a Kotlin `*RulesTest.kt` (17 in all); the iOS side needs the same checks.
 
