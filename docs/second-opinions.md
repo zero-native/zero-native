@@ -2586,3 +2586,24 @@ change, and what evidence would make you change it?"
   - Sample bundle builds cleanly (`sample: wrote main.zn.ui`).
   - Full test suite passes: `1209 pass, 0 fail` and clean typecheck.
   - Interactive test screen `DynamicLayoutLab.tsx` added to sample app.
+
+## 172. Top-level early returns rewritten to branch components (compiler, 2026-11-08; parity batch 2 H2)
+- **Where:** `compiler/src/compile.ts`, `compiler/src/plugin.ts`, `compiler/test/early-returns.test.ts`, `compiler/test/once-traps.test.ts`, `compiler/test/screen-roots.test.ts`.
+- **What:**
+  1. Top-level guard returns (`if (cond) return X; return Y;`) in component bodies are now rewritten into generated module-level child components (`Card__after1`, `Card__after2`, ...).
+  2. The parent component returns a nested ternary chain mounting the branches:
+     `return loading() ? <Spinner /> : error() ? <ErrorView /> : <Card__after2 {...captured} />`.
+  3. Pre-guard signals, functions, and plain values consumed by the tail are captured via AST free-variable analysis and passed as props to the generated tail component.
+  4. Preserves fresh execution: in React Native, statements after a guard (e.g. `const sum = data().items.reduce(...)`) only execute when the guard branch is false. Plain ternaries evaluated the whole body once at mount, causing null-pointer crashes or stale values. The branch component unmounts and remounts when conditions change, running its body fresh every time.
+  5. Screens with top-level guards now work: the screen check (`checkScreenRoots`) sees exactly one template return for the screen (the root ternary), satisfying the single-template manifest invariant.
+- **Refused Shapes (Fail at build time):**
+  - Returns inside loops (`for`, `while`, `do-while`), `try`/`catch`, `switch`/`case`, or nested blocks other than the top-level guard `if`.
+  - A tail assigning to a local variable declared before the guard (it would mutate a local copy).
+  - A pre-guard `let` variable that is reassigned anywhere in the component.
+  - Generator components (`function*`).
+  - Guards inside nested functions.
+- **Checked:**
+  - 15 dedicated compiler tests in `compiler/test/early-returns.test.ts`.
+  - Updated `once-traps.test.ts` and `screen-roots.test.ts` to assert branch component generation and refusal of disallowed shapes.
+  - Interactive lab section added in `examples/sample/src/DynamicLayoutLab.tsx` with toggleable loading/error signals and tail calculation over `data()`.
+  - All 325 compiler tests pass, `test:types` clean, `sample:js` compiles cleanly (`DataCard__after1`).

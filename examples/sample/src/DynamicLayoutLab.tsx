@@ -3,6 +3,34 @@ import { Column, Pressable, Row, Scroll, Stack, Text, View } from "@zero-native/
 import { nav, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
+function DataCard(props: { loading: () => boolean; error: () => boolean; data: () => { items: number[] } | null }) {
+  if (props.loading()) {
+    return (
+      <Column style={{ padding: 12, backgroundColor: "#FEF3C7", borderRadius: 8, alignItems: "center" }}>
+        <Text fontSize={13} color="#92400E" fontWeight={600}>Loading card data...</Text>
+      </Column>
+    )
+  }
+  if (props.error()) {
+    return (
+      <Column style={{ padding: 12, backgroundColor: "#FEE2E2", borderRadius: 8, alignItems: "center" }}>
+        <Text fontSize={13} color="#991B1B" fontWeight={600}>Failed to load data!</Text>
+      </Column>
+    )
+  }
+  // The tail runs ONLY when !loading() && !error() - data() is non-null here!
+  // In a plain ternary, this would evaluate data().items while loading (null) and crash!
+  const d = props.data()!
+  const sum = d.items.reduce((a, b) => a + b, 0)
+  return (
+    <Column style={{ padding: 12, backgroundColor: "#ECFDF5", borderRadius: 8, gap: 4 }}>
+      <Text fontSize={13} color="#065F46" fontWeight={700}>Data Loaded Safely (Tail Component)</Text>
+      <Text fontSize={12} color="#047857">Items: {d.items.join(", ")}</Text>
+      <Text fontSize={12} color="#047857" fontWeight={600}>Total sum: {sum}</Text>
+    </Column>
+  )
+}
+
 export function DynamicLayoutLabScreen() {
   const expanded = signal(false)
   const animWidth = signal(40)
@@ -10,6 +38,10 @@ export function DynamicLayoutLabScreen() {
   const isVisible = signal(true)
   const pctIndex = signal(0)
   const pcts: Array<"33%" | "50%" | "75%" | "100%"> = ["33%", "50%", "75%", "100%"]
+
+  const cardLoading = signal(true)
+  const cardError = signal(false)
+  const cardData = signal<{ items: number[] } | null>(null)
 
   let animTimer: any = null
 
@@ -232,6 +264,41 @@ export function DynamicLayoutLabScreen() {
                 {expanded() ? "Large 18sp font with 24dp corners" : "Small 12sp font with 4dp corners"}
               </Text>
             </Column>
+          </Column>
+
+          {/* Section 6: Early Returns Component (H2) */}
+          <Column style={{ padding: 14, backgroundColor: c.white, borderRadius: 12, borderWidth: 1, borderColor: c.border, gap: 10 }}>
+            <Text fontSize={15} fontWeight={700} color={c.ink}>
+              6. Early Returns in Components (H2)
+            </Text>
+            <Text fontSize={12} color={c.muted}>
+              Top-level early returns compiled into branch components. Tail statements using data() execute only when branches are resolved, avoiding crashes on null data.
+            </Text>
+            <DataCard loading={cardLoading} error={cardError} data={cardData} />
+            <Row style={{ gap: 8 }}>
+              <Pressable
+                onPress={() => {
+                  const next = !cardLoading()
+                  cardLoading.set(next)
+                  if (!next && !cardData()) {
+                    cardData.set({ items: [12, 28, 45, 15] })
+                  }
+                }}
+                style={{ backgroundColor: c.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
+              >
+                <Text fontSize={12} fontWeight={600} color={c.white}>
+                  {cardLoading() ? "Resolve Loading" : "Set Loading"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => cardError.set(!cardError())}
+                style={{ backgroundColor: cardError() ? "#10B981" : "#EF4444", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
+              >
+                <Text fontSize={12} fontWeight={600} color={c.white}>
+                  {cardError() ? "Clear Error" : "Trigger Error"}
+                </Text>
+              </Pressable>
+            </Row>
           </Column>
         </Column>
       </Scroll>

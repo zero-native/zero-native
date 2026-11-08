@@ -2348,10 +2348,14 @@ function Sheet({ amount }) {                         function Sheet(p) {
   **Why:** the JSX reads are live; the body ran once. The build says "missing is worked out once, when Sheet mounts".
   A start value is the exception: `signal(...)`, `restorableSignal(...)` and `persistedSignal(...)` take theirs once
   on purpose, so `const name = restorableSignal("name", user()?.name ?? "")` is fine (R52, 2026-11-06).
-- **Don't** return early on a value that can change: `if (loading()) return <Spinner />`. **Do** one return with a
-  ternary: `return loading() ? <Spinner /> : <Content />`. **Why:** the body picked a branch once; a root ternary is live
-  (the old part goes, the new one mounts). A screen has the stricter rule of §4: one template, so only the piece that
-  changes goes in a branch.
+- **Early returns (`if (cond) return X`):** top-level guard returns work directly in both children and screens.
+  The compiler rewrites the tail after each guard into a generated module-level child component (`Card__after1`, etc.)
+  mounted inside a nested ternary (`loading() ? <Spinner /> : <Card__after1 {...captured} />`). When `cond` changes, the
+  tail mounts or unmounts, so its body and calculations (`const sum = data().items.reduce(...)`) run fresh each time,
+  preventing crashes on unready data. Pre-guard signals, plain values, and functions are passed as props.
+  **What still errors:** early returns inside loops, `try`, `switch`, or nested blocks; a tail that assigns to a pre-guard
+  local; a pre-guard `let` that is reassigned; generators; and guards inside nested functions. For those shapes, rewrite into
+  explicit ternaries or move logic before the guard.
 - **Destructured props:** simple patterns (`function Row({ title, amount = 0, label: l })`) work in both children
   and screens: the compiler rewrites them to `Row(__p)` so every read accesses `__p.title` live. Defaults use standard
   JS semantics (`undefined` takes default, `null` kept). Rest patterns (`...rest`), nested patterns (`{ user: { name } }`),

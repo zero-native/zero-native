@@ -28,7 +28,10 @@ export const routes = defineRoutes({ home: { path: "/", screen: ${screen} } })`,
 const fails = async (screens: string, screen = "S") => {
   try {
     await build(screens, screen)
-  } catch (e) {
+  } catch (e: any) {
+    if (e.errors && Array.isArray(e.errors)) {
+      return e.errors.map((x: any) => x.message || String(x)).join("\n")
+    }
     return (e as Error).message
   }
   return "no error"
@@ -73,20 +76,29 @@ export function S() { return <Column><Row1 /></Column> }`)
 })
 
 describe("T2: early return on a value that can change", () => {
-  test("a signal in a child: build error", async () => {
-    const msg = await fails(`
+  test("top-level guard in a child: compiles to branch component (H2)", async () => {
+    await build(`
 import { signal } from "@zero-native/core"
 const loading = signal(true)
 function Body() { if (loading()) return <Text>wait</Text>; return <Text>done</Text> }
 export function S() { return <Column><Body /></Column> }`)
-    expect(msg).toContain(`Body returns early here, on "loading()" (line 5), which can change`)
   })
-  test("a store's signal (obj.read()): build error", async () => {
-    const msg = await fails(`
+  test("top-level guard returning null: compiles to branch component (H2)", async () => {
+    await build(`
 const store = { ready: () => true }
 function Body() { if (!store.ready()) return null; return <Text>done</Text> }
 export function S() { return <Column><Body /></Column> }`)
-    expect(msg).toContain(`Body returns early here, on "!store.ready()"`)
+  })
+  test("early return in a refused shape (e.g. inside loop): build error", async () => {
+    const msg = await fails(`
+import { signal } from "@zero-native/core"
+const loading = signal(true)
+function Body() {
+  while (true) { if (loading()) return <Text>wait</Text>; break }
+  return <Text>done</Text>
+}
+export function S() { return <Column><Body /></Column> }`)
+    expect(msg).toContain("early return inside a loop")
   })
   test("a constant, or a value read inside a handler: fine", async () => {
     await build(`

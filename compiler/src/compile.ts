@@ -869,9 +869,305 @@ export function compileModule(
     }
     return traps
   }
-  for (const { name, fn } of candidates) {
+
+  interface GuardBranch {
+    cond: ts.Expression
+    returnExpr: ts.Expression | null
+    returnStmt: ts.ReturnStatement
+  }
+
+  function extractGuardBranches(stmt: ts.Statement, name: string): GuardBranch[] | null {
+    if (!ts.isIfStatement(stmt)) return null
+    const branches: GuardBranch[] = []
+    let cur: ts.IfStatement | ts.Statement = stmt
+    while (ts.isIfStatement(cur)) {
+      const then = cur.thenStatement
+      let retStmt: ts.ReturnStatement | null = null
+      if (ts.isReturnStatement(then)) {
+        retStmt = then
+      } else if (ts.isBlock(then) && then.statements.length === 1 && ts.isReturnStatement(then.statements[0])) {
+        retStmt = then.statements[0]
+      } else {
+        return null
+      }
+      if (retStmt.expression && !isJsxValue(retStmt.expression) && !isNullish(retStmt.expression)) {
+        fail(retStmt.expression, `${name} returns something that isn't its JSX here: a component return must be JSX or null`)
+      }
+      branches.push({ cond: cur.expression, returnExpr: retStmt.expression ?? null, returnStmt: retStmt })
+      if (!cur.elseStatement) break
+      cur = cur.elseStatement
+    }
+    if (cur !== stmt && !ts.isIfStatement(cur)) {
+      let retStmt: ts.ReturnStatement | null = null
+      if (ts.isReturnStatement(cur)) {
+        retStmt = cur
+      } else if (ts.isBlock(cur) && cur.statements.length === 1 && ts.isReturnStatement(cur.statements[0])) {
+        retStmt = cur.statements[0]
+      } else {
+        return null
+      }
+      if (retStmt.expression && !isJsxValue(retStmt.expression) && !isNullish(retStmt.expression)) {
+        fail(retStmt.expression, `${name} returns something that isn't its JSX here: a component return must be JSX or null`)
+      }
+      branches.push({ cond: null as any, returnExpr: retStmt.expression ?? null, returnStmt: retStmt })
+    }
+    return branches
+  }
+
+  for (let candIdx = 0; candIdx < candidates.length; candIdx++) {
+    const { name, fn } = candidates[candIdx]
     const body = fn.body
     if (!body) continue
+
+    const allReturns: ts.ReturnStatement[] = []
+    if (ts.isBlock(body)) {
+      forEachDescendant(body, (n) => {
+        if (ts.isReturnStatement(n)) allReturns.push(n)
+      }, /* stopAtFunctions */ true)
+    }
+
+    if (allReturns.length > 1) {
+      if ((fn as any).asteriskToken) {
+        fail(fn, `${name} is a generator function: generator functions cannot be components`)
+      }
+
+      for (const ret of allReturns) {
+        for (let p: ts.Node = ret.parent; p && p !== body; p = p.parent) {
+          if (ts.isForStatement(p) || ts.isForInStatement(p) || ts.isForOfStatement(p) || ts.isWhileStatement(p) || ts.isDoStatement(p)) {
+            fail(ret, `${name} has an early return inside a loop: early returns inside loops are not supported`)
+          }
+          if (ts.isTryStatement(p) || ts.isCatchClause(p)) {
+            fail(ret, `${name} has an early return inside a try block: early returns inside try blocks are not supported`)
+          }
+          if (ts.isSwitchStatement(p) || ts.isCaseClause(p) || ts.isDefaultClause(p)) {
+            fail(ret, `${name} has an early return inside a switch statement: early returns inside switch statements are not supported`)
+          }
+        }
+
+        let isTopLevelGuard = false
+        if (ret.parent === body) {
+          isTopLevelGuard = true
+        } else if (ts.isIfStatement(ret.parent) && body.statements.includes(ret.parent)) {
+          isTopLevelGuard = true
+        } else if (ts.isBlock(ret.parent) && ts.isIfStatement(ret.parent.parent) && body.statements.includes(ret.parent.parent)) {
+          isTopLevelGuard = true
+        } else {
+          let cur: ts.Node = ret.parent
+          if (ts.isBlock(cur)) cur = cur.parent
+          while (cur && ts.isIfStatement(cur) && cur.parent && ts.isIfStatement(cur.parent) && cur.parent.elseStatement === cur) {
+            cur = cur.parent
+          }
+          if (cur && ts.isIfStatement(cur) && body.statements.includes(cur)) {
+            isTopLevelGuard = true
+          }
+        }
+        if (!isTopLevelGuard) {
+          fail(ret, `${name} has a nested early return: early return guards must be at the top level of the component body`)
+        }
+      }
+
+      const stmts = body.statements
+      const firstGuardIdx = stmts.findIndex((s) => extractGuardBranches(s, name) !== null)
+      if (firstGuardIdx === -1) {
+        fail(allReturns[0], `${name} has an unsupported early return shape: early returns must be top-level guard if statements`)
+      }
+
+      let guardEndIdx = firstGuardIdx
+      while (guardEndIdx + 1 < stmts.length && extractGuardBranches(stmts[guardEndIdx + 1], name) !== null) {
+        guardEndIdx++
+      }
+
+      const preGuardStmts = stmts.slice(0, firstGuardIdx)
+      const guardStmts = stmts.slice(firstGuardIdx, guardEndIdx + 1)
+      const tailStmts = stmts.slice(guardEndIdx + 1)
+
+      if (tailStmts.length === 0) {
+        fail(guardStmts[guardStmts.length - 1], `${name} ends in an early return: a component must end in a return statement`)
+      }
+      const lastTailStmt = tailStmts[tailStmts.length - 1]
+      if (!ts.isReturnStatement(lastTailStmt)) {
+        fail(lastTailStmt, `${name} has early return guards but the rest of the body does not end in a return statement`)
+      }
+
+      const preGuardDecls = new Map<string, ts.VariableDeclaration>()
+      for (const s of preGuardStmts) {
+        if (ts.isVariableStatement(s)) {
+          for (const d of s.declarationList.declarations) {
+            if (ts.isIdentifier(d.name)) {
+              preGuardDecls.set(d.name.text, d)
+            }
+          }
+        }
+      }
+
+      for (const s of tailStmts) {
+        forEachDescendant(s, (n) => {
+          if (ts.isIdentifier(n) && preGuardDecls.has(n.text) && isAssigned(n)) {
+            fail(n, `${name} assigns to pre-guard variable "${n.text}" after an early return guard: variables declared before a guard are read-only in the tail`)
+          }
+        })
+      }
+
+      for (const s of preGuardStmts) {
+        if (ts.isVariableStatement(s)) {
+          const isLet = (s.declarationList.flags & ts.NodeFlags.Let) !== 0
+          for (const d of s.declarationList.declarations) {
+            if (ts.isIdentifier(d.name)) {
+              if (isLet) {
+                let reassigned = false
+                forEachDescendant(fn, (n) => {
+                  if (ts.isIdentifier(n) && n.text === d.name.text && isAssigned(n)) reassigned = true
+                })
+                if (reassigned) {
+                  fail(d.name, `${name} has a pre-guard "let ${d.name.text}" that is reassigned: pre-guard variables cannot be reassigned with early returns`)
+                }
+              }
+            }
+          }
+        }
+      }
+
+      const capturedLocals = new Set<string>()
+      const destructure = destructuredByFn.get(fn)
+      const propsParamName = destructure ? "__p" : (fn.parameters[0] && ts.isIdentifier(fn.parameters[0].name) ? fn.parameters[0].name.text : undefined)
+
+      const isShadowedInTail = (id: ts.Identifier, varName: string): boolean => {
+        let cur: ts.Node | undefined = id.parent
+        while (cur && cur !== body) {
+          if (ts.isFunctionLike(cur)) {
+            for (const p of cur.parameters) {
+              if (declaresName(p.name, varName)) return true
+            }
+          }
+          if (ts.isBlock(cur) || ts.isCaseClause(cur) || ts.isDefaultClause(cur)) {
+            for (const stmt of cur.statements) {
+              if (declaresInStatement(stmt, varName)) return true
+            }
+          }
+          if (ts.isCatchClause(cur) && cur.variableDeclaration) {
+            if (declaresName(cur.variableDeclaration.name, varName)) return true
+          }
+          cur = cur.parent
+        }
+        return false
+      }
+
+      for (const s of tailStmts) {
+        forEachDescendant(s, (n) => {
+          if (!ts.isIdentifier(n) || !isReference(n)) return
+          if (propsParamName && (n.text === propsParamName || (destructure && destructure.props.has(n.text)))) {
+            capturedLocals.add(propsParamName)
+          }
+          if (preGuardDecls.has(n.text) && !isShadowedInTail(n, n.text)) {
+            capturedLocals.add(n.text)
+          }
+        })
+      }
+
+      let guardSeq = 1
+      let baseName = name
+      const m = name.match(/^(.*)__after(\d+)$/)
+      if (m) {
+        baseName = m[1]
+        guardSeq = Number(m[2]) + 1
+      }
+      const tailName = `${baseName}__after${guardSeq}`
+      userComponents.add(tailName)
+
+      const branches: GuardBranch[] = []
+      for (const g of guardStmts) {
+        branches.push(...extractGuardBranches(g, name)!)
+      }
+
+      const tailStmtsBeforeReturn = tailStmts.slice(0, -1)
+      const tailReturn = lastTailStmt as ts.ReturnStatement
+      const tailReturnExpr = tailReturn.expression
+
+      let tailCompiled: { code: string; templateId: number | null }
+      if (tailReturnExpr) {
+        const v = seeThrough(tailReturnExpr)
+        tailCompiled = isJsx(v) ? compileRoot(v as JsxNode, 0) : valueTemplate(v, 0)
+      } else {
+        tailCompiled = { code: "null", templateId: null }
+      }
+
+      const tailTemplateId = tailCompiled.templateId ?? -1
+      components[tailName] = tailTemplateId
+      const tailRoots = tailReturnExpr && isJsxValue(tailReturnExpr) ? [tailReturnExpr] : []
+      const tailOthers = tailReturnExpr && !isJsxValue(tailReturnExpr) ? [tailReturn] : []
+      rootsOf[tailName] = {
+        templates: [tailTemplateId],
+        at: [where(tailReturn)],
+        others: tailOthers.map(where),
+        traps: checkOnceTraps(tailName, fn, tailRoots, tailOthers),
+      }
+
+      const propArgs = Array.from(capturedLocals).map((k) => `get ${JSON.stringify(k)}() { return (${k}) }`).join(", ")
+      const tailCall = `() => ${tailName}(${propArgs.length === 0 ? "{}" : `{ ${propArgs} }`})`
+
+      const buildTernary = (branchIdx: number, depth: number): { code: string; templateId: number } => {
+        const cur = branches[branchIdx]
+        return compileTemplate(cur.cond ?? guardStmts[0], depth, (b) => {
+          const index = b.nodes++
+          const condText = cur.cond ? text(cur.cond) : "true"
+          const trueBranch = cur.returnExpr
+            ? (isJsx(seeThrough(cur.returnExpr)) ? `() => ${compileRoot(seeThrough(cur.returnExpr) as JsxNode, depth + 1).code}` : `() => ${valueTemplate(seeThrough(cur.returnExpr), depth + 1).code}`)
+            : `() => null`
+          
+          let falseBranch: string
+          if (branchIdx + 1 < branches.length) {
+            const next = buildTernary(branchIdx + 1, depth + 1)
+            falseBranch = `() => ${next.code}`
+          } else {
+            falseBranch = tailCall
+          }
+
+          b.kids.push(`${RUNTIME}.when(${b.inst}, ${index}, () => (${condText}), ${trueBranch}, ${falseBranch});`)
+          return el("Fragment", {}, el("Anchor"))
+        })
+      }
+
+      const ternaryCompiled = buildTernary(0, 0)
+      components[name] = ternaryCompiled.templateId
+      rootsOf[name] = {
+        templates: [ternaryCompiled.templateId],
+        at: [where(guardStmts[0])],
+        others: [],
+        traps: checkOnceTraps(name, fn, [], []),
+      }
+
+      if (destructure) {
+        for (const [rStart, repl] of destructure.replacements) {
+          if (rStart === destructure.param.name.getStart(sf)) {
+            edits.push({ start: rStart, end: repl.end, text: repl.text })
+            continue
+          }
+          if (rStart < guardStmts[0].getStart(sf)) {
+            edits.push({ start: rStart, end: repl.end, text: repl.text })
+          }
+        }
+      }
+
+      edits.push({
+        start: guardStmts[0].getStart(sf),
+        end: tailStmts[tailStmts.length - 1].getEnd(),
+        text: `return ${ternaryCompiled.code};`,
+        at: guardStmts[0].getStart(sf),
+      })
+
+      const unpackLines = Array.from(capturedLocals).map((k) => `const ${k} = __znProps[${JSON.stringify(k)}];`).join("\n  ")
+      const tailBodyStmts = tailStmtsBeforeReturn.map((s) => text(s)).join("\n  ")
+      const tailFnCode = `\nfunction ${tailName}(__znProps: any) {\n  ${unpackLines}\n  ${tailBodyStmts}\n  return ${tailCompiled.code};\n}\n${tailName}.__zt = ${tailTemplateId};\n`
+      edits.push({
+        start: fn.getEnd(),
+        end: fn.getEnd(),
+        text: tailFnCode,
+        at: tailStmts[0].getStart(sf),
+      })
+
+      continue
+    }
+
     const roots: ts.Expression[] = []
     const others: ts.Node[] = []
     if (ts.isBlock(body)) {
