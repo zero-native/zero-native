@@ -63,8 +63,10 @@ export function compileFormula(body: ts.Expression, sf: ts.SourceFile, names: { 
     const e = unwrap(n)
     if (!ts.isArrayLiteralExpression(e)) throw new Error(`${what} must be an array of numbers written in place`)
     return e.elements.map((x) => {
-      const v = constNumber(x)
-      if (v === null) throw new Error(`${what}: ${text(x)} is not a number`)
+      const u = unwrap(x)
+      // A number, or a top-level `const NAME = 120` of this file (the table is fixed at build time).
+      const v = constNumber(x) ?? (ts.isIdentifier(u) ? fileConsts(sf).get(u.text) ?? null : null)
+      if (v === null) throw new Error(`${what}: ${text(x)} is not a number (write it in place, or as a top-level const of this file)`)
       return v
     })
   }
@@ -192,6 +194,25 @@ export function compileFormula(body: ts.Expression, sf: ts.SourceFile, names: { 
   if (tokens.length > MAX_OPS) throw new Error(`the formula has ${tokens.length} steps; at most ${MAX_OPS}. Split it into two derive() values`)
   if (maxDepth > MAX_STACK) throw new Error(`the formula needs ${maxDepth} values at once; at most ${MAX_STACK}. Split it into two derive() values`)
   return { tokens, inputs, tables, color }
+}
+
+const constsCache = new WeakMap<ts.SourceFile, Map<string, number>>()
+
+/** The file's top-level `const NAME = <number>` (also `-120`), for interpolate tables. */
+function fileConsts(sf: ts.SourceFile): Map<string, number> {
+  let m = constsCache.get(sf)
+  if (m) return m
+  m = new Map()
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st) || !(st.declarationList.flags & ts.NodeFlags.Const)) continue
+    for (const d of st.declarationList.declarations) {
+      if (!ts.isIdentifier(d.name) || !d.initializer) continue
+      const v = constNumber(d.initializer)
+      if (v !== null) m.set(d.name.text, v)
+    }
+  }
+  constsCache.set(sf, m)
+  return m
 }
 
 function unwrap(e: ts.Expression): ts.Expression {

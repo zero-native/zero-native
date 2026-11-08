@@ -13,10 +13,14 @@ import dev.zeronative.runtime.ZnBackground
 import dev.zeronative.runtime.ZnHandles
 import dev.zeronative.runtime.ZnLaunch
 import dev.zeronative.runtime.ZnModuleBase
+import dev.zeronative.runtime.ZnMotionApi
 import dev.zeronative.runtime.ZnStorage
+import dev.zeronative.runtime.doubleOrNull
+import dev.zeronative.runtime.int
 import dev.zeronative.runtime.intOrNull
 import dev.zeronative.runtime.longOrNull
 import dev.zeronative.runtime.string
+import dev.zeronative.runtime.stringOrNull
 import java.io.File
 import org.json.JSONObject
 
@@ -25,7 +29,7 @@ import org.json.JSONObject
  * a plain call (info), a slow call that can be cancelled (slowEcho), an error with a code (fail), and an event
  * (tick, every 50 ms with latestOnly) that only runs while JS listens. JS side: ../../src/index.ts of this plugin.
  */
-class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 5) {
+class DeviceModule(private val context: Context) : ZnModuleBase("Device", version = 6) {
     private val main = Handler(Looper.getMainLooper())
     private var ticks = 0
     private var ticking = false
@@ -52,6 +56,25 @@ class DeviceModule(private val context: Context) : ZnModuleBase("Device", versio
         }
 
         function("fail") { call -> call.reject("no_luck", "this call always fails (demo)") }
+
+        // v6: a plugin motion source (docs/gestures-and-motion-v1.md §2.10, lab 9): the value JS made with id `id`
+        // goes round a circle of `radius` dp every `periodMs`, stepped natively each frame (x for "x", y for "y").
+        // It stops when JS drops the value. The kind of work a formula can't do (here: time itself).
+        function("orbit", onMain = true) { call ->
+            val handle = ZnMotionApi.value(call.int("id"))
+            val radius = (call.doubleOrNull("radius") ?: 40.0).toFloat()
+            val period = (call.longOrNull("periodMs") ?: 2000L).coerceAtLeast(100L) * 1_000_000L
+            val useY = call.stringOrNull("axis") == "y"
+            var start = -1L
+            val job = ZnMotionApi.onFrame { now ->
+                if (start < 0) start = now
+                val a = ((now - start) % period).toFloat() / period * (2f * Math.PI.toFloat())
+                handle.value = radius * if (useY) kotlin.math.sin(a) else kotlin.math.cos(a)
+                true
+            }
+            handle.onDispose { job.cancel() }
+            call.resolve()
+        }
 
         // v2: debug builds only, for testing the OTA launch watchdog (step 4.7): the app crashes (an uncaught Kotlin
         // exception on the main thread), as a broken native call would. Release builds refuse it.

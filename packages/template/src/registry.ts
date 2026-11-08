@@ -476,6 +476,13 @@ export const Prop = {
   animateLayout: { id: 156, type: "string" },
   /** <List>: rows that are added, removed or moved animate: "fade" (fade in / out, glide to new places) or "move". */
   itemAnimation: { id: 157, type: "string" },
+  /**
+   * The same tag on an element of two screens: on push it moves and grows from one place to the other (an <Image>
+   * moves as it is, others cross-fade), and Back, also the predictive back gesture, plays it backwards.
+   */
+  sharedTag: { id: 158, type: "string" },
+  /** <List>: a long press on a row picks it up; drag it to a new place (auto-scroll at the edges); onReorder(from, to). */
+  reorderable: { id: 159, type: "bool" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -587,6 +594,8 @@ export const EventKind = {
   onSpanPress: 23,
   /** <OtpInput> (registry 18): every box is filled. Payload: the code. */
   onFilled: 24,
+  /** <List reorderable> (registry 24): a row was dropped at a new place. Payload: "from,to" (row indexes). */
+  onReorder: 26,
   // 16-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
   onValueChange: 30,
 } as const
@@ -692,6 +701,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "cameraDistance",
   "blurRadius",
   "motion",
+  "sharedTag",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -738,7 +748,7 @@ export const Added: {
     selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23, itemWidthPercent: 23,
     commands: 23,
     gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, animateLayout: 24,
-    itemAnimation: 24,
+    itemAnimation: 24, sharedTag: 24, reorderable: 24,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -755,7 +765,7 @@ export const Added: {
     borderTopStartRadius: 23, borderTopEndRadius: 23, borderBottomStartRadius: 23, borderBottomEndRadius: 23,
     fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23, selectable: 23,
     commands: 23,
-    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24,
+    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, sharedTag: 24,
   },
   enumValue: {
     "display.flex": 23, "display.none": 23,
@@ -774,7 +784,7 @@ export const Added: {
     ),
   },
   event: { onNativeEvent: 9, ref: 10, onRefresh: 12, onLoad: 15, onError: 15, onLoadEnd: 15, onLayout: 15,
-    onRequestClose: 15, onShow: 15, onSpanPress: 16, onFilled: 18 },
+    onRequestClose: 15, onShow: 15, onSpanPress: 16, onFilled: 18, onReorder: 24 },
   format: { "timing.motion": 13, "svg.nonScaling": 13, "svg.effects": 13, "timing.tap": 13, "transition.depth": 24 },
 }
 

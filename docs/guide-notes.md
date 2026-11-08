@@ -2649,3 +2649,22 @@ feed.scrollToOffset({ offset: 0 })                   // back to the top
 - `onLayout` x / y now come from the parent's top-left corner, its padding and border included, as in RN and as this
   guide always said (A11-2). Before 2026-11-08 they started inside the parent's padding. Rows of a List keep x / y
   inside their row, as before.
+
+## 75. Gestures and motion (registry 24)
+Reference: `docs/motion.md`. The short version for authors:
+- **Do** bind visuals to motion values (`style={{ transform: [{ translateX: pan.x }] }}`). **Don't** move things by
+  setting signals in `onUpdate`. **Why:** bindings run natively each frame; a signal is a JS round trip per frame and
+  stutters when JS is busy.
+- **Do** write maths as `derive(() => pan.x() / 18)`, reading values with `()`. **Don't** call your own functions in
+  it. **Why:** the arrow is compiled to a native formula; it never runs as JS.
+- **Do** give gestures with anchors an `a11yLabel` (usePan throws without it). **Why:** TalkBack users get one action
+  per anchor ("Slide to pay ₹499: paid").
+- **Do** use `pan.snapTo("start")` to put a slider back after a failed payment. **Don't** send `v.to` to a value a
+  finger holds. **Why:** the finger wins (D2): that command is dropped and resolves `{ finished: false }`.
+- **Do** animate transforms, opacity, colours, radii. **Don't** expect `width` or `margin` to follow a motion value.
+  **Why:** a layout key each frame lays out the whole screen; use a transform or `animateLayout`.
+- **Do** read scroll, page, press and sheet progress with `useElementMotion()` + `motion={m}`. **Why:** a collapsing
+  header with no JS.
+- `sharedTag` works between screens (not in a Sheet or Modal). `<List reorderable onReorder>`: move the row in your
+  data in onReorder. A `<Text>` showing `v.format(...)` must have nothing else in it.
+- Every motion API needs the `Motion` module: an older APK refuses such a bundle and keeps its own (normal OTA rule).

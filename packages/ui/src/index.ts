@@ -291,6 +291,13 @@ interface Base extends StyleProps {
    */
   motion?: ElementMotionInput
   /**
+   * A shared element (registry 24, Reanimated's sharedTransitionTag): give the same tag to an element on two screens
+   * (`sharedTag={"store-" + id}`). On push it moves and grows into place; Back and the predictive back gesture play it
+   * backwards with the finger. An <Image> moves as it is; other elements cross-fade on the way. Tags must be unique
+   * per screen.
+   */
+  sharedTag?: string
+  /**
    * When this element's size or place changes, it animates there (registry 24, Reanimated's layout transitions):
    * `animateLayout="spring"`, `animateLayout={250}`, `{ duration, easing }`. Build-time value.
    */
@@ -920,6 +927,17 @@ export declare function List<T>(props: {
   inverted?: boolean
   /** Rows added, removed or moved animate (registry 24): "fade" (fade in and out, glide) or "move" (glide only). */
   itemAnimation?: "fade" | "move"
+  /**
+   * useElementMotion() (registry 24): the list fills index, offset and scrollY / scrollX (a collapsing header with no
+   * JS), and pull when it has pull to refresh. m.follow(v) scrolls it to item v on the UI thread.
+   */
+  motion?: ElementMotionInput
+  /**
+   * Drag to reorder (registry 24): a long press on a row picks it up, a drag moves it (the list scrolls at its edges),
+   * and the drop calls onReorder(from, to). Move the row in your data there; until then the list shows it in place.
+   */
+  reorderable?: boolean
+  onReorder?: (from: number, to: number) => void
   /**
    * Lay rows out horizontally instead of vertically (registry 23). Uses LazyRow natively.
    * Inverted, stickyHeaderIndices and pull to refresh are not supported on horizontal lists.

@@ -61,6 +61,9 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.layout.statusBars
@@ -90,8 +93,8 @@ import kotlin.math.roundToInt
  * the system bars on the edges its route asks for, and its root background fills behind the bars. The host Activity
  * must draw edge to edge (`enableEdgeToEdge()`). The insets are also sent to JS for full-bleed screens (`insets()`).
  *
- * Shared elements (`heroTag`, ARCHITECTURE §11) are not built yet: when they are, wrap this in
- * `SharedTransitionLayout` and pass it as `sharedTransitionScope`.
+ * Shared elements (`sharedTag`, registry 24): the screens are inside a `SharedTransitionLayout`, passed to NavDisplay
+ * as `sharedTransitionScope` (ZnShared.kt).
  */
 @Composable
 fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
@@ -258,11 +261,23 @@ private fun OverlayLayer(bundle: ZnBundle) {
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
+private fun Screens(bundle: ZnBundle, safe: WindowInsets) = SharedTransitionLayout(Modifier.fillMaxSize()) {
+    // Registry 24: `sharedTag` elements move between screens (ZnShared.kt); predictive back seeks the same transition.
+    val shared = this
+    val root = LocalView.current.rootView
+    val host = remember(shared, root) { ZnSharedHost(shared, root) }
+    CompositionLocalProvider(LocalZnShared provides host) { ScreensDisplay(bundle, safe, shared) }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun ScreensDisplay(bundle: ZnBundle, safe: WindowInsets, shared: SharedTransitionScope) {
     NavDisplay(
         backStack = ZnNav.stack,
         modifier = Modifier.fillMaxSize().znTestTags(),
+        sharedTransitionScope = shared,
         onBack = { ZnNav.navDisplayBack() },
         entryProvider = { entry ->
             NavEntry(entry, contentKey = entry.id, metadata = transitions(entry.route.transition, entry.openedAtStart)) { e ->
@@ -313,7 +328,11 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
                         val settled = remember(visibility) {
                             derivedStateOf { visibility.currentState == EnterExitState.Visible && visibility.targetState == EnterExitState.Visible }
                         }
-                        CompositionLocalProvider(LocalZnEntry provides e.id, LocalZnScreenSettled provides settled) {
+                        CompositionLocalProvider(
+                            LocalZnEntry provides e.id,
+                            LocalZnScreenSettled provides settled,
+                            LocalZnSharedVisibility provides LocalNavAnimatedContentScope.current,
+                        ) {
                             ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
                         }
                     }

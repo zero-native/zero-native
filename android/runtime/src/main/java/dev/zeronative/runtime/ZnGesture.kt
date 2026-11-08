@@ -49,6 +49,16 @@ internal object ZnGestures {
         all.remove(id)?.dispose()
     }
 
+    /** Is [a] linked with [b] by simultaneousWith (either side named the other)? */
+    fun simultaneous(a: ZnGesture, b: ZnGesture): Boolean = b.id in a.simWith || a.id in b.simWith
+
+    /** Gestures in a touch now, on any element (for links between elements). */
+    fun live(): Collection<ZnGesture> = all.values
+
+    const val MANUAL_NONE = 0
+    const val MANUAL_ACTIVATE = 1
+    const val MANUAL_FAIL = 2
+
     /** The gesture functions of the `Motion` module. */
     fun install(m: ZnMotion) {
         // {"id", "kind": "pan"|"pinch"|"rotate"|"tap"|"longPress"|"fling", "values": {name: id}, ...options}
@@ -71,6 +81,14 @@ internal object ZnGestures {
             }
             all.remove(id)?.dispose()
             all[id] = ZnGesture.group(id, mode, members)
+            c.resolve()
+        }
+        // {"id", "s": "activate" | "fail"} (phase 3, RNGH's manualActivation + stateManager): for a gesture made with
+        // manualActivation, JS decides when it starts. Applies to the touch in progress (it waits for JS's answer).
+        m.addFunction("gestureState") { c ->
+            val g = all[c.int("id")] ?: return@addFunction c.resolve()
+            val want = if (c.string("s") == "activate") MANUAL_ACTIVATE else MANUAL_FAIL
+            for (leaf in g.leaves) leaf.manualWant = want
             c.resolve()
         }
         // {"id", "anchor": anchor id, "t": timing}: answers {finished}.
@@ -208,9 +226,57 @@ internal class ZnGesture private constructor(
 
     /** The touch in progress (a JS command with interruptGesture cancels it). */
     var touch: ZnGestureTouch? = null
+
+    // Links with gestures on other elements (phase 3, D3; RNGH's requireExternalGestureToFail /
+    // simultaneousWithExternalGesture / manualActivation).
+    /** It starts only once these have failed (or aren't touched); if one starts, this fails. */
+    val requireFail: IntArray = ints(o.optJSONArray("fails"))
+    /** These may run with it although they are on other elements (neither takes the touch from the other). */
+    val simWith: IntArray = ints(o.optJSONArray("with"))
+    /** JS decides when it starts: Gesture.activate(g) / Gesture.fail(g) (it still follows the finger once started). */
+    val manual: Boolean = o.optBoolean("manual", false)
+    var manualWant = ZnGestures.MANUAL_NONE
+    /** Its recognizer's state in the touch now (-1: not touched), for the links above. Main thread. */
+    var live = -1
+
+    /** Drop zones (phase 3, §2.9): useElementMotion() ids whose boxes the finger may be over; the one it is over. */
+    val dropZones: IntArray = ints(o.optJSONArray("zones"))
+    var zone = -1
+    /** The node's coordinates, to put the finger in the window (drop zones). */
+    var coords: androidx.compose.ui.layout.LayoutCoordinates? = null
     /** The node's own size and its parent's (dp), for "%" coordinates. */
     val selfW get() = site.selfW.floatValue
     val selfH get() = site.selfH.floatValue
+
+    private fun ints(a: JSONArray?): IntArray = if (a == null) IntArray(0) else IntArray(a.length()) { a.optInt(it) }
+
+    /**
+     * May this gesture start now, as far as gestures on other elements go? null: wait (one it must outlast is still
+     * possible); false: it must fail (one it must outlast started).
+     */
+    fun externalOk(): Boolean? {
+        for (id in requireFail) {
+            val other = ZnGestures.find(id) ?: continue
+            for (leaf in other.leaves) {
+                if (leaf.live == 1 || leaf.live == 3) return false // ACTIVE / DONE
+                if (leaf.live == 0) return null // POSSIBLE
+            }
+        }
+        return true
+    }
+
+    /** The drop zone (index in [dropZones]) at window point ([wx], [wy]) in dp, or -1. */
+    fun zoneAt(wx: Float, wy: Float): Int {
+        for (i in dropZones.indices) {
+            val e = ZnMotion.element(dropZones[i]) ?: continue
+            val x = e.value("x")?.value ?: continue
+            val y = e.value("y")?.value ?: continue
+            val w = e.value("width")?.value ?: continue
+            val h = e.value("height")?.value ?: continue
+            if (wx >= x && wx <= x + w && wy >= y && wy <= y + h) return i
+        }
+        return -1
+    }
 
     private fun valueOf(name: String, initial: Float = 0f): ZnValue? {
         val ids = o.optJSONObject("values") ?: return null
@@ -665,6 +731,20 @@ private class PanRec(g: ZnGesture, private val downAt: Long) : ZnRecognizer(g) {
             }
         }
         if ("update" in g.events) g.send("update", JSONObject().put("x", sx.toDouble()).put("y", sy.toDouble()))
+        // Drop zones: which one the finger is over, in the window (the boxes come from useElementMotion).
+        if (g.dropZones.isNotEmpty()) {
+            val c = e.changes.firstOrNull { it.pressed }
+            val coords = g.coords
+            if (c != null && coords != null && coords.isAttached) {
+                val w = coords.localToWindow(c.position)
+                val z = g.zoneAt(w.x / ctx.d, w.y / ctx.d)
+                if (z != g.zone) {
+                    g.zone = z
+                    if (z >= 0) znHaptic(ctx.view, g.haptic.optString("zone", "light"))
+                    g.send("zone", JSONObject().put("zone", if (z >= 0) z else JSONObject.NULL))
+                }
+            }
+        }
     }
 
     init {
@@ -692,6 +772,7 @@ private class PanRec(g: ZnGesture, private val downAt: Long) : ZnRecognizer(g) {
         if (target != null) znHaptic(ctx.view, g.haptic.optString("snap"))
         val end = JSONObject().put("x", px.toDouble()).put("y", py.toDouble()).put("vx", vx.toDouble()).put("vy", vy.toDouble())
             .put("cancelled", false)
+        if (g.dropZones.isNotEmpty()) end.put("zone", if (g.zone >= 0) g.zone else JSONObject.NULL)
         target?.let { t ->
             end.put("anchor", t.id)
             t.x?.let { end.put("toX", it.toDouble()) }
@@ -1017,6 +1098,21 @@ private class ZnArbiter(root: ZnGesture, downAt: Long) {
     private fun resolve(n: Node, out: MutableList<ZnRecognizer>) {
         val r = n.rec
         if (r != null) {
+            if (n.g.manual && r.state == POSSIBLE) {
+                // JS decides: its own conditions don't start it.
+                when (n.g.manualWant) {
+                    ZnGestures.MANUAL_ACTIVATE -> r.wants = true
+                    ZnGestures.MANUAL_FAIL -> { r.fail(); return }
+                    else -> r.wants = false
+                }
+            }
+            if (r.wants && r.state == POSSIBLE) {
+                when (n.g.externalOk()) {
+                    false -> { r.fail(); return }
+                    null -> return // waits for the other element's gesture to fail
+                    true -> Unit
+                }
+            }
             if (r.wants && r.state == POSSIBLE) {
                 r.state = ACTIVE
                 r.wants = false
@@ -1059,6 +1155,8 @@ private class ZnArbiter(root: ZnGesture, downAt: Long) {
  */
 internal fun Modifier.znGesture(g: ZnGesture, view: View, layer: ZnLayer?): Modifier {
     var m = this.onPlaced { c ->
+        g.coords = c
+        for (leaf in g.leaves) leaf.coords = c
         val d = view.resources.displayMetrics.density
         val parent = c.parentLayoutCoordinates?.size
         g.site.update(c.size.width / d, c.size.height / d, (parent?.width ?: 0) / d, (parent?.height ?: 0) / d)
@@ -1089,7 +1187,11 @@ internal fun Modifier.znGesture(g: ZnGesture, view: View, layer: ZnLayer?): Modi
                 var e = awaitPointerEvent(pass)
                 val first = e.changes.firstOrNull { it.pressed && !it.previousPressed } ?: continue
                 val touch = ZnGestureTouch()
-                for (leaf in leaves) leaf.touch = touch
+                for (leaf in leaves) {
+                    leaf.touch = touch
+                    leaf.manualWant = ZnGestures.MANUAL_NONE
+                    leaf.zone = -1
+                }
                 val arbiter = ZnArbiter(g, first.uptimeMillis)
                 leaves.forEach { it.send("begin") }
                 var takenByOther = false
@@ -1097,7 +1199,9 @@ internal fun Modifier.znGesture(g: ZnGesture, view: View, layer: ZnLayer?): Modi
                     if (touch.cancelled) break
                     // Someone else (a scroll, a child) used this event before us: we lose the touch.
                     val anyActive = arbiter.recs.any { it.state == ACTIVE }
-                    if (!anyActive && e.changes.any { it.isConsumed } && arbiter.recs.any { it.consumes && it.state == POSSIBLE }) {
+                    // A gesture on another element linked by simultaneousWith took it: we keep going too.
+                    val partnerActive = leaves.any { leaf -> ZnGestures.live().any { o -> o !== leaf && (o.live == ACTIVE) && ZnGestures.simultaneous(leaf, o) } }
+                    if (!anyActive && !partnerActive && e.changes.any { it.isConsumed } && arbiter.recs.any { it.consumes && it.state == POSSIBLE }) {
                         arbiter.recs.filter { it.consumes }.forEach { it.fail() }
                         if (arbiter.recs.all { it.state == FAILED }) {
                             takenByOther = true
@@ -1109,7 +1213,10 @@ internal fun Modifier.znGesture(g: ZnGesture, view: View, layer: ZnLayer?): Modi
                         if (r.state == POSSIBLE || r.state == ACTIVE) r.onEvent(e, ctx)
                     }
                     for (r in arbiter.resolve()) r.activate(ctx)
-                    if (!shareTouch && arbiter.recs.any { it.state == ACTIVE && it.consumes }) e.changes.forEach { it.consume() }
+                    for (r in arbiter.recs) r.g.live = r.state
+                    // Don't take the touch from a linked gesture (simultaneousWith) that is in it too.
+                    val partnerTouched = leaves.any { leaf -> ZnGestures.live().any { o -> o !== leaf && o.live >= 0 && o.live != FAILED && ZnGestures.simultaneous(leaf, o) } }
+                    if (!shareTouch && !partnerTouched && arbiter.recs.any { it.state == ACTIVE && it.consumes }) e.changes.forEach { it.consume() }
                     if (e.changes.none { it.pressed }) {
                         // All fingers up: continuous gestures end (release, snap, decay); discrete ones may fire now,
                         // or wait (a double tap between its taps, a single tap behind it in an exclusive group).
@@ -1122,7 +1229,12 @@ internal fun Modifier.znGesture(g: ZnGesture, view: View, layer: ZnLayer?): Modi
                     // Wait for the next event, or the first deadline (long press time, double-tap gap).
                     var got: PointerEvent? = null
                     while (got == null) {
-                        val next = arbiter.recs.filter { it.state == POSSIBLE }.minOfOrNull { it.deadline() } ?: Long.MAX_VALUE
+                        // A gesture waiting for JS (manualActivation) or for another element's gesture checks each frame.
+                        val polls = arbiter.recs.any { it.state == POSSIBLE && (it.g.manual || it.g.requireFail.isNotEmpty()) }
+                        val next = minOf(
+                            arbiter.recs.filter { it.state == POSSIBLE }.minOfOrNull { it.deadline() } ?: Long.MAX_VALUE,
+                            if (polls) SystemClock.uptimeMillis() + 16 else Long.MAX_VALUE,
+                        )
                         val wait = next - SystemClock.uptimeMillis()
                         got = when {
                             next == Long.MAX_VALUE -> awaitPointerEvent(pass)
@@ -1133,6 +1245,7 @@ internal fun Modifier.znGesture(g: ZnGesture, view: View, layer: ZnLayer?): Modi
                         val now = SystemClock.uptimeMillis()
                         arbiter.recs.forEach { if (it.state == POSSIBLE) it.tick(now, ctx) }
                         for (r in arbiter.resolve()) r.activate(ctx)
+                        for (r in arbiter.recs) r.g.live = r.state
                         if (arbiter.recs.none { it.state == ACTIVE || it.state == POSSIBLE }) break
                         if (touch.cancelled) break
                     }
@@ -1140,7 +1253,10 @@ internal fun Modifier.znGesture(g: ZnGesture, view: View, layer: ZnLayer?): Modi
                 }
                 val cancelled = touch.cancelled || takenByOther
                 for (r in arbiter.recs) if (r.state == ACTIVE || r.state == POSSIBLE) r.finish(ctx, cancelled)
-                for (leaf in leaves) if (leaf.touch === touch) leaf.touch = null
+                for (leaf in leaves) {
+                    if (leaf.touch === touch) leaf.touch = null
+                    leaf.live = -1
+                }
             }
         }
     }

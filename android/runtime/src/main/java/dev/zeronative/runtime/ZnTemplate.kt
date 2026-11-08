@@ -497,10 +497,15 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val gestureSlot = slotFor(raw, Registry.Prop.GESTURE)
     /** useElementMotion() this element fills (registry 24). */
     val motionSlot = slotFor(raw, Registry.Prop.MOTION)
+    /** `sharedTag` (registry 24): a shared element between two screens (ZnShared.kt). Static or from a slot. */
+    val sharedTagSlot = slotFor(raw, Registry.Prop.SHARED_TAG)
+    val sharedTag: String? = p[Registry.Prop.SHARED_TAG] as String?
     /** When its size or place changes it animates there (registry 24): a timing as `animate` encodes it. */
     internal val animateLayout: ZnTiming? = (p[Registry.Prop.ANIMATE_LAYOUT] as String?)?.let { ZnTiming.parse(it) }
     /** <List> rows animate when added, removed, moved: "fade" or "move" (registry 24). */
     val itemAnimation: String? = p[Registry.Prop.ITEM_ANIMATION] as String?
+    /** <List reorderable> (registry 24): long press and drag a row; onReorder(from, to) on the drop (ZnReorder.kt). */
+    val reorderable: Boolean = p[Registry.Prop.REORDERABLE] == true
     /** Something of registry 24's layer is used: the layer sets 3D turns and blur too. */
     val hasDepth = rotateX != 0f || rotateY != 0f || blurRadius != 0f || rotateXSlot != NONE || rotateYSlot != NONE ||
         cameraDistanceSlot != NONE || blurRadiusSlot != NONE || enter?.turns == true || exit?.turns == true
@@ -629,6 +634,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val selectedSlot = slotFor(raw, Registry.Prop.SELECTED)
     val refreshingSlot = slotFor(raw, Registry.Prop.REFRESHING)
     val onRefresh = eventFor(raw, Registry.Event.ON_REFRESH)
+    val onReorder = eventFor(raw, Registry.Event.ON_REORDER)
     val onEndReached = eventFor(raw, Registry.Event.ON_END_REACHED)
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)
     val onPressOut = eventFor(raw, Registry.Event.ON_PRESS_OUT)

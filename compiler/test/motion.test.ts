@@ -143,6 +143,15 @@ describe("derive → postfix tokens", () => {
     expect(() => formula("() => `a${x}`")).toThrow(/can't use/)
   })
 
+  test("interpolate tables take the file's top-level number consts", () => {
+    const src = ["const OPEN = -144", "const GONE = -220", "const f = derive(() => interpolate(x(), [GONE, OPEN], [1, 0]))"].join("\n")
+    const sf = ts.createSourceFile("t.ts", src, ts.ScriptTarget.Latest, true)
+    const arrow = ((sf.statements[2] as ts.VariableStatement).declarationList.declarations[0].initializer as ts.CallExpression).arguments[0] as ts.ArrowFunction
+    const out = compileFormula(arrow.body as ts.Expression, sf, { interpolate: "interpolate" })
+    expect(out.tables[0]).toEqual([[-220, -144], [1, 0], 0, 0])
+    expect(() => formula("() => interpolate(x, [LATER, 1], [0, 1])")).toThrow(/top-level const/)
+  })
+
   test("the step and stack limits", () => {
     const long = "() => " + Array.from({ length: 40 }, (_, i) => `a${i}`).join(" + ")
     expect(() => formula(long)).toThrow(/at most 64/)
@@ -210,6 +219,24 @@ describe("bindings and gestures in templates", () => {
     const old = compile(`import { Box } from "@zero-native/ui"
 export function B() { return <Box enter="fade" /> }`)
     expect(writeTemplateFile(old.templates).registry).toBeLessThan(24)
+  })
+
+  test("List motion, reorderable and onReorder; sharedTag is a slot", () => {
+    const { templates, code } = compile(`
+      import { Image, List, Text } from "@zero-native/ui"
+      import { useElementMotion } from "@zero-native/core"
+      export function A(p) {
+        const m = useElementMotion()
+        return <List data={p.rows} key={(r) => r.id} motion={m} reorderable onReorder={(a, b) => p.move(a, b)}
+          row={(r) => <Image src={r.src} sharedTag={"store-" + r.id} />} />
+      }
+    `)
+    const list = templates.find((t) => t?.type === "List")!.props as Record<string, unknown>
+    expect(isSlot(list.motion)).toBe(true)
+    expect(list.reorderable).toBe(true)
+    expect(code).toContain('split(",")')
+    const img = templates.find((t) => t?.type === "Image")!.props as Record<string, unknown>
+    expect(isSlot(img.sharedTag)).toBe(true)
   })
 
   test("an Svg part's trim and fill take motion values as slots", () => {

@@ -59,6 +59,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.LazyItemScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -771,6 +773,34 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     // RN stickyHeaderIndices (registry 15): rows drawn pinned (Compose stickyHeader), in order, inside the list.
     val stickyText = if (s.stickySlot >= 0) inst.slot(s.stickySlot).value as? String else s.stickyHeaderIndices
     val sticky = remember(stickyText) { parseSticky(stickyText) }
+    // Registry 24: drag to reorder (ZnReorder.kt). Not with pinned rows (they can't move).
+    val view = LocalView.current
+    val reorderScope = rememberCoroutineScope()
+    val reorder = if (s.reorderable && sticky.isEmpty()) {
+        remember(state, s, inst) {
+            ZnReorder(
+                state, reorderScope, view, s.horizontal,
+                head = { if (list.header.value != null) 1 else 0 },
+                rowCount = { rows.size },
+                keyOfRow = { rows.getOrNull(it)?.key },
+                onDrop = { from, to -> if (s.onReorder != 0) ZnRuntime.dispatchEvent(inst.id, s.onReorder, "$from,$to") },
+            )
+        }
+    } else null
+    if (reorder != null) {
+        LaunchedEffect(reorder) {
+            var first = true
+            snapshotFlow { rows.toList() }.collect { if (first) first = false else reorder.rowsChanged() }
+        }
+    }
+    // The shown position [p] → its row and modifier (with reorder: the local order, and the picked row on top).
+    val shownRow: (Int) -> Int = { p -> reorder?.rowAt(p) ?: p }
+    val itemModAt: @Composable LazyItemScope.(Int) -> Modifier = { r ->
+        val key = rows.getOrNull(r)?.key
+        if (reorder == null || key == null) znItemAnimation(s.itemAnimation)
+        else if (reorder.dragged == key) reorder.rowModifier(key)
+        else znItemAnimation(s.itemAnimation ?: "move")
+    }
     val rowAt: @Composable (Int, Modifier) -> Unit = { i, itemMod ->
         val row = rows.getOrNull(i)
         if (row != null) {
@@ -795,7 +825,7 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     if (s.inverted) FollowNewestRow(state, rows.firstOrNull()?.key)
     if (s.horizontal) {
         LazyRow(
-            modifier = mod,
+            modifier = mod.then(reorder?.modifier() ?: Modifier),
             state = state,
             contentPadding = contentPaddingOf(s, inst),
             horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
@@ -803,12 +833,16 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
         ) {
             if (headerInst != null) item(key = "__zn_header", contentType = "__zn_header") { extraAt(headerInst) }
             if (rows.isEmpty() && emptyInst != null) item(key = "__zn_empty", contentType = "__zn_empty") { extraAt(emptyInst) }
-            items(count = rows.size, key = { rows[it].key }, contentType = { rows[it].type }) { rowAt(it, znItemAnimation(s.itemAnimation)) }
+            items(count = rows.size, key = { rows[shownRow(it)].key }, contentType = { rows[shownRow(it)].type }) {
+                val r = shownRow(it)
+                rowAt(r, itemModAt(r))
+            }
             if (footerInst != null) item(key = "__zn_footer", contentType = "__zn_footer") { extraAt(footerInst) }
         }
     } else {
         LazyColumn(
-            modifier = mod.then(znPullRefresh(s, inst)), // pull to refresh, when it has onRefresh / refreshing
+            modifier = mod.then(znPullRefresh(s, inst)) // pull to refresh, when it has onRefresh / refreshing
+                .then(reorder?.modifier() ?: Modifier),
             state = state,
             // Its padding scrolls with the rows (RN's contentContainerStyle), so the last row can scroll above a floating
             // button. The fixed space around the list is margin.
@@ -836,7 +870,11 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             }
             val from = start
             if (rows.size > from) {
-                items(count = rows.size - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it, znItemAnimation(s.itemAnimation)) }
+                // With reorder there are no pinned rows, so from is 0 and the shown order applies.
+                items(count = rows.size - from, key = { rows[shownRow(from + it)].key }, contentType = { rows[shownRow(from + it)].type }) {
+                    val r = shownRow(from + it)
+                    rowAt(r, itemModAt(r))
+                }
             }
             if (footerInst != null) item(key = "__zn_footer", contentType = "__zn_footer") { extraAt(footerInst) }
         }
@@ -987,10 +1025,12 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
     val gesture = gestureId?.let { ZnGestures.find(it) }
     // A layer slot that follows a motion formula reading `self` / `parent` needs the node's size.
     val needsSite = s.hasTransformSlots || s.opacitySlot >= 0
+    // Registry 24: a shared element between two screens (`sharedTag`), outermost so the whole element moves.
+    val shared = znSharedModifier(s, inst)
     val siteUsed = needsSite && intArrayOf(s.opacitySlot, s.scaleSlot, s.scaleXSlot, s.scaleYSlot, s.rotateSlot, s.translateXSlot,
         s.translateYSlot, s.rotateXSlot, s.rotateYSlot, s.blurRadiusSlot).any { it >= 0 && ZnMotion.ref(inst.slot(it).value)?.usesSite == true }
 
-    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density, dynamicMargin, dynamicShape, sizeLayout, gesture, siteUsed, element) {
+    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density, dynamicMargin, dynamicShape, sizeLayout, gesture, siteUsed, element, shared) {
         val press = if (s.type == Registry.Component.PRESSABLE) {
             Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication, touchable)
         } else null
@@ -1018,7 +1058,8 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
         if (element != null) gestureMod = (gestureMod ?: Modifier).znElementBox(element, view)
         val layoutAnim = s.animateLayout
         if (layoutAnim != null) gestureMod = (gestureMod ?: Modifier).znAnimateLayout(layoutAnim)
-        s.buildChain(layer, background, press, pad, accessibility, border, layout, sizeLayout, dynamicShape, dynamicMargin, gestureMod)
+        val chain = s.buildChain(layer, background, press, pad, accessibility, border, layout, sizeLayout, dynamicShape, dynamicMargin, gestureMod)
+        if (shared != null) shared.then(chain) else chain
     }
 }
 

@@ -18,6 +18,9 @@ import {
   useTap,
   useElementMotion,
   useFrame,
+  nativeMotion,
+  useTilt,
+  viewPropsJson,
 } from "../src/motion"
 
 let host: FakeHost
@@ -205,4 +208,29 @@ test("element follow sends the source, and null stops it", () => {
   expect(motionCalls().at(-1)).toMatchObject({ method: "elementFollow", args: { id: m.__znElement, src: v.__znMotion } })
   m.follow(null)
   expect(motionCalls().at(-1)!.args).toEqual({ id: m.__znElement, __v: 1 })
+})
+
+test("links between elements, manual activation, drop zones", () => {
+  const list = useTap({ taps: 2 })
+  const zone = useElementMotion()
+  const zones: unknown[] = []
+  const pan = usePan({ requireToFail: [list], simultaneousWith: [list], manualActivation: true, dropZones: [zone], onZone: (e) => zones.push(e.zone) })
+  const g = motionCalls().find((c) => c.method === "gesture" && c.args.id === pan.__znGesture)!
+  expect(g.args).toMatchObject({ fails: [list.__znGesture], with: [list.__znGesture], manual: true, zones: [zone.__znElement] })
+  expect(g.args.ev).toContain("zone")
+  Gesture.activate(pan)
+  expect(motionCalls().at(-1)).toMatchObject({ method: "gestureState", args: { id: pan.__znGesture, s: "activate" } })
+  moduleEvent("gesture", { g: pan.__znGesture, t: "zone", zone: 0 })
+  expect(zones).toEqual([0])
+})
+
+test("plugin values, drivers, tilt, and motion values in native view props", () => {
+  const seen: number[] = []
+  const v = nativeMotion((id) => seen.push(id), 3)
+  expect(seen).toEqual([v.__znMotion])
+  expect(motionCalls().find((c) => c.method === "value" && c.args.id === v.__znMotion)!.args.v).toBe(3)
+  expect(timingJson({ driver: "physics.orbit", params: { g: 2 } })).toEqual({ d: "physics.orbit", p: { g: 2 } })
+  const t = useTilt()
+  expect(motionCalls().at(-1)).toMatchObject({ method: "tilt", args: { x: t.x.__znMotion, y: t.y.__znMotion, on: true } })
+  expect(JSON.parse(viewPropsJson({ position: v, url: "a" }))).toEqual({ position: motionSlotValue(v), url: "a" })
 })

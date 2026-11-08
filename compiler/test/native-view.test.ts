@@ -45,7 +45,7 @@ describe("<NativeView>", () => {
         return <NativeView name="scanner.qr" props={{ torch: on() }} onEvent={(e) => log(e.name)} />
       }`)
     expect((templates[0].props as any).viewProps).toEqual({ $slot: "s0", default: null })
-    expect(code).toContain("__zn.slot(__i0, 0, () => JSON.stringify({ torch: on() }), 0);")
+    expect(code).toContain("__zn.slot(__i0, 0, () => __zn.viewPropsJson({ torch: on() }), 0);")
     expect(code).toContain("__zn.on(__i0, 1, (__znPayload) => ((e) => log(e.name))(JSON.parse(__znPayload)));")
   })
 

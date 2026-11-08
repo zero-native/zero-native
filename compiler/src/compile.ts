@@ -1565,7 +1565,11 @@ export function compileModule(
         }
         tagPropCheck(tag, name, a)
         if (tag === "TextField" && name === "onChangeText") changeText = { ev, handler }
-        else if (NATIVE_EVENT_EVENTS.has(name)) {
+        else if (name === "onReorder") {
+          // Registry 24: native sends "from,to"; the handler gets two numbers.
+          b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => { const __znFt = String(__znPayload).split(","); ` +
+            `(${handler})(Number(__znFt[0]), Number(__znFt[1])) });`)
+        } else if (NATIVE_EVENT_EVENTS.has(name)) {
           // A name no app uses: the handler's own `p` or `e` must not be hidden by this wrapper.
           b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => (${handler})({ nativeEvent: JSON.parse(__znPayload) }));`)
         } else b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, ${handler});`)
@@ -2126,7 +2130,8 @@ export function compileModule(
         if (v === NOT_STATIC) {
           const s = `s${b.slots++}`
           props.viewProps = slotRef(s, null) as never
-          b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => JSON.stringify(${text(expr!)}), 0);`)
+          // Registry 24: a motion value inside goes to the plugin as a reference (core viewPropsJson).
+          b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => ${RUNTIME}.viewPropsJson(${text(expr!)}), 0);`)
         } else if (v !== undefined) {
           setStatic(props, "viewProps", JSON.stringify(v), a)
         }
@@ -2767,6 +2772,13 @@ export function compileModule(
         if (!expr) fail(a, "onRefresh needs a function")
         bindEvent(props, b, "onRefresh", expr!)
         hasRefresh = true
+      } else if (name === "onReorder") {
+        // Registry 24 (List reorderable): native sends "from,to"; the handler gets two numbers.
+        if (!expr) fail(a, "onReorder needs a function: onReorder={(from, to) => ...}")
+        const ev = `e${b.events++}`
+        props.onReorder = eventRef(ev) as never
+        b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => { const __znFt = String(__znPayload).split(","); ` +
+          `(${text(expr!)})(Number(__znFt[0]), Number(__znFt[1])) });`)
       } else if (name === "refreshControl") {
         refreshControl(a, props, b)
         hasRefresh = true
@@ -2787,7 +2799,7 @@ export function compileModule(
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, ref, controller; or FlatList's renderItem, keyExtractor)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, ref, controller, motion, itemAnimation, reorderable, onReorder; or FlatList's renderItem, keyExtractor)`)
       }
     }
     rnFinish("List", null, props, b, rnLater, node)

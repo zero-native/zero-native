@@ -23,6 +23,12 @@ class ZnViewScope internal constructor(val id: String, props: State<JSONObject>,
     /** The `props` JS gave, as Compose state: reading it here redraws the view when they change. */
     val props: JSONObject by props
 
+    /**
+     * Prop [name] when JS gave a motion value (registry 24): a function to read each frame in a draw or layout block
+     * (a video's position, a level meter), so the view isn't composed again. Null when it isn't a motion value.
+     */
+    fun motion(name: String): (() -> Float)? = ZnMotionApi.reader(props.opt(name))
+
     /** Sends JS `{ name, data }`: `<NativeView onEvent>` hears it. Any thread. [data]: a JSONObject, JSONArray, text, number or boolean. */
     fun emit(name: String, data: Any? = null) {
         send(JSONObject().put("name", name).put("data", data ?: JSONObject.NULL).toString())

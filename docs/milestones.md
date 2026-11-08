@@ -146,6 +146,16 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: gestures and motion, phases 1–3 on Android (Claude, main)
+- Built per `docs/gestures-and-motion-v1.md` (D1–D10) and documented in `docs/motion.md`: motion values and timings,
+  `derive` formulas (compiled), env / self / parent values, gestures (pan, pinch, rotate, tap, long press, fling,
+  groups, links across elements, manual activation, drop zones), element values (box, scroll, page, press, sheet
+  progress, pull), `format` text, 3D / blur / corner / Svg targets, layout motion (`animateLayout`, `itemAnimation`,
+  new enter / exit presets), Sheet predictive back, `m.follow`, shared elements, List reorder, tilt, `useFrame`, and the
+  plugin API (`ZnMotionApi`). Registry 24, `Motion` module 1, Device test module 6.
+- Labs 1–9 in the sample (`Motion*Lab.tsx`). JS and Kotlin tests pass. **Not yet checked on a phone.**
+- Decisions: second-opinions 186–192. iOS port notes: `docs/motion.md` §14.
+
 ### 2026-11-08: iOS, Linking.openURL opens any app's link (Claude, `ios` branch)
 - As Pavan decided on main (second-opinions 185, ZnOs.kt): `Os.openUrl` / `Linking.openURL` open any scheme, except
   text with no valid scheme and `intent:`, `file:`, `javascript:` (not_allowed). `canOpenUrl` answers true for other

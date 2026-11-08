@@ -1,6 +1,6 @@
 // The test plugin's native module, declared once in TypeScript (docs/native-modules.md). Native side:
 // android/.../DeviceModule.kt. No side effects: nativeModule() only creates a handle.
-import { nativeModule, type CallOptions } from "@zero-native/core"
+import { nativeModule, nativeMotion, type CallOptions, type MotionSource, type MotionTiming } from "@zero-native/core"
 
 /** launched false: the other app didn't open. */
 export interface LaunchStarted {
@@ -28,10 +28,25 @@ export interface DeviceModule {
   runTask(args: { name: string; timeoutMs: number }): Promise<string>
   /** v5: writes a small picture to the handle folder. */
   makeFile(): Promise<{ handle: string; outsideRefused: boolean }>
+  /** v6: the motion value `id` goes round a circle natively, each frame (a plugin motion source). Use orbit(). */
+  orbit(args: { id: number; radius: number; periodMs: number; axis: "x" | "y" }): Promise<void>
   events: {
     /** A counter every 50 ms, only while someone listens; if JS is busy only the newest value arrives. */
     tick: number
   }
 }
 
-export const Device = nativeModule<DeviceModule>("Device", { version: 5 })
+export const Device = nativeModule<DeviceModule>("Device", { version: 6 })
+
+/**
+ * v6, lab 9: a motion value a native plugin moves each frame (x or y of a circle). Bind it like any motion value.
+ * The plugin's own helper, so a bundle that uses it needs this plugin.
+ */
+export function orbit(options: { radius?: number; periodMs?: number; axis?: "x" | "y" } = {}): MotionSource {
+  return nativeMotion((id) => Device.orbit({ id, radius: options.radius ?? 40, periodMs: options.periodMs ?? 2000, axis: options.axis ?? "x" }))
+}
+
+/** v6, lab 9: the plugin's "device.wobble" curve for v.to(x, wobble()): it overshoots and rings like a bell. */
+export function wobble(options: { rings?: number; ms?: number } = {}): MotionTiming {
+  return { driver: "device.wobble", params: { rings: options.rings ?? 3, ms: options.ms ?? 900 } }
+}

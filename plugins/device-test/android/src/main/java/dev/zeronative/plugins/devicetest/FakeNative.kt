@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -48,7 +51,17 @@ internal fun FakeView(scope: ZnViewScope) {
         }
     }
     val label = scope.props.optString("label", "none")
+    // Registry 24 (lab 9): `level` may be a motion value; the bar reads it while drawing, so the view isn't composed again.
+    val level = scope.motion("level")
     Box(Modifier.background(Color(0xFFDDEEFF)).clickable { scope.emit("tapped", JSONObject().put("label", label)) }.padding(12.dp)) {
         BasicText("view says $label")
+        if (level != null) {
+            Box(
+                Modifier.padding(top = 24.dp).fillMaxWidth().height(6.dp).drawBehind {
+                    val f = level().coerceIn(0f, 1f)
+                    drawRect(Color(0xFF5B5BD6), size = size.copy(width = size.width * f))
+                },
+            )
+        }
     }
 }

@@ -527,12 +527,27 @@ the root of a `&&` / `? :` branch or a `.map` row (presets `fade`, `fade-up`, `f
 its parent (marked exiting) until its animation ends; JS indexes skip exiting children. Guide: `docs/guide-notes.md`
 §22.
 
-### 10.3 Gestures (deferred to v2)
-Gesture-driven values (drag offsets, swipe-to-pay) must update on the UI thread every frame. v2 adds a tiny,
-**explicitly marked** expression language (`'main thread'` directive, like Lynx), compiled into the `gestures` section
-of `.zn.ui` and run natively. No automatic splitting of arbitrary TS. Until then: native sheets with detents, native
-scroll behaviours, and `NativeView` cover the common cases. v0 Frontier 1 confirmed the pattern: a fully native
-draggable sheet ran at 2.8–4.2 ms frames with 0 bridge events during the drag and one event when it settled.
+### 10.3 Gestures and motion (built 2026-11-09, registry 24; Android)
+Gesture-driven values (drag offsets, swipe-to-pay) update on the UI thread every frame with no JS in the loop.
+Reference: `docs/motion.md`; plan and decisions: `docs/gestures-and-motion-v1.md`.
+
+- **Motion values are native objects** (the `Motion` module): JS makes them, binds them to element slots as references
+  (`" m<id>"`), and sends commands (spring, tween, decay, sequence). Native runs them on the Compose frame clock
+  and reads them in `graphicsLayer {}` / draw blocks, so a drag recomposes nothing.
+- **Maths is `derive(() => ...)`**, compiled at build time to a postfix formula (≤ 64 ops, stack ≤ 16) that native
+  evaluates each frame without allocating. This replaced the first idea of a `'main thread'` directive: an ordinary
+  arrow, no second kind of JS, nothing from an OTA bundle runs on the UI thread.
+- **Gestures are options** (pan with bounds, anchors, magnets, thresholds, decay; pinch, rotate, tap, long press,
+  fling), recognised natively with an arbiter for simultaneous / exclusive / race and links across elements. JS hears
+  begin / end / settle events only.
+- **Changed from the plan (§5 there):** no `motion` section in `.zn.ui`. Values, formulas and gestures are made at
+  runtime by Motion module calls that arrive before the batch that binds them, and checked when made (formula limits,
+  known ids). Templates only gain slots (registry 24). Second-opinions 186.
+- Also: element values (scroll, page, press, box, sheet progress, pull), layout animation, shared elements scrubbed by
+  predictive back (`SharedTransitionLayout` around NavDisplay), List reorder, drop zones, tilt, and a public
+  `ZnMotionApi` for plugin sources, drivers and native view props.
+- v0 Frontier 1's numbers still hold for the pattern: a fully native draggable sheet ran at 2.8–4.2 ms frames with 0
+  bridge events during the drag. The motion labs repeat that check with JS kept busy (not measured yet).
 
 ## 11. Navigation (decided)
 

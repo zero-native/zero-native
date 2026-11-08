@@ -2839,3 +2839,60 @@ change, and what evidence would make you change it?"
   that show others' links must filter them (guide-notes §39); ZeroBill's offer text already does (https, tel, mailto).
 - **Option not taken:** an allowlist in app config (Gemini's roadmap §6.3): a list inside the JS bundle can be widened by
   the same OTA it guards against; a native list adds a step RN doesn't have.
+
+## 186. Motion objects are made at runtime, not stored in a `.zn.ui` section (gestures and motion, 2026-11-09; Opus)
+- **Problem:** plan §5 put values, gestures, formulas and bindings in a new `motion` section of the template, with a
+  load-time verifier. But motion values are made by hooks inside components (per instance, per list row), take
+  arguments known only at runtime (`initial`, a row's id, anchors from data), and bind to slots that already exist.
+- **Chosen:** runtime objects of the `Motion` module. JS calls the module (fire-and-forget, posted to the main thread
+  before the batch that binds them, so they exist first) and puts a reference in the slot. Each object is checked when
+  made (formula limits, known ids, numbers); a source can only name existing sources, so cycles can't be made.
+  Versioning: registry 24 props, plus `Motion` 1 in `requires` whenever an app file imports a motion API.
+- **Cost:** a call per object at mount (cheap, batched in one tick); errors show at the line that made the object, not
+  at bundle load.
+- **Option not taken:** the section. It would need the compiler to know every instance up front, or a second id space
+  per instance; and a load-time check catches nothing a make-time check doesn't.
+
+## 187. Inside derive, motion values are read as `v()` (2026-11-09; Opus, after the lab agent's cast hack)
+- **Problem:** a motion value is callable (a signal), so TypeScript rejects `Math.abs(pan.x) / 120`. The lab agent
+  wrote `const n = v as unknown as number` everywhere.
+- **Chosen:** the compiler takes `pan.x()` as the same input as `pan.x` (a zero-argument call of a name or property).
+  It typechecks as a number and reads like JS. Bare `pan.x` still compiles (old code), but the docs use `()`.
+- **Risk:** `count()` where `count` is a signal compiles to an input that isn't a motion value: a clear error at run
+  time ("a signal or your own function can't drive a formula").
+
+## 188. `m.follow(v)` drives scroll from a value; no `scroll.follow` prop (2026-11-09; Opus)
+- **Chosen:** an element-motion command (`elementFollow`), no new registry prop. A Scroll follows dp, a List an item
+  index (fraction = part of that item, if laid out), a Carousel a page. Each change of v scrolls at once; smoothness
+  comes from v (a spring, a drag). The user can still scroll; the next change of v wins.
+- **Option not taken:** an animated scroll per change (fights a dragging finger, lags a spring).
+
+## 189. Shared elements: SharedTransitionLayout around NavDisplay; Image = sharedElement, others = sharedBounds (2026-11-09; Opus)
+- **Chosen:** `sharedTag` (registry 24, a slot). Navigation 3's NavDisplay gets the scope; each screen gives its
+  AnimatedContent scope. Predictive back seeks the same transition, so the element follows the finger with no code of
+  ours. An `<Image>` uses sharedElement (same picture both sides, no cross-fade); other elements sharedBounds.
+- **Guard:** not in a Sheet or Modal (composition locals reach their windows; the shared overlay would draw in the
+  activity window). Checked by comparing root views.
+- **Not verified:** on a phone. Screens with a back handler (A8) skip the predictive preview, so their shared element
+  plays only after JS pops.
+
+## 190. List reorder shows its own order until JS moves the data (2026-11-09; Opus)
+- **Chosen:** while dragging, the List keeps a local order (positions → rows), so the picked row stays composed under
+  the finger even far from where it started (auto-scroll). On the drop JS hears onReorder(from, to); the local order
+  stays until JS's rows change, or 1 s passes (then the row glides back: JS refused). A JS row change mid-drag that
+  changes the count drops the local order (never a key twice).
+- **Option not taken:** offsets only (translate rows, keep the order): the picked row would be disposed once it scrolls
+  out of the visible window.
+- **Not with** stickyHeaderIndices. A row's own onLongPress competes with the pick-up.
+
+## 191. No `Tabs` progress source; tabs that follow the finger use a Carousel (2026-11-09; Opus)
+- **Why:** `<Tabs>` draws one child and has no swipe, so it has no progress between tabs. A Carousel already pages
+  natively; `m.page` drives an indicator and `m.follow` moves the pages from tab taps. Plan §2.8's Tabs row is covered
+  this way.
+
+## 192. Plugin motion: values, drivers and view props through `ZnMotionApi`; gated by the plugin's module (2026-11-09; Opus)
+- **Chosen (D8):** a public `ZnMotionApi`: `value(id)` (JS made the id with `nativeMotion`), `onFrame`, `registerDriver`,
+  `reader(prop)` / `ZnViewScope.motion(name)`. Bundles are gated because the plugin's TS helpers call its own module
+  (its version in `requires`); a driver unknown to the app fails the command with a clear error.
+- **Option not taken:** separate ids for sources and drivers in `requires`: a second gating system next to modules.
+- **Tilt** is built in (`useTilt`, gravity sensor, smoothed, only while held and in front).

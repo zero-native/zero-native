@@ -94,7 +94,13 @@ internal class ZnValue(id: Int, initial: Float) : ZnSource(id) {
         command = null
     }
 
-    override fun dispose() = interrupt()
+    /** A plugin's value (ZnMotionApi.Handle.onDispose): its work stops when JS drops it. */
+    var onDispose: (() -> Unit)? = null
+
+    override fun dispose() {
+        interrupt()
+        onDispose?.let { onDispose = null; it() }
+    }
 }
 
 /**
@@ -178,8 +184,13 @@ internal class ZnFollowSource(id: Int, private val src: ZnSource, private val sp
  * How a value moves to a target. [ms] ≥ 0: a tween with [easing] ([bezier] for 4); else a spring with [ratio] and
  * [stiffness]. [clamp]: a spring stops at the target the first time it gets there (Reanimated overshootClamp).
  */
-internal class ZnTimingSpec(val ms: Int, val easing: Int, val bezier: FloatArray?, val ratio: Float, val stiffness: Float, val clamp: Boolean) {
+internal class ZnTimingSpec(
+    val ms: Int, val easing: Int, val bezier: FloatArray?, val ratio: Float, val stiffness: Float, val clamp: Boolean,
+    /** A plugin's curve (ZnMotionApi.registerDriver), with JS's params. */
+    val driver: ZnMotionApi.DriverFactory? = null, val params: JSONObject? = null,
+) {
     fun animation(from: Float, to: Float, velocity: Float): Animation<Float, AnimationVector1D> {
+        if (driver != null) return ZnDriverAnimation(driver.make(from, to, velocity, params ?: JSONObject()), to)
         val spec = if (ms >= 0) tween<Float>(ms, easing = znEasing(easing, bezier)) else spring(ratio, stiffness, 0.01f)
         return TargetBasedAnimation(spec, Float.VectorConverter, from, to, if (ms >= 0) 0f else velocity)
     }
@@ -194,6 +205,11 @@ internal class ZnTimingSpec(val ms: Int, val easing: Int, val bezier: FloatArray
          */
         fun parse(o: JSONObject?): ZnTimingSpec {
             if (o == null) return SPRING
+            if (o.has("d")) {
+                val name = o.optString("d")
+                val f = ZnMotionApi.driver(name) ?: throw ZnInvalidArgs("no motion driver \"$name\" in this app (its plugin is missing)")
+                return ZnTimingSpec(-1, 0, null, 1f, 0f, false, f, o.optJSONObject("p"))
+            }
             if (o.has("t")) {
                 val b = o.optJSONArray("b")?.let { a -> FloatArray(4) { a.optDouble(it, 0.0).toFloat() } }
                 return ZnTimingSpec(o.optInt("t", 250).coerceIn(0, 60_000), o.optInt("e", 0), b, 1f, 0f, false)
@@ -426,20 +442,20 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
         function("element", onMain = true) { c ->
             val id = c.int("id")
             val names = c.args.optJSONObject("values") ?: JSONObject()
-            val values = HashMap<String, ZnSource>()
-            for (name in names.keys()) {
-                val vid = names.getInt(name)
-                val src: ZnSource = if (name in BOX_NAMES) ZnValue(vid, 0f) else ZnLambdaSource(vid)
-                put(vid, src)
-                values[name] = src
-            }
-            elements[id] = ZnElementMotion(id, values)
+            putElement(id, names.keys().asSequence().associateWith { names.getInt(it) })
             c.resolve()
         }
         // {"id": element, "src": motion id | absent}: m.follow(v): its scroll position follows v; no src stops.
         function("elementFollow", onMain = true) { c ->
             val e = elements[c.int("id")] ?: return@function c.resolve()
             e.follow.value = c.intOrNull("src")?.let { source(it) }
+            c.resolve()
+        }
+        // {"id", "x", "y", "on"}: useTilt() (ZnTilt): x / y follow how the phone leans while on.
+        function("tilt", onMain = true) { c ->
+            val id = c.int("id")
+            if (c.args.optBoolean("on", true)) ZnTilt.add(id, putValue(c.int("x"), 0f), putValue(c.int("y"), 0f))
+            else ZnTilt.remove(id)
             c.resolve()
         }
         // {"ids": [...]}: the values now (measure()).
@@ -481,6 +497,7 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
 
     fun dispose(id: Int) {
         if (id <= ENV_LAST) return
+        ZnTilt.remove(id)
         elements.remove(id)
         watching.remove(id)?.cancel()
         sources.remove(id)?.dispose()
@@ -495,11 +512,23 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
         refs.clear()
         texts.clear()
         elements.clear()
+        ZnTilt.reset()
         frames(false)
         synchronized(toJs) { toJs.clear() }
     }
 
     fun element(id: Int): ZnElementMotion? = elements[id]
+
+    /** Makes element motion [id] with these value ids (the "element" function; tests). */
+    fun putElement(id: Int, names: Map<String, Int>): ZnElementMotion {
+        val values = HashMap<String, ZnSource>()
+        for ((name, vid) in names) {
+            val src: ZnSource = if (name in BOX_NAMES) ZnValue(vid, 0f) else ZnLambdaSource(vid)
+            put(vid, src)
+            values[name] = src
+        }
+        return ZnElementMotion(id, values).also { elements[id] = it }
+    }
 
     private val BOX_NAMES = setOf("x", "y", "width", "height")
 

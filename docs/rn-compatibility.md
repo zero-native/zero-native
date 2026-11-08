@@ -109,7 +109,7 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `Animated.loop`, Reanimated `withRepeat` | timing `repeat` (count or `"forever"`), `reverse`, `repeatDelay` | different | `withRepeat(x, n, true)` → `{ ..., repeat: n, reverse: true }`. RN's `iterations` and zn's `repeat` both count all plays. Needs `from` or `keyframes`. `paused` / `replay` props stop and restart it. [guide-notes.md](guide-notes.md) §22. |
 | `Animated.delay`, `Animated.stagger`, Reanimated `withDelay` | timing `delay`; `enter={{ ..., delay: i * 40 }}` for a stagger | different | One delay per timing, each time it starts. |
 | `Animated.sequence`, Reanimated `withSequence` | timing `keyframes` + `times` | different | One prop through several values (a shake: `keyframes: [0, -8, 8, 0]`). A sequence across different props or elements: give each its own `delay`. |
-| `Reanimated` | none | missing | Same as above. Only opacity, background colour, scale, translate, rotate can animate. |
+| `Reanimated`, `react-native-gesture-handler` | motion values, `derive`, gestures ([motion.md](motion.md)) | different | Registry 24 (2026-11-09). Built our own way: values and gestures run natively, maths is compiled `derive`, no JS on the UI thread. Porting table: [§12](#12-gestures-and-motion-porting-table). |
 | `StyleSheet.create`, `flatten`, `hairlineWidth` | [`StyleSheet`](../packages/ui/src/index.ts) | same | Folded at build time. `absoluteFill` / `absoluteFillObject` too (registry 15: an absolute child with both `start` and `end`, or `top` and `bottom`, stretches between them). `flatten` and `hairlineWidth` since 2026-11-05: `hairlineWidth` is 0.4 dp (RN rounds it to one real pixel per phone; a build can't know the phone). |
 | `accessibilityLabel`, `accessibilityHint` | same names | same | [`accessibilityLabel` in ui/index.ts](../packages/ui/src/index.ts). |
 | `accessibilityRole`, `role` | same names | different | Values: `button`, `header`, `image`, `link`, `text`, `switch`, `checkbox`, `none`. RN's `role` works too (since 2026-11-05; `heading` = header, `img` = image, `presentation` = none). Others are a build error. `aria-label` = `accessibilityLabel`. |
@@ -352,9 +352,10 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 8. **Styling gaps** (missing). No `flexWrap`, `fontFamily` (custom fonts), per-side border colours. (`textTransform`,
    per-corner radius, `Image` `tintColor` and the iOS shadow keys came in RN props pack 2.) Designs that use them need a
    workaround or a framework change. ([§2](#2-style-keys))
-9. **Animation model** (different). `Animated.Value`, `Reanimated`, `LayoutAnimation` and gesture-driven motion do not
-   exist. `animate` / `enter` / `exit` cover simple changes only. Drag-to-dismiss cards, parallax, and custom
-   transitions need a native component. ([§1](#1-components))
+9. **Animation model** (different). No `Animated.Value`. Since registry 24 (2026-11-09), motion values, compiled
+   `derive` formulas and native gestures cover Reanimated + gesture-handler: drag-to-dismiss, parallax, snap points,
+   shared elements, reorder ([motion.md](motion.md), [§12](#12-gestures-and-motion-porting-table)). Worklets with
+   custom logic become `derive` or a native plugin source. ([§1](#1-components))
 10. **Small OS APIs and web globals** (mostly built). The RN basics pack added `Alert`, `Clipboard`, `Dimensions`,
     `Platform`, `NetInfo`, `URL`, `atob` / `btoa` (Hermes) and `requestAnimationFrame` with their RN names; dark mode
     came in P.6. `WebSocket` added in batch 1 (text-only, 1 MB cap). Still missing: `XMLHttpRequest`. The import line changes to `@zero-native/core`.
@@ -411,3 +412,52 @@ Rough counts of member uses in ZeroBill's React Native app (2026-11-03), to orde
 | `Linking.getInitialURL` / `addEventListener` | 1 / 1 | different: the app's link router becomes routes with `deepLink` + `onLink` |
 | `<StatusBar barStyle>` | 2 | same (registry 15); the "only while focused" trick isn't needed |
 | `react-native-otp-entry` (login) | 1 screen | same: `<OtpInput>` (registry 18, guide-notes §62) |
+
+## 12. Gestures and motion: porting table
+
+From react-native-gesture-handler v2 and Reanimated 3 / 4. Our own short names; no aliases (plan D10). Details:
+[motion.md](motion.md).
+
+| RN | zero-native | Notes |
+|---|---|---|
+| `useSharedValue(0)` | `useMotion(0)` | Native-owned; `v()` reads in JS, `v.peek()` without subscribing |
+| `withTiming`, `withSpring`, `withDecay` | `v.to(x, timing)`, `v.decay({ velocity, clamp })` | Reanimated's spring numbers are accepted as they are |
+| `withSequence`, `withRepeat`, `withDelay` | `v.sequence([...], { repeat, reverse })`, `{ delay }` | |
+| `cancelAnimation(v)` | `v.stop()` | Promises resolve `{ finished }` in order |
+| finish callback | `await v.to(...)` | |
+| `withClamp`, `overshootClamping` | `{ spring, overshootClamp: true }`, `decay({ clamp })` | |
+| `useDerivedValue(() => withSpring(x.value))` | `follow(x, "spring")` | |
+| `useDerivedValue(() => maths)` | `derive(() => maths)` | Read values as `x()`; compiled, ≤ 64 steps |
+| `useAnimatedStyle` | bind values in `style` | `opacity`, `transform`, `backgroundColor`, radii, `blurRadius`, `cameraDistance` |
+| `interpolate`, `Extrapolation` | `v.map(in, out, "clamp" \| "extend" \| "identity")`, `interpolate` in `derive` | |
+| `interpolateColor` | `v.mapColor(in, colours)`, `interpolateColor` in `derive` (last step) | |
+| `useAnimatedProps` on text | `<Text>{v.format({ prefix: "₹" })}</Text>` | Indian grouping by default |
+| `useAnimatedProps` on SVG | Svg part `fill`, `stroke`, trims, transforms take values | |
+| `useAnimatedProps` on a native view | `<NativeView props={{ level: v }}>` + `scope.motion("level")` | Plugin side |
+| `useAnimatedScrollHandler`, `useScrollViewOffset` | `useElementMotion()` + `<Scroll motion={m}>` → `m.scrollY` | List: index, offset, scrollY |
+| `scrollTo` in a worklet | `m.follow(v)` | Scroll, List, Carousel |
+| `useAnimatedRef` + `measure` | `m.measure()`, or `m.x / y / width / height` per frame | |
+| `useAnimatedKeyboard` | `env.keyboardHeight` | Route `keyboard: "none"` to place things yourself |
+| `useWindowDimensions` in worklets | `env.width`, `env.height`, `self.*`, `parent.*` | |
+| `useAnimatedSensor(GRAVITY)` | `useTilt()` | x / y from -1 to 1 |
+| `useFrameCallback` | `useFrame` (JS) or a plugin `ZnMotionApi.onFrame` (native) | |
+| `useAnimatedReaction`, `runOnJS` | gesture events, `v()` in an effect | Coalesced to one message per frame |
+| `useReducedMotion` | automatic: the system setting | |
+| `entering` / `exiting` (`FadeIn`, `SlideInLeft`, `ZoomIn`, `BounceIn`, `FlipInX`, `StretchInX`) | `enter` / `exit` presets | `"fade"`, `"slide-left"`, `"zoom"`, `"bounce"`, `"flip-x"`, `"stretch-x"`... |
+| `layout={LinearTransition}`, `Layout.springify()` | `animateLayout="spring"` | |
+| `itemLayoutAnimation` (FlatList) | `<List itemAnimation="fade">` | |
+| `sharedTransitionTag` | `sharedTag` | Scrubbed by predictive back |
+| `Gesture.Pan()` | `usePan({...})` | Options instead of callbacks per frame |
+| `.activeOffsetX`, `.failOffsetY`, `.minDistance`, `.minPointers`, `.activateAfterLongPress` | same option names | |
+| `.onUpdate` moving a value | `bounds`, `anchors`, `magnets`, `rubber` | Snap logic in `onEnd` becomes `anchors` + `release` |
+| `Gesture.Pinch()`, `Gesture.Rotation()` | `usePinch`, `useRotate` | `scale`, `focalX/Y`, `angle` |
+| `Gesture.Tap().numberOfTaps(2)`, `Gesture.LongPress()`, `Gesture.Fling()` | `useTap({ taps: 2 })`, `useLongPress`, `useFling` | |
+| `Gesture.Simultaneous / Exclusive / Race` | `Gesture.simultaneous / exclusive / race` | |
+| `simultaneousWithExternalGesture`, `requireExternalGestureToFail` | `simultaneousWith`, `requireToFail` | |
+| `manualActivation` + `stateManager.activate()` | `manualActivation: true` + `Gesture.activate(g)` | One JS round trip |
+| `GestureDetector` | `gesture={g}` on any element | |
+| `Swipeable`, `DrawerLayout`, bottom-sheet, carousels, zoom views | labs built from these pieces | Examples in `examples/sample/src/Motion*Lab.tsx` |
+| `react-native-draggable-flatlist` | `<List reorderable onReorder>` | |
+| `Gesture.Native`, `Gesture.Manual`, `Hover`, `ForceTouch` | none | Not phone gestures, or not needed |
+| worklet runtimes on other threads (frame processors) | native plugins | The scanner does QR natively |
+

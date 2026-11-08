@@ -484,5 +484,22 @@ A bad command never crashes the app.
 - At most 10,000 commands per canvas.
 
 ### Not in v1
-- Touch input (taps, drags), so no signature pad yet. Gestures v1 can add it.
+- Touch input (taps, drags), so no signature pad yet. A `gesture` on the Canvas's parent gives touchX / touchY
+  (registry 24); a smooth signature pad still needs a native view (plan §10).
 - Measuring text from JS, images, shaders.
+
+## 15. Gestures and motion props (registry 24)
+Reference: `docs/motion.md`.
+
+| Prop | On | What |
+|---|---|---|
+| `gesture={g}` | any element | A gesture from usePan / usePinch / useRotate / useTap / useLongPress / useFling, or a group |
+| `motion={m}` | any element; Scroll, List, Carousel, Pressable, Sheet add their own values | Fills a `useElementMotion()` object |
+| style values | any element | `opacity`, `backgroundColor`, `transform` (incl. `rotateX`, `rotateY`), radii, `blurRadius`, `cameraDistance` take motion values |
+| `animateLayout` | any element | Size and place changes animate (a timing) |
+| `itemAnimation` | List | `"fade"` or `"move"` |
+| `reorderable`, `onReorder(from, to)` | List | Long press and drag to reorder |
+| `sharedTag` | any element | Shared element between two screens |
+| `enter` / `exit` | rows and branches | New presets: slide-*, zoom, bounce, flip-x / y, stretch-x / y |
+| Svg part `fill`, `stroke`, trims, transforms | Svg parts | Take motion values |
+

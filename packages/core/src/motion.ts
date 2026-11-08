@@ -34,6 +34,11 @@ export type MotionTiming =
   | "bouncy"
   | { duration: number; easing?: MotionEasing }
   | { spring: { damping?: number; stiffness?: number; mass?: number } | { duration: number; dampingRatio?: number }; overshootClamp?: boolean }
+  /**
+   * A native plugin's curve (ZnMotionApi.registerDriver): custom physics. Use the helper its plugin package gives, so
+   * the bundle needs that plugin. An app without it fails the command.
+   */
+  | { driver: string; params?: Record<string, unknown> }
 
 export interface CommandOptions {
   /** Wait this many ms first. */
@@ -273,6 +278,7 @@ export function timingJson(t: MotionTiming | undefined): Record<string, unknown>
   if (t === undefined || t === "spring") return { r: 0.75, k: 400 }
   if (t === "bouncy") return { r: 0.45, k: 400 }
   if (typeof t === "number") return { t: Math.max(0, Math.round(t)), e: 0 }
+  if ("driver" in t) return { d: t.driver, ...(t.params ? { p: t.params } : {}) }
   if ("duration" in t && !("spring" in t)) {
     const e = t.easing ?? "standard"
     if (e === "back") return { t: Math.round(t.duration), e: 4, b: [0.34, 1.56, 0.64, 1] }
@@ -350,8 +356,24 @@ export function useMotion(initial = 0): MotionValue {
 export function useTimeline(options: { duration: number; easing?: MotionEasing; repeat?: number | "forever"; yoyo?: boolean }) {
   const v = useMotion(0)
   const timing: MotionTiming = { duration: options.duration, easing: options.easing ?? "linear" }
+  const loop = () => v.sequence([{ to: 1, timing }], { repeat: options.repeat, reverse: options.yoyo })
   return Object.assign(v, {
-    play: () => v.sequence([{ to: 1, timing }], { repeat: options.repeat, reverse: options.yoyo }),
+    /**
+     * Plays from where it is: after pause() it takes only the time left (a story bar holds, then goes on), then loops
+     * if it repeats. At the end (1) it starts again from 0. The time left is exact for "linear" easing.
+     */
+    play: (): Promise<Finished> => {
+      const p = v.peek()
+      if (p >= 1 && !options.yoyo) v.set(0)
+      if (p <= 0 || p >= 1) return loop()
+      const rest = v.to(1, { duration: options.duration * (1 - p), easing: options.easing ?? "linear" })
+      return options.repeat ? rest.then((r) => (r.finished ? loop() : r)) : rest
+    },
+    /** From 0, whatever it was doing. */
+    restart: (): Promise<Finished> => {
+      v.set(0)
+      return loop()
+    },
     reverse: () => v.to(0, { duration: options.duration * Math.max(0, v.peek()), easing: options.easing ?? "linear" }),
     seek: (p: number) => v.set(Math.min(1, Math.max(0, p))),
     pause: () => v.stop(),
@@ -517,6 +539,41 @@ export function useElementMotion(): ElementMotion {
   return out as unknown as ElementMotion
 }
 
+// ---- Native plugins and sensors ------------------------------------------------------------------------------------------
+
+/**
+ * A motion value a native plugin computes (D8: custom physics, an audio level, a video's position). [start] gets the
+ * id to give the plugin's module (`(id) => callNative("Physics", "orbit", { id, ... })`); the plugin sets the value
+ * natively (ZnMotionApi.value). Bind it like any motion value; it stops with the component.
+ */
+export function nativeMotion(start: (id: number) => unknown, initial = 0): MotionSource {
+  const id = nextId++
+  send("value", { id, v: initial })
+  const e = entry(id, initial)
+  owned([id])
+  start(id)
+  return makeSource(e)
+}
+
+/**
+ * How the phone leans (Reanimated's useAnimatedSensor for tilt cards and gyro parallax): x from left -1 to right 1,
+ * y from away -1 to towards you 1, smoothed, turned with the screen. The sensor runs only while a component holds it
+ * and the app is in front.
+ */
+export function useTilt(): { x: MotionSource; y: MotionSource } {
+  const id = nextId++
+  const x = nextId++
+  const y = nextId++
+  send("tilt", { id, x, y, on: true })
+  owned([id, x, y])
+  return { x: makeSource(entry(x, 0)), y: makeSource(entry(y, 0)) }
+}
+
+/** <NativeView props>: motion values go to the plugin as references it reads each frame (ZnViewScope.motion). */
+export function viewPropsJson(props: unknown): string {
+  return JSON.stringify(props, (_k, v) => (isSource(v) ? `\u0000m${v.__znMotion}` : v))
+}
+
 // ---- Frames -------------------------------------------------------------------------------------------------------------
 
 const frameCallbacks = new Set<(info: { t: number; dt: number }) => void>()
@@ -603,6 +660,8 @@ export interface GestureEvent {
   scale?: number
   angle?: number
   direction?: "left" | "right" | "up" | "down"
+  /** usePan with dropZones: the zone (index) it was dropped on, or null. */
+  zone?: number | null
 }
 
 interface CommonOptions {
@@ -613,6 +672,18 @@ interface CommonOptions {
    * its top (a sheet with a list); "simultaneous": both move; "block": this takes the touch even from a child.
    */
   withParent?: "after-edge" | "simultaneous" | "block"
+  /**
+   * Gestures on other elements (RNGH's requireExternalGestureToFail): this starts only after they fail, and fails if
+   * one of them starts. A single tap on a card that waits for the list's double tap.
+   */
+  requireToFail?: readonly Gesture[]
+  /** Gestures on other elements that may run together with this one (RNGH's simultaneousWithExternalGesture). */
+  simultaneousWith?: readonly Gesture[]
+  /**
+   * JS decides when it starts (RNGH's manualActivation): Gesture.activate(g) / Gesture.fail(g), usually from onBegin.
+   * Until then it doesn't take the touch. One round trip to JS: use only when the rule can't be an option.
+   */
+  manualActivation?: boolean
   /** Read by TalkBack / VoiceOver; required for a gesture that does something (anchors, a tap). */
   a11yLabel?: string
   onBegin?: () => void
@@ -679,6 +750,12 @@ export interface PanOptions extends CommonOptions {
   maxPointers?: number
   /** Long press first, then drag (reorder, a floating button in a scroll). ms. */
   activateAfterLongPress?: number
+  /**
+   * Drop zones (phase 3): elements (useElementMotion, bound with motion={m}) the finger can drop on. onZone hears the
+   * one it is over (index, or null) as it changes; onEnd's `zone` says where it was dropped. Native compares boxes.
+   */
+  dropZones?: readonly ElementMotion[]
+  onZone?: (e: { zone: number | null }) => void
 }
 
 /** A gesture to put on an element: `<Box gesture={pan}>`. */
@@ -724,6 +801,9 @@ function makeGesture(kind: string, o: CommonOptions & Record<string, unknown>, v
     values,
     ev,
     withParent: o.withParent,
+    fails: o.requireToFail?.map((g) => g.__znGesture),
+    with: o.simultaneousWith?.map((g) => g.__znGesture),
+    manual: o.manualActivation || undefined,
     a11yLabel: o.a11yLabel,
     haptic: o.haptic,
     ...extra,
@@ -777,9 +857,10 @@ export function usePan(o: PanOptions = {}): PanGesture {
     minPointers: o.minPointers,
     maxPointers: o.maxPointers,
     activateAfterLongPress: o.activateAfterLongPress,
+    zones: o.dropZones?.map((z) => z.__znElement),
   }, {
     begin: o.onBegin, start: o.onStart, update: o.onUpdate, end: o.onEnd, finalize: o.onFinalize,
-    cross: o.onCross, magnet: o.onMagnet, settle: o.onSettle,
+    cross: o.onCross, magnet: o.onMagnet, settle: o.onSettle, zone: o.onZone,
   })
   for (const m of magnetIds.values()) entry(m, 0)
   const progress = makeSource(entry(ids.progress, 0))
@@ -873,4 +954,8 @@ export const Gesture = {
   exclusive: (...gs: Gesture[]) => group("exclusive", gs),
   /** The first to start wins; the others fail. */
   race: (...gs: Gesture[]) => group("race", gs),
+  /** A gesture made with manualActivation starts now (in the touch going on). */
+  activate: (g: Gesture) => send("gestureState", { id: g.__znGesture, s: "activate" }),
+  /** A gesture made with manualActivation gives up this touch. */
+  fail: (g: Gesture) => send("gestureState", { id: g.__znGesture, s: "fail" }),
 }

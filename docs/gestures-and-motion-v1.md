@@ -103,10 +103,10 @@ const pip = usePan({
   axis: "xy",
   anchors: [
     { id: "tl", x: 16, y: env.insets.top + 16 },
-    { id: "br", x: derive(() => env.width - self.width - 16), y: derive(() => env.height - env.keyboardHeight - self.height - 16) },
+    { id: "br", x: derive(() => env.width() - self.width - 16), y: derive(() => env.height() - env.keyboardHeight() - self.height - 16) },
     // ... the other two corners
   ],
-  magnets: [{ id: "dismiss", x: derive(() => env.width / 2), y: derive(() => env.height - 80), radius: 96, pull: 0.6 }],
+  magnets: [{ id: "dismiss", x: derive(() => env.width() / 2), y: derive(() => env.height() - 80), radius: 96, pull: 0.6 }],
   release: { project: true, spring: "default" },
   haptic: { magnet: "light", snap: "selection" },
   a11yLabel: "Video",
@@ -348,6 +348,15 @@ examples, not framework API.
 ---
 
 ## 5. Template format, versions and OTA safety
+**As built (2026-11-09; second-opinions 186):** no `motion` section. Values, formulas, gestures and element motions
+are runtime objects of the `Motion` module, made by module calls that native runs before the batch that binds them.
+Templates only gain slots (registry 24 props) that hold a reference. Versions: registry 24 for the props, and the
+`Motion` module (version 1) in a bundle's `requires` whenever an app file imports a motion API, so an older APK refuses
+the bundle; host API stays 9. The verifier runs when each object is made: formula limits (≤ 64 ops, stack ≤ 16),
+known ids only, numbers checked; a source can only name sources that already exist, so cycles can't be made. A bad
+call fails that call (a JS error at the line that made it), never a frame. Plugin sources and drivers are gated by
+their plugin module's version. The text below is the first plan, kept for the record.
+
 - One new **`motion` section** in `.zn.ui`: motion values (id, initial), environment / size values used, gestures
   (kind, options, node), anchors and magnets, release rules, bindings (`source → node.prop`, kind, points), formulas
   (flat RPN op lists), `follow` links, haptics, sources of existing components. Nodes stay as they are.

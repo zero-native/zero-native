@@ -182,4 +182,54 @@ class ZnMotionTest {
         assertEquals("0.05", ZnNumberFormat.parse("""{"d":2}""").format(0.05f))
         assertEquals("7", ZnNumberFormat.parse("not json").format(7.2f))
     }
+
+    @Test
+    fun aPluginDriverRunsAsAnAnimation() {
+        ZnMotionApi.registerDriver("test.line") { from, to, _, p ->
+            val ms = p.optLong("ms", 100L)
+            object : ZnMotionApi.Driver {
+                override val durationNanos = ms * 1_000_000L
+                override fun value(timeNanos: Long) = from + (to - from) * timeNanos / durationNanos.toFloat()
+                override fun velocity(timeNanos: Long) = (to - from) * 1e9f / durationNanos
+            }
+        }
+        val spec = ZnTimingSpec.parse(JSONObject("""{"d":"test.line","p":{"ms":200}}"""))
+        val a = spec.animation(0f, 10f, 0f)
+        assertEquals(5f, a.getValueFromNanos(100_000_000L), 1e-4f)
+        assertEquals(10f, a.getValueFromNanos(300_000_000L), 0f)
+        assertThrows(ZnInvalidArgs::class.java) { ZnTimingSpec.parse(JSONObject("""{"d":"no.such"}""")) }
+    }
+
+    @Test
+    fun requireToFailWaitsThenFailsOrGoes() {
+        val other = ZnGesture.make(870, JSONObject("""{"kind":"tap"}"""))
+        val g = ZnGesture.make(871, JSONObject("""{"kind":"pan","fails":[870]}"""))
+        val all = ZnGestures::class.java.getDeclaredField("all").apply { isAccessible = true }.get(ZnGestures) as HashMap<Int, ZnGesture>
+        all[870] = other
+        try {
+            other.live = -1
+            assertEquals(true, g.externalOk())
+            other.live = 0 // possible: wait
+            assertNull(g.externalOk())
+            other.live = 1 // active: this fails
+            assertEquals(false, g.externalOk())
+            other.live = 2 // failed: this may go
+            assertEquals(true, g.externalOk())
+        } finally {
+            all.remove(870)
+        }
+    }
+
+    @Test
+    fun dropZonesUseTheElementBoxesInTheWindow() {
+        val e = ZnMotion.putElement(880, mapOf("x" to 881, "y" to 882, "width" to 883, "height" to 884))
+        e.value("x")!!.value = 100f
+        e.value("y")!!.value = 200f
+        e.value("width")!!.value = 50f
+        e.value("height")!!.value = 40f
+        val g = ZnGesture.make(885, JSONObject("""{"kind":"pan","zones":[880]}"""))
+        assertEquals(0, g.zoneAt(120f, 220f))
+        assertEquals(-1, g.zoneAt(99f, 220f))
+        assertEquals(-1, g.zoneAt(120f, 241f))
+    }
 }
