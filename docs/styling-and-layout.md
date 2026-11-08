@@ -123,6 +123,11 @@ These follow React Native wherever Compose and SwiftUI make it cheap, and say so
    (step 1.3: a cashback badge wrongly went full width). **In `Row`, stretch only applies when the Row has a fixed height**; otherwise it behaves as
    `flex-start`, because stretching to an unknown height needs intrinsic measurement, which is slow. This is a known
    difference from RN, listed in `docs/platform-differences.md`.
+   **`alignSelf: 'stretch'` stretches whatever the parent's `alignItems` is** (since 2026-11-08, A11-1), as in RN: in a
+   Column, Stack or vertical Scroll with a definite width it fills the width; in a Row with a fixed height it fills the
+   height. Before, an `alignItems` of `center` or `flex-start` won and the child kept its own size.
+   **`maxWidth` / `maxHeight` beat a stretch and a % size** (since 2026-11-08, A11-3), as in RN: a stretched child with
+   `maxWidth: 80` is 80 wide, at the start of its row; `width: '100%', maxWidth: 384` is 384 on a wide screen.
    **`Stack` follows the Column rule for its normal (not absolute) children** (since 2026-11-05): with a definite
    width and `alignItems` unset or `stretch`, a child with no width and no `alignSelf` fills the Stack's width. So a
    styled `Column` row inside a `Stack` is full width, like an absolute `start: 0, end: 0` sibling. A Stack with

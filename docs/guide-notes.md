@@ -2626,3 +2626,11 @@ feed.scrollToOffset({ offset: 0 })                   // back to the top
 - Negative margins work, static or from a slot: `marginHorizontal: -16` makes a full-bleed row. They need registry 23.
 - `display: "none"` takes no room and no gap in its Row or Column.
 - `flexShrink` / `flexBasis` must be known at build time (zero-native drops 0 / 1 and 0 / "auto"; others are build errors).
+- `alignSelf: "stretch"` now stretches in a Column, Stack or Scroll whose `alignItems` is `center` or `flex-start`, and
+  in a Row with a fixed height (2026-11-08, A11-1). A full-width button inside a centred column works as in RN.
+- A `maxWidth` beats a stretch or `width: "100%"` (A11-3): `{ width: "100%", maxWidth: 420 }` gives a dialog card that
+  is full width on a phone and 420 dp on a tablet. The box sits at the start of the room it was given; centre it with
+  the parent's `alignItems: "center"` if you want it centred.
+- `onLayout` x / y now come from the parent's top-left corner, its padding and border included, as in RN and as this
+  guide always said (A11-2). Before 2026-11-08 they started inside the parent's padding. Rows of a List keep x / y
+  inside their row, as before.

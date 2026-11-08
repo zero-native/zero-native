@@ -81,11 +81,12 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.semantics.semantics
@@ -204,14 +205,18 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                 horizontalArrangement = znHorizontalArrangement(s.justify, gap),
                 verticalAlignment = verticalAlignment(s.alignItems),
             ) {
-                // zn flex rule 4: a Row stretches children only when it has a fixed height.
-                val stretch = s.alignItems == Registry.AlignItems.STRETCH && (s.height is Double || s.heightSlot >= 0)
+                // zn flex rule 4: a Row stretches children only when it has a fixed height, and then only with
+                // alignItems or alignSelf "stretch" (an unset alignItems doesn't, a zn rule: platform-differences.md).
+                val definiteHeight = s.height is Double || s.heightSlot >= 0
                 for (ref in shownRefs(f, t, inst, s)) key(ref.key) {
                     val child = ref.template.nodes[ref.node]
                     var m: Modifier = Modifier
                     val childFlex = if (child.flexSlot >= 0) inst.finiteNum(child.flexSlot) ?: child.flex else child.flex
                     if (childFlex > 0f) m = m.weight(childFlex) // finiteNum: never NaN or Infinity
-                    if (stretch && child.height == null && child.heightSlot < 0) m = m.fillMaxHeight()
+                    // A11-1 (2026-11-08): alignSelf "stretch" stretches too, whatever alignItems says, as in RN.
+                    val stretchChild = child.alignSelf == Registry.AlignSelf.STRETCH ||
+                        (child.alignSelf == -1 && s.alignItems == Registry.AlignItems.STRETCH)
+                    if (definiteHeight && stretchChild && child.height == null && child.heightSlot < 0) m = m.fillMaxHeight()
                     if (child.alignSelf != -1) m = m.align(verticalAlignment(child.alignSelf))
                     child.zIndex?.let { m = m.zIndex(it) } // RN zIndex on any child (registry 16)
                     // In a Row, a child's width is definite when it is set or shared out by flex.
@@ -222,14 +227,13 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
         Registry.Component.STACK -> Box(modifier = mod, contentAlignment = stackAlignment(s)) {
             // A normal (not absolute) child stretches to the Stack's width like a Column's (zn flex rule 4, RN's
             // default alignItems: 'stretch'), so a styled row inside a Stack is full width (2026-11-05).
-            val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
             for (ref in childRefs(f, t, inst, s)) key(ref.key) {
                 val child = ref.template.nodes[ref.node]
                 var m: Modifier = Modifier
                 var stretched = false
                 if (!child.absolute) {
-                    stretched = stretch && child.width == null && child.widthSlot < 0 && child.type != Registry.Component.SPACER &&
-                        (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
+                    stretched = definiteWidth && child.width == null && child.widthSlot < 0 && child.type != Registry.Component.SPACER &&
+                        stretchesInColumn(s, child)
                     if (stretched) m = m.fillMaxWidth()
                 }
                 if (child.absolute) {
@@ -275,17 +279,19 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             }
         } else {
             Column(
+                // A11-2: the box children's onLayout x / y start from: the scrolling content, so y doesn't move
+                // with the scroll; its contentContainerStyle padding counts, as in RN.
                 modifier = mod.then(znPullRefresh(s, inst)).verticalScroll(rememberScrollState())
-                    .padding(contentPaddingOf(s, inst)),
+                    .then(ZnBoxElement).padding(contentPaddingOf(s, inst)),
                 verticalArrangement = verticalArrangement(s),
                 horizontalAlignment = horizontalAlignment(s.alignItems),
             ) {
                 // Stretches children like a Column (zn flex rule 4, as RN's ScrollView). No flex: the height is open.
-                val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
                 for (ref in shownRefs(f, t, inst, s)) key(ref.key) {
                     val child = ref.template.nodes[ref.node]
-                    val stretched = stretch && child.width == null && child.type != Registry.Component.SPACER &&
-                        (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
+                    // A width from a slot isn't stretched over (as in a Column; before 2026-11-08 the stretch won).
+                    val stretched = definiteWidth && child.width == null && child.widthSlot < 0 && child.type != Registry.Component.SPACER &&
+                        stretchesInColumn(s, child)
                     var m: Modifier = if (stretched) Modifier.fillMaxWidth() else Modifier
                     if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
                     child.zIndex?.let { m = m.zIndex(it) } // RN zIndex on any child (registry 16)
@@ -490,6 +496,15 @@ private fun shownRefs(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: Z
     return refs
 }
 
+/**
+ * Does [child] stretch across a Column-like parent [s] (Column, Stack, vertical Scroll)? Its alignSelf decides when it
+ * has one: "stretch" stretches whatever the parent's alignItems is, as in RN (A11-1, 2026-11-08; before, an alignItems
+ * of center or flex-start won). Else the parent's alignItems: unset or "stretch".
+ */
+internal fun stretchesInColumn(s: ZnNodeSpec, child: ZnNodeSpec): Boolean =
+    if (child.alignSelf != -1) child.alignSelf == Registry.AlignSelf.STRETCH
+    else s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH
+
 /** A Column-like node's children, with the zn flex rules (also the body of a <Sheet>). */
 @Composable
 internal fun ZnColumn(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: ZnNodeSpec, mod: Modifier, definiteWidth: Boolean) {
@@ -500,15 +515,14 @@ internal fun ZnColumn(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: Z
         verticalArrangement = znVerticalArrangement(s.justify, gap),
         horizontalAlignment = horizontalAlignment(s.alignItems),
     ) {
-        val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
         for (ref in shownRefs(f, t, inst, s)) key(ref.key) {
             val child = ref.template.nodes[ref.node]
             var m: Modifier = Modifier
             val childFlex = if (child.flexSlot >= 0) inst.finiteNum(child.flexSlot) ?: child.flex else child.flex
             if (childFlex > 0f) m = m.weight(childFlex)
             // zn flex rule 4: Column stretches children without a width (docs/styling-and-layout.md §5).
-            val stretched = stretch && child.width == null && child.widthSlot < 0 && child.type != Registry.Component.SPACER &&
-                (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
+            val stretched = definiteWidth && child.width == null && child.widthSlot < 0 && child.type != Registry.Component.SPACER &&
+                stretchesInColumn(s, child)
             if (stretched) m = m.fillMaxWidth()
             if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
             // RN zIndex on any child (registry 16, R23): draws it over its later siblings (a row holding a tooltip).
@@ -529,24 +543,7 @@ internal fun nodeChain(s: ZnNodeSpec, inst: ZnInstance): Modifier =
  */
 internal fun Modifier.znTestTags(): Modifier = semantics { testTagsAsResourceId = true }
 
-/**
- * RN onLayout (registry 15): sends { layout: { x, y, width, height } } in dp when the box inside the margin gets a new
- * size or a new place in its parent. Compose calls this on every move on screen (a scroll); only a real change in
- * the four numbers builds and sends an event, so a scroll costs a compare.
- */
-private fun znOnLayout(instId: Int, eventId: Int, density: Float): Modifier {
-    val last = FloatArray(4) { Float.NaN }
-    return Modifier.onGloballyPositioned { c ->
-        val p = c.positionInParent()
-        val now = floatArrayOf(p.x, p.y, c.size.width.toFloat(), c.size.height.toFloat())
-        if (now.contentEquals(last)) return@onGloballyPositioned
-        now.copyInto(last)
-        fun dp(px: Float) = Math.round(px / density * 100f) / 100.0
-        val layout = org.json.JSONObject().put("x", dp(now[0])).put("y", dp(now[1]))
-            .put("width", dp(now[2])).put("height", dp(now[3]))
-        ZnRuntime.dispatchEvent(instId, eventId, org.json.JSONObject().put("layout", layout).toString())
-    }
-}
+// RN onLayout (registry 15): ZnOnLayoutNode in ZnLayoutBox.kt (x / y from the parent's box since A11-2, 2026-11-08).
 
 /** The screen entry a node belongs to (provided per screen by ZnNavHost), for impressions. 0 = none. */
 internal val LocalZnEntry = staticCompositionLocalOf { 0 }
@@ -968,7 +965,7 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
                 color = { cCell?.let { toColor(it.value) } ?: s.borderColor },
             )
         } else null
-        val layout = if (s.onLayout != 0) znOnLayout(inst.id, s.onLayout, density) else null
+        val layout = if (s.onLayout != 0) ZnOnLayoutElement(inst.id, s.onLayout, density) else null
         s.buildChain(layer, background, press, pad, accessibility, border, layout, sizeLayout, dynamicShape, dynamicMargin)
     }
 }
@@ -1183,8 +1180,9 @@ internal fun dynamicSize(s: ZnNodeSpec, inst: ZnInstance, density: Float): Modif
             minW = clampedW
             maxW = clampedW
         } else {
-            if (minWPx != null) minW = maxOf(minW, minWPx.coerceIn(0, maxW))
-            if (maxWPx != null) maxW = minOf(maxW, maxOf(minW, maxWPx))
+            // A11-3 (2026-11-08): a max beats the parent's minimum (a stretch); a min beats the max (as in RN).
+            if (maxWPx != null) { maxW = minOf(maxW, maxOf(maxWPx, 0)); minW = minOf(minW, maxW) }
+            if (minWPx != null) { minW = maxOf(minW, minWPx.coerceIn(0, constraints.maxWidth)); maxW = maxOf(maxW, minW) }
         }
 
         if (hPx != null) {
@@ -1192,8 +1190,8 @@ internal fun dynamicSize(s: ZnNodeSpec, inst: ZnInstance, density: Float): Modif
             minH = clampedH
             maxH = clampedH
         } else {
-            if (minHPx != null) minH = maxOf(minH, minHPx.coerceIn(0, maxH))
-            if (maxHPx != null) maxH = minOf(maxH, maxOf(minH, maxHPx))
+            if (maxHPx != null) { maxH = minOf(maxH, maxOf(maxHPx, 0)); minH = minOf(minH, maxH) }
+            if (minHPx != null) { minH = maxOf(minH, minHPx.coerceIn(0, constraints.maxHeight)); maxH = maxOf(maxH, minH) }
         }
 
         // 5. aspectRatio (only a finite number above 0). The width sets the height when it is known: set, or the
@@ -1218,7 +1216,9 @@ internal fun dynamicSize(s: ZnNodeSpec, inst: ZnInstance, density: Float): Modif
         // throw. This keeps the width and gives up height detail first (a 1e6 dp height from JS no longer crashes).
         val childConstraints = Constraints.fitPrioritizingWidth(minW, maxW, minH, maxH)
         val placeable = measurable.measure(childConstraints)
-        layout(placeable.width, placeable.height) {
+        // Keeps the room the parent gave (a box smaller than it, from a max, isn't centred by Compose) and sits at the
+        // start and top of it, as RN places a clamped stretch (A11-3).
+        layout(constraints.constrainWidth(placeable.width), constraints.constrainHeight(placeable.height)) {
             placeable.placeRelative(0, 0)
         }
     }

@@ -1,9 +1,12 @@
 package dev.zeronative.runtime
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -20,6 +23,47 @@ class ZnLayoutGuardsTest {
             slots = slotProps.map { SlotDef(0, it, null) },
             events = emptyList(),
         )).nodes[0]
+
+    // ---- A11 (2026-11-08, LayoutLab cases c13a, c19b, c27a) ----
+
+    private fun aligned(alignItems: Int? = null, alignSelf: Int? = null): ZnNodeSpec = spec(buildMap {
+        alignItems?.let { put(Registry.Prop.ALIGN_ITEMS, ZnEnum(it)) }
+        alignSelf?.let { put(Registry.Prop.ALIGN_SELF, ZnEnum(it)) }
+    })
+
+    @Test
+    fun alignSelfStretchBeatsTheParentsAlignItems() {
+        val stretchSelf = aligned(alignSelf = Registry.AlignSelf.STRETCH)
+        assertTrue(stretchesInColumn(aligned(alignItems = Registry.AlignItems.CENTER), stretchSelf))
+        assertTrue(stretchesInColumn(aligned(alignItems = Registry.AlignItems.FLEX_START), stretchSelf))
+        // No alignSelf: the parent's alignItems decides (unset or stretch stretches).
+        assertTrue(stretchesInColumn(aligned(), aligned()))
+        assertTrue(stretchesInColumn(aligned(alignItems = Registry.AlignItems.STRETCH), aligned()))
+        assertFalse(stretchesInColumn(aligned(alignItems = Registry.AlignItems.CENTER), aligned()))
+        // Another alignSelf never stretches, even when the parent would.
+        assertFalse(stretchesInColumn(aligned(), aligned(alignSelf = Registry.AlignSelf.FLEX_END)))
+    }
+
+    @Test
+    fun aMaxBeatsAStretchAndAMinBeatsTheMax() {
+        val stretched = Constraints(200, 200, 0, 1000)
+        // maxWidth 80 in a 200 stretch: 80 (Compose's widthIn kept 200).
+        val a = znSizeInConstraints(stretched, null, 80, null, null)
+        assertEquals(80, a.minWidth)
+        assertEquals(80, a.maxWidth)
+        // minWidth 120 over maxWidth 80: the min wins, as in RN.
+        val b = znSizeInConstraints(stretched, 120, 80, null, null)
+        assertEquals(120, b.minWidth)
+        assertEquals(120, b.maxWidth)
+        // A min never goes past the parent's room (as widthIn).
+        val c = znSizeInConstraints(Constraints(0, 100, 0, 100), 150, null, null, null)
+        assertEquals(100, c.minWidth)
+        // No stretch: a max only lowers the room.
+        val d = znSizeInConstraints(Constraints(0, 300, 0, 300), null, 80, null, 40)
+        assertEquals(0, d.minWidth)
+        assertEquals(80, d.maxWidth)
+        assertEquals(40, d.maxHeight)
+    }
 
     @Test
     fun aWrittenEdgeBeatsASlotsAxis() {

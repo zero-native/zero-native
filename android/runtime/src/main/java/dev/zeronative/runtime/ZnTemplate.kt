@@ -7,10 +7,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
@@ -687,8 +685,6 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
                 m.padding(it.toPadding())
             }
         }
-        layout?.let { m = m.then(it) } // RN onLayout: the box inside the margin, as RN reports it
-        testID?.let { m = m.testTag(it) } // inside the margin: the element's own box, as RN reports it
         if (sizeLayout != null) {
             m = m.then(sizeLayout)
         } else {
@@ -700,10 +696,21 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
                 is Double -> m = m.height(h.toFloat().dp)
                 is ZnPercent -> m = m.fillMaxHeight(h.fraction.toFloat())
             }
-            if (minWidth != null || maxWidth != null) m = m.widthIn(minWidth.orUnspecified(), maxWidth.orUnspecified())
-            if (minHeight != null || maxHeight != null) m = m.heightIn(minHeight.orUnspecified(), maxHeight.orUnspecified())
+            // A11-3 (2026-11-08): not widthIn / heightIn, which can't go below a stretch or a % size from outside.
+            if (minWidth != null || maxWidth != null || minHeight != null || maxHeight != null) {
+                m = m.znSizeIn(minWidth?.dp, maxWidth?.dp, minHeight?.dp, maxHeight?.dp)
+            }
             aspectRatio?.let { m = m.aspectRatio(it) }
         }
+        // RN onLayout and testID: the element's own box, inside the margin and after min / max (A11-3), as RN reports
+        // it. Before 2026-11-08 they sat before the size, so a stretched box with maxWidth 80 reported the full width.
+        layout?.let { m = m.then(it) }
+        testID?.let { m = m.testTag(it) }
+        // A11-2: the box a child's onLayout x / y start from (this box's top-left, its padding and border included).
+        // A vertical Scroll marks its scrolling content instead (ZnRenderer), so a child's y doesn't move with the scroll.
+        if (type == Registry.Component.COLUMN || type == Registry.Component.BOX || type == Registry.Component.PRESSABLE ||
+            type == Registry.Component.FRAGMENT || type == Registry.Component.ROW || type == Registry.Component.STACK
+        ) m = m.then(ZnBoxElement)
         val effShape = dynamicShape ?: shape
         if (layer != null) {
             // Values that change at runtime (slots, animations): read here, in the draw phase (step 3.6).
@@ -855,8 +862,6 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     private fun eventFor(raw: RawTemplate, kind: Int): Int =
         raw.events.firstOrNull { it.node == index && it.kind == kind }?.eventId ?: 0
 }
-
-private fun Float?.orUnspecified(): Dp = this?.dp ?: Dp.Unspecified
 
 /** A border whose width or colour changes at runtime (registry 15): both read as it draws or measures, in dp. */
 internal class ZnBorder(val width: () -> Float, val color: () -> Color)

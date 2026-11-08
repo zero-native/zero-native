@@ -2757,3 +2757,30 @@ change, and what evidence would make you change it?"
 - **Cost:** one walk per list change in JS. A string-literal command list must use ARGB numbers.
 - **Option not taken:** a small hex parser in Kotlin: a second colour parser that could drift from core's.
 - **Question for the reviewer:** should a bad colour literal inside a `draw.*` call fail the build instead of warning at runtime?
+
+## 181. onLayout x / y from the parent's box, through a marker node (runtime, 2026-11-08; A11-2; Opus)
+- **Problem:** RN gives x / y from the parent's top-left corner, padding and border included. Compose's
+  `positionInParent()` starts inside the parent's padding and border (a child of `padding: 10` reported 0, 0).
+- **Chosen:** every container (Column, Box, Pressable, Row, Stack) carries a small `ZnBoxNode` in its chain at its own box
+  (after margin and size, before padding and border); a vertical Scroll puts it on its scrolling content. A child's
+  onLayout reads the nearest one through a Compose ModifierLocal and measures from it, but only when it belongs to the
+  child's own parent layout (both have the same `parentLayoutCoordinates`). List rows, Sheet bodies and rail items
+  fall back to `positionInParent()`, as before, so they never move with a scroll.
+- **Also moved:** onLayout and testID now sit after the size modifiers, so they report a box clamped by maxWidth.
+  A box hidden by `display: "none"` from a slot now sends no onLayout (before: one with 0 x 0).
+- **Cost:** one inert modifier node per container; no work per frame (its coordinates are read only when a child's
+  onLayout fires).
+- **Option not taken:** passing the parent's padding and border numbers down: wrong for dynamic padding, borders from
+  slots and Scroll content padding, and easy to drift from the chain's real order.
+- **Question for the reviewer:** should onLayout rows inside a List report x / y from the List (RN's FlatList does)?
+
+## 182. A max beats a stretch; the box keeps its room and sits at the start (runtime, 2026-11-08; A11-3; Opus)
+- **Problem:** Compose's `widthIn(max)` can't go below the minimum the parent asks for, so `fillMaxWidth()` from a stretch
+  (or `width: "100%"`) won over `maxWidth`. RN clamps.
+- **Chosen:** `znSizeIn` (static) and the same rule in `dynamicSize` (slots): the max lowers the parent's minimum, a min
+  still beats the max (RN). The box then reports the room it was given (so Compose doesn't centre it) and draws its
+  content at the start and top, as RN places a clamped stretch.
+- **Cost / difference:** in a Row, a flex child clamped by maxWidth keeps its whole flex share as room; RN would give
+  the rest to its siblings. Rare; not seen in ZeroBill.
+- **Option not taken:** have each parent read its child's maxWidth and margins before stretching: needs the child's
+  dynamic margins, and every parent type (Column, Stack, Scroll, Row, Sheet) would repeat it.
