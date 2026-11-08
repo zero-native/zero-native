@@ -47,6 +47,8 @@ final class ZnApp {
     private(set) var stack: [UInt32] = []
     /// A start failure (bad bundle, JS that didn't run), shown instead of a screen.
     private(set) var failure: String?
+    /// startApp's app layers (NAV LAYER): "top" / "overlay" → its root instance id (ZnLayers.swift).
+    private(set) var layers: [String: UInt32] = [:]
     /// Entries that want Back first (NAV BACK_WANTED): no native swipe-back on them, the swipe goes to JS (A8).
     @ObservationIgnored private(set) var backWanted = Set<UInt32>()
     /// Each back-stack entry's route.
@@ -79,7 +81,11 @@ final class ZnApp {
     @ObservationIgnored private let host = ZNHost.shared
 
     /// Starts the app from a bundle folder (main.hbc, main.zn.ui, main.zn.ui.json) on route `routeName`.
+    /// The bundle folder (main.hbc, main.zn.ui, assets such as images/): `asset:` sources resolve against it.
+    @ObservationIgnored private(set) var bundleURL: URL?
+
     func start(bundle: URL, routeName: String, params: String) {
+        bundleURL = bundle
         do {
             let file = try TemplateReader.read(try Data(contentsOf: bundle.appendingPathComponent("main.zn.ui")))
             let templates = file.templates.map(ZnTemplate.init)
@@ -158,6 +164,16 @@ final class ZnApp {
     /// without animation, or UIKit would hold the navigation transition until the sheet's animation ends (~0.5 s).
     @ObservationIgnored private(set) var batchChangesStack = false
 
+    @ObservationIgnored private var jsDrew = false
+    @ObservationIgnored private var waitingForJS: [() -> Void] = []
+
+    /// Runs [f] once JS has drawn its first batch. The first screen is drawn from its template before JS runs
+    /// (§8.1); an event from that skeleton (a local picture that loads at once: onLoad) would reach JS before the
+    /// screen's handlers exist and be dropped ("no handler for event", seen 2026-11-08 in the RN props lab).
+    func afterJSDrew(_ f: @escaping () -> Void) {
+        if jsDrew { f() } else { waitingForJS.append(f) }
+    }
+
     private func apply(_ data: Data) {
         do {
             let ops = try BatchReader.read(data)
@@ -167,6 +183,12 @@ final class ZnApp {
             }
             store.apply(ops)
             ZnDebug.afterBatch("a batch of \(ops.count) op(s)")
+            if !jsDrew {
+                jsDrew = true
+                let waiting = waitingForJS
+                waitingForJS = []
+                waiting.forEach { $0() }
+            }
         } catch {
             ZnDebug.log.error("bad batch: \(String(describing: error), privacy: .public)")
         }
@@ -188,6 +210,17 @@ final class ZnApp {
         case NavKind.clear:
             releaseLater(stack)
             stack.removeAll()
+        case NavKind.layer:
+            // The layer's root from its template (entry = root id, route = template id); entry 0 removes it.
+            let name = params.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["layer"] as? String
+            guard let name, name == Self.layerTop || name == Self.layerOverlay else {
+                return print("zn nav: unknown layer \(params ?? "")")
+            }
+            if let old = layers.removeValue(forKey: name) { store.removeTree(old) }
+            guard entry != 0 else { return }
+            guard let t = ctx.templates[safe: route] else { return print("zn nav: layer \(name) has no template \(route)") }
+            store.mountRoot(id: entry, templateId: route, template: t)
+            layers[name] = entry
         case NavKind.backWanted:
             if route != 0, stack.contains(entry) { backWanted.insert(entry) } else { backWanted.remove(entry) }
             print("zn t=\(ZnDebug.ms()) nav: screens that want Back first: \(backWanted.sorted())")

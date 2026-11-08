@@ -57,8 +57,41 @@ final class ZnNodeSpec {
     let borderBottomWidth: CGFloat
     let borderTopWidth: CGFloat
     let borderColor: Color
+    /// RN borderStyle (registry 16): Registry.BorderStyle; dashed / dotted for borders and top / bottom lines.
+    let borderStyle: Int
+    var borderDashed: Bool { borderStyle == Registry.BorderStyle.dashed || borderStyle == Registry.BorderStyle.dotted }
+    /// Per corner (registry 15), as in RN: the corner's own value, else borderRadius; Start / End beat Left / Right.
+    let topStart: CGFloat, topEnd: CGFloat, bottomEnd: CGFloat, bottomStart: CGFloat
+    var rounded: Bool { topStart > 0 || topEnd > 0 || bottomEnd > 0 || bottomStart > 0 }
+    /// The node's shape (start / end follow the layout direction, as Compose's RoundedCornerShape).
+    var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(topLeadingRadius: max(topStart, 0), bottomLeadingRadius: max(bottomStart, 0),
+                               bottomTrailingRadius: max(bottomEnd, 0), topTrailingRadius: max(topEnd, 0), style: .circular)
+    }
     let opacity: Double
     let clip: Bool
+    /// Android's elevation shadow, drawn on iOS as a soft shadow under the background (see ZnBackground).
+    let elevation: CGFloat
+    /// backgroundImage: a CSS linear gradient drawn over the background colour.
+    let gradient: ZnGradient?
+    let shadowColor: Color
+
+    // Transform (static parts; each can also have a slot). scale multiplies scaleX / scaleY, as in RN.
+    let scaleBase: CGFloat, scaleXOnly: CGFloat, scaleYOnly: CGFloat
+    let translateX: CGFloat, translateY: CGFloat
+    /// Degrees.
+    let rotate: CGFloat
+    /// RN transformOrigin (registry 20): the pivot of scale and rotate as fractions of the size ("0 0.5" = the left
+    /// edge's middle, written by the compiler); the centre when absent.
+    let origin: UnitPoint
+    let hasTransform: Bool
+
+    // Animation (ZnAnimation.swift)
+    let animate: ZnAnimate?
+    let paused: Bool
+    /// `enter` / `exit`: the state the element comes in from / leaves to.
+    let enter: ZnTransition?
+    let exit: ZnTransition?
 
     // Text
     let text: String?
@@ -68,10 +101,35 @@ final class ZnNodeSpec {
     let textAlign: Int
     let maxLines: Int?
     let letterSpacing: CGFloat?
+    /// RN textTransform (registry 15), -1 / 0: none.
+    let textTransform: Int
+    let italic: Bool
+    let lineHeight: CGFloat?
+    /// Registry.TextDecorationLine / TextDecorationStyle (-1: not written).
+    let decorationLine: Int
+    let decorationStyle: Int
+    /// Nested <Text> spans: one style per span (JSON); the text holds the spans' texts joined by U+001F.
+    let spans: [ZnSpan]?
+    /// Registry 16: spans that change at runtime come in this slot, as the same JSON.
+    let spansSlot: Int
+    /// Registry 16: a span with onPress was tapped; the payload is its index.
+    let onSpanPress: Int
 
     // Icon: "minX minY width height|path data"
     let icon: ZnIconData?
     let src: String?
+
+    // Image (registry 15 / 16) and Shimmer
+    let fallbackSrc: String?
+    let contentScale: Int
+    /// Registry.Loading: shimmer while the picture loads.
+    let loading: Int
+    let tintColor: Color?
+    let tintColorSlot: Int
+    let onLoad: Int, onError: Int, onLoadEnd: Int
+    let baseColor: Color?
+    let shimmerHighlight: Color
+    let period: Double?
 
     // List
     let onRange: Int
@@ -80,8 +138,31 @@ final class ZnNodeSpec {
     let stickyHeaderIndices: String?
     let stickySlot: Int
 
+    // Carousel
+    let autoAdvanceMs: Int
+    let pauseAfterTouchMs: Double
+    let dots: Bool
+    let dotColor: Color
+    let activeDotColor: Color
+    let itemWidth: CGFloat?
+    let onPageChange: Int
+    /// RN onLayout (registry 15): { layout: { x, y, width, height } } when the box inside the margin changes.
+    let onLayout: Int
+    /// Its parent in this template (-1 for the root): onLayout's x / y are relative to it.
+    let parent: Int
+    /// A child has onLayout: this node names a coordinate space for it (set by ZnTemplate).
+    fileprivate(set) var namesSpace = false
+
     // Sheet
     let visible: Bool
+    /// `visible` is written (a Modal without it is shown, as in RN).
+    let hasVisible: Bool
+    // Modal (registry 15)
+    let transparent: Bool
+    let animationType: Int
+    let statusBarTranslucent: Bool
+    let navigationBarTranslucent: Bool
+    let onShow: Int
     let detents: [String]
     let dismissible: Bool
     let onDismiss: Int
@@ -108,6 +189,10 @@ final class ZnNodeSpec {
 
     // Slots this node reads (-1: none) and its events (0: none)
     let textSlot: Int, colorSlot: Int, backgroundSlot: Int, opacitySlot: Int, visibleSlot: Int, disabledSlot: Int, srcSlot: Int
+    /// Border width and colour bound to slots (registry 15; -1 = static).
+    let borderWidthSlot: Int, borderColorSlot: Int
+    let scaleSlot: Int, scaleXSlot: Int, scaleYSlot: Int, translateXSlot: Int, translateYSlot: Int, rotateSlot: Int
+    let pausedSlot: Int, replaySlot: Int
     let onPress: Int, onPressIn: Int, onPressOut: Int, onLongPress: Int, onPressRepeat: Int, hasLongPressSlot: Int
     let repeatDelayMs: Double, repeatIntervalMs: Double
 
@@ -161,8 +246,26 @@ final class ZnNodeSpec {
         borderTopWidth = num(P.borderTopWidth) ?? 0
         borderBottomWidth = num(P.borderBottomWidth) ?? 0
         borderColor = znColor(p[P.borderColor]) ?? .black
+        borderStyle = en(P.borderStyle)
+        let r = radius
+        func corner(_ left: Int, _ start: Int) -> CGFloat { num(start) ?? num(left) ?? r }
+        topStart = corner(P.borderTopLeftRadius, P.borderTopStartRadius)
+        topEnd = corner(P.borderTopRightRadius, P.borderTopEndRadius)
+        bottomEnd = corner(P.borderBottomRightRadius, P.borderBottomEndRadius)
+        bottomStart = corner(P.borderBottomLeftRadius, P.borderBottomStartRadius)
         opacity = Double(num(P.opacity) ?? 1)
         clip = en(P.overflow) == Registry.Overflow.hidden
+        elevation = num(P.elevation) ?? 0
+        gradient = p[P.backgroundImage]?.string.flatMap(ZnGradient.parse)
+        shadowColor = znColor(p[P.shadowColor]) ?? .black
+        scaleBase = num(P.scale) ?? 1; scaleXOnly = num(P.scaleX) ?? 1; scaleYOnly = num(P.scaleY) ?? 1
+        translateX = num(P.translateX) ?? 0; translateY = num(P.translateY) ?? 0
+        rotate = num(P.rotate) ?? 0
+        origin = Self.parseOrigin(p[P.transformOrigin]?.string)
+        animate = p[P.animate]?.string.map(ZnAnimate.parse)
+        paused = p[P.paused]?.bool ?? false
+        enter = p[P.enter]?.string.flatMap(ZnTransition.parse)
+        exit = p[P.exit]?.string.flatMap(ZnTransition.parse)
 
         text = p[P.text]?.string
         color = znColor(p[P.color])
@@ -171,15 +274,48 @@ final class ZnNodeSpec {
         textAlign = en(P.textAlign)
         maxLines = num(P.numberOfLines).map { Int($0) }
         letterSpacing = num(P.letterSpacing)
+        textTransform = en(P.textTransform)
+        italic = en(P.fontStyle) == Registry.FontStyle.italic
+        lineHeight = num(P.lineHeight)
+        decorationLine = en(P.textDecorationLine)
+        decorationStyle = en(P.textDecorationStyle)
+        spans = p[P.spans]?.string.flatMap(ZnSpan.parse)
+        spansSlot = slotFor(P.spans)
+        onSpanPress = eventFor(Registry.Event.onSpanPress)
 
         icon = p[P.icon]?.string.flatMap(ZnIconData.parse)
         src = p[P.src]?.string
+        fallbackSrc = p[P.fallbackSrc]?.string
+        contentScale = en(P.contentScale)
+        loading = en(P.loading)
+        tintColor = znColor(p[P.tintColor])
+        tintColorSlot = slotFor(P.tintColor)
+        onLoad = eventFor(Registry.Event.onLoad); onError = eventFor(Registry.Event.onError)
+        onLoadEnd = eventFor(Registry.Event.onLoadEnd)
+        baseColor = znColor(p[P.baseColor])
+        shimmerHighlight = znColor(p[P.highlightColor]) ?? Color.white.opacity(0.55)
+        period = p[P.period]?.number
 
         onRange = eventFor(Registry.Event.onRange)
         onEndReached = eventFor(Registry.Event.onEndReached)
         stickyHeaderIndices = p[P.stickyHeaderIndices]?.string
         stickySlot = slotFor(P.stickyHeaderIndices)
+        autoAdvanceMs = Int(num(P.autoAdvance) ?? 0)
+        pauseAfterTouchMs = Double(num(P.pauseAfterTouch) ?? 3000)
+        dots = p[P.dots]?.bool ?? false
+        dotColor = znColor(p[P.dotColor]) ?? Color(.sRGB, red: 0xD1 / 255, green: 0xD5 / 255, blue: 0xDB / 255)
+        activeDotColor = znColor(p[P.activeDotColor]) ?? Color(.sRGB, red: 0x04 / 255, green: 0x78 / 255, blue: 0x57 / 255)
+        itemWidth = num(P.itemWidth)
+        onPageChange = eventFor(Registry.Event.onPageChange)
+        onLayout = eventFor(Registry.Event.onLayout)
+        parent = index == 0 ? -1 : raw.parent[index]
         visible = p[P.visible]?.bool ?? false
+        hasVisible = p[P.visible] != nil
+        transparent = p[P.transparent]?.bool ?? false
+        animationType = en(P.animationType)
+        statusBarTranslucent = p[P.statusBarTranslucent]?.bool ?? false
+        navigationBarTranslucent = p[P.navigationBarTranslucent]?.bool ?? false
+        onShow = eventFor(Registry.Event.onShow)
         detents = (p[P.detents]?.string ?? "content").split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { ["content", "half", "full"].contains($0) }
             .nonEmpty ?? ["content"]
@@ -206,6 +342,13 @@ final class ZnNodeSpec {
         textSlot = slotFor(P.text); colorSlot = slotFor(P.color); backgroundSlot = slotFor(P.backgroundColor)
         opacitySlot = slotFor(P.opacity); visibleSlot = slotFor(P.visible); disabledSlot = slotFor(P.disabled)
         srcSlot = slotFor(P.src)
+        borderWidthSlot = slotFor(P.borderWidth); borderColorSlot = slotFor(P.borderColor)
+        scaleSlot = slotFor(P.scale); scaleXSlot = slotFor(P.scaleX); scaleYSlot = slotFor(P.scaleY)
+        translateXSlot = slotFor(P.translateX); translateYSlot = slotFor(P.translateY); rotateSlot = slotFor(P.rotate)
+        pausedSlot = slotFor(P.paused); replaySlot = slotFor(P.replay)
+        hasTransform = scaleBase != 1 || scaleXOnly != 1 || scaleYOnly != 1 || translateX != 0 || translateY != 0 ||
+            rotate != 0 || [scaleSlot, scaleXSlot, scaleYSlot, translateXSlot, translateYSlot, rotateSlot].contains { $0 >= 0 } ||
+            animate != nil
         onPress = eventFor(Registry.Event.onPress); onPressIn = eventFor(Registry.Event.onPressIn)
         onPressOut = eventFor(Registry.Event.onPressOut); onLongPress = eventFor(Registry.Event.onLongPress)
         onPressRepeat = eventFor(Registry.Event.onPressRepeat)
@@ -216,6 +359,12 @@ final class ZnNodeSpec {
 
     var isPressable: Bool { type == Registry.Component.pressable }
 
+    /// "x y" fractions → a pivot; else the centre (parseTransformOrigin in ZnTemplate.kt).
+    static func parseOrigin(_ s: String?) -> UnitPoint {
+        let parts = (s ?? "").split(separator: " ").compactMap { Double($0) }
+        return parts.count == 2 ? UnitPoint(x: parts[0], y: parts[1]) : .center
+    }
+
     static let paddingProps = [Registry.Prop.padding, Registry.Prop.paddingHorizontal, Registry.Prop.paddingVertical,
                                Registry.Prop.paddingStart, Registry.Prop.paddingTop, Registry.Prop.paddingEnd,
                                Registry.Prop.paddingBottom]
@@ -225,6 +374,23 @@ final class ZnNodeSpec {
 
     /// Padding with runtime values filled in (reading those slots makes the caller's body follow them).
     @MainActor func paddingInsets(_ inst: ZnInstance) -> EdgeInsets { edgeInsets(Self.paddingProps, padding, inst) }
+
+    /// The border width now (a slot, or the template's).
+    @MainActor func borderWidthNow(_ inst: ZnInstance) -> CGFloat {
+        borderWidthSlot >= 0 ? inst.slot(borderWidthSlot).value.number.map { CGFloat($0) } ?? borderWidth : borderWidth
+    }
+    @MainActor func borderColorNow(_ inst: ZnInstance) -> Color {
+        borderColorSlot >= 0 ? znColor(inst.slot(borderColorSlot).value) ?? borderColor : borderColor
+    }
+
+    /// Padding plus the border widths: borders take space, content sits inside them (zn flex rule 2, as Android).
+    @MainActor func contentInsets(_ inst: ZnInstance) -> EdgeInsets {
+        var e = paddingInsets(inst)
+        let w = max(borderWidthNow(inst), 0)
+        e.leading += w; e.trailing += w
+        e.top += w + borderTopWidth; e.bottom += w + borderBottomWidth
+        return e
+    }
     @MainActor func marginInsets(_ inst: ZnInstance) -> EdgeInsets { edgeInsets(Self.marginProps, margin, inst) }
 
     @MainActor private func edgeInsets(_ group: [Int], _ fixed: ZnEdges?, _ inst: ZnInstance) -> EdgeInsets {
@@ -251,6 +417,7 @@ final class ZnTemplate {
         var children = Array(repeating: [Int](), count: raw.component.count)
         for i in 1..<max(raw.component.count, 1) { children[raw.parent[i]].append(i) }
         nodes = (0..<raw.component.count).map { ZnNodeSpec(raw: raw, index: $0, children: children[$0]) }
+        for n in nodes where n.onLayout != 0 && n.parent >= 0 { nodes[n.parent].namesSpace = true }
     }
 }
 

@@ -90,15 +90,16 @@ struct ZnNodeView: View {
         let _ = ZnDebug.hit(s, inst)
         if s.isPressable {
             ZnPressable(ctx: ctx, s: s, inst: inst) { inner(s) }
+                .modifier(ZnOnLayout(ctx: ctx, s: s, inst: inst))
                 .padding(s.marginInsets(inst))
         } else {
-            inner(s).padding(s.marginInsets(inst))
+            inner(s).modifier(ZnOnLayout(ctx: ctx, s: s, inst: inst)).padding(s.marginInsets(inst))
         }
     }
 
     @ViewBuilder
     private func inner(_ s: ZnNodeSpec) -> some View {
-        if s.type == Registry.Component.sheet && !sheetBody {
+        if (s.type == Registry.Component.sheet || s.type == Registry.Component.modal) && !sheetBody {
             content(s)  // the sheet itself is presented; here it takes no room
         } else {
             styled(s)
@@ -108,7 +109,9 @@ struct ZnNodeView: View {
     @ViewBuilder
     private func styled(_ s: ZnNodeSpec) -> some View {
         content(s)
-            .padding(s.type == Registry.Component.list ? EdgeInsets() : s.paddingInsets(inst))
+            // A List's and a Carousel's padding is inside their scroll (content padding), not around them.
+            .padding(s.type == Registry.Component.list || s.type == Registry.Component.carousel ? EdgeInsets() : s.contentInsets(inst))
+            .modifier(ZnLayoutSpace(s: s, inst: inst))
             .modifier(ZnSizeFrame(s: s, outer: outer, alignment: contentAlignment(s)))
             .modifier(ZnFieldBoxTap(s: s, inst: inst))
             .modifier(ZnPaint(s: s, inst: inst))
@@ -130,6 +133,8 @@ struct ZnNodeView: View {
             flex(s, vertical: true)
         case Registry.Component.sheet:
             if sheetBody { flex(s, vertical: true) } else { ZnSheetHost(ctx: ctx, t: t, inst: inst, s: s) }
+        case Registry.Component.modal:
+            if sheetBody { flex(s, vertical: true) } else { ZnModalHost(ctx: ctx, t: t, inst: inst, s: s) }
         case Registry.Component.row:
             flex(s, vertical: false)
         case Registry.Component.stack:
@@ -139,7 +144,9 @@ struct ZnNodeView: View {
                 flex(s, vertical: s.props[Registry.Prop.horizontal]?.bool != true)
             }
         case Registry.Component.text:
-            ZnTextView(s: s, inst: inst)
+            ZnTextView(ctx: ctx, s: s, inst: inst)
+        case Registry.Component.carousel:
+            ZnCarouselView(ctx: ctx, t: t, inst: inst, s: s)
         case Registry.Component.list:
             ZnListView(ctx: ctx, inst: inst, s: s)
         case Registry.Component.textField:
@@ -147,10 +154,12 @@ struct ZnNodeView: View {
         case Registry.Component.icon:
             ZnIconView(s: s, inst: inst)
         case Registry.Component.image:
-            ZnImageView(s: s, inst: inst)
+            ZnImageView(ctx: ctx, s: s, inst: inst)
+        case Registry.Component.shimmer:
+            ZnShimmerView(s: s)
         case Registry.Component.spacer:
             Color.clear.frame(width: 0, height: 0)
-        case Registry.Component.anchor, Registry.Component.modal,
+        case Registry.Component.anchor,
              Registry.Component.statusBar, Registry.Component.navigationBar:
             EmptyView()  // anchors are expanded by the parent; the rest take no room here (not drawn on iOS yet)
         default:
@@ -193,6 +202,7 @@ struct ZnNodeView: View {
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node, outer: outer, definiteWidth: childDefinite)
                     .layoutValue(key: ZnFlexKey.self, value: child.flex)
                     .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
+                    .zIndex(child.zIndex ?? 0)  // R23: a row with zIndex draws its tooltip over the rows after it
             }
         }
     }
@@ -236,20 +246,130 @@ struct ZnPaint: ViewModifier {
     let inst: ZnInstance
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: s.radius, style: .circular)
+        // A node's animate / enter / exit never change, so the branches don't swap at runtime.
+        Group {
+            if s.animate?.selfPlaying == true {
+                content.modifier(ZnPaintPlaying(s: s, inst: inst))
+            } else {
+                content.modifier(ZnPaintLayers(s: s, inst: inst, motion: nil))
+            }
+        }
+        .modifier(ZnEnterExitIfAny(s: s, inst: inst))
+    }
+}
+
+struct ZnEnterExitIfAny: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+
+    func body(content: Content) -> some View {
+        if s.enter != nil || (s.index == 0 && s.exit != nil) {
+            content.modifier(ZnEnterExit(s: s, inst: inst))
+        } else {
+            content
+        }
+    }
+}
+
+/// Background, borders, clip, then the layer (opacity and transforms) over all of them, as android/runtime's chain:
+/// transform + opacity → shadow → background → border → clip.
+struct ZnPaintLayers: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    let motion: ZnMotion?
+
+    func body(content: Content) -> some View {
+        let shape = s.shape
+        // Images and shimmers clip to their rounded shape by default, as in RN (and Android).
+        let clips = s.clip || (s.rounded && (s.type == Registry.Component.image || s.type == Registry.Component.shimmer))
         content
-            .modifier(ZnClip(clip: s.clip, shape: shape))
-            .overlay {
-                if s.borderWidth > 0 { shape.strokeBorder(s.borderColor, lineWidth: s.borderWidth) }
-            }
-            .overlay(alignment: .bottom) {
-                if s.borderBottomWidth > 0 { Rectangle().fill(s.borderColor).frame(height: s.borderBottomWidth) }
-            }
-            .overlay(alignment: .top) {
-                if s.borderTopWidth > 0 { Rectangle().fill(s.borderColor).frame(height: s.borderTopWidth) }
-            }
-            .background { ZnBackground(s: s, inst: inst, shape: shape) }
-            .modifier(ZnOpacity(s: s, inst: inst))
+            .modifier(ZnClip(clip: clips, shape: shape))
+            .overlay { ZnBorder(s: s, inst: inst, shape: shape) }
+            .background { ZnBackground(s: s, inst: inst, shape: shape, motion: motion) }
+            .modifier(ZnLayer(s: s, inst: inst, motion: motion))
+    }
+}
+
+/// A node with values that play by themselves (`animate` with from / keyframes): owns their ZnMotion while on
+/// screen, starts it when it appears and on each new `replay`, follows `paused`, and plays a `from` again towards
+/// a new resting value.
+struct ZnPaintPlaying: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    @State private var motion = ZnMotion()
+
+    private var timings: [Int: ZnTiming] {
+        var out: [Int: ZnTiming] = [:]
+        for prop in ZnLayer.animatable { if let t = s.animate?.timing(prop), t.selfPlaying { out[prop] = t } }
+        return out
+    }
+
+    func body(content: Content) -> some View {
+        let rests = ZnLayer.rests(s, inst)
+        let paused = s.pausedSlot >= 0 ? inst.slot(s.pausedSlot).value == .bool(true) : s.paused
+        let replay = s.replaySlot >= 0 ? inst.slot(s.replaySlot).value : .null
+        content
+            .modifier(ZnPaintLayers(s: s, inst: inst, motion: motion))
+            .onAppear { motion.start(timings, rests: rests, paused: paused) }
+            .onDisappear { motion.stop() }
+            .onChange(of: replay) { motion.start(timings, rests: rests, paused: paused) }
+            .onChange(of: paused) { _, p in motion.setPaused(p) }
+            .onChange(of: rests) { _, r in for (prop, v) in r { motion.restChanged(prop, to: v) } }
+    }
+}
+
+/// Opacity and transforms (scale, scaleX, scaleY, rotate about transformOrigin, then translate), each value from
+/// its motion, its slot, or the template. A value with a timing that follows a slot animates to each new value
+/// (SwiftUI animation scoped to that modifier). The same order as Compose's graphicsLayer: scale, rotate, translate.
+struct ZnLayer: ViewModifier {
+    typealias P = Registry.Prop
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    let motion: ZnMotion?
+
+    static let animatable = [P.opacity, P.scale, P.scaleX, P.scaleY, P.rotate, P.translateX, P.translateY, P.backgroundColor]
+
+    /// Each animatable prop's resting value now (slot or template), for motions that start from or play towards it.
+    @MainActor static func rests(_ s: ZnNodeSpec, _ inst: ZnInstance) -> [Int: [Double]] {
+        func n(_ slot: Int, _ v: CGFloat) -> [Double] { [slot >= 0 ? inst.slot(slot).value.number ?? Double(v) : Double(v)] }
+        let bg = s.backgroundSlot >= 0 ? znColorVector(inst.slot(s.backgroundSlot).value) : znColorVector(s.props[P.backgroundColor])
+        return [
+            P.opacity: n(s.opacitySlot, CGFloat(s.opacity)), P.scale: n(s.scaleSlot, s.scaleBase),
+            P.scaleX: n(s.scaleXSlot, s.scaleXOnly), P.scaleY: n(s.scaleYSlot, s.scaleYOnly),
+            P.rotate: n(s.rotateSlot, s.rotate), P.translateX: n(s.translateXSlot, s.translateX),
+            P.translateY: n(s.translateYSlot, s.translateY), P.backgroundColor: bg ?? [0, 0, 0, 0],
+        ]
+    }
+
+    private func value(_ prop: Int, _ slot: Int, _ fixed: CGFloat) -> CGFloat {
+        if let m = motion?.values[prop]?.first { return CGFloat(m) }
+        return slot >= 0 ? inst.slot(slot).value.number.map { CGFloat($0) } ?? fixed : fixed
+    }
+
+    /// The animation for a value that follows its slot; nil: it changes at once.
+    private func follow(_ prop: Int) -> Animation? {
+        guard let t = s.animate?.timing(prop), !t.selfPlaying else { return nil }
+        return t.animation
+    }
+
+    func body(content: Content) -> some View {
+        let _ = ZnDebug.hit(name: "Layer", inst: inst, node: s.index)
+        let opacity = value(P.opacity, s.opacitySlot, CGFloat(s.opacity))
+        if !s.hasTransform {
+            content.opacity(opacity)
+        } else {
+            // A scale of exactly 0 is a singular transform: kept just above it (nothing shows either way).
+            let sc: (CGFloat) -> CGFloat = { abs($0) < 1e-4 ? 1e-4 : $0 }
+            let o = s.origin
+            content
+                .animation(follow(P.scale)) { $0.scaleEffect(sc(value(P.scale, s.scaleSlot, s.scaleBase)), anchor: o) }
+                .animation(follow(P.scaleX)) { $0.scaleEffect(x: sc(value(P.scaleX, s.scaleXSlot, s.scaleXOnly)), y: 1, anchor: o) }
+                .animation(follow(P.scaleY)) { $0.scaleEffect(x: 1, y: sc(value(P.scaleY, s.scaleYSlot, s.scaleYOnly)), anchor: o) }
+                .animation(follow(P.rotate)) { $0.rotationEffect(.degrees(value(P.rotate, s.rotateSlot, s.rotate)), anchor: o) }
+                .animation(follow(P.translateX)) { $0.offset(x: value(P.translateX, s.translateXSlot, s.translateX)) }
+                .animation(follow(P.translateY)) { $0.offset(y: value(P.translateY, s.translateYSlot, s.translateY)) }
+                .animation(follow(P.opacity)) { $0.opacity(opacity) }
+        }
     }
 }
 
@@ -258,51 +378,110 @@ struct ZnPaint: ViewModifier {
 /// the whole screen, 2026-11-08). A node's clip never changes, so the two branches don't swap at runtime.
 struct ZnClip: ViewModifier {
     let clip: Bool
-    let shape: RoundedRectangle
+    let shape: UnevenRoundedRectangle
 
     func body(content: Content) -> some View {
         if clip { content.clipShape(shape) } else { content }
     }
 }
 
+/// The border over the content: solid (the shape minus the shape inset by the width), or dashed / dotted (the shape
+/// stroked along the middle of the border, RN Android's pattern: dashed 3 widths on and 3 off, dotted 1 and 1), and
+/// the top / bottom lines. Width and colour may change at runtime (slots).
+struct ZnBorder: View {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    let shape: UnevenRoundedRectangle
+
+    var body: some View {
+        let w = s.borderWidthNow(inst)
+        let color = s.borderColorNow(inst)
+        let dash: (CGFloat) -> [CGFloat] = { lw in
+            let on = max(s.borderStyle == Registry.BorderStyle.dotted ? lw : 3 * lw, 1)
+            return [on, on]
+        }
+        ZStack {
+            if w > 0 {
+                if s.borderDashed {
+                    shape.inset(by: w / 2).stroke(color, style: StrokeStyle(lineWidth: w, dash: dash(w)))
+                } else {
+                    shape.strokeBorder(color, lineWidth: w)
+                }
+            }
+            if s.borderTopWidth > 0 || s.borderBottomWidth > 0 {
+                Canvas { g, size in
+                    for (lw, y) in [(s.borderTopWidth, s.borderTopWidth / 2), (s.borderBottomWidth, size.height - s.borderBottomWidth / 2)] where lw > 0 {
+                        var line = Path()
+                        line.move(to: CGPoint(x: 0, y: y))
+                        line.addLine(to: CGPoint(x: size.width, y: y))
+                        g.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: lw, dash: s.borderDashed ? dash(lw) : []))
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 struct ZnBackground: View {
     let s: ZnNodeSpec
     let inst: ZnInstance
-    let shape: RoundedRectangle
+    let shape: UnevenRoundedRectangle
+    let motion: ZnMotion?
 
     var body: some View {
         let _ = ZnDebug.hit(name: "Background", inst: inst, node: s.index)
-        let color = s.backgroundSlot >= 0 ? znColor(inst.slot(s.backgroundSlot).value) : s.background
-        if let color { shape.fill(color) }
+        let played = motion?.values[Registry.Prop.backgroundColor].flatMap(znColorFromVector)
+        let color = played ?? (s.backgroundSlot >= 0 ? znColor(inst.slot(s.backgroundSlot).value) : s.background)
+        let follow = s.animate?.timing(Registry.Prop.backgroundColor).flatMap { $0.selfPlaying ? nil : $0.animation }
+        if color != nil || s.gradient != nil {
+            ZStack {
+                if let color { shape.fill(color) }
+                // backgroundImage: a linear gradient over the background colour.
+                if let g = s.gradient {
+                    Canvas { ctx, size in
+                        let (a, b) = g.line(size)
+                        ctx.fill(shape.path(in: CGRect(origin: .zero, size: size)),
+                                 with: .linearGradient(g.gradient, startPoint: a, endPoint: b))
+                    }
+                }
+            }
+            // elevation: Android's material shadow, drawn here as a soft shadow below (y = elevation / 2, blur =
+            // elevation, 20 % of shadowColor); only under a background, as nothing else has a shape to cast it.
+            .shadow(color: s.elevation > 0 ? s.shadowColor.opacity(0.2) : .clear, radius: s.elevation, x: 0, y: s.elevation / 2)
+            .animation(follow, value: s.backgroundSlot >= 0 ? znColorVector(inst.slot(s.backgroundSlot).value) : nil)
+        }
     }
 }
 
-struct ZnOpacity: ViewModifier {
-    let s: ZnNodeSpec
-    let inst: ZnInstance
+/// A CSS linear gradient from the compiler's "angle|argb@position|..." (position 0–1, or -1 = spread evenly), as
+/// ZnGradient in ZnTemplate.kt. Angles as in CSS: 0deg points up, 90deg right, 180deg down.
+struct ZnGradient {
+    let angle: Double
+    let gradient: Gradient
 
-    func body(content: Content) -> some View {
-        let _ = ZnDebug.hit(name: "Opacity", inst: inst, node: s.index)
-        let o = s.opacitySlot >= 0 ? (inst.slot(s.opacitySlot).value.number ?? 1) : s.opacity
-        content.opacity(o)
+    static func parse(_ spec: String) -> ZnGradient? {
+        let parts = spec.split(separator: "|").map(String.init)
+        guard let angle = parts.first.flatMap(Double.init) else { return nil }
+        let raw: [(Color, Double)] = parts.dropFirst().compactMap { stop in
+            let p = stop.split(separator: "@")
+            guard p.count == 2, let argb = Int64(p[0]), let c = znColor(.color(UInt32(truncatingIfNeeded: argb))) else { return nil }
+            return (c, Double(p[1]) ?? -1)
+        }
+        guard raw.count >= 2 else { return nil }
+        let stops = raw.enumerated().map { i, r in
+            Gradient.Stop(color: r.0, location: r.1 >= 0 ? r.1 : Double(i) / Double(raw.count - 1))
+        }
+        return ZnGradient(angle: angle, gradient: Gradient(stops: stops))
     }
-}
 
-struct ZnTextView: View {
-    let s: ZnNodeSpec
-    let inst: ZnInstance
-
-    var body: some View {
-        let _ = ZnDebug.hit(name: "TextLeaf", inst: inst, node: s.index)
-        let value = s.textSlot >= 0 ? znDisplay(inst.slot(s.textSlot).value) : (s.text ?? "")
-        let color = s.colorSlot >= 0 ? (znColor(inst.slot(s.colorSlot).value) ?? .black) : (s.color ?? .black)
-        Text(value)
-            .font(.system(size: s.fontSize, weight: znWeight(s.fontWeight)))
-            .kerning(s.letterSpacing ?? 0)
-            .foregroundStyle(color)
-            .multilineTextAlignment(s.textAlign == Registry.TextAlign.center ? .center
-                                    : s.textAlign == Registry.TextAlign.end ? .trailing : .leading)
-            .lineLimit(s.maxLines)
+    /// The gradient line for a box of [size]: through the centre, long enough to reach the corners.
+    func line(_ size: CGSize) -> (CGPoint, CGPoint) {
+        let rad = angle * .pi / 180
+        let dx = sin(rad), dy = -cos(rad)
+        let half = (abs(size.width * dx) + abs(size.height * dy)) / 2
+        let c = CGPoint(x: size.width / 2, y: size.height / 2)
+        return (CGPoint(x: c.x - dx * half, y: c.y - dy * half), CGPoint(x: c.x + dx * half, y: c.y + dy * half))
     }
 }
 
@@ -321,24 +500,6 @@ struct ZnIconView: View {
             g.fill(icon.path.applying(tr), with: .color(color))
         }
         .frame(width: sized ? 24 : nil, height: sized ? 24 : nil)
-    }
-}
-
-struct ZnImageView: View {
-    let s: ZnNodeSpec
-    let inst: ZnInstance
-
-    var body: some View {
-        let _ = ZnDebug.hit(name: "ImageLeaf", inst: inst, node: s.index)
-        let src = s.srcSlot >= 0 ? inst.slot(s.srcSlot).value.string : s.src
-        if let src, let url = URL(string: src), url.scheme?.hasPrefix("http") == true {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image { image.resizable().scaledToFill() } else { Color.gray.opacity(0.15) }
-            }
-            .clipped()
-        } else {
-            Color.gray.opacity(0.15)
-        }
     }
 }
 
@@ -380,4 +541,64 @@ func znWeight(_ w: Int?) -> Font.Weight {
 
 extension Array {
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+}
+
+/// RN textTransform (registry 15), as transformText in android/runtime's ZnRenderer.kt: no phone locale (so "i" never
+/// becomes the Turkish "İ"); capitalize makes each word's first letter upper case and the rest lower case ("don't"
+/// is one word).
+func znTransformText(_ text: String, _ transform: Int) -> String {
+    let root = Locale(identifier: "en_US_POSIX")
+    switch transform {
+    case Registry.TextTransform.uppercase: return text.uppercased(with: root)
+    case Registry.TextTransform.lowercase: return text.lowercased(with: root)
+    case Registry.TextTransform.capitalize:
+        var out = ""
+        var at = text.startIndex
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byWords) { word, range, _, _ in
+            guard let word, let first = word.first else { return }
+            out += text[at..<range.lowerBound]
+            out += first.isLetter || first.isNumber
+                ? String(first).uppercased(with: root) + word.dropFirst().lowercased(with: root) : word
+            at = range.upperBound
+        }
+        out += text[at...]
+        return out
+    default: return text
+    }
+}
+
+/// A node whose child has onLayout names a coordinate space (its box with its padding), so the child's x / y are
+/// relative to it, as RN's onLayout.
+struct ZnLayoutSpace: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+
+    func body(content: Content) -> some View {
+        if s.namesSpace { content.coordinateSpace(.named(ZnOnLayout.space(inst, s.index))) } else { content }
+    }
+}
+
+/// RN onLayout (registry 15): { layout: { x, y, width, height } } (pt, two decimals) when the box inside the margin
+/// gets a new size or place in its parent; only a real change sends. x / y are relative to the parent node in the
+/// same template; an instance's root (its parent is in another template) reports them in window coordinates.
+struct ZnOnLayout: ViewModifier {
+    let ctx: ZnContext
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+
+    static func space(_ inst: ZnInstance, _ node: Int) -> String { "zn-layout-\(inst.id)-\(node)" }
+
+    func body(content: Content) -> some View {
+        if s.onLayout != 0 {
+            let space: CoordinateSpace = s.parent >= 0 ? .named(Self.space(inst, s.parent)) : .global
+            let (ctx, id, event) = (ctx, inst.id, s.onLayout)
+            content.onGeometryChange(for: CGRect.self) { $0.frame(in: space) } action: { r in
+                func r2(_ v: CGFloat) -> Double { (Double(v) * 100).rounded() / 100 }
+                let json = ZnModules.json(["layout": ["x": r2(r.minX), "y": r2(r.minY), "width": r2(r.width), "height": r2(r.height)]])
+                ZnApp.shared.afterJSDrew { if let json { ctx.send(id, event, .string(json)) } }
+            }
+        } else {
+            content
+        }
+    }
 }

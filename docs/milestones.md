@@ -125,7 +125,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
 | i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
 
@@ -146,6 +146,82 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.2, props lab part 4: Carousel, onLayout, zIndex in rows, gradients (Claude, `ios` branch)
+- **Carousel** (`ZnCarousel.swift`, ZnRenderer.kt's pager): a paging horizontal scroll, pages full width (minus the
+  padding, which is content padding inside the scroll) or `itemWidth`, `gap` apart; no height → as tall as the
+  tallest page (pages measured, not drawn twice), with a height → pages get all of it but the dots (R35); dots;
+  `autoAdvance` (wraps, skips while touched and for `pauseAfterTouch`); `onPageChange` when a new page settles.
+- **onLayout** (registry 15): { layout: { x, y, width, height } } of the box inside the margin, sent on real changes,
+  x / y relative to the parent node (a named coordinate space only on nodes with such a child). iOS difference: an
+  instance's root reports x / y in window coordinates (its parent is in another template).
+- **zIndex among Column / Row children** (it worked only in a Stack): the R23 tooltip from row 1 now draws over row 2.
+- **backgroundImage** (CSS linear gradient, angle and stops as ZnGradient in ZnTemplate.kt) over the background
+  colour; the elevation shadow follows the gradient too.
+- **Checked on the simulator:** props lab: the carousel with a height (page fills, dots at the bottom, swipe to
+  page 2), the tooltip over row 2, `rn-props layout 40x24`. Offers screen: gradient banners with shadows, 300 pt
+  pages with the next one peeking, auto-advance (`banner page 1`, then `0`).
+- **Still not on iOS:** Svg (the lab's absolute shape, the Svg lab), `zn://` image handles.
+
+### 2026-11-08: iOS i.2, props lab part 3: Modal and app layers (Claude, `ios` branch)
+- **Modal** (`ZnModal.swift`, ZnModal.kt's contract): a layer presented over full screen from the frontmost view
+  controller (so also over a sheet), its children laid out as a Column that fills it; `visible` (shown when not
+  written), `transparent` (else white), `animationType` none / fade / slide (250 ms), `statusBarTranslucent` /
+  `navigationBarTranslucent`, above the keyboard, `onShow` after the animation. iOS difference: no system Back and
+  no swipe on a full-screen presentation, so `onRequestClose` is never sent (as RN on iOS).
+- **App layers** (`ZnLayers.swift`, NAV LAYER, host API 9): the window's root is now `ZnRootController`, the back
+  stack plus startApp's `top` layer (the status bar area plus its content, height animated 200 / 250 ms, screens
+  moved down by the content's height with extra safe area so their own padding stays; status bar icons follow the
+  layer's background while it shows) and `overlay` layer (whole window; taps go through where it has nothing
+  tappable).
+- **Found and fixed:** moving the screens changed their safe area for a moment and JS's insets() heard 83 then 59.
+  The root controller (whose safe area never changes) reports insets now.
+- **Checked on the simulator:** layers lab: Fake offline → red "You are offline" strip, white status bar icons, the
+  screen 24 pt lower, insets unchanged; Fake back online → "back", closes after 1.5 s; the overlay's "No Internet"
+  sheet opens over the screen and closes; screen taps work under the overlay. RN props lab: dialog modal (fade, own
+  dim, onShow), "Alert from modal" above it (OK reached JS), close; page modal (slide, white, below the status bar).
+- **Still not on iOS** (lab): Svg, Carousel, onLayout.
+
+### 2026-11-08: iOS i.2, props lab part 2: corners, borders, text styles and spans (Claude, `ios` branch)
+- **Per-corner radii** (start / end beat left / right, else borderRadius) as one uneven rounded shape for the
+  background, border and clip. Images and shimmers clip to a rounded shape by default (RN, Android).
+- **Borders:** width and colour may change at runtime (slots); **borders take space** (content sits inside them,
+  zn flex rule 2: on iOS the content used to sit under the border); dashed / dotted borders and top / bottom lines
+  with RN Android's pattern (dashed 3 widths on, 3 off; dotted 1 and 1).
+- **Text** (`ZnText.swift`): italic, lineHeight (as extra line spacing; RN iOS places it above each line),
+  textDecorationLine with textDecorationStyle (SwiftUI's own dash / dot line patterns), nested <Text> spans
+  (template or slot JSON: colour, size, weight, italic, decoration, letterSpacing, background) and span presses as
+  links (onSpanPress with the index). includeFontPadding is Android-only.
+- **Checked on the simulator (RN props lab):** the green corners box (top-left and bottom-right round), the OTP box's
+  border with its inner box inside it, the dashed pill, the dotted box, the dashed bottom line, "Platform Fee"
+  dashed underline, ₹499 dotted line-through, Terms / Privacy as links ("span terms" reached JS), the bold spans'
+  colour change and the italic "(changed)" piece, tint green → red at runtime.
+- **Still not on iOS** (lab): Svg, Carousel, Modal, app layers, onLayout.
+
+### 2026-11-08: iOS i.2, props lab part 1: transforms, animation, images, shimmer (Claude, `ios` branch)
+- **Transforms** (scale, scaleX / Y, rotate, translateX / Y, each static or a slot) around `transformOrigin`, and
+  opacity, as one layer over the node's background and borders (`ZnLayer` in ZnRenderer.swift; Compose's order:
+  scale, rotate, translate). Checked: the R11 bar is half width from the left edge.
+- **`animate`** (`ZnAnimation.swift`, ZnAnimation.kt's encoding): a value that follows JS animates to each new value
+  with the element's tween (Compose's curves, cubic-bezier, step) or spring (Compose's damping ratio and stiffness)
+  as a SwiftUI animation scoped to that one modifier; a value that plays by itself (`from`, keyframes, repeat,
+  reverse, repeat delay, delay) runs on one shared CADisplayLink, starts when the element appears, again on
+  `replay`, holds on `paused`, and a `from` plays again towards a new resting value. backgroundColor too.
+  Checked: the props lab's 10 s keyframe fill, the animation screen's card (opacity tween, slide spring, bouncy
+  scale), the 300 ms colour and the spring arrow.
+- **`enter` / `exit`:** enter plays once when the element first appears; a removed root with `exit` stays in the
+  store (exiting, takes no taps) until its animation ends, and JS's indexes skip it, as ZnStore.kt does. Checked:
+  the animation screen's demo loop and "Remove first" end with the right chips (`exit: … done, removed` in the log).
+- **`textTransform`** (upper, lower, capitalize by word, no phone locale), **elevation** as a soft shadow under the
+  background (y = elevation / 2, blur = elevation, 20 % of shadowColor; only under a background).
+- **Image:** `asset:` sources (the bundle's `images/` folder is now copied into the app by CMake), http(s), file;
+  src → fallbackSrc → empty, never back; contentScale; tintColor (also at runtime); RN onLoad (pixel size) /
+  onError / onLoadEnd; `loading="shimmer"`. **Shimmer** component: base colour with a sweeping band, every shimmer in
+  step. Checked: the lab's three images (load 16x16, error with a message, end) and the UPI tile's shimmer fill.
+- **Found and fixed (A10):** those image events reached JS before JS had drawn the screen (a local picture loads at
+  once, while the screen is still the pre-JS skeleton) and were dropped. Events wait for JS's first batch now.
+- **Not on iOS yet** (seen in the lab): per-corner radii, borders whose width / colour change at runtime, dashed
+  and dotted borders, text decorations and spans, Svg, Carousel, Modal, app layers. `zn://` image handles.
+
 ### 2026-11-08: iOS i.2, keyboard avoidance (Claude, `ios` branch)
 - **`keyboard: "resize"` (default):** SwiftUI already lays a screen out above the keyboard (its keyboard safe area),
   the same room Android's `imePadding` gives: the Pay button sits on the keyboard. The handoff said content didn't

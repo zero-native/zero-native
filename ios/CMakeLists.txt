@@ -44,6 +44,14 @@ foreach(f IN LISTS bundle_files)
   endif()
 endforeach()
 
+# The bundle's assets (images for `asset:` sources), kept in their folders inside the app.
+file(GLOB_RECURSE asset_files CONFIGURE_DEPENDS "${bundle_dir}/images/*")
+foreach(f IN LISTS asset_files)
+  file(RELATIVE_PATH rel "${bundle_dir}" "${f}")
+  get_filename_component(dir "${rel}" DIRECTORY)
+  set_source_files_properties("${f}" PROPERTIES MACOSX_PACKAGE_LOCATION "${dir}")
+endforeach()
+
 file(GLOB zn_swift CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ZnRuntime/Swift/*.swift")
 add_executable(ZnSample MACOSX_BUNDLE
   ZnRuntime/Host/ZNHost.mm
@@ -51,6 +59,7 @@ add_executable(ZnSample MACOSX_BUNDLE
   ${zn_swift}
   Sample/ZnSampleApp.swift
   ${bundle_files}
+  ${asset_files}
 )
 target_include_directories(ZnSample PRIVATE ZnRuntime/Host)
 target_link_libraries(ZnSample PRIVATE zn_core "-framework QuartzCore")

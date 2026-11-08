@@ -81,7 +81,7 @@ extension ZnApp {
     /// The window's root: the back stack (UIKit), or the SwiftUI comparison variant.
     func makeRootViewController() -> UIViewController {
         switch ZnImpl.nav {
-        case .uiKit: return ZnNavController(app: self)
+        case .uiKit: return ZnRootController(app: self)  // the back stack with startApp's layers (ZnLayers.swift)
         case .swiftUI: return UIHostingController(rootView: ZnRootView(app: self))
         }
     }
@@ -162,6 +162,9 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        // Inside ZnRootController the root reports them: this view's safe area changes for a moment while startApp's
+        // top layer moves the screens (seen 2026-11-08: 83 then 59 reached JS).
+        guard parent == nil else { return }
         let i = view.safeAreaInsets
         let ltr = view.effectiveUserInterfaceLayoutDirection == .leftToRight
         app.reportInsets(top: i.top, bottom: i.bottom, start: ltr ? i.left : i.right, end: ltr ? i.right : i.left)

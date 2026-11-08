@@ -23,6 +23,7 @@ Each entry says:
 | A7 | 2026-11-08 | JS tests | `app-events.test.ts` passes alone but fails in the full `bun test` run on the Mac | open |
 | A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | fixed on ios (ca20a4d; Android side not compiled) |
 | A9 | 2026-11-08 | JS (shared) | `Platform.OS` was hard-coded "android"; `Platform.select` never looked at `ios` | fixed on ios (no Android change expected) |
+| A10 | 2026-11-08 | Events | An event from the first screen's skeleton (drawn before JS) can reach JS before the screen's handlers exist | open on Android (fixed on ios) |
 
 ---
 
@@ -151,3 +152,19 @@ Each entry says:
   `gzip` (OkHttp's header); it now accepts any Accept-Encoding list that has gzip (URLSession sends "gzip, deflate").
 - **Check on Android:** `bun test packages/core/test/rn-basics.test.ts`; on the phone, RN basics lab → Platform
   shows `platform android <sdk> …`; Dev → fetch checks still 27 / 27 (or as many as before).
+
+## A10. Events from the pre-JS skeleton can be dropped
+- **Status:** open on Android; fixed on ios (2026-11-08, the props lab commit). Not seen on the Lava; found on iOS.
+- **Problem:** the first screen is drawn from its template before JS runs (ARCHITECTURE §8.1). If a node in that
+  skeleton sends an event before JS has applied its first batch, JS has no handler yet: it logs
+  `no handler for event N on instance <entry>` and the event is lost. On iOS a local `<Image src="asset:...">`
+  loaded at once and its `onLoad` / `onError` / `onLoadEnd` were dropped this way (RN props lab, images row).
+- **Why it matters:** an app that reacts to `onLoad` / `onError` / `onLayout` on its first screen (hide a
+  placeholder, report a broken picture) would miss it, only at cold start, only when the picture is fast.
+- **Fix on iOS:** `ZnApp.afterJSDrew { … }` holds such events until the first batch is applied
+  (`ios/ZnRuntime/Swift/ZnApp.swift`, used by `ZnImage.swift`).
+- **Check on Android:** likely rare: Coil loads asynchronously and its memory cache is empty at cold start. But
+  `onLayout` and an Image with a disk-cached picture on the first screen could race the same way. Look for
+  `no handler for event` in logcat right after a cold start of a screen with such nodes (RN props lab as the first
+  screen: "Open this lab at next start"); if seen, hold skeleton events in `ZnRuntime` until START's first batch.
+

@@ -16,6 +16,12 @@ final class ChildList {
     var ids: [UInt32] = []
 }
 
+/// A flag views can watch (an instance playing its exit).
+@Observable
+final class ZnFlag {
+    var on = false
+}
+
 /// One mounted template. Not observable itself: its cells and child lists are.
 @MainActor
 final class ZnInstance {
@@ -26,6 +32,10 @@ final class ZnInstance {
     private var cells: [Int: SlotCell] = [:]
     private var anchors: [Int: ChildList] = [:]
     private var lists: [Int: ZnListState] = [:]
+    /// Its root has an `exit` transition (set when drawn): a REMOVE then plays it before the instance goes.
+    var hasExit = false
+    /// JS removed it and its `exit` is playing; it stays in its parent until ZnStore.finishExit.
+    let exiting = ZnFlag()
 
     /// The state of the <List> at node [node] (created on first use).
     func list(_ node: Int) -> ZnListState {
@@ -101,9 +111,16 @@ final class ZnStore {
             for (i, v) in values.enumerated() { inst.slot(i).value = v }
             instances[instance] = inst
             let siblings = self.instance(parent).children(anchor)
-            siblings.ids.insert(instance, at: min(max(index, 0), siblings.ids.count))
+            siblings.ids.insert(instance, at: liveIndex(siblings.ids, index))
         case let .remove(instance):
             if let inst = instances[instance], let parent = instances[inst.parent] {
+                // `exit`: kept on screen while it animates out; finishExit drops it. Not for <List> rows (they
+                // leave because they scrolled away).
+                if inst.hasExit && parent.listOrNil(inst.anchor) == nil && !inst.exiting.on {
+                    inst.exiting.on = true
+                    print("zn t=\(ZnDebug.ms()) exit: \(instance) plays its exit")
+                    return
+                }
                 parent.children(inst.anchor).ids.removeAll { $0 == instance }
                 parent.listOrNil(inst.anchor)?.unbind(instance)  // a <List> row leaving the window
             }
@@ -113,7 +130,7 @@ final class ZnStore {
             let list = parent.children(inst.anchor)
             guard let from = list.ids.firstIndex(of: instance) else { return }
             list.ids.remove(at: from)
-            list.ids.insert(instance, at: min(max(toIndex, 0), list.ids.count))
+            list.ids.insert(instance, at: liveIndex(list.ids, toIndex))
         case let .nav(kind, entry, route, params):
             onNav?(kind, entry, route, params)
         case let .listSet(instance, node, keys, types):
@@ -156,6 +173,26 @@ final class ZnStore {
             if p == 0 { return false }
         }
         return true
+    }
+
+    /// The list position for JS's index [jsIndex]. JS doesn't count children playing their exit (they are gone for
+    /// JS); they keep their place, and a new child goes after any of them at that spot.
+    private func liveIndex(_ siblings: [UInt32], _ jsIndex: Int) -> Int {
+        var live = 0
+        for (i, id) in siblings.enumerated() {
+            if instances[id]?.exiting.on == true { continue }
+            if live == jsIndex { return i }
+            live += 1
+        }
+        return siblings.count
+    }
+
+    /// An instance's exit animation ended (ZnAnimation.swift): now it really goes.
+    func finishExit(_ id: UInt32) {
+        guard let inst = instances[id], inst.exiting.on else { return }
+        print("zn t=\(ZnDebug.ms()) exit: \(id) done, removed")
+        instances[inst.parent]?.children(inst.anchor).ids.removeAll { $0 == id }
+        removeTree(id)
     }
 
     func removeTree(_ id: UInt32) {
