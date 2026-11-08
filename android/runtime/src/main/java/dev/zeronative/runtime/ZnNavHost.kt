@@ -260,7 +260,7 @@ private fun Screens(bundle: ZnBundle, safe: WindowInsets) {
     NavDisplay(
         backStack = ZnNav.stack,
         modifier = Modifier.fillMaxSize().znTestTags(),
-        onBack = { ZnNav.systemBack() },
+        onBack = { ZnNav.navDisplayBack() },
         entryProvider = { entry ->
             NavEntry(entry, contentKey = entry.id, metadata = transitions(entry.route.transition, entry.openedAtStart)) { e ->
                 DisposableEffect(e.id) {

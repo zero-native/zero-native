@@ -440,6 +440,26 @@ object ZnNav {
         }.also { main.postDelayed(it, BACK_TIMEOUT_MS) }
     }
 
+    /**
+     * NavDisplay's own back: a back press, or a predictive back gesture the user finished, on a screen that is not the
+     * only one. A screen that doesn't want Back first (no `useBack` / `BackHandler`, tabs on the first tab: NAV
+     * BACK_WANTED) is popped here at once and JS hears FORCED_BACK, as after the iOS swipe. NavDisplay can then finish
+     * the gesture's slide: when the pop waited for JS, the screen froze where the finger let go (~150 ms on the Lava)
+     * and then jumped to the screen below (2026-11-08). A screen that wants Back never gets here (ZnNavHost's own
+     * BackHandler takes it first); if one does, JS decides, as before.
+     */
+    fun navDisplayBack() {
+        if (ZnRuntime.isRestarting) return
+        val top = stack.lastOrNull() ?: return
+        if (stack.size < 2 || backWanted.containsKey(top.id)) return systemBack()
+        // A press JS hasn't answered yet: this pop replaces its fallback, which would pop one more screen.
+        backFallback?.let(main::removeCallbacks)
+        backFallback = null
+        stack.removeAt(stack.lastIndex)
+        release(top.id)
+        ZnRuntime.dispatchEvent(APP, EVENT_FORCED_BACK, top.id.u32())
+    }
+
     /** Applies one NAV op. Runs inside [ZnStore.apply]'s snapshot, so the whole batch shows in one frame. */
     internal fun apply(op: BatchOp.Nav) {
         when (op.kind) {

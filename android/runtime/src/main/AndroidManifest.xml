@@ -25,4 +25,11 @@
             <data android:scheme="tel" />
         </intent>
     </queries>
+
+    <!-- Predictive back on every Android version that has it (13+), not only on Android 16, where apps that target
+         36 get it anyway. One behaviour to test: a screen without useBack / BackHandler shows the back preview and
+         is popped by native when the gesture ends; one with a handler shows none and JS decides (ZnNav.navDisplayBack,
+         A8). The manifest merger copies this into the app. An app that must turn it off writes
+         android:enableOnBackInvokedCallback="false" with tools:replace="android:enableOnBackInvokedCallback". -->
+    <application android:enableOnBackInvokedCallback="true" />
 </manifest>

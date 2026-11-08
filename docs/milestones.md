@@ -2706,3 +2706,11 @@ Gemini built them (step note in `docs/cross-communication/`). Review found and f
     (a screen drew parts of another, or Compose threw "infinity maximum height"); it now runs the dev build's JS.
   - Checked: Kotlin tests + lint, 1288 JS tests, emulator screen compare against main (no change outside the cases),
     Lava LayoutLab 48/48 and the List / chat checks.
+- 2026-11-08 (night): the iOS branch is in main (fast-forward to 3f2272d: iOS i.1-i.2, i.4 groundwork and scanner,
+  registry 23 read on iOS, A8 back handlers). Android checks of it: JS 1291/1291, Kotlin tests, lint, LayoutLab 50/50
+  on the Lava after one fix (c29a: a fixed width / height ignored its own min / max; znClampSize), A8 on the sample
+  and in ZeroBill `.dev` with gesture navigation (Pavan: 6 of 6). Then predictive back (second-opinions 184): the
+  runtime's manifest turns it on for Android 13+, and NavDisplay's back pops a screen without a handler natively
+  (`ZnNav.navDisplayBack`); before, the screen froze where the finger let go (~150 ms, waiting for JS) and then
+  jumped. Checked on the Lava (Android 14, gestures): preview on Dev, none on the guarded amount screen, Discard /
+  Keep, sheet first, tabs, exit from the last screen; Pavan checked the feel ("just like in ios now").

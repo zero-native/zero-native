@@ -189,7 +189,7 @@ useBack(() => {
   runs before the tabs' "go to the first tab" (§40).
 - Make your on-screen ← button do the same thing (`if (!handler()) nav.back()`), so both behave alike.
 - **A handler turns off the native back gesture for its screen** (since 2026-11-08, A8): while a screen has a
-  `useBack` / `BackHandler`, the iOS swipe doesn't follow the finger and Android 14+ shows no predictive preview;
+  `useBack` / `BackHandler`, the iOS swipe doesn't follow the finger and Android 13+ shows no predictive preview;
   the gesture goes to your handler as a plain Back, and the screen leaves only if you let it. So **register the
   handler only while it would keep the screen**: put it in a part that is shown only then, e.g.
   `{amount() !== "0" && <DiscardGuard />}` with `useBack` inside `DiscardGuard`. A screen without handlers keeps the
@@ -199,6 +199,12 @@ useBack(() => {
 - The last screen's back goes to the system (the app moves to the background) unless the screen has a handler or
   shows a tab other than the first (§40); then Back goes to JS. A root screen with `useBack` is now asked (before
   2026-11-08 it wasn't), and it loses Android's predictive "back to home" while the handler is there.
+- **Android predictive back is on in every zero-native app** (2026-11-08): the runtime's manifest sets
+  `enableOnBackInvokedCallback="true"`, and the manifest merger copies it into your app. Android 13+ then shows the
+  back preview on screens without a handler (before, only Android 16 did, for apps that target 36). When the gesture
+  ends, native pops the screen at once and JS hears it afterwards (FORCED_BACK), as after the iOS swipe; your screen
+  code sees no difference. To turn it off, write `android:enableOnBackInvokedCallback="false"` with
+  `tools:replace="android:enableOnBackInvokedCallback"` on your `<application>`.
 
 ## 8. Lifetimes: timers and cleanup
 - A timer (`setTimeout` / `setInterval`) created in a screen body, a component body, or a tap handler of one is

@@ -21,7 +21,7 @@ Each entry says:
 | A5 | 2026-11-08 | Core build | Shared core assumed Android: `posix_fallocate`, MMKV headers, `liblog` | fixed on ios (736b8eb) |
 | A6 | 2026-11-08 | FlowStore | Without space reservation, the first write of a key rewrote the whole file and could fail on a full disk | fixed on ios (736b8eb) |
 | A7 | 2026-11-08 | JS tests | `app-events.test.ts` passes alone but fails in the full `bun test` run on the Mac | open |
-| A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | fixed on ios (ca20a4d; Android side not compiled) |
+| A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 13+ predictive back) cannot respect `useBack` | fixed; Android checked on the Lava 2026-11-08 (in main; predictive back on, second-opinions 184) |
 | A9 | 2026-11-08 | JS (shared) | `Platform.OS` was hard-coded "android"; `Platform.select` never looked at `ios` | fixed on ios (no Android change expected) |
 | A10 | 2026-11-08 | Events | An event from the first screen's skeleton (drawn before JS) can reach JS before the screen's handlers exist | not seen on Android (fixed on ios) |
 | A11 | 2026-11-08 | Layout | New layout conformance screen to run on the Lava; `alignSelf: "stretch"` doesn't stretch on Android when `alignItems` doesn't; onLayout x / y inside padding; maxWidth on a stretched child | open: Android 42 / 48, fixes wait for Pavan |
@@ -115,6 +115,10 @@ Each entry says:
 ## A8. Back gestures that animate before JS answers skip `useBack`
 - **Status:** fixed on ios, **not committed, Android side not compiled** (2026-11-08). Not seen on Android before the
   fix: the Lava uses 3-button navigation, and predictive back was never tested.
+  **Update (2026-11-08 night, Windows session):** in main, compiled and checked on the Lava with gesture navigation
+  (sample and ZeroBill `.dev`). Predictive back was off on Android 13-15 (no `enableOnBackInvokedCallback`; only
+  Android 16 turns it on for target 36), so the runtime's manifest now turns it on, and screens without a handler are
+  popped natively when the gesture ends (`ZnNav.navDisplayBack`, second-opinions 184).
 - **Fix as built:** `packages/core/src/nav.ts` sends NAV BACK_WANTED (existing kind 10, no host API change) for any
   screen while it has an app handler (`useBack`, `BackHandler`) or its tabs want Back (tabs' own handler doesn't
   count: `useBackUncounted`); once per change, after a screen build ends, never for a closed screen. JS tests: 1166

@@ -2805,3 +2805,21 @@ change, and what evidence would make you change it?"
   **Android: not compiled here**; checks in `android-issues-found-when-building-ios.md` A8.
 - **Risk if wrong:** an app with a handler on every screen gets no native back gestures anywhere (works, feels less
   native). A root screen with `useBack` now catches Back instead of leaving the app.
+
+## 184. Predictive back on for Android 13+; native pops a screen without a back handler (runtime, 2026-11-08; Opus)
+- **Problem:** our apps target SDK 36 and never chose. Android 16 then turns predictive back on by itself; Android 13-15
+  leave it off unless the app opts in. So Back looked and behaved differently by Android version, and the Android 16
+  path was never tested. With it on, NavDisplay's onBack (a finished gesture) sent BACK to JS and waited for its POP:
+  the screen froze where the finger let go (~150 ms on the Lava), then jumped to the screen below.
+- **Chosen:** (1) the runtime's AndroidManifest.xml sets `<application android:enableOnBackInvokedCallback="true"/>`;
+  the manifest merger puts it in every app (an app opts out with tools:replace). (2) `ZnNav.navDisplayBack`: on a
+  screen that doesn't want Back first (no NAV BACK_WANTED), native pops at once and sends FORCED_BACK, the path the
+  iOS swipe and the 300 ms fallback already use (JS closes the entry, a waiting pushForResult gets null). Screens with
+  a handler keep A8: ZnNavHost's BackHandler takes Back first, no preview, JS decides.
+- **Cost / difference:** JS now hears FORCED_BACK, not BACK, for a plain Back on a screen without a handler (also with
+  3-button navigation). Nothing in JS listens to BACK for such screens. A press JS hasn't answered yet loses its
+  fallback timer (the native pop replaces it).
+- **Option not taken:** keep predictive back off everywhere (`false`): one line, but Google calls it temporary, and
+  the iOS-like gesture is what ZeroBill wants.
+- **Not verified:** an Android 16 phone; the finish after the lift is quick (1-2 frames on the Lava's recording)
+  rather than a full slide, and Pavan judged it fine.
