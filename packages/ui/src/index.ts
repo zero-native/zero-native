@@ -552,12 +552,50 @@ export declare const Shimmer: Intrinsic<
     period?: number
   }
 >
+/** The same shapes as core's canvas types (packages/core/src/canvas.ts). Colours: a colour string or an ARGB number. */
+type CanvasColor = string | number
+interface CanvasLinearGradient { x0: number; y0: number; x1: number; y1: number; colors: CanvasColor[]; stops?: number[] }
+interface CanvasRadialGradient { cx: number; cy: number; r: number; colors: CanvasColor[]; stops?: number[] }
+interface CanvasPaint {
+  color?: CanvasColor
+  style?: "fill" | "stroke"
+  strokeWidth?: number
+  strokeCap?: "butt" | "round" | "square"
+  strokeJoin?: "miter" | "round" | "bevel"
+  dash?: number[]
+  opacity?: number
+  linearGradient?: CanvasLinearGradient
+  radialGradient?: CanvasRadialGradient
+}
+interface CanvasTextOptions {
+  fontSize?: number
+  fontWeight?: number | "normal" | "bold"
+  color?: CanvasColor
+  align?: "left" | "center" | "right"
+}
+type CanvasCommand =
+  | { type: "rect"; x: number; y: number; w: number; h: number; paint?: CanvasPaint }
+  | { type: "roundRect"; x: number; y: number; w: number; h: number; r: number; paint?: CanvasPaint }
+  | { type: "circle"; cx: number; cy: number; r: number; paint?: CanvasPaint }
+  | { type: "oval"; x: number; y: number; w: number; h: number; paint?: CanvasPaint }
+  | { type: "line"; x1: number; y1: number; x2: number; y2: number; paint?: CanvasPaint }
+  | { type: "arc"; x: number; y: number; w: number; h: number; start: number; sweep: number; useCenter?: boolean; paint?: CanvasPaint }
+  | { type: "path"; d: string; paint?: CanvasPaint }
+  | { type: "text"; text: string; x: number; y: number; options?: CanvasTextOptions }
+  | { type: "save" }
+  | { type: "restore" }
+  | { type: "translate"; dx: number; dy: number }
+  | { type: "scale"; sx: number; sy?: number }
+  | { type: "rotate"; degrees: number; px?: number; py?: number }
+  | { type: "clipRect"; x: number; y: number; w: number; h: number }
 /**
- * A native 2D drawing canvas (registry 23). Draws shapes, paths, text and gradients from a command array in the draw phase only.
+ * A native 2D drawing canvas (registry 23). Draws shapes, paths, text and gradients from a command list, in the draw
+ * phase only. Build the list with core's `draw.*` helpers; `null` and `false` entries are skipped. Units are dp. A
+ * string is sent as it is: use only a string literal, with colours as ARGB numbers (docs/components.md §14).
  */
 export declare const Canvas: Intrinsic<
   Base & {
-    commands?: unknown
+    commands?: readonly (CanvasCommand | null | undefined | false)[] | string
   }
 >
 /**
@@ -884,7 +922,9 @@ export interface ListRef {
   scrollToOffset(options: ListScrollToOffsetOptions): void
 }
 
-export declare function listController(): ListController & ListRef
+// listController() is a runtime function, so it lives in @zero-native/core: import { listController } from
+// "@zero-native/core". The compiler removes every @zero-native/ui import, so a value from here would not exist at
+// runtime (B2 in the 2026-11-08 review: the RN props lab threw ReferenceError). Only the types stay here.
 
 /**
  * React Native's Modal (registry 15): a full-screen window over the app, in which you draw your own content (a

@@ -136,8 +136,12 @@ export {
 export { onError, type ErrorInfo, type ErrorKind } from "./errors"
 export { Updates, type ApplyRefused, type UpdateCheckResult, type UpdateStatus } from "./updates"
 export {
+  canvasJson,
   draw,
+  MAX_CANVAS_COMMANDS,
+  type CanvasColor,
   type CanvasCommand,
+  type CanvasEntry,
   type CanvasLinearGradient,
   type CanvasPaint,
   type CanvasRadialGradient,
