@@ -44,7 +44,7 @@ struct ZnStackLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         var size = CGSize.zero
         for sv in subviews where sv[ZnAbsoluteKey.self] == nil {
-            let s = sv.sizeThatFits(proposal)
+            let s = sv.sizeThatFits(znPercentOffer(sv, proposal))
             size.width = max(size.width, s.width)
             size.height = max(size.height, s.height)
         }
@@ -58,7 +58,7 @@ struct ZnStackLayout: Layout {
         let (bx, by) = bias
         for sv in subviews {
             guard let a = sv[ZnAbsoluteKey.self] else {
-                let s = sv.sizeThatFits(ProposedViewSize(width: w, height: h))
+                let s = sv.sizeThatFits(znPercentOffer(sv, ProposedViewSize(width: w, height: h)))
                 sv.place(at: CGPoint(x: bounds.minX + bx * (w - s.width), y: bounds.minY + by * (h - s.height)),
                          anchor: .topLeading, proposal: ProposedViewSize(width: s.width, height: s.height))
                 continue
@@ -70,7 +70,7 @@ struct ZnStackLayout: Layout {
             let offer = ProposedViewSize(
                 width: fillW ? fullW : a.fixedWidth ? nil : w,
                 height: fillH ? fullH : a.percentHeight ? h : nil)
-            var s = sv.sizeThatFits(offer)
+            var s = sv.sizeThatFits(znPercentOffer(sv, offer))
             if fillW { s.width = fullW }
             if fillH { s.height = fullH }
             let x = a.start ?? a.end.map { w - s.width - $0 } ?? bx * (w - s.width)

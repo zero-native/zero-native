@@ -125,7 +125,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
 | i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, Svg, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, Svg, layout conformance (46 / 46), native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
 
@@ -146,6 +146,23 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.2, layout conformance (Claude, `ios` branch)
+- **The check** (ARCHITECTURE §9.5): `examples/sample/src/LayoutLab.tsx`, route `layoutLab`. 26 text-free layouts
+  with fixed sizes covering the zn flex rules (stretch and its limits, flex shares, gap, every justifyContent,
+  alignItems / alignSelf, percent of the content box, margins, borders taking space, min / max, aspectRatio, Stack
+  stretch, absolute insets, R29, R44). Each measured node reports onLayout; JS compares 46 frames with the rules'
+  frames (1 dp) and logs `layout-conformance …`. The same bundle checks both renderers; no screenshots (text and
+  pixels differ by design), no native test code.
+- **Found and fixed on iOS** (first run 41 / 46): percent sizes filled the parent instead of taking the fraction
+  (now resolved by the parent layout, as fillMaxWidth(fraction): a size the child itself took would be taken again
+  when the parent places it, 90 → 45); maxWidth / maxHeight didn't limit a stretched child; aspectRatio was ignored;
+  `alignSelf: "stretch"` didn't stretch in a Column whose alignItems doesn't (RN does; Android likely has the same
+  gap, A11).
+- **Checked on the simulator:** 46 / 46; the props lab and the amount screen unchanged. JS tests 1167 pass, 1 known
+  fail (A7).
+- **Android:** not run here. A11 says how to run it on the Lava and the two misses the Kotlin suggests (alignSelf
+  stretch; onLayout x / y in a padded parent).
+
 ### 2026-11-08: iOS i.2, Svg (Claude, `ios` branch)
 - **Draw data** (`ZnSvgData.swift`): the compiler's format v1 read as Android's SvgScanner reads it (same tokens and
   checks): viewBox and preserveAspectRatio, gradients (linear, radial, focal), animated stops, clips, filters,

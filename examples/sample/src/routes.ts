@@ -27,6 +27,7 @@ import { TabsLabScreen } from "./TabsLab"
 import { PdfLabScreen } from "./PdfLab"
 import { LocationLabScreen } from "./LocationLab"
 import { RnPropsLabScreen } from "./RnPropsLab"
+import { LayoutLabScreen } from "./LayoutLab"
 import { RnNamesLabScreen } from "./RnNamesLab"
 import { CrashlyticsLabScreen } from "./CrashlyticsLab"
 import { PushLabScreen } from "./PushLab"
@@ -80,6 +81,7 @@ export const routes = defineRoutes({
   pdfLab: { path: "/dev/pdf", screen: PdfLabScreen, deepLink: true },
   locationLab: { path: "/dev/location", screen: LocationLabScreen, deepLink: true },
   rnPropsLab: { path: "/dev/rn-props", screen: RnPropsLabScreen, deepLink: true },
+  layoutLab: { path: "/dev/layout", screen: LayoutLabScreen, deepLink: true },
   rnNamesLab: { path: "/dev/rn-names", screen: RnNamesLabScreen, deepLink: true },
   crashlyticsLab: { path: "/dev/crashlytics", screen: CrashlyticsLabScreen, deepLink: true },
   pushLab: { path: "/dev/push", screen: PushLabScreen, deepLink: true },

@@ -412,6 +412,14 @@ final class ZnNodeSpec {
 
     var isPressable: Bool { type == Registry.Component.pressable }
 
+    /// Percent width / height as fractions, for the parent layout (ZnPercentKey).
+    var percent: ZnPercent {
+        var p = ZnPercent()
+        if case .percent(let f) = width { p.width = f }
+        if case .percent(let f) = height { p.height = f }
+        return p
+    }
+
     /// "x y" fractions → a pivot; else the centre (parseTransformOrigin in ZnTemplate.kt).
     static func parseOrigin(_ s: String?) -> UnitPoint {
         let parts = (s ?? "").split(separator: " ").compactMap { Double($0) }

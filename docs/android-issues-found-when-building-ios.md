@@ -24,6 +24,7 @@ Each entry says:
 | A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | fixed on ios (ca20a4d; Android side not compiled) |
 | A9 | 2026-11-08 | JS (shared) | `Platform.OS` was hard-coded "android"; `Platform.select` never looked at `ios` | fixed on ios (no Android change expected) |
 | A10 | 2026-11-08 | Events | An event from the first screen's skeleton (drawn before JS) can reach JS before the screen's handlers exist | open on Android (fixed on ios) |
+| A11 | 2026-11-08 | Layout | New layout conformance screen to run on the Lava; `alignSelf: "stretch"` likely doesn't stretch on Android when `alignItems` doesn't | open (run the screen) |
 
 ---
 
@@ -167,4 +168,28 @@ Each entry says:
   `onLayout` and an Image with a disk-cached picture on the first screen could race the same way. Look for
   `no handler for event` in logcat right after a cold start of a screen with such nodes (RN props lab as the first
   screen: "Open this lab at next start"); if seen, hold skeleton events in `ZnRuntime` until START's first batch.
+
+## A11. Layout conformance: run it on Android; alignSelf stretch
+- **Status:** open. The screen is new (shared sample); iOS passes 46 / 46. Not run on Android (no SDK on this Mac).
+- **What it is:** `examples/sample/src/LayoutLab.tsx`, route `layoutLab` (deep link `zn://sample/dev/layout`). 26
+  small layouts with fixed sizes, one or more per zn flex rule (docs/styling-and-layout.md §5): each measured node
+  reports its frame through onLayout and JS compares it with the frame the rules give (1 dp tolerance). It logs
+  `layout-conformance FAIL <id> expected x,y,w,h got x,y,w,h` per miss, then `layout-conformance <n>/<total> pass`,
+  and shows the same on screen. No text in the cases, so both platforms must match exactly.
+- **Likely failures on Android** (read from the Kotlin, not run):
+  1. **c19b, alignSelf stretch:** `ZnColumn` stretches a child only when the Column's `alignItems` is unset or
+     `stretch` (`stretch && … && (alignSelf == -1 || alignSelf == STRETCH)`), so in an `alignItems: "flex-start"`
+     Column a child with `alignSelf: "stretch"` and no width gets width 0. RN stretches it. Fix in
+     `android/runtime/.../ZnRenderer.kt` ZnColumn: `stretched = definiteWidth && child.width == null && child.type
+     != SPACER && (child.alignSelf == STRETCH || (child.alignSelf == -1 && (s.alignItems == -1 || s.alignItems ==
+     STRETCH)))`. iOS has this fix (ZnRenderer.swift childLayout).
+  2. **c10a, x / y in a padded parent:** RN's onLayout x / y are from the parent's top-left, its padding included
+     (10, 10 here). `znOnLayout` uses `positionInParent()`, which may be measured from the parent's content box
+     (inside its padding) and give 0, 0. If so, add the parent's padding (and border) or measure from the parent's
+     outer box.
+- **Also noted:** case 26 (a Row with a height and `alignItems` unset doesn't stretch) follows android/runtime; RN
+  would stretch. Written into docs/platform-differences.md next to the Row stretch line.
+- **Check on Android:** `bun run sample:js`, install the sample, open `zn://sample/dev/layout`, read the
+  `layout-conformance` lines in logcat (`adb logcat -s zn-js`). Expected after the fixes: `46/46 pass`. Any other
+  miss is either an Android layout difference or a wrong expectation in LayoutLab.tsx: say which in this entry.
 

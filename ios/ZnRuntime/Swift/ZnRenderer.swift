@@ -188,6 +188,7 @@ struct ZnNodeView: View {
                            outer: ZnOuter(fillWidth: stretched || fillW, fillHeight: fillH),
                            definiteWidth: stretched || child.width != nil || fillW)
                     .layoutValue(key: ZnAbsoluteKey.self, value: child.absolute ? ZnAbsolute(child) : nil)
+                    .layoutValue(key: ZnPercentKey.self, value: child.percent)
                     .zIndex(child.zIndex ?? 0)
             }
         }
@@ -206,6 +207,7 @@ struct ZnNodeView: View {
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node, outer: outer, definiteWidth: childDefinite)
                     .layoutValue(key: ZnFlexKey.self, value: child.flex)
                     .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
+                    .layoutValue(key: ZnPercentKey.self, value: child.percent)
                     .zIndex(child.zIndex ?? 0)  // R23: a row with zIndex draws its tooltip over the rows after it
             }
         }
@@ -216,8 +218,9 @@ struct ZnNodeView: View {
         let selfStretch = child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.stretch
         if vertical {
             // zn flex rule 4: a Column stretches children without a width only when its own width is definite.
-            let stretched = (definiteWidth || s.width != nil) && stretchAll && child.width == nil &&
-                child.type != Registry.Component.spacer && selfStretch
+            // alignSelf stretch stretches even when alignItems doesn't (RN; layout conformance case 19).
+            let stretched = (definiteWidth || s.width != nil) && child.width == nil && child.type != Registry.Component.spacer &&
+                (child.alignSelf == Registry.AlignSelf.stretch || (stretchAll && selfStretch))
             return (ZnOuter(fillWidth: stretched, fillHeight: child.flex > 0), stretched || child.width != nil)
         }
         // A Row stretches children only when it has a fixed height.
@@ -232,15 +235,58 @@ struct ZnSizeFrame: ViewModifier {
     let outer: ZnOuter
     let alignment: Alignment
 
+    /// Set sizes in points, with aspectRatio giving the other side from the one that is set (width / height = ratio).
+    private func points() -> (CGFloat?, CGFloat?, CGFloat?, CGFloat?) {
+        var w: CGFloat? = if case .points(let v) = s.width { v } else { nil }
+        var h: CGFloat? = if case .points(let v) = s.height { v } else { nil }
+        let wf: CGFloat? = if case .percent(let f) = s.width { f } else { nil }
+        let hf: CGFloat? = if case .percent(let f) = s.height { f } else { nil }
+        if let r = s.aspectRatio, r > 0 {
+            if let ww = w, h == nil, hf == nil { h = ww / r } else if let hh = h, w == nil, wf == nil { w = hh * r }
+        }
+        return (w, h, wf, hf)
+    }
+
     func body(content: Content) -> some View {
-        let w: CGFloat? = if case .points(let v) = s.width { v } else { nil }
-        let h: CGFloat? = if case .points(let v) = s.height { v } else { nil }
-        let fillW = (outer.fillWidth && s.width == nil) || { if case .percent = s.width { true } else { false } }()
-        let fillH = (outer.fillHeight && s.height == nil) || { if case .percent = s.height { true } else { false } }()
+        let (w, h, wf, hf) = points()
+        // A percent fills what its parent offers (the parent takes the fraction: ZnPercentKey).
+        let fillW = (outer.fillWidth && s.width == nil) || wf != nil
+        let fillH = (outer.fillHeight && s.height == nil) || hf != nil
+        // A fill (stretch, flex) still stops at maxWidth / maxHeight.
         content
             .frame(width: w, height: h, alignment: alignment)
-            .frame(minWidth: s.minWidth, maxWidth: fillW ? .infinity : s.maxWidth,
-                   minHeight: s.minHeight, maxHeight: fillH ? .infinity : s.maxHeight, alignment: alignment)
+            .frame(minWidth: s.minWidth, maxWidth: fillW ? s.maxWidth ?? .infinity : s.maxWidth,
+                   minHeight: s.minHeight, maxHeight: fillH ? s.maxHeight ?? .infinity : s.maxHeight, alignment: alignment)
+            .modifier(ZnRatioFrame(ratio: w == nil && h == nil && wf == nil && hf == nil ? s.aspectRatio : nil))
+    }
+}
+
+/// An aspectRatio with neither side set: the width the parent offers (a stretch, a flex) gives the height. Asking again
+/// with the size it answered gives the same size, so a re-proposal at placement is safe.
+struct ZnRatioFrame: ViewModifier {
+    let ratio: CGFloat?
+
+    func body(content: Content) -> some View {
+        if let ratio, ratio > 0 { ZnRatioLayout(ratio: ratio) { content } } else { content }
+    }
+}
+
+struct ZnRatioLayout: Layout {
+    let ratio: CGFloat
+
+    private func size(_ p: ProposedViewSize, _ child: LayoutSubview) -> CGSize {
+        if let w = p.width, w.isFinite { return CGSize(width: w, height: w / ratio) }
+        let fit = child.sizeThatFits(p)
+        return CGSize(width: fit.width, height: fit.width / ratio)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        return size(proposal, child)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 

@@ -11,6 +11,21 @@ import SwiftUI
 
 struct ZnFlexKey: LayoutValueKey { static let defaultValue: CGFloat = 0 }
 struct ZnAlignSelfKey: LayoutValueKey { static let defaultValue: Int = -1 }
+/// A percent width / height (fractions; zn flex rule 5): the parent offers that much of its content box, and the
+/// child fills what it is offered. Resolved by the parent, as a re-proposal at placement must not take it again.
+struct ZnPercentKey: LayoutValueKey { static let defaultValue: ZnPercent = ZnPercent() }
+struct ZnPercent: Equatable {
+    var width: CGFloat?
+    var height: CGFloat?
+}
+
+/// [p] with a child's percent sizes taken of it.
+func znPercentOffer(_ sv: LayoutSubview, _ p: ProposedViewSize) -> ProposedViewSize {
+    let pc = sv[ZnPercentKey.self]
+    guard pc.width != nil || pc.height != nil else { return p }
+    return ProposedViewSize(width: pc.width.flatMap { f in p.width.map { $0.isFinite ? $0 * f : $0 } } ?? p.width,
+                            height: pc.height.flatMap { f in p.height.map { $0.isFinite ? $0 * f : $0 } } ?? p.height)
+}
 
 struct ZnFlexLayout: Layout {
     var vertical: Bool
@@ -47,7 +62,9 @@ struct ZnFlexLayout: Layout {
             let w = sv[ZnFlexKey.self]
             if w > 0 && mainAvail != nil { weights += w; continue }
             let left = mainAvail.map { max(0, $0 - used) }
-            let s = sv.sizeThatFits(offer(main: left, cross: crossAvail))
+            let pc = sv[ZnPercentKey.self]
+            let pm = vertical ? pc.height : pc.width
+            let s = sv.sizeThatFits(znPercentOffer(sv, offer(main: pm != nil ? mainAvail : left, cross: crossAvail)))
             sizes[i] = s
             used += main(s)
         }

@@ -6,7 +6,7 @@ Add a row whenever a test needs a tolerance or a rule differs by platform.
 
 | Area | Difference | Why | Status |
 |---|---|---|---|
-| `alignItems: 'stretch'` in `Row` | Only applies when the Row has a fixed height; otherwise acts as `flex-start` (RN stretches always) | Stretching to an unknown height needs intrinsic measurement, which is slow | decided |
+| `alignItems: 'stretch'` in `Row` | Only applies when the Row has a fixed height and `alignItems: 'stretch'` is written; unset acts as `flex-start` even with a height (RN stretches always). Checked by the layout conformance screen (case 26) | Stretching to an unknown height needs intrinsic measurement, which is slow | decided |
 | `flexShrink`, `flexBasis`, `alignContent` | Not supported (build error) | No cheap mapping to Compose / SwiftUI layout | decided |
 | Shadows | Android uses elevation shadows: `shadowColor` / `shadowOffset` are approximated | Compose `shadow()` is elevation-based | decided |
 | Text metrics | Line height, font metrics and wrapping may differ by 1–2 px | Different native text engines | tolerance set by conformance tests |
