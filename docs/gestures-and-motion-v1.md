@@ -15,7 +15,8 @@ proved by a **lab screen in the sample app**, built only from public foundations
 Android / iOS traps, and its "five pillars" (environment and size values, 2D anchors with magnets, `follow` springs,
 the full draw-phase target set, gesture-scrubbed morphs). Draft 1 is in git history (3224b2f).
 
-Status: **plan only, nothing built.** Numbers (registry 24, host API 10) are proposals. Estimates are guesses.
+Status: **built on Android (2026-11-09), phases 1–3.** What changed from this plan is in §5 "As built" and in
+`docs/motion.md` (the reference). Registry 24 and the `Motion` module 1; host API stays 9. iOS: `docs/motion.md` §14.
 
 ---
 

@@ -84,6 +84,10 @@ export function DevScreen() {
           <Entry title="Motion: cards and stories" step="M.1" detail="Swipe cards (tilt, LIKE / NOPE, fly out), story viewer (timelines, tap zones, hold to pause, drag down to close)" onOpen={() => nav.push("motionCardsLab")} />
           <Entry title="Motion: photo and chart" step="M.1" detail="Zoom photo (pinch + drag + double tap together), chart you can scrub with a crosshair" onOpen={() => nav.push("motionMediaLab")} />
           <Entry title="Motion: feed" step="M.1" detail="Swipe actions on list rows (Archive / Delete, long swipe deletes), bottom panel with a scrolling list inside" onOpen={() => nav.push("motionFeedLab")} />
+          <Entry title="Motion: layout" step="M.1" detail="Expanding cards that push the rest down, rows removed and moved, every enter / exit preset, animated ₹ counters, a coach tip placed by measure()" onOpen={() => nav.push("motionLayoutLab")} />
+          <Entry title="Motion: sheets and tabs" step="M.1" detail="Tab underline that follows the pages, sheet with backdrop and header that follow it, input bar on the keyboard, A–Z side bar for a list" onOpen={() => nav.push("motionSheetsLab")} />
+          <Entry title="Motion: screens" step="M.1" detail="Store photo that flies to the next screen and back, drag-to-reorder list, chips dropped on Keep / Archive" onOpen={() => nav.push("motionScreensLab")} />
+          <Entry title="Motion: extension" step="M.1" detail="Tilt card, dot moved by a plugin, wobble curve, plugin view drawn from a motion value, frame counter, drag with a manual start" onOpen={() => nav.push("motionExtensionLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

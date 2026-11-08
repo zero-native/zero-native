@@ -49,6 +49,10 @@ import { MotionPayLabScreen } from "./MotionPayLab"
 import { MotionFeedLabScreen } from "./MotionFeedLab"
 import { MotionMediaLabScreen } from "./MotionMediaLab"
 import { MotionCardsLabScreen } from "./MotionCardsLab"
+import { MotionLayoutLabScreen } from "./MotionLayoutLab"
+import { MotionSheetsLabScreen } from "./MotionSheetsLab"
+import { MotionScreensDetailScreen, MotionScreensLabScreen } from "./MotionScreensLab"
+import { MotionExtensionLabScreen } from "./MotionExtensionLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -107,6 +111,13 @@ export const routes = defineRoutes({
   motionFeedLab: { path: "/dev/motion/feed", screen: MotionFeedLabScreen, deepLink: true },
   motionMediaLab: { path: "/dev/motion/media", screen: MotionMediaLabScreen, deepLink: true },
   motionCardsLab: { path: "/dev/motion/cards", screen: MotionCardsLabScreen, deepLink: true },
+  motionLayoutLab: { path: "/dev/motion/layout", screen: MotionLayoutLabScreen, deepLink: true },
+  // The sheets lab sets keyboard "none": its input bar moves up by env.keyboardHeight itself.
+  motionSheetsLab: { path: "/dev/motion/sheets", screen: MotionSheetsLabScreen, deepLink: true, keyboard: "none" },
+  motionScreensLab: { path: "/dev/motion/screens", screen: MotionScreensLabScreen, deepLink: true },
+  // The store page of the screens lab: the photo of the tapped store flies here (sharedTag). Full-bleed, light status bar icons.
+  motionScreensDetail: { path: "/dev/motion/screens/detail", screen: MotionScreensDetailScreen, safeArea: { top: false }, statusBar: "light" },
+  motionExtensionLab: { path: "/dev/motion/extension", screen: MotionExtensionLabScreen, deepLink: true },
   imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
 })
 

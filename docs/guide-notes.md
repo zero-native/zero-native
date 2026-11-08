@@ -2640,7 +2640,8 @@ feed.scrollToOffset({ offset: 0 })                   // back to the top
 - `display: "none"` takes no room and no gap in its Row or Column.
 - `flexShrink` / `flexBasis` must be known at build time (zero-native drops 0 / 1 and 0 / "auto"; others are build errors).
 - `alignSelf: "stretch"` now stretches in a Column, Stack or Scroll whose `alignItems` is `center` or `flex-start`, and
-  in a Row with a fixed height (2026-11-08, A11-1). A full-width button inside a centred column works as in RN.
+  in a Row with a fixed height (2026-11-08, A11-1). An absolute Row pinned `top` and `bottom` counts as a fixed height
+  too (2026-11-09): buttons behind a swipe row fill its height. A full-width button inside a centred column works as in RN.
 - A `maxWidth` beats a stretch or `width: "100%"` (A11-3): `{ width: "100%", maxWidth: 420 }` gives a dialog card that
   is full width on a phone and 420 dp on a tablet. The box sits at the start of the room it was given; centre it with
   the parent's `alignItems: "center"` if you want it centred.

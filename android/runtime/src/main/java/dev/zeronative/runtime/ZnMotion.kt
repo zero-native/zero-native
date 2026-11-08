@@ -1,5 +1,8 @@
 package dev.zeronative.runtime
 
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
+import androidx.compose.animation.core.SpringSpec
 import android.provider.Settings
 import android.util.Log
 import androidx.compose.animation.core.Animation
@@ -169,15 +172,44 @@ internal class ZnFormulaSource(id: Int, private val f: ZnFormula) : ZnSource(id)
 }
 
 /** `follow(source, spring)`: chases [src] with spring physics, keeping its speed when the target moves (§2.1). */
-internal class ZnFollowSource(id: Int, private val src: ZnSource, private val spring: ZnTimingSpec) : ZnSource(id) {
+internal class ZnFollowSource(id: Int, private val src: ZnSource, timing: ZnTimingSpec) : ZnSource(id) {
     private val v = ZnValue(-id, src.read(null))
+    // A spring that chases the source frame by frame, keeping its speed. (Restarting an animation on each change, as
+    // before 2026-11-09, never moved while the source moved every frame: each restart spent its frame starting.) A
+    // duration or a driver becomes a critically damped spring that settles in about that time.
+    private val spec: SpringSpec<Float> = if (timing.ms >= 0 || timing.driver != null) {
+        val sec = (if (timing.ms > 0) timing.ms else 300) / 1000f
+        val w = 6.6f / sec
+        spring(1f, w * w, 0.001f)
+    } else spring(timing.ratio, timing.stiffness, 0.001f)
     private val job: Job = ZnMotion.scope.launch {
-        snapshotFlow { src.read(null) }.collectLatest { target ->
-            v.animate(target, spring)
+        while (isActive) {
+            // Asleep until the source moves away from where this rests.
+            snapshotFlow { src.read(null) }.first { kotlin.math.abs(it - v.value) > REST || kotlin.math.abs(v.velocity) > REST }
+            var last = withFrameNanos { it }
+            while (isActive) {
+                val now = withFrameNanos { it }
+                val dt = (now - last).coerceIn(0L, 50_000_000L) // a long pause (a busy main thread) doesn't jump
+                last = now
+                val target = src.read(null)
+                if (!target.isFinite()) continue
+                val a = TargetBasedAnimation(spec, Float.VectorConverter, v.value, target, v.velocity)
+                v.value = a.getValueFromNanos(dt)
+                v.velocity = a.getVelocityFromNanos(dt)
+                if (kotlin.math.abs(v.value - target) < REST && kotlin.math.abs(v.velocity) < REST * 10f) {
+                    v.value = target
+                    v.velocity = 0f
+                    break
+                }
+            }
         }
     }
     override fun read(site: ZnSite?): Float = v.read(site)
     override fun dispose() = job.cancel()
+
+    private companion object {
+        const val REST = 0.001f
+    }
 }
 
 /**
@@ -223,10 +255,13 @@ internal class ZnTimingSpec(
 
 /** Runs [anim] on this value frame by frame. Returns true if it ran to the end. Keeps the velocity it reached. */
 internal suspend fun ZnValue.run(anim: Animation<Float, AnimationVector1D>, clampAt: Float? = null): Boolean {
-    val start = withFrameNanos { it }
+    // The first frame already moves (as if it started one frame ago). Before 2026-11-09 the first frame only read the
+    // start time, so a value retargeted every frame (resting on an anchor while the keyboard opens) never moved.
+    var start = -1L
     val from = value
     while (true) {
         val done = withFrameNanos { now ->
+            if (start < 0) start = now - FRAME_NANOS
             val t = now - start
             val v = anim.getValueFromNanos(t)
             velocity = anim.getVelocityFromNanos(t)
@@ -244,6 +279,8 @@ internal suspend fun ZnValue.run(anim: Animation<Float, AnimationVector1D>, clam
     velocity = 0f
     return true
 }
+
+private const val FRAME_NANOS = 16_666_667L
 
 /** Moves to [to] with [t], starting from where it is and at the speed it has. */
 internal suspend fun ZnValue.animate(to: Float, t: ZnTimingSpec): Boolean {

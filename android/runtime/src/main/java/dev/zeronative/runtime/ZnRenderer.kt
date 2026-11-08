@@ -209,7 +209,10 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             ) {
                 // zn flex rule 4: a Row stretches children only when it has a fixed height, and then only with
                 // alignItems or alignSelf "stretch" (an unset alignItems doesn't, a zn rule: platform-differences.md).
-                val definiteHeight = s.height is Double || s.heightSlot >= 0
+                // An absolute Row pinned top and bottom has a set height too, as in RN (like R44's width; 2026-11-09:
+                // swipe-row buttons behind a row were a thin strip at its top).
+                val pinnedH = s.absolute && (s.top != null || s.topSlot >= 0) && (s.bottom != null || s.bottomSlot >= 0)
+                val definiteHeight = s.height is Double || s.heightSlot >= 0 || pinnedH
                 for (ref in shownRefs(f, t, inst, s)) key(ref.key) {
                     val child = ref.template.nodes[ref.node]
                     var m: Modifier = Modifier

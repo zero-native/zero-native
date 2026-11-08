@@ -124,9 +124,14 @@ internal class ZnReorder(
         swapIfOver()
     }
 
+    /** The layout a swap was decided on: until the list lays out again its positions are old, so no second swap. */
+    private var swappedOn: Any? = null
+
     /** When the dragged row's centre is over another row, they swap places in the shown order. */
     private fun swapIfOver() {
         val key = dragged ?: return
+        // Two touch events can come in one frame; the second would see the old places and swap the rows back.
+        if (swappedOn === state.layoutInfo) return
         val me = item(key) ?: return
         val centre = me.offset + translation() + me.size / 2f
         val other = state.layoutInfo.visibleItemsInfo.firstOrNull {
@@ -142,6 +147,7 @@ internal class ZnReorder(
         val next = o.toMutableList()
         next.add(to, next.removeAt(from))
         order = next.toIntArray()
+        swappedOn = state.layoutInfo
         if (first == me.index || first == other.index) scope.launch { state.scrollToItem(first, firstOffset) }
         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
     }
