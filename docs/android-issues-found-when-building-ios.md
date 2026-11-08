@@ -23,8 +23,9 @@ Each entry says:
 | A7 | 2026-11-08 | JS tests | `app-events.test.ts` passes alone but fails in the full `bun test` run on the Mac | open |
 | A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | fixed on ios (ca20a4d; Android side not compiled) |
 | A9 | 2026-11-08 | JS (shared) | `Platform.OS` was hard-coded "android"; `Platform.select` never looked at `ios` | fixed on ios (no Android change expected) |
-| A10 | 2026-11-08 | Events | An event from the first screen's skeleton (drawn before JS) can reach JS before the screen's handlers exist | open on Android (fixed on ios) |
-| A11 | 2026-11-08 | Layout | New layout conformance screen to run on the Lava; `alignSelf: "stretch"` likely doesn't stretch on Android when `alignItems` doesn't | open (run the screen) |
+| A10 | 2026-11-08 | Events | An event from the first screen's skeleton (drawn before JS) can reach JS before the screen's handlers exist | not seen on Android (fixed on ios) |
+| A11 | 2026-11-08 | Layout | New layout conformance screen to run on the Lava; `alignSelf: "stretch"` doesn't stretch on Android when `alignItems` doesn't; onLayout x / y inside padding; maxWidth on a stretched child | open: Android 42 / 48, fixes wait for Pavan |
+| A12 | 2026-11-08 | zn dev | A reload that adds a screen draws it from another screen's template | open (found on Android; iOS has no `zn dev` yet) |
 
 ---
 
@@ -155,7 +156,11 @@ Each entry says:
   shows `platform android <sdk> …`; Dev → fetch checks still 27 / 27 (or as many as before).
 
 ## A10. Events from the pre-JS skeleton can be dropped
-- **Status:** open on Android; fixed on ios (2026-11-08, the props lab commit). Not seen on the Lava; found on iOS.
+- **Status:** not seen on Android (2026-11-08, Android session on the Lava: three cold starts into the RN props lab,
+  every event arrived, no `no handler for event` lines); fixed on ios (the props lab commit). Keep the Android code
+  as it is unless it shows up.
+- **Shared difference from RN, seen on both runtimes:** onLayout can fire twice with the same frame for one node
+  (RN sends it once per change). Harmless for the lab; an app that counts onLayout calls would see it.
 - **Problem:** the first screen is drawn from its template before JS runs (ARCHITECTURE §8.1). If a node in that
   skeleton sends an event before JS has applied its first batch, JS has no handler yet: it logs
   `no handler for event N on instance <entry>` and the event is lost. On iOS a local `<Image src="asset:...">`
@@ -200,4 +205,26 @@ Each entry says:
 - **Check on Android:** `bun run sample:js`, install the sample, open `zn://sample/dev/layout`, read the
   `layout-conformance` lines in logcat (`adb logcat -s zn-js`). Expected after the fixes: `48/48 pass` (46 before c27 and c28 were added). Any other
   miss is either an Android layout difference or a wrong expectation in LayoutLab.tsx: say which in this entry.
+- **Run on Android (2026-11-08, Android session, Lava, branch `opus/parity-fixes`, before any fix): 42 / 48.**
+  - c10a expected 10,10,90,10 got 0,0,90,10 and c12a expected 4,4,10,10 got 0,0,10,10: item 2 above confirmed,
+    x / y are measured inside the parent's padding and border.
+  - c19b (Column) expected 0,10,200,10 got 0,10,0,10; c27a (Stack) expected 0,0,200,10 got 100,0,0,10; c28a (Row
+    height) expected 0,0,50,40 got 0,0,50,0: item 1 above, in all three containers.
+  - **New, A11-3:** c13a expected 0,0,80,10 got 0,0,200,10. On a stretched child `fillMaxWidth` is applied outside
+    its `widthIn(max = …)`, so `maxWidth` is ignored. On `main` too (not from that branch's changes). iOS passes it.
+    Fix: apply the max inside, i.e. the size limits before the fill (or clamp the stretched width to maxWidth).
+  - None of these is used by ZeroBill (no alignSelf, onLayout or maxWidth there), so none blocks its release. The
+    fixes are Pavan's call, in their own commit, re-run until 48 / 48.
 
+## A12. zn dev: a reload that adds a screen draws it from another screen's template
+- **Status:** open. Found by the Android session (2026-11-08, Lava) and not looked into; not tried on iOS.
+- **Problem:** with `zn dev` running, adding a new screen and reloading drew that screen as a blank page showing
+  another lab's text ("status: ready"). It looks like the template table kept the old component numbers, so the new
+  screen's number points at an old template.
+- **Why it matters:** dev only (a fresh install is fine), but it makes a new screen look broken and wastes time.
+- **Likely place:** how the dev reload replaces the template table (compiler output → runtime): template ids are
+  numbered in compile order, so adding a component shifts them; the runtime must drop the whole old table on reload,
+  not merge by id. Check the dev server's reload path in `tools/` and both runtimes' template load.
+- **Check:** start `zn dev` on the sample, add a screen with a route and a visible text, save, open it: it must show
+  its own text. iOS has no `zn dev` yet (i.2), so it can't hit this today; whatever the fix, iOS's reload must
+  follow it when it gets one.
