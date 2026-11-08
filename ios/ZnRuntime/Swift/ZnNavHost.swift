@@ -140,7 +140,11 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             return
         }
         let vcs = stack.map { entry in
-            screens[entry] ?? {
+            screens[entry] ?? (app.route(of: entry)?.native).map { name in
+                let vc = app.nativeScreen(name, entry: entry, params: app.nativeParams[entry] ?? nil)
+                screens[entry] = vc
+                return vc
+            } ?? {
                 let vc = ZnScreenController(rootView: ZnEntryScreen(app: app, entry: entry))
                 vc.lightStatusBar = app.route(of: entry)?.lightStatusBar ?? false
                 vc.view.backgroundColor = .white

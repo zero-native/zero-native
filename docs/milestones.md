@@ -146,6 +146,26 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.4 groundwork, plugins, native screens and views (Claude, `ios` branch)
+- **Plugins** (`ZnPlugins.swift`, ZnPlugins.kt's shape): `ZnPlugins.register(ScannerPlugin())` before ZnApp.start;
+  a plugin adds modules, native screens and native views; a taken name or a too-new host API fails it (debug: stops,
+  release: skipped). The sample's `Sample/*.swift` are now globbed by CMake.
+- **Native screens:** a route with `native: "<plugin>.<name>"` pushes the plugin's UIViewController in the back stack
+  (no template). `ZnScreenScope`: params, `finish(value)` (first answer only), `cancel()` (as Back). The answer is saved
+  in the "zn.launch" store (record format of ZnLaunch.kt) before NAV_RESULT (app event 12) reaches JS; JS closes the
+  screen and acks.
+- **NativeView:** the plugin's UIView sized by the node; `ZnViewScope`: props (again on change, `onProps`), `emit`.
+- **Native storage** (`ZNStorage` in ZNHost.h/.mm): the JS stores from native code, same value format, its own
+  zn::Storage on the same folder (as ZnStorage.kt). **Launches** module: `ack` (the rest, opening another app, is i.4).
+- **Sample test plugin** (`ios/Sample/DeviceTestPlugin.swift`, as DeviceTestPlugin.kt): "device.fake-screen" and
+  "device.fake-view" (its Device module stays Android-only).
+- **Checked on the simulator (Core lab):** the view shows its prop, follows "Change view prop" ("view says two") and
+  its tap reaches JS ("view event: tapped two"); "Open native screen" (pushForResult, title "Pay") → "Finish twice" →
+  "answer: first", screen closed; Cancel → "answer: null"; "Push native screen" (no promise) → Finish → onNavResult
+  "nav result: abc".
+- **Not yet:** activity events and JS error / batch listeners for plugins, packaging a plugin's iOS code (Swift package
+  per plugin), the real plugins (scanner, image viewer, …).
+
 ### 2026-11-08: iOS i.2, Tabs, pull to refresh, a Fetch bug (Claude, `ios` branch)
 - **Tabs** (`ZnTabsRefresh.swift`): only the child at `selected` (static or a slot) shows, filling the container; a
   tab is built when first shown, and hidden tabs keep their views (hidden, out of the hit test and VoiceOver), so

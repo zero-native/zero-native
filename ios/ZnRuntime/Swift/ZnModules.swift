@@ -177,10 +177,15 @@ enum ZnModules {
     /// Registers a module (built-in ones in `installBuiltIns`; an app's own before the app starts).
     static func register(_ m: ZnModule) { lock.withLock { modules[m.name] = m } }
 
+    /// A module of this name is registered (built-in or a plugin's).
+    static func has(_ name: String) -> Bool { lock.withLock { modules[name] != nil } }
+
     /// The built-in modules, and the host's call and cancel paths. Main thread, before JS starts.
     @MainActor static func install() {
         for m: ZnModule in [ZnPlatformFacts(), ZnOs(), ZnNetInfo(), ZnSecureStore(), ZnClipboard(), ZnFetch.shared,
-                             ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash()] { register(m) }
+                             ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash(), ZnLaunch()] where !has(m.name) {
+            register(m)
+        }
         let host = ZNHost.shared
         host.onNativeCall = { module, method, argsJson, id, bytes in
             call(module, method, argsJson, id, bytes)

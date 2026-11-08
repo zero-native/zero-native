@@ -161,6 +161,9 @@ struct ZnNodeView: View {
             ZnListView(ctx: ctx, inst: inst, s: s)
         case Registry.Component.textField:
             ZnTextFieldView(ctx: ctx, s: s, inst: inst)
+        case Registry.Component.nativeView:
+            ZnNativeViewNode(ctx: ctx, s: s, inst: inst,
+                             props: s.viewPropsSlot >= 0 ? inst.slot(s.viewPropsSlot).value.string : s.viewProps)
         case Registry.Component.tabs:
             ZnTabsView(ctx: ctx, t: t, inst: inst, s: s)
         case Registry.Component.otpInput:

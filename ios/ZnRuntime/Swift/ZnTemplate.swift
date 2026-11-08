@@ -186,6 +186,12 @@ final class ZnNodeSpec {
     let size: CGFloat?
     let onValueChange: Int
 
+    // NativeView (docs/plugins.md §4)
+    let viewName: String?
+    let viewProps: String?
+    let viewPropsSlot: Int
+    let onNativeEvent: Int
+
     // Carousel
     let autoAdvanceMs: Int
     let pauseAfterTouchMs: Double
@@ -397,6 +403,10 @@ final class ZnNodeSpec {
         thumbColor = znColor(p[P.thumbColor]); activeColor = znColor(p[P.activeColor])
         self.size = num(P.size)
         onValueChange = eventFor(Registry.Event.onValueChange)
+        viewName = p[P.viewName]?.string
+        viewProps = p[P.viewProps]?.string
+        viewPropsSlot = slotFor(P.viewProps)
+        onNativeEvent = eventFor(Registry.Event.onNativeEvent)
         autoAdvanceMs = Int(num(P.autoAdvance) ?? 0)
         pauseAfterTouchMs = Double(num(P.pauseAfterTouch) ?? 3000)
         dots = p[P.dots]?.bool ?? false

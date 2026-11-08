@@ -12,6 +12,8 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let env = ProcessInfo.processInfo.environment
+        // Plugins first, before the bundle runs (docs/plugins.md).
+        ZnPlugins.register(DeviceTestPlugin())
         ZnApp.shared.start(bundle: Bundle.main.resourceURL!,
                            routeName: env["ZN_ROUTE"] ?? "amount",
                            params: env["ZN_PARAMS"] ?? "{\"merchantId\":\"m1\"}")

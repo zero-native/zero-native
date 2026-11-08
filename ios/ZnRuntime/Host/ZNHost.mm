@@ -9,6 +9,7 @@
 #include <string>
 
 #include "zn/runtime.h"
+#include "zn/storage.h"
 
 static os_log_t znLog() {
   static os_log_t log = os_log_create("dev.zeronative", "zn");
@@ -252,6 +253,40 @@ class IosPlatform final : public zn::Platform {
                                  encoding:NSUTF8StringEncoding];
   }
   [self dispatchEvent:0 event:7 string:json];  // CALL_RESULT (ZnAppEvent.kt)
+}
+
+@end
+
+@implementation ZNStorage
+
+static zn::Storage& nativeStorage() {
+  static zn::Storage storage(privateDir(@"zn-storage"), [](int level, std::string_view message) {
+    os_log(znLog(), "storage (%d): %{public}@", level, toNS(message));
+  });
+  return storage;
+}
+
++ (BOOL)set:(NSString*)store key:(NSString*)key string:(NSString*)value {
+  std::string v = toStd(value);
+  std::vector<uint8_t> tagged;
+  tagged.reserve(v.size() + 1);
+  tagged.push_back(static_cast<uint8_t>(zn::StoredType::String));
+  tagged.insert(tagged.end(), v.begin(), v.end());
+  return nativeStorage().set(toStd(store), toStd(key), tagged);
+}
+
++ (NSString*)string:(NSString*)store key:(NSString*)key {
+  auto blob = nativeStorage().get(toStd(store), toStd(key));
+  if (!blob || blob->empty() || (*blob)[0] != static_cast<uint8_t>(zn::StoredType::String)) return nil;
+  return [[NSString alloc] initWithBytes:blob->data() + 1 length:blob->size() - 1 encoding:NSUTF8StringEncoding];
+}
+
++ (BOOL)remove:(NSString*)store key:(NSString*)key {
+  return nativeStorage().remove(toStd(store), toStd(key));
+}
+
++ (void)flush:(NSString*)store {
+  nativeStorage().flush(toStd(store));
 }
 
 @end

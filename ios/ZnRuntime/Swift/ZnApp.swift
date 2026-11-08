@@ -18,6 +18,8 @@ struct ZnRoute {
     let lightStatusBar: Bool
     /// keyboard "resize" (default): the screen ends above the keyboard; "none": the keyboard covers it.
     let resizeForKeyboard: Bool
+    /// A plugin's native screen ("<plugin>.<name>", ZnPlugins.swift), or nil for a zn screen.
+    let native: String?
 
     init(json r: [String: Any]) {
         name = r["name"] as? String ?? ""
@@ -30,12 +32,13 @@ struct ZnRoute {
         }
         lightStatusBar = (r["statusBar"] as? String) == "light"
         resizeForKeyboard = (r["keyboard"] as? String) != "none"
+        native = r["native"] as? String
     }
 }
 
 /// App-level events to JS (instance 0), as in ZnAppEvent.kt.
 enum ZnAppEvent {
-    static let start = 1, back = 2, forcedBack = 3, insets = 5, callResult = 7, appState = 11, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
+    static let start = 1, back = 2, forcedBack = 3, insets = 5, callResult = 7, appState = 11, navResult = 12, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
 }
 
 @MainActor
@@ -199,8 +202,14 @@ final class ZnApp {
         print("zn t=\(ZnDebug.ms()) nav: kind \(kind) entry \(entry) route \(route) → stack \(stack)")
         switch kind {
         case NavKind.push:
-            guard let r = routes[safe: route], let t = ctx.templates[safe: r.screen] else { return }
-            store.mountRoot(id: entry, templateId: r.screen, template: t)
+            guard let r = routes[safe: route] else { return }
+            if r.native != nil {
+                // A plugin's screen: no template; its params go to the plugin (ZnPlugins.swift).
+                nativeParams[entry] = params
+            } else {
+                guard let t = ctx.templates[safe: r.screen] else { return }
+                store.mountRoot(id: entry, templateId: r.screen, template: t)
+            }
             entryRoutes[entry] = r
             stack.append(entry)
         case NavKind.remove:
@@ -252,6 +261,22 @@ final class ZnApp {
     }
 
     /// A back gesture that JS decides (ZN_IOS_SWIPE=ask): BACK with the entry native has on top.
+    /// A native screen's params (the push's), by entry.
+    @ObservationIgnored private(set) var nativeParams: [UInt32: String?] = [:]
+
+    /// A native screen answered (ZnScreenScope.finish): saved under "nav.<route>" before JS hears NAV_RESULT, and JS
+    /// closes the screen (it owns the stack). Only the screen on top can answer.
+    func answer(entry: UInt32, value: String) {
+        guard stack.last == entry, let route = entryRoutes[entry] else {
+            return print("zn nav: \(entry) answered but isn't on top; dropped")
+        }
+        let id = "\(entry).\(Int(Date().timeIntervalSince1970 * 1000))"
+        ZnLaunch.saveScreenResult("nav.\(route.name)", id: id, value: value)
+        let payload = ZnModules.json(["entry": entry, "route": route.name, "id": id]) ?? "{}"
+        print("zn t=\(ZnDebug.ms()) nav: \(route.name) answered → JS")
+        host.dispatchEvent(0, event: UInt16(ZnAppEvent.navResult), string: payload)
+    }
+
     func systemBack() {
         guard let top = stack.last else { return }
         print("zn nav: BACK to JS for \(top)")

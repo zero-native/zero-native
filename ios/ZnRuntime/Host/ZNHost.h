@@ -52,4 +52,16 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+/// App storage from native code (docs/storage.md, ZnStorage.kt): the same stores JS uses through `storage` /
+/// `createStorage(id)`, with the same value format, through its own zn::Storage on the same folder (MMKV keeps one
+/// instance per store per process, with its own lock). Main thread only.
+@interface ZNStorage : NSObject
++ (BOOL)set:(NSString*)store key:(NSString*)key string:(NSString*)value;
+/// The string under [key], or nil if missing or not a string.
++ (nullable NSString*)string:(NSString*)store key:(NSString*)key;
++ (BOOL)remove:(NSString*)store key:(NSString*)key;
+/// Forces the store to flash (survives a power cut too).
++ (void)flush:(NSString*)store;
+@end
+
 NS_ASSUME_NONNULL_END

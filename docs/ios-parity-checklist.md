@@ -42,7 +42,7 @@ ZnAppEvent.kt and NAV kind in ZnNav.kt against ZnApp.swift.
 | 14 | Sheet | partial | §2 | No onDetentChange, no animateIn, sheet colour and radius fixed. |
 | 15 | Fragment | done | | |
 | 16 | TextField | partial | §2 | 8 props missing (autoComplete, editable, placeholderColor, ...). |
-| 17 | NativeView | missing | M | Needs plugin loading (§4) first. viewName, viewProps, onNativeEvent, ref. ZnNativeViews.kt. |
+| 17 | NativeView | done | | ZnPlugins.swift: viewName, viewProps (and its slot), onNativeEvent. A view hears covered / closed through UIKit's window changes. |
 | 18 | Svg | done | | Filters draw only a drop shadow (§2). |
 | 19 | SvgPart | done | | |
 | 20 | Switch | done | | ZnSwitch.kt → ZnControls.swift (2f1d6d3). |
@@ -143,7 +143,7 @@ Android's built-in modules (ZnModules.kt `init`) plus storage. iOS registers the
 | Splash (1) | hold, release | partial | M | Both answer `false` (no splash to hold). iOS shows the skeleton at once instead. So `Splash.holdUntil` (ZeroBill's QR cold start: wait for /init, lift straight onto checkout) does nothing: Home shows, then checkout slides in. Fix: keep a launch-screen view over the window until ready or maxMs. |
 | Storage | JS `storage` / `createStorage` | partial | S | JS storage works (C++ core + MMKV, `storageDir` in ZNHost.mm). The native API for app and plugin code (ZnStorage.kt: `store(id).get/set/keys/...`) has no Swift version. |
 | Updates (3) | status, markHealthy, check, applyNow, hold, event `Updates` | missing | §4 | OTA. |
-| Launches (1) | ack, event `result` | missing | §4 | Launches. |
+| Launches (1) | ack, event `result` | partial | §4 | `ack` done (native screens' answers); launching another app is i.4. |
 | Tasks (1) | done, app event TASK | missing | §4 | Background tasks. |
 | Platform (iOS only) | constants | iOS extra | | Tells JS it runs on iOS before any code runs (A9). |
 
@@ -173,9 +173,9 @@ Totals: 15 modules. Done 10, partial 2, missing 3 (sized in §4). Sized here: 1 
 | Accessibility semantics | ZnTemplate.kt `accessibilitySemantics`, ZnPress.kt | missing | §2 | |
 | Autofill | ZnAutofill.kt | missing | §2 | TextField autoComplete. |
 | `zn://` handles | ZnHandles.kt | missing | M | Loader per kind, off the main thread. Android's `app-icon` kind (installed apps' icons) can't exist on iOS. |
-| Native views | ZnNativeViews.kt | missing | §1 | NativeView. |
-| Native screens (route `native`, NAV_RESULT event 12, answer saved before JS hears it) | ZnNativeScreens.kt, ZnNavHost.kt NativeScreen, ZnNav.kt answer | missing | M | Needed for scanner.full and imageviewer.full. |
-| Plugins loading (modules, views, screens, activity events, host call, JS error and batch listeners, register before bundle choice) | ZnPlugins.kt, ZnActivity.kt, ZnRuntime.kt (addJsErrorListener, addBatchListener) | missing | L (1.5 d) | Also how an iOS plugin is packaged and linked into the CMake build. |
+| Native views | ZnNativeViews.kt | done | | ZnPlugins.swift. |
+| Native screens (route `native`, NAV_RESULT event 12, answer saved before JS hears it) | ZnNativeScreens.kt, ZnNavHost.kt NativeScreen, ZnNav.kt answer | done | | ZnPlugins.swift, ZnApp.answer: a UIViewController per entry. |
+| Plugins loading (modules, views, screens, activity events, host call, JS error and batch listeners, register before bundle choice) | ZnPlugins.kt, ZnActivity.kt, ZnRuntime.kt (addJsErrorListener, addBatchListener) | partial | M | Modules, screens, views, host API check done (ZnPlugins.swift). Missing: activity events, JS error and batch listeners, packaging a plugin's iOS code (today the app compiles it). |
 | Registry claim vs what iOS draws | Registry.swift, Readers.swift | partial | S | iOS says it knows registry 22 and accepts Tabs, OtpInput, NativeView, StatusBar templates, then draws them as nothing in release. Fine while bundles ship inside the app; once iOS has OTA its capability manifest must not claim what it can't draw. |
 | A push before NAV STARTED comes in with no slide (`openedAtStart`, also while the splash is held) | ZnNav.kt, ZnNavHost.kt | missing | S | iOS animates any push once a screen is there. NAV STARTED is ignored. |
 | Screens kept until their exit transition ends | ZnNavHost.kt | partial | S | iOS frees a removed screen after a fixed 0.6 s ("spike" in ZnApp.swift). |
@@ -184,7 +184,7 @@ Totals: 15 modules. Done 10, partial 2, missing 3 (sized in §4). Sized here: 1 
 | Back stack, transitions, safeArea, keyboard option, route statusBar option, BACK / FORCED_BACK, BACK_WANTED (A8), app layers | ZnNav.kt, ZnNavHost.kt | done | | |
 | System bars per route | ZnNavHost.kt BarIcons | done | | StatusBar element: §1. |
 | Splash hold | ZnSplash.kt | partial | §3 | |
-| Storage native API | ZnStorage.kt | partial | §3 | |
+| Storage native API | ZnStorage.kt | partial | §3 | ZNStorage (ZNHost.h): strings, remove, flush. No numbers / booleans / bytes / keys yet. |
 | NAV EXIT (leave the app) | ZnNav.kt | n/a | | iOS apps don't exit themselves. |
 | Predictive back, BACK_ANSWERED fallback timer | ZnNav.kt, ZnNavHost.kt | n/a | | iOS back is the swipe (A8). |
 | Main-process check | ZnProcess.kt | n/a | | One process on iOS. App extensions would need a shared container, not this. |
