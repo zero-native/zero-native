@@ -368,7 +368,7 @@ object ZnNav {
         Log.i(TAG, "nav: a new Activity without saved state while the app still runs (closed from recents?): starting fresh")
         firstScreensUp = false // the old screens go; a splash hold waits for the new ones (ZnSplash)
         ZnOta.startFresh(link) {
-            ZnRuntime.restart { result, attach ->
+            val onLoaded: (EvalResult, () -> Unit) -> Unit = { result, attach ->
                 resetForReload()
                 ZnStore.resetForReload()
                 ZnImpressions.resetForReload()
@@ -376,6 +376,10 @@ object ZnNav {
                 start(bundle, link)
                 if (!result.ok) startFailed(result.value)
             }
+            // Debug builds after a `zn dev` reload: the dev build's JS, to match its templates (A12). Else the
+            // running bundle's own JS.
+            val devJs = ZnDev.devBytecode
+            if (devJs != null) ZnRuntime.reload(devJs, onLoaded) else ZnRuntime.restart(onLoaded)
         }
     }
 

@@ -146,6 +146,444 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.4, the scanner plugin (Claude, `ios` branch)
+- **plugins/scanner/ios** (ScannerCamera.swift, ScannerPlugin.swift), as the Android plugin: module `Scanner`
+  (`available`), the full screen `scanner.full` and the view `scanner.qr`, with the same params, props, events, texts
+  and defaults. AVFoundation: AVCaptureSession, a preview layer, AVCaptureMetadataOutput (iOS's own reader, no
+  download). The same rules: codes ignored for 500 ms from the first frame of each start; the first code locks (only
+  `scanKey` releases it); torch off when the camera stops, a view's torch held until its prop goes false then true;
+  zoom clamped to the camera's range, pinch on by default; the camera off when covered, in the background or gone.
+  The screen: shade with a cut-out, corner marks, a moving line, title, hint, link button (http / https only), torch
+  and close buttons; permission and "can't start" messages over the whole page.
+- **iOS differences:** `autoZoom` is ignored (AVFoundation has no "zoom to this code"); iOS asks once, so refused is
+  `blocked` (Settings button) and not yet asked is `denied`; a UPC-A comes as an EAN-13 starting with 0 and is named
+  `upca` only when the app asked for upca and not ean13. The plugin's Swift is compiled into the app (CMake glob of
+  `plugins/scanner/ios/*.swift`); packaging a plugin's iOS code is still open.
+- **Debug hook:** the simulator has no camera. In a debug build with no camera, the launch environment
+  `ZN_SCANNER_FAKE=<code>` makes the scanner read that code (format qr) after the warm-up
+  (`ZN_SCANNER_FAKE='upi://…' bun run tools/ios-sample.ts --route scannerLab --params '{}'`).
+- **Checked on the simulator:** dressed full screen answered `upi://pay?pa=ravi@upi&am=120 qr`; the view sent
+  `permission granted`, `scanned`, and scanned again after "Scan again"; without the fake: the iOS dialog, Don't
+  Allow → "Camera is off / Open settings", Close → answer null; allowed with no camera → "Camera can't start" over the
+  page, Close on top.
+- **Not checked:** real camera reads, torch, zoom and pinch, the haptic (no iPhone with the device platform here).
+
+### 2026-11-08: iOS i.2, alignSelf stretch in Stack and Row (Claude, `ios` branch)
+- From the Android session's reading of A11: `alignSelf: "stretch"` didn't stretch in a Stack or a Row whose
+  `alignItems` doesn't (iOS had the Column fix only). Fixed in ZnRenderer.swift (stack, childLayout); two new
+  conformance cases, c27 (Stack) and c28 (Row with a height). iOS 48 / 48. LayoutLab.tsx and A11 sent to the Android
+  session (it runs the screen on the Lava; fixes there wait for Pavan).
+
+### 2026-11-08: iOS i.4 groundwork, plugins, native screens and views (Claude, `ios` branch)
+- **Plugins** (`ZnPlugins.swift`, ZnPlugins.kt's shape): `ZnPlugins.register(ScannerPlugin())` before ZnApp.start;
+  a plugin adds modules, native screens and native views; a taken name or a too-new host API fails it (debug: stops,
+  release: skipped). The sample's `Sample/*.swift` are now globbed by CMake.
+- **Native screens:** a route with `native: "<plugin>.<name>"` pushes the plugin's UIViewController in the back stack
+  (no template). `ZnScreenScope`: params, `finish(value)` (first answer only), `cancel()` (as Back). The answer is saved
+  in the "zn.launch" store (record format of ZnLaunch.kt) before NAV_RESULT (app event 12) reaches JS; JS closes the
+  screen and acks.
+- **NativeView:** the plugin's UIView sized by the node; `ZnViewScope`: props (again on change, `onProps`), `emit`.
+- **Native storage** (`ZNStorage` in ZNHost.h/.mm): the JS stores from native code, same value format, its own
+  zn::Storage on the same folder (as ZnStorage.kt). **Launches** module: `ack` (the rest, opening another app, is i.4).
+- **Sample test plugin** (`ios/Sample/DeviceTestPlugin.swift`, as DeviceTestPlugin.kt): "device.fake-screen" and
+  "device.fake-view" (its Device module stays Android-only).
+- **Checked on the simulator (Core lab):** the view shows its prop, follows "Change view prop" ("view says two") and
+  its tap reaches JS ("view event: tapped two"); "Open native screen" (pushForResult, title "Pay") → "Finish twice" →
+  "answer: first", screen closed; Cancel → "answer: null"; "Push native screen" (no promise) → Finish → onNavResult
+  "nav result: abc".
+- **Not yet:** activity events and JS error / batch listeners for plugins, packaging a plugin's iOS code (Swift package
+  per plugin), the real plugins (scanner, image viewer, …).
+
+### 2026-11-08: iOS i.2, Tabs, pull to refresh, a Fetch bug (Claude, `ios` branch)
+- **Tabs** (`ZnTabsRefresh.swift`): only the child at `selected` (static or a slot) shows, filling the container; a
+  tab is built when first shown, and hidden tabs keep their views (hidden, out of the hit test and VoiceOver), so
+  scroll positions and fields come back as they were (Android: a SaveableStateHolder).
+- **Pull to refresh** on a vertical Scroll and a List (flat props, or RN's refreshControl, which the compiler turns
+  into the same props): iOS's own UIRefreshControl, as Android draws Android's disc, with Android's controlled
+  contract: a pull sends onRefresh and shows the spinner; JS's `refreshing` then decides; no `refreshing` within 1 s
+  ends it; `refreshing` alone shows it; no onRefresh, no pull. refreshColor tints it (refreshBackground has no iOS
+  counterpart).
+- **Found and fixed (Fetch):** several fetches started together (the tabs lab loads four tabs at once) got one
+  answer: `session` was a lazy property made on the call threads, so each call made its own URLSession, whose task ids
+  all start at 1, and the answers overwrote each other (one came back with another request's label). The session is
+  made once at start now, and requests are kept by task object, not id. Fetch checks still 27 / 27.
+- **Checked on the simulator (tabs lab, with tools/fetch-test-server.ts):** all four tabs load (badges 40 / 40 /
+  ₹22.1k+); Pay (a Scroll) pull → spinner → "refresh pay start … done 1" → spinner gone; Stores (a List with
+  refreshControl) the same; tab switches.
+
+### 2026-11-08: iOS i.2, OtpInput (Claude, `ios` branch)
+- `ZnOtpInput.swift`, as ZnOtpInput.kt: one hidden UITextField (no text colour, no caret, caret kept at the end)
+  over the boxes holds the code, so typing, paste, the keyboard's SMS code autofill (`.oneTimeCode`, on unless
+  `autoComplete` says otherwise) and ref.setValue all go through it. Same theme parsing and defaults
+  (react-native-otp-entry's), the same character filter (other scripts' digits to 0-9, the rest skipped), onChangeText /
+  onFilled, blurOnFilled, disabled (read only, setValue ignored), invalid (error style), secure dots, placeholder,
+  autoFocus (after the slide), `ref` focus / blur / clear, left to right always, one VoiceOver element with
+  "2 of 4 digits".
+- **Checked on the simulator (OTP lab):** typing "93"; "SMS 4821" → change 4821, filled 4821, blur; "Wrong OTP" →
+  red boxes; "Clear + focus" → change "" and focus; the 6-box default with "•" placeholders; the hidden alphanumeric
+  one: "a-B 9cZ" kept "aB9cZ", filled, drawn as dots; the numeric one kept only "9" of the same text.
+- iOS difference: a secure OtpInput's hidden field isn't secure (the boxes draw the dots), as a secure field would
+  turn off the SMS code autofill.
+
+### 2026-11-08: iOS i.2, two bugs from the parity checklist (Claude, `ios` branch)
+- **A runtime `disabled` on a Pressable was ignored** (ZnPress.swift read only the template's): the amount screen's
+  Pay button (`disabled={!active()}`) fired at ₹0. Now read from its slot (`ZnNodeSpec.disabledNow`). Checked: Pay at
+  ₹0 does nothing (no tap, no press-out); after a digit it fires.
+- **A Scroll's padding sat around the scroll view**, so content was clipped at the padding and couldn't scroll into
+  it. It is inside the scrolling content now, as Android's content padding; the scroll view keeps only its border
+  inset. Checked: the input screen's 16 pt sides unchanged.
+
+### 2026-11-08: iOS i.2, Switch, Checkbox, Spinner, Progress (Claude, `ios` branch)
+- `ZnControls.swift`: drawn as android/runtime draws them (one zn look, not UISwitch): Switch (36 × 20 track,
+  16 pt thumb) and Checkbox (20 pt box, tick) controlled by JS (a tap sends onValueChange(!value), JS decides; 150 ms
+  change; disabled at 0.38 opacity and no taps; 48 × 48 touch area; toggle / button accessibility traits), Spinner (a
+  270° arc, one turn a second, size and colour, stroke 10 % of the size within 2–4 pt), Progress (full width, height
+  4 by default, a value animates in 150 ms, no value: the 40 % bar sliding every 1.2 s).
+- **Checked on the simulator** (Components screen, route `components`): the interactive switch and checkbox turn on;
+  "JS ignores tap" stays off; the 300 ms delayed switch moves after the delay; disabled ones ignore taps; spinners at
+  16 / 24 / 36 and in blue and orange; progress 40 % → 75 %; the endless bar.
+- iOS difference: every Spinner turns on one shared clock (Android: one per spinner), so spinners on a screen are in
+  step.
+
+### 2026-11-08: iOS i.2, layout conformance (Claude, `ios` branch)
+- **The check** (ARCHITECTURE §9.5): `examples/sample/src/LayoutLab.tsx`, route `layoutLab`. 26 text-free layouts
+  with fixed sizes covering the zn flex rules (stretch and its limits, flex shares, gap, every justifyContent,
+  alignItems / alignSelf, percent of the content box, margins, borders taking space, min / max, aspectRatio, Stack
+  stretch, absolute insets, R29, R44). Each measured node reports onLayout; JS compares 46 frames with the rules'
+  frames (1 dp) and logs `layout-conformance …`. The same bundle checks both renderers; no screenshots (text and
+  pixels differ by design), no native test code.
+- **Found and fixed on iOS** (first run 41 / 46): percent sizes filled the parent instead of taking the fraction
+  (now resolved by the parent layout, as fillMaxWidth(fraction): a size the child itself took would be taken again
+  when the parent places it, 90 → 45); maxWidth / maxHeight didn't limit a stretched child; aspectRatio was ignored;
+  `alignSelf: "stretch"` didn't stretch in a Column whose alignItems doesn't (RN does; Android likely has the same
+  gap, A11).
+- **Checked on the simulator:** 46 / 46; the props lab and the amount screen unchanged. JS tests 1167 pass, 1 known
+  fail (A7).
+- **Android:** not run here. A11 says how to run it on the Lava and the two misses the Kotlin suggests (alignSelf
+  stretch; onLayout x / y in a padded parent).
+
+### 2026-11-08: iOS i.2, Svg (Claude, `ios` branch)
+- **Draw data** (`ZnSvgData.swift`): the compiler's format v1 read as Android's SvgScanner reads it (same tokens and
+  checks): viewBox and preserveAspectRatio, gradients (linear, radial, focal), animated stops, clips, filters,
+  patterns, masks, groups, shapes, text. Paths through the icon parser (SvgPathParser).
+- **Drawing** (`ZnSvgDraw.swift`, ZnSvgDrawing + ZnSvgEffects): Core Graphics in a plain UIView's draw(_:). Groups
+  with opacity / mix-blend-mode layers, clips, masks (luminance or alpha, drawn to a grey image at screen
+  resolution), shapes with colour / currentColor / gradient / pattern fills and strokes, dashes, paint-order,
+  non-scaling strokes, text with the system fonts, and every <SvgPart> override: paints, opacity, transforms around
+  the pivot (with skew, frame and motion path), stroke width, dash offset, trims (group and shape, caps of zero
+  pieces), morphs.
+- **Parts** (`ZnSvgView.swift`): each value from the template, a slot or ZnMotion; on iOS all part animations run on
+  the frame clock (values that follow JS too: `ZnMotion.follow`), per-part `paused` and `replay`, the Svg's own
+  `paused` / `replay`, and timings that wait for a tap. `ZnSvgGeometry.swift`: path measuring (flattened curves),
+  trim ranges, morphs, motion paths.
+- **iOS differences** (written in ZnSvgDraw.swift): filters draw the group under the first drop shadow the compiler
+  found in them (Android's fallback before Android 12); other filter primitives aren't run. Repeating / reflecting
+  gradients repeat 10 times each way. Non-scaling strokes keep their width in points through the shape's scale but
+  aren't redrawn on screen for uneven stretches. Trimmed curves are 24-step polylines.
+- **Found and fixed:** a SwiftUI Canvas drawing only through Core Graphics, whose first frame drew nothing, kept
+  showing nothing (the Wifi loader: all its paths at opacity 0 at first). Svgs draw in a UIView now.
+- **Found and fixed:** a tap on an Svg inside a Pressable never reached the Svg (the Pressable is a UIKit view over
+  its content), so SMIL begin="click" never started. One window-level tap recognizer, which cancels and delays
+  nothing, tells the Svgs it landed in; the Pressable still gets its tap (both seen in the log).
+- **Checked on the simulator:** the Svg lab: wallet card gradients, Material icons tinted with color, runtime parts
+  (heart, tick, swap, avatar), effects (shadow and ₹ text, pattern with a fade mask, route markers, blend), the
+  motion tiles (loops, keyframes, trims, gauge), all downloaded SMIL / CSS loaders including Wifi, morph, motion
+  along a path, non-scaling chart lines at two sizes, "Pause the loops" freezes them, "Tap me" starts 5 animations,
+  the 60-row list with an Svg and its shadow per row. RN props lab: the absolute Svg stretched to its box (R30).
+- **Not checked:** RTL autoMirror, SvgPart `frame` on a real file, drawing cost on a device (every animated Svg
+  redraws on the CPU each frame).
+
+### 2026-11-08: iOS i.2, props lab part 4: Carousel, onLayout, zIndex in rows, gradients (Claude, `ios` branch)
+- **Carousel** (`ZnCarousel.swift`, ZnRenderer.kt's pager): a paging horizontal scroll, pages full width (minus the
+  padding, which is content padding inside the scroll) or `itemWidth`, `gap` apart; no height → as tall as the
+  tallest page (pages measured, not drawn twice), with a height → pages get all of it but the dots (R35); dots;
+  `autoAdvance` (wraps, skips while touched and for `pauseAfterTouch`); `onPageChange` when a new page settles.
+- **onLayout** (registry 15): { layout: { x, y, width, height } } of the box inside the margin, sent on real changes,
+  x / y relative to the parent node (a named coordinate space only on nodes with such a child). iOS difference: an
+  instance's root reports x / y in window coordinates (its parent is in another template).
+- **zIndex among Column / Row children** (it worked only in a Stack): the R23 tooltip from row 1 now draws over row 2.
+- **backgroundImage** (CSS linear gradient, angle and stops as ZnGradient in ZnTemplate.kt) over the background
+  colour; the elevation shadow follows the gradient too.
+- **Checked on the simulator:** props lab: the carousel with a height (page fills, dots at the bottom, swipe to
+  page 2), the tooltip over row 2, `rn-props layout 40x24`. Offers screen: gradient banners with shadows, 300 pt
+  pages with the next one peeking, auto-advance (`banner page 1`, then `0`).
+- **Still not on iOS:** Svg (the lab's absolute shape, the Svg lab), `zn://` image handles.
+
+### 2026-11-08: iOS i.2, props lab part 3: Modal and app layers (Claude, `ios` branch)
+- **Modal** (`ZnModal.swift`, ZnModal.kt's contract): a layer presented over full screen from the frontmost view
+  controller (so also over a sheet), its children laid out as a Column that fills it; `visible` (shown when not
+  written), `transparent` (else white), `animationType` none / fade / slide (250 ms), `statusBarTranslucent` /
+  `navigationBarTranslucent`, above the keyboard, `onShow` after the animation. iOS difference: no system Back and
+  no swipe on a full-screen presentation, so `onRequestClose` is never sent (as RN on iOS).
+- **App layers** (`ZnLayers.swift`, NAV LAYER, host API 9): the window's root is now `ZnRootController`, the back
+  stack plus startApp's `top` layer (the status bar area plus its content, height animated 200 / 250 ms, screens
+  moved down by the content's height with extra safe area so their own padding stays; status bar icons follow the
+  layer's background while it shows) and `overlay` layer (whole window; taps go through where it has nothing
+  tappable).
+- **Found and fixed:** moving the screens changed their safe area for a moment and JS's insets() heard 83 then 59.
+  The root controller (whose safe area never changes) reports insets now.
+- **Checked on the simulator:** layers lab: Fake offline → red "You are offline" strip, white status bar icons, the
+  screen 24 pt lower, insets unchanged; Fake back online → "back", closes after 1.5 s; the overlay's "No Internet"
+  sheet opens over the screen and closes; screen taps work under the overlay. RN props lab: dialog modal (fade, own
+  dim, onShow), "Alert from modal" above it (OK reached JS), close; page modal (slide, white, below the status bar).
+- **Still not on iOS** (lab): Svg, Carousel, onLayout.
+
+### 2026-11-08: iOS i.2, props lab part 2: corners, borders, text styles and spans (Claude, `ios` branch)
+- **Per-corner radii** (start / end beat left / right, else borderRadius) as one uneven rounded shape for the
+  background, border and clip. Images and shimmers clip to a rounded shape by default (RN, Android).
+- **Borders:** width and colour may change at runtime (slots); **borders take space** (content sits inside them,
+  zn flex rule 2: on iOS the content used to sit under the border); dashed / dotted borders and top / bottom lines
+  with RN Android's pattern (dashed 3 widths on, 3 off; dotted 1 and 1).
+- **Text** (`ZnText.swift`): italic, lineHeight (as extra line spacing; RN iOS places it above each line),
+  textDecorationLine with textDecorationStyle (SwiftUI's own dash / dot line patterns), nested <Text> spans
+  (template or slot JSON: colour, size, weight, italic, decoration, letterSpacing, background) and span presses as
+  links (onSpanPress with the index). includeFontPadding is Android-only.
+- **Checked on the simulator (RN props lab):** the green corners box (top-left and bottom-right round), the OTP box's
+  border with its inner box inside it, the dashed pill, the dotted box, the dashed bottom line, "Platform Fee"
+  dashed underline, ₹499 dotted line-through, Terms / Privacy as links ("span terms" reached JS), the bold spans'
+  colour change and the italic "(changed)" piece, tint green → red at runtime.
+- **Still not on iOS** (lab): Svg, Carousel, Modal, app layers, onLayout.
+
+### 2026-11-08: iOS i.2, props lab part 1: transforms, animation, images, shimmer (Claude, `ios` branch)
+- **Transforms** (scale, scaleX / Y, rotate, translateX / Y, each static or a slot) around `transformOrigin`, and
+  opacity, as one layer over the node's background and borders (`ZnLayer` in ZnRenderer.swift; Compose's order:
+  scale, rotate, translate). Checked: the R11 bar is half width from the left edge.
+- **`animate`** (`ZnAnimation.swift`, ZnAnimation.kt's encoding): a value that follows JS animates to each new value
+  with the element's tween (Compose's curves, cubic-bezier, step) or spring (Compose's damping ratio and stiffness)
+  as a SwiftUI animation scoped to that one modifier; a value that plays by itself (`from`, keyframes, repeat,
+  reverse, repeat delay, delay) runs on one shared CADisplayLink, starts when the element appears, again on
+  `replay`, holds on `paused`, and a `from` plays again towards a new resting value. backgroundColor too.
+  Checked: the props lab's 10 s keyframe fill, the animation screen's card (opacity tween, slide spring, bouncy
+  scale), the 300 ms colour and the spring arrow.
+- **`enter` / `exit`:** enter plays once when the element first appears; a removed root with `exit` stays in the
+  store (exiting, takes no taps) until its animation ends, and JS's indexes skip it, as ZnStore.kt does. Checked:
+  the animation screen's demo loop and "Remove first" end with the right chips (`exit: … done, removed` in the log).
+- **`textTransform`** (upper, lower, capitalize by word, no phone locale), **elevation** as a soft shadow under the
+  background (y = elevation / 2, blur = elevation, 20 % of shadowColor; only under a background).
+- **Image:** `asset:` sources (the bundle's `images/` folder is now copied into the app by CMake), http(s), file;
+  src → fallbackSrc → empty, never back; contentScale; tintColor (also at runtime); RN onLoad (pixel size) /
+  onError / onLoadEnd; `loading="shimmer"`. **Shimmer** component: base colour with a sweeping band, every shimmer in
+  step. Checked: the lab's three images (load 16x16, error with a message, end) and the UPI tile's shimmer fill.
+- **Found and fixed (A10):** those image events reached JS before JS had drawn the screen (a local picture loads at
+  once, while the screen is still the pre-JS skeleton) and were dropped. Events wait for JS's first batch now.
+- **Not on iOS yet** (seen in the lab): per-corner radii, borders whose width / colour change at runtime, dashed
+  and dotted borders, text decorations and spans, Svg, Carousel, Modal, app layers. `zn://` image handles.
+
+### 2026-11-08: iOS i.2, keyboard avoidance (Claude, `ios` branch)
+- **`keyboard: "resize"` (default):** SwiftUI already lays a screen out above the keyboard (its keyboard safe area),
+  the same room Android's `imePadding` gives: the Pay button sits on the keyboard. The handoff said content didn't
+  move; it did, but the simulator was using the Mac's keyboard, so the on-screen one never opened (turn it on with
+  the simulator tool's `set_keyboard show`).
+- **`keyboard: "none"`:** read from the route (`ZnRoute.resizeForKeyboard`, as ZnTemplates.kt) and the screen ignores
+  the keyboard's safe area: the keyboard covers it. Checked with the input screen set to "none" for the test only.
+- **The focused field scrolls into view** (Compose's text field keeps itself in view): on focus, and while the
+  keyboard opens. The whole box shows, not just the one-line native view (an empty UIView behind the box gives its
+  frame); every scroll view around it moves the least it can. SwiftUI moves the screen to its new size frame by
+  frame over the keyboard's animation, so one look at any moment was wrong (tried: right after the notification,
+  after a forced layout, at fixed delays): a display link keeps the box in view on every frame while the keyboard
+  moves, so the content rides up with it in one motion.
+- **KEYBOARD to JS when the keyboard starts to move** (keyboard.ts: "when it starts"; Android sends its target
+  height), not when it has arrived. The height is how much of the screen it covers, so a hardware keyboard gives 0.
+- **Found and fixed:** the same keyboard went to JS twice (phone pad → number pad, both 291 pt): the JSON came from a
+  dictionary, whose key order changes. Written by hand now.
+- **Checked on the simulator:** input screen: phone pad (291 pt) with Pay above it; tap the half-hidden OTP box →
+  it scrolls fully into view (20 pt); hide, tap the note box at the bottom → keyboard 336 pt, the note box rides up
+  with it (22 frames) and ends fully above Pay; `keyboard: "none"` → the keyboard covers the note and Pay.
+- **Not checked:** a field in a list row (the UIKit list is a scroll view, so the same code runs; no sample screen
+  has one), sheets with fields (UIKit lifts a sheet over the keyboard itself; no sample sheet has a field), a real
+  iPhone. No Android issue from this step.
+
+### 2026-11-08: iOS i.2, the remaining modules and system events (Claude, `ios` branch)
+- **System events** (`ZnSystemEvents.swift`): COLOR_SCHEME at start and on change (it was always "light"),
+  APP_STATE "active" / "background" (background as soon as the user can't touch the app: Control Center, a system
+  dialog, the app switcher, as Android's pause), LOW_MEMORY, KEYBOARD `{ visible, height }` once per show or hide.
+- **Found and fixed:** going to the home screen, iOS draws the app in light and in dark for the app switcher's
+  snapshots, and each flip reached JS as a setting change. Colour-scheme changes are held while in the background
+  and the scheme is read again on becoming active (checked: background → dark set → active gives one "dark").
+- **Modules** (`ZnUiModules.swift`): Keyboard v2 (dismiss; a `<TextField ref>`'s focus, blur, clear, isFocused),
+  Vibration (iOS's one system buzz per buzz step, as RN on iOS; false on the simulator), Toast (zero-native's own
+  pill above the home indicator and the keyboard, over every screen), Alert (UIAlertController; JS now also sends
+  each button's `style`, so cancel and destructive look like iOS's; Android ignores it), Permissions (camera,
+  microphone, location + location.precise, notifications, contacts; not asked = "denied", refused = "blocked"; a
+  missing Info.plist usage text is `not_declared`, since iOS would end the app), Splash (iOS holds no splash: hold
+  and release answer false, "nothing happens" as for an Android app that doesn't hold it).
+- **Found and fixed:** the toast never showed: its fade-out was started with the fade-in, so UIKit set alpha 0 at
+  once. The fade-out now starts when the fade-in ends.
+- **Checked on the simulator:** OTP ref focus → keyboard (291 pt) and `isFocused` true, blur → keyboard hidden;
+  3-button alert in iOS styles, "Cancel it" runs its onPress; toast "Saved"; camera status "denied" → iOS's dialog
+  with the usage text → Don't Allow → "blocked" (the dialog read as background, then active); Os.info, haptic.
+- **Not on iOS yet:** Launches (Android activity results; UPI on iOS returns by URL, i.4), background tasks
+  (BGTaskScheduler, its own design), Updates (OTA, i.3), app layers, keyboard avoidance (content doesn't move up
+  for the keyboard yet: Android's `keyboard: "resize"`).
+
+### 2026-11-08: iOS i.2, native modules (Claude, `ios` branch)
+- **The module system** (`ios/ZnRuntime/Swift/ZnModules.swift`), ZnModules.kt's contract: typed arguments
+  (`invalid_args`), exactly one answer per call, cancel hooks (AbortSignal → `URLSessionTask.cancel`), the `__v`
+  version check, module events only while JS listens (app event 8, newest-only when JS is busy), binary input and
+  binary answers (app event 9), and `constants()` set as `__zn_constants` before the main script. The host
+  (`ZNHost.mm`) now passes call bytes and cancels, and sends binary answers. JS `console` lines are printed too.
+- **Modules:** Os (info, haptic, openSettings, share, openUrl, canOpenUrl; same scheme allow-list), NetInfo
+  (NWPathMonitor; `fetch` and "change" with Android's 250 ms settle), SecureStore (Keychain), Clipboard, Fetch
+  (URLSession). Storage (MMKV) already worked through the core.
+- **iOS choices:** SecureStore items are readable after the first unlock and never leave the device; a new install
+  clears what an earlier install left (Keychain items outlive the app on iOS; Android's Keystore data doesn't), and a
+  locked phone is `temporarily_unavailable`. NetInfo's `isInternetReachable` is "the path is satisfied" (iOS has no
+  "validated" flag). Fetch keeps Android's rules with our own whole-call timer, drops `Authorization` across hosts
+  (URLSession keeps it), refuses HTTPS → HTTP, splits the joined `Set-Cookie` again, and gives `statusText` "" (no
+  reason phrase in URLSession). `Os.info` keeps Android's keys and adds `ios`.
+- **Platform:** DEVICE (16) and WINDOW (17) are sent after the main script. `Platform.OS` was always "android" in
+  JS (A9): it now reads `nativeConstants("Platform")`, so it is right at the top level of a file too; `select`
+  picks `ios`; `Version` is the major iOS version as a number (RN gives "18.0"; `constants.Release` has it).
+- **Checked on the simulator:** fetch checks 27 / 27 (against `tools/fetch-test-server.ts`; POST sent once, timeout,
+  abort, redirects, Authorization dropped, too_large, cut body, cleartext_blocked, dns, tls, insecure_redirect). One
+  check expected exactly "gzip" (OkHttp's Accept-Encoding); URLSession offers "gzip, deflate", so it now accepts any
+  list with gzip. Storage checks 7 / 9 (MMKV and SecureStore pass; the 2 others use the sample's own Kotlin `Device`
+  module). RN basics lab: `platform ios 18 18.0 Apple iPhone17,3`, window 393×852 ×3, NetInfo wifi (fetch and the
+  live header), clipboard read back (after iOS's "Allow Paste"), canOpenURL, `whatsapp:` refused.
+- **Not on iOS yet:** Vibration, Toast, Alert, Keyboard events, Splash, Permissions, Launches, Background tasks,
+  Updates (OTA, i.3), AppState and colour-scheme changes; plugins (i.4). A call to one answers "unavailable".
+
+### 2026-11-08: iOS i.2, sticky rows, absolute children, presses in a scroll (Claude, `ios` branch)
+- **Sticky rows** (`stickyHeaderIndices`, a list or a slot): the UIKit list's layout pins the last sticky row that
+  has scrolled past the top; the next one pushes it up as it arrives (Compose's `stickyHeader` does the same). The
+  cell itself moves, so it keeps its presses. Pinned rows are left out of the range sent to JS, as on Android.
+  Checked in the RN props lab: "Today" pins over rows 6–11; "Earlier" pushes it out (seen half way) and pins;
+  scrolling back brings "Today" back; with `[0]` only, "Today" stays to the end and "Earlier" scrolls away.
+- **Found and fixed:** changing the indices at runtime moved the list 34 rows (a new layout pass forgets the scroll
+  position). The first unpinned row now keeps its place, as for row splices (rows 2–9 stay through both toggles).
+- **Absolute children in a Stack** (`position: "absolute"` with top / bottom / start / end), a SwiftUI `Layout` with
+  Android's rules: the Stack's size comes from its normal children, absolute children take no room (R29), both sides
+  of a pair stretch (absoluteFill), a child pinned start + end has a definite width (R44), the rest are placed by
+  alignItems / justifyContent. Before, absolute was parsed and ignored. Checked in the lab: the overlay, the inset
+  bar, the side bar, the centred dot, the floating "Scan" button.
+- **Found and fixed:** the RN props lab drew as one purple screen. "No clip" was `clipShape(Rectangle().inset(by:
+  -1e6))`, and SwiftUI filled that 2,000,000 pt rectangle with the background of an empty box (the lab's progress
+  bars). Nodes now clip only with `overflow: "hidden"`.
+- **Found and fixed:** a slow drag that started on a Pressable didn't scroll the page (only flicks did). The press
+  view was a `UIControl`, and a scroll view never cancels touches in a control. It is now a plain view that tracks
+  its touches: a scroll cancels the press (onPressOut true), as on Android. Taps, long press and press-repeat checked
+  again on the amount keypad (₹420, hold ⌫ to ₹0).
+- **Not drawn on iOS yet** (seen in the lab, i.2 items): transforms and `transformOrigin`, `animate`, `textTransform`,
+  Svg, Carousel, Shimmer, Image, shadows, app layers (`startApp` layers), Modal. No Android issue from this step.
+
+### 2026-11-08: iOS i.2, lists, sheet timing, multi-line field (Claude, `ios` branch)
+- **Sheet + stack change in one batch** (UPI picker → receipt): the sheet now closes without animation when the same
+  batch pushes, removes or clears screens, so the push starts at once (was ~0.5 s late). About 230 ms remain between
+  the tap and the receipt in a debug build on the simulator, most likely the receipt's first SwiftUI layout: measure
+  in release on a phone.
+- **List window** (`ZnList.swift`): `onRange` and `onEndReached` (within 5 rows of the end, once per length) as on
+  Android. Splices are diffed by common prefix and suffix and applied as one batch update; the first visible row
+  keeps its place on screen (10100 → 10101 rows with an insert at the top: nothing moved). `inverted` flips the
+  collection view and each cell, so a chat's newest message stays in view. Chat lab: older messages load
+  60 → 90 → 120 → 150.
+- **Found and fixed:** loading older messages crashed with "Invalid batch updates": the row keys changed before
+  `performBatchUpdates`, so UIKit's count before the update was already the new one. The keys now change inside the
+  update block, after a `layoutIfNeeded`.
+- **Multi-line `<TextField multiline>`** is a `UITextView` with the single-line field's change protocol, a
+  placeholder label, and a height that grows with the text (minHeight from the style still applies). As on Android,
+  Return makes a new line unless the field sets `returnKeyType`; then Return sends `onSubmitEditing` and closes the
+  keyboard. `returnKeyType` now also sets the single-line field's key (default Done).
+- **Found and fixed:** a tap in a field's box but outside its one text line (the note's 64 pt box, the padding of
+  any field) did nothing; on Android the whole box is the field. Now any tap in the box focuses the field.
+- Checked on the simulator (Inputs): a tap low in the note box focuses it (`focused: note`); typing wraps to three
+  lines and the box grows; Return submits the text, no new line, `focused: none`; a tap on the name field still
+  types there. No Android issue from this step.
+
+### 2026-11-08: iOS i.2, route options (Claude, `ios` branch)
+- **Transitions** (routes.ts `transition`, same rule as Android: a push uses the new screen's, a pop the leaving
+  screen's): `push` is UIKit's slide; `modal` slides up over the old screen and back down; `fade` cross-fades;
+  `none` is instant (`ZnTransitionAnimator`). The back swipe only pops `push` screens: a modal closes with its own
+  button, as iOS modals do.
+- **Safe area per route** (`safeArea`: "all", "none", `{ top, bottom }`): unsafe sides draw under the bars, and the
+  screen's root background fills behind the bars either way. **INSETS** go to JS (dp) once JS has started, before
+  START, and on every change, so `insets()` works. **Status bar** per route (`statusBar: "light"`).
+- **Runtime padding and margin** (a slot, e.g. `paddingTop: insets().top + 32`) are now applied; before, the iOS
+  renderer used static padding only.
+- Checked on the simulator: the receipt (modal, `safeArea: { top: false }`, light bar) slides up, its green header is
+  full-bleed under a white status bar, and its text clears the notch (insets top 59, bottom 34). Done (a
+  `nav.reset`) slides Home in from the side, as the resulting stack says.
+- **Found:** a batch that closes a sheet and pushes (UPI picker → receipt) starts the push ~0.5 s late: UIKit waits for
+  the sheet's dismiss animation. Fix for later: when a batch also changes the stack, dismiss the sheet without
+  animation. No Android issue from this step.
+
+### 2026-11-08: A8, native back gestures only where JS has no back handler (Claude, `ios` branch)
+- JS sends NAV BACK_WANTED for any screen with a `useBack` / `BackHandler` (tabs as before); Android puts its back
+  handler after `NavDisplay` so such screens get no predictive preview; iOS has its own edge pan. The iOS app shell is
+  now UIKit (`ZnNavController` is the window root, app + scene delegates; an install that ran the SwiftUI-App build
+  must be uninstalled once, or its saved scene session shows a black screen).
+- Checked on the simulator (all three cases) and by JS tests; Android not compiled here (A8 lists the phone checks).
+  Details: `second-opinions.md` 183, guide §7.
+
+### 2026-11-08: iOS step i.1c, SwiftUI or UIKit for the hard parts (Claude)
+Each part built both ways in `ios/ZnRuntime/Swift/` behind a launch switch (`ZnImpl.swift`, `ZN_IOS_<PART>=swiftui|uikit`)
+and tried on the iPhone 16 simulator (iOS 18.0, debug) with the Android sample's bundle, unchanged.
+
+| Part | Choice | What was seen |
+|---|---|---|
+| Press handling | **UIKit** (`UIControl` over the content, `ZnPress.swift`) | 5 zero-length taps in a row: UIKit 5 / 5 in order, SwiftUI `Button` 1 of 3 (and one landed late). Press-repeat (backspace held 0.7 s: 3 deletes) and long press (amount held 0.8 s: cleared, no stray tap) are native timers, as on Android; `Button` does taps only. A `UIControl` *under* SwiftUI content gets no touches (SwiftUI's hosting view takes them), so it sits over it; a nested Pressable wins by a hit-test rule (the smaller control on the same screen) |
+| Back stack | **UIKit** (`UINavigationController`, one `UIHostingController` per entry, `ZnNavHost.swift`) | Push: tap → JS → PUSH in 11–12 ms, transition settles in ~580 ms (simulator). Replace (REMOVE + PUSH in one batch) → one `setViewControllers`. `useBack` through the ← button keeps the screen ("Discard ₹6?"). UIKit has every hook (a batch = one `setViewControllers`; `gestureRecognizerShouldBegin` can send the swipe to JS; `didShow` reports native pops as FORCED_BACK); `NavigationStack(path:)` has none, and hiding its bar turns swipe-back off. **Correction (later 2026-11-08):** the simulator tool's synthetic swipes don't start UIKit's edge-pop gesture in *any* app: Settings didn't pop either when retried properly (the first "reference" was General's push animation still running). So nothing is known to be wrong with our host; try the swipe with a mouse drag in Simulator.app or on a phone. The app shell is now UIKit (`ZnNavController` is the window root) and the swipe policy follows NAV BACK_WANTED (A8) |
+| Sheet | **UIKit** (`UISheetPresentationController`, `ZnSheet.swift`) | Both sized to content (the UPI picker). UIKit keeps Android's contract exactly: `presentationControllerShouldDismiss` → false, `didAttemptToDismiss` → onDismiss, JS sets `visible` false → dismissed 2 ms later. SwiftUI's `.sheet` has no "attempted" callback: it dismisses first and tells JS after, so JS cannot keep it open. Picking an app closes the sheet and pushes the receipt in one batch (1 ms apart) |
+| Text field | **UIKit** (`UITextField`, `ZnTextField.swift`) | Phone field: letters rejected by JS ("98a7b6" → "987", then "x" undone), answers to older changes skipped, ~3 ms per JS round trip; amount reformats ("1234" → "1,234") with the cursor kept by its distance from the end; marked text (IME) never replaced. SwiftUI `TextField`: after JS rewrote the text the caret sat in the middle, and the next digit gave "987985" (field and binding out of step); its tap area is only the text, not the box. One key was lost at 5 ms per key (machine typing) in UIKit; none at a human pace [check on a device] |
+| List | **UIKit** (`UICollectionView` + `UIHostingConfiguration` cells, `ZnList.swift`) | Both follow the window protocol (JS keeps ~38 rows mounted, `onRange` moves it; rows real even mid-fling at row 340+). Memory after ~500 rows: `LazyVStack` 34 → **122 MB** (peak 133), `UICollectionView` 45 → **61 MB**. LazyVStack keeps every row view it made; the collection view reuses cells |
+
+- **SwiftUI keeps:** everything inside a screen and a sheet (text, stacks, images, our flex `Layout`) and the cells.
+- **Bugs found and fixed on the way:** a covered screen's Pressables took taps from the top screen (the nested-Pressable
+  rule now looks only at the same screen); a UIKit field filled all the height a Scroll offered (needs
+  `sizeThatFits`); a UIKit field re-applied JS's last value on every SwiftUI update and undid typing (applies a value
+  only when it changes).
+- **Not built yet (i.2):** route options (`transition: "modal"`, `safeArea`; the receipt pushes like any screen),
+  `multiline` fields (UITextView), `onEndReached`, sticky headers, `inverted`, a diffable data source (inserts at the
+  top keep the scroll position), Image clipping, percent sizes.
+- **Android:** the back swipe question applies to Android 14+ predictive back too: `android-issues-found-when-building-ios.md` A8.
+
+### 2026-11-08: iOS step i.1b, the amount screen drawn by SwiftUI (Claude)
+- **Built:** `ios/` (on the `ios` branch). `ZnRuntime/Host/ZNHost.mm`: `zn::Platform` in Objective-C++, the `zn-js`
+  thread (an `NSThread` with its own run loop and an 8 MB stack; tasks are run-loop blocks, timers run-loop timers),
+  batches handed to the main thread. `ZnRuntime/Swift/`: template and batch readers (ports of the Kotlin ones, same
+  checks), `ZnStore` with one `@Observable` cell per slot, prepared node specs, `ZnFlexLayout` (our own SwiftUI
+  `Layout` with zn's flex rules), the renderer, an SVG path parser for `<Icon>`, body counters. `Registry.swift` is
+  generated by `gen:registry` (and checked by `registry.test.ts`, like `Registry.kt`). The app builds with CMake's
+  Xcode generator: `bun run tools/ios-sample.ts` builds, installs on the booted simulator and launches.
+- **Results** (debug, iPhone 16 simulator, iOS 18.0; the Android sample's bundle unchanged, route `amount`):
+  - The skeleton draws from the template before JS (checked with `--delay 3000`): header, back icon, Passbook pill,
+    ₹ and cursor, hint. Then JS fills it: merchant name and photo, the 12 keys (components JS mounts), the button.
+  - `main.hbc` evaluated in 3–4 ms (simulator on a Mac: not a phone number). The first batch: 38 ops.
+  - **Leaf-only updates hold.** A cursor blink (1 op) runs 1 SwiftUI body (the cursor's opacity). Typing "5" runs 2
+    bodies: the amount text and the "You pay" text. Typing the digit that first shows the cashback pill (5 ops, 2
+    mounts) runs 14: the new views, their parent Column once, and the amount text. ~169 views on screen. No Row,
+    Column or Key body runs for a plain digit.
+- **Found, for i.1c:**
+  - Zero-duration synthetic taps (the simulator tool's default) were dropped by SwiftUI `Button`, then one landed
+    late (the amount got a digit nobody pressed at that moment). Taps of 120 ms always worked. [check on a device
+    with fast typing]; press handling is now an i.1c item (SwiftUI `Button` vs a UIKit gesture, as Android has its
+    own press handling).
+  - The amount text body ran 3 times for the first digit (once per batch while the first tap's batches arrived
+    within the report window, or SwiftUI measuring; [check]).
+  - Not drawn yet: `<Sheet>`, `<List>`, `<TextField>`, `<Modal>`, press-repeat and long press, `Image` clipping to
+    `borderRadius` (the avatar is square), percent sizes (treated as fill). Native modules answer "unavailable".
+- **Spike shortcuts** (each to be removed before i.2): Swift 5 language mode (Swift 6 strict concurrency later); one
+  CMake build folder per SDK (CMake picks the Hermes slice when it configures); the bundle is copied from
+  `android/sample/src/main/assets`; one screen at a time, no transitions.
+- **Xcode 26 note:** with only the simulator runtime installed (no iOS 26.2 device platform), `xcodebuild -scheme`
+  finds no destination; building with `-target ZnSample -sdk iphonesimulator` works.
+- No new Android issue from this step (the grey skeleton in the first screenshot was iOS's launch transition, not a
+  template default).
+
+### 2026-11-08: iOS step i.1a, Hermes and the core on the iOS simulator (Claude)
+- `com.facebook.hermes:hermes-ios:260318099.0.5` (same release as `hermes-android`) has `hermesvm.xcframework`
+  (iOS device, simulator, Catalyst, tvOS, visionOS), a macOS `hermesvm.framework` and the headers. JSI is built into
+  `hermesvm` on Apple (no `libjsi`). Its JSI headers match `core/third_party/jsi` except one comment.
+  `tools/fetch-hermes-apple.ts` downloads it into `ios/third_party/hermes/` (not in git), checking a pinned SHA-256.
+- `core/tests/apple/CMakeLists.txt` is a host for the core on a Mac or the iOS simulator. `hermes_engine.cpp` built
+  unchanged.
+- Results (debug, Mac and iPhone 16 simulator on iOS 18.0): core tests 166 / 166 (MMKV killed mid-write 100 / 100,
+  FlowStore 200 / 200, one 800-byte FlowStore write ≈ 2.3–2.5 µs). The new engine test runs the **Android sample's
+  `main.hbc` unchanged** (bytecode 99) and sends START for route 0: a 122,867-byte batch, 7 native calls, no JS error.
+  So one OTA bundle can serve both platforms [check: a release build and a real device].
+- Android fixes found on the way: `android-issues-found-when-building-ios.md` A3–A7. Not rebuilt on Android yet (no Android SDK on
+  this Mac): the Android-side changes are `core/CMakeLists.txt` (`log` only on Android), `flowstore.cpp` (the skip in
+  the fallback path) and the tests. Run `run-core-tests.ps1` and a sample build on the phone before relying on them.
+
 ### 2026-11-08: review fixes for Gemini's batches 1 and 2 (Claude, parent session; branch `opus/parity-fixes`)
 The review (`docs/cross-communication/2026-11-08-opus-review-of-gemini-batches.md`) found 5 blockers, 12 majors and a
 list of small ones. All fixed on one branch, on top of Gemini's last commit (`b9bd1ba`):
@@ -2198,3 +2636,12 @@ Gemini built them (step note in `docs/cross-communication/`). Review found and f
   - **R8 strips fbjni's Java classes** and the release app crashes at start; keep rules now ship in the runtime's
     `consumer-rules.pro`.
   - Bun's transpiler drops a bare final expression as dead code; don't rely on a script's completion value.
+- 2026-11-08 (late): known layout issues cleared (branch opus/known-issues). The iOS session's layout conformance lab
+  (examples/sample/src/LayoutLab.tsx, 48 cases) went from 42/48 to 48/48 on Android (Lava and emulator):
+  - A11-1: alignSelf "stretch" works under a centring parent (Column, Stack, Scroll) and in a Row with a height.
+  - A11-2: onLayout x / y from the parent's corner, padding and border included (ZnLayoutBox.kt, second-opinions 181).
+  - A11-3: maxWidth / maxHeight beat a stretch and a % size (second-opinions 182).
+  - A12: a new Activity in the same process after a `zn dev` reload ran the APK's JS with the dev build's templates
+    (a screen drew parts of another, or Compose threw "infinity maximum height"); it now runs the dev build's JS.
+  - Checked: Kotlin tests + lint, 1288 JS tests, emulator screen compare against main (no change outside the cases),
+    Lava LayoutLab 48/48 and the List / chat checks.

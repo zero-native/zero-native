@@ -2784,3 +2784,24 @@ change, and what evidence would make you change it?"
   the rest to its siblings. Rare; not seen in ZeroBill.
 - **Option not taken:** have each parent read its child's maxWidth and margins before stretching: needs the child's
   dynamic margins, and every parent type (Column, Stack, Scroll, Row, Sheet) would repeat it.
+
+## 183. NAV BACK_WANTED for any screen with an app back handler; native back gestures only on screens without one (2026-11-08, iOS work, A8)
+- **What:** JS sends BACK_WANTED (kind 10, no host API change) while a screen has a `useBack` / `BackHandler` or its
+  tabs want Back; once per change, after a screen build ends, never for a closed screen (`nav.ts syncBackWanted`).
+  Tabs' own "go to the first tab" handler doesn't count (`useBackUncounted`). Native: on such a screen a back gesture
+  plays nothing ahead of JS. Android: one `BackHandler` after `NavDisplay` (keyed by the top entry) wins over the
+  predictive pop. iOS: our own edge pan (`ZnNavController.backPan`) sends BACK to JS instead of moving the screen;
+  on other screens it drives an interactive pop and JS hears FORCED_BACK.
+- **Why not ask JS during the gesture:** the gesture moves the screen at once; JS answers in milliseconds, but
+  whatever it answers, the screen has already been shown leaving.
+- **Why not every handler's result:** native can't run JS synchronously, and the handler's answer depends on state
+  (the amount screen's handler answers false at ₹0). So the cost: a screen with a handler loses the interactive
+  gesture even when the handler would let it go. Guide §7 says to register handlers only while they would keep the
+  screen.
+- **Why our own pan on iOS:** UIKit's `interactivePopGestureRecognizer` often never began in our screens (their left
+  edge is mostly Pressables, `UIControl`s); the drag became a tap. Our pan cancels the press under the finger.
+- **Checked:** JS tests (1166 pass, only A7 fails). iOS simulator: Dev (no handler) pops with the finger, JS hears
+  FORCED_BACK and pushes again normally; Amount at ₹0: BACK to JS, popped; Amount at ₹6: stays, "Discard ₹6?".
+  **Android: not compiled here**; checks in `android-issues-found-when-building-ios.md` A8.
+- **Risk if wrong:** an app with a handler on every screen gets no native back gestures anywhere (works, feels less
+  native). A root screen with `useBack` now catches Back instead of leaving the app.

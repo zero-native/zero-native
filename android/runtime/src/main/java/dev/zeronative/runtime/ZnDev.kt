@@ -72,6 +72,14 @@ internal object ZnDev {
     @Volatile private var runningHash = "apk"
     private var started = false
 
+    /**
+     * Main thread: the JS of the last build `zn dev` applied, or null. A fresh start in the same process (a new
+     * Activity, [ZnNav.startFresh]) runs it again: the templates stay the dev build's, so the APK's own JS would not
+     * match them (A12, 2026-11-08: a screen drew parts of another screen, or nothing, until the next save).
+     */
+    internal var devBytecode: ByteArray? = null
+        private set
+
     fun start(context: Context) {
         if (started) return
         started = true
@@ -173,6 +181,7 @@ internal object ZnDev {
             ZnStore.resetForReload()
             ZnImpressions.resetForReload()
             ZnTemplates.replace(asset, bundle)
+            devBytecode = hbc
             attach()
             ZnNav.restart(bundle, saved)
             runningHash = hash
