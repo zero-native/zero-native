@@ -129,9 +129,17 @@ final class ZnApp {
         }
     }
 
+    /// The batch being applied (or just applied) changes the back stack: a sheet closing in the same batch closes
+    /// without animation, or UIKit would hold the navigation transition until the sheet's animation ends (~0.5 s).
+    @ObservationIgnored private(set) var batchChangesStack = false
+
     private func apply(_ data: Data) {
         do {
             let ops = try BatchReader.read(data)
+            batchChangesStack = ops.contains {
+                if case let .nav(kind, _, _, _) = $0 { return [NavKind.push, NavKind.remove, NavKind.clear].contains(kind) }
+                return false
+            }
             store.apply(ops)
             ZnDebug.afterBatch("a batch of \(ops.count) op(s)")
         } catch {

@@ -72,6 +72,7 @@ final class ZnNodeSpec {
 
     // List
     let onRange: Int
+    let onEndReached: Int
 
     // Sheet
     let visible: Bool
@@ -86,6 +87,9 @@ final class ZnNodeSpec {
     let secure: Bool
     let maxLength: Int?
     let autoFocus: Bool
+    let multiline: Bool
+    /// -1: not written (single-line: Done; multi-line: Return makes a new line).
+    let returnKeyType: Int
     let onChangeText: Int, onFocus: Int, onBlur: Int, onSubmitEditing: Int
 
     // Pressable
@@ -162,6 +166,7 @@ final class ZnNodeSpec {
         src = p[P.src]?.string
 
         onRange = eventFor(Registry.Event.onRange)
+        onEndReached = eventFor(Registry.Event.onEndReached)
         visible = p[P.visible]?.bool ?? false
         detents = (p[P.detents]?.string ?? "content").split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { ["content", "half", "full"].contains($0) }
@@ -175,6 +180,8 @@ final class ZnNodeSpec {
         secure = p[P.secureTextEntry]?.bool ?? false
         maxLength = num(P.maxLength).map { Int($0) }
         autoFocus = p[P.autoFocus]?.bool ?? false
+        multiline = p[P.multiline]?.bool ?? false
+        returnKeyType = en(P.returnKeyType)
         onChangeText = eventFor(Registry.Event.onChangeText); onFocus = eventFor(Registry.Event.onFocus)
         onBlur = eventFor(Registry.Event.onBlur); onSubmitEditing = eventFor(Registry.Event.onSubmitEditing)
 

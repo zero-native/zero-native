@@ -139,16 +139,61 @@ struct ZnCollectionList: UIViewRepresentable {
         cv.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "row")
         cv.dataSource = context.coordinator
         cv.delegate = context.coordinator
+        // inverted (RN): row 0 at the bottom, growing upwards (a chat). The list is flipped and each cell flipped back.
+        if s.props[Registry.Prop.inverted]?.bool == true { cv.transform = CGAffineTransform(scaleX: 1, y: -1) }
         return cv
     }
 
     func updateUIView(_ cv: UICollectionView, context: Context) {
         let c = context.coordinator
         c.ctx = ctx; c.inst = inst; c.s = s; c.list = list
-        if c.keys != list.rows.map(\.key) {
-            c.keys = list.rows.map(\.key)
-            cv.reloadData()  // spike: a diffable data source keeps the scroll position on inserts (i.2)
+        let keys = list.rows.map(\.key)
+        guard c.keys != keys else { return }
+        let old = c.keys
+        // The first visible row stays where it is on screen (Home: "New payment arrives" inserts at the top, and the
+        // rows being read must not move), as on Android, where LazyColumn keeps the first visible key in place.
+        var anchor: (key: String, y: CGFloat)?
+        if let ip = cv.indexPathsForVisibleItems.min(), let a = cv.layoutAttributesForItem(at: ip), let k = old[safe: ip.item] {
+            anchor = (k, a.frame.minY - cv.contentOffset.y)
         }
+        let ranges = Self.changedRanges(old, keys)
+        print("zn t=\(ZnDebug.ms()) list: \(old.count) → \(keys.count) rows, changed \(ranges.map { "\($0.removed) → \($0.inserted)" } ?? "all"), anchor \(anchor.map { "\($0.key) at \($0.y)" } ?? "none"), offset \(cv.contentOffset.y)")
+        if let (removed, inserted) = ranges, removed.count + inserted.count <= 200 {
+            // The data source changes inside the update block, never before it: UIKit reads the item count before
+            // and after, and they must differ by exactly these updates (crashed on 30 older chat messages,
+            // 2026-11-08, when the count was read early).
+            cv.layoutIfNeeded()
+            UIView.performWithoutAnimation {
+                cv.performBatchUpdates {
+                    c.keys = keys
+                    cv.deleteItems(at: removed.map { IndexPath(item: $0, section: 0) })
+                    cv.insertItems(at: inserted.map { IndexPath(item: $0, section: 0) })
+                }
+            }
+        } else {
+            c.keys = keys
+            cv.reloadData()
+        }
+        if let anchor, let i = keys.firstIndex(of: anchor.key) {
+            cv.layoutIfNeeded()
+            if let a = cv.layoutAttributesForItem(at: IndexPath(item: i, section: 0)) {
+                let top = -cv.adjustedContentInset.top
+                let bottom = max(top, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
+                cv.contentOffset.y = min(max(a.frame.minY - anchor.y, top), bottom)
+                print("zn t=\(ZnDebug.ms()) list: anchor now row \(i) at minY \(a.frame.minY) → offset \(cv.contentOffset.y)")
+            }
+        }
+    }
+
+    /// The rows that differ between [old] and [new], found from their common start and end (a splice: an insert at
+    /// the top, a removal, a replaced block). O(n), so a 10,000-row list stays cheap. nil when nothing is shared.
+    static func changedRanges(_ old: [String], _ new: [String]) -> (removed: Range<Int>, inserted: Range<Int>)? {
+        guard !old.isEmpty, !new.isEmpty else { return nil }
+        var start = 0
+        while start < old.count, start < new.count, old[start] == new[start] { start += 1 }
+        var end = 0
+        while end < old.count - start, end < new.count - start, old[old.count - 1 - end] == new[new.count - 1 - end] { end += 1 }
+        return (start..<(old.count - end), start..<(new.count - end))
     }
 
     final class Coordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {
@@ -157,6 +202,8 @@ struct ZnCollectionList: UIViewRepresentable {
         var s: ZnNodeSpec?
         var list: ZnListState?
         var keys: [String] = []
+        /// onEndReached was sent while the list had this many rows (once per length, as on Android).
+        var endSentAt = -1
 
         func collectionView(_ cv: UICollectionView, numberOfItemsInSection section: Int) -> Int { keys.count }
 
@@ -166,14 +213,22 @@ struct ZnCollectionList: UIViewRepresentable {
                 cell.contentConfiguration = UIHostingConfiguration { ZnListRowView(ctx: ctx, list: list, row: row) }
                     .margins(.all, 0)
             }
+            cell.contentView.transform = cv.transform  // inverted: flip each row back
             return cell
         }
 
         func scrollViewDidScroll(_ sv: UIScrollView) {
             guard let cv = sv as? UICollectionView, let ctx, let inst, let s, let list else { return }
+            if ProcessInfo.processInfo.environment["ZN_LIST_TRACE"] == "1" { print("zn t=\(ZnDebug.ms()) list: offset \(cv.contentOffset.y)") }
             let items = cv.indexPathsForVisibleItems.map(\.item)
             guard let a = items.min(), let b = items.max() else { return }
             MainActor.assumeIsolated { znSendRange(ctx, inst, s, list, a, b) }
+            // Near the end: ask JS for more (onEndReached), once per list length, as Android does (5 rows ahead).
+            let count = keys.count
+            if s.onEndReached != 0, count > 0, b >= count - 5, endSentAt != count {
+                endSentAt = count
+                MainActor.assumeIsolated { ctx.send(inst.id, s.onEndReached, .none) }
+            }
         }
     }
 }

@@ -110,6 +110,7 @@ struct ZnNodeView: View {
         content(s)
             .padding(s.type == Registry.Component.list ? EdgeInsets() : s.paddingInsets(inst))
             .modifier(ZnSizeFrame(s: s, outer: outer, alignment: contentAlignment(s)))
+            .modifier(ZnFieldBoxTap(s: s, inst: inst))
             .modifier(ZnPaint(s: s, inst: inst))
     }
 

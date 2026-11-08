@@ -112,8 +112,11 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
             host.present(content, animated: true)
         } else if !visible, let sheet = c.sheet {
             c.sheet = nil
-            print("zn t=\(ZnDebug.ms()) sheet: dismiss (JS set visible false)")
-            sheet.dismiss(animated: true)
+            // In the same batch as a stack change (pick an app → receipt), close at once: UIKit would otherwise wait
+            // for the sheet's animation before starting the navigation transition (2026-11-08, ~0.5 s).
+            let animated = !ZnApp.shared.batchChangesStack
+            print("zn t=\(ZnDebug.ms()) sheet: dismiss (JS set visible false\(animated ? "" : ", with a stack change: no animation"))")
+            sheet.dismiss(animated: animated)
         }
     }
 

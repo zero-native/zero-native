@@ -125,7 +125,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
 | i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | not started |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field done (log below); sticky headers, native modules, layout tests open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
 
@@ -146,6 +146,29 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.2, lists, sheet timing, multi-line field (Claude, `ios` branch)
+- **Sheet + stack change in one batch** (UPI picker → receipt): the sheet now closes without animation when the same
+  batch pushes, removes or clears screens, so the push starts at once (was ~0.5 s late). About 230 ms remain between
+  the tap and the receipt in a debug build on the simulator, most likely the receipt's first SwiftUI layout: measure
+  in release on a phone.
+- **List window** (`ZnList.swift`): `onRange` and `onEndReached` (within 5 rows of the end, once per length) as on
+  Android. Splices are diffed by common prefix and suffix and applied as one batch update; the first visible row
+  keeps its place on screen (10100 → 10101 rows with an insert at the top: nothing moved). `inverted` flips the
+  collection view and each cell, so a chat's newest message stays in view. Chat lab: older messages load
+  60 → 90 → 120 → 150.
+- **Found and fixed:** loading older messages crashed with "Invalid batch updates": the row keys changed before
+  `performBatchUpdates`, so UIKit's count before the update was already the new one. The keys now change inside the
+  update block, after a `layoutIfNeeded`.
+- **Multi-line `<TextField multiline>`** is a `UITextView` with the single-line field's change protocol, a
+  placeholder label, and a height that grows with the text (minHeight from the style still applies). As on Android,
+  Return makes a new line unless the field sets `returnKeyType`; then Return sends `onSubmitEditing` and closes the
+  keyboard. `returnKeyType` now also sets the single-line field's key (default Done).
+- **Found and fixed:** a tap in a field's box but outside its one text line (the note's 64 pt box, the padding of
+  any field) did nothing; on Android the whole box is the field. Now any tap in the box focuses the field.
+- Checked on the simulator (Inputs): a tap low in the note box focuses it (`focused: note`); typing wraps to three
+  lines and the box grows; Return submits the text, no new line, `focused: none`; a tap on the name field still
+  types there. No Android issue from this step.
+
 ### 2026-11-08: iOS i.2, route options (Claude, `ios` branch)
 - **Transitions** (routes.ts `transition`, same rule as Android: a push uses the new screen's, a pop the leaving
   screen's): `push` is UIKit's slide; `modal` slides up over the old screen and back down; `fade` cross-fades;
