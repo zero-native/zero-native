@@ -96,6 +96,8 @@ export interface StyleProps {
   shadowRadius?: number
   opacity?: number
   overflow?: "visible" | "hidden"
+  /** React Native display: "none" hides the node and takes no room in layout; "flex" is default (registry 23). */
+  display?: "flex" | "none"
   position?: "relative" | "absolute"
   top?: number
   bottom?: number

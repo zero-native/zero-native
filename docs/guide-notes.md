@@ -88,12 +88,14 @@ const paise = computed(() => toPaise(amount()))
 - Unsupported keys are **build errors**, never silently ignored (e.g. `flexDirection`: use `Row` / `Column`).
 - Static styles cost nothing at runtime: they are folded into the template at build time. Design tokens (`c.*`) in a
   side-effect-free `.ts` file are folded too.
-- **Only some style values may change at runtime.** The full list is `DynamicProps` in
-  `packages/template/src/registry.ts` (registry 15 today; it grows with each registry version). The main ones: `text`,
-  colours (`color`, `backgroundColor`, `borderColor`), `opacity`, transforms (`scale`, `translateX`, `rotate`, ...),
-  per-edge padding (`paddingTop/Bottom/Start/End`), `borderWidth`, `pointerEvents`, image `src`, `disabled`, `visible`.
-  Everything else must be a build-time value; the compiler says so with file:line. Prefer two styles chosen by a
-  ternary inside the object (`backgroundColor: on ? c.a : c.b`) over toggling layout.
+- **Dynamic style values at runtime (Registry 23).** The full list of supported dynamic keys is `DynamicProps` in
+  `packages/template/src/registry.ts`. In Registry 23, dynamic layout values are fully supported: dimensions (`width`,
+  `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `aspectRatio`), `flex`, `margin` (and all per-edge variants),
+  `padding` shorthands, `gap` (`rowGap`, `columnGap`), absolute offsets (`top`, `bottom`, `start`, `end`), `borderRadius`
+  (and corner radii), `fontSize`, `lineHeight`, `letterSpacing`, and `display: "none" | "flex"`. Sizing keys update in
+  the layout pass with zero recompositions. Structural keys (`flexDirection`, `flexWrap`, `alignItems`, `justifyContent`,
+  `alignSelf`, `position`) remain build-time only because they select the layout container type; use a ternary between
+  two elements for them (`cond ? <Row>...</Row> : <Column>...</Column>`).
 - `fontWeight`: 100–900 in steps of 100, `"normal"` (400) or `"bold"` (700). Anything else is a build error.
 - **`gap` works with every `justifyContent`, as in RN** (since 2026-11-05; before, it was dropped unless the row was
   `flex-start`). With `center` / `flex-end` the items keep the gap and move as a group. With `space-between` /

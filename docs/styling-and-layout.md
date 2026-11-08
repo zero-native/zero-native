@@ -238,12 +238,36 @@ defer either one if it turns out to cause hard bugs or complexity.
    | Style key changes | Read in | Cost |
    |---|---|---|
    | `backgroundColor`, `borderColor`, `opacity`, `transform` | draw (`drawBehind { }`, `graphicsLayer { }`) | redraw only |
-   | `width`, `height`, `padding`, `margin` | layout (`layout { }`, offset lambdas) | relayout of that node |
-   | text content, show / hide, structure | composition | recompose that leaf |
+   | `width`, `height`, `min*/max*`, `aspectRatio`, `display` | layout (`Modifier.layout { measurable, constraints -> }`) | relayout only (zero recompositions) |
+   | `margin*`, `padding*`, `gap`, `flex`, `borderRadius*`, `fontSize`, `lineHeight` | composition | recompose that single leaf |
 
-   A press colour change or a fade then redraws one node and nothing else.
+   A press colour change or a fade then redraws one node and nothing else. Animated sizes (e.g. 40dp to 300dp) run in the layout pass without recomposing the composable tree.
 
-## 9. Later: NativeWind `className` translator (v1.1, not decided)
+## 9. Dynamic Layout Values (Registry 23)
+In Registry 23, zero-native unlocks runtime expression values across layout properties. Previously fixed at build time, these now bind directly to reactive slots:
+- **Dimensions & Constraints:** `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `aspectRatio`.
+- **Flex & Flow:** `flex`, `flexGrow` (mapped to `flex`).
+- **Offsets:** `top`, `bottom`, `start`, `end` (absolute children of `Stack`).
+- **Margins & Spacing:** `margin`, `marginHorizontal`, `marginVertical`, `marginStart`, `marginEnd`, `marginTop`, `marginBottom`, `gap`, `rowGap`, `columnGap`.
+- **Padding shorthands:** `padding`, `paddingHorizontal`, `paddingVertical`.
+- **Shape & Typography:** `borderRadius`, corner radii (`borderTopStartRadius`, etc.), `fontSize`, `lineHeight`, `letterSpacing`.
+- **Visibility:** `display: "none" | "flex"`. Setting `display: "none"` collapses the element to 0×0 during layout without placing its children.
+
+### Structural Keys (Stay Build-Time Only)
+The structural keys `flexDirection`, `flexWrap`, `alignItems`, `justifyContent`, `alignSelf`, and `position` determine the layout container or coordinate pass. Changing them at runtime requires a ternary between two distinct elements (`cond ? <Row>...</Row> : <Column>...</Column>`), not a style slot. Attempting to use a dynamic expression on them produces a clear build-time error.
+
+### Percentages & Unset Values
+- Strings ending in `"%"` (e.g., `"50%"`) resolve relative to the bounded constraint of the parent container on that axis (`constraints.maxWidth` / `constraints.maxHeight`). If the parent axis is unbounded (infinite), a developer warning is logged and the percentage is ignored.
+- Unset values (`undefined`, `null`, `"auto"`) fall back to default/unconstrained layout behavior rather than coercing to 0.
+
+### For the iOS Runtime
+The iOS runtime (SwiftUI) mirrors these layout semantics without Yoga:
+1. **Dynamic Dimensions & Offsets:** Slots map to `.frame(width:height:)` and `.offset(x:y:)` closures or dynamic view modifiers observing the node's slot state.
+2. **Display None:** In SwiftUI, `display: "none"` conditionally removes the element from rendering or wraps it in `.frame(width: 0, height: 0).hidden()`.
+3. **Typography & Corner Radii:** `.font(.system(size:))` and `.clipShape(RoundedRectangle(cornerRadius:))` observe slot updates directly.
+4. **Percentage Widths:** Handled via `GeometryReader` or `.containerRelativeFrame(.horizontal)`.
+
+## 10. Later: NativeWind `className` translator (v1.1, not decided)
 ZeroBill's RN app is written with NativeWind classes (`className="flex-row px-[16px] bg-white rounded-xl"`), not
 mostly `StyleSheet`. A compile-time translator from a Tailwind subset to the style keys above would make porting
 close to mechanical. It is pure build-time work (no runtime cost) and can come after v1.

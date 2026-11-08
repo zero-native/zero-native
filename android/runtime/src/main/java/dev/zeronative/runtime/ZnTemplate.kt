@@ -174,10 +174,10 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     // Per corner (registry 15), as in RN: the corner's own value, else borderRadius. Start / End beat Left / Right;
     // Left / Right are drawn as Start / End (the same left to right).
     private fun corner(left: Int, start: Int) = num(start) ?: num(left) ?: radius
-    private val topStart = corner(Registry.Prop.BORDER_TOP_LEFT_RADIUS, Registry.Prop.BORDER_TOP_START_RADIUS)
-    private val topEnd = corner(Registry.Prop.BORDER_TOP_RIGHT_RADIUS, Registry.Prop.BORDER_TOP_END_RADIUS)
-    private val bottomEnd = corner(Registry.Prop.BORDER_BOTTOM_RIGHT_RADIUS, Registry.Prop.BORDER_BOTTOM_END_RADIUS)
-    private val bottomStart = corner(Registry.Prop.BORDER_BOTTOM_LEFT_RADIUS, Registry.Prop.BORDER_BOTTOM_START_RADIUS)
+    internal val topStart = corner(Registry.Prop.BORDER_TOP_LEFT_RADIUS, Registry.Prop.BORDER_TOP_START_RADIUS)
+    internal val topEnd = corner(Registry.Prop.BORDER_TOP_RIGHT_RADIUS, Registry.Prop.BORDER_TOP_END_RADIUS)
+    internal val bottomEnd = corner(Registry.Prop.BORDER_BOTTOM_RIGHT_RADIUS, Registry.Prop.BORDER_BOTTOM_END_RADIUS)
+    internal val bottomStart = corner(Registry.Prop.BORDER_BOTTOM_LEFT_RADIUS, Registry.Prop.BORDER_BOTTOM_START_RADIUS)
     /** Any rounded corner: rounded nodes clip press feedback and images to their shape. */
     val rounded = topStart > 0f || topEnd > 0f || bottomEnd > 0f || bottomStart > 0f
     val shape: Shape = when {
@@ -420,13 +420,22 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         return if (fontScale > max && fontScale > 0f) max / fontScale else 1f
     }
 
-    fun effectiveTextStyle(fontScale: Float): TextStyle {
+    fun effectiveTextStyle(
+        fontScale: Float,
+        fontSizeOverride: Float? = null,
+        lineHeightOverride: Float? = null,
+        letterSpacingOverride: Float? = null,
+    ): TextStyle {
         val f = fontScaleCap(fontScale)
-        if (f == 1f) return textStyle
-        return textStyle.copy(
-            fontSize = textStyle.fontSize.scaledSp(f),
-            lineHeight = textStyle.lineHeight.scaledSp(f),
-            letterSpacing = textStyle.letterSpacing.scaledSp(f),
+        var ts = textStyle
+        if (fontSizeOverride != null) ts = ts.copy(fontSize = fontSizeOverride.sp)
+        if (lineHeightOverride != null) ts = ts.copy(lineHeight = lineHeightOverride.sp)
+        if (letterSpacingOverride != null) ts = ts.copy(letterSpacing = letterSpacingOverride.sp)
+        if (f == 1f) return ts
+        return ts.copy(
+            fontSize = ts.fontSize.scaledSp(f),
+            lineHeight = ts.lineHeight.scaledSp(f),
+            letterSpacing = ts.letterSpacing.scaledSp(f),
         )
     }
 
@@ -499,11 +508,70 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
                 it.timingFor(Registry.Prop.TRIM_OFFSET) != null
         } == true
     /** Padding edges bound to slots (start, top, end, bottom; NONE = static). Read in the layout phase. */
+    val paddingSlot = slotFor(raw, Registry.Prop.PADDING)
+    val paddingHorizontalSlot = slotFor(raw, Registry.Prop.PADDING_HORIZONTAL)
+    val paddingVerticalSlot = slotFor(raw, Registry.Prop.PADDING_VERTICAL)
     val paddingSlots = intArrayOf(
         slotFor(raw, Registry.Prop.PADDING_START), slotFor(raw, Registry.Prop.PADDING_TOP),
         slotFor(raw, Registry.Prop.PADDING_END), slotFor(raw, Registry.Prop.PADDING_BOTTOM),
+        paddingSlot, paddingHorizontalSlot, paddingVerticalSlot,
     )
     val hasDynamicPadding = paddingSlots.any { it != NONE }
+
+    // Dynamic layout slots (registry 23, brief H1)
+    val widthSlot = slotFor(raw, Registry.Prop.WIDTH)
+    val heightSlot = slotFor(raw, Registry.Prop.HEIGHT)
+    val minWidthSlot = slotFor(raw, Registry.Prop.MIN_WIDTH)
+    val maxWidthSlot = slotFor(raw, Registry.Prop.MAX_WIDTH)
+    val minHeightSlot = slotFor(raw, Registry.Prop.MIN_HEIGHT)
+    val maxHeightSlot = slotFor(raw, Registry.Prop.MAX_HEIGHT)
+    val flexSlot = slotFor(raw, Registry.Prop.FLEX)
+    val aspectRatioSlot = slotFor(raw, Registry.Prop.ASPECT_RATIO)
+    val gapSlot = slotFor(raw, Registry.Prop.GAP)
+    val displaySlot = slotFor(raw, Registry.Prop.DISPLAY)
+
+    val topSlot = slotFor(raw, Registry.Prop.TOP)
+    val bottomSlot = slotFor(raw, Registry.Prop.BOTTOM)
+    val startSlot = slotFor(raw, Registry.Prop.START)
+    val endSlot = slotFor(raw, Registry.Prop.END)
+
+    val marginSlot = slotFor(raw, Registry.Prop.MARGIN)
+    val marginHorizontalSlot = slotFor(raw, Registry.Prop.MARGIN_HORIZONTAL)
+    val marginVerticalSlot = slotFor(raw, Registry.Prop.MARGIN_VERTICAL)
+    val marginTopSlot = slotFor(raw, Registry.Prop.MARGIN_TOP)
+    val marginBottomSlot = slotFor(raw, Registry.Prop.MARGIN_BOTTOM)
+    val marginStartSlot = slotFor(raw, Registry.Prop.MARGIN_START)
+    val marginEndSlot = slotFor(raw, Registry.Prop.MARGIN_END)
+    val marginSlots = intArrayOf(
+        marginStartSlot, marginTopSlot, marginEndSlot, marginBottomSlot,
+        marginSlot, marginHorizontalSlot, marginVerticalSlot,
+    )
+    val hasDynamicMargin = marginSlots.any { it != NONE }
+
+    val borderRadiusSlot = slotFor(raw, Registry.Prop.BORDER_RADIUS)
+    val borderTopStartRadiusSlot = slotFor(raw, Registry.Prop.BORDER_TOP_START_RADIUS).takeIf { it != NONE }
+        ?: slotFor(raw, Registry.Prop.BORDER_TOP_LEFT_RADIUS)
+    val borderTopEndRadiusSlot = slotFor(raw, Registry.Prop.BORDER_TOP_END_RADIUS).takeIf { it != NONE }
+        ?: slotFor(raw, Registry.Prop.BORDER_TOP_RIGHT_RADIUS)
+    val borderBottomStartRadiusSlot = slotFor(raw, Registry.Prop.BORDER_BOTTOM_START_RADIUS).takeIf { it != NONE }
+        ?: slotFor(raw, Registry.Prop.BORDER_BOTTOM_LEFT_RADIUS)
+    val borderBottomEndRadiusSlot = slotFor(raw, Registry.Prop.BORDER_BOTTOM_END_RADIUS).takeIf { it != NONE }
+        ?: slotFor(raw, Registry.Prop.BORDER_BOTTOM_RIGHT_RADIUS)
+    val radiusSlots = intArrayOf(
+        borderRadiusSlot, borderTopStartRadiusSlot, borderTopEndRadiusSlot,
+        borderBottomStartRadiusSlot, borderBottomEndRadiusSlot,
+    )
+    val hasDynamicRadius = radiusSlots.any { it != NONE }
+
+    val fontSizeSlot = slotFor(raw, Registry.Prop.FONT_SIZE)
+    val lineHeightSlot = slotFor(raw, Registry.Prop.LINE_HEIGHT)
+    val letterSpacingSlot = slotFor(raw, Registry.Prop.LETTER_SPACING)
+
+    val hasDynamicSize = widthSlot != NONE || heightSlot != NONE || minWidthSlot != NONE ||
+        maxWidthSlot != NONE || minHeightSlot != NONE || maxHeightSlot != NONE ||
+        aspectRatioSlot != NONE || displaySlot != NONE
+
+    val display = enum(Registry.Prop.DISPLAY)
 
     // Events: the event id JS listens to, or 0.
     val onPress = eventFor(raw, Registry.Event.ON_PRESS)
@@ -545,7 +613,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val onLoadEnd = eventFor(raw, Registry.Event.ON_LOAD_END)
 
     /** True when the drawing chain reads a slot, so it must be built per instance instead of once here. */
-    val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || hasDynamicPadding ||
+    val hasDynamicChain = backgroundSlot != NONE || opacitySlot != NONE || hasDynamicPadding || hasDynamicMargin ||
+        hasDynamicSize || hasDynamicRadius ||
         type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null ||
         accessibilityLabelSlot != NONE || hasMotion || borderWidthSlot != NONE || borderColorSlot != NONE ||
         onLayout != 0
@@ -567,22 +636,34 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         accessibility: Modifier? = null,
         border: ZnBorder? = null,
         layout: Modifier? = null,
+        sizeLayout: Modifier? = null,
+        dynamicShape: Shape? = null,
+        dynamicMargin: Edges? = null,
     ): Modifier {
+        if (display == Registry.Display.NONE) {
+            return Modifier.layout { _, _ -> layout(0, 0) {} }
+        }
         var m: Modifier = Modifier
-        margin?.let { m = m.padding(it.toPadding()) }
+        val effMargin = dynamicMargin ?: margin
+        effMargin?.let { m = m.padding(it.toPadding()) }
         layout?.let { m = m.then(it) } // RN onLayout: the box inside the margin, as RN reports it
         testID?.let { m = m.testTag(it) } // inside the margin: the element's own box, as RN reports it
-        when (val w = width) {
-            is Double -> m = m.width(w.toFloat().dp)
-            is ZnPercent -> m = m.fillMaxWidth(w.fraction.toFloat())
+        if (sizeLayout != null) {
+            m = m.then(sizeLayout)
+        } else {
+            when (val w = width) {
+                is Double -> m = m.width(w.toFloat().dp)
+                is ZnPercent -> m = m.fillMaxWidth(w.fraction.toFloat())
+            }
+            when (val h = height) {
+                is Double -> m = m.height(h.toFloat().dp)
+                is ZnPercent -> m = m.fillMaxHeight(h.fraction.toFloat())
+            }
+            if (minWidth != null || maxWidth != null) m = m.widthIn(minWidth.orUnspecified(), maxWidth.orUnspecified())
+            if (minHeight != null || maxHeight != null) m = m.heightIn(minHeight.orUnspecified(), maxHeight.orUnspecified())
+            aspectRatio?.let { m = m.aspectRatio(it) }
         }
-        when (val h = height) {
-            is Double -> m = m.height(h.toFloat().dp)
-            is ZnPercent -> m = m.fillMaxHeight(h.fraction.toFloat())
-        }
-        if (minWidth != null || maxWidth != null) m = m.widthIn(minWidth.orUnspecified(), maxWidth.orUnspecified())
-        if (minHeight != null || maxHeight != null) m = m.heightIn(minHeight.orUnspecified(), maxHeight.orUnspecified())
-        aspectRatio?.let { m = m.aspectRatio(it) }
+        val effShape = dynamicShape ?: shape
         if (layer != null) {
             // Values that change at runtime (slots, animations): read here, in the draw phase (step 3.6).
             val origin = transformOrigin
@@ -608,16 +689,16 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
                 translationY = translateY.dp.toPx()
             }
         }
-        if (elevation > 0f) m = m.shadow(elevation.dp, shape, clip = false, ambientColor = shadowColor, spotColor = shadowColor)
+        if (elevation > 0f) m = m.shadow(elevation.dp, effShape, clip = false, ambientColor = shadowColor, spotColor = shadowColor)
         if (background != null) {
-            val s = shape
+            val s = effShape
             m = m.drawBehind { drawOutline(s.createOutline(size, layoutDirection, this), background()) }
         } else {
-            this.background?.let { m = m.background(it, shape) }
+            this.background?.let { m = m.background(it, effShape) }
         }
         // backgroundImage: a linear gradient over the background colour. The brush is built once per size.
         gradient?.let { g ->
-            val s = shape
+            val s = effShape
             m = m.drawWithCache {
                 val brush = g.brush(size)
                 val outline = s.createOutline(size, layoutDirection, this)
@@ -629,7 +710,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
             val staticColor = borderColor
             m = m.znDashedBorder(this, border?.width ?: { static }, border?.color ?: { staticColor })
         } else if (border != null) m = m.znBorder(this, border)
-        else if (borderWidth > 0f) m = m.border(borderWidth.dp, borderColor, shape)
+        else if (borderWidth > 0f) m = m.border(borderWidth.dp, borderColor, effShape)
         if (borderTopWidth > 0f || borderBottomWidth > 0f) {
             val c = borderColor
             val topW = borderTopWidth
@@ -662,7 +743,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         // Images clip to their rounded shape by default, as in React Native.
         // A borderless ripple must draw outside the shape, so such a Pressable isn't clipped by default.
         val clipsByDefault = rounded && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE || type == Registry.Component.SHIMMER)
-        if (clip || clipsByDefault) m = m.clip(shape)
+        if (clip || clipsByDefault) m = m.clip(effShape)
         press?.let { m = m.then(it) } ?: accessibility?.let { m = m.then(it) }
         // Borders take space: content sits inside them (zn flex rule 2).
         val bs = borderWidth

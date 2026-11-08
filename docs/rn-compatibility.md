@@ -26,13 +26,15 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 
 ## 0. Four big differences to know first
 
-1. **Only some values can change at runtime.** The full list is `DynamicProps` (the registry grows; today it is
-   registry 15). The main ones: `color`, `backgroundColor`, `opacity`, transforms, image `src` and `tintColor`,
-   `disabled`, per-edge padding, `text`, `value`, `placeholder`, `editable`, `visible`, `accessibilityLabel`,
-   `impressionKey`, `borderColor`, `borderWidth`, `pointerEvents`, and SVG `fill` / `stroke` / trims. Everything else (width, height, margin, flex, `fontSize`, `borderRadius`...) must be known at build
-   time. A signal there is a **build error with file and line**. RN code like `style={{ width: w }}` with a changing
-   `w` must become two styles chosen by a ternary, or an `animate` prop. This is the largest source of edits.
-   [`DynamicProps` in registry.ts](../packages/template/src/registry.ts), the "dynamic" check in [compile.ts](../compiler/src/compile.ts).
+1. **Dynamic values at runtime (Registry 23).** In Registry 23, zero-native supports dynamic runtime expressions across both appearance and layout properties:
+   - Appearance: `color`, `backgroundColor`, `opacity`, transforms, image `src` and `tintColor`, `disabled`, `text`, `value`, `placeholder`, `editable`, `visible`, `accessibilityLabel`, `impressionKey`, `borderColor`, `borderWidth`, `pointerEvents`, SVG `fill` / `stroke` / trims.
+   - Layout & Dimensions: `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `aspectRatio`, `flex`, `flexGrow` (mapped to `flex`).
+   - Margins & Padding: `margin` and all variants (`marginHorizontal`, `marginStart`, etc.), `padding` shorthands (`padding`, `paddingHorizontal`, `paddingVertical`).
+   - Spacing: `gap`, `rowGap`, `columnGap`.
+   - Typography & Shape: `borderRadius` and corner radii, `fontSize`, `lineHeight`, `letterSpacing`.
+   - Visibility: `display: "none" | "flex"`.
+   Structural keys (`flexDirection`, `flexWrap`, `alignItems`, `justifyContent`, `alignSelf`, `position`) remain build-time only because they select the layout container type or coordinate pass; dynamic switching among them uses a ternary (`cond ? <Row>...</Row> : <Column>...</Column>`).
+   [`DynamicProps` in registry.ts](../packages/template/src/registry.ts), [styling-and-layout.md](styling-and-layout.md) §9.
 2. **No React.** No hooks, no `useState`, no `useEffect`, no context, no `ref`, no `memo`. State is signals, and a
    component body runs once. See [guide-notes.md](guide-notes.md) §1–2.
 3. **Unknown props and style keys fail the build.** Nothing is silently ignored.

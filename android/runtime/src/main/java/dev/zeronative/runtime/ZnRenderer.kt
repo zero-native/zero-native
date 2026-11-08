@@ -65,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -190,22 +191,26 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
         Registry.Component.MODAL -> ZnModal(f, t, s, inst) // the same
         Registry.Component.STATUS_BAR -> ZnBarElement(s, inst, navigation = false) // takes no space
         Registry.Component.NAVIGATION_BAR -> ZnBarElement(s, inst, navigation = true)
-        Registry.Component.ROW -> Row(
-            modifier = mod,
-            horizontalArrangement = horizontalArrangement(s),
-            verticalAlignment = verticalAlignment(s.alignItems),
-        ) {
-            // zn flex rule 4: a Row stretches children only when it has a fixed height.
-            val stretch = s.alignItems == Registry.AlignItems.STRETCH && s.height is Double
-            for (ref in childRefs(f, t, inst, s)) key(ref.key) {
-                val child = ref.template.nodes[ref.node]
-                var m: Modifier = Modifier
-                if (child.flex > 0f) m = m.weight(child.flex)
-                if (stretch && child.height == null) m = m.fillMaxHeight()
-                if (child.alignSelf != -1) m = m.align(verticalAlignment(child.alignSelf))
-                child.zIndex?.let { m = m.zIndex(it) } // RN zIndex on any child (registry 16)
-                // In a Row, a child's width is definite when it is set or shared out by flex.
-                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = child.width != null || child.flex > 0f)
+        Registry.Component.ROW -> {
+            val gap = if (s.gapSlot >= 0) (inst.slot(s.gapSlot).value as? Number)?.toFloat() ?: s.gap else s.gap
+            Row(
+                modifier = mod,
+                horizontalArrangement = if (gap > 0f) Arrangement.spacedBy(gap.dp) else horizontalArrangement(s),
+                verticalAlignment = verticalAlignment(s.alignItems),
+            ) {
+                // zn flex rule 4: a Row stretches children only when it has a fixed height.
+                val stretch = s.alignItems == Registry.AlignItems.STRETCH && (s.height is Double || s.heightSlot >= 0)
+                for (ref in childRefs(f, t, inst, s)) key(ref.key) {
+                    val child = ref.template.nodes[ref.node]
+                    var m: Modifier = Modifier
+                    val childFlex = if (child.flexSlot >= 0) (inst.slot(child.flexSlot).value as? Number)?.toFloat() ?: child.flex else child.flex
+                    if (childFlex > 0f) m = m.weight(childFlex)
+                    if (stretch && child.height == null && child.heightSlot < 0) m = m.fillMaxHeight()
+                    if (child.alignSelf != -1) m = m.align(verticalAlignment(child.alignSelf))
+                    child.zIndex?.let { m = m.zIndex(it) } // RN zIndex on any child (registry 16)
+                    // In a Row, a child's width is definite when it is set or shared out by flex.
+                    ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = child.width != null || child.widthSlot >= 0 || childFlex > 0f)
+                }
             }
         }
         Registry.Component.STACK -> Box(modifier = mod, contentAlignment = stackAlignment(s)) {
@@ -217,30 +222,30 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                 var m: Modifier = Modifier
                 var stretched = false
                 if (!child.absolute) {
-                    stretched = stretch && child.width == null && child.type != Registry.Component.SPACER &&
+                    stretched = stretch && child.width == null && child.widthSlot < 0 && child.type != Registry.Component.SPACER &&
                         (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
                     if (stretched) m = m.fillMaxWidth()
                 }
                 if (child.absolute) {
                     // position: 'absolute' with top/bottom/start/end, relative to the Stack's content box. Both sides
                     // of a pair (start + end, top + bottom) stretch it between them, as in RN (registry 15).
-                    val fillW = child.start != null && child.end != null
-                    val fillH = child.top != null && child.bottom != null
+                    val fillW = (child.start != null || child.startSlot >= 0) && (child.end != null || child.endSlot >= 0)
+                    val fillH = (child.top != null || child.topSlot >= 0) && (child.bottom != null || child.bottomSlot >= 0)
                     if (fillW && fillH) {
                         // The Stack's own size, after its other children (StyleSheet.absoluteFill).
-                        m = m.matchParentSize().absoluteInsets(child.start, child.top, child.end, child.bottom)
+                        m = m.matchParentSize().absoluteInsets(child, ref.instance)
                     } else {
                         // R29 (2026-11-05): it takes no room, as in RN. In matchParentSize the Box sizes itself
                         // from its normal children only, then measures this child at that size (absoluteChild).
                         // Before, the Box grew to fit it (a 220 dp header shape made a 90 dp Stack 220 tall).
-                        m = m.matchParentSize().absoluteChild(child, stackBias(s))
+                        m = m.matchParentSize().absoluteChild(child, ref.instance, stackBias(s))
                     }
                 }
                 child.zIndex?.let { m = m.zIndex(it) }
                 // R44 (2026-11-07): an absolute child pinned on both sides (start + end) has a set width, as in RN, so
                 // its own children stretch to it. Before, a centred spinner inside one sat at the left.
-                val pinnedW = child.absolute && child.start != null && child.end != null
-                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null || pinnedW)
+                val pinnedW = child.absolute && (child.start != null || child.startSlot >= 0) && (child.end != null || child.endSlot >= 0)
+                ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null || child.widthSlot >= 0 || pinnedW)
             }
         }
         Registry.Component.ANCHOR -> Unit // expanded by the parent (childRefs)
@@ -289,7 +294,10 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             val color: () -> Color = if (s.colorSlot >= 0) ({ toColor(inst.slot(s.colorSlot).value) ?: Color.Black })
             else ({ s.color ?: Color.Black })
             val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
-            val textStyle = s.effectiveTextStyle(fontScale)
+            val fs = if (s.fontSizeSlot >= 0) (inst.slot(s.fontSizeSlot).value as? Number)?.toFloat() else null
+            val lh = if (s.lineHeightSlot >= 0) (inst.slot(s.lineHeightSlot).value as? Number)?.toFloat() else null
+            val ls = if (s.letterSpacingSlot >= 0) (inst.slot(s.letterSpacingSlot).value as? Number)?.toFloat() else null
+            val textStyle = s.effectiveTextStyle(fontScale, fs, lh, ls)
             // Registry 16: spans that change at runtime come as JSON in a slot (core text-spans.ts); else the template's.
             val spansJson = if (s.spansSlot >= 0) inst.slot(s.spansSlot).value as? String else null
             val spans = if (s.spansSlot >= 0) remember(spansJson) { spansJson?.let(::parseSpans) } else s.spans
@@ -430,24 +438,26 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
 /** A Column-like node's children, with the zn flex rules (also the body of a <Sheet>). */
 @Composable
 internal fun ZnColumn(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: ZnNodeSpec, mod: Modifier, definiteWidth: Boolean) {
+    val gap = if (s.gapSlot >= 0) (inst.slot(s.gapSlot).value as? Number)?.toFloat() ?: s.gap else s.gap
     Column(
         modifier = mod,
-        verticalArrangement = verticalArrangement(s),
+        verticalArrangement = if (gap > 0f) Arrangement.spacedBy(gap.dp) else verticalArrangement(s),
         horizontalAlignment = horizontalAlignment(s.alignItems),
     ) {
         val stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.STRETCH)
         for (ref in childRefs(f, t, inst, s)) key(ref.key) {
             val child = ref.template.nodes[ref.node]
             var m: Modifier = Modifier
-            if (child.flex > 0f) m = m.weight(child.flex)
+            val childFlex = if (child.flexSlot >= 0) (inst.slot(child.flexSlot).value as? Number)?.toFloat() ?: child.flex else child.flex
+            if (childFlex > 0f) m = m.weight(childFlex)
             // zn flex rule 4: Column stretches children without a width (docs/styling-and-layout.md §5).
-            val stretched = stretch && child.width == null && child.type != Registry.Component.SPACER &&
+            val stretched = stretch && child.width == null && child.widthSlot < 0 && child.type != Registry.Component.SPACER &&
                 (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.STRETCH)
             if (stretched) m = m.fillMaxWidth()
             if (child.alignSelf != -1) m = m.align(horizontalAlignment(child.alignSelf))
             // RN zIndex on any child (registry 16, R23): draws it over its later siblings (a row holding a tooltip).
             child.zIndex?.let { m = m.zIndex(it) }
-            ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null)
+            ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = stretched || child.width != null || child.widthSlot >= 0 || childFlex > 0f)
         }
     }
 }
@@ -750,15 +760,54 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
     // Registry 14: read here so TalkBack's long-press action follows it (the touch path reads it at finger-down).
     val longPressSet = if (s.hasLongPressSlot >= 0) inst.slot(s.hasLongPressSlot).value else null
     val density = LocalDensity.current.density
-    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density) {
+
+    // Dynamic margin (registry 23, brief H1): resolved on composition of this node
+    val dynamicMargin = if (s.hasDynamicMargin) {
+        val base = s.margin ?: Edges(0f, 0f, 0f, 0f)
+        fun mSlot(slot: Int): Float? = if (slot >= 0) (inst.slot(slot).value as? Number)?.toFloat() else null
+        val all = mSlot(s.marginSlot)
+        val h = mSlot(s.marginHorizontalSlot) ?: all
+        val v = mSlot(s.marginVerticalSlot) ?: all
+        val start = mSlot(s.marginStartSlot) ?: h ?: base.start
+        val top = mSlot(s.marginTopSlot) ?: v ?: base.top
+        val end = mSlot(s.marginEndSlot) ?: h ?: base.end
+        val bottom = mSlot(s.marginBottomSlot) ?: v ?: base.bottom
+        Edges(start, top, end, bottom)
+    } else null
+
+    // Dynamic border radii (registry 23, brief H1): resolved on composition of this node
+    val dynamicShape = if (s.hasDynamicRadius) {
+        fun rSlot(slot: Int, fallback: Float): Float = if (slot >= 0) (inst.slot(slot).value as? Number)?.toFloat() ?: fallback else fallback
+        val all = if (s.borderRadiusSlot >= 0) (inst.slot(s.borderRadiusSlot).value as? Number)?.toFloat() else null
+        val ts = rSlot(s.borderTopStartRadiusSlot, all ?: s.topStart)
+        val te = rSlot(s.borderTopEndRadiusSlot, all ?: s.topEnd)
+        val be = rSlot(s.borderBottomEndRadiusSlot, all ?: s.bottomEnd)
+        val bs = rSlot(s.borderBottomStartRadiusSlot, all ?: s.bottomStart)
+        if (ts == 0f && te == 0f && be == 0f && bs == 0f) RectangleShape
+        else RoundedCornerShape(ts.dp, te.dp, be.dp, bs.dp)
+    } else null
+
+    // Dynamic sizes & offsets (registry 23, brief H1): read inside layout pass (no recomposition!)
+    val sizeLayout = if (s.hasDynamicSize) dynamicSize(s, inst, density) else null
+
+    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density, dynamicMargin, dynamicShape, sizeLayout) {
         val press = if (s.type == Registry.Component.PRESSABLE) {
             Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication, touchable)
         } else null
         val pad = if (s.hasDynamicPadding) {
             val base = s.staticPadding
             val cells = s.paddingSlots.map { if (it >= 0) inst.slot(it) else null }
-            fun edge(i: Int, static: Float) = (cells[i]?.value as? Double)?.toFloat() ?: static
-            ({ Edges(edge(0, base.start), edge(1, base.top), edge(2, base.end), edge(3, base.bottom)) })
+            ({
+                fun cellNum(idx: Int): Float? = (cells[idx]?.value as? Number)?.toFloat()
+                val all = cellNum(4)
+                val h = cellNum(5) ?: all
+                val v = cellNum(6) ?: all
+                val start = cellNum(0) ?: h ?: base.start
+                val top = cellNum(1) ?: v ?: base.top
+                val end = cellNum(2) ?: h ?: base.end
+                val bottom = cellNum(3) ?: v ?: base.bottom
+                Edges(start, top, end, bottom)
+            })
         } else null
         val accessibility = if (s.type != Registry.Component.PRESSABLE && s.type != Registry.Component.OTP_INPUT) s.accessibilitySemantics(aLabel ?: s.accessibilityLabel) else null
         // Registry 15: a border width / colour from a slot, read while measuring / drawing (no recomposition).
@@ -771,7 +820,7 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
             )
         } else null
         val layout = if (s.onLayout != 0) znOnLayout(inst.id, s.onLayout, density) else null
-        s.buildChain(layer, background, press, pad, accessibility, border, layout)
+        s.buildChain(layer, background, press, pad, accessibility, border, layout, sizeLayout, dynamicShape, dynamicMargin)
     }
 }
 
@@ -859,11 +908,15 @@ private fun stackAlignment(s: ZnNodeSpec): Alignment = stackBias(s).let { (h, v)
 private fun contentPaddingOf(s: ZnNodeSpec, inst: ZnInstance): PaddingValues {
     if (!s.hasDynamicPadding) return s.contentPadding ?: PaddingValues(0.dp)
     val b = s.staticPadding
-    fun edge(i: Int, static: Float): Float {
-        val slot = s.paddingSlots[i]
-        return if (slot >= 0) (inst.slot(slot).value as? Double)?.toFloat() ?: static else static
-    }
-    return Edges(edge(0, b.start), edge(1, b.top), edge(2, b.end), edge(3, b.bottom)).toPadding()
+    fun cellNum(idx: Int): Float? = if (s.paddingSlots[idx] >= 0) (inst.slot(s.paddingSlots[idx]).value as? Number)?.toFloat() else null
+    val all = cellNum(4)
+    val h = cellNum(5) ?: all
+    val v = cellNum(6) ?: all
+    val start = cellNum(0) ?: h ?: b.start
+    val top = cellNum(1) ?: v ?: b.top
+    val end = cellNum(2) ?: h ?: b.end
+    val bottom = cellNum(3) ?: v ?: b.bottom
+    return Edges(start, top, end, bottom).toPadding()
 }
 
 /**
@@ -873,14 +926,14 @@ private fun contentPaddingOf(s: ZnNodeSpec, inst: ZnInstance): PaddingValues {
  * content's height. Placed at its inset (end / bottom from the far side), or by the Stack's alignment
  * ([bias]) when it has none. Reports the Stack's size, so it never makes the Stack bigger. Draws outside when bigger.
  */
-private fun Modifier.absoluteChild(child: ZnNodeSpec, bias: Pair<Float, Float>): Modifier =
+private fun Modifier.absoluteChild(child: ZnNodeSpec, inst: ZnInstance, bias: Pair<Float, Float>): Modifier =
     layout { measurable, constraints ->
         val w = constraints.maxWidth
         val h = constraints.maxHeight
-        val s = child.start?.dp?.roundToPx()
-        val e = child.end?.dp?.roundToPx()
-        val t = child.top?.dp?.roundToPx()
-        val b = child.bottom?.dp?.roundToPx()
+        val s = (if (child.startSlot >= 0) (inst.slot(child.startSlot).value as? Number)?.toFloat() else child.start)?.dp?.roundToPx()
+        val e = (if (child.endSlot >= 0) (inst.slot(child.endSlot).value as? Number)?.toFloat() else child.end)?.dp?.roundToPx()
+        val t = (if (child.topSlot >= 0) (inst.slot(child.topSlot).value as? Number)?.toFloat() else child.top)?.dp?.roundToPx()
+        val b = (if (child.bottomSlot >= 0) (inst.slot(child.bottomSlot).value as? Number)?.toFloat() else child.bottom)?.dp?.roundToPx()
         val fillW = s != null && e != null
         val fillH = t != null && b != null
         val fullW = (w - (s ?: 0) - (e ?: 0)).coerceAtLeast(0)
@@ -889,7 +942,7 @@ private fun Modifier.absoluteChild(child: ZnNodeSpec, bias: Pair<Float, Float>):
             minWidth = if (fillW) fullW else 0,
             maxWidth = when {
                 fillW -> fullW
-                child.width is Double -> Constraints.Infinity
+                child.width is Double || child.widthSlot >= 0 -> Constraints.Infinity
                 else -> w // a % of the Stack; no width: at most the Stack's width (Yoga's rule, and zn's before)
             },
             minHeight = if (fillH) fullH else 0,
@@ -910,16 +963,16 @@ private fun Modifier.absoluteChild(child: ZnNodeSpec, bias: Pair<Float, Float>):
  * that has both sides, it is the full size minus the two insets, placed at the start / top inset. Negative insets make
  * it bigger than the Stack (it draws outside, as in RN). A null pair leaves that axis as measured.
  */
-private fun Modifier.absoluteInsets(start: Float?, top: Float?, end: Float?, bottom: Float?): Modifier =
+private fun Modifier.absoluteInsets(child: ZnNodeSpec, inst: ZnInstance): Modifier =
     layout { measurable, constraints ->
-        val s = start?.dp?.roundToPx() ?: 0
-        val e = end?.dp?.roundToPx() ?: 0
-        val t = top?.dp?.roundToPx() ?: 0
-        val b = bottom?.dp?.roundToPx() ?: 0
+        val s = (if (child.startSlot >= 0) (inst.slot(child.startSlot).value as? Number)?.toFloat() else child.start)?.dp?.roundToPx() ?: 0
+        val e = (if (child.endSlot >= 0) (inst.slot(child.endSlot).value as? Number)?.toFloat() else child.end)?.dp?.roundToPx() ?: 0
+        val t = (if (child.topSlot >= 0) (inst.slot(child.topSlot).value as? Number)?.toFloat() else child.top)?.dp?.roundToPx() ?: 0
+        val b = (if (child.bottomSlot >= 0) (inst.slot(child.bottomSlot).value as? Number)?.toFloat() else child.bottom)?.dp?.roundToPx() ?: 0
         val w = constraints.maxWidth
         val h = constraints.maxHeight
-        val stretchW = start != null && end != null && constraints.hasBoundedWidth
-        val stretchH = top != null && bottom != null && constraints.hasBoundedHeight
+        val stretchW = (child.start != null || child.startSlot >= 0) && (child.end != null || child.endSlot >= 0) && constraints.hasBoundedWidth
+        val stretchH = (child.top != null || child.topSlot >= 0) && (child.bottom != null || child.bottomSlot >= 0) && constraints.hasBoundedHeight
         val inner = Constraints(
             minWidth = if (stretchW) (w - s - e).coerceAtLeast(0) else constraints.minWidth,
             maxWidth = if (stretchW) (w - s - e).coerceAtLeast(0) else constraints.maxWidth,
@@ -931,6 +984,147 @@ private fun Modifier.absoluteInsets(start: Float?, top: Float?, end: Float?, bot
         val outH = if (stretchH) h else p.height
         layout(outW, outH) { p.placeRelative(if (stretchW) s else 0, if (stretchH) t else 0) }
     }
+
+private val loggedDevWarnings = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+/**
+ * Dynamic size modifier (registry 23, brief H1): reads size and min/max slots inside the layout phase.
+ * A size change re-measures and needs NO recomposition (making Animated width/height work at 60fps).
+ */
+internal fun dynamicSize(s: ZnNodeSpec, inst: ZnInstance, density: Float): Modifier {
+    val wCell = if (s.widthSlot >= 0) inst.slot(s.widthSlot) else null
+    val hCell = if (s.heightSlot >= 0) inst.slot(s.heightSlot) else null
+    val minWCell = if (s.minWidthSlot >= 0) inst.slot(s.minWidthSlot) else null
+    val maxWCell = if (s.maxWidthSlot >= 0) inst.slot(s.maxWidthSlot) else null
+    val minHCell = if (s.minHeightSlot >= 0) inst.slot(s.minHeightSlot) else null
+    val maxHCell = if (s.maxHeightSlot >= 0) inst.slot(s.maxHeightSlot) else null
+    val ratioCell = if (s.aspectRatioSlot >= 0) inst.slot(s.aspectRatioSlot) else null
+    val dispCell = if (s.displaySlot >= 0) inst.slot(s.displaySlot) else null
+
+    return Modifier.layout { measurable, constraints ->
+        // 1. display check: "none" takes 0x0 and places nothing
+        val d = dispCell?.value ?: s.display
+        if (d == "none" || d == Registry.Display.NONE || d == 1) {
+            return@layout layout(0, 0) {}
+        }
+
+        // 2. Resolve width
+        val wRaw = wCell?.value ?: s.width
+        val wPx = resolveSizePx(wRaw, constraints.maxWidth, constraints.hasBoundedWidth, density, s, "width")
+
+        // 3. Resolve height
+        val hRaw = hCell?.value ?: s.height
+        val hPx = resolveSizePx(hRaw, constraints.maxHeight, constraints.hasBoundedHeight, density, s, "height")
+
+        // 4. Resolve min/max constraints
+        val minWRaw = minWCell?.value ?: s.minWidth
+        val maxWRaw = maxWCell?.value ?: s.maxWidth
+        val minHRaw = minHCell?.value ?: s.minHeight
+        val maxHRaw = maxHCell?.value ?: s.maxHeight
+
+        val minWPx = resolveDpPx(minWRaw, density)
+        val maxWPx = resolveDpPx(maxWRaw, density)
+        val minHPx = resolveDpPx(minHRaw, density)
+        val maxHPx = resolveDpPx(maxHRaw, density)
+
+        var minW = constraints.minWidth
+        var maxW = constraints.maxWidth
+        var minH = constraints.minHeight
+        var maxH = constraints.maxHeight
+
+        if (wPx != null) {
+            val clampedW = wPx.coerceIn(minW, maxW)
+            minW = clampedW
+            maxW = clampedW
+        } else {
+            if (minWPx != null) minW = maxOf(minW, minWPx.coerceIn(0, maxW))
+            if (maxWPx != null) maxW = minOf(maxW, maxOf(minW, maxWPx))
+        }
+
+        if (hPx != null) {
+            val clampedH = hPx.coerceIn(minH, maxH)
+            minH = clampedH
+            maxH = clampedH
+        } else {
+            if (minHPx != null) minH = maxOf(minH, minHPx.coerceIn(0, maxH))
+            if (maxHPx != null) maxH = minOf(maxH, maxOf(minH, maxHPx))
+        }
+
+        // 5. aspectRatio
+        val ratioVal = (ratioCell?.value as? Number)?.toFloat() ?: s.aspectRatio
+        if (ratioVal != null && ratioVal > 0f) {
+            if (wPx != null && hPx == null) {
+                val derivedH = (wPx / ratioVal).roundToInt().coerceIn(minH, maxH)
+                minH = derivedH
+                maxH = derivedH
+            } else if (hPx != null && wPx == null) {
+                val derivedW = (hPx * ratioVal).roundToInt().coerceIn(minW, maxW)
+                minW = derivedW
+                maxW = derivedW
+            }
+        }
+
+        val childConstraints = Constraints(minW, maxW, minH, maxH)
+        val placeable = measurable.measure(childConstraints)
+        layout(placeable.width, placeable.height) {
+            placeable.placeRelative(0, 0)
+        }
+    }
+}
+
+internal fun resolveSizePx(
+    value: Any?,
+    parentBoundPx: Int,
+    hasBound: Boolean,
+    density: Float,
+    spec: ZnNodeSpec,
+    propName: String,
+): Int? {
+    if (value == null || value == "auto") return null
+    if (value is Number) {
+        val dp = value.toFloat()
+        return (dp * density).roundToInt()
+    }
+    if (value is ZnPercent) {
+        if (!hasBound) {
+            val key = "${spec.type}:$propName:unbounded"
+            if (loggedDevWarnings.add(key)) {
+                android.util.Log.w("zero-native", "Dynamic layout: % on unbounded axis ignored for $propName on node ${spec.type}")
+            }
+            return null
+        }
+        return (value.fraction * parentBoundPx).roundToInt()
+    }
+    if (value is String) {
+        val str = value.trim()
+        if (str == "auto") return null
+        if (str.endsWith("%")) {
+            val num = str.dropLast(1).trim().toFloatOrNull()
+            if (num != null) {
+                if (!hasBound) {
+                    val key = "${spec.type}:$propName:unbounded"
+                    if (loggedDevWarnings.add(key)) {
+                        android.util.Log.w("zero-native", "Dynamic layout: % on unbounded axis ignored for $propName on node ${spec.type}")
+                    }
+                    return null
+                }
+                return ((num / 100f) * parentBoundPx).roundToInt()
+            }
+        }
+        val key = "${spec.type}:$propName:invalid:$str"
+        if (loggedDevWarnings.add(key)) {
+            android.util.Log.w("zero-native", "Dynamic layout: invalid $propName value '$str' on node ${spec.type}; treated as not written")
+        }
+        return null
+    }
+    return null
+}
+
+internal fun resolveDpPx(value: Any?, density: Float): Int? {
+    if (value == null || value == "auto") return null
+    if (value is Number) return (value.toFloat() * density).roundToInt()
+    return null
+}
 
 /**
  * Nested <Text> spans: the text holds one piece per span, joined by U+001F (compile.ts `textChildren`). [cap] is the

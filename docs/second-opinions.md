@@ -2557,3 +2557,32 @@ change, and what evidence would make you change it?"
   provides virtualized rendering with identical windowing and memory safety.
 - **Risk if wrong:** horizontal rails with variable-height items could require alignment policies; solved by respecting
   `alignItems` mapped to `verticalAlignment(s.alignItems)`.
+
+## 171. Dynamic layout values via reactive slots (compiler + runtime, 2026-11-08; registry 23; parity batch 2 H1)
+- **Where:** `compiler/src/compile.ts`, `packages/template/src/registry.ts`, `packages/ui/src/index.ts`, `android/runtime/.../ZnRenderer.kt`, `ZnTemplate.kt`.
+- **What:**
+  1. Dynamic expression values (slots) are now supported for layout properties that previously required static numbers at build time:
+     - Dimensions: `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `aspectRatio`.
+     - Flex: `flex`, `flexGrow` (mapped to `flex`).
+     - Offsets: `top`, `bottom`, `start`, `end` (on absolute children of `Stack`).
+     - Margins & Padding: `margin` and all per-edge variants (`marginHorizontal`, `marginStart`, etc.), `padding` shorthands (`padding`, `paddingHorizontal`, `paddingVertical`).
+     - Spacing: `gap`, `rowGap`, `columnGap`.
+     - Radii & Typography: `borderRadius`, corner radii (`borderTopStartRadius`, etc.), `fontSize`, `lineHeight`, `letterSpacing`.
+     - Visibility: `display: "none" | "flex"`.
+  2. Structural keys remain build-time only: `flexDirection`, `flexWrap`, `alignItems`, `justifyContent`, `alignSelf`, `position`. They select the layout container or coordinate pass, so dynamic changes must use a ternary between elements (`cond ? <Row>...</Row> : <Column>...</Column>`). Dynamic expressions on these keys fail at build time with a clear explanatory error.
+- **Compose Phasing Discipline:**
+  - Sizing & Offsets: evaluated inside `Modifier.layout { measurable, constraints -> ... }` and `Modifier.offset { ... }`. Because slot state is read during the layout/measure pass, frame-by-frame dimension changes (e.g., animating width from 40 to 300 dp) execute with **zero recompositions** of the Composable node.
+  - Margins, Gap, Shape, Typography: evaluated during node composition, recomposing **only that specific leaf node** without invalidating parent or sibling hierarchies.
+  - `display: "none"`: returns `layout(0, 0) {}` during measure without placing the measurable, completely collapsing the node's space.
+- **Percentages & Unset Values:**
+  - Percentages (e.g. `"50%"`) resolve relative to the incoming `constraints.maxWidth` or `constraints.maxHeight`. If the axis is unconstrained (`Constraints.Infinity`), a developer warning is logged and the percentage is ignored.
+  - Unset or unrecognized values (`null`, `undefined`, `"auto"`) fall back to default/unconstrained layout behavior rather than coercing to 0.
+- **Why this architecture:**
+  - Retains zero-native's core performance advantage (no Yoga layout bridge, direct native Jetpack Compose / SwiftUI mapping) while eliminating the major developer pain point of fixed layout dimensions.
+  - Preserves byte-for-byte template equivalence for static layout props (no slots allocated when literals are used).
+- **Checked:**
+  - Dedicated compiler test suite in `compiler/test/dynamic-layout.test.ts`.
+  - Android runtime unit tests pass (`:runtime:testDebugUnitTest`).
+  - Sample bundle builds cleanly (`sample: wrote main.zn.ui`).
+  - Full test suite passes: `1209 pass, 0 fail` and clean typecheck.
+  - Interactive test screen `DynamicLayoutLab.tsx` added to sample app.

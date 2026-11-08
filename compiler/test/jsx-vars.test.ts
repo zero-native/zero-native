@@ -95,7 +95,7 @@ describe("build-time values: body consts, operators, template strings", () => {
   })
 
   test("a local let is not a build-time value", () => {
-    expect(err(`export function A(p) { let w = 10; return <Box style={{ width: w }} /> }`)).toMatch(/"width" must be known at build time/)
+    expect(err(`export function A(p) { let a = "center"; return <Box style={{ alignItems: a }} /> }`)).toMatch(/"alignItems" must be known at build time/)
   })
 
   test("operators on runtime values stay runtime; only the used side of && / || must be known", () => {

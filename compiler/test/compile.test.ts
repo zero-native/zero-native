@@ -498,10 +498,9 @@ describe("errors point at the source", () => {
     expect(err(`function A() { return <Text fontWeight="1000">x</Text> }`)).toMatch(/fontWeight must be 100–900/)
   })
   test("a layout prop that changes at runtime", () => {
-    expect(err(`function A(p) { return <Row gap={p.gap} /> }`)).toMatch(/"gap" must be known at build time/)
-    // Per-edge padding may change (headers padded by insets()); the shorthands may not.
-    expect(err(`function A(p) { return <Row style={{ paddingTop: p.top, paddingHorizontal: 20 }} /> }`)).toBe("no error")
-    expect(err(`function A(p) { return <Row style={{ padding: p.top }} /> }`)).toMatch(/"padding" must be known at build time/)
+    expect(err(`function A(p) { return <Row alignItems={p.ai} /> }`)).toMatch(/"alignItems" must be known at build time/)
+    // Dynamic layout values (H1): sizes, padding shorthands and gap can change at runtime.
+    expect(err(`function A(p) { return <Row gap={p.gap} style={{ paddingTop: p.top, paddingHorizontal: 20, padding: p.pad }} /> }`)).toBe("no error")
   })
   test("text outside <Text>, missing keys, stray JSX", () => {
     expect(err(`function A() { return <Row>hi</Row> }`)).toMatch(/text must be inside <Text>/)

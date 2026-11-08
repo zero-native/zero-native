@@ -87,7 +87,7 @@ describe("writeTemplateFile", () => {
     expect(() => writeTemplateFile([el("Row", { flexDirection: "row" } as any)])).toThrow(/unknown prop/)
     expect(() => writeTemplateFile([el("Row", { justifyContent: "middle" as any })])).toThrow(/needs one of/)
     expect(() => writeTemplateFile([el("Row", { style: { width: "wide" } })])).toThrow(/number \(dp\) or "N%"/)
-    expect(() => writeTemplateFile([el("Row", { style: { padding: slot("p", 4) } })])).toThrow(/can't change/)
+    expect(() => writeTemplateFile([el("Row", { style: { alignItems: slot("p", "center") } })])).toThrow(/can't change/)
     expect(() => writeTemplateFile([el("Row", { style: { backgroundColor: "reddish" } })])).toThrow(/invalid colour/)
   })
 

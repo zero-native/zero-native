@@ -46,8 +46,9 @@ export const REGISTRY_VERSION = 23 // 2: Anchor. 3: transforms, shadow, absolute
 // 20: transformOrigin (RN's, keywords and percents; ask R11 from the ZeroBill port).
 // 21: Sheet animateIn (false: opens already at rest, no slide-up; a payment restored after a kill).
 // 22: Sheet animateIn can change at runtime (read when the sheet opens; ask from app-home-tabs, Pavan's go).
-// 23: from the RN parity batch 1 (brief G5; second-opinions 163): top-level Text onPress and onLongPress;
-//     row-laid Touchable / Pressable with flexDirection: "row" wrapped in Row at build time.
+// 23: from the RN parity batch 1 and 2 (brief G5, H1; second-opinions 163, 171): top-level Text onPress and onLongPress;
+//     row-laid Touchable / Pressable with flexDirection: "row" wrapped in Row at build time; horizontal List (LazyRow);
+//     dynamic layout values (sizes, margins, paddings, flex, gap, radii, font, display); Canvas primitive; List header/footer/empty/scroll.
 
 export const Component = {
   Column: 1,
@@ -434,6 +435,8 @@ export const Prop = {
   transformOrigin: { id: 290, type: "string" },
   /** Sheet (registry 21): false = opens already at rest (no slide-up, no window fade). Read when `visible` turns true. */
   animateIn: { id: 291, type: "bool" },
+  /** RN display: "none" hides and takes no space in layout; "flex" is default (registry 23). */
+  display: { id: 292, type: "enum" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -483,6 +486,7 @@ export const Enum = {
     "birthdate-full": 19, gender: 20,
   },
   otpType: { numeric: 0, alpha: 1, alphanumeric: 2 },
+  display: { flex: 0, none: 1 },
 } as const satisfies Partial<Record<PropName, Record<string, number>>>
 
 /**
@@ -602,6 +606,43 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "invalid",
   // Registry 22: <Sheet animateIn={!restored}>, read when the sheet opens.
   "animateIn",
+  // Registry 23 (brief H1): dynamic layout values.
+  "width",
+  "height",
+  "minWidth",
+  "maxWidth",
+  "minHeight",
+  "maxHeight",
+  "flex",
+  "aspectRatio",
+  "margin",
+  "marginHorizontal",
+  "marginVertical",
+  "marginTop",
+  "marginBottom",
+  "marginStart",
+  "marginEnd",
+  "padding",
+  "paddingHorizontal",
+  "paddingVertical",
+  "gap",
+  "top",
+  "bottom",
+  "start",
+  "end",
+  "borderRadius",
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomLeftRadius",
+  "borderBottomRightRadius",
+  "borderTopStartRadius",
+  "borderTopEndRadius",
+  "borderBottomStartRadius",
+  "borderBottomEndRadius",
+  "fontSize",
+  "lineHeight",
+  "letterSpacing",
+  "display",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -644,15 +685,25 @@ export const Added: {
     stickyHeaderIndices: 15,
     includeFontPadding: 16, borderStyle: 16, textDecorationStyle: 16,
     autoComplete: 17, otpTheme: 18, otpType: 18, blurOnFilled: 18, invalid: 18,
-    inverted: 19, transformOrigin: 20, animateIn: 21,
+    inverted: 19, transformOrigin: 20, animateIn: 21, display: 23,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
     paused: 13, replay: 13, strokeWidth: 13, dashOffset: 13, hasLongPress: 14, borderColor: 15, borderWidth: 15,
     pointerEvents: 15, tintColor: 15, barStyle: 15, hidden: 15, stickyHeaderIndices: 15, spans: 16, invalid: 18,
     animateIn: 22,
+    // Dynamic layout (registry 23, brief H1):
+    width: 23, height: 23, minWidth: 23, maxWidth: 23, minHeight: 23, maxHeight: 23,
+    flex: 23, aspectRatio: 23,
+    margin: 23, marginHorizontal: 23, marginVertical: 23, marginTop: 23, marginBottom: 23, marginStart: 23, marginEnd: 23,
+    padding: 23, paddingHorizontal: 23, paddingVertical: 23,
+    gap: 23, top: 23, bottom: 23, start: 23, end: 23,
+    borderRadius: 23, borderTopLeftRadius: 23, borderTopRightRadius: 23, borderBottomLeftRadius: 23, borderBottomRightRadius: 23,
+    borderTopStartRadius: 23, borderTopEndRadius: 23, borderBottomStartRadius: 23, borderBottomEndRadius: 23,
+    fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23,
   },
   enumValue: {
+    "display.flex": 23, "display.none": 23,
     "textTransform.none": 15, "textTransform.uppercase": 15, "textTransform.lowercase": 15, "textTransform.capitalize": 15,
     "pointerEvents.auto": 15, "pointerEvents.none": 15, "pointerEvents.box-none": 15, "pointerEvents.box-only": 15,
     "animationType.none": 15, "animationType.slide": 15, "animationType.fade": 15,

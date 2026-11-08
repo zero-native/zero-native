@@ -77,6 +77,7 @@ export function DevScreen() {
           <Entry title="Markdown package" step="markdown" detail="Server Markdown as native text: offer details, lists, links through the app, notifications" onOpen={() => nav.push("markdownLab")} />
           <Entry title="Document scanner plugin" step="docscan" detail="ML Kit scanner: module status, download, pages and PDF, cancel, a kill while it is open" onOpen={() => nav.push("docScanLab")} />
           <Entry title="Image viewer plugin" step="image viewer" detail="Full-screen photos: pinch, pan, double tap, swipe between and to close, sharp zoom, errors" onOpen={() => nav.push("imageViewerLab")} />
+          <Entry title="Dynamic layout lab" step="H.1" detail="Reactive width/height, animated 40..300, % widths, display: none/flex, dynamic radii & fonts" onOpen={() => nav.push("dynamicLayoutLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

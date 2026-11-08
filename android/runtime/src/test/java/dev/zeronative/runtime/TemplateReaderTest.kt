@@ -83,8 +83,8 @@ class TemplateReaderTest {
             oneNode(Registry.Component.BOX, { u16(Registry.Prop.ALIGN_ITEMS).u8(7).u16(99) }, count = 1).u16(0).u16(0).buffer(),
             "unknown value 99",
         )
-        // A slot on a prop that can't change at runtime in this app (fontSize is build-time only).
-        refused(oneNode(Registry.Component.TEXT).u16(1).u16(0).u16(Registry.Prop.FONT_SIZE).u8(3).f64(14.0).u16(0).buffer(), "can't change at runtime")
+        // A slot on a prop that can't change at runtime in this app (alignItems is build-time only).
+        refused(oneNode(Registry.Component.BOX).u16(1).u16(0).u16(Registry.Prop.ALIGN_ITEMS).u8(7).u16(0).u16(0).buffer(), "can't change at runtime")
         refused(oneNode(Registry.Component.PRESSABLE).u16(0).u16(1).u16(0).u16(999).u16(1).buffer(), "unknown event 999")
     }
 }

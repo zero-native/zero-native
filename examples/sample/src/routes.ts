@@ -41,6 +41,7 @@ import { DocScanLabScreen } from "./DocScanLab"
 import { ImageViewerLabScreen } from "./ImageViewerLab"
 import { LayerLabScreen } from "./AppLayers"
 import { ChatListLabScreen } from "./ChatListLab"
+import { DynamicLayoutLabScreen } from "./DynamicLayoutLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -90,6 +91,7 @@ export const routes = defineRoutes({
   markdownLab: { path: "/dev/markdown", screen: MarkdownLabScreen, deepLink: true },
   docScanLab: { path: "/dev/document-scanner", screen: DocScanLabScreen, deepLink: true },
   imageViewerLab: { path: "/dev/image-viewer", screen: ImageViewerLabScreen, deepLink: true },
+  dynamicLayoutLab: { path: "/dev/dynamic-layout", screen: DynamicLayoutLabScreen, deepLink: true },
   imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
 })
 

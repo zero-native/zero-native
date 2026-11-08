@@ -162,7 +162,8 @@ describe("P1.1, P1.6, P1.12: RN style keys", () => {
     expect(props(`function A() { return <Box style={{ flexGrow: 0 }} /> }`).props).toEqual({})
     expect(err(`function A() { return <Box style={{ flexShrink: 2 }} /> }`)).toMatch(/flexShrink: only 0 or 1/)
     expect(err(`function A() { return <Box style={{ flexBasis: 100 }} /> }`)).toMatch(/flexBasis: only 0 or "auto"/)
-    expect(err(`function A(p) { return <Box style={{ flexGrow: p.g() }} /> }`)).toMatch(/flexGrow must be known at build time/)
+    expect(props(`function A(p) { return <Box style={{ flexGrow: p.g() }} /> }`).props)
+      .toMatchObject({ flex: { $slot: expect.any(String) } })
   })
   test("rowGap / columnGap give the gap along the element's own direction, and beat gap", () => {
     expect(props(`function A() { return <Column style={{ gap: 4, rowGap: 10, columnGap: 99 }} /> }`).props).toEqual({ gap: 10 })
@@ -195,7 +196,7 @@ describe("P1.13: <View>", () => {
     expect(props(`const s = StyleSheet.create({ row: { flexDirection: "row" } })
       function A(p) { return <View style={[s.row, { backgroundColor: p.c() }]} /> }`).type).toBe("Row")
     expect(props(`function A(p) { return <View style={{ flexDirection: "row", opacity: p.o() }} /> }`).type).toBe("Row")
-    expect(err(UI + `function A(p) { return <View style={{ flexDirection: p.d() }} /> }`)).toMatch(/flexDirection on <View> must be known at build time/)
+    expect(err(UI + `function A(p) { return <View style={{ flexDirection: p.d() }} /> }`)).toMatch(/flexDirection.*must be known at build time/)
     expect(err(UI + `function A() { return <View style={{ flexDirection: "row-reverse" }} /> }`)).toMatch(/"row-reverse" isn't supported/)
     // On a zn element it stays an error, with a hint.
     expect(err(`function A() { return <Column style={{ flexDirection: "row" }} /> }`)).toMatch(/pick the element instead, <Row> or <Column>/)

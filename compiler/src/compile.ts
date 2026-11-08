@@ -1390,7 +1390,7 @@ export function compileModule(
   function viewTag(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
     const { dir, attr } = findFlexDirection(node)
     if (dir === NOT_STATIC) {
-      fail(attr ?? node, "flexDirection on <View> must be known at build time: zero-native makes it a <Row> or a <Column>")
+      fail(attr ?? node, "flexDirection must be known at build time: pick <Row> or <Column> (or use a ternary between two elements: cond ? <Row>...</Row> : <Column>...</Column>)")
     }
     if (dir === undefined || dir === "column") return "Column"
     if (dir === "row") return "Row"
@@ -1399,9 +1399,10 @@ export function compileModule(
 
   function unknownStyleKey(k: string): string {
     if (k === "flexDirection") {
-      return 'unknown style key "flexDirection": pick the element instead, <Row> or <Column> (or <View> from ' +
-        "@zero-native/ui, which picks one from a flexDirection known at build time). A Pressable or a Touchable lays " +
-        "out its children as a column: put a <Row> inside it"
+      return 'unknown style key "flexDirection": flexDirection must be known at build time: pick the element instead, <Row> or <Column> (or use a ternary between two elements: cond ? <Row>...</Row> : <Column>...</Column>)'
+    }
+    if (k === "flexWrap") {
+      return 'unknown style key "flexWrap": flexWrap must be known at build time (use a ternary between two elements)'
     }
     return `unknown style key "${k}"`
   }
@@ -1436,24 +1437,34 @@ export function compileModule(
         return null
       }
       case "flexGrow": {
-        // RN's flexGrow: n shares the free space like zn's flex: n. (Two growing children with different content
-        // widths split it a little differently: RN shares only what is left after their content.)
-        const v = known()
+        // RN's flexGrow: n shares the free space like zn's flex: n.
+        const v = value()
+        if (v === NOT_STATIC) return "flex"
         if (typeof v !== "number" || v < 0) fail(at, "flexGrow needs a number, 0 or more")
         if (v !== 0 && !("flex" in props)) props.flex = v
         return null
       }
-      case "flexShrink":
+      case "flexShrink": {
         // zn never shrinks a child below its size (RN's default, flexShrink: 0); a Text in a Row still wraps.
-        if ([0, 1].includes(known() as number)) return null
+        const v = value()
+        if (v === NOT_STATIC) return null
+        if ([0, 1].includes(v as number)) return null
         return fail(at, "flexShrink: only 0 or 1 (both dropped: zero-native doesn't shrink children, and a Text in a Row wraps)")
-      case "flexBasis":
-        if (([0, "auto"] as unknown[]).includes(known())) return null
+      }
+      case "flexBasis": {
+        const v = value()
+        if (v === NOT_STATIC) return null
+        if (([0, "auto"] as unknown[]).includes(v)) return null
         return fail(at, 'flexBasis: only 0 or "auto" (dropped); give the element a width or a flex instead')
+      }
       case "rowGap":
       case "columnGap": {
         // The gap along the element's own direction (rnFinish); the other one has no effect without wrapping.
-        const v = known()
+        const v = value()
+        if (v === NOT_STATIC) {
+          props[k === "rowGap" ? "__rowGapExpr" : "__columnGapExpr"] = at
+          return null
+        }
         if (typeof v !== "number" || v < 0) fail(at, `${k} needs a number of dp, 0 or more`)
         props[k === "rowGap" ? "__rowGap" : "__columnGap"] = v
         return null
@@ -1647,11 +1658,19 @@ export function compileModule(
     // rowGap / columnGap: the gap along the element's own direction beats gap, as in RN.
     const rowGap = props.__rowGap
     const columnGap = props.__columnGap
+    const rowGapExpr = props.__rowGapExpr as ts.PropertyAssignment | undefined
+    const columnGapExpr = props.__columnGapExpr as ts.PropertyAssignment | undefined
     delete props.__rowGap
     delete props.__columnGap
+    delete props.__rowGapExpr
+    delete props.__columnGapExpr
     const across = tag === "Row" || tag === "Carousel" || ((tag === "Scroll" || tag === "List") && props.horizontal === true) || isRowTouchable
     const main = across ? columnGap : rowGap
     if (main !== undefined && tag !== "Stack") props.gap = main
+    const mainExpr = across ? columnGapExpr : rowGapExpr
+    if (mainExpr !== undefined && tag !== "Stack") {
+      setProp(props, b, "gap", mainExpr.initializer, mainExpr)
+    }
 
     if (rn === "TouchableOpacity") {
       props.pressFeedback ??= "none"
@@ -2905,6 +2924,9 @@ export function compileModule(
       return
     }
     if (!DynamicProps.has(name)) {
+      if (["flexDirection", "flexWrap", "alignItems", "justifyContent", "alignSelf", "position"].includes(name)) {
+        fail(at, `"${name}" must be known at build time (it chooses layout structure); use a ternary between two elements instead (cond ? <X ... /> : <Y ... />)`)
+      }
       fail(at, `"${name}" must be known at build time (a literal, a const or a design token); ` +
         `only ${[...DynamicProps].join(", ")} can change at runtime yet`)
     }
