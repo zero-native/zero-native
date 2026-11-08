@@ -1,7 +1,11 @@
-// The image viewer's JS side: a full-screen native screen ("imageviewer.full") that shows one or more pictures with
-// pinch zoom, pan, double tap and swipes. Native side: android/.../ImageViewerScreen.kt. No side effects at import:
-// nativeModule() only creates a handle.
-import { nativeModule, nav } from "@zero-native/core"
+// The image viewer's JS side. Since registry 24 (module 3) the screen is TSX (ImageViewerScreen.tsx) on a `transparent`
+// route, with zero-native's gestures; each photo is the native view "imageviewer.page" (ViewerPage.kt). An app whose
+// route still says `native: "imageviewer.full"` gets the old Compose screen until it is removed. No side effects at
+// import: nativeModule() only creates a handle.
+import { nativeModule, nav, type ElementMotion } from "@zero-native/core"
+import { openTsx, type ViewerOptions, type ViewerRect } from "./open"
+
+export type { ViewerRect } from "./open"
 
 /** One picture's parts that must not go in the route's params: a `data:` link (big) or request headers (a token). */
 export interface HeldItem {
@@ -18,9 +22,10 @@ export interface ImageViewerModule {
 
 /**
  * The native module. It also makes a bundle that opens the viewer need this plugin: an app without it never runs the
- * bundle (docs/plugins.md D3). The screen belongs to it. Version 2: `hold`, for `data:` links and headers.
+ * bundle (docs/plugins.md D3). The screen belongs to it. Version 2: `hold`, for `data:` links and headers. Version 3
+ * (registry 24): the view "imageviewer.page" the TSX screen draws each photo with.
  */
-export const ImageViewerNative = nativeModule<ImageViewerModule>("ImageViewer", { version: 2 })
+export const ImageViewerNative = nativeModule<ImageViewerModule>("ImageViewer", { version: 3 })
 
 /** In the params, in place of a `data:` link given natively. ViewerRules.HELD_DATA says the same. */
 export const HELD_DATA = "held:data"
@@ -68,6 +73,12 @@ export interface ImageViewerOptions {
   previousLabel?: string
   /** The app's route for the viewer. Default "imageViewer". */
   route?: string
+  /**
+   * The thumbnail that was tapped (registry 24): `useElementMotion()` bound on it with `motion={m}`, or its box in the
+   * window (dp). The photo flies from it on open and back into it on close (drag down, Back, the close button), while
+   * the backdrop fades. Without it, the viewer fades in and out.
+   */
+  from?: ElementMotion | ViewerRect
 }
 
 /** What `open` gives when the user closes the viewer: the picture that was on screen. */
@@ -134,12 +145,17 @@ export const ImageViewer = {
     let answer: Promise<unknown>
     try {
       const { params, held } = viewerParts(options)
-      if (held.length === 0) {
-        answer = push(route, params) // at once, in the same tick as the tap
+      const key = held.length === 0 ? undefined : `iv-${Date.now().toString(36)}-${++holds}`
+      // data: links and headers go native first, by key; then the screen opens and the pages find them there.
+      const hold = key === undefined ? null : ImageViewerNative.hold({ key, items: held })
+      const withKey = key === undefined ? params : { ...params, held: key }
+      const from = options.from
+      const measured = from !== undefined && from !== null && "measure" in from && typeof from.measure === "function"
+      if (hold === null && !measured) {
+        answer = show(route, withKey, key, (from ?? undefined) as ViewerRect | undefined) // at once, in the same tick as the tap
       } else {
-        // data: links and headers go native first, by key; then the screen opens and finds them there.
-        const key = `iv-${Date.now().toString(36)}-${++holds}`
-        answer = ImageViewerNative.hold({ key, items: held }).then(() => push(route, { ...params, held: key }))
+        const box = measured ? (from as ElementMotion).measure().catch(() => undefined) : Promise.resolve(from as ViewerRect | undefined)
+        answer = Promise.all([hold, box]).then(([, rect]) => show(route, withKey, key, rect))
       }
     } catch (e) {
       return Promise.reject(e)
@@ -159,15 +175,44 @@ export const ImageViewer = {
   },
 }
 
-/** Opens the screen. A route that isn't the viewer throws, with the line to add to routes.ts. */
-function push(route: string, params: Record<string, unknown>): Promise<unknown> {
+/** The TSX screen's options, with defaults, from viewerParts' params. */
+function tsxOptions(params: Record<string, unknown>, held: string | undefined, from: ViewerRect | undefined): ViewerOptions {
+  const text = (k: string, d: string) => (typeof params[k] === "string" ? (params[k] as string) : d)
+  return {
+    images: params.images as { uri: string; alt?: string }[],
+    index: params.index as number,
+    swipeToClose: params.swipeToClose !== false,
+    doubleTap: params.doubleTap !== false,
+    backgroundColor: text("backgroundColor", "#000000"),
+    closeLabel: text("closeLabel", "Close"),
+    errorText: text("errorText", "Couldn't load this photo"),
+    retryLabel: text("retryLabel", "Try again"),
+    photoLabel: text("photoLabel", "Photo {n} of {count}"),
+    nextLabel: text("nextLabel", "Next photo"),
+    previousLabel: text("previousLabel", "Previous photo"),
+    ...(held !== undefined ? { held } : {}),
+    ...(from !== undefined && [from.x, from.y, from.width, from.height].every(Number.isFinite) && from.width > 0 && from.height > 0 ? { from } : {}),
+  }
+}
+
+/**
+ * Opens the screen: the old native one if the route says `native` (an app not moved yet), else the TSX one. A route
+ * that isn't in routes.ts throws, with the line to add.
+ */
+function show(route: string, params: Record<string, unknown>, held: string | undefined, from: ViewerRect | undefined): Promise<unknown> {
   try {
-    // The app's route table types pushForResult's name; this package can't see it, so it names the route as text.
-    return (nav.pushForResult as (name: string, params?: Record<string, unknown>) => Promise<unknown>)(route, params)
+    try {
+      // The app's route table types pushForResult's name; this package can't see it, so it names the route as text.
+      return (nav.pushForResult as (name: string, params?: Record<string, unknown>) => Promise<unknown>)(route, params)
+    } catch (e) {
+      // Not native (or not there at all): the TSX screen. nav.push says if the route is missing.
+      if (!(e instanceof Error && e.message.includes("not a native screen"))) throw e
+      return openTsx(route, tsxOptions(params, held, from))
+    }
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e)
-    const hint = why.includes("not a native screen") || why.includes("unknown route")
-      ? `. Add to routes.ts: ${route}: { path: "/image-viewer", native: "${IMAGE_VIEWER_SCREEN}", safeArea: "none", transition: "fade" }`
+    const hint = why.includes("unknown route")
+      ? `. Add to routes.ts: ${route}: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false }`
       : ""
     throw new Error(`ImageViewer.open: ${why}${hint}`)
   }

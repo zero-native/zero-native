@@ -1,6 +1,6 @@
 // A dev screen for the image viewer plugin. Log lines "image-viewer-lab ..." are for checks from adb logcat.
 import { Column, Image, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { nav, onNavResult, signal } from "@zero-native/core"
+import { nav, onNavResult, signal, useElementMotion, type ElementMotion } from "@zero-native/core"
 import { ImageViewer, type ImageViewerResult } from "@zero-native/image-viewer"
 import { Media } from "@zero-native/media"
 import { c } from "./tokens"
@@ -39,9 +39,11 @@ function ViewerLabButton(props: { label: string; onPress: () => void }) {
   )
 }
 
-function ViewerLabThumb(props: { src: string; onPress: () => void }) {
+function ViewerLabThumb(props: { src: string; onPress: (from: ElementMotion) => void }) {
+  // Its box in the window: the TSX viewer's photo flies from here and back.
+  const box = useElementMotion()
   return (
-    <Pressable onPress={props.onPress} style={{ borderRadius: 10, overflow: "hidden" }}>
+    <Pressable motion={box} onPress={() => props.onPress(box)} style={{ borderRadius: 10, overflow: "hidden" }}>
       <Image src={props.src} loading="shimmer" style={{ width: 72, height: 72 }} />
     </Pressable>
   )
@@ -60,9 +62,11 @@ export function ImageViewerLabScreen() {
     ack()
   })
 
+  // Registry 24: the TSX screen (route photoViewer). Off: the old Compose screen (route imageViewer), until it is removed.
+  const tsx = signal(true)
   const show = (name: string, options: Parameters<typeof ImageViewer.open>[0]) => {
-    say(`${name} opened`)
-    ImageViewer.open(options).then(
+    say(`${name} opened (${tsx() ? "TSX" : "old"} screen)`)
+    ImageViewer.open({ route: tsx() ? "photoViewer" : "imageViewer", ...options }).then(
       (r) => say(r ? `${name} closed on ${r.index}` : `${name} closed: null`),
       (e) => say(`${name} error: ${e instanceof Error ? e.message : String(e)}`),
     )
@@ -73,12 +77,12 @@ export function ImageViewerLabScreen() {
       <Column gap={10} style={{ padding: 16 }}>
         <Text fontSize={16}>Image viewer lab</Text>
         <Text fontSize={13}>{`status: ${status()}`}</Text>
-        <Text fontSize={12}>Tap a photo: the viewer opens on it (a store's photo strip)</Text>
+        <ViewerLabButton label={tsx() ? "Screen: new TSX (tap for the old one)" : "Screen: old Compose (tap for the new one)"} onPress={() => tsx.set(!tsx())} />
+        <Text fontSize={12}>Tap a photo: the viewer opens on it (a store's photo strip). TSX screen: it flies from the photo and back.</Text>
         <Row gap={8}>
-          <ViewerLabThumb src={STORE[0]!} onPress={() => show("strip", { images: STORE, imageIndex: 0 })} />
-          <ViewerLabThumb src={STORE[1]!} onPress={() => show("strip", { images: STORE, imageIndex: 1 })} />
-          <ViewerLabThumb src={STORE[2]!} onPress={() => show("strip", { images: STORE, imageIndex: 2 })} />
-          <ViewerLabThumb src={STORE[3]!} onPress={() => show("strip", { images: STORE, imageIndex: 3 })} />
+          {STORE.map((src, i) => (
+            <ViewerLabThumb key={src} src={src} onPress={(from) => show("strip", { images: STORE, imageIndex: i, from })} />
+          ))}
         </Row>
         <ViewerLabButton label="One photo (no count)" onPress={() => show("one", { images: [{ uri: STORE[0]!, alt: "Shop front" }] })} />
         <ViewerLabButton label="Big photo 5000 x 3333" onPress={() => show("big", { images: [BIG] })} />

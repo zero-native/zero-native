@@ -5,13 +5,19 @@ A full-screen photo viewer, opened with one call. For store photos, offer pictur
 - One picture or many. Opens on the picture you choose.
 - Pinch to zoom (1x to 5x; a pinch can shrink it to 0.8x and it springs back to fit when you let go, as in React
   Native), move a zoomed picture with one finger, double tap to zoom in (2.5x at the finger) and out.
-- Swipe left or right between pictures (only when not zoomed). Swipe up or down to close. Back closes.
+- Swipe left or right between pictures (also from a zoomed picture, once it is at its edge). Drag up or down to
+  close: the background fades as you drag. Back closes.
+- Registry 24: opened with `from` (the thumbnail you tapped), the picture flies out of the thumbnail and back into it
+  on close (drag, Back, the close button).
 - Black background, a white back arrow at the top left over a dark fade (the same as ZeroBill's React Native viewer:
   Material "arrow back" rounded, 48 dp touch area, round white ripple), "2 / 5" when there is more than one picture.
 - A spinner while loading. A message and "Try again" when a picture fails.
 - Big pictures stay sharp when zoomed, without running out of memory (see "Memory").
 
-It is a native screen (Compose), like the scanner's full screen. Android only for now.
+Since registry 24 (ImageViewer module 3) the screen is TSX (`ImageViewerScreen`), built on zero-native's own
+`useZoom` and a paging `List`, on a see-through route. Each picture is drawn by the plugin's native view
+`imageviewer.page` (loading, EXIF, the sharp part when zoomed). An app whose route still says
+`native: "imageviewer.full"` gets the older Compose screen until that screen is removed. Android only for now.
 
 ## Add it
 
@@ -23,10 +29,17 @@ It is a native screen (Compose), like the scanner's full screen. Android only fo
 5. `routes.ts`: one route for the screen. `open` uses the name `imageViewer` unless you give another.
 
 ```ts
-imageViewer: { path: "/image-viewer", native: "imageviewer.full", safeArea: "none", transition: "fade" },
+import { ImageViewerScreen } from "@zero-native/image-viewer"
+
+imageViewer: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
 ```
 
+`transparent: true` (registry 24): the screen below stays drawn while the picture flies and the background fades.
 `safeArea: "none"`: the pictures go under the status bar; the close button keeps clear of it by itself.
+`restore: false`: the viewer's pictures live in JS memory, so after a kill it does not come back.
+
+Before registry 24 (or to keep the old Compose screen for now):
+`imageViewer: { path: "/image-viewer", native: "imageviewer.full", safeArea: "none", transition: "fade" }`.
 
 ## Use it
 
@@ -34,18 +47,21 @@ imageViewer: { path: "/image-viewer", native: "imageviewer.full", safeArea: "non
 import { Image, Pressable, Row } from "@zero-native/ui"
 import { ImageViewer } from "@zero-native/image-viewer"
 
-export function StorePhotos(p: { photos: string[] }) {
+function Thumb(p: { photos: string[]; i: number }) {
+  const box = useElementMotion() // its place on screen: the picture flies from here and back
   return (
-    <Row gap={8}>
-      {p.photos.map((url, i) => (
-        <Pressable onPress={() => ImageViewer.open({ images: p.photos, imageIndex: i })}>
-          <Image src={url} style={{ width: 72, height: 72, borderRadius: 10 }} />
-        </Pressable>
-      ))}
-    </Row>
+    <Pressable motion={box} onPress={() => ImageViewer.open({ images: p.photos, imageIndex: p.i, from: box })}>
+      <Image src={p.photos[p.i]!} style={{ width: 72, height: 72, borderRadius: 10 }} />
+    </Pressable>
   )
 }
+
+export function StorePhotos(p: { photos: string[] }) {
+  return <Row gap={8}>{p.photos.map((url, i) => <Thumb key={url} photos={p.photos} i={i} />)}</Row>
+}
 ```
+
+(`useElementMotion` comes from `@zero-native/core`.)
 
 `open` gives `{ index }` (the picture on screen) when the user closes the viewer, and null when the app closed it
 (`nav.back()`, `nav.reset()`). Most apps ignore the answer.
@@ -58,6 +74,7 @@ export function StorePhotos(p: { photos: string[] }) {
 |---|---|---|
 | `images` | (needed) | A list of `"https://..."`, `{ uri, alt?, headers? }` or `{ url, alt?, headers? }`. `alt` is what TalkBack reads. `headers` go with that picture's request (see "Links that load") |
 | `imageIndex` (or `index`) | 0 | The picture to start on. Kept inside the list |
+| `from` | none | Registry 24, TSX screen: the thumbnail tapped, as a `useElementMotion()` bound on it or a box `{ x, y, width, height }` in the window (dp). The picture flies from it and back into it when closed on the same picture; on another picture, or without `from`, the viewer fades |
 | `swipeToCloseEnabled` | true | Swipe up or down to close |
 | `doubleTapToZoomEnabled` | true | Double tap zooms |
 | `backgroundColor` | `"#000000"` | `"#RRGGBB"` or `"#AARRGGBB"` |
@@ -112,7 +129,9 @@ to native first, then opens the screen. So:
 
 ## After a kill
 
-If Android kills the app while the viewer is open, the viewer comes back on the same picture, but the promise is gone
+The TSX screen (`restore: false`) does not come back after a kill: the app reopens on the screen below it.
+
+The old native screen: if Android kills the app while the viewer is open, the viewer comes back on the same picture, but the promise is gone
 (like any `nav.pushForResult`). The viewer only shows pictures, so nothing is lost. If you need the index after a
 kill, add `onNavResult("imageViewer", (r, ack) => { ...; ack() })` in `main.ts`.
 
@@ -137,14 +156,16 @@ download; not measured with bundletool.
 
 ## Test
 
-`bun test plugins/image-viewer` (params, `open`, the route, double open, `data:` and headers held natively first),
+`bun test plugins/image-viewer` (params, `open`, both routes, double open, `data:` and headers held natively first,
+`from`, the TSX screen compiles),
 `gradlew :plugin-image-viewer:testDebugUnitTest` (zoom, pan limits, double tap, swipe to close, the visible part, EXIF
 turns, links, `file://` folders, `data:` cap, header checks, params). On a phone: the sample's Dev
-screen → "Image viewer plugin" (`zn://sample/dev/image-viewer`); its log lines start with `image-viewer-lab`. The
+screen → "Image viewer plugin" (`zn://sample/dev/image-viewer`); its log lines start with `image-viewer-lab`. Its
+first button switches between the TSX screen (route `photoViewer`) and the old one (route `imageViewer`). The
 "Header" button needs `bun run tools/fetch-test-server.ts` and `adb reverse tcp:8788 tcp:8788`.
 
-Two fingers from adb, debug builds only (phones refuse `sendevent` without root). It sends real touch events through the
-Activity, so the viewer's own gesture code runs. Not in release builds (`src/release` has an empty one):
+Two fingers from adb, debug builds only (phones refuse `sendevent` without root), old screen only. It sends real touch
+events through the Activity, so the viewer's own gesture code runs. Not in release builds (`src/release` has an empty one):
 
 ```bash
 adb shell am broadcast -a dev.zeronative.imageviewer.DEBUG_GESTURE --es kind pinch --ei x 360 --ei y 800 --ei from 150 --ei to 450 --ei ms 400
@@ -154,5 +175,6 @@ adb shell am broadcast -a dev.zeronative.imageviewer.DEBUG_GESTURE --es kind pin
 
 ## Not built
 
-iOS. Video. Captions or a header / footer from JS. Share or save. Zoom kept across a turn of the screen (it goes back to
-fit; the picture stays). Moving to the next picture by dragging past the edge of a zoomed one.
+iOS (the TSX screen needs only the `imageviewer.page` view there: `docs/motion.md` §14). Video. Share or save. Zoom
+kept across a turn of the screen (it goes back to fit; the picture stays). The TSX screen's overlay is fixed today
+(close and count); an app can copy `ImageViewerScreen.tsx` to change it.

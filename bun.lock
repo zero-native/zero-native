@@ -124,6 +124,7 @@
       "version": "0.0.0",
       "peerDependencies": {
         "@zero-native/core": "workspace:*",
+        "@zero-native/ui": "workspace:*",
       },
     },
     "plugins/location": {

@@ -86,11 +86,14 @@ const bg = derive(() => interpolateColor(progress(), [0, 1], ["#FFFFFF", "#5B5BD
 | `style` | `opacity`, `backgroundColor` (a motion colour), `transform` (`translateX/Y`, `scale`, `scaleX/Y`, `rotate`, `rotateX`, `rotateY`), `cameraDistance`, `blurRadius` (Android 12+), border radii (corner morphs) |
 | Svg parts | `fill`, `stroke` (motion colours), `opacity`, transforms, `trimStart / trimEnd / trimOffset` |
 | `<Text>` | its content as `v.format(...)` |
-| `<NativeView props>` | any prop a plugin reads with `scope.motion(name)` (§10) |
+| `<NativeView props>` | any prop a plugin reads with `scope.motion(name)` (§10); `<LottieView progress>` (registry 24) |
+| `style` layout keys | `width`, `height` only (registry 24): one element lays out again each frame, its neighbours move with it |
 | Gestures | anchors, magnets and bounds as `Coord`s (a value, `"N%"`, `"N%self"`, `"N%parent"`, dp) |
 
-Layout keys (`width`, `margin`...) don't follow a motion value: they would lay out again each frame. Animate a
-transform, or use `animateLayout` (§7).
+Other layout keys (`margin`, `padding`, `flex`...) don't follow a motion value. `width` / `height` do (registry 24), but
+each frame lays the element and its neighbours out again: fine for one header or one panel, not for many rows. Prefer
+a transform (`scaleY`, `translateY`) when the neighbours need not move, or `animateLayout` (§7) when the size only
+changes now and then.
 
 ## 6. Gestures
 
@@ -107,6 +110,13 @@ const pan = usePan({
 <Box gesture={pan} style={{ transform: [{ translateX: pan.x }] }} />
 ```
 
+- **Zoom (registry 24):** `useZoom({ max: 5, doubleTap: 2.5, aspect })` gives `scale`, `x`, `y` for a photo: pinch
+  around the fingers, pan inside the photo's edges, double tap to zoom in at the tap and back out, fling, rubber band
+  past the edges and below 1x. Not zoomed, one finger is left to the parent (a pager, a drag to close); zoomed and
+  dragged sideways at an edge, it lets the pager turn the page. Put the gesture on a box that fills the page and the
+  transform on the photo inside: `transform: [{ translateX: z.x }, { translateY: z.y }, { scale: z.scale }]`.
+  `aspect` (width / height, a number or a value) tells it where the photo's edges are inside the box.
+  `z.zoomTo(3, { x, y })` and `z.reset()` from JS; TalkBack gets "zoom in" / "zoom out" actions.
 - **Kinds:** `usePan` (x, y, progress, touchX, touchY, magnets), `usePinch` (scale, focalX, focalY, min / max),
   `useRotate` (angle), `useTap` (taps, maxDelay, maxDistance), `useLongPress` (pressed, held), `useFling` (directions).
 - **Pan options:** `initial`, `bounds`, `rubber`, `anchors` (1D or 2D), `magnets` (`{ id, x, y, radius, pull }`, a pull
@@ -242,6 +252,24 @@ tests in `ZnMotionTest.kt` list the numbers the Swift port must match.
 Two rules found on the phone: a value JS disposed stays readable at its last value for whatever still draws it (a
 leaving screen keeps its dragged place for its exit, its ₹ text stays); and a node whose only motion prop is
 `sharedTag` still gets the shared-element modifier.
+Registry 24, second batch (2026-11-09):
+- **useZoom:** port `ZnZoomMath` (ZnZoom.kt) as it is, with `ZnZoomTest.kt`'s numbers. A UIPinch + UIPan pair with
+  `shouldRecognizeSimultaneouslyWith`, the pan failing when not zoomed with one finger (so a parent pager or drag gets
+  it), and failing at the edge it is dragged toward. Not a `UIScrollView` zoom: its values would not be zn motion values.
+- **Scroll snapping and events:** `scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)` picks the snap point
+  with `ZnSnap.pick`'s rules (offsets, interval, alignment, start / end); `isPagingEnabled` for `pagingEnabled`;
+  `decelerationRate` maps to `.normal` / `.fast` or the number. One event (`onScrollEvent`, id 27) with `k` = "s", "b",
+  "e", "mb", "me" and RN's `nativeEvent` fields; "s" at most once per frame unless the throttle says less often.
+- **Transparent route:** `modalPresentationStyle = .overFullScreen` with no transition (the screen animates itself), so
+  the screen below stays drawn. No shared elements into it (same as Android).
+- **Image viewer:** the TSX screen is shared. iOS needs only the view `imageviewer.page` (load with headers / held data,
+  EXIF, draw moved by `scale` / `x` / `y` each frame with a CALayer transform, a sharp tile once the zoom rests, events
+  `loaded` {width, height} and `error`) and `hold`. `ios/ImageViewerPlugin.swift`'s full screen goes once Android's old
+  screen is deleted.
+- **Width / height from a value:** set the frame in a per-frame layout pass (CADisplayLink, then setNeedsLayout), never
+  a SwiftUI body per frame.
+- **Lottie progress from a value:** set `LottieAnimationView.currentProgress` each frame from the value.
+
 `keyboardDismissMode` (Scroll / List, registry 24) is UIScrollView's own `keyboardDismissMode`: `.onDrag` and
 `.interactive` (with `.interactiveWithAccessory` not needed). Android's "on-drag" also clears focus, as iOS resigns
 the first responder.

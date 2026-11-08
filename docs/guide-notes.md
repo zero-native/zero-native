@@ -2694,20 +2694,69 @@ Reference: `docs/motion.md`. The short version for authors:
 - The bar under the list still has to move with the keyboard: the route's `keyboard: "resize"` (default) does it, or
   `keyboard: "none"` and `translateY` by `env.keyboardHeight` (Sheets lab, Keyboard tab).
 
-## 77. Notifications without FCM (`@zero-native/notifications`, split from push 2026-11-09)
-```ts
-import { Notifications, PushEvents } from "@zero-native/notifications"   // no Firebase in the app
-import { Push } from "@zero-native/push"                                 // only if the app uses FCM
-```
-- **Do** import `Notifications` from `@zero-native/notifications` in new code. **Why:** a bundle that imports
-  `@zero-native/push` needs the "Push" module, so an app without push refuses it at start and in the OTA check
-  ("native modules missing"). Old imports from `@zero-native/push` keep working in apps that have push.
-- **Do** list `NotificationsPlugin()` in an app with no push. With push, `PushPlugin()` adds it; listing both is fine.
-- **Do** listen with `PushEvents.onMessage` / `onTokenRefresh` when the app may change push service.
-  `Push.onMessage` is the same task, so both hear FCM. `m.provider` says which service sent it (`"fcm"`).
-- **Do** use the new manifest keys `dev.zeronative.notifications.small_icon` / `.color`. The old
-  `dev.zeronative.push.*` keys are still read (deprecated).
-- **Know:** the boot receiver is now `dev.zeronative.plugins.notifications.ZnNotificationBoot` (README). Prefs and log
-  tags moved too (`zn-notifications-*`, tag `zn-notifications`); FCM's own lines stay `zn-push`.
-- **Know:** module names and versions did not change ("Push" 2, "Notifications" 3), so bundles and the OTA check are
-  as before.
+## 77. Canvas: drawing from motion values, images, paragraphs, clips
+Reference: `docs/components.md` §14. The short version for authors:
+- **Do** give a chart cursor, a ring's sweep or a tick's trim a motion value (`draw.circle(x, y, 5, paint)` with
+  `x = pan.touchX.map(...)`). **Don't** rebuild the command list from a signal on every frame. **Why:** a motion value
+  is read natively while drawing (a redraw only); a new list is JSON, a parse and a recompose per frame.
+- **Do** use the chart's own arrays for the dot and the price: `pan.touchX.map(XS, YS)`, `pan.touchX.map(XS, PRICES)`,
+  and show the price with `price.format({ prefix: "₹" })` in a `<Text>`. **Why:** the dot then sits exactly on a
+  `polyline` line. (On a `smoothPath` curve it sits on the straight line between points, slightly off the curve.)
+- **Don't** put a motion value in gradient points or colours, `dash`, path `d`, `fontSize`, paragraph `width`, shadow
+  or blur. **Why:** these are built once per list; JS warns and native skips the command. Move the whole drawing with
+  `translate` / `scale` / `rotate`, or send a new list.
+- **Do** use `.mapColor(...)` for a colour that moves. **Why:** a plain number value as a colour draws black.
+- **Do** use `smoothPath(points)` for chart curves. **Don't** hand-write cubic curves through data. **Why:** it never
+  overshoots, so the curve never shows a price above the highest or below the lowest.
+- **Do** remember `paragraph`'s `y` is the top of the text, while `text`'s `y` is the baseline. **Why:** a paragraph
+  is a block that wraps; a single line is placed on its baseline like in SVG.
+- **Do** give `image` the same sources as `<Image>` (https URL, `asset:images/x.png`, `zn://`). **Why:** nothing shows
+  while it loads or if it fails; draw a grey box under it if the empty space would look broken.
+- **Do** use `clipRoundRect(..., { op: "difference" })` for a scanner frame (dark cover, clear hole). **Don't** draw
+  four dark rects round the hole. **Why:** one clip gives round corners and no seams.
+- **Don't** count on `shadow` or `blur` below Android 9: the shape draws without them. **Why:** Android's hardware
+  drawing ignores them there.
+- A canvas problem is a warning in logcat (tag `zn`) and a JS warning, not a red screen. Check logcat when a part of a
+  drawing is missing.
+
+## 78. Photos: useZoom and the TSX image viewer (registry 24)
+Reference: `docs/motion.md` §6, `plugins/image-viewer/README.md`.
+- **Do** put `gesture={zoom}` on a box that fills the page and the transform on the photo inside it. **Don't** put the
+  gesture on the photo itself. **Why:** the photo moves under the finger; a gesture on it would chase its own touch area.
+- **Do** give `aspect` (the photo's width / height). **Why:** without it the zoom thinks the photo fills the box, so a
+  wide photo pans into empty black above and below.
+- **Do** put zoomed photos in a `<Carousel>` or a `<List horizontal pagingEnabled>`. **Why:** the zoom gives the touch
+  to the pager when not zoomed, and when dragged sideways at the photo's edge.
+- **Do** reset a photo's zoom when its page goes away (`effect(() => { if (page() !== i) zoom.reset({ duration: 0 }) })`).
+  **Why:** coming back to a photo still zoomed at 4x looks like a bug.
+- **Do** add the viewer route as `screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light",
+  restore: false, transition: "none"`. **Why:** see-through keeps the screen below drawn while the photo flies and the
+  backdrop fades; `restore: false` because its photos live in JS memory and are gone after a kill.
+- **Do** pass `from: box` (a `useElementMotion()` bound on the thumbnail) to `ImageViewer.open`. **Why:** the photo
+  then flies from the thumbnail and back into it. Without it the viewer fades in and out.
+- **Don't** use `sharedTag` into the viewer. **Why:** a see-through screen has no transition, so shared elements don't
+  reach it; `from` does the same job.
+- An app whose route still says `native: "imageviewer.full"` keeps the old Compose screen until that screen is removed.
+
+## 79. Scroll snapping and scroll events (registry 24)
+Reference: `docs/components.md` §15, `docs/rn-compatibility.md` ScrollView.
+- **Do** use RN's names: `pagingEnabled`, `snapToInterval`, `snapToOffsets`, `snapToAlignment`, `snapToStart` /
+  `snapToEnd`, `decelerationRate`, `disableIntervalMomentum`. **Why:** the fling and the snap run natively, with RN's
+  meaning, on `Scroll`, horizontal `Scroll` and `List`.
+- **Do** bind visuals to `useElementMotion()` (`m.scrollY`) and keep `onScroll` for logic (a "back to top" button, a
+  saved place). **Why:** `onScroll` is a JS message per frame at most; a binding is no JS at all.
+- `scrollEventThrottle` (ms) slows `onScroll` down; the default is one per frame. `onScrollBeginDrag`,
+  `onScrollEndDrag`, `onMomentumScrollBegin`, `onMomentumScrollEnd` come once each.
+- **Do** read a pager's page in `onMomentumScrollEnd` (`contentOffset.x / layoutMeasurement.width`). **Why:** it comes
+  once, when the page has settled; `onScroll` would give every half-way place.
+- `ref` on `<Scroll>` gives `scrollTo({ x, y, animated })` and `scrollToEnd()`, as RN's ScrollView ref. A `List` keeps
+  its `ref` / `controller`.
+- A `List`'s `contentOffset` past the first screen is an estimate (rows are not all measured). **Don't** do maths that
+  needs it to the pixel far down a long list.
+
+## 80. Sizes and Lottie from motion values (registry 24)
+- **Do** use `height: drag.y` for one panel or header that must push the content below it. **Don't** use it on list
+  rows or many elements. **Why:** each frame lays the element and its neighbours out again; a transform costs nothing.
+- **Do** use `<LottieView progress={value}>` to scrub an animation with a finger or a scroll (pull to refresh, an
+  onboarding page). **Why:** it is read while drawing, with no JS per frame. While a value drives it, `autoPlay` and
+  `play()` do nothing.

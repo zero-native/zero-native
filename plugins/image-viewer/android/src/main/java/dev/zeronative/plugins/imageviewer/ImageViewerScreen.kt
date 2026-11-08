@@ -309,7 +309,7 @@ private fun rememberSharp(image: ViewerImage, zoom: ZoomState, base: coil3.Image
 }
 
 /** Opens the original once, on first need; closes it off the main thread (a decode may still hold it). */
-private class SourceHolder(private val context: Context, private val image: ViewerImage) {
+internal class SourceHolder(private val context: Context, private val image: ViewerImage) {
     private var source: SharpSource? = null
     private var tried = false
     private var closed = false
@@ -336,7 +336,7 @@ private class SourceHolder(private val context: Context, private val image: View
 private val cleanup = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /** The zoom must rest this long before a sharp part is made: a pinch often pauses for a moment. */
-private const val SETTLE_MS = 120L
+internal const val SETTLE_MS = 120L
 
 /** What Coil loads for [image], or null for a link the viewer refuses (the page then shows its error). */
 internal fun imageModel(context: Context, image: ViewerImage): Any? {

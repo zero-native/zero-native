@@ -574,3 +574,28 @@ Reference: `docs/motion.md`.
 | `enter` / `exit` | rows and branches | New presets: slide-*, zoom, bounce, flip-x / y, stretch-x / y |
 | Svg part `fill`, `stroke`, trims, transforms | Svg parts | Take motion values |
 
+## 16. Scroll snapping, scroll events and see-through routes (registry 24)
+
+RN's ScrollView names on `<Scroll>` (vertical and `horizontal`) and `<List>`. The fling and the snap run natively; JS
+hears only the events it has handlers for. Guide notes §79.
+
+| Prop | On | What |
+|---|---|---|
+| `pagingEnabled` | Scroll, List | A fling stops on a whole page (the element's own width or height) |
+| `snapToInterval` | Scroll, List | Stops on multiples of this many dp (cards of a rail: card width + gap) |
+| `snapToOffsets` | Scroll, List | Stops on these offsets (dp); wins over `snapToInterval` |
+| `snapToAlignment` | Scroll, List | `"start"` (default), `"center"`, `"end"`: where the card sits when it stops |
+| `snapToStart` / `snapToEnd` | Scroll, List | With `snapToOffsets`: false lets the content scroll freely before the first / after the last offset |
+| `decelerationRate` | Scroll, List | `"normal"`, `"fast"` or a number (RN's 0.998 / 0.99) |
+| `disableIntervalMomentum` | Scroll, List | A fling moves one snap point at most |
+| `onScroll` | Scroll, List | `e.nativeEvent`: `contentOffset`, `contentSize`, `layoutMeasurement` (dp) |
+| `scrollEventThrottle` | Scroll, List | ms between `onScroll`s; default once per frame |
+| `onScrollBeginDrag`, `onScrollEndDrag` | Scroll, List | The finger went down / up; `velocity` on end (dp/s) |
+| `onMomentumScrollBegin`, `onMomentumScrollEnd` | Scroll, List | The fling started / stopped (also after a snap) |
+| `ref` | Scroll | `scrollTo({ x, y, animated })`, `scrollToEnd({ animated })`. List: `ref` / `controller` as before |
+
+A `List`'s offset past the measured rows is an estimate. One event id (27) carries all five events.
+
+**Route option `transparent: true`:** the screen is drawn over the one below, which stays visible and drawn (an
+overlay). The screen gets no enter / exit transition and no shared elements: it animates itself (the image viewer's
+photo flight). Use it with `restore: false` when the screen's data lives in JS memory.

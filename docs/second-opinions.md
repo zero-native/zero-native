@@ -2946,21 +2946,120 @@ change, and what evidence would make you change it?"
 - **Not checked:** inside a `Sheet` (its own window) and with pull to refresh on the same list; TalkBack.
 - **Risk if wrong:** only elements that set the prop change.
 
-## 196. Notifications split from push; `PushEvents` is the door for any push service (2026-11-09; Opus, Pavan's idea)
-- **What:** `plugins/notifications` (`@zero-native/notifications`) holds everything `Notifications` did, with no Firebase
-  (its Gradle module depends only on `:runtime`). `plugins/push` is FCM only and depends on it. `PushPlugin()` registers
-  `NotificationsPlugin()` itself (a second registration does nothing), so an app that lists only `PushPlugin()` (the
-  ZeroBill host) needs no change. `@zero-native/push` re-exports the notifications package.
-- **Hook:** `PushEvents` (Kotlin object + JS) lives in the notifications plugin: `message(PushMessage)`, `deleted`,
-  `token`, `taps(...)` for a service's own notifications, `inFront`. FCM's service calls it; the JS message shape gains
-  `provider`. Alternatives weighed: a third package (`push-core`), or leaving it in push (then an app on another
-  service imports FCM's JS package to hear messages). Pavan left it to us; the parent session chose the notifications
-  plugin: no new package, and no FCM anywhere for an app on APNs or OneSignal. A reviewer may prefer the name or the
-  place to change before iOS starts.
-- **Names:** no apps in production (Pavan), so receiver classes, prefs, intent extras and log tags moved to
-  `dev.zeronative.plugins.notifications` / `zn-notifications` with no old-name classes. Alarms and shown notifications
-  from an older build of the same app don't survive the update (accepted). Kept: the JS task names (`push.*`, an OTA
-  bundle names them), module names and versions, and the old manifest meta-data keys as a deprecated fallback.
-- **Checked:** both plugins' Kotlin and JS tests; a throwaway sample build with only the notifications plugin (merged
-  manifest has no FCM service; its dex has 0 `com/google/firebase/messaging` classes, 0 push classes) ran the local
-  phone steps on the emulator. Not done: iOS.
+## 197. Canvas parse problems are warnings, not a red dev screen (runtime, 2026-11-09; Opus, canvas session)
+- **Chosen:** a bad command in a `<Canvas>` list (a NaN, an odd dash, an unknown type, a motion value where none may
+  go) is logged with `Log.w` (tag `zn`), once per distinct text per node, naming the indexes. JS warns as before
+  (`__zn_log` level 2). No ZnDev screen, no onJsError.
+- **Why:** the bad command is skipped and the rest of the canvas draws; the screen still works. A full-screen red error
+  in debug for a half-drawn chart hid the whole screen (the lab's tile 8 did this by design) and taught people to
+  ignore the dev screen. Real crashes still show it.
+- **Kept as a dev error:** a throw while drawing (an Android error). That one leaves the canvas empty and is a bug in
+  the runtime or a case the parse checks missed.
+- **Option not taken:** a small dev badge on the canvas itself: needs a draw of its own and a design; the log is enough
+  while the JS warning names the same index.
+
+## 198. Motion values in canvas commands: what may move, what may not (core + runtime, 2026-11-09; Opus, canvas session)
+- **Chosen:** every number of a shape, text, paragraph, image, transform and clip may be a motion value, and paint
+  `color` / `opacity` / `strokeWidth` and text `color`. They go as "\u0000m<id>" (as `<NativeView props>` do), are
+  found once when the list is read (`ZnMotion.ref`) and are read inside drawBehind, so a moving value redraws only.
+  No allocation per frame: a number is a small object (constant or source), read through one getter.
+- **May not move:** gradient points and colours, `dash`, path `d`, `fontSize` / `fontWeight`, paragraph `width` /
+  `lineHeight` / `maxLines`, shadow, blur. **Why:** each is built once per list into an Android object (a shader, a
+  dash effect, a parsed path, a StaticLayout, a mask filter). Moving one would rebuild it each frame: allocations and
+  GC on the frame path, the thing this design avoids. A motion value there is a JS warning and native skips the
+  command, like a bad number. Authors move the whole drawing with transforms instead.
+- **Small costs accepted:** a moving `strokeWidth` makes a new Stroke only when the width changes; an image's decode
+  size is its size when the list is read. A gradient's shader is made once even when its shape's size moves (our
+  gradients have fixed points, so the size never changes the shader).
+- **Option not taken:** moving gradient stops (a shimmer). Possible later with a shader matrix that moves (a translate
+  of a fixed shader, no rebuild); not needed by the labs or ZeroBill now.
+
+## 199. Canvas blend modes draw into their own layer; canvas images are software bitmaps (runtime, 2026-11-09; Opus, canvas session)
+- **Blend modes:** a list with any blendMode other than srcOver is drawn inside one `saveLayer` the size of the canvas.
+  **Why:** without it, "clear" or "dstOut" erase the window under the canvas (a black hole on screen), and "multiply"
+  mixes with whatever is behind the view, which changes with the theme. With it, a mode mixes only with what this
+  canvas drew. **Cost:** one offscreen picture per such canvas per frame; lists without a blend mode pay nothing.
+- **Images:** `draw.image` asks Coil for a software bitmap (`allowHardware(false)`). **Why:** a hardware bitmap throws
+  when the canvas is drawn into a software canvas (a screenshot, a software layer); the draw-failure net would catch it
+  but leave the whole canvas empty. **Cost:** the bitmap's pixels are in app memory, at the drawn size (decoded at about
+  w × h × density, at most 4096 px a side).
+- **Image source forms:** the runtime's `imageModel` (ZnRenderer.kt) is private, so ZnCanvasImage.kt has its own copy
+  of the same three rules (`asset:`, `zn://`, URL). If `<Image>` learns a new form, add it in both places (or make
+  that function internal and share it).
+
+## 200. `useZoom` is its own recognizer, not usePinch + usePan in a group (runtime + core, 2026-11-09; Opus, motion batch 2)
+- **Chosen:** one native recognizer (ZoomRec, kind 8) that reads all fingers and works out scale and move together
+  around the fingers' centre, with the limits worked out from the photo's shape (`aspect`) and the box. The maths is a
+  pure object (`ZnZoomMath`) with unit tests. A double tap is a normal `useTap` that calls the zoom natively (no JS).
+- **Why:** a pinch and a pan in a group each clamp on their own, so the photo slides away from under the fingers when
+  both move, and neither knows the other's limits. Photo viewers (the image viewer, a receipt zoom) need the "point
+  under the fingers stays under the fingers" rule, which needs both at once.
+- **Hand-off:** not zoomed with one finger, it fails after the touch slop, so a parent pager or a drag to close takes
+  the touch. Zoomed and dragged sideways while at the edge it is dragged toward, it also fails, so the pager turns the
+  page. This is what `react-native-image-viewing` does by hand.
+- **Option not taken:** Compose's `transformable`. Its values are not zn motion values and it can't hand off to the
+  zn arbiter's parents.
+- **Check on the phone:** a slow sideways drag of a zoomed photo near the edge. It may feel sticky if the edge test
+  fires late; today it needs the photo within half a pixel of its edge.
+
+## 201. Scroll snapping in the fling, and one event id for five scroll events (runtime + compiler, 2026-11-09; Opus, motion batch 2)
+- **Chosen:** the snap props become one compact string prop (`snap`, id 161, "p1;i80;a1;..."), read into a Compose
+  FlingBehavior that springs to the chosen snap point (or decays when nothing snaps). The five events share one event
+  id (27) with a kind field; `scrollEvents` (id 162) says which ones JS listens to and the throttle.
+- **Why:** event ids are nearly used up (28-29 are the last free ones). One string prop keeps the registry small and
+  lets the compiler fold a constant set of props into one value. A fling behavior is the only place Compose lets us
+  choose where a fling ends without a visible jump.
+- **onScroll default:** at most one per frame (Pavan's pick, Q5), not RN's "once on Android" quirk. A `List` gives an
+  estimated offset after the measured rows; documented.
+- **Option not taken:** Compose's `SnapFlingBehavior` with a `SnapLayoutInfoProvider`: it works on LazyList only, and
+  RN's `snapToOffsets` with free scrolling before / after (snapToStart / End false) needs our own pick.
+
+## 202. Lottie progress from a motion value: no Lottie module bump (plugin, 2026-11-09; Opus, motion batch 2)
+- **Chosen:** `progress` on `<LottieView>` may be a motion value; the native view reads it while drawing. The Lottie
+  module stays at version 1. The plan said 1 → 2.
+- **Why:** a motion value needs registry 24 and the Motion module (1) anyway, and every APK with Motion 1 already ships
+  this Lottie code (the plugin and the runtime are in the same APK build). A bump would make every ZeroBill bundle
+  that uses Lottie (also the ones that never pass a value) refuse older APKs, for no gain.
+- **Risk:** a bundle with a value-driven Lottie on an APK that has Motion 1 but an older Lottie plugin. That APK does
+  not exist: Motion 1 and this Lottie change land in the same release.
+
+## 203. `width` / `height` may follow a motion value (runtime, 2026-11-09; Opus, motion batch 2)
+- **Chosen:** allowed for `width` and `height` only, read in the layout phase (no recomposition; one relayout per
+  frame of the element and what its size moves). Other layout keys stay refused.
+- **Why:** a collapsing header that pushes the list below it, or a panel dragged taller, is common in RN apps
+  (Reanimated `height` in useAnimatedStyle) and a transform can't move the neighbours.
+- **Cost:** not measured yet on the Lava (Layout lab, Height tab, `dumpsys gfxinfo` with and without). Docs and the
+  guide say "one element, not rows".
+- **Option not taken:** all layout keys. Margins and padding per frame would invite rows that relayout a whole list.
+
+## 204. See-through routes as a Navigation 3 overlay scene (runtime + compiler, 2026-11-09; Opus, motion batch 2)
+- **Chosen:** route option `transparent: true`. ZnNavHost puts such an entry in its own `OverlayScene` (strategy
+  `ZnSeeThroughStrategy` before the single-pane one), so the screens below stay composed and drawn. The entry gets no
+  enter / exit transition and no AnimatedVisibilityScope.
+- **Why:** the image viewer (and any lightbox, story viewer or custom dialog screen) must show the screen below while
+  it fades its own background. Nav 3's overlay scene is the supported way; a Compose Dialog would be its own window
+  (no shared back stack, no predictive back, its own insets).
+- **Cost:** no shared elements into a see-through screen (no AnimatedVisibilityScope), so the viewer's flight is done
+  by hand from a measured box (205). Back closes it with no system animation: the screen plays its own.
+- **Check on the phone:** predictive back over a see-through screen, and a screen below that keeps running effects
+  (a video) while covered.
+
+## 205. The image viewer's flight uses a measured box, not `sharedTag` (plugin, 2026-11-09; Opus, motion batch 2)
+- **Chosen:** `ImageViewer.open({ from })` takes the thumbnail's `useElementMotion()` (measured once) or a box. The
+  screen maps the fitted photo onto that box with derive formulas on `shown` (0 → 1, 280 ms), so the photo flies out
+  and back. It only flies back when closed on the photo it opened on; else it fades.
+- **Why:** shared elements need the AnimatedVisibilityScope a see-through screen doesn't have (204, and close to A8,
+  which is out of scope). The box is enough for a photo: the thumbnail is a cropped `cover` of the same picture, so
+  the end frames match within the crop.
+- **Known gap:** the thumbnail's crop (`cover`) vs the viewer's `contain`: the flight lands on the thumbnail's box, not
+  its crop, so the last frames show the whole photo shrinking into the box rather than a crop opening up. A clip that
+  animates from the crop is a follow-up if Pavan wants it.
+
+## 206. ImageViewer module 3 and the old screen kept for now (plugin, 2026-11-09; Opus, motion batch 2)
+- **Chosen:** the TSX screen draws each photo with a new native view `imageviewer.page`, so the module goes 2 → 3. The
+  old Compose screen (`imageviewer.full`) stays registered; `ImageViewer.open` uses it when the app's route says
+  `native`, and the TSX screen when the route has `screen`. The old screen and `ios/ImageViewerPlugin.swift` are
+  deleted only after the phone pass (Pavan's rule).
+- **Side effect for ZeroBill:** its next bundle that imports the plugin needs an APK with ImageViewer 3 (new native
+  view), and its routes.ts viewer line changes to the TSX form. Handed to the app-home-tabs session.
+- **Why keep `open()` the same:** the call sites in ZeroBill don't change; only the route line does.

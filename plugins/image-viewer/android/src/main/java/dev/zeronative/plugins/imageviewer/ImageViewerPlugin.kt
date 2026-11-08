@@ -10,6 +10,8 @@ class ImageViewerPlugin : ZnPlugin {
     override fun register(r: ZnPluginRegistry) {
         r.module(ImageViewerModule())
         r.screen("imageviewer.full") { scope -> ImageViewerScreen(scope) }
+        // Version 3: one picture of the TSX viewer (src/ImageViewerScreen.tsx), moved by useZoom's values.
+        r.view("imageviewer.page") { scope -> ViewerPage(scope) }
         r.activityEvents(ViewerMemory)
         DebugGestures.install(r.context) // debug builds only: two-finger gestures from adb (src/debug)
     }
@@ -19,8 +21,9 @@ class ImageViewerPlugin : ZnPlugin {
  * The module "ImageViewer". It puts the plugin in a bundle's needs, so an app without the plugin never runs a bundle that
  * opens the viewer (docs/plugins.md D3). The screen "imageviewer.full" belongs to it.
  * Version 2 (2026-11-05): `hold`, for `data:` pictures and request headers (ViewerHeld).
+ * Version 3 (2026-11-09, registry 24): the view "imageviewer.page" for the TSX viewer screen.
  */
-internal class ImageViewerModule : ZnModuleBase("ImageViewer", version = 2) {
+internal class ImageViewerModule : ZnModuleBase("ImageViewer", version = 3) {
     init {
         // Not on the main thread: it decodes base64 (up to 5 MB).
         function("hold") { call ->

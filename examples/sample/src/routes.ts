@@ -40,6 +40,7 @@ import { DeviceInfoLabScreen } from "./DeviceInfoLab"
 import { MarkdownLabScreen } from "./MarkdownLab"
 import { DocScanLabScreen } from "./DocScanLab"
 import { ImageViewerLabScreen } from "./ImageViewerLab"
+import { ImageViewerScreen } from "@zero-native/image-viewer"
 import { LayerLabScreen } from "./AppLayers"
 import { ChatListLabScreen } from "./ChatListLab"
 import { DynamicLayoutLabScreen } from "./DynamicLayoutLab"
@@ -122,6 +123,8 @@ export const routes = defineRoutes({
   motionScreensDetail: { path: "/dev/motion/screens/detail", screen: MotionScreensDetailScreen, safeArea: { top: false }, statusBar: "light", transition: "fade" },
   motionExtensionLab: { path: "/dev/motion/extension", screen: MotionExtensionLabScreen, deepLink: true },
   imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
+  // The TSX viewer (registry 24): see-through, so the lab stays drawn under it while the photo flies and fades.
+  photoViewer: { path: "/dev/image-viewer/tsx", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

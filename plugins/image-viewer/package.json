@@ -8,7 +8,8 @@
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*"
+    "@zero-native/core": "workspace:*",
+    "@zero-native/ui": "workspace:*"
   },
   "zeroNative": {
     "android": {

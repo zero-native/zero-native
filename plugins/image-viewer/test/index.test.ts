@@ -7,7 +7,11 @@ import { createStorage } from "../../../packages/core/src/storage"
 import { installTimers } from "../../../packages/core/src/timers"
 import { view } from "../../../packages/core/src/view"
 import { installFakeHost, type FakeHost } from "../../../packages/core/test/fake-host"
-import { HELD_DATA, ImageViewer, resetImageViewerForTests, viewerParams, viewerParts } from "../src/index"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { compileModule } from "../../../compiler/src/compile"
+import { HELD_DATA, ImageViewer, resetImageViewerForTests, viewerParams, viewerParts } from "../src/api"
+import { finishViewer, resetOpenForTests, viewerFor, type ViewerOptions } from "../src/open"
 
 let host: FakeHost
 const reply = (r: object) => globalThis.__zn_onEvent(0, 7, JSON.stringify(r))
@@ -17,10 +21,17 @@ const later = async () => {
 const PNG = "data:image/png;base64,iVBORw0KGgo="
 const PUSH = 1
 const Home = () => view(0, () => {})
+/** Stands in for ImageViewerScreen: keeps what viewerFor gave it. */
+let seen: ViewerOptions | null = null
+const Viewer = (p: { v?: string }) => {
+  seen = viewerFor(p.v)
+  return view(0, () => {})
+}
 const routes = defineRoutes({
   home: { path: "/", screen: Home },
   imageViewer: { path: "/image-viewer", native: "imageviewer.full", safeArea: "none", transition: "fade" },
   photos: { path: "/photos", native: "imageviewer.full", safeArea: "none" },
+  tsxViewer: { path: "/viewer", screen: Viewer, transparent: true, safeArea: "none", restore: false },
 })
 
 const send = (event: number, payload: string | number | null) => globalThis.__zn_onEvent(0, event, payload)
@@ -37,6 +48,8 @@ function answer(entry: number, id: string, value: unknown, route = "imageViewer"
 beforeEach(() => {
   resetNavForTests()
   resetImageViewerForTests()
+  resetOpenForTests()
+  seen = null
   host = installFakeHost()
   installEvents()
   installCalls()
@@ -110,8 +123,7 @@ test("open can use another route that shows the same screen", async () => {
 })
 
 test("a missing route rejects with the line to add, and pushes nothing", async () => {
-  await expect(ImageViewer.open({ images: ["a"], route: "gallery" })).rejects.toThrow('gallery: { path: "/image-viewer", native: "imageviewer.full"')
-  await expect(ImageViewer.open({ images: ["a"], route: "home" })).rejects.toThrow("not a native screen")
+  await expect(ImageViewer.open({ images: ["a"], route: "gallery" })).rejects.toThrow('gallery: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true')
   expect(pushes()).toEqual([])
 })
 
@@ -145,7 +157,7 @@ test("open with a data: link or headers holds them natively first, then pushes w
   expect(pushes()).toEqual([]) // not before native has them
   const hold = host.calls.find((c) => c.method === "hold")!
   expect(hold.module).toBe("ImageViewer")
-  expect(hold.args.__v).toBe(2)
+  expect(hold.args.__v).toBe(3)
   expect(hold.args.items).toEqual([{ i: 0, headers: { Authorization: "Bearer t" } }, { i: 1, data: PNG }])
   expect(String(hold.args.key)).toMatch(/^iv-/)
   reply({ id: hold.id, ok: true, value: true })
@@ -179,4 +191,68 @@ test("a missing route after hold still rejects with the line to add", async () =
   const hold = host.calls.find((c) => c.method === "hold")!
   reply({ id: hold.id, ok: true, value: true })
   await expect(p).rejects.toThrow('gallery: { path: "/image-viewer"')
+})
+
+// ---- The TSX screen (registry 24, module 3) ----------------------------------------------------------------------------
+
+test("a route without native opens the TSX screen: only a key in the params, the options stay in JS", async () => {
+  const p = ImageViewer.open({ images: ["https://a/1.jpg", "https://a/2.jpg"], imageIndex: 1, route: "tsxViewer", closeLabel: "Band karo" })
+  const [push] = pushes()
+  expect(push![2]).toBe(3)
+  const params = JSON.parse(push![3] as string)
+  expect(Object.keys(params)).toEqual(["v"])
+  expect(seen).toMatchObject({ images: [{ uri: "https://a/1.jpg" }, { uri: "https://a/2.jpg" }], index: 1, closeLabel: "Band karo", errorText: "Couldn't load this photo", swipeToClose: true, doubleTap: true })
+  expect(seen!.from).toBeUndefined()
+  finishViewer(params.v, { index: 0 }) // the user closed it on the first photo
+  expect(await p).toEqual({ index: 0 })
+  expect(nav.depth()).toBe(1)
+})
+
+test("TSX screen: nav.back from the app gives null; a second finish does nothing", async () => {
+  const p = ImageViewer.open({ images: ["a"], route: "tsxViewer" })
+  const key = JSON.parse(pushes()[0]![3] as string).v
+  nav.back()
+  expect(await p).toBeNull()
+  expect(() => finishViewer(key, { index: 0 })).not.toThrow()
+  expect(nav.depth()).toBe(1)
+})
+
+test("TSX screen: from as a box is checked; from as an element is measured first", async () => {
+  void ImageViewer.open({ images: ["a"], route: "tsxViewer", from: { x: 10, y: 20, width: 100, height: 80 } })
+  expect(seen!.from).toEqual({ x: 10, y: 20, width: 100, height: 80 })
+  nav.back()
+  await later()
+  void ImageViewer.open({ images: ["a"], route: "tsxViewer", from: { x: 0, y: 0, width: 0, height: 80 } })
+  expect(seen!.from).toBeUndefined() // an empty box: fade, no flight
+  nav.back()
+  await later()
+  const measure = () => Promise.resolve({ x: 1, y: 2, width: 30, height: 40 })
+  void ImageViewer.open({ images: ["a"], route: "tsxViewer", from: { measure } as never })
+  expect(pushes().length).toBe(2) // waits for the box
+  await later()
+  expect(pushes().length).toBe(3)
+  expect(seen!.from).toEqual({ x: 1, y: 2, width: 30, height: 40 })
+})
+
+test("TSX screen: held parts go native first, and the screen gets the key", async () => {
+  void ImageViewer.open({ images: [PNG], route: "tsxViewer" })
+  expect(pushes()).toEqual([])
+  const hold = host.calls.find((c) => c.method === "hold")!
+  reply({ id: hold.id, ok: true, value: true })
+  await later()
+  expect(seen!.held).toBe(hold.args.key)
+  expect(seen!.images).toEqual([{ uri: HELD_DATA }])
+})
+
+test("the TSX screen compiles, and uses the view the plugin registers", () => {
+  const path = join(import.meta.dir, "..", "src", "ImageViewerScreen.tsx")
+  const views: string[] = []
+  const templates: unknown[] = []
+  const out = compileModule(readFileSync(path, "utf8"), path, {
+    reserveTemplate: () => templates.push(null) - 1,
+    defineTemplate: (id, spec) => void (templates[id] = spec),
+    nativeView: (name) => void views.push(name),
+  })
+  expect(views).toContain("imageviewer.page")
+  expect(out.components.ImageViewerScreen).toBeDefined()
 })
