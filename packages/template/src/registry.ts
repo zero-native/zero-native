@@ -50,7 +50,8 @@ export const REGISTRY_VERSION = 24 // 2: Anchor. 3: transforms, shadow, absolute
 //     row-laid Touchable / Pressable with flexDirection: "row" wrapped in Row at build time; horizontal List (LazyRow);
 //     dynamic layout values (sizes, margins, paddings, flex, gap, radii, font, display); Canvas primitive; List header/footer/empty/scroll.
 // 24: gestures and motion (docs/gestures-and-motion-v1.md): `gesture` on any element; rotateX, rotateY, cameraDistance,
-//     blurRadius (draw-phase targets that follow motion values). A slot holding a motion value needs the Motion module.
+//     blurRadius (draw-phase targets that follow motion values); `motion` (values from an element: box, scroll, page,
+//     press); animateLayout; List itemAnimation. A slot holding a motion value needs the Motion module.
 
 export const Component = {
   Column: 1,
@@ -466,6 +467,15 @@ export const Prop = {
   cameraDistance: { id: 153, type: "number" },
   /** Blurs the element and its children (dp). Android 12+; older phones draw it sharp. */
   blurRadius: { id: 154, type: "number" },
+  /**
+   * The id of a useElementMotion() object (core motion.ts): native fills its values from this element (its box in the
+   * window; a Scroll's or List's offset; a Carousel's page; a Pressable's press). Set from JS.
+   */
+  motion: { id: 155, type: "number" },
+  /** When this element's size or place changes, it animates there (a timing as `animate` encodes it). */
+  animateLayout: { id: 156, type: "string" },
+  /** <List>: rows that are added, removed or moved animate: "fade" (fade in / out, glide to new places) or "move". */
+  itemAnimation: { id: 157, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -681,6 +691,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "rotateY",
   "cameraDistance",
   "blurRadius",
+  "motion",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -726,7 +737,8 @@ export const Added: {
     inverted: 19, transformOrigin: 20, animateIn: 21, display: 23, scrollCommand: 23,
     selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23, itemWidthPercent: 23,
     commands: 23,
-    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24,
+    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, animateLayout: 24,
+    itemAnimation: 24,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -743,7 +755,7 @@ export const Added: {
     borderTopStartRadius: 23, borderTopEndRadius: 23, borderBottomStartRadius: 23, borderBottomEndRadius: 23,
     fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23, selectable: 23,
     commands: 23,
-    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24,
+    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24,
   },
   enumValue: {
     "display.flex": 23, "display.none": 23,
@@ -763,7 +775,7 @@ export const Added: {
   },
   event: { onNativeEvent: 9, ref: 10, onRefresh: 12, onLoad: 15, onError: 15, onLoadEnd: 15, onLayout: 15,
     onRequestClose: 15, onShow: 15, onSpanPress: 16, onFilled: 18 },
-  format: { "timing.motion": 13, "svg.nonScaling": 13, "svg.effects": 13, "timing.tap": 13 },
+  format: { "timing.motion": 13, "svg.nonScaling": 13, "svg.effects": 13, "timing.tap": 13, "transition.depth": 24 },
 }
 
 /**
@@ -835,6 +847,11 @@ export const Formats = {
   },
   /** Timings that start on a tap ("~w", SMIL begin="click"; docs/svg.md §17). */
   "timing.tap": { props: ["animate"] as PropName[], uses: (raw: string) => /~w(?:[~;,]|$)/.test(raw) },
+  /** enter / exit that turn in 3D or stretch (flip-x, flip-y, stretch-x, stretch-y; registry 24): 8 numbers, not 4. */
+  "transition.depth": {
+    props: ["enter", "exit"] as PropName[],
+    uses: (raw: string) => raw.slice(0, raw.indexOf("|")).split(",").length === 8,
+  },
 } as const
 export type FormatName = keyof typeof Formats
 

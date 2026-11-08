@@ -88,7 +88,10 @@ internal class ZnTiming(
     private fun curve(): Easing = easingOf(easing, bezier)
 
     /** One play, from one value to the next (no delay: callers wait it out, so springs and tweens are the same). */
-    fun <T> spec(): AnimationSpec<T> =
+    fun <T> spec(): AnimationSpec<T> = finiteSpec()
+
+    /** [spec] as a finite spec (what animateContentSize and animateItem take). */
+    fun <T> finiteSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> =
         if (ms >= 0) tween(ms, easing = curve()) else spring(dampingRatio = damping, stiffness = stiffness)
 
     /** One play through [values] (the keyframes), each segment with its own easing, else this timing's curve. */
@@ -199,15 +202,26 @@ internal class ZnAnimate(private val byProp: Map<Int, ZnTiming>, private val all
     }
 }
 
-/** `enter` / `exit`: the state the element enters from or leaves to ("opacity,translateX,translateY,scale|timing"). */
-internal class ZnTransition(val opacity: Float, val translateX: Float, val translateY: Float, val scale: Float, val timing: ZnTiming) {
+/**
+ * `enter` / `exit`: the state the element enters from or leaves to ("opacity,translateX,translateY,scale|timing";
+ * registry 24 adds ",rotateX,rotateY,scaleX,scaleY" for the flip and stretch presets).
+ */
+internal class ZnTransition(
+    val opacity: Float, val translateX: Float, val translateY: Float, val scale: Float, val timing: ZnTiming,
+    val rotateX: Float = 0f, val rotateY: Float = 0f, val scaleX: Float = 1f, val scaleY: Float = 1f,
+) {
+    /** It turns in 3D: the node's layer must set rotationX / Y (ZnNodeSpec.hasDepth). */
+    val turns: Boolean get() = rotateX != 0f || rotateY != 0f
+
     companion object {
         fun parse(s: String): ZnTransition? {
             val bar = s.indexOf('|')
             if (bar < 0) return null
             val v = s.substring(0, bar).split(',').map { it.toFloatOrNull() ?: return null }
-            if (v.size != 4) return null
-            return ZnTransition(v[0], v[1], v[2], v[3], ZnTiming.parse(s.substring(bar + 1)) ?: return null)
+            if (v.size != 4 && v.size != 8) return null
+            val t = ZnTiming.parse(s.substring(bar + 1)) ?: return null
+            if (v.size == 4) return ZnTransition(v[0], v[1], v[2], v[3], t)
+            return ZnTransition(v[0], v[1], v[2], v[3], t, v[4], v[5], v[6], v[7])
         }
     }
 }
@@ -287,13 +301,19 @@ internal fun znLayer(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, pressed: Zn
         fun outV(to: Float?, rest: Float): Float = if (outP == null || to == null) rest else lerp(rest, to, outP.value)
         ZnLayer(
             alpha = { opacity() * inV(enter?.opacity, 1f) * outV(exit?.opacity, 1f) * (pressed?.alpha() ?: 1f) },
-            scaleX = { scale() * scaleX() * inV(enter?.scale, 1f) * outV(exit?.scale, 1f) * (pressed?.scale() ?: 1f) },
-            scaleY = { scale() * scaleY() * inV(enter?.scale, 1f) * outV(exit?.scale, 1f) * (pressed?.scale() ?: 1f) },
+            scaleX = {
+                scale() * scaleX() * inV(enter?.scale, 1f) * outV(exit?.scale, 1f) * inV(enter?.scaleX, 1f) *
+                    outV(exit?.scaleX, 1f) * (pressed?.scale() ?: 1f)
+            },
+            scaleY = {
+                scale() * scaleY() * inV(enter?.scale, 1f) * outV(exit?.scale, 1f) * inV(enter?.scaleY, 1f) *
+                    outV(exit?.scaleY, 1f) * (pressed?.scale() ?: 1f)
+            },
             rotate = rotate,
             translateX = { tx() + inV(enter?.translateX, 0f) + outV(exit?.translateX, 0f) },
             translateY = { ty() + inV(enter?.translateY, 0f) + outV(exit?.translateY, 0f) },
-            rotateX = rx,
-            rotateY = ry,
+            rotateX = { rx() + inV(enter?.rotateX, 0f) + outV(exit?.rotateX, 0f) },
+            rotateY = { ry() + inV(enter?.rotateY, 0f) + outV(exit?.rotateY, 0f) },
             cameraDistance = { camera().coerceAtLeast(0.1f) },
             blur = { blur().coerceAtLeast(0f) },
             site = site,
@@ -398,19 +418,28 @@ internal fun motionAt(playTime: Long, length: Long, gap: Long, plays: Int, rever
 @Composable
 internal fun animatedColor(inst: ZnInstance, slot: Int, static: Color?, timing: ZnTiming?, m: ZnMotionInputs): () -> Color? {
     val cell = if (slot >= 0) inst.slot(slot) else null
-    val read: () -> Color? = remember(cell, static) { if (cell == null) ({ static }) else ({ toColor(cell.value) ?: static }) }
+    // A motion colour (registry 24: `v.mapColor`, a formula ending in interpolateColor) is read frame by frame, never
+    // through `animate`'s timing, as znBackground does.
+    val read: () -> Color? = remember(cell, static) {
+        if (cell == null) ({ static }) else ({
+            val v = cell.value
+            val src = ZnMotion.ref(v)
+            if (src != null && src.isColor) Color(src.readColor(null)) else toColor(v) ?: static
+        })
+    }
     if (timing == null || (cell == null && static == null && !timing.selfPlaying)) return read
     val rest: () -> Color = remember(read) { { read() ?: Color.Transparent } }
     if (timing.selfPlaying) return znMotion(timing, Color.VectorConverter(ColorSpaces.Srgb), ::motionColor, rest, m)
     if (cell == null) return read
     val anim = remember(cell) { ColorAnimatable(rest()) }
     LaunchedEffect(cell, timing) {
-        snapshotFlow(rest).collectLatest {
+        snapshotFlow { if (ZnMotion.isRef(cell.value)) null else rest() }.collectLatest {
+            if (it == null) return@collectLatest
             znDelay(timing.delayMs)
             anim.animateTo(it, timing.spec())
         }
     }
-    return remember(anim) { { if (read() == null) null else anim.value } }
+    return remember(anim) { { if (ZnMotion.isRef(cell.value)) read() else if (read() == null) null else anim.value } }
 }
 
 /** "#AARRGGBB" from the compiler's motion options. */

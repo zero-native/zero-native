@@ -20,6 +20,8 @@ export type MotionInput = { readonly __znMotion: number }
 export type MotionColorInput = { readonly __znMotion: number; readonly __znColor: true }
 /** A gesture from usePan / usePinch / useTap / ... or Gesture.simultaneous(...) (core motion.ts). */
 export type GestureInput = { readonly __znGesture: number }
+/** A useElementMotion() object: the element fills its values (core motion.ts). */
+export type ElementMotionInput = { readonly __znElement: number }
 
 declare const znElement: unique symbol
 /** What JSX makes (a template instance to show). Opaque: return it from a component or pass it on. */
@@ -254,6 +256,16 @@ export type Transition =
   | "fade-down"
   | "scale"
   | "pop"
+  | "slide-left"
+  | "slide-right"
+  | "slide-up"
+  | "slide-down"
+  | "zoom"
+  | "bounce"
+  | "flip-x"
+  | "flip-y"
+  | "stretch-x"
+  | "stretch-y"
   | {
       opacity?: number
       translateX?: number
@@ -273,6 +285,16 @@ interface Base extends StyleProps {
    * (core motion.ts). The touch area moves with the element.
    */
   gesture?: GestureInput
+  /**
+   * useElementMotion() (registry 24): this element fills its values: its box in the window; a Scroll's or List's
+   * scroll offset; a Carousel's page; a Pressable's press.
+   */
+  motion?: ElementMotionInput
+  /**
+   * When this element's size or place changes, it animates there (registry 24, Reanimated's layout transitions):
+   * `animateLayout="spring"`, `animateLayout={250}`, `{ duration, easing }`. Build-time value.
+   */
+  animateLayout?: Timing
   /**
    * Animate changes of this element's opacity, background colour and transforms natively (build-time value):
    * `animate={250}` for all of them, or `animate={{ opacity: 200, translateY: "spring" }}`.
@@ -430,20 +452,21 @@ export type SvgPartAnimatable =
 /**
  * How a part moves (registry 13): transforms in viewBox units and degrees, around the part's own centre; trims
  * "draw the line" (0–1 of its length; a group's pieces count as one line). All can change at runtime, except animate.
+ * Each one can also be a motion value (registry 24): a trim that follows a drag, a part that turns with a dial.
  */
 export interface SvgPartMotion {
-  rotate?: number
-  scale?: number
-  scaleX?: number
-  scaleY?: number
-  translateX?: number
-  translateY?: number
+  rotate?: number | MotionInput
+  scale?: number | MotionInput
+  scaleX?: number | MotionInput
+  scaleY?: number | MotionInput
+  translateX?: number | MotionInput
+  translateY?: number | MotionInput
   /** Where the visible piece of the line starts, 0–1 (default 0). It cuts the fill too. */
-  trimStart?: number
+  trimStart?: number | MotionInput
   /** Where it ends, 0–1 (default 1). trimEnd from 0 to 1 draws the line. */
-  trimEnd?: number
+  trimEnd?: number | MotionInput
   /** Moves the piece round the line (wraps past the end). */
-  trimOffset?: number
+  trimOffset?: number | MotionInput
   /** Animate this part, like `animate` on any element (build time). */
   animate?: Timing | Partial<Record<SvgPartAnimatable, Timing>>
   /** Stops this part's loops and keyframes where they are. */
@@ -454,9 +477,10 @@ export interface SvgPartMotion {
 
 /** What a part of an SVG can change: the paint of every shape inside it, its opacity as a whole, and how it moves. */
 export interface SvgPartProps extends SvgPartMotion {
-  fill?: Color
-  stroke?: Color
-  opacity?: number
+  /** A colour, or a motion colour (`v.mapColor`, registry 24) that changes frame by frame. */
+  fill?: Color | MotionColorInput
+  stroke?: Color | MotionColorInput
+  opacity?: number | MotionInput
   /** The stroke width of every stroked shape inside it, in viewBox units (registry 13). Can change at runtime. */
   strokeWidth?: number
   /** Moves the dashes of every dashed stroke inside it along the line, in viewBox units (registry 13). */
@@ -894,6 +918,8 @@ export declare function List<T>(props: {
    * Don't flip a list with `transform: [{ scaleY: -1 }]` instead: the build refuses it (flings go the wrong way).
    */
   inverted?: boolean
+  /** Rows added, removed or moved animate (registry 24): "fade" (fade in and out, glide) or "move" (glide only). */
+  itemAnimation?: "fade" | "move"
   /**
    * Lay rows out horizontally instead of vertically (registry 23). Uses LazyRow natively.
    * Inverted, stickyHeaderIndices and pull to refresh are not supported on horizontal lists.

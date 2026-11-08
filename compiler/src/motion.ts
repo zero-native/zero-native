@@ -166,8 +166,12 @@ export function compileFormula(body: ts.Expression, sf: ts.SourceFile, names: { 
         color = true
         return push(`C${tables.length - 1}`, 1)
       }
-      throw new Error(`can't call ${callee}() in a formula. Inside derive, write a motion value without () (pan.x, not ` +
-        "pan.x()); compute anything else in JS (one frame late) or use a native plugin source")
+      // pan.x() reads a motion value, as it does in JS: the same input as a bare pan.x, and it typechecks as a number.
+      if (args.length === 0 && (ts.isIdentifier(e.expression) || ts.isPropertyAccessExpression(e.expression) || ts.isElementAccessExpression(e.expression))) {
+        return visit(e.expression, top)
+      }
+      throw new Error(`can't call ${callee}() in a formula. Inside derive, read a motion value as pan.x() and use ` +
+        "numbers, Math, clamp, interpolate; compute anything else in JS (one frame late) or use a native plugin source")
     }
     if (ts.isIdentifier(e) || ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) {
       if (ts.isIdentifier(e) && (e.text === "self" || e.text === "parent")) throw new Error(`use ${e.text}.width or ${e.text}.height`)

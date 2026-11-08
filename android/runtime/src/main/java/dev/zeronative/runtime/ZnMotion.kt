@@ -75,6 +75,8 @@ internal class ZnValue(id: Int, initial: Float) : ZnSource(id) {
     var seq = 0
     /** The gesture whose finger holds this value, or null. */
     var heldBy: ZnGestureTouch? = null
+    /** Called when JS sends it a command (a gesture resting on an anchor stops following it). */
+    var onCommand: (() -> Unit)? = null
 
     var value: Float
         get() = state.floatValue
@@ -93,6 +95,34 @@ internal class ZnValue(id: Int, initial: Float) : ZnSource(id) {
     }
 
     override fun dispose() = interrupt()
+}
+
+/**
+ * A value a native component gives while it is shown (a Scroll's offset, a Carousel's page): the component sets
+ * [reader] (a draw- or layout-phase read of its own state), so a binding follows it with no copy per frame. Keeps the
+ * last value when the component goes away.
+ */
+internal class ZnLambdaSource(id: Int) : ZnSource(id) {
+    val reader = androidx.compose.runtime.mutableStateOf<(() -> Float)?>(null)
+    private var last = 0f
+    override fun read(site: ZnSite?): Float {
+        val r = reader.value ?: return last
+        val v = r()
+        if (v.isFinite()) last = v
+        return last
+    }
+}
+
+/**
+ * useElementMotion() (core motion.ts): the values an element gives through `motion={m}`. x, y, width, height (its box
+ * in the window, dp) are written when it is placed; the rest are read from the component (ZnLambdaSource).
+ */
+internal class ZnElementMotion(val id: Int, val values: Map<String, ZnSource>) {
+    fun value(name: String): ZnValue? = values[name] as? ZnValue
+    fun lambda(name: String): ZnLambdaSource? = values[name] as? ZnLambdaSource
+
+    /** m.follow(v): the value the element's scroll position follows (Scroll dp, List item, Carousel page), or null. */
+    val follow = androidx.compose.runtime.mutableStateOf<ZnSource?>(null)
 }
 
 /** A window value (§2.2): width, height, insets, keyboard. Written by ZnNavHost. */
@@ -321,6 +351,10 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
     private val watching = HashMap<Int, Job>()
     private val toJs = HashMap<Int, Float>()
     private var toJsQueued = false
+    private val elements = HashMap<Int, ZnElementMotion>()
+    /** Text slots that show a motion value ("\u0000f<id>|<format json>") → their parsed format. */
+    private val texts = HashMap<String, Pair<Int, ZnNumberFormat>>()
+    private var frames: Job? = null
 
     init {
         for (i in 1..ENV_LAST) env[i] = ZnEnvValue(i).also { sources[i] = it }
@@ -373,6 +407,7 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
             val v = value(c.int("id"))
             if (v.heldBy != null && !c.args.optBoolean("interrupt")) return@function c.resolve()
             v.heldBy?.cancel()
+            v.onCommand?.invoke()
             v.interrupt()
             v.velocity = 0f
             v.value = c.double("v").toFloat()
@@ -385,6 +420,38 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
         function("animate", onMain = true) { c -> animate(c) }
         function("watch", onMain = true) { c ->
             watch(c.int("id"), c.args.optBoolean("on", true))
+            c.resolve()
+        }
+        // {"id", "values": {name: id}}: an element's values (useElementMotion).
+        function("element", onMain = true) { c ->
+            val id = c.int("id")
+            val names = c.args.optJSONObject("values") ?: JSONObject()
+            val values = HashMap<String, ZnSource>()
+            for (name in names.keys()) {
+                val vid = names.getInt(name)
+                val src: ZnSource = if (name in BOX_NAMES) ZnValue(vid, 0f) else ZnLambdaSource(vid)
+                put(vid, src)
+                values[name] = src
+            }
+            elements[id] = ZnElementMotion(id, values)
+            c.resolve()
+        }
+        // {"id": element, "src": motion id | absent}: m.follow(v): its scroll position follows v; no src stops.
+        function("elementFollow", onMain = true) { c ->
+            val e = elements[c.int("id")] ?: return@function c.resolve()
+            e.follow.value = c.intOrNull("src")?.let { source(it) }
+            c.resolve()
+        }
+        // {"ids": [...]}: the values now (measure()).
+        function("read", onMain = true) { c ->
+            val ids = c.args.optJSONArray("ids") ?: JSONArray()
+            val out = JSONObject()
+            for (i in 0 until ids.length()) sources[ids.getInt(i)]?.let { out.put(ids.getInt(i).toString(), it.read(null).toDouble()) }
+            c.resolve(out)
+        }
+        // {"on": bool}: a "frame" event each frame while JS has useFrame callbacks (coalesced: never queued up).
+        function("frames", onMain = true) { c ->
+            frames(c.args.optBoolean("on"))
             c.resolve()
         }
         ZnGestures.install(this)
@@ -414,6 +481,7 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
 
     fun dispose(id: Int) {
         if (id <= ENV_LAST) return
+        elements.remove(id)
         watching.remove(id)?.cancel()
         sources.remove(id)?.dispose()
         ZnGestures.dispose(id)
@@ -425,8 +493,57 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
     fun reset() {
         for (id in sources.keys.filter { it > ENV_LAST }) dispose(id)
         refs.clear()
-        toJs.clear()
+        texts.clear()
+        elements.clear()
+        frames(false)
+        synchronized(toJs) { toJs.clear() }
     }
+
+    fun element(id: Int): ZnElementMotion? = elements[id]
+
+    private val BOX_NAMES = setOf("x", "y", "width", "height")
+
+    private var frameQueued = false
+    private var lastFrame = 0L
+
+    private fun frames(on: Boolean) {
+        frames?.cancel()
+        frames = null
+        if (!on) return
+        frames = scope.launch {
+            while (true) {
+                withFrameNanos { now ->
+                    val dt = if (lastFrame == 0L) 0L else now - lastFrame
+                    lastFrame = now
+                    val first = synchronized(toJs) { !frameQueued.also { frameQueued = true } }
+                    if (first) {
+                        ZnRuntime.dispatchLatest(0, ZnAppEvent.MODULE_EVENT) {
+                            synchronized(toJs) { frameQueued = false }
+                            JSONObject().put("module", "Motion").put("event", "frame")
+                                .put("payload", JSONObject().put("t", now / 1_000_000.0).put("dt", dt / 1_000_000.0)).toString()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * A Text slot's string: a motion value shown as text (`v.format(...)`, plan D5) is formatted from its current value
+     * (read in composition: only that Text recomposes). Null when [v] isn't one.
+     */
+    fun text(v: String): String? {
+        if (!v.startsWith(TEXT_REF)) return null
+        val (id, format) = texts.getOrPut(v) {
+            val bar = v.indexOf('|')
+            val id = v.substring(TEXT_REF.length, if (bar < 0) v.length else bar).toIntOrNull() ?: return ""
+            id to ZnNumberFormat.parse(if (bar < 0) null else v.substring(bar + 1))
+        }
+        val s = sources[id] ?: return ""
+        return format.format(s.read(null))
+    }
+
+    private const val TEXT_REF = "\u0000f"
 
     /** True when the phone's animations are off ("Remove animations"): values jump to where they end. */
     fun animationsOff(): Boolean {
@@ -467,6 +584,7 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
             if (!c.args.optBoolean("interrupt")) return c.resolve(JSONObject().put("finished", false))
             v.heldBy?.cancel()
         }
+        v.onCommand?.invoke()
         val steps = c.args.optJSONArray("steps") ?: JSONArray()
         val repeat = c.args.optInt("repeat", 1)
         val reverse = c.args.optBoolean("reverse")
@@ -603,4 +721,59 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
     }
 
     internal fun log(msg: String) = Log.w(TAG, "motion: $msg")
+}
+
+/**
+ * A number shown as text, without locale objects per frame (plan D5): [decimals] 0–2, grouping "en-IN" (12,34,567),
+ * "standard" (1,234,567) or "none", a [prefix] (₹) and [suffix]. The minus sign goes before the prefix: -₹1,234.
+ */
+internal class ZnNumberFormat(private val decimals: Int, private val grouping: Int, private val prefix: String, private val suffix: String) {
+    fun format(v: Float): String {
+        if (!v.isFinite()) return prefix + "0" + suffix
+        val scale = when (decimals) { 1 -> 10L; 2 -> 100L; else -> 1L }
+        // Half away from zero, as people round money (kotlin.math.round sends halves to the even number: 2.5 → 2).
+        val scaled = kotlin.math.floor(kotlin.math.abs(v.toDouble()) * scale + 0.5).toLong()
+        val whole = scaled / scale
+        val frac = scaled % scale
+        val sb = StringBuilder()
+        if (v < 0 && scaled != 0L) sb.append('-')
+        sb.append(prefix)
+        sb.append(group(whole.toString()))
+        if (decimals > 0) {
+            sb.append('.')
+            val f = frac.toString()
+            repeat(decimals - f.length) { sb.append('0') }
+            sb.append(f)
+        }
+        sb.append(suffix)
+        return sb.toString()
+    }
+
+    private fun group(d: String): String {
+        if (grouping == NONE || d.length <= 3) return d
+        val last3 = d.substring(d.length - 3)
+        val rest = d.substring(0, d.length - 3)
+        val size = if (grouping == INDIAN) 2 else 3
+        val parts = ArrayList<String>()
+        var end = rest.length
+        while (end > 0) {
+            val start = maxOf(0, end - size)
+            parts.add(0, rest.substring(start, end))
+            end = start
+        }
+        return parts.joinToString(",") + "," + last3
+    }
+
+    companion object {
+        private const val INDIAN = 1
+        private const val STANDARD = 2
+        private const val NONE = 0
+
+        /** {"d": decimals, "g": "en-IN" | "standard" | "none", "p": prefix, "s": suffix}. */
+        fun parse(json: String?): ZnNumberFormat {
+            val o = try { if (json == null) JSONObject() else JSONObject(json) } catch (e: Exception) { JSONObject() }
+            val g = when (o.optString("g", "en-IN")) { "none" -> NONE; "standard" -> STANDARD; else -> INDIAN }
+            return ZnNumberFormat(o.optInt("d", 0).coerceIn(0, 2), g, o.optString("p", ""), o.optString("s", ""))
+        }
+    }
 }

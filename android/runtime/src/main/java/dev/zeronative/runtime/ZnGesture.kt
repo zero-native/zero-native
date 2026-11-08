@@ -145,6 +145,38 @@ internal class ZnGesture private constructor(
     val angle: ZnValue? = valueOf("angle")
     val pressed: ZnValue? = valueOf("pressed")
     val held: ZnValue? = valueOf("held")
+    /** Where the finger is in the element (dp): for a dial (atan2 of it) or a chart crosshair. */
+    val touchX: ZnValue? = valueOf("touchX")
+    val touchY: ZnValue? = valueOf("touchY")
+
+    /**
+     * After a release that ended on an anchor, the gesture rests there and follows the anchor if it moves (the keyboard
+     * opens, the phone turns): a floating video stays above the keyboard with no JS. Ends at the next touch, snapTo,
+     * or a JS command to its values.
+     */
+    private var attached: kotlinx.coroutines.Job? = null
+
+    fun detach() {
+        attached?.cancel()
+        attached = null
+    }
+
+    fun attach(anchorId: String) {
+        detach()
+        val a = anchors.firstOrNull { it.id == anchorId } ?: return
+        val spring = ZnTimingSpec.parse(release.optJSONObject("spring"))
+        attached = ZnMotion.scope.launch {
+            androidx.compose.runtime.snapshotFlow { anchorPoint(a) }.collect { (ax, ay) ->
+                for ((v, to) in listOf(x to ax, y to ay)) {
+                    if (v == null || to == null || v.heldBy != null || kotlin.math.abs(v.value - to) < 0.5f) continue
+                    v.job?.cancel()
+                    v.job = launch { v.animate(to, spring) }
+                }
+            }
+        }
+        // A JS command to x or y ends it.
+        for (v in listOfNotNull(x, y)) v.onCommand = { detach() }
+    }
 
     val axis: Int = when (o.optString("axis", "xy")) { "x" -> AXIS_X; "y" -> AXIS_Y; else -> AXIS_XY }
     val boundsX: Pair<ZnSpec, ZnSpec>? = boundsOf("x")
@@ -206,9 +238,10 @@ internal class ZnGesture private constructor(
 
     fun dispose() {
         touch?.cancel()
+        detach()
         if (kind == GROUP) return // members are their own objects (JS disposes them)
         // The values belong to the gesture: JS disposed it, so they go too. (JS holds no other handle on them.)
-        for (v in listOfNotNull(x, y, scale, focalX, focalY, angle, pressed, held)) ZnMotion.dispose(v.id)
+        for (v in listOfNotNull(x, y, scale, focalX, focalY, angle, pressed, held, touchX, touchY)) ZnMotion.dispose(v.id)
     }
 
     fun send(type: String, data: JSONObject = JSONObject()) {
@@ -302,6 +335,7 @@ internal class ZnGesture private constructor(
             go(xv, true, t?.x, vx)
             go(yv, false, t?.y, vy)
             jobs.forEach { it.join() }
+            if (t != null && anchors.any { it.id == t.id }) attach(t.id)
             done?.invoke(t?.id)
         }
     }
@@ -313,6 +347,7 @@ internal class ZnGesture private constructor(
             ?: throw ZnInvalidArgs("gesture $id has no anchor \"$anchorId\"")
         val (g, a) = target
         g.touch?.cancel()
+        g.detach()
         val (ax, ay) = g.anchorPoint(a)
         val values = listOfNotNull(ax?.let { g.x?.to(it) }, ay?.let { g.y?.to(it) })
         if (values.isEmpty()) return c.resolve(JSONObject().put("finished", true))
@@ -523,6 +558,11 @@ private class PanRec(g: ZnGesture, private val downAt: Long) : ZnRecognizer(g) {
         val now = pressedCentroid(e, false)
         val before = pressedCentroid(e, true)
         val count = pressedCount(e)
+        // The finger's place in the element, also before the pan starts (a dial turns from the first touch).
+        e.changes.firstOrNull { it.pressed }?.let { c ->
+            g.touchX?.value = c.position.x / ctx.d
+            g.touchY?.value = c.position.y / ctx.d
+        }
         if (state == POSSIBLE && count > maxPointers) return fail()
         if (now != null && before != null) {
             val dx = now.x - before.x
@@ -557,6 +597,7 @@ private class PanRec(g: ZnGesture, private val downAt: Long) : ZnRecognizer(g) {
     }
 
     override fun activate(ctx: ZnTouchCtx) {
+        g.detach()
         // The finger takes the values where they are (an animation running on them stops; JS's promise says
         // finished: false). Movement counts from here, so nothing jumps by the touch slop.
         for (v in listOfNotNull(g.x, g.y)) {

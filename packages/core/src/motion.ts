@@ -79,6 +79,17 @@ export interface MotionSource {
   mapColor(input: readonly number[], colors: readonly string[]): MotionColor
   /** The last value JS heard, without subscribing (and without asking native to send changes). */
   peek(): number
+  /**
+   * The value as text, formatted natively each frame (an animated ₹ counter, a slider's amount): put it as the whole
+   * content of a <Text>. No locale objects per frame (plan D5): decimals 0–2, grouping "en-IN" (12,34,567, default),
+   * "standard" (1,234,567) or "none", a prefix and a suffix.
+   */
+  format(options?: { decimals?: 0 | 1 | 2; grouping?: "en-IN" | "standard" | "none"; prefix?: string; suffix?: string }): MotionText
+}
+
+/** A motion value shown as text (v.format(...)): the whole content of a <Text>. */
+export interface MotionText {
+  readonly __znLabel: string
 }
 
 /** A colour that follows a motion value (for backgroundColor). */
@@ -165,6 +176,10 @@ export function motionSlotValue(v: unknown): string | number | undefined {
   if (typeof m === "number") return REF + m
   const g = (v as { __znGesture?: unknown }).__znGesture
   if (typeof g === "number") return g
+  const el = (v as { __znElement?: unknown }).__znElement
+  if (typeof el === "number") return el
+  const t = (v as { __znLabel?: unknown }).__znLabel
+  if (typeof t === "string") return t
   if ((v as { __znSelf?: unknown }).__znSelf !== undefined) {
     throw new Error("self.width / self.height / parent.* work only inside derive(() => ...)")
   }
@@ -183,6 +198,14 @@ function makeSource(e: Entry): MotionSource {
   }) as MotionSource
   Object.defineProperty(read, "__znMotion", { value: e.id })
   read.peek = () => e.mirror.peek()
+  read.format = (options = {}) => {
+    const f: Record<string, unknown> = {}
+    if (options.decimals !== undefined) f.d = options.decimals
+    if (options.grouping !== undefined) f.g = options.grouping
+    if (options.prefix !== undefined) f.p = options.prefix
+    if (options.suffix !== undefined) f.s = options.suffix
+    return { __znLabel: `\u0000f${e.id}|${JSON.stringify(f)}` }
+  }
   read.map = (input, output, options) => {
     const ex = options?.extrapolate === "extend" ? 1 : options?.extrapolate === "identity" ? 2 : 0
     checkPoints(input, output.length, "map")
@@ -351,8 +374,8 @@ export function follow(source: MotionSource, timing: MotionTiming = "spring"): M
 
 /**
  * A formula of motion values that native runs every frame (Reanimated's useDerivedValue / a worklet for visuals):
- * `derive(() => Math.abs(pan.x) / 120)`. The build compiles the arrow to data (compiler motion.ts): numbers, motion
- * values, + - * / %, comparisons, && || !, ? :, Math.min / max / abs / floor / ceil / round / sign / sqrt / pow / sin /
+ * `derive(() => Math.abs(pan.x()) / 120)`. The build compiles the arrow to data (compiler motion.ts): numbers, motion
+ * values read as `v()`, + - * / %, comparisons, && || !, ? :, Math.min / max / abs / floor / ceil / round / sign / sqrt / pow / sin /
  * cos / tan / atan2 / hypot / exp / log, Math.PI, clamp(), interpolate(), interpolateColor() (last), and `self` /
  * `parent` sizes. Anything else (a call to your function, a loop) is a build error.
  */
@@ -377,7 +400,7 @@ export function __deriveFormula(code: (string | number)[], inputs: unknown[], ta
   const srcs = inputs.map((v, i) => {
     if (typeof v === "number") return Number.isFinite(v) ? v : 0
     if (isSource(v)) return { m: v.__znMotion }
-    throw new Error(`derive: input ${i} is not a number or a motion value (got ${typeof v}); compute it before, or make it a motion value`)
+    throw new Error(`derive: input ${i} is not a number or a motion value (got ${typeof v}); a signal or your own function can't drive a formula: compute it before, or make it a motion value`)
   })
   const key = JSON.stringify([code, srcs, tables ?? null])
   const hit = formulaMemo.get(key)
@@ -434,7 +457,95 @@ function lazy(id: number): MotionSource {
   proxy.map = (a, b, c) => get().map(a, b, c)
   proxy.mapColor = (a, b) => get().mapColor(a, b)
   proxy.peek = () => get().peek()
+  proxy.format = (o) => get().format(o)
   return proxy
+}
+
+// ---- Values from elements -----------------------------------------------------------------------------------------------
+
+/** What useElementMotion() gives: values an element fills through `motion={m}`. */
+export interface ElementMotion {
+  readonly __znElement: number
+  /** Its box in the window (dp), when placed: for coach marks, popovers, a morph between two boxes. */
+  readonly x: MotionSource
+  readonly y: MotionSource
+  readonly width: MotionSource
+  readonly height: MotionSource
+  /** <Scroll> / <List>: how far it is scrolled (dp). On a List: exact while the first item shows, estimated after. */
+  readonly scrollX: MotionSource
+  readonly scrollY: MotionSource
+  /** <List>: the first visible item, and how far it is scrolled past (dp). */
+  readonly index: MotionSource
+  readonly offset: MotionSource
+  /** <Carousel>: the page as a number (2.5 is half way from page 2 to 3). */
+  readonly page: MotionSource
+  /** <Pressable>: 0 → 1 while pressed. */
+  readonly pressed: MotionSource
+  /** <Sheet>: 0 closed → 1 at its tallest detent (follows the drag, the open and close, and predictive back). */
+  readonly progress: MotionSource
+  /** <Scroll> / <List> with pull to refresh: 0 → 1 as the pull reaches the refresh line (up to 1.5 past it). */
+  readonly pull: MotionSource
+  /**
+   * Makes the element's scroll position follow [v] on the UI thread (Reanimated's scrollTo in a worklet): a <Scroll>
+   * by dp, a <List> by item index (3.5 = half way through item 3), a <Carousel> by page. null stops. Smoothness comes
+   * from v (a spring or a drag). The user can still scroll; the next change of v wins.
+   */
+  follow(v: MotionSource | null): void
+  /** The box now (dp, in the window), RN's measureInWindow. */
+  measure(): Promise<{ x: number; y: number; width: number; height: number }>
+}
+
+const ELEMENT_NAMES = ["x", "y", "width", "height", "scrollX", "scrollY", "index", "offset", "page", "pressed", "progress", "pull"] as const
+
+/**
+ * Values from an element (Reanimated's useScrollViewOffset, useAnimatedRef + measure): `<Scroll motion={m}>` gives
+ * m.scrollY, `<Carousel motion={m}>` m.page, any element its box. Bind them like any motion value.
+ */
+export function useElementMotion(): ElementMotion {
+  const id = nextId++
+  const ids: Record<string, number> = {}
+  for (const n of ELEMENT_NAMES) ids[n] = nextId++
+  send("element", { id, values: ids })
+  const out: Record<string, unknown> = { __znElement: id }
+  for (const n of ELEMENT_NAMES) out[n] = makeSource(entry(ids[n], 0))
+  out.measure = async () => {
+    const r = await ask<Record<string, number>>("read", { ids: [ids.x, ids.y, ids.width, ids.height] })
+    return { x: r[ids.x] ?? 0, y: r[ids.y] ?? 0, width: r[ids.width] ?? 0, height: r[ids.height] ?? 0 }
+  }
+  out.follow = (v: MotionSource | null) => send("elementFollow", v === null ? { id } : { id, src: v.__znMotion })
+  owned([id, ...Object.values(ids)])
+  return out as unknown as ElementMotion
+}
+
+// ---- Frames -------------------------------------------------------------------------------------------------------------
+
+const frameCallbacks = new Set<(info: { t: number; dt: number }) => void>()
+let frameListening = false
+
+/**
+ * Calls [fn] once per frame on the JS thread (Reanimated's useFrameCallback, for logic: a timer, a game score). If JS
+ * is busy, frames are skipped, never queued. Visuals belong in bindings. Stops with the component.
+ */
+export function useFrame(fn: (info: { t: number; dt: number }) => void): () => void {
+  if (!frameListening) {
+    frameListening = true
+    onNativeEventDetached("frame", (p: { t: number; dt: number }) => {
+      for (const f of [...frameCallbacks]) f(p)
+    })
+  }
+  const owner = getOwner()
+  const cb = (p: { t: number; dt: number }) => runEventHandler(owner, () => fn(p))
+  frameCallbacks.add(cb)
+  if (frameCallbacks.size === 1) send("frames", { on: true })
+  let on = true
+  const stop = () => {
+    if (!on) return
+    on = false
+    frameCallbacks.delete(cb)
+    if (frameCallbacks.size === 0) send("frames", { on: false })
+  }
+  if (owner) onCleanup(stop)
+  return stop
 }
 
 // ---- Values from native -------------------------------------------------------------------------------------------------
@@ -578,6 +689,9 @@ export interface Gesture {
 export interface PanGesture extends Gesture {
   readonly x: MotionValue
   readonly y: MotionValue
+  /** Where the finger is in the element (dp), from the first touch: a dial (atan2), a chart crosshair. */
+  readonly touchX: MotionSource
+  readonly touchY: MotionSource
   /** 0 → 1 between the bounds of its axis (x for "x" and "xy"). */
   readonly progress: MotionSource
   /** 0 far away → 1 at the centre of magnet [id]. */
@@ -631,7 +745,7 @@ function valueFor(id: number, initial: number): MotionValue {
 export function usePan(o: PanOptions = {}): PanGesture {
   const xi = o.initial?.x ?? 0
   const yi = o.initial?.y ?? 0
-  const ids = { x: nextId++, y: nextId++, progress: nextId++ }
+  const ids = { x: nextId++, y: nextId++, progress: nextId++, touchX: nextId++, touchY: nextId++ }
   const anchors = (o.anchors ?? []).map((a, i) => {
     if (typeof a === "object" && a !== null && "id" in a && !isSource(a)) return { id: (a as Anchor).id, x: coordJson((a as Anchor).x), y: coordJson((a as Anchor).y) }
     const c = coordJson(a as Coord)
@@ -646,7 +760,7 @@ export function usePan(o: PanOptions = {}): PanGesture {
   if (anchors.length > 0 && !o.a11yLabel) {
     throw new Error("usePan with anchors needs a11yLabel: TalkBack users move it with an action per anchor")
   }
-  const values: Record<string, number> = { x: ids.x, "x.v": xi, y: ids.y, "y.v": yi, progress: ids.progress }
+  const values: Record<string, number> = { x: ids.x, "x.v": xi, y: ids.y, "y.v": yi, progress: ids.progress, touchX: ids.touchX, touchY: ids.touchY }
   const id = makeGesture("pan", o as never, values, {
     axis: o.axis ?? "xy",
     bounds: o.bounds ? { x: o.bounds.x?.map(coordJson), y: o.bounds.y?.map(coordJson) } : undefined,
@@ -674,6 +788,8 @@ export function usePan(o: PanOptions = {}): PanGesture {
     x: valueFor(ids.x, xi),
     y: valueFor(ids.y, yi),
     progress,
+    touchX: makeSource(entry(ids.touchX, 0)),
+    touchY: makeSource(entry(ids.touchY, 0)),
     magnet: (name: string) => {
       const m = magnetIds.get(name)
       if (m === undefined) throw new Error(`usePan has no magnet "${name}"`)

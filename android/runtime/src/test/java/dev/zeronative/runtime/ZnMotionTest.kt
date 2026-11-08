@@ -161,4 +161,25 @@ class ZnMotionTest {
         assertEquals(200f, ZnSpec.parse("50%parent")!!.resolve(80f, 400f, null), 0f)
         assertThrows(ZnInvalidArgs::class.java) { ZnSpec.parse("50px") }
     }
+
+    @Test
+    fun numberFormatGroupsTheIndianWayByDefault() {
+        val f = ZnNumberFormat.parse("""{"p":"₹"}""")
+        assertEquals("₹0", f.format(0f))
+        assertEquals("₹999", f.format(999f))
+        assertEquals("₹1,000", f.format(1000f))
+        assertEquals("₹12,34,567", f.format(1234567f))
+        assertEquals("₹3", f.format(2.5f)) // half away from zero, not to even
+        assertEquals("-₹3", f.format(-2.5f)) // the minus before the prefix
+        assertEquals("₹0", f.format(-0.4f)) // no "-₹0"
+        assertEquals("₹0", f.format(Float.NaN))
+    }
+
+    @Test
+    fun numberFormatDecimalsGroupingAndSuffix() {
+        assertEquals("1,234,567.50", ZnNumberFormat.parse("""{"d":2,"g":"standard"}""").format(1234567.5f))
+        assertEquals("1234.5 km", ZnNumberFormat.parse("""{"d":1,"g":"none","s":" km"}""").format(1234.46f))
+        assertEquals("0.05", ZnNumberFormat.parse("""{"d":2}""").format(0.05f))
+        assertEquals("7", ZnNumberFormat.parse("not json").format(7.2f))
+    }
 }

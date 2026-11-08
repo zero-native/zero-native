@@ -221,6 +221,9 @@
     "prop:rotateY": {"id":152,"type":"number","since":24},
     "prop:cameraDistance": {"id":153,"type":"number","since":24},
     "prop:blurRadius": {"id":154,"type":"number","since":24},
+    "prop:motion": {"id":155,"type":"number","since":24},
+    "prop:animateLayout": {"id":156,"type":"string","since":24},
+    "prop:itemAnimation": {"id":157,"type":"string","since":24},
     "dynamic:text": {"since":8},
     "dynamic:color": {"since":8},
     "dynamic:backgroundColor": {"since":8},
@@ -310,6 +313,7 @@
     "dynamic:rotateY": {"since":24},
     "dynamic:cameraDistance": {"since":24},
     "dynamic:blurRadius": {"since":24},
+    "dynamic:motion": {"since":24},
     "enum:justifyContent.flex-start": {"id":0,"since":8},
     "enum:justifyContent.center": {"id":1,"since":8},
     "enum:justifyContent.flex-end": {"id":2,"since":8},
@@ -442,6 +446,7 @@
     "format:timing.motion": {"since":13},
     "format:svg.nonScaling": {"since":13},
     "format:svg.effects": {"since":13},
-    "format:timing.tap": {"since":13}
+    "format:timing.tap": {"since":13},
+    "format:transition.depth": {"since":24}
   }
 }

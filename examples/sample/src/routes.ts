@@ -44,6 +44,11 @@ import { LayerLabScreen } from "./AppLayers"
 import { ChatListLabScreen } from "./ChatListLab"
 import { DynamicLayoutLabScreen } from "./DynamicLayoutLab"
 import { CanvasLabScreen } from "./CanvasLab"
+import { MotionVideoLabScreen } from "./MotionVideoLab"
+import { MotionPayLabScreen } from "./MotionPayLab"
+import { MotionFeedLabScreen } from "./MotionFeedLab"
+import { MotionMediaLabScreen } from "./MotionMediaLab"
+import { MotionCardsLabScreen } from "./MotionCardsLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -96,6 +101,12 @@ export const routes = defineRoutes({
   imageViewerLab: { path: "/dev/image-viewer", screen: ImageViewerLabScreen, deepLink: true },
   dynamicLayoutLab: { path: "/dev/dynamic-layout", screen: DynamicLayoutLabScreen, deepLink: true },
   canvasLab: { path: "/dev/canvas", screen: CanvasLabScreen, deepLink: true },
+  // Gestures and motion labs (docs/gestures-and-motion-v1.md §4). The video lab sets keyboard "none": the card moves up by env.keyboardHeight itself.
+  motionVideoLab: { path: "/dev/motion/video", screen: MotionVideoLabScreen, deepLink: true, keyboard: "none" },
+  motionPayLab: { path: "/dev/motion/pay", screen: MotionPayLabScreen, deepLink: true },
+  motionFeedLab: { path: "/dev/motion/feed", screen: MotionFeedLabScreen, deepLink: true },
+  motionMediaLab: { path: "/dev/motion/media", screen: MotionMediaLabScreen, deepLink: true },
+  motionCardsLab: { path: "/dev/motion/cards", screen: MotionCardsLabScreen, deepLink: true },
   imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
 })
 

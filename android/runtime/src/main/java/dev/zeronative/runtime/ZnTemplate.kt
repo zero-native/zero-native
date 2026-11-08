@@ -495,9 +495,15 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val cameraDistanceSlot = slotFor(raw, Registry.Prop.CAMERA_DISTANCE)
     val blurRadiusSlot = slotFor(raw, Registry.Prop.BLUR_RADIUS)
     val gestureSlot = slotFor(raw, Registry.Prop.GESTURE)
+    /** useElementMotion() this element fills (registry 24). */
+    val motionSlot = slotFor(raw, Registry.Prop.MOTION)
+    /** When its size or place changes it animates there (registry 24): a timing as `animate` encodes it. */
+    internal val animateLayout: ZnTiming? = (p[Registry.Prop.ANIMATE_LAYOUT] as String?)?.let { ZnTiming.parse(it) }
+    /** <List> rows animate when added, removed, moved: "fade" or "move" (registry 24). */
+    val itemAnimation: String? = p[Registry.Prop.ITEM_ANIMATION] as String?
     /** Something of registry 24's layer is used: the layer sets 3D turns and blur too. */
     val hasDepth = rotateX != 0f || rotateY != 0f || blurRadius != 0f || rotateXSlot != NONE || rotateYSlot != NONE ||
-        cameraDistanceSlot != NONE || blurRadiusSlot != NONE
+        cameraDistanceSlot != NONE || blurRadiusSlot != NONE || enter?.turns == true || exit?.turns == true
     val hasTransformSlots = scaleSlot != NONE || scaleXSlot != NONE || scaleYSlot != NONE || translateXSlot != NONE ||
         translateYSlot != NONE || rotateSlot != NONE || rotateXSlot != NONE || rotateYSlot != NONE ||
         cameraDistanceSlot != NONE || blurRadiusSlot != NONE
@@ -650,7 +656,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         hasDynamicSize || hasDynamicRadius ||
         type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null ||
         accessibilityLabelSlot != NONE || hasMotion || borderWidthSlot != NONE || borderColorSlot != NONE ||
-        onLayout != 0 || gestureSlot != NONE || hasDepth
+        onLayout != 0 || gestureSlot != NONE || hasDepth || motionSlot != NONE || animateLayout != null
 
     /** Pre-built chain for nodes whose chain never changes (most nodes). */
     val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null, staticAccessibility)
@@ -826,7 +832,11 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         // A radius from a slot counts too (before 2026-11-08 a rounded Image with a slot radius drew square corners).
         val isRounded = if (dynamicShape != null) dynamicShape != RectangleShape else rounded
         val clipsByDefault = isRounded && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE || type == Registry.Component.SHIMMER)
-        if (clip || clipsByDefault) m = m.clip(effShape)
+        if (clip || clipsByDefault) {
+            // Corners that follow a motion value (a full screen view rounding into a mini player): the clip shape is
+            // made again in the layer block, so a change re-clips (the same Shape object would not).
+            m = if (effShape is ZnMotionShape) m.graphicsLayer { shape = effShape.now(); this.clip = true } else m.clip(effShape)
+        }
         press?.let { m = m.then(it) } ?: accessibility?.let { m = m.then(it) }
         // Borders take space: content sits inside them (zn flex rule 2).
         val bs = borderWidth

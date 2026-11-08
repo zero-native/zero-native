@@ -278,10 +278,17 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                 }
             }
         } else {
+            val scrollState = rememberScrollState()
+            // Registry 24: scrollY for useElementMotion (a collapsing header follows it with no JS).
+            znElementOf(s, inst)?.let { e ->
+                val d = LocalDensity.current.density
+                ZnProvide(e, "scrollY") { scrollState.value / d }
+                ZnFollow(e) { scrollState.scrollTo((it * d).roundToInt().coerceAtLeast(0)) }
+            }
             Column(
                 // A11-2: the box children's onLayout x / y start from: the scrolling content, so y doesn't move
                 // with the scroll; its contentContainerStyle padding counts, as in RN.
-                modifier = mod.then(znPullRefresh(s, inst)).verticalScroll(rememberScrollState())
+                modifier = mod.then(znPullRefresh(s, inst)).verticalScroll(scrollState)
                     .then(ZnBoxElement).padding(contentPaddingOf(s, inst)),
                 verticalArrangement = verticalArrangement(s),
                 horizontalAlignment = horizontalAlignment(s.alignItems),
@@ -601,6 +608,16 @@ private fun ZnTabs(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnIn
 private fun ZnCarousel(f: List<ZnTemplate>, t: ZnTemplate, s: ZnNodeSpec, inst: ZnInstance, mod: Modifier) {
     val refs = childRefs(f, t, inst, s)
     val pager = rememberPagerState { refs.size }
+    // Registry 24: the page as a number (2.5 = half way from page 2 to 3), for parallax and dots that stretch.
+    znElementOf(s, inst)?.let { e ->
+        ZnProvide(e, "page") { pager.currentPage + pager.currentPageOffsetFraction }
+        // m.follow(v): v is a page as a number (a tab indicator's value drives the pages, or the other way round).
+        ZnFollow(e) { v ->
+            if (refs.isEmpty()) return@ZnFollow
+            val p = kotlin.math.round(v).toInt().coerceIn(0, refs.size - 1)
+            pager.scrollToPage(p, (v - p).coerceIn(-0.5f, 0.5f))
+        }
+    }
     // Made once per carousel: a new object each recomposition made the pager measure again (2026-11-08 review).
     // A percent is of the pager's width inside its padding, gap not taken off (as CSS width: 80%).
     val pageSize = remember(s.itemWidthPercent, s.itemWidth) {
@@ -698,6 +715,20 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     val hasEmpty = emptyInst != null
 
     val state = rememberLazyListState() // saveable: the scroll position survives back navigation and recreation
+    // Registry 24: the first visible item and how far it is scrolled (dp), and scrollY: exact while the first item is
+    // visible, estimated from the visible items' sizes after (enough for a collapsing header).
+    znElementOf(s, inst)?.let { e ->
+        val d = LocalDensity.current.density
+        ZnProvide(e, "index") { state.firstVisibleItemIndex.toFloat() }
+        ZnProvide(e, "offset") { state.firstVisibleItemScrollOffset / d }
+        ZnProvide(e, if (s.horizontal) "scrollX" else "scrollY") { estimatedScrollPx(state) / d }
+        // m.follow(v): v is an item index; 3.5 is half way through item 3 (when item 3 is laid out).
+        ZnFollow(e) { v ->
+            val i = kotlin.math.floor(v).toInt().coerceAtLeast(0)
+            val size = state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == i }?.size ?: 0
+            state.scrollToItem(i, ((v - i) * size).roundToInt())
+        }
+    }
     val scrollCmd = if (s.scrollCommandSlot >= 0) inst.slot(s.scrollCommandSlot).value as? String else null
     val density = LocalDensity.current
     LaunchedEffect(scrollCmd) {
@@ -740,7 +771,7 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     // RN stickyHeaderIndices (registry 15): rows drawn pinned (Compose stickyHeader), in order, inside the list.
     val stickyText = if (s.stickySlot >= 0) inst.slot(s.stickySlot).value as? String else s.stickyHeaderIndices
     val sticky = remember(stickyText) { parseSticky(stickyText) }
-    val rowAt: @Composable (Int) -> Unit = { i ->
+    val rowAt: @Composable (Int, Modifier) -> Unit = { i, itemMod ->
         val row = rows.getOrNull(i)
         if (row != null) {
             val mounted = list.bound[row.key]?.let(ZnStore::find)
@@ -748,9 +779,9 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             if (t != null) {
                 if (s.horizontal) {
                     val rootNode = t.nodes.firstOrNull()
-                    ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, Modifier, definiteWidth = rootNode?.width != null)
+                    ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, itemMod, definiteWidth = rootNode?.width != null)
                 } else {
-                    ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, Modifier.fillMaxWidth(), definiteWidth = true)
+                    ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, itemMod.fillMaxWidth(), definiteWidth = true)
                 }
             }
         }
@@ -772,7 +803,7 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
         ) {
             if (headerInst != null) item(key = "__zn_header", contentType = "__zn_header") { extraAt(headerInst) }
             if (rows.isEmpty() && emptyInst != null) item(key = "__zn_empty", contentType = "__zn_empty") { extraAt(emptyInst) }
-            items(count = rows.size, key = { rows[it].key }, contentType = { rows[it].type }) { rowAt(it) }
+            items(count = rows.size, key = { rows[it].key }, contentType = { rows[it].type }) { rowAt(it, znItemAnimation(s.itemAnimation)) }
             if (footerInst != null) item(key = "__zn_footer", contentType = "__zn_footer") { extraAt(footerInst) }
         }
     } else {
@@ -799,13 +830,13 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             for (h in sticky) {
                 if (h >= rows.size) break
                 val from = start
-                if (h > from) items(count = h - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
-                stickyHeader(key = rows[h].key, contentType = rows[h].type) { rowAt(h) }
+                if (h > from) items(count = h - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it, znItemAnimation(s.itemAnimation)) }
+                stickyHeader(key = rows[h].key, contentType = rows[h].type) { rowAt(h, Modifier) }
                 start = h + 1
             }
             val from = start
             if (rows.size > from) {
-                items(count = rows.size - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
+                items(count = rows.size - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it, znItemAnimation(s.itemAnimation)) }
             }
             if (footerInst != null) item(key = "__zn_footer", contentType = "__zn_footer") { extraAt(footerInst) }
         }
@@ -931,7 +962,7 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
     // Dynamic border radii (registry 23, brief H1): resolved on composition of this node.
     // A corner written for itself beats borderRadius, static or from a slot, as in RN (before 2026-11-08 a slot's
     // borderRadius beat a static corner). NaN or a negative value counts as 0.
-    val dynamicShape = if (s.hasDynamicRadius) {
+    val dynamicShape = if (s.hasDynamicRadius) znMotionShape(s, inst) ?: run {
         fun slotNum(slot: Int): Float? = if (slot >= 0) inst.finiteNum(slot) else null
         val all = slotNum(s.borderRadiusSlot)
         fun corner(slot: Int, own: Int, own2: Int, static: Float): Float =
@@ -944,6 +975,10 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
         else RoundedCornerShape(ts.dp, te.dp, be.dp, bs.dp)
     } else null
 
+    // Registry 24: useElementMotion() values from this element (its box; a Pressable's press).
+    val element = if (s.motionSlot >= 0) (inst.slot(s.motionSlot).value as? Double)?.toInt()?.let { ZnMotion.element(it) } else null
+    if (element != null && s.type == Registry.Component.PRESSABLE) ZnPressMotion(element, interactions)
+
     // Dynamic sizes & offsets (registry 23, brief H1): read inside layout pass (no recomposition!)
     val sizeLayout = if (s.hasDynamicSize) dynamicSize(s, inst, density) else null
 
@@ -955,7 +990,7 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
     val siteUsed = needsSite && intArrayOf(s.opacitySlot, s.scaleSlot, s.scaleXSlot, s.scaleYSlot, s.rotateSlot, s.translateXSlot,
         s.translateYSlot, s.rotateXSlot, s.rotateYSlot, s.blurRadiusSlot).any { it >= 0 && ZnMotion.ref(inst.slot(it).value)?.usesSite == true }
 
-    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density, dynamicMargin, dynamicShape, sizeLayout, gesture, siteUsed) {
+    return remember(s, inst, disabled, indication, layer, background, aLabel, longPressSet, touchable, density, dynamicMargin, dynamicShape, sizeLayout, gesture, siteUsed, element) {
         val press = if (s.type == Registry.Component.PRESSABLE) {
             Modifier.znPress(s, inst, enabled = !disabled, view, interactions, indication, touchable)
         } else null
@@ -975,11 +1010,14 @@ private fun dynamicChain(s: ZnNodeSpec, inst: ZnInstance, root: Boolean, touchab
         } else null
         val layout = if (s.onLayout != 0) ZnOnLayoutElement(inst.id, s.onLayout, density) else null
         val site = layer?.site?.takeIf { siteUsed }
-        val gestureMod = when {
+        var gestureMod: Modifier? = when {
             gesture != null -> Modifier.znGesture(gesture, view, layer).then(if (site != null) Modifier.znSite(site, view) else Modifier)
             site != null -> Modifier.znSite(site, view)
             else -> null
         }
+        if (element != null) gestureMod = (gestureMod ?: Modifier).znElementBox(element, view)
+        val layoutAnim = s.animateLayout
+        if (layoutAnim != null) gestureMod = (gestureMod ?: Modifier).znAnimateLayout(layoutAnim)
         s.buildChain(layer, background, press, pad, accessibility, border, layout, sizeLayout, dynamicShape, dynamicMargin, gestureMod)
     }
 }
@@ -1016,12 +1054,20 @@ internal fun transformText(text: String, transform: Int): String = when (transfo
  * A slot's number, or null when it isn't one or isn't finite. NaN and Infinity come from JS easily (a division by 0)
  * and crash Compose's layout and text code, so every number a layout reads goes through here (review M1, 2026-11-08).
  */
-internal fun ZnInstance.finiteNum(slot: Int): Float? = (slot(slot).value as? Number)?.toFloat()?.takeIf { it.isFinite() }
+internal fun ZnInstance.finiteNum(slot: Int): Float? = when (val v = slot(slot).value) {
+    is Number -> v.toFloat().takeIf { it.isFinite() }
+    // A motion value bound to a layout prop (registry 24): read where this is read (layout phase for sizes and padding),
+    // so a moving value re-measures this node each frame. Allowed with a lint warning (plan D4).
+    is String -> ZnMotion.ref(v)?.read(null)
+    else -> null
+}
 
 /** Slot values arrive as null, Boolean, Double or String. Whole numbers show without ".0". */
 private fun display(v: Any?): String = when (v) {
     null -> ""
     is Double -> if (v % 1.0 == 0.0 && kotlin.math.abs(v) < 1e15) v.toLong().toString() else v.toString()
+    // A motion value as text (`v.format(...)`, registry 24): formatted natively from its value now.
+    is String -> ZnMotion.text(v) ?: v
     else -> v.toString()
 }
 

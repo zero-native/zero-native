@@ -60,6 +60,9 @@ internal fun znPullRefresh(s: ZnNodeSpec, inst: ZnInstance): Modifier {
             }
         }
     }
+    // Registry 24: `motion={m}` gives m.pull: 0 → 1 as the pull reaches the line where a release refreshes (up to 1.5
+    // past it), and where the disc rests while refreshing. For a custom indicator (a Lottie scrubbed by the pull).
+    znElementOf(s, inst)?.let { e -> ZnProvide(e, "pull") { state.offset / state.math.line } }
     // `refreshing` is read here, not in the composable: a change moves the disc without recomposing the list.
     LaunchedEffect(state) {
         snapshotFlow { if (s.refreshingSlot >= 0) inst.slot(s.refreshingSlot).value == true else s.refreshing }

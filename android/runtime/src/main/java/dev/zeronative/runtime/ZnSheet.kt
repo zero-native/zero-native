@@ -57,6 +57,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import android.view.Window
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -68,6 +69,9 @@ private const val KEEP_OPEN_MS = 400L
 private const val FLING_VELOCITY = 1200f
 /** Dragged down more than this part of its lowest height: it closes on release. */
 private const val DISMISS_FRACTION = 0.35f
+/** How far down (part of its height) the sheet follows a predictive back gesture; less when it can't be dismissed. */
+private const val BACK_TRAVEL = 0.33f
+private const val BACK_TRAVEL_FIXED = 0.08f
 
 /**
  * A Sheet's or Modal's window while it closes (its exit animation still plays): touches and Back go to the screen
@@ -294,6 +298,12 @@ private fun SheetBody(
             }
         }
 
+        // Registry 24: `<Sheet motion={m}>` gives m.progress, 0 closed → 1 at its tallest detent, read frame by frame
+        // (a backdrop, a header or a map that fades as the sheet rises).
+        val closedNow by rememberUpdatedState(closed)
+        znElementOf(s, inst)?.let { e ->
+            ZnProvide(e, "progress") { if (closedNow > 0f) (1f - offset.value / closedNow).coerceIn(0f, 1f) else 0f }
+        }
         val progress = if (closed > 0f) (1f - offset.value / closed).coerceIn(0f, 1f) else 0f
         // Scrim: darkens with the sheet; a tap asks to close.
         Box(
@@ -302,7 +312,19 @@ private fun SheetBody(
                 indication = null,
             ) { askToClose() },
         )
-        androidx.activity.compose.BackHandler(enabled = true) { askToClose() }
+        // Back closes the sheet. With Android 13+ predictive back, the sheet follows the back gesture down (a third of
+        // its height; a sheet that can't be dismissed only gives a little) and springs back if the user cancels.
+        androidx.activity.compose.PredictiveBackHandler(enabled = true) { events ->
+            val rest = restOffsets.getValue(detent)
+            val travel = (closed - rest) * if (s.dismissible) BACK_TRAVEL else BACK_TRAVEL_FIXED
+            try {
+                events.collect { e -> offset.snapTo(rest + travel * e.progress) }
+                askToClose()
+            } catch (e: CancellationException) {
+                scope.launch { offset.animateTo(restOffsets.getValue(detent), springOpen) }
+                throw e
+            }
+        }
 
         val radius = (if (s.radius > 0f) s.radius else 24f).dp
         val shape = RoundedCornerShape(topStart = radius, topEnd = radius)

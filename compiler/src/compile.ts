@@ -3046,6 +3046,7 @@ export function compileModule(
       name === "fontWeight" ? fontWeight(value, at)
       : name === "backgroundImage" ? linearGradient(value, at)
       : name === "animate" ? animateSpec(value, at)
+      : name === "animateLayout" ? timing(value, at, "animateLayout")
       : name === "enter" || name === "exit" ? transitionSpec(value, name, at)
       : name === "hitSlop" ? hitSlopSpec(value, at)
       : name === "textAlign" ? rnTextAlign(value, at)
@@ -3212,9 +3213,10 @@ export function compileModule(
   }
 
   /**
-   * enter / exit: a preset ("fade", "fade-up", "fade-down", "scale", "pop") or { opacity, translateX, translateY,
+   * enter / exit: a preset ("fade", "fade-up", "fade-down", "scale", "pop", ...) or { opacity, translateX, translateY,
    * scale, duration | spring, easing }: the state the element enters from, or exits to.
-   * → "opacity,translateX,translateY,scale|timing".
+   * → "opacity,translateX,translateY,scale|timing", or with registry 24's keys (rotateX, rotateY, scaleX, scaleY) not
+   * at rest: "opacity,translateX,translateY,scale,rotateX,rotateY,scaleX,scaleY|timing" (older templates unchanged).
    */
   function transitionSpec(v: unknown, kind: "enter" | "exit", at: ts.Node): string {
     const into = kind === "enter" ? 1 : -1 // "up" means: enters from below, leaves upward
@@ -3224,12 +3226,26 @@ export function compileModule(
       "fade-down": { opacity: 0, translateY: -16 * into },
       scale: { opacity: 0, scale: 0.92 },
       pop: { opacity: 0, scale: 0.85, ...(kind === "enter" ? { timing: "bouncy" } : {}) },
+      // Registry 24 (Reanimated's SlideIn / ZoomIn / BounceIn names, our sizes): a slide comes from (or leaves to)
+      // that side, 48 dp away; zoom grows from half size; bounce pops from small with a bouncy spring.
+      "slide-left": { opacity: 0, translateX: -48 },
+      "slide-right": { opacity: 0, translateX: 48 },
+      "slide-up": { opacity: 0, translateY: 48 * into },
+      "slide-down": { opacity: 0, translateY: -48 * into },
+      zoom: { opacity: 0, scale: 0.5 },
+      bounce: { opacity: 0, scale: 0.3, ...(kind === "enter" ? { timing: "bouncy" } : {}) },
+      // Turns in 3D from edge-on (Reanimated's FlipInXUp / FlipInYLeft), and grows from a line (StretchInX / Y).
+      "flip-x": { opacity: 0, rotateX: 90 * into },
+      "flip-y": { opacity: 0, rotateY: -90 * into },
+      "stretch-x": { scaleX: 0 },
+      "stretch-y": { scaleY: 0 },
     }
     const o = typeof v === "string" ? presets[v] : (v as Record<string, unknown>)
     if (!o || typeof o !== "object" || Array.isArray(o)) {
       fail(at, `${kind}: use a preset (${Object.keys(presets).join(", ")}) or { opacity, translateX, translateY, scale, duration }`)
     }
-    const known = ["opacity", "translateX", "translateY", "scale", "duration", "easing", "spring", "timing", "delay"]
+    const known = ["opacity", "translateX", "translateY", "scale", "rotateX", "rotateY", "scaleX", "scaleY", "duration",
+      "easing", "spring", "timing", "delay"]
     for (const k of Object.keys(o)) {
       if (known.includes(k)) continue
       if (["repeat", "reverse", "repeatDelay", "from", "keyframes", "times"].includes(k)) {
@@ -3256,7 +3272,12 @@ export function compileModule(
       : "spring" in own || "duration" in own ? timing(own, at, kind, null, true)
       : kind === "enter" ? "t220e1" // ease-out: arrives fast, settles slowly
       : "t160e2" // ease-in: leaves a little faster than it came
-    return `${num("opacity", 1)},${num("translateX", 0)},${num("translateY", 0)},${num("scale", 1)}|${t}`
+    const base = `${num("opacity", 1)},${num("translateX", 0)},${num("translateY", 0)},${num("scale", 1)}`
+    const depth = [num("rotateX", 0), num("rotateY", 0), num("scaleX", 1), num("scaleY", 1)]
+    if (depth[0] !== 0 || depth[1] !== 0 || depth[2] !== 1 || depth[3] !== 1) {
+      return `${base},${depth.join(",")}|${t}`
+    }
+    return `${base}|${t}`
   }
 
   /**

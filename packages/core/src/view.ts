@@ -54,7 +54,10 @@ function toNative(v: unknown, kind: number): NativeValue {
 
 /** Text content of a `<Text>` mixing literal text and `{expressions}`: null, undefined and false show nothing. */
 export function str(v: unknown): string {
-  return v === null || v === undefined || v === false ? "" : String(v)
+  if (v === null || v === undefined || v === false) return ""
+  // A motion value as text (v.format(...)): native formats it each frame. Only as a Text's whole content.
+  if (typeof v === "object" && typeof (v as { __znLabel?: unknown }).__znLabel === "string") return (v as { __znLabel: string }).__znLabel
+  return String(v)
 }
 
 /** Binds one slot to an expression; re-sends it whenever what it reads changes. */

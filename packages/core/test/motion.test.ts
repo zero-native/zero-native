@@ -16,6 +16,8 @@ import {
   useMotion,
   usePan,
   useTap,
+  useElementMotion,
+  useFrame,
 } from "../src/motion"
 
 let host: FakeHost
@@ -162,4 +164,45 @@ test("interpolate matches Reanimated's clamp / extend / identity", () => {
   expect(interpolate(150, [0, 100], [0, 1], "extend")).toBe(1.5)
   expect(interpolate(150, [0, 100], [0, 1], "identity")).toBe(150)
   expect(interpolate(75, [0, 50, 100], [0, 10, 0])).toBe(5)
+})
+
+test("format sends a text reference with only the options given", () => {
+  const v = useMotion(0)
+  const t = v.format({ prefix: "₹", decimals: 0 })
+  expect(t.__znLabel).toBe(`\u0000f${v.__znMotion}|{"d":0,"p":"₹"}`)
+  expect(motionSlotValue(t)).toBe(t.__znLabel)
+})
+
+test("useElementMotion makes its values, is sent as its id, and measure() reads the box", async () => {
+  const m = useElementMotion()
+  const c = motionCalls().at(-1)!
+  expect(c.method).toBe("element")
+  expect(Object.keys(c.args.values)).toEqual(["x", "y", "width", "height", "scrollX", "scrollY", "index", "offset", "page", "pressed", "progress", "pull"])
+  expect(motionSlotValue(m)).toBe(m.__znElement)
+  expect(m.scrollY.__znMotion).toBe(c.args.values.scrollY)
+  const p = m.measure()
+  const r = motionCalls().at(-1)!
+  expect(r.method).toBe("read")
+  const ids = c.args.values
+  reply({ id: r.id, ok: true, value: { [ids.x]: 10, [ids.y]: 20, [ids.width]: 30, [ids.height]: 40 } })
+  expect(await p).toEqual({ x: 10, y: 20, width: 30, height: 40 })
+})
+
+test("useFrame turns frames on for the first callback and off after the last", () => {
+  const seen: number[] = []
+  const stop = useFrame((f) => seen.push(f.dt))
+  expect(motionCalls().at(-1)).toMatchObject({ method: "frames", args: { on: true } })
+  moduleEvent("frame", { t: 16, dt: 16 })
+  expect(seen).toEqual([16])
+  stop()
+  expect(motionCalls().at(-1)).toMatchObject({ method: "frames", args: { on: false } })
+})
+
+test("element follow sends the source, and null stops it", () => {
+  const m = useElementMotion()
+  const v = useMotion(0)
+  m.follow(v)
+  expect(motionCalls().at(-1)).toMatchObject({ method: "elementFollow", args: { id: m.__znElement, src: v.__znMotion } })
+  m.follow(null)
+  expect(motionCalls().at(-1)!.args).toEqual({ id: m.__znElement, __v: 1 })
 })

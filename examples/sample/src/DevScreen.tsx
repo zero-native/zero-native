@@ -79,6 +79,11 @@ export function DevScreen() {
           <Entry title="Image viewer plugin" step="image viewer" detail="Full-screen photos: pinch, pan, double tap, swipe between and to close, sharp zoom, errors" onOpen={() => nav.push("imageViewerLab")} />
           <Entry title="Dynamic layout lab" step="H.1" detail="Reactive width/height, animated 40..300, % widths, display: none/flex, dynamic radii & fonts" onOpen={() => nav.push("dynamicLayoutLab")} />
           <Entry title="Canvas primitive" step="H.4" detail="200-pt candlestick chart, donut ring, dashed Bezier wave, rotated text (draw-only, no Skia)" onOpen={() => nav.push("canvasLab")} />
+          <Entry title="Motion: floating video" step="M.1" detail="Drag a card in 2D, flick to a corner, magnet dismiss, pinch to resize, trailing dots, rises with the keyboard, busy JS" onOpen={() => nav.push("motionVideoLab")} />
+          <Entry title="Motion: payment controls" step="M.1" detail="Slide to pay ₹499, loan slider with ₹ text and ticks, two-knob range slider, circular dial" onOpen={() => nav.push("motionPayLab")} />
+          <Entry title="Motion: cards and stories" step="M.1" detail="Swipe cards (tilt, LIKE / NOPE, fly out), story viewer (timelines, tap zones, hold to pause, drag down to close)" onOpen={() => nav.push("motionCardsLab")} />
+          <Entry title="Motion: photo and chart" step="M.1" detail="Zoom photo (pinch + drag + double tap together), chart you can scrub with a crosshair" onOpen={() => nav.push("motionMediaLab")} />
+          <Entry title="Motion: feed" step="M.1" detail="Swipe actions on list rows (Archive / Delete, long swipe deletes), bottom panel with a scrolling list inside" onOpen={() => nav.push("motionFeedLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

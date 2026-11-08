@@ -133,9 +133,13 @@ describe("derive → postfix tokens", () => {
     expect(() => formula('() => 1 + interpolateColor(p, [0, 1], ["#fff", "#000"])')).toThrow(/whole formula/)
   })
 
-  test("calls to your own functions, and pan.x(), fail with a hint", () => {
-    expect(() => formula("() => pan.x() * 2")).toThrow(/without \(\)/)
+  test("pan.x() reads a motion value (the same input as pan.x); your own functions fail with a hint", () => {
+    const a = formula("() => pan.x() * 2 + pan.x")
+    expect(a.tokens).toEqual(["$0", 2, "*", "$0", "+"])
+    expect(a.inputs).toEqual(["pan.x"])
+    expect(formula("() => Math.abs(v()) / s.items[0]()").inputs).toEqual(["v", "s.items[0]"])
     expect(() => formula("() => scaleFor(pan.x)")).toThrow(/can't call scaleFor/)
+    expect(() => formula("() => pan.x(1)")).toThrow(/can't call pan.x/)
     expect(() => formula("() => `a${x}`")).toThrow(/can't use/)
   })
 
@@ -189,6 +193,37 @@ describe("bindings and gestures in templates", () => {
     expect(code).toContain("pan.x")
     // Registry 24 for the new props.
     expect(writeTemplateFile(templates).registry).toBe(24)
+  })
+
+  test("flip and stretch presets write 8 numbers and need registry 24; old presets stay 4", () => {
+    const { templates } = compile(`
+      import { Box, Column } from "@zero-native/ui"
+      export function A() {
+        return <Column><Box enter="flip-x" exit="stretch-y" /><Box enter="fade" /></Column>
+      }
+    `)
+    const [flip, fade] = templates[0]!.children!.map((c) => c.props as Record<string, unknown>)
+    expect(flip.enter).toBe("0,0,0,1,90,0,1,1|t220e1")
+    expect(flip.exit).toBe("1,0,0,1,0,0,1,0|t160e2")
+    expect(fade.enter).toBe("0,0,0,1|t220e1")
+    expect(writeTemplateFile(templates).registry).toBe(24)
+    const old = compile(`import { Box } from "@zero-native/ui"
+export function B() { return <Box enter="fade" /> }`)
+    expect(writeTemplateFile(old.templates).registry).toBeLessThan(24)
+  })
+
+  test("an Svg part's trim and fill take motion values as slots", () => {
+    const { templates } = compile(`
+      import { Svg, Path } from "@zero-native/ui"
+      import { useMotion } from "@zero-native/core"
+      export function Ring() {
+        const p = useMotion(0)
+        return <Svg viewBox="0 0 24 24" size={24}><Path d="M2 12h20" stroke="#000" trimEnd={p} fill={p.mapColor([0, 1], ["#000000", "#ffffff"])} /></Svg>
+      }
+    `)
+    const part = templates[0]!.children!.map((c) => c.props as Record<string, unknown>).find((x) => "trimEnd" in x)!
+    expect(isSlot(part.trimEnd)).toBe(true)
+    expect(isSlot(part.fill)).toBe(true)
   })
 })
 
