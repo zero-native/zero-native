@@ -200,6 +200,8 @@ change, and what evidence would make you change it?"
 - **Evidence:** `result-after-kill` in the phone matrix. Timing on other ROMs.
 
 ## 13. Only Kotlin can open another app (P.2)
+- **Changed 2026-11-08 (entry 185):** `Os.openUrl` / `Linking.openURL` now open any scheme, as in RN. Launches for a
+  result stay Kotlin-only.
 - **Where:** `ZnLaunch.start` has no JS form. `Os.openUrl` takes only http, https, mailto and tel.
 - **Chosen:** JS calls a plugin, and the plugin builds the Intent.
 - **Why:** bundles change over OTA. A stolen signing key, or a bad update, must not be able to open any app with any data.
@@ -2823,3 +2825,17 @@ change, and what evidence would make you change it?"
   the iOS-like gesture is what ZeroBill wants.
 - **Not verified:** an Android 16 phone; the finish after the lift is quick (1-2 frames on the Lava's recording)
   rather than a full slide, and Pavan judged it fine.
+
+## 185. Linking.openURL opens any app's link, as in RN (runtime, 2026-11-08; Pavan + Opus)
+- **Problem:** `Os.openUrl` / `Linking.openURL` opened only http, https, mailto and tel (entry 13), so an OTA bundle
+  couldn't open a payment link. RN opens any scheme. ZeroBill's "share on WhatsApp" always fell back to the share sheet
+  (framework-asks R26), and every `sms:`, `geo:` or `market:` link needed a plugin.
+- **Chosen (Pavan: "it's not framework issue right.. app developers need to take care.. just like in react native
+  ecosystem"):** any scheme opens with ACTION_VIEW. Blocked: `intent:` (would need Intent.parseUri and can name any
+  part of any app; RN doesn't open it either), `file:` (FileUriExposedException on Android 7+), `javascript:`, and text
+  with no valid scheme. Launches for a result stay in plugins (ZnLaunch).
+- **Risk:** a bad OTA bundle (stolen key) or unfiltered data could open `upi://pay?pa=...` with a payee filled in. The
+  user still confirms and enters the PIN in the UPI app; RN apps with CodePush / EAS Update carry the same risk. Apps
+  that show others' links must filter them (guide-notes §39); ZeroBill's offer text already does (https, tel, mailto).
+- **Option not taken:** an allowlist in app config (Gemini's roadmap §6.3): a list inside the JS bundle can be widened by
+  the same OTA it guards against; a native list adds a step RN doesn't have.

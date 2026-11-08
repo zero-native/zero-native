@@ -39,7 +39,7 @@ export const Os = {
   /** Android's share sheet, for plain text. `subject`: an email's subject; `dialogTitle`: the sheet's title. */
   share: (args: { text: string; subject?: string; dialogTitle?: string }) => call<boolean>("share", args),
 
-  /** Opens a link in another app. Only http, https, mailto and tel: anything else is `not_allowed`. `no_app`: nothing can open it. */
+  /** Opens a link in another app, any scheme as in RN; intent:, file:, javascript: and no scheme are `not_allowed`. `no_app`: nothing can open it. */
   openUrl: (url: string) => call<boolean>("openUrl", { url }),
 
   /** True if some app can open [url]. False for any link openUrl would refuse. */

@@ -24,9 +24,15 @@ func znIosVersion() -> String {
 
 /// Small things about the phone. `info` keeps Android's keys (android "" and sdk 0 here) and adds `ios`, the iOS version.
 final class ZnOs: ZnModuleBase, @unchecked Sendable {
-    /// Only these open from JS, so an OTA bundle can't open `upi:` or other apps' links (as on Android).
-    static let schemes: Set<String> = ["https", "http", "mailto", "tel"]
-    static func allows(_ url: URL) -> Bool { schemes.contains(url.scheme?.lowercased() ?? "") }
+    /// Any app's link opens, as in RN's Linking.openURL (Pavan's call, 2026-11-08; second-opinions 185, as ZnOs.kt). Refused:
+    /// text with no valid scheme (RFC 3986), and `intent:`, `file:`, `javascript:` (Android's three; on iOS they open
+    /// nothing useful, and a file: link must not leave from an OTA bundle).
+    static let blocked: Set<String> = ["intent", "file", "javascript"]
+    static func allows(_ raw: String) -> URL? {
+        guard raw.range(of: "^[A-Za-z][A-Za-z0-9+.-]*:", options: .regularExpression) != nil,
+              let url = URL(string: raw), let scheme = url.scheme?.lowercased(), !blocked.contains(scheme) else { return nil }
+        return url
+    }
 
     /// The device model ("iPhone17,3"); on the simulator, the model it simulates.
     static var model: String {
@@ -75,15 +81,15 @@ final class ZnOs: ZnModuleBase, @unchecked Sendable {
             call.resolve(true)
         }
         function("openUrl", onMain: true) { call in
-            let raw = try call.string("url")
-            guard let url = URL(string: raw), Self.allows(url) else {
-                return call.reject("not_allowed", "openUrl takes http, https, mailto and tel links")
+            guard let url = Self.allows(try call.string("url")) else {
+                return call.reject("not_allowed", "openUrl takes a link with a scheme; intent:, file: and javascript: are refused")
             }
             UIApplication.shared.open(url) { ok in ok ? call.resolve(true) : call.reject("no_app", "no app can open this") }
         }
-        // http(s) always answer; mailto and tel answer only if the app lists them in LSApplicationQueriesSchemes.
+        // As in RN: http(s) always answer; any other scheme answers true only if the app lists it in its Info.plist's
+        // LSApplicationQueriesSchemes (iOS answers false otherwise, even when an app could open it).
         function("canOpenUrl", onMain: true) { call in
-            guard let url = URL(string: try call.string("url")), Self.allows(url) else { return call.resolve(false) }
+            guard let url = Self.allows(try call.string("url")) else { return call.resolve(false) }
             call.resolve(UIApplication.shared.canOpenURL(url))
         }
     }

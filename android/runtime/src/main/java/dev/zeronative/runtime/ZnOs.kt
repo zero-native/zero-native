@@ -14,16 +14,29 @@ import org.json.JSONObject
 internal object ZnOs : ZnModuleBase("Os", version = 2) { // 2: share's subject and dialogTitle, canOpenUrl (RN basics pack)
     private lateinit var app: Context
 
-    /** Only these open from JS, so an OTA bundle can't use [Os.openUrl] to open `upi:` or `intent:` links. */
-    private val URL_SCHEMES = setOf("https", "http", "mailto", "tel")
+    /**
+     * Links JS can't open. Any other scheme opens, as RN's Linking.openURL does (`whatsapp:`, `upi:`, `sms:`, `geo:`,
+     * `market:`; since 2026-11-08, before only http, https, mailto and tel). Which links to open is the app's job, as in
+     * RN: an app that shows links written by others (merchants, a server) filters them itself (guide-notes §39).
+     * `intent:` would need Intent.parseUri and can name any part of any app; RN doesn't open it either. `file:` throws
+     * on Android 7+ (FileUriExposedException). `javascript:` opens nothing.
+     */
+    private val BLOCKED_SCHEMES = setOf("intent", "file", "javascript")
+
+    /** A URI scheme: a letter, then letters, digits, `+`, `-` or `.` (RFC 3986). */
+    private val SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*$")
 
     /** Main process, once. */
     fun init(context: Context) {
         app = context.applicationContext
     }
 
-    /** The rule, apart from Android (ZnOsTest). */
-    fun allowsUrl(url: String): Boolean = url.substringBefore(':', "").lowercase() in URL_SCHEMES
+    /** The rule, apart from Android (ZnOsTest): a link with a scheme, and not a blocked one. */
+    fun allowsUrl(url: String): Boolean {
+        if (!url.contains(':')) return false
+        val scheme = url.substringBefore(':')
+        return SCHEME.matches(scheme) && scheme.lowercase() !in BLOCKED_SCHEMES
+    }
 
     init {
         function("info") { call ->
@@ -67,13 +80,14 @@ internal object ZnOs : ZnModuleBase("Os", version = 2) { // 2: share's subject a
 
         function("openUrl", onMain = true) { call ->
             val url = call.string("url")
-            if (!allowsUrl(url)) return@function call.reject("not_allowed", "openUrl takes http, https, mailto and tel links")
+            if (!allowsUrl(url)) return@function call.reject("not_allowed", "openUrl can't open intent:, file: or javascript: links, or a link with no scheme")
             val activity = ZnActivity.current ?: return@function call.reject("no_activity", "no Activity")
             open(call) { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
         }
 
-        // Some app can open it. Android 11+ answers only for the link kinds in the runtime's manifest <queries>, which are
-        // exactly the ones openUrl allows. Any other link: false, as openUrl would refuse it.
+        // Some app can open it. Android 11+ answers only for the link kinds in a manifest's <queries>: the runtime lists
+        // http, https, mailto and tel; an app adds the others it asks about (e.g. whatsapp), as in RN. Without that,
+        // false even when openUrl would work. A blocked link: false.
         function("canOpenUrl") { call ->
             val url = call.string("url")
             if (!allowsUrl(url)) return@function call.resolve(false)

@@ -1153,8 +1153,8 @@ await Os.openUrl("https://example.com/help")
   state in `flowStore`, not in memory.
 - **`detached`: know** code after an `await` has no owner, as everywhere, so `stop()` doesn't reach timers started there.
   Check a flag in that code.
-- **`Os.openUrl`** opens only http, https, mailto and tel; anything else fails with `not_allowed`. **Why:** a bundle sent over
-  OTA must not be able to open a payment link. Payment apps go through a plugin.
+- **`Os.openUrl`** opens any app's link, as RN does (since 2026-11-08); only `intent:`, `file:`, `javascript:` and links with
+  no scheme fail with `not_allowed`. Same rules as `Linking.openURL` (§39).
 - **`Os`:** `info()` gives the app version and phone; `openSettings()` opens the app's page; `share({ text })` opens the share
   sheet. `no_app`: nothing on the phone can open it.
 - **`Os.info().packageName`** is the installed app's id, flavor suffix included (`com.example.app.dev`), as RN's
@@ -1428,9 +1428,9 @@ const code = createRef<TextFieldHandle>()   // RN: useRef<TextInput>(null)
 - **These run after the main script.** `Platform.Version`, `Dimensions` and `PixelRatio` get their values from native
   right after the main script runs, before any screen. **Don't** read them at the top level of a file: `Version` is 0
   there (a warning is logged). **Do** read them in screens, handlers and `startApp`.
-- **`Dimensions` can't size a layout.** Width, height and margin are fixed at build time (rn-compatibility §0). RN code
-  like `width: SCREEN_WIDTH - 32` must become `flex` or a `"N%"` size. **Do** use the values in logic (how many cards fit,
-  is it a small phone).
+- **`Dimensions` can size a layout** (since 2026-11-08, dynamic layout values, §71): `width: SCREEN_WIDTH - 32` builds
+  and follows a rotation when read in the screen body. Prefer `flex` or a `"N%"` size where they say the same thing:
+  they need no JS when the window changes.
 - **Reads follow changes inside JSX or `effect`.** `Dimensions.get`, `useWindowDimensions`, `Keyboard.isVisible`,
   `Keyboard.metrics`, `AppState.currentState` and `useNetInfo()` fields read signals. **Don't** copy them into a variable at
   the top of a screen body if you need the new value later.
@@ -1439,9 +1439,16 @@ const code = createRef<TextFieldHandle>()   // RN: useRef<TextInput>(null)
 - **`Alert`** is Android's own dialog, with the app's theme, as in RN. Up to 3 buttons: 1 → right; 2 → left, right;
   3 → far left, left, right. `cancelable` is false unless you set it. The alert stays open when the phone turns.
   `style: "destructive"` and `Alert.prompt` are iOS only, as in RN.
-- **`Linking.openURL`** opens only http, https, mailto and tel; anything else (`upi:`, `whatsapp:`, `intent:`) rejects
-  with `not_allowed`. **Why:** a bundle sent over OTA must not be able to open any app with any data. Other apps go
-  through a plugin (§31). `canOpenURL` says false for those links.
+- **`Linking.openURL`** opens any app's link, as in RN (since 2026-11-08): `whatsapp://send?text=...`, `upi://pay?...`,
+  `sms:`, `geo:`, `market:`. Only `intent:`, `file:` (throws on Android 7+), `javascript:` and links with no scheme reject
+  with `not_allowed`. Before 2026-11-08 only http, https, mailto and tel opened.
+  - **Do** filter links that others wrote (a merchant's offer text, a server field, Markdown's `onLinkPress`) before
+    opening them: allow `https:` only, or your own list. **Why:** which links to open is the app's job, as in RN. The
+    framework can't tell a link you chose from one an attacker put in your data.
+  - **`canOpenURL`** on Android 11+ only knows the schemes listed in a manifest's `<queries>`. The runtime lists http,
+    https, mailto and tel; add the others you ask about (`<intent><action android:name="android.intent.action.VIEW" />
+    <data android:scheme="whatsapp" /></intent>`), as in RN. `openURL` works without that.
+  - Opening an app **for a result** (a UPI payment's answer) still goes through a plugin (§31): `openURL` gives no result.
 - **`Linking.getInitialURL` and `addEventListener("url")`** only see links that matched a route with `deepLink: true` and
   that `onLink` allowed. The screen is already open by then. **Don't** route from them: to refuse a link, use `onLink`.
 - **`Vibration`** needs `<uses-permission android:name="android.permission.VIBRATE"/>` in the app's manifest, as in RN.

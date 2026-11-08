@@ -14,8 +14,13 @@ class ZnOsTest {
         }
     }
 
-    @Test fun otherLinksDoNot() {
-        val refused = listOf("upi://pay?pa=x", "intent://x#Intent;end", "file:///data/x", "content://x", "javascript:x", "zn://sample/pay", "https", "", "//x.in")
+    @Test fun otherAppsLinksOpenAsInRn() {
+        val opened = listOf("whatsapp://send?text=hi", "upi://pay?pa=x@y", "sms:+919999999999", "geo:12.9,77.6", "market://details?id=x", "content://x", "zn://sample/pay")
+        for (url in opened) assertTrue(url, ZnOs.allowsUrl(url))
+    }
+
+    @Test fun blockedAndSchemelessLinksDoNot() {
+        val refused = listOf("intent://x#Intent;end", "INTENT:#Intent;end", "file:///data/x", "javascript:x", "https", "", "//x.in", "1abc:x", ":x")
         for (url in refused) assertFalse(url, ZnOs.allowsUrl(url))
     }
 

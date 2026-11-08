@@ -114,7 +114,9 @@ export function RnBasicsLabScreen() {
     Promise.all([Linking.canOpenURL("https://example.com"), Linking.canOpenURL("tel:+911234567890"), Linking.canOpenURL("whatsapp://send?text=x")]).then(
       ([web, tel, wa]) => say(`canopen https=${web} tel=${tel} whatsapp=${wa}`),
     )
-  const refused = () => Linking.openURL("whatsapp://send?text=x").then(() => say("open whatsapp: opened (wrong)"), (e) => say(`open whatsapp: ${e.code}`))
+  // Since 2026-11-08 any app's link opens, as in RN: whatsapp opens WhatsApp (no_app without it); intent: is refused.
+  const whatsapp = () => Linking.openURL("whatsapp://send?text=x").then(() => say("open whatsapp: opened"), (e) => say(`open whatsapp: ${e.code}`))
+  const refused = () => Linking.openURL("intent://x#Intent;end").then(() => say("open intent: opened (wrong)"), (e) => say(`open intent: ${e.code}`))
   const raf = () => {
     const t0 = Date.now()
     requestAnimationFrame((time) => say(`raf ${Date.now() - t0}ms time=${time > 0}`))
@@ -204,7 +206,8 @@ export function RnBasicsLabScreen() {
         <RnTitle text="Clipboard, links, vibration" />
         <RnButton label="Copy and read back" onPress={copy} />
         <RnButton label="canOpenURL" onPress={links} />
-        <RnButton label="openURL whatsapp (refused)" onPress={refused} />
+        <RnButton label="openURL whatsapp" onPress={whatsapp} />
+        <RnButton label="openURL intent (refused)" onPress={refused} />
         <RnButton label="openURL https" onPress={() => Linking.openURL("https://example.com").then(() => say("open https: ok"), (e) => say(`open https: ${e.code}`))} />
         <RnButton label="Vibrate 200 ms" onPress={() => { Vibration.vibrate(200); say("vibrate sent") }} />
 

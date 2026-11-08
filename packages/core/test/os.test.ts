@@ -25,6 +25,6 @@ test("a refused link comes back as not_allowed", async () => {
   const p = Os.openUrl("upi://pay?pa=x")
   const c = host.calls.at(-1)!
   expect(c.args.url).toBe("upi://pay?pa=x")
-  reply({ id: c.id, ok: false, code: "not_allowed", error: "openUrl takes http, https, mailto and tel links" })
+  reply({ id: c.id, ok: false, code: "not_allowed", error: "openUrl can't open intent:, file: or javascript: links, or a link with no scheme" })
   expect(((await p.catch((e) => e)) as NativeError).code).toBe("not_allowed")
 })

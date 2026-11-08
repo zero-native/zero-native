@@ -4,20 +4,24 @@
 //   await Linking.openURL("https://example.com/help")
 //   await Share.share({ message: "Try this app", title: "Invite" })
 //
-// openURL takes http, https, mailto and tel links only. Anything else (upi:, intent:, whatsapp:) is refused with
-// `not_allowed`, on purpose: an OTA bundle must not open any app with any data. Other apps go through a plugin's
-// Kotlin (ZnLaunch + launches).
+// openURL opens any app's link, as in RN (whatsapp:, upi:, sms:, geo:, market:; since 2026-11-08). Only intent:, file:
+// and javascript: links, and links with no scheme, are refused with `not_allowed` (ZnOs.kt). Which links to open is the
+// app's job, as in RN: filter links written by others (a merchant's text, a server's field) before opening them.
+// Opening an app for a result (a UPI payment's answer) still goes through a plugin's Kotlin (ZnLaunch + launches).
 import { initialLink, onOpenedLink } from "./nav"
 import { Os } from "./os"
 import { getOwner, onCleanup } from "./signals"
 
 export const Linking = {
-  /** Opens [url] in another app. Rejects with a NativeError: `not_allowed` (a scheme JS can't open), `no_app`. */
+  /** Opens [url] in another app. Rejects with a NativeError: `not_allowed` (intent:, file:, javascript:, no scheme), `no_app`. */
   openURL(url: string): Promise<true> {
     return Os.openUrl(url).then(() => true as const)
   },
 
-  /** True if some app can open [url]. False for links openURL would refuse. */
+  /**
+   * True if some app can open [url]. False for links openURL would refuse. Android 11+ answers only for schemes in a
+   * manifest's `<queries>` (the runtime lists http, https, mailto, tel): add the others you ask about, as in RN.
+   */
   canOpenURL(url: string): Promise<boolean> {
     return Os.canOpenUrl(url)
   },

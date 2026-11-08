@@ -200,7 +200,7 @@ React Navigation. [`nav` in nav.ts](../packages/core/src/nav.ts), [routes.ts](..
 | `fetch` | [`fetch`](../packages/core/src/fetch.ts:368) | same | OkHttp underneath. HTTP errors do not throw: check `res.ok`. Network failures throw [`FetchError`](../packages/core/src/fetch.ts:87) with a `code` (`offline`, `dns`, ...). |
 | Differences from RN `fetch` | [fetch.md](fetch.md) | different | Default timeout 30 s, response limit 10 MB ([`setFetchDefaults`](../packages/core/src/fetch.ts:43)). No `res.body` stream. `credentials`, `cache`, `mode` are accepted and ignored. A fetch is not cancelled when its screen closes: use [`useAbortSignal()`](../packages/core/src/abort.ts:114) for that. |
 | `Headers`, `Request`, `Response`, `FormData`, `URLSearchParams`, `AbortController` | [`Headers`](../packages/core/src/headers.ts:32), [`Request`](../packages/core/src/fetch.ts:128), [`Response`](../packages/core/src/fetch.ts:182), [`FormData`](../packages/core/src/formdata.ts:39), `AbortController` | same | A file in `FormData` is `{ uri, name, type }` with a `content://` or `file://` uri, as in RN. |
-| `XMLHttpRequest`, axios (XHR adapter) | none | missing | Use `fetch`. For axios, use its `fetch` adapter or replace it. Upload progress is missing. |
+| `XMLHttpRequest`, axios (XHR adapter) | none | missing (not planned) | Use `fetch`. For axios, use its `fetch` adapter or replace it. Upload and download progress: `fetch(url, { onUploadProgress, onDownloadProgress })` ([fetch.md](fetch.md)). |
 | `WebSocket` | [`WebSocket`](../packages/core/src/websocket.ts) | different | Browser API on OkHttp, the shared fetch client (pings every 10 s). Differences: text frames only (binary from the server: error, then close 1003); 1 MB per message in UTF-8 bytes; `bufferedAmount` always 0; `binaryType` has no effect; no `headers` option (RN has one), the User-Agent is the app's; `url` is serialized (`ws://h` becomes `ws://h/`). Like browsers: `close()` while CONNECTING gives error, then close 1006; `send` in CLOSING / CLOSED does nothing; `once` listeners. Cancelled on dev reload or OTA restart. Fixed after review 2026-11-08 (second-opinions 161, 179). |
 | `NetInfo.fetch` / `refresh` / `addEventListener` (`@react-native-community/netinfo`) | [`NetInfo`](../packages/core/src/netinfo.ts:45) | same | Import from `@zero-native/core`. `type`, `isConnected`, `isInternetReachable` (Android's own "validated" check, no extra request), `details.isConnectionExpensive`. The listener hears the state now, then changes. Still handle `FetchError` code `offline` on each call. |
 | `useNetInfo` | [`useNetInfo`](../packages/core/src/netinfo.ts:96) | different | Call it in a screen body; read its fields inside JSX or `effect` to follow changes. |
@@ -217,7 +217,7 @@ React Navigation. [`nav` in nav.ts](../packages/core/src/nav.ts), [routes.ts](..
 
 | RN | zero-native | Status | How to move |
 |---|---|---|---|
-| `Linking.openURL(url)` | [`Linking.openURL`](../packages/core/src/linking.ts:14) (also `Os.openUrl`) | different | Same call. Only `http`, `https`, `mailto`, `tel`. Anything else (`upi:`, `intent:`, `whatsapp:`) rejects with `not_allowed`: this is on purpose, so an OTA bundle can't open any app. [`ZnOs.kt`, open URL](../android/runtime/src/main/java/dev/zeronative/runtime/ZnOs.kt:14). Other schemes go through a plugin in Kotlin. |
+| `Linking.openURL(url)` | [`Linking.openURL`](../packages/core/src/linking.ts:14) (also `Os.openUrl`) | same | Any app's link, as in RN (`whatsapp:`, `upi:`, `sms:`, `geo:`, `market:`; since 2026-11-08). Only `intent:`, `file:`, `javascript:` and links with no scheme reject with `not_allowed` ([`ZnOs.kt`](../android/runtime/src/main/java/dev/zeronative/runtime/ZnOs.kt:14)). Filtering links written by others is the app's job, as in RN. `canOpenURL` needs the scheme in the app's `<queries>` on Android 11+, as in RN. |
 | `Linking.canOpenURL` | [`Linking.canOpenURL`](../packages/core/src/linking.ts:14) | same | For the 4 schemes above (the runtime's manifest lists them in `<queries>`). False for any other link. |
 | `Linking.openSettings()` | [`Linking.openSettings`](../packages/core/src/linking.ts:14) (also `Os.openSettings`) | same | |
 | `Linking.getInitialURL()` / `addEventListener("url")` | [`Linking`](../packages/core/src/linking.ts:14) over [`startApp({ onLink })`](../packages/core/src/nav.ts) | different | Read-only copies: only links that matched a route with `deepLink: true` and got past `onLink` reach JS, and their screen is already open. Refuse links in `onLink`, not here. |
@@ -346,9 +346,9 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
    location, push, Lottie, document scanner, image viewer, and Firebase (crashlytics, analytics, remote-config, perf). Maps, biometrics and video are still missing. A native view or screen is now a plugin's
    `r.view` / `r.screen`.
    ([§6](#6-device-and-os), [§8](#8-native-modules-and-plugins))
-7. **Other apps and results through JS** (different). In RN a module can start any Intent. Here only Kotlin plugins can,
-   and results come back through `launches` with `ack`. Every `Linking.openURL("upi://...")` or `intent:` call must
-   move into a plugin. ([§6](#6-device-and-os), [§7](#7-opening-another-app-for-a-result))
+7. **Other apps and results through JS** (different). `Linking.openURL` opens any app's link as in RN (since
+   2026-11-08). Starting an app **for a result** (a UPI payment's answer) or an `intent:` link needs a Kotlin plugin;
+   results come back through `launches` with `ack`. ([§6](#6-device-and-os), [§7](#7-opening-another-app-for-a-result))
 8. **Styling gaps** (missing). No `flexWrap`, `fontFamily` (custom fonts), per-side border colours. (`textTransform`,
    per-corner radius, `Image` `tintColor` and the iOS shadow keys came in RN props pack 2.) Designs that use them need a
    workaround or a framework change. ([§2](#2-style-keys))
@@ -368,6 +368,18 @@ settled them:
   with NativeWind have hundreds of them. zero-native keeps one styling system (second-opinions 103), and no port tool
   is planned.
 
+**Not planned (framework non-goals, 2026-11-08, Pavan + Opus).** Each has a build error or a doc line that says what to
+write instead:
+- **React hook libraries** (react-query, zustand, jotai, react-hook-form, formik): zero-native uses signals. Rewrite
+  their use with `signal` / `computed` / `effect`.
+- **NativeWind / Tailwind `className`** (above).
+- **`XMLHttpRequest`**: use `fetch` (it has upload and download progress), or axios's fetch adapter.
+- **Layout keys from a signal**: `flexDirection`, `flexWrap`, `alignItems`, `justifyContent`, `alignSelf`, `position`
+  pick the container at build time. Use `cond ? <Row>...</Row> : <Column>...</Column>`.
+- **Early returns inside `switch`, loops or `try`**: use if / else, or a lookup.
+- **Render props and function children** (`render={(n) => <X/>}`, `{(n) => ...}` as children): lists have their own
+  `renderItem`; elsewhere pass the data and render inside the component. Revisit if a real port needs many.
+
 Smaller known gaps not in the list: `Button`, `StyleSheet.flatten`. (`testID`,
 `Image` events, `Modal`, `StatusBar`, `pointerEvents`, `hitSlop`, `onLayout` came in RN props pack 2, guide-notes §43.)
 
@@ -380,7 +392,7 @@ Rough counts of member uses in ZeroBill's React Native app (2026-11-03), to orde
 | API | Uses | Ports as |
 |---|---|---|
 | `Platform.OS` / `Version` / `select` | 94 / 3 / 1 | same |
-| `Linking.openURL` | 18 | same for https, mailto, tel; `whatsapp:` and the UPI launch go through a plugin |
+| `Linking.openURL` | 18 | same (`whatsapp:` too, since 2026-11-08); the UPI launch with its result goes through a plugin |
 | `AppState.currentState` / `addEventListener` | 13 / 13 | same |
 | `Keyboard.addListener` / `isVisible` / `metrics` | 6 / 4 / 3 | same |
 | `Alert.alert` | 8 | same |

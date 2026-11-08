@@ -146,6 +146,13 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS, Linking.openURL opens any app's link (Claude, `ios` branch)
+- As Pavan decided on main (second-opinions 185, ZnOs.kt): `Os.openUrl` / `Linking.openURL` open any scheme, except
+  text with no valid scheme and `intent:`, `file:`, `javascript:` (not_allowed). `canOpenUrl` answers true for other
+  apps' schemes only when the app lists them in LSApplicationQueriesSchemes, as in RN. The sample lists none (Android's
+  sample has no `<queries>` either). Checked: canOpen https true, tel false, whatsapp false; openURL whatsapp → no_app
+  on the simulator (was not_allowed).
+
 ### 2026-11-08: iOS i.4, the straight ports: lottie, pdf, webview, image-viewer; markdown checked (Claude, `ios` branch)
 - **lottie** (`plugins/lottie/ios`): lottie-ios 4.6.1, static XCFramework (`bun run tools/fetch-lottie-apple.ts`, SHA-256
   pinned, `ios/third_party/lottie`, linked by CMake when there; the bundle's `lottie/` folder now ships in the app).
