@@ -146,6 +146,14 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.2, two bugs from the parity checklist (Claude, `ios` branch)
+- **A runtime `disabled` on a Pressable was ignored** (ZnPress.swift read only the template's): the amount screen's
+  Pay button (`disabled={!active()}`) fired at ₹0. Now read from its slot (`ZnNodeSpec.disabledNow`). Checked: Pay at
+  ₹0 does nothing (no tap, no press-out); after a digit it fires.
+- **A Scroll's padding sat around the scroll view**, so content was clipped at the padding and couldn't scroll into
+  it. It is inside the scrolling content now, as Android's content padding; the scroll view keeps only its border
+  inset. Checked: the input screen's 16 pt sides unchanged.
+
 ### 2026-11-08: iOS i.2, Switch, Checkbox, Spinner, Progress (Claude, `ios` branch)
 - `ZnControls.swift`: drawn as android/runtime draws them (one zn look, not UISwitch): Switch (36 × 20 track,
   16 pt thumb) and Checkbox (20 pt box, tick) controlled by JS (a tap sends onValueChange(!value), JS decides; 150 ms

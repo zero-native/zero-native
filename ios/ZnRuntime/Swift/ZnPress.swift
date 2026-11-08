@@ -28,6 +28,8 @@ struct ZnPressable<Label: View>: View {
     @State private var state = ZnPressState()
 
     var body: some View {
+        // `disabled` may change at runtime (a slot, e.g. the Pay button's disabled={!active()}).
+        let disabled = s.disabledNow(inst)
         switch ZnImpl.press {
         case .swiftUI:
             Button {
@@ -37,13 +39,13 @@ struct ZnPressable<Label: View>: View {
                 label()
             }
             .buttonStyle(ZnPressStyle(scale: s.pressScale, opacity: s.pressOpacity))
-            .disabled(s.disabled)
+            .disabled(disabled)
         case .uiKit:
             label()
                 .scaleEffect(state.pressed ? s.pressScale : 1)
                 .opacity(state.pressed ? s.pressOpacity : 1)
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
-                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state))
+                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled))
         }
     }
 }
@@ -64,6 +66,7 @@ struct ZnTouchTarget: UIViewRepresentable {
     let s: ZnNodeSpec
     let inst: ZnInstance
     let state: ZnPressState
+    let disabled: Bool
 
     func makeUIView(context: Context) -> ZnTouchControl {
         let c = ZnTouchControl()
@@ -73,7 +76,7 @@ struct ZnTouchTarget: UIViewRepresentable {
 
     func updateUIView(_ c: ZnTouchControl, context: Context) {
         let s = s, inst = inst, ctx = ctx, state = state
-        c.isEnabled = !s.disabled
+        c.isEnabled = !disabled
         c.haptic = s.haptic
         c.repeatDelay = s.onPressRepeat != 0 ? s.repeatDelayMs / 1000 : nil
         c.repeatInterval = s.repeatIntervalMs / 1000

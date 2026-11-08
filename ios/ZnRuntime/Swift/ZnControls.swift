@@ -16,10 +16,6 @@ private func znToggleValue(_ s: ZnNodeSpec, _ inst: ZnInstance) -> Bool {
     return v == .bool(true) || v == .string("true")
 }
 
-@MainActor
-private func znDisabled(_ s: ZnNodeSpec, _ inst: ZnInstance) -> Bool {
-    s.disabledSlot >= 0 ? inst.slot(s.disabledSlot).value == .bool(true) : s.disabled
-}
 
 /// The tap and accessibility shared by Switch and Checkbox.
 private struct ZnToggleTap: ViewModifier {
@@ -51,7 +47,7 @@ struct ZnSwitchView: View {
 
     var body: some View {
         let on = znToggleValue(s, inst)
-        let disabled = znDisabled(s, inst)
+        let disabled = s.disabledNow(inst)
         let off = s.trackColor ?? Color(.sRGB, red: 0xD1 / 255, green: 0xD5 / 255, blue: 0xDB / 255)
         let track = on ? (s.activeTrackColor ?? znGreen) : off
         ZStack(alignment: .leading) {
@@ -72,7 +68,7 @@ struct ZnCheckboxView: View {
 
     var body: some View {
         let on = znToggleValue(s, inst)
-        let disabled = znDisabled(s, inst)
+        let disabled = s.disabledNow(inst)
         let border = s.color ?? Color(.sRGB, red: 0x6B / 255, green: 0x72 / 255, blue: 0x80 / 255)
         let fill = s.activeColor ?? znGreen
         ZStack {

@@ -110,7 +110,8 @@ struct ZnNodeView: View {
     private func styled(_ s: ZnNodeSpec) -> some View {
         content(s)
             // A List's and a Carousel's padding is inside their scroll (content padding), not around them.
-            .padding(s.type == Registry.Component.list || s.type == Registry.Component.carousel ? EdgeInsets() : s.contentInsets(inst))
+            .padding(s.type == Registry.Component.list || s.type == Registry.Component.carousel ? EdgeInsets()
+                     : s.type == Registry.Component.scroll ? s.borderInsets(inst) : s.contentInsets(inst))
             .modifier(ZnLayoutSpace(s: s, inst: inst))
             .modifier(ZnSizeFrame(s: s, outer: outer, alignment: contentAlignment(s)))
             .modifier(ZnFieldBoxTap(s: s, inst: inst))
@@ -140,8 +141,11 @@ struct ZnNodeView: View {
         case Registry.Component.stack:
             stack(s)
         case Registry.Component.scroll:
+            // The padding scrolls with the content (Android: the scroll's content padding), so nothing is clipped at
+            // the edges and the last item can scroll clear of a floating button.
             ScrollView(s.props[Registry.Prop.horizontal]?.bool == true ? .horizontal : .vertical) {
                 flex(s, vertical: s.props[Registry.Prop.horizontal]?.bool != true)
+                    .padding(s.paddingInsets(inst))
             }
         case Registry.Component.text:
             ZnTextView(ctx: ctx, s: s, inst: inst)

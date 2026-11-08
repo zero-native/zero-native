@@ -445,6 +445,11 @@ final class ZnNodeSpec {
     /// Padding with runtime values filled in (reading those slots makes the caller's body follow them).
     @MainActor func paddingInsets(_ inst: ZnInstance) -> EdgeInsets { edgeInsets(Self.paddingProps, padding, inst) }
 
+    /// `disabled` now (a slot, or the template's).
+    @MainActor func disabledNow(_ inst: ZnInstance) -> Bool {
+        disabledSlot >= 0 ? inst.slot(disabledSlot).value == .bool(true) : disabled
+    }
+
     /// The border width now (a slot, or the template's).
     @MainActor func borderWidthNow(_ inst: ZnInstance) -> CGFloat {
         borderWidthSlot >= 0 ? inst.slot(borderWidthSlot).value.number.map { CGFloat($0) } ?? borderWidth : borderWidth
@@ -455,11 +460,15 @@ final class ZnNodeSpec {
 
     /// Padding plus the border widths: borders take space, content sits inside them (zn flex rule 2, as Android).
     @MainActor func contentInsets(_ inst: ZnInstance) -> EdgeInsets {
-        var e = paddingInsets(inst)
+        let p = paddingInsets(inst), b = borderInsets(inst)
+        return EdgeInsets(top: p.top + b.top, leading: p.leading + b.leading, bottom: p.bottom + b.bottom,
+                          trailing: p.trailing + b.trailing)
+    }
+
+    /// The border widths alone (a Scroll's padding goes inside its scrolling content instead).
+    @MainActor func borderInsets(_ inst: ZnInstance) -> EdgeInsets {
         let w = max(borderWidthNow(inst), 0)
-        e.leading += w; e.trailing += w
-        e.top += w + borderTopWidth; e.bottom += w + borderBottomWidth
-        return e
+        return EdgeInsets(top: w + borderTopWidth, leading: w, bottom: w + borderBottomWidth, trailing: w)
     }
     @MainActor func marginInsets(_ inst: ZnInstance) -> EdgeInsets { edgeInsets(Self.marginProps, margin, inst) }
 
