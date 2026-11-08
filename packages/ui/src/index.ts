@@ -819,6 +819,12 @@ export declare function List<T>(props: {
    * Inverted, stickyHeaderIndices and pull to refresh are not supported on horizontal lists.
    */
   horizontal?: boolean
+  /** Component or element rendered at the very top of the list items (RN FlatList parity). */
+  ListHeaderComponent?: unknown
+  /** Component or element rendered at the very bottom of the list items (RN FlatList parity). */
+  ListFooterComponent?: unknown
+  /** Component or element rendered when the list has no data (RN FlatList parity). */
+  ListEmptyComponent?: unknown
 } & RefreshProps & RnScrollProps & (
   | {
       key: (item: T, index: number) => string | number

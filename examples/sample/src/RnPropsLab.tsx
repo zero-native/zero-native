@@ -74,6 +74,11 @@ export function RnPropsLabScreen() {
   const spanHot = signal(false)
   const barHidden = signal(false)
   const stickyAt = signal<number[]>([0, 20])
+  const listItems = signal<Array<{ id: string; title: string }>>([
+    { id: "1", title: "Apple" },
+    { id: "2", title: "Banana" },
+    { id: "3", title: "Cherry" },
+  ])
 
   return (
     <Scroll style={{ flex: 1, backgroundColor: c.bg }}>
@@ -293,6 +298,38 @@ export function RnPropsLabScreen() {
             </Text>
           </Pressable>
         </Stack>
+
+        <PropsTitle text="List Header, Footer, Empty (RN parity)" />
+        <HoldTile
+          label={listItems().length > 0 ? "Empty the list" : "Fill the list"}
+          onPress={() => listItems.set(listItems().length > 0 ? [] : [{ id: "1", title: "Apple" }, { id: "2", title: "Banana" }, { id: "3", title: "Cherry" }])}
+        />
+        <List
+          testID="extras-list"
+          data={listItems()}
+          key={(r) => r.id}
+          ListHeaderComponent={
+            <Box style={{ padding: 10, backgroundColor: "#FEF3C7", borderRadius: 6 }}>
+              <Text fontSize={12} fontWeight={700} color="#92400E">ListHeaderComponent (Top)</Text>
+            </Box>
+          }
+          ListFooterComponent={
+            <Box style={{ padding: 10, backgroundColor: "#E0E7FF", borderRadius: 6 }}>
+              <Text fontSize={12} fontWeight={700} color="#3730A3">ListFooterComponent (Bottom)</Text>
+            </Box>
+          }
+          ListEmptyComponent={
+            <Box style={{ padding: 16, backgroundColor: "#FEE2E2", borderRadius: 6, alignItems: "center" }}>
+              <Text fontSize={12} fontWeight={600} color="#991B1B">ListEmptyComponent (No items in list)</Text>
+            </Box>
+          }
+          row={(r) => (
+            <Box style={{ padding: 10, backgroundColor: c.white, borderBottomWidth: 1, borderColor: "#E5E7EB" }}>
+              <Text fontSize={13} color={c.ink}>{r.title}</Text>
+            </Box>
+          )}
+          style={{ height: 180 }}
+        />
 
         {/* 2026-11-05, R29 / R30 from the ZeroBill port: an absolute child takes no room (the Stack is as tall as its
             text, the 220 dp shape draws over what follows), and an absolute Svg with start + end + height and

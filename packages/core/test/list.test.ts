@@ -144,3 +144,29 @@ test("stickyHeaderIndices rows stay mounted wherever the list is (registry 15)",
   sticky.set([0, 600]) // a new pinned row mounts at once, wherever the list is
   expect(of("listRow").map((o) => o[3])).toEqual(["600"])
 })
+
+test("ListHeaderComponent, ListFooterComponent, ListEmptyComponent mount as special rows", () => {
+  renderRoot(
+    ROOT,
+    () =>
+      view(0, (i) =>
+        list<Item>(i, NODE, {
+          data: () => [],
+          key: (it) => it.id,
+          row: (it) => view(6, (r) => slot(r, 0, () => it.name)),
+          type: () => 6,
+          rangeEvent: RANGE,
+          endEvent: END,
+          header: () => view(10, (r) => slot(r, 0, () => "Header Title")),
+          footer: () => view(11, (r) => slot(r, 0, () => "Footer Copyright")),
+          empty: () => view(12, (r) => slot(r, 0, () => "No Items")),
+        }),
+      ),
+    {},
+  )
+  const rows = of("listRow")
+  const boundKeys = rows.map((r) => r[3])
+  expect(boundKeys).toContain("__zn_header")
+  expect(boundKeys).toContain("__zn_footer")
+  expect(boundKeys).toContain("__zn_empty")
+})

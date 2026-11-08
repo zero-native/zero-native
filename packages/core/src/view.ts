@@ -315,6 +315,12 @@ export interface ListOptions<T> {
   onEndReached?: () => void
   /** RN stickyHeaderIndices (registry 15): rows native keeps pinned, so JS keeps them mounted wherever the list is. */
   sticky?: () => readonly number[] | null | undefined
+  /** RN FlatList ListHeaderComponent */
+  header?: () => View
+  /** RN FlatList ListFooterComponent */
+  footer?: () => View
+  /** RN FlatList ListEmptyComponent */
+  empty?: () => View
 }
 
 /**
@@ -336,6 +342,42 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
   let sent = false
   let pinned = new Set<number>() // sticky rows' indices
   let dataEffect: Owner | null = null // the effect below: the guard of the rows (sync also runs from onRange)
+
+  if (o.header) {
+    let headerM: Mounted | null = null
+    effect(() => {
+      if (headerM) headerM.dispose(true)
+      headerM = mountChild(owner, () => o.header!(), inst.id, node, 0, dataEffect)
+      globalThis.__zn_listRow(inst.id, node, "__zn_header", headerM.id)
+    })
+    onCleanup(() => {
+      if (headerM) headerM.dispose(true)
+    })
+  }
+
+  if (o.footer) {
+    let footerM: Mounted | null = null
+    effect(() => {
+      if (footerM) footerM.dispose(true)
+      footerM = mountChild(owner, () => o.footer!(), inst.id, node, 0, dataEffect)
+      globalThis.__zn_listRow(inst.id, node, "__zn_footer", footerM.id)
+    })
+    onCleanup(() => {
+      if (footerM) footerM.dispose(true)
+    })
+  }
+
+  if (o.empty) {
+    let emptyM: Mounted | null = null
+    effect(() => {
+      if (emptyM) emptyM.dispose(true)
+      emptyM = mountChild(owner, () => o.empty!(), inst.id, node, 0, dataEffect)
+      globalThis.__zn_listRow(inst.id, node, "__zn_empty", emptyM.id)
+    })
+    onCleanup(() => {
+      if (emptyM) emptyM.dispose(true)
+    })
+  }
 
   const sync = () => {
     const n = keys.length

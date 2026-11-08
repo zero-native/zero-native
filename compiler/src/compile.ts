@@ -2680,7 +2680,7 @@ export function compileModule(
       const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
       if (rnAttribute("List", null, name, a, props, b, rnLater) === true) continue // FlatList's speed hints (P1.7)
       // FlatList's renderItem / keyExtractor (RN-compat sweep P1.5): the same as row / key, see below.
-      if (["data", "key", "row", "onEndReached", "renderItem", "keyExtractor"].includes(name)) {
+      if (["data", "key", "row", "onEndReached", "renderItem", "keyExtractor", "ListHeaderComponent", "ListFooterComponent", "ListEmptyComponent"].includes(name)) {
         if (!expr) fail(a, `${name} needs an expression: ${name}={...}`)
         special[name] = expr!
       } else if (name === "stickyHeaderIndices") {
@@ -2824,11 +2824,37 @@ export function compileModule(
       end = `@@E:${ev}@@`
       onEnd = text(special.onEndReached)
     }
+    const compileExtra = (extraExpr: ts.Expression): string => {
+      const u = seeThrough(extraExpr)
+      if (isJsx(u)) {
+        const root = compileRoot(u as JsxNode, b.depth + 1)
+        return `() => ${root.code}`
+      }
+      if (ts.isIdentifier(u) && isCapitalized(u.text)) {
+        return `() => ${u.text}({})`
+      }
+      if (ts.isArrowFunction(u) || ts.isFunctionExpression(u)) {
+        const fn = u as ts.FunctionLikeDeclaration
+        if (fn.parameters.length === 0) {
+          if (fn.body && isJsx(fn.body)) {
+            const root = compileRoot(fn.body as JsxNode, b.depth + 1)
+            return `() => ${root.code}`
+          }
+        }
+        return `() => (${text(u)})({})`
+      }
+      return `() => ${text(u)}`
+    }
+    const headerCode = special.ListHeaderComponent ? `, header: ${compileExtra(special.ListHeaderComponent)}` : ""
+    const footerCode = special.ListFooterComponent ? `, footer: ${compileExtra(special.ListFooterComponent)}` : ""
+    const emptyCode = special.ListEmptyComponent ? `, empty: ${compileExtra(special.ListEmptyComponent)}` : ""
+
     b.kids.push(
       `${RUNTIME}.list(${b.inst}, ${index}, { data: () => (${text(special.data)}), key: ${keyCode}, ` +
         `row: (${params}) => ${wrap(rows.code)}, type: (${params}) => ${wrap(rows.type)}, ` +
         `rangeEvent: @@E:${range}@@, endEvent: ${end}, onEndReached: ${onEnd}` +
-        (special.sticky ? `, sticky: () => (${text(special.sticky)})` : "") + " });",
+        (special.sticky ? `, sticky: () => (${text(special.sticky)})` : "") +
+        headerCode + footerCode + emptyCode + " });",
     )
     return el("List", props)
   }

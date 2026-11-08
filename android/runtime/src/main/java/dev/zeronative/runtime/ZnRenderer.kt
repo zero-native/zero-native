@@ -623,6 +623,13 @@ private const val END_REACHED_ROWS = 5
 private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, node: Int, mod: Modifier) {
     val list = inst.list(node)
     val rows = list.rows
+    val headerInst = list.bound["__zn_header"]?.let(ZnStore::find)
+    val footerInst = list.bound["__zn_footer"]?.let(ZnStore::find)
+    val emptyInst = list.bound["__zn_empty"]?.let(ZnStore::find)
+    val hasHeader = headerInst != null && f.getOrNull(headerInst.templateId) != null
+    val hasFooter = footerInst != null && f.getOrNull(footerInst.templateId) != null
+    val hasEmpty = emptyInst != null && f.getOrNull(emptyInst.templateId) != null
+
     val state = rememberLazyListState() // saveable: the scroll position survives back navigation and recreation
     // RN stickyHeaderIndices (registry 15): rows drawn pinned (Compose stickyHeader), in order, inside the list.
     val stickyText = if (s.stickySlot >= 0) inst.slot(s.stickySlot).value as? String else s.stickyHeaderIndices
@@ -651,7 +658,28 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
             verticalAlignment = verticalAlignment(s.alignItems),
         ) {
+            if (hasHeader) {
+                val ht = f[headerInst.templateId]
+                val rootNode = ht.nodes.firstOrNull()
+                item(key = "__zn_header", contentType = "__zn_header") {
+                    ZnNode(f, ht, headerInst, 0, Modifier, definiteWidth = rootNode?.width != null)
+                }
+            }
+            if (rows.isEmpty() && hasEmpty) {
+                val et = f[emptyInst.templateId]
+                val rootNode = et.nodes.firstOrNull()
+                item(key = "__zn_empty", contentType = "__zn_empty") {
+                    ZnNode(f, et, emptyInst, 0, Modifier, definiteWidth = rootNode?.width != null)
+                }
+            }
             items(count = rows.size, key = { rows[it].key }, contentType = { rows[it].type }) { rowAt(it) }
+            if (hasFooter) {
+                val ft = f[footerInst.templateId]
+                val rootNode = ft.nodes.firstOrNull()
+                item(key = "__zn_footer", contentType = "__zn_footer") {
+                    ZnNode(f, ft, footerInst, 0, Modifier, definiteWidth = rootNode?.width != null)
+                }
+            }
         }
     } else {
         LazyColumn(
@@ -668,6 +696,24 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
                 else -> Arrangement.Top
             },
         ) {
+            if (hasHeader && !s.inverted) {
+                val ht = f[headerInst.templateId]
+                item(key = "__zn_header", contentType = "__zn_header") {
+                    ZnNode(f, ht, headerInst, 0, Modifier.fillMaxWidth(), definiteWidth = true)
+                }
+            }
+            if (hasFooter && s.inverted) {
+                val ft = f[footerInst.templateId]
+                item(key = "__zn_footer", contentType = "__zn_footer") {
+                    ZnNode(f, ft, footerInst, 0, Modifier.fillMaxWidth(), definiteWidth = true)
+                }
+            }
+            if (rows.isEmpty() && hasEmpty) {
+                val et = f[emptyInst.templateId]
+                item(key = "__zn_empty", contentType = "__zn_empty") {
+                    ZnNode(f, et, emptyInst, 0, Modifier.fillMaxWidth(), definiteWidth = true)
+                }
+            }
             // Runs of plain rows between the pinned ones: one `items` per run, so a long list stays a few blocks.
             var start = 0
             for (h in sticky) {
@@ -681,6 +727,18 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             if (rows.size > from) {
                 items(count = rows.size - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
             }
+            if (hasFooter && !s.inverted) {
+                val ft = f[footerInst.templateId]
+                item(key = "__zn_footer", contentType = "__zn_footer") {
+                    ZnNode(f, ft, footerInst, 0, Modifier.fillMaxWidth(), definiteWidth = true)
+                }
+            }
+            if (hasHeader && s.inverted) {
+                val ht = f[headerInst.templateId]
+                item(key = "__zn_header", contentType = "__zn_header") {
+                    ZnNode(f, ht, headerInst, 0, Modifier.fillMaxWidth(), definiteWidth = true)
+                }
+            }
         }
     }
     if (s.onRange != 0 || s.onEndReached != 0) {
@@ -689,8 +747,12 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             snapshotFlow {
                 // A pinned row shows above rows far below it: leave it out, or JS would mount every row in between.
                 val pinned = parseSticky(if (s.stickySlot >= 0) inst.slot(s.stickySlot).value as? String else s.stickyHeaderIndices)
-                val visible = state.layoutInfo.visibleItemsInfo.filter { it.index !in pinned }.ifEmpty { state.layoutInfo.visibleItemsInfo }
-                (visible.minOfOrNull { it.index } ?: 0) to (visible.maxOfOrNull { it.index } ?: 0)
+                val visible = state.layoutInfo.visibleItemsInfo.filter { it.index !in pinned }
+                val rowIndices = visible.mapNotNull { it.key as? String }
+                    .filter { !it.startsWith("__zn_") }
+                    .mapNotNull { k -> rows.indexOfFirst { it.key == k }.takeIf { idx -> idx >= 0 } }
+                if (rowIndices.isEmpty()) 0 to 0
+                else (rowIndices.minOrNull() ?: 0) to (rowIndices.maxOrNull() ?: 0)
             }.distinctUntilChanged().collect { (a, b) ->
                 if (s.onRange != 0) ZnRuntime.dispatchEvent(inst.id, s.onRange, "$a,$b")
                 val count = rows.size
