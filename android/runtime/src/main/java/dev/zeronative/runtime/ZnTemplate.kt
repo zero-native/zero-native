@@ -218,6 +218,10 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val text: String? = p[Registry.Prop.TEXT] as String?
     val color: Color? = color(Registry.Prop.COLOR)
     val maxLines = num(Registry.Prop.NUMBER_OF_LINES)?.toInt() ?: Int.MAX_VALUE
+    val selectable = p[Registry.Prop.SELECTABLE] == true
+    val selectableSlot = slotFor(raw, Registry.Prop.SELECTABLE)
+    val adjustsFontSizeToFit = p[Registry.Prop.ADJUSTS_FONT_SIZE_TO_FIT] == true
+    val minimumFontScale = num(Registry.Prop.MINIMUM_FONT_SCALE)
     /**
      * RN textDecorationStyle "dashed" / "dotted" (registry 16) with an underline or line-through: the line is drawn by
      * the renderer (ZnRenderer.kt drawTextDecoration), as Compose only draws solid ones. 0 = Compose draws it.

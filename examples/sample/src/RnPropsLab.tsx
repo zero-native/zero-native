@@ -342,6 +342,18 @@ export function RnPropsLabScreen() {
           style={{ height: 180 }}
         />
 
+        <PropsTitle text="Selectable & Auto-fit Text (RN parity)" />
+        <Box style={{ padding: 12, backgroundColor: c.white, borderRadius: 8 }}>
+          <Text selectable fontSize={14} color={c.ink}>
+            Selectable Text: Long-press or drag handles to select and copy this text natively.
+          </Text>
+        </Box>
+        <Box style={{ width: 160, padding: 8, backgroundColor: "#FEF3C7", borderRadius: 8 }}>
+          <Text adjustsFontSizeToFit minimumFontScale={0.5} numberOfLines={1} fontSize={20} fontWeight={700} color="#92400E">
+            Very Long Heading Auto Fit To One Line
+          </Text>
+        </Box>
+
         {/* 2026-11-05, R29 / R30 from the ZeroBill port: an absolute child takes no room (the Stack is as tall as its
             text, the 220 dp shape draws over what follows), and an absolute Svg with start + end + height and
             preserveAspectRatio="none" stretches to that box. The bubble keeps its 220 dp width in a narrower Stack. */}

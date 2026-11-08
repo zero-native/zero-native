@@ -51,6 +51,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -332,15 +335,64 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                     )
                 }
             } else textMod
-            if (spans == null) {
-                BasicText(text = text, modifier = finalMod, style = textStyle, maxLines = s.maxLines,
-                    overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
+            val isSelectable = if (s.selectableSlot >= 0) inst.slot(s.selectableSlot).value == true else s.selectable
+            val renderText = @Composable {
+                if (s.adjustsFontSizeToFit && s.maxLines != Int.MAX_VALUE) {
+                    BoxWithConstraints(modifier = finalMod) {
+                        val measurer = rememberTextMeasurer()
+                        val baseSize = textStyle.fontSize.value
+                        val minScale = (s.minimumFontScale ?: 0.5f).coerceIn(0.01f, 1f)
+                        val minSize = baseSize * minScale
+                        val targetLines = s.maxLines
+                        val charSeq: CharSequence = if (spans != null) {
+                            val cap = s.fontScaleCap(fontScale)
+                            val press: ((Int) -> Unit)? = if (presses == null) null else { i -> ZnRuntime.dispatchEvent(inst.id, s.onSpanPress, i) }
+                            remember(text, spans, cap, presses, press) { spannedText(text, spans, cap, presses, press) }
+                        } else {
+                            AnnotatedString(text)
+                        }
+                        val fittedFontSize = remember(text, constraints.maxWidth, baseSize, minScale, targetLines) {
+                            var size = baseSize
+                            val maxW = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
+                            while (size > minSize) {
+                                val testStyle = textStyle.copy(fontSize = size.sp)
+                                val res = measurer.measure(
+                                    text = if (charSeq is AnnotatedString) charSeq else AnnotatedString(charSeq.toString()),
+                                    style = testStyle,
+                                    constraints = Constraints(maxWidth = maxW),
+                                    maxLines = targetLines,
+                                )
+                                if (!res.hasVisualOverflow && res.lineCount <= targetLines) break
+                                size = (size - 0.5f).coerceAtLeast(minSize)
+                                if (size <= minSize) break
+                            }
+                            size.sp
+                        }
+                        if (charSeq is AnnotatedString) {
+                            BasicText(text = charSeq, modifier = Modifier, style = textStyle.copy(fontSize = fittedFontSize),
+                                maxLines = s.maxLines, overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
+                        } else {
+                            BasicText(text = text, modifier = Modifier, style = textStyle.copy(fontSize = fittedFontSize),
+                                maxLines = s.maxLines, overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
+                        }
+                    }
+                } else {
+                    if (spans == null) {
+                        BasicText(text = text, modifier = finalMod, style = textStyle, maxLines = s.maxLines,
+                            overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
+                    } else {
+                        val cap = s.fontScaleCap(fontScale)
+                        val press: ((Int) -> Unit)? = if (presses == null) null else { i -> ZnRuntime.dispatchEvent(inst.id, s.onSpanPress, i) }
+                        val styled = remember(text, spans, cap, presses, press) { spannedText(text, spans, cap, presses, press) }
+                        BasicText(text = styled, modifier = finalMod, style = textStyle, maxLines = s.maxLines,
+                            overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
+                    }
+                }
+            }
+            if (isSelectable) {
+                SelectionContainer { renderText() }
             } else {
-                val cap = s.fontScaleCap(fontScale)
-                val press: ((Int) -> Unit)? = if (presses == null) null else { i -> ZnRuntime.dispatchEvent(inst.id, s.onSpanPress, i) }
-                val styled = remember(text, spans, cap, presses, press) { spannedText(text, spans, cap, presses, press) }
-                BasicText(text = styled, modifier = finalMod, style = textStyle, maxLines = s.maxLines,
-                    overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
+                renderText()
             }
         }
         Registry.Component.SPACER -> Spacer(modifier = mod)

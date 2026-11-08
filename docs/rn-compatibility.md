@@ -50,7 +50,7 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `View` (overlay, `position: "absolute"`) | [`Stack`](../packages/ui/src/index.ts) | different | Absolute children work only inside `Stack`. `zIndex` too: on a child of any other element it is a build error (since 2026-11-05; before, it was laid out in the flow), except at a component's root, where the compiler can't see the parent. `left` / `right` are `start` / `end`. Normal children stretch to the Stack's width as in RN (since 2026-11-05), but they overlap instead of flowing down. |
 | `View` (plain box) | [`Box`](../packages/ui/src/index.ts) | renamed | Use for a decoration layer or one-child wrapper. |
 | `Fragment` / `<>` | `<>...</>` ([compile.ts](../compiler/src/compile.ts), fragments) | same | `<React.Fragment>` is rejected: write `<>`. |
-| `Text` | [`Text`](../packages/ui/src/index.ts) | different | Text lives only in `Text`. Top-level `<Text onPress>` and `<Text onLongPress>` supported directly (registry 23; Role `Button` for TalkBack, no ripple/opacity change). Nested `<Text>` spans work, also from data (`{parts.map((p) => <Text>...)}`, `&&`, runtime styles) and with `onPress` on a span (`onSpanPress`, registry 16, since 2026-11-05; guide §18). `allowFontScaling={false}` = `maxFontScale={1}`; `ellipsizeMode="tail"` is accepted (zn always cuts the end) (since 2026-11-05). Missing: `selectable`, `adjustsFontSizeToFit`. |
+| `Text` | [`Text`](../packages/ui/src/index.ts) | different | Text lives only in `Text`. Top-level `<Text onPress>` and `<Text onLongPress>` supported directly (registry 23; Role `Button` for TalkBack, no ripple/opacity change). Nested `<Text>` spans work, also from data (`{parts.map((p) => <Text>...)}`, `&&`, runtime styles) and with `onPress` on a span (`onSpanPress`, registry 16, since 2026-11-05; guide §18). `allowFontScaling={false}` = `maxFontScale={1}`; `ellipsizeMode="tail"` is accepted (zn always cuts the end) (since 2026-11-05). `selectable` (Compose `SelectionContainer`) and `adjustsFontSizeToFit` with `minimumFontScale` and `numberOfLines` (measured natively in 0.5 sp steps) supported since batch 2 (registry 23, 2026-11-08). |
 | `Image` (`source={{ uri }}`) | [`Image src`](../packages/ui/src/index.ts) | renamed | `source={{ uri: u }}` becomes `src={u}`. `require("./a.png")` becomes `src="asset:images/a.png"` (an `assets/` folder next to `src/`). |
 | `Image source={{ uri }}`, `resizeMode` | `src`, [`contentScale`](../packages/ui/src/index.ts) | same | Both RN names work (since 2026-11-05): `source={{ uri }}` (also a runtime uri) is `src`; `resizeMode` `cover`, `contain`, `stretch` (= `fill`). `require("./a.png")`, `center`, `repeat`: build errors with a hint. |
 | `Image defaultSource` | [`fallbackSrc`](../packages/ui/src/index.ts) | different | `fallbackSrc` shows on **error**, not while loading. For a loading look use `loading="shimmer"`. |
@@ -366,7 +366,7 @@ settled them:
   with NativeWind have hundreds of them. zero-native keeps one styling system (second-opinions 103), and no port tool
   is planned.
 
-Smaller known gaps not in the list: `Button`, `Text` `selectable`, `StyleSheet.flatten`. (`testID`,
+Smaller known gaps not in the list: `Button`, `StyleSheet.flatten`. (`testID`,
 `Image` events, `Modal`, `StatusBar`, `pointerEvents`, `hitSlop`, `onLayout` came in RN props pack 2, guide-notes §43.)
 
 ## 11. What the reference app uses most (ZeroBill)

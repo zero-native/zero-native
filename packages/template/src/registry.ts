@@ -439,6 +439,12 @@ export const Prop = {
   display: { id: 292, type: "enum" },
   /** <List> scroll command string slot: "action:param:anim:offset:seq" (registry 23). */
   scrollCommand: { id: 293, type: "string" },
+  /** RN Text selectable (registry 23): users can select text to copy. */
+  selectable: { id: 294, type: "bool" },
+  /** RN Text adjustsFontSizeToFit (registry 23): step font size down natively until text fits numberOfLines. */
+  adjustsFontSizeToFit: { id: 295, type: "bool" },
+  /** RN Text minimumFontScale (registry 23): smallest font scale fraction for adjustsFontSizeToFit (e.g. 0.5). */
+  minimumFontScale: { id: 296, type: "number" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -646,6 +652,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "letterSpacing",
   "display",
   "scrollCommand",
+  "selectable",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -689,6 +696,7 @@ export const Added: {
     includeFontPadding: 16, borderStyle: 16, textDecorationStyle: 16,
     autoComplete: 17, otpTheme: 18, otpType: 18, blurOnFilled: 18, invalid: 18,
     inverted: 19, transformOrigin: 20, animateIn: 21, display: 23, scrollCommand: 23,
+    selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -703,7 +711,7 @@ export const Added: {
     gap: 23, top: 23, bottom: 23, start: 23, end: 23,
     borderRadius: 23, borderTopLeftRadius: 23, borderTopRightRadius: 23, borderBottomLeftRadius: 23, borderBottomRightRadius: 23,
     borderTopStartRadius: 23, borderTopEndRadius: 23, borderBottomStartRadius: 23, borderBottomEndRadius: 23,
-    fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23,
+    fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23, selectable: 23,
   },
   enumValue: {
     "display.flex": 23, "display.none": 23,

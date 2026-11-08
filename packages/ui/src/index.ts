@@ -323,6 +323,12 @@ export declare const Text: Intrinsic<
       onPress?: () => void
       /** Long press on top-level <Text> (registry 23). */
       onLongPress?: () => void
+      /** React Native Text selectable (registry 23): text is selectable by user. */
+      selectable?: boolean
+      /** React Native Text adjustsFontSizeToFit (registry 23): shrink font size down to fit numberOfLines. */
+      adjustsFontSizeToFit?: boolean
+      /** Smallest font scale fraction (0 to 1, default 0.5) when adjustsFontSizeToFit is active. */
+      minimumFontScale?: number
     }
 >
 /** `src`: an https URL or "asset:path". null / undefined shows nothing (the box keeps its size). */
