@@ -26,6 +26,8 @@ Each entry says:
 | A10 | 2026-11-08 | Events | An event from the first screen's skeleton (drawn before JS) can reach JS before the screen's handlers exist | not seen on Android (fixed on ios) |
 | A11 | 2026-11-08 | Layout | New layout conformance screen to run on the Lava; `alignSelf: "stretch"` doesn't stretch on Android when `alignItems` doesn't; onLayout x / y inside padding; maxWidth on a stretched child | open: Android 42 / 48, fixes wait for Pavan |
 | A12 | 2026-11-08 | zn dev | A reload that adds a screen draws it from another screen's template | open (found on Android; iOS has no `zn dev` yet) |
+| A13 | 2026-11-08 | device-info (shared JS) | `hasDynamicIsland`, `isDisplayZoomed`, `getBrightness` now read native values (iOS); Android answers stay false / -1 | fixed on ios (check the tests) |
+| A14 | 2026-11-08 | location (shared JS) | On iOS the plugin asks core's Permissions for "location" (iOS's name), not Android's two names | fixed on ios (no Android change expected) |
 
 ---
 
@@ -231,3 +233,24 @@ Each entry says:
 - **Check:** start `zn dev` on the sample, add a screen with a route and a visible text, save, open it: it must show
   its own text. iOS has no `zn dev` yet (i.2), so it can't hit this today; whatever the fix, iOS's reload must
   follow it when it gets one.
+
+## A13. device-info: three iOS-only getters read native values
+- **Status:** changed on `ios` (2026-11-08, the device-info iOS commit). No Android behaviour change expected.
+- **What changed (shared JS, `plugins/device-info/src/index.ts`):** `hasDynamicIsland()` and `isDisplayZoomed()` read
+  the constants `hasDynamicIsland` / `isDisplayZoomed` (iOS gives them; Android doesn't, so they stay false), and
+  `getBrightness()` calls a native `brightness` (iOS has it; Android has none, the call is refused "unavailable", so
+  it stays -1). The test that pinned `getBrightness` to -1 now refuses the call; a new test covers iOS values.
+  The sample's DeviceInfoLab prints `getSystemName()` instead of the word "Android" (same text on Android) and adds
+  "island <bool>" to the type line.
+- **Check on Android:** `bun test plugins/device-info` (9 pass); the Device info lab on the phone: the type line now
+  ends "island false, emulator false"; Read changing values unchanged.
+
+## A14. location: iOS's permission names in the shared JS
+- **Status:** changed on `ios` (2026-11-08, the location iOS commit). No Android behaviour change expected.
+- **What changed (`plugins/location/src/index.ts`):** when `Platform.OS === "ios"`, `status`, `requestPermission` and
+  the denied → blocked check ask core's Permissions for `"location"` (and read `"location.precise"`), because
+  Android's `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` mean nothing on iOS (always "denied" there). On Android
+  the same two names as before, in the same order. `requestPermission({ precise: false })` changes nothing on iOS (the
+  precise switch is in iOS's own dialog). New test: "iOS: one location permission …"; the Android tests are unchanged.
+- **Check on Android:** `bun test plugins/location` (26 pass); the Location lab on the phone: Ask permission / Ask
+  rough only behave as before.

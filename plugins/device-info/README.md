@@ -44,7 +44,7 @@ No permission. The manifest lists Google Play services and Huawei's services in 
 | `getIpAddress` | The active network's IPv4 address (Wi-Fi or mobile), `"0.0.0.0"` with none |
 | `getFreeDiskStorage(type)`, `getTotalDiskCapacity` | The app's data partition. The `type` argument is ignored |
 | Hooks (`useBatteryLevel`, `usePowerState`, ...) and change events | Not built. Read the Promise form when you need it |
-| iOS / Windows-only calls (`getBrightness`, `isKeyboardConnected`, `hasDynamicIsland`, ...) | RN's Android answers: `-1` / `false` |
+| iOS / Windows-only calls (`getBrightness`, `isKeyboardConnected`, `hasDynamicIsland`, ...) | On Android, RN's Android answers: `-1` / `false`. On iOS, `getBrightness`, `hasDynamicIsland` and `isDisplayZoomed` are real |
 
 ## Privacy
 `getUniqueId`, `getDeviceName` and `getCarrier` are personal data in some places. Don't log them, and say what you

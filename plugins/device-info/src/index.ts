@@ -1,5 +1,5 @@
-// react-native-device-info for zero-native, on Android: the same names, the same values. Native side:
-// android/.../DeviceInfoPlugin.kt. README: which calls differ.
+// react-native-device-info for zero-native: the same names, the same values. Native side: android/.../DeviceInfoPlugin.kt
+// and ios/DeviceInfoPlugin.swift (react-native-device-info's iOS answers). README: which calls differ.
 //
 //   import DeviceInfo from "@zero-native/device-info"
 //   const BASE_URL = DeviceInfo.getBundleId() === "com.example.app" ? PROD : DEV   // sync, also at module level
@@ -66,6 +66,9 @@ export interface DeviceInfoConstants {
   totalMemory: number
   isLowRamDevice: boolean
   deviceName: string
+  /** iOS only (absent on Android: false). */
+  hasDynamicIsland?: boolean
+  isDisplayZoomed?: boolean
 }
 
 interface DeviceInfoModule {
@@ -89,6 +92,8 @@ interface DeviceInfoModule {
   hasHms(args?: Record<string, never>, options?: CallOptions): Promise<boolean | null>
   userAgent(args?: Record<string, never>, options?: CallOptions): Promise<string | null>
   hasSystemFeature(args: { feature: string }, options?: CallOptions): Promise<boolean>
+  /** iOS only: Android has no such call, so it answers -1 there. */
+  brightness(args?: Record<string, never>, options?: CallOptions): Promise<number | null>
 }
 
 const Native = nativeModule<DeviceInfoModule>("DeviceInfo", { version: 1 })
@@ -140,9 +145,9 @@ export const isTablet = bool("isTablet")
 export const hasNotch = bool("hasNotch")
 export const isLowRamDevice = bool("isLowRamDevice")
 /** iOS only: false on Android. */
-export const hasDynamicIsland = (): boolean => false
+export const hasDynamicIsland = bool("hasDynamicIsland")
 /** iOS only: false on Android. */
-export const isDisplayZoomed = (): boolean => false
+export const isDisplayZoomed = bool("isDisplayZoomed")
 
 // Fixed values with a Promise form and a Sync form, as in react-native-device-info.
 export const getAndroidIdSync = str("androidId")
@@ -217,8 +222,6 @@ export const getPhoneNumberSync = (): string => "unknown"
 export const getPhoneNumber = later(getPhoneNumberSync)
 export const getInstallReferrerSync = (): string => "unknown"
 export const getInstallReferrer = later(getInstallReferrerSync)
-/** iOS only: -1 on Android. */
-export const getBrightness = (): Promise<number> => Promise.resolve(-1)
 /** Windows only: false on Android. */
 export const isKeyboardConnected = (): Promise<boolean> => Promise.resolve(false)
 export const isMouseConnected = (): Promise<boolean> => Promise.resolve(false)
@@ -246,6 +249,8 @@ export const getSystemAvailableFeatures = ask<string[]>(() => Native.systemAvail
 export const hasGms = ask(() => Native.hasGms({}, unowned), false)
 export const hasHms = ask(() => Native.hasHms({}, unowned), false)
 export const getUserAgent = ask(() => Native.userAgent({}, unowned), "unknown")
+/** iOS only (the screen's brightness, 0 to 1): -1 on Android, which has no such call. */
+export const getBrightness = ask(() => Native.brightness({}, unowned), -1)
 export const hasSystemFeature = (feature: string): Promise<boolean> =>
   Native.hasSystemFeature({ feature }, unowned).then(
     (v) => v === true,

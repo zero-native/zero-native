@@ -14,7 +14,7 @@
 //
 // Each call answers with a value and never rejects. Nothing here shows a dialog except requestPermission and turnOn.
 // Nothing here logs a coordinate or an address. Keep it that way in your app too.
-import { detached, launches, nativeModule, onCleanup, Permissions, type CallOptions, type LaunchRecord, type PermissionState } from "@zero-native/core"
+import { detached, launches, nativeModule, onCleanup, Permissions, Platform, type CallOptions, type LaunchRecord, type PermissionState } from "@zero-native/core"
 
 export type Accuracy =
   /** Waits for a fix within 25 m, until the timeout. Uses the GPS. */
@@ -176,6 +176,11 @@ const Native = nativeModule<LocationModule>("Location", { version: 2 }) // 2: tu
 const TURN_ON_KEY = "location.turn-on" // LocationRules.TURN_ON_KEY
 const FINE = "android.permission.ACCESS_FINE_LOCATION"
 const COARSE = "android.permission.ACCESS_COARSE_LOCATION"
+// iOS has one location permission ("while using"); whether fixes are precise is the user's switch in the same dialog,
+// which core's Permissions answers as "location.precise". Android's two names mean nothing there.
+const IOS_LOCATION = "location"
+const IOS_PRECISE = "location.precise"
+const ios = () => Platform.OS === "ios"
 // A one-shot is not tied to a screen: its promise must settle even if the screen that asked closes. Native ends it by
 // itself at its timeout (60 s at most).
 const unowned = { owned: false }
@@ -192,12 +197,18 @@ function permissionOf(fine: PermissionState | undefined, coarse: PermissionState
   return "denied"
 }
 
-/** "denied" becomes "blocked" when Android won't show the dialog again. Any failure keeps "denied". */
+/** The location permission now, from core's Permissions (Android: fine or coarse; iOS: "location"). */
+async function permissionNow(): Promise<PermissionState> {
+  if (ios()) return (await Permissions.status([IOS_LOCATION]))[IOS_LOCATION] ?? "denied"
+  const s = await Permissions.status([FINE, COARSE])
+  return permissionOf(s[FINE], s[COARSE])
+}
+
+/** "denied" becomes "blocked" when the phone won't show the dialog again. Any failure keeps "denied". */
 async function refine<R extends string>(reason: R): Promise<R | "blocked"> {
   if (reason !== "denied") return reason
   try {
-    const s = await Permissions.status([FINE, COARSE])
-    return permissionOf(s[FINE], s[COARSE]) === "blocked" ? "blocked" : reason
+    return (await permissionNow()) === "blocked" ? "blocked" : reason
   } catch {
     return reason
   }
@@ -264,8 +275,7 @@ async function status(): Promise<LocationStatus> {
   let permission: PermissionState = p.fine || p.coarse ? "granted" : "denied"
   if (permission !== "granted") {
     try {
-      const s = await Permissions.status([FINE, COARSE])
-      permission = permissionOf(s[FINE], s[COARSE])
+      permission = await permissionNow()
     } catch {
       // No Activity (a background task): "denied" is the best we know.
     }
@@ -278,8 +288,13 @@ async function status(): Promise<LocationStatus> {
  * (already granted, or blocked) it shows nothing and answers at once.
  */
 async function requestPermission(options: { precise?: boolean } = {}): Promise<{ permission: PermissionState; precise: boolean }> {
-  const names = options.precise === false ? [COARSE] : [FINE, COARSE]
   try {
+    if (ios()) {
+      // One dialog; the precise switch is in it, so `precise: false` changes nothing on iOS.
+      const r = await Permissions.request([IOS_LOCATION])
+      return { permission: r[IOS_LOCATION] ?? "denied", precise: r[IOS_PRECISE] === "granted" }
+    }
+    const names = options.precise === false ? [COARSE] : [FINE, COARSE]
     const r = await Permissions.request(names)
     const fine = r[FINE]
     return { permission: permissionOf(fine, r[COARSE]), precise: fine === "granted" || (await status()).precise }

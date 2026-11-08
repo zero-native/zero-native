@@ -146,6 +146,22 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.4, auth, device-info and location plugins (Claude, `ios` branch)
+- **auth** (`plugins/auth/ios`): iOS has no phone number sheet, no SMS Retriever and no app hash, so the Auth module
+  answers the way Android does without Play services (hint and OTP "unavailable", hash ""). The app's fallback (type
+  it) runs; OtpInput's `.oneTimeCode` gives the code from Messages. Checked in the Auth lab.
+- **device-info** (`plugins/device-info/ios`): react-native-device-info's iOS answers (identifierForVendor, model names,
+  Dynamic Island / notch by model id, Simulator / TestFlight / AppStore installer, disk, memory, battery, IP, user
+  agent). Shared JS: `hasDynamicIsland`, `isDisplayZoomed`, `getBrightness` now read native (A13); the lab prints the
+  system name. Checked in the Device info lab (iPhone 16: island true, notch false).
+- **location** (`plugins/location/ios`): Core Location one-shots and watches with Android's rules (accuracy targets,
+  timeout with the best fix, cache by maxAgeMs, pause when hidden, "off"), CLGeocoder both ways. No turn-on dialog on
+  iOS ("unavailable", the app opens Settings). Shared JS asks Permissions for "location" on iOS (A14). Checked in the
+  Location lab: dialog, fix, cache, last known, a watch following the simulator, reverse geocode (Koramangala 560095)
+  and geocode.
+- Plugins' `ios/*.swift` are globbed by CMake (`plugins/*/ios`). JS tests for both changed plugins pass.
+- **Not checked:** a real iPhone (battery, carrier, real GPS).
+
 ### 2026-11-08: main merged into `ios`; iOS reads registry 23 (Claude, `ios` branch)
 - **Merge** of origin/main (25364bc: Gemini's batches 1 and 2, the review fixes, A11 and A12 on Android) into `ios`,
   a merge commit, no rebase. Two doc conflicts (this log and second-opinions), both sides kept. The iOS second

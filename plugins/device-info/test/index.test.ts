@@ -69,6 +69,16 @@ test("fixed values answer at once, with react-native-device-info's names, and ma
   expect(host.calls.length).toBe(0)
 })
 
+test("iOS's own values: Dynamic Island, display zoom and brightness", async () => {
+  withConstants({ ...LAVA, systemName: "iOS", hasDynamicIsland: true, isDisplayZoomed: true })
+  expect(DeviceInfo.hasDynamicIsland()).toBe(true)
+  expect(DeviceInfo.isDisplayZoomed()).toBe(true)
+  expect(DeviceInfo.getSystemName()).toBe("iOS")
+  const brightness = DeviceInfo.getBrightness()
+  reply(last("brightness").id, 0.5)
+  expect(await brightness).toBe(0.5)
+})
+
 test("the Promise forms of fixed values give the same value", async () => {
   expect(await DeviceInfo.getUniqueId()).toBe("9774d56d682e549c")
   expect(await DeviceInfo.getApiLevel()).toBe(34)
@@ -124,6 +134,9 @@ test("changing values are calls; a failure or null answers the fallback", async 
 test("values Android keeps from apps answer like react-native-device-info", async () => {
   expect(DeviceInfo.getMacAddressSync()).toBe("02:00:00:00:00:00")
   expect(await DeviceInfo.getSerialNumber()).toBe("unknown")
-  expect(await DeviceInfo.getBrightness()).toBe(-1)
+  const brightness = DeviceInfo.getBrightness()
+  refuse(last("brightness").id, "unavailable") // Android has no such call
+  expect(await brightness).toBe(-1)
   expect(DeviceInfo.hasDynamicIsland()).toBe(false)
+  expect(DeviceInfo.isDisplayZoomed()).toBe(false)
 })

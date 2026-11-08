@@ -54,7 +54,7 @@ endforeach()
 
 file(GLOB zn_sample_swift CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Sample/*.swift")
 # Plugins' iOS code, compiled into the app for now (packaging each plugin on its own is open).
-file(GLOB zn_plugin_swift CONFIGURE_DEPENDS "${ZN_REPO}/plugins/scanner/ios/*.swift")
+file(GLOB zn_plugin_swift CONFIGURE_DEPENDS "${ZN_REPO}/plugins/*/ios/*.swift")
 file(GLOB zn_swift CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ZnRuntime/Swift/*.swift")
 add_executable(ZnSample MACOSX_BUNDLE
   ZnRuntime/Host/ZNHost.mm

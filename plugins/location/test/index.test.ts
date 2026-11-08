@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test"
-import { installCalls } from "../../../packages/core/src/calls"
+import { installCalls, resetNativeConstantsForTests } from "../../../packages/core/src/calls"
+import { resetPlatformForTests } from "../../../packages/core/src/platform"
 import { installEvents } from "../../../packages/core/src/events"
 import { createRoot } from "../../../packages/core/src/signals"
 import { createStorage } from "../../../packages/core/src/storage"
@@ -192,6 +193,30 @@ test("requestPermission: the user picked approximate", async () => {
   await tick()
   reply(last("providers").id, { ...providers, coarse: true })
   expect(await p).toEqual({ permission: "granted", precise: false })
+})
+
+test("iOS: one location permission, its precise switch, and the same blocked rule", async () => {
+  const g = globalThis as { __zn_constants?: string }
+  g.__zn_constants = JSON.stringify({ Platform: { os: "ios", release: "18.0" } })
+  resetNativeConstantsForTests()
+  resetPlatformForTests()
+  try {
+    const p = Location.requestPermission({ precise: false })
+    expect(last("request").args.names).toEqual(["location"])
+    reply(last("request").id, { location: "granted", "location.precise": "blocked" })
+    expect(await p).toEqual({ permission: "granted", precise: false })
+
+    const s = Location.status()
+    reply(last("providers").id, { ...providers })
+    await tick()
+    expect(last("status").args.names).toEqual(["location"])
+    reply(last("status").id, { location: "blocked" })
+    expect((await s).permission).toBe("blocked")
+  } finally {
+    g.__zn_constants = undefined
+    resetNativeConstantsForTests()
+    resetPlatformForTests()
+  }
 })
 
 // ---- Settings and geocoding -------------------------------------------------------------------------------------------

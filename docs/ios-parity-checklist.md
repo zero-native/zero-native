@@ -223,14 +223,14 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 |---|---|---|---|---|---|
 | ad-id | Google advertising id (module AdId) | no | AdIdPlugin.kt, AdIdRules.kt | M | IDFA needs the App Tracking Transparency prompt. |
 | analytics | Firebase Analytics, RN Firebase API (Analytics) | no | AnalyticsPlugin.kt, AnalyticsRules.kt | M | After firebase-app. |
-| auth | Phone number hint sheet, SMS Retriever (Auth) | no | AuthPlugin.kt, AuthModule.kt, AuthRules.kt | S | iOS has neither. Answer "unavailable" so the app falls back to typing; the OTP fills from the keyboard via OtpInput's `.oneTimeCode`. |
+| auth | Phone number hint sheet, SMS Retriever (Auth) | done (stubs) | AuthPlugin.kt, AuthModule.kt, AuthRules.kt | S | iOS has neither. Answer "unavailable" so the app falls back to typing; the OTP fills from the keyboard via OtpInput's `.oneTimeCode`. |
 | crashlytics | Firebase Crashlytics, JS errors (Crashlytics) | no | CrashlyticsPlugin.kt, CrashlyticsModule.kt, CrashlyticsRules.kt | M | dSYM upload; needs the JS error listener (§4). |
-| device-info | react-native-device-info values (DeviceInfo) | no | DeviceInfoPlugin.kt, DeviceInfoRules.kt | M | |
+| device-info | react-native-device-info values (DeviceInfo) | done (simulator) | DeviceInfoPlugin.kt, DeviceInfoRules.kt | M | |
 | device-test | Test plugin for the sample (Device) | no | DeviceTestPlugin.kt, DeviceModule.kt, FakeNative.kt | S | Port it first: the template for every iOS plugin. |
 | document-scanner | ML Kit document scanner, pages and PDF as handles (DocumentScanner) | no | DocumentScannerPlugin.kt, DocScanModule.kt, DocScanRules.kt | L | VisionKit `VNDocumentCameraViewController`, PDFKit for the PDF. |
 | firebase-app | Firebase base, one Firebase version (Firebase, Installations) | no | FirebaseAppPlugin.kt, firebase.gradle.kts | L | Getting the Firebase iOS SDK into the CMake build, GoogleService-Info.plist. |
 | image-viewer | Full-screen photo viewer, pinch zoom (ImageViewer, screen imageviewer.full) | no | ImageViewerPlugin.kt, ImageViewerScreen.kt, ViewerParts.kt, ZoomState.kt, SharpSource.kt, ViewerSpec.kt, ViewerHeld.kt, ViewerRules.kt, DebugGestures.kt | L (1.5 d) | Needs native screens. |
-| location | Location and geocoding (Location) | no | LocationPlugin.kt, LocationModule.kt, LocationRules.kt | L | CoreLocation, CLGeocoder. |
+| location | Location and geocoding (Location) | done (simulator) | LocationPlugin.kt, LocationModule.kt, LocationRules.kt | L | CoreLocation, CLGeocoder. |
 | lottie | Lottie view, lottie-react-native names (Lottie, view lottie.view) | no | LottiePlugin.kt, LottieView.kt, LottieModule.kt, LottieFiles.kt, LottieRules.kt | M | lottie-ios. Needs NativeView. |
 | markdown | Markdown drawn as Text with spans | JS only | none | 0 | Should work: Text spans and onSpanPress are on iOS. Not run on iOS yet. |
 | media | Pick photos / files, camera, compress, edit, as handles (Media) | no | MediaPlugin.kt, MediaModule.kt, MediaImage.kt, MediaFileProvider.kt, MediaRules.kt | L (1.5 d) | PHPicker, UIImagePickerController, UIDocumentPicker. |
@@ -244,7 +244,66 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 Each plugin also has a Kotlin `*RulesTest.kt` (17 in all); the iOS side needs the same checks.
 
 Totals: 19 plugins. 1 JS-only (likely works), 18 with no iOS side. 9 L (12.5 days with the brackets), 7 M, 2 S
-= **16.5 days**.
+= **16.5 days**. (Written before the scanner was done; see the groups below for where iOS is smaller.)
+
+### How each plugin looks from iOS (2026-11-08)
+
+Not every plugin is a port. Read from each plugin's native functions (`function("…")` in its Kotlin), grouped by how
+much the idea changes on iOS.
+
+**1. Mostly nothing on iOS: the iOS side answers "unavailable" and JS falls back.**
+- **auth** (phoneHint, appHash, listenOtp, stopOtp). iOS has no phone number sheet, no SMS app hash and no SMS reading
+  at all. What takes their place costs nothing: OtpInput's `.oneTimeCode` (the keyboard offers the code from
+  Messages) and a phone field marked as a phone number (the keyboard offers the user's own number). iOS side: the
+  module with "unavailable" answers and `appHash` = `""`. **S.** Server: keep the Android SMS format (hash alone at the
+  end); iOS finds codes in plain text such as "Your code is 123456". Apple's stricter `@domain #code` last line
+  would clash with the hash rule, so don't use it.
+- **ad-id.** The IDFA needs Apple's App Tracking Transparency prompt, and a refusal (most users) gives zeros. Apple's
+  ad attribution is another system (SKAdNetwork / AdAttributionKit). Unless the app runs install ads: "unavailable".
+  **S.**
+- **device-info.** About a third of the names are Android-only (androidId, bootloader, serial, installReferrer,
+  hasGms / hasHms, apiLevel, securityPatch, …): the same "unknown" answers react-native-device-info gives on iOS. The
+  rest map (getUniqueId = identifierForVendor, which changes on reinstall). Still **M**.
+
+**2. Same job, another mechanism: needs its own iOS design, not a line-by-line port.**
+- **push** (the big one). APNs, with FCM on top if we keep FCM topics and tokens. Channels and channel groups don't
+  exist (those calls do nothing); `isBatteryOptimized`, `canScheduleExact` are n/a. The main difference: Android runs
+  JS for data messages in the background; iOS silent pushes are throttled, not guaranteed, and never delivered after
+  the user swipes the app away. Anything the user must see needs an alert payload from the server. Changing a
+  notification on arrival needs a Notification Service Extension (a separate target that can't cheaply run Hermes).
+  At most 64 scheduled local notifications. **L (2.5 d)** plus a server payload decision.
+- **UPI** (Launches, §4, not a plugin). Android opens the UPI app and gets a result back; iOS opens it by URL scheme
+  (phonepe://, gpay://, paytmmp://, …) and gets nothing back. The result always comes from the server after the user
+  returns. The schemes go in Info.plist (`LSApplicationQueriesSchemes`).
+- **location.** CoreLocation, CLGeocoder (rate-limited). Google's "Turn on location" dialog has no iOS form (only a link
+  to Settings), so `turnOn` and `providers` are n/a. iOS adds "while using" vs "always" and the user's precise /
+  approximate switch. **L.**
+- **media.** PHPicker needs no permission (simpler than Android). iPhone photos are HEIC: convert to JPEG. `edit` has no
+  system editor on iOS (only a square crop): its own screen, or "unavailable". **L (1.5 d).**
+- **document-scanner.** VisionKit's `VNDocumentCameraViewController` does the same job with no download, so `download` /
+  `getStatus` are "always ready". PDF by PDFKit. **M** rather than L.
+- **scanner.** Done; `autoZoom` has no iOS form.
+
+**3. Firebase family: the same API through the Firebase iOS SDK; the work is the build.**
+- **firebase-app, analytics, crashlytics, perf, remote-config.** Getting the SDK into the CMake build, adding
+  GoogleService-Info.plist, uploading dSYMs for Crashlytics. A few MB on the app. Analytics' IDFA collection follows
+  the ATT prompt, like ad-id.
+
+**4. Straight ports: the same idea in iOS views.**
+- **pdf** (PDFKit, easier than Android's renderer), **webview** (WKWebView; `debugRenderer` n/a), **image-viewer** (a
+  zooming UIScrollView), **lottie** (lottie-ios), **markdown** (JS only, nothing to do), **device-test** (the sample's;
+  the iOS screen and view exist in ios/Sample, the Device module doesn't).
+
+**For ZeroBill:** auth is small; push and UPI need decisions with the server (alert payloads, the server as the only
+source of a payment's result); the Firebase plugins are mostly build work.
+
+**What ZeroBill uses (2026-11-08, my-app-prototype at 14a376e, from its bundle's `requires.modules` and JS
+imports):** AdId, Analytics, Auth, Crashlytics, DeviceInfo, DocumentScanner, ImageViewer 2, Location 2, Lottie, Pdf,
+Push, Scanner, WebView; Markdown (JS only). Firebase is on in its Android build (app, analytics, crashlytics with NDK,
+push). Not used: media, perf, remote-config. ZeroBill's own plugins (Upi, Truecaller, GoogleSignIn, InAppUpdate,
+InstallReferrer, LegacyData) need iOS answers from the ZeroBill side. iOS done: auth, device-info, location, scanner.
+Left, in order of use: push + crashlytics + analytics (all need the Firebase base), lottie (11 imports), document-scanner,
+pdf, image-viewer (receipts), webview, ad-id.
 
 ---
 
