@@ -128,6 +128,9 @@ object ZnFetch : ZnModuleBase("Fetch") {
 
     /** The shared client (also for app code that wants the same pool and settings). Built on first use. */
     val client: OkHttpClient by lazy { build() }
+
+    /** The User-Agent fetch sends by default (WebSocket handshakes send it too). Builds the client first if needed. */
+    internal val defaultUserAgent: String get() = client.let { userAgent }
     private val noRedirectClient: OkHttpClient by lazy { client.newBuilder().followRedirects(false).build() }
     private val idleLimitClient: OkHttpClient by lazy {
         client.newBuilder().readTimeout(IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -414,21 +417,30 @@ object ZnFetch : ZnModuleBase("Fetch") {
                 emit("uploadProgress", JSONObject().put("id", reqId).put("loaded", loaded).put("total", total))
             }
         }
-        return CountingRequestBody(
+        return uploadProgressBody(guarded, throttler)
+    }
+
+    /**
+     * [guarded] with upload progress. The last event is the bytes really written and the same total as the others
+     * (-1 when the size is unknown), never `-1 / -1`. If OkHttp writes the body again (a retry of an idempotent
+     * request) or an interceptor reads it first, counting starts again from 0.
+     */
+    internal fun uploadProgressBody(guarded: RequestBody, throttler: ProgressThrottler): RequestBody =
+        CountingRequestBody(
             inner = guarded,
             onProgress = { loaded, total -> throttler.update(loaded, total) },
-            onDone = { throttler.finish(guarded.contentLength(), guarded.contentLength()) },
+            onDone = { written, total -> throttler.finish(written, total) },
         )
-    }
 
     /**
      * Wraps a body to track upload progress using Okio ForwardingSink.
      * Delegates isOneShot() and contentType() to [inner].
+     * [onDone] gets the bytes written by this writeTo and the total it reported (-1 when unknown).
      */
     internal class CountingRequestBody(
         internal val inner: RequestBody,
         private val onProgress: (loaded: Long, total: Long) -> Unit,
-        private val onDone: () -> Unit = {},
+        private val onDone: (written: Long, total: Long) -> Unit = { _, _ -> },
     ) : RequestBody() {
         override fun contentType(): MediaType? = inner.contentType()
         override fun contentLength(): Long = inner.contentLength()
@@ -447,7 +459,7 @@ object ZnFetch : ZnModuleBase("Fetch") {
             val bufferedSink = countingSink.buffer()
             inner.writeTo(bufferedSink)
             bufferedSink.flush()
-            onDone()
+            onDone(bytesWritten, total)
         }
     }
 
@@ -497,7 +509,7 @@ object ZnFetch : ZnModuleBase("Fetch") {
     }
 
     /** Wraps a body to mark it one-shot: OkHttp then never sends it a second time (no silent POST retry). */
-    private class Guarded(private val inner: RequestBody, private val oneShot: Boolean) : RequestBody() {
+    internal class Guarded(private val inner: RequestBody, private val oneShot: Boolean) : RequestBody() {
         override fun contentType() = inner.contentType()
         override fun contentLength() = inner.contentLength()
         override fun isOneShot() = oneShot || inner.isOneShot()

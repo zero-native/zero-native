@@ -1,8 +1,10 @@
 // The browser WebSocket API for zero-native apps.
 // Built on OkHttp on Android (uses the shared ZnFetch.client so pins and interceptors apply).
-import { callNative, onNativeEvent } from "./calls"
+// Native side: android/runtime/.../ZnWebSocket.kt. Differences from browsers: docs/fetch.md §8.
+import { callNative, NativeError, onNativeEvent } from "./calls"
 import { reportError } from "./errors"
 import { runWithOwner } from "./signals"
+import { ZnURL } from "./url"
 
 export type BinaryType = "blob" | "arraybuffer"
 
@@ -51,20 +53,66 @@ export class WebSocketErrorEvent extends WebSocketEvent {
 
 type EventListener<E extends WebSocketEvent = WebSocketEvent> = (evt: E) => void
 
-let wsSeq = 0
-const MAX_MESSAGE_SIZE = 1_048_576 // 1 MB cap (second-opinions 161)
+// Socket ids start at a random number in each JS runtime. Native events carry the id, and after a dev reload or an
+// OTA restart a late event of an old socket could otherwise reach a new socket that got the same small number.
+// Stays below 2^31: native reads the id as an Int.
+let wsSeq = Math.floor(Math.random() * 0x3fffffff)
+const MAX_MESSAGE_SIZE = 1_048_576 // 1 MB cap in UTF-8 bytes, like native (second-opinions 161)
 
-function checkWsUrl(url: string | { toString(): string }): string {
+/**
+ * The UTF-8 size of [s] in bytes, without making the bytes. Native counts the same way (Okio utf8Size), except a lone
+ * surrogate: 3 bytes here (U+FFFD), 1 byte there ("?"). So JS is never less strict than native.
+ */
+export function utf8Length(s: string): number {
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c < 0x80) n += 1
+    else if (c < 0x800) n += 2
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+      const d = s.charCodeAt(i + 1)
+      if (d >= 0xdc00 && d <= 0xdfff) {
+        n += 4
+        i++
+      } else n += 3
+    } else n += 3
+  }
+  return n
+}
+
+/** A DOMException with the web's name (InvalidStateError, ...); a plain Error with that name if there is none. */
+function domError(message: string, name: string): Error {
+  const D = (globalThis as any).DOMException
+  if (typeof D === "function") return new D(message, name)
+  const e = new Error(message)
+  e.name = name
+  return e
+}
+
+/** RFC 6455 subprotocol names are HTTP tokens (RFC 7230 tchar). */
+const TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+
+function checkWsUrl(url: string | { toString(): string }): { href: string; origin: string } {
   const s = String(url)
-  const match = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(s)
-  if (!match) {
+  let parsed: ZnURL
+  try {
+    parsed = new ZnURL(s)
+  } catch {
     throw new SyntaxError(`The URL '${s}' is invalid.`)
   }
-  const scheme = match[1].toLowerCase()
+  const scheme = parsed.protocol.slice(0, -1)
   if (scheme !== "ws" && scheme !== "wss") {
     throw new SyntaxError(`The URL's scheme must be either 'ws' or 'wss'. Got '${scheme}:'.`)
   }
-  return s
+  if (parsed.hostname === "") {
+    throw new SyntaxError(`The URL '${s}' has no host.`)
+  }
+  const href = parsed.href
+  // A "#" in the serialized URL can only start a fragment ("ws://a/#" has an empty one; browsers reject it too).
+  if (href.includes("#")) {
+    throw new SyntaxError(`The URL contains a fragment identifier ('${parsed.hash || "#"}'). Fragment identifiers are not allowed in WebSocket URLs.`)
+  }
+  return { href, origin: parsed.origin }
 }
 
 export class WebSocket {
@@ -78,6 +126,7 @@ export class WebSocket {
   readonly CLOSING = 2
   readonly CLOSED = 3
 
+  /** The full URL, as browsers give it (parsed and serialized: "ws://host" becomes "ws://host/"). */
   readonly url: string
   readonly extensions: string = ""
   binaryType: BinaryType = "blob"
@@ -86,35 +135,43 @@ export class WebSocket {
   private _protocol: string = ""
   private _bufferedAmount: number = 0
   private readonly _id: number
+  /** scheme://host[:port], the `origin` of message events. */
+  private readonly _origin: string
 
   private _onopen: ((this: WebSocket, ev: WebSocketEvent) => any) | null = null
   private _onmessage: ((this: WebSocket, ev: WebSocketMessageEvent) => any) | null = null
   private _onerror: ((this: WebSocket, ev: WebSocketErrorEvent) => any) | null = null
   private _onclose: ((this: WebSocket, ev: WebSocketCloseEvent) => any) | null = null
 
-  private readonly _listeners = new Map<string, Set<EventListener<any>>>()
+  /** type → listener → once. A Map keeps the order listeners were added in. */
+  private readonly _listeners = new Map<string, Map<EventListener<any>, boolean>>()
   private readonly _unsubs: Array<() => void> = []
 
   constructor(url: string | { toString(): string }, protocols?: string | string[]) {
-    this.url = checkWsUrl(url)
-    this._id = ++wsSeq
+    const checked = checkWsUrl(url)
+    this.url = checked.href
+    this._origin = checked.origin
 
     let protoList: string[] = []
     if (typeof protocols === "string") {
       protoList = [protocols]
     } else if (Array.isArray(protocols)) {
-      const seen = new Set<string>()
-      for (const p of protocols) {
-        if (typeof p !== "string" || seen.has(p)) {
-          throw new SyntaxError(`The subprotocol '${p}' is duplicated or not a string.`)
-        }
-        seen.add(p)
-      }
       protoList = protocols
     } else if (protocols !== undefined && protocols !== null) {
       throw new SyntaxError("protocols must be a string or array of strings")
     }
+    const seen = new Set<string>()
+    for (const p of protoList) {
+      if (typeof p !== "string" || seen.has(p)) {
+        throw new SyntaxError(`The subprotocol '${p}' is duplicated or not a string.`)
+      }
+      if (!TOKEN.test(p)) {
+        throw new SyntaxError(`The subprotocol '${p}' is invalid.`)
+      }
+      seen.add(p)
+    }
 
+    this._id = ++wsSeq
     this._setupNative(protoList)
   }
 
@@ -160,56 +217,67 @@ export class WebSocket {
 
   send(data: unknown): void {
     if (this._readyState === WebSocket.CONNECTING) {
-      const err = new Error("InvalidStateError: WebSocket is still in CONNECTING state.")
-      err.name = "InvalidStateError"
-      throw err
-    }
-    if (this._readyState !== WebSocket.OPEN) {
-      const err = new Error("InvalidStateError: WebSocket is not open.")
-      err.name = "InvalidStateError"
-      throw err
+      throw domError("Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.", "InvalidStateError")
     }
     if (typeof data !== "string") {
       throw new TypeError("zero-native WebSocket v1 supports text frames only; send(string) required")
     }
-    if (data.length > MAX_MESSAGE_SIZE) {
+    // CLOSING / CLOSED: dropped quietly, like browsers (they don't throw here either).
+    if (this._readyState !== WebSocket.OPEN) return
+    if (utf8Length(data) > MAX_MESSAGE_SIZE) {
       throw new RangeError("WebSocket message exceeds 1 MB limit (second-opinions 161)")
     }
 
     callNative("WebSocket", "send", { id: this._id, data }, { owned: false }).catch((e) => {
+      // The socket closed or failed on the native side just before this send; its close event is on the way.
+      if (e instanceof NativeError && (e.code === "not_found" || e.code === "send_failed")) {
+        globalThis.__zn_log(2, `WebSocket send dropped: ${e.message}`)
+        return
+      }
       reportError("WebSocket send", e)
     })
   }
 
   close(code?: number, reason?: string): void {
-    if (this._readyState === WebSocket.CLOSING || this._readyState === WebSocket.CLOSED) {
-      return
-    }
+    // Arguments are checked first, in every state (WHATWG order).
     if (code !== undefined) {
-      if (code !== 1000 && (code < 3000 || code > 4999)) {
-        throw new RangeError(`The close code must be either 1000, or between 3000 and 4999. Received: ${code}`)
+      const n = Number(code)
+      // WebIDL [Clamp] unsigned short: rounded, then kept in 0..65535.
+      const c = Number.isNaN(n) ? 0 : Math.min(65535, Math.max(0, Math.round(n)))
+      if (c !== 1000 && (c < 3000 || c > 4999)) {
+        throw domError(`The close code must be either 1000, or between 3000 and 4999. Received: ${code}`, "InvalidAccessError")
       }
+      code = c
     }
     if (reason !== undefined) {
-      if (new TextEncoder().encode(reason).length > 123) {
+      reason = String(reason)
+      if (utf8Length(reason) > 123) {
         throw new SyntaxError("The close reason must not be greater than 123 bytes.")
       }
     }
+    if (this._readyState === WebSocket.CLOSING || this._readyState === WebSocket.CLOSED) {
+      return
+    }
 
+    // While CONNECTING, browsers fail the connection: error, then close 1006. Native cancels the connect for that.
+    const abort = this._readyState === WebSocket.CONNECTING
     this._readyState = WebSocket.CLOSING
     callNative(
       "WebSocket",
       "close",
-      { id: this._id, code: code ?? 1000, reason: reason ?? "" },
+      { id: this._id, code: code ?? 1000, reason: reason ?? "", abort },
       { owned: false },
-    ).catch(() => {})
+    ).catch((e) => {
+      globalThis.__zn_log(2, `WebSocket close: ${e instanceof Error ? e.message : String(e)}`)
+    })
   }
 
-  addEventListener(type: string, listener: EventListener<any>): void {
+  addEventListener(type: string, listener: EventListener<any>, options?: boolean | { once?: boolean }): void {
     if (typeof listener !== "function") return
     let set = this._listeners.get(type)
-    if (!set) this._listeners.set(type, (set = new Set()))
-    set.add(listener)
+    if (!set) this._listeners.set(type, (set = new Map()))
+    if (set.has(listener)) return // the web adds a listener once; the first options win
+    set.set(listener, typeof options === "object" && options !== null && options.once === true)
   }
 
   removeEventListener(type: string, listener: EventListener<any>): void {
@@ -233,7 +301,9 @@ export class WebSocket {
     }
     const set = this._listeners.get(type)
     if (set) {
-      for (const listener of [...set]) {
+      for (const [listener, once] of [...set]) {
+        if (!set.has(listener)) continue // removed by a listener before it, during this event
+        if (once) set.delete(listener)
         try {
           listener.call(this, evt)
         } catch (e) {
@@ -265,7 +335,7 @@ export class WebSocket {
 
     listen("message", (p) => {
       if (this._readyState === WebSocket.OPEN) {
-        this._dispatch("message", new WebSocketMessageEvent(this, String(p?.data ?? ""), this.url))
+        this._dispatch("message", new WebSocketMessageEvent(this, String(p?.data ?? ""), this._origin))
       }
     })
 
@@ -276,7 +346,9 @@ export class WebSocket {
     })
 
     listen("error", (p) => {
-      this._dispatch("error", new WebSocketErrorEvent(this, p?.message ?? "WebSocket error"))
+      if (this._readyState !== WebSocket.CLOSED) {
+        this._dispatch("error", new WebSocketErrorEvent(this, p?.message ?? "WebSocket error"))
+      }
     })
 
     listen("close", (p) => {

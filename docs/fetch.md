@@ -93,6 +93,18 @@ to JS, and a cut-off body is always an error, never half a JSON. Big files need 
 | GET / HEAD with a body crashes OkHttp; POST without a body crashes OkHttp ("method POST must have a request body") | GET / HEAD with a body: `TypeError` in JS (web rule). POST / PUT / PATCH without a body: sent with an empty body. |
 | Forgot `Content-Type: application/json` | Default for a string body is `text/plain;charset=UTF-8` (web rule). A warning is logged (once) when the string looks like JSON and no content type was given. |
 
+### Progress events (`onUploadProgress`, `onDownloadProgress`)
+- At most one event per 100 ms, plus a last event with the final count. `total` is `-1` when the size is not known
+  (a streamed `content://` file, a download without `Content-Length`).
+- The last upload event is the bytes really written and the same `total` as the others: `{ loaded: 16484,
+  total: -1 }` for a body of unknown size, never `{ loaded: -1, total: -1 }` (fixed 2026-11-08).
+- **Upload progress can count again from 0.** OkHttp writes the body once per try. If OkHttp sends the request again
+  (a GET / PUT / DELETE retried after a dead connection; POST and PATCH are one-shot and never sent twice), or an
+  interceptor reads the body before it is sent (a logging interceptor such as Chucker), `loaded` starts again from 0.
+  Show progress as "about this far", not as proof of what the server got.
+- Progress ids start at a random number in each JS runtime, so after a dev reload or an OTA restart a late event
+  of an old request never reaches a new one.
+
 ### Headers
 | Problem | What we do |
 |---|---|
@@ -187,3 +199,32 @@ HTTPS hosts. Lava Blaze 2 5G, Android 14, Wi-Fi, 2026-10-30, debug and release (
 | Share the OkHttp client with Coil (images): one pool, one config (pinning applies to images too) | One connection pool for API + images; touches image loading, so its own small step. |
 | Network status (`online`, Wi-Fi / mobile, validated) | Small module (milestone 3.7 list). |
 | iOS (URLSession) | With the iOS renderer. |
+
+## 8. `WebSocket` (shares the fetch client)
+The browser `WebSocket` (`packages/core/src/websocket.ts`, native `ZnWebSocket.kt`) is built on the same shared
+OkHttp client as `fetch`, so it gets the same pins, interceptors, proxy and connect timeout. Fixed after review
+(2026-11-08): call order, the server's close, stale sockets after a reload, binary frames, the User-Agent.
+
+What app code should know:
+- **Pings every 10 s.** The shared client pings (`pingInterval`, the PAY-5 fix in §3 Network) every open socket
+  every 10 s. With no answer by the next ping the socket fails: `error`, then `close` with code 1006. This finds dead
+  sockets fast, but it also wakes the radio every 10 s while a socket is open, in the background too, which costs
+  battery. Close sockets when the screen or the app goes to the background, and open them again on return.
+- **User-Agent:** the handshake sends the same User-Agent as `fetch`
+  (`<app label>/<versionName> (Android <release>) zero-native/<version>`), not `okhttp/...`.
+- **Text frames only (v1).** `send()` takes a string; anything else is a `TypeError`. The first binary frame from
+  the server gives one `error` event, then we close with 1003 ("Unsupported Data").
+- **1 MB per message, in UTF-8 bytes.** `send()` of more throws a `RangeError` (counted in UTF-8 bytes, like native,
+  not `.length`). An incoming message over 1 MB gives one `error`, then we close with 1009. **The cap protects JS, not
+  native memory:** OkHttp 5.5.1 has no setting to limit an incoming message, and reads the whole message (after
+  unzipping, with `permessage-deflate`) into memory before we can check its size. Only talk to servers you trust.
+- **Server close:** we answer the server's close frame at once, so `close` comes with the server's code and
+  `wasClean: true`. If our own close gets no answer, OkHttp cuts the socket after 60 s (`close` 1006).
+- `close()` while CONNECTING cancels the connect: `error`, then `close` 1006 (browser rule).
+- `send()` in CLOSING / CLOSED does nothing (no throw, like browsers; browsers add the size to `bufferedAmount`,
+  which stays 0 here).
+
+How it is built: `connect`, `send` and `close` run on the main thread only to keep the order JS called them in; each
+is handed to one `zn-websocket` worker thread, which builds the client the first time (never on the main thread). Each
+listener callback first checks that its socket is still the live one, so events of a socket dropped by a JS reset are
+ignored. Socket ids start at a random number in each JS runtime. A JS reset cancels all sockets (no close handshake).

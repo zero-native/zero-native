@@ -112,7 +112,7 @@ class ZnFetchTest {
         val counting = ZnFetch.CountingRequestBody(
             inner = inner,
             onProgress = { loaded, total -> progressReports += (loaded to total) },
-            onDone = { doneCalled = true },
+            onDone = { _, _ -> doneCalled = true },
         )
 
         assertEquals(payload.size.toLong(), counting.contentLength())
@@ -174,5 +174,51 @@ class ZnFetchTest {
         // Calling finish again with same loaded does not duplicate
         throttler.finish(100L, 100L)
         assertEquals(3, emitted.size)
+    }
+
+    /** A body that doesn't know its size (like a content:// file whose length can't be read), written in 3 pieces. */
+    private class UnknownLengthBody(private val pieces: List<ByteArray>) : okhttp3.RequestBody() {
+        override fun contentType() = null
+        override fun contentLength() = -1L
+        override fun writeTo(sink: okio.BufferedSink) {
+            for (p in pieces) {
+                sink.write(p)
+                sink.emit() // hand each piece on, like a streamed file
+            }
+        }
+    }
+
+    @Test
+    fun uploadProgressWithUnknownLengthEndsWithTheRealByteCount() {
+        val pieces = listOf(ByteArray(8192) { 1 }, ByteArray(8192) { 2 }, ByteArray(100) { 3 })
+        val emitted = mutableListOf<Pair<Long, Long>>()
+        val throttler = ZnFetch.ProgressThrottler(minIntervalMs = 100L, clock = { 1000L }) { loaded, total ->
+            emitted += (loaded to total)
+        }
+        // The real path: a POST body is a one-shot Guarded body, then wrapped for progress (ZnFetch.requestBody).
+        val body = ZnFetch.uploadProgressBody(ZnFetch.Guarded(UnknownLengthBody(pieces), oneShot = true), throttler)
+        assertTrue("progress must keep the one-shot guard (no silent POST retry)", body.isOneShot())
+        assertEquals(-1L, body.contentLength())
+
+        val sink = okio.Buffer()
+        body.writeTo(sink)
+
+        assertEquals(16484L, sink.size)
+        assertTrue(emitted.isNotEmpty())
+        // Before the fix the last event was (-1, -1).
+        assertEquals(16484L to -1L, emitted.last())
+        assertTrue(emitted.all { it.second == -1L })
+    }
+
+    @Test
+    fun uploadProgressWithKnownLengthEndsWithLoadedEqualToTotal() {
+        val payload = ByteArray(20_000) { 7 }
+        val emitted = mutableListOf<Pair<Long, Long>>()
+        val throttler = ZnFetch.ProgressThrottler(minIntervalMs = 100L, clock = { 1000L }) { loaded, total ->
+            emitted += (loaded to total)
+        }
+        val body = ZnFetch.uploadProgressBody(ZnFetch.Guarded(payload.toRequestBody(null), oneShot = false), throttler)
+        body.writeTo(okio.Buffer())
+        assertEquals(20_000L to 20_000L, emitted.last())
     }
 }

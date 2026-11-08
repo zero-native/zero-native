@@ -386,7 +386,9 @@ interface NativeHead {
   headers: string[]
 }
 
-let fetchSeq = 0
+// Progress ids (reqId) start at a random number in each JS runtime: a late progress event of an old runtime (dev
+// reload, OTA restart) then can't reach a new request that got the same small number. Stays below 2^31 (native Int).
+let fetchSeq = Math.floor(Math.random() * 0x3fffffff)
 
 export function fetch(input: string | Request | { toString(): string }, init?: FetchInit): Promise<Response> {
   let request: Request
