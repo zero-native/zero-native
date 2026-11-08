@@ -44,12 +44,28 @@ describe("B2: async component", () => {
 })
 
 describe("T3: destructured props", () => {
-  test("in a child: build error", async () => {
-    const msg = await fails(`
+  test("in a child: simple destructured props compiles and reads live", async () => {
+    await build(`
 function Row1({ title }: { title: string }) { return <Text>{title}</Text> }
 const t = () => "a"; export function S() { return <Column><Row1 title={t()} /></Column> }`)
-    expect(msg).toContain("screens.tsx:3:15: Row1 takes its props destructured")
-    expect(msg).toContain("Write Row1(p) and read p.title")
+  })
+  test("in a child: rest pattern is a build error", async () => {
+    const msg = await fails(`
+function Row1({ ...rest }: any) { return <Text>hi</Text> }
+export function S() { return <Column><Row1 /></Column> }`)
+    expect(msg).toContain("Row1 takes its props destructured with a rest pattern (...rest)")
+  })
+  test("in a child: nested pattern is a build error", async () => {
+    const msg = await fails(`
+function Row1({ user: { name } }: any) { return <Text>{name}</Text> }
+export function S() { return <Column><Row1 user={{ name: 'a' }} /></Column> }`)
+    expect(msg).toContain("Row1 takes its props destructured with a nested pattern")
+  })
+  test("in a child: array pattern is a build error", async () => {
+    const msg = await fails(`
+function Row1([a, b]: any) { return <Text>{a}</Text> }
+export function S() { return <Column><Row1 /></Column> }`)
+    expect(msg).toContain("Row1 takes its props as an array pattern")
   })
   test("in a screen: fine (route params don't change while it is open)", async () => {
     await build(`export function S({ id }: { id: string }) { return <Column><Text>{id}</Text></Column> }`)

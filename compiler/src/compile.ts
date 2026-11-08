@@ -266,17 +266,39 @@ export function compileModule(
   // `at`: where generated code points in the source map (the JSX element, not the parenthesis around it).
   const edits: Array<{ start: number; end: number; text: string; at?: number }> = []
   const components: Record<string, number> = {}
+  const destructuredReplacements = new Map<number, { end: number; text: string }>()
 
   const fail = (node: ts.Node, message: string): never => {
     const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
     throw new Error(`${fileName}:${line + 1}:${character + 1}: ${message}`)
   }
+
+  const substituteReplacements = (start: number, end: number): string => {
+    const inRange: Array<{ start: number; end: number; text: string }> = []
+    for (const [rStart, { end: rEnd, text: rText }] of destructuredReplacements) {
+      if (rStart >= start && rEnd <= end) {
+        inRange.push({ start: rStart, end: rEnd, text: rText })
+      }
+    }
+    if (inRange.length === 0) return source.slice(start, end)
+    inRange.sort((a, b) => a.start - b.start)
+    let res = ""
+    let cur = start
+    for (const r of inRange) {
+      res += source.slice(cur, r.start)
+      res += r.text
+      cur = r.end
+    }
+    res += source.slice(cur, end)
+    return res
+  }
+
   const text = (node: ts.Node) => {
     forEachDescendant(node, (n) => {
       if (isJsx(n)) fail(n, "JSX isn't allowed here (only as children, in `&&` / `? :` branches, or in `.map(...)` rows)")
     })
     // Marked, so the source map can point errors inside handlers and expressions at their exact TSX line.
-    return markCopied(node.getStart(sf), source.slice(node.getStart(sf), node.getEnd()))
+    return markCopied(node.getStart(sf), substituteReplacements(node.getStart(sf), node.getEnd()))
   }
   // An event handler: a function written in place stays as it is; anything else (`props.onPress`, `cond ? f : undefined`)
   // is read when the event comes, and an undefined one does nothing, as in React Native (core view.ts latest()).
@@ -354,6 +376,227 @@ export function compileModule(
     }
   }
   for (const name of svgImports.keys()) userComponents.delete(name)
+
+  function isSimpleConstantOrLiteral(e: ts.Expression): boolean {
+    const u = unwrap(e)
+    if (
+      ts.isStringLiteral(u) ||
+      ts.isNumericLiteral(u) ||
+      ts.isBigIntLiteral(u) ||
+      ts.isNoSubstitutionTemplateLiteral(u) ||
+      u.kind === ts.SyntaxKind.TrueKeyword ||
+      u.kind === ts.SyntaxKind.FalseKeyword ||
+      u.kind === ts.SyntaxKind.NullKeyword
+    ) {
+      return true
+    }
+    if (ts.isPrefixUnaryExpression(u) && (u.operator === ts.SyntaxKind.MinusToken || u.operator === ts.SyntaxKind.PlusToken)) {
+      return ts.isNumericLiteral(u.operand)
+    }
+    if (ts.isIdentifier(u)) {
+      return true
+    }
+    return false
+  }
+
+  function declaresName(nameNode: ts.Node, name: string): boolean {
+    if (ts.isIdentifier(nameNode)) return nameNode.text === name
+    if (ts.isObjectBindingPattern(nameNode) || ts.isArrayBindingPattern(nameNode)) {
+      for (const el of nameNode.elements) {
+        if (ts.isBindingElement(el) && declaresName(el.name, name)) return true
+      }
+    }
+    return false
+  }
+
+  function declaresInStatement(stmt: ts.Statement, name: string): boolean {
+    if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations) {
+        if (declaresName(d.name, name)) return true
+      }
+    } else if (ts.isFunctionDeclaration(stmt) && stmt.name?.text === name) {
+      return true
+    }
+    return false
+  }
+
+  function isShadowed(id: ts.Identifier, name: string, rootFn: ts.FunctionLikeDeclaration): boolean {
+    let cur: ts.Node | undefined = id.parent
+    while (cur && cur !== rootFn) {
+      if (ts.isFunctionLike(cur)) {
+        for (const p of cur.parameters) {
+          if (declaresName(p.name, name)) return true
+        }
+      }
+      if (ts.isBlock(cur) || ts.isSourceFile(cur) || ts.isCaseClause(cur) || ts.isDefaultClause(cur)) {
+        for (const stmt of cur.statements) {
+          if (declaresInStatement(stmt, name)) return true
+        }
+      }
+      if (ts.isCatchClause(cur) && cur.variableDeclaration) {
+        if (declaresName(cur.variableDeclaration.name, name)) return true
+      }
+      if (ts.isForStatement(cur) || ts.isForInStatement(cur) || ts.isForOfStatement(cur)) {
+        const init = (cur as any).initializer
+        if (init && ts.isVariableDeclarationList(init)) {
+          for (const d of init.declarations) {
+            if (declaresName(d.name, name)) return true
+          }
+        }
+      }
+      cur = cur.parent
+    }
+    return false
+  }
+
+  interface DestructuredPropInfo {
+    localName: string
+    propName: string
+    defaultValueText?: string
+  }
+
+  interface ComponentDestructureInfo {
+    param: ts.ParameterDeclaration
+    paramName: ts.BindingPattern
+    props: Map<string, DestructuredPropInfo>
+    replacements: Map<number, { end: number; text: string }>
+    error?: { node: ts.Node; message: string }
+  }
+
+  const destructuredByFn = new Map<ts.Node, ComponentDestructureInfo>()
+
+  for (const { name, fn } of candidates) {
+    const param = fn.parameters[0]
+    if (!param) continue
+    if (ts.isArrayBindingPattern(param.name)) {
+      destructuredByFn.set(fn, {
+        param,
+        paramName: param.name,
+        props: new Map(),
+        replacements: new Map(),
+        error: {
+          node: param,
+          message: `${name} takes its props as an array pattern: a component takes an object of props. Write ${name}(p) instead.`,
+        },
+      })
+      continue
+    }
+    if (!ts.isObjectBindingPattern(param.name)) continue
+
+    let patternError: { node: ts.Node; message: string } | undefined
+    const propMap = new Map<string, DestructuredPropInfo>()
+    for (const el of param.name.elements) {
+      if (el.dotDotDotToken) {
+        patternError = {
+          node: el,
+          message: `${name} takes its props destructured with a rest pattern (...rest): rest patterns are not supported. Write ${name}(p) and access props explicitly.`,
+        }
+        break
+      }
+      if (ts.isObjectBindingPattern(el.name) || ts.isArrayBindingPattern(el.name)) {
+        patternError = {
+          node: el,
+          message: `${name} takes its props destructured with a nested pattern: nested patterns are not supported. Write ${name}(p) instead.`,
+        }
+        break
+      }
+      if (el.propertyName && !ts.isIdentifier(el.propertyName) && !ts.isStringLiteral(el.propertyName)) {
+        patternError = {
+          node: el,
+          message: `${name} takes its props with a computed property name: computed property names are not supported. Write ${name}(p) instead.`,
+        }
+        break
+      }
+      const propName = el.propertyName
+        ? (ts.isIdentifier(el.propertyName) ? el.propertyName.text : el.propertyName.text)
+        : (el.name as ts.Identifier).text
+      const localName = (el.name as ts.Identifier).text
+
+      let defaultValueText: string | undefined
+      if (el.initializer) {
+        if (!isSimpleConstantOrLiteral(el.initializer)) {
+          patternError = {
+            node: el.initializer,
+            message: `${name} has a non-constant default value for prop "${propName}": default values in destructured props must be a literal (string, number, boolean, null) or simple constant.`,
+          }
+          break
+        }
+        defaultValueText = source.slice(el.initializer.getStart(sf), el.initializer.getEnd(sf))
+      }
+
+      propMap.set(localName, { localName, propName, defaultValueText })
+    }
+
+    if (patternError) {
+      destructuredByFn.set(fn, {
+        param,
+        paramName: param.name,
+        props: propMap,
+        replacements: new Map(),
+        error: patternError,
+      })
+      continue
+    }
+
+    let reassignmentError: { node: ts.Node; message: string } | undefined
+    const compReplacements = new Map<number, { end: number; text: string }>()
+    compReplacements.set(param.name.getStart(sf), { end: param.name.getEnd(sf), text: "__p" })
+
+    if (fn.body) {
+      forEachDescendant(fn.body, (n) => {
+        if (reassignmentError) return
+        if (!ts.isIdentifier(n) || !propMap.has(n.text)) return
+        if (n.getStart(sf) >= param.getStart(sf) && n.getEnd(sf) <= param.getEnd(sf)) return
+        if (!isReference(n)) return
+
+        if (isAssigned(n)) {
+          reassignmentError = {
+            node: n,
+            message: `${name} assigns to destructured prop "${n.text}": props are read-only.`,
+          }
+          return
+        }
+
+        if (isShadowed(n, n.text, fn)) return
+
+        const info = propMap.get(n.text)!
+        const propAccess = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(info.propName)
+          ? `__p.${info.propName}`
+          : `__p[${JSON.stringify(info.propName)}]`
+        const propExpr = info.defaultValueText !== undefined
+          ? `(${propAccess} === undefined ? ${info.defaultValueText} : ${propAccess})`
+          : propAccess
+
+        if (ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n) {
+          compReplacements.set(n.parent.getStart(sf), { end: n.parent.getEnd(sf), text: `${info.localName}: ${propExpr}` })
+        } else {
+          compReplacements.set(n.getStart(sf), { end: n.getEnd(sf), text: propExpr })
+        }
+      })
+    }
+
+    if (reassignmentError) {
+      destructuredByFn.set(fn, {
+        param,
+        paramName: param.name,
+        props: propMap,
+        replacements: new Map(),
+        error: reassignmentError,
+      })
+      continue
+    }
+
+    const destructureInfo: ComponentDestructureInfo = {
+      param,
+      paramName: param.name,
+      props: propMap,
+      replacements: compReplacements,
+    }
+    destructuredByFn.set(fn, destructureInfo)
+    for (const [start, r] of compReplacements) {
+      destructuredReplacements.set(start, r)
+    }
+  }
   // Intrinsics are registry names that aren't shadowed by a user component of the same name.
   const isRnTag = (tag: string) => tag in RN_TAGS && uiImports.has(tag) && !userComponents.has(tag)
   const isIntrinsic = (tag: string) => (tag in Component && tag !== "Anchor" && !userComponents.has(tag)) || isRnTag(tag)
@@ -482,7 +725,8 @@ export function compileModule(
       }
       if (!parentFn || nested) return
       const pfn = parentFn as ts.FunctionLikeDeclaration
-      const parentProps = pfn.parameters[0] && ts.isIdentifier(pfn.parameters[0].name) ? pfn.parameters[0].name.text : undefined
+      const pfnDestructure = destructuredByFn.get(pfn)
+      const parentProps = pfnDestructure ? "__p" : (pfn.parameters[0] && ts.isIdentifier(pfn.parameters[0].name) ? pfn.parameters[0].name.text : undefined)
       let live: PropUse["live"] = null
       for (const attr of n.attributes.properties) {
         const e = ts.isJsxSpreadAttribute(attr) ? attr.expression : attr.initializer
@@ -494,7 +738,7 @@ export function compileModule(
             const callee = ts.isPropertyAccessExpression(c) ? c.name.text : ts.isIdentifier(c) ? c.text : ""
             const obj = ts.isPropertyAccessExpression(c) && ts.isIdentifier(c.expression) ? c.expression.text : ""
             if (callee && !NOT_SIGNAL_METHODS.has(callee) && !NOT_SIGNAL_OBJECTS.has(obj) && !/^use[A-Z]/.test(callee)) live = "signal"
-          } else if (ts.isIdentifier(x) && x.text === parentProps && live === null) {
+          } else if (ts.isIdentifier(x) && (x.text === parentProps || (pfnDestructure && pfnDestructure.props.has(x.text) && !isShadowed(x, x.text, pfn))) && live === null) {
             live = "parentProps"
           }
         }
@@ -511,13 +755,18 @@ export function compileModule(
       fail(fn, `${name} is an async function: a component can't wait (it would give a Promise, not its JSX). Load ` +
         `the data in an effect or a store, keep it in a signal, and show {data() ? <Content /> : <Spinner />}`)
     }
+    const destructureInfo = destructuredByFn.get(fn)
     const param = fn.parameters[0]
-    if (param && (ts.isObjectBindingPattern(param.name) || ts.isArrayBindingPattern(param.name))) {
-      traps.push({ at: where(param), fromProps: true, message: `${name} takes its props destructured: a component's ` +
-        `body runs once, so each prop is read once and never updates. Write ${name}(p) and read p.title where you ` +
-        `use it (in the JSX or a handler)` })
+    if (destructureInfo?.error) {
+      traps.push({ at: where(destructureInfo.error.node), fromProps: false, message: destructureInfo.error.message })
+    } else if (param && (ts.isObjectBindingPattern(param.name) || ts.isArrayBindingPattern(param.name))) {
+      if (!destructureInfo) {
+        traps.push({ at: where(param), fromProps: true, message: `${name} takes its props destructured: a component's ` +
+          `body runs once, so each prop is read once and never updates. Write ${name}(p) and read p.title where you ` +
+          `use it (in the JSX or a handler)` })
+      }
     }
-    const propsName = param && ts.isIdentifier(param.name) ? param.name.text : undefined
+    const propsName = destructureInfo ? "__p" : (param && ts.isIdentifier(param.name) ? param.name.text : undefined)
     const body = fn.body
     if (!body || !ts.isBlock(body)) return traps
     // Body names worked out from a value that can change → their line, and whether only props were read.
@@ -532,7 +781,7 @@ export function compileModule(
           const parent = x.parent
           const isName = (ts.isPropertyAccessExpression(parent) && parent.name === x) ||
             (ts.isPropertyAssignment(parent) && parent.name === x)
-          if (!isName && x.text === propsName) found = { node: x, props: true }
+          if (!isName && (x.text === propsName || (destructureInfo && destructureInfo.props.has(x.text) && !isShadowed(x, x.text, fn)))) found = { node: x, props: true }
           else if (!isName && live.has(x.text)) found = { node: x, props: live.get(x.text)!.props }
         } else if (ts.isCallExpression(x) && x.arguments.length === 0) {
           // A signal read: `store.amount()` (a method on an object, not a built-in one), or `loading()` where loading
@@ -543,7 +792,7 @@ export function compileModule(
             const obj = ts.isIdentifier(e.expression) ? e.expression.text : ""
             // `p.title.trim()` reads props: that counts as props, found above (the identifier p comes first).
             if (!NOT_SIGNAL_METHODS.has(e.name.text) && !NOT_SIGNAL_OBJECTS.has(obj) && !/^use[A-Z]/.test(e.name.text) &&
-              obj !== propsName) found = { node: x, props: false }
+              obj !== propsName && (!destructureInfo || !destructureInfo.props.has(obj))) found = { node: x, props: false }
           } else if (ts.isIdentifier(e) && signalNames.has(e.text)) {
             found = { node: x, props: false }
           }
@@ -643,6 +892,19 @@ export function compileModule(
       info.templates.push(compiled.templateId ?? -1)
       info.at.push(where(r))
       if (compiled.templateId !== null && !(name in components)) components[name] = compiled.templateId
+    }
+    const destructureInfo = destructuredByFn.get(fn)
+    if (destructureInfo) {
+      for (const [rStart, repl] of destructureInfo.replacements) {
+        if (rStart === destructureInfo.param.name.getStart(sf)) {
+          edits.push({ start: rStart, end: repl.end, text: repl.text })
+          continue
+        }
+        const isInsideJsx = roots.some((r) => rStart >= r.getStart(sf) && repl.end <= r.getEnd(sf))
+        if (!isInsideJsx) {
+          edits.push({ start: rStart, end: repl.end, text: repl.text })
+        }
+      }
     }
     if (roots.length > 0) {
       info.others = others.map(where)

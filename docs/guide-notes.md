@@ -16,8 +16,9 @@ Last updated: 2026-11-05.
 - So: **no hooks, no dependency arrays, no memo, no keys for re-render reasons.** If you think "how do I stop this
   re-rendering", the answer is: it doesn't.
 
-**Don't:** destructure props (`function A({ title })`). Props are live getters; destructuring reads them once and
-the value never updates. Use `props.title`.
+**Destructured props:** simple patterns (`function A({ title, size = "md", user: u })`) are rewritten at build time
+to read live from `__p` (`__p.title`, `__p.size`, etc.). Rest patterns (`...rest`), nested patterns (`{ user: { name } }`),
+array patterns, and reassignments (`title = x`) are build errors. Write `props.title` for complex shapes.
 **Don't:** put work at module top level (fetching, big loops, building data). Startup runs every module; keep tops of
 files to declarations (startup rule 1, `docs/startup-and-performance.md`).
 
@@ -2345,8 +2346,10 @@ function Sheet({ amount }) {                         function Sheet(p) {
   ternary: `return loading() ? <Spinner /> : <Content />`. **Why:** the body picked a branch once; a root ternary is live
   (the old part goes, the new one mounts). A screen has the stricter rule of §4: one template, so only the piece that
   changes goes in a branch.
-- **Don't** destructure props in a child: `function Row({ title })`. **Do** `function Row(p)` and read `p.title` in the
-  JSX. **Why:** destructuring reads each prop once.
+- **Destructured props:** simple patterns (`function Row({ title, amount = 0, label: l })`) work in both children
+  and screens: the compiler rewrites them to `Row(__p)` so every read accesses `__p.title` live. Defaults use standard
+  JS semantics (`undefined` takes default, `null` kept). Rest patterns (`...rest`), nested patterns (`{ user: { name } }`),
+  array patterns, non-constant defaults, and reassigning a prop stay build errors. Write `p.title` for complex shapes.
 - **Do** `return null` (or `undefined`, `false`) from a child to draw nothing, as in React. **Know:** what its body
   started (an effect, a timer) runs on until the parent removes the part. Before 2026-11-05 this was an error and an
   empty part.

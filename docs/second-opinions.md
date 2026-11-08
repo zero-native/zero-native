@@ -2479,3 +2479,24 @@ change, and what evidence would make you change it?"
 - **Checked:** `websocket.test.ts` (10 cases covering URL syntax, subprotocols, lifecycle, invalid states, text-only and 1 MB guards).
 - **Risk if wrong:** applications expecting binary WebSocket streams (e.g. audio/video raw buffers) must wait for
   binary event transport in a future milestone.
+
+## 162. Destructured props: rewrite at build time to read live (compiler, 2026-11-08; parity batch 1)
+- **What:** simple destructured props in components and screens (`function Card({ title, size = "md", user: u }: Props)`)
+  are rewritten at build time into `Card(__p: Props)`. Every read of a destructured prop in the component body, JSX,
+  or nested handlers becomes `__p.title`, `(__p.size === undefined ? "md" : __p.size)`, or `__p.user`.
+- **Why rewrite instead of build error:** React Native teams routinely destructure component props. In zero-native,
+  component bodies run once at mount time, so destructuring would naively freeze prop values at mount. Rewriting to
+  live property reads on `__p` preserves reactivity without requiring developers to change idiomatic component signatures.
+- **Refused shapes:**
+  1. `...rest`: would require object spread allocation or proxies at runtime.
+  2. Nested destructuring (`{ user: { name } }`): reading nested properties at mount would evaluate once or crash if null.
+  3. Array patterns (`[a, b]`): components take prop objects, not arrays.
+  4. Non-constant default values (`{ size = computeDefault() }`): function invocations in defaults would re-execute on
+     every read. Only literals and simple constants are allowed.
+  5. Reassignments (`title = x`, `title++`): props are read-only.
+- **Scope & shadowing:** inner scopes (e.g. `(title) => title.trim()` or `const title = ...` inside a block) shadow the prop
+  name and are never rewritten.
+- **Checked:** `destructured-props.test.ts` (16 cases covering simple, renamed, defaults, expression body, shorthand
+  properties, all refused shapes, shadowing, handlers, `.map` rows, and template byte equivalence).
+- **Risk if wrong:** an edge case in shadowing could either miss a prop rewrite or rewrite a shadowed inner variable.
+  Mitigated by complete AST scope walking.

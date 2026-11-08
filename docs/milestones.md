@@ -146,6 +146,15 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: destructured props read live (Gemini, batch 1)
+- Compiler rewrite for destructured component & screen props: `function Card({ title, size = "md", user: u }: Props)`
+  rewritten to `Card(__p: Props)` with live property reads (`__p.title`, `(__p.size === undefined ? "md" : __p.size)`).
+- AST scope traversal guards against inner variable/parameter shadowing.
+- Kept clear build errors for `...rest`, nested destructuring (`{ user: { name } }`), array patterns, non-constant defaults,
+  and prop reassignment (`title = x`).
+- Second-opinions entry 162; docs in `docs/guide-notes.md` §61, `docs/rn-compatibility.md`.
+- 16 test cases in `compiler/test/destructured-props.test.ts`.
+
 ### 2026-11-08: WebSocket (Gemini, batch 1)
 - Added browser-compatible `WebSocket` API (`packages/core/src/websocket.ts`), exported from `@zero-native/core` and installed on `globalThis.WebSocket`.
 - Android runtime module `ZnWebSocket` (`ZnWebSocket.kt`, v1): uses OkHttp `newWebSocket` with the shared `ZnFetch.client` (pins, interceptors, user agent apply). Sockets closed on dev reload / OTA restart.
