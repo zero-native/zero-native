@@ -1108,7 +1108,8 @@ export function compileModule(
       const buildTernary = (branchIdx: number, depth: number): { code: string; templateId: number } => {
         const cur = branches[branchIdx]
         return compileTemplate(cur.cond ?? guardStmts[0], depth, (b) => {
-          const index = b.nodes++
+          b.nodes++ // Root Fragment is node 0
+          const index = b.nodes++ // Child Anchor is node 1
           const condText = cur.cond ? text(cur.cond) : "true"
           const trueBranch = cur.returnExpr
             ? (isJsx(seeThrough(cur.returnExpr)) ? `() => ${compileRoot(seeThrough(cur.returnExpr) as JsxNode, depth + 1).code}` : `() => ${valueTemplate(seeThrough(cur.returnExpr), depth + 1).code}`)

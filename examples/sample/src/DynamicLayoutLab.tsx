@@ -3,24 +3,24 @@ import { Column, Pressable, Row, Scroll, Stack, Text, View } from "@zero-native/
 import { nav, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
-function DataCard(props: { loading: () => boolean; error: () => boolean; data: () => { items: number[] } | null }) {
-  if (props.loading()) {
+function DataCard(props: { loading: boolean; error: boolean; data: { items: number[] } | null }) {
+  if (props.loading) {
     return (
       <Column style={{ padding: 12, backgroundColor: "#FEF3C7", borderRadius: 8, alignItems: "center" }}>
         <Text fontSize={13} color="#92400E" fontWeight={600}>Loading card data...</Text>
       </Column>
     )
   }
-  if (props.error()) {
+  if (props.error) {
     return (
       <Column style={{ padding: 12, backgroundColor: "#FEE2E2", borderRadius: 8, alignItems: "center" }}>
         <Text fontSize={13} color="#991B1B" fontWeight={600}>Failed to load data!</Text>
       </Column>
     )
   }
-  // The tail runs ONLY when !loading() && !error() - data() is non-null here!
-  // In a plain ternary, this would evaluate data().items while loading (null) and crash!
-  const d = props.data()!
+  // The tail runs ONLY when !loading && !error - data is non-null here!
+  // In a plain ternary, this would evaluate data.items while loading (null) and crash!
+  const d = props.data!
   const sum = d.items.reduce((a, b) => a + b, 0)
   return (
     <Column style={{ padding: 12, backgroundColor: "#ECFDF5", borderRadius: 8, gap: 4 }}>
@@ -274,15 +274,15 @@ export function DynamicLayoutLabScreen() {
             <Text fontSize={12} color={c.muted}>
               Top-level early returns compiled into branch components. Tail statements using data() execute only when branches are resolved, avoiding crashes on null data.
             </Text>
-            <DataCard loading={cardLoading} error={cardError} data={cardData} />
+            <DataCard loading={cardLoading()} error={cardError()} data={cardData()} />
             <Row style={{ gap: 8 }}>
               <Pressable
                 onPress={() => {
                   const next = !cardLoading()
-                  cardLoading.set(next)
                   if (!next && !cardData()) {
                     cardData.set({ items: [12, 28, 45, 15] })
                   }
+                  cardLoading.set(next)
                 }}
                 style={{ backgroundColor: c.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
               >
