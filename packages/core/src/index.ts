@@ -6,6 +6,7 @@ import { installCalls } from "./calls"
 import { installAbort } from "./abort"
 import { installText } from "./text"
 import { installFetch } from "./fetch"
+import { installWebSocket } from "./websocket"
 import { installRejectionTracking } from "./errors"
 import { installIntlCache } from "./intl"
 import { installPlatform } from "./platform"
@@ -92,6 +93,15 @@ export {
   type RedirectMode,
   type ResponseInit,
 } from "./fetch"
+export {
+  WebSocket,
+  WebSocketCloseEvent,
+  WebSocketErrorEvent,
+  WebSocketEvent,
+  WebSocketMessageEvent,
+  installWebSocket,
+  type BinaryType,
+} from "./websocket"
 export { Headers, type HeadersInit } from "./headers"
 export { FormData, type FormFile, type FormValue } from "./formdata"
 export { useAbortSignal } from "./abort"
@@ -143,6 +153,7 @@ export function installRuntime(): void {
   installCalls()
   installText()
   installFetch()
+  installWebSocket()
   installRejectionTracking() // after timers: Hermes' tracker uses setTimeout
   installIntlCache()
   // Native sends these right after the main script, so they are listened to before startApp (RN basics pack).

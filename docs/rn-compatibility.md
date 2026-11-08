@@ -195,7 +195,7 @@ React Navigation. [`nav` in nav.ts](../packages/core/src/nav.ts), [routes.ts](..
 | Differences from RN `fetch` | [fetch.md](fetch.md) | different | Default timeout 30 s, response limit 10 MB ([`setFetchDefaults`](../packages/core/src/fetch.ts:43)). No `res.body` stream. `credentials`, `cache`, `mode` are accepted and ignored. A fetch is not cancelled when its screen closes: use [`useAbortSignal()`](../packages/core/src/abort.ts:114) for that. |
 | `Headers`, `Request`, `Response`, `FormData`, `URLSearchParams`, `AbortController` | [`Headers`](../packages/core/src/headers.ts:32), [`Request`](../packages/core/src/fetch.ts:128), [`Response`](../packages/core/src/fetch.ts:182), [`FormData`](../packages/core/src/formdata.ts:39), `AbortController` | same | A file in `FormData` is `{ uri, name, type }` with a `content://` or `file://` uri, as in RN. |
 | `XMLHttpRequest`, axios (XHR adapter) | none | missing | Use `fetch`. For axios, use its `fetch` adapter or replace it. Upload progress is missing. |
-| `WebSocket` | none | missing | Not built and not planned yet. |
+| `WebSocket` | [`WebSocket`](../packages/core/src/websocket.ts) | same | Browser API shape. Backed by OkHttp (`ZnFetch.client`). 1 MB message cap; text frames only in v1 (second-opinions 161). Sockets stay open in background; closed on dev reload or OTA restart. |
 | `NetInfo.fetch` / `refresh` / `addEventListener` (`@react-native-community/netinfo`) | [`NetInfo`](../packages/core/src/netinfo.ts:45) | same | Import from `@zero-native/core`. `type`, `isConnected`, `isInternetReachable` (Android's own "validated" check, no extra request), `details.isConnectionExpensive`. The listener hears the state now, then changes. Still handle `FetchError` code `offline` on each call. |
 | `useNetInfo` | [`useNetInfo`](../packages/core/src/netinfo.ts:96) | different | Call it in a screen body; read its fields inside JSX or `effect` to follow changes. |
 | `URL`, `URLSearchParams` | installed by the runtime ([url.ts](../packages/core/src/url.ts)) | same | The web standard, tested against Bun. Non-ASCII host names (`https://café.com`) throw a TypeError: no punycode. No `createObjectURL`. |
@@ -351,7 +351,7 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
    transitions need a native component. ([§1](#1-components))
 10. **Small OS APIs and web globals** (mostly built). The RN basics pack added `Alert`, `Clipboard`, `Dimensions`,
     `Platform`, `NetInfo`, `URL`, `atob` / `btoa` (Hermes) and `requestAnimationFrame` with their RN names; dark mode
-    came in P.6. Still missing: `WebSocket`, `XMLHttpRequest`. The import line changes to `@zero-native/core`.
+    came in P.6. `WebSocket` added in batch 1 (text-only, 1 MB cap). Still missing: `XMLHttpRequest`. The import line changes to `@zero-native/core`.
     ([§1](#1-components), [§5](#5-network-and-web-apis), [§6](#6-device-and-os))
 
 Two more compiler rules were found by the ZeroBill pilot-flow audit (2026-11-03); the compiler pack (2026-11-04)

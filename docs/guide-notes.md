@@ -36,8 +36,7 @@ pilot; "known limit" items are built but have a gap we plan to fix before real u
   principle 7 in §3.
 - **Maps, biometrics, video.** No plugin yet. Do: open the system app through a plugin of your own (§31), or write a
   plugin (§30). Tracked: `docs/rn-compatibility.md` (device rows) and `docs/plugins.md`.
-- **`WebSocket` and `XMLHttpRequest`.** Not built. Do: `fetch` and polling, or the server's push (§48). Tracked:
-  `docs/rn-compatibility.md` §5.
+- **`XMLHttpRequest`.** Not built. Do: `fetch` (§20). Tracked: `docs/rn-compatibility.md` §5. (`WebSocket` built in batch 1, §20b).
 - **A file read / write API** (`react-native-fs`). Not in core. Do: a plugin keeps files and gives JS a handle (§35);
   PDFs use `Pdf.download` (§44). Tracked: `docs/rn-compatibility.md` (file system row).
 - **A header bar, drawer and nested navigators.** Do: build the header in your screen; one flat stack plus `<Tabs>`
@@ -517,6 +516,19 @@ const offers = await res.json()
 - **Don't:** download big files with `fetch` (10 MB limit by default, all in memory). For a PDF use `Pdf.download` (§44); a general download API is not built.
 - **Why:** the defaults are made for flaky mobile networks: a 30 s limit on the whole request (RN has none), stale
   connections closed when the network changes, clear error codes, and no duplicate POSTs. Details: `docs/fetch.md`.
+
+## 20b. Real-time connections: `WebSocket` (built, 2026-11-08)
+```ts
+const ws = new WebSocket("wss://api.example.com/live", ["json"])
+ws.onopen = () => ws.send(JSON.stringify({ subscribe: "prices" }))
+ws.onmessage = (e) => updatePrice(JSON.parse(e.data))
+ws.onclose = () => planReconnect()
+```
+- **Do:** reconnect in your own application code. Reconnection timing, exponential back-off and ping intervals are the app's responsibility.
+- **Do:** keep messages under 1 MB. Message size is capped at 1 MB in both directions (second-opinions 161).
+- **Don't:** send binary data (`ArrayBuffer`, `Blob`) in v1. v1 is text frames only (`send(string)`).
+- **Know:** sockets stay open when the app goes into the background (the app decides whether to keep or close them). All active sockets are closed automatically on JS dev reload or OTA restart.
+- **Why:** backed by OkHttp using `ZnFetch`'s shared client, so certificate pinning, custom network interceptors and the default User-Agent apply.
 
 ## 21. Saving data: `storage`, `SecureStore`, `flowStore` (built, step 3.5)
 ```ts

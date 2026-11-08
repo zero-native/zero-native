@@ -146,6 +146,13 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: WebSocket (Gemini, batch 1)
+- Added browser-compatible `WebSocket` API (`packages/core/src/websocket.ts`), exported from `@zero-native/core` and installed on `globalThis.WebSocket`.
+- Android runtime module `ZnWebSocket` (`ZnWebSocket.kt`, v1): uses OkHttp `newWebSocket` with the shared `ZnFetch.client` (pins, interceptors, user agent apply). Sockets closed on dev reload / OTA restart.
+- 1 MB message limit in both directions; v1 text frames only (`send(string)`).
+- Second-opinions entry 161; docs in `docs/guide-notes.md` §20b, `docs/rn-compatibility.md`.
+- 10 unit tests in `packages/core/test/websocket.test.ts`.
+
 ### 2026-11-08: fetch upload and download progress (Gemini, batch 1)
 - Added `onUploadProgress` and `onDownloadProgress` to `FetchInit` (`{ loaded, total }`, `total = -1` when unknown).
 - Android runtime (`ZnFetch.kt`): `CountingRequestBody` wrapping Okio `Sink`, and throttled response body read

@@ -2461,23 +2461,21 @@ change, and what evidence would make you change it?"
   `/init` earlier (before the first screens). Not decided yet.
 - **Risk if wrong:** a cold start waits up to `maxMs` longer. A stuck `work` can't hold past `maxMs` or `capMs`.
 
-## 161. NAV BACK_WANTED for any screen with an app back handler; native back gestures only on screens without one (2026-11-08, iOS work, A8)
-- **What:** JS sends BACK_WANTED (kind 10, no host API change) while a screen has a `useBack` / `BackHandler` or its
-  tabs want Back; once per change, after a screen build ends, never for a closed screen (`nav.ts syncBackWanted`).
-  Tabs' own "go to the first tab" handler doesn't count (`useBackUncounted`). Native: on such a screen a back gesture
-  plays nothing ahead of JS. Android: one `BackHandler` after `NavDisplay` (keyed by the top entry) wins over the
-  predictive pop. iOS: our own edge pan (`ZnNavController.backPan`) sends BACK to JS instead of moving the screen;
-  on other screens it drives an interactive pop and JS hears FORCED_BACK.
-- **Why not ask JS during the gesture:** the gesture moves the screen at once; JS answers in milliseconds, but
-  whatever it answers, the screen has already been shown leaving.
-- **Why not every handler's result:** native can't run JS synchronously, and the handler's answer depends on state
-  (the amount screen's handler answers false at ₹0). So the cost: a screen with a handler loses the interactive
-  gesture even when the handler would let it go. Guide §7 says to register handlers only while they would keep the
-  screen.
-- **Why our own pan on iOS:** UIKit's `interactivePopGestureRecognizer` often never began in our screens (their left
-  edge is mostly Pressables, `UIControl`s); the drag became a tap. Our pan cancels the press under the finger.
-- **Checked:** JS tests (1166 pass, only A7 fails). iOS simulator: Dev (no handler) pops with the finger, JS hears
-  FORCED_BACK and pushes again normally; Amount at ₹0: BACK to JS, popped; Amount at ₹6: stays, "Discard ₹6?".
-  **Android: not compiled here**; checks in `android-issues-found-when-building-ios.md` A8.
-- **Risk if wrong:** an app with a handler on every screen gets no native back gestures anywhere (works, feels less
-  native). A root screen with `useBack` now catches Back instead of leaving the app.
+## 161. WebSocket: 1 MB message cap, text frames only in v1 (core + runtime, 2026-11-08; parity batch 1)
+- **What:** browser-compatible `WebSocket` API (`packages/core/src/websocket.ts`) backed by OkHttp (`ZnWebSocket.kt`)
+  using the shared `ZnFetch.client` (so host certificate pinning, custom interceptors, and default user agent apply).
+  Message sizes are capped at 1 MB (1,048,576 bytes) in both directions. v1 is text frames only (`send(string)`).
+- **Why 1 MB cap:** React Native apps frequently crash or run out of memory when continuous or oversized payloads flood
+  the JS bridge. A hard 1 MB cap prevents Hermes heap exhaustion on low-memory Android devices. Sending > 1 MB throws
+  `RangeError` in JS; an incoming server message > 1 MB emits an error event and closes the socket with code 1009
+  ("Message too big").
+- **Why text frames only in v1:** binary transfers across the bridge currently use one-off ArrayBuffers with call/answer
+  lifecycles (`resolveBytes`). Without a streaming binary event channel, base64 encoding would incur unacceptable
+  memory bloat. Rather than introducing a fragile workaround, v1 supports string frames cleanly and reports binary
+  frames from servers as an error.
+- **Teardown & background:** all active sockets are automatically closed on JS reload or OTA restart (`resetForReload`).
+  Sockets are **not** closed when the app goes into the background; heartbeat and reconnection policies are left to the
+  application.
+- **Checked:** `websocket.test.ts` (10 cases covering URL syntax, subprotocols, lifecycle, invalid states, text-only and 1 MB guards).
+- **Risk if wrong:** applications expecting binary WebSocket streams (e.g. audio/video raw buffers) must wait for
+  binary event transport in a future milestone.
