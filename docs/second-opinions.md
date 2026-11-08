@@ -2479,6 +2479,13 @@ change, and what evidence would make you change it?"
 - **Checked:** `websocket.test.ts` (10 cases covering URL syntax, subprotocols, lifecycle, invalid states, text-only and 1 MB guards).
 - **Risk if wrong:** applications expecting binary WebSocket streams (e.g. audio/video raw buffers) must wait for
   binary event transport in a future milestone.
+- **Correction (Opus review, 2026-11-08; see 179):**
+  - A JS reload or OTA restart *cancels* the sockets (no close handshake), in `ZnWebSocket.reset()`.
+  - Pings are not "left to the app": the shared fetch client pings every open socket every 10 s, also in the background
+    (battery). Close sockets when the app goes to the background.
+  - The 1 MB incoming cap protects JS only. OkHttp 5.5.1 reads the whole message into memory first and has no setting to stop that.
+  - A binary frame from the server: one `error`, then we close with 1003. A message over 1 MB: `error`, then close 1009.
+  - The handshake now sends the app's own User-Agent, as fetch does (it sent `okhttp/5.5.1`).
 
 ## 162. Destructured props: rewrite at build time to read live (compiler, 2026-11-08; parity batch 1)
 - **What:** simple destructured props in components and screens (`function Card({ title, size = "md", user: u }: Props)`)
@@ -2533,6 +2540,9 @@ change, and what evidence would make you change it?"
   - Lab tiles in `RnPropsLab.tsx` for top-level Text press and row Touchables.
 - **Risk if wrong:** a complex combination of `flexDirection: "row"` with custom Compose modifiers or unsupported layout
   keys could place a key on the wrong container. Mitigated by explicit key partitioning.
+- **Correction (Opus review, 2026-11-08, M6):** `flex` gives the inner Row `height: "100%"` only when the Touchable's
+  parent is not a Row. In a Row, flex sets the width, so two `flex: 1` buttons in a bottom bar filled the bar's whole
+  free height. A written `height` still gives "100%". A dynamic `gap` already moved to the inner Row (checked).
 
 ## 164. `<List horizontal>` / `<FlatList horizontal>` via `LazyRow` (runtime + compiler, 2026-11-08; registry 23; parity batch 1 G6)
 - **Where:** `compile.ts`, `ZnRenderer.kt`, `writer.ts`, `registry.ts` (`LIST_HORIZONTAL_SINCE = 23`).
@@ -2586,6 +2596,18 @@ change, and what evidence would make you change it?"
   - Sample bundle builds cleanly (`sample: wrote main.zn.ui`).
   - Full test suite passes: `1209 pass, 0 fail` and clean typecheck.
   - Interactive test screen `DynamicLayoutLab.tsx` added to sample app.
+- **Correction (Opus review, 2026-11-08; see 175):**
+  - Row and Column dropped `justifyContent` whenever `gap > 0` (B1). Fixed: `znHorizontalArrangement(justify, gap)` again.
+  - A NaN or Infinity from JS (`done / total` with `total = 0`) crashed the app in `roundToInt`. Now every layout number
+    from a slot goes through `ZnInstance.finiteNum`. A bad one counts as not written. A huge size is capped at 2^18 - 1 px.
+  - A slot's shorthand (`paddingHorizontal`) beat a written per-edge value (`paddingStart`). RN's order now holds for
+    both kinds (`ZnNodeSpec.mixedEdges`). The same applies to corner radii.
+  - `display: "none"` now also leaves the child out of its Row or Column, so it takes no gap.
+  - A slot's `aspectRatio` with no width or height uses the room the parent gives, as the static one does.
+  - An Image with only a slot `borderRadius` is clipped to it.
+  - `flexShrink` / `flexBasis` from a variable is a build error again (it was dropped silently).
+  - "Zero recompositions" is true for sizes, min / max, aspectRatio and display (read while measuring). Margin, radius,
+    gap and font values are read in composition and recompose that node.
 
 ## 172. Top-level early returns rewritten to branch components (compiler, 2026-11-08; parity batch 2 H2)
 - **Where:** `compiler/src/compile.ts`, `compiler/src/plugin.ts`, `compiler/test/early-returns.test.ts`, `compiler/test/once-traps.test.ts`, `compiler/test/screen-roots.test.ts`.
@@ -2627,3 +2649,111 @@ change, and what evidence would make you change it?"
   - `ZnCanvasTest.kt` (JVM unit tests verifying command JSON parser, paint parsing, 10,000 op limit, and graceful malformed JSON handling).
   - Interactive lab `examples/sample/src/CanvasLab.tsx` with live 200-point candlestick chart (500 ms live updates), interactive donut progress ring, dashed Bezier waves, and rotated text.
   - All unit tests pass, typechecks pass, sample compiles cleanly.
+- **Correction (Opus review, 2026-11-08; see 180):**
+  - `draw` is an object (`draw.rect(...)`), not a function. The commands are a list: `[draw.rect(...), cond && draw.circle(...)]`.
+  - Not "zero recompositions": a new list recomposes the Canvas node. It is parsed once per change (`remember`) and
+    drawn in `drawBehind`.
+  - Two inputs crashed the app in the draw phase: a gradient with one colour, and `dash` with one value. Both are now
+    checked when the list is parsed. The whole draw is also in a try/catch, and a throw leaves only that canvas empty.
+  - Over 10,000 commands draws nothing (checked in JS and native), not "skipped at 60 fps".
+  - There is no touch in v1, so no signature pad yet.
+
+## 174. List header / footer / empty and scroll commands, as fixed after review (core + runtime + compiler, 2026-11-08; registry 23; parity batch 2 H3, Opus review)
+- **Where:** `packages/core/src/view.ts` (`list`, `listExtra`, `bindListController`), `ZnStore.kt` (`ZnList`), `ZnRenderer.kt` (`ZnLazyList`), `compile.ts` (`compileExtra`).
+- **Chosen:**
+  - The extras are separate states in `ZnList` (`header`, `footer`, `empty`), not entries of the row map. Reason: the
+    List reads them at its top, and a read of the row map there recomposed the whole list on every row bind (M9).
+  - One item order for every list: header, empty (only with no rows), rows, footer. An inverted list uses the same
+    order, so the header sits next to row 0 at the bottom, as in RN (Gemini had them swapped, M10).
+  - The visible range maps a lazy index to a row index by arithmetic (`index - header`), not with `indexOfFirst` per item
+    per frame. Only pinned rows on screen: their range. Only the footer: the last row, so `onEndReached` still fires.
+  - Row keys that start with `__zn_` get one more `_` in core, so they can't take an extra's place.
+  - Header forms that compile: an element, a component, `() => <X/>`, `() => (<X/>)`, `() => { return <X/> }`,
+    `cond ? <X/> : null`, `cond && <X/>`. Anything else (`props.header`) is called by core if it is a function.
+- **Scroll commands (`listController`, `ref`), as RN means them:**
+  - `scrollToIndex({ index, viewOffset })`: `viewOffset` in dp; the row ends up that far from the start.
+  - `scrollToEnd`: the last item, the footer or the empty item included.
+  - `scrollToOffset({ offset })`: absolute, in dp. Without animation it is exact (top, then down by the offset). With
+    animation it is exact for 0. For other values it lands close: a lazy list knows only the rows near the screen, so
+    the distance comes from the visible rows' average size. **Question for the reviewer:** is that good enough, or should
+    animated non-zero offsets jump without animation?
+  - A command sent before the List's part is mounted goes with the MOUNT (it was lost). A ref is cleared when its List goes away.
+  - `listController` comes from `@zero-native/core`. A lower-case name imported from `@zero-native/ui` is a build error (178).
+- **Also in H3:** auto-fit text uses Compose's `TextAutoSize.StepBased` (0.5 sp steps), so `textAlign` works and the
+  search is done while measuring. A Carousel percent is of the pager's width inside its padding; the gap is not taken off.
+- **Risk if wrong:** a List with a header and `stickyHeaderIndices` is the case most likely to show a wrong range.
+  `review-fixes.test.ts` checks the compiler side only; the range and scroll paths need a phone check.
+
+## 175. Layout values from JS can't crash the app; RN's edge order; negative margins (runtime, 2026-11-08; Opus review of H1, B1, M1, M8)
+- **What:**
+  - Every number a layout reads from a slot goes through `ZnInstance.finiteNum`: NaN or Infinity counts as not written.
+    Sizes are capped at 2^18 - 1 px and clamped at 0, and `Constraints.fitPrioritizingWidth` builds the constraints.
+    Before, `width: done / total` with `total = 0` threw in `roundToInt` and killed the app.
+  - Margin and padding with slots use `ZnNodeSpec.mixedEdges`: edge, then axis, then all, for static and slot values alike.
+  - A negative margin is measured with the room minus the margins, reports a size inside the parent's limits, and
+    sits at (start, top), as Compose's padding does. Before, the size was too big and Compose moved the box by half the difference.
+  - B1: Row and Column use `znHorizontalArrangement` / `znVerticalArrangement` again with a gap (P0.1, second-opinions 112).
+- **Found on the way:** `return@key` inside a `key(...) { }` block in a composable loop made the Kotlin compiler emit a method
+  named `<anonymous>`. The JVM refused to load `ZnRendererKt` (`ClassFormatError`); on a phone that would be a crash at start.
+  Only a JVM unit test that loads the class caught it. Rule: don't use labelled returns out of `key { }` in composables.
+- **Risk if wrong:** a full-bleed row (`marginHorizontal: -16`) now really bleeds. Check ZeroBill screens that had a
+  negative margin "doing nothing" before.
+
+## 176. Soft core modules: core's own WebSocket and Splash calls don't go into a bundle's requirements (compiler + core, 2026-11-08; Opus review B4; Opus's call, told to Pavan)
+- **Problem:** the build lists every `callNative("X")` in every loaded file, core's own included. Core loads all its files,
+  so every bundle "needed" WebSocket (Gemini, batch 1) and Splash (Opus, 2026-11-07). Every APK built before those
+  would then refuse every new OTA bundle, even one that never opens a socket.
+- **Chosen:** `SOFT_CORE_MODULES` in `compiler/src/modules.ts` (`Splash`, `WebSocket`). A call to one of them inside
+  `@zero-native/core` itself is left out of `requires.modules`. An app's own `callNative("WebSocket")` still counts.
+  - These fail safely on an app without them: native answers "unavailable". WebSocket then gives `error`, then close 1006.
+    `Splash.holdUntil` doesn't hold the splash, and now says nothing for "unavailable".
+- **Rule for later:** a new core module goes into this set only if it fails safely the same way. Otherwise adding it
+  cuts every older APK off from OTA, and that must be a decision, not a side effect.
+- **Options not taken:** counting only modules reachable from the app's imports (needs a module graph in the build), and
+  loading such modules only when imported (changes core's loading).
+- **Risk if wrong:** an app on an old APK that uses `new WebSocket` gets a socket that fails at once, instead of the
+  bundle being refused. That is the browser's own failure shape, and the app must handle it anyway (no network).
+
+## 177. A registry marker the template can't show: `NodeSpec.needs`; negative margins need 23 (template + compiler, 2026-11-08; Opus review B5)
+- **Problem:** List header / footer / empty live only in the JS, and negative margins are plain numbers. Neither raised
+  the bundle's registry version, so an APK on registry 22 took the bundle and drew it wrong with no error.
+- **Chosen:**
+  - `NodeSpec.needs?: number`: the compiler marks a List with extras (`LIST_EXTRAS_SINCE = 23`). The writer raises the version; nothing is written to the file.
+  - Any static margin below 0 needs `NEGATIVE_MARGIN_SINCE = 23`.
+- **Checked:** `review-fixes.test.ts`: a List with only a header gives 23, the same List without one stays below 23.
+
+## 178. A lower-case name imported from `@zero-native/ui` is a build error (compiler, 2026-11-08; Opus review B2)
+- **Problem:** the compiler removes every `@zero-native/ui` import (ui holds components and types). Gemini declared
+  `listController` there, so `RnPropsLab` threw `ReferenceError` at runtime and the whole lab showed the error screen.
+- **Chosen:** `listController` is exported from core only. A value import from ui whose name starts with a lower-case
+  letter fails the build: "... is not part of @zero-native/ui at runtime. Import it from @zero-native/core". Type
+  imports (`import type`, `type X`) pass. Every ui export today is a component (upper case), a type, or `StyleSheet`.
+- **Risk if wrong:** a future lower-case ui export would be refused; then make it a core export, which is the rule anyway.
+
+## 179. WebSocket: call order and ids across JS runtimes (runtime + core, 2026-11-08; Opus review M2-M4; built by an Opus helper)
+- **Call order:** `connect` / `send` / `close` are `onMain = true` only to keep JS call order (the main Handler runs
+  in order). Each one hands its work to one `zn-websocket` worker thread, which also builds `ZnFetch.client` the first
+  time. Plain main-thread work would build the client on main if a socket came before any fetch (PackageManager and TLS
+  setup, maybe tens of ms). With one worker, a close can't overtake its connect, so no "remembered close" is needed.
+  `close()` while CONNECTING cancels the socket: error, then close 1006, once.
+- **Ids:** module events have no runtime-generation check (`emit` → `dispatchLatest`), so a late event from before a
+  JS reset could reach a new socket with the same small id. Native keeps an `Entry` per socket and each listener drops
+  events when its entry is no longer the one in the map; `reset()` empties the map under a lock with an epoch number and
+  cancels the sockets. JS ids also start at a random number below 2^30 in each runtime (still Int, so a new bundle works
+  on an older APK). Fetch progress ids got the same random start.
+- **Server close:** `onClosing` sends our close frame back at once, so JS gets the server's code with `wasClean: true`
+  (before: nothing for 10-20 s, then 1006).
+- **Risk if wrong:** each send takes two thread hops (small, not measured). Checked against OkHttp 5.5.1's source and with
+  JS tests only; no real server or phone test yet.
+- **Revisit if:** `ZnModules.emit` gets a generation check (then ids can start at 0 again).
+
+## 180. Canvas colours become ARGB numbers in JS, not parsed in native (core + runtime + compiler, 2026-11-08; Opus review M12; built by an Opus helper)
+- **Problem:** Gemini's `ZnCanvas` used `android.graphics.Color.parseColor`. That reads `#RRGGBBAA` as `#AARRGGBB` (a wrong
+  colour, no error) and throws on `#RGB`, `rgb()`, `rgba()`, `hsl()` and `transparent` (drawn black).
+- **Chosen:** the rest of zero-native's rule ("native never parses colour strings", core `color.ts`). The `draw.*`
+  helpers and core's `canvasJson` (which the compiler now calls for the `commands` slot) turn colours into numbers.
+  `canvasJson` walks the list once, copy-on-write, and warns about bad commands with their index. Native reads numbers
+  only; a string is a dev error and black.
+- **Cost:** one walk per list change in JS. A string-literal command list must use ARGB numbers.
+- **Option not taken:** a small hex parser in Kotlin: a second colour parser that could drift from core's.
+- **Question for the reviewer:** should a bad colour literal inside a `draw.*` call fail the build instead of warning at runtime?

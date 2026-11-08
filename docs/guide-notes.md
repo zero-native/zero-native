@@ -2553,27 +2553,76 @@ function Home() {
   Home the user already sees.
 
 ## 71. `<Canvas>` primitive: runtime drawing without Skia (registry 23)
+Corrected 2026-11-08 after review: the first text showed `draw()` as a function and claimed "zero recompositions".
 ```tsx
 import { draw } from "@zero-native/core"
 import { Canvas } from "@zero-native/ui"
 
-const cmds = draw()
-  .rect(0, 0, 200, 100, { color: "#1F2937" })
-  .line(0, 50, 200, 50, { color: "#3B82F6", strokeWidth: 2, dash: [4, 4] })
-  .circle(100, 50, 6, { color: "#10B981" })
-  .text("Active", 100, 30, { fontSize: 12, fontWeight: "bold", color: "#FFFFFF", align: "center" })
-  .commands()
-
-<Canvas style={{ width: 200, height: 100 }} commands={cmds} />
+<Canvas
+  style={{ width: 200, height: 100 }}
+  accessibilityLabel="Sales this week, going up"
+  commands={[
+    draw.rect(0, 0, 200, 100, { color: "#1F2937" }),
+    draw.line(0, 50, 200, 50, { color: "#3B82F6", strokeWidth: 2, dash: [4, 4] }),
+    live() && draw.circle(100, 50, 6, { color: "#10B981" }),
+  ]}
+/>
 ```
-- **Why no Skia:** React Native apps add `@shopify/react-native-skia` for charts, waveforms, and rings, which drags in
-  an 8–15 MB C++ engine. In zero-native, Jetpack Compose already has hardware-accelerated 2D canvas drawing built into the
-  Android framework. `<Canvas>` executes commands directly in `Modifier.drawWithCache`.
-- **How it works:** JS serializes commands through a reactive slot string (`Registry.Prop.CANVAS_COMMANDS`, prop id 298).
-  Compose parses the ops and executes them during the draw phase only.
-- **Zero recompositions:** Even when commands update at 60 fps (e.g. streaming stock prices or live audio waveforms),
-  neither the `<Canvas>` node nor any parent composable recomposes. Only the draw scope redraws.
-- **Envelope & limits:**
-  - Up to 10,000 commands per frame (excess dropped with an error to preserve 60 fps frame budget).
-  - Draw-only: no child layout nodes inside `<Canvas>`.
-  - For static art/icons, use `<Svg>`. For After Effects animations, use `<Lottie>`. Use `<Canvas>` for runtime data rendering.
+- **Do** build commands with `draw.*` and pass a list. `null` and `false` entries are skipped.
+  - **Why:** colours become ARGB numbers in JS (core's `parseColor`, second-opinions 180); native never parses colour strings.
+- **Do** think in dp. Text `y` is the baseline. Angles are degrees, 0 at 3 o'clock, going clockwise; a ring from the top starts at -90.
+- **Do** wrap a transform or clip in `draw.save()` / `draw.restore()` when later commands should not get it. It never
+  leaks out of the canvas, but it does reach every later command in the same list.
+- **Do** give a chart an `accessibilityLabel` that says what it shows. TalkBack reads it as an image.
+- **Don't** go over 10,000 commands: nothing is drawn. Merge many small shapes into one `path`.
+- **Don't** expect touch: v1 only draws (no signature pad until gestures).
+- A new list recomposes the Canvas node and is parsed once; the drawing happens in the draw phase.
+- A bad command (NaN, a gradient with one colour, `dash: [4]`) never crashes: JS warns with its index, a debug build
+  shows one dev error, and the rest still draws.
+- **Which one:** `<Svg>` for fixed art and icons, `<Canvas>` for shapes made from data, `<Lottie>` for designed animations.
+
+## 72. WebSocket (core, batch 1; fixed 2026-11-08)
+- `new WebSocket(url, protocols?)` works like the browser one. It uses the same OkHttp client as `fetch`: the same pins,
+  interceptors and User-Agent.
+- Text only: `send(string)`. A binary frame from the server gives one `error`, then close 1003.
+- Max 1 MB per message, counted in UTF-8 bytes. `send` of more throws `RangeError`; more from the server gives `error`, then close 1009.
+- `close()` while CONNECTING: `error`, then close 1006, as in browsers. `send` in CLOSING or CLOSED does nothing.
+- **Do** close sockets when the screen or the app goes to the background, and open them again on return.
+  - **Why:** the shared client pings each open socket every 10 s, which wakes the radio, in the background too.
+- **Don't** rely on the 1 MB cap to protect memory: OkHttp reads the whole incoming message first.
+- **Don't** keep payment state only in a socket. Anything you can't get again with `fetch` is lost when the socket drops.
+- On an app built before WebSocket, `new WebSocket` fails at once (`error`, then close 1006). The bundle still runs
+  there (second-opinions 176), so handle a failed socket as you would handle no network.
+
+## 73. List extras and scroll commands (registry 23)
+```tsx
+import { listController } from "@zero-native/core"   // core, not ui: ui imports are removed at build time
+const feed = listController()
+
+<List data={rows()} key={(r) => r.id} row={(r) => <TxnRow t={r} />}
+  ListHeaderComponent={<BalanceCard />}
+  ListEmptyComponent={loaded() ? <Text>No payments yet</Text> : null}
+  ListFooterComponent={() => <Text>That's all</Text>}
+  controller={feed} />
+
+feed.scrollToOffset({ offset: 0 })                   // back to the top
+```
+- Header, empty and footer forms: an element, a component, `() => <X/>`, `cond ? <X/> : null`, `cond && <X/>`, or a prop
+  you were given (`props.header`).
+- Inverted lists flip them as RN does: the header sits next to row 0 (at the bottom), the footer at the top.
+- `scrollToIndex({ index, viewOffset })`: `viewOffset` in dp, the row ends up that far from the start.
+- `scrollToOffset({ offset })` is absolute, in dp. With `animated: false` it is exact. Animated, it is exact for 0 and
+  close for other values (a lazy list doesn't know the size of rows far away).
+- A command given before the List is on screen runs when it appears.
+- **Don't** use row keys that start with `__zn_` on purpose: core adds a `_` to them so they can't clash with the extras.
+- A screen that uses header, footer or empty needs an app with registry 23; an older app refuses the bundle.
+
+## 74. Layout values from JS
+- A slot's `width`, `height`, min / max, `aspectRatio`, `flex`, `gap`, margin, padding, radius or font size that is NaN
+  or Infinity counts as not written (one warning in logcat). Before 2026-11-08, `width: done / total` with `total = 0`
+  crashed the app.
+- A written per-edge value beats a shorthand, whichever of them comes from a variable: `{ paddingStart: 4, paddingHorizontal: x() }`
+  keeps 4 at the start, as in RN.
+- Negative margins work, static or from a slot: `marginHorizontal: -16` makes a full-bleed row. They need registry 23.
+- `display: "none"` takes no room and no gap in its Row or Column.
+- `flexShrink` / `flexBasis` must be known at build time (zero-native drops 0 / 1 and 0 / "auto"; others are build errors).

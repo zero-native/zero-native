@@ -43,6 +43,13 @@ The compiler warns when a `<For>` is fed an array that is not obviously small, a
   `LazyRow` natively. Cards keep their own width (`definiteWidth = false` unless the row template root sets an explicit
   width), `gap` spaces items along the row, and `contentContainerStyle` paddings scroll with the content.
   Sticky headers, `inverted`, and pull-to-refresh are refused on horizontal lists (vertical only).
+- **Header, footer, empty** (registry 23, batch 2 H3; fixed 2026-11-08): `ListHeaderComponent`, `ListFooterComponent`,
+  `ListEmptyComponent`, in RN's forms (guide-notes §73). Each is its own instance, mounted by core, kept in its own state in
+  native `ZnList` (not in the row map), and drawn as one item: header, empty (no rows only), rows, footer, in every list.
+  The range JS gets is in row indexes (lazy index minus the header). Second-opinions 174.
+- **Scroll commands:** `controller={listController()}` or `ref={...}` (`listController` comes from `@zero-native/core`):
+  `scrollToIndex`, `scrollToEnd`, `scrollToOffset`, in dp as in RN. They go through a slot (`scrollCommand`) with a
+  sequence number, so a command given before the List mounts runs once when it draws.
 
 ## 3. The window protocol (built, 2.4a)
 JS → native (normal batch ops, `core/include/zn/batch.h`):
