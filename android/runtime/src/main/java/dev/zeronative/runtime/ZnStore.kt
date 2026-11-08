@@ -82,7 +82,30 @@ class ZnList {
      */
     var lastScrollSeq: Int = -1
 
+    /**
+     * The instances of ListHeaderComponent / ListFooterComponent / ListEmptyComponent (registry 23), or null. Kept
+     * out of [bound]: the List reads these at its top, and a read of [bound] there would recompose the whole list on
+     * every row bind (M9, 2026-11-08 review). Core sends them under these keys; a row key never starts with "__zn_".
+     */
+    val header = mutableStateOf<Int?>(null)
+    val footer = mutableStateOf<Int?>(null)
+    val empty = mutableStateOf<Int?>(null)
+
+    private fun extra(key: String): MutableState<Int?>? = when (key) {
+        "__zn_header" -> header
+        "__zn_footer" -> footer
+        "__zn_empty" -> empty
+        else -> null
+    }
+
     internal fun bind(key: String, row: Int) {
+        val e = extra(key)
+        if (e != null) {
+            e.value?.let { keyOf.remove(it) }
+            e.value = row
+            keyOf[row] = key
+            return
+        }
         keyOf.remove(bound[key] ?: Int.MIN_VALUE)
         bound[key] = row
         keyOf[row] = key
@@ -90,6 +113,11 @@ class ZnList {
 
     internal fun unbind(row: Int) {
         val key = keyOf.remove(row) ?: return
+        val e = extra(key)
+        if (e != null) {
+            if (e.value == row) e.value = null
+            return
+        }
         if (bound[key] == row) bound.remove(key)
     }
 }

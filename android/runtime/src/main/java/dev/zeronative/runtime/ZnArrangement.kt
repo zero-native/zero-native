@@ -20,7 +20,7 @@ import kotlin.math.roundToInt
  */
 
 internal fun znVerticalArrangement(justify: Int, gap: Float): Arrangement.Vertical {
-    if (gap <= 0f) return when (justify) {
+    if (!(gap > 0f && gap.isFinite())) return when (justify) { // NaN or Infinity from a slot: no gap
         Registry.JustifyContent.CENTER -> Arrangement.Center
         Registry.JustifyContent.FLEX_END -> Arrangement.Bottom
         Registry.JustifyContent.SPACE_BETWEEN -> Arrangement.SpaceBetween
@@ -40,7 +40,7 @@ internal fun znVerticalArrangement(justify: Int, gap: Float): Arrangement.Vertic
 }
 
 internal fun znHorizontalArrangement(justify: Int, gap: Float): Arrangement.Horizontal {
-    if (gap <= 0f) return when (justify) {
+    if (!(gap > 0f && gap.isFinite())) return when (justify) { // NaN or Infinity from a slot: no gap
         Registry.JustifyContent.CENTER -> Arrangement.Center
         Registry.JustifyContent.FLEX_END -> Arrangement.End
         Registry.JustifyContent.SPACE_BETWEEN -> Arrangement.SpaceBetween

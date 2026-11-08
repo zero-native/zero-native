@@ -55,8 +55,8 @@ import androidx.compose.ui.unit.sp
 
 private const val NONE = -1
 
-/** Padding or margin per edge, in dp. */
-class Edges(val start: Float, val top: Float, val end: Float, val bottom: Float) {
+/** Padding or margin per edge, in dp. Equal by value, so a dynamic margin that didn't change keeps the node's chain. */
+data class Edges(val start: Float, val top: Float, val end: Float, val bottom: Float) {
     val hasNegative: Boolean get() = start < 0f || top < 0f || end < 0f || bottom < 0f
     fun plus(s: Float, t: Float, e: Float, b: Float) = Edges(start + s, top + t, end + e, bottom + b)
     /**
@@ -455,7 +455,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
      */
     @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) // hideFromAccessibility
     internal fun accessibilitySemantics(label: String?): Modifier? {
-        val imageRole = (type == Registry.Component.IMAGE || type == Registry.Component.SVG) && label != null
+        // A labelled <Canvas> is a picture too (a chart): TalkBack reads its label as an image (2026-11-08).
+        val imageRole = (type == Registry.Component.IMAGE || type == Registry.Component.SVG || type == Registry.Component.CANVAS) && label != null
         if (!accessibilityHidden && accessibilityRole == null && label == null && !imageRole) return null
         return Modifier.semantics(mergeDescendants = label != null) {
             if (accessibilityHidden) hideFromAccessibility()
@@ -526,6 +527,11 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         paddingSlot, paddingHorizontalSlot, paddingVerticalSlot,
     )
     val hasDynamicPadding = paddingSlots.any { it != NONE }
+    /** The props of [paddingSlots], in the same order (for [mixedEdges]). */
+    val paddingProps = intArrayOf(
+        Registry.Prop.PADDING_START, Registry.Prop.PADDING_TOP, Registry.Prop.PADDING_END, Registry.Prop.PADDING_BOTTOM,
+        Registry.Prop.PADDING, Registry.Prop.PADDING_HORIZONTAL, Registry.Prop.PADDING_VERTICAL,
+    )
 
     // Dynamic layout slots (registry 23, brief H1)
     val widthSlot = slotFor(raw, Registry.Prop.WIDTH)
@@ -556,6 +562,11 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         marginSlot, marginHorizontalSlot, marginVerticalSlot,
     )
     val hasDynamicMargin = marginSlots.any { it != NONE }
+    /** The props of [marginSlots], in the same order (for [mixedEdges]). */
+    val marginProps = intArrayOf(
+        Registry.Prop.MARGIN_START, Registry.Prop.MARGIN_TOP, Registry.Prop.MARGIN_END, Registry.Prop.MARGIN_BOTTOM,
+        Registry.Prop.MARGIN, Registry.Prop.MARGIN_HORIZONTAL, Registry.Prop.MARGIN_VERTICAL,
+    )
 
     val borderRadiusSlot = slotFor(raw, Registry.Prop.BORDER_RADIUS)
     val borderTopStartRadiusSlot = slotFor(raw, Registry.Prop.BORDER_TOP_START_RADIUS).takeIf { it != NONE }
@@ -656,14 +667,18 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         val effMargin = dynamicMargin ?: margin
         effMargin?.let {
             m = if (it.hasNegative) {
+                // As Compose's padding does, but a side may be below 0: the box gets the room minus the margins (a
+                // negative one gives it more room), reports a size inside the parent's limits, and sits at (start, top).
+                // Before 2026-11-08 it was measured with the full room and reported a size bigger than allowed, so
+                // Compose moved it by half the difference, and a stretched row with margin -16 sat 16 dp off.
                 m.layout { measurable, constraints ->
                     val s = it.start.dp.roundToPx()
                     val t = it.top.dp.roundToPx()
                     val e = it.end.dp.roundToPx()
                     val b = it.bottom.dp.roundToPx()
-                    val placeable = measurable.measure(constraints)
-                    val w = (placeable.width + s + e).coerceAtLeast(0)
-                    val h = (placeable.height + t + b).coerceAtLeast(0)
+                    val placeable = measurable.measure(constraints.offset(-(s + e), -(t + b)))
+                    val w = constraints.constrainWidth((placeable.width + s + e).coerceAtLeast(0))
+                    val h = constraints.constrainHeight((placeable.height + t + b).coerceAtLeast(0))
                     layout(w, h) {
                         placeable.placeRelative(s, t)
                     }
@@ -768,7 +783,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         // pressed highlight shows square corners on a rounded button (found on the Lava, step 1.2).
         // Images clip to their rounded shape by default, as in React Native.
         // A borderless ripple must draw outside the shape, so such a Pressable isn't clipped by default.
-        val clipsByDefault = rounded && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE || type == Registry.Component.SHIMMER)
+        // A radius from a slot counts too (before 2026-11-08 a rounded Image with a slot radius drew square corners).
+        val isRounded = if (dynamicShape != null) dynamicShape != RectangleShape else rounded
+        val clipsByDefault = isRounded && ((press != null && !rippleBorderless) || type == Registry.Component.IMAGE || type == Registry.Component.SHIMMER)
         if (clip || clipsByDefault) m = m.clip(effShape)
         press?.let { m = m.then(it) } ?: accessibility?.let { m = m.then(it) }
         // Borders take space: content sits inside them (zn flex rule 2).
@@ -815,6 +832,21 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         val hh = num(h) ?: a
         val vv = num(v) ?: a
         return Edges(num(s) ?: hh, num(t) ?: vv, num(e) ?: hh, num(b) ?: vv)
+    }
+
+    /**
+     * Margin or padding edges when some of them come from slots. The same RN order as [edges], for static and slot
+     * values alike: a specific edge beats the axis, which beats the all-edges value. [props] and [slots] are in the
+     * order start, top, end, bottom, all, horizontal, vertical; [read] gives a slot's number (null: not a number).
+     * Before 2026-11-08 a slot's paddingHorizontal beat a static paddingStart (review of Gemini's H1).
+     * A NaN or infinite value counts as not written, so it can't reach a layout call.
+     */
+    internal fun mixedEdges(props: IntArray, slots: IntArray, read: (Int) -> Float?): Edges {
+        fun v(i: Int): Float? = ((if (slots[i] >= 0) read(slots[i]) else null) ?: num(props[i]))?.takeIf { it.isFinite() }
+        val a = v(4) ?: 0f
+        val h = v(5) ?: a
+        val vv = v(6) ?: a
+        return Edges(v(0) ?: h, v(1) ?: vv, v(2) ?: h, v(3) ?: vv)
     }
 
     private fun slotFor(raw: RawTemplate, prop: Int): Int =
