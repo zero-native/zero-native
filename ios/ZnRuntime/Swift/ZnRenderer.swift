@@ -151,6 +151,10 @@ struct ZnNodeView: View {
             ZnListView(ctx: ctx, inst: inst, s: s)
         case Registry.Component.textField:
             ZnTextFieldView(ctx: ctx, s: s, inst: inst)
+        case Registry.Component.svg:
+            ZnSvgView(ctx: ctx, t: t, inst: inst, s: s)
+        case Registry.Component.svgPart:
+            EmptyView()  // read by its <Svg> (ZnSvgView), never drawn on its own
         case Registry.Component.icon:
             ZnIconView(s: s, inst: inst)
         case Registry.Component.image:

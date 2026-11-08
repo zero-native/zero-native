@@ -347,6 +347,8 @@ final class ZnMotion {
 
     @ObservationIgnored private var tracks: [Int: Track] = [:]
     @ObservationIgnored private var paused = false
+    /// Tracks held by their own `paused` (an SvgPart's), apart from the whole motion's.
+    @ObservationIgnored private var pausedKeys = Set<Int>()
     @ObservationIgnored private var last: CFTimeInterval = -1
     @ObservationIgnored private var running = false
 
@@ -365,6 +367,29 @@ final class ZnMotion {
         for (prop, t) in timings { if let r = rests[prop] { restart(prop, t, rest: r) } }
         values = tracks.mapValues { $0.timing.value(at: 0, $0.points) }
         run()
+    }
+
+    /// Only these tracks start again (one SvgPart's `replay`, or a tap for timings that wait for one).
+    func start(keys: [Int: ZnTiming], rests: [Int: [Double]]) {
+        for (k, t) in keys { if let r = rests[k] { restart(k, t, rest: r) } }
+        for k in keys.keys { values[k] = tracks[k].map { $0.timing.value(at: 0, $0.points) } }
+        run()
+    }
+
+    /// A value that follows JS: from where it is now to [to], with [timing]'s tween or spring (on the frame clock, for
+    /// drawings that read values themselves, such as an Svg's parts). A new target mid-way starts from where it is.
+    func follow(_ key: Int, from: [Double], to: [Double], timing: ZnTiming) {
+        let now = values[key] ?? from
+        tracks[key] = Track(timing: timing, points: [now, to], rest: to, playTime: -Double(timing.delayMs))
+        values[key] = now
+        run()
+    }
+
+    /// Holds or lets go of some tracks (an SvgPart's own `paused`).
+    func setPaused(_ p: Bool, keys: Set<Int>) {
+        if p { pausedKeys.formUnion(keys) } else { pausedKeys.subtract(keys) }
+        last = -1
+        if !p { run() }
     }
 
     /// A resting value changed: a `from` track plays again towards it (keyframes don't depend on it).
@@ -399,7 +424,7 @@ final class ZnMotion {
     }
 
     private func run() {
-        guard !running, !paused, tracks.values.contains(where: { !$0.done }) else { return }
+        guard !running, !paused, tracks.contains(where: { !$0.value.done && !pausedKeys.contains($0.key) }) else { return }
         running = true
         last = -1
         ZnFrameClock.shared.add(self) { [weak self] now in
@@ -414,7 +439,7 @@ final class ZnMotion {
         last = now
         var next = values
         var any = false
-        for (prop, var tr) in tracks where !tr.done {
+        for (prop, var tr) in tracks where !tr.done && !pausedKeys.contains(prop) {
             tr.playTime += step
             if tr.playTime >= 0 {
                 let at = znMotionAt(tr.playTime, length: tr.timing.lengthMs, gap: Double(tr.timing.repeatDelayMs),

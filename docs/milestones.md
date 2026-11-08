@@ -125,7 +125,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
 | i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, Svg, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
 
@@ -146,6 +146,37 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.2, Svg (Claude, `ios` branch)
+- **Draw data** (`ZnSvgData.swift`): the compiler's format v1 read as Android's SvgScanner reads it (same tokens and
+  checks): viewBox and preserveAspectRatio, gradients (linear, radial, focal), animated stops, clips, filters,
+  patterns, masks, groups, shapes, text. Paths through the icon parser (SvgPathParser).
+- **Drawing** (`ZnSvgDraw.swift`, ZnSvgDrawing + ZnSvgEffects): Core Graphics in a plain UIView's draw(_:). Groups
+  with opacity / mix-blend-mode layers, clips, masks (luminance or alpha, drawn to a grey image at screen
+  resolution), shapes with colour / currentColor / gradient / pattern fills and strokes, dashes, paint-order,
+  non-scaling strokes, text with the system fonts, and every <SvgPart> override: paints, opacity, transforms around
+  the pivot (with skew, frame and motion path), stroke width, dash offset, trims (group and shape, caps of zero
+  pieces), morphs.
+- **Parts** (`ZnSvgView.swift`): each value from the template, a slot or ZnMotion; on iOS all part animations run on
+  the frame clock (values that follow JS too: `ZnMotion.follow`), per-part `paused` and `replay`, the Svg's own
+  `paused` / `replay`, and timings that wait for a tap. `ZnSvgGeometry.swift`: path measuring (flattened curves),
+  trim ranges, morphs, motion paths.
+- **iOS differences** (written in ZnSvgDraw.swift): filters draw the group under the first drop shadow the compiler
+  found in them (Android's fallback before Android 12); other filter primitives aren't run. Repeating / reflecting
+  gradients repeat 10 times each way. Non-scaling strokes keep their width in points through the shape's scale but
+  aren't redrawn on screen for uneven stretches. Trimmed curves are 24-step polylines.
+- **Found and fixed:** a SwiftUI Canvas drawing only through Core Graphics, whose first frame drew nothing, kept
+  showing nothing (the Wifi loader: all its paths at opacity 0 at first). Svgs draw in a UIView now.
+- **Found and fixed:** a tap on an Svg inside a Pressable never reached the Svg (the Pressable is a UIKit view over
+  its content), so SMIL begin="click" never started. One window-level tap recognizer, which cancels and delays
+  nothing, tells the Svgs it landed in; the Pressable still gets its tap (both seen in the log).
+- **Checked on the simulator:** the Svg lab: wallet card gradients, Material icons tinted with color, runtime parts
+  (heart, tick, swap, avatar), effects (shadow and ₹ text, pattern with a fade mask, route markers, blend), the
+  motion tiles (loops, keyframes, trims, gauge), all downloaded SMIL / CSS loaders including Wifi, morph, motion
+  along a path, non-scaling chart lines at two sizes, "Pause the loops" freezes them, "Tap me" starts 5 animations,
+  the 60-row list with an Svg and its shadow per row. RN props lab: the absolute Svg stretched to its box (R30).
+- **Not checked:** RTL autoMirror, SvgPart `frame` on a real file, drawing cost on a device (every animated Svg
+  redraws on the CPU each frame).
+
 ### 2026-11-08: iOS i.2, props lab part 4: Carousel, onLayout, zIndex in rows, gradients (Claude, `ios` branch)
 - **Carousel** (`ZnCarousel.swift`, ZnRenderer.kt's pager): a paging horizontal scroll, pages full width (minus the
   padding, which is content padding inside the scroll) or `itemWidth`, `gap` apart; no height → as tall as the

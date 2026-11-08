@@ -138,6 +138,29 @@ final class ZnNodeSpec {
     let stickyHeaderIndices: String?
     let stickySlot: Int
 
+    // Svg and SvgPart (docs/svg.md §7): the draw data (parsed on first draw, ZnSvgDraw.swift) and a part's values.
+    let svg: String?
+    let autoMirror: Bool
+    let aspectRatio: CGFloat?
+    /// SvgPart: the index of the op it changes (G, S and T ops, counted from 0), or -1.
+    let part: Int
+    let fill: UInt32?, stroke: UInt32?
+    let fillSlot: Int, strokeSlot: Int
+    let trimStart: CGFloat, trimEnd: CGFloat, trimOffset: CGFloat
+    let trimStartSlot: Int, trimEndSlot: Int, trimOffsetSlot: Int
+    let hasTrim: Bool
+    let pivotX: CGFloat, pivotY: CGFloat
+    let strokeWidth: CGFloat, dashOffset: CGFloat
+    let strokeWidthSlot: Int, dashOffsetSlot: Int
+    let scaleOutline: Bool
+    let morph: String?
+    let morphAt: CGFloat
+    let motionPath: String?
+    let motionAt: CGFloat
+    let skewX: CGFloat, skewY: CGFloat
+    let frame: String?
+    let trimCaps: Bool
+
     // Carousel
     let autoAdvanceMs: Int
     let pauseAfterTouchMs: Double
@@ -300,6 +323,36 @@ final class ZnNodeSpec {
         onEndReached = eventFor(Registry.Event.onEndReached)
         stickyHeaderIndices = p[P.stickyHeaderIndices]?.string
         stickySlot = slotFor(P.stickyHeaderIndices)
+        func argb(_ id: Int) -> UInt32? {
+            switch p[id] {
+            case .color(let c): return c
+            case .number(let n): return UInt32(truncatingIfNeeded: Int64(n))
+            default: return nil
+            }
+        }
+        svg = p[P.svg]?.string
+        autoMirror = p[P.autoMirror]?.bool ?? false
+        aspectRatio = num(P.aspectRatio)
+        part = num(P.part).map { Int($0) } ?? -1
+        fill = argb(P.fill); stroke = argb(P.stroke)
+        fillSlot = slotFor(P.fill); strokeSlot = slotFor(P.stroke)
+        trimStart = num(P.trimStart) ?? 0; trimEnd = num(P.trimEnd) ?? 1; trimOffset = num(P.trimOffset) ?? 0
+        trimStartSlot = slotFor(P.trimStart); trimEndSlot = slotFor(P.trimEnd); trimOffsetSlot = slotFor(P.trimOffset)
+        pivotX = num(P.pivotX) ?? 0; pivotY = num(P.pivotY) ?? 0
+        strokeWidth = num(P.strokeWidth) ?? .nan; dashOffset = num(P.dashOffset) ?? .nan
+        strokeWidthSlot = slotFor(P.strokeWidth); dashOffsetSlot = slotFor(P.dashOffset)
+        scaleOutline = p[P.scaleOutline]?.bool ?? false
+        morph = p[P.morph]?.string
+        morphAt = num(P.morphAt) ?? -1
+        motionPath = p[P.motionPath]?.string
+        motionAt = num(P.motionAt) ?? -1
+        skewX = num(P.skewX) ?? 0; skewY = num(P.skewY) ?? 0
+        frame = p[P.frame]?.string
+        trimCaps = p[P.trimCaps]?.bool ?? false
+        let animated = p[P.animate]?.string.map(ZnAnimate.parse)
+        hasTrim = p[P.trimStart] != nil || p[P.trimEnd] != nil || p[P.trimOffset] != nil ||
+            trimStartSlot >= 0 || trimEndSlot >= 0 || trimOffsetSlot >= 0 ||
+            [P.trimStart, P.trimEnd, P.trimOffset].contains { animated?.timing($0) != nil }
         autoAdvanceMs = Int(num(P.autoAdvance) ?? 0)
         pauseAfterTouchMs = Double(num(P.pauseAfterTouch) ?? 3000)
         dots = p[P.dots]?.bool ?? false
