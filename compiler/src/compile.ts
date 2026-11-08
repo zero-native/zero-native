@@ -2960,12 +2960,6 @@ export function compileModule(
   /** A build-time prop value → the template. Values with React Native aliases are normalised here. */
   function setStatic(props: Record<string, unknown>, name: PropName, value: unknown, at: ts.Node) {
     if (typeof value === "number" && value < 0) {
-      if (MARGIN_KEYS.has(name)) {
-        fail(at, `${name}: ${value}: a negative margin isn't supported in zero-native yet. To pull an element up or ` +
-          `to the side so it overlaps, use transform: [{ ${/Start|End|Horizontal/.test(name) ? "translateX" : "translateY"}: ${value} }] ` +
-          "(it moves the drawing and keeps the space in the layout), or take the space out of the neighbour's padding " +
-          "or the parent's gap")
-      }
       if (NOT_NEGATIVE_KEYS.has(name)) fail(at, `${name}: ${value}: can't be negative (React Native treats it as 0). Use 0`)
     }
     props[name] =

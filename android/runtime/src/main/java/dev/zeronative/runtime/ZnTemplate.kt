@@ -57,6 +57,7 @@ private const val NONE = -1
 
 /** Padding or margin per edge, in dp. */
 class Edges(val start: Float, val top: Float, val end: Float, val bottom: Float) {
+    val hasNegative: Boolean get() = start < 0f || top < 0f || end < 0f || bottom < 0f
     fun plus(s: Float, t: Float, e: Float, b: Float) = Edges(start + s, top + t, end + e, bottom + b)
     /**
      * Never below 0: Compose's PaddingValues throws on a negative value, and margin, padding and border widths all go
@@ -650,7 +651,24 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         }
         var m: Modifier = Modifier
         val effMargin = dynamicMargin ?: margin
-        effMargin?.let { m = m.padding(it.toPadding()) }
+        effMargin?.let {
+            m = if (it.hasNegative) {
+                m.layout { measurable, constraints ->
+                    val s = it.start.dp.roundToPx()
+                    val t = it.top.dp.roundToPx()
+                    val e = it.end.dp.roundToPx()
+                    val b = it.bottom.dp.roundToPx()
+                    val placeable = measurable.measure(constraints)
+                    val w = (placeable.width + s + e).coerceAtLeast(0)
+                    val h = (placeable.height + t + b).coerceAtLeast(0)
+                    layout(w, h) {
+                        placeable.placeRelative(s, t)
+                    }
+                }
+            } else {
+                m.padding(it.toPadding())
+            }
+        }
         layout?.let { m = m.then(it) } // RN onLayout: the box inside the margin, as RN reports it
         testID?.let { m = m.testTag(it) } // inside the margin: the element's own box, as RN reports it
         if (sizeLayout != null) {

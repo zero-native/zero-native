@@ -354,6 +354,15 @@ export function RnPropsLabScreen() {
           </Text>
         </Box>
 
+        <PropsTitle text="Negative Margins (RN parity)" />
+        <Column style={{ backgroundColor: c.white, borderRadius: 8, padding: 12 }}>
+          <Box style={{ height: 60, backgroundColor: c.primary, borderRadius: 6 }} />
+          <Box style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#F59E0B", marginTop: -22, marginStart: 16, borderWidth: 2, borderColor: c.white }} />
+          <Text fontSize={13} color={c.ink} style={{ marginTop: 6, marginStart: 16 }}>
+            Avatar overlapping banner via marginTop: -22
+          </Text>
+        </Column>
+
         {/* 2026-11-05, R29 / R30 from the ZeroBill port: an absolute child takes no room (the Stack is as tall as its
             text, the 220 dp shape draws over what follows), and an absolute Svg with start + end + height and
             preserveAspectRatio="none" stretches to that box. The bubble keeps its 220 dp width in a narrower Stack. */}
