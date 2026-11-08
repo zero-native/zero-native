@@ -671,6 +671,13 @@ export interface RnScrollProps {
   showsHorizontalScrollIndicator?: false
   /** zero-native works like "handled": a tap reaches the button under it; the keyboard stays. */
   keyboardShouldPersistTaps?: "handled" | "always" | true
+  /**
+   * As React Native (registry 24; fixed at build time). "none" (default): scrolling leaves the keyboard alone.
+   * "on-drag": a drag closes the keyboard and the field loses focus. "interactive" (chats): the keyboard follows the
+   * finger. Drag down to push it away; at the newest end, drag up to pull it back while the field still has focus.
+   * Android 11+; older Android works like "on-drag".
+   */
+  keyboardDismissMode?: "none" | "on-drag" | "interactive"
   initialNumToRender?: number
   maxToRenderPerBatch?: number
   windowSize?: number

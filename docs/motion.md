@@ -58,7 +58,8 @@ x()          // read in JS (a signal: native starts sending changes); x.peek() r
 `env.width`, `env.height`, `env.insets.top / bottom / start / end`, `env.keyboardHeight` (follows the keyboard frame by
 frame), `env.keyboardTarget` (where it is going). Read them as `env.width()` inside `derive`. Inside `derive`, `self.width` / `self.height` (the element
 the formula is bound on) and `parent.width` / `parent.height`. A route with `keyboard: "none"` lets a screen move things
-itself with `env.keyboardHeight`.
+itself with `env.keyboardHeight`. For a chat, add `keyboardDismissMode="interactive"` to its `<List>`: a drag on the
+messages then moves the keyboard itself, and `env.keyboardHeight` follows (guide §76).
 
 ## 4. derive: maths each frame
 
@@ -241,3 +242,6 @@ tests in `ZnMotionTest.kt` list the numbers the Swift port must match.
 Two rules found on the phone: a value JS disposed stays readable at its last value for whatever still draws it (a
 leaving screen keeps its dragged place for its exit, its ₹ text stays); and a node whose only motion prop is
 `sharedTag` still gets the shared-element modifier.
+`keyboardDismissMode` (Scroll / List, registry 24) is UIScrollView's own `keyboardDismissMode`: `.onDrag` and
+`.interactive` (with `.interactiveWithAccessory` not needed). Android's "on-drag" also clears focus, as iOS resigns
+the first responder.

@@ -226,6 +226,7 @@
     "prop:itemAnimation": {"id":157,"type":"string","since":24},
     "prop:sharedTag": {"id":158,"type":"string","since":24},
     "prop:reorderable": {"id":159,"type":"bool","since":24},
+    "prop:keyboardDismissMode": {"id":160,"type":"string","since":24},
     "dynamic:text": {"since":8},
     "dynamic:color": {"since":8},
     "dynamic:backgroundColor": {"since":8},

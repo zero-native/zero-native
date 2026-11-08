@@ -271,7 +271,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             // A rail: only the visible children are composed; scrolling it never involves JS.
             val refs = childRefs(f, t, inst, s)
             LazyRow(
-                modifier = mod,
+                modifier = mod.znKeyboardDismiss(s.keyboardDismissMode, vertical = false),
                 contentPadding = contentPaddingOf(s, inst),
                 horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
                 verticalAlignment = verticalAlignment(s.alignItems),
@@ -293,7 +293,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             Column(
                 // A11-2: the box children's onLayout x / y start from: the scrolling content, so y doesn't move
                 // with the scroll; its contentContainerStyle padding counts, as in RN.
-                modifier = mod.then(znPullRefresh(s, inst)).verticalScroll(scrollState)
+                modifier = mod.then(znPullRefresh(s, inst)).znKeyboardDismiss(s.keyboardDismissMode, vertical = true).verticalScroll(scrollState)
                     .then(ZnBoxElement).padding(contentPaddingOf(s, inst)),
                 verticalArrangement = verticalArrangement(s),
                 horizontalAlignment = horizontalAlignment(s.alignItems),
@@ -828,7 +828,7 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     if (s.inverted) FollowNewestRow(state, rows.firstOrNull()?.key)
     if (s.horizontal) {
         LazyRow(
-            modifier = mod.then(reorder?.modifier() ?: Modifier),
+            modifier = mod.then(reorder?.modifier() ?: Modifier).znKeyboardDismiss(s.keyboardDismissMode, vertical = false),
             state = state,
             contentPadding = contentPaddingOf(s, inst),
             horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
@@ -845,7 +845,8 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     } else {
         LazyColumn(
             modifier = mod.then(znPullRefresh(s, inst)) // pull to refresh, when it has onRefresh / refreshing
-                .then(reorder?.modifier() ?: Modifier),
+                .then(reorder?.modifier() ?: Modifier)
+                .znKeyboardDismiss(s.keyboardDismissMode, vertical = true), // RN keyboardDismissMode (registry 24)
             state = state,
             // Its padding scrolls with the rows (RN's contentContainerStyle), so the last row can scroll above a floating
             // button. The fixed space around the list is margin.

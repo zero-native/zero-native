@@ -2008,6 +2008,13 @@ export function compileModule(
         return fail(a, 'keyboardShouldPersistTaps: zero-native works like "handled" (taps reach the button; the ' +
           'keyboard stays). For "never", call Keyboard.dismiss() in the handler')
       }
+      if (name === "keyboardDismissMode") {
+        // Registry 24. Fixed at build time; "none" is the default, so it sends nothing.
+        const v = known()
+        if (v === "none") return true
+        if (v === "on-drag" || v === "interactive") return null // the registry prop, set by the caller
+        return fail(a, 'keyboardDismissMode takes "none", "on-drag" or "interactive"')
+      }
     }
     return null
   }
@@ -2799,7 +2806,7 @@ export function compileModule(
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, ref, controller, motion, itemAnimation, reorderable, onReorder; or FlatList's renderItem, keyExtractor)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, ref, controller, motion, itemAnimation, reorderable, onReorder, keyboardDismissMode; or FlatList's renderItem, keyExtractor)`)
       }
     }
     rnFinish("List", null, props, b, rnLater, node)

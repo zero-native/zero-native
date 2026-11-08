@@ -52,6 +52,7 @@ export const REGISTRY_VERSION = 24 // 2: Anchor. 3: transforms, shadow, absolute
 // 24: gestures and motion (docs/gestures-and-motion-v1.md): `gesture` on any element; rotateX, rotateY, cameraDistance,
 //     blurRadius (draw-phase targets that follow motion values); `motion` (values from an element: box, scroll, page,
 //     press); animateLayout; List itemAnimation. A slot holding a motion value needs the Motion module.
+//     Scroll / List keyboardDismissMode (RN's "on-drag" and "interactive", for chats).
 
 export const Component = {
   Column: 1,
@@ -483,6 +484,11 @@ export const Prop = {
   sharedTag: { id: 158, type: "string" },
   /** <List>: a long press on a row picks it up; drag it to a new place (auto-scroll at the edges); onReorder(from, to). */
   reorderable: { id: 159, type: "bool" },
+  /**
+   * <Scroll> / <List>, RN's keyboardDismissMode: "on-drag" (a drag closes the keyboard, the field loses focus) or
+   * "interactive" (the keyboard follows the finger; Android 11+, else as "on-drag"). Absent: "none".
+   */
+  keyboardDismissMode: { id: 160, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -748,7 +754,7 @@ export const Added: {
     selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23, itemWidthPercent: 23,
     commands: 23,
     gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, animateLayout: 24,
-    itemAnimation: 24, sharedTag: 24, reorderable: 24,
+    itemAnimation: 24, sharedTag: 24, reorderable: 24, keyboardDismissMode: 24,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,

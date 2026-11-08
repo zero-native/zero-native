@@ -506,6 +506,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val itemAnimation: String? = p[Registry.Prop.ITEM_ANIMATION] as String?
     /** <List reorderable> (registry 24): long press and drag a row; onReorder(from, to) on the drop (ZnReorder.kt). */
     val reorderable: Boolean = p[Registry.Prop.REORDERABLE] == true
+    /** <Scroll> / <List> RN keyboardDismissMode (registry 24): "on-drag", "interactive" or null ("none"). ZnKeyboardScroll.kt. */
+    val keyboardDismissMode: String? = p[Registry.Prop.KEYBOARD_DISMISS_MODE] as String?
     /** Something of registry 24's layer is used: the layer sets 3D turns and blur too. */
     val hasDepth = rotateX != 0f || rotateY != 0f || blurRadius != 0f || rotateXSlot != NONE || rotateYSlot != NONE ||
         cameraDistanceSlot != NONE || blurRadiusSlot != NONE || enter?.turns == true || exit?.turns == true

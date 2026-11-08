@@ -251,6 +251,19 @@ describe("templates", () => {
       .not.toThrow()
   })
 
+  test("keyboardDismissMode (RN, registry 24) on List and Scroll; none sends nothing; other values fail", () => {
+    const list = compile(`export function A(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>{r.t}</Text>} keyboardDismissMode="interactive" inverted /> }`)
+    expect(list.templates[0].props).toMatchObject({ keyboardDismissMode: "interactive", inverted: true })
+    const scroll = compile(`export function B() { return <Scroll keyboardDismissMode={"on-drag"}><Text>a</Text></Scroll> }`)
+    expect(scroll.templates[0].props).toMatchObject({ keyboardDismissMode: "on-drag" })
+    const none = compile(`export function C() { return <Scroll keyboardDismissMode="none"><Text>a</Text></Scroll> }`)
+    expect(none.templates[0].props.keyboardDismissMode).toBeUndefined()
+    expect(() => compile(`export function D() { return <Scroll keyboardDismissMode="always"><Text>a</Text></Scroll> }`))
+      .toThrow('keyboardDismissMode takes "none", "on-drag" or "interactive"')
+    expect(() => compile(`export function E(p) { return <Scroll keyboardDismissMode={p.mode}><Text>a</Text></Scroll> }`))
+      .toThrow("must be known at build time")
+  })
+
   test("records which template each component returns", () => {
     const { components } = compile(`export function AScreen() { return <Column /> }
       const B = () => <Row />`)

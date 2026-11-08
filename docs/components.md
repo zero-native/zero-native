@@ -389,6 +389,7 @@ nothing). `<NavigationBar>` is zn's own.
 | `Image` | `onLoad`, `onError`, `onLoadEnd` | events | | `nativeEvent.source` `{ width, height, uri }` / `nativeEvent.error`. |
 | `List` | `stickyHeaderIndices` | `number[]` | Yes | Rows pinned at the top while their part scrolls. |
 | `List` | `inverted` | `boolean` | No | Row 0 at the bottom, growing upwards (chats; registry 19). |
+| `Scroll` / `List` | `keyboardDismissMode` | `"none" \| "on-drag" \| "interactive"` | No | As RN (registry 24). `"on-drag"`: a drag closes the keyboard, the field loses focus. `"interactive"`: the keyboard follows the finger (Android 11+; older: as `"on-drag"`). Guide §76. |
 | `Text` | `onPress`, `onLongPress` | events | | Top-level tap / long-press handler (registry 23). Role `Button` for TalkBack, no ripple or opacity change. |
 | `Pressable` / `TouchableOpacity` | `style={{ flexDirection: "row" }}` | style | | Rewritten at build time: wraps children in `<Row>`, moves layout keys (`alignItems`, `justifyContent`, `gap`) to Row (registry 23). |
 

@@ -2,7 +2,8 @@
 // "Sheets and tabs"; guide: docs/motion.md §3, §8). It is an example, not framework code.
 //   a) Tabs: an underline that follows the finger through a Carousel's page; a tap on a tab scrolls the Carousel
 //   b) Sheet: the sheet's progress (0 closed → 1 at its tallest) drives a backdrop tint and a header
-//   c) Keyboard: an input bar that rides the keyboard frame by frame (the route sets keyboard: "none")
+//   c) Keyboard: a chat whose bar rides the keyboard frame by frame (the route sets keyboard: "none"); its inverted List
+//      has keyboardDismissMode "interactive": a drag moves the keyboard
 //   d) A–Z: a side bar, a vertical drag whose touchY becomes a letter that a List follows
 // The underline, the backdrop, the bar and the list follow run on the UI thread. JS only hears page changes and taps.
 import { Box, Carousel, Column, List, Pressable, Row, Sheet, Stack, Text, TextField } from "@zero-native/ui"
@@ -234,15 +235,52 @@ function MsSheetDemo() {
   )
 }
 
-// ---- c) Input bar that rides the keyboard ---------------------------------------------------------------------------------
+// ---- c) Chat: the bar rides the keyboard; dragging the messages moves the keyboard --------------------------------------
+
+type MsMsg = { id: number; mine: boolean; text: string }
+const MS_CHAT: string[] = [
+  "Hi! Is the store open now?", "Yes, open till 10 pm", "Do you have the blue kurta in M?", "Yes, 2 left",
+  "Can you keep one for me?", "Sure, for 2 hours", "Thanks! Coming in 30 min", "See you",
+  "Is the ₹200 cashback on UPI?", "Yes, on any UPI app", "Even on a ₹999 bill?", "Yes, from ₹500 up",
+  "Great", "Anything else?", "Parking near the store?", "Behind the building, free",
+  "Order placed ✓", "Your cashback of ₹50 is on the way", "Rider is 4 minutes away", "Thanks!",
+]
+
+function MsMine(props: { m: MsMsg }) {
+  return (
+    <Row style={{ paddingHorizontal: 16, paddingVertical: 3, justifyContent: "flex-end" }}>
+      <Column style={{ maxWidth: 260, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, backgroundColor: c.primary }}>
+        <Text fontSize={14} color={c.white}>
+          {props.m.text}
+        </Text>
+      </Column>
+    </Row>
+  )
+}
+
+function MsTheirs(props: { m: MsMsg }) {
+  return (
+    <Row style={{ paddingHorizontal: 16, paddingVertical: 3, justifyContent: "flex-start" }}>
+      <Column style={{ maxWidth: 260, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, backgroundColor: c.pillBg }}>
+        <Text fontSize={14} color={c.ink}>
+          {props.m.text}
+        </Text>
+      </Column>
+    </Row>
+  )
+}
 
 function MsKeyboardDemo() {
-  const messages = signal<string[]>(["Order placed ✓", "Your cashback of ₹50 is on the way", "Rider is 4 minutes away"])
+  // Newest first (index 0), as an inverted list wants it.
+  const messages = signal<MsMsg[]>(MS_CHAT.map((t, i) => ({ id: i, mine: i % 2 === 0, text: t })).reverse())
   const text = signal("")
+  // keyboardDismissMode is fixed at build time, so the switch picks one of two lists.
+  const onDrag = signal(false)
+  let next = MS_CHAT.length
   const send = () => {
     const t = text().trim()
     if (t === "") return
-    messages.set([...messages(), t])
+    messages.set([{ id: next++, mine: true, text: t }, ...messages()])
     text.set("")
   }
 
@@ -254,29 +292,32 @@ function MsKeyboardDemo() {
 
   return (
     <Stack style={{ flex: 1, marginHorizontal: 16, marginBottom: 16, borderRadius: 24, overflow: "hidden", backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}>
-      <Column style={{ padding: 16, gap: 4 }}>
-        <Text fontSize={16} fontWeight={800} color={c.ink}>
-          Order help
-        </Text>
-        <Text fontSize={12} color={c.muted}>
-          Tap the field. The bar and the messages rise with the keyboard, frame by frame.
-        </Text>
-      </Column>
-
-      {/* Messages and bar are one block at the bottom; it moves up by the keyboard's height. */}
-      <Column style={{ position: "absolute", start: 0, end: 0, bottom: 0, transform: [{ translateY: lift }], backgroundColor: c.white }}>
-        <Column style={{ paddingHorizontal: 16, paddingBottom: 10, gap: 6 }}>
-          {messages()
-            .slice(-4)
-            .map((m, i) => (
-              <Column key={i + m} style={{ alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, backgroundColor: c.pillBg }}>
-                <Text fontSize={13} color={c.ink}>
-                  {m}
-                </Text>
-              </Column>
-            ))}
-        </Column>
-        <Row style={{ alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderColor: c.border }}>
+      {/* Messages and bar are one block; it moves up by the keyboard's height, frame by frame. Its top slides under
+          the header. keyboardDismissMode "interactive": drag the messages down to push the keyboard away; at the
+          newest message, drag up to pull it back (the field keeps focus). */}
+      <Column style={{ position: "absolute", top: 64, start: 0, end: 0, bottom: 0, transform: [{ translateY: lift }], backgroundColor: c.white }}>
+        {onDrag() ? (
+          <List
+            inverted
+            keyboardDismissMode="on-drag"
+            data={messages()}
+            key={(m) => String(m.id)}
+            row={(m) => (m.mine ? <MsMine m={m} /> : <MsTheirs m={m} />)}
+            contentContainerStyle={{ paddingVertical: 8 }}
+            style={{ flex: 1 }}
+          />
+        ) : (
+          <List
+            inverted
+            keyboardDismissMode="interactive"
+            data={messages()}
+            key={(m) => String(m.id)}
+            row={(m) => (m.mine ? <MsMine m={m} /> : <MsTheirs m={m} />)}
+            contentContainerStyle={{ paddingVertical: 8 }}
+            style={{ flex: 1 }}
+          />
+        )}
+        <Row style={{ alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderColor: c.border, backgroundColor: c.white }}>
           <TextField
             value={text()}
             onChangeText={(t) => text.set(t)}
@@ -292,6 +333,26 @@ function MsKeyboardDemo() {
           </Pressable>
         </Row>
       </Column>
+
+      <Row style={{ height: 64, paddingHorizontal: 16, alignItems: "center", gap: 12, backgroundColor: c.white, borderBottomWidth: 1, borderColor: c.border }}>
+        <Column style={{ flex: 1, gap: 2 }}>
+          <Text fontSize={16} fontWeight={800} color={c.ink}>
+            Order help
+          </Text>
+          <Text fontSize={12} color={c.muted}>
+            {onDrag() ? "A drag on the chat closes the keyboard." : "Drag the chat down: the keyboard follows. Up at the end: it comes back."}
+          </Text>
+        </Column>
+        <Pressable
+          onPress={() => onDrag.set(!onDrag())}
+          accessibilityLabel="Keyboard mode"
+          style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: c.pillBg }}
+        >
+          <Text fontSize={12} fontWeight={700} color={c.ink}>
+            {onDrag() ? "On drag" : "Interactive"}
+          </Text>
+        </Pressable>
+      </Row>
     </Stack>
   )
 }
@@ -495,7 +556,7 @@ export function MotionSheetsLabScreen() {
             : tab() === 1
               ? "Open the sheet and drag it between half and full: the tint and the header follow. Press Back with the sheet open: it goes down with your finger (that is native)."
               : tab() === 2
-                ? "Tap the field. The bar rises with the keyboard. Close the keyboard: it comes down with it."
+                ? "A chat: the bar rides the keyboard. Its list moves the keyboard with your finger (keyboardDismissMode)."
                 : "Drag your finger down the letters at the right edge: the list jumps. The big letter shows where you are."}
         </Text>
         <Row style={{ gap: 10, alignItems: "center" }}>

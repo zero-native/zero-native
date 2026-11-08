@@ -2912,3 +2912,15 @@ change, and what evidence would make you change it?"
   in the frame the screen is added); (b) build the screen before it is pushed (needs JS to mount it hidden first);
   (c) a baseline profile that covers first screen builds (the sample's profile covers start only); (d) leave it: the
   real app's screens are smaller than the Dev list. Needs a Perfetto trace of one slow push first.
+
+## 194. `keyboardDismissMode` on Scroll / List: Compose imeNestedScroll for "interactive", focus cleared for "on-drag" (2026-11-09; Opus, Pavan's chat idea)
+- **What:** RN's prop, registry 24 (not shipped, so no new number). "interactive" = `Modifier.imeNestedScroll()` on the
+  scrolling element (Android 11+): a drag down hides the keyboard first (pre-scroll), a drag up that the list can't use
+  shows it (post-scroll). "on-drag" = a nested scroll parent that, once per drag and only while the keyboard is open,
+  clears focus and hides the keyboard (`ZnKeyboardScroll.kt`).
+- **Calls made:** (1) "on-drag" clears focus, as zn's `Keyboard.dismiss()` and iOS (resign first responder); RN Android
+  only hides the keyboard. (2) It does nothing when no keyboard is open, so a drag never takes focus from a button.
+  (3) Below Android 11 and on horizontal scrolling, "interactive" works like "on-drag" (imeNestedScroll does nothing
+  there). (4) Fixed at build time, like `inverted`.
+- **Not checked:** inside a `Sheet` (its own window) and with pull to refresh on the same list; TalkBack.
+- **Risk if wrong:** only elements that set the prop change.
