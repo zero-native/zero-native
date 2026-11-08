@@ -46,6 +46,9 @@ final class ZnNodeSpec {
     let justify: Int
     let alignItems: Int
     let absolute: Bool
+    /// position: 'absolute' insets (only inside a Stack), as top / bottom / start / end in RN.
+    let posTop: CGFloat?, posBottom: CGFloat?, posStart: CGFloat?, posEnd: CGFloat?
+    let zIndex: Double?
 
     // Drawing
     let background: Color?
@@ -73,6 +76,9 @@ final class ZnNodeSpec {
     // List
     let onRange: Int
     let onEndReached: Int
+    /// RN stickyHeaderIndices (registry 15): "0,20", or a slot with that text.
+    let stickyHeaderIndices: String?
+    let stickySlot: Int
 
     // Sheet
     let visible: Bool
@@ -144,6 +150,8 @@ final class ZnNodeSpec {
         justify = en(P.justifyContent)
         alignItems = en(P.alignItems)
         absolute = en(P.position) == Registry.Position.absolute
+        posTop = num(P.top); posBottom = num(P.bottom); posStart = num(P.start); posEnd = num(P.end)
+        zIndex = p[P.zIndex]?.number
 
         background = znColor(p[P.backgroundColor])
         radius = num(P.borderRadius) ?? 0
@@ -167,6 +175,8 @@ final class ZnNodeSpec {
 
         onRange = eventFor(Registry.Event.onRange)
         onEndReached = eventFor(Registry.Event.onEndReached)
+        stickyHeaderIndices = p[P.stickyHeaderIndices]?.string
+        stickySlot = slotFor(P.stickyHeaderIndices)
         visible = p[P.visible]?.bool ?? false
         detents = (p[P.detents]?.string ?? "content").split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { ["content", "half", "full"].contains($0) }

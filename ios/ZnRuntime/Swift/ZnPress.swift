@@ -5,10 +5,12 @@
 // - onPressRepeat while the finger stays down: first after repeatDelay, then every repeatInterval, timed natively;
 // - onPress only for a completed tap that didn't long-press or repeat.
 //
-// UIKit variant: a UIControl over the content does the touch tracking (under it, SwiftUI's hosting view takes the
-// touches: checked 2026-11-08). A nested Pressable must win, as on Android: the outer control lets a touch through
-// when a smaller control lies under the finger. UIControl is what UIButton uses: a scroll
-// view cancels it when the user starts scrolling, and it tracks touches no matter how short.
+// UIKit variant: a plain UIView over the content does the touch tracking (under it, SwiftUI's hosting view takes the
+// touches: checked 2026-11-08). A nested Pressable must win, as on Android: the outer view lets a touch through
+// when a smaller one lies under the finger. Not a UIControl: a scroll view never cancels touches in a UIControl
+// (touchesShouldCancel(in:) is false for controls, and SwiftUI's ScrollView doesn't change that), so a slow drag that
+// started on a button didn't scroll the page (found 2026-11-08 in the RN props lab). A plain view is cancelled when
+// the scroll starts (touchesCancelled → onPressOut(true)), as on Android.
 // SwiftUI variant: Button + ButtonStyle (tap only: long press and repeat would need gestures composed with it).
 import SwiftUI
 import UIKit
@@ -90,7 +92,7 @@ struct ZnTouchTarget: UIViewRepresentable {
     }
 }
 
-final class ZnTouchControl: UIControl {
+final class ZnTouchControl: UIView {
     enum Kind { case down, out, tap, long, `repeat` }
 
     var onEvent: ((Kind, ZnPayload) -> Void)?
@@ -98,6 +100,8 @@ final class ZnTouchControl: UIControl {
     var repeatDelay: TimeInterval?
     var repeatInterval: TimeInterval = 0.1
     var haptic = false
+    /// A disabled Pressable still takes the touch (nothing under it gets it), but does nothing, as on Android.
+    var isEnabled = true
     private var timer: Timer?
     private var handled = false  // a long press or a repeat fired: no onPress on release
     private var active = false   // between onPressIn and its onPressOut
@@ -133,7 +137,8 @@ final class ZnTouchControl: UIControl {
         if window != nil { ZnTouchControl.live.add(self) } else { ZnTouchControl.live.remove(self) }
     }
 
-    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isEnabled, !active else { return }
         handled = false
         active = true
         if haptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
@@ -155,27 +160,23 @@ final class ZnTouchControl: UIControl {
                 self.onEvent?(.long, .none)
             }
         }
-        return true
     }
 
-    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         // Dragged well off the element: the press is cancelled, as on Android.
-        if !bounds.insetBy(dx: -30, dy: -30).contains(touch.location(in: self)) {
-            finish(cancelled: true)
-            return false
-        }
-        return true
+        guard active, let t = touches.first else { return }
+        if !bounds.insetBy(dx: -30, dy: -30).contains(t.location(in: self)) { finish(cancelled: true) }
     }
 
-    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard active else { return }
-        let inside = touch.map { bounds.insetBy(dx: -30, dy: -30).contains($0.location(in: self)) } ?? false
+        let inside = touches.first.map { bounds.insetBy(dx: -30, dy: -30).contains($0.location(in: self)) } ?? false
         let tap = inside && !handled
         finish(cancelled: !inside)
         if tap { onEvent?(.tap, .none) }
     }
 
-    override func cancelTracking(with event: UIEvent?) {
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         finish(cancelled: true)
     }
 

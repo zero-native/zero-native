@@ -125,7 +125,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
 | i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field done (log below); sticky headers, native modules, layout tests open |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children done (log below); native modules, layout tests, the RN props lab's missing parts open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
 
@@ -146,6 +146,29 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.2, sticky rows, absolute children, presses in a scroll (Claude, `ios` branch)
+- **Sticky rows** (`stickyHeaderIndices`, a list or a slot): the UIKit list's layout pins the last sticky row that
+  has scrolled past the top; the next one pushes it up as it arrives (Compose's `stickyHeader` does the same). The
+  cell itself moves, so it keeps its presses. Pinned rows are left out of the range sent to JS, as on Android.
+  Checked in the RN props lab: "Today" pins over rows 6–11; "Earlier" pushes it out (seen half way) and pins;
+  scrolling back brings "Today" back; with `[0]` only, "Today" stays to the end and "Earlier" scrolls away.
+- **Found and fixed:** changing the indices at runtime moved the list 34 rows (a new layout pass forgets the scroll
+  position). The first unpinned row now keeps its place, as for row splices (rows 2–9 stay through both toggles).
+- **Absolute children in a Stack** (`position: "absolute"` with top / bottom / start / end), a SwiftUI `Layout` with
+  Android's rules: the Stack's size comes from its normal children, absolute children take no room (R29), both sides
+  of a pair stretch (absoluteFill), a child pinned start + end has a definite width (R44), the rest are placed by
+  alignItems / justifyContent. Before, absolute was parsed and ignored. Checked in the lab: the overlay, the inset
+  bar, the side bar, the centred dot, the floating "Scan" button.
+- **Found and fixed:** the RN props lab drew as one purple screen. "No clip" was `clipShape(Rectangle().inset(by:
+  -1e6))`, and SwiftUI filled that 2,000,000 pt rectangle with the background of an empty box (the lab's progress
+  bars). Nodes now clip only with `overflow: "hidden"`.
+- **Found and fixed:** a slow drag that started on a Pressable didn't scroll the page (only flicks did). The press
+  view was a `UIControl`, and a scroll view never cancels touches in a control. It is now a plain view that tracks
+  its touches: a scroll cancels the press (onPressOut true), as on Android. Taps, long press and press-repeat checked
+  again on the amount keypad (₹420, hold ⌫ to ₹0).
+- **Not drawn on iOS yet** (seen in the lab, i.2 items): transforms and `transformOrigin`, `animate`, `textTransform`,
+  Svg, Carousel, Shimmer, Image, shadows, app layers (`startApp` layers), Modal. No Android issue from this step.
+
 ### 2026-11-08: iOS i.2, lists, sheet timing, multi-line field (Claude, `ios` branch)
 - **Sheet + stack change in one batch** (UPI picker → receipt): the sheet now closes without animation when the same
   batch pushes, removes or clears screens, so the push starts at once (was ~0.5 s late). About 230 ms remain between

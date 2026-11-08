@@ -133,13 +133,7 @@ struct ZnNodeView: View {
         case Registry.Component.row:
             flex(s, vertical: false)
         case Registry.Component.stack:
-            ZStack(alignment: .topLeading) {
-                ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
-                    ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node,
-                               outer: ZnOuter(fillWidth: definiteWidth && ref.t.nodes[ref.node].width == nil),
-                               definiteWidth: definiteWidth)
-                }
-            }
+            stack(s)
         case Registry.Component.scroll:
             ScrollView(s.props[Registry.Prop.horizontal]?.bool == true ? .horizontal : .vertical) {
                 flex(s, vertical: s.props[Registry.Prop.horizontal]?.bool != true)
@@ -161,6 +155,28 @@ struct ZnNodeView: View {
             EmptyView()  // anchors are expanded by the parent; the rest take no room here (not drawn on iOS yet)
         default:
             ZnMissing(type: s.type)
+        }
+    }
+
+    /// Stack: normal children on top of each other, placed by alignItems / justifyContent; absolute children by
+    /// their insets (ZnStackLayout). Same rules as android/runtime's ZnRenderer.kt STACK.
+    private func stack(_ s: ZnNodeSpec) -> some View {
+        // A normal child stretches to the Stack's width like a Column's (zn flex rule 4, RN's alignItems: 'stretch').
+        let stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch)
+        return ZnStackLayout(alignItems: s.alignItems, justify: s.justify,
+                             fillWidth: outer.fillWidth || s.width != nil, fillHeight: outer.fillHeight || s.height != nil) {
+            ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
+                let child = ref.t.nodes[ref.node]
+                let fillW = child.absolute && child.posStart != nil && child.posEnd != nil
+                let fillH = child.absolute && child.posTop != nil && child.posBottom != nil
+                let stretched = !child.absolute && stretch && child.width == nil && child.type != Registry.Component.spacer &&
+                    (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.stretch)
+                ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node,
+                           outer: ZnOuter(fillWidth: stretched || fillW, fillHeight: fillH),
+                           definiteWidth: stretched || child.width != nil || fillW)
+                    .layoutValue(key: ZnAbsoluteKey.self, value: child.absolute ? ZnAbsolute(child) : nil)
+                    .zIndex(child.zIndex ?? 0)
+            }
         }
     }
 
@@ -222,7 +238,7 @@ struct ZnPaint: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: s.radius, style: .circular)
         content
-            .clipShape(s.clip ? AnyShape(shape) : AnyShape(Rectangle().inset(by: -1e6)))
+            .modifier(ZnClip(clip: s.clip, shape: shape))
             .overlay {
                 if s.borderWidth > 0 { shape.strokeBorder(s.borderColor, lineWidth: s.borderWidth) }
             }
@@ -234,6 +250,18 @@ struct ZnPaint: ViewModifier {
             }
             .background { ZnBackground(s: s, inst: inst, shape: shape) }
             .modifier(ZnOpacity(s: s, inst: inst))
+    }
+}
+
+/// overflow: hidden. Only when asked: the old way, `clipShape(Rectangle().inset(by: -1e6))` for "no clip", made SwiftUI
+/// fill that 2,000,000 pt rectangle with the background of an empty box (the RN props lab's progress bars covered
+/// the whole screen, 2026-11-08). A node's clip never changes, so the two branches don't swap at runtime.
+struct ZnClip: ViewModifier {
+    let clip: Bool
+    let shape: RoundedRectangle
+
+    func body(content: Content) -> some View {
+        if clip { content.clipShape(shape) } else { content }
     }
 }
 

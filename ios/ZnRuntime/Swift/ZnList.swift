@@ -45,9 +45,18 @@ struct ZnListView: View {
         let list = inst.list(s.index)
         switch ZnImpl.list {
         case .swiftUI: ZnLazyList(ctx: ctx, inst: inst, s: s, list: list)
-        case .uiKit: ZnCollectionList(ctx: ctx, inst: inst, s: s, list: list, count: list.rows.count)
+        case .uiKit:
+            // Read here, so a change of the slot reaches updateUIView.
+            let stickyText = s.stickySlot >= 0 ? inst.slot(s.stickySlot).value.string : s.stickyHeaderIndices
+            ZnCollectionList(ctx: ctx, inst: inst, s: s, list: list, count: list.rows.count, sticky: znParseSticky(stickyText))
         }
     }
+}
+
+/// "1,30" → the sorted, distinct row indices (bad entries dropped), as Android's parseSticky.
+func znParseSticky(_ text: String?) -> [Int] {
+    guard let text else { return [] }
+    return Array(Set(text.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }.filter { $0 >= 0 })).sorted()
 }
 
 /// One row: its instance if JS mounted one, else a placeholder of its template.
@@ -119,13 +128,14 @@ struct ZnCollectionList: UIViewRepresentable {
     let s: ZnNodeSpec
     let list: ZnListState
     let count: Int  // read in the parent body, so a row count change reaches updateUIView
+    let sticky: [Int]
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UICollectionView {
         let gap = s.gap
         let pad = s.padding ?? ZnEdges()
-        let layout = UICollectionViewCompositionalLayout { _, _ in
+        let layout = ZnStickyLayout { _, _ in
             let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(60))
             let item = NSCollectionLayoutItem(layoutSize: size)
             let group = NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [item])
@@ -147,15 +157,21 @@ struct ZnCollectionList: UIViewRepresentable {
     func updateUIView(_ cv: UICollectionView, context: Context) {
         let c = context.coordinator
         c.ctx = ctx; c.inst = inst; c.s = s; c.list = list
+        if let layout = cv.collectionViewLayout as? ZnStickyLayout, layout.sticky != sticky {
+            // A new layout pass forgets the scroll position (the lab's list jumped 34 rows on each toggle,
+            // 2026-11-08): keep the first row that isn't pinned where it is.
+            let anchor = Self.anchor(cv, c.keys, skipping: c.sticky)
+            layout.sticky = sticky
+            c.sticky = Set(sticky)
+            layout.invalidateLayout()
+            Self.restore(cv, anchor, c.keys)
+        }
         let keys = list.rows.map(\.key)
         guard c.keys != keys else { return }
         let old = c.keys
         // The first visible row stays where it is on screen (Home: "New payment arrives" inserts at the top, and the
         // rows being read must not move), as on Android, where LazyColumn keeps the first visible key in place.
-        var anchor: (key: String, y: CGFloat)?
-        if let ip = cv.indexPathsForVisibleItems.min(), let a = cv.layoutAttributesForItem(at: ip), let k = old[safe: ip.item] {
-            anchor = (k, a.frame.minY - cv.contentOffset.y)
-        }
+        let anchor = Self.anchor(cv, old, skipping: c.sticky)
         let ranges = Self.changedRanges(old, keys)
         print("zn t=\(ZnDebug.ms()) list: \(old.count) → \(keys.count) rows, changed \(ranges.map { "\($0.removed) → \($0.inserted)" } ?? "all"), anchor \(anchor.map { "\($0.key) at \($0.y)" } ?? "none"), offset \(cv.contentOffset.y)")
         if let (removed, inserted) = ranges, removed.count + inserted.count <= 200 {
@@ -174,15 +190,27 @@ struct ZnCollectionList: UIViewRepresentable {
             c.keys = keys
             cv.reloadData()
         }
-        if let anchor, let i = keys.firstIndex(of: anchor.key) {
-            cv.layoutIfNeeded()
-            if let a = cv.layoutAttributesForItem(at: IndexPath(item: i, section: 0)) {
-                let top = -cv.adjustedContentInset.top
-                let bottom = max(top, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
-                cv.contentOffset.y = min(max(a.frame.minY - anchor.y, top), bottom)
-                print("zn t=\(ZnDebug.ms()) list: anchor now row \(i) at minY \(a.frame.minY) → offset \(cv.contentOffset.y)")
-            }
-        }
+        Self.restore(cv, anchor, keys)
+    }
+
+    /// The first visible row (pinned rows left out: they sit at the top wherever the list is) and its distance from
+    /// the top of the list.
+    static func anchor(_ cv: UICollectionView, _ keys: [String], skipping pinned: Set<Int>) -> (key: String, y: CGFloat)? {
+        let items = cv.indexPathsForVisibleItems.map(\.item).filter { !pinned.contains($0) }.sorted()
+        guard let i = items.first, let k = keys[safe: i],
+              let a = cv.collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: i, section: 0)) else { return nil }
+        return (k, a.frame.minY - cv.contentOffset.y)
+    }
+
+    /// Scrolls so the anchor row is back at its distance from the top (clamped to the content).
+    static func restore(_ cv: UICollectionView, _ anchor: (key: String, y: CGFloat)?, _ keys: [String]) {
+        guard let anchor, let i = keys.firstIndex(of: anchor.key) else { return }
+        cv.layoutIfNeeded()
+        guard let a = cv.collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: i, section: 0)) else { return }
+        let top = -cv.adjustedContentInset.top
+        let bottom = max(top, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
+        cv.contentOffset.y = min(max(a.frame.minY - anchor.y, top), bottom)
+        print("zn t=\(ZnDebug.ms()) list: anchor row \(i) at minY \(a.frame.minY) → offset \(cv.contentOffset.y)")
     }
 
     /// The rows that differ between [old] and [new], found from their common start and end (a splice: an insert at
@@ -202,6 +230,7 @@ struct ZnCollectionList: UIViewRepresentable {
         var s: ZnNodeSpec?
         var list: ZnListState?
         var keys: [String] = []
+        var sticky = Set<Int>()
         /// onEndReached was sent while the list had this many rows (once per length, as on Android).
         var endSentAt = -1
 
@@ -220,7 +249,11 @@ struct ZnCollectionList: UIViewRepresentable {
         func scrollViewDidScroll(_ sv: UIScrollView) {
             guard let cv = sv as? UICollectionView, let ctx, let inst, let s, let list else { return }
             if ProcessInfo.processInfo.environment["ZN_LIST_TRACE"] == "1" { print("zn t=\(ZnDebug.ms()) list: offset \(cv.contentOffset.y)") }
-            let items = cv.indexPathsForVisibleItems.map(\.item)
+            // A pinned row shows above rows far below it: leave it out, or JS would mount every row in between (Android
+            // does the same).
+            let all = cv.indexPathsForVisibleItems.map(\.item)
+            let unpinned = all.filter { !sticky.contains($0) }
+            let items = unpinned.isEmpty ? all : unpinned
             guard let a = items.min(), let b = items.max() else { return }
             MainActor.assumeIsolated { znSendRange(ctx, inst, s, list, a, b) }
             // Near the end: ask JS for more (onEndReached), once per list length, as Android does (5 rows ahead).
@@ -230,5 +263,72 @@ struct ZnCollectionList: UIViewRepresentable {
                 MainActor.assumeIsolated { ctx.send(inst.id, s.onEndReached, .none) }
             }
         }
+    }
+}
+
+/// RN stickyHeaderIndices on the UIKit list: the last sticky row that has scrolled past the top stays pinned there
+/// (above the other rows), and the next sticky row pushes it up as it arrives, as Compose's stickyHeader does on
+/// Android. The cell itself moves (no copy), so it keeps its presses and state. Only the pinned row is added to the
+/// rows on screen; the others are where the list puts them.
+final class ZnStickyLayout: UICollectionViewCompositionalLayout {
+    var sticky: [Int] = []
+
+    /// Row [i]'s frame as the list lays it out, before pinning.
+    private func plain(_ i: Int) -> UICollectionViewLayoutAttributes? {
+        super.layoutAttributesForItem(at: IndexPath(item: i, section: 0))?.copy() as? UICollectionViewLayoutAttributes
+    }
+
+    /// The sticky row pinned now: the last one whose own frame starts at or above the top (nil: none yet).
+    private func pinnedIndex(top: CGFloat, count: Int) -> Int? {
+        var found: Int?
+        for h in sticky where h < count {
+            guard let a = plain(h), a.frame.minY <= top else { break }
+            found = h
+        }
+        return found
+    }
+
+    private func pin(_ a: UICollectionViewLayoutAttributes, top: CGFloat, count: Int) {
+        let i = a.indexPath.item
+        guard let k = sticky.firstIndex(of: i) else { return }
+        var y = max(a.frame.minY, top)
+        if let next = sticky[safe: k + 1], next < count, let n = plain(next) { y = min(y, n.frame.minY - a.frame.height) }
+        a.frame.origin.y = y
+        a.zIndex = 1000 + k
+    }
+
+    override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        let base = super.layoutAttributesForElements(in: rect)
+        guard !sticky.isEmpty, let cv = collectionView, cv.numberOfSections > 0 else { return base }
+        let count = cv.numberOfItems(inSection: 0)
+        let top = cv.contentOffset.y + cv.adjustedContentInset.top
+        var attrs = (base ?? []).map { $0.copy() as! UICollectionViewLayoutAttributes }
+        if let p = pinnedIndex(top: top, count: count), !attrs.contains(where: { $0.representedElementCategory == .cell && $0.indexPath.item == p }),
+           let a = plain(p) {
+            attrs.append(a)
+        }
+        for a in attrs where a.representedElementCategory == .cell { pin(a, top: top, count: count) }
+        return attrs
+    }
+
+    override func layoutAttributesForItem(at ip: IndexPath) -> UICollectionViewLayoutAttributes? {
+        guard let a = plain(ip.item) else { return nil }
+        if let cv = collectionView, sticky.contains(ip.item) {
+            pin(a, top: cv.contentOffset.y + cv.adjustedContentInset.top, count: cv.numberOfItems(inSection: 0))
+        }
+        return a
+    }
+
+    override func shouldInvalidateLayout(forBoundsChange b: CGRect) -> Bool {
+        !sticky.isEmpty || super.shouldInvalidateLayout(forBoundsChange: b)
+    }
+
+    override func invalidationContext(forBoundsChange b: CGRect) -> UICollectionViewLayoutInvalidationContext {
+        let c = super.invalidationContext(forBoundsChange: b)
+        if let cv = collectionView, cv.numberOfSections > 0 {
+            let count = cv.numberOfItems(inSection: 0)
+            c.invalidateItems(at: sticky.filter { $0 < count }.map { IndexPath(item: $0, section: 0) })
+        }
+        return c
     }
 }
