@@ -372,6 +372,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val stickyHeaderIndices: String? = p[Registry.Prop.STICKY_HEADER_INDICES] as String?
     val stickySlot = slotFor(raw, Registry.Prop.STICKY_HEADER_INDICES)
     val scrollCommandSlot = slotFor(raw, Registry.Prop.SCROLL_COMMAND)
+    val commands: String? = p[Registry.Prop.COMMANDS] as String?
+    val commandsSlot = slotFor(raw, Registry.Prop.COMMANDS)
     /** <List> RN inverted (registry 19): Compose reverseLayout, row 0 at the bottom. */
     val inverted: Boolean = p[Registry.Prop.INVERTED] == true
     val onShow = eventFor(raw, Registry.Event.ON_SHOW)

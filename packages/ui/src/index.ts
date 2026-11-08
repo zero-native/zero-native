@@ -553,6 +553,14 @@ export declare const Shimmer: Intrinsic<
   }
 >
 /**
+ * A native 2D drawing canvas (registry 23). Draws shapes, paths, text and gradients from a command array in the draw phase only.
+ */
+export declare const Canvas: Intrinsic<
+  Base & {
+    commands?: unknown
+  }
+>
+/**
  * A scrolling container. `horizontal` makes a rail: only the visible children are drawn, and scrolling never involves
  * JS. Its padding scrolls with the content (like RN's contentContainerStyle). For long vertical data use <List>.
  */

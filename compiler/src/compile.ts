@@ -1570,6 +1570,12 @@ export function compileModule(
         if (b.slots > before) valueSlot = { s: `s${before}`, expr: init.expression }
         continue
       }
+      if (tag === "Canvas" && name === "commands" && init && ts.isJsxExpression(init) && init.expression) {
+        const s = `s${b.slots++}`
+        props.commands = slotRef(s, null) as never
+        b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${s}@@, () => JSON.stringify(${text(init.expression)}), 0);`)
+        continue
+      }
       if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
       else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
       else if (ts.isJsxExpression(init) && init.expression) setProp(props, b, name as PropName, init.expression, a)

@@ -113,6 +113,10 @@ export const Component = {
    * onFilled. The boxes' look is `otpTheme`, written by the compiler from `theme`.
    */
   OtpInput: 34,
+  /**
+   * Native Canvas primitive (registry 23): draws shapes, paths, text and gradients from JSON command slot in draw phase.
+   */
+  Canvas: 35,
 } as const
 export type ComponentName = keyof typeof Component
 
@@ -447,6 +451,8 @@ export const Prop = {
   minimumFontScale: { id: 296, type: "number" },
   /** Carousel page width as a percentage 0–100 of available space (registry 23). */
   itemWidthPercent: { id: 297, type: "number" },
+  /** Canvas drawing commands JSON slot (registry 23). */
+  commands: { id: 298, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -655,6 +661,7 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "display",
   "scrollCommand",
   "selectable",
+  "commands",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -682,7 +689,7 @@ export const Added: {
   /** A newer form of a string prop's value (key: a name in [Formats]). */
   format: Partial<Record<FormatName, number>>
 } = {
-  component: { NativeView: 9, Tabs: 11, Svg: 13, SvgPart: 13, Modal: 15, StatusBar: 15, NavigationBar: 15, OtpInput: 18 },
+  component: { NativeView: 9, Tabs: 11, Svg: 13, SvgPart: 13, Modal: 15, StatusBar: 15, NavigationBar: 15, OtpInput: 18, Canvas: 23 },
   prop: {
     viewName: 9, viewProps: 9, selected: 11, refreshing: 12, refreshColor: 12, refreshBackground: 12,
     // SVG phases 1-4 (built as 11-13 on their branch; one number, as none shipped).
@@ -699,6 +706,7 @@ export const Added: {
     autoComplete: 17, otpTheme: 18, otpType: 18, blurOnFilled: 18, invalid: 18,
     inverted: 19, transformOrigin: 20, animateIn: 21, display: 23, scrollCommand: 23,
     selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23, itemWidthPercent: 23,
+    commands: 23,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -714,6 +722,7 @@ export const Added: {
     borderRadius: 23, borderTopLeftRadius: 23, borderTopRightRadius: 23, borderBottomLeftRadius: 23, borderBottomRightRadius: 23,
     borderTopStartRadius: 23, borderTopEndRadius: 23, borderBottomStartRadius: 23, borderBottomEndRadius: 23,
     fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23, selectable: 23,
+    commands: 23,
   },
   enumValue: {
     "display.flex": 23, "display.none": 23,

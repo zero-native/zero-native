@@ -135,6 +135,14 @@ export {
 } from "./timers"
 export { onError, type ErrorInfo, type ErrorKind } from "./errors"
 export { Updates, type ApplyRefused, type UpdateCheckResult, type UpdateStatus } from "./updates"
+export {
+  draw,
+  type CanvasCommand,
+  type CanvasLinearGradient,
+  type CanvasPaint,
+  type CanvasRadialGradient,
+  type CanvasTextOptions,
+} from "./canvas"
 // React Native / React Navigation names over the zn APIs (RN-compat sweep P1.14–P1.17, guide notes §56).
 export {
   Appearance,

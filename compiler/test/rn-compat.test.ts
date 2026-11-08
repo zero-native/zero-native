@@ -23,15 +23,12 @@ const err = (src: string, statics: Record<string, unknown> = {}) => {
   return "no error"
 }
 
-describe("P0.2: negative margin, padding and border width fail the build (second-opinions 113)", () => {
-  test("a negative margin, in style, in a token or as a prop, says to use translate", () => {
-    expect(err(`function A() { return <Column style={{ marginTop: -8 }} /> }`))
-      .toMatch(/marginTop: -8: a negative margin isn't supported.*translateY: -8/)
-    expect(err(`function A() { return <Column style={[{ padding: 4 }, { marginStart: -12 }]} /> }`))
-      .toMatch(/marginStart: -12.*translateX: -12/)
-    expect(err(`function A() { return <Column style={s.pull} /> }`, { s: { pull: { margin: -4 } } }))
-      .toMatch(/margin: -4: a negative margin/)
-    expect(err(`function A() { return <Column marginBottom={-2} /> }`)).toMatch(/marginBottom: -2/)
+describe("P0.2: negative padding and border width fail the build (second-opinions 113; negative margin supported in batch 2 H3)", () => {
+  test("negative margin compiles without error (batch 2 H3)", () => {
+    expect(err(`function A() { return <Column style={{ marginTop: -8 }} /> }`)).toBe("no error")
+    expect(err(`function A() { return <Column style={[{ padding: 4 }, { marginStart: -12 }]} /> }`)).toBe("no error")
+    expect(err(`function A() { return <Column style={s.pull} /> }`, { s: { pull: { margin: -4 } } })).toBe("no error")
+    expect(err(`function A() { return <Column marginBottom={-2} /> }`)).toBe("no error")
   })
   test("a negative padding or border width says to use 0", () => {
     expect(err(`function A() { return <Column style={{ paddingTop: -4 }} /> }`)).toMatch(/paddingTop: -4: can't be negative/)

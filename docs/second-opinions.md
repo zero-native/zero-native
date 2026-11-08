@@ -2607,3 +2607,23 @@ change, and what evidence would make you change it?"
   - Updated `once-traps.test.ts` and `screen-roots.test.ts` to assert branch component generation and refusal of disallowed shapes.
   - Interactive lab section added in `examples/sample/src/DynamicLayoutLab.tsx` with toggleable loading/error signals and tail calculation over `data()`.
   - All 325 compiler tests pass, `test:types` clean, `sample:js` compiles cleanly (`DataCard__after1`).
+
+## 173. `<Canvas>` primitive: draw-only native 2D canvas vs bundling Skia (compiler + core + runtime, 2026-11-08; registry 23; parity batch 2 H4)
+- **Where:** `packages/template/src/registry.ts` (Component `Canvas` = 35, Prop `commands` = 298), `packages/core/src/canvas.ts`, `packages/ui/src/index.ts`, `compiler/src/compile.ts`, `android/runtime/src/main/java/dev/zeronative/runtime/ZnCanvas.kt`, `ZnRenderer.kt`.
+- **What:**
+  1. `<Canvas>` primitive with reactive `commands` slot (prop id 298).
+  2. Fluent builder `draw()` in `@zero-native/core`: `rect`, `roundRect`, `circle`, `oval`, `line`, `arc`, `path`, `text`, `save`, `restore`, `translate`, `scale`, `rotate`, `clipRect`.
+  3. Paints support solid colours, stroke widths, caps (`butt`, `round`, `square`), joins (`miter`, `round`, `bevel`), dash effects, linear gradients, and radial gradients.
+  4. Native Jetpack Compose implementation: executes inside `Modifier.drawWithCache` during the draw phase only. Updates trigger zero recompositions and zero layout passes.
+  5. Safety ceiling: capped at 10,000 draw commands per frame. Overflows are logged and skipped to guarantee steady 60 fps without frame drops.
+  6. Avoids bundling `@shopify/react-native-skia` (which adds 8–15 MB of C++ binaries).
+- **Limits (Honest Framing):**
+  - Draw-only: no child layout nodes inside `<Canvas>`.
+  - No runtime GL shaders or custom SkSL color filters.
+  - Commands serialized via JSON slot string across the bridge; suitable for 60 fps charts, progress rings, dials, and signature paths, but not continuous GPU raymarching.
+- **Checked:**
+  - `packages/core/test/canvas.test.ts` (3 tests verifying command generation, gradients, and method chaining).
+  - `compiler/test/canvas.test.ts` (template generation and slot assignment).
+  - `ZnCanvasTest.kt` (JVM unit tests verifying command JSON parser, paint parsing, 10,000 op limit, and graceful malformed JSON handling).
+  - Interactive lab `examples/sample/src/CanvasLab.tsx` with live 200-point candlestick chart (500 ms live updates), interactive donut progress ring, dashed Bezier waves, and rotated text.
+  - All unit tests pass, typechecks pass, sample compiles cleanly.

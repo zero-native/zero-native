@@ -31,7 +31,7 @@ pilot; "known limit" items are built but have a gap we plan to fix before real u
 - **The flow engine** (`@flow`). Parked. Do: save the payment step in `flowStore`, then ask the backend (save-then-verify,
   §16). Tracked: ARCHITECTURE §12 and §23.
 - **Runtime `width`, `height` and other layout values** (`margin`, `flex`, `fontSize`, `borderRadius`), also from a
-  component prop. Do: two styles and a ternary, or named sizes (§47). Tracked: §3, §47, second-opinions 100.
+  component prop: **Built in Registry 23 (parity batch 2 H1)**. Dimensions, margins, paddings, gaps, font size, border radii, and `display: none | flex` are reactive runtime values.
 - **The NativeWind `className`.** Not planned (decided). Do: write `style` objects. Tracked: second-opinions 103.
 - **React itself** (hooks, context, React libraries). A non-goal. Do: signals (§2). Tracked: ARCHITECTURE §2 and
   principle 7 in §3.
@@ -43,7 +43,7 @@ pilot; "known limit" items are built but have a gap we plan to fix before real u
 - **A header bar, drawer and nested navigators.** Do: build the header in your screen; one flat stack plus `<Tabs>`
   (§40). Tracked: `docs/rn-compatibility.md` §3.
 - **`flexWrap`, custom fonts (`fontFamily`), per-side border colours, `SectionList`, grids (`numColumns`),
-  `onScroll` / `scrollTo`.** Do: the workarounds in `docs/rn-compatibility.md` (§2 style keys, §1 components).
+  `onScroll`.** (`scrollToIndex` / `scrollToEnd` / `scrollToOffset` built in batch 2 H3 on `List` `ref` / controller). Do: the workarounds in `docs/rn-compatibility.md` (§2 style keys, §1 components).
   Tracked: same file, section 10 items 4 and 8.
 - **SVG effects below Android 12.** A blur or filter is drawn without the filter (a plain shadow or none). Do: don't
   make a design depend on a blur. Tracked: `docs/svg.md` §17.
@@ -2551,3 +2551,29 @@ function Home() {
   below it in JS while native put it on top, so Back went the wrong way.
 - **Don't** wrap it in `setTimeout(..., 0)` or `await`: that runs after the start, and the screen slides in over a
   Home the user already sees.
+
+## 71. `<Canvas>` primitive: runtime drawing without Skia (registry 23)
+```tsx
+import { draw } from "@zero-native/core"
+import { Canvas } from "@zero-native/ui"
+
+const cmds = draw()
+  .rect(0, 0, 200, 100, { color: "#1F2937" })
+  .line(0, 50, 200, 50, { color: "#3B82F6", strokeWidth: 2, dash: [4, 4] })
+  .circle(100, 50, 6, { color: "#10B981" })
+  .text("Active", 100, 30, { fontSize: 12, fontWeight: "bold", color: "#FFFFFF", align: "center" })
+  .commands()
+
+<Canvas style={{ width: 200, height: 100 }} commands={cmds} />
+```
+- **Why no Skia:** React Native apps add `@shopify/react-native-skia` for charts, waveforms, and rings, which drags in
+  an 8–15 MB C++ engine. In zero-native, Jetpack Compose already has hardware-accelerated 2D canvas drawing built into the
+  Android framework. `<Canvas>` executes commands directly in `Modifier.drawWithCache`.
+- **How it works:** JS serializes commands through a reactive slot string (`Registry.Prop.CANVAS_COMMANDS`, prop id 298).
+  Compose parses the ops and executes them during the draw phase only.
+- **Zero recompositions:** Even when commands update at 60 fps (e.g. streaming stock prices or live audio waveforms),
+  neither the `<Canvas>` node nor any parent composable recomposes. Only the draw scope redraws.
+- **Envelope & limits:**
+  - Up to 10,000 commands per frame (excess dropped with an error to preserve 60 fps frame budget).
+  - Draw-only: no child layout nodes inside `<Canvas>`.
+  - For static art/icons, use `<Svg>`. For After Effects animations, use `<Lottie>`. Use `<Canvas>` for runtime data rendering.
