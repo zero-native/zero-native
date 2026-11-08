@@ -2533,3 +2533,27 @@ change, and what evidence would make you change it?"
   - Lab tiles in `RnPropsLab.tsx` for top-level Text press and row Touchables.
 - **Risk if wrong:** a complex combination of `flexDirection: "row"` with custom Compose modifiers or unsupported layout
   keys could place a key on the wrong container. Mitigated by explicit key partitioning.
+
+## 164. `<List horizontal>` / `<FlatList horizontal>` via `LazyRow` (runtime + compiler, 2026-11-08; registry 23; parity batch 1 G6)
+- **Where:** `compile.ts`, `ZnRenderer.kt`, `writer.ts`, `registry.ts` (`LIST_HORIZONTAL_SINCE = 23`).
+- **Chosen:**
+  - `<List horizontal>` and `<FlatList horizontal>` lay out rows horizontally using Jetpack Compose's `LazyRow`.
+  - The compiler requires `horizontal` on List to be a static boolean literal (`horizontal` or `horizontal={true}`).
+  - Each item row root node in `LazyRow` is rendered with `definiteWidth = rootNode?.width != null` and unconstrained
+    width (`Modifier`), allowing each card to size itself naturally or use an explicit width.
+  - Padding from `contentContainerStyle` is applied as `contentPadding` on the `LazyRow`, so start/end paddings scroll
+    cleanly with the items.
+  - Gap is applied along the horizontal arrangement via `Arrangement.spacedBy(s.gap.dp)`.
+  - Visible range tracking (`onRange`) and end pagination (`onEndReached`) continue to function without modification,
+    as `LazyListState.layoutInfo.visibleItemsInfo` reports the visible item indices identically for both `LazyRow` and
+    `LazyColumn`.
+- **Refused features sideways (build errors):**
+  1. `stickyHeaderIndices`: pinned headers along a horizontal rail have no standard mobile design analog and would
+     obscure horizontal cards.
+  2. `inverted`: inverted layouts are intended for vertical chat logs.
+  3. Pull-to-refresh (`refreshing`, `onRefresh`, `refreshControl`): pull-to-refresh is a vertical gesture.
+- **Why:** horizontal rails of unbounded or large items (e.g. merchant offerings, product rails with 100+ items) previously
+  forced developers to use `<Scroll horizontal>` with `.map()`, eagerly mounting all card instances. `<List horizontal>`
+  provides virtualized rendering with identical windowing and memory safety.
+- **Risk if wrong:** horizontal rails with variable-height items could require alignment policies; solved by respecting
+  `alignItems` mapped to `verticalAlignment(s.alignItems)`.

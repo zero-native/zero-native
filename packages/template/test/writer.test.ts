@@ -96,6 +96,13 @@ describe("writeTemplateFile", () => {
       writeTemplateFile([el("Column", {}, el("Text", { text: slot("a", "") }), el("Text", { text: slot("a", "") }))]),
     ).toThrow(/used twice/)
   })
+
+  test("Text onPress and List horizontal require registry 23", () => {
+    const tText = writeTemplateFile([el("Text", { onPress: event("tap") })])
+    expect(read(tText.bytes).registry).toBe(23)
+    const tList = writeTemplateFile([el("List", { horizontal: true })])
+    expect(read(tList.bytes).registry).toBe(23)
+  })
 })
 
 describe("parseColor", () => {

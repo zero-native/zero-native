@@ -698,6 +698,12 @@ export const CAROUSEL_FILL_SINCE = 17
 export const TEXT_PRESS_SINCE = 23
 
 /**
+ * A <List horizontal> lays rows out horizontally using LazyRow since this registry version.
+ * Older apps didn't support horizontal on List (writer.ts).
+ */
+export const LIST_HORIZONTAL_SINCE = 23
+
+/**
  * Newer forms of a string prop's value that older apps can't read (an older app would show the old behaviour, so a
  * bundle that uses one must ask for the version that brought it). [uses]: does this value use the form?
  */

@@ -812,6 +812,11 @@ export declare function List<T>(props: {
    * Don't flip a list with `transform: [{ scaleY: -1 }]` instead: the build refuses it (flings go the wrong way).
    */
   inverted?: boolean
+  /**
+   * Lay rows out horizontally instead of vertically (registry 23). Uses LazyRow natively.
+   * Inverted, stickyHeaderIndices and pull to refresh are not supported on horizontal lists.
+   */
+  horizontal?: boolean
 } & RefreshProps & RnScrollProps & (
   | {
       key: (item: T, index: number) => string | number

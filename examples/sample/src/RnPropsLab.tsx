@@ -1,6 +1,6 @@
 // A dev screen for RN props pack 2: React Native props, styles and components, with their RN names. Each check logs
 // one "rn-props ..." line; the phone check (tools/plugin-phone/rnprops.ts) reads those lines, so keep their wording.
-import { Box, Carousel, Column, Icon, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField, TouchableOpacity } from "@zero-native/ui"
+import { Box, Carousel, Column, FlatList, Icon, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField, TouchableOpacity } from "@zero-native/ui"
 import { Alert, createStorage, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
@@ -42,6 +42,9 @@ const STICKY_ROWS = Array.from({ length: 60 }, (_, i) =>
   : i === 20 ? { id: "h-earlier", header: true, title: "Earlier" }
   : { id: `r${i}`, header: false, title: `Payment ${i}` },
 )
+
+/** 200 items for the horizontal FlatList rail (registry 23). */
+const RAIL_ITEMS = Array.from({ length: 200 }, (_, i) => ({ id: `card-${i}`, title: `Item ${i + 1}` }))
 
 export function RnPropsLabScreen() {
   const status = signal("ready")
@@ -523,6 +526,35 @@ export function RnPropsLabScreen() {
             Row Pressable (wrap content height)
           </Text>
         </Pressable>
+
+        <PropsTitle text="Horizontal FlatList rail (registry 23)" />
+        <FlatList
+          testID="horizontal-rail"
+          horizontal
+          data={RAIL_ITEMS}
+          keyExtractor={(it) => it.id}
+          gap={8}
+          contentContainerStyle={{ paddingHorizontal: 4 }}
+          style={{ height: 60 }}
+          renderItem={({ item }) => (
+            <Row
+              style={{
+                width: 100,
+                height: 52,
+                backgroundColor: c.white,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: c.border,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text fontSize={12} fontWeight={600} color={c.ink}>
+                {item.title}
+              </Text>
+            </Row>
+          )}
+        />
 
         {/* A centred dialog with the app's own look: transparent, fade, the dim is the app's own Box. */}
         <Modal

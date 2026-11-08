@@ -1649,7 +1649,7 @@ export function compileModule(
     const columnGap = props.__columnGap
     delete props.__rowGap
     delete props.__columnGap
-    const across = tag === "Row" || tag === "Carousel" || (tag === "Scroll" && props.horizontal === true) || isRowTouchable
+    const across = tag === "Row" || tag === "Carousel" || ((tag === "Scroll" || tag === "List") && props.horizontal === true) || isRowTouchable
     const main = across ? columnGap : rowGap
     if (main !== undefined && tag !== "Stack") props.gap = main
 
@@ -2355,6 +2355,7 @@ export function compileModule(
     const props: NodeProps & Record<string, unknown> = {}
     const special: Record<string, ts.Expression> = {}
     let contentStyle: ts.JsxAttribute | null = null
+    let hasRefresh = false
     const rnLater: RnLater = {}
     for (const attr of (ts.isJsxElement(node) ? node.openingElement : node).attributes.properties) {
       if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
@@ -2385,28 +2386,42 @@ export function compileModule(
       } else if (name === "onRefresh") {
         if (!expr) fail(a, "onRefresh needs a function")
         bindEvent(props, b, "onRefresh", expr!)
+        hasRefresh = true
       } else if (name === "refreshControl") {
         refreshControl(a, props, b)
+        hasRefresh = true
       } else if (name === "style") {
         if (!expr) fail(a, "style needs an object: style={{ ... }}")
         styleProps(expr!, props, b)
       } else if (name === "contentContainerStyle") {
         contentStyle = a // after the loop, so it can be checked against style's padding
       } else if (name === "horizontal") {
-        // RN-compat sweep P0.6: it was accepted and the list still drew vertically. {false} is RN's default.
-        if (fold(expr ?? ts.factory.createTrue(), scope) === false) continue
-        fail(a, "<List> is vertical only. For a horizontal rail use <Scroll horizontal> with {items.map(...)} inside " +
-          "(only the visible cards are drawn)")
+        const val = fold(expr ?? ts.factory.createTrue(), scope)
+        if (val === false) continue
+        if (val !== true) fail(a, "horizontal on <List> must be a boolean literal: horizontal or horizontal={true}")
+        setStatic(props, "horizontal", true, a)
       } else if (name in Prop) {
+        if (name === "refreshing") hasRefresh = true
         if (!init) setProp(props, b, name as PropName, ts.factory.createTrue(), a)
         else if (ts.isStringLiteral(init)) setStatic(props, name as PropName, decodeEntities(init.text), a)
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted; or FlatList's renderItem, keyExtractor)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal; or FlatList's renderItem, keyExtractor)`)
       }
     }
     rnFinish("List", null, props, b, rnLater, node)
+    if (props.horizontal === true) {
+      if (props.inverted === true || (props.inverted !== undefined && props.inverted !== false)) {
+        fail(node, "<List horizontal> does not support inverted (vertical chat lists only)")
+      }
+      if (special.sticky) {
+        fail(node, "<List horizontal> does not support stickyHeaderIndices (vertical lists only)")
+      }
+      if (hasRefresh) {
+        fail(node, "<List horizontal> does not support pull to refresh")
+      }
+    }
     // RN's old chat trick (the list and each row flipped with scaleY -1): on Android the fling after the finger lifts
     // runs the wrong way (Compose measures its speed outside the flip). `inverted` does the same without a flip.
     if ((props as Record<string, unknown>).scaleY === -1 || (props as Record<string, unknown>).scale === -1) {

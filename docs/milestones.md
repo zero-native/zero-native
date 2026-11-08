@@ -146,6 +146,12 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: Horizontal List via LazyRow (Gemini, batch 1 stretch G6)
+- Enabled `<List horizontal>` and `<FlatList horizontal>` in compiler, writer (`LIST_HORIZONTAL_SINCE = 23`), and runtime (`ZnRenderer.kt`).
+- Native implementation uses Jetpack Compose `LazyRow`, with unconstrained child widths (`definiteWidth = false` unless row root specifies width), `contentContainerStyle` padding, and `gap` along the row.
+- Build-time safety: rejects `stickyHeaderIndices`, `inverted`, and pull-to-refresh on horizontal lists with actionable errors.
+- Added horizontal rail lab tile in `RnPropsLab.tsx`; tests in `rn-compat.test.ts` and `writer.test.ts`. Second-opinions entry 164.
+
 ### 2026-11-08: Text onPress and row Touchables (Gemini, batch 1)
 - Bumped registry to version 23 with `TEXT_PRESS_SINCE = 23`.
 - Top-level `<Text onPress>` and `<Text onLongPress>`: enabled in compiler, template writer, and runtime (`ZnRenderer.kt`).

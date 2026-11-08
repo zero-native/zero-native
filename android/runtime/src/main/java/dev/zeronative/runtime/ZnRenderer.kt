@@ -622,36 +622,55 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
         if (row != null) {
             val mounted = list.bound[row.key]?.let(ZnStore::find)
             val t = f.getOrNull(mounted?.templateId ?: row.type)
-            if (t != null) ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, Modifier.fillMaxWidth(), definiteWidth = true)
+            if (t != null) {
+                if (s.horizontal) {
+                    val rootNode = t.nodes.firstOrNull()
+                    ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, Modifier, definiteWidth = rootNode?.width != null)
+                } else {
+                    ZnNode(f, t, mounted ?: ZnStore.placeholder(row.type, t), 0, Modifier.fillMaxWidth(), definiteWidth = true)
+                }
+            }
         }
     }
     if (s.inverted) FollowNewestRow(state, rows.firstOrNull()?.key)
-    LazyColumn(
-        modifier = mod.then(znPullRefresh(s, inst)), // pull to refresh, when it has onRefresh / refreshing
-        state = state,
-        // Its padding scrolls with the rows (RN's contentContainerStyle), so the last row can scroll above a floating
-        // button. The fixed space around the list is margin.
-        contentPadding = contentPaddingOf(s, inst),
-        // RN inverted (registry 19): row 0 at the bottom, growing upwards; a short list sits at the bottom.
-        reverseLayout = s.inverted,
-        verticalArrangement = when {
-            s.gap > 0f -> Arrangement.spacedBy(s.gap.dp, if (s.inverted) Alignment.Bottom else Alignment.Top)
-            s.inverted -> Arrangement.Bottom
-            else -> Arrangement.Top
-        },
-    ) {
-        // Runs of plain rows between the pinned ones: one `items` per run, so a long list stays a few blocks.
-        var start = 0
-        for (h in sticky) {
-            if (h >= rows.size) break
-            val from = start
-            if (h > from) items(count = h - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
-            stickyHeader(key = rows[h].key, contentType = rows[h].type) { rowAt(h) }
-            start = h + 1
+    if (s.horizontal) {
+        LazyRow(
+            modifier = mod,
+            state = state,
+            contentPadding = contentPaddingOf(s, inst),
+            horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
+            verticalAlignment = verticalAlignment(s.alignItems),
+        ) {
+            items(count = rows.size, key = { rows[it].key }, contentType = { rows[it].type }) { rowAt(it) }
         }
-        val from = start
-        if (rows.size > from) {
-            items(count = rows.size - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
+    } else {
+        LazyColumn(
+            modifier = mod.then(znPullRefresh(s, inst)), // pull to refresh, when it has onRefresh / refreshing
+            state = state,
+            // Its padding scrolls with the rows (RN's contentContainerStyle), so the last row can scroll above a floating
+            // button. The fixed space around the list is margin.
+            contentPadding = contentPaddingOf(s, inst),
+            // RN inverted (registry 19): row 0 at the bottom, growing upwards; a short list sits at the bottom.
+            reverseLayout = s.inverted,
+            verticalArrangement = when {
+                s.gap > 0f -> Arrangement.spacedBy(s.gap.dp, if (s.inverted) Alignment.Bottom else Alignment.Top)
+                s.inverted -> Arrangement.Bottom
+                else -> Arrangement.Top
+            },
+        ) {
+            // Runs of plain rows between the pinned ones: one `items` per run, so a long list stays a few blocks.
+            var start = 0
+            for (h in sticky) {
+                if (h >= rows.size) break
+                val from = start
+                if (h > from) items(count = h - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
+                stickyHeader(key = rows[h].key, contentType = rows[h].type) { rowAt(h) }
+                start = h + 1
+            }
+            val from = start
+            if (rows.size > from) {
+                items(count = rows.size - from, key = { rows[from + it].key }, contentType = { rows[from + it].type }) { rowAt(from + it) }
+            }
         }
     }
     if (s.onRange != 0 || s.onEndReached != 0) {

@@ -88,9 +88,20 @@ describe("P0.5–P0.7: taps, horizontal List, row params", () => {
     expect(err(`function A() { return <Image src="x" onPressIn={() => 1} /> }`)).toMatch(/onPressIn works only/)
     expect(err(`function A() { return <Pressable onPress={() => 1} onLongPress={() => 2}><Text>a</Text></Pressable> }`)).toBe("no error")
   })
-  test("<List horizontal> points at Scroll horizontal", () => {
+  test("<List horizontal> compiles to LazyRow list with horizontal: true", () => {
     expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={(i) => <Row/>} horizontal /> }`))
-      .toMatch(/<List> is vertical only.*<Scroll horizontal>/)
+      .toBe("no error")
+    expect(err(UI + `function A(p) { return <FlatList data={p.x} renderItem={({ item }) => <Row/>} horizontal /> }`))
+      .toBe("no error")
+    // Inverted, sticky, and pull to refresh fail sideways
+    expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={(i) => <Row/>} horizontal inverted /> }`))
+      .toMatch(/<List horizontal> does not support inverted/)
+    expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={(i) => <Row/>} horizontal stickyHeaderIndices={[0]} /> }`))
+      .toMatch(/<List horizontal> does not support stickyHeaderIndices/)
+    expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={(i) => <Row/>} horizontal refreshing={p.r} onRefresh={() => {}} /> }`))
+      .toMatch(/<List horizontal> does not support pull to refresh/)
+    expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={(i) => <Row/>} horizontal={p.h} /> }`))
+      .toMatch(/horizontal on <List> must be a boolean literal/)
   })
   test("a row that destructures item / index (FlatList's renderItem habit) fails; other fields are fine", () => {
     expect(err(`function A(p) { return <List data={p.x} key={(i) => i.id} row={({ item }) => <Text>{item.name}</Text>} /> }`))

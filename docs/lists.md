@@ -39,6 +39,10 @@ The compiler warns when a `<For>` is fed an array that is not obviously small, a
 - Pull to refresh: `refreshing` + `onRefresh` (or RN's `refreshControl={<RefreshControl/>}`), guide-notes §41.
 - Sticky rows: `stickyHeaderIndices={[0, 20]}` (RN's name; can change at runtime), guide-notes §43. Pinned rows stay
   mounted wherever the list is.
+- **Horizontal rails:** `<List horizontal>` or `<FlatList horizontal>` (registry 23, parity batch 1). Uses Compose's
+  `LazyRow` natively. Cards keep their own width (`definiteWidth = false` unless the row template root sets an explicit
+  width), `gap` spaces items along the row, and `contentContainerStyle` paddings scroll with the content.
+  Sticky headers, `inverted`, and pull-to-refresh are refused on horizontal lists (vertical only).
 
 ## 3. The window protocol (built, 2.4a)
 JS → native (normal batch ops, `core/include/zn/batch.h`):
