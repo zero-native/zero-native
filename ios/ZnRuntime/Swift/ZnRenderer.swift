@@ -146,6 +146,12 @@ struct ZnNodeView: View {
             ScrollView(s.props[Registry.Prop.horizontal]?.bool == true ? .horizontal : .vertical) {
                 flex(s, vertical: s.props[Registry.Prop.horizontal]?.bool != true)
                     .padding(s.paddingInsets(inst))
+                    .background {
+                        // Pull to refresh (ZnTabsRefresh.swift): finds this scroll view from inside it.
+                        if s.hasRefresh && s.props[Registry.Prop.horizontal]?.bool != true {
+                            ZnScrollRefresh(ctx: ctx, s: s, inst: inst, refreshing: s.refreshingNow(inst))
+                        }
+                    }
             }
         case Registry.Component.text:
             ZnTextView(ctx: ctx, s: s, inst: inst)
@@ -155,6 +161,10 @@ struct ZnNodeView: View {
             ZnListView(ctx: ctx, inst: inst, s: s)
         case Registry.Component.textField:
             ZnTextFieldView(ctx: ctx, s: s, inst: inst)
+        case Registry.Component.tabs:
+            ZnTabsView(ctx: ctx, t: t, inst: inst, s: s)
+        case Registry.Component.otpInput:
+            ZnOtpInputView(ctx: ctx, s: s, inst: inst)
         case Registry.Component.switch:
             ZnSwitchView(ctx: ctx, s: s, inst: inst)
         case Registry.Component.checkbox:

@@ -51,7 +51,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         q.maxConcurrentOperationCount = 1
         return q
     }()
-    private var tasks: [Int: Task] = [:]  // delegate queue only
+    private var tasks: [ObjectIdentifier: Task] = [:]  // delegate queue only; by task object (ids are per session)
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default
         c.httpCookieStorage = nil
@@ -84,6 +84,10 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         path.pathUpdateHandler = { [weak self] p in self?.online = p.status == .satisfied }
         path.start(queue: DispatchQueue(label: "zn-fetch-path"))
         function("send") { [unowned self] call in try self.send(call) }
+        // Made here, once: calls run on several background threads at once, and a lazy property made there could be
+        // made several times (found 2026-11-08: four fetches started together got four sessions, whose task ids all
+        // began at 1, so their answers overwrote each other and three calls never answered).
+        _ = session
     }
 
     // MARK: One request
@@ -131,11 +135,11 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         let task = session.dataTask(with: request)
         let state = Task(call: call, where_: where_, redirect: redirect, maxBody: maxBody)
         queue.addOperation {
-            self.tasks[task.taskIdentifier] = state
+            self.tasks[ObjectIdentifier(task)] = state
             if timeoutMs > 0 {
                 let timer = DispatchWorkItem { [weak self] in
                     self?.queue.addOperation {
-                        guard state.ours == nil, self?.tasks[task.taskIdentifier] != nil else { return }
+                        guard state.ours == nil, self?.tasks[ObjectIdentifier(task)] != nil else { return }
                         state.ours = ("timeout", "Network request failed (timeout): \(where_): no complete answer within \(Int(timeoutMs)) ms")
                         task.cancel()
                     }
@@ -176,7 +180,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
 
     func urlSession(_ s: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        guard let t = tasks[task.taskIdentifier] else { return completionHandler(nil) }
+        guard let t = tasks[ObjectIdentifier(task)] else { return completionHandler(nil) }
         switch t.redirect {
         case "error":
             t.ours = ("redirect_not_allowed", "\(t.where_): got a \(response.statusCode) redirect, and redirect is \"error\"")
@@ -203,7 +207,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
 
     func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let t = tasks[dataTask.taskIdentifier] else { return completionHandler(.cancel) }
+        guard let t = tasks[ObjectIdentifier(dataTask)] else { return completionHandler(.cancel) }
         t.response = response as? HTTPURLResponse
         if response.expectedContentLength > Int64(t.maxBody) {
             t.ours = ("too_large", "\(t.where_): the body is \(response.expectedContentLength) bytes; maxBodySize is \(t.maxBody)")
@@ -213,7 +217,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
     }
 
     func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard let t = tasks[dataTask.taskIdentifier], t.ours == nil else { return }
+        guard let t = tasks[ObjectIdentifier(dataTask)], t.ours == nil else { return }
         t.body.append(data)
         if t.body.count > t.maxBody {
             t.ours = ("too_large", "\(t.where_): the body is over maxBodySize (\(t.maxBody) bytes)")
@@ -222,7 +226,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
     }
 
     func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let t = tasks.removeValue(forKey: task.taskIdentifier) else { return }
+        guard let t = tasks.removeValue(forKey: ObjectIdentifier(task)) else { return }
         t.timer?.cancel()
         let ms = Int(Date().timeIntervalSince(t.t0) * 1000)
         if t.call.isCancelled { return }  // JS aborted; nobody is waiting for this answer

@@ -48,7 +48,8 @@ struct ZnListView: View {
         case .uiKit:
             // Read here, so a change of the slot reaches updateUIView.
             let stickyText = s.stickySlot >= 0 ? inst.slot(s.stickySlot).value.string : s.stickyHeaderIndices
-            ZnCollectionList(ctx: ctx, inst: inst, s: s, list: list, count: list.rows.count, sticky: znParseSticky(stickyText))
+            ZnCollectionList(ctx: ctx, inst: inst, s: s, list: list, count: list.rows.count, sticky: znParseSticky(stickyText),
+                             refreshing: s.refreshingNow(inst))
         }
     }
 }
@@ -129,6 +130,8 @@ struct ZnCollectionList: UIViewRepresentable {
     let list: ZnListState
     let count: Int  // read in the parent body, so a row count change reaches updateUIView
     let sticky: [Int]
+    /// Pull to refresh (ZnTabsRefresh.swift): `refreshing` now (read in the parent body).
+    let refreshing: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -157,6 +160,14 @@ struct ZnCollectionList: UIViewRepresentable {
     func updateUIView(_ cv: UICollectionView, context: Context) {
         let c = context.coordinator
         c.ctx = ctx; c.inst = inst; c.s = s; c.list = list
+        if s.hasRefresh {
+            let (ctx, inst, s) = (ctx, inst, s)
+            let r = c.refresh ?? ZnRefresh()
+            c.refresh = r
+            r.attach(to: cv)
+            r.onRefresh = s.onRefresh != 0 ? { ctx.send(inst.id, s.onRefresh, .none) } : nil
+            r.update(refreshing: refreshing, tint: UIColor(s.refreshColor), canPull: s.onRefresh != 0)
+        }
         if let layout = cv.collectionViewLayout as? ZnStickyLayout, layout.sticky != sticky {
             // A new layout pass forgets the scroll position (the lab's list jumped 34 rows on each toggle,
             // 2026-11-08): keep the first row that isn't pinned where it is.
@@ -231,6 +242,7 @@ struct ZnCollectionList: UIViewRepresentable {
         var list: ZnListState?
         var keys: [String] = []
         var sticky = Set<Int>()
+        var refresh: ZnRefresh?
         /// onEndReached was sent while the list had this many rows (once per length, as on Android).
         var endSentAt = -1
 

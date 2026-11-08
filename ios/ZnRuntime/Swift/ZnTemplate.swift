@@ -161,6 +161,26 @@ final class ZnNodeSpec {
     let frame: String?
     let trimCaps: Bool
 
+    // OtpInput (registry 18) and TextField extras
+    let otpTheme: String?
+    let otpType: Int
+    let blurOnFilled: Bool
+    let invalid: Bool
+    let invalidSlot: Int
+    let placeholderSlot: Int
+    /// Registry.AutoComplete, -1 when not written.
+    let autoComplete: Int
+    let accessibilityLabel: String?
+    let onFilled: Int
+
+    // Tabs and pull to refresh
+    let selected: Int
+    let selectedSlot: Int
+    let refreshing: Bool
+    let refreshingSlot: Int
+    let refreshColor: Color
+    let onRefresh: Int
+
     // Switch, Checkbox, Spinner, Progress
     let trackColor: Color?, activeTrackColor: Color?, thumbColor: Color?, activeColor: Color?
     let size: CGFloat?
@@ -358,6 +378,21 @@ final class ZnNodeSpec {
         hasTrim = p[P.trimStart] != nil || p[P.trimEnd] != nil || p[P.trimOffset] != nil ||
             trimStartSlot >= 0 || trimEndSlot >= 0 || trimOffsetSlot >= 0 ||
             [P.trimStart, P.trimEnd, P.trimOffset].contains { animated?.timing($0) != nil }
+        selected = num(P.selected).map { Int($0) } ?? 0
+        selectedSlot = slotFor(P.selected)
+        refreshing = p[P.refreshing]?.bool ?? false
+        refreshingSlot = slotFor(P.refreshing)
+        refreshColor = znColor(p[P.refreshColor]) ?? Color(.sRGB, red: 0x37 / 255, green: 0x41 / 255, blue: 0x51 / 255)
+        onRefresh = eventFor(Registry.Event.onRefresh)
+        otpTheme = p[P.otpTheme]?.string
+        otpType = max(en(P.otpType), 0)
+        blurOnFilled = p[P.blurOnFilled]?.bool ?? false
+        invalid = p[P.invalid]?.bool ?? false
+        invalidSlot = slotFor(P.invalid)
+        placeholderSlot = slotFor(P.placeholder)
+        autoComplete = en(P.autoComplete)
+        accessibilityLabel = p[P.accessibilityLabel]?.string
+        onFilled = eventFor(Registry.Event.onFilled)
         trackColor = znColor(p[P.trackColor]); activeTrackColor = znColor(p[P.activeTrackColor])
         thumbColor = znColor(p[P.thumbColor]); activeColor = znColor(p[P.activeColor])
         self.size = num(P.size)

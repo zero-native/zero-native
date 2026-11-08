@@ -32,12 +32,12 @@ ZnAppEvent.kt and NAV kind in ZnNav.kt against ZnApp.swift.
 | 4 | Box | done | | |
 | 5 | Text | partial | §2 | No font scaling (Dynamic Type), no maxFontScale, no accessibility. |
 | 6 | Image | partial | §4 | No `zn://` handles. asset / http / file, fallback, tint, events done. |
-| 7 | Pressable | partial | §2 | No pressFeedback (ripple / highlight), runtime `disabled` ignored, no hitSlop, no accessibility. |
+| 7 | Pressable | partial | §2 | No pressFeedback (ripple / highlight), no hitSlop (runtime `disabled` fixed in 774308f), no accessibility. |
 | 8 | Spacer | done | | |
 | 9 | Icon | done | | |
 | 10 | Anchor | done | | |
-| 11 | List | partial | §2 | No pull to refresh, no impressions. Window, sticky, inverted done. |
-| 12 | Scroll | partial | §2 | No pull to refresh; padding sits around the scroll, not inside it. |
+| 11 | List | partial | §2 | No impressions. Window, sticky, inverted, pull to refresh done. |
+| 12 | Scroll | done | | Padding inside the scroll (774308f), pull to refresh. |
 | 13 | Carousel | done | | |
 | 14 | Sheet | partial | §2 | No onDetentChange, no animateIn, sheet colour and radius fixed. |
 | 15 | Fragment | done | | |
@@ -50,11 +50,11 @@ ZnAppEvent.kt and NAV kind in ZnNav.kt against ZnApp.swift.
 | 22 | Spinner | done | | ZnSpinner.kt → ZnControls.swift (2f1d6d3). |
 | 23 | Progress | done | | ZnProgress.kt → ZnControls.swift (2f1d6d3). |
 | 24 | Shimmer | done | | |
-| 30 | Tabs | missing | S | Draw only the child at `selected` (slot too), keep hidden tabs' instances. ZnRenderer.kt ZnTabs. |
+| 30 | Tabs | done | | ZnTabsRefresh.swift: only the selected child shows; hidden tabs keep their views and state. |
 | 31 | Modal | done | | onRequestClose is never sent: no system Back on iOS (same as RN on iOS). |
 | 32 | StatusBar | missing | M | Drawn as nothing. barStyle, hidden, backgroundColor (all can change), per screen, newest element wins. ZnSystemBars.kt. Only the route's `statusBar` option works now. |
 | 33 | NavigationBar | missing | S | iOS has no navigation bar. Decide: backgroundColor behind the home indicator, or ignore. ZnSystemBars.kt. |
-| 34 | OtpInput | missing | L | Boxes over one hidden field, caret, paste, sms-otp autofill (`.oneTimeCode`), otpTheme, otpType, blurOnFilled, invalid, onFilled, ref setValue. ZnOtpInput.kt (354 lines). |
+| 34 | OtpInput | done | | ZnOtpInput.kt → ZnOtpInput.swift: boxes over one hidden field, caret, `.oneTimeCode` autofill, otpTheme, otpType, blurOnFilled, invalid, onFilled, ref setValue / focus / blur / clear. |
 
 Totals: 29 components. Done 17, partial 7 (sized in §2 and §4), missing 5.
 Missing work: 1 L, 2 M, 2 S = **2.5 days**.
@@ -94,9 +94,9 @@ Only props whose iOS support is missing or partial. Everything else in the regis
 ### List and Scroll
 | Prop / event | iOS | Size | Note |
 |---|---|---|---|
-| List onRefresh, refreshing, refreshColor, refreshBackground | missing | M | Pull to refresh, controlled by JS (ZnPullRefresh.kt: a release past the line sends onRefresh, the spinner goes if JS doesn't set refreshing within PENDING_MS). UIRefreshControl on the collection view. |
+| List onRefresh, refreshing, refreshColor, refreshBackground | done | | Pull to refresh, controlled by JS (ZnPullRefresh.kt: a release past the line sends onRefresh, the spinner goes if JS doesn't set refreshing within PENDING_MS). UIRefreshControl on the collection view. |
 | Scroll onRefresh, refreshing, refreshColor, refreshBackground | missing | S | Same, on a vertical Scroll, after the List one. |
-| Scroll padding | partial | S | iOS pads around the ScrollView, so the content is clipped inside the padding. Android pads the content inside the scroll (RN contentContainerStyle). |
+| Scroll padding | done | | Fixed in 774308f: the padding is inside the scrolling content, as Android. |
 
 ### Sheet
 | Prop / event | iOS | Size | Note |
