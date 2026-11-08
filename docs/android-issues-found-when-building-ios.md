@@ -21,7 +21,7 @@ Each entry says:
 | A5 | 2026-11-08 | Core build | Shared core assumed Android: `posix_fallocate`, MMKV headers, `liblog` | fixed on ios (736b8eb) |
 | A6 | 2026-11-08 | FlowStore | Without space reservation, the first write of a key rewrote the whole file and could fail on a full disk | fixed on ios (736b8eb) |
 | A7 | 2026-11-08 | JS tests | `app-events.test.ts` passes alone but fails in the full `bun test` run on the Mac | open |
-| A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | open, [check] on a gesture-navigation phone |
+| A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 14+ predictive back) cannot respect `useBack` | fixed on ios (not committed; Android side not compiled) |
 
 ---
 
@@ -107,8 +107,18 @@ Each entry says:
 - **Check on Android:** `bun test` on Windows, and the full run on the Mac.
 
 ## A8. Back gestures that animate before JS answers skip `useBack`
-- **Status:** open. Not seen on Android yet: the Lava uses 3-button navigation, and predictive back was never tested
-  (`milestones.md` 2026-10-29, `production-readiness.md` A2).
+- **Status:** fixed on ios, **not committed, Android side not compiled** (2026-11-08). Not seen on Android before the
+  fix: the Lava uses 3-button navigation, and predictive back was never tested.
+- **Fix as built:** `packages/core/src/nav.ts` sends NAV BACK_WANTED (existing kind 10, no host API change) for any
+  screen while it has an app handler (`useBack`, `BackHandler`) or its tabs want Back (tabs' own handler doesn't
+  count: `useBackUncounted`); once per change, after a screen build ends, never for a closed screen. JS tests: 1166
+  pass (only A7 fails). Android `ZnNavHost.kt`: one `BackHandler`, now registered **after** NavDisplay (keyed by the top
+  entry), enabled while the top screen wants Back; it replaces the old last-screen-only one. Sheets and modals are
+  Dialogs, so they still get Back first. iOS: `ZnNavController` (window root) has its own edge pan that reads it
+  (UIKit's built-in pop gesture often never began over our Pressables). Checked on the iOS simulator: no handler →
+  interactive pop + FORCED_BACK; handler that lets go → popped by JS; handler that keeps → stays, "Discard ₹6?".
+- **Behaviour change to check:** a root screen with `useBack` is now asked on Back (before: the app went to the
+  background), and loses Android 14's predictive "back to home" while it has the handler.
 - **Problem:** every back press goes to JS first (`ZnNav.systemBack` → BACK → `useBack` handlers may keep the screen).
   But `ZnNavHost` gives Navigation 3 a `predictivePopTransitionSpec`, so with gesture navigation on Android 14+ the pop
   preview (the previous screen sliding in) plays during the gesture, and JS is asked only when it commits. A screen
@@ -120,5 +130,8 @@ Each entry says:
   entry, like NAV BACK_WANTED but for any entry; a host API change). Entries without handlers get the native
   interactive back (Android predictive pop, iOS swipe); entries with handlers get no preview, and the gesture goes to
   JS as a plain BACK. iOS needs this before the swipe can be turned on (i.2).
-- **Check on Android:** on a phone with gesture navigation (Android 14+), open the amount screen, type a digit, swipe
-  back slowly: does the previous screen slide in before "Discard ₹…?" shows?
+- **Check on Android:** build (`.\gradlew.bat :sample:installDebug` after `bun run sample:js`). On a phone with gesture
+  navigation (Android 14+): Dev → Amount keypad, type a digit, swipe back slowly: no preview of Dev, "Discard ₹…?"
+  shows. Dev screens (no handler): the predictive preview plays as before. 3-button phone: Back on the amount screen
+  still asks. A sheet open on the amount screen: Back closes the sheet first. Tabs lab: Back on a later tab goes to the
+  first tab; on the first tab it leaves the app.

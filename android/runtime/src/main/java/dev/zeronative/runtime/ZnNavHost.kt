@@ -140,12 +140,6 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
         onDispose { if (ZnKeyboard.focusManager === focusManager) ZnKeyboard.focusManager = null }
     }
 
-    // Back on the only screen: NavDisplay leaves it to the system, unless the screen asked for it (tabs on a later tab).
-    // Registered before the screens, so a sheet inside one still gets Back first.
-    androidx.activity.compose.BackHandler(
-        enabled = ZnNav.stack.size == 1 && top != null && ZnNav.backWanted.containsKey(top.id),
-    ) { ZnNav.systemBack() }
-
     Box(modifier) {
         // A dev reload bumps the generation: the old screens are dropped at once instead of animating out.
         key(ZnNav.generation) {
@@ -156,6 +150,17 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
         ZnToast.Host()
         ZnAlert.Host()
         if (BuildConfig.DEBUG) ZnDev.Overlay()
+    }
+
+    // Back on a screen that asked for it (NAV BACK_WANTED: it has a useBack / BackHandler, or tabs on a later tab): to
+    // JS at once, with no predictive preview, since JS may keep the screen (A8). Registered after NavDisplay, so it wins
+    // over NavDisplay's predictive pop; keyed by the top entry, so it is registered again (and stays last) whenever
+    // the stack changes. On the only screen NavDisplay leaves Back to the system; this takes it only when asked.
+    // Sheets and modals are Dialogs with their own back dispatcher, so they still get Back first.
+    key(top?.id) {
+        androidx.activity.compose.BackHandler(
+            enabled = top != null && ZnNav.backWanted.containsKey(top.id),
+        ) { ZnNav.systemBack() }
     }
 }
 

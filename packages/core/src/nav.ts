@@ -59,6 +59,16 @@ export interface Entry {
   dispose: () => void
   /** useBack handlers, oldest first; the newest is asked first. */
   backs: Array<() => boolean>
+  /**
+   * NAV BACK_WANTED: how many app handlers (useBack, BackHandler) the screen has now, whether tabs want Back, and
+   * what native was last told. While native is told "wanted", a back gesture doesn't animate the pop ahead of JS
+   * (iOS swipe, Android predictive back): it goes to JS as a plain BACK (android-issues-found-when-building-ios.md A8).
+   */
+  appBacks?: number
+  tabsWantBack?: boolean
+  backWantedSent?: boolean
+  /** It left the stack (close): its handlers going away tell native nothing (native drops the entry anyway). */
+  closed?: boolean
   /** The screen's tabs (useTabs): a link to one of them selects it. */
   tabs?: { select(name: string): boolean }
   impressions?: { handler: (keys: string[]) => void; session: boolean }
@@ -182,11 +192,38 @@ export const nav = {
  */
 export function useBack(handler: () => boolean): void {
   const e = screenHere("useBack must be called while a screen renders (in a component body)")
+  const remove = addHandler(e, handler, true)
+  if (getOwner()) onCleanup(remove)
+}
+
+/**
+ * @internal A Back handler that doesn't make the screen "want Back" by itself (tabs: its handler often answers
+ * false, and tabs say when they want Back with setBackWanted).
+ */
+export function useBackUncounted(handler: () => boolean): void {
+  const e = screenHere("useBack must be called while a screen renders (in a component body)")
+  const remove = addHandler(e, handler, false)
+  if (getOwner()) onCleanup(remove)
+}
+
+/** Adds [handler] to [e]; [counts]: it makes the screen want Back (NAV BACK_WANTED). Returns its remover. */
+function addHandler(e: Entry, handler: () => boolean, counts: boolean): () => void {
   e.backs.push(handler)
-  if (getOwner()) onCleanup(() => {
+  if (counts) {
+    e.appBacks = (e.appBacks ?? 0) + 1
+    syncBackWanted(e)
+  }
+  let removed = false
+  return () => {
+    if (removed) return
+    removed = true
     const i = e.backs.lastIndexOf(handler)
     if (i >= 0) e.backs.splice(i, 1)
-  })
+    if (counts) {
+      e.appBacks = Math.max(0, (e.appBacks ?? 0) - 1)
+      syncBackWanted(e)
+    }
+  }
 }
 
 /**
@@ -196,11 +233,7 @@ export function useBack(handler: () => boolean): void {
 export function addBackHandler(handler: () => boolean): () => void {
   const e = rendering ?? screenOf(getOwner()) ?? stack[stack.length - 1]
   if (!e) throw new Error("BackHandler: there is no screen yet (add handlers once the app has started)")
-  e.backs.push(handler)
-  const remove = () => {
-    const i = e.backs.lastIndexOf(handler)
-    if (i >= 0) e.backs.splice(i, 1)
-  }
+  const remove = addHandler(e, handler, true)
   if (getOwner()) onCleanup(remove)
   return remove
 }
@@ -273,11 +306,46 @@ export function routeTabs(name: string): readonly string[] | undefined {
 }
 
 /**
- * @internal Whether native must ask JS when Back is pressed while [e] is the only screen (NAV BACK_WANTED). Native
- * otherwise lets the system handle that press at once (the app goes to the background).
+ * @internal Tabs: whether [e] wants Back now (a tab other than the first is shown). Together with the screen's app
+ * handlers this decides NAV BACK_WANTED (syncBackWanted).
  */
 export function setBackWanted(e: Entry, wanted: boolean): void {
-  globalThis.__zn_nav(NavKind.BackWanted, e.id, wanted ? 1 : 0, null)
+  e.tabsWantBack = wanted
+  syncBackWanted(e)
+}
+
+let backPending: Set<Entry> | null = null
+
+/** Runs [fn] (a screen build), then tells native about BACK_WANTED changes once, so a build that adds a handler and
+ *  then throws (or Try again: dispose, build) sends nothing in between. */
+function deferBackWanted(fn: () => void): void {
+  if (backPending) return fn()
+  backPending = new Set()
+  try {
+    fn()
+  } finally {
+    const pending = backPending
+    backPending = null
+    for (const e of pending) syncBackWanted(e)
+  }
+}
+
+/**
+ * Tells native whether [e] wants Back (NAV BACK_WANTED), when that changes: it does while it has an app handler
+ * (useBack, BackHandler) or its tabs want it. While it does, native asks JS first and plays no back animation ahead of
+ * the answer (no iOS swipe, no Android predictive preview), on the only screen too. While it doesn't, native may pop
+ * by itself (iOS swipe; JS then hears FORCED_BACK), and Back on the only screen goes to the system.
+ */
+function syncBackWanted(e: Entry): void {
+  if (e.closed) return
+  if (backPending) {
+    backPending.add(e) // while a screen is built: native hears the net result once, when the build ends
+    return
+  }
+  const want = (e.appBacks ?? 0) > 0 || e.tabsWantBack === true
+  if (want === (e.backWantedSent ?? false)) return
+  e.backWantedSent = want
+  globalThis.__zn_nav(NavKind.BackWanted, e.id, want ? 1 : 0, null)
 }
 
 /**
@@ -600,7 +668,11 @@ function linkAllowed(link: OpenedLink): boolean {
 
 /** Tests only: forgets the stack and the routes (screens are disposed, nothing is sent). */
 export function resetNavForTests(): void {
-  while (stack.length > 0) stack.pop()!.dispose()
+  while (stack.length > 0) {
+    const e = stack.pop()!
+    e.closed = true
+    e.dispose()
+  }
   table = null
   names = []
   rendering = null
@@ -649,6 +721,10 @@ function runAfterBuild(): void {
  * works), the error is reported, and native shows its error screen for it (NAV FAILED).
  */
 function render(e: Entry): void {
+  deferBackWanted(() => buildScreen(e))
+}
+
+function buildScreen(e: Entry): void {
   const route = table![e.name]!
   if (isNative(route)) return // drawn by native
   const screen = route.screen
@@ -672,6 +748,9 @@ function render(e: Entry): void {
     // renderRoot has already stopped whatever the screen started. Handlers it set up belong to the failed build.
     e.dispose = () => {}
     e.backs = []
+    e.appBacks = 0
+    e.tabsWantBack = false
+    syncBackWanted(e)
     e.tabs = undefined
     e.impressions = undefined
     e.failed = true
@@ -690,12 +769,15 @@ function render(e: Entry): void {
 function onRetry(payload: NativeValue): void {
   const e = stack.find((s) => s.id === Number(payload))
   if (!e) return
-  e.dispose()
-  render(e)
+  deferBackWanted(() => {
+    e.dispose()
+    render(e)
+  })
 }
 
 /** Disposes an entry's screen (effects, events, timers). `send`: also tell native to take it out of the stack. */
 function close(e: Entry, send: boolean): void {
+  e.closed = true
   e.dispose()
   const resolve = waiting.get(e.id)
   if (resolve) {

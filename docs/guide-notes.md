@@ -186,8 +186,17 @@ useBack(() => {
 - A screen can have several handlers: the newest is asked first, then the older ones. So a tab's "close my sheet"
   runs before the tabs' "go to the first tab" (§40).
 - Make your on-screen ← button do the same thing (`if (!handler()) nav.back()`), so both behave alike.
-- The last screen's back goes to the system (the app moves to the background); `useBack` isn't asked there. The one
-  exception is tabs on a tab other than the first: then Back goes to the first tab (§40).
+- **A handler turns off the native back gesture for its screen** (since 2026-11-08, A8): while a screen has a
+  `useBack` / `BackHandler`, the iOS swipe doesn't follow the finger and Android 14+ shows no predictive preview;
+  the gesture goes to your handler as a plain Back, and the screen leaves only if you let it. So **register the
+  handler only while it would keep the screen**: put it in a part that is shown only then, e.g.
+  `{amount() !== "0" && <DiscardGuard />}` with `useBack` inside `DiscardGuard`. A screen without handlers keeps the
+  native swipe and preview.
+- **Why:** both gestures show the screen leaving before JS could answer. A handler that then keeps the screen would
+  make it look gone and then come back (Android), or be skipped (iOS).
+- The last screen's back goes to the system (the app moves to the background) unless the screen has a handler or
+  shows a tab other than the first (§40); then Back goes to JS. A root screen with `useBack` is now asked (before
+  2026-11-08 it wasn't), and it loses Android's predictive "back to home" while the handler is there.
 
 ## 8. Lifetimes: timers and cleanup
 - A timer (`setTimeout` / `setInterval`) created in a screen body, a component body, or a tap handler of one is

@@ -513,7 +513,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a `NativeView` in a hidden tab is made again on return (a WebView reloads). Documented as a "don't".
 - **Default lazy** (Pavan agreed): a tab is built on first show; `preload: true` builds all at start.
 
-## 46. Back on the only screen goes to JS only when asked (NAV BACK_WANTED, host API 8)
+## 46. Back on the only screen goes to JS only when asked (NAV BACK_WANTED, host API 8; widened by entry 161)
 - **Where:** `nav.ts` `setBackWanted`, `ZnNav.backWanted`, `ZnNavHost` (a `BackHandler` when the stack has one screen).
 - **Chosen:** tabs tell native "send me Back" only while a tab other than the first is shown. Otherwise the system takes
   Back on the last screen at once, as before.
@@ -2460,3 +2460,24 @@ change, and what evidence would make you change it?"
   later, so the black "starting" screen still showed. This is the app's call ([ZB]): a larger `maxMs`, or start
   `/init` earlier (before the first screens). Not decided yet.
 - **Risk if wrong:** a cold start waits up to `maxMs` longer. A stuck `work` can't hold past `maxMs` or `capMs`.
+
+## 161. NAV BACK_WANTED for any screen with an app back handler; native back gestures only on screens without one (2026-11-08, iOS work, A8)
+- **What:** JS sends BACK_WANTED (kind 10, no host API change) while a screen has a `useBack` / `BackHandler` or its
+  tabs want Back; once per change, after a screen build ends, never for a closed screen (`nav.ts syncBackWanted`).
+  Tabs' own "go to the first tab" handler doesn't count (`useBackUncounted`). Native: on such a screen a back gesture
+  plays nothing ahead of JS. Android: one `BackHandler` after `NavDisplay` (keyed by the top entry) wins over the
+  predictive pop. iOS: our own edge pan (`ZnNavController.backPan`) sends BACK to JS instead of moving the screen;
+  on other screens it drives an interactive pop and JS hears FORCED_BACK.
+- **Why not ask JS during the gesture:** the gesture moves the screen at once; JS answers in milliseconds, but
+  whatever it answers, the screen has already been shown leaving.
+- **Why not every handler's result:** native can't run JS synchronously, and the handler's answer depends on state
+  (the amount screen's handler answers false at ₹0). So the cost: a screen with a handler loses the interactive
+  gesture even when the handler would let it go. Guide §7 says to register handlers only while they would keep the
+  screen.
+- **Why our own pan on iOS:** UIKit's `interactivePopGestureRecognizer` often never began in our screens (their left
+  edge is mostly Pressables, `UIControl`s); the drag became a tap. Our pan cancels the press under the finger.
+- **Checked:** JS tests (1166 pass, only A7 fails). iOS simulator: Dev (no handler) pops with the finger, JS hears
+  FORCED_BACK and pushes again normally; Amount at ₹0: BACK to JS, popped; Amount at ₹6: stays, "Discard ₹6?".
+  **Android: not compiled here**; checks in `android-issues-found-when-building-ios.md` A8.
+- **Risk if wrong:** an app with a handler on every screen gets no native back gestures anywhere (works, feels less
+  native). A root screen with `useBack` now catches Back instead of leaving the app.

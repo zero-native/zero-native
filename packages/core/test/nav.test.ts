@@ -10,7 +10,7 @@ import { on, slot, view, when } from "../src/view"
 
 let host: FakeHost
 const NATIVE_ROOT = 0x80000001
-const PUSH = 1, REMOVE = 2, CLEAR = 3, EXIT = 4, ANSWERED = 5, STARTED = 8
+const PUSH = 1, REMOVE = 2, CLEAR = 3, EXIT = 4, ANSWERED = 5, STARTED = 8, BACK_WANTED = 10
 
 // Screens as the compiler would emit them: template id + setup binding slots / events.
 let backHandled = false
@@ -57,12 +57,13 @@ test("start renders native-created entries, then sends only NAV STARTED", () => 
   expect(host.ops).toEqual([
     ["patch", NATIVE_ROOT, 0, "home"],
     ["patch", NATIVE_ROOT + 1, 0, "m2"],
+    ["nav", BACK_WANTED, NATIVE_ROOT + 1, 1, null], // Amount has a useBack: no back animation ahead of JS (A8)
     ["nav", STARTED, 0, 0, null], // after the screens: native counts them as up from here
   ])
   expect(nav.current()).toEqual({ name: "amount", params: { merchantId: "m2" } })
   send(AppEvent.Start, JSON.stringify([{ entry: NATIVE_ROOT, route: 0, params: {} }])) // a second start is ignored
   expect(nav.depth()).toBe(2)
-  expect(navOps()).toEqual([["nav", STARTED, 0, 0, null]]) // no second STARTED
+  expect(navOps().filter((o) => o[1] === STARTED)).toEqual([["nav", STARTED, 0, 0, null]]) // no second STARTED
 })
 
 test("push sends NAV before the new screen's patches, in the same tick", () => {
@@ -313,7 +314,7 @@ test("an allowed link at start opens as before", () => {
     { entry: NATIVE_ROOT + 1, route: 1, params: { merchantId: "m4" }, link: "zn://sample/pay/m4" } as any,
   ])
   expect(nav.current()?.name).toBe("amount")
-  expect(navOps()).toEqual([])
+  expect(navOps()).toEqual([["nav", BACK_WANTED, NATIVE_ROOT + 1, 1, null]]) // its useBack; nothing else
 })
 
 test("detached work goes on when its screen closes, and ends with stop", () => {
@@ -383,6 +384,44 @@ test("unknown routes and useBack outside a screen are errors", () => {
   expect(() => useBack(() => true)).toThrow(/while a screen renders/)
 })
 
+// ---- NAV BACK_WANTED for any screen with an app back handler (android-issues-found-when-building-ios.md A8) ---------
+
+test("a screen tells native it wants Back while it has a handler, once per change", () => {
+  let show: ReturnType<typeof signal<boolean>> | null = null
+  const Guarded = () => {
+    show = signal(false)
+    return view(0, (i) => {
+      slot(i, 0, () => "g")
+      // Like the amount screen's "Discard?" guard, but only while a part is shown: two handlers, one native message.
+      when(i, 1, () => show!(), () => {
+        useBack(() => true)
+        useBack(() => true)
+        return view(1, () => {})
+      })
+    })
+  }
+  resetNavForTests()
+  startApp(defineRoutes({ home: { path: "/", screen: Home }, guarded: { path: "/g", screen: Guarded } }))
+  start()
+  host.ops.length = 0
+  nav.push("guarded")
+  const id = navOps()[0][2] as number
+  expect(navOps().map((o) => o[1])).toEqual([PUSH]) // no handler yet: native may animate back as it likes
+  show!.set(true)
+  expect(navOps().at(-1)).toEqual(["nav", BACK_WANTED, id, 1, null])
+  expect(navOps().filter((o) => o[1] === BACK_WANTED)).toHaveLength(1)
+  show!.set(false)
+  expect(navOps().at(-1)).toEqual(["nav", BACK_WANTED, id, 0, null])
+  show!.set(true)
+  host.ops.length = 0
+  send(AppEvent.Back, id) // the system back: the handlers keep the screen
+  expect(nav.depth()).toBe(2)
+  show!.set(false)
+  nav.back()
+  // Closing the screen tells native nothing more about Back: just REMOVE.
+  expect(navOps().map((o) => o[1])).toEqual([ANSWERED, BACK_WANTED, REMOVE])
+})
+
 // ---- A screen that throws while being built (step 3.9) ------------------------------------------------------------
 
 const FAILED = 7
@@ -424,10 +463,12 @@ test("Try again builds the failed screen again on the fresh root native made", (
   brokenOnce = false // the cause went away (data arrived, network back)
   host.ops.length = 0
   send(AppEvent.Retry, id)
-  expect(host.ops).toEqual([["patch", id, 0, "fixed"]])
-  // Native also sends RETRY for a screen that hung (JS didn't mark it failed): the old build is stopped first.
+  // The failed build's useBack never reached native; the good build's does, once, after the build.
+  expect(host.ops).toEqual([["patch", id, 0, "fixed"], ["nav", BACK_WANTED, id, 1, null]])
+  // Native also sends RETRY for a screen that hung (JS didn't mark it failed): the old build is stopped first. Its
+  // handler goes and the new one comes in the same build, so native hears nothing new about Back.
   send(AppEvent.Retry, id)
-  expect(host.ops).toEqual([["patch", id, 0, "fixed"], ["patch", id, 0, "fixed"]])
+  expect(host.ops).toEqual([["patch", id, 0, "fixed"], ["nav", BACK_WANTED, id, 1, null], ["patch", id, 0, "fixed"]])
 })
 
 test("a failed start screen shows the error screen too", () => {

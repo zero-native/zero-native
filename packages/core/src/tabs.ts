@@ -16,7 +16,7 @@
 //   the only screen too: native asks JS then (NAV BACK_WANTED, host API 8).
 // - The selected tab comes back after Android kills the app (a restorableSignal). Only that tab is built then.
 // - A link to "<path>/<tab>" opens the screen on that tab, or goes back to it if it is in the stack (nav.ts onOpenLink).
-import { restorableSignal, routeTabs, screenHere, setBackWanted, topScreenId, useBack, watchFocus, type Routes } from "./nav"
+import { restorableSignal, routeTabs, screenHere, setBackWanted, topScreenId, useBackUncounted, watchFocus, type Routes } from "./nav"
 import { batch, computed, effect, onCleanup, signal, type Signal } from "./signals"
 import type { TabName, TabRouteName } from "./routes"
 
@@ -108,13 +108,15 @@ export function useTabs<K extends TabRoute>(route: K, options: TabsOptions<TabNa
     if (e.tabs) e.tabs = undefined
   })
 
-  // Back: to the first tab first. Registered before the tabs' own handlers, so those are asked before this one.
-  useBack(() => {
+  // Back: to the first tab first. Registered before the tabs' own handlers, so those are asked before this one. Not
+  // counted for BACK_WANTED (it often answers false): the effect below says when tabs want Back.
+  useBackUncounted(() => {
     if (index() <= 0) return false
     select(names[0])
     return true
   })
-  // On the only screen native lets the system take Back unless told otherwise: tell it while a later tab is shown.
+  // Native lets the system take Back (and animates back gestures ahead of JS) unless told otherwise: tell it while a
+  // later tab is shown.
   let wanted = false // native's default
   effect(() => {
     const want = index() > 0

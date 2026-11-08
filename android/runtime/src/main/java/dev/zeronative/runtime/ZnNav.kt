@@ -62,8 +62,9 @@ internal fun readSavedStack(json: String): List<ZnSavedEntry>? = try {
  * NAV ops JS sends (BatchReader, core/include/zn/batch.h) and reports system back presses as events. Process-wide,
  * like [ZnStore], so a recreated Activity shows the same stack. Main thread only.
  *
- * On the only screen, Back goes to the system at once, unless JS asked for it there ([backWanted]: tabs on a tab other
- * than the first); then it goes to JS like any other press ([systemBack]).
+ * On the only screen, Back goes to the system at once, unless JS asked for it there ([backWanted]); then it goes to JS
+ * like any other press ([systemBack]). On a screen JS asked for, a back gesture also plays no predictive preview: JS
+ * may keep the screen, so nothing may show it leaving first (ZnNavHost; android-issues-found-when-building-ios.md A8).
  *
  * App-level events to JS use instance 0 (packages/core/src/nav.ts): START, BACK, FORCED_BACK, OPEN, INSETS,
  * IMPRESSIONS (6, ZnImpressions), RETRY (10); the full list is ZnAppEvent.
@@ -99,8 +100,10 @@ object ZnNav {
     val failed: SnapshotStateMap<Int, String> = mutableStateMapOf()
 
     /**
-     * Entries that want Back presses even as the only screen (NAV BACK_WANTED, host API 8): tabs on a tab other than
-     * the first. Without it the system takes Back on the last screen at once (the app goes to the background).
+     * Entries that want Back first (NAV BACK_WANTED): JS sends it while a screen has an app back handler (useBack,
+     * BackHandler; since 2026-11-08, A8) or its tabs show a tab other than the first (host API 8). For such a screen
+     * Back goes to JS with no predictive preview, on the only screen too. Without it: the last screen's Back goes to
+     * the system at once (the app goes to the background), other screens' to JS after the usual predictive pop.
      */
     internal val backWanted: SnapshotStateMap<Int, Unit> = mutableStateMapOf()
 

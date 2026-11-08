@@ -1,23 +1,18 @@
-// The back stack on iOS, both ways (i.1c). JS owns the stack (ARCHITECTURE.md §11): NAV ops change ZnApp.stack and
-// the host shows it; one batch's ops arrive together, so a replace (REMOVE + PUSH) is one change of the stack, and
-// the host picks the transition from the result (push if the new top is new, pop if it was below), as on Android.
+// The back stack on iOS (i.1c: UIKit). JS owns the stack (ARCHITECTURE.md §11): NAV ops change ZnApp.stack and the
+// host shows it; one batch's ops arrive together, so a replace (REMOVE + PUSH) is one change of the stack, and the
+// host picks the transition from the result (push if the new top is new, pop if it was below), as on Android.
 //
-// The swipe back is the hard part: on Android every back press asks JS first (useBack can keep the screen), but an
-// iOS swipe moves the screen before JS could answer. Two policies, ZN_IOS_SWIPE:
-// - "native" (default): the swipe pops at once, interactively; JS hears FORCED_BACK for the entry (as when Android's
-//   300 ms fallback pops without JS). A useBack handler is skipped.
-// - "ask": the swipe doesn't move the screen; it sends BACK to JS, which pops (animated) or keeps the screen.
-// UIKit variant: UINavigationController with one UIHostingController per entry. SwiftUI variant: NavigationStack(path:).
-// Open (i.1c, 2026-11-08): on the simulator, a synthetic edge swipe reaches the pop gesture (once we are its delegate)
-// but it never begins, in both variants, while the same swipe pops in Settings. [check on a device]; the likely fix is
-// our own pan recognizer driving the transition (as react-native-screens does).
+// The swipe back (android-issues-found-when-building-ios.md A8): JS tells native which screens want Back first (NAV
+// BACK_WANTED: a useBack / BackHandler, or tabs on a later tab). On such a screen the swipe doesn't move it: it sends
+// BACK to JS, which pops (animated) or keeps the screen. On any other screen the swipe pops at once, interactively,
+// and JS hears FORCED_BACK for the entry.
+//
+// ZnNavController is the window's root (2026-11-08): the app shell is UIKit, SwiftUI draws inside screens. The back
+// swipe is our own pan gesture driving the pop (backPan, ZnPopAnimator): UIKit's built-in one often never began in our
+// screens, whose left edge is mostly Pressables (a drag there became a tap). The SwiftUI variant (NavigationStack,
+// ZN_IOS_NAV=swiftui) stays for comparison until the device checks are done.
 import SwiftUI
 import UIKit
-
-enum ZnSwipePolicy {
-    case native, ask
-    static let current: ZnSwipePolicy = ProcessInfo.processInfo.environment["ZN_IOS_SWIPE"] == "ask" ? .ask : .native
-}
 
 /// One back-stack entry's screen.
 struct ZnEntryScreen: View {
@@ -57,74 +52,170 @@ struct ZnNavSwiftUI: View {
     }
 }
 
-// MARK: - UIKit: UINavigationController
+// MARK: - UIKit: UINavigationController as the window's root
 
-struct ZnNavUIKit: UIViewControllerRepresentable {
+extension ZnApp {
+    /// The window's root: the back stack (UIKit), or the SwiftUI comparison variant.
+    func makeRootViewController() -> UIViewController {
+        switch ZnImpl.nav {
+        case .uiKit: return ZnNavController(app: self)
+        case .swiftUI: return UIHostingController(rootView: ZnRootView(app: self))
+        }
+    }
+}
+
+@MainActor
+final class ZnNavController: UINavigationController, UINavigationControllerDelegate, UIGestureRecognizerDelegate {
     let app: ZnApp
-    let stack: [UInt32]
+    private var screens: [UInt32: UIViewController] = [:]
+    private var failureShown = false
+    /// Our own back swipe (not UIKit's interactivePopGestureRecognizer: in our screens, where the left edge is mostly
+    /// Pressables, it often never began and the drag became a tap, 2026-11-08). It starts within [edge] of the left
+    /// edge, moving right, cancels the press under the finger, and drives the pop with the finger (ZnPopAnimator).
+    private lazy var backPan = UIPanGestureRecognizer(target: self, action: #selector(backPanned(_:)))
+    private var interaction: UIPercentDrivenInteractiveTransition?
+    private let edge: CGFloat = 30
 
-    func makeCoordinator() -> Coordinator { Coordinator(app: app) }
-
-    func makeUIViewController(context: Context) -> UINavigationController {
-        let nav = UINavigationController()
-        nav.setNavigationBarHidden(true, animated: false)
-        nav.delegate = context.coordinator
-        context.coordinator.nav = nav
-        return nav
+    init(app: ZnApp) {
+        self.app = app
+        super.init(nibName: nil, bundle: nil)
+        setNavigationBarHidden(true, animated: false)
+        delegate = self
+        view.backgroundColor = .white
     }
 
-    func updateUIViewController(_ nav: UINavigationController, context: Context) {
-        context.coordinator.sync(stack)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not from a storyboard") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.isEnabled = false  // ours instead (backPan)
+        backPan.delegate = self
+        backPan.maximumNumberOfTouches = 1
+        view.addGestureRecognizer(backPan)
+        follow()
     }
 
-    @MainActor
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIGestureRecognizerDelegate {
-        let app: ZnApp
-        weak var nav: UINavigationController?
-        private var screens: [UInt32: UIViewController] = [:]
-
-        init(app: ZnApp) { self.app = app }
-
-        func sync(_ stack: [UInt32]) {
-            guard let nav else { return }
-            // The gesture exists only once the view has loaded (it was nil in makeUIViewController: found 2026-11-08,
-            // the swipe never started). Without us as its delegate, UIKit keeps it off while the bar is hidden.
-            if let g = nav.interactivePopGestureRecognizer, g.delegate !== self {
-                print("zn nav: taking the swipe-back gesture's delegate")
-                g.delegate = self
-            }
-            let vcs = stack.map { entry in
-                screens[entry] ?? {
-                    let vc = UIHostingController(rootView: ZnEntryScreen(app: app, entry: entry))
-                    vc.view.backgroundColor = .white
-                    screens[entry] = vc
-                    return vc
-                }()
-            }
-            if vcs != nav.viewControllers {
-                print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(vcs.count) screens)")
-                nav.setViewControllers(vcs, animated: !nav.viewControllers.isEmpty)
-            }
-            screens = screens.filter { stack.contains($0.key) }
+    /// Shows the stack now, and again whenever ZnApp.stack (or a start failure) changes.
+    private func follow() {
+        withObservationTracking {
+            sync(app.stack, failure: app.failure)
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { self?.follow() }
         }
+    }
 
-        private func entry(of vc: UIViewController) -> UInt32? { screens.first { $0.value === vc }?.key }
-
-        // A swipe that finished: native popped; JS is told.
-        func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
-            print("zn t=\(ZnDebug.ms()) uikit: didShow")
-            let shown = nav.viewControllers.compactMap(entry(of:))
-            if shown != app.stack { app.nativeChanged(to: shown) }
+    private func sync(_ stack: [UInt32], failure: String?) {
+        if let failure {
+            guard !failureShown else { return }
+            failureShown = true
+            setViewControllers([UIHostingController(rootView: Text(failure).foregroundStyle(.red).padding())], animated: false)
+            return
         }
+        let vcs = stack.map { entry in
+            screens[entry] ?? {
+                let vc = UIHostingController(rootView: ZnEntryScreen(app: app, entry: entry))
+                vc.view.backgroundColor = .white
+                screens[entry] = vc
+                return vc
+            }()
+        }
+        if vcs != viewControllers {
+            print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(vcs.count) screens)")
+            setViewControllers(vcs, animated: !viewControllers.isEmpty)
+        }
+        screens = screens.filter { stack.contains($0.key) }
+    }
 
-        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-            print("zn nav: swipe back wants to begin (\(nav?.viewControllers.count ?? 0) screens)")
-            guard let nav, nav.viewControllers.count > 1 else { return false }
-            if ZnSwipePolicy.current == .ask {
-                app.systemBack()  // JS decides; the screen moves only when JS pops it
-                return false
+    private func entry(of vc: UIViewController) -> UInt32? { screens.first { $0.value === vc }?.key }
+
+    // A swipe that finished: native popped; JS is told (FORCED_BACK).
+    func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
+        print("zn t=\(ZnDebug.ms()) uikit: didShow")
+        let shown = viewControllers.compactMap(entry(of:))
+        if !shown.isEmpty, shown != app.stack { app.nativeChanged(to: shown) }
+    }
+
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard g === backPan, viewControllers.count > 1, transitionCoordinator == nil,
+              let top = app.stack.last else { return false }
+        let start = backPan.location(in: view).x - backPan.translation(in: view).x
+        let v = backPan.velocity(in: view)
+        guard start <= edge, v.x > 0, abs(v.x) > abs(v.y) else { return false }  // from the left edge, moving right
+        if app.backWanted.contains(top) {
+            print("zn t=\(ZnDebug.ms()) nav: swipe on a screen that wants Back → BACK to JS")
+            app.systemBack()  // JS decides; the screen moves only if JS pops it
+            return false
+        }
+        print("zn t=\(ZnDebug.ms()) nav: swipe back, native pop")
+        return true
+    }
+
+    @objc private func backPanned(_ g: UIPanGestureRecognizer) {
+        let width = max(view.bounds.width, 1)
+        let progress = min(max(g.translation(in: view).x / width, 0), 1)
+        switch g.state {
+        case .began:
+            interaction = UIPercentDrivenInteractiveTransition()
+            popViewController(animated: true)
+        case .changed:
+            interaction?.update(progress)
+        case .ended, .cancelled, .failed:
+            let fling = g.velocity(in: view).x
+            if g.state == .ended && (progress > 0.5 || fling > 600) {
+                interaction?.completionSpeed = 1
+                interaction?.finish()
+                print("zn t=\(ZnDebug.ms()) nav: swipe back finished")
+            } else {
+                interaction?.cancel()
+                print("zn t=\(ZnDebug.ms()) nav: swipe back cancelled")
             }
-            return true
+            interaction = nil
+        default:
+            break
         }
+    }
+
+    // The swipe drives our pop animation; every other transition is UIKit's own.
+    func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
+                              from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        interaction != nil && operation == .pop ? ZnPopAnimator() : nil
+    }
+
+    func navigationController(_ nav: UINavigationController,
+                              interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
+        animator is ZnPopAnimator ? interaction : nil
+    }
+}
+
+/// The pop the back swipe drives: like UIKit's (the top screen slides off to the right with a shadow, the one under it
+/// comes in from a third of the way left, dimmed), linear so the finger sets the pace.
+final class ZnPopAnimator: NSObject, UIViewControllerAnimatedTransitioning {
+    func transitionDuration(using ctx: UIViewControllerContextTransitioning?) -> TimeInterval { 0.35 }
+
+    func animateTransition(using ctx: UIViewControllerContextTransitioning) {
+        guard let from = ctx.view(forKey: .from), let to = ctx.view(forKey: .to) else { return ctx.completeTransition(false) }
+        let box = ctx.containerView
+        let width = box.bounds.width
+        to.frame = ctx.finalFrame(for: ctx.viewController(forKey: .to)!)
+        box.insertSubview(to, belowSubview: from)
+        let dim = UIView(frame: to.bounds)
+        dim.backgroundColor = UIColor.black.withAlphaComponent(0.1)
+        to.addSubview(dim)
+        to.transform = CGAffineTransform(translationX: -width / 3, y: 0)
+        from.layer.shadowColor = UIColor.black.cgColor
+        from.layer.shadowOpacity = 0.15
+        from.layer.shadowRadius = 8
+        UIView.animate(withDuration: transitionDuration(using: ctx), delay: 0, options: .curveLinear, animations: {
+            to.transform = .identity
+            from.transform = CGAffineTransform(translationX: width, y: 0)
+            dim.alpha = 0
+        }, completion: { _ in
+            dim.removeFromSuperview()
+            from.layer.shadowOpacity = 0
+            from.transform = .identity
+            to.transform = .identity
+            ctx.completeTransition(!ctx.transitionWasCancelled)
+        })
     }
 }

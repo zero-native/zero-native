@@ -25,6 +25,8 @@ final class ZnApp {
     private(set) var stack: [UInt32] = []
     /// A start failure (bad bundle, JS that didn't run), shown instead of a screen.
     private(set) var failure: String?
+    /// Entries that want Back first (NAV BACK_WANTED): no native swipe-back on them, the swipe goes to JS (A8).
+    @ObservationIgnored private(set) var backWanted = Set<UInt32>()
 
     @ObservationIgnored let store = ZnStore()
     @ObservationIgnored private(set) var ctx: ZnContext?
@@ -102,10 +104,14 @@ final class ZnApp {
             stack.append(entry)
         case NavKind.remove:
             stack.removeAll { $0 == entry }
+            backWanted.remove(entry)
             releaseLater([entry])
         case NavKind.clear:
             releaseLater(stack)
             stack.removeAll()
+        case NavKind.backWanted:
+            if route != 0, stack.contains(entry) { backWanted.insert(entry) } else { backWanted.remove(entry) }
+            print("zn t=\(ZnDebug.ms()) nav: screens that want Back first: \(backWanted.sorted())")
         default:
             break  // STARTED, BACK_ANSWERED, …: not needed by the spike
         }
@@ -125,6 +131,7 @@ final class ZnApp {
         print("zn nav: native shows \(shown), JS had \(stack); FORCED_BACK for \(removed)")
         guard !removed.isEmpty else { return }
         stack = stack.filter { shown.contains($0) }
+        for e in removed { backWanted.remove(e) }
         for e in removed.reversed() { host.dispatchEvent(0, event: UInt16(ZnAppEvent.forcedBack), number: Double(e)) }
         releaseLater(removed)
     }
@@ -143,7 +150,7 @@ final class ZnApp {
     }
 }
 
-/// The app's root view: the top screen of the back stack.
+/// The SwiftUI variant's root view (ZN_IOS_NAV=swiftui): the back stack as a NavigationStack.
 struct ZnRootView: View {
     let app: ZnApp
 
@@ -151,10 +158,7 @@ struct ZnRootView: View {
         if let failure = app.failure {
             Text(failure).foregroundStyle(.red).padding()
         } else if app.ctx != nil, !app.stack.isEmpty {
-            switch ZnImpl.nav {
-            case .uiKit: ZnNavUIKit(app: app, stack: app.stack).ignoresSafeArea()
-            case .swiftUI: ZnNavSwiftUI(app: app, stack: app.stack)
-            }
+            ZnNavSwiftUI(app: app, stack: app.stack)  // the comparison variant; UIKit is ZnNavController
         } else {
             Color.white
         }

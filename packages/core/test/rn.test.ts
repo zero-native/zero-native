@@ -108,9 +108,9 @@ test("BackHandler: a handler on the screen keeps it; remove() and closing the sc
   host.ops.length = 0
   send(AppEvent.Back, null)
   expect(nav.depth()).toBe(2)
-  sub.remove()
+  sub.remove() // its last handler: native may animate back gestures again (NAV BACK_WANTED 0, A8)
   send(AppEvent.Back, null)
-  expect(navOps()).toEqual([ANSWERED, ANSWERED, REMOVE])
+  expect(navOps()).toEqual([ANSWERED, 10, ANSWERED, REMOVE])
   expect(() => BackHandler.addEventListener("other" as "hardwareBackPress", () => true)).toThrow('only "hardwareBackPress"')
 
   host.ops.length = 0
