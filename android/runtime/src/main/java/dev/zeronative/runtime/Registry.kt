@@ -3,7 +3,7 @@ package dev.zeronative.runtime
 
 /** Component, prop, event and enum ids used in .zn.ui templates (ARCHITECTURE.md §6.1). */
 object Registry {
-    const val VERSION = 22
+    const val VERSION = 23
 
     object Component {
         const val COLUMN = 1

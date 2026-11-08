@@ -731,8 +731,12 @@ describe("fragments, children and spans (step 3.2)", () => {
     )
     expect(() => compile(`export function T(p) { return <Text>a <Text onLongPress={p.go}>b</Text></Text> }`)).toThrow(/only onPress/)
     expect(() => compile(`export function T(p) { return <Text>a <Text numberOfLines={p.n}>b</Text></Text> }`)).toThrow(/isn't supported on a nested/)
-    // A whole <Text> still can't take a tap: wrap it.
-    expect(() => compile(`export function T(p) { return <Text onPress={p.go}>b</Text> }`)).toThrow(/works only on <Pressable>/)
+    // A whole <Text> still can't take onPressIn / onPressOut: wrap it.
+    expect(() => compile(`export function T(p) { return <Text onPressIn={p.go}>b</Text> }`)).toThrow(/works only on <Pressable>/)
+    // A whole <Text> with onPress builds and emits the event (registry 23).
+    const topText = compile(`export function T(p) { return <Text onPress={p.go}>b</Text> }`)
+    expect(topText.templates[0].type).toBe("Text")
+    expect((topText.templates[0].props as any).onPress).toBeDefined()
   })
 
   test("a controlled TextField wraps onChangeText with textInput()", () => {

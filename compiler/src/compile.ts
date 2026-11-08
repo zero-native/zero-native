@@ -1152,6 +1152,22 @@ export function compileModule(
     // RN names (P1): <View> is a Column or a Row; <FlatList> a List; the Touchables a Pressable; ActivityIndicator a Spinner.
     const rn = isRnTag(written) ? written : null
     const tag = rn === "View" ? viewTag(node) : rn ? RN_TAGS[rn] : written
+    let isRowTouchable = false
+    let touchableFlexDirectionOk = false
+    if (tag === "Pressable") {
+      const { dir, attr } = findFlexDirection(node)
+      if (dir === NOT_STATIC) {
+        fail(attr ?? node, `flexDirection on <${written}> must be known at build time: zero-native wraps its children in a <Row>`)
+      }
+      if (dir === "row") {
+        isRowTouchable = true
+        touchableFlexDirectionOk = true
+      } else if (dir === "column") {
+        touchableFlexDirectionOk = true
+      } else if (dir !== undefined) {
+        fail(attr ?? node, `flexDirection "${String(dir)}" isn't supported: use "row" or "column" (for a reversed order, reverse the children)`)
+      }
+    }
     if (isSvgFile(tag)) return svgFileElement(node, b, allowKey)
     if (!isIntrinsic(tag)) fail(node, `"${tag}" is not a zero-native component`)
     if (tag === "Fragment") fail(node, "write a fragment as <>...</>")
@@ -1170,7 +1186,7 @@ export function compileModule(
     const rnLater: RnLater = {}
 
     // A failed check stops the whole file's compile, so no try / finally is needed to reset it.
-    flexDirectionOk = rn === "View"
+    flexDirectionOk = rn === "View" || touchableFlexDirectionOk
     for (const attr of opening.attributes.properties) {
       if (ts.isJsxSpreadAttribute(attr)) fail(attr, "spread props aren't supported")
       const a = attr as ts.JsxAttribute
@@ -1215,7 +1231,7 @@ export function compileModule(
         const handlerExpr = (init as ts.JsxExpression).expression!
         const handler = handlerCode(handlerExpr, b)
         if (IMAGE_EVENTS.has(name) && tag !== "Image") fail(a, `${name} works only on <Image>`)
-        if (PRESS_EVENTS.has(name) && tag !== "Pressable") {
+        if (PRESS_EVENTS.has(name) && tag !== "Pressable" && !(tag === "Text" && (name === "onPress" || name === "onLongPress"))) {
           fail(a, `${name} works only on <Pressable>: on <${tag}> the tap would do nothing. Wrap it: ` +
             `<Pressable ${name}={...}><${tag} .../></Pressable>`)
         }
@@ -1237,6 +1253,7 @@ export function compileModule(
       // textContentType is iOS's autofill hint: RN ignores it on Android, and so does zn (autoComplete is the one).
       if (IGNORED_STYLE_KEYS.has(name) || (tag === "Modal" && MODAL_IOS_ONLY.has(name)) || (tag === "TextField" && name === "textContentType")) continue
       if ((tag === "StatusBar" || tag === "NavigationBar") && STATUS_BAR_DROPPED.has(name)) continue
+      if (name === "flexDirection" && (flexDirectionOk || isRowTouchable)) continue
       if (!(name in Prop)) fail(a, `unknown prop "${name}" on <${tag}>`)
       tagPropCheck(tag, name, a)
       if (tag === "TextField" && name === "value" && init && ts.isJsxExpression(init) && init.expression) {
@@ -1251,7 +1268,7 @@ export function compileModule(
       else fail(a, `unsupported value for "${name}"`)
     }
     flexDirectionOk = false
-    rnFinish(tag, rn, props, b, rnLater, opening)
+    rnFinish(tag, rn, props, b, rnLater, opening, isRowTouchable)
     if (contentStyle) contentContainerStyle(contentStyle, props, b)
     if ("hitSlop" in props && tag !== "Pressable") fail(opening, "hitSlop works only on <Pressable> (the element that takes the tap)")
     stackChildCheck(props, opening)
@@ -1271,12 +1288,41 @@ export function compileModule(
       )
     }
 
+    const rowProps: NodeProps & Record<string, unknown> = {}
+    if (isRowTouchable) {
+      if ("alignItems" in props) {
+        rowProps.alignItems = props.alignItems
+        delete props.alignItems
+      }
+      if ("justifyContent" in props) {
+        rowProps.justifyContent = props.justifyContent
+        delete props.justifyContent
+      }
+      if ("gap" in props) {
+        rowProps.gap = props.gap
+        delete props.gap
+      }
+      if ("height" in props || "flex" in props) {
+        rowProps.height = "100%"
+      }
+    }
+
     let children: NodeSpec[] = []
     const kids = ts.isJsxElement(node) ? node.children : ts.factory.createNodeArray<ts.JsxChild>()
     if (tag === "Text") {
       textChildren(node, kids, props, b)
     } else if (tag === "TextField") {
       if (kids.some((k) => !(ts.isJsxText(k) && k.text.trim() === ""))) fail(node, "<TextField> takes no children")
+    } else if (isRowTouchable) {
+      b.nodes++
+      parents.push("Row")
+      try {
+        children = childList(kids, b)
+      } finally {
+        parents.pop()
+      }
+      const rowNode = el("Row", rowProps, ...children)
+      return el(tag as keyof typeof Component, props, rowNode)
     } else {
       parents.push(tag)
       try {
@@ -1297,15 +1343,26 @@ export function compileModule(
     animating?: ts.Expression | false
   }
 
-  /** <View>: a <Row> when its style says flexDirection: "row" (known at build time), else a <Column>. */
-  function viewTag(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
+  /** Finds a build-time flexDirection from a direct prop or style object / array. */
+  function findFlexDirection(node: ts.JsxElement | ts.JsxSelfClosingElement): { dir: unknown; attr?: ts.Node } {
     const opening = ts.isJsxElement(node) ? node.openingElement : node
+    const direct = opening.attributes.properties.find((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "flexDirection") as
+      | ts.JsxAttribute
+      | undefined
+    if (direct) {
+      const init = direct.initializer
+      if (!init) return { dir: "row", attr: direct }
+      if (ts.isStringLiteral(init)) return { dir: init.text, attr: direct }
+      if (ts.isJsxExpression(init) && init.expression) {
+        return { dir: fold(init.expression, scope), attr: direct }
+      }
+      return { dir: NOT_STATIC, attr: direct }
+    }
     const attr = opening.attributes.properties.find((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "style") as
       | ts.JsxAttribute
       | undefined
     const init = attr?.initializer
     const expr = init && ts.isJsxExpression(init) ? init.expression : undefined
-    // The last flexDirection written wins, as in a style array. NOT_STATIC: written, but not known at build time.
     const flat = (x: unknown): unknown =>
       Array.isArray(x) ? x.reduce((acc: unknown, y) => flat(y) ?? acc, undefined)
       : x && typeof x === "object" ? (x as Record<string, unknown>).flexDirection : undefined
@@ -1326,12 +1383,18 @@ export function compileModule(
       return found
     }
     const dir = expr ? find(expr) : undefined
+    return { dir, attr }
+  }
+
+  /** <View>: a <Row> when its style says flexDirection: "row" (known at build time), else a <Column>. */
+  function viewTag(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
+    const { dir, attr } = findFlexDirection(node)
     if (dir === NOT_STATIC) {
-      fail(attr!, "flexDirection on <View> must be known at build time: zero-native makes it a <Row> or a <Column>")
+      fail(attr ?? node, "flexDirection on <View> must be known at build time: zero-native makes it a <Row> or a <Column>")
     }
     if (dir === undefined || dir === "column") return "Column"
     if (dir === "row") return "Row"
-    return fail(attr!, `flexDirection "${String(dir)}" isn't supported: use "row" or "column" (for a reversed order, reverse the children)`)
+    return fail(attr ?? node, `flexDirection "${String(dir)}" isn't supported: use "row" or "column" (for a reversed order, reverse the children)`)
   }
 
   function unknownStyleKey(k: string): string {
@@ -1580,13 +1643,13 @@ export function compileModule(
   }
 
   /** After the attribute loop: the RN defaults and props that need the whole element (see rnAttribute). */
-  function rnFinish(tag: string, rn: string | null, props: Record<string, unknown>, b: Builder, later: RnLater, at: ts.Node) {
+  function rnFinish(tag: string, rn: string | null, props: Record<string, unknown>, b: Builder, later: RnLater, at: ts.Node, isRowTouchable = false) {
     // rowGap / columnGap: the gap along the element's own direction beats gap, as in RN.
     const rowGap = props.__rowGap
     const columnGap = props.__columnGap
     delete props.__rowGap
     delete props.__columnGap
-    const across = tag === "Row" || tag === "Carousel" || (tag === "Scroll" && props.horizontal === true)
+    const across = tag === "Row" || tag === "Carousel" || (tag === "Scroll" && props.horizontal === true) || isRowTouchable
     const main = across ? columnGap : rowGap
     if (main !== undefined && tag !== "Stack") props.gap = main
 

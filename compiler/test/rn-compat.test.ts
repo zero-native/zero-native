@@ -78,8 +78,12 @@ describe("P0.4: absolute and zIndex only on a child of <Stack>", () => {
 
 describe("P0.5–P0.7: taps, horizontal List, row params", () => {
   test("a press event on anything but Pressable says to wrap it", () => {
-    expect(err(`function A() { return <Text onPress={() => 1}>hi</Text> }`))
-      .toMatch(/onPress works only on <Pressable>: on <Text> the tap would do nothing\. Wrap it/)
+    expect(err(`function A() { return <Box onPress={() => 1} /> }`))
+      .toMatch(/onPress works only on <Pressable>: on <Box> the tap would do nothing\. Wrap it/)
+    expect(err(`function A() { return <Text onPressIn={() => 1}>hi</Text> }`))
+      .toMatch(/onPressIn works only on <Pressable>: on <Text> the tap would do nothing\. Wrap it/)
+    expect(err(`function A() { return <Text onPress={() => 1}>hi</Text> }`)).toBe("no error")
+    expect(err(`function A() { return <Text onLongPress={() => 1}>hi</Text> }`)).toBe("no error")
     expect(err(`function A() { return <Column onLongPress={() => 1} /> }`)).toMatch(/onLongPress works only on <Pressable>/)
     expect(err(`function A() { return <Image src="x" onPressIn={() => 1} /> }`)).toMatch(/onPressIn works only/)
     expect(err(`function A() { return <Pressable onPress={() => 1} onLongPress={() => 2}><Text>a</Text></Pressable> }`)).toBe("no error")
@@ -229,6 +233,98 @@ describe("P1.8, P1.10: Touchables, android_ripple, ActivityIndicator, Switch tra
       .toMatchObject({ opacity: { $slot: expect.any(String) } })
     expect(err(UI + `function A() { return <ActivityIndicator hidesWhenStopped={false} /> }`)).toMatch(/hidesWhenStopped=\{false\}/)
   })
+  test("Touchable or Pressable with flexDirection: 'row' wraps children in a Row", () => {
+    const { templates } = compile(UI + `
+      function A() {
+        return (
+          <TouchableOpacity
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: 16,
+              backgroundColor: "#2563EB",
+              borderRadius: 8,
+              height: 48,
+            }}
+            onPress={() => 1}
+          >
+            <Icon icon="star" />
+            <Text>Star</Text>
+          </TouchableOpacity>
+        )
+      }
+    `)
+    const pressable = templates[0]!
+    expect(pressable.type).toBe("Pressable")
+    // Box styles stay on Pressable
+    expect(pressable.props).toMatchObject({
+      padding: 16,
+      backgroundColor: "#2563EB",
+      borderRadius: 8,
+      height: 48,
+      pressFeedback: "none",
+      pressOpacity: 0.2,
+    })
+    // Layout keys removed from Pressable
+    expect((pressable.props as any).alignItems).toBeUndefined()
+    expect((pressable.props as any).justifyContent).toBeUndefined()
+    expect((pressable.props as any).gap).toBeUndefined()
+    expect((pressable.props as any).flexDirection).toBeUndefined()
+
+    // Children are wrapped in Row
+    expect(pressable.children).toHaveLength(1)
+    const row = pressable.children[0]!
+    expect(row.type).toBe("Row")
+    // Layout keys moved to Row, and height: 100% since Pressable has height
+    expect(row.props).toMatchObject({
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      height: "100%",
+    })
+    expect(row.children).toHaveLength(2)
+    expect(row.children[0]!.type).toBe("Icon")
+    expect(row.children[1]!.type).toBe("Text")
+  })
+  test("Touchable with wrap-content height keeps Row without height: 100%", () => {
+    const { templates } = compile(UI + `
+      function A() {
+        return (
+          <Pressable style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12 }}>
+            <Text>Tap</Text>
+          </Pressable>
+        )
+      }
+    `)
+    const pressable = templates[0]!
+    expect(pressable.type).toBe("Pressable")
+    expect(pressable.props).toMatchObject({ padding: 12 })
+    const row = pressable.children[0]!
+    expect(row.type).toBe("Row")
+    expect(row.props).toMatchObject({ alignItems: "center", gap: 8 })
+    expect((row.props as any).height).toBeUndefined()
+  })
+  test("Touchable with flexDirection: 'column' or invalid flexDirection", () => {
+    const { templates } = compile(UI + `
+      function A() {
+        return (
+          <TouchableOpacity style={{ flexDirection: "column", padding: 10 }}>
+            <Text>Col</Text>
+          </TouchableOpacity>
+        )
+      }
+    `)
+    const pressable = templates[0]!
+    expect(pressable.type).toBe("Pressable")
+    expect(pressable.children[0]!.type).toBe("Text")
+
+    expect(err(UI + `function A() { return <TouchableOpacity style={{ flexDirection: "row-reverse" }} /> }`))
+      .toMatch(/flexDirection "row-reverse" isn't supported/)
+    expect(err(UI + `function A(p) { return <TouchableOpacity style={{ flexDirection: p.dir() }} /> }`))
+      .toMatch(/flexDirection on <TouchableOpacity> must be known at build time/)
+  })
 })
 
 describe("P1.4, P1.9, P1.11: Image, text, field and accessibility names", () => {
@@ -308,7 +404,7 @@ describe("P0.8: a prop the element doesn't take fails the build", () => {
     expect(err(`function A() { return <Column onChangeText={() => 1} /> }`)).toMatch(/onChangeText isn't a prop of <Column>/)
     // The older, clearer messages stay.
     expect(err(`function A() { return <Box hitSlop={8} /> }`)).toMatch(/hitSlop works only on <Pressable>/)
-    expect(err(`function A() { return <Text onPress={() => 1}>a</Text> }`)).toMatch(/onPress works only on <Pressable>/)
+    expect(err(`function A() { return <Box onPress={() => 1} /> }`)).toMatch(/onPress works only on <Pressable>/)
   })
   test("a style holds style keys only; text styles on a View-like element are fine (shared RN styles)", () => {
     expect(err(`function A() { return <Column style={{ src: "x" }} /> }`)).toMatch(/"src" isn't a style key/)

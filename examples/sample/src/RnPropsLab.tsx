@@ -1,6 +1,6 @@
 // A dev screen for RN props pack 2: React Native props, styles and components, with their RN names. Each check logs
 // one "rn-props ..." line; the phone check (tools/plugin-phone/rnprops.ts) reads those lines, so keep their wording.
-import { Box, Carousel, Column, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField } from "@zero-native/ui"
+import { Box, Carousel, Column, Icon, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField, TouchableOpacity } from "@zero-native/ui"
 import { Alert, createStorage, signal } from "@zero-native/core"
 import { c } from "./tokens"
 
@@ -463,6 +463,67 @@ export function RnPropsLabScreen() {
           </Text>
           <HoldTile label="Okay, close cancelled" onPress={() => overlay.set("")} />
         </Sheet>
+
+        <PropsTitle text="Text onPress & Row Touchables (registry 23)" />
+        <Text
+          testID="text-press-tile"
+          fontSize={14}
+          color={c.primary}
+          fontWeight={600}
+          onPress={() => say("text tapped")}
+          onLongPress={() => say("text long-pressed")}
+          style={{ paddingVertical: 8 }}
+        >
+          Tappable top-level Text (tap or long-press me)
+        </Text>
+
+        <TouchableOpacity
+          testID="row-touchable-btn"
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            backgroundColor: c.white,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: c.border,
+            height: 48,
+          }}
+          onPress={() => say("row touchable pressed")}
+        >
+          <Row style={{ alignItems: "center", gap: 8 }}>
+            <Icon icon="star" color={c.primary} />
+            <Text fontSize={14} fontWeight={600} color={c.ink}>
+              Row Touchable with Icon
+            </Text>
+          </Row>
+          <Text fontSize={12} color={c.muted}>
+            Action
+          </Text>
+        </TouchableOpacity>
+
+        <Pressable
+          testID="row-pressable-wrap"
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            backgroundColor: "#EEF2FF",
+            borderRadius: 10,
+          }}
+          onPress={() => say("row pressable wrap-content tapped")}
+        >
+          <Icon icon="check" color="#4F46E5" />
+          <Text fontSize={13} fontWeight={600} color="#4F46E5">
+            Row Pressable (wrap content height)
+          </Text>
+        </Pressable>
+
         {/* A centred dialog with the app's own look: transparent, fade, the dim is the app's own Box. */}
         <Modal
           visible={dialog()}

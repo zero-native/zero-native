@@ -3,6 +3,10 @@ package dev.zeronative.runtime
 import android.content.Context
 import android.os.SystemClock
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.height
@@ -297,14 +301,35 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                 layout.value?.let { drawTextDecoration(it, s.dashedDecoration, s.textDecorationStyle, textStyle, color()) }
             }
             val onLayout: (TextLayoutResult) -> Unit = { r -> layout?.value = r }
+            val hasPress = s.onPress != 0
+            val hasLongPress = s.onLongPress != 0
+            val finalMod = if ((hasPress || hasLongPress) && !LocalTouchOff.current) {
+                if (hasLongPress) {
+                    @OptIn(ExperimentalFoundationApi::class)
+                    textMod.combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Button,
+                        onLongClick = { ZnRuntime.dispatchEvent(inst.id, s.onLongPress) },
+                        onClick = { if (hasPress) ZnRuntime.dispatchEvent(inst.id, s.onPress) },
+                    )
+                } else {
+                    textMod.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Button,
+                        onClick = { ZnRuntime.dispatchEvent(inst.id, s.onPress) },
+                    )
+                }
+            } else textMod
             if (spans == null) {
-                BasicText(text = text, modifier = textMod, style = textStyle, maxLines = s.maxLines,
+                BasicText(text = text, modifier = finalMod, style = textStyle, maxLines = s.maxLines,
                     overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
             } else {
                 val cap = s.fontScaleCap(fontScale)
                 val press: ((Int) -> Unit)? = if (presses == null) null else { i -> ZnRuntime.dispatchEvent(inst.id, s.onSpanPress, i) }
-                val styled = remember(text, spans, cap, presses) { spannedText(text, spans, cap, presses, press) }
-                BasicText(text = styled, modifier = textMod, style = textStyle, maxLines = s.maxLines,
+                val styled = remember(text, spans, cap, presses, press) { spannedText(text, spans, cap, presses, press) }
+                BasicText(text = styled, modifier = finalMod, style = textStyle, maxLines = s.maxLines,
                     overflow = TextOverflow.Ellipsis, color = color, onTextLayout = onLayout)
             }
         }

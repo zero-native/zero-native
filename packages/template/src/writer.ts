@@ -31,6 +31,7 @@ import {
   type PropName,
   REGISTRY_VERSION,
   since,
+  TEXT_PRESS_SINCE,
 } from "./registry"
 
 export const TEMPLATE_MAGIC = 0x49554e5a // "ZNUI" as little-endian bytes
@@ -238,6 +239,8 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
       if ("zIndex" in merged && (parent === ROOT_PARENT || nodes[parent]?.component !== Component.Stack)) needs(ZINDEX_ANY_SINCE)
       // A Carousel with a height shares it out to its pages only on newer apps (registry 17, R35).
       if (spec.type === "Carousel" && ("height" in merged || (typeof merged.flex === "number" && merged.flex > 0))) needs(CAROUSEL_FILL_SINCE)
+      // A top-level Text with onPress or onLongPress handles clicks only on newer apps (registry 23).
+      if (spec.type === "Text" && ("onPress" in merged || "onLongPress" in merged)) needs(TEXT_PRESS_SINCE)
       for (const [key, raw] of Object.entries(merged)) {
         if (raw === undefined) continue
         if (key in EventKind) {

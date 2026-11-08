@@ -2126,8 +2126,10 @@ row: [rn-compatibility.md](rn-compatibility.md). The lab screen `zn://sample/dev
 - **Know:** `flexGrow: n` is `flex: n`. Two growing children with different content widths can split the space a
   little differently from RN. **Do** check such a row on the phone after a port.
 - **Know:** a `TouchableHighlight` draws `underlayColor` over the content, not under it (close to RN, not the same
-  pixels). A Touchable is a `Pressable`: it lays out its children as a column, so a `flexDirection: "row"` on it is a
-  build error. **Do** put a `<Row>` (or a row `View`) inside.
+  pixels). A Touchable is a `Pressable`: it lays out its children as a column. Since registry 23, a Touchable or
+  `Pressable` with `flexDirection: "row"` known at build time is automatically wrapped in a `<Row>` by the compiler;
+  layout keys (`alignItems`, `justifyContent`, `gap`, `rowGap`, `columnGap`) move to the Row, while box styles and press
+  handlers stay on the Touchable.
 - **Don't** look for `useMemo` or `navigation.navigate`. **Why:** a body runs once, so `useMemo` would never compute
   again (use `computed`); React Navigation's `navigate` jumps back to a screen already open, zn has no such step (use
   `push` or `goBack`).
@@ -2138,7 +2140,9 @@ row: [rn-compatibility.md](rn-compatibility.md). The lab screen `zn://sample/dev
 - **Know:** `AsyncStorage` keeps its own store, apart from `storage`. **Why:** RN code reads strings and `null`; zn's
   `storage` reads typed values and `undefined`. A value written by one is not seen by the other.
 - **Know: new build errors (before, these built and did nothing, or did the wrong thing):**
-  - `onPress` (or another press event) on anything but `Pressable` and the Touchables: wrap it in a `Pressable`.
+  - `onPress` (or another press event) on anything but `Pressable`, the Touchables, and `Text`: wrap it in a
+    `Pressable`. Since registry 23, top-level `<Text onPress>` and `<Text onLongPress>` are supported directly (Role
+    `Button` for TalkBack, no ripple or opacity change); nested `<Text onPress>` spans continue to use `onSpanPress`.
   - `position: "absolute"` or `zIndex` on a child of anything but `Stack`. Not checked at a component's root (the
     compiler can't see the parent there). Since registry 16, `zIndex` also works on a child of `Column`, `Row`, `Box`
     and `Pressable` (R23): give the row that holds a tooltip `zIndex: 10` and its absolute bubble draws over the rows

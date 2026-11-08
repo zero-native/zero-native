@@ -2500,3 +2500,36 @@ change, and what evidence would make you change it?"
   properties, all refused shapes, shadowing, handlers, `.map` rows, and template byte equivalence).
 - **Risk if wrong:** an edge case in shadowing could either miss a prop rewrite or rewrite a shadowed inner variable.
   Mitigated by complete AST scope walking.
+
+## 163. Top-level `<Text onPress>` and row-laid Touchables (`flexDirection: "row"`) (compiler + runtime, 2026-11-08; registry 23; parity batch 1)
+- **What:**
+  1. `<Text onPress>` and `<Text onLongPress>` on top-level Text elements: allowed in the compiler and template writer
+     (registry 23, `TEXT_PRESS_SINCE = 23`). In `ZnRenderer.kt`, `BasicText` receives a click / long-click modifier
+     (`clickable` / `combinedClickable`) with `role = Role.Button` for TalkBack accessibility, without ripple or opacity
+     change (matching React Native's `<Text>` behavior). Nested `<Text>` spans continue to use `onSpanPress`
+     via `LinkAnnotation.Clickable`.
+  2. Touchable / Pressable with build-time `flexDirection: "row"`: rewritten purely at build time in the compiler
+     without runtime changes. Children are wrapped in a `<Row>`; layout keys (`alignItems`, `justifyContent`, `gap`,
+     `rowGap`, `columnGap`) move to the `<Row>`; box styles (`padding`, `backgroundColor`, `borderRadius`, `height`,
+     `width`, etc.) and press handlers stay on the outer `<Pressable>`.
+- **Why pure compiler rewrite for row Touchables:** zero-native renders `Pressable` as a vertical Compose `Column`.
+  Wrapping children in `<Row>` at build time allows full Compose layout support for row buttons without adding a second
+  Pressable component or bifurcating the native runtime.
+- **Why Row height is conditional:**
+  - If the outer `<Pressable>` has an explicit `height` or `flex`, the child `<Row>` receives `height: "100%"`,
+    ensuring that cross-axis centering (`alignItems: "center"`) centers vertically within the full Pressable height.
+  - If the outer `<Pressable>` has wrap-content height (e.g. sized only by padding and its children), setting
+    `height: "100%"` inside an unconstrained Compose `Column` would either expand to the entire screen or crash
+    inside vertical scroll containers with `IllegalStateException: Vertically scrollable component was measured with an infinity maximum height constraints`.
+    Therefore, wrap-content row Touchables leave the child `<Row>` height unset, so the Pressable naturally hugs the Row.
+- **Why no ripple or opacity change on `<Text onPress>`:** in React Native, `<Text onPress>` provides no visual feedback
+  unless nested in a touchable container. Setting `indication = null` matches React Native expectations while preserving
+  proper screen reader semantics (`Role.Button`).
+- **Checked:**
+  - Compiler tests in `rn-compat.test.ts` and `compile.test.ts` (row Touchable key separation, wrap-content vs fixed height,
+    top-level Text `onPress` and `onLongPress`, nested span `onPress` preserved, invalid `flexDirection` rejected).
+  - Runtime Android unit tests pass (`:runtime:testDebugUnitTest`).
+  - Sample bundle build: `sample_0` builds with `needs.registry = 23`.
+  - Lab tiles in `RnPropsLab.tsx` for top-level Text press and row Touchables.
+- **Risk if wrong:** a complex combination of `flexDirection: "row"` with custom Compose modifiers or unsupported layout
+  keys could place a key on the wrong container. Mitigated by explicit key partitioning.

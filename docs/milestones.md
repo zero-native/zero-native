@@ -146,6 +146,15 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: Text onPress and row Touchables (Gemini, batch 1)
+- Bumped registry to version 23 with `TEXT_PRESS_SINCE = 23`.
+- Top-level `<Text onPress>` and `<Text onLongPress>`: enabled in compiler, template writer, and runtime (`ZnRenderer.kt`).
+  Uses Compose `clickable` / `combinedClickable` with `Role.Button` for TalkBack accessibility, zero ripple, and zero opacity change (matching React Native). Nested spans continue to use `onSpanPress`.
+- Row-laid Touchables (`Pressable`, `TouchableOpacity`, `TouchableHighlight`, `TouchableWithoutFeedback` with `flexDirection: "row"`):
+  compiler-only rewrite wraps children in a `<Row>`, moving child layout keys (`alignItems`, `justifyContent`, `gap`, `rowGap`, `columnGap`) to the Row while box styles (`padding`, `background`, `borderRadius`, `borderWidth`, `height`, etc.) stay on the Touchable. Sets `height: "100%"` on Row when Touchable has fixed height or flex.
+- Second-opinions entry 163; docs updated in `components.md`, `guide-notes.md`, `rn-compatibility.md`, `rn-compat-sweep.md`.
+- Tests added in `rn-compat.test.ts` and `compile.test.ts`; 3 sample lab tiles in `RnPropsLab.tsx`.
+
 ### 2026-11-08: destructured props read live (Gemini, batch 1)
 - Compiler rewrite for destructured component & screen props: `function Card({ title, size = "md", user: u }: Props)`
   rewritten to `Card(__p: Props)` with live property reads (`__p.title`, `(__p.size === undefined ? "md" : __p.size)`).

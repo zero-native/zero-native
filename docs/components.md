@@ -389,6 +389,8 @@ nothing). `<NavigationBar>` is zn's own.
 | `Image` | `onLoad`, `onError`, `onLoadEnd` | events | | `nativeEvent.source` `{ width, height, uri }` / `nativeEvent.error`. |
 | `List` | `stickyHeaderIndices` | `number[]` | Yes | Rows pinned at the top while their part scrolls. |
 | `List` | `inverted` | `boolean` | No | Row 0 at the bottom, growing upwards (chats; registry 19). |
+| `Text` | `onPress`, `onLongPress` | events | | Top-level tap / long-press handler (registry 23). Role `Button` for TalkBack, no ripple or opacity change. |
+| `Pressable` / `TouchableOpacity` | `style={{ flexDirection: "row" }}` | style | | Rewritten at build time: wraps children in `<Row>`, moves layout keys (`alignItems`, `justifyContent`, `gap`) to Row (registry 23). |
 
 Registry 14 changes how `Pressable` long press works when `onLongPress` holds no handler (a long hold is a tap then);
 the compiler sets `hasLongPress` for that. Nobody writes it.

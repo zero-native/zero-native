@@ -316,10 +316,11 @@ export declare const Text: Intrinsic<
       /** zero-native always cuts the end ("tail"). */
       ellipsizeMode?: "tail"
       /**
-       * Only on a nested <Text> span (registry 16): a tap on that piece of text, as an RN link
-       * (`By continuing you agree to <Text onPress={openTerms}>Terms</Text>`). On a whole <Text>, wrap it in a Pressable.
+       * Top-level <Text> tap (registry 23), or on a nested <Text> span (registry 16): as an RN link.
        */
       onPress?: () => void
+      /** Long press on top-level <Text> (registry 23). */
+      onLongPress?: () => void
     }
 >
 /** `src`: an https URL or "asset:path". null / undefined shows nothing (the box keeps its size). */

@@ -8,7 +8,7 @@
 // `bun run gen:registry` checks these rules against registry.lock.json before writing anything. Step by step:
 // docs/adding-components.md.
 
-export const REGISTRY_VERSION = 22 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
+export const REGISTRY_VERSION = 23 // 2: Anchor. 3: transforms, shadow, absolute position, press repeat, text styles.
 // 4: per-edge padding can change at runtime (read in the layout phase; for headers padded by insets()).
 // 5: feeds (milestone 2 step 2.4): List, onRange, onEndReached (more of 2.4 lands in v5 before it ships).
 // 6: Fragment, text spans, TextField (milestone 3 steps 3.2-3.3).
@@ -46,6 +46,8 @@ export const REGISTRY_VERSION = 22 // 2: Anchor. 3: transforms, shadow, absolute
 // 20: transformOrigin (RN's, keywords and percents; ask R11 from the ZeroBill port).
 // 21: Sheet animateIn (false: opens already at rest, no slide-up; a payment restored after a kill).
 // 22: Sheet animateIn can change at runtime (read when the sheet opens; ask from app-home-tabs, Pavan's go).
+// 23: from the RN parity batch 1 (brief G5; second-opinions 163): top-level Text onPress and onLongPress;
+//     row-laid Touchable / Pressable with flexDirection: "row" wrapped in Row at build time.
 
 export const Component = {
   Column: 1,
@@ -688,6 +690,12 @@ export const ZINDEX_ANY_SINCE = 16
  * Carousel with no height draws the same on both.
  */
 export const CAROUSEL_FILL_SINCE = 17
+
+/**
+ * A top-level <Text> with onPress or onLongPress handles clicks since this registry version.
+ * Older apps didn't attach click handlers to Text (writer.ts).
+ */
+export const TEXT_PRESS_SINCE = 23
 
 /**
  * Newer forms of a string prop's value that older apps can't read (an older app would show the old behaviour, so a
