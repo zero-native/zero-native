@@ -116,7 +116,8 @@ export const routes = defineRoutes({
   motionSheetsLab: { path: "/dev/motion/sheets", screen: MotionSheetsLabScreen, deepLink: true, keyboard: "none" },
   motionScreensLab: { path: "/dev/motion/screens", screen: MotionScreensLabScreen, deepLink: true },
   // The store page of the screens lab: the photo of the tapped store flies here (sharedTag). Full-bleed, light status bar icons.
-  motionScreensDetail: { path: "/dev/motion/screens/detail", screen: MotionScreensDetailScreen, safeArea: { top: false }, statusBar: "light" },
+  // Fade, not slide: the photo is what moves; dragged down to close, the page fades where it is instead of sliding sideways.
+  motionScreensDetail: { path: "/dev/motion/screens/detail", screen: MotionScreensDetailScreen, safeArea: { top: false }, statusBar: "light", transition: "fade" },
   motionExtensionLab: { path: "/dev/motion/extension", screen: MotionExtensionLabScreen, deepLink: true },
   imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
 })

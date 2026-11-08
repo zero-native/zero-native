@@ -99,6 +99,43 @@ test("removing one row and changing one item", () => {
   expect(host.ops.find((o) => o[0] === "mount")![6]).toEqual(["changed"])
 })
 
+test("a row that takes its index is built again when it moves (RN renderItem); one that doesn't is kept", () => {
+  const withIndex = (data: () => Item[]) =>
+    renderRoot(
+      ROOT,
+      () =>
+        view(0, (i) =>
+          list<Item>(i, NODE, {
+            data,
+            key: (it) => it.id,
+            row: (it, n) => view(6, (r) => slot(r, 0, () => `${n + 1}. ${it.name}`)),
+            type: () => 6,
+            rangeEvent: RANGE,
+            endEvent: END,
+          }),
+        ),
+      {},
+    )
+  const data = signal(make(5).map((it) => ({ ...it, kind: "row" as const })))
+  withIndex(() => data())
+  host.ops.length = 0
+  // A reorder: the first row goes to the 4th place (List reorderable, onReorder 0 -> 3).
+  const [a, b, c, d, e] = data()
+  data.set([b, c, d, a, e])
+  // Rows 0..3 changed places, so they show new ranks; the 5th row stayed where it was.
+  expect(of("listRow").map((o) => o[3])).toEqual(["1", "2", "3", "0"])
+  expect(host.ops.filter((o) => o[0] === "mount").map((o) => (o[6] as string[])[0])).toEqual(["1. m1", "2. m2", "3. m3", "4. m0"])
+
+  host = installFakeHost()
+  installEvents()
+  const plain = signal(make(5))
+  screen(() => plain())
+  host.ops.length = 0
+  const [p0, p1, ...rest] = plain()
+  plain.set([p1, p0, ...rest])
+  expect(of("listRow")).toEqual([]) // row(item) doesn't read the index: nothing is built again
+})
+
 test("duplicate keys are logged and made unique", () => {
   screen(() => [
     { id: 1, kind: "row", name: "a" },

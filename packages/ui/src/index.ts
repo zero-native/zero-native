@@ -80,16 +80,17 @@ export interface StyleProps {
   backgroundColor?: Color | MotionColorInput
   /** React Native's CSS gradient: `"linear-gradient(180deg, rgba(0,0,0,0) 0%, #000 100%)"` (build-time only). */
   backgroundImage?: string
-  borderRadius?: number
+  /** A number, or a motion value (registry 24: a corner that morphs with a drag, drawn natively each frame). */
+  borderRadius?: number | MotionInput
   /** One corner (registry 15). A corner's own value beats borderRadius; Start / End beat Left / Right. */
-  borderTopLeftRadius?: number
-  borderTopRightRadius?: number
-  borderBottomLeftRadius?: number
-  borderBottomRightRadius?: number
-  borderTopStartRadius?: number
-  borderTopEndRadius?: number
-  borderBottomStartRadius?: number
-  borderBottomEndRadius?: number
+  borderTopLeftRadius?: number | MotionInput
+  borderTopRightRadius?: number | MotionInput
+  borderBottomLeftRadius?: number | MotionInput
+  borderBottomRightRadius?: number | MotionInput
+  borderTopStartRadius?: number | MotionInput
+  borderTopEndRadius?: number | MotionInput
+  borderBottomStartRadius?: number | MotionInput
+  borderBottomEndRadius?: number | MotionInput
   /** Can change at runtime (registry 15): a change moves the content, as in RN (borders take space). */
   borderWidth?: number
   /** Can change at runtime (registry 15): a change only redraws. */

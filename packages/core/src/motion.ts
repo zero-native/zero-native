@@ -92,7 +92,7 @@ export interface MotionSource {
   format(options?: { decimals?: 0 | 1 | 2; grouping?: "en-IN" | "standard" | "none"; prefix?: string; suffix?: string }): MotionText
 }
 
-/** A motion value shown as text (v.format(...)): the whole content of a <Text>. */
+/** A motion value shown as text (v.format(...)) in a <Text>, alone or with text around it (view.ts labelInText). */
 export interface MotionText {
   readonly __znLabel: string
 }

@@ -2664,8 +2664,13 @@ Reference: `docs/motion.md`. The short version for authors:
   finger holds. **Why:** the finger wins (D2): that command is dropped and resolves `{ finished: false }`.
 - **Do** animate transforms, opacity, colours, radii. **Don't** expect `width` or `margin` to follow a motion value.
   **Why:** a layout key each frame lays out the whole screen; use a transform or `animateLayout`.
+- **Do** give a card that grows with `animateLayout` `overflow: "hidden"`. **Why:** its height springs, but new lines
+  inside are full size at once; without the clip they draw over the next card for a few frames (same as RN).
+- A row function that takes the index, `row={(item, i) => …}`, is built again when its row moves (a reorder, a row
+  added above). Leave the index out when the row doesn't show it: such rows are kept as they are.
 - **Do** read scroll, page, press and sheet progress with `useElementMotion()` + `motion={m}`. **Why:** a collapsing
   header with no JS.
 - `sharedTag` works between screens (not in a Sheet or Modal). `<List reorderable onReorder>`: move the row in your
-  data in onReorder. A `<Text>` showing `v.format(...)` must have nothing else in it.
+  data in onReorder. A `<Text>` may hold one `v.format(...)` with text around it (`<Text>x {v.format()}</Text>`):
+  the text becomes its prefix and suffix. Two in one `<Text>`: only the first is drawn; use one `<Text>` each.
 - Every motion API needs the `Motion` module: an older APK refuses such a bundle and keeps its own (normal OTA rule).

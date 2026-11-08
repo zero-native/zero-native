@@ -238,14 +238,16 @@ function MxFrameBar() {
   const seconds = signal(0)
   let frames = 0
   let since = 0
+  let opened = 0 // f.t counts from the phone's clock, not from this screen
 
   useFrame((f) => {
     frames++
     if (since === 0) since = f.t
+    if (opened === 0) opened = f.t
     const span = f.t - since
     if (span >= 500) {
       fps.set(Math.round((frames * 1000) / span))
-      seconds.set(Math.round(f.t / 100) / 10)
+      seconds.set(Math.round((f.t - opened) / 100) / 10)
       frames = 0
       since = f.t
     }

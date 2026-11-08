@@ -417,7 +417,8 @@ function MsAlphaDemo() {
             width: 20,
             height: LETTER_H,
             borderRadius: 8,
-            backgroundColor: c.primary,
+            // Light, so the grey letter on it stays readable.
+            backgroundColor: "#E0E7FF",
             transform: [{ translateY: derive(() => Math.min(25, Math.floor(list.index() / ROWS_PER_LETTER)) * LETTER_H) }],
           }}
         />

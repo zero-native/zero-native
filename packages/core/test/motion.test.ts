@@ -22,6 +22,7 @@ import {
   useTilt,
   viewPropsJson,
 } from "../src/motion"
+import { renderRoot, slot, str, view } from "../src/view"
 
 let host: FakeHost
 const reply = (r: object) => globalThis.__zn_onEvent(0, 7, JSON.stringify(r))
@@ -174,6 +175,23 @@ test("format sends a text reference with only the options given", () => {
   const t = v.format({ prefix: "₹", decimals: 0 })
   expect(t.__znLabel).toBe(`\u0000f${v.__znMotion}|{"d":0,"p":"₹"}`)
   expect(motionSlotValue(t)).toBe(t.__znLabel)
+})
+
+test("text around v.format() becomes its prefix and suffix, not raw characters on screen", () => {
+  const v = useMotion(0)
+  const shown = (parts: () => string) => {
+    host.ops.length = 0
+    renderRoot(0x80000001, () => view(0, (i) => slot(i, 0, parts)), {})
+    // The root is native's: its first values arrive as patches.
+    return host.ops.find((o) => o[0] === "patch")![3] as string
+  }
+  const t = v.format({ decimals: 2 })
+  // <Text>x {v.format(...)}</Text> compiles to "x " + str(...)
+  expect(shown(() => "x " + str(t))).toBe(`\u0000f${v.__znMotion}|{"d":2,"p":"x ","s":""}`)
+  expect(shown(() => str(v.format({ prefix: "₹" })) + " saved")).toBe(`\u0000f${v.__znMotion}|{"p":"₹","s":" saved"}`)
+  // Alone, it is sent as it is.
+  expect(shown(() => str(t))).toBe(t.__znLabel)
+  expect(shown(() => "plain text")).toBe("plain text")
 })
 
 test("useElementMotion makes its values, is sent as its id, and measure() reads the box", async () => {

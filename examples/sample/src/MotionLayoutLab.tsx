@@ -77,7 +77,9 @@ function MlPlanCard(props: { plan: MlPlan; open: boolean; onToggle: () => void }
       pressScale={0.99}
       animateLayout="spring"
       accessibilityLabel={props.plan.name + " plan, " + inr(props.plan.price) + " a month"}
-      style={{ padding: 16, borderRadius: 20, backgroundColor: c.white, borderWidth: 1, borderColor: props.open ? c.primary : c.border, gap: 12 }}
+      // overflow hidden: while the card's height springs, its new lines are already full size; without the clip they
+      // draw over the next card for a few frames (phone, 2026-11-09).
+      style={{ padding: 16, borderRadius: 20, overflow: "hidden", backgroundColor: c.white, borderWidth: 1, borderColor: props.open ? c.primary : c.border, gap: 12 }}
     >
       <Row style={{ alignItems: "center", gap: 12 }}>
         <Column style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: props.plan.tint }}>
@@ -560,8 +562,9 @@ function MlCoachDemo() {
               </Text>
             </Row>
           </Pressable>
-          <Column style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, backgroundColor: c.pillBg }}>
-            <Text fontSize={14} fontWeight={700} color={c.ink}>
+          <Column style={{ flexShrink: 1, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, backgroundColor: c.pillBg }}>
+            {/* Moved far right, the button leaves little room: one line, cut with "…", not a letter per line. */}
+            <Text fontSize={14} fontWeight={700} color={c.ink} numberOfLines={1}>
               Send
             </Text>
           </Column>

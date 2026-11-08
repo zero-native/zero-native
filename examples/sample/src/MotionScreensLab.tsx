@@ -384,85 +384,116 @@ export function MotionScreensDetailScreen(props: { storeId: string }) {
   const s = found ?? MSC_STORES[0]
   const note = signal("")
 
+  // Drag down to close (Pavan, 2026-11-09): at the top of the page, pulling down moves the whole page with the
+  // finger, smaller and rounder. Let go far enough (or fast): Back, and the photo flies home from where it is.
+  // "after-edge": the page scrolls first; the drag takes over only when the page is at its top.
+  const drag = usePan({
+    axis: "y",
+    bounds: { y: [0, 700] },
+    rubber: false,
+    anchors: [
+      { id: "open", y: 0 },
+      { id: "close", y: 320 },
+    ],
+    release: { threshold: { distance: 120, velocity: 900 } },
+    withParent: "after-edge",
+    a11yLabel: "Close " + s.name,
+    onEnd: (e) => {
+      if (e.anchor === "close") nav.back()
+    },
+  })
+
   return (
-    <Stack style={{ flex: 1, backgroundColor: c.bg }}>
-      <Scroll style={{ flex: 1 }}>
-        <Column style={{ paddingBottom: 110 }}>
-          <Image sharedTag={"store-" + s.id} src={s.img} loading="shimmer" contentScale="cover" style={{ width: "100%", height: 320 }} />
-          <Column style={{ marginTop: -24, padding: 20, gap: 14, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: c.bg }}>
-            <Row style={{ alignItems: "center", gap: 10 }}>
-              <Column style={{ flex: 1, gap: 2 }}>
-                <Text fontSize={24} fontWeight={800} color={c.ink}>
-                  {s.name}
-                </Text>
-                <Text fontSize={13} color={c.muted}>
-                  {s.kind + " · " + s.far}
+    // Dark behind the page, so the shrinking page reads as a card being put away.
+    <Stack style={{ flex: 1, backgroundColor: "#0F172A" }}>
+      <Stack
+        gesture={drag}
+        style={{
+          flex: 1,
+          overflow: "hidden",
+          backgroundColor: c.bg,
+          borderRadius: drag.y.map([0, 160], [0, 28]),
+          transform: [{ translateY: drag.y.map([0, 700], [0, 420]) }, { scale: drag.y.map([0, 700], [1, 0.8]) }],
+        }}
+      >
+        <Scroll style={{ flex: 1 }}>
+          <Column style={{ paddingBottom: 110 }}>
+            <Image sharedTag={"store-" + s.id} src={s.img} loading="shimmer" contentScale="cover" style={{ width: "100%", height: 320 }} />
+            <Column style={{ marginTop: -24, padding: 20, gap: 14, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: c.bg }}>
+              <Row style={{ alignItems: "center", gap: 10 }}>
+                <Column style={{ flex: 1, gap: 2 }}>
+                  <Text fontSize={24} fontWeight={800} color={c.ink}>
+                    {s.name}
+                  </Text>
+                  <Text fontSize={13} color={c.muted}>
+                    {s.kind + " · " + s.far}
+                  </Text>
+                </Column>
+                <Column style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, backgroundColor: c.success }}>
+                  <Text fontSize={13} fontWeight={800} color={c.white}>
+                    {"★ " + s.rating}
+                  </Text>
+                </Column>
+              </Row>
+              <Column sharedTag={"store-chip-" + s.id} style={{ alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: c.successBg }}>
+                <Text fontSize={14} fontWeight={800} color={c.success}>
+                  {s.back}
                 </Text>
               </Column>
-              <Column style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, backgroundColor: c.success }}>
-                <Text fontSize={13} fontWeight={800} color={c.white}>
-                  {"★ " + s.rating}
-                </Text>
-              </Column>
-            </Row>
-            <Column sharedTag={"store-chip-" + s.id} style={{ alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: c.successBg }}>
-              <Text fontSize={14} fontWeight={800} color={c.success}>
-                {s.back}
+              <Text fontSize={16} fontWeight={800} color={c.ink}>
+                Offers
               </Text>
-            </Column>
-            <Text fontSize={16} fontWeight={800} color={c.ink}>
-              Offers
-            </Text>
-            {s.offers.map((o) => (
-              <Row key={o} style={{ alignItems: "center", gap: 12, padding: 14, borderRadius: 16, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}>
-                <Text fontSize={20}>🎟️</Text>
-                <Text fontSize={14} fontWeight={600} color={c.ink} style={{ flex: 1 }}>
-                  {o}
+              {s.offers.map((o) => (
+                <Row key={o} style={{ alignItems: "center", gap: 12, padding: 14, borderRadius: 16, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}>
+                  <Text fontSize={20}>🎟️</Text>
+                  <Text fontSize={14} fontWeight={600} color={c.ink} style={{ flex: 1 }}>
+                    {o}
+                  </Text>
+                </Row>
+              ))}
+              <Row style={{ gap: 10, alignItems: "center" }}>
+                <MscButton
+                  label="Keep JS busy 200 ms"
+                  onPress={() => {
+                    busyLoop(200)
+                    note.set("JS was blocked for 200 ms.")
+                  }}
+                />
+                <Text fontSize={12} color={c.muted} style={{ flex: 1 }}>
+                  {note()}
                 </Text>
               </Row>
-            ))}
-            <Row style={{ gap: 10, alignItems: "center" }}>
-              <MscButton
-                label="Keep JS busy 200 ms"
-                onPress={() => {
-                  busyLoop(200)
-                  note.set("JS was blocked for 200 ms.")
-                }}
-              />
-              <Text fontSize={12} color={c.muted} style={{ flex: 1 }}>
-                {note()}
-              </Text>
-            </Row>
+            </Column>
           </Column>
-        </Column>
-      </Scroll>
+        </Scroll>
 
-      {/* Over the photo: a back button. It is on the screen, not in the flight. */}
-      <Pressable
-        onPress={() => nav.back()}
-        accessibilityLabel="Back"
-        style={{ position: "absolute", top: insets().top + 8, start: 16, width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: c.white, elevation: 4 }}
-      >
-        <Text fontSize={20} fontWeight={700} color={c.ink}>
-          ←
-        </Text>
-      </Pressable>
-
-      <Row style={{ position: "absolute", start: 0, end: 0, bottom: 0, alignItems: "center", gap: 12, padding: 16, backgroundColor: c.white, borderTopWidth: 1, borderColor: c.border }}>
-        <Column style={{ flex: 1 }}>
-          <Text fontSize={12} color={c.muted}>
-            Pay at the store
-          </Text>
-          <Text fontSize={18} fontWeight={800} color={c.ink}>
-            {s.name}
-          </Text>
-        </Column>
-        <Pressable onPress={() => nav.back()} pressScale={0.97} style={{ paddingHorizontal: 22, paddingVertical: 14, borderRadius: 16, backgroundColor: c.primary }}>
-          <Text fontSize={15} fontWeight={800} color={c.white}>
-            Scan & Pay
+        {/* Over the photo: a back button. It is on the screen, not in the flight. */}
+        <Pressable
+          onPress={() => nav.back()}
+          accessibilityLabel="Back"
+          style={{ position: "absolute", top: insets().top + 8, start: 16, width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: c.white, elevation: 4 }}
+        >
+          <Text fontSize={20} fontWeight={700} color={c.ink}>
+            ←
           </Text>
         </Pressable>
-      </Row>
+
+        <Row style={{ position: "absolute", start: 0, end: 0, bottom: 0, alignItems: "center", gap: 12, padding: 16, backgroundColor: c.white, borderTopWidth: 1, borderColor: c.border }}>
+          <Column style={{ flex: 1 }}>
+            <Text fontSize={12} color={c.muted}>
+              Pay at the store
+            </Text>
+            <Text fontSize={18} fontWeight={800} color={c.ink}>
+              {s.name}
+            </Text>
+          </Column>
+          <Pressable onPress={() => nav.back()} pressScale={0.97} style={{ paddingHorizontal: 22, paddingVertical: 14, borderRadius: 16, backgroundColor: c.primary }}>
+            <Text fontSize={15} fontWeight={800} color={c.white}>
+              Scan & Pay
+            </Text>
+          </Pressable>
+        </Row>
+      </Stack>
     </Stack>
   )
 }

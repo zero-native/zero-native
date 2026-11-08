@@ -232,4 +232,45 @@ class ZnMotionTest {
         assertEquals(-1, g.zoneAt(99f, 220f))
         assertEquals(-1, g.zoneAt(120f, 241f))
     }
+
+    /**
+     * A node whose only registry 24 prop is `sharedTag` must still build its modifier chain per instance: the static
+     * chain has no shared element, so the photo never moved between screens (phone, 2026-11-09).
+     */
+    @Test
+    fun sharedTagAloneMakesTheChainDynamic() {
+        fun spec(props: Map<Int, Any?>, slotProps: List<Int> = emptyList()) = ZnTemplate(RawTemplate(
+            component = intArrayOf(Registry.Component.IMAGE),
+            parent = intArrayOf(-1),
+            props = arrayOf(props),
+            slots = slotProps.map { SlotDef(0, it, null) },
+            events = emptyList(),
+        )).nodes[0]
+        assertTrue(spec(mapOf(Registry.Prop.SHARED_TAG to "store-chai")).hasDynamicChain)
+        assertTrue(spec(emptyMap(), listOf(Registry.Prop.SHARED_TAG)).hasDynamicChain)
+        assertTrue(!spec(emptyMap()).hasDynamicChain)
+    }
+
+    /**
+     * JS drops a screen's values when it pops, while the screen is still drawn for its exit: its bindings and texts keep
+     * the last value instead of jumping to 0 / going blank (a page dragged down sprang back to full size, 2026-11-09).
+     */
+    @Test
+    fun aDisposedValueStaysAtItsLastValueForWhatStillDrawsIt() {
+        val v = ZnMotion.putValue(941, 0f)
+        v.value = 42f
+        val ref = "\u0000m941"
+        val text = "\u0000f941|{\"d\":0}"
+        assertEquals(42f, ZnMotion.ref(ref)!!.read(null), 0f)
+        assertEquals("42", ZnMotion.text(text))
+        ZnMotion.dispose(941)
+        assertNull(ZnMotion.find(941))
+        assertEquals(42f, ZnMotion.ref(ref)!!.read(null), 0f)
+        assertEquals("42", ZnMotion.text(text))
+        // A new value under the same id (a dev reload) is the one read.
+        ZnMotion.putValue(941, 7f)
+        assertEquals(7f, ZnMotion.ref(ref)!!.read(null), 0f)
+        assertEquals("7", ZnMotion.text(text))
+        ZnMotion.dispose(941)
+    }
 }

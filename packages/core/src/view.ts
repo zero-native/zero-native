@@ -48,14 +48,43 @@ function toNative(v: unknown, kind: number): NativeValue {
   const motion = motionSlotValue(v)
   if (motion !== undefined) return motion
   if (kind === SlotKind.Color && typeof v === "string") return parseColor(v)
-  if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") return v
+  if (typeof v === "string") return v.indexOf("\u0000f") > 0 || /\u0000f\d+\|\{.*\}./s.test(v) ? labelInText(v) : v
+  if (typeof v === "number" || typeof v === "boolean") return v
   return String(v)
+}
+
+/**
+ * `<Text>x {v.format()}</Text>`: the text joined around a motion label ("x \u0000f12|{...}") reached native as raw
+ * characters (phone, 2026-11-09). The text before and after the label becomes its prefix and suffix, so native
+ * still formats the number each frame. One label per Text; with more, the first one is kept and a warning logged.
+ */
+function labelInText(v: string): string {
+  const at = v.indexOf("\u0000f")
+  const bar = v.indexOf("|", at)
+  if (bar < 0) return v
+  for (let end = v.indexOf("}", bar); end >= 0; end = v.indexOf("}", end + 1)) {
+    let f: Record<string, unknown>
+    try {
+      f = JSON.parse(v.slice(bar + 1, end + 1)) as Record<string, unknown>
+    } catch {
+      continue
+    }
+    let after = v.slice(end + 1)
+    if (after.includes("\u0000f")) {
+      globalThis.__zn_log(3, "Text: only one v.format(...) per <Text>; put each in its own <Text>")
+      after = after.replace(/\u0000f\d+\|\{[^}]*\}/g, "")
+    }
+    f.p = v.slice(0, at) + (typeof f.p === "string" ? f.p : "")
+    f.s = (typeof f.s === "string" ? f.s : "") + after
+    return `${v.slice(at, bar + 1)}${JSON.stringify(f)}`
+  }
+  return v
 }
 
 /** Text content of a `<Text>` mixing literal text and `{expressions}`: null, undefined and false show nothing. */
 export function str(v: unknown): string {
   if (v === null || v === undefined || v === false) return ""
-  // A motion value as text (v.format(...)): native formats it each frame. Only as a Text's whole content.
+  // A motion value as text (v.format(...)): native formats it each frame. Text around it: see labelInText.
   if (typeof v === "object" && typeof (v as { __znLabel?: unknown }).__znLabel === "string") return (v as { __znLabel: string }).__znLabel
   return String(v)
 }
@@ -354,7 +383,10 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
   let types: number[] = []
   let items: readonly T[] = []
   let keyIndex = new Map<string, number>()
-  const mounted = new Map<string, { item: T; m: Mounted }>()
+  const mounted = new Map<string, { item: T; i: number; m: Mounted }>()
+  // A row function that takes the index (row(item, i), RN's renderItem) is built again when its row moves (a reorder,
+  // a row added above it), like RN's FlatList, so a rank or "first row" style shows the new place. Others are kept.
+  const usesIndex = o.row.length > 1
   let first = 0
   let last = LIST_INITIAL - 1
   let sent = false
@@ -406,7 +438,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
     const keepTo = last + 2 * LIST_AHEAD
     for (const [k, r] of mounted) {
       const i = keyIndex.get(k)
-      if (i === undefined || ((i < keepFrom || i > keepTo) && !pinned.has(i)) || items[i] !== r.item) {
+      if (i === undefined || ((i < keepFrom || i > keepTo) && !pinned.has(i)) || items[i] !== r.item || (usesIndex && r.i !== i)) {
         r.m.dispose(true)
         mounted.delete(k)
       }
@@ -417,7 +449,7 @@ export function list<T>(inst: Instance, node: number, o: ListOptions<T>): void {
       const item = items[i]
       const m = mountChild(owner, () => o.row(item, i), inst.id, node, 0, dataEffect)
       globalThis.__zn_listRow(inst.id, node, k, m.id)
-      mounted.set(k, { item, m })
+      mounted.set(k, { item, i, m })
     }
     for (let i = from; i <= to; i++) mount(i)
     // A pinned row shows at the top wherever the list is scrolled: it stays mounted.

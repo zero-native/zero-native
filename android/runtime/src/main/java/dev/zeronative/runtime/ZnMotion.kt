@@ -405,8 +405,8 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
     private val toJs = HashMap<Int, Float>()
     private var toJsQueued = false
     private val elements = HashMap<Int, ZnElementMotion>()
-    /** Text slots that show a motion value ("\u0000f<id>|<format json>") → their parsed format. */
-    private val texts = HashMap<String, Pair<Int, ZnNumberFormat>>()
+    /** Text slots that show a motion value ("\u0000f<id>|<format json>") → their parsed format and last source. */
+    private val texts = HashMap<String, ZnTextRef>()
     private var frames: Job? = null
 
     init {
@@ -600,13 +600,20 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
      */
     fun text(v: String): String? {
         if (!v.startsWith(TEXT_REF)) return null
-        val (id, format) = texts.getOrPut(v) {
+        val t = texts.getOrPut(v) {
             val bar = v.indexOf('|')
             val id = v.substring(TEXT_REF.length, if (bar < 0) v.length else bar).toIntOrNull() ?: return ""
-            id to ZnNumberFormat.parse(if (bar < 0) null else v.substring(bar + 1))
+            ZnTextRef(id, ZnNumberFormat.parse(if (bar < 0) null else v.substring(bar + 1)))
         }
-        val s = sources[id] ?: return ""
-        return format.format(s.read(null))
+        // A disposed value keeps showing its last number (see [ref]): a leaving screen's ₹ amount doesn't go blank.
+        val live = sources[t.id]
+        if (live != null) t.src = live
+        val s = live ?: t.src ?: return ""
+        return t.format.format(s.read(null))
+    }
+
+    private class ZnTextRef(val id: Int, val format: ZnNumberFormat) {
+        var src: ZnSource? = null
     }
 
     private const val TEXT_REF = "\u0000f"
@@ -629,7 +636,13 @@ internal object ZnMotion : ZnModuleBase("Motion", version = 1) {
     /** The source a slot value refers to, or null (not a reference, or the source is gone). */
     fun ref(v: Any?): ZnSource? {
         if (v !is String || !v.startsWith(REF)) return null
-        refs[v]?.let { if (sources[it.id] === it) return it }
+        // JS drops a screen's values when it pops, but the screen is still drawn for its exit (~300 ms). A disposed source
+        // stays readable at its last value (dispose only stops what moves it), so its bindings don't jump to 0 then
+        // (a page dragged down to close sprang back to full size, phone 2026-11-09). A new source under the same id wins.
+        refs[v]?.let { cached ->
+            val live = sources[cached.id]
+            if (live === cached || live == null) return cached
+        }
         val id = v.substring(REF.length).toIntOrNull() ?: return null
         val s = sources[id] ?: return null
         refs[v] = s

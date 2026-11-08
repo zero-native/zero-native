@@ -7,6 +7,7 @@ until it is proven.
 
 ## Reading order for a new session
 0. **`milestones.md`**: where the build stands right now and what's next.
+   For gestures and motion (and the parent session's open items as of 2026-11-09): **the motion hand-over note (kept private)**.
 1. **`../ARCHITECTURE.md`**: the spec and the source of truth. Decision log in §24.
 2. The detailed spec files below, for the part you are working on.
 3. **`v0-findings.md`**: every bug and lesson from the v0 experiments. Read the matching section before building

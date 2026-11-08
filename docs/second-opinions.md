@@ -2896,3 +2896,19 @@ change, and what evidence would make you change it?"
   (its version in `requires`); a driver unknown to the app fails the command with a clear error.
 - **Option not taken:** separate ids for sources and drivers in `requires`: a second gating system next to modules.
 - **Tilt** is built in (`useTilt`, gravity sensor, smoothed, only while held and in front).
+
+## 193. A slow first frame of a new screen eats its push slide; not fixed yet (2026-11-09; Opus, found from Pavan's report)
+- **Seen (Lava, sample):** the first push to a screen often has no slide: it just appears. Pavan: Home → Dev screens and
+  Dev → Amount / Offers were abrupt the first time, smooth later. The main thread is busy while the new screen is
+  built, and the 300 ms slide is over before the next frame is drawn.
+- **Numbers** (Android's "Skipped N frames", Home → Dev, three pushes in a row):
+  - debug, before the motion work (2a69aac): 59 / 46 / 36 frames;
+  - debug, now: 94 / 79 / 65 (the Dev screen has 48 rows now, was 39);
+  - Home → Offers, same screen in both builds: 41 / 41 / 43 before, 49 / 31 / under 30 now (no slowdown from motion);
+  - release (R8): the first push to Dev 32 frames (~0.5 s); later pushes smooth (frame stats: ~30 frames of ~11 ms at
+    90 Hz during the slide).
+- **So:** mostly a debug build cost. In release, only the first visit to a big screen. Not from the motion work.
+- **Options, not decided:** (a) start the slide on the frame after the new screen's first frame (Navigation 3 starts it
+  in the frame the screen is added); (b) build the screen before it is pushed (needs JS to mount it hidden first);
+  (c) a baseline profile that covers first screen builds (the sample's profile covers start only); (d) leave it: the
+  real app's screens are smaller than the Dev list. Needs a Perfetto trace of one slow push first.

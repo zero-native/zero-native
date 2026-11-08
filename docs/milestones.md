@@ -153,7 +153,12 @@ forwards them to the Android machine. Work on the `ios` branch.
   progress, pull), `format` text, 3D / blur / corner / Svg targets, layout motion (`animateLayout`, `itemAnimation`,
   new enter / exit presets), Sheet predictive back, `m.follow`, shared elements, List reorder, tilt, `useFrame`, and the
   plugin API (`ZnMotionApi`). Registry 24, `Motion` module 1, Device test module 6.
-- Labs 1–9 in the sample (`Motion*Lab.tsx`). JS and Kotlin tests pass. **Not yet checked on a phone.**
+- Labs 1–9 in the sample (`Motion*Lab.tsx`). JS and Kotlin tests pass.
+- **Phone check, Lava (same day, release build):** all 9 labs work. Fixes from it: `sharedTag` alone never moved,
+  List rows that use the index kept their old one after a move, text around `v.format()` showed raw characters, a
+  leaving screen's motion values fell to 0 during its exit, follow froze while its source moved, Row pinned top and
+  bottom. Drag the store page down to close (Pavan's idea). Open: first push of a big screen loses its slide
+  (second-opinions 193, pre-existing), `keyboardDismissMode` planned (waits on Pavan).
 - Decisions: second-opinions 186–192. iOS port notes: `docs/motion.md` §14.
 
 ### 2026-11-08: iOS, Linking.openURL opens any app's link (Claude, `ios` branch)

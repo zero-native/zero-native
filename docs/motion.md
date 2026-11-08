@@ -49,6 +49,8 @@ x()          // read in JS (a signal: native starts sending changes); x.peek() r
 - **`v.format({ decimals: 0 | 1 | 2, grouping: "en-IN" | "standard" | "none", prefix, suffix })`:** the value as
   native text, as the whole content of a `<Text>`: `<Text>{amount.format({ prefix: "₹" })}</Text>`. Indian grouping
   (12,34,567) by default; halves round away from zero; the minus goes before the prefix.
+  Text around it in the same `<Text>` (`<Text>Saved {amount.format()}</Text>`) becomes its prefix and suffix (core
+  `labelInText`). One format per `<Text>`.
 - **Reduced motion:** with "Remove animations" on, commands jump to their end and loops don't run.
 
 ## 3. Window and size values
@@ -236,3 +238,6 @@ on a vertical scroll; not SwiftUI `DragGesture` inside a ScrollView), element va
 paging scroll), shared elements (zoom transitions / matchedGeometryEffect), reorder (UICollectionView drag), drop zones
 (window rects), tilt (CMMotionManager gravity), plugin API (a Swift `ZnMotionApi` with the same three parts). Kotlin
 tests in `ZnMotionTest.kt` list the numbers the Swift port must match.
+Two rules found on the phone: a value JS disposed stays readable at its last value for whatever still draws it (a
+leaving screen keeps its dragged place for its exit, its ₹ text stays); and a node whose only motion prop is
+`sharedTag` still gets the shared-element modifier.

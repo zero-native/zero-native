@@ -662,7 +662,9 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         hasDynamicSize || hasDynamicRadius ||
         type == Registry.Component.PRESSABLE || hasTransformSlots || enter != null || exit != null ||
         accessibilityLabelSlot != NONE || hasMotion || borderWidthSlot != NONE || borderColorSlot != NONE ||
-        onLayout != 0 || gestureSlot != NONE || hasDepth || motionSlot != NONE || animateLayout != null
+        onLayout != 0 || gestureSlot != NONE || hasDepth || motionSlot != NONE || animateLayout != null ||
+        // Registry 24: the shared-element modifier is built per instance (ZnShared.kt), even for a static tag.
+        sharedTagSlot != NONE || sharedTag != null
 
     /** Pre-built chain for nodes whose chain never changes (most nodes). */
     val staticChain: Modifier = if (hasDynamicChain) Modifier else buildChain(null, null, null, null, staticAccessibility)
