@@ -16,6 +16,7 @@ import {
   useMotion,
   usePan,
   useTap,
+  useZoom,
   useElementMotion,
   useFrame,
   nativeMotion,
@@ -104,6 +105,26 @@ test("reading a value asks native to send it, then follows native's values", () 
   usePan({ axis: "x" })
   moduleEvent("values", { [v.__znMotion]: 42 })
   expect(v()).toBe(42)
+})
+
+test("useZoom: one zoom gesture plus its native double tap, grouped; zoomTo / reset ask native", () => {
+  const zoom = useZoom({ max: 5, doubleTap: 3, aspect: 4 / 3, a11yLabel: "Photo", onEnd: () => {} })
+  const calls = motionCalls()
+  const z = calls.find((c) => c.method === "gesture" && c.args.kind === "zoom")!
+  expect(z.args).toMatchObject({ min: 1, max: 5, doubleTap: 3, aspect: 4 / 3, rubber: true, ev: ["end"], a11yLabel: "Photo" })
+  expect(z.args.values).toMatchObject({ scale: zoom.scale.__znMotion, "scale.v": 1, x: zoom.x.__znMotion, y: zoom.y.__znMotion })
+  const tap = calls.find((c) => c.method === "gesture" && c.args.kind === "tap")!
+  expect(tap.args).toMatchObject({ taps: 2, zoom: z.args.id })
+  const g = calls.find((c) => c.method === "gestureGroup")!
+  expect(g.args).toMatchObject({ id: zoom.__znGesture, mode: "simultaneous", of: [z.args.id, tap.args.id] })
+  void zoom.zoomTo(2, { x: 10, y: 20 })
+  expect(motionCalls().at(-1)).toMatchObject({ method: "zoomTo", args: { id: z.args.id, s: 2, x: 10, y: 20 } })
+  void zoom.reset()
+  expect(motionCalls().at(-1)).toMatchObject({ method: "zoomTo", args: { id: z.args.id, s: 1 } })
+  // No double tap: the zoom gesture alone.
+  const solo = useZoom({ doubleTap: false })
+  const last = motionCalls().filter((c) => c.method === "gesture").at(-1)!
+  expect(last.args).toMatchObject({ kind: "zoom", doubleTap: 0, id: solo.__znGesture })
 })
 
 test("usePan: options, values, anchors need a11yLabel, events reach their handlers", () => {

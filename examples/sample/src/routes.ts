@@ -48,6 +48,7 @@ import { MotionVideoLabScreen } from "./MotionVideoLab"
 import { MotionPayLabScreen } from "./MotionPayLab"
 import { MotionFeedLabScreen } from "./MotionFeedLab"
 import { MotionMediaLabScreen } from "./MotionMediaLab"
+import { ScrollLabScreen } from "./ScrollLab"
 import { MotionCardsLabScreen } from "./MotionCardsLab"
 import { MotionLayoutLabScreen } from "./MotionLayoutLab"
 import { MotionSheetsLabScreen } from "./MotionSheetsLab"
@@ -110,6 +111,7 @@ export const routes = defineRoutes({
   motionPayLab: { path: "/dev/motion/pay", screen: MotionPayLabScreen, deepLink: true },
   motionFeedLab: { path: "/dev/motion/feed", screen: MotionFeedLabScreen, deepLink: true },
   motionMediaLab: { path: "/dev/motion/media", screen: MotionMediaLabScreen, deepLink: true },
+  scrollLab: { path: "/dev/scroll", screen: ScrollLabScreen, deepLink: true },
   motionCardsLab: { path: "/dev/motion/cards", screen: MotionCardsLabScreen, deepLink: true },
   motionLayoutLab: { path: "/dev/motion/layout", screen: MotionLayoutLabScreen, deepLink: true },
   // The sheets lab sets keyboard "none": its input bar moves up by env.keyboardHeight itself.

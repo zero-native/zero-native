@@ -29,7 +29,7 @@ export const SOFT_CORE_MODULES: ReadonlySet<string> = new Set(["Splash", "WebSoc
 export const GATED_CORE_MODULES: Readonly<Record<string, { version: number; names: ReadonlySet<string> }>> = {
   Motion: {
     version: 1,
-    names: new Set(["useMotion", "useTimeline", "follow", "derive", "env", "usePan", "usePinch", "useRotate", "useTap",
+    names: new Set(["useMotion", "useTimeline", "follow", "derive", "env", "usePan", "usePinch", "useZoom", "useRotate", "useTap",
       "useLongPress", "useFling", "Gesture"]),
   },
 }

@@ -895,6 +895,80 @@ export function usePinch(o: PinchOptions = {}): Gesture & { scale: MotionValue; 
   return { __znGesture: id, scale: valueFor(ids.scale, o.initial ?? 1), focalX: makeSource(entry(ids.focalX, 0)), focalY: makeSource(entry(ids.focalY, 0)) }
 }
 
+export interface ZoomOptions extends Omit<CommonOptions, "onStart" | "onUpdate" | "onEnd"> {
+  /** Smallest and largest scale (default 1 and 4). A pinch past them rubber-bands, then springs back. */
+  min?: number
+  max?: number
+  /** The scale a double tap zooms to, around the tapped point (default 2.5); a second double tap zooms out. false: none. */
+  doubleTap?: number | false
+  /**
+   * The content's shape, width / height (a picture shown with contentScale "contain"): the edges are the picture's, not
+   * the element's. A motion value works (set it when the picture loads). Leave it out when the content fills the element.
+   */
+  aspect?: number | MotionSource
+  /** Rubber band past the edges and limits (default true). */
+  rubber?: boolean
+  /** How a fling slows down (0.998 default, as usePan's release.deceleration) and the spring back inside the edges. */
+  release?: { deceleration?: number; spring?: MotionTiming }
+  /** TalkBack's two actions: "zoom in" and "zoom out" (by default `${a11yLabel}: zoom in`). */
+  a11yActions?: { zoomIn?: string; zoomOut?: string }
+  onStart?: (e: { scale: number }) => void
+  onUpdate?: (e: { scale: number; x: number; y: number }) => void
+  /** The fingers lifted (or a double tap, zoomTo or reset finished): where it is, before a fling slows down. */
+  onEnd?: (e: { scale: number; x: number; y: number; cancelled: boolean }) => void
+  /** After a fling or the spring back stops. */
+  onSettle?: (e: { scale: number; x: number; y: number }) => void
+}
+
+export interface ZoomGesture extends Gesture {
+  /** Put these on the content: `transform: [{ translateX: zoom.x }, { translateY: zoom.y }, { scale: zoom.scale }]`. */
+  readonly scale: MotionValue
+  readonly x: MotionValue
+  readonly y: MotionValue
+  /**
+   * Zooms to [scale] around a point of the element (dp; default its centre), kept inside the edges. A finger on it is
+   * cancelled. Default timing: 280 ms.
+   */
+  zoomTo(scale: number, at?: { x: number; y: number }, timing?: MotionTiming): Promise<Finished>
+  /** Back to `min`, centred. */
+  reset(timing?: MotionTiming): Promise<Finished>
+}
+
+/**
+ * Zoom for photos and maps (react-native-zoom-toolkit / the photo viewer's gestures): one native gesture with pinch
+ * around the fingers, drag inside the content's edges, fling, rubber bands and double tap. Put `gesture={zoom}` on a
+ * box and the transform on its content (or both on one element). Inside a <Carousel>, a one-finger drag goes to the
+ * Carousel when the photo isn't zoomed, or when it is at the edge it is dragged toward.
+ */
+export function useZoom(o: ZoomOptions = {}): ZoomGesture {
+  const ids = { scale: nextId++, x: nextId++, y: nextId++ }
+  const min = o.min ?? 1
+  const doubleTap = o.doubleTap === false ? 0 : (o.doubleTap ?? 2.5)
+  const zoomId = makeGesture("zoom", o as never, { scale: ids.scale, "scale.v": min, x: ids.x, y: ids.y }, {
+    min,
+    max: o.max ?? 4,
+    doubleTap,
+    aspect: o.aspect === undefined ? undefined : coordJson(o.aspect),
+    rubber: o.rubber ?? true,
+    release: o.release ? { deceleration: o.release.deceleration, spring: timingJson(o.release.spring) } : undefined,
+    a11yActions: o.a11yActions,
+  }, { begin: o.onBegin, start: o.onStart, update: o.onUpdate, end: o.onEnd, finalize: o.onFinalize, settle: o.onSettle })
+  let id = zoomId
+  if (doubleTap > 0) {
+    // Its double tap is a tap gesture that moves the zoom natively (no JS in between); both share the touch.
+    const tap = makeGesture("tap", {} as never, {}, { taps: 2, zoom: zoomId }, {})
+    id = group("simultaneous", [{ __znGesture: zoomId }, { __znGesture: tap }]).__znGesture
+  }
+  return {
+    __znGesture: id,
+    scale: valueFor(ids.scale, min),
+    x: valueFor(ids.x, 0),
+    y: valueFor(ids.y, 0),
+    zoomTo: (scale, at, timing) => ask<Finished>("zoomTo", { id: zoomId, s: scale, x: at?.x, y: at?.y, t: timing === undefined ? undefined : timingJson(timing) }),
+    reset: (timing) => ask<Finished>("zoomTo", { id: zoomId, s: min, t: timing === undefined ? undefined : timingJson(timing) }),
+  }
+}
+
 /** Two-finger turn (RNGH Rotation): `angle` in degrees. */
 export function useRotate(o: CommonOptions & { initial?: number } = {}): Gesture & { angle: MotionValue } {
   const a = nextId++

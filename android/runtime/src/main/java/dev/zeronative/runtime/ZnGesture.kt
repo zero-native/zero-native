@@ -91,6 +91,20 @@ internal object ZnGestures {
             for (leaf in g.leaves) leaf.manualWant = want
             c.resolve()
         }
+        // useZoom's zoomTo / reset: {"id", "s": scale, "x"?, "y"? (the point to zoom around, dp in the element; default
+        // its centre), "t"?: timing}. Kept inside the edges. A touch in progress is cancelled (as snapTo). Answers {finished}.
+        m.addFunction("zoomTo") { c ->
+            val g = all[c.int("id")]?.leaves?.firstOrNull { it.kind == ZnGesture.ZOOM }
+                ?: throw ZnInvalidArgs("gesture ${c.int("id")} is not a useZoom")
+            g.touch?.cancel()
+            val (cw, ch) = g.zoomContent()
+            val s = c.args.optDouble("s", 1.0).toFloat().takeIf { it.isFinite() }?.coerceIn(g.zoomMin, g.zoomMax) ?: g.zoomMin
+            val qx = c.args.optDouble("x", (g.selfW / 2f).toDouble()).toFloat()
+            val qy = c.args.optDouble("y", (g.selfH / 2f).toDouble()).toFloat()
+            val (ns, tx, ty) = ZnZoomMath.zoomTo(g.scale?.value ?: 1f, g.x?.value ?: 0f, g.y?.value ?: 0f, qx, qy, g.selfW, g.selfH, cw, ch, s)
+            val spec = c.args.optJSONObject("t")?.let { ZnTimingSpec.parse(it) } ?: ZnGesture.ZOOM_TWEEN
+            g.zoomAnimate(ns, tx, ty, spec, c)
+        }
         // {"id", "anchor": anchor id, "t": timing}: answers {finished}.
         m.addFunction("snapTo") { c ->
             val g = all[c.int("id")] ?: throw ZnInvalidArgs("no gesture ${c.int("id")}")
@@ -223,6 +237,56 @@ internal class ZnGesture private constructor(
     val crosses: FloatArray = ZnMotion.floats(o.optJSONArray("cross"))
     val withParent: String = o.optString("withParent", "")
     val a11yLabel: String? = o.optString("a11yLabel").takeIf { it.isNotEmpty() }
+
+    // ---- useZoom (kind "zoom"; maths in ZnZoom.kt) ------------------------------------------------------------------------
+
+    val zoomMin: Float = o.optDouble("min", 1.0).toFloat().let { if (it.isFinite() && it > 0f) it else 1f }
+    val zoomMax: Float = o.optDouble("max", 4.0).toFloat().let { if (it.isFinite() && it >= zoomMin) it else max(zoomMin, 4f) }
+    /** The scale a double tap zooms to (0: a double tap does nothing). */
+    val zoomDouble: Float = o.optDouble("doubleTap", 2.5).toFloat().let { if (it.isFinite() && it > 0f) it else 0f }
+    /** The content's shape (width / height), fitted inside the element; null or 0: the content fills the element. */
+    private val zoomAspect: ZnSpec? = if (o.has("aspect")) ZnSpec.parse(o.opt("aspect")) else null
+
+    /** The content's size (dp) in the element now. */
+    fun zoomContent(): Pair<Float, Float> = ZnZoomMath.fitted(selfW, selfH, zoomAspect?.resolve(0f, 0f, site) ?: 0f)
+
+    /** A point of the element (local dp, inside the node's own layer) in its box (not moved by the zoom). */
+    fun zoomBox(lx: Float, ly: Float, layer: ZnLayer?): Pair<Float, Float> {
+        if (layer == null) return lx to ly
+        val sx = layer.scaleX().takeIf { it.isFinite() && it != 0f } ?: 1f
+        val sy = layer.scaleY().takeIf { it.isFinite() && it != 0f } ?: 1f
+        return ZnZoomMath.toBox(lx, selfW / 2f, sx, layer.translateX()) to ZnZoomMath.toBox(ly, selfH / 2f, sy, layer.translateY())
+    }
+
+    /**
+     * Moves scale, x and y to ([s], [tx], [ty]) together: one tween for the three, so the point zoomed around stays put
+     * on the way. Answers [c] with {finished} at the end.
+     */
+    fun zoomAnimate(s: Float, tx: Float, ty: Float, spec: ZnTimingSpec = ZOOM_TWEEN, c: ZnCall? = null) {
+        val parts = listOfNotNull(scale?.to(s), x?.to(tx), y?.to(ty))
+        ZnMotion.scope.launch {
+            var finished = true
+            val jobs = parts.map { (v, to) ->
+                v.interrupt()
+                v.velocity = 0f
+                launch { if (!v.animate(to, spec)) finished = false }.also { v.job = it }
+            }
+            jobs.forEach { it.join() }
+            send("end", JSONObject().put("scale", (scale?.value ?: 1f).toDouble()).put("x", (x?.value ?: 0f).toDouble())
+                .put("y", (y?.value ?: 0f).toDouble()).put("cancelled", false))
+            c?.resolve(JSONObject().put("finished", finished))
+        }
+    }
+
+    /** A double tap at ([bx], [by]) in the box: zoom in there, or back out. */
+    fun zoomDoubleTap(bx: Float, by: Float) {
+        if (zoomDouble <= 0f) return
+        val (cw, ch) = zoomContent()
+        val (s, tx, ty) = ZnZoomMath.doubleTap(
+            scale?.value ?: 1f, x?.value ?: 0f, y?.value ?: 0f, bx, by, selfW, selfH, cw, ch, zoomMin, zoomDouble.coerceIn(zoomMin, zoomMax),
+        )
+        zoomAnimate(s, tx, ty)
+    }
 
     /** The touch in progress (a JS command with interruptGesture cancels it). */
     var touch: ZnGestureTouch? = null
@@ -436,6 +500,10 @@ internal class ZnGesture private constructor(
         const val LONG_PRESS = 5
         const val FLING = 6
         const val GROUP = 7
+        const val ZOOM = 8
+
+        /** A zoom moved by a double tap, zoomTo or a release past its limits: the three values in one tween. */
+        val ZOOM_TWEEN = ZnTimingSpec(280, 0, null, 1f, 0f, false)
 
         const val SIMULTANEOUS = 1
         const val EXCLUSIVE = 2
@@ -453,6 +521,7 @@ internal class ZnGesture private constructor(
                 "tap" -> TAP
                 "longPress" -> LONG_PRESS
                 "fling" -> FLING
+                "zoom" -> ZOOM
                 else -> throw ZnInvalidArgs("unknown gesture kind \"${o.optString("kind")}\"")
             }
             return ZnGesture(id, kind, o, emptyList(), 0).also { g ->
@@ -962,9 +1031,16 @@ private class TapRec(g: ZnGesture) : ZnRecognizer(g) {
         }
     }
 
+    /** useZoom's own double tap: the zoom gesture it moves (0: none). */
+    private val zoomId = g.o.optInt("zoom", 0)
+
     override fun activate(ctx: ZnTouchCtx) {
         state = DONE
         znHaptic(ctx.view, g.haptic.optString("start"))
+        if (zoomId != 0) ZnGestures.find(zoomId)?.let { z ->
+            val (bx, by) = z.zoomBox(x, y, ctx.layer)
+            z.zoomDoubleTap(bx, by)
+        }
         g.send("end", JSONObject().put("x", x.toDouble()).put("y", y.toDouble()).put("cancelled", false))
         g.send("finalize")
     }
@@ -1058,12 +1134,166 @@ private class FlingRec(g: ZnGesture) : ZnRecognizer(g) {
     }
 }
 
+/**
+ * useZoom: pinch around the fingers, drag inside the content's edges, fling that stops at the edges, rubber bands.
+ * Works in the element's box (ZnZoom.kt), so the fingers stay on the same spot of the picture.
+ * Leaves the touch to the parent (a Carousel turns the page, a pan drags the screen down) when one finger drags and the
+ * content is not zoomed, or when it drags sideways toward an edge the zoomed content already touches.
+ */
+private class ZoomRec(g: ZnGesture) : ZnRecognizer(g) {
+    private var rawS = 1f // before the rubber band
+    private var rawX = 0f
+    private var rawY = 0f
+    private var movedX = 0f // dp, before it starts
+    private var movedY = 0f
+    private var spreadMoved = 0f
+    private var lastQx = 0f // the fingers' centre in the box, dp
+    private var lastQy = 0f
+    private var lastCount = 0
+    private val vt = VelocityTracker()
+
+    override fun onEvent(e: PointerEvent, ctx: ZnTouchCtx) {
+        val w = g.selfW
+        val h = g.selfH
+        // Pointers down in both this event and the one before (one that just landed or lifted moves nothing).
+        var n = 0
+        var x0 = 0f; var y0 = 0f; var x1 = 0f; var y1 = 0f
+        var ax0 = 0f; var ay0 = 0f; var ax1 = 0f; var ay1 = 0f // the first two, for the spread
+        var bx0 = 0f; var by0 = 0f; var bx1 = 0f; var by1 = 0f
+        for (c in e.changes) {
+            if (!(c.pressed && c.previousPressed)) continue
+            val (px0, py0) = g.zoomBox(c.previousPosition.x / ctx.d, c.previousPosition.y / ctx.d, ctx.layer)
+            val (px1, py1) = g.zoomBox(c.position.x / ctx.d, c.position.y / ctx.d, ctx.layer)
+            if (n == 0) { ax0 = px0; ay0 = py0; ax1 = px1; ay1 = py1 }
+            if (n == 1) { bx0 = px0; by0 = py0; bx1 = px1; by1 = py1 }
+            x0 += px0; y0 += py0; x1 += px1; y1 += py1
+            n++
+        }
+        if (n == 0) return
+        x0 /= n; y0 /= n; x1 /= n; y1 /= n
+        val k = if (n >= 2) {
+            val d0 = hypot(ax0 - bx0, ay0 - by0)
+            val d1 = hypot(ax1 - bx1, ay1 - by1)
+            spreadMoved += abs(d1 - d0)
+            if (d0 > 1f) d1 / d0 else 1f
+        } else 1f
+        if (state == POSSIBLE) {
+            if (wants) return
+            movedX += x1 - x0
+            movedY += y1 - y0
+            val slop = ctx.slopPx / ctx.d
+            if (n >= 2) {
+                if (spreadMoved > slop || hypot(movedX, movedY) > slop) wants = true
+                return
+            }
+            if (hypot(movedX, movedY) <= slop) return
+            val s = g.scale?.value ?: 1f
+            // Not zoomed: one finger belongs to the parent (next photo, drag down to close).
+            if (s <= g.zoomMin * 1.01f) return fail()
+            // Zoomed, at the edge it drags toward: the parent turns the page.
+            if (abs(movedX) > abs(movedY)) {
+                val r = ZnZoomMath.range(g.zoomContent().first, s, w)
+                val t = g.x?.value ?: 0f
+                if ((movedX > 0f && t >= r - 0.5f) || (movedX < 0f && t <= -r + 0.5f)) return fail()
+            }
+            wants = true
+            return
+        }
+        if (state != ACTIVE) return
+        if (n != lastCount) {
+            // A finger landed or lifted: the speed so far was a pinch, not a drag.
+            vt.resetTracking()
+            lastCount = n
+        }
+        val nS = rawS * k
+        rawX = ZnZoomMath.around(rawS, rawX, x0, w / 2f, nS) + (x1 - x0)
+        rawY = ZnZoomMath.around(rawS, rawY, y0, h / 2f, nS) + (y1 - y0)
+        rawS = nS
+        lastQx = x1
+        lastQy = y1
+        val s = if (g.rubber) ZnZoomMath.rubberS(rawS, g.zoomMin, g.zoomMax) else rawS.coerceIn(g.zoomMin, g.zoomMax)
+        val (cw, ch) = g.zoomContent()
+        val rx = ZnZoomMath.range(cw, s, w)
+        val ry = ZnZoomMath.range(ch, s, h)
+        val tx = if (g.rubber) ZnZoomMath.rubberT(rawX, rx, w) else ZnZoomMath.clamp(rawX, rx)
+        val ty = if (g.rubber) ZnZoomMath.rubberT(rawY, ry, h) else ZnZoomMath.clamp(rawY, ry)
+        g.scale?.value = s
+        g.x?.value = tx
+        g.y?.value = ty
+        vt.addPosition(e.changes.first().uptimeMillis, Offset(tx, ty))
+        if ("update" in g.events) g.send("update", JSONObject().put("scale", s.toDouble()).put("x", tx.toDouble()).put("y", ty.toDouble()))
+    }
+
+    override fun activate(ctx: ZnTouchCtx) {
+        for (v in listOfNotNull(g.scale, g.x, g.y)) {
+            v.interrupt()
+            v.heldBy = g.touch
+        }
+        rawS = g.scale?.value ?: 1f
+        rawX = g.x?.value ?: 0f
+        rawY = g.y?.value ?: 0f
+        lastQx = g.selfW / 2f
+        lastQy = g.selfH / 2f
+        lastCount = 0
+        vt.resetTracking()
+        g.send("start", JSONObject().put("scale", rawS.toDouble()))
+    }
+
+    override fun finish(ctx: ZnTouchCtx, cancelled: Boolean) {
+        for (v in listOfNotNull(g.scale, g.x, g.y)) if (v.heldBy === g.touch) v.heldBy = null
+        if (state != ACTIVE) return
+        state = DONE
+        val w = g.selfW
+        val h = g.selfH
+        val s = g.scale?.value ?: 1f
+        val tx = g.x?.value ?: 0f
+        val ty = g.y?.value ?: 0f
+        val (cw, ch) = g.zoomContent()
+        val inS = s.coerceIn(g.zoomMin, g.zoomMax)
+        if (inS != s || cancelled) {
+            // Pinched past a limit: back inside it, around where the fingers were, and inside the edges.
+            val (ns, nx, ny) = ZnZoomMath.zoomTo(s, tx, ty, lastQx, lastQy, w, h, cw, ch, inS)
+            g.zoomAnimate(ns, nx, ny)
+        } else {
+            val vel = if (lastCount <= 1) vt.calculateVelocity() else Velocity.Zero
+            val zoomed = s > g.zoomMin * 1.01f
+            val friction = znFriction(g.release.optDouble("deceleration", 0.998))
+            val spring = ZnTimingSpec.parse(g.release.optJSONObject("spring"))
+            ZnMotion.scope.launch {
+                val jobs = ArrayList<kotlinx.coroutines.Job>()
+                fun go(v: ZnValue?, t: Float, r: Float, speed: Float) {
+                    v ?: return
+                    val inside = ZnZoomMath.clamp(t, r)
+                    val job = launch {
+                        when {
+                            // Past an edge (the rubber band), or not zoomed: back inside.
+                            inside != t || !zoomed -> { v.velocity = 0f; v.animate(if (zoomed) inside else 0f, spring) }
+                            // A fling: slows down and stops at the edge.
+                            abs(speed) > 50f -> v.decay(speed, friction, -r, r)
+                        }
+                    }
+                    v.job = job
+                    jobs += job
+                }
+                go(g.x, tx, ZnZoomMath.range(cw, s, w), vel.x)
+                go(g.y, ty, ZnZoomMath.range(ch, s, h), vel.y)
+                jobs.forEach { it.join() }
+                g.send("settle", JSONObject().put("scale", (g.scale?.value ?: 1f).toDouble()).put("x", (g.x?.value ?: 0f).toDouble())
+                    .put("y", (g.y?.value ?: 0f).toDouble()))
+            }
+            g.send("end", JSONObject().put("scale", s.toDouble()).put("x", tx.toDouble()).put("y", ty.toDouble()).put("cancelled", false))
+        }
+        g.send("finalize")
+    }
+}
+
 private fun recognizerFor(g: ZnGesture, downAt: Long): ZnRecognizer = when (g.kind) {
     ZnGesture.PAN -> PanRec(g, downAt)
     ZnGesture.PINCH -> PinchRec(g)
     ZnGesture.ROTATE -> RotateRec(g)
     ZnGesture.TAP -> TapRec(g)
     ZnGesture.LONG_PRESS -> LongPressRec(g, downAt)
+    ZnGesture.ZOOM -> ZoomRec(g)
     else -> FlingRec(g)
 }
 
@@ -1269,6 +1499,22 @@ internal fun Modifier.znGesture(g: ZnGesture, view: View, layer: ZnLayer?): Modi
                 if (leaf.kind == ZnGesture.TAP) {
                     onClick(leaf.a11yLabel) {
                         leaf.send("end", JSONObject().put("cancelled", false).put("accessibility", true))
+                        true
+                    }
+                }
+                if (leaf.kind == ZnGesture.ZOOM) {
+                    // useZoom: zoom in at the centre, and back out (TalkBack users can't pinch).
+                    val names = leaf.o.optJSONObject("a11yActions")
+                    list += CustomAccessibilityAction(names?.optString("zoomIn")?.takeIf { it.isNotEmpty() } ?: "${leaf.a11yLabel}: zoom in") {
+                        val (cw, ch) = leaf.zoomContent()
+                        val to = (if (leaf.zoomDouble > 0f) leaf.zoomDouble else leaf.zoomMax).coerceIn(leaf.zoomMin, leaf.zoomMax)
+                        val (s, tx, ty) = ZnZoomMath.zoomTo(leaf.scale?.value ?: 1f, leaf.x?.value ?: 0f, leaf.y?.value ?: 0f,
+                            leaf.selfW / 2f, leaf.selfH / 2f, leaf.selfW, leaf.selfH, cw, ch, to)
+                        leaf.zoomAnimate(s, tx, ty)
+                        true
+                    }
+                    list += CustomAccessibilityAction(names?.optString("zoomOut")?.takeIf { it.isNotEmpty() } ?: "${leaf.a11yLabel}: zoom out") {
+                        leaf.zoomAnimate(leaf.zoomMin, 0f, 0f)
                         true
                     }
                 }

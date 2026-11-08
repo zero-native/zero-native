@@ -646,7 +646,12 @@ export function bindListController(ctrl: any, inst: Instance, slotId: number): v
       const anim = opts.animated !== false ? 1 : 0
       send(`offset:${off}:${anim}:0`)
     },
-  }
+    // <Scroll ref> (registry 24): RN's ScrollView.scrollTo. A <List> takes it as scrollToOffset along its axis.
+    scrollTo: (opts: { x?: number; y?: number; animated?: boolean } = {}) => {
+      const anim = opts.animated !== false ? 1 : 0
+      send(`to:${finiteOr(opts.x, 0)}:${anim}:${finiteOr(opts.y, 0)}`)
+    },
+  } as ListController & { scrollTo(o?: { x?: number; y?: number; animated?: boolean }): void }
   if (ctrl && typeof ctrl === "object") {
     if ("current" in ctrl) {
       // A listController() or a { current } ref: only `current` is set, so its own methods keep forwarding to
@@ -660,4 +665,86 @@ export function bindListController(ctrl: any, inst: Instance, slotId: number): v
       Object.assign(ctrl, handler)
     }
   }
+}
+
+const finiteOr = (v: unknown, d: number): number => (typeof v === "number" && Number.isFinite(v) ? v : d)
+
+/**
+ * RN's snap props on a <Scroll> / <List> as the `snap` string native reads (registry 24; ZnScrollExtras.kt):
+ * "p1;i80;a1;o0,120;s0;e0;m1;d0.99". Bad values are left out with a warning (the scroll still works, unsnapped).
+ */
+export function scrollSnap(o: {
+  pagingEnabled?: boolean
+  snapToInterval?: number
+  snapToOffsets?: readonly number[]
+  snapToAlignment?: "start" | "center" | "end"
+  snapToStart?: boolean
+  snapToEnd?: boolean
+  disableIntervalMomentum?: boolean
+  decelerationRate?: "normal" | "fast" | number
+}): string {
+  const out: string[] = []
+  const warn = (m: string) => globalThis.__zn_log?.(2, `Scroll snap: ${m}`)
+  if (o.pagingEnabled) out.push("p1")
+  if (o.snapToInterval !== undefined && o.snapToInterval !== null) {
+    if (typeof o.snapToInterval === "number" && Number.isFinite(o.snapToInterval) && o.snapToInterval > 0) out.push(`i${o.snapToInterval}`)
+    else warn(`snapToInterval must be a number above 0, got ${String(o.snapToInterval)}`)
+  }
+  if (o.snapToOffsets !== undefined && o.snapToOffsets !== null) {
+    const list = Array.isArray(o.snapToOffsets) ? o.snapToOffsets.filter((n) => typeof n === "number" && Number.isFinite(n)) : []
+    if (list.length !== (Array.isArray(o.snapToOffsets) ? o.snapToOffsets.length : -1)) warn("snapToOffsets must be an array of numbers; others are left out")
+    if (list.length > 0) out.push(`o${list.join(",")}`)
+  }
+  if (o.snapToAlignment === "center") out.push("a1")
+  else if (o.snapToAlignment === "end") out.push("a2")
+  else if (o.snapToAlignment !== undefined && o.snapToAlignment !== "start") warn(`snapToAlignment is "start", "center" or "end"`)
+  if (o.snapToStart === false) out.push("s0")
+  if (o.snapToEnd === false) out.push("e0")
+  if (o.disableIntervalMomentum) out.push("m1")
+  const d = o.decelerationRate
+  if (d === "fast") out.push("d0.99")
+  else if (typeof d === "number") {
+    if (Number.isFinite(d) && d > 0 && d < 1) out.push(`d${d}`)
+    else warn(`decelerationRate must be "normal", "fast" or a number between 0 and 1, got ${d}`)
+  } else if (d !== undefined && d !== "normal") warn(`decelerationRate must be "normal", "fast" or a number`)
+  return out.join(";")
+}
+
+/** RN's scroll event (registry 24). Numbers are dp. */
+export interface ScrollEvent {
+  nativeEvent: {
+    contentOffset: { x: number; y: number }
+    contentSize: { width: number; height: number }
+    layoutMeasurement: { width: number; height: number }
+    velocity?: { x: number; y: number }
+    contentInset: { top: number; left: number; bottom: number; right: number }
+    zoomScale: number
+  }
+}
+
+type ScrollHandler = ((e: ScrollEvent) => void) | undefined
+
+/** Native's one scroll event → the RN handler for its kind, with RN's nativeEvent (registry 24). */
+export function scrollEvent(
+  payload: unknown,
+  h: { onScroll?: ScrollHandler; onScrollBeginDrag?: ScrollHandler; onScrollEndDrag?: ScrollHandler; onMomentumScrollBegin?: ScrollHandler; onMomentumScrollEnd?: ScrollHandler },
+): void {
+  let p: { k?: string; x?: number; y?: number; cw?: number; ch?: number; w?: number; h?: number; vx?: number; vy?: number }
+  try {
+    p = JSON.parse(String(payload))
+  } catch {
+    return
+  }
+  const fn = p.k === "s" ? h.onScroll : p.k === "b" ? h.onScrollBeginDrag : p.k === "e" ? h.onScrollEndDrag
+    : p.k === "mb" ? h.onMomentumScrollBegin : p.k === "me" ? h.onMomentumScrollEnd : undefined
+  if (typeof fn !== "function") return
+  const nativeEvent: ScrollEvent["nativeEvent"] = {
+    contentOffset: { x: p.x ?? 0, y: p.y ?? 0 },
+    contentSize: { width: p.cw ?? 0, height: p.ch ?? 0 },
+    layoutMeasurement: { width: p.w ?? 0, height: p.h ?? 0 },
+    contentInset: { top: 0, left: 0, bottom: 0, right: 0 },
+    zoomScale: 1,
+  }
+  if (p.vx !== undefined || p.vy !== undefined) nativeEvent.velocity = { x: p.vx ?? 0, y: p.vy ?? 0 }
+  fn({ nativeEvent })
 }

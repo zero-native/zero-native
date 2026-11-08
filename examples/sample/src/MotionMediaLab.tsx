@@ -1,14 +1,14 @@
 // Motion lab 4: media. Built only from the public gestures-and-motion API (docs/gestures-and-motion-v1.md, lab 5 in the
 // plan's table: "Media"). It is an example, not framework code.
-//   a) a zoomable photo: pinch + drag + double tap, all at once
+//   a) zoomable photos in a Carousel (useZoom): pinch around the fingers, drag, fling, double tap; swipe for the next
 //   b) a spending chart you can scrub with a finger: a crosshair follows the touch, JS only reads the bar number
 // The pinch, the drag, the zoom springs and the crosshair run on the UI thread.
-import { Column, Image, Pressable, Row, Stack, Text } from "@zero-native/ui"
-import { clamp, computed, derive, Gesture, nav, self, signal, usePan, usePinch, useTap } from "@zero-native/core"
+import { Carousel, Column, Image, Pressable, Row, Stack, Text } from "@zero-native/ui"
+import { clamp, computed, derive, nav, signal, usePan, useZoom } from "@zero-native/core"
 import { c } from "./tokens"
 import { formatIndian } from "./money"
 
-const PHOTO = "https://picsum.photos/id/1060/1200/900"
+const PHOTOS = ["https://picsum.photos/id/1060/1200/900", "https://picsum.photos/id/1015/1200/900", "https://picsum.photos/id/1043/1200/900"]
 const MAX_ZOOM = 4
 const DOUBLE_TAP_ZOOM = 2.5
 
@@ -61,76 +61,55 @@ function MmTab(props: { label: string; on: boolean; onPress: () => void }) {
 
 // ---- a) Zoomable photo ------------------------------------------------------------------------------------------------
 
-function MmZoomDemo() {
-  const pinch = usePinch({
-    min: 1,
+function MmZoomPhoto(props: { src: string; onZoomed: (on: boolean) => void; registerReset: (f: () => void) => void }) {
+  // One native gesture: pinch around the fingers, drag inside the photo's edges, fling, rubber bands, double tap.
+  const zoom = useZoom({
     max: MAX_ZOOM,
-    // Zoomed out all the way: the photo goes back to the middle.
-    onEnd: (e) => {
-      if ((e.scale ?? 1) <= 1.05) {
-        void pan.x.to(0, "spring")
-        void pan.y.to(0, "spring")
-      }
-    },
+    doubleTap: DOUBLE_TAP_ZOOM,
+    a11yLabel: "Photo",
+    onEnd: (e) => props.onZoomed(e.scale > 1.05),
+    onSettle: (e) => props.onZoomed(e.scale > 1.05),
   })
+  props.registerReset(() => void zoom.reset())
+  return (
+    // The gesture on the page box, the transform on the photo inside it: the touch area doesn't move with the zoom.
+    <Column gesture={zoom} style={{ flex: 1, overflow: "hidden" }}>
+      <Image
+        src={props.src}
+        loading="shimmer"
+        contentScale="cover"
+        style={{
+          width: "100%",
+          height: "100%",
+          transform: [{ translateX: zoom.x }, { translateY: zoom.y }, { scale: zoom.scale }],
+        }}
+      />
+    </Column>
+  )
+}
 
-  // The photo can be dragged only as far as the extra size it has from zooming (nothing when it is at 1x).
-  const pan = usePan({
-    axis: "xy",
-    bounds: {
-      x: [derive(() => (-(pinch.scale() - 1) * self.width) / 2), derive(() => ((pinch.scale() - 1) * self.width) / 2)],
-      y: [derive(() => (-(pinch.scale() - 1) * self.height) / 2), derive(() => ((pinch.scale() - 1) * self.height) / 2)],
-    },
-  })
-
-  // JS reads the zoom only to decide what a double tap does.
-  const zoomed = computed(() => pinch.scale() > 1.05)
-
-  const reset = () => {
-    void pinch.scale.to(1, "spring")
-    void pan.x.to(0, "spring")
-    void pan.y.to(0, "spring")
-  }
-
-  const doubleTap = useTap({
-    taps: 2,
-    a11yLabel: "Zoom the photo in or out",
-    onEnd: () => {
-      if (zoomed()) reset()
-      else void pinch.scale.to(DOUBLE_TAP_ZOOM, "spring")
-    },
-  })
-
-  const gesture = Gesture.simultaneous(pinch, pan, doubleTap)
-
+function MmZoomDemo() {
+  const zoomed = signal(false)
+  const page = signal(0)
+  const resets: (() => void)[] = []
   return (
     <Column style={{ gap: 14, paddingHorizontal: 20 }}>
-      <Column gesture={gesture} style={{ height: 300, borderRadius: 24, overflow: "hidden", backgroundColor: c.pillBg, borderWidth: 1, borderColor: c.border }}>
-        <Image
-          src={PHOTO}
-          loading="shimmer"
-          contentScale="cover"
-          style={{
-            width: "100%",
-            height: "100%",
-            transform: [{ translateX: pan.x }, { translateY: pan.y }, { scale: pinch.scale }],
-          }}
-        />
+      <Column style={{ height: 300, borderRadius: 24, overflow: "hidden", backgroundColor: c.pillBg, borderWidth: 1, borderColor: c.border }}>
+        {/* Not zoomed, a one-finger swipe turns the page. Zoomed, it drags the photo; at the photo's edge it turns the page. */}
+        <Carousel dots onPageChange={(i) => page.set(i)} style={{ flex: 1 }}>
+          {PHOTOS.map((src, i) => (
+            <MmZoomPhoto key={src} src={src} onZoomed={(on) => zoomed.set(on)} registerReset={(f) => (resets[i] = f)} />
+          ))}
+        </Carousel>
       </Column>
       <Row style={{ alignItems: "center", gap: 12 }}>
-        <Column style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}>
-          {/* The number is made by native text: JS is not asked every frame. */}
-          <Text fontSize={20} fontWeight={800} color={c.primary}>
-            {pinch.scale.format({ decimals: 1, suffix: "×" })}
-          </Text>
-        </Column>
         <Text fontSize={12} color={c.muted} style={{ flex: 1 }}>
-          {zoomed() ? "Drag to look around. Double-tap to zoom out." : "Double-tap to zoom in, or pinch with two fingers."}
+          {zoomed()
+            ? "Drag to look around; at the edge, keep dragging for the next photo. Double-tap to zoom out."
+            : "Pinch with two fingers (the spot under your fingers stays put), double-tap to zoom there, or swipe for the next photo."}
         </Text>
-        <MmButton label="Reset" soft onPress={reset} />
+        <MmButton label="Reset" soft onPress={() => resets[page()]?.()} />
       </Row>
-      {/* TODO (needs the focal point): zoom around the fingers, not the middle. pinch.focalX / focalY exist; the photo's
-          drag would have to move by (1 - scale) * (focal - middle) while pinching. Not done in this lab. */}
     </Column>
   )
 }

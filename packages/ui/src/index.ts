@@ -661,7 +661,24 @@ export declare const Canvas: Intrinsic<
  * A scrolling container. `horizontal` makes a rail: only the visible children are drawn, and scrolling never involves
  * JS. Its padding scrolls with the content (like RN's contentContainerStyle). For long vertical data use <List>.
  */
-export declare const Scroll: Intrinsic<Container & RnScrollProps & ({ horizontal?: false } & RefreshProps | { horizontal: true; contentContainerStyle?: ContentContainerStyleInput })>
+export declare const Scroll: Intrinsic<Container & RnScrollProps & { ref?: { current: ScrollRef | null } | ScrollRef } & ({ horizontal?: false } & RefreshProps | { horizontal: true; contentContainerStyle?: ContentContainerStyleInput })>
+/** RN's scroll event (registry 24). Numbers are dp. On a <List> the content size is estimated from the rows seen. */
+export interface ScrollEvent {
+  nativeEvent: {
+    contentOffset: { x: number; y: number }
+    contentSize: { width: number; height: number }
+    layoutMeasurement: { width: number; height: number }
+    /** On onMomentumScrollBegin: the fling's speed (dp/s). */
+    velocity?: { x: number; y: number }
+    contentInset: { top: number; left: number; bottom: number; right: number }
+    zoomScale: number
+  }
+}
+/** `ref` on a <Scroll> (registry 24), as RN's ScrollView ref: `const r = useRef<ScrollRef>(null)`. */
+export interface ScrollRef {
+  scrollTo(options: { x?: number; y?: number; animated?: boolean }): void
+  scrollToEnd(options?: { animated?: boolean }): void
+}
 /**
  * React Native ScrollView / FlatList props that change nothing on screen in zero-native (speed hints, iOS only):
  * accepted and dropped (RN-compat sweep P1.7). zn draws no scroll bar, so the indicator props take only false.
@@ -685,7 +702,34 @@ export interface RnScrollProps {
   removeClippedSubviews?: boolean
   extraData?: unknown
   getItemLayout?: unknown
+  /**
+   * onScroll's pace in ms (registry 24). Default: at most one event per frame, as RN on Android. Prefer
+   * `useElementMotion()` + `motion={m}` for visuals that follow the scroll: they need no JS at all.
+   */
   scrollEventThrottle?: number
+  // ---- Snapping (registry 24; native flings and snaps on the UI thread) ----
+  /** Stops on whole pages (the viewport's size along the scroll). */
+  pagingEnabled?: boolean
+  /** Stops on multiples of this (dp): cards of one width plus their gap. */
+  snapToInterval?: number
+  /** Stops on these offsets (dp). Wins over snapToInterval. */
+  snapToOffsets?: readonly number[]
+  /** With snapToInterval: the card's start, centre or end lines up with the viewport's. Default "start". */
+  snapToAlignment?: "start" | "center" | "end"
+  /** With snapToOffsets: false lets the list scroll freely before the first offset. Default true. */
+  snapToStart?: boolean
+  /** With snapToOffsets: false lets the list scroll freely after the last offset. Default true. */
+  snapToEnd?: boolean
+  /** A fling moves at most one snap point. */
+  disableIntervalMomentum?: boolean
+  /** How fast a fling slows down: "normal" (0.998, the platform's curve), "fast" (0.99), or a number between. */
+  decelerationRate?: "normal" | "fast" | number
+  // ---- Scroll events to JS (registry 24; RN's nativeEvent) ----
+  onScroll?: (e: ScrollEvent) => void
+  onScrollBeginDrag?: (e: ScrollEvent) => void
+  onScrollEndDrag?: (e: ScrollEvent) => void
+  onMomentumScrollBegin?: (e: ScrollEvent) => void
+  onMomentumScrollEnd?: (e: ScrollEvent) => void
   bounces?: boolean
   alwaysBounceVertical?: boolean
   alwaysBounceHorizontal?: boolean

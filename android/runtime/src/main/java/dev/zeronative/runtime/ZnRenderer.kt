@@ -42,6 +42,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -270,8 +272,24 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
         Registry.Component.SCROLL -> if (s.horizontal) {
             // A rail: only the visible children are composed; scrolling it never involves JS.
             val refs = childRefs(f, t, inst, s)
+            // Registry 24: its own state, for snapping, scroll events, scrollTo and scrollX (useElementMotion).
+            val railState = rememberLazyListState()
+            val railPos = remember(railState) { ZnLazyPos(railState, horizontal = true) }
+            znElementOf(s, inst)?.let { e ->
+                val d = LocalDensity.current.density
+                ZnProvide(e, "scrollX") { railPos.offset() / d }
+                // m.follow(v): v in dp from the start (estimated past the first child, as a List's scrollX).
+                ZnFollow(e) { railState.scrollBy(it * d - railPos.offset()) }
+            }
+            ZnScrollEvents(s, inst, railPos, railState.interactionSource)
+            ZnScrollCommands(s, inst, { px, anim ->
+                val by = px - railPos.offset()
+                if (anim) railState.animateScrollBy(by) else railState.scrollBy(by)
+            }, { railPos.max().roundToInt() })
             LazyRow(
                 modifier = mod.znKeyboardDismiss(s.keyboardDismissMode, vertical = false),
+                state = railState,
+                flingBehavior = znScrollFling(s, inst, railPos) ?: ScrollableDefaults.flingBehavior(),
                 contentPadding = contentPaddingOf(s, inst),
                 horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
                 verticalAlignment = verticalAlignment(s.alignItems),
@@ -290,10 +308,18 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                 ZnProvide(e, "scrollY") { scrollState.value / d }
                 ZnFollow(e) { scrollState.scrollTo((it * d).roundToInt().coerceAtLeast(0)) }
             }
+            // Registry 24: snapping, scroll events and scrollTo (ZnScrollExtras.kt).
+            val width = remember(scrollState) { FloatArray(1) }
+            val pos = remember(scrollState) { ZnScrollStatePos(scrollState) { width[0] } }
+            ZnScrollEvents(s, inst, pos, scrollState.interactionSource)
+            ZnScrollCommands(s, inst, { px, anim -> if (anim) scrollState.animateScrollTo(px) else scrollState.scrollTo(px) }, { scrollState.maxValue })
+            val fling = znScrollFling(s, inst, pos)
             Column(
                 // A11-2: the box children's onLayout x / y start from: the scrolling content, so y doesn't move
                 // with the scroll; its contentContainerStyle padding counts, as in RN.
-                modifier = mod.then(znPullRefresh(s, inst)).znKeyboardDismiss(s.keyboardDismissMode, vertical = true).verticalScroll(scrollState)
+                modifier = mod.then(znPullRefresh(s, inst)).znKeyboardDismiss(s.keyboardDismissMode, vertical = true)
+                    .onSizeChanged { width[0] = it.width.toFloat() }
+                    .verticalScroll(scrollState, flingBehavior = fling)
                     .then(ZnBoxElement).padding(contentPaddingOf(s, inst)),
                 verticalArrangement = verticalArrangement(s),
                 horizontalAlignment = horizontalAlignment(s.alignItems),
@@ -734,6 +760,10 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             state.scrollToItem(i, ((v - i) * size).roundToInt())
         }
     }
+    // Registry 24: snapping and scroll events (ZnScrollExtras.kt).
+    val listPos = remember(state, s.horizontal) { ZnLazyPos(state, s.horizontal) }
+    ZnScrollEvents(s, inst, listPos, state.interactionSource)
+    val listFling = znScrollFling(s, inst, listPos) ?: ScrollableDefaults.flingBehavior()
     val scrollCmd = if (s.scrollCommandSlot >= 0) inst.slot(s.scrollCommandSlot).value as? String else null
     val density = LocalDensity.current
     LaunchedEffect(scrollCmd) {
@@ -760,11 +790,13 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
                 val last = (count - 1).coerceAtLeast(0) // the footer, or the empty item, when there is one
                 if (anim) state.animateScrollToItem(last) else state.scrollToItem(last)
             }
-            "offset" -> {
+            "offset", "to" -> {
+                // "to": a <Scroll> ref's scrollTo({ x, y }) on a List: the offset along its axis.
+                val dp = if (parts[0] == "to" && !s.horizontal) number(3) else number(1)
                 // RN's scrollToOffset is absolute, in dp. A lazy list knows only the rows near the screen, so: exact
                 // without animation (top, then down by the offset); animated, exact for 0 and close for other values
                 // (from the visible rows' average size). Before 2026-11-08 it scrolled BY px, so 0 did nothing (M7).
-                val px = with(density) { number(1).coerceAtLeast(0f).dp.toPx() }
+                val px = with(density) { dp.coerceAtLeast(0f).dp.toPx() }
                 when {
                     !anim -> { state.scrollToItem(0); if (px > 0f) state.scrollBy(px) }
                     px == 0f -> state.animateScrollToItem(0)
@@ -830,6 +862,7 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
         LazyRow(
             modifier = mod.then(reorder?.modifier() ?: Modifier).znKeyboardDismiss(s.keyboardDismissMode, vertical = false),
             state = state,
+            flingBehavior = listFling,
             contentPadding = contentPaddingOf(s, inst),
             horizontalArrangement = if (s.gap > 0f) Arrangement.spacedBy(s.gap.dp) else Arrangement.Start,
             verticalAlignment = verticalAlignment(s.alignItems),
@@ -848,6 +881,7 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
                 .then(reorder?.modifier() ?: Modifier)
                 .znKeyboardDismiss(s.keyboardDismissMode, vertical = true), // RN keyboardDismissMode (registry 24)
             state = state,
+            flingBehavior = listFling,
             // Its padding scrolls with the rows (RN's contentContainerStyle), so the last row can scroll above a floating
             // button. The fixed space around the list is margin.
             contentPadding = contentPaddingOf(s, inst),

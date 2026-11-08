@@ -20,6 +20,8 @@ export { batch, computed, createRoot, detached, effect, onCleanup, signal, untra
 export {
   allocInstanceId,
   bindListController,
+  scrollSnap,
+  scrollEvent,
   component,
   each,
   insert,
@@ -60,6 +62,7 @@ export {
   useMotion,
   usePan,
   usePinch,
+  useZoom,
   useRotate,
   useTap,
   useTimeline,
@@ -89,6 +92,8 @@ export {
   type PanGesture,
   type PanOptions,
   type PinchOptions,
+  type ZoomGesture,
+  type ZoomOptions,
   type TapOptions,
 } from "./motion"
 export { pressSpan, runs, span, type Runs, type Span } from "./text-spans"

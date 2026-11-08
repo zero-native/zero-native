@@ -489,6 +489,17 @@ export const Prop = {
    * "interactive" (the keyboard follows the finger; Android 11+, else as "on-drag"). Absent: "none".
    */
   keyboardDismissMode: { id: 160, type: "string" },
+  /**
+   * <Scroll> / <List> snapping, made by the compiler from RN's pagingEnabled, snapToInterval, snapToOffsets,
+   * snapToAlignment, snapToStart, snapToEnd, disableIntervalMomentum and decelerationRate (core scrollSnap):
+   * "p1;i80;a1;o0,120;s0;e0;m1;d0.99". Native runs the fling and the snap (ZnScrollExtras.kt).
+   */
+  snap: { id: 161, type: "string" },
+  /**
+   * <Scroll> / <List>: which scroll events JS has handlers for, and scrollEventThrottle, made by the compiler:
+   * "t16;s;b;e;mb;me" (onScroll, onScrollBeginDrag, onScrollEndDrag, onMomentumScrollBegin, onMomentumScrollEnd).
+   */
+  scrollEvents: { id: 162, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -602,6 +613,12 @@ export const EventKind = {
   onFilled: 24,
   /** <List reorderable> (registry 24): a row was dropped at a new place. Payload: "from,to" (row indexes). */
   onReorder: 26,
+  /**
+   * <Scroll> / <List> (registry 24): one scroll event. Payload: JSON {k: "s" | "b" | "e" | "mb" | "me", x, y, cw, ch,
+   * w, h, vx?, vy?} (dp); the compiler's handler (core scrollEvent) calls onScroll, onScrollBeginDrag, ... with RN's
+   * nativeEvent.
+   */
+  onScrollEvent: 27,
   // 16-29: Claude (milestone 3). 30-39: Gemini (milestone 3 brief).
   onValueChange: 30,
 } as const
@@ -708,6 +725,8 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "blurRadius",
   "motion",
   "sharedTag",
+  // Registry 24: snap rules may come from data (snapToOffsets of measured rows).
+  "snap",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -754,7 +773,7 @@ export const Added: {
     selectable: 23, adjustsFontSizeToFit: 23, minimumFontScale: 23, itemWidthPercent: 23,
     commands: 23,
     gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, animateLayout: 24,
-    itemAnimation: 24, sharedTag: 24, reorderable: 24, keyboardDismissMode: 24,
+    itemAnimation: 24, sharedTag: 24, reorderable: 24, keyboardDismissMode: 24, snap: 24, scrollEvents: 24,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -771,7 +790,7 @@ export const Added: {
     borderTopStartRadius: 23, borderTopEndRadius: 23, borderBottomStartRadius: 23, borderBottomEndRadius: 23,
     fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23, selectable: 23,
     commands: 23,
-    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, sharedTag: 24,
+    gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, sharedTag: 24, snap: 24,
   },
   enumValue: {
     "display.flex": 23, "display.none": 23,
@@ -790,7 +809,7 @@ export const Added: {
     ),
   },
   event: { onNativeEvent: 9, ref: 10, onRefresh: 12, onLoad: 15, onError: 15, onLoadEnd: 15, onLayout: 15,
-    onRequestClose: 15, onShow: 15, onSpanPress: 16, onFilled: 18, onReorder: 24 },
+    onRequestClose: 15, onShow: 15, onSpanPress: 16, onFilled: 18, onReorder: 24, onScrollEvent: 24 },
   format: { "timing.motion": 13, "svg.nonScaling": 13, "svg.effects": 13, "timing.tap": 13, "transition.depth": 24 },
 }
 

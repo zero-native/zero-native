@@ -264,6 +264,22 @@ describe("templates", () => {
       .toThrow("must be known at build time")
   })
 
+  test("scroll snapping and scroll events (RN, registry 24) on Scroll and List; ref on Scroll", () => {
+    const sc = compile(`export function A(p) { return <Scroll horizontal snapToInterval={280} snapToAlignment="center" decelerationRate="fast" onScroll={(e) => p.y(e)} onMomentumScrollEnd={p.end} scrollEventThrottle={100}><Text>a</Text></Scroll> }`)
+    const t = sc.templates[0]
+    expect(typeof t.props.snap).toBe("object") // a slot: core scrollSnap makes the string at runtime
+    expect(t.props.scrollEvents).toBe("t100;s;me")
+    expect(sc.code).toContain("scrollSnap({ snapToInterval: 280, snapToAlignment: \"center\", decelerationRate: \"fast\" })")
+    expect(sc.code).toContain("scrollEvent(__znPayload, { onScroll: (e) => p.y(e), onMomentumScrollEnd: p.end })")
+    const list = compile(`export function B(p) { return <List data={p.rows} key={(r) => r.id} row={(r) => <Text>{r.t}</Text>} pagingEnabled horizontal onScrollBeginDrag={p.b} /> }`)
+    expect(list.templates[0].props.scrollEvents).toBe("t0;b")
+    expect(list.code).toContain("scrollSnap({ pagingEnabled: true })")
+    const ref = compile(`export function C(p) { return <Scroll ref={p.r}><Text>a</Text></Scroll> }`)
+    expect(ref.code).toContain("bindListController(p.r")
+    expect(() => compile(`export function D(p) { return <Scroll scrollEventThrottle={p.ms}><Text>a</Text></Scroll> }`)).toThrow("must be known at build time")
+    expect(() => compile(`export function E() { return <Column ref={null} /> }`)).toThrow("`ref` works only on")
+  })
+
   test("records which template each component returns", () => {
     const { components } = compile(`export function AScreen() { return <Column /> }
       const B = () => <Row />`)

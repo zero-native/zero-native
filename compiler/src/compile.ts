@@ -179,9 +179,18 @@ const RN_STYLE_RENAMES: Record<string, string> = {
 /** RN ScrollView / FlatList props that change nothing on screen in zn (speed hints, iOS only): accepted and dropped. */
 const SCROLL_DROPPED = new Set([
   "initialNumToRender", "maxToRenderPerBatch", "windowSize", "updateCellsBatchingPeriod", "removeClippedSubviews",
-  "extraData", "getItemLayout", "scrollEventThrottle", "bounces", "alwaysBounceVertical", "alwaysBounceHorizontal",
+  "extraData", "getItemLayout", "bounces", "alwaysBounceVertical", "alwaysBounceHorizontal",
   "nestedScrollEnabled", "directionalLockEnabled", "automaticallyAdjustContentInsets", "contentInsetAdjustmentBehavior",
 ])
+/** RN's snap props on a Scroll / List (registry 24): packed into one `snap` string by core scrollSnap. */
+const SCROLL_SNAP_PROPS = new Set([
+  "pagingEnabled", "snapToInterval", "snapToOffsets", "snapToAlignment", "snapToStart", "snapToEnd",
+  "disableIntervalMomentum", "decelerationRate",
+])
+/** RN's scroll events (registry 24): one native event, onScrollEvent, that core scrollEvent hands to these. */
+const SCROLL_EVENT_PROPS: Record<string, string> = {
+  onScroll: "s", onScrollBeginDrag: "b", onScrollEndDrag: "e", onMomentumScrollBegin: "mb", onMomentumScrollEnd: "me",
+}
 /** RN `role` values that zn has (accessibilityRole), by RN name. */
 const RN_ROLES: Record<string, string> = {
   button: "button", header: "header", heading: "header", image: "image", img: "image", link: "link", text: "text",
@@ -1534,7 +1543,16 @@ export function compileModule(
       }
       if (name === "ref") {
         // Not a handler: the field's handle goes into the ref (core text-field.ts fieldRef).
-        if (tag !== "TextField") fail(a, "`ref` works only on <TextField> (focus(), blur(), clear()); other elements have no handle")
+        if (tag === "Scroll") {
+          // Registry 24: RN's ScrollView ref (scrollTo, scrollToEnd) through the List's command slot (core
+          // bindListController; native ZnScrollCommands).
+          if (!init || !ts.isJsxExpression(init) || !init.expression) fail(a, "ref needs a ref: const r = useRef<ScrollRef>(null), then ref={r}")
+          const sl = `s${b.slots++}`
+          ;(props as any).scrollCommand = slotRef(sl, null)
+          b.binds.push(`${RUNTIME}.bindListController(${text((init as ts.JsxExpression).expression!)}, ${b.inst}, @@S:${sl}@@);`)
+          continue
+        }
+        if (tag !== "TextField") fail(a, "`ref` works only on <TextField> (focus(), blur(), clear()) and <Scroll> (scrollTo); other elements have no handle")
         if (!init || !ts.isJsxExpression(init) || !init.expression) {
           fail(a, "ref needs an object made by createRef(): const r = createRef<TextFieldHandle>(), then ref={r}")
         }
@@ -1697,6 +1715,11 @@ export function compileModule(
     underlayColor?: unknown
     activeOpacity?: unknown
     animating?: ts.Expression | false
+    /** Registry 24: RN's snap props on a Scroll / List, by name (an expression, or true for a bare prop). */
+    snap?: Map<string, ts.Expression | true>
+    /** Registry 24: RN's scroll event handlers on a Scroll / List, by name. */
+    scrollEv?: Map<string, ts.Expression>
+    scrollThrottle?: number
   }
 
   /** Finds a build-time flexDirection from a direct prop or style object / array. */
@@ -1997,6 +2020,22 @@ export function compileModule(
     // ScrollView / FlatList props.
     if (tag === "Scroll" || tag === "List") {
       if (SCROLL_DROPPED.has(name)) return true
+      if (SCROLL_SNAP_PROPS.has(name)) {
+        // Registry 24: native snaps (ZnScrollExtras.kt). Values may change at runtime (offsets from data).
+        ;(later.snap ??= new Map()).set(name, init === undefined ? true : expr ?? (ts.isStringLiteral(init) ? init : fail(a, `${name} needs a value`)))
+        return true
+      }
+      if (name in SCROLL_EVENT_PROPS) {
+        if (!expr) return fail(a, `${name} needs a function: ${name}={(e) => ...}`)
+        ;(later.scrollEv ??= new Map()).set(name, expr)
+        return true
+      }
+      if (name === "scrollEventThrottle") {
+        const v = known()
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return fail(a, "scrollEventThrottle must be a number of ms (0 or more)")
+        later.scrollThrottle = v
+        return true
+      }
       if (name === "showsVerticalScrollIndicator" || name === "showsHorizontalScrollIndicator") {
         if (known() === false) return true
         return fail(a, `${name}: zero-native draws no scroll bar, so only {false} is accepted`)
@@ -2021,6 +2060,22 @@ export function compileModule(
 
   /** After the attribute loop: the RN defaults and props that need the whole element (see rnAttribute). */
   function rnFinish(tag: string, rn: string | null, props: Record<string, unknown>, b: Builder, later: RnLater, at: ts.Node, isRowTouchable = false) {
+    if (later.snap) {
+      // Registry 24: one `snap` string, made at runtime by core scrollSnap (it checks the values).
+      const sl = `s${b.slots++}`
+      props.snap = slotRef(sl, null) as never
+      const fields = [...later.snap].map(([k, v]) => `${k}: ${v === true ? "true" : text(v)}`).join(", ")
+      b.binds.push(`${RUNTIME}.slot(${b.inst}, @@S:${sl}@@, () => ${RUNTIME}.scrollSnap({ ${fields} }), 0);`)
+    }
+    if (later.scrollEv) {
+      // Registry 24: native sends only the kinds JS has handlers for; onScroll at most once per frame, or per throttle.
+      const kinds = [...later.scrollEv.keys()].map((k) => SCROLL_EVENT_PROPS[k])
+      props.scrollEvents = [`t${Math.round(later.scrollThrottle ?? 0)}`, ...kinds].join(";")
+      const ev = `e${b.events++}`
+      props.onScrollEvent = eventRef(ev) as never
+      const fields = [...later.scrollEv].map(([k, v]) => `${k}: ${text(v)}`).join(", ")
+      b.binds.push(`${RUNTIME}.on(${b.inst}, @@E:${ev}@@, (__znPayload) => ${RUNTIME}.scrollEvent(__znPayload, { ${fields} }));`)
+    }
     // rowGap / columnGap: the gap along the element's own direction beats gap, as in RN.
     const rowGap = props.__rowGap
     const columnGap = props.__columnGap

@@ -508,6 +508,11 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val reorderable: Boolean = p[Registry.Prop.REORDERABLE] == true
     /** <Scroll> / <List> RN keyboardDismissMode (registry 24): "on-drag", "interactive" or null ("none"). ZnKeyboardScroll.kt. */
     val keyboardDismissMode: String? = p[Registry.Prop.KEYBOARD_DISMISS_MODE] as String?
+    /** <Scroll> / <List> snap rules (registry 24; core scrollSnap; ZnScrollExtras.kt): static, or [snapSlot]. */
+    val snap: String? = p[Registry.Prop.SNAP] as String?
+    val snapSlot = slotFor(raw, Registry.Prop.SNAP)
+    /** <Scroll> / <List> scroll events JS has handlers for (registry 24): "t16;s;b;e;mb;me". */
+    val scrollEvents: String? = p[Registry.Prop.SCROLL_EVENTS] as String?
     /** Something of registry 24's layer is used: the layer sets 3D turns and blur too. */
     val hasDepth = rotateX != 0f || rotateY != 0f || blurRadius != 0f || rotateXSlot != NONE || rotateYSlot != NONE ||
         cameraDistanceSlot != NONE || blurRadiusSlot != NONE || enter?.turns == true || exit?.turns == true
@@ -637,6 +642,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val refreshingSlot = slotFor(raw, Registry.Prop.REFRESHING)
     val onRefresh = eventFor(raw, Registry.Event.ON_REFRESH)
     val onReorder = eventFor(raw, Registry.Event.ON_REORDER)
+    val onScrollEvent = eventFor(raw, Registry.Event.ON_SCROLL_EVENT)
     val onEndReached = eventFor(raw, Registry.Event.ON_END_REACHED)
     val onPressIn = eventFor(raw, Registry.Event.ON_PRESS_IN)
     val onPressOut = eventFor(raw, Registry.Event.ON_PRESS_OUT)
