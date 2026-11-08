@@ -189,7 +189,15 @@ Each entry says:
      outer box.
 - **Also noted:** case 26 (a Row with a height and `alignItems` unset doesn't stretch) follows android/runtime; RN
   would stretch. Written into docs/platform-differences.md next to the Row stretch line.
+- **Android session's reading (2026-11-08, Windows, read only):** (1) confirmed in the Kotlin, and the same gap is in
+  the Stack and the vertical Scroll; a Row has a similar one (`alignSelf: "stretch"` without `alignItems: "stretch"`
+  doesn't fill its height). (2) likely real: `positionInParent()` is measured from inside the parent's padding.
+  A10: probably fine, as `ZnNav.startWith` posts START to the JS thread before Compose draws, so skeleton events queue
+  behind it; to be checked in logcat. None of these is used by ZeroBill, so none blocks its release.
+- **Added cases (iOS fixed, 48 / 48):** c27 (Stack with `alignItems: "center"`, a child with `alignSelf: "stretch"`
+  and no width: expected 0,0,200,10) and c28 (Row with height 40 and `alignItems: "flex-start"`, a 50-wide child with
+  `alignSelf: "stretch"`: expected 0,0,50,40). Expected on Android after the fixes: `48/48 pass`.
 - **Check on Android:** `bun run sample:js`, install the sample, open `zn://sample/dev/layout`, read the
-  `layout-conformance` lines in logcat (`adb logcat -s zn-js`). Expected after the fixes: `46/46 pass`. Any other
+  `layout-conformance` lines in logcat (`adb logcat -s zn-js`). Expected after the fixes: `48/48 pass` (46 before c27 and c28 were added). Any other
   miss is either an Android layout difference or a wrong expectation in LayoutLab.tsx: say which in this entry.
 

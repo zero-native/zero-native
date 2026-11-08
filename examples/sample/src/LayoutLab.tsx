@@ -67,6 +67,10 @@ const EXPECT: Record<string, Frame> = {
   // 26. A Row with a height but alignItems unset doesn't stretch (android/runtime: only an explicit stretch does;
   // RN would stretch). Listed in platform-differences.md as a zn rule.
   c26a: [0, 0, 50, 0],
+  // 27. alignSelf stretch in a Stack whose alignItems is center (rule 4: a Stack stretches like a Column).
+  c27a: [0, 0, 200, 10],
+  // 28. alignSelf stretch in a Row with a height and alignItems flex-start.
+  c28a: [0, 0, 50, 40],
 }
 
 const TOLERANCE = 1
@@ -288,6 +292,16 @@ export function LayoutLabScreen() {
         <Case title="26. Row with a height, alignItems unset">
           <Row style={{ width: 200, height: 40, backgroundColor: BG }}>
             <Box testID="c26a" onLayout={L("c26a")} style={{ width: 50, backgroundColor: B }} />
+          </Row>
+        </Case>
+        <Case title="27. Stack: alignSelf stretch">
+          <Stack alignItems="center" style={{ width: 200, height: 40, backgroundColor: BG }}>
+            <Box testID="c27a" onLayout={L("c27a")} style={{ height: 10, alignSelf: "stretch", backgroundColor: B }} />
+          </Stack>
+        </Case>
+        <Case title="28. Row: alignSelf stretch">
+          <Row alignItems="flex-start" style={{ width: 200, height: 40, backgroundColor: BG }}>
+            <Box testID="c28a" onLayout={L("c28a")} style={{ width: 50, alignSelf: "stretch", backgroundColor: B }} />
           </Row>
         </Case>
       </Column>

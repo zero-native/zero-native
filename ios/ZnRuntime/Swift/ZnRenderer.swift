@@ -200,15 +200,17 @@ struct ZnNodeView: View {
     /// their insets (ZnStackLayout). Same rules as android/runtime's ZnRenderer.kt STACK.
     private func stack(_ s: ZnNodeSpec) -> some View {
         // A normal child stretches to the Stack's width like a Column's (zn flex rule 4, RN's alignItems: 'stretch').
-        let stretch = definiteWidth && (s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch)
+        let stretchAll = s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch
+        let stretch = definiteWidth || s.width != nil
         return ZnStackLayout(alignItems: s.alignItems, justify: s.justify,
                              fillWidth: outer.fillWidth || s.width != nil, fillHeight: outer.fillHeight || s.height != nil) {
             ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
                 let child = ref.t.nodes[ref.node]
                 let fillW = child.absolute && child.posStart != nil && child.posEnd != nil
                 let fillH = child.absolute && child.posTop != nil && child.posBottom != nil
+                // alignSelf stretch stretches even when alignItems doesn't (RN; layout conformance case 27).
                 let stretched = !child.absolute && stretch && child.width == nil && child.type != Registry.Component.spacer &&
-                    (child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.stretch)
+                    (child.alignSelf == Registry.AlignSelf.stretch || (child.alignSelf == -1 && stretchAll))
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node,
                            outer: ZnOuter(fillWidth: stretched || fillW, fillHeight: fillH),
                            definiteWidth: stretched || child.width != nil || fillW)
@@ -249,7 +251,9 @@ struct ZnNodeView: View {
             return (ZnOuter(fillWidth: stretched, fillHeight: child.flex > 0), stretched || child.width != nil)
         }
         // A Row stretches children only when it has a fixed height.
-        let stretched = s.alignItems == Registry.AlignItems.stretch && s.height != nil && child.height == nil
+        // With a fixed height: alignItems stretch, or the child's own alignSelf stretch (case 28).
+        let stretched = s.height != nil && child.height == nil &&
+            (child.alignSelf == Registry.AlignSelf.stretch || (child.alignSelf == -1 && s.alignItems == Registry.AlignItems.stretch))
         return (ZnOuter(fillWidth: child.flex > 0, fillHeight: stretched), child.width != nil || child.flex > 0)
     }
 }
