@@ -26,9 +26,13 @@ struct ZnEntryScreen: View {
             let route = app.route(of: entry)
             let node = ctx.templates[safe: root.templateId]?.nodes.first
             let background = node.flatMap { $0.backgroundSlot >= 0 ? znColor(root.slot($0.backgroundSlot).value) : $0.background }
+            // keyboard "resize" (default): SwiftUI lays the screen out above the keyboard (its keyboard safe area),
+            // as Android's imePadding; only the part of the keyboard below the bottom safe area is new room taken.
+            // "none": the keyboard covers the screen.
             ZnScreenView(ctx: ctx, root: root)
                 .ignoresSafeArea(.container, edges: unsafeEdges(route))
                 .background((background ?? .white).ignoresSafeArea())
+                .ignoresSafeArea(.keyboard, edges: route?.resizeForKeyboard == false ? .bottom : [])
         } else {
             Color.white
         }
@@ -112,6 +116,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         backPan.delegate = self
         backPan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(backPan)
+        // Light / dark changes (the phone's setting, or Control Center): JS's colorScheme() follows.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: ZnNavController, _: UITraitCollection) in
+            ZnSystemEvents.shared.colorSchemeChanged(self.traitCollection.userInterfaceStyle)
+        }
         follow()
     }
 

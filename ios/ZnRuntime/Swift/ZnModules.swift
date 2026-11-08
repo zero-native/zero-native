@@ -179,7 +179,8 @@ enum ZnModules {
 
     /// The built-in modules, and the host's call and cancel paths. Main thread, before JS starts.
     @MainActor static func install() {
-        for m: ZnModule in [ZnPlatformFacts(), ZnOs(), ZnNetInfo(), ZnSecureStore(), ZnClipboard(), ZnFetch.shared] { register(m) }
+        for m: ZnModule in [ZnPlatformFacts(), ZnOs(), ZnNetInfo(), ZnSecureStore(), ZnClipboard(), ZnFetch.shared,
+                             ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash()] { register(m) }
         let host = ZNHost.shared
         host.onNativeCall = { module, method, argsJson, id, bytes in
             call(module, method, argsJson, id, bytes)

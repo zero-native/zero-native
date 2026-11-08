@@ -16,6 +16,8 @@ struct ZnRoute {
     let safeBottom: Bool
     /// statusBar "light": white status bar text (for a dark header); "dark" (default): black text.
     let lightStatusBar: Bool
+    /// keyboard "resize" (default): the screen ends above the keyboard; "none": the keyboard covers it.
+    let resizeForKeyboard: Bool
 
     init(json r: [String: Any]) {
         name = r["name"] as? String ?? ""
@@ -27,12 +29,13 @@ struct ZnRoute {
         default: (safeTop, safeBottom) = (true, true)
         }
         lightStatusBar = (r["statusBar"] as? String) == "light"
+        resizeForKeyboard = (r["keyboard"] as? String) != "none"
     }
 }
 
 /// App-level events to JS (instance 0), as in ZnAppEvent.kt.
 enum ZnAppEvent {
-    static let start = 1, back = 2, forcedBack = 3, insets = 5, callResult = 7, colorScheme = 14, device = 16, window = 17
+    static let start = 1, back = 2, forcedBack = 3, insets = 5, callResult = 7, appState = 11, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
 }
 
 @MainActor
@@ -123,8 +126,8 @@ final class ZnApp {
                     // Fixed facts and the window, before any screen (ZnWindow.kt afterMainScript).
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.device), string: Self.deviceJson())
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.window), string: Self.windowJson())
-                    host.dispatchEvent(0, event: UInt16(ZnAppEvent.colorScheme), string: "light")
                     self.jsStarted = true
+                    ZnSystemEvents.shared.start()  // the colour scheme now, then app state, memory, keyboard changes
                     self.sendInsets()  // before START, so a full-bleed first screen pads its header at once
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.start), string: startPayload)
                 }

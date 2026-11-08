@@ -96,6 +96,8 @@ final class ZnNodeSpec {
     let multiline: Bool
     /// -1: not written (single-line: Done; multi-line: Return makes a new line).
     let returnKeyType: Int
+    /// `<TextField ref>`: the ref event (focus changes go to it as a boolean; Keyboard.focus / blur / clear name it).
+    let ref: Int
     let onChangeText: Int, onFocus: Int, onBlur: Int, onSubmitEditing: Int
 
     // Pressable
@@ -192,6 +194,7 @@ final class ZnNodeSpec {
         autoFocus = p[P.autoFocus]?.bool ?? false
         multiline = p[P.multiline]?.bool ?? false
         returnKeyType = en(P.returnKeyType)
+        ref = eventFor(Registry.Event.ref)
         onChangeText = eventFor(Registry.Event.onChangeText); onFocus = eventFor(Registry.Event.onFocus)
         onBlur = eventFor(Registry.Event.onBlur); onSubmitEditing = eventFor(Registry.Event.onSubmitEditing)
 

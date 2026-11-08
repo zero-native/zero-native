@@ -47,5 +47,13 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan QR codes to pay a store.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The media lab records a short clip.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Show stores near you.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Pay a friend from your contacts.</string>
 </dict>
 </plist>

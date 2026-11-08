@@ -125,7 +125,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
 | i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, native modules (Os, NetInfo, SecureStore, Clipboard, Fetch) done (log below); the other modules, layout tests, the RN props lab's missing parts open |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
 
@@ -146,11 +146,79 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
-### 2026-11-08: Horizontal List via LazyRow (Gemini, batch 1 stretch G6)
-- Enabled `<List horizontal>` and `<FlatList horizontal>` in compiler, writer (`LIST_HORIZONTAL_SINCE = 23`), and runtime (`ZnRenderer.kt`).
-- Native implementation uses Jetpack Compose `LazyRow`, with unconstrained child widths (`definiteWidth = false` unless row root specifies width), `contentContainerStyle` padding, and `gap` along the row.
-- Build-time safety: rejects `stickyHeaderIndices`, `inverted`, and pull-to-refresh on horizontal lists with actionable errors.
-- Added horizontal rail lab tile in `RnPropsLab.tsx`; tests in `rn-compat.test.ts` and `writer.test.ts`. Second-opinions entry 164.
+### 2026-11-08: iOS i.2, keyboard avoidance (Claude, `ios` branch)
+- **`keyboard: "resize"` (default):** SwiftUI already lays a screen out above the keyboard (its keyboard safe area),
+  the same room Android's `imePadding` gives: the Pay button sits on the keyboard. The handoff said content didn't
+  move; it did, but the simulator was using the Mac's keyboard, so the on-screen one never opened (turn it on with
+  the simulator tool's `set_keyboard show`).
+- **`keyboard: "none"`:** read from the route (`ZnRoute.resizeForKeyboard`, as ZnTemplates.kt) and the screen ignores
+  the keyboard's safe area: the keyboard covers it. Checked with the input screen set to "none" for the test only.
+- **The focused field scrolls into view** (Compose's text field keeps itself in view): on focus, and while the
+  keyboard opens. The whole box shows, not just the one-line native view (an empty UIView behind the box gives its
+  frame); every scroll view around it moves the least it can. SwiftUI moves the screen to its new size frame by
+  frame over the keyboard's animation, so one look at any moment was wrong (tried: right after the notification,
+  after a forced layout, at fixed delays): a display link keeps the box in view on every frame while the keyboard
+  moves, so the content rides up with it in one motion.
+- **KEYBOARD to JS when the keyboard starts to move** (keyboard.ts: "when it starts"; Android sends its target
+  height), not when it has arrived. The height is how much of the screen it covers, so a hardware keyboard gives 0.
+- **Found and fixed:** the same keyboard went to JS twice (phone pad → number pad, both 291 pt): the JSON came from a
+  dictionary, whose key order changes. Written by hand now.
+- **Checked on the simulator:** input screen: phone pad (291 pt) with Pay above it; tap the half-hidden OTP box →
+  it scrolls fully into view (20 pt); hide, tap the note box at the bottom → keyboard 336 pt, the note box rides up
+  with it (22 frames) and ends fully above Pay; `keyboard: "none"` → the keyboard covers the note and Pay.
+- **Not checked:** a field in a list row (the UIKit list is a scroll view, so the same code runs; no sample screen
+  has one), sheets with fields (UIKit lifts a sheet over the keyboard itself; no sample sheet has a field), a real
+  iPhone. No Android issue from this step.
+
+### 2026-11-08: iOS i.2, the remaining modules and system events (Claude, `ios` branch)
+- **System events** (`ZnSystemEvents.swift`): COLOR_SCHEME at start and on change (it was always "light"),
+  APP_STATE "active" / "background" (background as soon as the user can't touch the app: Control Center, a system
+  dialog, the app switcher, as Android's pause), LOW_MEMORY, KEYBOARD `{ visible, height }` once per show or hide.
+- **Found and fixed:** going to the home screen, iOS draws the app in light and in dark for the app switcher's
+  snapshots, and each flip reached JS as a setting change. Colour-scheme changes are held while in the background
+  and the scheme is read again on becoming active (checked: background → dark set → active gives one "dark").
+- **Modules** (`ZnUiModules.swift`): Keyboard v2 (dismiss; a `<TextField ref>`'s focus, blur, clear, isFocused),
+  Vibration (iOS's one system buzz per buzz step, as RN on iOS; false on the simulator), Toast (zero-native's own
+  pill above the home indicator and the keyboard, over every screen), Alert (UIAlertController; JS now also sends
+  each button's `style`, so cancel and destructive look like iOS's; Android ignores it), Permissions (camera,
+  microphone, location + location.precise, notifications, contacts; not asked = "denied", refused = "blocked"; a
+  missing Info.plist usage text is `not_declared`, since iOS would end the app), Splash (iOS holds no splash: hold
+  and release answer false, "nothing happens" as for an Android app that doesn't hold it).
+- **Found and fixed:** the toast never showed: its fade-out was started with the fade-in, so UIKit set alpha 0 at
+  once. The fade-out now starts when the fade-in ends.
+- **Checked on the simulator:** OTP ref focus → keyboard (291 pt) and `isFocused` true, blur → keyboard hidden;
+  3-button alert in iOS styles, "Cancel it" runs its onPress; toast "Saved"; camera status "denied" → iOS's dialog
+  with the usage text → Don't Allow → "blocked" (the dialog read as background, then active); Os.info, haptic.
+- **Not on iOS yet:** Launches (Android activity results; UPI on iOS returns by URL, i.4), background tasks
+  (BGTaskScheduler, its own design), Updates (OTA, i.3), app layers, keyboard avoidance (content doesn't move up
+  for the keyboard yet: Android's `keyboard: "resize"`).
+
+### 2026-11-08: iOS i.2, native modules (Claude, `ios` branch)
+- **The module system** (`ios/ZnRuntime/Swift/ZnModules.swift`), ZnModules.kt's contract: typed arguments
+  (`invalid_args`), exactly one answer per call, cancel hooks (AbortSignal → `URLSessionTask.cancel`), the `__v`
+  version check, module events only while JS listens (app event 8, newest-only when JS is busy), binary input and
+  binary answers (app event 9), and `constants()` set as `__zn_constants` before the main script. The host
+  (`ZNHost.mm`) now passes call bytes and cancels, and sends binary answers. JS `console` lines are printed too.
+- **Modules:** Os (info, haptic, openSettings, share, openUrl, canOpenUrl; same scheme allow-list), NetInfo
+  (NWPathMonitor; `fetch` and "change" with Android's 250 ms settle), SecureStore (Keychain), Clipboard, Fetch
+  (URLSession). Storage (MMKV) already worked through the core.
+- **iOS choices:** SecureStore items are readable after the first unlock and never leave the device; a new install
+  clears what an earlier install left (Keychain items outlive the app on iOS; Android's Keystore data doesn't), and a
+  locked phone is `temporarily_unavailable`. NetInfo's `isInternetReachable` is "the path is satisfied" (iOS has no
+  "validated" flag). Fetch keeps Android's rules with our own whole-call timer, drops `Authorization` across hosts
+  (URLSession keeps it), refuses HTTPS → HTTP, splits the joined `Set-Cookie` again, and gives `statusText` "" (no
+  reason phrase in URLSession). `Os.info` keeps Android's keys and adds `ios`.
+- **Platform:** DEVICE (16) and WINDOW (17) are sent after the main script. `Platform.OS` was always "android" in
+  JS (A9): it now reads `nativeConstants("Platform")`, so it is right at the top level of a file too; `select`
+  picks `ios`; `Version` is the major iOS version as a number (RN gives "18.0"; `constants.Release` has it).
+- **Checked on the simulator:** fetch checks 27 / 27 (against `tools/fetch-test-server.ts`; POST sent once, timeout,
+  abort, redirects, Authorization dropped, too_large, cut body, cleartext_blocked, dns, tls, insecure_redirect). One
+  check expected exactly "gzip" (OkHttp's Accept-Encoding); URLSession offers "gzip, deflate", so it now accepts any
+  list with gzip. Storage checks 7 / 9 (MMKV and SecureStore pass; the 2 others use the sample's own Kotlin `Device`
+  module). RN basics lab: `platform ios 18 18.0 Apple iPhone17,3`, window 393×852 ×3, NetInfo wifi (fetch and the
+  live header), clipboard read back (after iOS's "Allow Paste"), canOpenURL, `whatsapp:` refused.
+- **Not on iOS yet:** Vibration, Toast, Alert, Keyboard events, Splash, Permissions, Launches, Background tasks,
+  Updates (OTA, i.3), AppState and colour-scheme changes; plugins (i.4). A call to one answers "unavailable".
 
 ### 2026-11-08: Text onPress and row Touchables (Gemini, batch 1)
 - Bumped registry to version 23 with `TEXT_PRESS_SINCE = 23`.

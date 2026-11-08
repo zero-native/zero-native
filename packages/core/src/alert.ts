@@ -48,6 +48,8 @@ export const Alert = {
       title: title == null ? "" : String(title),
       message: message == null ? null : String(message),
       buttons: texts,
+      // iOS draws cancel and destructive buttons its own way (Android draws them all the same and ignores this).
+      styles: list.map((b) => b.style ?? "default"),
       cancelable: options?.cancelable === true,
     }
     callNative<{ index: number }>("Alert", "show", { ...args, __v: 1 }, { owned: false }).then(

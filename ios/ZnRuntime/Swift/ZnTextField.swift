@@ -35,9 +35,20 @@ struct ZnTextFieldView: View {
 /// A tap anywhere in a field's box (its padding, the rest of a minHeight) focuses the field, as on Android, where
 /// the whole box is the field. The native view is one line tall at the top of the box; without this a tap below it
 /// did nothing (found 2026-11-08 on the sample's 64 pt note box). Taps on the native view itself go to it as before.
+//
+// The focused field is scrolled into view, as Compose keeps a focused text field in view: when it gets focus, and
+// while the keyboard opens and the screen above it shrinks (keyboard: "resize"). The whole box shows, not just the
+// one-line native view, so its padding and the rest of a tall box show too. A plain UIView behind the box
+// (ZnFieldBoxMarker) gives the box's frame in UIKit terms; every scroll view around it (a <Scroll>'s, a list's)
+// scrolls the least it can to show it, innermost first.
+//
+// SwiftUI moves the screen to its new size over the keyboard's animation, frame by frame (seen 2026-11-08: the
+// scroll view was 419 pt tall 150 ms in, 336 pt at the end), so one look at any moment is wrong. While the keyboard
+// moves, every frame puts the box back in view without animation, so the content rides up with the keyboard.
 @MainActor
 enum ZnFieldFocus {
     private static var views: [String: WeakView] = [:]
+    private static var boxes: [String: WeakView] = [:]
     final class WeakView { weak var view: UIView?; init(_ v: UIView) { view = v } }
 
     static func key(_ inst: ZnInstance, _ node: Int) -> String { "\(ObjectIdentifier(inst).hashValue):\(node)" }
@@ -45,9 +56,93 @@ enum ZnFieldFocus {
         views = views.filter { $0.value.view != nil }
         views[key(inst, node)] = WeakView(v)
     }
+    static func registerBox(_ v: UIView, _ key: String) {
+        boxes = boxes.filter { $0.value.view != nil }
+        boxes[key] = WeakView(v)
+    }
     static func focus(_ inst: ZnInstance, _ node: Int) {
         guard let v = views[key(inst, node)]?.view, !v.isFirstResponder else { return }
         v.becomeFirstResponder()
+    }
+
+    /// After this run of the main loop: scrolls the focused field's box into view, animated. On focus (another field
+    /// while the keyboard is up, or a hardware keyboard).
+    static func revealSoon() {
+        DispatchQueue.main.async { reveal(animated: true) }
+    }
+
+    private static var link: CADisplayLink?
+    private static var followUntil: CFTimeInterval = 0
+    private final class Ticker: NSObject {
+        @objc func tick(_ l: CADisplayLink) {
+            MainActor.assumeIsolated {
+                ZnFieldFocus.reveal(animated: false)
+                if l.timestamp >= ZnFieldFocus.followUntil { ZnFieldFocus.stopFollowing() }
+            }
+        }
+    }
+    private static let ticker = Ticker()
+
+    /// The keyboard starts to move for [duration] seconds: keep the focused field in view on every frame meanwhile.
+    /// Called again when it has arrived, for SwiftUI's last frames.
+    static func followKeyboard(duration: Double) {
+        // SwiftUI's own motion ends a little after the keyboard's.
+        followUntil = CACurrentMediaTime() + max(duration, 0.25) + 0.2
+        guard link == nil else { return }
+        let l = CADisplayLink(target: ticker, selector: #selector(Ticker.tick(_:)))
+        l.add(to: .main, forMode: .common)
+        link = l
+    }
+
+    private static var followedFrames = 0
+
+    private static func stopFollowing() {
+        link?.invalidate()
+        link = nil
+        if followedFrames > 0 { print("zn t=\(ZnDebug.ms()) keyboard: kept the focused field in view over \(followedFrames) frames") }
+        followedFrames = 0
+    }
+
+    private static func reveal(animated: Bool) {
+        guard let (key, field) = views.first(where: { $0.value.view?.isFirstResponder == true }),
+              let field = field.view else { return }
+        let target = boxes[key]?.view ?? field
+        var v = target.superview
+        while let sv = v {
+            if let scroll = sv as? UIScrollView, scroll.isScrollEnabled {
+                let rect = target.convert(target.bounds, to: scroll)
+                let seen = scroll.bounds.inset(by: scroll.adjustedContentInset)
+                if !seen.insetBy(dx: -1, dy: -1).contains(rect) {  // a point of slack: frames are fractional
+                    if animated {
+                        print("zn t=\(ZnDebug.ms()) keyboard: scroll the focused field into view (y \(Int(rect.minY))–\(Int(rect.maxY)), seen \(Int(seen.minY))–\(Int(seen.maxY)))")
+                        scroll.scrollRectToVisible(rect, animated: true)
+                    } else {
+                        scroll.setContentOffset(offsetShowing(rect, in: scroll, seen: seen), animated: false)
+                        followedFrames += 1
+                    }
+                }
+            }
+            v = sv.superview
+        }
+    }
+
+    /// The content offset that shows [rect] with the least movement (its top when it is taller than what shows),
+    /// kept inside the content.
+    private static func offsetShowing(_ rect: CGRect, in scroll: UIScrollView, seen: CGRect) -> CGPoint {
+        func axis(_ lo: CGFloat, _ hi: CGFloat, _ seenLo: CGFloat, _ seenHi: CGFloat, _ now: CGFloat,
+                  _ minOff: CGFloat, _ maxOff: CGFloat) -> CGFloat {
+            var d: CGFloat = 0
+            if hi > seenHi { d = hi - seenHi }
+            if lo - d < seenLo { d = lo - seenLo }
+            return min(max(now + d, minOff), max(minOff, maxOff))
+        }
+        let inset = scroll.adjustedContentInset
+        let o = scroll.contentOffset
+        let x = axis(rect.minX, rect.maxX, seen.minX, seen.maxX, o.x, -inset.left,
+                     scroll.contentSize.width - scroll.bounds.width + inset.right)
+        let y = axis(rect.minY, rect.maxY, seen.minY, seen.maxY, o.y, -inset.top,
+                     scroll.contentSize.height - scroll.bounds.height + inset.bottom)
+        return CGPoint(x: x, y: y)
     }
 }
 
@@ -58,9 +153,26 @@ struct ZnFieldBoxTap: ViewModifier {
     func body(content: Content) -> some View {
         if s.type == Registry.Component.textField {
             content.contentShape(Rectangle()).onTapGesture { ZnFieldFocus.focus(inst, s.index) }
+                .background(ZnFieldBoxMarker(key: ZnFieldFocus.key(inst, s.index)))
         } else {
             content
         }
+    }
+}
+
+/// An empty UIView the size of a field's box: where the box is, for scrolling it into view (ZnFieldFocus.reveal).
+struct ZnFieldBoxMarker: UIViewRepresentable {
+    let key: String
+
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        v.isUserInteractionEnabled = false
+        ZnFieldFocus.registerBox(v, key)
+        return v
+    }
+
+    func updateUIView(_ v: UIView, context: Context) {
+        ZnFieldFocus.registerBox(v, key)
     }
 }
 
@@ -89,6 +201,7 @@ struct ZnUIKitField: UIViewRepresentable {
         f.setContentHuggingPriority(.defaultLow, for: .horizontal)
         f.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         ZnFieldFocus.register(f, inst, s.index)
+        if s.ref != 0 { ZnKeyboard.attach(f, inst.id, s.ref) }
         if s.autoFocus { DispatchQueue.main.async { f.becomeFirstResponder() } }
         return f
     }
@@ -102,6 +215,7 @@ struct ZnUIKitField: UIViewRepresentable {
     func updateUIView(_ f: UITextField, context: Context) {
         let c = context.coordinator
         c.send = { [ctx, inst, s] event, text in ctx.send(inst.id, event, text.map(ZnPayload.string) ?? .none) }
+        c.focusChanged = { [ctx, inst, s] focused in if s.ref != 0 { ctx.send(inst.id, s.ref, .bool(focused)) } }
         c.s = s
         c.state = state
         f.placeholder = s.placeholder
@@ -130,6 +244,8 @@ struct ZnUIKitField: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextFieldDelegate {
         var send: (Int, String?) -> Void = { _, _ in }
+        /// A `<TextField ref>`'s focus, for its handle's isFocused().
+        var focusChanged: (Bool) -> Void = { _ in }
         var lastRaw: ZnValue?
         var s: ZnNodeSpec?
         var state: ZnFieldState?
@@ -148,8 +264,15 @@ struct ZnUIKitField: UIViewRepresentable {
             return current.replacingCharacters(in: range, with: string).count <= max
         }
 
-        func textFieldDidBeginEditing(_ f: UITextField) { if let s, s.onFocus != 0 { send(s.onFocus, nil) } }
-        func textFieldDidEndEditing(_ f: UITextField) { if let s, s.onBlur != 0 { send(s.onBlur, nil) } }
+        func textFieldDidBeginEditing(_ f: UITextField) {
+            focusChanged(true)
+            ZnFieldFocus.revealSoon()
+            if let s, s.onFocus != 0 { send(s.onFocus, nil) }
+        }
+        func textFieldDidEndEditing(_ f: UITextField) {
+            focusChanged(false)
+            if let s, s.onBlur != 0 { send(s.onBlur, nil) }
+        }
         func textFieldShouldReturn(_ f: UITextField) -> Bool {
             if let s, s.onSubmitEditing != 0 { send(s.onSubmitEditing, f.text ?? "") }
             f.resignFirstResponder()
@@ -233,6 +356,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
         ])
         context.coordinator.placeholder = placeholder
         ZnFieldFocus.register(v, inst, s.index)
+        if s.ref != 0 { ZnKeyboard.attach(v, inst.id, s.ref) }
         if s.autoFocus { DispatchQueue.main.async { v.becomeFirstResponder() } }
         return v
     }
@@ -247,6 +371,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
     func updateUIView(_ v: UITextView, context: Context) {
         let c = context.coordinator
         c.send = { [ctx, inst] event, text in ctx.send(inst.id, event, text.map(ZnPayload.string) ?? .none) }
+        c.focusChanged = { [ctx, inst, s] focused in if s.ref != 0 { ctx.send(inst.id, s.ref, .bool(focused)) } }
         c.s = s
         c.state = state
         let font = UIFont.systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
@@ -272,6 +397,8 @@ struct ZnUIKitTextView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var send: (Int, String?) -> Void = { _, _ in }
+        /// A `<TextField ref>`'s focus, for its handle's isFocused().
+        var focusChanged: (Bool) -> Void = { _ in }
         var lastRaw: ZnValue?
         var s: ZnNodeSpec?
         var state: ZnFieldState?
@@ -295,8 +422,15 @@ struct ZnUIKitTextView: UIViewRepresentable {
             return ((v.text ?? "") as NSString).replacingCharacters(in: range, with: text).count <= max
         }
 
-        func textViewDidBeginEditing(_ v: UITextView) { if let s, s.onFocus != 0 { send(s.onFocus, nil) } }
-        func textViewDidEndEditing(_ v: UITextView) { if let s, s.onBlur != 0 { send(s.onBlur, nil) } }
+        func textViewDidBeginEditing(_ v: UITextView) {
+            focusChanged(true)
+            ZnFieldFocus.revealSoon()
+            if let s, s.onFocus != 0 { send(s.onFocus, nil) }
+        }
+        func textViewDidEndEditing(_ v: UITextView) {
+            focusChanged(false)
+            if let s, s.onBlur != 0 { send(s.onBlur, nil) }
+        }
     }
 }
 
