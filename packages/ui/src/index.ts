@@ -50,8 +50,12 @@ declare global {
 
 export interface StyleProps {
   /** "auto" (React Native's default) is dropped: the size of the content. */
-  width?: Size | "auto"
-  height?: Size | "auto"
+  /**
+   * A motion value works too (registry 24): the element is measured again each frame while it moves, and what is
+   * around it moves with it. Use it for one element (a panel, a header); a transform costs less (docs/motion.md §5).
+   */
+  width?: Size | "auto" | MotionInput
+  height?: Size | "auto" | MotionInput
   minWidth?: number
   maxWidth?: number
   minHeight?: number

@@ -8,7 +8,7 @@
 // The sizes, the glides, the presets, the counters and the pulse run natively. JS only says "now it is open".
 import { Box, Column, List, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
 import type { Children } from "@zero-native/ui"
-import { nav, signal, useElementMotion, useMotion, useTimeline } from "@zero-native/core"
+import { nav, signal, useElementMotion, useMotion, usePan, useTimeline } from "@zero-native/core"
 import { c } from "./tokens"
 import { formatIndian } from "./money"
 
@@ -494,6 +494,41 @@ function MlCounterDemo() {
 
 // ---- e) Coach mark placed with measure() ---------------------------------------------------------------------------------
 
+// ---- f) Height from a motion value (registry 24, A4 limited) ------------------------------------------------------------
+
+/** A panel whose height follows a drag. Not a transform: the cards below really move (the layout runs each frame). */
+function MlHeightDemo() {
+  const drag = usePan({
+    axis: "y",
+    initial: { y: 140 },
+    bounds: { y: [80, 300] },
+    anchors: [{ id: "small", y: 80 }, { id: "medium", y: 180 }, { id: "large", y: 300 }],
+    a11yLabel: "Panel size",
+  })
+  return (
+    <Column style={{ paddingHorizontal: 16, gap: 10 }}>
+      <Column style={{ height: drag.y, borderRadius: 18, backgroundColor: c.primary, padding: 16, overflow: "hidden" }}>
+        <Text fontSize={16} fontWeight={800} color={c.white}>
+          Spends this month
+        </Text>
+        <Text fontSize={13} color={c.white}>
+          {drag.y.format({ decimals: 0, suffix: " dp tall" })}
+        </Text>
+      </Column>
+      <Row gesture={drag} style={{ height: 28, alignItems: "center", justifyContent: "center" }}>
+        <Box style={{ width: 48, height: 6, borderRadius: 3, backgroundColor: c.border }} />
+      </Row>
+      {["Groceries ₹4,820", "Fuel ₹2,100", "Dining ₹1,640"].map((t) => (
+        <Row key={t} style={{ padding: 14, borderRadius: 14, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}>
+          <Text fontSize={14} fontWeight={700} color={c.ink}>
+            {t}
+          </Text>
+        </Row>
+      ))}
+    </Column>
+  )
+}
+
 function MlCoachDemo() {
   // The demo area, and the button the tip points at. measure() gives each box in the window, so the tip uses the
   // difference.
@@ -651,6 +686,7 @@ export function MotionLayoutLabScreen() {
           <MlTab label="Presets" on={tab() === 2} onPress={() => tab.set(2)} />
           <MlTab label="Counter" on={tab() === 3} onPress={() => tab.set(3)} />
           <MlTab label="Coach" on={tab() === 4} onPress={() => tab.set(4)} />
+          <MlTab label="Height" on={tab() === 5} onPress={() => tab.set(5)} />
         </Row>
         <Text fontSize={12} color={c.muted}>
           {tab() === 0
@@ -661,7 +697,9 @@ export function MotionLayoutLabScreen() {
                 ? "Hide all, then Show all: each cell uses a different enter / exit preset. Replay hides, waits, shows."
                 : tab() === 3
                   ? "The ₹ numbers are native text, drawn each frame. Press + ₹1,250 twice quickly: the count goes on from where it is."
-                  : "Show tip: the tip is placed with measure(). Move the button, then Show tip again: it finds the new place."}
+                  : tab() === 4
+                    ? "Show tip: the tip is placed with measure(). Move the button, then Show tip again: it finds the new place."
+                    : "Drag the handle: the panel's real height follows the finger and the cards below move with it (a layout pass per frame)."}
         </Text>
         <Row style={{ gap: 10, alignItems: "center" }}>
           <MlButton label="Keep JS busy 200 ms" onPress={busyOnce} />
@@ -676,6 +714,7 @@ export function MotionLayoutLabScreen() {
       {tab() === 2 ? <MlPresetsDemo /> : null}
       {tab() === 3 ? <MlCounterDemo /> : null}
       {tab() === 4 ? <MlCoachDemo /> : null}
+      {tab() === 5 ? <MlHeightDemo /> : null}
     </Column>
   )
 }

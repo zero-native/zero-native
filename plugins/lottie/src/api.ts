@@ -1,6 +1,6 @@
 // The lottie plugin's JS side, without the component (LottieView.tsx). Native side: android/.../LottieView.kt.
 // Names follow lottie-react-native 7.x, so ported code keeps its props. No side effects: nativeModule() only creates a handle.
-import { nativeModule, parseColor, signal, type Signal } from "@zero-native/core"
+import { nativeModule, parseColor, signal, type MotionSource, type Signal } from "@zero-native/core"
 
 /**
  * Where the animation is: `"asset:lottie/x.json"` or `"asset:lottie/x.lottie"`, a file in the app's `assets/` folder (it
@@ -115,8 +115,13 @@ export interface LottieViewProps {
   loop?: boolean
   /** Default 1. Below 0 plays backwards. */
   speed?: number
-  /** 0 to 1. Default 0. A new value jumps there (a play goes on from there). */
-  progress?: number
+  /**
+   * 0 to 1. Default 0. A new value jumps there (a play goes on from there).
+   * A motion value (registry 24, `useMotion`, a gesture's progress, a scroll value mapped to 0..1) drives the frame
+   * natively each frame, with no JS: a pull-to-refresh or a like button that follows the finger. While it drives,
+   * autoPlay and play() do nothing.
+   */
+  progress?: number | MotionSource
   /** Default "contain": all of it in the box. cover: fills the box, cut at the sides. center: its own size, in the middle. */
   resizeMode?: "contain" | "cover" | "center"
   /** Default "AUTOMATIC". */
@@ -156,7 +161,8 @@ export function lottieProps(p: LottieViewProps, c: LottieViewController): Record
     autoPlay: p.autoPlay ?? false,
     loop: p.loop ?? true,
     speed: finite(p.speed, 1),
-    progress: p.progress === undefined ? null : Math.min(1, Math.max(0, finite(p.progress, 0))),
+    // A motion value goes as it is: <NativeView> sends it as a reference native reads each frame (viewPropsJson).
+    progress: isMotion(p.progress) ? p.progress : p.progress === undefined ? null : Math.min(1, Math.max(0, finite(p.progress, 0))),
     resizeMode: p.resizeMode ?? "contain",
     renderMode: p.hardwareAccelerationAndroid ? "HARDWARE" : (p.renderMode ?? "AUTOMATIC"),
     mergePaths: p.enableMergePathsAndroidForKitKatAndAbove ?? false,
@@ -170,6 +176,11 @@ export function lottieProps(p: LottieViewProps, c: LottieViewController): Record
     from: s.from,
     to: s.to,
   }
+}
+
+/** A motion value (core motion.ts): a function with its native id. */
+function isMotion(v: unknown): v is MotionSource {
+  return typeof v === "function" && typeof (v as { __znMotion?: unknown }).__znMotion === "number"
 }
 
 function finite(v: number | undefined, dflt: number): number {

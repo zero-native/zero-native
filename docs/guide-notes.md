@@ -2675,6 +2675,23 @@ Reference: `docs/motion.md`. The short version for authors:
   the text becomes its prefix and suffix. Two in one `<Text>`: only the first is drawn; use one `<Text>` each.
 - Every motion API needs the `Motion` module: an older APK refuses such a bundle and keeps its own (normal OTA rule).
 
+## 76. Chats: `keyboardDismissMode` (registry 24)
+```tsx
+<List inverted keyboardDismissMode="interactive" data={messages()} key={(m) => String(m.id)} row={(m) => <Bubble m={m} />} style={{ flex: 1 }} />
+```
+- **Do** use `"interactive"` on a chat's list. A drag down on the messages pushes the keyboard away with the finger;
+  at the newest message, a drag up pulls it back. **Why:** this is what users know from chat apps; the field keeps
+  focus, so the keyboard can come back without a tap.
+- **Do** use `"on-drag"` on a search results list or a form. The first drag closes the keyboard and the field loses
+  focus (as `Keyboard.dismiss()`). A drag with no keyboard open changes nothing.
+- **Know:** `"interactive"` needs Android 11+; older Android works like `"on-drag"`. It moves the keyboard only for
+  vertical drags; a horizontal `Scroll` or `List` works like `"on-drag"`. With no focused field, a drag up can't open
+  the keyboard (also on iOS).
+- **Know:** the value is fixed at build time: `"none"` (the default), `"on-drag"` or `"interactive"`. Anything else
+  fails the build.
+- The bar under the list still has to move with the keyboard: the route's `keyboard: "resize"` (default) does it, or
+  `keyboard: "none"` and `translateY` by `env.keyboardHeight` (Sheets lab, Keyboard tab).
+
 ## 77. Canvas: drawing from motion values, images, paragraphs, clips
 Reference: `docs/components.md` §14. The short version for authors:
 - **Do** give a chart cursor, a ring's sweep or a tick's trim a motion value (`draw.circle(x, y, 5, paint)` with

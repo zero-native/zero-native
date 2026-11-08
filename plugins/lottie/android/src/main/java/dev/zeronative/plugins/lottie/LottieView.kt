@@ -61,7 +61,7 @@ internal data class LottieSpec(
                 autoPlay = p.optBoolean("autoPlay", false),
                 loop = p.optBoolean("loop", true),
                 speed = p.optDouble("speed", 1.0).toFloat().takeIf { it.isFinite() } ?: 1f,
-                progress = if (p.isNull("progress")) null else p.optDouble("progress", 0.0).toFloat().coerceIn(0f, 1f),
+                progress = if (p.isNull("progress")) null else p.optDouble("progress", 0.0).toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f,
                 contentScale = when (p.optString("resizeMode")) {
                     "cover" -> ContentScale.Crop
                     "center" -> ContentScale.None
@@ -109,6 +109,8 @@ private class Last {
 internal fun LottieViewContent(scope: ZnViewScope, files: LottieFiles) {
     val context = LocalContext.current
     val spec = remember(scope.props) { LottieSpec.of(scope.props) }
+    // Registry 24: `progress` as a motion value is read each frame while drawing (no JS, no recomposition).
+    val driven = remember(scope.props) { scope.motion("progress") }
     var composition by remember { mutableStateOf<LottieComposition?>(null) }
     val anim = rememberLottieAnimatable()
     val last = remember { Last() }
@@ -147,8 +149,9 @@ internal fun LottieViewContent(scope: ZnViewScope, files: LottieFiles) {
         to = spec.to,
     )
     val motionOff = LottieRules.motionOff(scale)
-    LaunchedEffect(composition, target, scale) {
+    LaunchedEffect(composition, target, scale, driven) {
         val c = composition ?: return@LaunchedEffect
+        if (driven != null) return@LaunchedEffect // the motion value moves it
         val same = last.composition === c
         val prev = last.target.takeIf { same }
         val wasRunning = last.running && prev != null
@@ -210,7 +213,7 @@ internal fun LottieViewContent(scope: ZnViewScope, files: LottieFiles) {
     }
     LottieAnimation(
         composition = composition,
-        progress = { anim.progress },
+        progress = { driven?.invoke()?.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: anim.progress },
         modifier = Modifier.fillMaxSize(),
         applyOpacityToLayers = spec.opacityToLayers,
         enableMergePaths = spec.mergePaths,

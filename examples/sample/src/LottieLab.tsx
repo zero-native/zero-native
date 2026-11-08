@@ -1,9 +1,9 @@
 // A dev screen for the lottie plugin, written the way ported React Native code is: the default import, `ref` (a useRef
 // object and a callback), RN's prop names. The files are in ../assets/lottie (made by ../make-lottie.ts). A phone test
 // reads the lines on screen and the log lines "lottie-lab ...".
-import { signal, useRef } from "@zero-native/core"
+import { signal, usePan, useRef } from "@zero-native/core"
 import LottieView, { Lottie } from "@zero-native/lottie"
-import { Column, Pressable, Row, Scroll, Text, View } from "@zero-native/ui"
+import { Column, Pressable, Row, Scroll, Stack, Text, View } from "@zero-native/ui"
 import { c } from "./tokens"
 
 function LottieLabButton(props: { label: string; onPress: () => void }) {
@@ -20,6 +20,8 @@ const SPEEDS = [1, 2, -1]
 const MODES = ["contain", "cover", "center"] as const
 
 export function LottieLabScreen() {
+  // The knob: 0 at the left, 1 at the right ("100%" is the track's width minus the knob's).
+  const scrub = usePan({ axis: "x", bounds: { x: [0, "100%"] }, rubber: false })
   const status = signal("ready")
   const say = (text: string) => {
     console.info(`lottie-lab ${text}`)
@@ -131,6 +133,25 @@ export function LottieLabScreen() {
             <LottieLabButton label="Pause" onPress={() => check?.pause()} />
             <LottieLabButton label="Resume" onPress={() => check?.resume()} />
           </Row>
+        </Column>
+
+        {/* 2b. Registry 24: `progress` from a motion value. The knob's drag moves the frame natively, no JS per frame. */}
+        <Column gap={8} style={{ padding: 12, borderRadius: 16, backgroundColor: c.white }}>
+          <Text fontSize={14} fontWeight={700} color={c.ink}>
+            Check, driven by a drag (motion value)
+          </Text>
+          <View style={{ height: 120, alignItems: "center" }}>
+            <View style={{ width: 120, height: 120 }}>
+              <LottieView source="asset:lottie/check.json" progress={scrub.progress} />
+            </View>
+          </View>
+          <Stack style={{ height: 36 }}>
+            <View style={{ position: "absolute", top: 15, start: 0, end: 0, height: 6, borderRadius: 3, backgroundColor: c.pillBg }} />
+            <View
+              gesture={scrub}
+              style={{ position: "absolute", top: 0, start: 0, width: 36, height: 36, borderRadius: 18, backgroundColor: c.primary, transform: [{ translateX: scrub.x }] }}
+            />
+          </Stack>
         </Column>
 
         {/* 3. A .lottie file (a zip), wide box: resizeMode shows. */}

@@ -184,3 +184,11 @@ test("the component compiles to the view the plugin registers", () => {
   expect(views).toEqual(["lottie.view"])
   expect(out.components.LottieView).toBeDefined()
 })
+
+test("progress as a motion value goes to native as it is (registry 24); other values are clamped numbers", () => {
+  const c = lottieController()
+  const motion = Object.assign(() => 0.3, { __znMotion: 42 })
+  expect(lottieProps({ source: "asset:lottie/a.json", progress: motion as never }, c).progress).toBe(motion)
+  expect(lottieProps({ source: "asset:lottie/a.json", progress: 2 }, c).progress).toBe(1)
+  expect(lottieProps({ source: "asset:lottie/a.json" }, c).progress).toBeNull()
+})

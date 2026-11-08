@@ -2912,6 +2912,39 @@ change, and what evidence would make you change it?"
   in the frame the screen is added); (b) build the screen before it is pushed (needs JS to mount it hidden first);
   (c) a baseline profile that covers first screen builds (the sample's profile covers start only); (d) leave it: the
   real app's screens are smaller than the Dev list. Needs a Perfetto trace of one slow push first.
+- **Trace result (2026-11-09, atrace on the Lava, HEAD ec2a895; push-slide perf session):** Navigation 3 1.2.0 starts
+  the slide in `LaunchedEffect(scene) { transitionState.animateTo(scene) }`, so its clock starts at the frame that
+  composes and measures the new screen. When that frame is long, the first frame the user sees is part way through
+  the slide (FastOutSlowIn: 33% of the time is ~45% of the distance).
+  - release, Home → Dev, first push in a new process (4 runs): build frame 99–123 ms (Compose build 22–48 ms,
+    measure + layout 60–93 ms); 33–42% of the slide time gone. Second push in the same process: 59–70 ms, 21–24% gone.
+  - release, Home → Offers: first push 67–96 ms (measure + layout 56–84 ms), 24–33% gone; second push 44 ms, 15% gone.
+  - debug: Dev 1077 ms first push (Skipped 97 frames), 938 ms second push; Offers 524 ms. No slide frame is shown.
+  - Class loading and JIT are a small part. The repo has **no** baseline profile at all (generation is parked,
+    docs/after-foundations.md), so (c) above is wrong about "covers start only". Upper limit of any profile: with
+    the whole app AOT-compiled (`cmd package compile -m speed`), Dev took 73–107 ms and Offers 71–82 ms: a small win.
+  - So (c) and (d) don't fix it: even second pushes lose part of the slide.
+- **Proposed fix (not built; Pavan: check later):** build the new screen one frame before NavDisplay sees it.
+  `ZnNav.stack` changes as today; NavDisplay gets the stack without the new entry for one frame, while `ZnNavHost`
+  composes and measures the screen body hidden (in a `movableContentOf`, measured, not placed or drawn). Next frame
+  the entry joins NavDisplay, the body moves in with its state, and the slide clock starts on a cheap frame.
+  Expected: the full slide in release and debug; the first pixel comes ~1 frame later, and the slide ends 60–120 ms
+  later in release. To check when built: a second measure after the move (could still cost 30–60 ms),
+  `LocalNavAnimatedContentScope` / `sharedTag` must stay outside the hidden part, a pop during the hidden frame.
+  Not for start screens, native screens or `transition: none`. A time-shifted animation spec doesn't work: Compose
+  reads the duration once at the start.
+
+## 194. `keyboardDismissMode` on Scroll / List: Compose imeNestedScroll for "interactive", focus cleared for "on-drag" (2026-11-09; Opus, Pavan's chat idea)
+- **What:** RN's prop, registry 24 (not shipped, so no new number). "interactive" = `Modifier.imeNestedScroll()` on the
+  scrolling element (Android 11+): a drag down hides the keyboard first (pre-scroll), a drag up that the list can't use
+  shows it (post-scroll). "on-drag" = a nested scroll parent that, once per drag and only while the keyboard is open,
+  clears focus and hides the keyboard (`ZnKeyboardScroll.kt`).
+- **Calls made:** (1) "on-drag" clears focus, as zn's `Keyboard.dismiss()` and iOS (resign first responder); RN Android
+  only hides the keyboard. (2) It does nothing when no keyboard is open, so a drag never takes focus from a button.
+  (3) Below Android 11 and on horizontal scrolling, "interactive" works like "on-drag" (imeNestedScroll does nothing
+  there). (4) Fixed at build time, like `inverted`.
+- **Not checked:** inside a `Sheet` (its own window) and with pull to refresh on the same list; TalkBack.
+- **Risk if wrong:** only elements that set the prop change.
 
 ## 197. Canvas parse problems are warnings, not a red dev screen (runtime, 2026-11-09; Opus, canvas session)
 - **Chosen:** a bad command in a `<Canvas>` list (a NaN, an odd dash, an unknown type, a motion value where none may

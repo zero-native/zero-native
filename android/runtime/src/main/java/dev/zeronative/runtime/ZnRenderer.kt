@@ -1374,6 +1374,13 @@ internal fun resolveSizePx(
 ): Int? {
     if (value == null || value == "auto") return null
     if (value is Number) return dpToLayoutPx(value.toFloat(), density, spec, propName)
+    // Registry 24 (A4, limited): width / height following a motion value. Read here, in the layout phase, so a change
+    // measures this element (and the parents its size reaches) again, with no recomposition. Costs a layout pass per
+    // frame while it moves: use it for one element (an expanding card, a header), not for rows of a list.
+    if (value is String && ZnMotion.isRef(value)) {
+        val v = ZnMotion.ref(value)?.read(null) ?: return null
+        return dpToLayoutPx(v, density, spec, propName)
+    }
     if (value is ZnPercent) {
         if (!hasBound) {
             val key = "${spec.type}:$propName:unbounded"
