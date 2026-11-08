@@ -5,7 +5,9 @@
 //   c) Keyboard: a chat whose bar rides the keyboard frame by frame (the route sets keyboard: "none"); its inverted List
 //      has keyboardDismissMode "interactive": a drag moves the keyboard
 //   d) A–Z: a side bar, a vertical drag whose touchY becomes a letter that a List follows
-// The underline, the backdrop, the bar and the list follow run on the UI thread. JS only hears page changes and taps.
+//   e) Drawer: a menu that opens from the left edge with a horizontal pan; a dim backdrop follows it
+// The underline, the backdrop, the bar, the list follow and the drawer run on the UI thread. JS only hears page changes
+// and taps.
 import { Box, Carousel, Column, List, Pressable, Row, Sheet, Stack, Text, TextField } from "@zero-native/ui"
 import { derive, env, nav, self, signal, useElementMotion, useMotion, usePan } from "@zero-native/core"
 import { c } from "./tokens"
@@ -520,6 +522,160 @@ function MsAlphaDemo() {
   )
 }
 
+// ---- e) Drawer from the left edge ---------------------------------------------------------------------------------------
+
+const DRAWER_W = 288 // the menu panel
+const DRAWER_EDGE = 28 // a strip that stays at the screen edge when the drawer is closed: the finger grabs it here
+const DRAWER_MENU: { emoji: string; label: string }[] = [
+  { emoji: "🏠", label: "Home" },
+  { emoji: "🧾", label: "Passbook" },
+  { emoji: "🎟️", label: "Offers" },
+  { emoji: "🏪", label: "Stores near me" },
+  { emoji: "🎁", label: "Rewards" },
+  { emoji: "💬", label: "Help" },
+]
+
+// Android 10+ has a Back gesture: a swipe in from the left or right screen edge. A drawer that opens from the left edge
+// would fight it. zero-native asks Android to keep the Back gesture away from a horizontal pan (docs/motion.md §6,
+// "Edges"): from the whole element if it is 200 dp tall or less, else from a 200 dp band (Android's limit). This drawer
+// is the full screen height, so only a 200 dp band at the left edge is protected.
+// What a tester should try (gesture navigation on, not 3 buttons):
+//   1. Swipe from the very left edge of the screen, in the middle of the screen: does the drawer open, or does Back fire?
+//   2. Do the same near the top and near the bottom of the screen: outside the band, Back may win. That is Android's limit.
+//   3. With the drawer open, swipe it left to close; tap the dim area to close; tap a menu line to close.
+function MsDrawerDemo() {
+  const open = signal(false)
+  const status = signal("Closed")
+
+  const pan = usePan({
+    axis: "x",
+    initial: { x: -DRAWER_W },
+    bounds: { x: [-DRAWER_W, 0] },
+    anchors: [
+      { id: "closed", x: -DRAWER_W },
+      { id: "open", x: 0 },
+    ],
+    // A short drag goes back. A fast flick goes to the other end. Else it goes to the nearest one.
+    release: { threshold: { velocity: 500, distance: 40 } },
+    haptic: { snap: "selection" },
+    // Starts only after a sideways move, so vertical scrolling of the screen is not taken.
+    activeOffsetX: [-10, 10],
+    failOffsetY: [-14, 14],
+    // Needed with anchors: TalkBack gets an "open" and a "closed" action.
+    a11yLabel: "Main menu",
+    // The backdrop takes touches only while the drawer is open.
+    onSettle: (e) => {
+      open.set(e.anchor === "open")
+      status.set(e.anchor === "open" ? "Open" : "Closed")
+    },
+  })
+
+  // onSettle comes after a drag. A snap from JS sets the state itself when it ends.
+  const moveTo = (anchor: "open" | "closed") =>
+    void pan.snapTo(anchor).then((f) => {
+      if (!f.finished) return // a finger took it over: onSettle tells the end
+      open.set(anchor === "open")
+      status.set(anchor === "open" ? "Open" : "Closed")
+    })
+  const close = () => moveTo("closed")
+
+  return (
+    <Stack style={{ flex: 1, overflow: "hidden", backgroundColor: c.white, borderTopWidth: 1, borderColor: c.border }}>
+      {/* The screen under the drawer. */}
+      <Column style={{ flex: 1 }}>
+        <Row style={{ height: 56, alignItems: "center", gap: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderColor: c.border }}>
+          <Pressable onPress={() => moveTo("open")} accessibilityLabel="Open menu" style={{ width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: c.pillBg }}>
+            <Text fontSize={18} fontWeight={800} color={c.ink}>
+              ☰
+            </Text>
+          </Pressable>
+          <Text fontSize={18} fontWeight={800} color={c.ink} style={{ flex: 1 }}>
+            ZeroBill
+          </Text>
+          <Text fontSize={12} color={c.muted}>
+            {"Drawer: " + status()}
+          </Text>
+        </Row>
+        <Column style={{ padding: 16, gap: 14 }}>
+          <Column style={{ padding: 18, gap: 4, borderRadius: 20, backgroundColor: c.primary }}>
+            <Text fontSize={12} color="#C7D2FE">
+              Cashback earned this month
+            </Text>
+            <Text fontSize={34} fontWeight={800} color={c.white}>
+              ₹1,250
+            </Text>
+          </Column>
+          <Row style={{ gap: 12 }}>
+            <Column style={{ flex: 1, padding: 14, gap: 2, borderRadius: 16, backgroundColor: c.pillBg }}>
+              <Text fontSize={12} color={c.muted}>
+                Paid today
+              </Text>
+              <Text fontSize={20} fontWeight={800} color={c.ink}>
+                ₹1,360
+              </Text>
+            </Column>
+            <Column style={{ flex: 1, padding: 14, gap: 2, borderRadius: 16, backgroundColor: c.successBg }}>
+              <Text fontSize={12} color={c.success}>
+                Saved today
+              </Text>
+              <Text fontSize={20} fontWeight={800} color={c.success}>
+                ₹170
+              </Text>
+            </Column>
+          </Row>
+          <Text fontSize={13} color={c.muted}>
+            Swipe in from the left edge of the screen, or tap the menu button.
+          </Text>
+        </Column>
+      </Column>
+
+      {/* The dim backdrop: it darkens as the drawer opens. A tap on it closes the drawer. */}
+      <Pressable
+        onPress={close}
+        pointerEvents={open() ? "auto" : "none"}
+        accessibilityLabel="Close menu"
+        pressFeedback="none"
+        style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0, backgroundColor: "#0F172A", opacity: pan.progress.map([0, 1], [0, 0.5]) }}
+      />
+
+      {/* The drawer: the panel and the edge strip are one element, so the finger can grab the strip while it is closed. */}
+      <Row gesture={pan} style={{ position: "absolute", top: 0, bottom: 0, start: 0, width: DRAWER_W + DRAWER_EDGE, transform: [{ translateX: pan.x }] }}>
+        <Column style={{ width: DRAWER_W, backgroundColor: c.white, elevation: 16 }}>
+          <Column style={{ padding: 20, gap: 4, backgroundColor: c.primary }}>
+            <Column style={{ width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: c.white }}>
+              <Text fontSize={24} fontWeight={800} color={c.primary}>
+                P
+              </Text>
+            </Column>
+            <Text fontSize={18} fontWeight={800} color={c.white} style={{ marginTop: 8 }}>
+              Pavan Kumar
+            </Text>
+            <Text fontSize={12} color="#C7D2FE">
+              +91 98765 43210
+            </Text>
+          </Column>
+          <Column style={{ paddingVertical: 8 }}>
+            {DRAWER_MENU.map((m) => (
+              <Pressable key={m.label} onPress={close} accessibilityLabel={m.label} style={{ paddingHorizontal: 20, paddingVertical: 14 }}>
+                <Row style={{ alignItems: "center", gap: 16 }}>
+                  <Text fontSize={20}>{m.emoji}</Text>
+                  <Text fontSize={15} fontWeight={700} color={c.ink}>
+                    {m.label}
+                  </Text>
+                </Row>
+              </Pressable>
+            ))}
+          </Column>
+        </Column>
+        {/* The edge strip: a small grey handle that tells the user "pull me". */}
+        <Column style={{ width: DRAWER_EDGE, alignItems: "flex-start", justifyContent: "center" }}>
+          <Column style={{ width: 4, height: 48, borderRadius: 2, backgroundColor: c.disabled }} />
+        </Column>
+      </Row>
+    </Stack>
+  )
+}
+
 // ---- The screen ---------------------------------------------------------------------------------------------------------
 
 export function MotionSheetsLabScreen() {
@@ -549,6 +705,7 @@ export function MotionSheetsLabScreen() {
           <MsTab label="Sheet" on={tab() === 1} onPress={() => tab.set(1)} />
           <MsTab label="Keyboard" on={tab() === 2} onPress={() => tab.set(2)} />
           <MsTab label="A–Z" on={tab() === 3} onPress={() => tab.set(3)} />
+          <MsTab label="Drawer" on={tab() === 4} onPress={() => tab.set(4)} />
         </Row>
         <Text fontSize={12} color={c.muted}>
           {tab() === 0
@@ -557,7 +714,9 @@ export function MotionSheetsLabScreen() {
               ? "Open the sheet and drag it between half and full: the tint and the header follow. Press Back with the sheet open: it goes down with your finger (that is native)."
               : tab() === 2
                 ? "A chat: the bar rides the keyboard. Its list moves the keyboard with your finger (keyboardDismissMode)."
-                : "Drag your finger down the letters at the right edge: the list jumps. The big letter shows where you are."}
+                : tab() === 3
+                  ? "Drag your finger down the letters at the right edge: the list jumps. The big letter shows where you are."
+                  : "Swipe in from the very left edge of the screen: does the drawer open, or does Back fire? Then swipe it closed, or tap the dim area."}
         </Text>
         <Row style={{ gap: 10, alignItems: "center" }}>
           <MsButton label="Keep JS busy 200 ms" onPress={busyOnce} />
@@ -571,6 +730,7 @@ export function MotionSheetsLabScreen() {
       {tab() === 1 ? <MsSheetDemo /> : null}
       {tab() === 2 ? <MsKeyboardDemo /> : null}
       {tab() === 3 ? <MsAlphaDemo /> : null}
+      {tab() === 4 ? <MsDrawerDemo /> : null}
     </Column>
   )
 }

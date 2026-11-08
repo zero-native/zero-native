@@ -2,9 +2,11 @@
 // plan's table: "Media"). It is an example, not framework code.
 //   a) zoomable photos in a Carousel (useZoom): pinch around the fingers, drag, fling, double tap; swipe for the next
 //   b) a spending chart you can scrub with a finger: a crosshair follows the touch, JS only reads the bar number
-// The pinch, the drag, the zoom springs and the crosshair run on the UI thread.
-import { Carousel, Column, Image, Pressable, Row, Stack, Text } from "@zero-native/ui"
-import { clamp, computed, derive, nav, signal, usePan, useZoom } from "@zero-native/core"
+//   c) parallax: offer cards in a Carousel whose picture and text move at other speeds than the card, and a stacked deck
+//      of cards (the ones behind get smaller and sit lower) that both follow the Carousel's page number
+// The pinch, the drag, the zoom springs, the crosshair and the parallax run on the UI thread.
+import { Carousel, Column, Image, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
+import { clamp, computed, derive, nav, self, signal, useElementMotion, usePan, useZoom } from "@zero-native/core"
 import { c } from "./tokens"
 import { formatIndian } from "./money"
 
@@ -219,6 +221,150 @@ function MmChartDemo() {
   )
 }
 
+// ---- c) Carousel parallax and a card stack ----------------------------------------------------------------------------
+
+interface MmOffer {
+  id: number
+  emoji: string
+  store: string
+  deal: string
+  note: string
+  tint: string // soft background for the parallax card
+  strong: string // bold colour for the deck card
+}
+
+const OFFERS: MmOffer[] = [
+  { id: 1, emoji: "☕", store: "Chai Point", deal: "20% back", note: "Up to ₹100 on UPI", tint: "#E0E7FF", strong: "#3D26ED" },
+  { id: 2, emoji: "🛒", store: "Fresh Basket", deal: "₹50 back", note: "On orders above ₹500", tint: "#DCFCE7", strong: "#0E8A5F" },
+  { id: 3, emoji: "🍕", store: "Slice of Italy", deal: "15% back", note: "Dine in or take away", tint: "#FEE2E2", strong: "#E23744" },
+  { id: 4, emoji: "🎬", store: "PVR Cinemas", deal: "₹100 back", note: "On two tickets", tint: "#FEF3C7", strong: "#D97706" },
+]
+
+const PAR_CARD_H = 190
+const DECK_CARD_H = 150
+const DECK_H = 210
+const DECK_LAST = 3 // the last card's number (OFFERS.length - 1): derive wants a plain number
+const DECK_OFFERS = OFFERS.slice().reverse()
+
+function MmParallaxDemo() {
+  // The Carousel fills `par.page` (2.5 is half way from card 2 to card 3). Everything below follows it with no JS.
+  const par = useElementMotion()
+  // The deck has its own invisible Carousel on top: it only gives a swipe, and the cards below follow its page.
+  const deck = useElementMotion()
+
+  return (
+    <Scroll style={{ flex: 1 }}>
+      <Column style={{ gap: 14, paddingBottom: 24 }}>
+        <Column style={{ gap: 2, paddingHorizontal: 20 }}>
+          <Text fontSize={16} fontWeight={800} color={c.ink}>
+            Offers for you
+          </Text>
+          <Text fontSize={12} color={c.muted}>
+            The picture, the text and the card each move at their own speed.
+          </Text>
+        </Column>
+
+        <Carousel motion={par} itemWidth="82%" style={{ height: PAR_CARD_H, gap: 12, paddingHorizontal: 16 }}>
+          {OFFERS.map((o, i) => (
+            <Stack key={o.id} style={{ width: "100%", height: PAR_CARD_H, borderRadius: 24, overflow: "hidden", backgroundColor: o.tint }}>
+              {/* The picture: it moves slower than the card (it shifts by up to 80 dp the other way). */}
+              <Text
+                fontSize={112}
+                style={{ position: "absolute", top: 18, end: 4, transform: [{ translateX: derive(() => clamp(par.page() - i, -1, 1) * 80) }] }}
+              >
+                {o.emoji}
+              </Text>
+              {/* The text: it moves faster than the card (a little the other way). */}
+              <Column
+                style={{
+                  position: "absolute",
+                  start: 20,
+                  bottom: 18,
+                  gap: 2,
+                  transform: [{ translateX: derive(() => clamp(par.page() - i, -1, 1) * -36) }],
+                }}
+              >
+                <Text fontSize={13} fontWeight={700} color={c.muted}>
+                  {o.store}
+                </Text>
+                <Text fontSize={30} fontWeight={800} color={c.ink}>
+                  {o.deal}
+                </Text>
+                <Text fontSize={12} color={c.muted}>
+                  {o.note}
+                </Text>
+              </Column>
+            </Stack>
+          ))}
+        </Carousel>
+
+        <Column style={{ gap: 2, paddingHorizontal: 20, paddingTop: 6 }}>
+          <Text fontSize={16} fontWeight={800} color={c.ink}>
+            Your offer deck
+          </Text>
+          <Row style={{ alignItems: "center", gap: 6 }}>
+            <Text fontSize={12} color={c.muted} style={{ flex: 1 }}>
+              Swipe the top card away: the next one comes forward.
+            </Text>
+            <Text fontSize={12} fontWeight={800} color={c.ink}>
+              {deck.page.format({ decimals: 2 })}
+            </Text>
+          </Row>
+        </Column>
+
+        <Stack style={{ height: DECK_H }}>
+          {/* Drawn from the last card to the first, so card 1 is on top. For a card, `its number - page` says where it is: below 0
+              it is going away (it slides left, turns a little and fades), above 0 it waits behind (smaller and lower). */}
+          {DECK_OFFERS.map((o, i) => (
+            <Column
+              key={o.id}
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: 0,
+                start: 20,
+                end: 20,
+                height: DECK_CARD_H,
+                padding: 20,
+                gap: 2,
+                borderRadius: 24,
+                backgroundColor: o.strong,
+                elevation: 6,
+                opacity: derive(() => Math.max(0, Math.min(Math.min(1, 1 + (DECK_LAST - i - deck.page())), 4 - (DECK_LAST - i - deck.page())))),
+                transform: [
+                  { translateX: derive(() => Math.min(DECK_LAST - i - deck.page(), 0) * self.width * 1.15) },
+                  { translateY: derive(() => 14 * Math.min(Math.max(DECK_LAST - i - deck.page(), 0), 3)) },
+                  { scale: derive(() => 1 - 0.07 * Math.min(Math.max(DECK_LAST - i - deck.page(), 0), 3)) },
+                  { rotate: derive(() => Math.min(DECK_LAST - i - deck.page(), 0) * 12) },
+                ],
+              }}
+            >
+              <Row style={{ alignItems: "center", gap: 10 }}>
+                <Text fontSize={28}>{o.emoji}</Text>
+                <Text fontSize={15} fontWeight={700} color={c.white} style={{ flex: 1 }}>
+                  {o.store}
+                </Text>
+              </Row>
+              <Text fontSize={32} fontWeight={800} color={c.white} style={{ marginTop: 8 }}>
+                {o.deal}
+              </Text>
+              <Text fontSize={12} color="#E2E8F0">
+                {o.note}
+              </Text>
+            </Column>
+          ))}
+          {/* The swipe: a see-through Carousel over the cards, one page for each card. It takes the touches. */}
+          <Carousel motion={deck} style={{ position: "absolute", top: 0, start: 0, end: 0, height: DECK_H }}>
+            {OFFERS.map((o) => (
+              <Column key={o.id} accessibilityLabel={"Offer " + o.id + " of " + OFFERS.length + ": " + o.store} style={{ width: "100%", height: DECK_H }} />
+            ))}
+          </Carousel>
+        </Stack>
+      </Column>
+    </Scroll>
+  )
+}
+
 export function MotionMediaLabScreen() {
   const tab = signal(0)
   const note = signal("")
@@ -244,6 +390,7 @@ export function MotionMediaLabScreen() {
         <Row style={{ gap: 8 }}>
           <MmTab label="Zoom photo" on={tab() === 0} onPress={() => tab.set(0)} />
           <MmTab label="Scrub chart" on={tab() === 1} onPress={() => tab.set(1)} />
+          <MmTab label="Parallax" on={tab() === 2} onPress={() => tab.set(2)} />
         </Row>
         <Row style={{ gap: 10, alignItems: "center" }}>
           <MmButton label="Keep JS busy 200 ms" onPress={busyOnce} />
@@ -253,7 +400,7 @@ export function MotionMediaLabScreen() {
         </Row>
       </Column>
 
-      {tab() === 0 ? <MmZoomDemo /> : <MmChartDemo />}
+      {tab() === 0 ? <MmZoomDemo /> : tab() === 1 ? <MmChartDemo /> : <MmParallaxDemo />}
     </Column>
   )
 }

@@ -5,7 +5,7 @@
 //   c) a vertical Scroll that stops on section starts (snapToOffsets) with an event log and scrollTo buttons
 // The fling and the snap run natively; JS only hears the events it has handlers for.
 import { Column, List, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { nav, signal } from "@zero-native/core"
+import { Dimensions, nav, signal } from "@zero-native/core"
 import type { ScrollEvent, ScrollRef } from "@zero-native/ui"
 import { c } from "./tokens"
 
@@ -38,6 +38,8 @@ export function ScrollLabScreen() {
   const add = (line: string) => log.set([line, ...log()].slice(0, 6))
   const ref: { current: ScrollRef | null } = { current: null }
   const onScroll = (e: ScrollEvent) => y.set(Math.round(e.nativeEvent.contentOffset.y))
+  // A page is the window's width: "100%" in a horizontal list row is the row's own content width (as in RN).
+  const pageW = Dimensions.get("window").width
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
       <Row style={{ alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12 }}>
@@ -89,7 +91,7 @@ export function ScrollLabScreen() {
         onMomentumScrollEnd={(e) => page.set(Math.round(e.nativeEvent.contentOffset.x / Math.max(1, e.nativeEvent.layoutMeasurement.width)))}
         style={{ height: 110, flexGrow: 0, marginTop: 8 }}
         row={(p) => (
-          <Column style={{ width: "100%", height: 110, paddingHorizontal: 16 }}>
+          <Column style={{ width: pageW, height: 110, paddingHorizontal: 16 }}>
             <Column style={{ flex: 1, borderRadius: 18, backgroundColor: p.tint, padding: 16, justifyContent: "center" }}>
               <Text fontSize={20} fontWeight={800} color={c.ink}>
                 {p.title}

@@ -2,11 +2,11 @@
 // screen"). It is an example, not framework code.
 //   a) a list where each row swipes left to show Archive / Delete, and a long swipe deletes the row
 //   b) a bottom panel with a list inside: drag the list down at its top and the panel moves
-// The swipes, the panel and the shadow line run on the UI thread. JS only hears the start and the end.
+//   c) a collapsing header over a List: the big balance shrinks and fades, and the tab row sticks at the top
+// The swipes, the panel, the header and the shadow line run on the UI thread. JS only hears the start and the end.
 //
-// TODO (not built yet, so not in this lab): a collapsing header with sticky tabs over the List (<List> has no `motion`
-// prop, only Scroll does), a pull-to-refresh distance value, and a Sheet progress value (backdrop and header that follow
-// the sheet). The plan has them for this lab.
+// TODO (not built yet, so not in this lab): a pull-to-refresh distance value. `m.pull` exists (0 to 1 at the refresh
+// line) on a List with onRefresh, but no lab here shows it yet. The collapsing header (c) uses the List's `motion` prop.
 import { Column, List, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
 import { derive, interpolate, nav, self, signal, useElementMotion, usePan } from "@zero-native/core"
 import { c } from "./tokens"
@@ -347,6 +347,117 @@ function MfPanelDemo() {
   )
 }
 
+// ---- c) Collapsing header with sticky tabs ------------------------------------------------------------------------------
+
+const HDR_BAR_H = 56 // the small bar that stays when the header has collapsed
+const HDR_BIG_H = 104 // the big part (label and balance) that goes away
+const HDR_H = HDR_BIG_H + HDR_BAR_H
+const HDR_TABS_H = 52
+const HDR_TABS = ["All", "Paid", "Received", "Refunds"]
+
+const isRefund = (r: MfItem) => r.title.indexOf("Refund") === 0
+const isPaid = (r: MfItem) => r.amount.charAt(0) === "−"
+const isReceived = (r: MfItem) => r.amount.charAt(0) === "+" && !isRefund(r)
+
+// More rows than the first demo, so there is room to scroll. Each copy gets its own ids.
+const HDR_ITEMS: MfItem[] = [
+  ...ITEMS,
+  ...ITEMS.map((r) => ({ ...r, id: r.id + 100 })),
+  { id: 201, emoji: "💸", title: "Refund from PVR Cinemas", sub: "Fri · ZeroBill", amount: "+₹380", tint: "#E0E7FF" },
+]
+
+function MfHeaderRow(props: { item: MfItem }) {
+  return (
+    <Row style={{ alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: c.white, borderBottomWidth: 1, borderColor: c.border }}>
+      <Column style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: props.item.tint }}>
+        <Text fontSize={22}>{props.item.emoji}</Text>
+      </Column>
+      <Column style={{ flex: 1, gap: 2 }}>
+        <Text fontSize={15} fontWeight={700} color={c.ink}>
+          {props.item.title}
+        </Text>
+        <Text fontSize={12} color={c.muted}>
+          {props.item.sub}
+        </Text>
+      </Column>
+      <Text fontSize={16} fontWeight={800} color={props.item.amount.charAt(0) === "+" ? c.success : c.ink}>
+        {props.item.amount}
+      </Text>
+    </Row>
+  )
+}
+
+function MfHeaderDemo() {
+  // The List fills `m.scrollY`. Everything below follows it with no JS.
+  const m = useElementMotion()
+  const tab = signal(0)
+  const rows = tab() === 1 ? HDR_ITEMS.filter(isPaid) : tab() === 2 ? HDR_ITEMS.filter(isReceived) : tab() === 3 ? HDR_ITEMS.filter(isRefund) : HDR_ITEMS
+
+  return (
+    <Stack style={{ flex: 1, overflow: "hidden", backgroundColor: c.white }}>
+      {/* The list is the base layer. Its top padding is as tall as the header and the tabs, so row 1 starts below them. */}
+      <List
+        data={rows}
+        key={(r) => r.id}
+        motion={m}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingTop: HDR_H + HDR_TABS_H }}
+        row={(r) => <MfHeaderRow item={r} />}
+      />
+
+      {/* The header and the tabs are one block on top. It moves up by the scroll distance, until only the small bar and
+          the tabs are left. Transforms and opacity only: no layout runs while you scroll. */}
+      <Column style={{ position: "absolute", top: 0, start: 0, end: 0, transform: [{ translateY: m.scrollY.map([0, HDR_BIG_H], [0, -HDR_BIG_H]) }] }}>
+        <Stack style={{ height: HDR_H, backgroundColor: c.primary }}>
+          {/* The big part: it fades fast, shrinks, and moves slower than the header (a small parallax). */}
+          <Column
+            style={{
+              position: "absolute",
+              top: 0,
+              start: 0,
+              end: 0,
+              height: HDR_BIG_H,
+              paddingHorizontal: 20,
+              paddingTop: 18,
+              gap: 2,
+              transformOrigin: "left",
+              opacity: m.scrollY.map([0, HDR_BIG_H * 0.6], [1, 0]),
+              transform: [{ translateY: m.scrollY.map([0, HDR_BIG_H], [0, HDR_BIG_H * 0.5]) }, { scale: m.scrollY.map([0, HDR_BIG_H], [1, 0.8]) }],
+            }}
+          >
+            <Text fontSize={12} color="#C7D2FE">
+              ZeroBill wallet balance
+            </Text>
+            <Text fontSize={40} fontWeight={800} color={c.white}>
+              ₹12,480
+            </Text>
+          </Column>
+          {/* The small bar: always there. Its balance shows only when the big one is gone. */}
+          <Row style={{ position: "absolute", bottom: 0, start: 0, end: 0, height: HDR_BAR_H, alignItems: "center", paddingHorizontal: 20 }}>
+            <Text fontSize={18} fontWeight={800} color={c.white} style={{ flex: 1 }}>
+              Passbook
+            </Text>
+            <Text fontSize={16} fontWeight={800} color={c.white} style={{ opacity: m.scrollY.map([HDR_BIG_H * 0.6, HDR_BIG_H], [0, 1]) }}>
+              ₹12,480
+            </Text>
+          </Row>
+        </Stack>
+        {/* The tabs. They have a solid background, so rows scroll under them. */}
+        <Row style={{ height: HDR_TABS_H, backgroundColor: c.white, borderBottomWidth: 1, borderColor: c.border }}>
+          {HDR_TABS.map((label, i) => (
+            <Pressable key={label} onPress={() => tab.set(i)} accessibilityLabel={label + " transactions"} style={{ flex: 1, height: HDR_TABS_H, alignItems: "center", justifyContent: "flex-end" }}>
+              <Text fontSize={14} fontWeight={800} color={tab() === i ? c.primary : c.muted} style={{ paddingBottom: 12 }}>
+                {label}
+              </Text>
+              <Column style={{ alignSelf: "stretch", height: 3, borderRadius: 2, backgroundColor: tab() === i ? c.primary : "transparent" }} />
+            </Pressable>
+          ))}
+        </Row>
+      </Column>
+    </Stack>
+  )
+}
+
 export function MotionFeedLabScreen() {
   const tab = signal(0)
   const note = signal("")
@@ -372,11 +483,14 @@ export function MotionFeedLabScreen() {
         <Row style={{ gap: 8 }}>
           <MfTab label="Swipe rows" on={tab() === 0} onPress={() => tab.set(0)} />
           <MfTab label="Bottom panel" on={tab() === 1} onPress={() => tab.set(1)} />
+          <MfTab label="Header" on={tab() === 2} onPress={() => tab.set(2)} />
         </Row>
         <Text fontSize={12} color={c.muted}>
           {tab() === 0
             ? "Swipe a row left: Archive and Delete show. Swipe far left and let go: it is deleted."
-            : "Drag the panel up or down. Scroll the list; at its top, drag down and the panel follows."}
+            : tab() === 1
+              ? "Drag the panel up or down. Scroll the list; at its top, drag down and the panel follows."
+              : "Scroll the list: the big balance fades and moves up, and the tabs stay at the top. Tap a tab to filter."}
         </Text>
         <Row style={{ gap: 10, alignItems: "center" }}>
           <MfButton label="Keep JS busy 200 ms" onPress={busyOnce} />
@@ -386,7 +500,7 @@ export function MotionFeedLabScreen() {
         </Row>
       </Column>
 
-      {tab() === 0 ? <MfRowsDemo /> : <MfPanelDemo />}
+      {tab() === 0 ? <MfRowsDemo /> : tab() === 1 ? <MfPanelDemo /> : <MfHeaderDemo />}
     </Column>
   )
 }
