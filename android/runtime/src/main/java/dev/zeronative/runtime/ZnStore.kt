@@ -75,6 +75,13 @@ class ZnList {
     val bound: SnapshotStateMap<String, Int> = mutableStateMapOf()
     private val keyOf = HashMap<Int, String>()
 
+    /**
+     * Sequence number of the last executed scroll command (from JS bindListController).
+     * Lives on the instance (survives Activity recreation and screen rebuilds).
+     * Initialized to -1 so any command sent before the list draws runs on initial composition.
+     */
+    var lastScrollSeq: Int = -1
+
     internal fun bind(key: String, row: Int) {
         keyOf.remove(bound[key] ?: Int.MIN_VALUE)
         bound[key] = row

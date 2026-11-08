@@ -2464,7 +2464,7 @@ change, and what evidence would make you change it?"
 ## 161. WebSocket: 1 MB message cap, text frames only in v1 (core + runtime, 2026-11-08; parity batch 1)
 - **What:** browser-compatible `WebSocket` API (`packages/core/src/websocket.ts`) backed by OkHttp (`ZnWebSocket.kt`)
   using the shared `ZnFetch.client` (so host certificate pinning, custom interceptors, and default user agent apply).
-  Message sizes are capped at 1 MB (1,048,576 bytes) in both directions. v1 is text frames only (`send(string)`).
+  Message sizes are capped at 1 MB (1,048,576 bytes) in both directions (measured as exact UTF-8 bytes in native via Okio Utf8.size). v1 is text frames only (`send(string)`).
 - **Why 1 MB cap:** React Native apps frequently crash or run out of memory when continuous or oversized payloads flood
   the JS bridge. A hard 1 MB cap prevents Hermes heap exhaustion on low-memory Android devices. Sending > 1 MB throws
   `RangeError` in JS; an incoming server message > 1 MB emits an error event and closes the socket with code 1009

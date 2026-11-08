@@ -5,6 +5,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.utf8Size
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
@@ -13,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Built on OkHttp using the shared ZnFetch.client so pins, interceptors and user-agent apply.
  */
 internal object ZnWebSocket : ZnModuleBase("WebSocket", version = 1) {
-    private const val MAX_MESSAGE_SIZE = 1_048_576 // 1 MB cap (second-opinions 161)
+    private const val MAX_MESSAGE_SIZE = 1_048_576L // 1 MB cap in UTF-8 bytes (second-opinions 161)
 
     private val sockets = ConcurrentHashMap<Int, WebSocket>()
 
@@ -48,7 +49,7 @@ internal object ZnWebSocket : ZnModuleBase("WebSocket", version = 1) {
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
-                    if (text.length > MAX_MESSAGE_SIZE) {
+                    if (text.utf8Size() > MAX_MESSAGE_SIZE) {
                         emit("error", JSONObject().put("id", id).put("message", "Message received from server exceeds 1 MB limit"))
                         webSocket.close(1009, "Message too big")
                         return
@@ -85,7 +86,7 @@ internal object ZnWebSocket : ZnModuleBase("WebSocket", version = 1) {
         function("send") { call ->
             val id = call.int("id")
             val data = call.string("data")
-            if (data.length > MAX_MESSAGE_SIZE) {
+            if (data.utf8Size() > MAX_MESSAGE_SIZE) {
                 call.reject("too_large", "Message exceeds 1 MB limit (second-opinions 161)")
                 return@function
             }

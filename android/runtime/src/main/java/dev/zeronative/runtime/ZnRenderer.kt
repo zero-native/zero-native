@@ -701,22 +701,26 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             val param = parts.getOrNull(1)?.toIntOrNull() ?: 0
             val anim = (parts.getOrNull(2)?.toIntOrNull() ?: 1) == 1
             val viewOffset = parts.getOrNull(3)?.toIntOrNull() ?: 0
-            val headerOffset = if (hasHeader && !s.inverted) 1 else 0
-            when (action) {
-                "index" -> {
-                    val target = (param + headerOffset).coerceIn(0, (rows.size + (if (hasHeader) 1 else 0) + (if (hasFooter) 1 else 0) - 1).coerceAtLeast(0))
-                    if (anim) state.animateScrollToItem(target, viewOffset)
-                    else state.scrollToItem(target, viewOffset)
-                }
-                "end" -> {
-                    val lastIdx = (rows.size + (if (hasHeader) 1 else 0) + (if (hasFooter) 1 else 0) - 1).coerceAtLeast(0)
-                    if (anim) state.animateScrollToItem(lastIdx)
-                    else state.scrollToItem(lastIdx)
-                }
-                "offset" -> {
-                    val delta = param.toFloat()
-                    if (anim) state.animateScrollBy(delta)
-                    else state.scrollBy(delta)
+            val seq = parts.getOrNull(4)?.toIntOrNull() ?: 0
+            if (seq > list.lastScrollSeq) {
+                list.lastScrollSeq = seq
+                val headerOffset = if (hasHeader && !s.inverted) 1 else 0
+                when (action) {
+                    "index" -> {
+                        val target = (param + headerOffset).coerceIn(0, (rows.size + (if (hasHeader) 1 else 0) + (if (hasFooter) 1 else 0) - 1).coerceAtLeast(0))
+                        if (anim) state.animateScrollToItem(target, viewOffset)
+                        else state.scrollToItem(target, viewOffset)
+                    }
+                    "end" -> {
+                        val lastIdx = (rows.size + (if (hasHeader) 1 else 0) + (if (hasFooter) 1 else 0) - 1).coerceAtLeast(0)
+                        if (anim) state.animateScrollToItem(lastIdx)
+                        else state.scrollToItem(lastIdx)
+                    }
+                    "offset" -> {
+                        val delta = param.toFloat()
+                        if (anim) state.animateScrollBy(delta)
+                        else state.scrollBy(delta)
+                    }
                 }
             }
         }
