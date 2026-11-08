@@ -151,6 +151,14 @@ struct ZnNodeView: View {
             ZnListView(ctx: ctx, inst: inst, s: s)
         case Registry.Component.textField:
             ZnTextFieldView(ctx: ctx, s: s, inst: inst)
+        case Registry.Component.switch:
+            ZnSwitchView(ctx: ctx, s: s, inst: inst)
+        case Registry.Component.checkbox:
+            ZnCheckboxView(ctx: ctx, s: s, inst: inst)
+        case Registry.Component.spinner:
+            ZnSpinnerView(s: s, inst: inst)
+        case Registry.Component.progress:
+            ZnProgressView(s: s, inst: inst)
         case Registry.Component.svg:
             ZnSvgView(ctx: ctx, t: t, inst: inst, s: s)
         case Registry.Component.svgPart:

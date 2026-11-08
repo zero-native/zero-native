@@ -125,7 +125,7 @@ Minimum iOS version: open (17 suggested). Code lives in `ios/` (planned: `ZnRunt
 | i.1a | Hermes + core on iOS: `hermes-ios` 260318099.0.5 from Maven Central, core and MMKV built for the simulator and arm64, core tests on the simulator, `main.hbc` from `hermesc` runs | Core tests pass on the simulator; the Android bundle's bytecode loads unchanged | **done 2026-11-08** on the simulator (log below); arm64 device build not tried yet |
 | i.1b | Spike, renderer: `zn::Platform` in Objective-C++, the JS thread, the batch applied on the main actor, the amount screen drawn by SwiftUI, skeleton before JS | Typing redraws only the changed text (measured with `_printChanges` / Instruments) | **done 2026-11-08** on the simulator (log below): a digit redraws 2 views of ~169 |
 | i.1c | Spike, the hard parts, each tried both ways (SwiftUI vs UIKit): back stack driven by JS (several pushes / replace in one batch, back swipe), controlled text field (cursor, IME, paste), a long list, a sheet with detents, **press handling** (SwiftUI `Button` vs a UIKit gesture: fast taps, press-repeat, long press). Our own `Layout` for Column / Row against the Android sample | A written choice per component, with what was seen | **done 2026-11-08** on the simulator: **UIKit for all five** (log below). Open: the back swipe untested (the simulator tool can't start edge swipes; try by hand); the Layout checked by eye only (side-by-side tests in i.2) |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, Svg, layout conformance (46 / 46), native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience, `zn dev` | The sample's screens run on iOS | **in progress**: route options, list window, multi-line field, sticky rows, absolute children, keyboard avoidance, transforms, animation, enter / exit, Image, Shimmer, corners and borders, text spans, Modal, app layers, Carousel, onLayout, gradients, Svg, layout conformance (46 / 46), Switch, Checkbox, Spinner, Progress, native modules done except Launches, background tasks and Updates (log below); layout tests, the RN props lab's missing parts open |
 | i.3 | Platform modules: `fetch` (URLSession), storage (shared MMKV), SecureStore (Keychain), restore after the app is killed (file-based, no saved-state bundle on iOS), OTA | OTA matrix cases that apply to iOS pass | not started |
 | i.4 | Plugins, in the order the ZeroBill checkout needs them (`auth`, `scanner`, `push`, …); UPI by URL scheme + server verify | ZeroBill checkout runs on iOS | not started |
 
@@ -146,6 +146,18 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-08: iOS i.2, Switch, Checkbox, Spinner, Progress (Claude, `ios` branch)
+- `ZnControls.swift`: drawn as android/runtime draws them (one zn look, not UISwitch): Switch (36 × 20 track,
+  16 pt thumb) and Checkbox (20 pt box, tick) controlled by JS (a tap sends onValueChange(!value), JS decides; 150 ms
+  change; disabled at 0.38 opacity and no taps; 48 × 48 touch area; toggle / button accessibility traits), Spinner (a
+  270° arc, one turn a second, size and colour, stroke 10 % of the size within 2–4 pt), Progress (full width, height
+  4 by default, a value animates in 150 ms, no value: the 40 % bar sliding every 1.2 s).
+- **Checked on the simulator** (Components screen, route `components`): the interactive switch and checkbox turn on;
+  "JS ignores tap" stays off; the 300 ms delayed switch moves after the delay; disabled ones ignore taps; spinners at
+  16 / 24 / 36 and in blue and orange; progress 40 % → 75 %; the endless bar.
+- iOS difference: every Spinner turns on one shared clock (Android: one per spinner), so spinners on a screen are in
+  step.
+
 ### 2026-11-08: iOS i.2, layout conformance (Claude, `ios` branch)
 - **The check** (ARCHITECTURE §9.5): `examples/sample/src/LayoutLab.tsx`, route `layoutLab`. 26 text-free layouts
   with fixed sizes covering the zn flex rules (stretch and its limits, flex shares, gap, every justifyContent,

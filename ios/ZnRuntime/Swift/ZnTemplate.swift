@@ -161,6 +161,11 @@ final class ZnNodeSpec {
     let frame: String?
     let trimCaps: Bool
 
+    // Switch, Checkbox, Spinner, Progress
+    let trackColor: Color?, activeTrackColor: Color?, thumbColor: Color?, activeColor: Color?
+    let size: CGFloat?
+    let onValueChange: Int
+
     // Carousel
     let autoAdvanceMs: Int
     let pauseAfterTouchMs: Double
@@ -353,6 +358,10 @@ final class ZnNodeSpec {
         hasTrim = p[P.trimStart] != nil || p[P.trimEnd] != nil || p[P.trimOffset] != nil ||
             trimStartSlot >= 0 || trimEndSlot >= 0 || trimOffsetSlot >= 0 ||
             [P.trimStart, P.trimEnd, P.trimOffset].contains { animated?.timing($0) != nil }
+        trackColor = znColor(p[P.trackColor]); activeTrackColor = znColor(p[P.activeTrackColor])
+        thumbColor = znColor(p[P.thumbColor]); activeColor = znColor(p[P.activeColor])
+        self.size = num(P.size)
+        onValueChange = eventFor(Registry.Event.onValueChange)
         autoAdvanceMs = Int(num(P.autoAdvance) ?? 0)
         pauseAfterTouchMs = Double(num(P.pauseAfterTouch) ?? 3000)
         dots = p[P.dots]?.bool ?? false
