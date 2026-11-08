@@ -10,7 +10,7 @@
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" tools:node="remove" />
-    <!-- Scheduled notifications (plugins/push) come back after a reboot: the opt-in boot receiver below. -->
+    <!-- Scheduled notifications (plugins/notifications) come back after a reboot: the opt-in boot receiver below. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
@@ -24,14 +24,14 @@
         <!-- Lets macrobenchmark and the Baseline Profile generator trace the release build (:baselineprofile). -->
         <profileable android:shell="true" />
 
-        <!-- Notifications (plugins/push): the status bar icon for ours, and for those FCM shows by itself. -->
-        <meta-data android:name="dev.zeronative.push.small_icon" android:resource="@drawable/ic_zn_notification" />
+        <!-- Notifications (plugins/notifications): the status bar icon for ours, and for those FCM shows by itself. -->
+        <meta-data android:name="dev.zeronative.notifications.small_icon" android:resource="@drawable/ic_zn_notification" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_zn_notification" />
         <!-- Firebase Performance writes its traces to logcat too (tools/plugin-phone/perf.ts reads them). A dev app only. -->
         <meta-data android:name="firebase_performance_logcat_enabled" android:value="true" />
-        <!-- Opt-in (plugins/push README): sets scheduled notifications again after a reboot or an app update. -->
+        <!-- Opt-in (plugins/notifications README): sets scheduled notifications again after a reboot or an app update. -->
         <receiver
-            android:name="dev.zeronative.plugins.push.ZnNotificationBoot"
+            android:name="dev.zeronative.plugins.notifications.ZnNotificationBoot"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

@@ -27,11 +27,11 @@ async function seeShown(tag: string, ms = 8000) {
 
 const openShade = () => shell("cmd", "statusbar", "expand-notifications")
 
-/** The plugin's own native lines (helpers' log filter leaves out zn-push). */
+/** The plugins' own native lines: zn-notifications and zn-push (helpers' log filter leaves them out). */
 async function expectPushLog(re: RegExp, ms = 20000) {
   const end = Date.now() + ms
   while (Date.now() < end) {
-    const hit = adb("logcat", "-d", "-v", "brief", "-s", "zn-push:*").split(/\r?\n/).filter((l) => re.test(l)).at(-1)
+    const hit = adb("logcat", "-d", "-v", "brief", "-s", "zn-notifications:*", "zn-push:*").split(/\r?\n/).filter((l) => re.test(l)).at(-1)
     if (hit) return hit.replace(/^.*?: /, "").trim()
     await sleep(400)
   }
@@ -330,7 +330,7 @@ export const steps: Step[] = [
       await seeShown("lab-scheduled", 11 * 60_000) // not exact: within 10 minutes of its time
       ok("shown by the alarm, app closed", "lab-scheduled")
       // dumpsys shows the alarm's action, not its data: after the one-time one, the daily one is the app's only one.
-      const ours = shell("dumpsys", "alarm").match(/dev\.zeronative\.sample\}\s+tag=\*walarm\*:dev\.zeronative\.push\.TRIGGER[^\n]*\n[^\n]*window=(\S+)/g) ?? []
+      const ours = shell("dumpsys", "alarm").match(/dev\.zeronative\.sample\}\s+tag=\*walarm\*:dev\.zeronative\.notifications\.TRIGGER[^\n]*\n[^\n]*window=(\S+)/g) ?? []
       check(ours.length === 1, `the app has ${ours.length} scheduled alarms, not 1 (the daily one)`)
       check(/window=\+10m0s0ms/.test(ours[0]), `the daily alarm's window is not 10 minutes: ${ours[0]}`)
       ok("daily alarm still set, 10 minute window", "dumpsys alarm")

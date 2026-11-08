@@ -49,7 +49,8 @@ internal class PushModule(context: Context) : ZnModuleBase("Push", version = 2) 
         function("subscribe") { call -> topic(call, subscribe = true) }
         function("unsubscribe") { call -> topic(call, subscribe = false) }
 
-        // A tap on a notification FCM showed itself (Opens.kt). Also with no Firebase: it reads only the Intent.
+        // A tap on a notification FCM showed itself (Opens.kt; the tap rules are in plugins/notifications). Also with no
+        // Firebase: it reads only the Intent.
         function("getInitialNotification", onMain = true) { call -> Opens.initial { call.resolve(it) } }
         Opens.emit = { message -> emit("opened", message) }
 

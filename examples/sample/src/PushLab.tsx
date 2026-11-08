@@ -3,7 +3,8 @@
 // characters go in a log line. Message data is never logged as a whole: only the lab's own keys.
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { Clipboard, nav, Permissions, scheme, signal } from "@zero-native/core"
-import { Notifications, Push } from "@zero-native/push"
+import { Notifications } from "@zero-native/notifications"
+import { Push } from "@zero-native/push"
 import { c } from "./tokens"
 
 const PICTURE = "https://picsum.photos/id/1080/800/400"

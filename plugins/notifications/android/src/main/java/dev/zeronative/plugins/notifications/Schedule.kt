@@ -1,4 +1,4 @@
-package dev.zeronative.plugins.push
+package dev.zeronative.plugins.notifications
 
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -18,7 +18,7 @@ import org.json.JSONObject
 
 /**
  * Notifications shown later (notifee's trigger notifications): `Notifications.schedule(options, { at, repeat })`.
- * Each one is saved (prefs "zn-push-scheduled") and set as an alarm. The alarm shows it with the same code as `show`,
+ * Each one is saved (prefs "zn-notifications-scheduled") and set as an alarm. The alarm shows it with the same code as `show`,
  * with no JS at all, then sets the next one for a repeat.
  *
  * Android drops every alarm on a reboot and when the user force-stops the app. The plugin sets them again at each app
@@ -26,15 +26,15 @@ import org.json.JSONObject
  * allowed, an alarm shows within 10 minutes of its time (in deep Doze: when the phone wakes).
  */
 internal object Schedule {
-    private const val TAG = "zn-push"
-    private const val PREFS = "zn-push-scheduled"
-    private const val ACTION = "dev.zeronative.push.TRIGGER"
-    private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "zn-push-schedule").apply { isDaemon = true } }
+    private const val TAG = "zn-notifications"
+    private const val PREFS = "zn-notifications-scheduled"
+    private const val ACTION = "dev.zeronative.notifications.TRIGGER"
+    private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "zn-notifications-schedule").apply { isDaemon = true } }
 
     /** Saves and sets it. Null when set, else why not. */
     fun add(context: Context, options: JSONObject, at: Long, repeat: String?, exact: Boolean): String? {
         val id = options.optString("id").takeIf { it.isNotEmpty() } ?: return "no_id"
-        if (repeat != null && PushRules.repeatMs(repeat) == null) return "bad_repeat"
+        if (repeat != null && NotificationRules.repeatMs(repeat) == null) return "bad_repeat"
         val entry = JSONObject().put("options", options).put("at", at).put("exact", exact)
         if (repeat != null) entry.put("repeat", repeat)
         prefs(context).edit().putString(id, entry.toString()).apply()
@@ -73,7 +73,7 @@ internal object Schedule {
             val e = (v as? String)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: continue
             val repeat = e.optString("repeat").ifEmpty { null }
             if (repeat != null) {
-                val next = PushRules.nextAt(e.optLong("at"), repeat, now)
+                val next = NotificationRules.nextAt(e.optLong("at"), repeat, now)
                 if (next != e.optLong("at")) {
                     e.put("at", next)
                     prefs(context).edit().putString(id, e.toString()).apply()
@@ -94,7 +94,7 @@ internal object Schedule {
                 Log.i(TAG, "scheduled notification $id: $result")
                 val repeat = e.optString("repeat").ifEmpty { null }
                 if (repeat != null) {
-                    e.put("at", PushRules.nextAt(e.optLong("at"), repeat, System.currentTimeMillis()))
+                    e.put("at", NotificationRules.nextAt(e.optLong("at"), repeat, System.currentTimeMillis()))
                     prefs(context).edit().putString(id, e.toString()).apply()
                     setAlarm(context, id, e)
                 } else {
@@ -120,9 +120,9 @@ internal object Schedule {
         // 2026-11-04). The cost: in deep Doze it waits for the phone to wake, when the user would see it anyway.
         try {
             if (e.optBoolean("exact") && canExact(context)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, p)
-            else am.setWindow(AlarmManager.RTC_WAKEUP, at, PushRules.TRIGGER_WINDOW_MS, p)
+            else am.setWindow(AlarmManager.RTC_WAKEUP, at, NotificationRules.TRIGGER_WINDOW_MS, p)
         } catch (ex: SecurityException) { // exact taken away between the check and here
-            am.setWindow(AlarmManager.RTC_WAKEUP, at, PushRules.TRIGGER_WINDOW_MS, p)
+            am.setWindow(AlarmManager.RTC_WAKEUP, at, NotificationRules.TRIGGER_WINDOW_MS, p)
         }
     }
 
@@ -140,7 +140,7 @@ internal object Schedule {
         val debug = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         val call = StoredCall(options)
         NotificationsModule(context, debug).call("show", call)
-        call.done.await(PushRules.TRIGGER_SHOW_WAIT_MS, TimeUnit.MILLISECONDS)
+        call.done.await(NotificationRules.TRIGGER_SHOW_WAIT_MS, TimeUnit.MILLISECONDS)
         return call.answer ?: "no answer"
     }
 

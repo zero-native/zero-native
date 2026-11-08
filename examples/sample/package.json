@@ -24,6 +24,7 @@
     "@zero-native/pdf": "workspace:*",
     "@zero-native/markdown": "workspace:*",
     "@zero-native/perf": "workspace:*",
+    "@zero-native/notifications": "workspace:*",
     "@zero-native/push": "workspace:*",
     "@zero-native/remote-config": "workspace:*",
     "@zero-native/ui": "workspace:*"

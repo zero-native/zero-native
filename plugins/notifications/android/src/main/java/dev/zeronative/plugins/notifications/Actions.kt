@@ -1,4 +1,4 @@
-package dev.zeronative.plugins.push
+package dev.zeronative.plugins.notifications
 
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -18,22 +18,22 @@ import org.json.JSONObject
  * a reply in the notification first (Android's inline reply) and the task gets the text.
  */
 internal object Actions {
-    private const val ACTION = "dev.zeronative.push.ACTION"
-    private const val EXTRA_ID = "dev.zeronative.push.id"
-    private const val EXTRA_ACTION = "dev.zeronative.push.action"
-    private const val EXTRA_DATA = "dev.zeronative.push.data"
-    const val INPUT_KEY = "dev.zeronative.push.input"
+    private const val ACTION = "dev.zeronative.notifications.ACTION"
+    private const val EXTRA_ID = "dev.zeronative.notifications.id"
+    private const val EXTRA_ACTION = "dev.zeronative.notifications.action"
+    private const val EXTRA_DATA = "dev.zeronative.notifications.data"
+    const val INPUT_KEY = "dev.zeronative.notifications.input"
 
-    /** Adds [actions] (at most [PushRules.MAX_ACTIONS], as Android shows) to [b]. */
+    /** Adds [actions] (at most [NotificationRules.MAX_ACTIONS], as Android shows) to [b]. */
     fun add(context: Context, b: NotificationCompat.Builder, id: String, actions: JSONArray?, data: JSONObject) {
         if (actions == null) return
-        for (i in 0 until minOf(actions.length(), PushRules.MAX_ACTIONS)) {
+        for (i in 0 until minOf(actions.length(), NotificationRules.MAX_ACTIONS)) {
             val a = actions.optJSONObject(i) ?: continue
             val actionId = a.optString("id").takeIf { it.isNotEmpty() } ?: continue
             val title = a.optString("title").takeIf { it.isNotEmpty() } ?: continue
             val link = a.optString("link").takeIf { it.isNotEmpty() }
             val input = a.optJSONObject("input")
-            val code = PushRules.actionRequestCode(id, actionId)
+            val code = NotificationRules.actionRequestCode(id, actionId)
             val pending = if (link != null) {
                 Groups.tap(context, "$id:$actionId", link)
             } else {
@@ -64,7 +64,7 @@ internal object Actions {
         val data = intent.getStringExtra(EXTRA_DATA)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
         val payload = JSONObject().put("id", id).put("actionId", actionId).put("data", data)
         RemoteInput.getResultsFromIntent(intent)?.getCharSequence(INPUT_KEY)?.let { payload.put("input", it.toString()) }
-        ZnBackground.run(PushRules.ACTION_TASK, payload, PushRules.ACTION_TIMEOUT_MS) { done() }
+        ZnBackground.run(NotificationRules.ACTION_TASK, payload, NotificationRules.ACTION_TIMEOUT_MS) { done() }
     }
 }
 

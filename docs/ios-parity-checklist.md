@@ -236,7 +236,8 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 | media | Pick photos / files, camera, compress, edit, as handles (Media) | no | MediaPlugin.kt, MediaModule.kt, MediaImage.kt, MediaFileProvider.kt, MediaRules.kt | L (1.5 d) | PHPicker, UIImagePickerController, UIDocumentPicker. |
 | pdf | Download, keep and show PDFs (Pdf, views pdf.preview, pdf.view) | done (simulator) | PdfPlugin.kt, PdfModule.kt, PdfDoc.kt, PdfPreview.kt, PdfViewer.kt, PdfViews.kt, PdfRules.kt | L | PDFKit. Needs NativeView. |
 | perf | Firebase Performance (Perf) | no | PerfPlugin.kt | M | Needs batch listeners (§4). |
-| push | FCM token, topics, data messages as JS tasks; local notifications (Push, Notifications) | no | PushPlugin.kt, PushModule.kt, NotificationsModule.kt, ZnMessagingService.kt, Opens.kt, Schedule.kt, Actions.kt, Groups.kt, PushRules.kt | L (2.5 d) | APNs through FCM, UNUserNotificationCenter, actions, groups, schedules, background runs. Needs background tasks. |
+| notifications | Local notifications (Notifications) and `PushEvents`, the door every push service uses; no Firebase | no | NotificationsPlugin.kt, NotificationsModule.kt, PushEvents.kt, Taps.kt, Schedule.kt, Actions.kt, Groups.kt, NotificationRules.kt | L (1.5 d) | UNUserNotificationCenter, actions, groups (thread ids), schedules, taps. Split from push 2026-11-09 (second-opinions 196). |
+| push | FCM token, topics, data messages as JS tasks (Push); on top of notifications | no | PushPlugin.kt, PushModule.kt, ZnMessagingService.kt, Opens.kt, PushRules.kt | M (1 d) | APNs; FCM on top only if we keep FCM topics and tokens. An APNs-only path hands tokens and messages to `PushEvents` (provider "apns") with no FCM. Needs background tasks. |
 | remote-config | Firebase Remote Config (RemoteConfig) | no | RemoteConfigPlugin.kt | M | |
 | scanner | QR / barcode scan, full screen and a view (Scanner, screen scanner.full, view scanner.qr) | done (simulator) | ScannerPlugin.kt, ScannerModule.kt, ScannerScreen.kt, ScannerView.kt, ScannerParts.kt, ScannerCamera.kt, CameraSession.kt, ScannerTexts.kt, ScannerRules.kt | L (1.5 d) | plugins/scanner/ios: AVFoundation metadata output. `autoZoom` ignored. Real camera, torch and zoom not tried (simulator: ZN_SCANNER_FAKE). |
 | webview | Web page in a screen, host allow-list, messages both ways (WebView, view webview.page) | done (simulator) | WebViewPlugin.kt, WebViewModule.kt, WebViewPage.kt, WebViewRules.kt | L (1.5 d) | WKWebView. Needs NativeView. |
@@ -266,7 +267,7 @@ much the idea changes on iOS.
   rest map (getUniqueId = identifierForVendor, which changes on reinstall). Still **M**.
 
 **2. Same job, another mechanism: needs its own iOS design, not a line-by-line port.**
-- **push** (the big one). APNs, with FCM on top if we keep FCM topics and tokens. Channels and channel groups don't
+- **push and notifications** (the big one; two plugins since 2026-11-09, so iOS can have notifications and APNs with no FCM). APNs, with FCM on top only if we keep FCM topics and tokens. Channels and channel groups don't
   exist (those calls do nothing); `isBatteryOptimized`, `canScheduleExact` are n/a. The main difference: Android runs
   JS for data messages in the background; iOS silent pushes are throttled, not guaranteed, and never delivered after
   the user swipes the app away. Anything the user must see needs an alert payload from the server. Changing a

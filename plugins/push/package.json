@@ -7,6 +7,9 @@
   "scripts": {
     "test": "bun test"
   },
+  "dependencies": {
+    "@zero-native/notifications": "workspace:*"
+  },
   "peerDependencies": {
     "@zero-native/core": "workspace:*"
   },

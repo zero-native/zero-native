@@ -1,4 +1,4 @@
-package dev.zeronative.plugins.push
+package dev.zeronative.plugins.notifications
 
 import android.app.Notification
 import android.app.NotificationManager
@@ -18,26 +18,26 @@ import java.security.SecureRandom
 import org.json.JSONObject
 
 /**
- * Group summaries, taps and swipes for [NotificationsModule]. A group with [PushRules.SUMMARY_FROM] or more notifications
+ * Group summaries, taps and swipes for [NotificationsModule]. A group with [NotificationRules.SUMMARY_FROM] or more notifications
  * gets one summary (inbox style, the newest lines); with fewer it has none. Kept right after every show, cancel and swipe,
  * also in a process started only for the swipe: what a summary says is saved per group, not kept in memory.
  */
 internal object Groups {
     class Line(val id: String, val title: String?, val body: String?)
 
-    private const val TAG = "zn-push"
-    private const val PREFS = "zn-push-groups"
-    private const val EXTRA_ID = "dev.zeronative.push.id"
-    private const val EXTRA_GROUP = "dev.zeronative.push.group"
-    private const val EXTRA_DATA = "dev.zeronative.push.data"
-    const val EXTRA_PRESS_ID = "dev.zeronative.push.press.id"
-    const val EXTRA_PRESS_DATA = "dev.zeronative.push.press.data"
-    const val EXTRA_PRESS_KEY = "dev.zeronative.push.press.key"
-    private const val EXTRA_PRESS_SECRET = "dev.zeronative.push.press.secret"
-    private const val ACTION_PRESS = "dev.zeronative.push.PRESS"
-    private const val SECRET_PREFS = "zn-push-press"
+    private const val TAG = "zn-notifications"
+    private const val PREFS = "zn-notifications-groups"
+    private const val EXTRA_ID = "dev.zeronative.notifications.id"
+    private const val EXTRA_GROUP = "dev.zeronative.notifications.group"
+    private const val EXTRA_DATA = "dev.zeronative.notifications.data"
+    const val EXTRA_PRESS_ID = "dev.zeronative.notifications.press.id"
+    const val EXTRA_PRESS_DATA = "dev.zeronative.notifications.press.data"
+    const val EXTRA_PRESS_KEY = "dev.zeronative.notifications.press.key"
+    private const val EXTRA_PRESS_SECRET = "dev.zeronative.notifications.press.secret"
+    private const val ACTION_PRESS = "dev.zeronative.notifications.PRESS"
+    private const val SECRET_PREFS = "zn-notifications-press"
 
-    /** The app's context, for [isOurPress] (set by PushPlugin at registration). */
+    /** The app's context, for [isOurPress] (set by NotificationsPlugin at registration). */
     @Volatile private var app: Context? = null
 
     fun init(context: Context) {
@@ -77,22 +77,22 @@ internal object Groups {
     fun refresh(context: Context, key: String, with: Line? = null, without: String? = null) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         val lines = nm.activeNotifications
-            .filter { it.id == PushRules.NOTIFICATION_INT_ID && !PushRules.isSummaryTag(it.tag) && it.notification.group == key && it.tag != without }
+            .filter { it.id == NotificationRules.NOTIFICATION_INT_ID && !NotificationRules.isSummaryTag(it.tag) && it.notification.group == key && it.tag != without }
             .sortedByDescending { it.postTime }
             .map { Line(it.tag, it.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(), it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()) }
             .toMutableList()
         if (with != null && lines.none { it.id == with.id }) lines.add(0, with)
         val manager = NotificationManagerCompat.from(context)
-        val tag = PushRules.summaryTag(key)
-        if (lines.size < PushRules.SUMMARY_FROM) {
-            manager.cancel(tag, PushRules.NOTIFICATION_INT_ID)
+        val tag = NotificationRules.summaryTag(key)
+        if (lines.size < NotificationRules.SUMMARY_FROM) {
+            manager.cancel(tag, NotificationRules.NOTIFICATION_INT_ID)
             return
         }
         val saved = prefs(context).getString(key, null)?.let(::JSONObject) ?: return
         val count = lines.size
-        val text = PushRules.summaryText(saved.optString("summaryFormat").takeIf { it.isNotEmpty() }, count) ?: "$count new"
+        val text = NotificationRules.summaryText(saved.optString("summaryFormat").takeIf { it.isNotEmpty() }, count) ?: "$count new"
         val inbox = NotificationCompat.InboxStyle().setSummaryText(text)
-        for (l in lines.take(PushRules.SUMMARY_LINES)) inbox.addLine(PushRules.inboxLine(l.title, l.body))
+        for (l in lines.take(NotificationRules.SUMMARY_LINES)) inbox.addLine(NotificationRules.inboxLine(l.title, l.body))
         val summary = NotificationCompat.Builder(context, saved.getString("channelId"))
             .setSmallIcon(smallIcon(context))
             .setContentTitle(saved.optString("title").takeIf { it.isNotEmpty() }?.let(::html) ?: text)
@@ -110,7 +110,7 @@ internal object Groups {
             )
             .build()
         try {
-            manager.notify(tag, PushRules.NOTIFICATION_INT_ID, summary)
+            manager.notify(tag, NotificationRules.NOTIFICATION_INT_ID, summary)
         } catch (e: SecurityException) {
             Log.w(TAG, "group summary not shown: no permission")
         }
@@ -121,7 +121,7 @@ internal object Groups {
      * tag and no entity stays exactly as given; in HTML text a line break stays a line break.
      */
     fun html(text: String): CharSequence =
-        if (!PushRules.looksLikeHtml(text)) text
+        if (!NotificationRules.looksLikeHtml(text)) text
         else HtmlCompat.fromHtml(text.replace("\n", "<br>"), HtmlCompat.FROM_HTML_MODE_COMPACT).trimEnd()
 
     /**
@@ -174,7 +174,7 @@ internal object Groups {
         } catch (_: Exception) {
             null
         }
-        return meta?.getInt(NotificationsModule.META_SMALL_ICON, 0)?.takeIf { it != 0 }
+        return NotificationsModule.metaRes(meta, NotificationsModule.META_SMALL_ICON, NotificationsModule.OLD_META_SMALL_ICON)
             ?: context.applicationInfo.icon.takeIf { it != 0 }
             ?: android.R.drawable.ic_dialog_info
     }
@@ -183,7 +183,7 @@ internal object Groups {
         val id = intent.getStringExtra(EXTRA_ID) ?: return done()
         intent.getStringExtra(EXTRA_GROUP)?.let { refresh(context, it, without = id) }
         val data = intent.getStringExtra(EXTRA_DATA)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
-        ZnBackground.run(PushRules.DISMISS_TASK, JSONObject().put("id", id).put("data", data), PushRules.DISMISS_TIMEOUT_MS) { done() }
+        ZnBackground.run(NotificationRules.DISMISS_TASK, JSONObject().put("id", id).put("data", data), NotificationRules.DISMISS_TIMEOUT_MS) { done() }
     }
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

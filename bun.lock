@@ -35,6 +35,7 @@
         "@zero-native/lottie": "workspace:*",
         "@zero-native/markdown": "workspace:*",
         "@zero-native/media": "workspace:*",
+        "@zero-native/notifications": "workspace:*",
         "@zero-native/pdf": "workspace:*",
         "@zero-native/perf": "workspace:*",
         "@zero-native/push": "workspace:*",
@@ -155,6 +156,13 @@
         "@zero-native/core": "workspace:*",
       },
     },
+    "plugins/notifications": {
+      "name": "@zero-native/notifications",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@zero-native/core": "workspace:*",
+      },
+    },
     "plugins/pdf": {
       "name": "@zero-native/pdf",
       "version": "0.0.0",
@@ -173,6 +181,9 @@
     "plugins/push": {
       "name": "@zero-native/push",
       "version": "0.0.0",
+      "dependencies": {
+        "@zero-native/notifications": "workspace:*",
+      },
       "peerDependencies": {
         "@zero-native/core": "workspace:*",
       },
@@ -233,6 +244,8 @@
     "@zero-native/markdown": ["@zero-native/markdown@workspace:plugins/markdown"],
 
     "@zero-native/media": ["@zero-native/media@workspace:plugins/media"],
+
+    "@zero-native/notifications": ["@zero-native/notifications@workspace:plugins/notifications"],
 
     "@zero-native/pdf": ["@zero-native/pdf@workspace:plugins/pdf"],
 

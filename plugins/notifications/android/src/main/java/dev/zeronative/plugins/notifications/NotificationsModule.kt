@@ -1,4 +1,4 @@
-package dev.zeronative.plugins.push
+package dev.zeronative.plugins.notifications
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -28,7 +28,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Notifications shown by the app itself (plugins/push/src/index.ts `Notifications`), notifee-like: channels, show with
+ * Notifications shown by the app itself (plugins/notifications/src/index.ts `Notifications`), notifee-like: channels, show with
  * pictures and groups, cancel, and a check before showing. Works with no Firebase at all. A tap opens the notification's
  * `link` through core's normal link path (the app's `onLink`); with no link it opens the app and JS hears it as a press
  * (version 3: event "pressed", `getInitialNotification`). A swipe away runs the JS task "push.dismissed".
@@ -38,14 +38,14 @@ internal class NotificationsModule(private val context: Context, private val deb
     private val manager = NotificationManagerCompat.from(context)
 
     init {
-        // A tap on one of the app's own notifications with no link (Opens.kt, Presses).
+        // A tap on one of the app's own notifications with no link (Taps.kt, Presses).
         function("getInitialNotification", onMain = true) { call -> Presses.initial { call.resolve(it) } }
         Presses.emit = { press -> emit("pressed", press) }
 
         function("createChannel") { call ->
             val id = call.string("id")
             val name = call.string("name")
-            val importance = PushRules.importance(call.stringOrNull("importance"))
+            val importance = NotificationRules.importance(call.stringOrNull("importance"))
                 ?: return@function call.reject("invalid_args", "importance must be none, min, low, default or high")
             if (Build.VERSION.SDK_INT >= 26) {
                 val ch = NotificationChannel(id, name, importance)
@@ -146,7 +146,7 @@ internal class NotificationsModule(private val context: Context, private val deb
         // The app's notifications on screen now (not group summaries), newest first.
         function("getDisplayed") { call ->
             val out = JSONArray()
-            for (n in active().filter { !PushRules.isSummaryTag(it.tag) }.sortedByDescending { it.postTime }) {
+            for (n in active().filter { !NotificationRules.isSummaryTag(it.tag) }.sortedByDescending { it.postTime }) {
                 val e = n.notification.extras
                 out.put(
                     JSONObject()
@@ -171,7 +171,7 @@ internal class NotificationsModule(private val context: Context, private val deb
             val id = call.string("id")
             Schedule.remove(context, id) // like notifee: a scheduled one with this id goes too
             val group = active().firstOrNull { it.tag == id }?.notification?.group
-            manager.cancel(id, PushRules.NOTIFICATION_INT_ID)
+            manager.cancel(id, NotificationRules.NOTIFICATION_INT_ID)
             if (group != null) Groups.refresh(context, group, without = id)
             call.resolve(true)
         }
@@ -186,9 +186,9 @@ internal class NotificationsModule(private val context: Context, private val deb
     /** Why a notification can't show now (null: it can). With no channel id: only the app-wide switch. */
     private fun blocked(channelId: String?): String? {
         val appOn = manager.areNotificationsEnabled()
-        if (channelId == null || Build.VERSION.SDK_INT < 26) return PushRules.blocked(appOn, true, null)
+        if (channelId == null || Build.VERSION.SDK_INT < 26) return NotificationRules.blocked(appOn, true, null)
         val ch = manager.getNotificationChannel(channelId)
-        return PushRules.blocked(appOn, ch != null, ch?.importance)
+        return NotificationRules.blocked(appOn, ch != null, ch?.importance)
     }
 
     private fun show(call: ZnCall) {
@@ -202,24 +202,24 @@ internal class NotificationsModule(private val context: Context, private val deb
         val group = call.args.optJSONObject("group")
         val groupKey = group?.optString("key")?.takeIf { it.isNotEmpty() }
         val data = call.args.optJSONObject("data") ?: JSONObject()
-        val visibility = PushRules.visibility(call.stringOrNull("visibility"))
+        val visibility = NotificationRules.visibility(call.stringOrNull("visibility"))
             ?: return call.reject("invalid_args", "visibility must be public, private or secret")
         val categoryName = call.stringOrNull("category")
-        val category = PushRules.category(categoryName)
+        val category = NotificationRules.category(categoryName)
         if (category == "") return call.reject("invalid_args", "unknown category \"$categoryName\"")
         val progress = call.args.optJSONObject("progress")?.let {
-            PushRules.progress(if (it.has("max")) it.optInt("max") else null, it.optInt("current"), it.optBoolean("indeterminate"))
+            NotificationRules.progress(if (it.has("max")) it.optInt("max") else null, it.optInt("current"), it.optBoolean("indeterminate"))
         }
         val lines = call.args.optJSONArray("lines")
-            ?.let { a -> List(minOf(a.length(), PushRules.MAX_LINES)) { a.optString(it) } }
+            ?.let { a -> List(minOf(a.length(), NotificationRules.MAX_LINES)) { a.optString(it) } }
             ?.filter { it.isNotEmpty() }
         blocked(channelId)?.let { reason ->
             Log.w(TAG, "notification $id not shown: $reason")
             return call.resolve(JSONObject().put("shown", false).put("reason", reason))
         }
 
-        val picture = call.stringOrNull("imageUrl")?.let { download(it, PushRules.PICTURE_MAX_PX) }
-        val largeIcon = call.stringOrNull("largeIconUrl")?.let { download(it, PushRules.ICON_MAX_PX) }
+        val picture = call.stringOrNull("imageUrl")?.let { download(it, NotificationRules.PICTURE_MAX_PX) }
+        val largeIcon = call.stringOrNull("largeIconUrl")?.let { download(it, NotificationRules.ICON_MAX_PX) }
         val b = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(smallIcon())
             .setContentTitle(Groups.html(title))
@@ -227,13 +227,13 @@ internal class NotificationsModule(private val context: Context, private val deb
             .setContentIntent(Groups.tap(context, id, link, press = data))
             .setDeleteIntent(Groups.dismissIntent(context, id, groupKey, data))
         body?.let { b.setContentText(Groups.html(it)) }
-        (PushRules.color(call.stringOrNull("color")) ?: color())?.let(b::setColor)
+        (NotificationRules.color(call.stringOrNull("color")) ?: color())?.let(b::setColor)
         largeIcon?.let(b::setLargeIcon)
-        when (PushRules.style(body, bigText, picture != null, !lines.isNullOrEmpty())) {
-            PushRules.Style.PICTURE -> b.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).setSummaryText(body?.let(Groups::html)))
-            PushRules.Style.INBOX -> b.setStyle(NotificationCompat.InboxStyle().also { s -> lines!!.forEach { s.addLine(Groups.html(it)) } })
-            PushRules.Style.BIG_TEXT -> b.setStyle(NotificationCompat.BigTextStyle().bigText((bigText ?: body)?.let(Groups::html)))
-            PushRules.Style.PLAIN -> {}
+        when (NotificationRules.style(body, bigText, picture != null, !lines.isNullOrEmpty())) {
+            NotificationRules.Style.PICTURE -> b.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).setSummaryText(body?.let(Groups::html)))
+            NotificationRules.Style.INBOX -> b.setStyle(NotificationCompat.InboxStyle().also { s -> lines!!.forEach { s.addLine(Groups.html(it)) } })
+            NotificationRules.Style.BIG_TEXT -> b.setStyle(NotificationCompat.BigTextStyle().bigText((bigText ?: body)?.let(Groups::html)))
+            NotificationRules.Style.PLAIN -> {}
         }
         // Version 2 (notifee-like). The lock screen hides the text by default ("private"): bills and payments are private.
         b.setVisibility(visibility)
@@ -252,7 +252,7 @@ internal class NotificationsModule(private val context: Context, private val deb
             Groups.remember(context, groupKey, channelId, group)
         }
         try {
-            manager.notify(id, PushRules.NOTIFICATION_INT_ID, b.build())
+            manager.notify(id, NotificationRules.NOTIFICATION_INT_ID, b.build())
         } catch (e: SecurityException) { // the permission was taken away between the check and here
             return call.resolve(JSONObject().put("shown", false).put("reason", "off"))
         }
@@ -261,11 +261,11 @@ internal class NotificationsModule(private val context: Context, private val deb
     }
 
     private fun active() = (context.getSystemService(NotificationManager::class.java)?.activeNotifications ?: emptyArray())
-        .filter { it.id == PushRules.NOTIFICATION_INT_ID }
+        .filter { it.id == NotificationRules.NOTIFICATION_INT_ID }
 
     private fun smallIcon(): Int = Groups.smallIcon(context)
 
-    private fun color(): Int? = meta()?.getInt(META_COLOR, 0)?.takeIf { it != 0 }?.let { context.getColor(it) }
+    private fun color(): Int? = metaRes(meta(), META_COLOR, OLD_META_COLOR)?.let { context.getColor(it) }
 
     private fun meta() = try {
         context.packageManager.getApplicationInfo(context.packageName, PackageManager.GET_META_DATA).metaData
@@ -275,18 +275,18 @@ internal class NotificationsModule(private val context: Context, private val deb
 
     /** A picture for the notification, or null (it then shows without one). Never more than a few seconds. */
     private fun download(url: String, maxPx: Int): Bitmap? {
-        if (!PushRules.imageUrlAllowed(url, debug)) {
+        if (!NotificationRules.imageUrlAllowed(url, debug)) {
             Log.w(TAG, "image left out: only https links")
             return null
         }
         return try {
             val c = URL(url).openConnection() as HttpURLConnection
-            c.connectTimeout = PushRules.IMAGE_TIMEOUT_MS
-            c.readTimeout = PushRules.IMAGE_TIMEOUT_MS
+            c.connectTimeout = NotificationRules.IMAGE_TIMEOUT_MS
+            c.readTimeout = NotificationRules.IMAGE_TIMEOUT_MS
             c.instanceFollowRedirects = true
             try {
                 if (c.responseCode !in 200..299) return null
-                if (c.contentLengthLong > PushRules.MAX_IMAGE_BYTES) return null
+                if (c.contentLengthLong > NotificationRules.MAX_IMAGE_BYTES) return null
                 val out = ByteArrayOutputStream()
                 c.inputStream.use { input ->
                     val buf = ByteArray(16 * 1024)
@@ -294,7 +294,7 @@ internal class NotificationsModule(private val context: Context, private val deb
                         val n = input.read(buf)
                         if (n < 0) break
                         out.write(buf, 0, n)
-                        if (out.size() > PushRules.MAX_IMAGE_BYTES) return null
+                        if (out.size() > NotificationRules.MAX_IMAGE_BYTES) return null
                     }
                 }
                 decode(out.toByteArray(), maxPx)
@@ -316,19 +316,26 @@ internal class NotificationsModule(private val context: Context, private val deb
     }
 
     companion object {
-        private const val TAG = "zn-push"
-        /** In the app's manifest: `<meta-data android:name="dev.zeronative.push.small_icon" android:resource="@drawable/..." />`. */
-        const val META_SMALL_ICON = "dev.zeronative.push.small_icon"
-        const val META_COLOR = "dev.zeronative.push.color"
+        private const val TAG = "zn-notifications"
+        /** In the app's manifest: `<meta-data android:name="dev.zeronative.notifications.small_icon" android:resource="@drawable/..." />`. */
+        const val META_SMALL_ICON = "dev.zeronative.notifications.small_icon"
+        const val META_COLOR = "dev.zeronative.notifications.color"
+        /** The keys before the split from plugins/push (2026-11-09). Still read, after the new ones. Deprecated. */
+        const val OLD_META_SMALL_ICON = "dev.zeronative.push.small_icon"
+        const val OLD_META_COLOR = "dev.zeronative.push.color"
+
+        /** A resource id from the app's meta-data: the new key first, then the old one. */
+        internal fun metaRes(meta: Bundle?, key: String, old: String): Int? =
+            meta?.getInt(key, 0)?.takeIf { it != 0 } ?: meta?.getInt(old, 0)?.takeIf { it != 0 }
         /** The notification's `data`, kept in its extras for getDisplayed. */
-        private const val EXTRA_DATA = "dev.zeronative.push.data"
+        private const val EXTRA_DATA = "dev.zeronative.notifications.data"
     }
 
     @RequiresApi(26)
     private fun channelJson(ch: NotificationChannel): JSONObject = JSONObject()
         .put("id", ch.id)
         .put("name", ch.name.toString())
-        .put("importance", PushRules.importanceName(ch.importance))
+        .put("importance", NotificationRules.importanceName(ch.importance))
         .put("blocked", ch.importance == NotificationManager.IMPORTANCE_NONE)
         .put("description", ch.description ?: JSONObject.NULL)
         .put("groupId", ch.group ?: JSONObject.NULL)

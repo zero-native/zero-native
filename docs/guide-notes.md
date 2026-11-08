@@ -1341,7 +1341,8 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 | `@zero-native/firebase-app` | The base every Firebase plugin stands on: one Firebase version, one Gradle file, `Firebase.app()`, Installations (§49) | No size of its own is measured; the Firebase plugins below show their sizes on top of it |
 | `@zero-native/crashlytics` | Kotlin crashes, JS errors as non-fatals, OTA outcomes, bundle and route keys (§46) | About 232 KB; native (C++) crashes are +1.30 MB more, opt-in |
 | `@zero-native/analytics` | Google Analytics for Firebase, a `screen_view` per route; on from the first start (§50) | About 0.44 MB |
-| `@zero-native/push` | FCM messages as a JS task, notifications (buttons, progress, schedules), taps that open a route, the OTA check push (§48, §51-§53) | About 54 KB on top of Crashlytics |
+| `@zero-native/notifications` | Notifications the app shows itself (buttons, progress, schedules), taps that open a route; `PushEvents` for any push service. No Firebase (§52, §53, §77) | Not measured on its own (most of push's 54 KB before the split) |
+| `@zero-native/push` | FCM messages as a JS task, the OTA check push; adds `@zero-native/notifications` (§48, §51, §77) | About 54 KB on top of Crashlytics, with notifications (2026-11-04) |
 | `@zero-native/remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
 | `@zero-native/perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
 | `@zero-native/lottie` | Lottie animations (`.json`, `.lottie`) with lottie-react-native's names and `ref` methods (§57) | About 85 KB (lottie-compose, bundled) |
@@ -1987,7 +1988,8 @@ API and rules: `plugins/push/README.md`.
 - **Don't** log `m.data` as a whole or put private data in a message. **Why:** FCM's servers and the phone's own
   notification log keep it.
 - **Do** put "where it came from" in the link (`?from=push`) to count opens: the tap goes through `onLink` like any link.
-- **Do** give the app a white-on-clear icon in the manifest (`dev.zeronative.push.small_icon` and FCM's
+- **Do** give the app a white-on-clear icon in the manifest (`dev.zeronative.notifications.small_icon`, before
+  2026-11-09 `dev.zeronative.push.small_icon`, and FCM's
   `default_notification_icon`). **Why:** Android draws the app icon as a white square in the status bar.
 
 ## 49. Firebase base (`@zero-native/firebase-app`)
@@ -2692,27 +2694,20 @@ Reference: `docs/motion.md`. The short version for authors:
 - The bar under the list still has to move with the keyboard: the route's `keyboard: "resize"` (default) does it, or
   `keyboard: "none"` and `translateY` by `env.keyboardHeight` (Sheets lab, Keyboard tab).
 
-## 77. Canvas: drawing from motion values, images, paragraphs, clips
-Reference: `docs/components.md` §14. The short version for authors:
-- **Do** give a chart cursor, a ring's sweep or a tick's trim a motion value (`draw.circle(x, y, 5, paint)` with
-  `x = pan.touchX.map(...)`). **Don't** rebuild the command list from a signal on every frame. **Why:** a motion value
-  is read natively while drawing (a redraw only); a new list is JSON, a parse and a recompose per frame.
-- **Do** use the chart's own arrays for the dot and the price: `pan.touchX.map(XS, YS)`, `pan.touchX.map(XS, PRICES)`,
-  and show the price with `price.format({ prefix: "₹" })` in a `<Text>`. **Why:** the dot then sits exactly on a
-  `polyline` line. (On a `smoothPath` curve it sits on the straight line between points, slightly off the curve.)
-- **Don't** put a motion value in gradient points or colours, `dash`, path `d`, `fontSize`, paragraph `width`, shadow
-  or blur. **Why:** these are built once per list; JS warns and native skips the command. Move the whole drawing with
-  `translate` / `scale` / `rotate`, or send a new list.
-- **Do** use `.mapColor(...)` for a colour that moves. **Why:** a plain number value as a colour draws black.
-- **Do** use `smoothPath(points)` for chart curves. **Don't** hand-write cubic curves through data. **Why:** it never
-  overshoots, so the curve never shows a price above the highest or below the lowest.
-- **Do** remember `paragraph`'s `y` is the top of the text, while `text`'s `y` is the baseline. **Why:** a paragraph
-  is a block that wraps; a single line is placed on its baseline like in SVG.
-- **Do** give `image` the same sources as `<Image>` (https URL, `asset:images/x.png`, `zn://`). **Why:** nothing shows
-  while it loads or if it fails; draw a grey box under it if the empty space would look broken.
-- **Do** use `clipRoundRect(..., { op: "difference" })` for a scanner frame (dark cover, clear hole). **Don't** draw
-  four dark rects round the hole. **Why:** one clip gives round corners and no seams.
-- **Don't** count on `shadow` or `blur` below Android 9: the shape draws without them. **Why:** Android's hardware
-  drawing ignores them there.
-- A canvas problem is a warning in logcat (tag `zn`) and a JS warning, not a red screen. Check logcat when a part of a
-  drawing is missing.
+## 77. Notifications without FCM (`@zero-native/notifications`, split from push 2026-11-09)
+```ts
+import { Notifications, PushEvents } from "@zero-native/notifications"   // no Firebase in the app
+import { Push } from "@zero-native/push"                                 // only if the app uses FCM
+```
+- **Do** import `Notifications` from `@zero-native/notifications` in new code. **Why:** a bundle that imports
+  `@zero-native/push` needs the "Push" module, so an app without push refuses it at start and in the OTA check
+  ("native modules missing"). Old imports from `@zero-native/push` keep working in apps that have push.
+- **Do** list `NotificationsPlugin()` in an app with no push. With push, `PushPlugin()` adds it; listing both is fine.
+- **Do** listen with `PushEvents.onMessage` / `onTokenRefresh` when the app may change push service.
+  `Push.onMessage` is the same task, so both hear FCM. `m.provider` says which service sent it (`"fcm"`).
+- **Do** use the new manifest keys `dev.zeronative.notifications.small_icon` / `.color`. The old
+  `dev.zeronative.push.*` keys are still read (deprecated).
+- **Know:** the boot receiver is now `dev.zeronative.plugins.notifications.ZnNotificationBoot` (README). Prefs and log
+  tags moved too (`zn-notifications-*`, tag `zn-notifications`); FCM's own lines stay `zn-push`.
+- **Know:** module names and versions did not change ("Push" 2, "Notifications" 3), so bundles and the OTA check are
+  as before.
