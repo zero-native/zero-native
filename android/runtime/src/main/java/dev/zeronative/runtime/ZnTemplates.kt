@@ -140,6 +140,7 @@ object ZnTemplates {
                 restore = r.optBoolean("restore", true),
                 native = native,
                 secure = r.optBoolean("secure", false),
+                transparent = r.optBoolean("transparent", false),
                 tabs = r.optJSONArray("tabs")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
             )
         }

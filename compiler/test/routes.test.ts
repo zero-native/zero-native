@@ -46,6 +46,18 @@ describe("routes", () => {
     expect("secure" in routes![0]).toBe(false)
   })
 
+  test("transparent (registry 24): sent only when true; other values are errors", () => {
+    const routes = read(`export const routes = defineRoutes({
+      home: { path: "/", screen: HomeScreen },
+      viewer: { path: "/viewer", screen: HomeScreen, transparent: true, safeArea: "none", restore: false },
+      plain: { path: "/plain", screen: HomeScreen, transparent: false },
+    })`)
+    expect(routes![1]).toMatchObject({ name: "viewer", transparent: true, restore: false })
+    expect("transparent" in routes![0]).toBe(false)
+    expect("transparent" in routes![2]).toBe(false)
+    expect(err(`defineRoutes({ home: { path: "/", screen: HomeScreen }, a: { path: "/a", screen: HomeScreen, transparent: "yes" } })`)).toContain("transparent")
+  })
+
   test("native screen errors", () => {
     const home = `home: { path: "/", screen: HomeScreen }`
     expect(err(`defineRoutes({ ${home}, a: { path: "/a", screen: HomeScreen, native: "x.y" } })`)).toContain("both screen and native")

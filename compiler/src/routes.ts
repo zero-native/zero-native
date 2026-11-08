@@ -30,6 +30,8 @@ export interface RouteEntry {
   restore: boolean
   /** true: no screenshots or recordings while this route is on top. */
   secure?: boolean
+  /** true: the screen below stays drawn under this one (a photo viewer, a dialog drawn in JS). Registry 24. */
+  transparent?: boolean
   /** The screen's tab names, first = the default tab (useTabs, host API 8). */
   tabs?: string[]
 }
@@ -37,7 +39,7 @@ export interface RouteEntry {
 /** "<plugin>.<name>": the name of a native screen or view. */
 export const NATIVE_NAME = /^[a-z][a-z0-9-]*\.[A-Za-z0-9_.-]+$/
 const TRANSITIONS = ["push", "modal", "fade", "none"]
-const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore", "secure", "tabs"]
+const OPTIONS = ["transition", "safeArea", "statusBar", "deepLink", "keyboard", "restore", "secure", "tabs", "transparent"]
 /** A tab name: also the last path segment of a link to that tab. */
 const TAB_NAME = /^[A-Za-z][A-Za-z0-9_]*$/
 
@@ -151,6 +153,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
       keyboard: (options.keyboard as RouteEntry["keyboard"]) ?? "resize",
       restore: (options.restore as boolean) ?? true,
       ...(options.secure === true ? { secure: true } : {}),
+      ...(options.transparent === true ? { transparent: true } : {}),
       ...(tabs ? { tabs: [...tabs] } : {}),
     })
   }
@@ -186,7 +189,7 @@ export function readRoutes(source: string, fileName: string): RouteEntry[] | nul
     const ok =
       key === "transition" ? TRANSITIONS.includes(v as string)
       : key === "statusBar" ? v === "dark" || v === "light"
-      : key === "deepLink" || key === "restore" || key === "secure" ? typeof v === "boolean"
+      : key === "deepLink" || key === "restore" || key === "secure" || key === "transparent" ? typeof v === "boolean"
       : key === "keyboard" ? v === "resize" || v === "none"
       : key === "tabs" ? checkTabs(v, at)
       : v === "all" || v === "none" ||

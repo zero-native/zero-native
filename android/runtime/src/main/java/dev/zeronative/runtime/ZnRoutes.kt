@@ -30,6 +30,8 @@ class ZnRoute(
     val native: String? = null,
     /** True: no screenshots or recordings while this route is on top (the `secure` option). */
     val secure: Boolean = false,
+    /** Registry 24: the screen below stays drawn under this one (a Navigation 3 overlay scene, ZnNavHost). */
+    val transparent: Boolean = false,
     /** The screen's tab names (the `tabs` option): a link to "<path>/<tab>" opens that tab. Empty: no tabs. */
     val tabs: List<String> = emptyList(),
 ) {

@@ -59,6 +59,10 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.scene.Scene
+import androidx.navigation3.scene.OverlayScene
+import androidx.navigation3.scene.SceneStrategy
+import androidx.navigation3.scene.SceneStrategyScope
+import androidx.navigation3.scene.SinglePaneSceneStrategy
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -279,8 +283,11 @@ private fun ScreensDisplay(bundle: ZnBundle, safe: WindowInsets, shared: SharedT
         modifier = Modifier.fillMaxSize().znTestTags(),
         sharedTransitionScope = shared,
         onBack = { ZnNav.navDisplayBack() },
+        // Registry 24: a `transparent` route is an overlay scene: the screens below stay drawn under it.
+        sceneStrategies = listOf(ZnSeeThroughStrategy(), SinglePaneSceneStrategy()),
         entryProvider = { entry ->
-            NavEntry(entry, contentKey = entry.id, metadata = transitions(entry.route.transition, entry.openedAtStart)) { e ->
+            val meta = transitions(entry.route.transition, entry.openedAtStart).let { if (entry.route.transparent) it + (SEE_THROUGH to true) else it }
+            NavEntry(entry, contentKey = entry.id, metadata = meta) { e ->
                 DisposableEffect(e.id) {
                     ZnNav.shown(e.id)
                     onDispose { ZnNav.hidden(e.id) }
@@ -322,6 +329,14 @@ private fun ScreensDisplay(bundle: ZnBundle, safe: WindowInsets, shared: SharedT
                             onBack = { ZnNav.systemBack() },
                         )
                     } else {
+                        if (e.route.transparent) {
+                            // An overlay scene has no enter transition (and no AnimatedVisibilityScope): it is settled
+                            // at once, and shares no element with the screens below (it animates its own content).
+                            CompositionLocalProvider(LocalZnEntry provides e.id, LocalZnSharedVisibility provides null) {
+                                ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
+                            }
+                            return@Box
+                        }
                         // Has this screen's enter transition ended? A TextField's autoFocus waits for it, so Android's
                         // autofill sees the field where it ends up, not off screen mid-slide (R36 on the pilot's login).
                         val visibility = LocalNavAnimatedContentScope.current.transition
@@ -340,6 +355,31 @@ private fun ScreensDisplay(bundle: ZnBundle, safe: WindowInsets, shared: SharedT
             }
         },
     )
+}
+
+/** NavEntry metadata: this entry's route is `transparent` (registry 24). */
+private const val SEE_THROUGH = "zn.seeThrough"
+
+/**
+ * Registry 24: a `transparent` route on top is drawn as an overlay scene (Navigation 3's OverlayScene, as its dialogs):
+ * NavDisplay keeps drawing the scene below it, so the screens under it show through where it draws nothing. It has no
+ * enter / exit transition: the screen animates its own content.
+ */
+private class ZnSeeThroughStrategy : SceneStrategy<ZnEntry> {
+    override fun SceneStrategyScope<ZnEntry>.calculateScene(entries: List<NavEntry<ZnEntry>>): Scene<ZnEntry>? {
+        val top = entries.lastOrNull() ?: return null
+        if (entries.size < 2 || top.metadata[SEE_THROUGH] != true) return null
+        val below = entries.dropLast(1)
+        return ZnSeeThroughScene(top, below)
+    }
+}
+
+private class ZnSeeThroughScene(private val top: NavEntry<ZnEntry>, below: List<NavEntry<ZnEntry>>) : OverlayScene<ZnEntry> {
+    override val key: Any = top.contentKey
+    override val entries: List<NavEntry<ZnEntry>> = listOf(top)
+    override val previousEntries: List<NavEntry<ZnEntry>> = below
+    override val overlaidEntries: List<NavEntry<ZnEntry>> = below
+    override val content: @Composable () -> Unit = { top.Content() }
 }
 
 /** A plugin's native screen (docs/plugins.md §5), with the route's safe area. The bundle needs its plugin's module, so a missing one is rare. */

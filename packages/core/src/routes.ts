@@ -35,6 +35,13 @@ export interface RouteOptions {
   restore?: boolean
   /** No screenshots or screen recordings while this route is on top (Android's FLAG_SECURE). */
   secure?: boolean
+  /**
+   * The screen below stays drawn under this one (registry 24; RN's `presentation: "transparentModal"`): a photo
+   * viewer whose backdrop fades as you drag it down, a dialog drawn in JS. The screen comes in and goes with no
+   * transition: animate its content yourself (fade a backdrop, fly a photo in), and play it backwards in useBack
+   * before nav.back(). Give its root no background (or a see-through one). An older app draws it as a normal screen.
+   */
+  transparent?: boolean
 }
 
 export interface RouteDef<Path extends string = string, Props = any> extends RouteOptions {
