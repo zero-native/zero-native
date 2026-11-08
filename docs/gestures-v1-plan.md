@@ -1,5 +1,8 @@
 # Gestures v1: plan (agreed 2026-11-07)
 
+> **Replaced 2026-11-08** by [`gestures-and-motion-v1.md`](gestures-and-motion-v1.md) (Pavan's goal: everything
+> gesture-handler + Reanimated + worklets unlock, built our way). Kept for history; the rules below carry over.
+
 Agreed by Pavan, with Gemini 4 Argon's review (briefs: `docs/cross-communication/2026-11-07-gestures-argon-brief.md`,
 `2026-11-07-argon-revert-to-opus-and-pavan-conversation.md.txt`). Replaces ARCHITECTURE §10.3's `'main thread'`
 expression language: no general expression language and no script on the UI thread.
