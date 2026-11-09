@@ -2826,6 +2826,7 @@ export function compileModule(
     const props: NodeProps & Record<string, unknown> = {}
     const special: Record<string, ts.Expression> = {}
     let contentStyle: ts.JsxAttribute | null = null
+    let wrapperStyle: ts.JsxAttribute | null = null
     let hasRefresh = false
     const rnLater: RnLater = {}
     for (const attr of (ts.isJsxElement(node) ? node.openingElement : node).attributes.properties) {
@@ -2879,6 +2880,18 @@ export function compileModule(
         styleProps(expr!, props, b)
       } else if (name === "contentContainerStyle") {
         contentStyle = a // after the loop, so it can be checked against style's padding
+      } else if (name === "numColumns") {
+        // RN FlatList's grid (registry 24): rows of n items. Can change at runtime (a wider screen, more columns).
+        if (!expr) fail(a, "numColumns needs a number: numColumns={2}")
+        special.numColumns = expr!
+        const v = fold(expr!, scope)
+        if (v === NOT_STATIC) setProp(props, b, "numColumns", expr!, a)
+        else {
+          if (!Number.isInteger(v) || (v as number) < 1 || (v as number) > 12) fail(a, "numColumns must be a whole number from 1 to 12")
+          if ((v as number) > 1) props.numColumns = v
+        }
+      } else if (name === "columnWrapperStyle") {
+        wrapperStyle = a // after the loop: it needs numColumns
       } else if (name === "horizontal") {
         const val = fold(expr ?? ts.factory.createTrue(), scope)
         if (val === false) continue
@@ -2891,7 +2904,7 @@ export function compileModule(
         else if (expr) setProp(props, b, name as PropName, expr, a)
         else fail(a, `unsupported value for "${name}"`)
       } else {
-        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, ref, controller, motion, itemAnimation, reorderable, onReorder, keyboardDismissMode; or FlatList's renderItem, keyExtractor)`)
+        fail(a, `unknown prop "${name}" on <List> (use data, key, row, onEndReached, style, contentContainerStyle, gap, refreshing, onRefresh, stickyHeaderIndices, inverted, horizontal, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, ref, controller, motion, itemAnimation, reorderable, onReorder, keyboardDismissMode, numColumns, columnWrapperStyle; or FlatList's renderItem, keyExtractor)`)
       }
     }
     rnFinish("List", null, props, b, rnLater, node)
@@ -2914,6 +2927,16 @@ export function compileModule(
         "(row 0 at the bottom, as RN's inverted FlatList) and remove the flip from the list and its rows")
     }
     if (contentStyle) contentContainerStyle(contentStyle, props, b)
+    // Grids (registry 24): rows of numColumns items, each row laid out like a <Row> styled by columnWrapperStyle.
+    if (wrapperStyle) {
+      if (!special.numColumns) fail(wrapperStyle, "columnWrapperStyle needs numColumns (a grid), as in RN")
+      props.columnWrapper = columnWrapper(wrapperStyle, b)
+    }
+    if (props.numColumns !== undefined) {
+      if (props.horizontal === true) fail(node, "<List numColumns> is a vertical grid: it can't be horizontal (as in RN)")
+      if (special.sticky) fail(node, "<List numColumns> doesn't support stickyHeaderIndices (pinned rows are full width)")
+      if (props.reorderable !== undefined) fail(node, "<List numColumns> doesn't support reorderable yet")
+    }
     // FlatList's names (P1.5). renderItem gets { item, index } as in RN; without a key function the key is RN's
     // default: item.key, else item.id, else the index.
     if (special.renderItem && special.row) fail(node, "use row or renderItem, not both")
@@ -3081,6 +3104,41 @@ export function compileModule(
         "already scrolls with the content: keep it in one place, and use margin for space outside the list")
     }
     Object.assign(props, own)
+  }
+
+  /**
+   * RN FlatList's `columnWrapperStyle` (registry 24): the style of each grid row, which is a Row of numColumns items.
+   * Build-time, and only what places the items: gap / columnGap, justifyContent, alignItems, padding keys. Written as
+   * "g<gap>;j<justify>;a<align>;p<start>,<top>,<end>,<bottom>" (ZnTemplate.kt ZnColumnWrapper.parse).
+   */
+  function columnWrapper(a: ts.JsxAttribute, b: Builder): string {
+    const init = a.initializer
+    if (!init || !ts.isJsxExpression(init) || !init.expression) {
+      return fail(a, "columnWrapperStyle needs an object: columnWrapperStyle={{ gap: 12 }}")
+    }
+    const own: Record<string, unknown> = {}
+    styleProps(init.expression, own, b)
+    const allowed = new Set(["gap", "__columnGap", "__rowGap", "justifyContent", "alignItems", ...PADDING_KEYS])
+    for (const [k, v] of Object.entries(own)) {
+      if (k.endsWith("Expr") || (typeof v === "object" && v !== null)) {
+        fail(a, `columnWrapperStyle must be known at build time ("${k.replace(/^__|Expr$/g, "")}" changes at runtime)`)
+      }
+      if (!allowed.has(k)) {
+        fail(a, `columnWrapperStyle takes gap, columnGap, justifyContent, alignItems and padding in zero-native ("${k}" isn't supported). ` +
+          "Style the items themselves for the rest")
+      }
+    }
+    const n = (k: string) => (typeof own[k] === "number" ? (own[k] as number) : undefined)
+    const gap = n("__columnGap") ?? n("gap") ?? 0
+    const justify = own.justifyContent === undefined ? -1 : (Enum.justifyContent as Record<string, number>)[String(own.justifyContent)]
+    const align = own.alignItems === undefined ? -1 : (Enum.alignItems as Record<string, number>)[String(own.alignItems)]
+    if (justify === undefined || align === undefined) fail(a, "columnWrapperStyle: unknown justifyContent or alignItems value")
+    const all = n("padding") ?? 0
+    const start = n("paddingStart") ?? n("paddingHorizontal") ?? all
+    const end = n("paddingEnd") ?? n("paddingHorizontal") ?? all
+    const top = n("paddingTop") ?? n("paddingVertical") ?? all
+    const bottom = n("paddingBottom") ?? n("paddingVertical") ?? all
+    return `g${gap};j${justify};a${align};p${start},${top},${end},${bottom}`
   }
 
   /**

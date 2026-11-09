@@ -77,7 +77,8 @@ export function DevScreen() {
           <Entry title="Markdown package" step="markdown" detail="Server Markdown as native text: offer details, lists, links through the app, notifications" onOpen={() => nav.push("markdownLab")} />
           <Entry title="Document scanner plugin" step="docscan" detail="ML Kit scanner: module status, download, pages and PDF, cancel, a kill while it is open" onOpen={() => nav.push("docScanLab")} />
           <Entry title="Image viewer plugin" step="image viewer" detail="Full-screen photos: pinch, pan, double tap, swipe between and to close, sharp zoom, errors" onOpen={() => nav.push("imageViewerLab")} />
-          <Entry title="RN gaps lab" step="registry 24" detail="App fonts (fontFamily, weights, spans, TextField)" onOpen={() => nav.push("rnGapsLab")} />
+          <Entry title="RN gaps lab" step="registry 24" detail="App fonts (fontFamily, weights, spans, TextField), flexWrap chips" onOpen={() => nav.push("rnGapsLab")} />
+          <Entry title="Grid lab" step="registry 24" detail="FlatList numColumns: 2 / 3 columns, columnWrapperStyle, short last row, load more, empty, scroll to index" onOpen={() => nav.push("gridLab")} />
           <Entry title="Dynamic layout lab" step="H.1" detail="Reactive width/height, animated 40..300, % widths, display: none/flex, dynamic radii & fonts" onOpen={() => nav.push("dynamicLayoutLab")} />
           <Entry title="Canvas primitive" step="H.4" detail="200-pt candlestick chart, donut ring, dashed Bezier wave, rotated text (draw-only, no Skia)" onOpen={() => nav.push("canvasLab")} />
           <Entry title="Motion: floating video" step="M.1" detail="Drag a card in 2D, flick to a corner, magnet dismiss, pinch to resize, trailing dots, rises with the keyboard, busy JS" onOpen={() => nav.push("motionVideoLab")} />

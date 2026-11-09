@@ -53,7 +53,8 @@ export const REGISTRY_VERSION = 24 // 2: Anchor. 3: transforms, shadow, absolute
 //     blurRadius (draw-phase targets that follow motion values); `motion` (values from an element: box, scroll, page,
 //     press); animateLayout; List itemAnimation. A slot holding a motion value needs the Motion module.
 //     Scroll / List keyboardDismissMode (RN's "on-drag" and "interactive", for chats).
-//     RN gaps pack: fontFamily (app fonts from assets/fonts); flexWrap, alignContent and crossGap (a wrapped Row).
+//     RN gaps pack: fontFamily (app fonts from assets/fonts); flexWrap, alignContent and crossGap (a wrapped Row);
+//     List numColumns and columnWrapper (RN FlatList grids).
 
 export const Component = {
   Column: 1,
@@ -516,6 +517,13 @@ export const Prop = {
    * Written by the compiler.
    */
   crossGap: { id: 217, type: "number" },
+  /** <List> RN numColumns (registry 24): a vertical grid, rows of n items (2-12). Can change at runtime. */
+  numColumns: { id: 218, type: "number" },
+  /**
+   * <List> RN columnWrapperStyle (registry 24), written by the compiler: each grid row's gap, justifyContent,
+   * alignItems and padding, as "g<gap>;j<justify>;a<align>;p<start>,<top>,<end>,<bottom>" (-1: unset).
+   */
+  columnWrapper: { id: 219, type: "string" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -748,6 +756,8 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "snap",
   // RN gaps pack (registry 24): the gap between a wrapped Row's lines (rowGap from a signal).
   "crossGap",
+  // RN gaps pack (registry 24): <List numColumns> from a signal (more columns on a wide screen).
+  "numColumns",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -795,7 +805,7 @@ export const Added: {
     commands: 23,
     gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, animateLayout: 24,
     itemAnimation: 24, sharedTag: 24, reorderable: 24, keyboardDismissMode: 24, snap: 24, scrollEvents: 24,
-    fontFamily: 24, flexWrap: 24, alignContent: 24, crossGap: 24,
+    fontFamily: 24, flexWrap: 24, alignContent: 24, crossGap: 24, numColumns: 24, columnWrapper: 24,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -813,7 +823,7 @@ export const Added: {
     fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23, selectable: 23,
     commands: 23,
     gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, sharedTag: 24, snap: 24,
-    crossGap: 24,
+    crossGap: 24, numColumns: 24,
   },
   enumValue: {
     "flexWrap.nowrap": 24, "flexWrap.wrap": 24,

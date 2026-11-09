@@ -34,6 +34,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -750,6 +753,9 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     val hasFooter = footerInst != null
     val hasEmpty = emptyInst != null
 
+    // RN numColumns (registry 24): >1 draws a grid, rows of `cols` items. Lazy items are then grid rows, and every
+    // index JS sees (range, scrollToIndex) stays an item index.
+    val cols = if (s.horizontal) 1 else gridColumns(s, inst)
     val state = rememberLazyListState() // saveable: the scroll position survives back navigation and recreation
     // Registry 24: the first visible item and how far it is scrolled (dp), and scrollY: exact while the first item is
     // visible, estimated from the visible items' sizes after (enough for a collapsing header).
@@ -781,12 +787,14 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
         val anim = parts.getOrNull(2) != "0"
         // The item order is the same in every list: header, empty (no rows only), rows, footer (M10).
         val head = if (list.header.value != null && hasHeader) 1 else 0
-        val count = head + rows.size + (if (hasFooter) 1 else 0) + (if (rows.isEmpty() && hasEmpty) 1 else 0)
+        val lazyRows = if (cols > 1) (rows.size + cols - 1) / cols else rows.size // grid: one lazy item per grid row
+        val count = head + lazyRows + (if (hasFooter) 1 else 0) + (if (rows.isEmpty() && hasEmpty) 1 else 0)
         when (parts.getOrNull(0)) {
             "index" -> {
                 // RN's viewOffset: the row ends up that many dp further from the start (Compose's offset goes the
                 // other way, and is in px). Before 2026-11-08 it was px with the wrong sign, and 2.5 became 0 (M7).
-                val target = (number(1).toInt().coerceIn(0, (rows.size - 1).coerceAtLeast(0)) + head)
+                val gridCols = if (s.horizontal) 1 else gridColumns(s, inst)
+                val target = (number(1).toInt().coerceIn(0, (rows.size - 1).coerceAtLeast(0)) / gridCols + head)
                     .coerceIn(0, (count - 1).coerceAtLeast(0))
                 val offset = -with(density) { number(3).dp.toPx() }.roundToInt()
                 if (anim) state.animateScrollToItem(target, offset) else state.scrollToItem(target, offset)
@@ -902,6 +910,13 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             // bottom), the footer past the last row (at the top). Before 2026-11-08 they were swapped (M10).
             if (headerInst != null) item(key = "__zn_header", contentType = "__zn_header") { extraAt(headerInst) }
             if (rows.isEmpty() && emptyInst != null) item(key = "__zn_empty", contentType = "__zn_empty") { extraAt(emptyInst) }
+            if (cols > 1) {
+                // RN numColumns (registry 24): one lazy item per grid row (no pinned rows or reorder with a grid).
+                val lines = (rows.size + cols - 1) / cols
+                items(count = lines, key = { "__zn_g:" + rows[it * cols].key }, contentType = { "__zn_grid" }) { g ->
+                    ZnGridLine(f, s, list, g, cols, znItemAnimation(s.itemAnimation))
+                }
+            } else {
             // Runs of plain rows between the pinned ones: one `items` per run, so a long list stays a few blocks.
             var start = 0
             for (h in sticky) {
@@ -918,6 +933,7 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
                     val r = shownRow(from + it)
                     rowAt(r, itemModAt(r))
                 }
+            }
             }
             if (footerInst != null) item(key = "__zn_footer", contentType = "__zn_footer") { extraAt(footerInst) }
         }
@@ -938,8 +954,18 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
                 var pinnedLo = Int.MAX_VALUE
                 var pinnedHi = -1
                 var pastRows = false
+                // A grid's lazy item g holds items g * c until g * c + c - 1 (registry 24).
+                val c = if (s.horizontal) 1 else gridColumns(s, inst)
                 for (item in state.layoutInfo.visibleItemsInfo) {
-                    val r = item.index - head
+                    val g = item.index - head
+                    if (c > 1) {
+                        if (g * c >= n) pastRows = true
+                        if (g < 0 || g * c >= n) continue
+                        lo = minOf(lo, g * c)
+                        hi = maxOf(hi, minOf(g * c + c - 1, n - 1))
+                        continue
+                    }
+                    val r = g
                     if (r >= n) pastRows = true
                     if (r < 0 || r >= n) continue
                     if (r in pinned) { pinnedLo = minOf(pinnedLo, r); pinnedHi = maxOf(pinnedHi, r) }
@@ -961,6 +987,75 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
             }
         }
     }
+}
+
+/** <List numColumns> (registry 24): the number of columns now (1: a plain list). */
+private fun gridColumns(s: ZnNodeSpec, inst: ZnInstance): Int =
+    (if (s.numColumnsSlot >= 0) inst.finiteNum(s.numColumnsSlot)?.toInt() else null)?.coerceIn(1, 12) ?: s.numColumns
+
+/**
+ * One grid row of a <List numColumns> (registry 24): items [line] * [cols] until the next row, laid out as RN lays out
+ * a FlatList row: a Row styled by columnWrapperStyle, each item's root by its own flex / width / alignSelf. A short
+ * last row gets invisible copies of its last item, so its items keep the columns' widths (RN would widen flex items;
+ * guide notes §86). Copies take no taps and are hidden from TalkBack.
+ */
+@Composable
+private fun ZnGridLine(f: List<ZnTemplate>, s: ZnNodeSpec, list: ZnList, line: Int, cols: Int, itemMod: Modifier) {
+    val rows = list.rows
+    val w = s.columnWrapper
+    // The row's content width (px), set when it is measured: an item's "48%" is 48% of it, as in RN. Compose's Row
+    // gives each child only the width left by the ones before it, so a second "48%" item came out 25% wide.
+    val rowWidth = remember { IntArray(1) }
+    Row(
+        modifier = itemMod.fillMaxWidth().padding(start = w.start.dp, top = w.top.dp, end = w.end.dp, bottom = w.bottom.dp)
+            .layout { m, c ->
+                rowWidth[0] = c.maxWidth
+                val p = m.measure(c)
+                layout(p.width, p.height) { p.place(0, 0) }
+            },
+        horizontalArrangement = znHorizontalArrangement(w.justify, w.gap),
+        verticalAlignment = verticalAlignment(w.align),
+    ) {
+        val from = line * cols
+        val to = minOf(from + cols, rows.size)
+        for (i in from until to) {
+            val row = rows[i]
+            key(row.key) {
+                val mounted = list.bound[row.key]?.let(ZnStore::find)
+                val t = f.getOrNull(mounted?.templateId ?: row.type)
+                if (t != null) ZnGridCell(f, t, mounted ?: ZnStore.placeholder(row.type, t), ghost = false, rowWidth)
+            }
+        }
+        val missing = cols - (to - from)
+        val last = rows.getOrNull(to - 1)
+        val lt = last?.let { f.getOrNull(it.type) }
+        if (missing > 0 && last != null && lt != null) {
+            CompositionLocalProvider(LocalTouchOff provides true) {
+                repeat(missing) { k -> key("__zn_ghost$k") { ZnGridCell(f, lt, ZnStore.placeholder(last.type, lt), ghost = true, rowWidth) } }
+            }
+        }
+    }
+}
+
+/** An item of a grid row: placed like a Row child (flex, alignSelf); [ghost] draws it invisible (a short last row). */
+@Composable
+private fun RowScope.ZnGridCell(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, ghost: Boolean, rowWidth: IntArray) {
+    val root = t.nodes.firstOrNull() ?: return
+    val flex = if (root.flexSlot >= 0) inst.finiteNum(root.flexSlot) ?: root.flex else root.flex
+    var m: Modifier = Modifier
+    if (flex > 0f) m = m.weight(flex)
+    val pct = root.width as? ZnPercent
+    if (pct != null && flex <= 0f && root.widthSlot < 0) {
+        // A percent of the whole row (RN), not of what the items before it left; never more than is left.
+        m = m.layout { measurable, c ->
+            val want = (rowWidth[0] * pct.fraction).roundToInt().coerceIn(0, c.maxWidth)
+            val p = measurable.measure(c.copy(minWidth = want, maxWidth = want))
+            layout(p.width, p.height) { p.place(0, 0) }
+        }
+    }
+    if (root.alignSelf != -1) m = m.align(verticalAlignment(root.alignSelf))
+    if (ghost) m = m.alpha(0f).clearAndSetSemantics {}
+    ZnNode(f, t, inst, 0, m, definiteWidth = root.width != null || root.widthSlot >= 0 || flex > 0f)
 }
 
 /** A List extra's instance (header / footer / empty), when it is mounted and its template is in this file. */

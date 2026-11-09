@@ -589,6 +589,11 @@ class ZnNodeSpec internal constructor(
     val aspectRatioSlot = slotFor(raw, Registry.Prop.ASPECT_RATIO)
     val gapSlot = slotFor(raw, Registry.Prop.GAP)
     val crossGapSlot = slotFor(raw, Registry.Prop.CROSS_GAP)
+    /** <List numColumns> (registry 24): a grid, rows of this many items; 1 = a plain list. Can come from a slot. */
+    val numColumns = num(Registry.Prop.NUM_COLUMNS)?.toInt()?.coerceIn(1, 12) ?: 1
+    val numColumnsSlot = slotFor(raw, Registry.Prop.NUM_COLUMNS)
+    /** RN columnWrapperStyle (registry 24): how each grid row places its items. */
+    val columnWrapper: ZnColumnWrapper = ZnColumnWrapper.parse(p[Registry.Prop.COLUMN_WRAPPER] as String?)
     val displaySlot = slotFor(raw, Registry.Prop.DISPLAY)
 
     val topSlot = slotFor(raw, Registry.Prop.TOP)
@@ -1079,5 +1084,43 @@ internal fun parseSpans(json: String, fonts: ZnFontTable = ZnFontTable.EMPTY): L
             letterSpacing = num("letterSpacing")?.sp ?: androidx.compose.ui.unit.TextUnit.Unspecified,
             background = argb("backgroundColor"),
         )
+    }
+}
+
+/**
+ * RN columnWrapperStyle (registry 24), written by the compiler as "g<gap>;j<justify>;a<align>;p<start>,<top>,<end>,<bottom>"
+ * (-1: unset). A grid row is laid out like a <Row> with these. Unreadable parts keep their defaults.
+ */
+@Immutable
+class ZnColumnWrapper(
+    val gap: Float = 0f,
+    val justify: Int = -1,
+    val align: Int = -1,
+    val start: Float = 0f,
+    val top: Float = 0f,
+    val end: Float = 0f,
+    val bottom: Float = 0f,
+) {
+    companion object {
+        val NONE = ZnColumnWrapper()
+
+        fun parse(s: String?): ZnColumnWrapper {
+            if (s.isNullOrEmpty()) return NONE
+            var gap = 0f
+            var justify = -1
+            var align = -1
+            var pad = floatArrayOf(0f, 0f, 0f, 0f)
+            for (part in s.split(';')) {
+                if (part.isEmpty()) continue
+                val v = part.substring(1)
+                when (part[0]) {
+                    'g' -> gap = v.toFloatOrNull()?.takeIf { it.isFinite() && it >= 0f } ?: 0f
+                    'j' -> justify = v.toIntOrNull() ?: -1
+                    'a' -> align = v.toIntOrNull() ?: -1
+                    'p' -> v.split(',').mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 4 }?.let { pad = it.toFloatArray() }
+                }
+            }
+            return ZnColumnWrapper(gap, justify, align, pad[0], pad[1], pad[2], pad[3])
+        }
     }
 }

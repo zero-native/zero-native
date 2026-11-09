@@ -1035,6 +1035,17 @@ export declare function List<T>(props: {
    * Inverted, stickyHeaderIndices and pull to refresh are not supported on horizontal lists.
    */
   horizontal?: boolean
+  /**
+   * RN FlatList's grid (registry 24, guide notes §86): rows of this many items (2-12), each row laid out like a <Row>
+   * (an item with flex: 1 takes an equal share; width: "48%" is 48% of the row). A short last row keeps the columns'
+   * widths. Vertical only; not with stickyHeaderIndices or reorderable. Can change at runtime.
+   */
+  numColumns?: number
+  /**
+   * RN FlatList's style of each grid row (registry 24): gap / columnGap between items, justifyContent, alignItems and
+   * padding. Fixed at build time. Needs numColumns.
+   */
+  columnWrapperStyle?: Pick<StyleProps, "gap" | "columnGap" | "justifyContent" | "alignItems" | "padding" | "paddingHorizontal" | "paddingVertical" | "paddingTop" | "paddingBottom" | "paddingStart" | "paddingEnd" | "paddingLeft" | "paddingRight">
   /** Component or element rendered at the very top of the list items (RN FlatList parity). */
   ListHeaderComponent?: unknown
   /** Component or element rendered at the very bottom of the list items (RN FlatList parity). */

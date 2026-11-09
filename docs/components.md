@@ -596,9 +596,13 @@ hears only the events it has handlers for. Guide notes §79.
 
 A `List`'s offset past the measured rows is an estimate. One event id (27) carries all five events.
 
-**Route option `transparent: true`:** the screen is drawn over the one below, which stays visible and drawn (an
-overlay). The screen gets no enter / exit transition and no shared elements: it animates itself (the image viewer's
-photo flight). Use it with `restore: false` when the screen's data lives in JS memory.
+**Route option `transparent: true`:** the screen is drawn over the one below, which stays visible and drawn (one
+scene with both). Use `transition: "none"`: the screen animates itself (the image viewer's photo flight); it shares
+no elements with the screen below. A screen pushed over it slides over both, and Back slides them back. Use it with
+`restore: false` when the screen's data lives in JS memory.
+
+On a `List`, a snap lands on a row (the nearest row lines up after the fling). `decelerationRate` numbers are iOS's
+(0.998 / 0.99); 0.95 or less is read as Android's (0.9 = fast). Guide notes §82.
 
 ## 17. RN gaps pack (registry 24, 2026-11-09)
 Five React Native capabilities that zn was missing. Lab: Dev → "RN gaps lab" (`/dev/rn-gaps`); wrap cases also in the
@@ -622,3 +626,14 @@ Guide notes §84; second-opinions 210.
 | `alignContent` | the Row with a height | Where the lines go: `flex-start` (default), `center`, `flex-end`, `space-between`, `space-around`, `space-evenly` |
 | `flex` | children | Shares what is left of the child's own line |
 Guide notes §85; second-opinions 211.
+
+### Grids: `<List numColumns>` / `<FlatList numColumns>`
+| Prop | What |
+|---|---|
+| `numColumns` | 2-12 items per row (1: a plain list). Can change at runtime |
+| `columnWrapperStyle` | Each row's `gap` / `columnGap`, `justifyContent`, `alignItems`, padding keys. Build-time |
+| `gap` (List) | Space between rows |
+| Items | Laid out as children of a Row: `flex: 1`, a percent of the row, or a fixed width |
+| Short last row | Keeps the columns' widths |
+| Not with | `horizontal`, `stickyHeaderIndices`, `reorderable` (build errors) |
+Lab: Dev → "Grid lab" (`/dev/grid`). Guide notes §86; second-opinions 212.

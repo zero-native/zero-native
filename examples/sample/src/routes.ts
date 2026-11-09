@@ -29,6 +29,7 @@ import { LocationLabScreen } from "./LocationLab"
 import { RnPropsLabScreen } from "./RnPropsLab"
 import { LayoutLabScreen } from "./LayoutLab"
 import { RnGapsLabScreen } from "./RnGapsLab"
+import { GridLabScreen } from "./GridLab"
 import { RnNamesLabScreen } from "./RnNamesLab"
 import { CrashlyticsLabScreen } from "./CrashlyticsLab"
 import { PushLabScreen } from "./PushLab"
@@ -95,6 +96,7 @@ export const routes = defineRoutes({
   rnPropsLab: { path: "/dev/rn-props", screen: RnPropsLabScreen, deepLink: true },
   layoutLab: { path: "/dev/layout", screen: LayoutLabScreen, deepLink: true },
   rnGapsLab: { path: "/dev/rn-gaps", screen: RnGapsLabScreen, deepLink: true },
+  gridLab: { path: "/dev/grid", screen: GridLabScreen, deepLink: true },
   rnNamesLab: { path: "/dev/rn-names", screen: RnNamesLabScreen, deepLink: true },
   crashlyticsLab: { path: "/dev/crashlytics", screen: CrashlyticsLabScreen, deepLink: true },
   pushLab: { path: "/dev/push", screen: PushLabScreen, deepLink: true },

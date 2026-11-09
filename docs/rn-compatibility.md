@@ -70,7 +70,8 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
 | `FlatList` `refreshing` / `onRefresh` / `refreshControl` | same names on [`List`](../packages/ui/src/index.ts) | same | Pull to refresh, [guide-notes §41](guide-notes.md). |
 | `FlatList` `inverted` | `<List inverted>` | built (registry 19, 2026-11-06) | Same meaning: row 0 at the bottom, for chats. A list flipped with `transform: [{ scaleY: -1 }]` (RN's old trick) is a build error: on Android its fling runs the wrong way. Guide §65. |
 | `FlatList horizontal` | `<FlatList horizontal>` or `<List horizontal>` | built (registry 23, 2026-11-08) | Lays rows out horizontally using Compose's `LazyRow`. Cards keep their own width (`definiteWidth = false` unless row sets explicit width). `contentContainerStyle` padding and `gap` work along the row. `stickyHeaderIndices`, `inverted` and pull to refresh fail sideways. |
-| `FlatList` `numColumns`, `getItemLayout` | none | missing | Grid: no equivalent. `getItemLayout` is dropped. |
+| `FlatList` `numColumns`, `columnWrapperStyle` | same | different | Registry 24 (2026-11-09, guide notes §86): a vertical grid; each row is laid out like RN's row (a `Row` styled by `columnWrapperStyle`: gap / columnGap, justifyContent, alignItems, padding), so `flex: 1` and `width: "48%"` items look as in RN. Differences: a short last row keeps the columns' widths (RN widens `flex: 1` items); `numColumns` may change at runtime (RN needs a new `key`). Header, footer, empty, `onEndReached`, `scrollToIndex` (item index), pull to refresh, `inverted` work. Not with `horizontal` (as RN), `stickyHeaderIndices` or `reorderable`. |
+| `FlatList` `getItemLayout` | none | missing | Dropped. |
 | `SectionList` | none | missing | Flatten sections into one `data` array with header items. |
 | `FlatList onViewableItemsChanged` | [`useImpressions`](../packages/core/src/nav.ts) + `impressionKey` | different | Counted natively once a card is visible enough. Scroll events in JS: `onScroll` and friends (registry 24). |
 | `.map()` in JSX | `{items.map(i => <Row key={i.id}/>)}` | same | Up to ~100 items. The `key` goes on the row's root. |
@@ -337,7 +338,7 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 3. **Navigation: no header bar, no drawer, no nested navigators** (missing). Bottom tabs and focus events are built
    (`useTabs`, `useFocus`, 2026-11-03), but a header and a drawer must still be built by hand in your screens, and a
    tab can't hold its own stack. ([§3](#3-navigation))
-4. **`ScrollView` / `FlatList` features** (different / missing). No `SectionList`, no `numColumns`. (`onScroll`,
+4. **`ScrollView` / `FlatList` features** (different / missing). No `SectionList` (`numColumns` grids came in registry 24). (`onScroll`,
    snapping and `scrollTo` / refs on `Scroll`: registry 24.) Apps with grids need a new design. Built: pull to refresh
    (`RefreshControl`, registry 12), sticky rows (`stickyHeaderIndices`, registry 15), `inverted` (19), horizontal
    `List`, `ListHeaderComponent` / `Footer` / `Empty` and a `List` `ref` / `controller` with `scrollToIndex` /

@@ -2779,6 +2779,21 @@ import { Push } from "@zero-native/firebase-messaging"                          
 - **Know:** module names and versions did not change ("Push" 2, "Notifications" 3), so bundles and the OTA check are
   as before.
 
+## 82. Snapping, scroll refs and canvas features: what to know (registry 24, review fixes 2026-11-09)
+- **Know:** on a `List`, a snap lands on a row: after the fling, the nearest row lines up with the start (paging) or
+  with `snapToAlignment`. **Do** set `snapToInterval` to the row or card size (with the gap). **Why:** the List's
+  offset is an estimate past the rows it has measured; the last step lines up a real row.
+- **Know:** `decelerationRate` numbers are iOS's (0.998 normal, 0.99 fast). A number of 0.95 or less is read as
+  Android's (0.9 fast) and converted. **Do** use `"fast"` / `"normal"` when you can.
+- **Know:** `<Scroll ref>` and the registry-24 canvas commands (`image`, `paragraph`, `clipRoundRect`, `clipPath`,
+  clip `op`, `sweepGradient`, `blendMode`, `shadow`, `blur`, path trims) make the bundle need registry 24. **Why:** an
+  older app would skip them without an error; now it keeps its own bundle instead.
+- **Know:** a screen pushed over a `transparent` screen (the image viewer) slides over it, and Back slides it back,
+  like any screen.
+- **Know:** a canvas `image` whose size follows a motion value is decoded at the screen's size (Coil keeps the
+  picture's own size if smaller), so it stays sharp as it grows. **Don't** animate many such images at once. **Why:**
+  each one can take a screen of memory.
+
 ## 84. App fonts: `fontFamily` (registry 24, RN gaps pack 2026-11-09)
 ```
 my-app/assets/fonts/Poppins-Regular.ttf
@@ -2828,3 +2843,27 @@ my-app/assets/fonts/Poppins-Bold.ttf
   Write `alignItems: "stretch"` for RN's look (zn's Row rule, platform-differences.md). Chips are all one height, so
   this rarely shows.
 - **Know:** `flex: 1` children share what is left of their own line, as in RN.
+
+## 86. Grids: `<FlatList numColumns>` (registry 24, RN gaps pack 2026-11-09)
+```tsx
+<FlatList
+  data={stores()}
+  keyExtractor={(s) => s.id}
+  numColumns={2}
+  columnWrapperStyle={{ gap: 12, paddingHorizontal: 16 }}
+  gap={12}                                   // between grid rows
+  renderItem={({ item }) => <StoreCard s={item} />}   // its root has flex: 1
+/>
+```
+- **Do** give the item's root `flex: 1` (equal columns) or a percent width with `justifyContent: "space-between"` in
+  `columnWrapperStyle` (RN's two common ways). **Why:** each grid row is laid out like RN's row (a Row of n items);
+  a percent is of the row's width, as in RN.
+- **Do** use the List's `gap` for space between rows and `columnWrapperStyle.gap` for space between columns.
+- **Do** change `numColumns` from a signal for wider screens; the list keeps its place. (RN needs a new `key`.)
+- **Know:** a short last row keeps the columns' widths (zn copies the last item invisibly). RN stretches `flex: 1`
+  items in a short row; most apps add empty items to avoid it, so delete those when porting.
+- **Know:** indexes stay item indexes: `scrollToIndex({ index: 30 })` shows the row with item 30, `onEndReached` and the
+  window count items.
+- **Don't** use `numColumns` with `horizontal`, `stickyHeaderIndices` or `reorderable`: build errors. For a horizontal
+  rail of small grids, use `<List horizontal>` with a `Row`-of-columns item.
+- **Don't** put other style keys in `columnWrapperStyle` (background, border): style the items. Build error.
