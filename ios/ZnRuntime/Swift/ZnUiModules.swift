@@ -327,12 +327,121 @@ final class ZnPermissions: ZnModuleBase, @unchecked Sendable {
 
 // MARK: - Splash (ZnSplash.kt)
 
-/// iOS shows the first screen's skeleton at once instead of holding a launch screen (ARCHITECTURE §8.1), so there is
-/// no splash to hold: as Android's contract says for an app that doesn't hold it, "nothing happens".
-final class ZnSplash: ZnModuleBase, @unchecked Sendable {
-    init() {
-        super.init("Splash", version: 1)
-        function("hold") { call in call.resolve(false) }
-        function("release") { call in call.resolve(false) }
+/// Keeps a copy of the launch screen over the window until JS has built the first screens, and longer while JS's
+/// `Splash.holdUntil` asks (packages/core/src/splash.ts), as Android's ZnSplash.holdUntilReady.
+///
+///   window.makeKeyAndVisible()
+///   ZnSplash.holdUntilReady(window)            // in the scene delegate, after the window is shown
+///
+/// Without it (the default), iOS shows the first screen's skeleton at once (ARCHITECTURE §8.1) and `Splash.holdUntil`
+/// does nothing, as Android's contract says for an app that doesn't hold its splash.
+/// - The cover: the Info.plist's launch storyboard (UILaunchStoryboardName) when there is one, else its UILaunchScreen
+///   colour (UIColorName) and image (UIImageName), else the system background. Make it match the real launch screen.
+/// - "Ready": JS sent NAV STARTED (its START was handled).
+/// - [capMs] is the longest it waits: the app shows then even if JS isn't done (the error screen must show).
+/// - A push or replace made while it is held comes in with no slide (ZnNavController), so the first screen the user
+///   sees is the final one.
+enum ZnSplash {
+    /// Main thread: the cover is up. A screen pushed now comes in with no slide.
+    private(set) static var holding = false
+    /// JS's holds still open: id to maxMs. The longest maxMs counts from the first screens being up.
+    private static var appHolds: [Int: Double] = [:]
+    private static var appMaxMs: Double = 0
+
+    @MainActor static func holdUntilReady(_ window: UIWindow, capMs: Double = 1000) {
+        guard !holding, !ZnApp.shared.firstScreensUp else { return }  // screens already built: nothing to hold
+        let cover = launchCover(window.bounds)
+        window.addSubview(cover)
+        holding = true
+        let t0 = CACurrentMediaTime()
+        var readyAt: CFTimeInterval = 0
+        var framesSinceDone = 0
+        let link = ZnFrameTicker { [weak window] ticker in
+            // A sheet presented under the splash (a restored payment) adds its own view to the window: keep the cover
+            // above it.
+            if let window, window.subviews.last !== cover { window.bringSubviewToFront(cover) }
+            let now = CACurrentMediaTime()
+            let ready = ZnApp.shared.firstScreensUp
+            if ready && readyAt == 0 { readyAt = now }
+            let waited = (now - t0) * 1000
+            let appWaits = ready && appMaxMs > 0 && (now - readyAt) * 1000 < appMaxMs && !appHolds.isEmpty
+            // Once the work is done, two more frames: the screen it pushed lays out and draws under the cover first,
+            // or Home would show for a frame and the new screen after it (Android: until the top is composed).
+            if ready && !appWaits { framesSinceDone += 1 }
+            if (!ready || appWaits || framesSinceDone < 3) && waited < capMs { return }
+            ticker.stop()
+            let since = String(format: "%.0f", waited)
+            if !ready { print("zn: splash: first screens not built after \(Int(capMs)) ms; showing anyway") }
+            else if appMaxMs > 0 && !appHolds.isEmpty && waited >= capMs { print("zn: splash: the app's hold hit the \(Int(capMs)) ms limit; showing (\(since) ms)") }
+            else if appMaxMs > 0 && !appHolds.isEmpty { print("zn: splash: the app's hold hit its maxMs, \(Int((now - readyAt) * 1000)) ms after the first screens") }
+            else if appMaxMs > 0 { print("zn: splash: held until the app said ready, \(Int((now - readyAt) * 1000)) ms after the first screens") }
+            else { print("zn: splash: held until the first screens were built (\(since) ms)") }
+            holding = false
+            appHolds.removeAll()
+            appMaxMs = 0
+            // iOS's own launch screen goes with a short fade too.
+            UIView.animate(withDuration: 0.2, animations: { cover.alpha = 0 }, completion: { _ in cover.removeFromSuperview() })
+        }
+        link.start()
     }
+
+    /// The launch screen again, as a view: the storyboard's first controller, or UILaunchScreen's colour and image.
+    @MainActor private static func launchCover(_ frame: CGRect) -> UIView {
+        let info = Bundle.main.infoDictionary ?? [:]
+        if let name = info["UILaunchStoryboardName"] as? String,
+           let vc = UIStoryboard(name: name, bundle: .main).instantiateInitialViewController() {
+            vc.view.frame = frame
+            vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            return vc.view
+        }
+        let screen = info["UILaunchScreen"] as? [String: Any] ?? [:]
+        let view = UIView(frame: frame)
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.backgroundColor = (screen["UIColorName"] as? String).flatMap { UIColor(named: $0) } ?? .systemBackground
+        if let image = (screen["UIImageName"] as? String).flatMap({ UIImage(named: $0) }) {
+            let iv = UIImageView(image: image)
+            iv.center = CGPoint(x: frame.midX, y: frame.midY)
+            iv.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin, .flexibleTopMargin, .flexibleBottomMargin]
+            view.addSubview(iv)
+        }
+        return view
+    }
+
+    /// JS `Splash.holdUntil`. Too late (the cover is gone, or the app doesn't hold it): ignored.
+    static func appHold(_ id: Int, _ maxMs: Double) {
+        guard holding else { return print("zn: splash: an app hold came after the splash went (or the app doesn't hold it); ignored") }
+        appHolds[id] = maxMs
+        appMaxMs = max(appMaxMs, maxMs)
+    }
+
+    static func appRelease(_ id: Int) { appHolds[id] = nil }
+
+    /// The built-in Splash module: `hold` and `release` (packages/core/src/splash.ts).
+    final class Module: ZnModuleBase, @unchecked Sendable {
+        init() {
+            super.init("Splash", version: 1)
+            function("hold", onMain: true) { call in
+                ZnSplash.appHold(try call.int("id"), try call.double("maxMs"))
+                call.resolve()
+            }
+            function("release", onMain: true) { call in
+                ZnSplash.appRelease(try call.int("id"))
+                call.resolve()
+            }
+        }
+    }
+}
+
+/// Calls [tick] once a frame until stopped (a CADisplayLink holds its target strongly; this breaks that loop).
+final class ZnFrameTicker: NSObject {
+    private var link: CADisplayLink?
+    private let tick: (ZnFrameTicker) -> Void
+    init(_ tick: @escaping (ZnFrameTicker) -> Void) { self.tick = tick }
+    func start() {
+        let l = CADisplayLink(target: self, selector: #selector(step))
+        l.add(to: .main, forMode: .common)
+        link = l
+    }
+    func stop() { link?.invalidate(); link = nil }
+    @objc private func step() { tick(self) }
 }

@@ -135,7 +135,12 @@ class IosPlatform final : public zn::Platform {
     _platform = std::make_unique<IosPlatform>(self);
     [self post:^{
       self->_runtime = std::make_unique<zn::Runtime>(*self->_platform, zn::createHermesEngine);
-      self->_runtime->setTimeLimit(5000);  // a JS task that runs longer is stopped (step 3.9)
+      // A JS task that runs longer is stopped (step 3.9); Android's ZnRuntime.jsTimeLimitMs: 3 s debug, 2 s release.
+#ifndef NDEBUG  // CMake defines NDEBUG in Release (the Swift side uses DEBUG)
+      self->_runtime->setTimeLimit(3000);
+#else
+      self->_runtime->setTimeLimit(2000);
+#endif
     }];
   }
   return self;

@@ -108,8 +108,10 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
                 sheet.prefersGrabberVisible = true
             }
             c.sheet = content
-            print("zn t=\(ZnDebug.ms()) sheet: present")
-            host.present(content, animated: true)
+            // animateIn={false}: already at rest, no slide-up or dimming fade (a sheet that is part of a restored
+            // screen). Read now, when it opens; later opens read it again.
+            let animated = s.animateInSlot >= 0 ? inst.slot(s.animateInSlot).value != .bool(false) : s.animateIn
+            c.present(content, from: host, animated: animated)
         } else if !visible, let sheet = c.sheet {
             c.sheet = nil
             // In the same batch as a stack change (pick an app → receipt), close at once: UIKit would otherwise wait
@@ -123,6 +125,24 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UIAdaptivePresentationControllerDelegate {
         var sheet: UIViewController?
         var onAttempt: () -> Void = {}
+
+        /// Presents [content] once [host] is in the window. A sheet visible on its screen's first frame (a restored
+        /// payment, animateIn false) gets here before SwiftUI has put the host in the window, and UIKit ignores a
+        /// present from a view that isn't there ("not in the window hierarchy"): try again each frame, up to ~2 s.
+        func present(_ content: UIViewController, from host: UIViewController, animated: Bool, tries: Int = 0) {
+            guard sheet === content else { return }  // closed (visible false) before it could open
+            guard host.view.window != nil else {
+                if tries >= 120 { return print("zn sheet: its screen never reached the window; not shown") }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self, weak host] in
+                    guard let self, let host else { return }
+                    self.present(content, from: host, animated: animated, tries: tries + 1)
+                }
+                return
+            }
+            let wait = tries > 0 ? " after \(tries) frame(s) for its screen" : ""
+            print("zn t=\(ZnDebug.ms()) sheet: present\(animated ? "" : " (animateIn false: at rest)")\(wait)")
+            host.present(content, animated: animated)
+        }
 
         // JS decides: the sheet never closes by itself.
         func presentationControllerShouldDismiss(_ pc: UIPresentationController) -> Bool { false }

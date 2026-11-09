@@ -44,7 +44,7 @@ ZnAppEvent.kt and NAV kind in ZnNav.kt against ZnApp.swift.
 | 11 | List | partial | §2 | No impressions. Window, sticky, inverted, pull to refresh done. |
 | 12 | Scroll | done | | Padding inside the scroll (774308f), pull to refresh. |
 | 13 | Carousel | done | | |
-| 14 | Sheet | partial | §2 | No onDetentChange, no animateIn, sheet colour and radius fixed. |
+| 14 | Sheet | partial | §2 | No onDetentChange, sheet colour and radius fixed. animateIn done (2026-11-09). |
 | 15 | Fragment | done | | |
 | 16 | TextField | partial | §2 | 8 props missing (autoComplete, editable, placeholderColor, ...). |
 | 17 | NativeView | done | | ZnPlugins.swift: viewName, viewProps (and its slot), onNativeEvent. A view hears covered / closed through UIKit's window changes. |
@@ -152,7 +152,7 @@ Only props whose iOS support is missing or partial. Everything else in the regis
 | Prop / event | iOS | Size | Note |
 |---|---|---|---|
 | onDetentChange | missing | S | `sheetPresentationControllerDidChangeSelectedDetentIdentifier`. |
-| animateIn (also at runtime) | missing | S | Open already at rest (a payment restored after a kill). |
+| animateIn (also at runtime) | done | S | ZnSheet.swift: read when the sheet opens; false = presented with no animation, once its screen is in the window (a sheet up on its screen's first frame waits a frame or two). Checked: restored lab sheet at rest under the splash. |
 | backgroundColor, borderRadius of the sheet | partial | S | The sheet view is always white (the 20 pt grabber strip shows white under a dark sheet) and uses the system corner radius. |
 
 ### Modal
@@ -190,7 +190,7 @@ Android's built-in modules (ZnModules.kt `init`) plus storage. iOS registers the
 | Clipboard (1) | setString, getString, hasString | done | | |
 | Vibration (1) | vibrate, cancel | done | | |
 | NetInfo (1) | fetch, event `change` | done | | |
-| Splash (1) | hold, release | partial | M | Both answer `false` (no splash to hold). iOS shows the skeleton at once instead. So `Splash.holdUntil` (ZeroBill's QR cold start: wait for /init, lift straight onto checkout) does nothing: Home shows, then checkout slides in. Fix: keep a launch-screen view over the window until ready or maxMs. |
+| Splash (1) | hold, release | done | M | ZnUiModules.swift `ZnSplash`: the app calls `ZnSplash.holdUntilReady(window, capMs:)` after showing its window; a copy of the launch screen (launch storyboard, else UILaunchScreen colour / image) stays until NAV STARTED and `Splash.holdUntil`'s work (at most its maxMs, and capMs), then two frames for the pushed screen, then a 0.2 s fade. Pushes under it come in with no slide. Without the call (the default) hold is ignored, as on Android. Checked: the props lab tile (1.5 s), no Home flash. |
 | Storage | JS `storage` / `createStorage` | partial | S | JS storage works (C++ core + MMKV, `storageDir` in ZNHost.mm). The native API for app and plugin code (ZnStorage.kt: `store(id).get/set/keys/...`) has no Swift version. |
 | Updates (3) | status, markHealthy, check, applyNow, hold, event `Updates` | missing | §4 | OTA. |
 | Launches (1) | ack, event `result` | done | §4 | `ack`, the `result` event (ZnLaunch.start / finish / open, 2026-11-09). |
@@ -217,7 +217,7 @@ Totals: 15 modules. Done 10, partial 2, missing 3 (sized in §4). Sized here: 1 
 | Launches (launchForResult, saved results, ack, wait ≤1 s after a kill) | ZnLaunch.kt | done (simulator) | L (1.5 d) | ZnPlugins.swift ZnLaunch: `start` / `finish` (a plugin's own launch), `open(key, id, url)` (another app by its link: on return, resultCode -1 + `data` = the link back, else 0, `extras.returned`), waiting → lost at the next start, busy / unacked. iOS has no result Intent: JS asks its server. |
 | Deep links / onLink | ZnNav.kt (openLink, OPEN event), ZnRoutes.kt (match, tab paths), route `path` / `deepLink` / `tabs` options | done (simulator) | M | ZnApp.swift ZnLinks (matchDeepLink, tabs, query params), start with a link (Home + the link's screen, or Home with its params), OPEN while running, unmatched → onUnmatchedLink, links during JS start queued. The app's scene passes URL contexts and universal links (ZnSampleApp.swift). Universal links need the associated-domains entitlement (signing). |
 | zn dev (live reload, dev error overlay) | ZnDev.kt, ZnRuntime.kt (reload, restart, generations) | missing | L | Simulator reaches the Mac on localhost; a device needs the Mac's address. Answers from the old runtime must be dropped after reload. |
-| Error screen (NAV FAILED, RETRY, hung JS, "Restart app", custom texts and colours) | ZnErrorScreen.kt, ZnNav.kt | partial | M | iOS shows a red text only when the app fails to start. A screen whose JS threw shows nothing special; NAV FAILED and RETRY are not handled. |
+| Error screen (NAV FAILED, RETRY, hung JS, "Restart app", custom texts and colours) | ZnErrorScreen.kt, ZnNav.kt | done | M | ZnErrorScreen.swift: same words, colours, Try again / Go back, debug message; `ZnErrorScreen.texts` / `.colors`. NAV FAILED, a "hang" JS error (top screen) and RETRY in ZnApp.swift. iOS difference: a failed start has no "Restart app" (iOS apps may not relaunch themselves); its text says to close and open the app. JS time limit now as Android (3 s debug, 2 s release; was 5 s). Checked: crash lab screen that throws, Try again, Go back, endless loop, a missing start route. |
 | Secure screens (route `secure`) | ZnNavHost.kt (FLAG_SECURE) | missing | M | iOS has no flag. Options: blank the app-switcher snapshot, the secure text field layer trick for screenshots. Decide what "secure" means on iOS. |
 | Impressions (impressionKey, NAV IMPRESSIONS, event 6) | ZnImpressions.kt | missing | M | Visible fraction per key, threshold / minMs, top screen and app in front only, batched. |
 | Accessibility semantics | ZnTemplate.kt `accessibilitySemantics`, ZnPress.kt | missing | §2 | |
@@ -233,7 +233,7 @@ Totals: 15 modules. Done 10, partial 2, missing 3 (sized in §4). Sized here: 1 
 | App state, colour scheme, low memory, insets, DEVICE / WINDOW / KEYBOARD events | ZnAppState.kt, ZnWindow.kt, ZnNavHost.kt | done | | ZnSystemEvents.swift, ZnApp.swift. |
 | Back stack, transitions, safeArea, keyboard option, route statusBar option, BACK / FORCED_BACK, BACK_WANTED (A8), app layers | ZnNav.kt, ZnNavHost.kt | done | | |
 | System bars per route | ZnNavHost.kt BarIcons | done | | StatusBar element: §1. |
-| Splash hold | ZnSplash.kt | partial | §3 | |
+| Splash hold | ZnSplash.kt | done | §3 | ZnSplash (ZnUiModules.swift). |
 | Storage native API | ZnStorage.kt | partial | §3 | ZNStorage (ZNHost.h): strings, remove, flush. No numbers / booleans / bytes / keys yet. |
 | NAV EXIT (leave the app) | ZnNav.kt | n/a | | iOS apps don't exit themselves. |
 | Predictive back, BACK_ANSWERED fallback timer | ZnNav.kt, ZnNavHost.kt | n/a | | iOS back is the swipe (A8). |
@@ -383,8 +383,8 @@ the rest is OTA, the Firebase plugins, the other plugins and the tools.
 **Status 2026-11-09:** 1 done (OtpInput, `.oneTimeCode`, runtime `disabled`); 2 done (plugins, native screens and
 views, Launches ack + start / finish); 3 done on the simulator (scanner, camera untested); 4 done on the simulator
 (links and launches by URL; the UPI plugin itself is ZeroBill's, Phase 2); 5 done on the simulator (restore after kill). Of the
-small ones: Tabs and press feedback done; Splash hold, Sheet `animateIn`, the error screen not done (ZeroBill uses
-`pressFeedback` in 18 files, `animateIn` and Splash once each). Plugins ZeroBill needs: all on iOS but push +
+small ones: Tabs, press feedback, Splash hold, Sheet `animateIn` and the error screen done: Phase 1 is done on the
+simulator. Plugins ZeroBill needs: all on iOS but push +
 notifications (Phase 3) and ad-id (answers "unavailable", Android-only by meaning). ZeroBill's own plugins (Upi,
 Truecaller, GoogleSignIn, InAppUpdate, InstallReferrer, LegacyData) are Phase 2.
 

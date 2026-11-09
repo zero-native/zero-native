@@ -7,6 +7,7 @@
 //   bun run tools/ios-sample.ts --route home --params '{}'
 //   bun run tools/ios-sample.ts --link zn://sample/pay/m7    start as if this link opened the app
 //   bun run tools/ios-sample.ts --build-only
+//   bun run tools/ios-sample.ts --splash-hold 4000     keep a launch-screen cover until JS is ready, at most 4 s (ZnSplash)
 //   bun run tools/ios-sample.ts --no-symbols           don't upload the dSYM to Crashlytics (it does when Firebase is on)
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -63,6 +64,7 @@ if (process.env.ZN_DOCSCAN_FAKE) env.SIMCTL_CHILD_ZN_DOCSCAN_FAKE = process.env.
 if (opt("--delay")) env.SIMCTL_CHILD_ZN_JS_DELAY_MS = opt("--delay")!
 if (opt("--route")) env.SIMCTL_CHILD_ZN_ROUTE = opt("--route")!
 if (opt("--params")) env.SIMCTL_CHILD_ZN_PARAMS = opt("--params")!
+if (opt("--splash-hold")) env.SIMCTL_CHILD_ZN_SPLASH_HOLD_MS = opt("--splash-hold")!
 if (opt("--link")) env.SIMCTL_CHILD_ZN_LINK = opt("--link")! // a cold start by this link (zn://sample/...)
 // Attached to the console: the app's prints show here until it exits (Ctrl-C stops watching).
 const p = Bun.spawn(["xcrun", "simctl", "launch", "--console-pty", "--terminate-running-process", "booted",

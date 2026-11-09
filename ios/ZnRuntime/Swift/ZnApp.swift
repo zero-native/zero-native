@@ -101,7 +101,7 @@ enum ZnLinks {
 
 /// App-level events to JS (instance 0), as in ZnAppEvent.kt.
 enum ZnAppEvent {
-    static let start = 1, back = 2, forcedBack = 3, open = 4, insets = 5, callResult = 7, appState = 11, navResult = 12, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
+    static let start = 1, back = 2, forcedBack = 3, open = 4, insets = 5, callResult = 7, retry = 10, appState = 11, navResult = 12, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
 }
 
 @MainActor
@@ -113,6 +113,9 @@ final class ZnApp {
     private(set) var stack: [UInt32] = [] { didSet { topRouteMaybeChanged() } }
     /// A start failure (bad bundle, JS that didn't run), shown instead of a screen.
     private(set) var failure: String?
+    /// Screens whose JS threw while building them (NAV FAILED), or that hung: entry → the error message. They stay on
+    /// the stack and show ZnErrorScreen; "Try again" builds them again (retry).
+    private(set) var failedScreens: [UInt32: String] = [:]
     /// startApp's app layers (NAV LAYER): "top" / "overlay" → its root instance id (ZnLayers.swift).
     private(set) var layers: [String: UInt32] = [:]
     /// Entries that want Back first (NAV BACK_WANTED): no native swipe-back on them, the swipe goes to JS (A8).
@@ -329,6 +332,11 @@ final class ZnApp {
             host.onLog = { level, message in print("zn-js \(["D", "I", "W", "E"][min(max(level, 0), 3)]) \(message)") }
             host.onJsError = { [weak self] kind, whereText, details in
                 ZnDebug.log.error("js error \(whereText, privacy: .public) [\(kind, privacy: .public)]: \(details, privacy: .public)")
+                // JS stopped by the time limit: the top screen's state may be half updated; it shows the error screen
+                // and "Try again" builds it again (Android's ZnNav.hung).
+                if kind == "hang", let self, let top = self.stack.last {
+                    self.failedScreens[top] = String(details.split(separator: "\n", maxSplits: 1).first ?? "")
+                }
                 self?.jsErrorListeners.forEach { $0(kind, whereText, details) }
             }
             let delayMs = Double(ProcessInfo.processInfo.environment["ZN_JS_DELAY_MS"] ?? "") ?? 0
@@ -382,6 +390,9 @@ final class ZnApp {
     /// The batch being applied (or just applied) changes the back stack: a sheet closing in the same batch closes
     /// without animation, or UIKit would hold the navigation transition until the sheet's animation ends (~0.5 s).
     @ObservationIgnored private(set) var batchChangesStack = false
+
+    /// JS sent NAV STARTED: it handled START and built the first screens (ZnSplash waits for it).
+    @ObservationIgnored private(set) var firstScreensUp = false
 
     @ObservationIgnored private var jsDrew = false
     @ObservationIgnored private var waitingForJS: [() -> Void] = []
@@ -438,9 +449,11 @@ final class ZnApp {
             entryValues[entry] = values
         case NavKind.remove:
             stack.removeAll { $0 == entry }
+            failedScreens[entry] = nil
             backWanted.remove(entry)
             releaseLater([entry])
         case NavKind.clear:
+            for e in stack { failedScreens[e] = nil }
             releaseLater(stack)
             stack.removeAll()
         case NavKind.layer:
@@ -457,8 +470,17 @@ final class ZnApp {
         case NavKind.backWanted:
             if route != 0, stack.contains(entry) { backWanted.insert(entry) } else { backWanted.remove(entry) }
             print("zn t=\(ZnDebug.ms()) nav: screens that want Back first: \(backWanted.sorted())")
+        case NavKind.failed:
+            // The screen's JS threw while building it: it stays and shows the error screen.
+            guard stack.contains(entry) else { return }
+            let o = params.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            failedScreens[entry] = o?["message"] as? String ?? ""
+            print("zn t=\(ZnDebug.ms()) nav: screen \(entry) failed: \(failedScreens[entry] ?? "")")
+        case NavKind.started:
+            firstScreensUp = true  // JS handled START: the splash may go (ZnSplash)
+            print("zn t=\(ZnDebug.ms()) nav: first screens up")
         default:
-            break  // STARTED, BACK_ANSWERED, …: not needed by the spike
+            break  // BACK_ANSWERED, …: not needed by the spike
         }
     }
 
@@ -475,13 +497,24 @@ final class ZnApp {
         }
     }
 
+    /// "Try again" on a failed screen: drop what the failed build left under its root, make a fresh root from the
+    /// template, and ask JS to build the screen again (RETRY).
+    func retry(_ entry: UInt32) {
+        guard stack.contains(entry), failedScreens.removeValue(forKey: entry) != nil, let ctx,
+              let route = entryRoutes[entry], route.native == nil, let t = ctx.templates[safe: route.screen] else { return }
+        store.removeTree(entry)
+        store.mountRoot(id: entry, templateId: route.screen, template: t)
+        print("zn t=\(ZnDebug.ms()) nav: RETRY \(entry)")
+        host.dispatchEvent(0, event: UInt16(ZnAppEvent.retry), number: Double(entry))
+    }
+
     /// The host changed the stack by itself (a finished swipe back): JS hears FORCED_BACK for each entry it lost.
     func nativeChanged(to shown: [UInt32]) {
         let removed = stack.filter { !shown.contains($0) }
         print("zn nav: native shows \(shown), JS had \(stack); FORCED_BACK for \(removed)")
         guard !removed.isEmpty else { return }
         stack = stack.filter { shown.contains($0) }
-        for e in removed { backWanted.remove(e) }
+        for e in removed { backWanted.remove(e); failedScreens[e] = nil }
         for e in removed.reversed() { host.dispatchEvent(0, event: UInt16(ZnAppEvent.forcedBack), number: Double(e)) }
         releaseLater(removed)
     }
@@ -522,7 +555,7 @@ struct ZnRootView: View {
 
     var body: some View {
         if let failure = app.failure {
-            Text(failure).foregroundStyle(.red).padding()
+            ZnErrorScreenView(message: failure, startFailed: true, canGoBack: false, onRetry: {}, onBack: {})
         } else if app.ctx != nil, !app.stack.isEmpty {
             ZnNavSwiftUI(app: app, stack: app.stack)  // the comparison variant; UIKit is ZnNavController
         } else {

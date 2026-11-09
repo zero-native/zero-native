@@ -22,7 +22,11 @@ struct ZnEntryScreen: View {
     let entry: UInt32
 
     var body: some View {
-        if let ctx = app.ctx, let root = app.store.find(entry) {
+        if let message = app.failedScreens[entry] {
+            // A screen whose JS threw (or hung) shows the error screen instead.
+            ZnErrorScreenView(message: message, startFailed: false, canGoBack: (app.stack.firstIndex(of: entry) ?? 0) > 0,
+                              onRetry: { app.retry(entry) }, onBack: { app.systemBack() })
+        } else if let ctx = app.ctx, let root = app.store.find(entry) {
             let route = app.route(of: entry)
             let node = ctx.templates[safe: root.templateId]?.nodes.first
             let background = node.flatMap { $0.backgroundSlot >= 0 ? znColor(root.slot($0.backgroundSlot).value) : $0.background }
@@ -136,7 +140,9 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         if let failure {
             guard !failureShown else { return }
             failureShown = true
-            setViewControllers([UIHostingController(rootView: Text(failure).foregroundStyle(.red).padding())], animated: false)
+            // The app's JS didn't start (or the bundle can't be read): the error screen, with no button (ZnErrorScreen).
+            setViewControllers([UIHostingController(rootView: ZnErrorScreenView(message: failure, startFailed: true, canGoBack: false,
+                                                                                onRetry: {}, onBack: {}))], animated: false)
             return
         }
         let vcs = stack.map { entry in
@@ -154,7 +160,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         }
         if vcs != viewControllers {
             print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(vcs.count) screens)")
-            setViewControllers(vcs, animated: !viewControllers.isEmpty)
+            setViewControllers(vcs, animated: !viewControllers.isEmpty && !ZnSplash.holding)  // under the splash: no slide
         }
         screens = screens.filter { stack.contains($0.key) }
     }

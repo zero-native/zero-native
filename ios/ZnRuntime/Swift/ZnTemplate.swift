@@ -220,6 +220,10 @@ final class ZnNodeSpec {
     let detents: [String]
     let dismissible: Bool
     let onDismiss: Int
+    /// Sheet `animateIn={false}` (registry 21): opens already at rest. `animateIn={expr}` (registry 22): read when the
+    /// sheet opens, not on every change.
+    let animateIn: Bool
+    let animateInSlot: Int
 
     // TextField
     let valueSlot: Int
@@ -435,6 +439,8 @@ final class ZnNodeSpec {
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { ["content", "half", "full"].contains($0) }
             .nonEmpty ?? ["content"]
         dismissible = p[P.dismissible]?.bool ?? true
+        animateIn = p[P.animateIn]?.bool ?? true
+        animateInSlot = slotFor(P.animateIn)
         onDismiss = raw.events.first { $0.node == index && $0.kind == Registry.Event.onDismiss }?.eventId ?? 0
 
         valueSlot = slotFor(P.value)

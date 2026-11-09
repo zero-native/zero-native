@@ -146,6 +146,23 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS Phase 1c, Splash hold, Sheet animateIn, error screen (Claude, Mac)
+- **Splash hold** (ZnUiModules.swift `ZnSplash`, Android's ZnSplash.holdUntilReady): the scene delegate calls
+  `ZnSplash.holdUntilReady(window, capMs:)` after `makeKeyAndVisible`; a copy of the launch screen covers the window
+  until JS sent NAV STARTED and every `Splash.holdUntil` hold is released (or its maxMs / capMs passed), plus two frames
+  for the screen it pushed, then fades in 0.2 s. A push under it has no slide; a sheet presented under it stays below
+  the cover. Not called = hold ignored (as Android). Sample: `ios-sample.ts --splash-hold 3000`.
+- **Sheet `animateIn`** (registry 21 / 22, ZnSheet.swift): read when the sheet opens; false presents it with no
+  animation. A sheet visible on its screen's first frame used to be dropped by UIKit ("not in the window hierarchy"):
+  it now waits until its screen is in the window (1 frame at a cold start).
+- **Error screen** (new ZnErrorScreen.swift, ZnErrorScreen.kt's words, colours and buttons): NAV FAILED, a "hang" JS
+  error on the top screen, Try again (RETRY 10: a fresh root, JS builds again), Go back; a failed start shows it
+  without a button (iOS apps can't relaunch themselves). JS time limit 3 s debug / 2 s release, as Android (was 5 s).
+- **Checked on the simulator:** props lab "Splash waits 1.5 s" (white cover, then the lab, no Home flash); "Open this
+  lab at next start" (lab + processing sheet at rest under the splash); crash lab (screen that throws → error screen,
+  Try again → "It works now", Go back; endless loop → "stopped responding", Try again); `--route nope` (start failed).
+- **Not checked:** a real launch storyboard with an image (the sample's UILaunchScreen is empty: white); ZeroBill's own
+  QR cold start (Phase 2).
 ### 2026-11-09: iOS Phase 1c, press feedback (Claude, Mac)
 - **ZnPress.swift `ZnPressFeedback`**, Android's ZnRipple / ZnHighlight (ZnAnimation.kt, ZnTemplate.kt defaults):
   `pressFeedback` ripple (default) = a circle from the finger inside the node's shape, black at 12 % (a `rippleColor`

@@ -41,6 +41,9 @@ final class ZnSceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: scene)
         window.rootViewController = ZnApp.shared.makeRootViewController()
         window.makeKeyAndVisible()
+        // Off by default, so the first frame stays the template skeleton; ios-sample.ts --splash-hold 1000 keeps a
+        // launch-screen cover until JS built the first screens (and Splash.holdUntil's work), at most that long.
+        if let hold = env["ZN_SPLASH_HOLD_MS"].flatMap(Double.init), hold > 0 { ZnSplash.holdUntilReady(window, capMs: hold) }
         print("zn: window shown with \(type(of: window.rootViewController!))")
         self.window = window
     }
