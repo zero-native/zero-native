@@ -111,7 +111,7 @@ layout animation), so it waits as a whole (plan §4, Phase 4).
 | Width / height from a value; Lottie progress from a value | missing | S | After motion values. |
 | Transparent route option | missing | S | |
 | Canvas v2 (motion values, images, text, clips) | missing | L | Canvas itself is §1b. |
-| Image viewer as a TSX screen (ImageViewer 3) | missing | after motion | The Swift viewer (ImageViewer 2) stays until both platforms pass. |
+| Image viewer as a TSX screen (ImageViewer 3) | missing | after motion | iOS's module is 3 (`release`, 2026-11-09), so v3 bundles get the Swift viewer on routes with `native: "imageviewer.full"`. The TSX screen needs view `imageviewer.page` and useZoom. |
 
 ## 2. Props and events where iOS is missing or partial
 

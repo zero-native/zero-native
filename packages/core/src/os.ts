@@ -13,8 +13,12 @@ export interface OsInfo {
    * Missing on APKs from before 2026-11-06: an OTA bundle must not treat "missing" as production.
    */
   packageName?: string
+  /** Android's version ("14"). "" on iOS. */
   android: string
+  /** Android's API level (34). 0 on iOS. */
   sdk: number
+  /** iOS's version ("18.0"). Missing on Android. */
+  ios?: string
   model: string
   manufacturer: string
   /** True when the phone's language reads right to left (the app must set android:supportsRtl). */

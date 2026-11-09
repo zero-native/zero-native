@@ -20,7 +20,7 @@ Each entry says:
 | A4 | 2026-11-08 | Sample | The sample doesn't build from a fresh clone (`offers-data.json` not in git) | fixed on ios (736b8eb) |
 | A5 | 2026-11-08 | Core build | Shared core assumed Android: `posix_fallocate`, MMKV headers, `liblog` | fixed on ios (736b8eb) |
 | A6 | 2026-11-08 | FlowStore | Without space reservation, the first write of a key rewrote the whole file and could fail on a full disk | fixed on ios (736b8eb) |
-| A7 | 2026-11-08 | JS tests | `app-events.test.ts` passes alone but fails in the full `bun test` run on the Mac | open |
+| A7 | 2026-11-08 | JS tests | `app-events.test.ts` (and since 2026-11-09 four in `calls.test.ts`) pass alone but fail in the full `bun test` run on the Mac | open |
 | A8 | 2026-11-08 | Navigation | A back gesture that animates before JS answers (Android 13+ predictive back) cannot respect `useBack` | fixed; Android checked on the Lava 2026-11-08 (in main; predictive back on, second-opinions 184) |
 | A9 | 2026-11-08 | JS (shared) | `Platform.OS` was hard-coded "android"; `Platform.select` never looked at `ios` | fixed on ios (no Android change expected) |
 | A10 | 2026-11-08 | Events | An event from the first screen's skeleton (drawn before JS) can reach JS before the screen's handlers exist | not seen on Android (fixed on ios) |
@@ -107,6 +107,9 @@ Each entry says:
   (`bun test packages/core/test/app-events.test.ts`). In the full run its host logs about 50 lines like "app event 12
   already has a handler; the new one replaces it": an earlier test file leaves app-event handlers installed.
   Same result without the 2026-11-08 changes.
+- **2026-11-09:** now 5 fail in the full run (1387 pass): in `packages/core/test/calls.test.ts` "a typed module call
+  resolves …", "errors carry a code …", "abort rejects at once …", "a screen's calls are dropped quietly …", and the
+  one above. `calls.test.ts` alone: 5 pass. Same with or without that day's iOS changes.
 - **Why it matters:** a test that passes or fails depending on the order hides real breakage. The order likely differs
   between Windows and the Mac.
 - **Fix (proposed):** find which file installs the handlers without resetting them (run `bun test packages` and

@@ -1,7 +1,7 @@
 // The image viewer's iOS side (plugins/image-viewer, as android/.../ImageViewerScreen.kt, ViewerRules.kt, ViewerSpec.kt
 // and ViewerHeld.kt): the native screen "imageviewer.full" (pictures with pinch zoom, pan, double tap, swipes between
-// pictures and up or down to close) and the "ImageViewer" module (v2: hold). The same params, answer ({ index }) and
-// rules as Android.
+// pictures and up or down to close) and the "ImageViewer" module (v3: hold, release). The same params, answer ({ index })
+// and rules as Android.
 //
 // iOS differences:
 // - Pictures are decoded once with ImageIO (EXIF turns applied, mirror images too), at most 4096 pixels on the long side:
@@ -9,6 +9,10 @@
 // - `content://` links are Android's: refused here (the error shows). `file://` must be inside the app's own folder.
 // - The edge swipe back closes it with no answer (null), like nav.back(); the close button and the swipe up or down
 //   answer { index }.
+// - Version 3's TSX viewer (a route with `screen: ImageViewerScreen`, src/ImageViewerScreen.tsx) is not drawn yet: it
+//   needs the view "imageviewer.page" and zero-native's Motion gestures (useZoom), which iOS doesn't have. A route that
+//   still says `native: "imageviewer.full"` (ZeroBill's) gets this screen. Module v3 is here for `release`, which the
+//   v3 JS calls, so the module answers v3 bundles.
 import ImageIO
 import UIKit
 
@@ -138,13 +142,18 @@ enum ViewerHeld {
 
 final class ImageViewerModule: ZnModuleBase, @unchecked Sendable {
     init() {
-        super.init("ImageViewer", version: 2)
+        super.init("ImageViewer", version: 3)
         // Not on the main thread: it decodes base64 (up to 5 MB).
         function("hold") { call in
             guard let key = call.args["key"] as? String, !key.isEmpty, let items = call.args["items"] as? [[String: Any]] else {
                 return call.reject("invalid_args", "hold needs key and items")
             }
             ViewerHeld.hold(key, items)
+            call.resolve(true)
+        }
+        // Version 3: the TSX screen frees its held parts when it closes (the bytes and the request headers, tokens).
+        function("release") { call in
+            if let key = call.args["key"] as? String, !key.isEmpty { ViewerHeld.release(key) }
             call.resolve(true)
         }
     }

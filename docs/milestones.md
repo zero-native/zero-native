@@ -148,6 +148,23 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS, the ZeroBill session's zn issues (Claude, Mac)
+- The ZeroBill iOS session (Phase 2) reported five zn issues. Checked each against ZeroBill's built bundle
+  (`ios/bundle/main.zn.ui`, read template by template):
+  - **ImageViewer** answered "unavailable": the JS asks for module 3, iOS had 2. iOS's module is now 3 with `release`
+    (frees a viewer's held `data:` bytes and headers, as Android). Version 3's TSX screen (view `imageviewer.page`,
+    useZoom) is still not on iOS; ZeroBill's route is `native: "imageviewer.full"`, so it gets the Swift viewer.
+  - **"doesn't draw a runtime value for prop 1 / 2 / 293 (registry 23)"** at ZeroBill's start: those slots are only in
+    image-viewer's TSX screen (ImageViewerScreen, ViewerPhoto), which comes with the package but ZeroBill never opens.
+    No ZeroBill screen uses a registry 23 runtime value. Same for **Motion 1** in the bundle's needs.
+  - **`OsInfo` had no `ios`**: added (`ios?: string`, "Missing on Android"); iOS already sent it. `android` is "" and
+    `sdk` 0 on iOS, now said in the type's comments.
+  - **Analytics screen names**: iOS's `AnalyticsPlugin` already takes `screenName:`; ZeroBill's `MyApp.swift`
+    needs Android's `rnScreenName` mapping (ZeroBill's side).
+- **Checked on the simulator:** image viewer lab, old screen, "data: picture, too big, bad": opens on the held picture,
+  the two bad ones logged, close answers `{ index: 0 }`. `bun run test:types` clean; A7 grew to 5 order-dependent
+  failures in the full `bun test` (same without these changes).
+
 ### 2026-11-09: iOS, Updates "OTA off" and Tasks modules for ZeroBill's bundle (Claude, Mac)
 - ZeroBill's bundle calls five zn modules iOS didn't have. Checked each JS side: AdId, Notifications and Push already
   fall back when the module is missing (every call caught; listeners on a missing module are ignored), so nothing to

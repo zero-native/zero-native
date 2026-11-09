@@ -113,7 +113,9 @@ Checklist checked against the code; registry 24 read; LayoutLab 67 / 84.
 | 1c | Splash hold (`ZnSplash.holdUntilReady`, `Splash.holdUntil`) | **done** | 646b042 |
 | 1c | Sheet `animateIn` (also at runtime; a sheet up on its screen's first frame) | **done** | 646b042 |
 | 1c | Error screen: NAV FAILED, hung JS, RETRY, Go back, failed start; JS time limit 3 s debug / 2 s release | **done** | 646b042 |
-| 1d | Registry 23 parts ZeroBill uses | **n/a**: ZeroBill uses none (grep 2026-11-09) | |
+| 1d | Registry 23 parts ZeroBill uses | **n/a**: ZeroBill's screens use none. Read from its built `main.zn.ui` 2026-11-09: the only runtime width / height / `scrollCommand` slots are in image-viewer's TSX screen (ImageViewerScreen, ViewerPhoto), which ZeroBill doesn't open (its route is `native: "imageviewer.full"`) | |
+| 1d | ImageViewer module 3 (`release`), so v3 bundles get the Swift viewer | **done** | (this commit) |
+| 1d | `OsInfo.ios` in core's type (iOS already sent it) | **done** | (this commit) |
 | — | Fixes from Pavan's look: Tabs lab hint, border line over the Scan FAB | **done** | b0613b4 |
 
 ### Phase 2: the ZeroBill iOS app [ZB] — **in progress** (2026-11-09)
@@ -317,7 +319,7 @@ manifest must not claim what it can't draw.
 | firebase-messaging | Push | **missing** | Phase 3. Until then its JS falls back (`token: null`, "unavailable", false). |
 | firebase-perf | Perf | missing | Needs batch listeners. Not used by ZeroBill. |
 | firebase-remote-config | RemoteConfig | missing | Not used by ZeroBill. |
-| image-viewer | ImageViewer 2 | done | Swift viewer (paging zoom, swipe to close). The TSX viewer (3) waits for motion. |
+| image-viewer | ImageViewer 3 | done (Swift screen) | Swift viewer (paging zoom, swipe to close) for routes with `native: "imageviewer.full"`; module 3 adds `release`. The TSX viewer (view `imageviewer.page`, useZoom) waits for motion: on iOS its thumbnail tap does nothing yet. |
 | location | Location 2 | done | Core Location, CLGeocoder; `turnOn` / `providers` n/a (A14). |
 | lottie | Lottie | done | lottie-ios 4.6.1 (optional fetch). |
 | markdown | — | done | JS only; Text spans checked. |
@@ -336,14 +338,16 @@ Each plugin has a Kotlin `*RulesTest.kt`; no iOS test target exists yet (§11).
 Repo `my-app` (`~/apps/my-app`, remote
 `my-app`), well tested on Android. Its own plugins: `upi`, `google-signin`, `truecaller`,
 `in-app-update`, `install-referrer`, `legacy-data`. ZeroBill's code uses none of registry 23's new parts and none of
-motion (grep 2026-11-09).
+motion (grep 2026-11-09). Its bundle still needs registry 24 and Motion 1, both only because `@zero-native/image-viewer`
+brings its TSX screen along; ZeroBill opens the Swift one. The debug log's "doesn't draw a runtime value for prop 1 /
+2 / 293 (registry 23)" lines at start come from that screen and are harmless for ZeroBill.
 
 ### The 34 native modules its bundle needs
 | State | Modules |
 |---|---|
-| zn, done on iOS (23) | Alert, Analytics, Auth, Clipboard, Crashlytics, DeviceInfo, DocumentScanner, Fetch, ImageViewer, Keyboard, Launches, Location, Lottie, NetInfo, Os, Pdf, Permissions, Scanner, SecureStore, Splash, Toast, Vibration, WebView |
+| zn, done on iOS (23) | Alert, Analytics, Auth, Clipboard, Crashlytics, DeviceInfo, DocumentScanner, Fetch, ImageViewer (3), Keyboard, Launches, Location, Lottie, NetInfo, Os, Pdf, Permissions, Scanner, SecureStore, Splash, Toast, Vibration, WebView |
 | zn, answering "off" (2) | Updates (OTA off, Android's answers), Tasks (`done`) |
-| zn, no iOS module, JS falls back (3) | AdId (`{ id: null }`), Notifications and Push (Phase 3; their JS catches every call; listeners on a missing module are ignored) |
+| zn, no iOS module, JS falls back (4) | AdId (`{ id: null }`), Notifications and Push (Phase 3; their JS catches every call; listeners on a missing module are ignored), Motion (only image-viewer's TSX screen uses it; ZeroBill doesn't open that screen) |
 | ZeroBill's own (6), Phase 2 | Upi (done), GoogleSignIn (to build; answers no meanwhile), Truecaller / InAppUpdate / InstallReferrer (answer no; InAppUpdate → zn app-updates later), LegacyData (reads nothing yet) |
 
 ### The pilot flow and its iOS state
@@ -435,7 +439,8 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
-| 2026-11-09 | Updates "OTA off" and Tasks modules for ZeroBill's bundle; A15 | (this commit) |
+| 2026-11-09 | ZeroBill session's zn issues: ImageViewer 3 (`release`), `OsInfo.ios`; registry 23 log and Motion explained | (this commit) |
+| 2026-11-09 | Updates "OTA off" and Tasks modules for ZeroBill's bundle; A15 | 9290731 |
 | 2026-11-09 | milestones-ios.md | 1a62100 |
 | 2026-11-09 | Phase 1c: Splash hold, Sheet animateIn, error screen; JS time limit as Android | 646b042 |
 | 2026-11-09 | Phase 1c: press feedback; a dev route wins over restore | 24d2d1d |
