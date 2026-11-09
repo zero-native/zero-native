@@ -1,11 +1,44 @@
 // The sample's test plugin on iOS, as plugins/device-test's DeviceTestPlugin.kt: a native screen and a native view for
-// the core check (CoreLabScreen.tsx). The plugin's Device module (storage, launches, tasks) is Android-only so far.
+// the core check (CoreLabScreen.tsx), and the Device module's parts iOS can do: info, slowEcho, fail, and the two
+// launches of the Launch lab (LaunchScreen.tsx). The rest (Kotlin storage, tasks, motion sources) answers "unavailable".
 import UIKit
 
 struct DeviceTestPlugin: ZnPlugin {
     func register(_ r: ZnPluginRegistry) {
         r.screen("device.fake-screen") { scope in FakeScreen(scope) }
         r.view("device.fake-view") { scope in FakeView(scope) }
+        r.module(DeviceModule())
+    }
+}
+
+/// Device v6 (plugins/device-test/src/index.ts), the parts iOS can do.
+private final class DeviceModule: ZnModuleBase, @unchecked Sendable {
+    init() {
+        super.init("Device", version: 6)
+        function("info") { call in call.resolve(["model": ZnOs.model, "android": "", "sdk": 0]) }
+        function("slowEcho") { call in
+            let text = try call.string("text"), ms = (call.args["ms"] as? NSNumber)?.doubleValue ?? 0
+            DispatchQueue.global().asyncAfter(deadline: .now() + ms / 1000) { if !call.isCancelled { call.resolve(text) } }
+        }
+        function("fail") { call in call.reject("no_luck", "this call always fails") }
+        // The mock UPI app is an Android test app. On iOS: a web page in Safari stands in for the other app. Come back by
+        // switching apps (resultCode 0) or by a link (`xcrun simctl openurl booted "zn://sample/dev/launch?…"`, -1).
+        function("openMockUpi", onMain: true) { call in
+            let id = try call.string("id")
+            MainActor.assumeIsolated {
+                ZnLaunch.open("mock-upi", id: id, url: URL(string: "https://example.com/?zn-mock-upi")!) { ok, reason in
+                    call.resolve(ok ? ["launched": true] : ["launched": false, "reason": reason ?? "failed"])
+                }
+            }
+        }
+        function("openMissingApp", onMain: true) { call in
+            let id = try call.string("id")
+            MainActor.assumeIsolated {
+                ZnLaunch.open("mock-missing", id: id, url: URL(string: "zn-missing-app://x")!) { ok, reason in
+                    call.resolve(ok ? ["launched": true] : ["launched": false, "reason": reason ?? "failed"])
+                }
+            }
+        }
     }
 }
 

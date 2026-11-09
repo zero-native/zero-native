@@ -20,6 +20,12 @@ struct ZnRoute {
     let resizeForKeyboard: Bool
     /// A plugin's native screen ("<plugin>.<name>", ZnPlugins.swift), or nil for a zn screen.
     let native: String?
+    /// routes.ts `path` ("/pay/:merchantId"), its parts, and whether a link may open it (`deepLink: true`).
+    let path: String
+    let segments: [String]
+    let deepLink: Bool
+    /// A screen with tabs: "<path>/<tab>" opens it on that tab (ZnRoutes.kt, host API 8).
+    let tabs: [String]
 
     init(json r: [String: Any]) {
         name = r["name"] as? String ?? ""
@@ -33,12 +39,66 @@ struct ZnRoute {
         lightStatusBar = (r["statusBar"] as? String) == "light"
         resizeForKeyboard = (r["keyboard"] as? String) != "none"
         native = r["native"] as? String
+        path = r["path"] as? String ?? ""
+        segments = path.split(separator: "/").map(String.init)
+        deepLink = r["deepLink"] as? Bool ?? false
+        tabs = r["tabs"] as? [String] ?? []
+    }
+}
+
+/// A link matched to a route: its index and params (path values, plus the query's).
+struct ZnRouteMatch {
+    let route: Int
+    let params: [String: String]
+}
+
+enum ZnLinks {
+    /// The route a link's path opens (ZnRoutes.kt matchDeepLink): only `deepLink` routes; `:name` parts take the
+    /// part's text; the most literal match wins; a route with tabs also matches "<path>/<tab>" ("tab" param).
+    static func match(_ path: String, _ routes: [ZnRoute]) -> ZnRouteMatch? {
+        let clean = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? ""
+        let parts = (clean.split(separator: "#", maxSplits: 1).first.map(String.init) ?? "").split(separator: "/").map(String.init)
+        var best: ZnRouteMatch?
+        var bestLiterals = -1
+        for (index, route) in routes.enumerated() where route.deepLink {
+            let shapes: [([String], String?)] = [(route.segments, nil)] + route.tabs.map { (route.segments + [$0], $0) }
+            for (segments, tab) in shapes where segments.count == parts.count {
+                var params: [String: String] = [:]
+                var literals = 0, ok = true
+                for (seg, part) in zip(segments, parts) {
+                    if seg.hasPrefix(":") {
+                        guard let value = part.removingPercentEncoding, !value.isEmpty else { ok = false; break }
+                        params[String(seg.dropFirst())] = value
+                    } else if seg == part {
+                        literals += 1
+                    } else { ok = false; break }
+                }
+                if let tab { params["tab"] = tab }
+                if ok && literals > bestLiterals { best = ZnRouteMatch(route: index, params: params); bestLiterals = literals }
+            }
+        }
+        return best
+    }
+
+    /// [url]'s route, with its query values as params too (a value from the path wins).
+    static func match(_ url: URL, _ routes: [ZnRoute]) -> ZnRouteMatch? {
+        let c = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        // A custom scheme's "host" is the app's own name (zn://sample/pay/m1): only the path counts, as on Android.
+        guard let m = match(c?.percentEncodedPath.isEmpty == false ? c!.percentEncodedPath : "/", routes) else {
+            print("zn: deep link \(url.scheme ?? "?")://\(url.host ?? "")\(url.path) → no route")
+            return nil
+        }
+        var params: [String: String] = [:]
+        for q in c?.queryItems ?? [] { if let v = q.value { params[q.name] = v } }
+        params.merge(m.params) { _, path in path }
+        print("zn: deep link \(url.scheme ?? "?")://\(url.host ?? "")\(url.path) → \(routes[m.route].name) \(params.keys.sorted())")
+        return ZnRouteMatch(route: m.route, params: params)
     }
 }
 
 /// App-level events to JS (instance 0), as in ZnAppEvent.kt.
 enum ZnAppEvent {
-    static let start = 1, back = 2, forcedBack = 3, insets = 5, callResult = 7, appState = 11, navResult = 12, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
+    static let start = 1, back = 2, forcedBack = 3, open = 4, insets = 5, callResult = 7, appState = 11, navResult = 12, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
 }
 
 @MainActor
@@ -62,6 +122,30 @@ final class ZnApp {
     @ObservationIgnored private var jsStarted = false
 
     func route(of entry: UInt32) -> ZnRoute? { entryRoutes[entry] }
+
+    // MARK: Links
+
+    @ObservationIgnored private var earlyLinks: [URL] = []
+
+    /// A link while the app runs (the scene's openURLContexts, a universal link): JS pushes its route, or its
+    /// onUnmatchedLink hears it (OPEN, as ZnNav.kt). A launch waiting for its app to come back hears it too.
+    func openLink(_ url: URL) {
+        ZnLaunch.noteLink(url)
+        guard jsStarted else { return earlyLinks.append(url) }
+        sendOpen(url, atStart: false)
+    }
+
+    private func sendOpen(_ url: URL, atStart: Bool) {
+        var payload: [String: Any] = ["route": -1, "params": [String: String](), "url": url.absoluteString]
+        if !atStart, let m = ZnLinks.match(url, routes) {
+            payload["route"] = m.route
+            payload["params"] = m.params
+        } else {
+            payload["atStart"] = atStart
+        }
+        guard let json = ZnModules.json(payload) else { return }
+        host.dispatchEvent(0, event: UInt16(ZnAppEvent.open), string: json)
+    }
 
     // MARK: Listeners for plugins (Crashlytics, Analytics), as Android's ZnRuntime.addJsErrorListener and ZnNav.stack
 
@@ -114,7 +198,9 @@ final class ZnApp {
     /// The bundle folder (main.hbc, main.zn.ui, assets such as images/): `asset:` sources resolve against it.
     @ObservationIgnored private(set) var bundleURL: URL?
 
-    func start(bundle: URL, routeName: String, params: String) {
+    /// [routeName] nil: the app's start route (path "/"), with [link]'s screen on top when a link started the app (as
+    /// Android's ZnNav). A route name (the sample's ZN_ROUTE, debug) opens that route alone.
+    func start(bundle: URL, routeName: String?, params: String, link: URL? = nil) {
         bundleURL = bundle
         do {
             let file = try TemplateReader.read(try Data(contentsOf: bundle.appendingPathComponent("main.zn.ui")))
@@ -128,16 +214,42 @@ final class ZnApp {
                 case .string(let s): host.dispatchEvent(instance, event: UInt16(event), string: s)
                 }
             }
-            guard let routeIndex = routes.firstIndex(where: { $0.name == routeName }) else {
-                throw ZnFormatError("no route \"\(routeName)\"")
+            // The first screens: (route, params JSON, link).
+            var first: [(Int, String, String?)] = []
+            var unmatched: URL?
+            if let routeName {
+                guard let i = routes.firstIndex(where: { $0.name == routeName }) else { throw ZnFormatError("no route \"\(routeName)\"") }
+                first = [(i, params, nil)]
+            } else {
+                guard let home = routes.firstIndex(where: { $0.path == "/" }) else { throw ZnFormatError("the bundle has no route with path \"/\"") }
+                first = [(home, "{}", nil)]
+                if let link {
+                    if let m = ZnLinks.match(link, routes) {
+                        let p = ZnModules.json(m.params) ?? "{}"
+                        // A link to the start screen itself (one of its tabs) opens it with the link's params.
+                        if m.route == home { first[0] = (home, p, link.absoluteString) } else { first.append((m.route, p, link.absoluteString)) }
+                    } else {
+                        unmatched = link
+                    }
+                }
             }
 
-            // 1. The skeleton: the root instance from its template, drawn now, before JS has started (§8.1).
-            let entry = nextNativeEntry
-            nextNativeEntry += 1
-            store.mountRoot(id: entry, templateId: routes[routeIndex].screen, template: templates[routes[routeIndex].screen])
-            entryRoutes[entry] = routes[routeIndex]
-            stack = [entry]
+            // 1. The skeleton: the root instances from their templates, drawn now, before JS has started (§8.1).
+            var items: [String] = []
+            var entries: [UInt32] = []
+            for (routeIndex, p, l) in first {
+                let entry = nextNativeEntry
+                nextNativeEntry += 1
+                if routes[routeIndex].native == nil {
+                    store.mountRoot(id: entry, templateId: routes[routeIndex].screen, template: templates[routes[routeIndex].screen])
+                }
+                entryRoutes[entry] = routes[routeIndex]
+                entries.append(entry)
+                var item = "{\"entry\":\(entry),\"route\":\(routeIndex),\"params\":\(p)"
+                if let l, let text = ZnModules.json(l) { item += ",\"link\":\(text)" }
+                items.append(item + "}")
+            }
+            stack = entries
 
             // 2. JS: batches, events, errors.
             store.onNav = { [weak self] kind, entry, route, params in self?.nav(kind, entry, route, params) }
@@ -150,7 +262,7 @@ final class ZnApp {
                 self?.jsErrorListeners.forEach { $0(kind, whereText, details) }
             }
             let delayMs = Double(ProcessInfo.processInfo.environment["ZN_JS_DELAY_MS"] ?? "") ?? 0
-            let startPayload = "[{\"entry\":\(entry),\"route\":\(routeIndex),\"params\":\(params)}]"
+            let startPayload = "[\(items.joined(separator: ","))]"
             let mainScript = bundle.appendingPathComponent("main.hbc").path
             ZnModules.install()  // before the main script: its constants are read as it starts
             DispatchQueue.main.asyncAfter(deadline: .now() + delayMs / 1000) { [host] in
@@ -167,6 +279,12 @@ final class ZnApp {
                     ZnSystemEvents.shared.start()  // the colour scheme now, then app state, memory, keyboard changes
                     self.sendInsets()  // before START, so a full-bleed first screen pads its header at once
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.start), string: startPayload)
+                    // A start link that matches no route goes to JS's onUnmatchedLink now; links that came while JS
+                    // was starting follow.
+                    if let unmatched { self.sendOpen(unmatched, atStart: true) }
+                    let early = self.earlyLinks
+                    self.earlyLinks = []
+                    early.forEach { self.openLink($0) }
                 }
             }
         } catch {

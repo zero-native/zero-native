@@ -193,7 +193,7 @@ Android's built-in modules (ZnModules.kt `init`) plus storage. iOS registers the
 | Splash (1) | hold, release | partial | M | Both answer `false` (no splash to hold). iOS shows the skeleton at once instead. So `Splash.holdUntil` (ZeroBill's QR cold start: wait for /init, lift straight onto checkout) does nothing: Home shows, then checkout slides in. Fix: keep a launch-screen view over the window until ready or maxMs. |
 | Storage | JS `storage` / `createStorage` | partial | S | JS storage works (C++ core + MMKV, `storageDir` in ZNHost.mm). The native API for app and plugin code (ZnStorage.kt: `store(id).get/set/keys/...`) has no Swift version. |
 | Updates (3) | status, markHealthy, check, applyNow, hold, event `Updates` | missing | §4 | OTA. |
-| Launches (1) | ack, event `result` | partial | §4 | `ack` done (native screens' answers); launching another app is i.4. |
+| Launches (1) | ack, event `result` | done | §4 | `ack`, the `result` event (ZnLaunch.start / finish / open, 2026-11-09). |
 | Tasks (1) | done, app event TASK | missing | §4 | Background tasks. |
 | Platform (iOS only) | constants | iOS extra | | Tells JS it runs on iOS before any code runs (A9). |
 
@@ -214,8 +214,8 @@ Totals: 15 modules. Done 10, partial 2, missing 3 (sized in §4). Sized here: 1 
 | Updates module + apply in place behind a cover | ZnOta.kt (Module, `cover`) | missing | M | |
 | Restore after kill: saved back stack, NAV RESTORE values (restorableSignal), START payload | ZnNav.kt (saveState, readSavedStack), ZnNavSavedTest.kt | missing | L (1.5 d) | iOS has no saved-state bundle: write the stack to a file (step i.3). NAV RESTORE is ignored today. Route option `restore` too. |
 | Background tasks (`defineTask`) | ZnBackground.kt | missing | L | Queue until JS loads, time limit, one answer per task, TASK event. iOS: BGTaskScheduler and push-triggered runs. |
-| Launches (launchForResult, saved results, ack, wait ≤1 s after a kill) | ZnLaunch.kt | missing | L (1.5 d) | iOS has no Intents. UPI on iOS: open by URL scheme, come back by link, verify on the server (step i.4). Keep the JS API. |
-| Deep links / onLink | ZnNav.kt (openLink, OPEN event), ZnRoutes.kt (match, tab paths), route `path` / `deepLink` / `tabs` options | missing | M | No OPEN event, no route matching, no onUnmatchedLink, no link at cold start. iOS: scene `openURLContexts`, URL types, universal links. |
+| Launches (launchForResult, saved results, ack, wait ≤1 s after a kill) | ZnLaunch.kt | done (simulator) | L (1.5 d) | ZnPlugins.swift ZnLaunch: `start` / `finish` (a plugin's own launch), `open(key, id, url)` (another app by its link: on return, resultCode -1 + `data` = the link back, else 0, `extras.returned`), waiting → lost at the next start, busy / unacked. iOS has no result Intent: JS asks its server. |
+| Deep links / onLink | ZnNav.kt (openLink, OPEN event), ZnRoutes.kt (match, tab paths), route `path` / `deepLink` / `tabs` options | done (simulator) | M | ZnApp.swift ZnLinks (matchDeepLink, tabs, query params), start with a link (Home + the link's screen, or Home with its params), OPEN while running, unmatched → onUnmatchedLink, links during JS start queued. The app's scene passes URL contexts and universal links (ZnSampleApp.swift). Universal links need the associated-domains entitlement (signing). |
 | zn dev (live reload, dev error overlay) | ZnDev.kt, ZnRuntime.kt (reload, restart, generations) | missing | L | Simulator reaches the Mac on localhost; a device needs the Mac's address. Answers from the old runtime must be dropped after reload. |
 | Error screen (NAV FAILED, RETRY, hung JS, "Restart app", custom texts and colours) | ZnErrorScreen.kt, ZnNav.kt | partial | M | iOS shows a red text only when the app fails to start. A screen whose JS threw shows nothing special; NAV FAILED and RETRY are not handled. |
 | Secure screens (route `secure`) | ZnNavHost.kt (FLAG_SECURE) | missing | M | iOS has no flag. Options: blank the app-switcher snapshot, the secure text field layer trick for screenshots. Decide what "secure" means on iOS. |
@@ -381,7 +381,8 @@ the rest is OTA, the Firebase plugins, the other plugins and the tools.
 ## What ZeroBill's checkout needs first
 
 **Status 2026-11-09:** 1 done (OtpInput, `.oneTimeCode`, runtime `disabled`); 2 done (plugins, native screens and
-views, Launches ack + start / finish); 3 done on the simulator (scanner, camera untested); 4 and 5 not started. Of the
+views, Launches ack + start / finish); 3 done on the simulator (scanner, camera untested); 4 done on the simulator
+(links and launches by URL; the UPI plugin itself is ZeroBill's, Phase 2); 5 not started. Of the
 small ones: Tabs done; press feedback, Splash hold, Sheet `animateIn`, the error screen not done (ZeroBill uses
 `pressFeedback` in 18 files, `animateIn` and Splash once each). Plugins ZeroBill needs: all on iOS but push +
 notifications (Phase 3) and ad-id (answers "unavailable", Android-only by meaning). ZeroBill's own plugins (Upi,

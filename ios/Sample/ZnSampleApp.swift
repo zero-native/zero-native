@@ -2,7 +2,9 @@
 // A UIKit app: the window's root is the back stack (ZnNavController); SwiftUI draws inside each screen. (With a
 // SwiftUI App at the root, the navigation controller's edge swipe never began: 2026-11-08, A8.)
 // Launch environment (simctl: SIMCTL_CHILD_<name>):
-//   ZN_ROUTE         first route (default "amount"); ZN_PARAMS its params JSON (default {"merchantId":"m1"})
+//   ZN_ROUTE         first route, alone (debug); ZN_PARAMS its params JSON (default {}). Without it the app starts as a
+//                    real app: on the "/" route, with a link's screen on top when a link started it (zn://sample/...)
+//   ZN_LINK          the link that starts the app, as if it opened it (tools/ios-sample.ts --link)
 //   ZN_JS_DELAY_MS   start JS this much later, to see the skeleton on its own (debug)
 //   ZN_COUNT_BODIES  1: log how many SwiftUI bodies each batch ran (debug)
 import UIKit
@@ -14,9 +16,7 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         let env = ProcessInfo.processInfo.environment
         // Plugins first, before the bundle runs (docs/plugins.md).
         ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin())
-        ZnApp.shared.start(bundle: Bundle.main.resourceURL!,
-                           routeName: env["ZN_ROUTE"] ?? "amount",
-                           params: env["ZN_PARAMS"] ?? "{\"merchantId\":\"m1\"}")
+        _ = env
         return true
     }
 
@@ -30,10 +30,26 @@ final class ZnSceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
         guard let scene = scene as? UIWindowScene else { return }
         print("zn: scene connects")
+        // The app starts here, where the link that opened it is known (a URL, or a universal link's web page).
+        let env = ProcessInfo.processInfo.environment
+        let link = options.urlContexts.first?.url
+            ?? options.userActivities.first { $0.activityType == NSUserActivityTypeBrowsingWeb }?.webpageURL
+            ?? env["ZN_LINK"].flatMap(URL.init(string:))  // debug: ios-sample.ts --link, a cold start with its console
+        ZnApp.shared.start(bundle: Bundle.main.resourceURL!, routeName: env["ZN_ROUTE"], params: env["ZN_PARAMS"] ?? "{}", link: link)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = ZnApp.shared.makeRootViewController()
         window.makeKeyAndVisible()
         print("zn: window shown with \(type(of: window.rootViewController!))")
         self.window = window
+    }
+
+    /// A link while the app runs.
+    func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
+        contexts.forEach { ZnApp.shared.openLink($0.url) }
+    }
+
+    /// A universal link while the app runs.
+    func scene(_ scene: UIScene, continue activity: NSUserActivity) {
+        if activity.activityType == NSUserActivityTypeBrowsingWeb, let url = activity.webpageURL { ZnApp.shared.openLink(url) }
     }
 }

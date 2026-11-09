@@ -146,6 +146,28 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS Phase 1a, deep links and launches by URL (Claude, Mac, `main`)
+- **Links** (ZnApp.swift `ZnLinks`, as ZnNav.kt + ZnRoutes.kt): a link's path matched to a `deepLink` route (most literal
+  match, `:param` parts, "<path>/<tab>" for a route with tabs, query values as params). Cold start: the app starts on the
+  "/" route with the link's screen on top (START entries carry `link`, so JS's `onLink` decides), or Home with the link's
+  params when it points at Home; a start link with no route goes to `onUnmatchedLink` (OPEN, atStart). While running:
+  OPEN (event 4) from the scene's `openURLContexts` / universal links; links during JS's start wait for START.
+  The sample starts in its scene (where the opening link is known) and registers the `zn` scheme (Android's zn://sample).
+- **Launches by URL** (ZnPlugins.swift `ZnLaunch.open`): "waiting" on disk, then `UIApplication.open`; nothing opened →
+  no record, `no_app`. When the user comes back: resultCode -1 and `data` = the link the other app opened to come
+  back, else resultCode 0 (`extras.returned` true); a kill in between is "lost" at the next start. iOS gives no result:
+  JS (ZeroBill's UPI plugin, Phase 2) asks its server. Bug found and fixed: `open`'s completion comes after the app has
+  already left, so the "away" mark is set before calling it.
+- **Sample:** the iOS test plugin has a Device module (v6: info, slowEcho, fail, openMockUpi = Safari, openMissingApp);
+  `tools/ios-sample.ts --link <url>` starts the app as if that link opened it (debug `ZN_LINK`). Without `--route` the
+  sample now starts as a real app (Home), as on Android.
+- **Checked on the simulator:** Launch lab: missing app → no_app; open mock → Safari; back by `zn://sample/dev/launch?…`
+  → result -1 with the link; back by switching apps → result 0; a restart while waiting → "lost" with its id; ack.
+  Links: cold `zn://sample/pay/m7` → Home + amount m7 (Back → Home), JS heard `atStart=true`; running: an unmatched link
+  → onUnmatchedLink; `/dev/tabs/offers` → the Tabs lab on "offers".
+- **Not checked:** universal links (need the associated-domains entitlement, Phase 2 signing), a real UPI app (Phase 2,
+  on the iPhone; no real payment).
+
 ### 2026-11-09: gestures and motion, phases 1–3 on Android (Claude, main)
 - Built per `docs/gestures-and-motion-v1.md` (D1–D10) and documented in `docs/motion.md`: motion values and timings,
   `derive` formulas (compiled), env / self / parent values, gestures (pan, pinch, rotate, tap, long press, fling,

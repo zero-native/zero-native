@@ -47,6 +47,17 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.zeronative.sample</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>zn</string>
+			</array>
+		</dict>
+	</array>
 	<key>FirebaseAutomaticScreenReportingEnabled</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>

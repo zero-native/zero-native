@@ -288,11 +288,66 @@ final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
 
     /// The launch's answer: on disk, then JS's `launches.onResult` hears it. Only the open launch with this id; the first
     /// answer wins. [resultCode]: -1 OK, 0 cancelled (Android's codes, which JS reads).
-    @MainActor static func finish(_ key: String, id: String, resultCode: Int, extras: [String: Any] = [:]) {
+    @MainActor static func finish(_ key: String, id: String, resultCode: Int, data: String? = nil, extras: [String: Any] = [:]) {
         guard let rec = read(key), rec["id"] as? String == id, rec["status"] as? String == "waiting" else { return }
-        let done: [String: Any] = ["key": key, "id": id, "status": "result", "resultCode": resultCode, "data": NSNull(), "extras": extras]
+        let done: [String: Any] = ["key": key, "id": id, "status": "result", "resultCode": resultCode, "data": data ?? NSNull(), "extras": extras]
         write(key, done)
         ZnModules.emit("Launches", "result", done, latestOnly: false)
+    }
+
+    // MARK: Opening another app by its link (UPI apps): iOS gives no result back
+
+    /// The launch waiting for the user to come back from the app it opened. Main thread.
+    @MainActor private static var away: (key: String, id: String, left: Bool, link: String?)?
+    @MainActor private static var watching = false
+
+    /// Opens [url] (another app's link, as `upi://pay?…`) as a launch of [key] / [id]. iOS has no result Intent: when the
+    /// user comes back the launch ends with resultCode -1 and `data` = the link the other app opened to come back, if it
+    /// did, else resultCode 0 and no data (`extras.returned` true either way). Either way JS asks its server what
+    /// happened; a kill in between is "lost" at the next start. [done]: (launched, reason): "busy", "unacked", "no_app".
+    @MainActor static func open(_ key: String, id: String, url: URL, done: @escaping (Bool, String?) -> Void) {
+        let started = start(key, id: id)
+        guard started.launched else { return done(false, started.reason) }
+        watch()
+        // Before open: iOS calls its completion after the app has already left (willResignActive came first).
+        away = (key, id, false, nil)
+        UIApplication.shared.open(url, options: [:]) { ok in
+            guard ok else {
+                away = nil
+                // Nothing opened: no record is left behind, as Android's refused launch.
+                ZNStorage.remove(store, key: record + key)
+                if ZNStorage.string(store, key: current) == key { ZNStorage.remove(store, key: current) }
+                ZNStorage.flush(store)
+                return done(false, "no_app")
+            }
+            done(true, nil)
+        }
+    }
+
+    /// A link that came in (ZnApp.openLink): the other app's way back. Kept for the waiting launch.
+    @MainActor static func noteLink(_ url: URL) {
+        if away != nil { away?.link = url.absoluteString }
+    }
+
+    @MainActor private static func watch() {
+        guard !watching else { return }
+        watching = true
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { if away != nil { away?.left = true } }
+        }
+        nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                guard let a = away, a.left else { return }
+                // The link back (if any) can come just after the app is active again: give it a moment.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    guard let a = away, a.left else { return }
+                    away = nil
+                    print("zn: launch \(a.key) came back \(a.link != nil ? "by a link" : "with no link")")
+                    finish(a.key, id: a.id, resultCode: a.link != nil ? -1 : 0, data: a.link, extras: ["returned": true])
+                }
+            }
+        }
     }
 
     /// A native screen's answer, on disk before JS hears of it.
