@@ -365,7 +365,14 @@ struct ZnPaintLayers: ViewModifier {
         content
             .modifier(ZnClip(clip: clips, shape: shape))
             .overlay { ZnBorder(s: s, inst: inst, shape: shape) }
-            .background { ZnBackground(s: s, inst: inst, shape: shape, motion: motion) }
+            .background {
+                // Top / bottom lines go under the children, over the background (Android draws them behind content:
+                // a child that stands out over the line, like a raised Scan button, covers it).
+                ZStack {
+                    ZnBackground(s: s, inst: inst, shape: shape, motion: motion)
+                    ZnSideBorders(s: s, inst: inst)
+                }
+            }
             .modifier(ZnLayer(s: s, inst: inst, motion: motion))
     }
 }
@@ -488,18 +495,33 @@ struct ZnBorder: View {
                     shape.strokeBorder(color, lineWidth: w)
                 }
             }
-            if s.borderTopWidth > 0 || s.borderBottomWidth > 0 {
-                Canvas { g, size in
-                    for (lw, y) in [(s.borderTopWidth, s.borderTopWidth / 2), (s.borderBottomWidth, size.height - s.borderBottomWidth / 2)] where lw > 0 {
-                        var line = Path()
-                        line.move(to: CGPoint(x: 0, y: y))
-                        line.addLine(to: CGPoint(x: size.width, y: y))
-                        g.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: lw, dash: s.borderDashed ? dash(lw) : []))
-                    }
-                }
-            }
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// borderTopWidth / borderBottomWidth: lines along the edge, drawn behind the children (ZnTemplate.kt drawBehind).
+struct ZnSideBorders: View {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+
+    var body: some View {
+        if s.borderTopWidth > 0 || s.borderBottomWidth > 0 {
+            let color = s.borderColorNow(inst)
+            let dash: (CGFloat) -> [CGFloat] = { lw in
+                let on = max(s.borderStyle == Registry.BorderStyle.dotted ? lw : 3 * lw, 1)
+                return [on, on]
+            }
+            Canvas { g, size in
+                for (lw, y) in [(s.borderTopWidth, s.borderTopWidth / 2), (s.borderBottomWidth, size.height - s.borderBottomWidth / 2)] where lw > 0 {
+                    var line = Path()
+                    line.move(to: CGPoint(x: 0, y: y))
+                    line.addLine(to: CGPoint(x: size.width, y: y))
+                    g.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: lw, dash: s.borderDashed ? dash(lw) : []))
+                }
+            }
+            .allowsHitTesting(false)
+        }
     }
 }
 

@@ -36,7 +36,7 @@ async function load(tab: Tab, d: Data, ms = DELAY[tab]): Promise<void> {
     d.error.set("")
     say(`data ${tab} ${body.items.length}`)
   } catch (e) {
-    d.error.set("Couldn't load. Is tools/fetch-test-server.ts running (with adb reverse)?")
+    d.error.set("Couldn't load. Is tools/fetch-test-server.ts running? (Android: with adb reverse; the iOS simulator needs none)")
     say(`data ${tab} failed: ${String(e)}`)
   }
 }

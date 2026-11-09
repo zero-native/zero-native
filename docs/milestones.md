@@ -146,6 +146,14 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS fixes from Pavan's look at the Tabs lab (Claude, Mac)
+- **Line over the Scan button:** iOS drew borderTopWidth / borderBottomWidth lines over a view's children; Android draws
+  them behind (drawBehind), so a child standing out over the line (the raised Scan button) covers it. iOS now draws the
+  side lines in the background layer (ZnRenderer.swift ZnSideBorders); the full border stays over the content, as
+  Android's `border` modifier. Checked: Tabs lab, the bar's line runs under the button.
+- **"Couldn't load":** the Tabs lab's data comes from tools/fetch-test-server.ts (port 8788), which wasn't running. The
+  hint now says the iOS simulator needs no `adb reverse` (shared sample text: TabsLab.tsx). With the server: 40 items a tab.
+
 ### 2026-11-09: iOS Phase 1a, deep links and launches by URL (Claude, Mac, `main`)
 - **Links** (ZnApp.swift `ZnLinks`, as ZnNav.kt + ZnRoutes.kt): a link's path matched to a `deepLink` route (most literal
   match, `:param` parts, "<path>/<tab>" for a route with tabs, query values as params). Cold start: the app starts on the
