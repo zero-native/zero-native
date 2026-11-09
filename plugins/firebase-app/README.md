@@ -2,7 +2,7 @@
 
 The base of every zero-native Firebase plugin, like RN Firebase's `app` module. It holds:
 
-- **The one Firebase version** (the Firebase BoM, 35.1.0). `@zero-native/crashlytics`, `@zero-native/push` and the
+- **The one Firebase version** (the Firebase BoM, 35.1.0). `@zero-native/firebase-crashlytics`, `@zero-native/firebase-messaging` and the
   next Firebase plugins depend on this Gradle project and take their versions from it. To move Firebase, change one
   line here.
 - **One Gradle file for the app** (`firebase.gradle.kts`): Firebase on when `google-services.json` is there, off
@@ -15,7 +15,7 @@ The base of every zero-native Firebase plugin, like RN Firebase's `app` module. 
 2. In the root `build.gradle.kts`:
    ```kotlin
    id("com.google.gms.google-services") version "4.5.0" apply false
-   id("com.google.firebase.crashlytics") version "3.0.8" apply false   // only if you use @zero-native/crashlytics
+   id("com.google.firebase.crashlytics") version "3.0.8" apply false   // only if you use @zero-native/firebase-crashlytics
    ```
 3. In `settings.gradle.kts`:
    ```kotlin
@@ -35,7 +35,7 @@ The base of every zero-native Firebase plugin, like RN Firebase's `app` module. 
 
 What `firebase.gradle.kts` does:
 - **json there:** applies the google-services Gradle plugin, and Crashlytics' Gradle plugin when the app has
-  `:plugin-crashlytics`. A release build uploads its R8 mapping to Crashlytics only with `-PznUploadMapping`.
+  `:plugin-firebase-crashlytics`. A release build uploads its R8 mapping to Crashlytics only with `-PznUploadMapping`.
 - **No json:** applies nothing and logs one line: `zero-native: no android/sample/google-services.json, so Firebase
   is off in this build`. The app builds and runs; every Firebase plugin answers `available: false`. This is how CI
   and other machines build the sample.

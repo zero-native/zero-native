@@ -297,7 +297,7 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   needed because the APK's own bundle is `<app>_0` in every APK. It is in `ZnJsError.bundleLabel`, in the message of
   `ZnJsError.asThrowable()`, and `ZnBundles.watchRunning { }` gives it at start and on every switch (an update applied
   in place, a rollback): an app sets it as a Crashlytics custom key, so native crashes name the bundle too.
-  **Update 2026-11-04:** the `@zero-native/crashlytics` plugin does this for you: it sets the key `zn_bundle`
+  **Update 2026-11-04:** the `@zero-native/firebase-crashlytics` plugin does this for you: it sets the key `zn_bundle`
   (and `zn_bundle_id`) at start and on every switch. Without the plugin, do it yourself as above.
 - **Release stacks have positions:** hermesc's default is `-g1` (same bytes as no flag): frames read
   `at HomeScreen (main.js:2051:22)`. `-g0` would save ~16% of the bytecode but lose them: not used.
@@ -353,7 +353,7 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
 | 4.8 | Crash traces + telemetry: bundle id everywhere, source maps per bundle, `zn symbolicate` | **done 2026-10-31** (§3.7; `docs/milestones.md` log) |
 | 4.9 | Phone test matrix (below), docs, guide notes ("what OTA can and can't change", busy moments, state formats) | **done 2026-10-31** (22 of 22 on the Lava: `docs/ota-test-matrix.md`) |
 | later | BSDiff patches (D5), CDN / signed download links, push-started checks (an `Updates.checkInBackground()` hook for apps' FCM handlers) *(built 2026-11-04 in push v2, see below)*, iOS client | when needed |
-| push v2 | Push-started checks: a data message `zn_ota=check` runs `ZnOta.check` in native code (`plugins/push`). On by default; turn it off with `PushPlugin(otaCheck = false)`. | **done 2026-11-04** |
+| push v2 | Push-started checks: a data message `zn_ota=check` runs `ZnOta.check` in native code (`plugins/firebase-messaging`). On by default; turn it off with `PushPlugin(otaCheck = false)`. | **done 2026-11-04** |
 
 **Known limit (push check):** the check from a push runs **at once**. It does not wait for the start delay that normal
 checks use (about 3 s, "never in the way of startup"). A new bundle is still **not applied** while `Updates.holdApply()`

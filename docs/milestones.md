@@ -209,10 +209,10 @@ forwards them to the Android machine. Work on the `ios` branch.
   google-services.json.
 - **firebase-app** (`plugins/firebase-app/ios`): `ZnFirebase.start()` (configure once; the first Firebase plugin calls
   it), the Firebase module (app info, data collection default) and Installations (id, token, delete).
-- **Crashlytics** (`plugins/crashlytics/ios`): native crashes by Crashlytics itself; every JS error as a non-fatal with
+- **Crashlytics** (`plugins/firebase-crashlytics/ios`): native crashes by Crashlytics itself; every JS error as a non-fatal with
   its JS frames as the stack and the full stack as a log line (30 per launch); keys zn_bundle ("built-in": no OTA yet),
   zn_host_api, zn_route; screen changes as log lines; the module's calls as on Android.
-- **Analytics** (`plugins/analytics/ios`): AnalyticsRules ported (names, limits, items), a screen_view per top route,
+- **Analytics** (`plugins/firebase-analytics/ios`): AnalyticsRules ported (names, limits, items), a screen_view per top route,
   zn_bundle on every event. Firebase's own screen views are off in the sample's Info.plist
   (FirebaseAutomaticScreenReportingEnabled = NO): they would name UIKit classes.
 - **Runtime:** `ZnApp.addJsErrorListener` and `addTopRouteListener` (Android's ZnRuntime.addJsErrorListener and
@@ -228,7 +228,7 @@ forwards them to the Android machine. Work on the `ios` branch.
 - **Not checked:** the reports and events in the Firebase console (Pavan); push (next, needs an APNs key in Firebase).
 
 ### 2026-11-08: iOS i.4, auth, device-info and location plugins (Claude, `ios` branch)
-- **auth** (`plugins/auth/ios`): iOS has no phone number sheet, no SMS Retriever and no app hash, so the Auth module
+- **auth** (`plugins/android-play-auth/ios`): iOS has no phone number sheet, no SMS Retriever and no app hash, so the Auth module
   answers the way Android does without Play services (hint and OTP "unavailable", hash ""). The app's fallback (type
   it) runs; OtpInput's `.oneTimeCode` gives the code from Messages. Checked in the Auth lab.
 - **device-info** (`plugins/device-info/ios`): react-native-device-info's iOS answers (identifierForVendor, model names,
@@ -942,7 +942,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
   127), (2) prepare on first use, route screens first. Kept: the one-line timing split, to spot a regression.
 - Gestures v1 plan: `docs/gestures-v1-plan.md`.
 
-### 2026-11-07: `@zero-native/ad-id`, the Google advertising id (Claude; ask from the ZeroBill app via app-home-tabs, Pavan's go: for ad attribution)
+### 2026-11-07: `@zero-native/android-ad-id`, the Google advertising id (Claude; ask from the ZeroBill app via app-home-tabs, Pavan's go: for ad attribution)
 - **What:** an opt-in plugin, not part of device-info, because its library adds the `AD_ID` permission. `AdId.get()`
   answers `{ id, limitAdTracking }` and never rejects. `id` is null for all zeros (id deleted, or no `AD_ID` on
   Android 13+), for no or failing Play services, and for an APK without the plugin. A real id with
@@ -1096,7 +1096,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
 ### 2026-11-06: `Os.info().packageName`, and Crashlytics' Gradle setup in an included build (asked by app-home-tabs, R38)
 - **What:** `Os.info()` gives `packageName` (applicationId with the flavor suffix), as RN's `DeviceInfo.getBundleId()`.
   Optional in the type: older APKs don't send it. Guide §33. `firebase.gradle.kts` now asks the app's own dependencies
-  for `plugin-crashlytics`, so an app that takes zero-native with `includeBuild` gets Crashlytics' Gradle plugin too
+  for `plugin-firebase-crashlytics`, so an app that takes zero-native with `includeBuild` gets Crashlytics' Gradle plugin too
   (before: none, and the Crashlytics SDK stopped the app at start).
 - **Tests:** JS tests, type checks, runtime compile; the sample still gets Crashlytics' Gradle tasks. app-home-tabs then
   used the fixed script in the pilot's included build: Crashlytics' tasks are there, and Crashlytics starts on the Lava
@@ -1106,7 +1106,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
 ### 2026-11-06: SMS hash and OTP auto-read work in a real login (Pavan, on the Lava)
 - **What:** the first real end-to-end login on the pilot app (`my-app-prototype`, now `my-app`, R37 in 5230779), with the dev
   backend (`v1-nodejs-backend-api` dev 930002e) sending a real carrier SMS with the app hash. Phone hint sheet → number
-  picked → OTP sent → `@zero-native/auth` SMS Retriever read it → `OtpInput` `setValue` filled the boxes → `onFilled`
+  picked → OTP sent → `@zero-native/android-play-auth` SMS Retriever read it → `OtpInput` `setValue` filled the boxes → `onFilled`
   verified → logged in. No typing.
 - **The hash:** `Auth.appHash()` on the release APK (signed with the debug key) matched the backend's entry for that key.
   This closes the "SMS steps not tested" line in the P.3b–P.6 entry and the "a real SMS" lines in registry 17 and 18.
@@ -1372,7 +1372,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
   on its own thread, which crashed the app. The request is never sent twice. Perf uses the new call. Second-opinions
   105, guide §30, `docs/fetch.md` §5. Kotlin API only: no host API or registry change.
 - **Tests:** `ZnFetchTest` 6 / 6 (3 new: a working plugin, one that throws before and after the request went out, and an
-  IO error kept as it is); `:plugin-perf` compiles.
+  IO error kept as it is); `:plugin-firebase-perf` compiles.
 
 ### 2026-11-04: two fixes from a light audit of new work vs old code (Claude)
 - **What:** an audit of the commits since hardening (`eb3f7e0`) for newer work that changed older behaviour, and for
@@ -1407,7 +1407,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
   Crashlytics and Perf. The first version (cc8853b) was off until the app said yes. The manifest flag that kept it off
   is gone. `setAnalyticsCollectionEnabled(false)` is the user's opt-out, and Firebase keeps it across starts. An app
   that must wait for consent sets `firebase_analytics_collection_enabled=false` in its own manifest (JS is too late:
-  Firebase starts before JS). Guide §50, second-opinions 96, `plugins/analytics/README.md`, `plugins.md` §7.
+  Firebase starts before JS). Guide §50, second-opinions 96, `plugins/firebase-analytics/README.md`, `plugins.md` §7.
 - **Said plainly in the docs (480dc3d):** `first_open`, `session_start` and screen views, with the app instance id, are
   sent before any consent.
 - **Phone step:** new step "analytics on from the first start" in `tools/plugin-phone/analytics.ts` (fresh app data, no
@@ -1426,7 +1426,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
 - **Not done:** no run result is recorded here. The step is not in the Tests table or the plugin README yet.
 
 ### 2026-11-04: Performance plugin (Claude)
-- **What (eae7b49):** `@zero-native/perf` (`plugins/perf/`): Firebase Performance Monitoring. The app start, a network
+- **What (eae7b49):** `@zero-native/firebase-perf` (`plugins/firebase-perf/`): Firebase Performance Monitoring. The app start, a network
   trace per `fetch` and a trace per screen (with slow and frozen frame counts) happen by themselves; custom traces with
   `Perf.trace(name, fn)`. On by default (Firebase's default; it is diagnostics, like Crashlytics). URLs go without the
   query; `PerfPlugin(url = ...)` rewrites or drops them. Guide §55, second-opinions 126, README, `rn-compatibility.md` row.
@@ -1438,7 +1438,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
   cut, so ids in a path go to Firebase unless the app sets `url`.
 
 ### 2026-11-04: Remote Config plugin (Claude)
-- **What (16f0b56):** `@zero-native/remote-config` (`plugins/remote-config/`): Firebase Remote Config with RN Firebase's
+- **What (16f0b56):** `@zero-native/firebase-remote-config` (`plugins/firebase-remote-config/`): Firebase Remote Config with RN Firebase's
   API. Every answer (`setDefaults`, `fetch`, `activate`, `fetchAndActivate`, `getAll`) carries all values with their
   source, so `getValue` is a plain call with no promise (second-opinions 125). `onConfigUpdated` gives live updates.
   Guide §54, README, `rn-compatibility.md` row.
@@ -1448,7 +1448,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
 - **Fixed later:** `activate` read the task result without checking success (see the audit entry above).
 
 ### 2026-11-04: Push v2: taps, buttons, progress, scheduled notifications, the OTA check push (Claude)
-- **What (edd378b; `Notifications` native version 2):** guide §51–53, second-opinions 120–124, `plugins/push/README.md`.
+- **What (edd378b; `Notifications` native version 2):** guide §51–53, second-opinions 120–124, `plugins/firebase-messaging/README.md`.
   - A tap on FCM's own notification: `Push.getInitialNotification()` and `Push.onNotificationOpenedApp(fn)` give the
     data to JS; the app opens `data.link` itself (121). `Push.setAutoInitEnabled` for apps that wait for consent.
   - The data message `zn_ota=check` runs `ZnOta.check` natively and never reaches JS (120). `PushPlugin(otaCheck = false)`
@@ -1464,7 +1464,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
   with the app swiped away (124).
 
 ### 2026-11-04: Analytics plugin (Claude)
-- **What (cc8853b):** `@zero-native/analytics` (`plugins/analytics/`): Google Analytics for Firebase with RN Firebase's
+- **What (cc8853b):** `@zero-native/firebase-analytics` (`plugins/firebase-analytics/`): Google Analytics for Firebase with RN Firebase's
   API. A `screen_view` per top route by itself (`AnalyticsPlugin(screenName = ...)` renames or drops routes; do not call
   `logScreenView` for whole screens). Event names are checked in the plugin (a bad name answers `false` and warns),
   booleans are sent as 1 or 0, consent mode, and the app removes the ad id permissions (second-opinions 96–99). Guide §50,
@@ -1484,7 +1484,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
 - **Not done:** no size number of its own. With Crashlytics or FCM it adds only a few classes (README).
 
 ### 2026-11-04: Firebase plugins: Crashlytics and push (Claude)
-- **What:** `@zero-native/crashlytics` and `@zero-native/push` (`plugins/crashlytics/`, `plugins/push/`), opt-in, like
+- **What:** `@zero-native/firebase-crashlytics` and `@zero-native/firebase-messaging` (`plugins/firebase-crashlytics/`, `plugins/firebase-messaging/`), opt-in, like
   RN Firebase's modules. Firebase project "zero-native-sample" (not ZeroBill's). Analytics, Remote Config and Perf
   were planned here and came later the same day (entries above; `plugins.md` §7). Guide §46 and §48 (§47 is the compiler pack's), second-opinions 90–95, READMEs, `rn-compatibility.md` rows. No registry or host API
   change (modules `Crashlytics` v1, `Push` v1, `Notifications` v1).
@@ -1503,7 +1503,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
 - **Lab:** `/dev/crashlytics`, `/dev/push` (dev screen). Phone steps: `bun run tools/plugin-phone.ts crashlytics`,
   `... push` (they say SKIP without the json).
 - **Tests:** JS 896 pass (crashlytics 6, push 8), types clean; Kotlin: crashlytics 8, push 8, runtime 179; lint 0 errors
-  (`:runtime:lintDebug :plugin-crashlytics:lintDebug :plugin-push:lintDebug :sample:lintRelease`); debug builds with
+  (`:runtime:lintDebug :plugin-firebase-crashlytics:lintDebug :plugin-firebase-messaging:lintDebug :sample:lintRelease`); debug builds with
   and without the json; R8 release built.
 - **Size (R8 release, arm64):** Crashlytics about **+232 KB** (classes.dex +225 KB compressed; JS assets left out of the
   count, the baseline build had none); NDK **+1.30 MB** more (about 460 KB to download); push about **+54 KB** on top

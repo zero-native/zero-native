@@ -1,5 +1,5 @@
 // The notifications plugin's Android side: notifications the app shows itself, with Android's NotificationCompat. No
-// Firebase and no push service in it (plugins/push adds FCM on top).
+// Firebase and no push service in it (plugins/firebase-messaging adds FCM on top).
 plugins {
     id("com.android.library")
 }

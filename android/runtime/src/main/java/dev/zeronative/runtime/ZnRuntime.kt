@@ -142,7 +142,7 @@ object ZnRuntime {
     private val jsErrorListeners = java.util.concurrent.CopyOnWriteArrayList<(ZnJsError) -> Unit>()
 
     /**
-     * Like [onJsError], but any number of them, so a plugin (plugins/crashlytics) and the app can both listen. Called
+     * Like [onJsError], but any number of them, so a plugin (plugins/firebase-crashlytics) and the app can both listen. Called
      * after [onJsError], on the main thread. Returns a function that removes it.
      */
     fun addJsErrorListener(listener: (ZnJsError) -> Unit): () -> Unit {

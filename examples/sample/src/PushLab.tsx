@@ -4,7 +4,7 @@
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { Clipboard, nav, Permissions, scheme, signal } from "@zero-native/core"
 import { Notifications } from "@zero-native/notifications"
-import { Push } from "@zero-native/push"
+import { Push } from "@zero-native/firebase-messaging"
 import { c } from "./tokens"
 
 const PICTURE = "https://picsum.photos/id/1080/800/400"

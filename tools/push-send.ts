@@ -1,4 +1,4 @@
-// Sends one FCM test message to the sample (plugins/push), with the FCM HTTP v1 API and your own gcloud login:
+// Sends one FCM test message to the sample (plugins/firebase-messaging), with the FCM HTTP v1 API and your own gcloud login:
 //
 //   bun run tools/push-send.ts --token <FCM token> --data lab=show,title=Hello,body=From the computer
 //   bun run tools/push-send.ts --topic zn-sample-lab --data lab=show --notification "Title|Body"

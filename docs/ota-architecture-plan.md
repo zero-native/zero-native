@@ -105,7 +105,7 @@ same app, serial above the built-in one, all code files there, sizes match, capa
   9 `KEPT` (USE_LOCAL), 10 `NEW_BUNDLE` (UPDATE), 11 `ALREADY_DONE`.
 - When: 3 s after the first Activity shows, then on each return to the front at most every 5 min, never for a start
   with no UI (`ZnOta.kt:79-81, 141-170`). A push data message `zn_ota=check` runs a check in native code and waits up to
-  15 s (`plugins/push/.../ZnMessagingService.kt:22, 53-61`); off with `PushPlugin(otaCheck = false)`.
+  15 s (`plugins/firebase-messaging/.../ZnMessagingService.kt:22, 53-61`); off with `PushPlugin(otaCheck = false)`.
 - Downloads resume with `Range` (`download.part` + `download.json`, `ZnOta.kt:425-474`). Zips are served
   `public, max-age=31536000, immutable`, ETag = zip SHA, Range 206/416 (`tools/ota/server.ts:139-163`).
 - Config in code: `ZnOta.Config(server, channel, publicKeys, checkIntervalMs, firstCheckDelayMs, healthyAfterMs,

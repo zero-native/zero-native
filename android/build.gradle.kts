@@ -6,7 +6,7 @@ plugins {
     id("androidx.baselineprofile") version "1.5.0" apply false
     // Also sets the Kotlin compiler version (AGP 9's built-in Kotlin). 2.4+ is needed by Coil 3.6 (2026-10-30).
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.21" apply false
-    // Firebase (plugins/crashlytics, plugins/push). An app applies them only when it has its google-services.json.
+    // Firebase (plugins/firebase-crashlytics, plugins/firebase-messaging). An app applies them only when it has its google-services.json.
     id("com.google.gms.google-services") version "4.5.0" apply false
     id("com.google.firebase.crashlytics") version "3.0.8" apply false
 }

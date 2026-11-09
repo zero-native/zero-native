@@ -2,7 +2,7 @@
 // "perf-lab ..." and Firebase's own "FirebasePerformance" lines, so keep their wording.
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { fetch, nav, scheme, signal } from "@zero-native/core"
-import { Perf } from "@zero-native/perf"
+import { Perf } from "@zero-native/firebase-perf"
 import { c } from "./tokens"
 
 function PerfLabButton(props: { label: string; onPress: () => void }) {

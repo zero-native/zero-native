@@ -2,7 +2,7 @@
 // so keep their wording. The phone number and the OTP show on screen, and only there: they never go in a log line.
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { nav, restorableSignal, scheme, signal } from "@zero-native/core"
-import { Auth, type ListenOptions } from "@zero-native/auth"
+import { Auth, type ListenOptions } from "@zero-native/android-play-auth"
 import { c } from "./tokens"
 
 function AuthLabButton(props: { label: string; onPress: () => void }) {

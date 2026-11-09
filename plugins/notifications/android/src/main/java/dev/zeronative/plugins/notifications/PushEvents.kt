@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 
 /**
- * The door for a push service: FCM (plugins/push) today; later an APNs-only iOS path, OneSignal, or an app's own
+ * The door for a push service: FCM (plugins/firebase-messaging) today; later an APNs-only iOS path, OneSignal, or an app's own
  * service. The service gets messages and tokens its own way, then hands them here, so JS hears every service the same
  * way: `PushEvents.onMessage` (the JS task "push.message") and `PushEvents.onTokenRefresh` ("push.token").
  *

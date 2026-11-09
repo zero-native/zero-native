@@ -320,7 +320,7 @@ internal class NotificationsModule(private val context: Context, private val deb
         /** In the app's manifest: `<meta-data android:name="dev.zeronative.notifications.small_icon" android:resource="@drawable/..." />`. */
         const val META_SMALL_ICON = "dev.zeronative.notifications.small_icon"
         const val META_COLOR = "dev.zeronative.notifications.color"
-        /** The keys before the split from plugins/push (2026-11-09). Still read, after the new ones. Deprecated. */
+        /** The keys before the split from plugins/firebase-messaging (2026-11-09). Still read, after the new ones. Deprecated. */
         const val OLD_META_SMALL_ICON = "dev.zeronative.push.small_icon"
         const val OLD_META_COLOR = "dev.zeronative.push.color"
 

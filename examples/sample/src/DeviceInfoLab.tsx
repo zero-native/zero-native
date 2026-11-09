@@ -4,7 +4,7 @@
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { signal } from "@zero-native/core"
 import DeviceInfo from "@zero-native/device-info"
-import { AdId } from "@zero-native/ad-id"
+import { AdId } from "@zero-native/android-ad-id"
 import { c } from "./tokens"
 
 const AT_MODULE_LOAD = `${DeviceInfo.getBundleId()} ${DeviceInfo.getVersion()} (${DeviceInfo.getBuildNumber()})`
@@ -76,7 +76,7 @@ export function DeviceInfoLabScreen() {
         <Text testID="device-info-changing" fontSize={13} color={c.muted}>
           {changing()}
         </Text>
-        {/* @zero-native/ad-id (2026-11-07): logs "device-info-lab ad id ..." */}
+        {/* @zero-native/android-ad-id (2026-11-07): logs "device-info-lab ad id ..." */}
         <Pressable
           onPress={() =>
             void AdId.get().then((a) => {

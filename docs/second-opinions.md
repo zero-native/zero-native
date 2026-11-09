@@ -338,14 +338,14 @@ change, and what evidence would make you change it?"
 - **Evidence:** the sample's cold start with the plugin on.
 
 ## 30. The picked number stays in a plain store until read (P.3b)
-- **Where:** `plugins/auth/src/index.ts`, the launch record.
+- **Where:** `plugins/android-play-auth/src/index.ts`, the launch record.
 - **Chosen:** a hint goes through `ZnLaunch`, so it survives a kill, and it is acked as soon as JS reads it, unlike a payment. If no screen asks after a kill, it stays until the next `phoneHint` or `clearPhoneHint`.
 - **Risk if wrong:** a phone number sits unencrypted in app storage for a time. It is not a credential, and the app's private folder holds it.
 - **Other options:** SecureStore for this record: a special case in `ZnLaunch`.
 - **Evidence:** a security review.
 
 ## 31. An OTP is never on disk (P.3b)
-- **Where:** `plugins/auth`. RN writes it to its login draft.
+- **Where:** `plugins/android-play-auth`. RN writes it to its login draft.
 - **Chosen:** memory only. A rebuilt screen joins by `key`; after a kill the code is gone, and the user types it. RN's receiver dies with a kill too, so only a code that came just before the kill is affected.
 - **Risk if wrong:** a user who gets a kill right after the SMS retypes. The SMS is in their inbox.
 - **Evidence:** a login drop report.
@@ -1026,7 +1026,7 @@ change, and what evidence would make you change it?"
 
 ## 86. Location calls answer a reason and never reject (location plugin, built)
 - **Where:** `plugins/location/src/index.ts`.
-- **Chosen:** `{ position, reason, lastKnown }`, like `@zero-native/auth`. The last known fix is handed back on its own,
+- **Chosen:** `{ position, reason, lastKnown }`, like `@zero-native/android-play-auth`. The last known fix is handed back on its own,
   with its age, never used as the answer by itself. An RN-style `Geolocation` object gives RN's callbacks and error codes.
 - **Why:** a rejected promise that no one catches leaves a "Detecting location..." spinner forever. ZeroBill's RN code
   wraps every call in try/catch for this. Its native module also falls back to a cached fix of any age, while its screen
@@ -1113,7 +1113,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** none; a privacy review of ZeroBill's keys before the pilot.
 
 ## 92. Native crash reporting (firebase-crashlytics-ndk) is opt-in (Crashlytics plugin, built)
-- **Where:** `plugins/crashlytics/README.md` "Native crashes"; the sample adds it only with `-PznCrashlyticsNdk`.
+- **Where:** `plugins/firebase-crashlytics/README.md` "Native crashes"; the sample adds it only with `-PznCrashlyticsNdk`.
 - **Chosen:** the plugin doesn't bring it. The app adds one Gradle line.
 - **Why:** measured on the sample's R8 release: +1.30 MB in the APK (4 `.so` files, stored uncompressed), about 460 KB
   to download, against about 232 KB for the rest of Crashlytics. Pavan chose opt-in. Without it a native crash still
@@ -1160,7 +1160,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** none.
 
 ## 96. Analytics is on from the first start; the app gives the opt-out (Analytics plugin, built; changed 2026-11-04)
-- **Where:** `plugins/analytics/android/src/main/AndroidManifest.xml` (no collection flag: Firebase's default).
+- **Where:** `plugins/firebase-analytics/android/src/main/AndroidManifest.xml` (no collection flag: Firebase's default).
 - **Chosen:** on by default, as in RN Firebase and like Crashlytics and Perf. Off switches: JS
   `setAnalyticsCollectionEnabled(false)` (Firebase keeps it), consent mode (`setConsent`), and for consent-first apps
   `firebase_analytics_collection_enabled=false` in the app's manifest.
@@ -1654,7 +1654,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** a check on a Xiaomi or Oppo phone with the app swiped away.
 
 ## 125. Remote Config values are pushed to JS with each answer, so reads are plain calls (Remote Config plugin, built)
-- **Where:** `plugins/remote-config/src/index.ts`, `RemoteConfigModule.result`.
+- **Where:** `plugins/firebase-remote-config/src/index.ts`, `RemoteConfigModule.result`.
 - **Chosen:** every answer of `setDefaults`, `fetch`, `activate`, `fetchAndActivate` and `getAll` carries all values
   with their source; JS keeps them and `getValue` reads that copy. Before the first answer, JS's own defaults answer.
 - **Why:** RN Firebase's `getValue` is synchronous (it reads native constants at start); zero-native calls are async,
@@ -1664,7 +1664,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** none.
 
 ## 126. Performance: on by default, URLs without the query, network traces through a new add-only core hook (Perf plugin, built)
-- **Where:** `plugins/perf/android/.../PerfPlugin.kt`, `ZnFetch.addClientSetup` (core; replaced by
+- **Where:** `plugins/firebase-perf/android/.../PerfPlugin.kt`, `ZnFetch.addClientSetup` (core; replaced by
   `ZnFetch.addInterceptor` on 2026-11-04, entry 105: "add-only" was a rule in the docs, not in the code).
 - **Chosen:** collection on by default (Firebase's default; it is diagnostics, like Crashlytics). An OkHttp interceptor
   on core's client makes one HttpMetric per request, with the URL's query and fragment removed (`url` rewrites or
@@ -2185,8 +2185,8 @@ change, and what evidence would make you change it?"
   focus, wrong OTP (red), disabled (typing ignored, no caret), 5-character secure alphanumeric ("a1-B2c3" → 5 dots).
   The accessibility tree has one focusable field with the code and the label.
 - **Not checked:** TalkBack speaking it (the label shows as a child node of the field in the tree; whether TalkBack reads
-  it as one item needs a person), a real SMS through `@zero-native/auth`, a long-press paste, other keyboards, release.
-- **Checked 2026-11-06:** a real SMS through `@zero-native/auth` filled the boxes with `setValue`, then `onFilled`
+  it as one item needs a person), a real SMS through `@zero-native/android-play-auth`, a long-press paste, other keyboards, release.
+- **Checked 2026-11-06:** a real SMS through `@zero-native/android-play-auth` filled the boxes with `setValue`, then `onFilled`
   verified, in Pavan's real login on a release build (pilot app). TalkBack, long-press paste and other keyboards still open.
 - **Risk if wrong:** keyboard quirks (Samsung keyboard, SwiftKey) around the hidden field. Fallback for an app: a plain
   `TextField` still works.
@@ -2948,9 +2948,9 @@ change, and what evidence would make you change it?"
 
 ## 196. Notifications split from push; `PushEvents` is the door for any push service (2026-11-09; Opus, Pavan's idea)
 - **What:** `plugins/notifications` (`@zero-native/notifications`) holds everything `Notifications` did, with no Firebase
-  (its Gradle module depends only on `:runtime`). `plugins/push` is FCM only and depends on it. `PushPlugin()` registers
+  (its Gradle module depends only on `:runtime`). `plugins/firebase-messaging` is FCM only and depends on it. `PushPlugin()` registers
   `NotificationsPlugin()` itself (a second registration does nothing), so an app that lists only `PushPlugin()` (the
-  ZeroBill host) needs no change. `@zero-native/push` re-exports the notifications package.
+  ZeroBill host) needs no change. `@zero-native/firebase-messaging` re-exports the notifications package.
 - **Hook:** `PushEvents` (Kotlin object + JS) lives in the notifications plugin: `message(PushMessage)`, `deleted`,
   `token`, `taps(...)` for a service's own notifications, `inFront`. FCM's service calls it; the JS message shape gains
   `provider`. Alternatives weighed: a third package (`push-core`), or leaving it in push (then an app on another

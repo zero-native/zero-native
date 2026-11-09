@@ -484,7 +484,7 @@ function Card(props: { header: Children; children?: Children }) {
   `sms-otp` on an OTP field, `email`, `name`, `password`. **Why:** it is the Android autofill hint, so the keyboard or
   the phone's autofill service can offer the saved number or the code from the SMS. `textContentType` (iOS) is
   accepted and ignored, as in RN. **Know:** what is offered is up to the phone (its keyboard and autofill service), not
-  the app; the field always works by typing. For OTP login, SMS Retriever (`@zero-native/auth`) fills the code with no
+  the app; the field always works by typing. For OTP login, SMS Retriever (`@zero-native/android-play-auth`) fills the code with no
   tap at all; `sms-otp` is the fallback for SMSes without the app's hash. Credit card hints are not offered.
   **Know:** a field with a hint and `autoFocus` focuses after the screen has slid in (about 300 ms later), so autofill
   sees it in its place (second-opinions 145).
@@ -935,7 +935,7 @@ bun run ota serve                                    the reference update server
 - **Why:** an update must never be the reason a user can't take a photo or receive an OTP.
 
 ### Finding the TSX line of a release crash (step 4.8, docs/ota.md §3.7)
-- **Do:** wire Crashlytics once in your `Application` (since 2026-11-04 `@zero-native/crashlytics` does all of this by
+- **Do:** wire Crashlytics once in your `Application` (since 2026-11-04 `@zero-native/firebase-crashlytics` does all of this by
   itself, §46; the lines below are for an app without the plugin):
   ```kotlin
   ZnRuntime.onJsError = { e ->
@@ -1334,17 +1334,17 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 |---|---|---|
 | `@zero-native/scanner` | QR and barcodes: full screen `scanner.full`, view `QrScanner` | CameraX, bundled ML Kit: the biggest, about 5 MB of native code on arm64 |
 | `@zero-native/media` | Pick and take photos, pick files, compress, rotate, crop by numbers | Almost nothing |
-| `@zero-native/auth` | Phone number hint, OTP auto-read | Play services auth |
+| `@zero-native/android-play-auth` | Phone number hint, OTP auto-read | Play services auth |
 | `@zero-native/webview` | A web page in a screen, with a list of allowed hosts | `androidx.webkit` |
 | `@zero-native/pdf` | Download and cache a PDF, a card preview, a viewer with zoom (§44) | Nothing: Android's own PdfRenderer, about 15 KB |
 | `@zero-native/location` | The phone's position, "Turn on location" dialog, address from coordinates (§45) | About 50 KB (Android's own LocationManager; Play services only for the dialog) |
 | `@zero-native/firebase-app` | The base every Firebase plugin stands on: one Firebase version, one Gradle file, `Firebase.app()`, Installations (§49) | No size of its own is measured; the Firebase plugins below show their sizes on top of it |
-| `@zero-native/crashlytics` | Kotlin crashes, JS errors as non-fatals, OTA outcomes, bundle and route keys (§46) | About 232 KB; native (C++) crashes are +1.30 MB more, opt-in |
-| `@zero-native/analytics` | Google Analytics for Firebase, a `screen_view` per route; on from the first start (§50) | About 0.44 MB |
+| `@zero-native/firebase-crashlytics` | Kotlin crashes, JS errors as non-fatals, OTA outcomes, bundle and route keys (§46) | About 232 KB; native (C++) crashes are +1.30 MB more, opt-in |
+| `@zero-native/firebase-analytics` | Google Analytics for Firebase, a `screen_view` per route; on from the first start (§50) | About 0.44 MB |
 | `@zero-native/notifications` | Notifications the app shows itself (buttons, progress, schedules), taps that open a route; `PushEvents` for any push service. No Firebase (§52, §53, §81) | Not measured on its own (most of push's 54 KB before the split) |
-| `@zero-native/push` | FCM messages as a JS task, the OTA check push; adds `@zero-native/notifications` (§48, §51, §81) | About 54 KB on top of Crashlytics, with notifications (2026-11-04) |
-| `@zero-native/remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
-| `@zero-native/perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
+| `@zero-native/firebase-messaging` | FCM messages as a JS task, the OTA check push; adds `@zero-native/notifications` (§48, §51, §81) | About 54 KB on top of Crashlytics, with notifications (2026-11-04) |
+| `@zero-native/firebase-remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
+| `@zero-native/firebase-perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
 | `@zero-native/lottie` | Lottie animations (`.json`, `.lottie`) with lottie-react-native's names and `ref` methods (§57) | About 85 KB (lottie-compose, bundled) |
 | `@zero-native/document-scanner` | Google ML Kit's document scanner: pages as JPEG and / or a PDF, results that survive a kill (§60) | About 135 KB of code; the scanner itself is a Play services download, not in the APK |
 
@@ -1873,10 +1873,10 @@ and limits: `plugins/location/README.md`.
   its answers by rounded coordinates.
 - **Don't** log coordinates or addresses. The plugin never does.
 
-## 46. Crashlytics (`@zero-native/crashlytics`)
+## 46. Crashlytics (`@zero-native/firebase-crashlytics`)
 
 Firebase Crashlytics: Kotlin crashes, every JS error as a non-fatal, OTA outcomes, and keys for the bundle and the top
-route, with no JS code. API, Gradle lines and size: `plugins/crashlytics/README.md`.
+route, with no JS code. API, Gradle lines and size: `plugins/firebase-crashlytics/README.md`.
 
 - **Do** register it with the other plugins and stop sending JS errors to Crashlytics yourself in `ZnRuntime.onJsError`
   (the guide in "Finding the TSX line of a release crash" showed that by hand before the plugin). **Why:** the plugin
@@ -1967,10 +1967,10 @@ sample's bundle is byte for byte the same. Code: [compile.ts:229](../compiler/sr
 - **Know:** a compiler pass that makes one template per call-site size ("G3") was planned and dropped (second-opinions
   100). If free-number sizes keep coming up, the fix that fits the design is runtime `width` / `height` in native.
 
-## 48. Push and notifications (`@zero-native/push`)
+## 48. Push and notifications (`@zero-native/firebase-messaging`)
 
 FCM messages as a JS task, and notifications the app shows itself (channels, pictures, groups, taps that open a route).
-API and rules: `plugins/push/README.md`.
+API and rules: `plugins/firebase-messaging/README.md`.
 
 - **Do** call `Push.onMessage`, `Push.onTokenRefresh` and `Notifications.onDismiss` at the top of `main.ts`. **Why:** FCM
   can start the app with no screen; a handler named inside a screen doesn't exist then (the task answers `no_task`).
@@ -2006,10 +2006,10 @@ version, one Gradle file for the app, `Firebase.app()` and Installations.
   `Firebase.setDataCollectionDefault(true)`. **Why:** Firebase starts before JS, so JS alone is too late for the first
   launch.
 
-## 50. Analytics (`@zero-native/analytics`)
+## 50. Analytics (`@zero-native/firebase-analytics`)
 
 Google Analytics for Firebase with RN Firebase's API. On from the first start, as in RN Firebase; a `screen_view`
-per route by itself. API, Gradle lines and size: `plugins/analytics/README.md`.
+per route by itself. API, Gradle lines and size: `plugins/firebase-analytics/README.md`.
 
 - **Know (privacy): collection starts before any consent.** From the first start, before the app shows any screen,
   Firebase sends `first_open`, `session_start` and screen views, with the app instance id. **Do** check this against
@@ -2033,9 +2033,9 @@ per route by itself. API, Gradle lines and size: `plugins/analytics/README.md`.
 - **Know:** booleans in parameters are sent as 1 or 0. Events reach the console about an hour later; DebugView shows
   them at once with `adb shell setprop debug.firebase.analytics.app <package>`.
 
-## 51. Push: taps on FCM's notifications, auto-init, the OTA check push (`@zero-native/push`, native version 2)
+## 51. Push: taps on FCM's notifications, auto-init, the OTA check push (`@zero-native/firebase-messaging`, native version 2)
 
-RN Firebase's `messaging()` calls the push plugin had not covered in §48. API: `plugins/push/README.md`.
+RN Firebase's `messaging()` calls the push plugin had not covered in §48. API: `plugins/firebase-messaging/README.md`.
 
 - **Do** call `Push.getInitialNotification()` once in the start screen, and `Push.onNotificationOpenedApp(fn)` at the
   top of main.ts, if your server sends messages with a `notification` block. **Why:** Android shows those itself while
@@ -2050,9 +2050,9 @@ RN Firebase's `messaging()` calls the push plugin had not covered in §48. API: 
 - **Do** turn FCM's auto-init off (`firebase_messaging_auto_init_enabled=false` in the manifest) if a token must wait
   for consent, then call `Push.setAutoInitEnabled(true)` or `getToken()`. Firebase keeps it across starts.
 
-## 52. Notifications part 1: buttons, progress, lists (`@zero-native/push`, Notifications native version 2)
+## 52. Notifications part 1: buttons, progress, lists (`@zero-native/firebase-messaging`, Notifications native version 2)
 
-notifee-like options on `Notifications.show`, a button task, channel groups and lists. API: `plugins/push/README.md`.
+notifee-like options on `Notifications.show`, a button task, channel groups and lists. API: `plugins/firebase-messaging/README.md`.
 
 - **Do** give money notifications `visibility: "secret"` (nothing on the lock screen) or keep the default `"private"`
   (only the app name). **Don't** set `"public"` for bills, payments or OTPs. **Why:** anyone holding the phone reads
@@ -2069,10 +2069,10 @@ notifee-like options on `Notifications.show`, a button task, channel groups and 
   they turned it off. Open the settings with core's `Os.openSettings()`.
 - **Know:** Android shows 3 buttons and 6 inbox lines at most; the plugin drops the rest.
 
-## 53. Notifications part 2: scheduled notifications (`@zero-native/push`, Notifications native version 2)
+## 53. Notifications part 2: scheduled notifications (`@zero-native/firebase-messaging`, Notifications native version 2)
 
 `Notifications.schedule(options, { at, repeat?, exact? })` shows a notification later with no JS. API and the boot
-receiver lines: `plugins/push/README.md`.
+receiver lines: `plugins/firebase-messaging/README.md`.
 
 - **Do** schedule reminders the server can't send (an offline reminder, "your bill is due tomorrow" from a saved
   date). **Don't** schedule what the server knows: send a push. **Why:** a push can change or be withdrawn; an alarm
@@ -2085,9 +2085,9 @@ receiver lines: `plugins/push/README.md`.
 - **Do** use the same id to move a reminder: scheduling an id again replaces it.
 - **Know:** a scheduled notification's options are saved on the phone until it shows. Put no private data in them.
 
-## 54. Remote Config (`@zero-native/remote-config`)
+## 54. Remote Config (`@zero-native/firebase-remote-config`)
 
-Firebase Remote Config with RN Firebase's API; reads need no call. API: `plugins/remote-config/README.md`.
+Firebase Remote Config with RN Firebase's API; reads need no call. API: `plugins/firebase-remote-config/README.md`.
 
 - **Do** call `RemoteConfig.setDefaults({...})` at start with every key you read. **Why:** its answer also loads the
   values kept from last time, and the app works the same offline and on the first start.
@@ -2098,10 +2098,10 @@ Firebase Remote Config with RN Firebase's API; reads need no call. API: `plugins
 - **Know:** `onConfigUpdated` keeps a connection open while you listen; updates arrive in seconds to a minute or two.
   Call `activate()` in the handler when the new values may be used at once.
 
-## 55. Performance (`@zero-native/perf`)
+## 55. Performance (`@zero-native/firebase-perf`)
 
 Firebase Performance Monitoring: the app start, every `fetch` and every screen traced by themselves; custom traces from
-JS. API: `plugins/perf/README.md`.
+JS. API: `plugins/firebase-perf/README.md`.
 
 - **Do** register `PerfPlugin()` with the other plugins, before anything fetches. **Why:** it adds its interceptor to
   core's fetch client, which is built once at the first fetch.
@@ -2518,7 +2518,7 @@ ZnSplash.holdUntilReady(this)            // MainActivity.onCreate, after setCont
     (ZeroBill: its 400 ms slow-network mark), and show your own screen past that.
   - Logs: `splash: held until the app said ready, N ms after the first screens`, or `... hit its maxMs`.
 
-## 67. The advertising id (`@zero-native/ad-id`, for ad attribution)
+## 67. The advertising id (`@zero-native/android-ad-id`, for ad attribution)
 ```ts
 const { id, limitAdTracking } = await AdId.get()   // never rejects; id null when there is none
 ```
@@ -2764,11 +2764,11 @@ Reference: `docs/components.md` §15, `docs/rn-compatibility.md` ScrollView.
 ## 81. Notifications without FCM (`@zero-native/notifications`, split from push 2026-11-09)
 ```ts
 import { Notifications, PushEvents } from "@zero-native/notifications"   // no Firebase in the app
-import { Push } from "@zero-native/push"                                 // only if the app uses FCM
+import { Push } from "@zero-native/firebase-messaging"                                 // only if the app uses FCM
 ```
 - **Do** import `Notifications` from `@zero-native/notifications` in new code. **Why:** a bundle that imports
-  `@zero-native/push` needs the "Push" module, so an app without push refuses it at start and in the OTA check
-  ("native modules missing"). Old imports from `@zero-native/push` keep working in apps that have push.
+  `@zero-native/firebase-messaging` needs the "Push" module, so an app without push refuses it at start and in the OTA check
+  ("native modules missing"). Old imports from `@zero-native/firebase-messaging` keep working in apps that have push.
 - **Do** list `NotificationsPlugin()` in an app with no push. With push, `PushPlugin()` adds it; listing both is fine.
 - **Do** listen with `PushEvents.onMessage` / `onTokenRefresh` when the app may change push service.
   `Push.onMessage` is the same task, so both hear FCM. `m.provider` says which service sent it (`"fcm"`).

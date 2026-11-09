@@ -7,7 +7,7 @@
 // - google-services.json next to the app's build.gradle.kts: Firebase on. It is never committed (.gitignore), so a
 //   machine or CI without it builds the same app with Firebase off, and every Firebase plugin answers
 //   `available: false`. One line in the build log says so.
-// - Crashlytics' Gradle plugin only when the app uses plugins/crashlytics.
+// - Crashlytics' Gradle plugin only when the app uses plugins/firebase-crashlytics.
 // - The R8 mapping goes to Crashlytics only with `-PznUploadMapping`, so no everyday release build uploads anything.
 //
 // Written without Firebase's Gradle classes (a script file can't see them), so the settings are set by name.
@@ -15,9 +15,9 @@
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
     // Asks this app's own dependencies, so it also works when zero-native comes in as an included build (there
-    // `:plugin-crashlytics` lives in zero-native's build, and the app asks for "dev.zeronative:plugin-crashlytics").
+    // `:plugin-firebase-crashlytics` lives in zero-native's build, and the app asks for "dev.zeronative:plugin-firebase-crashlytics").
     // Without the Gradle plugin, the Crashlytics SDK stops the app at start (no build id).
-    val usesCrashlytics = configurations.any { c -> c.dependencies.any { it.name == "plugin-crashlytics" } }
+    val usesCrashlytics = configurations.any { c -> c.dependencies.any { it.name == "plugin-firebase-crashlytics" } }
     if (usesCrashlytics) {
         apply(plugin = "com.google.firebase.crashlytics")
         val upload = project.hasProperty("znUploadMapping")

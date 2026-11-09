@@ -2,7 +2,7 @@
 // "remote-config-lab ...", so keep their wording. The sample's Firebase project has the parameter zn_lab_greeting.
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { scheme, signal } from "@zero-native/core"
-import { RemoteConfig } from "@zero-native/remote-config"
+import { RemoteConfig } from "@zero-native/firebase-remote-config"
 import { c } from "./tokens"
 
 function RemoteConfigLabButton(props: { label: string; onPress: () => void }) {

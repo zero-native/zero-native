@@ -3,7 +3,7 @@
 // next start (non-fatals and crashes are sent when the app starts again).
 import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
 import { nav, scheme, signal } from "@zero-native/core"
-import { Crashlytics } from "@zero-native/crashlytics"
+import { Crashlytics } from "@zero-native/firebase-crashlytics"
 import { Firebase, Installations } from "@zero-native/firebase-app"
 import { c } from "./tokens"
 

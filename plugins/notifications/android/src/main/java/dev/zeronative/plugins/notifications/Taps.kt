@@ -11,7 +11,7 @@ import org.json.JSONObject
  * Taps that open the app's launch Activity with what was tapped in the Intent's extras. Two kinds, the same rules:
  * - [Presses]: the app's own notifications (`Notifications.show`) with no `link`. notifee's `getInitialNotification()`
  *   and its PRESS event (`Notifications.onPress`).
- * - a push service's own notifications ([PushEvents.taps]; FCM's: plugins/push Opens.kt). RN Firebase's
+ * - a push service's own notifications ([PushEvents.taps]; FCM's: plugins/firebase-messaging Opens.kt). RN Firebase's
  *   `getInitialNotification()` and `onNotificationOpenedApp`.
  * For each: `initial` is the tap that started this Activity, once; a tap while the Activity is alive comes as a new
  * Intent (singleTop) and is sent to JS. Main thread only. NotificationsPlugin gives every one the Activity's events.

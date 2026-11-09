@@ -12,7 +12,7 @@ import dev.zeronative.runtime.ZnPluginRegistry
  * the app shows itself (show, schedule, groups, buttons, taps). No Firebase and no push service in it.
  * The app's Activity needs `ZnActivity.attach(this)`: taps and [PushEvents.inFront] come from its events.
  *
- * `PushPlugin()` (plugins/push) adds this plugin itself. Listing both is fine: the second one does nothing.
+ * `PushPlugin()` (plugins/firebase-messaging) adds this plugin itself. Listing both is fine: the second one does nothing.
  */
 class NotificationsPlugin : ZnPlugin {
     override fun register(r: ZnPluginRegistry) {

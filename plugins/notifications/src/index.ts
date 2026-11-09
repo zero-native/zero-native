@@ -9,7 +9,7 @@
 //
 //   Notifications.onDismiss(({ id, data }) => ...)
 //   Notifications.onAction(({ id, actionId, input }) => ...)
-//   PushEvents.onMessage(async (m, signal) => ...)          // messages from any push service (FCM: plugins/push)
+//   PushEvents.onMessage(async (m, signal) => ...)          // messages from any push service (FCM: plugins/firebase-messaging)
 //
 // On a tap ("Turn on notifications"): `Notifications.requestPermission()` (Android 13+ asks; older: on).
 // A tap on a notification opens its `link` through the app's normal link path (`onLink` in startApp).
@@ -22,9 +22,9 @@ export const TOKEN_TASK = "push.token"
 export const DISMISS_TASK = "push.dismissed"
 export const ACTION_TASK = "push.action"
 
-/** A message from a push service (FCM: plugins/push), the same shape from every service (PushEvents.kt). */
+/** A message from a push service (FCM: plugins/firebase-messaging), the same shape from every service (PushEvents.kt). */
 export interface PushMessage {
-  /** The push service: "fcm" (plugins/push). Missing from apps built before the notifications plugin (2026-11-09). */
+  /** The push service: "fcm" (plugins/firebase-messaging). Missing from apps built before the notifications plugin (2026-11-09). */
   provider?: string
   messageId: string | null
   /** The sender id, or `/topics/<name>` for a topic message. */
@@ -221,7 +221,7 @@ const unowned = { owned: false }
 const no = () => false
 
 /**
- * Messages and tokens from any push service (FCM: plugins/push; later APNs or another service), as JS tasks. The
+ * Messages and tokens from any push service (FCM: plugins/firebase-messaging; later APNs or another service), as JS tasks. The
  * service's own plugin gets them; this is where JS hears them. Call each once, at the top of main.ts.
  */
 export const PushEvents = {

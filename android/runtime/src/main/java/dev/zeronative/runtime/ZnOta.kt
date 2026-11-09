@@ -111,7 +111,7 @@ object ZnOta {
     private val reportListeners = java.util.concurrent.CopyOnWriteArrayList<(ZnOtaReport) -> Unit>()
 
     /**
-     * Like [Config.onReport], but any number of them, so a plugin (plugins/crashlytics) and the app can both listen.
+     * Like [Config.onReport], but any number of them, so a plugin (plugins/firebase-crashlytics) and the app can both listen.
      * Called after `onReport`, on the main thread. Can be added before [configure]. Returns a function that removes it.
      */
     fun addReportListener(listener: (ZnOtaReport) -> Unit): () -> Unit {

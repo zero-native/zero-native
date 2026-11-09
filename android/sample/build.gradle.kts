@@ -72,23 +72,23 @@ dependencies {
     implementation(project(":plugin-device-test"))
     implementation(project(":plugin-scanner"))
     implementation(project(":plugin-media"))
-    implementation(project(":plugin-auth"))
+    implementation(project(":plugin-android-play-auth"))
     implementation(project(":plugin-webview"))
     implementation(project(":plugin-pdf"))
     implementation(project(":plugin-location"))
     implementation(project(":plugin-firebase-app"))
-    implementation(project(":plugin-crashlytics"))
-    // Native crashes (Hermes, C++) in Crashlytics: opt-in, so only with `-PznCrashlyticsNdk` (size: plugins/crashlytics/README.md).
+    implementation(project(":plugin-firebase-crashlytics"))
+    // Native crashes (Hermes, C++) in Crashlytics: opt-in, so only with `-PznCrashlyticsNdk` (size: plugins/firebase-crashlytics/README.md).
     if (project.hasProperty("znCrashlyticsNdk")) implementation("com.google.firebase:firebase-crashlytics-ndk")
-    implementation(project(":plugin-push"))
-    implementation(project(":plugin-analytics"))
-    implementation(project(":plugin-remote-config"))
-    implementation(project(":plugin-perf"))
+    implementation(project(":plugin-firebase-messaging"))
+    implementation(project(":plugin-firebase-analytics"))
+    implementation(project(":plugin-firebase-remote-config"))
+    implementation(project(":plugin-firebase-perf"))
     implementation(project(":plugin-lottie"))
     implementation(project(":plugin-document-scanner"))
     implementation(project(":plugin-image-viewer"))
     implementation(project(":plugin-device-info"))
-    implementation(project(":plugin-ad-id"))
+    implementation(project(":plugin-android-ad-id"))
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
@@ -103,7 +103,7 @@ dependencies {
     baselineProfile(project(":baselineprofile"))
 }
 
-// Firebase (plugins/crashlytics, plugins/push) only when google-services.json is here. It is never committed (.gitignore):
+// Firebase (plugins/firebase-crashlytics, plugins/firebase-messaging) only when google-services.json is here. It is never committed (.gitignore):
 // other machines and CI build the same app with Firebase off, and the Firebase plugins then answer `available: false`.
 // The R8 mapping goes to Crashlytics only with `-PznUploadMapping`. All of it lives in the shared file below.
 apply(from = "../../plugins/firebase-app/firebase.gradle.kts")
