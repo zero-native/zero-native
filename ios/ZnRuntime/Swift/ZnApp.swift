@@ -26,6 +26,8 @@ struct ZnRoute {
     let deepLink: Bool
     /// A screen with tabs: "<path>/<tab>" opens it on that tab (ZnRoutes.kt, host API 8).
     let tabs: [String]
+    /// `restore: false`: not reopened after the system ends the app (nor the screens above it).
+    let restore: Bool
 
     init(json r: [String: Any]) {
         name = r["name"] as? String ?? ""
@@ -43,6 +45,7 @@ struct ZnRoute {
         segments = path.split(separator: "/").map(String.init)
         deepLink = r["deepLink"] as? Bool ?? false
         tabs = r["tabs"] as? [String] ?? []
+        restore = r["restore"] as? Bool ?? true
     }
 }
 
@@ -114,14 +117,70 @@ final class ZnApp {
     private(set) var layers: [String: UInt32] = [:]
     /// Entries that want Back first (NAV BACK_WANTED): no native swipe-back on them, the swipe goes to JS (A8).
     @ObservationIgnored private(set) var backWanted = Set<UInt32>()
-    /// Each back-stack entry's route.
+    /// Each back-stack entry's route, its params (JSON), and its `restorableSignal` values (NAV RESTORE).
     @ObservationIgnored private var entryRoutes: [UInt32: ZnRoute] = [:]
+    @ObservationIgnored private var entryParams: [UInt32: String] = [:]
+    @ObservationIgnored private var entryValues: [UInt32: [String: Any]] = [:]
     /// The last safe-area insets (dp) JS was sent, as JSON; nil until JS has started.
     @ObservationIgnored private var insetsSent: String?
     @ObservationIgnored private var insetsNow = "{\"top\":0,\"bottom\":0,\"start\":0,\"end\":0}"
     @ObservationIgnored private var jsStarted = false
 
     func route(of entry: UInt32) -> ZnRoute? { entryRoutes[entry] }
+
+    // MARK: Restore after the system ends the app (ZnNav.kt saveState / restart)
+
+    static let restorationType = "dev.zeronative.zn.stack"
+    private static let maxSavedChars = 50_000
+
+    /// The app's build: values saved by another build may have another shape, so they are dropped (screens kept).
+    private static var buildLabel: String {
+        let i = Bundle.main.infoDictionary ?? [:]
+        return "\(i["CFBundleShortVersionString"] as? String ?? "")+\(i["CFBundleVersion"] as? String ?? "")"
+    }
+
+    /// For the scene's `stateRestorationActivity(for:)`: the back stack (route names, params, restorableSignal values)
+    /// up to the first `restore: false` route; nil when only the start screen with no values is open.
+    func restorationActivity() -> NSUserActivity? {
+        let keep = stack.prefix { entryRoutes[$0]?.restore ?? false }
+        if keep.isEmpty || (keep.count == 1 && (entryValues[keep[0]] ?? [:]).isEmpty) { return nil }
+        func json(_ withValues: Bool) -> String? {
+            let list: [[String: Any]] = keep.map { e in
+                var o: [String: Any] = ["route": entryRoutes[e]!.name,
+                                        "params": (try? JSONSerialization.jsonObject(with: Data((entryParams[e] ?? "{}").utf8))) ?? [String: Any]()]
+                if withValues, let v = entryValues[e], !v.isEmpty { o["values"] = v }
+                return o
+            }
+            return ZnModules.json(list)
+        }
+        var text = json(true)
+        if (text?.count ?? 0) > Self.maxSavedChars {
+            print("zn: nav: screen values too big to save; saving the screens without them")
+            text = json(false)
+        }
+        guard let text, text.count <= Self.maxSavedChars else { print("zn: nav: back stack too big to save; not saved"); return nil }
+        let a = NSUserActivity(activityType: Self.restorationType)
+        a.addUserInfoEntries(from: ["stack": text, "build": Self.buildLabel])
+        return a
+    }
+
+    /// The saved screens to open first: the start screen, then the saved ones (route, params, values), or nil.
+    private static func saved(_ a: NSUserActivity?, _ routes: [ZnRoute]) -> [(Int, String, String?, String?)]? {
+        guard let a, a.activityType == restorationType, let text = a.userInfo?["stack"] as? String,
+              let list = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [[String: Any]],
+              let home = routes.firstIndex(where: { $0.path == "/" }) else { return nil }
+        let sameBuild = a.userInfo?["build"] as? String == buildLabel
+        if !sameBuild { print("zn: nav: screen values not restored: saved by another build") }
+        var out: [(Int, String, String?, String?)] = []
+        for o in list {
+            guard let name = o["route"] as? String, let i = routes.firstIndex(where: { $0.name == name }) else { continue }
+            let p = ZnModules.json(o["params"] ?? [String: Any]()) ?? "{}"
+            let v = sameBuild ? (o["values"]).flatMap { ZnModules.json($0) } : nil
+            out.append((i, p, nil, v))
+        }
+        if out.first?.0 != home { out.insert((home, "{}", nil, nil), at: 0) }
+        return out.count > 1 || out.first?.3 != nil ? out : nil
+    }
 
     // MARK: Links
 
@@ -200,7 +259,9 @@ final class ZnApp {
 
     /// [routeName] nil: the app's start route (path "/"), with [link]'s screen on top when a link started the app (as
     /// Android's ZnNav). A route name (the sample's ZN_ROUTE, debug) opens that route alone.
-    func start(bundle: URL, routeName: String?, params: String, link: URL? = nil) {
+    /// [restoring]: the scene's `stateRestorationActivity` (restorationActivity's): iOS gives it back only after it ended
+    /// the app itself, never after the user closed it, as Android's saved state. It wins over [link].
+    func start(bundle: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil) {
         bundleURL = bundle
         do {
             let file = try TemplateReader.read(try Data(contentsOf: bundle.appendingPathComponent("main.zn.ui")))
@@ -214,20 +275,23 @@ final class ZnApp {
                 case .string(let s): host.dispatchEvent(instance, event: UInt16(event), string: s)
                 }
             }
-            // The first screens: (route, params JSON, link).
-            var first: [(Int, String, String?)] = []
+            // The first screens: (route, params JSON, link, restorableSignal values JSON).
+            var first: [(Int, String, String?, String?)] = []
             var unmatched: URL?
-            if let routeName {
+            if let saved = Self.saved(restoring, routes) {
+                print("zn: nav: iOS restored the app; reopening \(saved.count) screen(s): \(saved.map { routes[$0.0].name })")
+                first = saved
+            } else if let routeName {
                 guard let i = routes.firstIndex(where: { $0.name == routeName }) else { throw ZnFormatError("no route \"\(routeName)\"") }
-                first = [(i, params, nil)]
+                first = [(i, params, nil, nil)]
             } else {
                 guard let home = routes.firstIndex(where: { $0.path == "/" }) else { throw ZnFormatError("the bundle has no route with path \"/\"") }
-                first = [(home, "{}", nil)]
+                first = [(home, "{}", nil, nil)]
                 if let link {
                     if let m = ZnLinks.match(link, routes) {
                         let p = ZnModules.json(m.params) ?? "{}"
                         // A link to the start screen itself (one of its tabs) opens it with the link's params.
-                        if m.route == home { first[0] = (home, p, link.absoluteString) } else { first.append((m.route, p, link.absoluteString)) }
+                        if m.route == home { first[0] = (home, p, link.absoluteString, nil) } else { first.append((m.route, p, link.absoluteString, nil)) }
                     } else {
                         unmatched = link
                     }
@@ -237,15 +301,21 @@ final class ZnApp {
             // 1. The skeleton: the root instances from their templates, drawn now, before JS has started (§8.1).
             var items: [String] = []
             var entries: [UInt32] = []
-            for (routeIndex, p, l) in first {
+            for (routeIndex, p, l, values) in first {
                 let entry = nextNativeEntry
                 nextNativeEntry += 1
                 if routes[routeIndex].native == nil {
                     store.mountRoot(id: entry, templateId: routes[routeIndex].screen, template: templates[routes[routeIndex].screen])
                 }
                 entryRoutes[entry] = routes[routeIndex]
+                entryParams[entry] = p
+                if routes[routeIndex].native != nil { nativeParams[entry] = p }
                 entries.append(entry)
                 var item = "{\"entry\":\(entry),\"route\":\(routeIndex),\"params\":\(p)"
+                if let values, let o = try? JSONSerialization.jsonObject(with: Data(values.utf8)) as? [String: Any], !o.isEmpty {
+                    entryValues[entry] = o  // kept natively too: a value not shown yet must survive a second kill
+                    item += ",\"values\":\(values)"
+                }
                 if let l, let text = ZnModules.json(l) { item += ",\"link\":\(text)" }
                 items.append(item + "}")
             }
@@ -357,7 +427,15 @@ final class ZnApp {
                 store.mountRoot(id: entry, templateId: r.screen, template: t)
             }
             entryRoutes[entry] = r
+            entryParams[entry] = params ?? "{}"
             stack.append(entry)
+        case NavKind.restore:
+            // A restorableSignal of [entry] changed: {"key":k,"value":v} keeps v; no "value" forgets k.
+            guard let o = params.flatMap({ try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }),
+                  let key = o["key"] as? String else { return print("zn nav: bad RESTORE params for \(entry)") }
+            var values = entryValues[entry] ?? [:]
+            if let v = o["value"] { values[key] = v } else { values.removeValue(forKey: key) }
+            entryValues[entry] = values
         case NavKind.remove:
             stack.removeAll { $0 == entry }
             backWanted.remove(entry)
@@ -391,6 +469,8 @@ final class ZnApp {
             for e in entries where !self.stack.contains(e) {
                 self.store.removeTree(e)
                 self.entryRoutes[e] = nil
+                self.entryParams[e] = nil
+                self.entryValues[e] = nil
             }
         }
     }

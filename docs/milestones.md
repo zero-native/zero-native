@@ -146,6 +146,18 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS Phase 1b, restore after the system ends the app (Claude, Mac)
+- **ZnApp.swift**, as ZnNav.kt saveState / restart: each entry's params and its `restorableSignal` values (NAV RESTORE,
+  kind 9) are kept natively; `restorationActivity()` gives the stack (route names, params, values; up to the first
+  `restore: false` route; nothing for the start screen alone) as an NSUserActivity for the scene's
+  `stateRestorationActivity(for:)`; `start(…, restoring: session.stateRestorationActivity)` reopens the start screen +
+  the saved screens with START `values`. iOS gives the activity back only after it ended the app itself, never after
+  the user swiped it away, which is Android's saved-state rule. Values saved by another build (version + build) are
+  dropped, screens kept (Android: another bundle). The sample's scene does both (two lines; ZeroBill's app will too).
+- **Checked on the simulator:** amount screen (link) → ₹250 typed → Home button → `simctl terminate` → launch: "iOS
+  restored the app; reopening 2 screen(s): home, amount", the amount screen shows ₹250 with its cashback line.
+- **Not checked:** the swipe-away case (no restore) by hand; a restore with a launch "lost" at the same time.
+
 ### 2026-11-09: iOS fixes from Pavan's look at the Tabs lab (Claude, Mac)
 - **Line over the Scan button:** iOS drew borderTopWidth / borderBottomWidth lines over a view's children; Android draws
   them behind (drawBehind), so a child standing out over the line (the raised Scan button) covers it. iOS now draws the

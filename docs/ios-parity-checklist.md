@@ -212,7 +212,7 @@ Totals: 15 modules. Done 10, partial 2, missing 3 (sized in §4). Sized here: 1 
 | Download, verify (ECDSA P-256 / SHA-256), install | ZnOtaInstall.kt, ZnOtaSignature.kt | missing | L | CryptoKit P256 can check the DER signatures. |
 | Health facts and boot guard (launch watchdog) | ZnOtaHealth.kt | missing | M | Android reads ApplicationExitInfo. iOS: MetricKit on the next launch, or core's crash mark. |
 | Updates module + apply in place behind a cover | ZnOta.kt (Module, `cover`) | missing | M | |
-| Restore after kill: saved back stack, NAV RESTORE values (restorableSignal), START payload | ZnNav.kt (saveState, readSavedStack), ZnNavSavedTest.kt | missing | L (1.5 d) | iOS has no saved-state bundle: write the stack to a file (step i.3). NAV RESTORE is ignored today. Route option `restore` too. |
+| Restore after kill: saved back stack, NAV RESTORE values (restorableSignal), START payload | ZnNav.kt (saveState, readSavedStack), ZnNavSavedTest.kt | done (simulator) | L (1.5 d) | ZnApp.swift: entry params + NAV RESTORE values kept; `restorationActivity()` (the stack up to the first `restore: false` route, 50 000 chars, values dropped first) for the scene's `stateRestorationActivity(for:)`; `start(…, restoring:)` reopens Home + the saved screens with START `values`. iOS hands it back only after it ended the app itself, never after the user closed it (Android's saved state). Values saved by another app build are dropped. |
 | Background tasks (`defineTask`) | ZnBackground.kt | missing | L | Queue until JS loads, time limit, one answer per task, TASK event. iOS: BGTaskScheduler and push-triggered runs. |
 | Launches (launchForResult, saved results, ack, wait ≤1 s after a kill) | ZnLaunch.kt | done (simulator) | L (1.5 d) | ZnPlugins.swift ZnLaunch: `start` / `finish` (a plugin's own launch), `open(key, id, url)` (another app by its link: on return, resultCode -1 + `data` = the link back, else 0, `extras.returned`), waiting → lost at the next start, busy / unacked. iOS has no result Intent: JS asks its server. |
 | Deep links / onLink | ZnNav.kt (openLink, OPEN event), ZnRoutes.kt (match, tab paths), route `path` / `deepLink` / `tabs` options | done (simulator) | M | ZnApp.swift ZnLinks (matchDeepLink, tabs, query params), start with a link (Home + the link's screen, or Home with its params), OPEN while running, unmatched → onUnmatchedLink, links during JS start queued. The app's scene passes URL contexts and universal links (ZnSampleApp.swift). Universal links need the associated-domains entitlement (signing). |
@@ -382,7 +382,7 @@ the rest is OTA, the Firebase plugins, the other plugins and the tools.
 
 **Status 2026-11-09:** 1 done (OtpInput, `.oneTimeCode`, runtime `disabled`); 2 done (plugins, native screens and
 views, Launches ack + start / finish); 3 done on the simulator (scanner, camera untested); 4 done on the simulator
-(links and launches by URL; the UPI plugin itself is ZeroBill's, Phase 2); 5 not started. Of the
+(links and launches by URL; the UPI plugin itself is ZeroBill's, Phase 2); 5 done on the simulator (restore after kill). Of the
 small ones: Tabs done; press feedback, Splash hold, Sheet `animateIn`, the error screen not done (ZeroBill uses
 `pressFeedback` in 18 files, `animateIn` and Splash once each). Plugins ZeroBill needs: all on iOS but push +
 notifications (Phase 3) and ad-id (answers "unavailable", Android-only by meaning). ZeroBill's own plugins (Upi,

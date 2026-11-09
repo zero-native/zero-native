@@ -35,13 +35,18 @@ final class ZnSceneDelegate: UIResponder, UIWindowSceneDelegate {
         let link = options.urlContexts.first?.url
             ?? options.userActivities.first { $0.activityType == NSUserActivityTypeBrowsingWeb }?.webpageURL
             ?? env["ZN_LINK"].flatMap(URL.init(string:))  // debug: ios-sample.ts --link, a cold start with its console
-        ZnApp.shared.start(bundle: Bundle.main.resourceURL!, routeName: env["ZN_ROUTE"], params: env["ZN_PARAMS"] ?? "{}", link: link)
+        // After iOS itself ended the app (never after the user closed it), the screens come back (restorationActivity).
+        ZnApp.shared.start(bundle: Bundle.main.resourceURL!, routeName: env["ZN_ROUTE"], params: env["ZN_PARAMS"] ?? "{}", link: link,
+                           restoring: session.stateRestorationActivity)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = ZnApp.shared.makeRootViewController()
         window.makeKeyAndVisible()
         print("zn: window shown with \(type(of: window.rootViewController!))")
         self.window = window
     }
+
+    /// Asked as the app goes to the background: what to reopen if iOS ends the app while it is there.
+    func stateRestorationActivity(for scene: UIScene) -> NSUserActivity? { ZnApp.shared.restorationActivity() }
 
     /// A link while the app runs.
     func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
