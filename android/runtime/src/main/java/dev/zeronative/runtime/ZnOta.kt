@@ -144,6 +144,26 @@ object ZnOta {
         return { reportListeners -= listener }
     }
 
+    @Volatile private var storeLauncher: ZnStoreLauncher? = null
+
+    /** For a plugin that opens the store's own update screen at launch ([ZnStoreLauncher]). One per app; null removes it. */
+    fun setStoreLauncher(launcher: ZnStoreLauncher?) {
+        storeLauncher = launcher
+    }
+
+    /**
+     * From the [ZnStoreLauncher], main thread: it is done with this launch. [opened]: the store's update screen opened
+     * (the app opens under it). false: it won't open one now ([why] is logged); the app opens if it was waiting for it.
+     */
+    fun storeLaunchDone(opened: Boolean, why: String) = ZnOtaGate.storeDone(opened, why)
+
+    /** For [ZnOtaGate]. */
+    internal fun storeLauncherOrNull(): ZnStoreLauncher? = storeLauncher
+
+    /** For [ZnOtaGate]: this APK's last store answer, read from the saved state. */
+    internal fun savedStoreUpdate(): ZnStoreUpdate? =
+        ZnOtaStore.update(synchronized(stateLock) { loadState() }.storeAnswer(apkVersion()))
+
     @Volatile private var phase = "off"
     @Volatile private var progress = 0.0
     @Volatile private var lastAutoCheck = 0L
@@ -212,7 +232,7 @@ object ZnOta {
     /** Main thread: the launch gate's check, at once. It counts as the automatic check of this time on screen. */
     private fun checkForGate() {
         lastAutoCheck = SystemClock.elapsedRealtime()
-        worker.execute { runCheck() }
+        worker.execute { runCheck(forGate = true) }
     }
 
     /** For [ZnOtaGate]: the config, or null while OTA is off. */
@@ -319,14 +339,21 @@ object ZnOta {
     /** What runs from the next cold start: a bundle id, or null for the APK's own bundle. */
     private fun waitingNext(): String? = currentFile().takeIf { it.isFile }?.readText()?.trim()?.ifEmpty { null }
 
-    /** One check, start to end. Never throws: problems become the result and an outcome for telemetry. */
-    private fun runCheck(): JSONObject {
+    /**
+     * One check, start to end. Never throws: problems become the result and an outcome for telemetry. [forGate]: the
+     * launch gate's check; its store answer (or the saved one, when it fails) goes to the gate's [ZnStoreLauncher].
+     */
+    private fun runCheck(forGate: Boolean = false): JSONObject {
         val c = config ?: return JSONObject().put("action", "NONE").put("reason", "OFF")
         ZnBundles.running // the start checks run with the choice (ZnOtaHealth.atStart)
-        if (ZnOtaHealth.offInProcess) return JSONObject().put("action", "NONE").put("reason", "OTA_OFF")
+        if (ZnOtaHealth.offInProcess) {
+            if (forGate) ZnOtaGate.storeAnswer(runCatching { savedStoreUpdate() }.getOrNull())
+            return JSONObject().put("action", "NONE").put("reason", "OTA_OFF")
+        }
         val t0 = SystemClock.elapsedRealtime()
         deliver()
         val st = synchronized(stateLock) { loadState() }
+        var storeSent = !forGate
         return try {
             val builtIn = ZnBundles.builtIn ?: throw ZnOtaError("setup", "the APK has no zn-bundle.json")
             setPhase("checking")
@@ -339,6 +366,11 @@ object ZnOta {
             st.outcomes.clear() // they reached the server
             // Before act: a bundle problem below must not lose the store answer (the catch saves this state too)
             keepStoreAnswer(st, answer)
+            // Before act: the gate must know about a forced store update before it hears of an OTA update or the end.
+            if (!storeSent) {
+                storeSent = true
+                ZnOtaGate.storeAnswer(ZnOtaStore.update(st.storeAnswer(apkVersion())))
+            }
             val result = act(c, builtIn, st, answer)
             st.lastCheckAt = System.currentTimeMillis()
             st.lastResult = "${result.getString("action")} ${result.getString("reason")}"
@@ -358,6 +390,8 @@ object ZnOta {
                 saveState(st)
             }
             setPhase("failed")
+            // In the catch: nothing here may throw (the worker thread would take the app down)
+            if (!storeSent) ZnOtaGate.storeAnswer(runCatching { ZnOtaStore.update(st.storeAnswer(apkVersion())) }.getOrNull())
             ZnOtaGate.checkDone(ready = false, p = 0, result = "$code: ${e.message}")
             JSONObject().put("action", "NONE").put("reason", "ERROR").put("error", "$code: ${e.message}")
         }

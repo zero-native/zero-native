@@ -87,6 +87,10 @@ class ZnUpdateScreen(
  *   one sooner: the app's gates call `Updates.applyNow()`, `Updates.status().nextPriority`).
  * - A hold (`Updates.holdApply()`, a payment) or a pending answer from another app (UPI) refuses the swap: the app
  *   opens on the old bundle. Payments come first.
+ * - A forced store update, when a [ZnStoreLauncher] plugin is set (Play's in-app update): the plugin asks the store at
+ *   once, in parallel with our check. When our answer (or this APK's saved one) is forced, the launch screen stays
+ *   (phase STORE) until the plugin opened the store's update screen or knows it won't, at most
+ *   [ZnOta.Config.launchCapCriticalMs] from the tap. An OTA swap waits for it too: the store's screen comes first.
  * Main thread only, except where noted.
  */
 internal object ZnOtaGate {
@@ -101,7 +105,7 @@ internal object ZnOtaGate {
     /** After a swap, the update screen stays at most this long if the new screens never say they are up. */
     private const val SWAP_TIMEOUT_MS = 3_000L
 
-    private enum class Phase { OFF, CHECKING, STAGING, READY, SWAPPING }
+    private enum class Phase { OFF, CHECKING, STAGING, READY, SWAPPING, STORE }
 
     private val main = Handler(Looper.getMainLooper())
     private var phase = Phase.OFF
@@ -127,10 +131,20 @@ internal object ZnOtaGate {
     /** The update screen was composed once: Android's launch screen may go now. */
     private var screenComposed = false
 
+    /** This launch's store plugin ([ZnStoreLauncher]), and whether it still waits for the launch check's answer. */
+    private var store: ZnStoreLauncher? = null
+    private var storeAnswerDue = false
+    /** The store answer is forced and the plugin isn't done yet: the gate waits for it (phase STORE, no OTA swap). */
+    private var storeWait = false
+    /** The plugin called [storeDone] in this launch. */
+    private var storeOver = false
+
     /** ZnSplash asks this at every frame while it holds the launch screen. */
     internal fun holdsSplash(): Boolean = when (phase) {
         Phase.CHECKING -> true
         Phase.STAGING, Phase.READY, Phase.SWAPPING -> !screenComposed || SystemClock.uptimeMillis() < iconEndsAt
+        // Waiting for the store's update screen: the launch screen, or the update screen when it already shows.
+        Phase.STORE -> !showing || !screenComposed || SystemClock.uptimeMillis() < iconEndsAt
         Phase.OFF -> false
     }
 
@@ -158,8 +172,63 @@ internal object ZnOtaGate {
         progress = 0f
         phase = Phase.CHECKING
         Log.i(TAG, "gate: $why start, checking (waits at most ${c.launchDecisionMs} ms from the tap)")
+        beginStore()
         check()
         tick()
+    }
+
+    /** At the start of a launch: tell the store plugin, with this APK's saved answer, so it asks the store now. */
+    private fun beginStore() {
+        val l = ZnOta.storeLauncherOrNull()
+        store = l
+        storeAnswerDue = l != null
+        storeWait = false
+        storeOver = false
+        if (l == null) return
+        val saved = runCatching { ZnOta.savedStoreUpdate() }.getOrNull()
+        if (saved?.forced == true) {
+            storeWait = true
+            Log.i(TAG, "gate: this APK's last store answer is a forced update (${saved.version}): the launch screen waits for the store too")
+        }
+        runCatching { l.onLaunch(saved) }.onFailure { Log.w(TAG, "gate: the store plugin's onLaunch failed", it) }
+    }
+
+    /**
+     * Any thread, from the launch check: its store answer (the server's, or the saved one when the check failed).
+     * Posted before [found] and [checkDone], so the gate knows first.
+     */
+    fun storeAnswer(a: ZnStoreUpdate?) = main.post {
+        val l = store ?: return@post
+        if (!storeAnswerDue) return@post
+        storeAnswerDue = false
+        runCatching { l.onLaunchAnswer(a) }.onFailure { Log.w(TAG, "gate: the store plugin's onLaunchAnswer failed", it) }
+        if (phase == Phase.OFF) return@post // the app is open already; the plugin may still open the store's screen
+        // The fresh answer wins over the saved one: a rule taken back no longer holds the start.
+        storeWait = !storeOver && a?.forced == true
+        if (storeWait) Log.i(TAG, "gate: forced store update (${a?.version}), waiting for the store's update screen")
+        if (phase == Phase.STORE && !storeWait) end("no forced store update")
+    }
+
+    /** Main thread or any, from [ZnOta.storeLaunchDone]. */
+    fun storeDone(opened: Boolean, why: String) = main.post {
+        storeOver = true
+        storeWait = false
+        if (phase == Phase.OFF) {
+            Log.i(TAG, "gate: store plugin: ${if (opened) "the store's update screen opened" else why} (after the gate)")
+            return@post
+        }
+        if (opened) end("the store's update screen opened", report = false)
+        else {
+            Log.i(TAG, "gate: store plugin: $why")
+            if (phase == Phase.STORE) end("no store update screen ($why)")
+        }
+    }
+
+    /** Where the gate would let the app open: it waits for the store plugin instead while [storeWait]. */
+    private fun endOrStore(why: String) {
+        if (!storeWait) return end(why)
+        if (phase != Phase.STORE) Log.i(TAG, "gate: $why; waiting for the store's update screen (${SystemClock.uptimeMillis() - tapAt} ms after the tap)")
+        phase = Phase.STORE
     }
 
     /**
@@ -169,7 +238,7 @@ internal object ZnOtaGate {
     fun found(p: Int) = main.post {
         if (phase != Phase.CHECKING) return@post
         priority = p
-        if (p < 1) return@post end("normal priority: it runs from the next start")
+        if (p < 1) return@post endOrStore("normal priority: it runs from the next start")
         phase = Phase.STAGING
         downloadAt = SystemClock.uptimeMillis()
         show()
@@ -185,8 +254,8 @@ internal object ZnOtaGate {
                 priority = p
                 phase = Phase.READY
                 show()
-            } else end(if (ready) "normal priority: it runs from the next start" else "nothing to apply ($result)")
-            Phase.STAGING -> if (ready) phase = Phase.READY else end("the download didn't finish ($result)")
+            } else endOrStore(if (ready) "normal priority: it runs from the next start" else "nothing to apply ($result)")
+            Phase.STAGING -> if (ready) phase = Phase.READY else endOrStore("the download didn't finish ($result)")
             else -> Unit
         }
         tick()
@@ -216,27 +285,29 @@ internal object ZnOtaGate {
         val now = SystemClock.uptimeMillis()
         val cap = tapAt + if (priority >= 2) c.launchCapCriticalMs else c.launchCapMs
         when (phase) {
-            Phase.CHECKING -> if (now >= tapAt + c.launchDecisionMs) return end("no answer within ${c.launchDecisionMs} ms")
+            Phase.CHECKING -> if (now >= tapAt + c.launchDecisionMs) endOrStore("no answer within ${c.launchDecisionMs} ms")
             Phase.STAGING -> {
                 val (ph, prog) = ZnOta.phaseAndProgress()
                 progress = if (ph == "installing") 1f else prog.toFloat().coerceIn(0f, 1f)
                 val graceEnds = screenAt + GRACE_MS
-                if (now >= maxOf(cap, graceEnds)) return end("time limit while $ph (${(prog * 100).toInt()} %)")
-                if (now >= graceEnds && ph == "downloading" && prog > 0.0) {
+                if (now >= maxOf(cap, graceEnds)) endOrStore("time limit while $ph (${(prog * 100).toInt()} %)")
+                else if (now >= graceEnds && ph == "downloading" && prog > 0.0) {
                     val eta = ((now - downloadAt) * (1 - prog) / prog).toLong() + APPLY_ALLOWANCE_MS
-                    if (now + eta > cap) return end("the download can't end in time (about $eta ms left)")
+                    if (now + eta > cap) endOrStore("the download can't end in time (about $eta ms left)")
                 }
             }
             Phase.READY -> {
                 progress = 1f
-                if (now >= cap) return end("time limit before the swap")
-                // applyNow needs the first screens of the running bundle (it opens the same ones again).
-                if (ZnNav.firstScreensUp && screenComposed) swap()
+                if (now >= cap) endOrStore("time limit before the swap")
+                // applyNow needs the first screens of the running bundle (it opens the same ones again). A forced
+                // store update first: its screen opens over the app, and the swap runs only if it doesn't.
+                else if (ZnNav.firstScreensUp && screenComposed && !storeWait) swap()
             }
-            Phase.SWAPPING -> if (now >= tapAt + c.launchCapCriticalMs + SWAP_TIMEOUT_MS) return end("the new screens didn't say they are up")
+            Phase.SWAPPING -> if (now >= tapAt + c.launchCapCriticalMs + SWAP_TIMEOUT_MS) end("the new screens didn't say they are up")
+            Phase.STORE -> if (now >= tapAt + c.launchCapCriticalMs) end("the store didn't answer within ${c.launchCapCriticalMs} ms")
             Phase.OFF -> return
         }
-        main.postDelayed(ticker, TICK_MS)
+        if (phase != Phase.OFF) main.postDelayed(ticker, TICK_MS)
     }
 
     private val ticker = Runnable { tick() }
@@ -250,11 +321,15 @@ internal object ZnOtaGate {
         }
     }
 
-    /** Ends the gate. [gaveUp]: why it let the app open on the old bundle (null: it swapped). */
-    private fun end(gaveUp: String?) {
+    /**
+     * Ends the gate. [gaveUp]: why it let the app open on the old bundle (null: it swapped). [report] false: not a
+     * timeout worth a report even if the update screen showed (the store's update screen opened).
+     */
+    private fun end(gaveUp: String?, report: Boolean = true) {
         if (phase == Phase.OFF) return
-        val wasShowing = showing
+        val wasShowing = showing && report
         phase = Phase.OFF
+        storeWait = false
         main.removeCallbacks(ticker)
         showing = false
         val ms = SystemClock.uptimeMillis() - tapAt

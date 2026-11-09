@@ -10,6 +10,7 @@ import com.google.android.play.core.install.model.AppUpdateType
 import dev.zeronative.runtime.ZnActivity
 import dev.zeronative.runtime.ZnActivityEvents
 import dev.zeronative.runtime.ZnModuleBase
+import dev.zeronative.runtime.ZnOta
 import dev.zeronative.runtime.ZnPlugin
 import dev.zeronative.runtime.ZnPluginRegistry
 import dev.zeronative.runtime.boolean
@@ -24,6 +25,10 @@ import org.json.JSONObject
  * Optional (FLEXIBLE) updates are never opened again: their state goes to JS as `state` events; JS installs a
  * downloaded update when the user comes back.
  *
+ * A forced update at launch opens natively, before the app's first screen ([AppUpdatesLaunch], zn's launch gate):
+ * when the zn-updates server's store answer says forced and Play offers the update. Needs OTA on (the answer comes with
+ * the OTA check). One store launcher per app: the last plugin that sets one wins.
+ *
  * The app's Activity must pass its onActivityResult to [AppUpdatesModule.onActivityResult] (Play answers there).
  *
  * [showCard]: a small native card at the top of the screen follows the optional download (progress, then "Restart").
@@ -36,6 +41,7 @@ class AppUpdatesPlugin(
     override fun register(r: ZnPluginRegistry) {
         UpdateCard.configure(showCard, cardTexts)
         r.module(AppUpdatesModule(r.context))
+        ZnOta.setStoreLauncher(AppUpdatesLaunch(r.context))
         r.activityEvents(object : ZnActivityEvents {
             override fun onFront() = AppUpdatesModule.onFront()
         })
@@ -81,6 +87,11 @@ class AppUpdatesModule(private val context: Context) : ZnModuleBase("AppUpdates"
             val activity = ZnActivity.current ?: return@function call.resolve(ok(false))
             try {
                 val flexible = call.boolean("flexible")
+                // The launch already opened Play's forced screen for this answer: a second start would open it twice.
+                if (!flexible && AppUpdatesLaunch.openedRecently()) {
+                    Log.i(TAG, "start: the forced screen was opened at launch, nothing to do")
+                    return@function call.resolve(ok(true))
+                }
                 AppUpdatesHelper.setUpdateType(activity, if (flexible) AppUpdateType.FLEXIBLE else AppUpdateType.IMMEDIATE)
                 AppUpdatesHelper.setRequestPending(activity, true)
                 helperFor(activity).start()

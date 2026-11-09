@@ -1,6 +1,7 @@
 package dev.zeronative.plugins.appupdates
 
 import dev.zeronative.plugins.appupdates.AppUpdatesRules.ColdStart
+import dev.zeronative.plugins.appupdates.AppUpdatesRules.Launch
 import dev.zeronative.plugins.appupdates.AppUpdatesRules.Resume
 import dev.zeronative.plugins.appupdates.AppUpdatesRules.Result
 import org.junit.Assert.assertEquals
@@ -56,5 +57,29 @@ class AppUpdatesRulesTest {
         // A late progress event keeps "ready"
         assertEquals(UpdateCardState.Phase.DOWNLOADED, s.onStatus("downloading", 1, 2).phase)
         assertEquals(UpdateCardState(), s.onStatus("failed", 0, 0))
+    }
+
+    private fun launch(
+        answered: Boolean = true, critical: Int = 2, saved: Int = 0, playAnswered: Boolean = true,
+        available: Boolean = true, immediate: Boolean = true, busy: Boolean = false,
+    ) = AppUpdatesRules.launch(answered, critical, saved, playAnswered, available, immediate, busy).first
+
+    @Test
+    fun atLaunchPlaysForcedScreenOpensOnlyForAForcedAnswerThatPlayCanServe() {
+        assertEquals(Launch.OPEN, launch())
+        // Both answers are needed: ours, then Play's
+        assertEquals(Launch.WAIT, launch(answered = false))
+        assertEquals(Launch.WAIT, launch(playAnswered = false))
+        // A saved forced answer opens as soon as Play answers, without waiting for our check
+        assertEquals(Launch.OPEN, launch(answered = false, critical = 0, saved = 2))
+        // ...but a saved optional one waits for our check
+        assertEquals(Launch.WAIT, launch(answered = false, saved = 1))
+        // The fresh answer wins over the saved one (a rule taken back)
+        assertEquals(Launch.SKIP, launch(critical = 0, saved = 2))
+        // Optional stays with JS; nothing when Play has none, can't force it now, or the app is busy (a payment)
+        assertEquals(Launch.SKIP, launch(critical = 1))
+        assertEquals(Launch.SKIP, launch(available = false))
+        assertEquals(Launch.SKIP, launch(immediate = false))
+        assertEquals(Launch.SKIP, launch(busy = true))
     }
 }

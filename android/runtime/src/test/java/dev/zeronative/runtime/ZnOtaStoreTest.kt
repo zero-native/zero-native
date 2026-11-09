@@ -44,6 +44,22 @@ class ZnOtaStoreTest {
         assertEquals(300, u.getString("title").length)
     }
 
+    @Test
+    fun aKeptAnswerBecomesAStoreUpdateForTheLaunch() {
+        val forced = ZnOtaStore.update(read("""{"update":{"version":175,"critical":2,"title":"New"}}"""))!!
+        assertEquals("175", forced.version)
+        assertEquals(2, forced.critical)
+        assertEquals(true, forced.forced)
+        assertEquals("New", forced.title)
+        assertNull(forced.message)
+        assertEquals(false, ZnOtaStore.update(read("""{"update":{"version":"2.1.0","critical":1}}"""))!!.forced)
+        // The saved text has "at" too (State.storeAnswer)
+        assertEquals("175", ZnOtaStore.update("""{"update":{"version":175,"critical":2},"at":1}""")!!.version)
+        assertNull(ZnOtaStore.update(read("""{"update":null}""")))
+        assertNull(ZnOtaStore.update(null))
+        assertNull(ZnOtaStore.update("not json"))
+    }
+
     private fun sorted(j: JSONObject): String {
         val u = j.getJSONObject("update")
         return """{"update":{"critical":${u.getInt("critical")},"version":${u.getInt("version")}}}"""

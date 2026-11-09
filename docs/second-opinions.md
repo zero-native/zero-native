@@ -3230,3 +3230,17 @@ change, and what evidence would make you change it?"
   (fine on 32-bit), and mmaps the bytecode. Not yet run on a 32-bit process: test with `adb install --abi armeabi-v7a`
   on the Lava (its chip runs 32-bit code) before the release.
 - **Open:** an app moving from RN to zn on a 32-bit phone: RN never installed there, so there is no RN data to move.
+
+## 219. A forced store update opens natively at launch (runtime + app-updates + ZeroBill, 2026-11-10; Opus, Pavan's ask)
+- **Chosen:** a `ZnStoreLauncher` hook in the launch gate. At a start with UI the plugin asks Play at once; the OTA
+  check's store answer goes to it before the gate hears of an OTA update. Forced + Play has it: Play's IMMEDIATE screen
+  opens natively while the launch screen is up (gate phase STORE, at most `launchCapCriticalMs`). A saved forced answer
+  opens as soon as Play answers, without waiting for our check. Pavan: "call inappupdates right away when we start ...
+  wait for status and act on it".
+- **Why:** from JS it came 3-4 s after the app opened (gate 0.8 s, then JS asked Play twice). Pavan's internal app
+  sharing test, 173 forced.
+- **Kept in JS:** optional updates, returns to the app, iOS. JS's forced start within 10 s of a native one does nothing
+  (and Play reports the flow as in progress anyway, so JS sees "no update").
+- **Risk:** ZnSplash's own cap (ZeroBill 2 s) still lets the app draw if Play is slow; Play's screen then opens a moment
+  later over it. An OTA swap waits while a forced store answer is open; if Play can't serve it, the swap goes on.
+- **Not tested on a phone yet** (needs Play: internal app sharing, 173/174 AABs).

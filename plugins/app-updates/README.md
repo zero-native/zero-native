@@ -8,6 +8,9 @@ answer, asks Play, and shows the update. It makes no network call of its own.
 Ported from ZeroBill's own plugin (`my-app/plugins/in-app-update`), which ported the RN app's
 `ZInAppUpdatesModule`. The native behaviour is the same, tested on the RN and zn ZeroBill apps.
 
+On Android, a forced update at launch opens natively, before the app's first screen (`AppUpdatesLaunch`, through zn's
+launch gate): Play is asked at once, in parallel with the OTA check. Optional updates and returns use the JS engine.
+
 Not the same as OTA (`Updates` in core): OTA changes the JS bundle; this one sends the user to the store for a new
 APK / IPA.
 
@@ -136,6 +139,9 @@ ZeroBill's plugin, so a phone that updates from those keeps its forced-update re
   it's downloaded, come back: it installs (or the Restart button does). Close the sheet: `declined`, not asked again
   this session.
 - **Busy:** set busy, leave and come back with a forced update open in Play: it does not open again until busy ends.
+- **Forced at launch:** with a forced rule for build N, open N from the launcher: Play's forced screen opens before
+  the first screen (logcat `zn-app-updates` "launch: ... Play's screen opens N ms after the launch", and `zn-ota`
+  "gate: ..."). Open it again: it opens at once from the saved answer.
 
 The sample's "App updates plugin" lab (Dev screen) runs `Updates.check()` and shows the store answer that came with it
 (the sample's update server, `bun run updates:server`, `adb reverse tcp:8790 tcp:8790`), and has buttons for each call.

@@ -38,4 +38,34 @@ internal object AppUpdatesRules {
         ok -> Result.ACCEPTED
         else -> Result.DECLINED
     }
+
+    enum class Launch { WAIT, OPEN, SKIP }
+
+    /**
+     * A start with UI ([AppUpdatesLaunch]): open Play's forced screen now? [answered]: the launch check's store answer
+     * is in, with [critical] (0 none, 1 optional, 2 forced). Before it, this APK's saved answer [savedCritical] counts
+     * only when forced (it opens at once). [playAnswered]: Play said something (a failure counts, [playAvailable] false).
+     * Returns the decision and, for SKIP, why (logged).
+     */
+    fun launch(
+        answered: Boolean,
+        critical: Int,
+        savedCritical: Int,
+        playAnswered: Boolean,
+        playAvailable: Boolean,
+        immediateAllowed: Boolean,
+        busy: Boolean,
+    ): Pair<Launch, String> {
+        val c = if (answered) critical else if (savedCritical == 2) 2 else -1
+        return when {
+            c == -1 -> Launch.WAIT to "waiting for the launch check's answer"
+            c == 0 -> Launch.SKIP to "no store update"
+            c != 2 -> Launch.SKIP to "optional update: the app's JS asks"
+            !playAnswered -> Launch.WAIT to "waiting for Play"
+            !playAvailable -> Launch.SKIP to "Play has no update for this phone yet"
+            !immediateAllowed -> Launch.SKIP to "Play doesn't allow a forced update now"
+            busy -> Launch.SKIP to "the app is busy (a payment)"
+            else -> Launch.OPEN to "forced update"
+        }
+    }
 }

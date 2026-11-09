@@ -2909,6 +2909,11 @@ onAppState((s) => s === "active" && engine.onActive())
 - **Know:** Play's in-app updates only answer for an app installed from Play. Test with internal app sharing
   (`plugins/app-updates/README.md`); a sideloaded build always says "no update".
 - **Know:** iOS has no in-app update. The forced screen is yours (no Back, one button to `openStore({ appStoreId })`).
+- **Know:** on Android a forced update at launch opens natively, before the first screen (since 2026-11-10): the
+  plugin asks Play at once, in parallel with the OTA check, and the launch screen waits for both answers (at most
+  `launchCapCriticalMs`). A saved forced answer opens Play as soon as Play answers. Optional updates and returns stay
+  with the engine in JS. **Why:** from JS it came 3-4 s after the app opened, when the user had started using it. It
+  needs the launch gate on (`launchDecisionMs > 0`) and one store plugin per app (`ZnOta.setStoreLauncher`).
 
 ## 88. OTA pushes: a new bundle downloads in the background (`@zero-native/firebase-messaging`, 2026-11-09)
 The OTA server sends `{ zn_ota: "check", zn_ota_delay_ms: "<n>" }` to the topic `zn-ota-<app>-<channel>` when a bundle
