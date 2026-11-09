@@ -102,6 +102,18 @@ object ZnOta {
          * Off: a release build with an http server turns OTA off and logs why (2026-11-09, zn-updates P2).
          */
         val allowHttpInRelease: Boolean = false,
+        /**
+         * The launch gate (docs/ota-patches.md §8, [ZnOtaGate]): at a start with UI the check runs at once, and the
+         * launch screen waits for its answer at most this long from the tap. 0 turns the gate off (updates then run
+         * from the next cold start, or when JS calls `Updates.applyNow()`).
+         */
+        val launchDecisionMs: Long = 800L,
+        /** A priority high update swaps at the update screen only within this time from the tap (RN: 4 s). */
+        val launchCapMs: Long = 4_000L,
+        /** The same for priority critical (and the kill switch) (RN: 5.8 s). */
+        val launchCapCriticalMs: Long = 5_800L,
+        /** How the update screen looks: its words and the brand colour of its progress bar. */
+        val updateScreen: ZnUpdateScreen = ZnUpdateScreen(),
     )
 
     @Volatile private var config: Config? = null
@@ -110,8 +122,9 @@ object ZnOta {
     private val worker by lazy { Executors.newSingleThreadExecutor { r -> Thread(r, "zn-ota").apply { isDaemon = true } } }
     // ZnFetch's client has no read limit (each fetch sets its own). Without these, a server that accepts and never
     // answers would block [worker] for good: no more checks, and applyNow would never answer.
-    private val checkClient by lazy { ZnFetch.client.newBuilder().callTimeout(CHECK_TIMEOUT_MS, TimeUnit.MILLISECONDS).build() }
-    private val downloadClient by lazy { ZnFetch.client.newBuilder().readTimeout(DOWNLOAD_IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS).build() }
+    // Read per call (ZnFetch.derived): after a Wi-Fi ↔ mobile change they are built again on the fresh pool.
+    private val checkClient get() = ZnFetch.derived("zn.otaCheck") { it.callTimeout(CHECK_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
+    private val downloadClient get() = ZnFetch.derived("zn.otaDownload") { it.readTimeout(DOWNLOAD_IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
     private val main = Handler(Looper.getMainLooper())
     private val stateLock = Any()
     private val reportListeners = java.util.concurrent.CopyOnWriteArrayList<(ZnOtaReport) -> Unit>()
@@ -163,7 +176,12 @@ object ZnOta {
                 started = (started - 1).coerceAtLeast(0)
                 if (started == 0 && !activity.isChangingConfigurations) onBack()
             }
-            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+                // The first Activity of this process: a cold start with UI. The launch gate checks now (ZnOtaGate).
+                if (launchSeen) return
+                launchSeen = true
+                ZnOtaGate.beginCold(::checkForGate)
+            }
             override fun onActivityResumed(activity: Activity) = Unit
             override fun onActivityPaused(activity: Activity) = Unit
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
@@ -180,6 +198,47 @@ object ZnOta {
         checkQueued = true
         // A few seconds after the app comes on screen: never in the way of startup or of the screen opening.
         main.postDelayed({ worker.execute { checkQueued = false; runCheck() } }, c.firstCheckDelayMs)
+    }
+
+    /** Main thread: an Activity of this process was created already (the launch gate runs once per process). */
+    private var launchSeen = false
+
+    /** Main thread: the launch gate's check, at once. It counts as the automatic check of this time on screen. */
+    private fun checkForGate() {
+        lastAutoCheck = SystemClock.elapsedRealtime()
+        worker.execute { runCheck() }
+    }
+
+    /** For [ZnOtaGate]: the config, or null while OTA is off. */
+    internal fun configOrNull(): Config? = config
+
+    /**
+     * For [ZnOtaGate]: how long the app theme's animated launch icon plays (Android 12+
+     * `windowSplashScreenAnimationDuration`), 0 when it has none.
+     */
+    internal fun launchIconMs(): Long {
+        if (android.os.Build.VERSION.SDK_INT < 31) return 0L
+        val a = appContext.theme.obtainStyledAttributes(intArrayOf(android.R.attr.windowSplashScreenAnimationDuration))
+        return try { a.getInt(0, 0).toLong().coerceIn(0L, 2_000L) } finally { a.recycle() }
+    }
+
+    /** For [ZnOtaGate]: the phase ("downloading", "installing", ...) and the download progress 0..1. */
+    internal fun phaseAndProgress(): Pair<String, Double> = phase to progress
+
+    /** For [ZnOtaGate]: an outcome for the next check, about the bundle that runs now. Any thread. */
+    internal fun gateOutcome(kind: String, detail: String) {
+        if (config == null) return
+        worker.execute { record(kind, ZnBundles.running.key() ?: "built-in", detail, running = null) }
+    }
+
+    /**
+     * 0 normal, 1 high, 2 critical (docs/ota-patches.md §7). Not signed, like rollout. A kill switch is always critical.
+     */
+    private fun priorityOf(p: ZnOtaInstall.Pointer?): Int = when {
+        p == null -> 0
+        p.target == ZnOtaSignature.BUILT_IN || p.priority == "critical" -> 2
+        p.priority == "high" -> 1
+        else -> 0
     }
 
     /** Runs a check now (on the client's thread); [done] gets the result on that thread. */
@@ -209,7 +268,7 @@ object ZnOta {
     fun status(): JSONObject {
         val c = config ?: return JSONObject().put("enabled", false).put("phase", "off")
         val running = ZnBundles.running.let { if (it.builtIn) null else it.info?.id }
-        val next = currentFile().takeIf { it.isFile }?.readText()?.trim()?.ifEmpty { null }
+        val next = waitingNext()
         val st = synchronized(stateLock) { loadState() }
         return JSONObject()
             .put("enabled", true)
@@ -220,6 +279,8 @@ object ZnOta {
             .put("builtIn", ZnBundles.builtIn?.id ?: JSONObject.NULL)
             .put("next", next ?: JSONObject.NULL)
             .put("pendingRestart", next != running)
+            // 0 / 1 / 2: how urgent the waiting update is (docs/ota-patches.md §7); 0 when nothing waits.
+            .put("nextPriority", if (next != running) st.nextPriority else 0)
             .put("held", holds.isNotEmpty())
             .put("healthy", running == null || ZnOtaHealth.healthyBundle == running)
             .put("lastGood", ZnOtaHealth.lastGood ?: JSONObject.NULL)
@@ -246,6 +307,9 @@ object ZnOta {
     private fun ota() = ZnBundles.otaDir(appContext)
     private fun currentFile() = File(ota(), "current")
 
+    /** What runs from the next cold start: a bundle id, or null for the APK's own bundle. */
+    private fun waitingNext(): String? = currentFile().takeIf { it.isFile }?.readText()?.trim()?.ifEmpty { null }
+
     /** One check, start to end. Never throws: problems become the result and an outcome for telemetry. */
     private fun runCheck(): JSONObject {
         val c = config ?: return JSONObject().put("action", "NONE").put("reason", "OFF")
@@ -271,6 +335,7 @@ object ZnOta {
             synchronized(stateLock) { saveState(st) }
             setPhase("idle")
             Log.i(TAG, "check ${c.channel}: ${st.lastResult} in ${SystemClock.elapsedRealtime() - t0} ms")
+            ZnOtaGate.checkDone(ready = waitingNext() != ZnBundles.running.key(), p = st.nextPriority, result = st.lastResult!!)
             result
         } catch (e: Exception) {
             val code = (e as? ZnOtaError)?.code ?: "failed"
@@ -282,6 +347,7 @@ object ZnOta {
                 saveState(st)
             }
             setPhase("failed")
+            ZnOtaGate.checkDone(ready = false, p = 0, result = "$code: ${e.message}")
             JSONObject().put("action", "NONE").put("reason", "ERROR").put("error", "$code: ${e.message}")
         }
     }
@@ -297,10 +363,12 @@ object ZnOta {
             .put("capabilities", JSONObject().put("registry", caps.registry).put("bytecode", caps.bytecode)
                 .put("hostApi", caps.hostApi).put("hostApiOldest", caps.hostApiOldest).put("modules", JSONObject(caps.modules)))
             .put("running", if (running.builtIn) JSONObject.NULL else JSONObject().put("id", running.info!!.id).put("sha256", running.info.sha256))
-            .put("builtIn", JSONObject().put("id", builtIn.id).put("serial", builtIn.serial))
+            // sha256: so the server can use the APK's own bundle as a patch base (docs/ota-patches.md §4).
+            .put("builtIn", JSONObject().put("id", builtIn.id).put("serial", builtIn.serial).put("sha256", builtIn.sha256))
             .put("kept", JSONArray(keptBundles(builtIn, caps).take(16)))
             .put("seq", st.seq(c.channel))
             .put("outcomes", JSONArray(st.outcomes.toList()))
+            .put("patches", JSONArray(listOf(ZnBsPatch.FORMAT))) // the patch formats this phone applies
         val request = Request.Builder()
             .url(c.server.trimEnd('/') + "/v1/check")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
@@ -343,6 +411,7 @@ object ZnOta {
                         else ZnOtaInstall.writeAtomic(currentFile(), running.info!!.id)
                 }
                 st.setSeq(c.channel, pointer.seq)
+                st.nextPriority = priorityOf(pointer)
             }
             "BUILT_IN" -> {
                 val p = pointer ?: throw ZnOtaError("pointer", "BUILT_IN without a signed pointer")
@@ -352,6 +421,7 @@ object ZnOta {
                 }
                 currentFile().delete()
                 st.setSeq(c.channel, p.seq)
+                st.nextPriority = priorityOf(p)
                 outcome(st, "switched", "built-in", reason)
             }
             "USE_LOCAL", "UPDATE" -> {
@@ -368,9 +438,14 @@ object ZnOta {
                 if (!ZnOtaInstall.verifyManifest(m, c.publicKeys)) throw ZnOtaError("signature", "bad bundle signature on ${m.id}")
                 if (m.serial <= builtIn.serial) throw ZnOtaError("bundle", "${m.id} isn't newer than the APK's own #${builtIn.serial}")
                 ZnCapabilities.current().missing(m.requires)?.let { throw ZnOtaError("incompatible", it) }
-                if (action == "UPDATE") install(c, m) else switchTo(builtIn, m)
+                // The launch gate hears of a download before it starts: high and critical show the update screen.
+                if (action == "UPDATE") ZnOtaGate.found(priorityOf(p))
+                // UPDATE: the detail says which way it came ("patch from zerobill_11, 3.4 KB" or "full zip, 824 KB").
+                val how = if (action == "UPDATE") install(c, builtIn, st, m, answer.optJSONObject("patch")) else null
+                if (action != "UPDATE") switchTo(builtIn, m)
                 st.setSeq(c.channel, p.seq)
-                outcome(st, if (action == "UPDATE") "downloaded" else "switched", m.id, null)
+                st.nextPriority = priorityOf(p)
+                outcome(st, if (action == "UPDATE") "downloaded" else "switched", m.id, how)
                 result.put("bundle", m.id)
                 prune(builtIn)
             }
@@ -398,67 +473,165 @@ object ZnOta {
     private const val MIN_FREE_BYTES = 50L * 1024 * 1024
 
     /**
-     * Before downloading: is there room for the rest of the zip, its unzipped files and [MIN_FREE_BYTES]? If not, the
-     * check fails with `no_space` (nothing written; the seq isn't saved, so the next check tries again).
+     * Before downloading: is there room for the rest of the file ([name]`.part`: the zip, or the patch zip of
+     * [sha] / [size]), the unzipped bundle and [MIN_FREE_BYTES]? If not, the check fails with `no_space` (nothing
+     * written; the seq isn't saved, so the next check tries again).
      */
-    private fun checkSpace(m: ZnOtaInstall.Manifest) {
-        val partInfo = File(ota(), "download.json")
-        val same = partInfo.isFile && runCatching { JSONObject(partInfo.readText()).getString("sha256") }.getOrNull() == m.zipSha256
-        val have = if (same) File(ota(), "download.part").length().coerceAtMost(m.zipSize) else 0L
-        val need = (m.zipSize - have) + m.zipSize * UNZIP_FACTOR + MIN_FREE_BYTES
+    private fun checkSpace(m: ZnOtaInstall.Manifest, name: String = "download", sha: String = m.zipSha256, size: Long = m.zipSize) {
+        val partInfo = File(ota(), "$name.json")
+        val same = partInfo.isFile && runCatching { JSONObject(partInfo.readText()).getString("sha256") }.getOrNull() == sha
+        val have = if (same) File(ota(), "$name.part").length().coerceAtMost(size) else 0L
+        val need = (size - have) + m.zipSize * UNZIP_FACTOR + MIN_FREE_BYTES
         val free = freeSpaceOverride ?: ota().usableSpace
         if (free < need) throw ZnOtaError("no_space", "${m.id} needs ${mb(need)} MB free (with ${mb(MIN_FREE_BYTES)} MB kept for the user), the phone has ${mb(free)} MB")
     }
 
     private fun mb(bytes: Long) = "%.1f".format(Locale.US, bytes / 1048576.0)
 
-    private fun install(c: Config, m: ZnOtaInstall.Manifest) {
+    /** "3.4 KB" below 10 KB, else "824 KB". */
+    private fun kb(bytes: Long) = if (bytes < 10 * 1024) "%.1f KB".format(Locale.US, bytes / 1024.0) else "${(bytes + 512) / 1024} KB"
+
+    /** True for an IOException that says the phone is full. */
+    private fun isNoSpace(e: java.io.IOException) = (e.message ?: "").let { "ENOSPC" in it || "No space left" in it }
+
+    /**
+     * Downloads and installs [m]: from the check's [patch] when it has one this phone can use, else (or if the patch
+     * fails in any way) from the full zip. Returns how it came, for the `downloaded` outcome.
+     */
+    private fun install(c: Config, builtIn: ZnBundles.Info, st: State, m: ZnOtaInstall.Manifest, patch: JSONObject?): String {
         val running = ZnBundles.running
         if (!running.builtIn && running.info?.id == m.id) throw ZnOtaError("install", "${m.id} is running already")
         ota().mkdirs()
-        checkSpace(m)
         val tmp = File(ota(), "tmp")
-        val zip: File
         val staged = File(tmp, m.id)
-        try {
-            zip = download(c, m)
-            setPhase("installing")
-            tmp.deleteRecursively()
-            ZnOtaInstall.extract(zip, m, staged)
-        } catch (e: java.io.IOException) {
-            // The phone filled up while we wrote (another app, a big photo): give the space back at once.
-            if (!(e.message ?: "").let { "ENOSPC" in it || "No space left" in it }) throw e
-            tmp.deleteRecursively()
-            File(ota(), "download.part").delete()
-            File(ota(), "download.json").delete()
-            throw ZnOtaError("no_space", "the phone ran out of space while installing ${m.id}; its files were removed (${e.message})")
+        val how = patch?.let { installPatch(c, builtIn, st, m, it, tmp, staged) } ?: run {
+            checkSpace(m)
+            try {
+                download(c, m.url, m.zipSha256, m.zipSize, m.id)
+                setPhase("installing")
+                tmp.deleteRecursively()
+                ZnOtaInstall.extract(File(ota(), "download.part"), m, staged)
+            } catch (e: java.io.IOException) {
+                // The phone filled up while we wrote (another app, a big photo): give the space back at once.
+                if (!isNoSpace(e)) throw e
+                tmp.deleteRecursively()
+                File(ota(), "download.part").delete()
+                File(ota(), "download.json").delete()
+                throw ZnOtaError("no_space", "the phone ran out of space while installing ${m.id}; its files were removed (${e.message})")
+            }
+            "full zip, ${kb(m.zipSize)}"
         }
         val dest = File(ota(), "bundles/${m.id}")
         dest.parentFile!!.mkdirs()
         if (dest.exists()) dest.deleteRecursively() // a copy left by an earlier install of the same bytes (ids never change)
         if (!staged.renameTo(dest)) throw ZnOtaError("install", "can't move ${m.id} into place")
         ZnOtaInstall.writeAtomic(currentFile(), m.id) // the last step: until here the old bundle stays current
-        zip.delete()
-        File(ota(), "download.json").delete()
+        // Neither download is needed any more (after a patch, a cut download of the full zip is of no use either).
+        for (n in listOf("download.part", "download.json", "patch.part", "patch.json")) File(ota(), n).delete()
         tmp.deleteRecursively()
-        Log.i(TAG, "installed ${m.id}; it runs from the next start")
+        Log.i(TAG, "installed ${m.id} ($how); it runs from the next start")
+        return how
     }
 
-    /** Downloads the bundle's zip to `download.part`, resuming a cut download of the same zip. Returns the checked file. */
-    private fun download(c: Config, m: ZnOtaInstall.Manifest): File {
-        val part = File(ota(), "download.part")
-        val partInfo = File(ota(), "download.json")
-        val same = partInfo.isFile && runCatching { JSONObject(partInfo.readText()).getString("sha256") }.getOrNull() == m.zipSha256
-        if (!same || part.length() > m.zipSize) {
+    /**
+     * The patch way (docs/ota-patches.md §6): checks that the check's [patch] starts from a bundle this phone has (the
+     * running one, a kept one or the built-in one) with the same bundle SHA, downloads the patch zip to `patch.part`
+     * (resumable, like the zip), and builds the bundle into [staged] ([ZnOtaInstall.buildFromPatch]). Returns how it
+     * came, or null if anything went wrong: the patch files are then deleted, outcome `patch_failed` says why, and
+     * the caller downloads the full zip in the same check. Only "the phone is full" fails the check (`no_space`): the
+     * full zip needs more room still.
+     */
+    private fun installPatch(
+        c: Config, builtIn: ZnBundles.Info, st: State, m: ZnOtaInstall.Manifest, patch: JSONObject, tmp: File, staged: File,
+    ): String? {
+        val from = patch.optString("from")
+        fun dropPatchFiles() {
+            tmp.deleteRecursively()
+            File(ota(), "patch.part").delete()
+            File(ota(), "patch.json").delete()
+        }
+        val why = try {
+            val format = patch.optString("format")
+            if (format != ZnBsPatch.FORMAT) throw ZnOtaError("patch", "unknown patch format \"$format\"")
+            val fromSha = patch.getString("fromSha256")
+            val sha = patch.getString("sha256")
+            val size = patch.getLong("size")
+            val url = patch.getString("url")
+            if (size <= 0) throw ZnOtaError("patch", "bad patch size $size")
+            val base = patchBase(builtIn, from, fromSha)
+            checkSpace(m, "patch", sha, size) // no_space: thrown on (the full zip needs more)
+            val file = download(c, url, sha, size, "the patch for ${m.id}", name = "patch", checkedBy = "the check's patch sha256")
+            setPhase("installing")
+            tmp.deleteRecursively()
+            ZnOtaInstall.buildFromPatch(file, m, from, fromSha, base, staged)
+            return "patch from $from, ${kb(size)}"
+        } catch (e: ZnOtaError) {
+            if (e.code == "no_space") throw e // nothing written yet; a cut patch download stays for the next check
+            "${e.code}: ${e.message}"
+        } catch (e: java.io.IOException) {
+            if (isNoSpace(e)) {
+                dropPatchFiles()
+                throw ZnOtaError("no_space", "the phone ran out of space while building ${m.id} from a patch; its files were removed (${e.message})")
+            }
+            "${e.javaClass.simpleName}: ${e.message}"
+        } catch (e: Exception) {
+            "${e.javaClass.simpleName}: ${e.message}"
+        } catch (e: OutOfMemoryError) {
+            // The old files are read into memory; on a phone low on memory the full zip (read in parts) can still work.
+            "out of memory: ${e.message}"
+        }
+        dropPatchFiles()
+        Log.w(TAG, "the patch for ${m.id} from $from failed, downloading the full zip: $why")
+        outcome(st, "patch_failed", m.id, "from $from: $why")
+        return null
+    }
+
+    /**
+     * Opens files of the patch's base bundle [from], which must be the built-in bundle, the running one or a kept one
+     * (bundles/<id>, passing [ZnBundles.checkBundle], not blocked unless it runs) whose bundle SHA is [fromSha]. Only
+     * the files its `zn-bundle.json` lists can be opened. Throws [ZnOtaError] "patch" if there is no such bundle here.
+     */
+    private fun patchBase(builtIn: ZnBundles.Info, from: String, fromSha: String): (String) -> java.io.InputStream? {
+        if (from == builtIn.id) {
+            if (builtIn.sha256 != fromSha) throw ZnOtaError("patch", "the built-in $from has another bundle SHA-256")
+            return { name -> if (builtIn.files.containsKey(name)) ZnBundles.apkAssets().open(name) else null }
+        }
+        val running = ZnBundles.running
+        val (info, dir) = if (!running.builtIn && running.info?.id == from) {
+            running.info to running.dir!!
+        } else {
+            if (ZnOtaHealth.isBlocked(from)) throw ZnOtaError("patch", "the base $from is blocked on this phone")
+            val check = ZnBundles.checkBundle(from, builtIn, ZnCapabilities.current()) { File(ota(), "bundles/$it") }
+            val ok = check as? ZnBundles.Check.Ok
+                ?: throw ZnOtaError("patch", "the base $from isn't on this phone (${(check as ZnBundles.Check.No).reason})")
+            ok.info to File(ota(), "bundles/$from")
+        }
+        if (info.sha256 != fromSha) throw ZnOtaError("patch", "the base $from has another bundle SHA-256")
+        return { name -> if (info.files.containsKey(name)) File(dir, name).takeIf { it.isFile }?.inputStream() else null }
+    }
+
+    /**
+     * Downloads [url] (relative to the server) to [name]`.part`, resuming a cut download of the same file ([sha]; the
+     * `.json` beside it remembers which). [what] names it in logs. Returns the file, checked against [size] and [sha]
+     * ([checkedBy] says where they came from).
+     */
+    private fun download(
+        c: Config, url: String, sha: String, size: Long, what: String,
+        name: String = "download", checkedBy: String = "the signed manifest",
+    ): File {
+        val part = File(ota(), "$name.part")
+        val partInfo = File(ota(), "$name.json")
+        val same = partInfo.isFile && runCatching { JSONObject(partInfo.readText()).getString("sha256") }.getOrNull() == sha
+        if (!same || part.length() > size) {
             part.delete()
-            ZnOtaInstall.writeAtomic(partInfo, JSONObject().put("sha256", m.zipSha256).put("size", m.zipSize).toString())
+            ZnOtaInstall.writeAtomic(partInfo, JSONObject().put("sha256", sha).put("size", size).toString())
         }
         var have = if (part.isFile) part.length() else 0L
-        if (have < m.zipSize) {
-            setPhase("downloading", have.toDouble() / m.zipSize)
-            val url = c.server.toHttpUrl().resolve(m.url) ?: throw ZnOtaError("bundle", "bad download url ${m.url}")
-            val request = Request.Builder().url(url).apply { if (have > 0) header("Range", "bytes=$have-") }.build()
-            if (have > 0) Log.i(TAG, "resuming ${m.id} at $have of ${m.zipSize} bytes")
+        if (have < size) {
+            setPhase("downloading", have.toDouble() / size)
+            val full = c.server.toHttpUrl().resolve(url) ?: throw ZnOtaError("bundle", "bad download url $url")
+            val request = Request.Builder().url(full).apply { if (have > 0) header("Range", "bytes=$have-") }.build()
+            if (have > 0) Log.i(TAG, "resuming $what at $have of $size bytes")
             try { downloadClient.newCall(request).execute().use { r ->
                 val append = when {
                     r.code == 206 && r.header("Content-Range")?.startsWith("bytes $have-") == true -> true
@@ -474,24 +647,24 @@ object ZnOta {
                             val n = input.read(buf)
                             if (n < 0) break
                             have += n
-                            if (have > m.zipSize) throw ZnOtaError("download", "the download is bigger than its ${m.zipSize} bytes")
+                            if (have > size) throw ZnOtaError("download", "the download is bigger than its $size bytes")
                             out.write(buf, 0, n)
                             if (have - lastReport >= 64 * 1024) {
                                 lastReport = have
-                                setPhase("downloading", have.toDouble() / m.zipSize)
+                                setPhase("downloading", have.toDouble() / size)
                             }
                         }
                     }
                     out.fd.sync()
                 }
             } } catch (e: InterruptedIOException) { // OkHttp's error for a time limit; download.part stays for the next check
-                throw ZnOtaError("download", "no data for ${DOWNLOAD_IDLE_TIMEOUT_MS / 1000} s, at $have of ${m.zipSize} bytes")
+                throw ZnOtaError("download", "no data for ${DOWNLOAD_IDLE_TIMEOUT_MS / 1000} s, at $have of $size bytes")
             }
         }
-        if (part.length() != m.zipSize || ZnOtaInstall.sha256(part) != m.zipSha256) {
+        if (part.length() != size || ZnOtaInstall.sha256(part) != sha) {
             part.delete()
             partInfo.delete()
-            throw ZnOtaError("zip_sha", "the downloaded zip doesn't match the signed manifest")
+            throw ZnOtaError("zip_sha", "the downloaded ${if (name == "download") "zip" else "patch zip"} doesn't match $checkedBy")
         }
         return part
     }
@@ -556,6 +729,8 @@ object ZnOta {
         var lastCheckAt: Long,
         var lastResult: String?,
         var lastError: String?,
+        /** The priority (0 / 1 / 2) of the last channel change acted on: what `current` waits with ([status]). */
+        var nextPriority: Int = 0,
     ) {
         fun seq(channel: String) = seqs.optLong(channel, 0L)
         fun setSeq(channel: String, seq: Long) {
@@ -570,13 +745,14 @@ object ZnOta {
         val outcomes = j.optJSONArray("outcomes")?.let { a -> MutableList(a.length()) { a.getJSONObject(it) } } ?: mutableListOf()
         val id = j.optString("installId").ifEmpty { UUID.randomUUID().toString() }
         return State(id, j.optJSONObject("seq") ?: JSONObject(), outcomes, j.optString("lastRunning").ifEmpty { null },
-            j.optLong("lastCheckAt", 0L), j.optString("lastResult").ifEmpty { null }, j.optString("lastError").ifEmpty { null })
+            j.optLong("lastCheckAt", 0L), j.optString("lastResult").ifEmpty { null }, j.optString("lastError").ifEmpty { null },
+            j.optInt("nextPriority", 0))
     }
 
     private fun saveState(st: State) {
         val j = JSONObject().put("installId", st.installId).put("seq", st.seqs).put("outcomes", JSONArray(st.outcomes.takeLast(MAX_OUTCOMES)))
             .put("lastRunning", st.lastRunning ?: "").put("lastCheckAt", st.lastCheckAt)
-            .put("lastResult", st.lastResult ?: "").put("lastError", st.lastError ?: "")
+            .put("lastResult", st.lastResult ?: "").put("lastError", st.lastError ?: "").put("nextPriority", st.nextPriority)
         ZnOtaInstall.writeAtomic(stateFile(), j.toString())
     }
 
@@ -653,8 +829,10 @@ object ZnOta {
      * ALREADY_DONE until the channel moves on). [done] runs on the main thread with `{ applied: true, bundle }` once the
      * new screens are opened (JS never hears it: its runtime was replaced), or `{ applied: false, reason, error? }`,
      * reason: off, held, busy, not_started, nothing (the next start runs what runs now), failed.
+     * [open]: a link of this app opened on top once the screens are open again (a gate before Scan: the scanner),
+     * as if it came from outside ([ZnNav.openLink]). Only when the update applies.
      */
-    fun applyNow(done: (JSONObject) -> Unit = {}) {
+    fun applyNow(open: Uri? = null, done: (JSONObject) -> Unit = {}) {
         main.post {
             fun no(reason: String, error: String? = null) =
                 done(JSONObject().put("applied", false).put("reason", reason).apply { if (error != null) put("error", error) })
@@ -686,6 +864,7 @@ object ZnOta {
                         holds.isNotEmpty() -> { applying = false; no("held") } // a hold started while the files were read
                         else -> {
                             val old = ZnBundles.Candidate(ZnBundles.running, emptyMap()) to assets.associateWith { ZnTemplates.get(it)!! }
+                            openAfter = open
                             swap(ready.first, ready.second, old, SystemClock.uptimeMillis(), Swap.APPLY, done)
                         }
                     }
@@ -711,7 +890,13 @@ object ZnOta {
         val assets = ZnTemplates.assets()
         val ready = config != null && holds.isEmpty() && !applying && !rollingBack && assets.isNotEmpty() &&
             assets.all { ZnTemplates.get(it) != null } && assets.any { ZnTemplates.get(it) === ZnNav.currentBundle }
-        if (!ready) return noUpdate()
+        // No waiting update: a fresh start on the bundle that runs, and the launch gate checks now (a priority high
+        // or critical update still swaps before the user is in, as at a cold start).
+        val none = {
+            noUpdate()
+            if (config != null) ZnOtaGate.beginWarm(::checkForGate)
+        }
+        if (!ready) return none()
         applying = true
         // Not on [worker]: a download running there would keep the user on the cover. `current` is written last and
         // atomically, so reading it here is safe; what can't be read counts as no update.
@@ -727,7 +912,7 @@ object ZnOta {
             main.post {
                 if (update == null || holds.isNotEmpty()) {
                     applying = false
-                    return@post noUpdate()
+                    return@post if (update == null) none() else noUpdate()
                 }
                 fresh = true
                 freshLink = link
@@ -740,6 +925,8 @@ object ZnOta {
     /** Main thread: the next [swap] that reaches the end opens the start screen, not the old stack. */
     private var fresh = false
     private var freshLink: Uri? = null
+    /** Main thread: [applyNow]'s link, opened once its swap has opened the screens again. */
+    private var openAfter: Uri? = null
 
     /** Why [swap] runs: [applyNow], [startFresh], a safety-net [rollBack], or the way back after one's bundle threw. */
     private enum class Swap { APPLY, FRESH, ROLLBACK, FALLBACK }
@@ -795,6 +982,9 @@ object ZnOta {
             val navBundle = navAsset?.let(bundles::get)
             if (navBundle != null && fresh) ZnNav.start(navBundle, freshLink)
             else if (navBundle != null && saved.isNotEmpty()) ZnNav.restart(navBundle, saved)
+            // applyNow's link (only when the new bundle runs: a fallback goes back to where the user was).
+            if (why == Swap.APPLY && result.ok) openAfter?.let(ZnNav::openLink)
+            openAfter = null
             fresh = false
             freshLink = null
             applying = false
@@ -922,6 +1112,7 @@ object ZnOta {
         if (applying || rollingBack || ZnRuntime.isRestarting) return // the screens of a runtime being replaced
         main.removeCallbacks(uncover)
         ZnNav.cover = null
+        ZnOtaGate.screensUp() // after a swap at the update screen: it goes now
         if (screensAreUp) return
         screensAreUp = true
         main.removeCallbacks(firstScreenTimer)
@@ -1079,7 +1270,11 @@ object ZnOta {
                 check { result -> call.resolve(result.put("status", status())) }
             }
             // v2 (step 4.6). Both run on the main thread, so a hold sent before applyNow is always seen by it.
-            function("applyNow", onMain = true) { call -> applyNow { call.resolve(it) } }
+            // `open` (2026-11-09, no version change: an older app ignores it and just applies): a link opened after the swap.
+            function("applyNow", onMain = true) { call ->
+                val open = call.stringOrNull("open")?.let(Uri::parse)
+                applyNow(open) { call.resolve(it) }
+            }
             // Never answered: the hold lasts until JS cancels the call (release, or the screen that asked closes)
             // or the runtime is replaced.
             function("hold", onMain = true) { call ->

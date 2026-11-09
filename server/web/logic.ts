@@ -1,6 +1,6 @@
 // What the dashboard may offer for a bundle or channel. The server checks every rule again; this only explains them
 // sooner (docs/zn-updates-server.md §5).
-import type { Bundle, State } from "./api"
+import type { Bundle, Priority, State } from "./api"
 import { BUILT_IN, serialOf } from "./util"
 import type { DialogSpec } from "./ui"
 
@@ -14,7 +14,7 @@ export interface ChannelNow {
   killed: boolean
   empty: boolean
   rollout: number
-  priority: "normal" | "high"
+  priority: Priority
   seq: number
   at: string | null
   by: string | null

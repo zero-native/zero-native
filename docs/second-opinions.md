@@ -3167,3 +3167,34 @@ change, and what evidence would make you change it?"
 - **Not taken:** the short last row as in RN (widened flex items). Most RN apps pad their data to avoid it; the brief
   asked for padded rows.
 - **Costs:** a grid row recomposes when any of its items mounts (n items per row); measured only on the emulator.
+
+## 213. OTA patches: bsdiff with deflate, our own ZNBSDIFF1 container (framework, 2026-11-09; Opus, OTA parity)
+- **Chosen:** Percival's bsdiff 4.3 (tools/ota/bsdiff.ts; phone ZnBsPatch.kt), its control / diff / extra parts in one
+  file stored deflated in a patch zip. Not the classic BSDIFF40 (bzip2 blocks).
+- **Why:** measured on 6 real ZeroBill builds (docs/ota-patches.md §1): deflate is 5-10 % bigger than bzip2 (3 KB vs
+  2 KB small, 61 vs 56 KB medium) and needs no library on Android or iOS. zstd was dropped by Pavan (native library).
+- **Trust:** nothing new signed. Every built file is checked against the signed bundle SHA's file list.
+- **Open:** the 60 % keep rule and the 5 bundles + 3 store builds as bases are RN's numbers, not measured for zn.
+
+## 214. OTA launch gate: 800 ms to wait for the answer, not RN's 400 ms (runtime, 2026-11-09; Opus, OTA parity)
+- **Chosen:** at a start with UI the check runs at once; the launch screen waits for its answer at most 800 ms from
+  the tap (`launchDecisionMs`). Caps 4 s / 5.8 s as RN (Pavan: "sure" to RN's numbers).
+- **Why not 400:** RN's JS was ready ~1 s after the tap, so its check had answered by then; RN's 400 ms never cost
+  anything. zn's first screen is up ~0.3 s after the tap, and a new HTTPS check needs a few hundred ms on 4G. With
+  400 ms the gate would almost never see an answer. Pavan asked to "feel" the swap on opening.
+- **Cost:** a start with no update waits until the answer comes, only when the answer is slower than the first
+  screen, at most ~0.5 s. To be measured on the Lava (check time at a cold start); 0 turns the gate off.
+- **Also:** the old bundle's first screen is built under the update screen, then built again after the swap (JS
+  start work can run twice). RN had the same (its JS splash ran before the reload).
+
+## 215. Wi-Fi ↔ mobile: a new client with a fresh pool, not cancelling calls (runtime, 2026-11-09; Opus, network review)
+- **Chosen:** when the default network changes, `ZnFetch.client` becomes `old.newBuilder().connectionPool(new)` and the
+  old pool's idle connections are closed. Calls already running finish on the old client. Clients with other settings
+  come from `ZnFetch.derived(key)`, built again after each change (OTA check / download, PDF, images, no-redirect).
+- **Why:** `ConnectionPool.evictAll()` closes idle connections only. An HTTP/2 connection still in use on the old
+  network kept taking new calls, which hung until its 10 s ping failed (review finding 3: the verify after the UPI app).
+- **Not chosen:** cancelling every call in flight at a change. A POST (pay, verify) may already have reached the server;
+  cancelling it would turn a likely success into "failed". Letting it finish or fail by its own ping is safer.
+- **Open:** a plugin or app that keeps `ZnFetch.client` (or its own `newBuilder()`) in a field still uses the old pool
+  (guide §89). Same dispatcher for old and new clients, so per-host limits count both. Not measured: the cost of
+  `newBuilder().build()` at each change (no new TLS setup is expected; the socket factory is shared).

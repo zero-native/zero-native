@@ -871,6 +871,17 @@ bun run ota serve                                    the reference update server
   starts fresh (signals, timers, running `fetch` calls are dropped). Keep what must survive in storage or FlowStore,
   and read it back when the screen builds, like after Android restored the app.
 - **Don't:** count on code after `await Updates.applyNow()` running: when it applies, that JS is gone.
+- **Do:** for a gate before a flow (the user tapped Scan), pass the flow's link: `Updates.applyNow({ open:
+  "myapp://scan" })`. The new bundle opens the same screens, then that link on top, so the user lands where they
+  tapped. Apps built before 2026-11-09 ignore `open`.
+- **Do:** give urgent releases a priority (docs/ota-patches.md §7): `--priority high` may swap at the splash,
+  `critical` waits a little longer and is the kill switch's. Normal waits for the next start or your gates. Native
+  shows the update screen by itself; set its look once:
+  `ZnOta.Config(…, updateScreen = ZnUpdateScreen(accent = Color(0xFF341DEC)))` (the brand colour; the words can be
+  changed too). `Updates.status().nextPriority` tells your gates how urgent the waiting update is.
+- **Don't:** count on JS of the old bundle not running at a gated start: the first screen is built under the update
+  screen while it downloads, then built again in the new bundle. Keep start-up work idempotent (one "app opened" event
+  per start is fine, two is possible).
 - **Why:** customers open the app once or twice a month, so "next cold start" alone brings fixes weeks late (ZeroBill's
   RN OTA learned this). Applying in place at moments the app picks is fast; holds keep it away from money moments.
 - **Do:** serve the store with `bun run ota serve` (or your own backend speaking the same `POST /v1/check`,
@@ -2907,3 +2918,17 @@ wait, online only. The bundle runs from the next cold start (README, "OTA pushes
   push storm can't keep moving it; the job gets the newest bundle when it runs.
 - **Know:** `PushPlugin(otaCheck = false)` turns it off and unsubscribes the topic. Changing the channel (a staging
   build becomes production) unsubscribes the old topic at the next start.
+
+## 89. Network changes: a fresh connection pool, NetInfo's "blocked", images (review 2026-11-09)
+When the default network changes (Wi-Fi ↔ mobile, or lost), `ZnFetch.client` becomes a new client with an empty
+connection pool (same settings, interceptors and dispatcher). Calls already running finish on the old one.
+- **Do** read `ZnFetch.client` for each call, and use `ZnFetch.derived("my.key") { it.readTimeout(…) }` for a client
+  with your own settings. **Why:** a client kept in a field (or `newBuilder()` once, in a `lazy`) keeps the old pool: new
+  calls join a connection on the dead network and hang until its ping fails (10-20 s). That was a verify right after
+  the UPI app. `derived` builds the client again after each change.
+- **Don't** set your own `connectionPool` in `ZnFetch.configure`. **Why:** the fresh pool after a change replaces it.
+- **Know:** NetInfo reads `isConnected: false` (type "none") while Android blocks the app on the network (data saver,
+  background data off, a phone maker's per-app switch), and sends a change when the block ends (Android 10+). Before,
+  a lifted block sent nothing and the app's offline screen stayed.
+- **Know:** `Image` and the image viewer load through `ZnFetch.client` (30 s read limit), so the app's pins and
+  interceptors apply to images too. An app that sets its own Coil `SingletonImageLoader` before `ZnRuntime.start` keeps it.

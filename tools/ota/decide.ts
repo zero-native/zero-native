@@ -26,10 +26,15 @@ export interface CheckRequest {
   capabilities: Capabilities
   /** The bundle running now: null when it is the APK's built-in bundle. */
   running: { id: string; sha256: string } | null
-  /** The APK's built-in bundle. A newer APK always wins over downloaded bundles. */
-  builtIn: { id: string; serial: number }
+  /**
+   * The APK's built-in bundle. A newer APK always wins over downloaded bundles. `sha256` (its bundle SHA-256) is
+   * optional: only phones that apply patches send it, so the server can use the built-in bundle as a patch base.
+   */
+  builtIn: { id: string; serial: number; sha256?: string }
   /** Downloaded bundles kept on the phone (checked), so going back to one downloads nothing. */
   kept: string[]
+  /** Optional: the patch formats this phone applies (docs/ota-patches.md §4), e.g. ["znbsdiff1"]. Old phones send none. */
+  patches?: string[]
   /** The highest pointer seq the phone accepted on this channel (0 = none). It never accepts a lower one. */
   seq: number
   /** What happened since the last check (downloaded, applied, rollback, ...), for telemetry only. */

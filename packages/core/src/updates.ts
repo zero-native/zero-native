@@ -21,6 +21,12 @@ export interface UpdateStatus {
   next?: string | null
   /** True when the next start runs something else than now (an update is installed and waiting): see `applyNow`. */
   pendingRestart?: boolean
+  /**
+   * The priority of the waiting update (when `pendingRestart`): 0 normal (runs from the next start), 1 high, 2 critical
+   * (a kill switch too). An app's gates call `applyNow` at a calm moment for 2 (and 1 if it likes), never in a payment.
+   * Missing on apps built before 2026-11-09.
+   */
+  nextPriority?: 0 | 1 | 2
   /** True while some code holds updates (`holdApply`). */
   held?: boolean
   /** True once the running bundle was marked healthy (`markHealthy`, or 4 s after its first screens); always for the APK's. */
@@ -65,7 +71,7 @@ export interface ApplyRefused {
 interface UpdatesModule {
   status(): Promise<UpdateStatus>
   check(): Promise<UpdateCheckResult>
-  applyNow(): Promise<ApplyRefused>
+  applyNow(args?: { open?: string }): Promise<ApplyRefused>
   hold(args?: Record<string, never>, options?: { signal?: AbortSignal }): Promise<never>
   markHealthy(): Promise<void>
   events: { status: UpdateStatus }
@@ -86,8 +92,13 @@ export const Updates = {
    * the app). Storage and SecureStore stay as they are. Call it at a calm moment (the user on the home screen, or
    * after they tapped "Update now"), never in the middle of a flow. If it applies, the Promise never settles: this code
    * is gone. Otherwise it resolves with the reason.
+   *
+   * `open`: a link of this app (as a deep link would come, e.g. "myapp://scan") opened on top once the screens are
+   * open again. For a gate before a flow: the user tapped Scan, the update applies, and the scanner opens in the new
+   * bundle. Apps built before 2026-11-09 ignore it (they apply without opening it).
    */
-  applyNow: (): Promise<ApplyRefused> => Module.applyNow(),
+  applyNow: (options?: { open?: string }): Promise<ApplyRefused> =>
+    Module.applyNow(options?.open ? { open: options.open } : undefined),
   /**
    * Keeps updates from being applied in place (`applyNow` answers "held") until the returned function is called, or
    * the screen (or component) that called it closes. For payments, forms, anything that must not be cut. Called

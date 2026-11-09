@@ -1,8 +1,11 @@
 // The release side of zn-updates (docs/zn-updates-server.md): what the `updates` CLI does, as functions the tests
 // and the dashboard's build helper share. Signing happens here, on the owner's machine: the server never sees the
 // private key, only signatures it checks against the app's public keys.
-import { readBundleInfo, setBundleSerial } from "../bundle-info"
-import { RECORD_FORMAT, zipFolder, type Manifest, type Pointer } from "../ota/core"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { zipSync } from "fflate"
+import { BUNDLE_INFO_FILE, readBundleInfo, setBundleSerial } from "../bundle-info"
+import { RECORD_FORMAT, zipFolder, type Manifest, type Pointer, type Priority } from "../ota/core"
 import { BUILT_IN, bundleText, pointerText, sha256Hex, signText } from "../ota/signing"
 
 export interface Conn {
@@ -97,13 +100,56 @@ export async function uploadBuilt(
   return { manifest: m, reused: false }
 }
 
+/**
+ * A built bundle folder as a zip in the same format a release zip has (zn-bundle.json and the files it lists), for a
+ * store build's base (docs/ota-patches.md §5). Only the listed files go in: the host's assets folder holds other things too.
+ */
+export function zipBundleFiles(dir: string): Uint8Array {
+  const info = readBundleInfo(dir)
+  const mtime = new Date(Date.UTC(1980, 0, 2)) // the same fixed time as zipFolder: equal files, equal bytes
+  const files: Record<string, [Uint8Array, { mtime: Date }]> = {}
+  for (const name of [BUNDLE_INFO_FILE, ...Object.keys(info.files)].sort()) files[name] = [new Uint8Array(readFileSync(join(dir, ...name.split("/")))), { mtime }]
+  return zipSync(files, { level: 9 })
+}
+
+/**
+ * Uploads the built-in bundle in [dir] (a host's assets folder, built with the store build's serial) as the base for
+ * patches of the store build with that built-in serial. The server refuses a bundle with another SHA-256 than the store build's.
+ */
+export async function uploadBase(c: Conn, app: string, serial: number, dir: string): Promise<{ serial: number; path: string; size: number }> {
+  const zip = zipBundleFiles(dir)
+  const form = new FormData()
+  form.set("zip", new Blob([zip as Uint8Array<ArrayBuffer>], { type: "application/zip" }), "base.zip")
+  return call(c, "POST", `/admin/apps/${app}/store-builds/${serial}/base`, form)
+}
+
+/** A patch the server made: from which bundle (an OTA bundle, or a store build's built-in one), and how big. */
+export interface PatchInfo {
+  toId: string
+  fromId: string
+  fromSha256: string
+  path: string
+  sha256: string
+  size: number
+  madeAt: string
+}
+
+/** Makes the patches of one bundle again; the server answers with what it made (and what it dropped or could not make). */
+export function remakePatches(c: Conn, app: string, serial: number) {
+  return call<{
+    result: { made: { from: string; size: number }[]; tooBig: { from: string; size: number }[]; failed: { from: string; error: string }[]; skipped: number }
+    patches: PatchInfo[]
+  }>(c, "POST", `/admin/apps/${app}/bundles/${serial}/patches`)
+}
+
 export interface ChangeOptions {
   app: string
   channel: string
   /** A bundle id (`<app>_<serial>`), a serial, or BUILT_IN (the kill switch). */
   target: string | number
   rollout: number
-  priority?: "normal" | "high"
+  /** Default normal; the kill switch is always critical (docs/ota-patches.md §7). */
+  priority?: Priority
   reason?: string
   /** `PRODUCTION #N` for production publish / rollback; `KILL <CHANNEL>` for the kill switch. */
   confirm?: string
@@ -125,7 +171,7 @@ export async function changeChannel(c: Conn, privatePem: string, o: ChangeOption
     seq: next.seq,
     target,
     rollout: o.rollout,
-    priority: o.priority ?? "normal",
+    priority: o.priority ?? (target === BUILT_IN ? "critical" : "normal"),
     at: now().toISOString(),
     ...(o.reason ? { reason: o.reason } : {}),
     signature: signText(text, privatePem),

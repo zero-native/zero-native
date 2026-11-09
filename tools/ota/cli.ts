@@ -173,7 +173,7 @@ async function main() {
           channel: a.channel!,
           bundle: a.bundle!,
           rollout: a.rollout === undefined ? undefined : Number(a.rollout),
-          priority: a.priority === "high" ? "high" : "normal",
+          priority: a.priority === undefined ? "normal" : core.PRIORITIES.includes(a.priority as core.Priority) ? (a.priority as core.Priority) : fail("--priority is normal, high or critical"),
           confirm,
           reason: a.reason,
         }),

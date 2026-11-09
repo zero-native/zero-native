@@ -6,6 +6,7 @@
 export const SIGNATURE_VERSION = "zn-ota-v1"
 export const BUILT_IN = "BUILT_IN"
 export const RECORD_FORMAT = 1
+export type Priority = "normal" | "high" | "critical"
 
 export interface Signature {
   keyId: string
@@ -27,7 +28,7 @@ export interface PointerOut {
   seq: number
   target: string
   rollout: number
-  priority: "normal" | "high"
+  priority: Priority
   at: string
   reason?: string
   signature: Signature
@@ -116,7 +117,7 @@ export interface ChangeInput {
   text: string
   target: string
   rollout: number
-  priority: "normal" | "high"
+  priority: Priority
   reason?: string
   now?: () => Date
 }

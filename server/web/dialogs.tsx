@@ -1,10 +1,10 @@
 // Dialogs for every write. The server checks every rule again; each dialog explains its rules first.
 import { type ReactNode, useState } from "react"
-import { ApiError, routes } from "./api"
+import { ApiError, type Priority, routes } from "./api"
 import { channelNow, cannotRun, olderThanStoreBuilds, PRODUCTION } from "./logic"
 import { buildPointer, loadSigningKey } from "./sign"
 import { Badge, Btn, Field, Modal, Notice, type DialogSpec, useApp } from "./ui"
-import { BUILT_IN, criticalWords, showVersion, versionNumber } from "./util"
+import { BUILT_IN, criticalWords, PRIORITY_LINES, showVersion, versionNumber } from "./util"
 
 // ---- Shared bits ------------------------------------------------------------------------------------------------------
 
@@ -129,7 +129,8 @@ function ChangeDialog({ spec }: { spec: Extract<DialogSpec, { t: "change" }> }) 
   const bundle = spec.serial !== undefined ? s.bundles.find((b) => b.serial === spec.serial) : undefined
   const target = mode === "kill" ? BUILT_IN : mode === "rollout" ? (now.target ?? "") : (bundle?.id ?? "")
   const [rollout, setRollout] = useState(mode === "rollout" ? now.rollout : mode === "kill" ? 100 : prod && mode === "publish" ? 5 : 100)
-  const [priority, setPriority] = useState<"normal" | "high">(mode === "rollout" ? now.priority : "normal")
+  // The kill switch is always critical: phones go back to their built-in bundle as soon as they can.
+  const [priority, setPriority] = useState<Priority>(mode === "rollout" ? now.priority : mode === "kill" ? "critical" : "normal")
   const [reason, setReason] = useState("")
   const [confirm, setConfirm] = useState("")
   const act = useAction()
@@ -235,10 +236,13 @@ function ChangeDialog({ spec }: { spec: Extract<DialogSpec, { t: "change" }> }) 
           </Field>
         ) : null}
         {mode !== "kill" ? (
-          <Field label="Priority" hint="High asks apps to apply the update sooner. Apps use their own rules for when.">
-            <select value={priority} onChange={(e) => setPriority(e.target.value as "normal" | "high")}>
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
+          <Field label="Priority" hint="How soon phones update. It is not signed: a wrong value only makes phones update sooner or later, never run a different bundle.">
+            <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
+              {(["normal", "high", "critical"] as const).map((p) => (
+                <option key={p} value={p}>
+                  {p === "critical" ? PRIORITY_LINES[p] : `${p === "normal" ? "Normal" : "High"}: ${PRIORITY_LINES[p]!.toLowerCase()}`}
+                </option>
+              ))}
             </select>
           </Field>
         ) : null}

@@ -156,6 +156,7 @@ fun ZnNavHost(bundle: ZnBundle, modifier: Modifier = Modifier) {
             OverlayLayer(bundle)
         }
         Cover()
+        UpdateScreenHost()
         ZnToast.Host()
         ZnAlert.Host()
         if (BuildConfig.DEBUG) ZnDev.Overlay()

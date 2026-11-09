@@ -49,6 +49,8 @@ export interface Manifest {
   builtAt: string
   signature: Signature
 }
+/** How soon phones update: normal = next start, high = may update at the splash, critical = update now. */
+export type Priority = "normal" | "high" | "critical"
 export interface Pointer {
   format: number
   app: string
@@ -56,7 +58,7 @@ export interface Pointer {
   seq: number
   target: string
   rollout: number
-  priority: "normal" | "high"
+  priority: Priority
   at: string
   reason?: string
   signature: Signature
@@ -66,6 +68,16 @@ export interface PointerRow {
   kind: "publish" | "rollback" | "rollout" | "kill" | string
   publishedBy: string
   at: string
+}
+/** A patch zip: it turns the bundle `fromId` (an OTA bundle, or a store build's built-in bundle) into `toId`. */
+export interface Patch {
+  toId: string
+  fromId: string
+  fromSha256: string
+  path: string
+  sha256: string
+  size: number
+  madeAt: string
 }
 export interface Bundle {
   app: string
@@ -82,6 +94,8 @@ export interface Bundle {
   note: string | null
   liveOn: string[]
   everOn: string[]
+  /** Smaller than the full zip: what phones on an older bundle can download instead (made after the upload). */
+  patches: Patch[]
 }
 export interface AppRecord {
   id: string
@@ -103,6 +117,8 @@ export interface StoreBuild {
   git: { commit: string; dirty: boolean }
   builtBy: string
   builtAt: string
+  /** Size of the built-in bundle's zip kept as a patch base; null = none (phones on it get full zips). */
+  baseSize: number | null
 }
 export interface Family {
   family: string

@@ -2,7 +2,7 @@
 // it (the dashboard, the CLI): the dashboard checks the same rules first only to explain them sooner.
 import { createHash } from "node:crypto"
 import type { BundleRequires } from "../../tools/bundle-info"
-import type { Manifest, Pointer } from "../../tools/ota/core"
+import { type Manifest, type Pointer, PRIORITIES } from "../../tools/ota/core"
 import { missing, type Capabilities } from "../../tools/ota/decide"
 import { BUILT_IN, bundleText, pointerText, requiresLine, sha256Hex, verifyText } from "../../tools/ota/signing"
 import type { Db } from "./db"
@@ -323,7 +323,7 @@ export async function addPointer(db: Db, app: string, req: PointerRequest, by: s
   if (!p || p.app !== app) throw new RuleError("the pointer is for another app")
   await checkChannel(db, app, p.channel)
   if (!Number.isInteger(p.rollout) || p.rollout < 1 || p.rollout > 100) throw new RuleError("rollout must be 1–100 (to pause, roll back or use the kill switch)")
-  if (p.priority !== "normal" && p.priority !== "high") throw new RuleError("priority must be normal or high")
+  if (!PRIORITIES.includes(p.priority)) throw new RuleError("priority must be normal, high or critical")
   if (!verifyText(pointerText(p), p.signature, a.publicKeys)) throw new RuleError("the pointer's signature doesn't match the app's public keys")
   const now = await current(db, app, p.channel)
   const nextSeq = (now?.seq ?? 0) + 1
@@ -424,6 +424,8 @@ export async function storeBuilds(db: Db, app: string) {
     git: { commit: r.git_commit as string, dirty: r.git_dirty as boolean },
     builtBy: r.built_by as string,
     builtAt: iso(r.built_at),
+    /** The size of the built-in bundle's zip kept as a patch base (docs/ota-patches.md §5); null = none (full zips only). */
+    baseSize: (r.base_size as number) ?? null,
   }))
 }
 
@@ -457,6 +459,41 @@ export async function learnCapabilities(db: Db, app: string, builtinSerial: numb
     learned.delete(key)
     console.warn(`learn capabilities: ${(e as Error).message}`)
   }
+}
+
+// ---- Patches --------------------------------------------------------------------------------------------------------------
+
+/** One patch zip: it turns the bundle `fromSha256` into bundle `toId` (docs/ota-patches.md §3, made by src/patches.ts). */
+export interface PatchRow {
+  toId: string
+  /** The base bundle's id: an OTA bundle, or a store build's built-in bundle. */
+  fromId: string
+  fromSha256: string
+  path: string
+  sha256: string
+  size: number
+  madeAt: string
+}
+
+function patchRow(r: Record<string, unknown>): PatchRow {
+  return {
+    toId: r.to_id as string,
+    fromId: r.from_id as string,
+    fromSha256: r.from_sha256 as string,
+    path: r.path as string,
+    sha256: r.sha256 as string,
+    size: r.size as number,
+    madeAt: iso(r.made_at),
+  }
+}
+
+/** The patches of one bundle (`toId`), or of every bundle of the app, smallest first. */
+export async function patchesOf(db: Db, app: string, toId?: string): Promise<PatchRow[]> {
+  const rows = await db.query(
+    `SELECT * FROM patches WHERE app = $1 AND ($2::text IS NULL OR to_id = $2) ORDER BY to_id, size, from_sha256`,
+    [app, toId ?? null],
+  )
+  return rows.map(patchRow)
 }
 
 // ---- Store rules ------------------------------------------------------------------------------------------------------
@@ -637,6 +674,8 @@ export async function state(db: Db, app: string) {
     }),
   )
   const builds = await storeBuilds(db, app)
+  const patchesByTo = new Map<string, PatchRow[]>()
+  for (const p of await patchesOf(db, app)) patchesByTo.set(p.toId, [...(patchesByTo.get(p.toId) ?? []), p])
   const served = new Map<string, string[]>()
   const everOn = new Map<string, Set<string>>()
   for (const c of channelState) {
@@ -646,7 +685,7 @@ export async function state(db: Db, app: string) {
   return {
     app: a,
     channels: channelState,
-    bundles: all.map((b) => ({ ...b, liveOn: served.get(b.id) ?? [], everOn: [...(everOn.get(b.id) ?? [])] })),
+    bundles: all.map((b) => ({ ...b, liveOn: served.get(b.id) ?? [], everOn: [...(everOn.get(b.id) ?? [])], patches: patchesByTo.get(b.id) ?? [] })),
     storeBuilds: builds,
     families: familiesView(builds, all),
     rules: { android: await storeRules(db, app, "android"), ios: await storeRules(db, app, "ios") },

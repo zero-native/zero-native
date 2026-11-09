@@ -57,6 +57,9 @@ export function parseCheck(body: unknown): CheckRequest {
   check(builtIn && isId(builtIn.id) && isCount(builtIn.serial), "builtIn")
   check(Array.isArray(r.kept) && r.kept.length <= 16 && r.kept.every((k) => isId(k)), "kept")
   check(isCount(r.seq), "seq")
+  // Patch fields are optional and never fail a check: a value in the wrong shape is dropped (the phone gets a full zip).
+  const patches = Array.isArray(r.patches) ? r.patches.filter((p): p is string => isId(p, 32)).slice(0, 8) : undefined
+  const builtInSha = typeof builtIn.sha256 === "string" && /^[0-9a-f]{64}$/.test(builtIn.sha256) ? builtIn.sha256 : undefined
   const outcomes = r.outcomes ?? []
   check(Array.isArray(outcomes) && outcomes.length <= 50, "outcomes")
   return {
@@ -65,7 +68,8 @@ export function parseCheck(body: unknown): CheckRequest {
     installId: r.installId,
     capabilities: c as unknown as CheckRequest["capabilities"],
     running: running as CheckRequest["running"],
-    builtIn: builtIn as unknown as CheckRequest["builtIn"],
+    builtIn: { id: builtIn.id, serial: builtIn.serial, ...(builtInSha ? { sha256: builtInSha } : {}) },
+    ...(patches ? { patches } : {}),
     kept: r.kept as string[],
     seq: r.seq,
     outcomes: (outcomes as Array<Record<string, unknown>>).map((o) => ({

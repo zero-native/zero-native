@@ -878,6 +878,15 @@ ul.plain li + li {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
+/* A store build's built-in bundle: listed with the others, quieter (no channel serves it, no actions) */
+.brow.builtin {
+  background: var(--bg);
+  border-style: dashed;
+  box-shadow: none;
+}
+.brow.builtin .brow-serial {
+  color: var(--muted);
+}
 .brow-serial {
   font-size: 26px;
   font-weight: 800;

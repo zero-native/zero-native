@@ -1,9 +1,9 @@
 // Overview, Bundles and the bundle page.
 import { useMemo, useState } from "react"
-import { type Bundle, routes, type State, type Stats } from "./api"
+import { type Bundle, routes, type State, type Stats, type StoreBuild } from "./api"
 import { bundleActions, cannotRun, channelNow, type ChannelNow, nextHints, PRODUCTION, STAGING } from "./logic"
 import { Badge, Btn, Card, Empty, ErrorBox, Menu, Notice, PageHead, Segmented, Skeleton, Stat, useApp, useLoad, When } from "./ui"
-import { actionWords, ago, bytes, dateTime, kindWords, requiresList, targetLabel } from "./util"
+import { actionWords, ago, bytes, dateTime, kindWords, priorityWords, requiresList, serialOf, targetLabel } from "./util"
 
 export function todayUtc() {
   return new Date().toISOString().slice(0, 10)
@@ -47,7 +47,7 @@ function ChannelCard({ s, name }: { s: State; name: string }) {
       <p className="sub">{servesText(n)}</p>
       <dl className="facts">
         <dt>Priority</dt>
-        <dd>{n.priority === "high" ? "High" : "Normal"}</dd>
+        <dd>{priorityWords(n.priority)}</dd>
         <dt>Change number</dt>
         <dd className="num">{n.seq || "none"}</dd>
         <dt>Last change</dt>
@@ -155,7 +155,55 @@ export function BundleBadges({ s, b }: { s: State; b: Bundle }) {
   )
 }
 
-type Filter = "all" | "live" | "stable" | "none"
+type Filter = "all" | "live" | "stable" | "none" | "builtin"
+
+/**
+ * A store build's built-in bundle, as a row of the Bundles list (Pavan, 2026-11-09: every bundle number is listed, so a
+ * patch "from #12 (built-in)" points at a row). It isn't an OTA bundle: no channel can serve it and it has no actions;
+ * the row links to Store builds. Its zip on the server (if any) is only the base for patches.
+ */
+function BuiltInRow({ sb }: { sb: StoreBuild }) {
+  const c = useApp()
+  const to = c.href("/builds")
+  return (
+    <div className="brow builtin">
+      <a className="brow-serial num" href={to}>
+        #{sb.builtinSerial}
+      </a>
+      <div className="brow-main">
+        <a className="brow-title" href={to}>
+          Built into {sb.label}
+        </a>
+        <div className="brow-meta">
+          <span className="code">{sb.git.commit.slice(0, 7)}</span>
+          <span>
+            {sb.os === "ios" ? "iOS" : "Android"} {sb.versionName} ({sb.versionCode})
+          </span>
+          <span>
+            built by {sb.builtBy}, <When at={sb.builtAt} />
+          </span>
+        </div>
+        <div className="badges">
+          <Badge title="Inside the store build: no channel serves it">In the app</Badge>
+          <ChannelTag name={sb.channel} />
+          {sb.baseSize !== null ? (
+            <Badge tone="green" title="Its zip is on the server: phones on this build get patches">
+              Base for patches, {bytes(sb.baseSize)}
+            </Badge>
+          ) : (
+            <Badge tone="amber" title="No zip on the server: phones on this build get full zips until their first OTA (updates base --serial N)">
+              No base: full zips
+            </Badge>
+          )}
+          {sb.git.dirty ? <Badge tone="amber" title="Built from uncommitted changes">Uncommitted</Badge> : null}
+        </div>
+      </div>
+      <div className="row-actions" />
+    </div>
+  )
+}
+
+type Row = { serial: number; key: string; ota?: Bundle; builtIn?: StoreBuild }
 
 export function RowActions({ b }: { b: Bundle }) {
   const c = useApp()
@@ -182,17 +230,25 @@ export function Bundles() {
   const [q, setQ] = useState("")
   const list = useMemo(() => {
     const term = q.trim().toLowerCase().replace(/^#/, "")
-    return s.bundles.filter((b) => {
-      if (filter === "live" && b.liveOn.length === 0) return false
-      if (filter === "stable" && !b.stableAt) return false
-      if (filter === "none" && b.everOn.length > 0) return false
-      if (!term) return true
-      return [String(b.serial), b.gitSubject, b.manifest.git.commit, b.builtBy, b.customerTitle ?? ""].some((t) => t.toLowerCase().includes(term))
-    })
-  }, [s.bundles, filter, q])
+    const has = (...texts: string[]) => !term || texts.some((t) => t.toLowerCase().includes(term))
+    const ota: Row[] = filter === "builtin" ? [] : s.bundles
+      .filter((b) => {
+        if (filter === "live" && b.liveOn.length === 0) return false
+        if (filter === "stable" && !b.stableAt) return false
+        if (filter === "none" && b.everOn.length > 0) return false
+        return has(String(b.serial), b.gitSubject, b.manifest.git.commit, b.builtBy, b.customerTitle ?? "")
+      })
+      .map((b) => ({ serial: b.serial, key: b.id, ota: b }))
+    // Built-in bundles have no channel: they show under All and their own filter only
+    const builtIn: Row[] = filter !== "all" && filter !== "builtin" ? [] : s.storeBuilds
+      .filter((sb) => has(String(sb.builtinSerial), sb.label, sb.git.commit, sb.builtBy, sb.versionName, String(sb.versionCode), "built-in", "in the app"))
+      .map((sb) => ({ serial: sb.builtinSerial, key: `built-in-${sb.os}-${sb.builtinSerial}`, builtIn: sb }))
+    return [...ota, ...builtIn].sort((x, y) => y.serial - x.serial)
+  }, [s.bundles, s.storeBuilds, filter, q])
+  const none = s.bundles.length === 0 && s.storeBuilds.length === 0
   return (
     <>
-      <PageHead title="Bundles" sub="Every bundle uploaded for this app. New ones come from the CLI (see Store builds & families for the commands)." />
+      <PageHead title="Bundles" sub="Every bundle of this app: the ones uploaded for channels, and the ones built into store builds. New ones come from the CLI (see Store builds & families for the commands)." />
       <div className="toolbar">
         <Segmented<Filter>
           value={filter}
@@ -202,18 +258,19 @@ export function Bundles() {
             ["live", "Live"],
             ["stable", "Stable"],
             ["none", "Not on any channel"],
+            ["builtin", "In an app"],
           ]}
         />
         <input className="search" type="search" placeholder="Search number, commit, subject, person" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search bundles" />
       </div>
-      {s.bundles.length === 0 ? (
+      {none ? (
         <Empty title="No bundles yet">Build one with the CLI: bun run updates build, then bun run updates upload.</Empty>
       ) : list.length === 0 ? (
         <Empty title="No bundle matches">Change the filter or the search.</Empty>
       ) : (
         <div className="rows">
-          {list.map((b) => (
-            <div key={b.id} className="brow">
+          {list.map(({ key, ota: b, builtIn }) => !b ? <BuiltInRow key={key} sb={builtIn!} /> : (
+            <div key={key} className="brow">
               <a className="brow-serial num" href={c.href(`/bundles/${b.serial}`)}>
                 #{b.serial}
               </a>
@@ -353,6 +410,39 @@ export function BundlePage({ serial }: { serial: number }) {
           </Card>
         </div>
       </div>
+      <Card title="Patches">
+        {b.patches.length === 0 ? (
+          <p className="muted">No patches for #{b.serial}. Phones on an older bundle download the full zip ({bytes(m.zip.size)}). Patches are made after the upload, from the newest earlier bundles and store builds that have a base.</p>
+        ) : (
+          <>
+            <p className="muted small">A phone on one of these bundles downloads the patch instead of the full zip ({bytes(m.zip.size)}).</p>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>From</th>
+                    <th>Size</th>
+                    <th>Of the full zip</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {b.patches.map((p) => {
+                    const from = serialOf(p.fromId)
+                    const bundle = s.bundles.some((x) => x.serial === from)
+                    return (
+                      <tr key={p.fromSha256}>
+                        <td className="num">{bundle ? <a href={c.href(`/bundles/${from}`)}>#{from}</a> : <a href={c.href("/builds")}>built-in #{from}</a>}</td>
+                        <td className="num">{(p.size / 1024).toFixed(1)} KB</td>
+                        <td className="num">{((p.size / m.zip.size) * 100).toFixed(1)}%</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Card>
       <Card title="Timeline">
         <ul className="timeline">
           {timeline(s, b).map((t, i) => (

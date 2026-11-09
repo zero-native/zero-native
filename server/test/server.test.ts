@@ -1,18 +1,21 @@
 // zn-updates end to end, in one process: PGlite in memory, files in a temp folder, the real HTTP server, and the
 // release client signing locally. The phone side is played by the protocol-1 request ZnOta sends.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { unzipSync } from "fflate"
-import { writeBundleInfo } from "../../tools/bundle-info"
+import { unzipSync, zipSync } from "fflate"
+import { bundleSha256, readBundleInfo, setBundleSerial, writeBundleInfo } from "../../tools/bundle-info"
+import { applyPatch } from "../../tools/ota/bsdiff"
 import type { CheckRequest } from "../../tools/ota/decide"
 import { BUILT_IN, generateKeys } from "../../tools/ota/signing"
-import { type Conn, changeChannel, call, uploadBuilt } from "../../tools/updates/client"
+import { type Conn, changeChannel, call, remakePatches, uploadBase, uploadBuilt } from "../../tools/updates/client"
 import { migrate, openDb, type Db } from "../src/db"
 import { startServer } from "../src/index"
+import { makeFor, readBundleZip, whenIdle } from "../src/patches"
+import { delayFor } from "../src/push"
 import { resetFailures } from "../src/session"
-import { openStore } from "../src/storage"
+import { type FileStore, openStore } from "../src/storage"
 
 const TOKEN = "test-admin-token-123456"
 const requires = { registry: 8, bytecode: 99, hostApi: 2, modules: { Fetch: 1 } }
@@ -23,6 +26,7 @@ let db: Db
 let stop: () => Promise<void>
 let c: Conn
 let base: string
+let files: FileStore
 
 async function built(code: string, req = requires): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "znu-built-"))
@@ -70,6 +74,7 @@ beforeAll(async () => {
   db = pgUrl ? await openDb(pgUrl, pgSchema) : await openDb("pglite:memory")
   await migrate(db)
   const store = openStore(`file:${mkdtempSync(join(tmpdir(), "znu-files-"))}`, mkdtempSync(join(tmpdir(), "znu-cache-")))
+  files = store
   const s = startServer({ db, store, adminToken: TOKEN, port: 0, hostname: "127.0.0.1", log: false, push: fakePush })
   stop = s.stop
   base = `http://127.0.0.1:${s.server.port}`
@@ -153,7 +158,7 @@ describe("zn-updates", () => {
   test("a stale seq is a 409; the kill switch needs its words and a reason on production", async () => {
     await expect(changeChannel(c, keys.privatePem, { app: "shop", channel: "staging", target: BUILT_IN, rollout: 100, confirm: "KILL" })).rejects.toThrow(/KILL STAGING/)
     await expect(changeChannel(c, keys.privatePem, { app: "shop", channel: "production", target: BUILT_IN, rollout: 100, confirm: "KILL PRODUCTION" })).rejects.toThrow(/reason/)
-    const k = await changeChannel(c, keys.privatePem, { app: "shop", channel: "staging", target: BUILT_IN, rollout: 100, priority: "high", confirm: "KILL STAGING", reason: "test" })
+    const k = await changeChannel(c, keys.privatePem, { app: "shop", channel: "staging", target: BUILT_IN, rollout: 100, priority: "critical", confirm: "KILL STAGING", reason: "test" })
     expect(k.kind).toBe("kill")
     const d = await phoneCheck(phoneReq({ running: { id: "shop_3", sha256: "x" }, seq: k.pointer.seq - 1 }))
     expect([d.action, d.reason]).toEqual(["BUILT_IN", "KILL_SWITCH"])
@@ -231,8 +236,26 @@ describe("check-now pushes", () => {
     const up = await change({ app: "shop", channel: "production", target: 1, rollout: 80 })
     expect([up.push?.sent, up.push?.topic, up.push?.delayMs]).toEqual([true, "zn-ota-shop-production", 7_200_000])
 
-    const kill = await change({ app: "shop", channel: "production", target: BUILT_IN, rollout: 100, priority: "high", confirm: "KILL PRODUCTION", reason: "bad build" })
+    const kill = await change({ app: "shop", channel: "production", target: BUILT_IN, rollout: 100, priority: "critical", confirm: "KILL PRODUCTION", reason: "bad build" })
     expect([kill.kind, kill.push?.delayMs]).toEqual(["kill", 600_000]) // a kill reaches phones within 10 minutes
+  })
+
+  test("priority high or critical: the wait is at most 10 minutes; normal keeps the channel's wait", async () => {
+    const cfg = { delayMs: { production: 7_200_000 } }
+    expect([delayFor(cfg, "production", "publish"), delayFor(cfg, "production", "publish", "normal")]).toEqual([7_200_000, 7_200_000])
+    expect([delayFor(cfg, "production", "publish", "high"), delayFor(cfg, "production", "publish", "critical"), delayFor(cfg, "production", "kill")]).toEqual([600_000, 600_000, 600_000])
+    expect(delayFor({ delayMs: { production: 120_000 } }, "production", "publish", "high")).toBe(120_000) // a shorter wait stays
+
+    // Through the server: the kill switch above ended production's line, so publish #1 again with each priority.
+    const high = await change({ app: "shop", channel: "production", target: 1, rollout: 60, priority: "high", confirm: "PRODUCTION #1" })
+    expect([high.kind, high.push?.delayMs]).toEqual(["publish", 600_000])
+    const normal = await change({ app: "shop", channel: "production", target: 1, rollout: 70, priority: "normal" })
+    expect([normal.kind, normal.push?.delayMs]).toEqual(["rollout", 7_200_000])
+    const critical = await change({ app: "shop", channel: "production", target: 1, rollout: 80, priority: "critical" })
+    expect(critical.push?.delayMs).toBe(600_000)
+    // A push by hand has the wait of the priority the channel serves now (critical).
+    const manual = await call<Push>(c, "POST", "/admin/apps/shop/channels/production/push")
+    expect(manual?.delayMs).toBe(600_000)
   })
 
   test("a failed push never fails the change; it is in the activity log; a manual push works", async () => {
@@ -251,6 +274,308 @@ describe("check-now pushes", () => {
     const manual = await call<Push>(c, "POST", "/admin/apps/shop/channels/staging/push")
     expect([manual?.sent, manual?.topic]).toEqual([true, "zn-ota-shop-staging"])
     await expect(call(c, "POST", "/admin/apps/shop/channels/nope/push")).rejects.toThrow(/no channel/)
+  })
+})
+
+// ---- OTA patches and priority (docs/ota-patches.md) -------------------------------------------------------------------
+
+/** Fixed-seed random bytes (xorshift32): incompressible, and the same every run. */
+function rnd(size: number, seed: number): Uint8Array {
+  let s = seed | 0 || 1
+  const out = new Uint8Array(size)
+  for (let i = 0; i < size; i++) {
+    s ^= s << 13
+    s ^= s >>> 17
+    s ^= s << 5
+    out[i] = s & 0xff
+  }
+  return out
+}
+
+/** [b] with some bytes replaced: [[offset, length, seed], ...]. */
+function edited(b: Uint8Array, edits: [number, number, number][]): Uint8Array {
+  const out = b.slice()
+  for (const [at, len, seed] of edits) out.set(rnd(len, seed), at)
+  return out
+}
+
+type Files = Record<string, Uint8Array>
+
+/** A built bundle folder of app "patchy" with these files: serial 0, or [serial] for a store build's built-in bundle. */
+async function builtFiles(files: Files, serial = 0): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), "znu-patchy-"))
+  for (const [name, bytes] of Object.entries(files)) {
+    mkdirSync(join(dir, ...name.split("/").slice(0, -1)), { recursive: true })
+    writeFileSync(join(dir, ...name.split("/")), bytes)
+  }
+  await writeBundleInfo(dir, { app: "patchy", serial: 0, names: Object.keys(files), requires })
+  if (serial > 0) await setBundleSerial(dir, serial)
+  return dir
+}
+
+const ui = new TextEncoder().encode("templates")
+const hbc1 = rnd(120_000, 1)
+const png = rnd(40_000, 2)
+const v1: Files = { "main.hbc": hbc1, "main.zn.ui": ui, "assets/a.png": png }
+// The store build's built-in bundle: its main.hbc is further from v3's than v1's is.
+const builtInFiles: Files = { "main.hbc": edited(hbc1, [[5_000, 300, 50]]), "main.zn.ui": ui, "assets/a.png": png }
+const v3: Files = { "main.hbc": edited(hbc1, [[70_000, 100, 60]]), "main.zn.ui": ui, "assets/a.png": png, "assets/big.bin": rnd(40_000, 3), "assets/new.bin": rnd(2_000, 4) }
+// Nothing in common with the bundles before it: its patch is as big as the full zip, so none is kept.
+const v4: Files = { "main.hbc": rnd(120_000, 77), "main.zn.ui": new TextEncoder().encode("templates v4"), "assets/a.png": rnd(40_000, 78), "assets/big.bin": rnd(40_000, 79), "assets/new.bin": rnd(2_000, 80) }
+
+const text = (b: Uint8Array) => new TextDecoder().decode(b)
+const sha = (b: Uint8Array) => new Bun.CryptoHasher("sha256").update(b).digest("hex")
+
+/** What the phone does with a patch zip (docs/ota-patches.md §3, §6): builds every file, checks it against zn-bundle.json. */
+function applyPatchZip(patchZip: Uint8Array, baseFiles: Files) {
+  const z = unzipSync(patchZip)
+  const meta = JSON.parse(text(z["zn-patch.json"]!)) as {
+    format: string
+    from: { id: string; sha256: string }
+    to: { id: string; sha256: string }
+    files: Record<string, { copy?: string; patch?: string; base?: string; zip?: string }>
+  }
+  const info = JSON.parse(text(z["zn-bundle.json"]!)) as { id: string; sha256: string; files: Record<string, { size: number; sha256: string }> }
+  expect(Object.keys(meta.files).sort()).toEqual(Object.keys(info.files).sort()) // every file of the new bundle, and nothing else
+  const out: Files = {}
+  for (const [name, how] of Object.entries(meta.files)) {
+    const want = info.files[name]!
+    const bytes = how.copy !== undefined ? baseFiles[how.copy]! : how.patch !== undefined ? applyPatch(baseFiles[how.base!]!, z[how.patch]!, want.size) : z[how.zip!]!
+    expect([name, bytes.length, sha(bytes)]).toEqual([name, want.size, want.sha256])
+    out[name] = bytes
+  }
+  expect(bundleSha256(info.files)).toBe(info.sha256)
+  return { meta, info, out, names: Object.keys(z) }
+}
+
+describe("OTA patches", () => {
+  const phoneP = (over: Partial<CheckRequest> = {}): CheckRequest => ({
+    app: "patchy", channel: "staging", installId: "install-bbbb-1", capabilities: caps, running: null, builtIn: { id: "patchy_0", serial: 0 }, kept: [], seq: 0, patches: ["znbsdiff1"], ...over,
+  })
+  type Answer = {
+    action: string
+    reason: string
+    bundle?: { id: string; url: string; bundleSha256: string; zip: { path: string; sha256: string; size: number } }
+    patch?: { format: string; from: string; fromSha256: string; url: string; sha256: string; size: number }
+  }
+  const askP = async (r: object) => {
+    const res = await fetch(`${base}/v1/check`, { method: "POST", body: JSON.stringify(r) })
+    expect(res.status).toBe(200)
+    return (await res.json()) as Answer
+  }
+  type Row = { fromId: string; fromSha256: string; size: number; path: string; sha256: string }
+  const patchesOf = async (serial: number) => (await call<{ patches: Row[] }>(c, "GET", `/admin/apps/patchy/bundles/${serial}`)).patches
+  const download = async (path: string) => new Uint8Array(await (await fetch(`${base}/v1/files/${path}`)).arrayBuffer())
+  const activityOf = async (action: string) => (await call<{ action: string; detail: Record<string, any> }[]>(c, "GET", "/admin/apps/patchy/activity?limit=200")).filter((r) => r.action === action)
+  let v1Sha = ""
+  let builtInSha = ""
+  let v3Zip: Uint8Array
+  let v3Sha = ""
+
+  test("setup: an app, bundle #1, a store build (#2) and its base; a wrong base is refused", async () => {
+    await call(c, "POST", "/admin/apps", { id: "patchy", name: "Patchy", publicKeys: [keys.publicBase64] })
+    const a = await uploadBuilt(c, await builtFiles(v1), keys.privatePem, clean)
+    expect(a.manifest.serial).toBe(1)
+    v1Sha = a.manifest.bundleSha256
+    await whenIdle()
+    expect(await patchesOf(1)).toEqual([]) // nothing earlier to patch from
+
+    const s = await call<{ serial: number }>(c, "POST", "/admin/apps/patchy/serials", { kind: "store" })
+    expect(s.serial).toBe(2)
+    const dir = await builtFiles(builtInFiles, 2)
+    builtInSha = readBundleInfo(dir).sha256
+    await call(c, "POST", "/admin/apps/patchy/store-builds", {
+      os: "android", channel: "production", label: "production AAB", versionCode: 10, versionName: "1.0.0",
+      builtinSerial: 2, builtinSha256: builtInSha, capabilities: caps, git: { commit: "abc1234", dirty: false },
+    })
+    // Refused: a folder with other bytes than the store build's, another build's number, a serial that is no store build.
+    await expect(uploadBase(c, "patchy", 2, await builtFiles(v1, 2))).rejects.toThrow(/SHA-256/)
+    await expect(uploadBase(c, "patchy", 2, await builtFiles(builtInFiles, 5))).rejects.toThrow(/patchy_5/)
+    await expect(uploadBase(c, "patchy", 1, await builtFiles(builtInFiles, 1))).rejects.toThrow(/no store build/)
+    const none = await call<{ storeBuilds: { baseSize: number | null }[] }>(c, "GET", "/admin/apps/patchy/state")
+    expect(none.storeBuilds[0]!.baseSize).toBeNull()
+
+    const r = await uploadBase(c, "patchy", 2, dir)
+    expect([r.serial, r.path]).toEqual([2, `patchy/bases/${builtInSha}.zip`])
+    const st = await call<{ storeBuilds: { baseSize: number | null }[] }>(c, "GET", "/admin/apps/patchy/state")
+    expect(st.storeBuilds[0]!.baseSize).toBe(r.size)
+    expect((await fetch(`${base}/v1/files/${r.path}`)).status).toBe(404) // a base is for the server only
+  })
+
+  test("a new bundle gets its patches in the background: copy, patch and zip per file; the phone's steps rebuild it", async () => {
+    const u = await uploadBuilt(c, await builtFiles(v3), keys.privatePem, clean)
+    expect(u.manifest.serial).toBe(3)
+    v3Sha = u.manifest.bundleSha256
+    await whenIdle()
+    v3Zip = await download(u.manifest.zip.path)
+    const rows = await patchesOf(3)
+    expect(rows.map((r) => r.fromId).sort()).toEqual(["patchy_1", "patchy_2"])
+    expect(rows.find((r) => r.fromId === "patchy_1")!.fromSha256).toBe(v1Sha)
+    expect(rows.find((r) => r.fromId === "patchy_2")!.fromSha256).toBe(builtInSha)
+    for (const r of rows) {
+      expect(r.path).toBe(`patchy/patches/patchy_3/${r.fromSha256}.zip`)
+      expect(r.size).toBeLessThan(v3Zip.length * 0.6)
+      const z = await download(r.path)
+      expect([z.length, sha(z)]).toEqual([r.size, r.sha256])
+    }
+
+    // From bundle #1: main.hbc is patched, the unchanged files are copied, new files come whole.
+    const from1 = applyPatchZip(await download(rows.find((r) => r.fromId === "patchy_1")!.path), v1)
+    expect(from1.meta.format).toBe("znbsdiff1")
+    expect([from1.meta.from, from1.meta.to]).toEqual([{ id: "patchy_1", sha256: v1Sha }, { id: "patchy_3", sha256: v3Sha }])
+    expect(from1.meta.files).toEqual({
+      "assets/a.png": { copy: "assets/a.png" },
+      "assets/big.bin": { zip: "f/assets/big.bin" },
+      "assets/new.bin": { zip: "f/assets/new.bin" },
+      "main.hbc": { patch: "p/main.hbc", base: "main.hbc" },
+      "main.zn.ui": { copy: "main.zn.ui" },
+    })
+    expect(from1.names).toEqual(["zn-patch.json", "zn-bundle.json", "p/main.hbc", "f/assets/big.bin", "f/assets/new.bin"])
+    for (const [name, bytes] of Object.entries(v3)) expect(sha(from1.out[name]!)).toBe(sha(bytes))
+    // zn-bundle.json is the new bundle's, byte for byte as in the full zip
+    expect(sha(unzipSync(await download(rows[0]!.path))["zn-bundle.json"]!)).toBe(sha(unzipSync(v3Zip)["zn-bundle.json"]!))
+
+    // From the store build's built-in bundle: the same files rebuild from its own bytes.
+    const fromBuiltIn = applyPatchZip(await download(rows.find((r) => r.fromId === "patchy_2")!.path), builtInFiles)
+    expect(fromBuiltIn.meta.files["main.hbc"]).toEqual({ patch: "p/main.hbc", base: "main.hbc" })
+    for (const [name, bytes] of Object.entries(v3)) expect(sha(fromBuiltIn.out[name]!)).toBe(sha(bytes))
+
+    const made = (await activityOf("patches.made")).find((a) => a.detail.serial === 3)
+    expect(made?.detail.made.map((m: { from: string }) => m.from).sort()).toEqual(["patchy_1", "patchy_2"])
+  })
+
+  test("the check answer offers the smallest patch whose base the phone has; the full bundle is always there too", async () => {
+    // Publish #3 to staging (this also shows that priority "critical" is accepted).
+    const r = await changeChannel(c, keys.privatePem, { app: "patchy", channel: "staging", target: 3, rollout: 100, priority: "critical" })
+    expect([r.kind, r.pointer.priority]).toEqual(["publish", "critical"])
+    const st = await call<{ channels: { name: string; current: { pointer: { priority: string } } }[] }>(c, "GET", "/admin/apps/patchy/state")
+    expect(st.channels.find((x) => x.name === "staging")!.current.pointer.priority).toBe("critical")
+
+    const rows = await patchesOf(3)
+    const p1 = rows.find((x) => x.fromId === "patchy_1")!
+    const pb = rows.find((x) => x.fromId === "patchy_2")!
+    expect(p1.size).toBeLessThan(pb.size) // the closer base makes the smaller patch
+
+    // running bundle #1 (matched by the SHA it sent)
+    const a = await askP(phoneP({ running: { id: "patchy_1", sha256: v1Sha } }))
+    expect([a.action, a.reason, a.bundle?.id]).toEqual(["UPDATE", "NEW_BUNDLE", "patchy_3"])
+    expect(a.patch).toEqual({ format: "znbsdiff1", from: "patchy_1", fromSha256: v1Sha, url: `/v1/files/${p1.path}`, sha256: p1.sha256, size: p1.size })
+    expect(a.bundle!.url).toBe(`/v1/files/${a.bundle!.zip.path}`)
+    // the built-in bundle (running: null), matched by builtIn.sha256
+    const b = await askP(phoneP({ builtIn: { id: "patchy_2", serial: 2, sha256: builtInSha } }))
+    expect([b.action, b.patch?.from, b.patch?.size]).toEqual(["UPDATE", "patchy_2", pb.size])
+    // both known: the smaller one
+    const both = await askP(phoneP({ running: { id: "patchy_1", sha256: v1Sha }, builtIn: { id: "patchy_2", serial: 2, sha256: builtInSha } }))
+    expect(both.patch?.from).toBe("patchy_1")
+    // a kept bundle (by id)
+    const kept = await askP(phoneP({ kept: ["patchy_1"] }))
+    expect([kept.action, kept.patch?.from]).toEqual(["UPDATE", "patchy_1"])
+    // a phone whose built-in bundle id is not the one we know it by still gets the id it sent
+    expect((await askP(phoneP({ builtIn: { id: "patchy_9", serial: 2, sha256: builtInSha } }))).patch?.from).toBe("patchy_9")
+  })
+
+  test("no patch: the phone didn't list the format, sent a wrong SHA, has no base, or is not updating", async () => {
+    const running = { id: "patchy_1", sha256: v1Sha }
+    const old = await askP(phoneP({ running, patches: undefined }))
+    expect([old.action, "patch" in old]).toEqual(["UPDATE", false]) // an old phone: nothing new in the answer
+    expect("patch" in (await askP(phoneP({ running, patches: ["other"] })))).toBe(false)
+    expect("patch" in (await askP(phoneP({ running, patches: [] })))).toBe(false)
+    // wrong or broken fields never fail the check: no patch, a normal UPDATE
+    const wrongBuiltIn = await askP(phoneP({ builtIn: { id: "patchy_2", serial: 2, sha256: "f".repeat(64) } }))
+    expect([wrongBuiltIn.action, "patch" in wrongBuiltIn]).toEqual(["UPDATE", false])
+    const brokenFields = await askP({ ...phoneP({ builtIn: { id: "patchy_2", serial: 2, sha256: "not-a-sha" } }), patches: "znbsdiff1" })
+    expect([brokenFields.action, "patch" in brokenFields]).toEqual(["UPDATE", false])
+    const wrongRunning = await askP(phoneP({ running: { id: "patchy_1", sha256: "e".repeat(64) } }))
+    expect([wrongRunning.action, "patch" in wrongRunning]).toEqual(["UPDATE", false])
+    // nothing the phone has is a base
+    const strange = await askP(phoneP({ running: { id: "patchy_7", sha256: "d".repeat(64) }, kept: ["patchy_7"] }))
+    expect([strange.action, "patch" in strange]).toEqual(["UPDATE", false])
+    // a phone that already runs #3 is not updating: no patch
+    const same = await askP(phoneP({ running: { id: "patchy_3", sha256: v3Sha } }))
+    expect([same.action, "patch" in same]).toEqual(["NONE", false])
+  })
+
+  test("/v1/files serves a patch with Range; a patch path that doesn't exist, and a base, are 404", async () => {
+    const p = (await patchesOf(3)).find((x) => x.fromId === "patchy_1")!
+    const url = `${base}/v1/files/${p.path}`
+    const whole = new Uint8Array(await (await fetch(url)).arrayBuffer())
+    const head = await fetch(url, { method: "HEAD" })
+    expect([head.status, head.headers.get("content-length"), head.headers.get("accept-ranges")]).toEqual([200, String(p.size), "bytes"])
+    const part = await fetch(url, { headers: { range: "bytes=10-" } })
+    expect([part.status, part.headers.get("content-range"), part.headers.get("content-type")]).toEqual([206, `bytes 10-${p.size - 1}/${p.size}`, "application/zip"])
+    expect(sha(new Uint8Array(await part.arrayBuffer()))).toBe(sha(whole.subarray(10)))
+    const middle = await fetch(url, { headers: { range: "bytes=5-20" } })
+    expect([middle.status, middle.headers.get("content-range")]).toEqual([206, `bytes 5-20/${p.size}`])
+    expect((await fetch(url, { headers: { range: `bytes=${p.size}-` } })).status).toBe(416)
+    expect((await fetch(`${base}/v1/files/patchy/patches/patchy_3/${"0".repeat(64)}.zip`)).status).toBe(404)
+    expect((await fetch(`${base}/v1/files/patchy/patches/patchy_3/${p.fromSha256}.zip.bak`)).status).toBe(404)
+    expect((await fetch(`${base}/v1/files/patchy/patches/patchy_3/..%2F..%2Fbases%2F${builtInSha}.zip`)).status).toBe(404)
+  })
+
+  test("a patch is not kept when it is 60 % or more of the full zip", async () => {
+    const u = await uploadBuilt(c, await builtFiles(v4), keys.privatePem, clean)
+    expect(u.manifest.serial).toBe(4)
+    await whenIdle()
+    expect(await patchesOf(4)).toEqual([])
+    const made = (await activityOf("patches.made")).find((a) => a.detail.serial === 4)
+    expect(made?.detail.made).toEqual([])
+    expect(made?.detail.tooBig.map((t: { from: string }) => t.from).sort()).toEqual(["patchy_1", "patchy_2", "patchy_3"])
+    for (const t of made!.detail.tooBig as { size: number }[]) expect(t.size).toBeGreaterThanOrEqual(u.manifest.zip.size * 0.6)
+  })
+
+  test("a remake gives the same patches (same bytes), and drops the ones that don't qualify", async () => {
+    const before = await patchesOf(3)
+    const r = await remakePatches(c, "patchy", 3)
+    expect([r.result.made.length, r.result.tooBig.length, r.result.failed.length]).toEqual([2, 0, 0])
+    expect(r.patches.map((p) => [p.fromId, p.sha256, p.size]).sort()).toEqual(before.map((p) => [p.fromId, p.sha256, p.size]).sort())
+    const again = await remakePatches(c, "patchy", 4)
+    expect([again.patches.length, again.result.tooBig.length]).toEqual([0, 3])
+    await expect(call(c, "POST", "/admin/apps/patchy/bundles/99/patches")).rejects.toThrow(/no bundle #99/)
+  })
+
+  test("a base that can't be read is logged as patches.failed; the other patches are made, the old patch stays", async () => {
+    const broken: FileStore = { where: files.where, put: (p, d) => files.put(p, d), local: (p) => (p.includes("/bases/") ? Promise.resolve(null) : files.local(p)) }
+    const r = await makeFor(db, broken, "patchy", 3, "test", true)
+    expect([r.made.map((m) => m.from), r.failed.map((f) => f.from)]).toEqual([["patchy_1"], ["patchy_2"]])
+    expect(r.failed[0]!.error).toContain("bases/")
+    const failed = (await activityOf("patches.failed")).filter((a) => a.detail.serial === 3)
+    expect(failed.length).toBe(1)
+    expect(failed[0]!.detail.from).toBe("patchy_2")
+    expect((await patchesOf(3)).map((p) => p.fromId).sort()).toEqual(["patchy_1", "patchy_2"])
+    // Without force a base that has its patch is skipped: nothing is made twice.
+    const quiet = await makeFor(db, files, "patchy", 3, "test")
+    expect([quiet.made.length, quiet.skipped]).toEqual([0, 2])
+  })
+
+  test("a bad zip is a plain error, not a crash", () => {
+    expect(() => readBundleZip(new Uint8Array([1, 2, 3]))).toThrow(/not a zip/)
+    expect(() => readBundleZip(unzipless())).toThrow(/zn-bundle.json/)
+  })
+
+  function unzipless(): Uint8Array {
+    // a valid zip with no zn-bundle.json
+    return zipSync({ "a.txt": new TextEncoder().encode("a") })
+  }
+})
+
+describe("priority", () => {
+  test("normal, high and critical are accepted; anything else is refused; a pointer is stored as sent", async () => {
+    for (const priority of ["high", "normal"] as const) {
+      const r = await changeChannel(c, keys.privatePem, { app: "patchy", channel: "staging", target: 4, rollout: 100, priority })
+      expect(r.pointer.priority).toBe(priority)
+    }
+    await expect(changeChannel(c, keys.privatePem, { app: "patchy", channel: "staging", target: 3, rollout: 100, priority: "urgent" as never })).rejects.toThrow(/normal, high or critical/)
+  })
+
+  test("the kill switch is critical (no priority given), and a phone gets that pointer", async () => {
+    const k = await changeChannel(c, keys.privatePem, { app: "patchy", channel: "staging", target: BUILT_IN, rollout: 100, confirm: "KILL STAGING", reason: "test" })
+    expect([k.kind, k.pointer.priority]).toEqual(["kill", "critical"])
+    const res = await fetch(`${base}/v1/check`, {
+      method: "POST",
+      body: JSON.stringify({ app: "patchy", channel: "staging", installId: "install-bbbb-2", capabilities: caps, running: { id: "patchy_3", sha256: "a".repeat(64) }, builtIn: { id: "patchy_0", serial: 0 }, kept: [], seq: 0 }),
+    })
+    const d = (await res.json()) as { action: string; pointer?: { priority: string } }
+    expect([d.action, d.pointer?.priority]).toEqual(["BUILT_IN", "critical"])
   })
 })
 

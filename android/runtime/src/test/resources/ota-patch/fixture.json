@@ -1,0 +1,19 @@
+{
+  "note": "Made by tools/ota/make-patch-fixture.ts (tools/ota/bsdiff.ts makePatch) from a fixed seed.",
+  "old": {
+    "size": 12000,
+    "sha256": "4294f0a7530f4ffbcc16d28b15a9267e9179d26741627c4995bb0af1eda0303c"
+  },
+  "new": {
+    "size": 12100,
+    "sha256": "189fbb48fc17e7957eebf44920e9bcc973c3dcea3a269edc14472e7a675b618e"
+  },
+  "patch": {
+    "size": 12748,
+    "controls": 26
+  },
+  "fromEmpty": {
+    "text": "a file the old bundle didn't have\n",
+    "size": 82
+  }
+}

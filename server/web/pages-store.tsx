@@ -4,7 +4,7 @@ import { type Os, type Rule, routes, type State, type StoreAnswer } from "./api"
 import { channelNow, orderedChannels } from "./logic"
 import { ChannelTag, servesText } from "./pages-bundles"
 import { Badge, Btn, Card, CopyBlock, Empty, Notice, PageHead, Segmented, Stat, useApp, When } from "./ui"
-import { capabilityList, criticalWords, dateTime, kindWords, showVersion, targetLabel, versionNumber } from "./util"
+import { bytes, capabilityList, criticalWords, dateTime, kindWords, priorityWords, showVersion, targetLabel, versionNumber } from "./util"
 
 // ---- Channels ---------------------------------------------------------------------------------------------------------
 
@@ -32,7 +32,7 @@ export function Channels() {
                 <p className="sub">{servesText(n)}</p>
                 <dl className="facts">
                   <dt>Priority</dt>
-                  <dd>{n.priority === "high" ? "High" : "Normal"}</dd>
+                  <dd>{priorityWords(n.priority)}</dd>
                   <dt>Change number</dt>
                   <dd className="num">{n.seq || "none"}</dd>
                   <dt>Last change</dt>
@@ -84,7 +84,7 @@ export function Channels() {
                             </td>
                             <td className="num">{h.pointer.target === "BUILT_IN" ? targetLabel(h.pointer.target) : <a href={c.href(`/bundles/${targetLabel(h.pointer.target).slice(1)}`)}>{targetLabel(h.pointer.target)}</a>}</td>
                             <td className="num">{h.pointer.rollout}%</td>
-                            <td>{h.pointer.priority}</td>
+                            <td>{priorityWords(h.pointer.priority)}</td>
                             <td>{h.pointer.reason ?? ""}</td>
                             <td>{h.publishedBy}</td>
                             <td title={dateTime(h.at)}>
@@ -349,6 +349,7 @@ export function StoreBuilds() {
                   <th>Channel</th>
                   <th>Version</th>
                   <th>Built-in</th>
+                  <th title="The built-in bundle's zip kept as a base for patches">Patch base</th>
                   <th>Family</th>
                   <th>Git</th>
                   <th>Built</th>
@@ -366,6 +367,7 @@ export function StoreBuilds() {
                       {b.versionName} ({b.versionCode})
                     </td>
                     <td className="num">#{b.builtinSerial}</td>
+                    <td>{b.baseSize ? bytes(b.baseSize) : <span className="muted">none</span>}</td>
                     <td>{b.family ? <span className="code">{b.family}</span> : <span className="muted">learning from the first phone</span>}</td>
                     <td>
                       <span className="code">{b.git.commit.slice(0, 7)}</span> {b.git.dirty ? <Badge tone="amber">uncommitted</Badge> : null}

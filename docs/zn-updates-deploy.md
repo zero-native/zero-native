@@ -40,8 +40,10 @@ The server is `server/` (design: `docs/zn-updates-server.md`). It runs as one co
 ## 2. Deploy (each time the server changes)
 From the zero-native repo root:
 ```bash
-gcloud builds submit --config server/k8s/cloud-build.yaml --substitutions _CLOUDSDK_COMPUTE_ZONE=asia-south1-b,_CLOUDSDK_CONTAINER_CLUSTER=my-cluster .
+gcloud builds submit --config server/k8s/cloud-build.yaml --substitutions "_CLOUDSDK_COMPUTE_ZONE=asia-south1-b,_CLOUDSDK_CONTAINER_CLUSTER=my-cluster" .
 ```
+Keep the quotes: without them PowerShell splits the value at the comma and gcloud says `_CLOUDSDK_CONTAINER_CLUSTER`
+"is not matched in the substitution data".
 Check: `https://appupdates.example.com/health` answers `{"ok":true,...}`, and the address itself answers 404 (the
 dashboard opens only through `updates dashboard`, §3).
 
@@ -76,8 +78,14 @@ Run from the app's folder (it holds `zn-updates.json`: `app`, `server`, `build`,
 bun run ../../Futuristic/zero-native/tools/updates/cli.ts store-build --os android --channel production --label "production AAB" --version-code 170 --version-name 1.7.0
 ```
 This reserves the store build's serial (always above every OTA bundle), builds the built-in bundle into the host's
-assets with it, and records the build. Then build the AAB as usual. Its family appears on the dashboard after the first
-phone checks in.
+assets with it, records the build, and **uploads the built-in bundle as a zip** (the base for OTA patches: phones on this
+build then download small patches, not the full zip). Then build the AAB as usual. Its family appears on the dashboard
+after the first phone checks in.
+
+Run it from a clean build: the base must be the bundle that goes into the AAB (the server refuses a zip with another
+bundle SHA-256). If the base upload fails, the store build is still recorded; run `updates base --serial <built-in serial>`
+before you change the assets folder. A store build made before patches has no base: its phones get full zips until their
+first OTA, then the OTA bundle is the base.
 
 ## 5. An OTA update
 ```bash
@@ -88,14 +96,18 @@ Then on the dashboard: Bundles → To staging → test on a staging phone → Ma
 phones go back to their built-in bundle. The same actions exist on the command line (`publish`, `stable`, `rollout`,
 `kill`).
 
+Patches (`docs/ota-patches.md`) are made by the server in the background after `release`. See them with `status`, or
+`patches --bundle N` (makes them again). Priority per publish: `--priority high` (may update at the splash) or
+`--priority critical` (update now); the default is `normal` (next start). The kill switch is always critical.
+
 ## 6. Store updates (Play / App Store)
 Dashboard → Store updates, or `rule --os android --version 170 --critical 1|2 [--test]`. Forced (2) for customers asks
 you to type `FORCE UPDATE <version>`. Test rows reach only phones whose own version is a test row.
 
 ## 7. Wiring an app (ZeroBill, before its AAB)
 1. `zn-updates.json` in the app folder: `{"app":"<id>","server":"https://appupdates.example.com","build":[…],"assets":"<host assets folder>"}`.
-   The app id is still open: today's bundles say `znpilot`; pick the final id (e.g. `zerobill`) before the first
-   production build, as it is written into every bundle and the server's records.
+   The app id is written into every bundle and the server's records, so pick it before the first production build
+   (ZeroBill: `zerobill`).
 2. The Android host: `ZnOta.configure(this, ZnOta.Config(server = "https://appupdates.example.com", channel = <per build
    type>, publicKeys = listOf(MAIN, BACKUP)))`. Release builds refuse `http://` (only the sample sets
    `allowHttpInRelease`).

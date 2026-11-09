@@ -120,7 +120,7 @@ describe("pointers", () => {
     await core.publish(ctx, { channel: "staging", bundle: 1 })
     await expect(core.kill(ctx, "staging", "kill staging")).rejects.toThrow("KILL STAGING")
     const k = await core.kill(ctx, "staging", "KILL STAGING")
-    expect([k.target, k.seq]).toEqual([BUILT_IN, 2])
+    expect([k.target, k.seq, k.priority]).toEqual([BUILT_IN, 2, "critical"]) // the kill switch is always critical
     expect(verifyText(pointerText(k), k.signature, [keys.publicBase64])).toBe(true)
     await expect(core.kill(ctx, "production", "KILL PRODUCTION")).rejects.toThrow("needs a --reason")
     await expect(core.setRollout(ctx, "staging", 10)).rejects.toThrow("serves no bundle")

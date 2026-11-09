@@ -38,6 +38,13 @@ export interface Manifest {
   signature: Signature
 }
 
+/**
+ * How soon phones should update (docs/ota-patches.md §7). normal: at the next cold start. high: may update at the splash
+ * screen. critical: update now (the kill switch is always critical).
+ */
+export type Priority = "normal" | "high" | "critical"
+export const PRIORITIES: readonly Priority[] = ["normal", "high", "critical"]
+
 /** One pointer change: `<app>/channels/<channel>/<seq>.json`. The highest seq is what the channel serves. */
 export interface Pointer {
   format: number
@@ -48,8 +55,8 @@ export interface Pointer {
   target: string
   /** Not signed: only delays a bundle the owner already chose. 1–100 (% of installs, by install id). */
   rollout: number
-  /** Not signed: "high" asks apps to apply sooner (their own rules decide when). */
-  priority: "normal" | "high"
+  /** Not signed: "high" and "critical" ask apps to apply sooner (see Priority; the app's own rules decide the rest). */
+  priority: Priority
   at: string
   reason?: string
   signature: Signature
@@ -253,7 +260,7 @@ export interface PublishOptions {
   bundle: string | number
   /** 1–100. Required (no default) on production. */
   rollout?: number
-  priority?: "normal" | "high"
+  priority?: Priority
   /** Production: the typed confirmation, exactly `PRODUCTION #<serial>`. */
   confirm?: string
   reason?: string
@@ -292,7 +299,7 @@ export async function kill(ctx: Context, channel: string, confirm: string | unde
   checkChannel(channel)
   if (confirm !== `KILL ${channel.toUpperCase()}`) throw new ReleaseError(`type the confirmation exactly: KILL ${channel.toUpperCase()}`)
   if (channel === PRODUCTION && !reason?.trim()) throw new ReleaseError("a production kill switch needs a --reason")
-  return writePointer(ctx, channel, BUILT_IN, 100, "high", reason)
+  return writePointer(ctx, channel, BUILT_IN, 100, "critical", reason)
 }
 
 function checkRollout(rollout: number) {
@@ -304,7 +311,7 @@ async function writePointer(
   channel: string,
   target: string,
   rollout: number,
-  priority: "normal" | "high",
+  priority: Priority,
   reason?: string,
 ): Promise<Pointer> {
   const signingKey = key(ctx)

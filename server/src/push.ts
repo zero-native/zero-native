@@ -4,6 +4,7 @@
 // The check only downloads: the new bundle runs from the next start, as with a check at launch (as ZeroBill's RN app).
 // Nothing here can fail a publish: a failed push is logged in the activity and the phones still find the update at
 // their next start.
+import type { Priority } from "../../tools/ota/core"
 import type { Db } from "./db"
 import { type App, logActivity } from "./model"
 
@@ -18,19 +19,22 @@ export interface PushConfig {
 export type PushSender = (project: string, message: Record<string, unknown>) => Promise<string>
 
 export const DEFAULT_DELAY_MS: Record<string, number> = { staging: 3_000, production: 6 * 3_600_000 }
-/** A kill switch should reach phones sooner than a normal update: its wait is at most 10 minutes. */
-export const KILL_DELAY_MAX_MS = 10 * 60_000
+/** A kill switch, or a change with priority high or critical, should reach phones sooner than a normal update: its wait is at most 10 minutes. */
+export const FAST_DELAY_MAX_MS = 10 * 60_000
 const MAX_DELAY_MS = 24 * 3_600_000
 
 export function topicFor(app: string, channel: string): string {
   return `zn-ota-${app}-${channel}`.replace(/[^a-zA-Z0-9\-_.~%]/g, "_")
 }
 
-/** The longest wait for this change: the channel's setting (or the default), shorter for a kill switch. */
-export function delayFor(cfg: PushConfig, channel: string, kind: string): number {
+/**
+ * The longest wait for this change: the channel's setting (or the default). Shorter (10 minutes at most) for a kill
+ * switch and for priority high or critical (docs/ota-patches.md §7); a normal change keeps the channel's wait.
+ */
+export function delayFor(cfg: PushConfig, channel: string, kind: string, priority: Priority = "normal"): number {
   const set = cfg.delayMs?.[channel] ?? DEFAULT_DELAY_MS[channel] ?? DEFAULT_DELAY_MS.staging!
   const d = Math.max(0, Math.min(MAX_DELAY_MS, Math.round(Number(set) || 0)))
-  return kind === "kill" ? Math.min(d, KILL_DELAY_MAX_MS) : d
+  return kind === "kill" || priority === "high" || priority === "critical" ? Math.min(d, FAST_DELAY_MAX_MS) : d
 }
 
 /** Which changes are worth a push: anything that gives phones something new. A lower rollout gives nobody anything. */
@@ -55,12 +59,12 @@ export async function tellPhones(
   send: PushSender,
   app: App,
   channel: string,
-  o: { kind: string; seq?: number; by: string },
+  o: { kind: string; seq?: number; by: string; priority?: Priority },
 ): Promise<{ sent: boolean; name?: string; error?: string; delayMs?: number; topic: string }> {
   const cfg = (app.push ?? {}) as PushConfig
   const topic = topicFor(app.id, channel)
   if (!cfg.fcmProject) return { sent: false, error: "no fcmProject set for this app", topic }
-  const delayMs = delayFor(cfg, channel, o.kind)
+  const delayMs = delayFor(cfg, channel, o.kind, o.priority)
   try {
     const name = await send(cfg.fcmProject, message(app.id, channel, delayMs))
     await logActivity(db, app.id, o.by, "push.sent", { channel, topic, kind: o.kind, seq: o.seq, delayMs, name }).catch(() => {})

@@ -94,6 +94,9 @@ class SampleApp : Application() {
             publicKeys = listOf(SAMPLE_OTA_KEY),
             // The sample's release build (perf checks) talks to the same local server: plain HTTP on purpose.
             allowHttpInRelease = true,
+            // A debug build starts slowly (its first Activity ~1.1 s after the tap on the Lava, 2026-11-09), past the
+            // 800 ms the launch gate waits for the check: give the debug sample more, so the gate can be tried.
+            launchDecisionMs = if (BuildConfig.DEBUG) 2_500L else 800L,
             // Every update outcome (rollbacks and blocked bundles too): where an app would log to Crashlytics, e.g.
             // recordException for a serious one. The sample only logs it.
             onReport = { r -> Log.println(if (r.serious) Log.WARN else Log.INFO, "zn-sample", "onReport $r (serious=${r.serious})") },

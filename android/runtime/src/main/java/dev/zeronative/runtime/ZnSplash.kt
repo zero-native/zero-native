@@ -58,8 +58,11 @@ object ZnSplash {
                 // Then, once the work is done, until the screen it pushed is composed: a push shows a frame after it
                 // lands, and lifting before that showed Home for one frame (emulator, 2026-11-07).
                 val appWaits = ready && appMaxMs > 0 && now - readyAt < appMaxMs && (appHolds.isNotEmpty() || !ZnNav.topComposed)
+                // The OTA launch gate: the update check is still out (a short wait), or the update screen isn't
+                // composed yet (ZnOtaGate). It ends by itself within its own time limit.
+                val gateWaits = ready && ZnOtaGate.holdsSplash()
                 // false: this frame isn't drawn, and Android tries again at the next one.
-                if ((!ready || appWaits) && waited < capMs) {
+                if ((!ready || appWaits || gateWaits) && waited < capMs) {
                     heldFrames++
                     return false
                 }

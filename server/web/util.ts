@@ -108,6 +108,8 @@ const EVENT_WORDS: Record<string, string> = {
   zip_sha: "download did not match",
   kept: "kept an older bundle",
   skipped: "skipped",
+  bundle_unusable: "failed its checks on the phone",
+  bundle_superseded: "older than the store build's own bundle",
 }
 export const SERIOUS = ["error_rollback", "error_screen", "launch_crashed", "watchdog_block", "apply_failed", "init_failed", "ota_off", "signature", "zip_sha"]
 
@@ -117,6 +119,18 @@ export function eventWords(kind: string): string {
 
 export function kindWords(kind: string): string {
   return ({ publish: "Publish", rollback: "Roll back", rollout: "Rollout change", kill: "Kill switch" } as Record<string, string>)[kind] ?? kind
+}
+
+/** A channel's priority, as a short label. */
+export function priorityWords(p: string): string {
+  return p === "critical" ? "Critical" : p === "high" ? "High" : "Normal"
+}
+
+/** What a priority means for phones, in one plain line (the dashboard's priority choice). */
+export const PRIORITY_LINES: Record<string, string> = {
+  normal: "Next start",
+  high: "May update at the splash",
+  critical: "Critical: update now",
 }
 
 export function criticalWords(c: number): string {
@@ -158,9 +172,18 @@ export function actionWords(a: ActivityRow): { title: string; detail: string } {
     case "channel.kill": {
       const kind = a.action.slice(8)
       const head = { publish: "Published to", rollback: "Rolled back", rollout: "Rollout changed on", kill: "Kill switch on" }[kind]
-      const bits = [`${target(s("target"))}`, kind === "kill" ? "" : `${s("rollout")}%`, s("priority") === "high" ? "high priority" : "", s("reason") ? `because: ${s("reason")}` : ""].filter(Boolean)
+      const bits = [`${target(s("target"))}`, kind === "kill" ? "" : `${s("rollout")}%`, s("priority") === "high" || s("priority") === "critical" ? `${s("priority")} priority` : "", s("reason") ? `because: ${s("reason")}` : ""].filter(Boolean)
       return { title: `${head} ${s("channel")}`, detail: bits.join(", ") + (d.seq ? ` (seq ${s("seq")})` : "") }
     }
+    case "base.upload":
+      return { title: "Patch base uploaded", detail: `store build #${s("serial")}, ${bytes(Number(d.size ?? 0))}` }
+    case "patches.made": {
+      const made = Array.isArray(d.made) ? (d.made as { from: string; size: number }[]) : []
+      const big = Array.isArray(d.tooBig) ? d.tooBig.length : 0
+      return { title: "Patches made", detail: `#${s("serial")}: ${made.map((m) => `from #${serialOf(m.from)} ${bytes(m.size)}`).join(", ") || "none kept"}${big ? `, ${big} too big to keep` : ""}` }
+    }
+    case "patches.failed":
+      return { title: "Patch failed", detail: `#${s("serial")}${d.from ? ` from #${serialOf(s("from"))}` : ""}: ${s("error")}` }
     case "storebuild.add":
       return { title: "Store build added", detail: `${s("label")}: ${s("os")}, code ${s("versionCode")}, built-in #${s("serial")}` }
     case "store.rule": {
@@ -190,6 +213,9 @@ export const ACTION_FILTERS: [string, string][] = [
   ["store.rule", "Store rule saved"],
   ["store.rule.delete", "Store rule deleted"],
   ["storebuild.add", "Store build added"],
+  ["base.upload", "Patch base uploaded"],
+  ["patches.made", "Patches made"],
+  ["patches.failed", "Patch failed"],
   ["serial.reserve", "Serial taken"],
   ["app.save", "App saved"],
 ]

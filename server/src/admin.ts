@@ -7,6 +7,7 @@ import type { Capabilities } from "../../tools/ota/decide"
 import type { Db } from "./db"
 import * as model from "./model"
 import { RuleError } from "./model"
+import { makeInBackground, remake, uploadBase } from "./patches"
 import { type PushSender, tellPhones, worthPush } from "./push"
 import { ADMIN_HEADER, cookieOf, createLoginCode, endSession, isBlocked, isHttps, noteFailure, sessionCookie, sessionOf } from "./session"
 import type { FileStore } from "./storage"
@@ -132,15 +133,22 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
       const zip = form.get("zip")
       if (typeof manifestText !== "string" || !(zip instanceof Blob)) throw new RuleError("manifest (JSON) and zip (file) are required")
       const manifest = JSON.parse(manifestText) as Manifest
+      const had = Number.isInteger(manifest.serial) ? (await db.query(`SELECT 1 FROM bundles WHERE app = $1 AND serial = $2`, [app, manifest.serial]))[0] : undefined
       const row = await model.uploadBundle(db, d.store, app, manifest, new Uint8Array(await zip.arrayBuffer()), {
         gitSubject: String(form.get("gitSubject") ?? ""),
         builtBy: by,
       })
+      // A new bundle: make its patches in the background (the answer doesn't wait for them and never fails because of them).
+      if (!had) makeInBackground(db, d.store, app, row.serial, by)
       return json(row)
     }
     const serial = Number(p[3])
     if (!Number.isInteger(serial)) throw new RuleError("bundle serial must be a number")
-    if (p.length === 4 && method === "GET") return json(await model.bundle(db, app, serial))
+    if (p.length === 4 && method === "GET") {
+      const row = await model.bundle(db, app, serial)
+      return json({ ...row, patches: await model.patchesOf(db, app, row.id) })
+    }
+    if (p[4] === "patches" && p.length === 5 && method === "POST") return json(await remake(db, d.store, app, serial, by))
     if (p.length === 4 && method === "DELETE") {
       await model.deleteBundle(db, app, serial, by)
       return json({ ok: true })
@@ -165,13 +173,24 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
     // Tell the channel's phones to check soon (they spread their checks); a failed push never fails the change.
     // `push: false` in the body: a quiet change, phones find it at their next start.
     const push = req.push !== false && worthPush(row.kind, row.pointer.rollout, row.previousRollout ?? null)
-      ? await tellPhones(db, d.push, await model.getApp(db, app), row.pointer.channel, { kind: row.kind, seq: row.pointer.seq, by })
+      ? await tellPhones(db, d.push, await model.getApp(db, app), row.pointer.channel, { kind: row.kind, seq: row.pointer.seq, by, priority: row.pointer.priority })
       : null
     return json({ ...row, push })
   }
   if (what === "channels" && p[4] === "push" && method === "POST") {
     if (!(await model.channels(db, app)).includes(p[3]!)) throw new RuleError(`no channel "${p[3]}"`, 404)
-    return json(await tellPhones(db, d.push, await model.getApp(db, app), p[3]!, { kind: "manual", by }))
+    // A push by hand has the wait of the priority the channel serves now.
+    const priority = (await model.current(db, app, p[3]!))?.priority
+    return json(await tellPhones(db, d.push, await model.getApp(db, app), p[3]!, { kind: "manual", by, priority }))
+  }
+  // A store build's built-in bundle as a zip: the base for patches (src/patches.ts)
+  if (what === "store-builds" && p.length === 5 && p[4] === "base" && method === "POST") {
+    const baseSerial = Number(p[3])
+    if (!Number.isInteger(baseSerial)) throw new RuleError("the store build's built-in serial must be a number")
+    const form = await request.formData().catch(() => null)
+    const zip = form?.get("zip")
+    if (!(zip instanceof Blob)) throw new RuleError("send multipart form data with the zip (file)")
+    return json(await uploadBase(db, d.store, app, baseSerial, new Uint8Array(await zip.arrayBuffer()), by))
   }
   if (what === "store-builds" && method === "POST") {
     const b = await body<model.StoreBuildInput>(request)

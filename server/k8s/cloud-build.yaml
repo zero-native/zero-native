@@ -1,6 +1,7 @@
 # zn-updates: build the image and deploy it to GKE, like the other Bun services (receipt-viewer).
 # Run from the zero-native repo root:
-#   gcloud builds submit --config server/k8s/cloud-build.yaml --substitutions _CLOUDSDK_COMPUTE_ZONE=asia-south1-b,_CLOUDSDK_CONTAINER_CLUSTER=my-cluster .
+#   gcloud builds submit --config server/k8s/cloud-build.yaml --substitutions "_CLOUDSDK_COMPUTE_ZONE=asia-south1-b,_CLOUDSDK_CONTAINER_CLUSTER=my-cluster" .
+#   (keep the quotes: PowerShell splits an unquoted value at the comma)
 # The root .gcloudignore keeps the upload to the files server/Dockerfile needs.
 steps:
   - id: Pull Docker Cache

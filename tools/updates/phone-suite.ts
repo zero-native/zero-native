@@ -509,7 +509,7 @@ const cases: Case[] = [
       const before = await getStats()
       changedChannel = true
       const r = await changeChannel(conn, privatePem, {
-        app: appId, channel, target: BUILT_IN, rollout: 100, priority: "high", reason: "phone suite: kill switch", confirm: `KILL ${channel.toUpperCase()}`, push: false,
+        app: appId, channel, target: BUILT_IN, rollout: 100, priority: "critical", reason: "phone suite: kill switch", confirm: `KILL ${channel.toUpperCase()}`, push: false,
       })
       say(`  kill switch on ${channel} (seq ${r.pointer.seq})`)
       const s1 = await startAndCheck()
