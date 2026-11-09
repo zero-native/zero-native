@@ -149,6 +149,23 @@ enum ZnBundles {
         return nil
     }
 
+    /// What runs now, after a swap (ZnOta.swap).
+    static func switchTo(_ r: Running) { running = r }
+
+    /// What the next start would run (`current` now, with every check), never [exclude]. Client queue or main thread.
+    static func candidate(exclude: String? = nil) -> Running {
+        let info = builtIn
+        guard let info, ZnOta.isConfigured, !ZnOtaHealth.offInProcess else { return Running(info: info, dir: nil) }
+        if let exclude, readCurrent() == exclude {
+            if let good = ZnOtaHealth.lastGood, good != exclude, !ZnOtaHealth.isBlocked(good) {
+                try? ZnOtaFiles.writeAtomic(currentFile, good)
+            } else {
+                try? FileManager.default.removeItem(at: currentFile)
+            }
+        }
+        return downloaded(info) ?? Running(info: info, dir: nil)
+    }
+
     /// Every check on bundle [id], templates too (TemplateReader refuses ids this app doesn't know).
     static func tryBundle(_ id: String, _ builtIn: ZnBundleRules.Info, _ caps: ZnCapabilities) -> ZnBundleRules.Check {
         let v = ZnBundleRules.checkBundle(id, builtIn: builtIn, caps: caps, folder: folder)
@@ -516,6 +533,14 @@ final class ZnOta: @unchecked Sendable {
         var redact: ((String) -> String)? = nil
         /// A release build may use an `http://` server only with this on (a test against a server on this Mac).
         var allowHttpInRelease = false
+        /// The launch gate (ZnOtaGate): at a cold start the check runs at once and the launch screen waits for its
+        /// answer at most this long from the tap. 0: no gate (the first check comes firstCheckDelayMs later).
+        var launchDecisionMs: Double = 800
+        /// A priority high update may hold the start this long from the tap (the update screen), critical this long.
+        var launchCapMs: Double = 4_000
+        var launchCapCriticalMs: Double = 5_800
+        /// How the update screen looks.
+        var updateScreen = ZnUpdateScreen()
 
         init(server: String, channel: String, publicKeys: [String]) {
             self.server = server
@@ -562,6 +587,25 @@ final class ZnOta: @unchecked Sendable {
     private var firstScreenTimer: DispatchWorkItem?
     /// Bundles rolled back in this process (main thread).
     private var rolledBack = Set<String>()
+
+    /// The client's phase and download progress (the launch gate's bar).
+    func phaseAndProgress() -> (String, Double) { fieldsLock.withLock { (phase, progress) } }
+
+    /// The launch gate's outcome (gate_swap, gate_timeout) for the next check.
+    func gateOutcome(_ kind: String, _ detail: String) {
+        worker.async { [self] in record(kind, ZnBundles.readCurrent() ?? "built-in", detail, running: nil) }
+    }
+
+    /// Main thread, from ZnApp.start at a cold start: the launch gate checks now.
+    @MainActor static func beginLaunchGate() {
+        guard isConfigured, !ZnOtaHealth.offInProcess else { return }
+        ZnOtaGate.beginCold {
+            let s = shared
+            s.lastAutoCheck = CACurrentMediaTime() * 1000
+            s.frontOnce = true  // the first time in front doesn't check again
+            s.worker.async { _ = s.runCheck() }
+        }
+    }
 
     /// JS holds updates (`Updates.hold`): a pending one waits for the next start.
     var isHeld: Bool { fieldsLock.withLock { !holds.isEmpty } }
@@ -696,6 +740,8 @@ final class ZnOta: @unchecked Sendable {
             stateLock.withLock { saveState(st) }
             setPhase("idle")
             print("zn-ota: check \(c.channel): \(st.lastResult ?? "") in \(Int((CACurrentMediaTime() - t0) * 1000)) ms")
+            ZnOtaGate.checkDone(ready: ZnBundles.readCurrent() != ZnBundles.running?.key, priority: st.nextPriority,
+                                result: st.lastResult ?? "")
             return result
         } catch {
             let e = error as? ZnOtaError ?? ZnOtaError("failed", "\(error)")
@@ -707,6 +753,7 @@ final class ZnOta: @unchecked Sendable {
                 saveState(st)
             }
             setPhase("failed")
+            ZnOtaGate.checkDone(ready: false, priority: 0, result: "\(e.code): \(e.message)")
             return ["action": "NONE", "reason": "ERROR", "error": "\(e.code): \(e.message)"]
         }
     }
@@ -818,7 +865,12 @@ final class ZnOta: @unchecked Sendable {
             if m.serial <= builtIn.serial { throw ZnOtaError("bundle", "\(m.id) isn't newer than the app's own #\(builtIn.serial)") }
             if let why = ZnCapabilities.current().missing(m.requires) { throw ZnOtaError("incompatible", why) }
             var how: String?
-            if action == "UPDATE" { how = try install(c, m) } else { try switchTo(builtIn, m) }
+            if action == "UPDATE" {
+                ZnOtaGate.found(Self.priorityOf(p))
+                how = try install(c, m)
+            } else {
+                try switchTo(builtIn, m)
+            }
             st.setSeq(c.channel, p.seq)
             st.nextPriority = Self.priorityOf(p)
             outcome(st, action == "UPDATE" ? "downloaded" : "switched", m.id, how)
@@ -1099,14 +1151,15 @@ final class ZnOta: @unchecked Sendable {
         guard let c = Self.config, ZnBundles.running?.builtIn == false, c.firstScreenTimeoutMs > 0 else { return }
         firstScreenTimer?.cancel()
         let t = DispatchWorkItem { [self] in
-            guard let id = ZnBundles.running?.key, !screensAreUp, inFront, ZnOtaHealth.healthyBundle != id else { return }
+            guard let id = ZnBundles.running?.key, !screensAreUp, inFront, !applying, !rollingBack,
+                  ZnOtaHealth.healthyBundle != id else { return }
             let why = "the first screens weren't up after \(Int(c.firstScreenTimeoutMs)) ms"
             print("zn-ota: safety: \(why) (\(id))")
             if !ZnOtaHealth.errorsRollBack(id) {
                 worker.async { [self] in record("error_screen", id, "\(why) (last good bundle: reported only)", running: nil) }
                 return
             }
-            rollBack(id, why)
+            MainActor.assumeIsolated { _ = rollBack(id, why) }  // a main-queue work item
         }
         firstScreenTimer = t
         DispatchQueue.main.asyncAfter(deadline: .now() + c.firstScreenTimeoutMs / 1000, execute: t)
@@ -1122,10 +1175,12 @@ final class ZnOta: @unchecked Sendable {
     }
 
     /// Main thread, from ZnApp (JS sent NAV STARTED): the running bundle's first screens are built.
-    static func screensUp() {
+    @MainActor static func screensUp() {
         let s = shared
         guard isConfigured, !s.screensAreUp else { return }
         s.screensAreUp = true
+        if s.coverView != nil { s.armUncover(0.05) }  // a swap's cover: the new screens are drawn by the next frame
+        ZnOtaGate.screensUp()
         s.firstScreenTimer?.cancel()
         if s.inFront { s.armHealthy() }
     }
@@ -1148,9 +1203,10 @@ final class ZnOta: @unchecked Sendable {
     /// bundle that isn't healthy yet this blocks it and makes the last good bundle current. Returns true if it rolled
     /// back in place (not yet on iOS: always false, and the error screen shows; the good bundle runs from the next start).
     @discardableResult
-    static func errorScreen(kind: String, where whereText: String, details: String) -> Bool {
+    @MainActor static func errorScreen(kind: String, where whereText: String, details: String) -> Bool {
         guard isConfigured else { return false }
         let s = shared
+        if s.applying || s.rollingBack || ZnApp.shared.restarting { return false }  // a swap handles its own failures
         let running = ZnBundles.running
         let id = running?.key
         let what = s.safeText("\(kind) in \(whereText): \(details.split(separator: "\n").first ?? "")")
@@ -1172,26 +1228,168 @@ final class ZnOta: @unchecked Sendable {
         return s.rollBack(id, what, stack: stack, sha: sha)
     }
 
-    /// Blocks [id] and makes the last good bundle (or the built-in one) current. Not in place yet on iOS: it runs from
-    /// the next start, and this returns false (the error screen shows meanwhile).
+    /// Blocks [id] and makes the last good bundle (or the built-in one) current, and runs it now in place (under a
+    /// cover) when it can: JS isn't holding updates and no launch is open. Else from the next start. True if in place.
     @discardableResult
-    private func rollBack(_ id: String, _ why: String, stack: String? = nil, sha: String? = nil,
+    @MainActor private func rollBack(_ id: String, _ why: String, stack: String? = nil, sha: String? = nil,
                           blockAs: String = ZnOtaHealthRules.error) -> Bool {
         rolledBack.insert(id)
         stopTimers()
+        let inPlace = !isHeld && !ZnLaunch.isWaiting && Self.window() != nil
+        let later = inPlace ? "" : " from the next start (\(isHeld ? "updates are held" : "the app can't swap now"))"
+        if inPlace {
+            rollingBack = true
+            cover()
+        }
         worker.async { [self] in
-            let good = ZnOtaHealth.lastGood.flatMap { $0 != id && !ZnOtaHealth.isBlocked($0) ? $0 : nil }
-            var target: String?
-            if let good, let builtIn = ZnBundles.builtIn, case .ok = ZnBundles.tryBundle(good, builtIn, .current()) { target = good }
-            if let target { try? ZnOtaFiles.writeAtomic(ZnBundles.currentFile, target) }
-            else { try? FileManager.default.removeItem(at: ZnBundles.currentFile) }
+            let target = ZnBundles.candidate(exclude: id)
             ZnOtaHealth.block(id, blockAs, kind: "error_rollback",
-                              detail: "\(why); going back to \(target ?? "the built-in bundle") from the next start", stack: stack, sha: sha)
+                              detail: "\(why); going back to \(target.key ?? "the built-in bundle")\(later)", stack: stack, sha: sha)
             deliver()
             record(nil, nil, nil, running: nil, error: "error_rollback: \(id): \(why)")
             emitStatus()
+            guard inPlace else { return }
+            DispatchQueue.main.async { [self] in
+                print("zn-ota: safety: rolling back from \(id) to \(target): \(why)")
+                swap(to: target, fallback: nil, why: .rollBack) { r in print("zn-ota: safety: rollback done: \(r)") }
+            }
         }
-        return false
+        return inPlace
+    }
+
+    // MARK: Apply in place (ZnOta.kt applyNow / swap)
+
+    /// Main thread: an update or a rollback is replacing the JS runtime.
+    private var applying = false
+    private var rollingBack = false
+    private var coverView: UIView?
+    private var uncoverWork: DispatchWorkItem?
+    private static let coverTimeout: TimeInterval = 4
+
+    enum Swap { case apply, rollBack, fallback }
+
+    @MainActor static func window() -> UIWindow? {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        return windows.first { $0.isKeyWindow } ?? windows.first
+    }
+
+    /// Main thread: a still picture of the screens now (else the screen's background) over everything, until the new
+    /// screens are up (screensUp) or coverTimeout.
+    @MainActor private func cover() {
+        guard coverView == nil, let window = Self.window() else { return }
+        let v = window.snapshotView(afterScreenUpdates: false) ?? UIView(frame: window.bounds)
+        if v.backgroundColor == nil && v.subviews.isEmpty { v.backgroundColor = .systemBackground }
+        v.frame = window.bounds
+        v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        v.isUserInteractionEnabled = true  // touches stop here while the screens change
+        window.addSubview(v)
+        coverView = v
+        armUncover(Self.coverTimeout)
+    }
+
+    @MainActor private func armUncover(_ after: TimeInterval) {
+        uncoverWork?.cancel()
+        let w = DispatchWorkItem { [self] in uncover() }
+        uncoverWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + after, execute: w)
+    }
+
+    @MainActor private func uncover() {
+        uncoverWork?.cancel()
+        uncoverWork = nil
+        guard let v = coverView else { return }
+        coverView = nil
+        UIView.animate(withDuration: 0.15, animations: { v.alpha = 0 }, completion: { _ in v.removeFromSuperview() })
+    }
+
+    /// Runs the bundle installed for the next start now, in this process: the JS runtime is replaced by a new one
+    /// running it, and the screens that were open open again by route and params (their JS state fresh) under a
+    /// cover. Refused while JS holds updates or a launch is open. If the new code throws while starting, it is blocked
+    /// and the bundle that ran comes back the same way (outcome apply_failed). [done] on the main thread:
+    /// `{ applied: true, bundle }` or `{ applied: false, reason: off|held|busy|not_started|nothing|failed, error? }`.
+    func applyNow(_ done: @escaping ([String: Any]) -> Void) {
+        DispatchQueue.main.async { [self] in
+            func no(_ reason: String, _ error: String? = nil) {
+                var r: [String: Any] = ["applied": false, "reason": reason]
+                if let error { r["error"] = error }
+                done(r)
+            }
+            guard Self.isConfigured else { return no("off") }
+            if isHeld || ZnLaunch.isWaiting { return no("held") }
+            if applying || rollingBack || ZnApp.shared.restarting { return no("busy") }
+            if !ZnApp.shared.firstScreensUp || Self.window() == nil { return no("not_started") }
+            applying = true
+            // On the client's queue: after any check in progress, so `current` is final.
+            worker.async { [self] in
+                let target = ZnBundles.candidate()
+                DispatchQueue.main.async { [self] in
+                    if target.key == ZnBundles.running?.key {
+                        applying = false
+                        return no("nothing")
+                    }
+                    if isHeld || ZnLaunch.isWaiting {
+                        applying = false
+                        return no("held")
+                    }
+                    swap(to: target, fallback: ZnBundles.running, why: .apply, done)
+                }
+            }
+        }
+    }
+
+    /// Main thread: switches the process to [target] and replaces the JS runtime. If the new code throws while it
+    /// starts, it is blocked on this phone and [fallback] runs the same way and becomes current instead.
+    @MainActor private func swap(to target: ZnBundles.Running, fallback: ZnBundles.Running?, why: Swap,
+                      _ done: @escaping ([String: Any]) -> Void) {
+        let t0 = CACurrentMediaTime()
+        cover()
+        let from = ZnBundles.running
+        stopTimers()
+        screensAreUp = false
+        ZnBundles.switchTo(target)
+        let id = target.key
+        ZnApp.shared.restart(bundle: target.dir ?? ZnBundles.builtInURL, in: Self.window()) { [self] ok, error in
+            let line = safeText(String(error.split(separator: "\n").first ?? ""))
+            if !ok, let fallback {
+                print("zn-ota: apply: \(target) threw while starting; running \(fallback) instead: \(line)")
+                let stack = Self.jsTopFrames(error)
+                worker.async { [self] in
+                    let backId = fallback.key
+                    if let backId { try? ZnOtaFiles.writeAtomic(ZnBundles.currentFile, backId) }
+                    else { try? FileManager.default.removeItem(at: ZnBundles.currentFile) }
+                    if let id { ZnOtaHealth.block(id, ZnOtaHealthRules.error, kind: nil, detail: nil) }
+                    record("apply_failed", id ?? "built-in", "\(line); running \(backId ?? "built-in")", running: nil,
+                           error: "apply_failed: \(id ?? "built-in") threw while starting: \(line)", stack: stack,
+                           sha: target.info?.sha256)
+                }
+                return swap(to: fallback, fallback: nil, why: .fallback, done)
+            }
+            applying = false
+            rollingBack = false
+            ZnOtaHealth.onChosen(target)
+            if !ok {
+                // Nothing left to fall back to in place: the error screen shows.
+                uncover()
+                return done(["applied": false, "reason": "failed", "error": error])
+            }
+            if inFront { armFirstScreen() }
+            let ms = Int((CACurrentMediaTime() - t0) * 1000)
+            print("zn-ota: apply: now running \(target), in \(ms) ms")
+            let now = target.builtIn ? "built-in \(target.info?.id ?? "")" : (id ?? "")
+            switch why {
+            case .apply:
+                worker.async { [self] in record("applied", id ?? "built-in", "was \(from?.key ?? "built-in"), \(ms) ms", running: now) }
+                done(["applied": true, "bundle": id ?? NSNull()])
+            case .rollBack:
+                worker.async { [self] in record(nil, nil, nil, running: now) }
+                done(["applied": true, "bundle": id ?? NSNull()])
+            case .fallback:
+                worker.async { [self] in record(nil, nil, nil, running: now) }
+                done(["applied": false, "reason": "failed",
+                      "error": "the new bundle threw while starting; \(id ?? "the built-in bundle") runs instead"])
+            }
+            emitStatus()
+        }
     }
 
     /// A JS error's text as it may be stored and sent: masked, then the app's own redact.
@@ -1223,10 +1421,9 @@ final class ZnOta: @unchecked Sendable {
                     call.resolve(r)
                 }
             }
-            // Applying while the app runs isn't on iOS yet (plan step 5): the update runs from the next start.
+            // Answered only when it didn't apply: when it did, the JS that asked is gone (its runtime was replaced).
             function("applyNow", onMain: true) { call in
-                let s = ZnOta.shared
-                call.resolve(["applied": false, "reason": s.isHeld ? "held" : "not_started"])
+                ZnOta.shared.applyNow { r in if r["applied"] as? Bool != true { call.resolve(r) } }
             }
             // Never answered: the hold lasts until JS cancels the call.
             function("hold", onMain: true) { call in

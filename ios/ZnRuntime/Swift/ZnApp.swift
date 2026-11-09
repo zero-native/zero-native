@@ -144,9 +144,13 @@ final class ZnApp {
 
     /// For the scene's `stateRestorationActivity(for:)`: the back stack (route names, params, restorableSignal values)
     /// up to the first `restore: false` route; nil when only the start screen with no values is open.
-    func restorationActivity() -> NSUserActivity? {
+    func restorationActivity() -> NSUserActivity? { savedStack(values: true) }
+
+    /// The screens to open again, as `restorationActivity`; [values] false leaves their restorableSignal values out
+    /// (an update applied in place: new code starts its state fresh, as on Android).
+    private func savedStack(values withValuesToo: Bool) -> NSUserActivity? {
         let keep = stack.prefix { entryRoutes[$0]?.restore ?? false }
-        if keep.isEmpty || (keep.count == 1 && (entryValues[keep[0]] ?? [:]).isEmpty) { return nil }
+        if keep.isEmpty || (keep.count == 1 && (!withValuesToo || (entryValues[keep[0]] ?? [:]).isEmpty)) { return nil }
         func json(_ withValues: Bool) -> String? {
             let list: [[String: Any]] = keep.map { e in
                 var o: [String: Any] = ["route": entryRoutes[e]!.name,
@@ -156,7 +160,7 @@ final class ZnApp {
             }
             return ZnModules.json(list)
         }
-        var text = json(true)
+        var text = json(withValuesToo)
         if (text?.count ?? 0) > Self.maxSavedChars {
             print("zn: nav: screen values too big to save; saving the screens without them")
             text = json(false)
@@ -270,10 +274,13 @@ final class ZnApp {
     /// Android's ZnNav). A route name (the sample's ZN_ROUTE, debug) opens that route alone.
     /// [restoring]: the scene's `stateRestorationActivity` (restorationActivity's): iOS gives it back only after it ended
     /// the app itself, never after the user closed it, as Android's saved state. It wins over [link], not over [routeName].
-    func start(bundle builtIn: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil) {
+    func start(bundle builtIn: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil,
+               reusing: Bool = false) {
         // The bundle to run: a downloaded one when OTA is on and it passes every check, else the app's own (ZnOta.swift).
+        // [reusing]: a restart (ZnOta's swap): [builtIn] is the folder to run, already chosen.
         ZnModules.registerBuiltIns()  // a bundle's needs are checked against every module
-        let bundle = ZnBundles.choose(builtIn: builtIn).dir ?? builtIn
+        let bundle = reusing ? builtIn : (ZnBundles.choose(builtIn: builtIn).dir ?? builtIn)
+        if !reusing { ZnOta.beginLaunchGate() }  // a cold start: the update check runs now (ZnOtaGate)
         bundleURL = bundle
         do {
             let file = try TemplateReader.read(try Data(contentsOf: bundle.appendingPathComponent("main.zn.ui")))
@@ -359,10 +366,15 @@ final class ZnApp {
             ZnModules.install()  // before the main script: its constants are read as it starts
             DispatchQueue.main.asyncAfter(deadline: .now() + delayMs / 1000) { [host] in
                 host.evalFile(mainScript) { ok, result, ms in
+                    // A restart's caller hears first; it may restart again on another bundle (that resets `failure`).
+                    let evaluated = self.onEvaluated
+                    self.onEvaluated = nil
                     guard ok else {
                         self.failure = "main.hbc failed: \(result)"  // the host also sent it as a "start" JS error (OTA)
+                        evaluated?(false, result)
                         return
                     }
+                    evaluated?(true, "")
                     print("zn: main.hbc evaluated in \(String(format: "%.1f", ms)) ms")
                     // Fixed facts and the window, before any screen (ZnWindow.kt afterMainScript).
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.device), string: Self.deviceJson())
@@ -380,8 +392,55 @@ final class ZnApp {
                 }
             }
         } catch {
+            let evaluated = onEvaluated
+            onEvaluated = nil
             failure = "can't start: \(error)"
             ZnOta.errorScreen(kind: "start", where: "the bundle", details: "\(error)")
+            evaluated?(false, "\(error)")
+        }
+    }
+
+    // MARK: Restart on another bundle (an OTA update applied in place, ZnOta.swift)
+
+    /// Runs once when the next start's main.hbc has run (true) or failed (false, the error), before START.
+    @ObservationIgnored private var onEvaluated: ((Bool, String) -> Void)?
+    @ObservationIgnored private(set) var restarting = false
+
+    /// Replaces the JS runtime and runs [bundle] in this process: the screens that were open (the restorable ones,
+    /// as `restorationActivity`) open again by route and params, their JS state fresh. The window gets a new root
+    /// controller; [window]'s cover (the caller's) hides the swap. [done] runs on the main thread after main.hbc ran:
+    /// true, or false with the error (the caller may restart again on another bundle).
+    func restart(bundle: URL, in window: UIWindow?, done: @escaping (Bool, String) -> Void) {
+        let saved = savedStack(values: false)
+        restarting = true
+        stack = []
+        failure = nil
+        failedScreens = [:]
+        layers = [:]
+        backWanted = []
+        entryRoutes = [:]
+        entryParams = [:]
+        entryValues = [:]
+        nativeParams = [:]
+        insetsSent = nil
+        jsStarted = false
+        firstScreensUp = false
+        jsDrew = false
+        batchChangesStack = false
+        ctx = nil
+        routes = []
+        store.reset()
+        host.restartRuntime { [self] in
+            onEvaluated = { [self] ok, error in
+                restarting = false
+                done(ok, error)
+            }
+            start(bundle: bundle, routeName: nil, params: "{}", restoring: saved, reusing: true)
+            if let window {
+                window.rootViewController = makeRootViewController()
+                // The covers (the swap's, the update screen) stay above the new screens.
+                for v in window.subviews where v !== window.rootViewController?.view { window.bringSubviewToFront(v) }
+            }
         }
     }
 

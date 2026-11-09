@@ -83,6 +83,9 @@ final class ZnStore {
 
     func find(_ id: UInt32) -> ZnInstance? { instances[id] }
 
+    /// Forgets every instance (a new JS runtime numbers its instances from the start again).
+    func reset() { instances = [:] }
+
     /// A screen root from its template, every slot at its default, so the skeleton draws before JS runs (§8.1).
     @discardableResult
     func mountRoot(id: UInt32, templateId: Int, template: ZnTemplate) -> ZnInstance {

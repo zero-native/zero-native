@@ -148,6 +148,35 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-10: iOS OTA step 5b: the launch gate (Claude, Mac)
+ios/ZnRuntime/Swift/ZnOtaGate.swift, as Android's ZnOtaGate: at a cold start the check runs at once and ZnSplash keeps
+the launch screen while it runs (at most `launchDecisionMs`, 800 ms, from the tap: the process start time). A priority
+high / critical update shows the update screen (the launch screen with "Updating for a better experience", "This takes
+only a few seconds" and a progress bar; `Config.updateScreen` sets the text and colours), downloads and swaps in place
+before the user is in; caps 4 s / 5.8 s from the tap, and an early give-up when the download's pace can't make it.
+Outcomes gate_swap / gate_timeout as Android. The splash hands over to the update screen; after a restart, covers stay
+above the new root controller. Not on iOS: Android's store phase (Play in-app update).
+Checked on the simulator (a throttling proxy in front of the reference server): no update → the app opens 530 ms after
+the tap; a high update on a fast link → update screen at 471 ms, new screens at 937 ms; at 450 KB/s → swapped at
+2.35 s; at 150 KB/s → gave up at 889 ms ("can't end in time"), the download finished and runs from the next start.
+
+### 2026-11-10: iOS OTA step 5a: apply in place, rollback in place (Claude, Mac)
+An update can now run without restarting the app (docs/ios-ota-plan-2026-11-10.md step 5):
+- **ZNHost.restartRuntime**: deletes the JS runtime on its thread and makes a new one. Every task posted to the JS
+  thread carries the runtime's generation; timers, events and call answers meant for the old runtime are dropped.
+- **ZnApp.restart(bundle:in:done:)**: saves the open screens as iOS restore does (route + params, restorable ones,
+  without restorableSignal values: new code starts its state fresh, as Android), resets the screen state and the store,
+  starts the new bundle and gives the window a new root controller. ZnSystemEvents sends the colour scheme again.
+- **ZnOta**: `applyNow` (Updates.applyNow; refused while held, while a launch is open, busy, not started, nothing),
+  `swap` under a cover (a still picture of the screens, gone when the new screens are up, 4 s at most), fallback to
+  the old bundle when the new one throws (apply_failed, blocked), and a safety-net rollback that runs the good
+  bundle at once instead of from the next start.
+- **Checked on the simulator**: apply in 183–208 ms with the amount screen open (it reopened with its merchant; keys,
+  Back and the discard prompt work on the new runtime); a broken bundle applied → back to the running one in 176 ms;
+  a cold start on a broken bundle → rolled back in place, the good bundle's screens up at 371 ms. The debug sample
+  has notify hooks for tests (`notifyutil -p dev.zeronative.sample.ota.apply` / `.check`).
+- Next: the launch gate (update screen at a cold start for priority high / critical) and the store screens.
+
 ### 2026-11-10: iOS OTA steps 1–4: rules, check, download, install, safety nets (Claude, Mac)
 Pavan's plan (docs/ios-ota-plan-2026-11-10.md, "go as recommended"): Android's Kotlin rules copied to Swift, no patches
 and no push-triggered check yet. New in ios/ZnRuntime/Swift:

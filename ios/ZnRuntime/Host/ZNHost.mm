@@ -9,6 +9,8 @@
 #include <string>
 
 #include "zn/engine.h"
+
+#include <atomic>
 #include "zn/runtime.h"
 #include "zn/storage.h"
 
@@ -115,6 +117,9 @@ class IosPlatform final : public zn::Platform {
   dispatch_semaphore_t _ready;
   std::unique_ptr<IosPlatform> _platform;
   std::unique_ptr<zn::Runtime> _runtime;
+  /// Which runtime a posted task is for: `restartRuntime` adds one, and tasks posted for the old runtime (its timers,
+  /// events and call answers) are dropped.
+  std::atomic<uint64_t> _generation;
 }
 
 + (NSInteger)bytecodeVersion {
@@ -146,17 +151,33 @@ class IosPlatform final : public zn::Platform {
     [_thread start];
     dispatch_semaphore_wait(_ready, DISPATCH_TIME_FOREVER);  // the run loop exists; a few µs
     _platform = std::make_unique<IosPlatform>(self);
-    [self post:^{
-      self->_runtime = std::make_unique<zn::Runtime>(*self->_platform, zn::createHermesEngine);
-      // A JS task that runs longer is stopped (step 3.9); Android's ZnRuntime.jsTimeLimitMs: 3 s debug, 2 s release.
-#ifndef NDEBUG  // CMake defines NDEBUG in Release (the Swift side uses DEBUG)
-      self->_runtime->setTimeLimit(3000);
-#else
-      self->_runtime->setTimeLimit(2000);
-#endif
-    }];
+    [self post:^{ [self makeRuntime]; }];
   }
   return self;
+}
+
+/// JS thread.
+- (void)makeRuntime {
+  _runtime = std::make_unique<zn::Runtime>(*_platform, zn::createHermesEngine);
+  // A JS task that runs longer is stopped (step 3.9); Android's ZnRuntime.jsTimeLimitMs: 3 s debug, 2 s release.
+#ifndef NDEBUG  // CMake defines NDEBUG in Release (the Swift side uses DEBUG)
+  _runtime->setTimeLimit(3000);
+#else
+  _runtime->setTimeLimit(2000);
+#endif
+}
+
+- (void)restartRuntime:(void (^)(void))done {
+  _generation.fetch_add(1);  // first: anything posted from now on is for the new runtime
+  void (^task)(void) = ^{
+    const double t0 = CACurrentMediaTime();
+    self->_runtime.reset();
+    [self makeRuntime];
+    os_log(znLog(), "JS runtime replaced in %.1f ms", (CACurrentMediaTime() - t0) * 1000.0);
+    dispatch_async(dispatch_get_main_queue(), done);
+  };
+  CFRunLoopPerformBlock(_jsLoop, kCFRunLoopDefaultMode, task);
+  CFRunLoopWakeUp(_jsLoop);
 }
 
 - (void)jsMain {
@@ -176,14 +197,20 @@ class IosPlatform final : public zn::Platform {
 }
 
 - (void)post:(void (^)(void))task {
-  CFRunLoopPerformBlock(_jsLoop, kCFRunLoopDefaultMode, task);
+  const uint64_t generation = _generation.load();
+  CFRunLoopPerformBlock(_jsLoop, kCFRunLoopDefaultMode, ^{
+    if (self->_generation.load() == generation) task();
+  });
   CFRunLoopWakeUp(_jsLoop);
 }
 
 - (void)post:(void (^)(void))task afterMs:(double)ms {
+  const uint64_t generation = _generation.load();
   CFRunLoopTimerRef timer = CFRunLoopTimerCreateWithHandler(
       kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + ms / 1000.0, 0, 0, 0,
-      ^(CFRunLoopTimerRef) { task(); });
+      ^(CFRunLoopTimerRef) {
+        if (self->_generation.load() == generation) task();
+      });
   CFRunLoopAddTimer(_jsLoop, timer, kCFRunLoopDefaultMode);
   CFRelease(timer);
   CFRunLoopWakeUp(_jsLoop);

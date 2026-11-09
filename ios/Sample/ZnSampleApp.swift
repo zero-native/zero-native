@@ -10,6 +10,7 @@
 //   ZN_OTA_KEY       the OTA public key to trust instead of the sample's (debug: a test store with its own key)
 //   ZN_OTA_HEALTHY_MS  a downloaded bundle is healthy this long after its first screens (debug; default 4000)
 import UIKit
+import notify
 
 @main
 final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
@@ -37,6 +38,17 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         ota.allowHttpInRelease = true  // the sample's release build talks to the same local server
         ota.onReport = { r in print("zn-sample: onReport \(r) (serious=\(r.serious))") }
         ZnOta.configure(ota)
+        #if DEBUG
+        // Tests: `xcrun simctl spawn <device> notifyutil -p dev.zeronative.sample.ota.apply` runs Updates.applyNow,
+        // `... .ota.check` Updates.check.
+        var token: Int32 = 0
+        notify_register_dispatch("dev.zeronative.sample.ota.apply", &token, .main) { _ in
+            ZnOta.shared.applyNow { print("zn-sample: applyNow → \($0)") }
+        }
+        notify_register_dispatch("dev.zeronative.sample.ota.check", &token, .main) { _ in
+            ZnOta.shared.check { print("zn-sample: check → \($0)") }
+        }
+        #endif
         return true
     }
 

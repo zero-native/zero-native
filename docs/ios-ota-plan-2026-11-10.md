@@ -49,7 +49,7 @@ Recommended for launch:
 4. **Start and rollback** — **done 2026-11-10** (1 d). At start: choose the bundle, run it, mark the launch; a crash before "healthy" is
    counted by a crash mark (iOS has no exit-reason API like Android's), and the next start rolls back to the last good
    bundle, else the built-in one. A new App Store version clears downloaded bundles older than the built-in one.
-5. **Apply in place and the launch gate** (1 d). A restart of the JS engine: Android deletes the engine and makes a new
+5. **Apply in place and the launch gate** — **done 2026-11-10** (1 d). A restart of the JS engine: Android deletes the engine and makes a new
    one (`ZnNative.destroyRuntime`); iOS's ZNHost is one shared engine today, so it gets a restart method. Covered by a screen so nothing flickers; screens reopen by route as on Android. The launch gate
    waits up to Android's limits for a critical update.
 6. **ZeroBill** (in the ZeroBill session, 0.5 d). Configure OTA in MyApp.swift (Debug: staging, Release:

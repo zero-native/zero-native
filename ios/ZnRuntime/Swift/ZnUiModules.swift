@@ -361,6 +361,15 @@ enum ZnSplash {
             // above it.
             if let window, window.subviews.last !== cover { window.bringSubviewToFront(cover) }
             let now = CACurrentMediaTime()
+            // The launch gate: the launch screen stays while its check runs; the update screen takes over from it.
+            if ZnOtaGate.showing {
+                ticker.stop()
+                holding = false
+                print("zn: splash: the update screen takes over")
+                UIView.animate(withDuration: 0.2, animations: { cover.alpha = 0 }, completion: { _ in cover.removeFromSuperview() })
+                return
+            }
+            if ZnOtaGate.holdsSplash() { return }
             let ready = ZnApp.shared.firstScreensUp
             if ready && readyAt == 0 { readyAt = now }
             let waited = (now - t0) * 1000
@@ -386,7 +395,7 @@ enum ZnSplash {
     }
 
     /// The launch screen again, as a view: the storyboard's first controller, or UILaunchScreen's colour and image.
-    @MainActor private static func launchCover(_ frame: CGRect) -> UIView {
+    @MainActor static func launchCover(_ frame: CGRect) -> UIView {
         let info = Bundle.main.infoDictionary ?? [:]
         if let name = info["UILaunchStoryboardName"] as? String,
            let vc = UIStoryboard(name: name, bundle: .main).instantiateInitialViewController() {

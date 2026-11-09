@@ -144,10 +144,10 @@ Runs in `my-app` (its own session). Details in §10.
    swipe: anything the user must see needs an alert payload (server decision).
 4. Test on the **ZeroBill app** (it has APNs in Firebase; the sample doesn't), on a device.
 
-### Phase 4a: OTA on iOS [zn] — **in progress** (steps 1–4 done on the simulator, 2026-11-10)
+### Phase 4a: OTA on iOS [zn] — **in progress** (steps 1–4 and apply in place done on the simulator, 2026-11-10)
 Plan: docs/ios-ota-plan-2026-11-10.md (Swift copy of the Kotlin rules, no patches yet). Done: rules, check, download,
-install, crash mark, rollback (ZnOta.swift, ZnOtaRules.swift, ZnOtaInstall.swift; `bun run ios:ota-test`). Next: apply
-in place and the launch gate (5), ZeroBill (6), the iOS matrix (7). Earlier text:
+install, crash mark, rollback (ZnOta.swift, ZnOtaRules.swift, ZnOtaInstall.swift; `bun run ios:ota-test`). Apply in place
+and rollback in place done (5a), the launch gate (5b). Next: ZeroBill (6), the iOS matrix (7). Earlier text:
 The update server is now zn's own `server/` (zn-updates, `docs/zn-updates-server.md`, landing from Windows);
 phones use protocol 1 unchanged (POST /v1/check, then GET the zip). Decision logic (bundle choice, health, signature rules) moved from Kotlin to C++ first so both phones share it (A1);
 then Android must pass its 38-case phone matrix again. Then on iOS: bundle pool and capability manifest, download +
@@ -447,7 +447,9 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
-| 2026-11-10 | OTA steps 1–4: rules, check, download, install, crash mark, rollback (simulator) | (this commit) |
+| 2026-11-10 | OTA step 5b: the launch gate and update screen (simulator) | (this commit) |
+| 2026-11-10 | OTA step 5a: apply in place, rollback in place (simulator) | e5d3a6b |
+| 2026-11-10 | OTA steps 1–4: rules, check, download, install, crash mark, rollback (simulator) | f8d935b |
 | 2026-11-10 | Image viewer as Android's: one page per swipe, no paging while zoomed, Android's bar; checked in ZeroBill's Offer Details | 53bc864 |
 | 2026-11-09 | Scroll with only maxHeight hugs its content; LayoutLab 97 / 97 | 9afd9ff |
 | 2026-11-09 | Pavan's iPhone test: min raises align children; sheet height follows content; close while sliding in; LayoutLab 95 / 95 | 2e6df8e |

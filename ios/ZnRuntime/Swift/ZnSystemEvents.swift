@@ -16,8 +16,19 @@ final class ZnSystemEvents {
     private(set) var keyboardHeight: CGFloat = 0
 
     /// Once JS has run its main script: the colour scheme now, then changes.
+    /// A new JS runtime (an update applied in place): the colour scheme and app state again, as at the first start.
+    private func resend() {
+        guard started else { return }
+        let lastScheme = scheme
+        scheme = nil
+        colorSchemeChanged(UIScreen.main.traitCollection.userInterfaceStyle)
+        if scheme == nil { scheme = lastScheme }
+        if state == "background" { host.dispatchEvent(0, event: UInt16(ZnAppEvent.appState), string: "background") }  // START says active
+    }
+
+    /// Again after a new JS runtime's main script: resend.
     func start() {
-        guard !started else { return }
+        guard !started else { return resend() }
         started = true
         colorSchemeChanged(UIScreen.main.traitCollection.userInterfaceStyle)
         state = UIApplication.shared.applicationState == .background ? "background" : "active"  // START says active

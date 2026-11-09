@@ -275,6 +275,12 @@ final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
         ZNStorage.flush(store)
     }
 
+    /// A launch is open: another app or a native screen will answer it (an update must not replace the JS meanwhile).
+    @MainActor static var isWaiting: Bool {
+        guard let open = ZNStorage.string(store, key: current) else { return false }
+        return read(open)?["status"] as? String == "waiting"
+    }
+
     /// Starts a launch of [key] with [id]: its "waiting" record is on disk before anything opens. Refused with "busy"
     /// while another launch is open, and "unacked" while this key has an answer JS hasn't acked (ZnLaunch.kt's rules).
     @MainActor static func start(_ key: String, id: String) -> (launched: Bool, reason: String?) {

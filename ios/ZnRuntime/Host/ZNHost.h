@@ -37,6 +37,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setGlobalString:(NSString*)name value:(NSString*)value;
 
 /// Runs a bytecode file (the bundle's main.hbc), mapped read-only. `done` runs on the main thread.
+/// Replaces the JS runtime with a new, empty one (an OTA update applied in place, ZnOta.swift): the old one is
+/// deleted on the JS thread, with its timers; events and call answers posted for it are dropped. Then [done] runs on
+/// the main thread; set globals and evalFile again.
+- (void)restartRuntime:(void (^)(void))done;
 - (void)evalFile:(NSString*)path done:(void (^)(BOOL ok, NSString* result, double millis))done;
 
 /// Posts an event to JS (instance 0 = app-level events, ZnAppEvent.kt). Never runs JS in place.
