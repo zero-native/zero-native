@@ -3291,3 +3291,18 @@ change, and what evidence would make you change it?"
   Also not chosen: raising fetch's limit; it doesn't keep pictures apart from payments.
 - **Trade-off:** on an HTTP/1.1 host, up to 20 connections at once from one phone (10 fetch + 10 images). On HTTP/2
   both share one connection per host, so nothing changes there.
+
+## 223. Every built-in bundle gets a real serial; test APKs share the next one (tools + server, 2026-11-10; Opus, Pavan's ask)
+- **Bug:** `app:js` (zn-build) wrote the built-in bundle with serial 0. A phone takes an OTA bundle only when its serial is
+  bigger than the built-in one, so every OTA bundle beat serial 0: the Lava's staging APK with today's JS ran OTA #14.
+- **Chosen:** `updates builtin`, the app's `app:js`, asks the server (`POST …/serials/peek`, read-only). The same bytes
+  get the serial they have; new bytes get the next free one, **not taken**. Pavan: "unless it's published apks are
+  meaningless": ten staging APKs before a release all show #22; the release (or a store build) then takes #22.
+  Play / App Store builds still take their number with `store-build`.
+- **Why it is safe:** a test APK on #22 keeps its own JS until an OTA bundle above #22 comes. Patches are matched by
+  bundle SHA-256, never by serial, so a test APK whose bytes differ from the real #22 gets a full download, never a
+  wrong patch. Capabilities are learned for a store build only when the phone's built-in SHA-256 matches.
+- **Offline:** dev keeps serial 0 with a warning (work goes on); staging / production stop. ZeroBill's Gradle refuses
+  staging and production builds with serial 0, so a forgotten step can't ship.
+- **Not chosen:** taking a serial for every build (numbers jump by dozens a day, Pavan said no); making the phone ignore
+  OTA when the built-in serial is 0 (it would stop the sample's OTA tests).

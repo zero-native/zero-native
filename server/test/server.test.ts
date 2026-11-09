@@ -826,6 +826,48 @@ describe("one bundle = one serial", () => {
     await expect(call(c, "POST", `/admin/apps/${A}/serials`, { kind: "store", sha256: "a".repeat(64) })).rejects.toThrow(/together/)
     await expect(call(c, "POST", `/admin/apps/${A}/serials`, { kind: "bundle" })).rejects.toThrow(/sha256/)
   })
+
+  test("peek (a test APK's built-in, `updates builtin`): known bytes get their serial, new bytes the next one, and nothing is taken", async () => {
+    const peek = (dir: string) => {
+      const info = readBundleInfo(dir)
+      return call<{ serial: number; taken: boolean }>(c, "POST", `/admin/apps/${A}/serials/peek`, { sha256: info.sha256, requires: info.requires })
+    }
+    const count = async () => (await db.query(`SELECT 1 FROM serials WHERE app = $1`, [A])).length
+    expect(await peek(await folder(jsA))).toEqual({ serial: storeA, taken: true })
+    const before = await count()
+    const top = (await db.query<{ max: number }>(`SELECT max(serial)::int AS max FROM serials WHERE app = $1`, [A]))[0]!.max
+    // Ten test APKs with other JS before a release: all show the same next number, and no number is used up
+    const jsE: Files = { "main.hbc": rnd(60_000, 16), "main.zn.ui": ui }
+    const jsF: Files = { "main.hbc": rnd(60_000, 17), "main.zn.ui": ui }
+    expect(await peek(await folder(jsE))).toEqual({ serial: top + 1, taken: false })
+    expect(await peek(await folder(jsF))).toEqual({ serial: top + 1, taken: false })
+    expect(await count()).toBe(before)
+    // The release takes that number; the next test APK shows the one after it
+    const released = await uploadBuilt(c, await folder(jsF), keys.privatePem, clean)
+    expect(released.manifest.serial).toBe(top + 1)
+    expect(await peek(await folder(jsE))).toEqual({ serial: top + 2, taken: false })
+    await expect(call(c, "POST", `/admin/apps/${A}/serials/peek`, { sha256: "x" })).rejects.toThrow(/sha256 and requires/)
+  })
+
+  test("a phone learns a store build's capabilities only when its built-in bytes match (a test APK may share the serial)", async () => {
+    const jsG: Files = { "main.hbc": rnd(60_000, 18), "main.zn.ui": ui }
+    const g = await reserve("store", await folder(jsG))
+    const sha = readBundleInfo(await folder(jsG, g.serial)).sha256
+    await storeBuild({ builtinSerial: g.serial, builtinSha256: sha, versionCode: 30 })
+    const capsOf = async () =>
+      (await db.query<{ capabilities: unknown }>(`SELECT capabilities FROM store_builds WHERE app = $1 AND builtin_serial = $2`, [A, g.serial]))[0]!.capabilities
+    const check = (builtinSha: string) =>
+      fetch(`${base}/v1/check`, {
+        method: "POST",
+        body: JSON.stringify({ app: A, channel: "production", installId: `install-learn-${builtinSha.slice(0, 4)}`, capabilities: caps, running: null, builtIn: { id: `${A}_${g.serial}`, serial: g.serial, sha256: builtinSha }, kept: [], seq: 0 }),
+      })
+    await check("b".repeat(64)) // a test APK with the same serial, other bytes
+    await whenIdle()
+    expect(await capsOf()).toBeNull()
+    await check(sha)
+    await whenIdle()
+    expect(await capsOf()).not.toBeNull()
+  })
 })
 
 // ---- The release CLI: store-build and rule (a fake build command; the real server) ----------------------------------------
@@ -838,8 +880,8 @@ describe("updates CLI", () => {
   // The CLI keeps source maps and logins in the home folder: give it a throwaway one
   const home = mkdtempSync(join(tmpdir(), "znu-home-"))
 
-  const run = async (args: string[], env: Record<string, string> = {}) => {
-    const p = Bun.spawn([process.execPath, "run", cli, ...args, "--app-dir", appDir, "--server", base, "--token", TOKEN, "--by", "cli-test"], {
+  const run = async (args: string[], env: Record<string, string> = {}, server = base) => {
+    const p = Bun.spawn([process.execPath, "run", cli, ...args, "--app-dir", appDir, "--server", server, "--token", TOKEN, "--by", "cli-test"], {
       cwd: appDir,
       env: { ...process.env, HOME: home, USERPROFILE: home, ...env },
       stdout: "pipe",
@@ -904,6 +946,35 @@ await writeBundleInfo(out, { app: "${app}", serial, names: ["main.hbc"], require
     expect(r.code).toBe(1)
     expect(r.err).toContain("another bundle SHA-256")
     expect((await sbs()).storeBuilds.some((b) => b.versionCode === 4)).toBe(false) // nothing was recorded
+  }, 60_000)
+
+  test("builtin (app:js): known JS gets its serial, new JS the next one without taking it; offline dev keeps 0, staging stops", async () => {
+    const serials = async () => (await db.query(`SELECT 1 FROM serials WHERE app = $1`, [app])).length
+    const before = await serials()
+    const top = (await db.query<{ max: number }>(`SELECT max(serial)::int AS max FROM serials WHERE app = $1`, [app]))[0]!.max
+    // The JS of store build #1: that number
+    let r = await run(["builtin", "--flavor", "staging"])
+    expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
+    expect(readBundleInfo(join(appDir, "assets")).serial).toBe(1)
+    // New JS, twice (two test APKs): the same next number both times, and nothing is taken
+    for (const js of ["t1", "t2"]) {
+      r = await run(["builtin", "--flavor", "staging"], { FAKE_JS: js })
+      expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
+      expect(r.out).toContain("not taken")
+      expect(readBundleInfo(join(appDir, "assets")).serial).toBe(top + 1)
+    }
+    expect(await serials()).toBe(before)
+    // Offline: dev goes on with serial 0 and a warning; staging and production stop
+    const dead = "http://127.0.0.1:9"
+    r = await run(["builtin"], { FAKE_JS: "t3" }, dead)
+    expect(r.code).toBe(0)
+    expect(r.err).toContain("keeps serial 0")
+    expect(readBundleInfo(join(appDir, "assets")).serial).toBe(0)
+    r = await run(["builtin", "--flavor", "staging"], { FAKE_JS: "t3" }, dead)
+    expect(r.code).toBe(1)
+    expect(r.err).toContain("must not ship with serial 0")
+    r = await run(["builtin", "--flavor", "beta"])
+    expect(r.code).toBe(1)
   }, 60_000)
 
   test("rule --channel: saves for that channel (default production) and prints the push line", async () => {

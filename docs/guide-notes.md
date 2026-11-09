@@ -2961,3 +2961,16 @@ since 2026-11-09; every other module call (Os, SecureStore, Updates, NetInfo, al
   with how many calls wait behind it, and again when it ends. Nothing is stopped.
 - **Know:** a fetch's `timeout` starts when `Fetch.send` runs on its thread, not when JS called it. For a limit that
   covers everything from the JS side, also pass an `AbortSignal` (ZeroBill's request client does).
+
+## 91. The built-in bundle needs a real serial (`updates builtin`, 2026-11-10)
+```jsonc
+// package.json: the app's JS build for every APK / IPA
+"app:js": "bun run ../../Futuristic/zero-native/tools/updates/cli.ts builtin",
+// bun run app:js -- --flavor staging        (a Play / App Store build: `updates store-build` instead)
+```
+- **Don't** build the bundle for an APK with plain `zn-build.ts` when the app uses OTA. **Why:** it writes serial 0, and
+  every OTA bundle counts as newer than serial 0, so the phone runs an older OTA bundle instead of the APK's own JS.
+- **Do** use `updates builtin` (needs `zn-updates.json` and the CLI login). It reuses the serial of the same bytes, or
+  shows the next free one without taking it. Offline, dev keeps 0 with a warning; staging / production stop.
+- **Do** add a Gradle check that refuses release flavors with serial 0 (ZeroBill's `android/app/build.gradle.kts`, the
+  `merge…Assets` check), so a forgotten step fails the build instead of reaching phones.

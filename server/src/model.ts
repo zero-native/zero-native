@@ -139,6 +139,28 @@ export async function reserveSerial(
   throw new RuleError("could not take a serial (other builds kept winning); try again", 409)
 }
 
+/**
+ * Read-only: the serial these bytes would get, without taking it (`updates builtin` for a test APK). The same bytes
+ * already have a serial: that one (`taken`). Otherwise the next free one, which the next release or store build takes;
+ * every test APK built before that release shows the same number. Patches match by SHA-256, so a test APK whose
+ * bytes differ from the bundle later released under that number never gets a wrong patch.
+ */
+export async function peekSerial(
+  db: Db,
+  app: string,
+  bytes: { sha256: string; requires: BundleRequires },
+): Promise<{ serial: number; taken: boolean }> {
+  await getApp(db, app)
+  if (!/^[0-9a-f]{64}$/.test(bytes.sha256)) throw new RuleError("sha256 must be 64 hex characters")
+  const same = await db.query<{ serial: number }>(
+    `SELECT serial FROM serials WHERE app = $1 AND bundle_sha256 = $2 AND requires_line = $3 ORDER BY serial LIMIT 1`,
+    [app, bytes.sha256, requiresLine(bytes.requires)],
+  )
+  if (same[0]) return { serial: same[0].serial, taken: true }
+  const top = await db.query<{ max: number | null }>(`SELECT max(serial)::int AS max FROM serials WHERE app = $1`, [app])
+  return { serial: (top[0]?.max ?? 0) + 1, taken: false }
+}
+
 function isUniqueViolation(e: unknown): boolean {
   const code = (e as { code?: string; errno?: string })?.code ?? (e as { errno?: string })?.errno
   return code === "23505" || /duplicate key|unique constraint/i.test(String((e as Error)?.message))
@@ -460,16 +482,21 @@ const learned = new Set<string>()
 
 /**
  * A store build registered without its capabilities gets them from the first phone that runs it (the phone sends
- * exactly what its app has). Cheap: once per built-in serial per process.
+ * exactly what its app has). Cheap: once per built-in bundle per process. Matched by the built-in bundle's SHA-256 too
+ * (when the phone sends it): a test APK carries the next serial before it is taken (`updates builtin`), so a serial
+ * alone could name a later store build with other bytes.
  */
-export async function learnCapabilities(db: Db, app: string, builtinSerial: number, caps: Capabilities) {
-  const key = `${app}|${builtinSerial}`
+export async function learnCapabilities(db: Db, app: string, builtinSerial: number, caps: Capabilities, builtinSha256?: string) {
+  const sha = builtinSha256 && /^[0-9a-f]{64}$/.test(builtinSha256) ? builtinSha256 : null
+  const key = `${app}|${builtinSerial}|${sha ?? ""}`
   if (builtinSerial < 1 || learned.has(key)) return
   learned.add(key)
   try {
-    await db.query(`UPDATE store_builds SET capabilities = $3::text::jsonb, family = $4 WHERE app = $1 AND builtin_serial = $2 AND capabilities IS NULL`, [
-      app, builtinSerial, JSON.stringify(caps), familyOf(caps),
-    ])
+    await db.query(
+      `UPDATE store_builds SET capabilities = $3::text::jsonb, family = $4
+       WHERE app = $1 AND builtin_serial = $2 AND capabilities IS NULL AND ($5::text IS NULL OR builtin_sha256 = $5)`,
+      [app, builtinSerial, JSON.stringify(caps), familyOf(caps), sha],
+    )
   } catch (e) {
     learned.delete(key)
     console.warn(`learn capabilities: ${(e as Error).message}`)

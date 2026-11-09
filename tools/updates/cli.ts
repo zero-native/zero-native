@@ -16,6 +16,10 @@
 //       builds the JS once (serial 0) to learn its SHA-256, takes the serial for those bytes (the same JS, from an OTA
 //       release or an earlier store build, gets the same number), builds the built-in bundle into the host's assets with
 //       it, records the store build, and uploads the built-in bundle as the base for OTA patches; then build the AAB / IPA as usual
+//   bun run updates builtin [--flavor dev|staging|production] [--into ios/bundle]
+//       the normal JS build for any APK / IPA (an app's `app:js`): builds into the host's assets and gives the built-in
+//       bundle a real serial, never 0 (the serial the same bytes already have, else the next free one, not taken).
+//       Offline: dev keeps serial 0 with a warning; staging / production stop. Play / App Store builds use store-build.
 //   bun run updates base --serial 14                     uploads the base for an older store build (from the assets folder;
 //       the folder must hold that build's built-in bundle: the SHA-256 must match)
 //   bun run updates patches --bundle 12                  makes the patches of a bundle again and prints them
@@ -35,7 +39,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
-import { readBundleInfo } from "../bundle-info"
+import { readBundleInfo, setBundleSerial } from "../bundle-info"
 import { BUILT_IN, generateKeys, keyId, publicKeyOf } from "../ota/signing"
 import { PRIORITIES, type Priority } from "../ota/core"
 import { type Conn, type PatchInfo, type PushResult, call, changeChannel, remakePatches, uploadBase, uploadBuilt } from "./client"
@@ -89,6 +93,8 @@ const { values: a, positionals } = parseArgs({
     version: { type: "string" },
     serial: { type: "string" },
     critical: { type: "string" },
+    flavor: { type: "string" },
+    into: { type: "string" },
     test: { type: "boolean" },
     print: { type: "boolean" },
   },
@@ -320,6 +326,65 @@ async function main() {
       if (!a.bundle) fail("--bundle <serial> --title <text>")
       await call(conn(c.server), "POST", `/admin/apps/${c.app}/bundles/${Number(a.bundle)}/title`, { title: a.title ?? "" })
       console.log(`✓ #${a.bundle} title: ${a.title ? `"${a.title}"` : "none (a silent fix)"}`)
+      return
+    }
+    case "builtin": {
+      // The app's normal JS build for any APK / IPA (ZeroBill's `bun run app:js`): the built-in bundle gets a real serial,
+      // never 0. A serial-0 bundle is older than every OTA bundle, so a phone swaps the APK's newer JS for an older OTA
+      // one (Lava, 2026-11-10: staging APK with today's JS ran OTA #14). Nothing is taken on the server: the same bytes
+      // get the serial they already have; new bytes get the next free number, the one the next release or store build
+      // takes (Pavan: test APKs are meaningless until something is published, so they all show the same next number).
+      // A Play / App Store build still goes through `store-build`, which takes its number for good.
+      const c = config()
+      const flavor = a.flavor ?? "dev"
+      if (!["dev", "staging", "production"].includes(flavor)) fail("--flavor dev|staging|production")
+      const into = a.into ?? c.assets
+      if (!into) fail(`zn-updates.json has no "assets" (the host's assets folder); or pass --into <dir>`)
+      const dir = resolve(appDir, into)
+      const work = mkdtempSync(join(tmpdir(), "zn-updates-builtin-"))
+      try {
+        const map = join(work, "main.js.map")
+        const buildHere = { ...c, build: [...c.build!.filter((x, i, l) => !(x === "--assets" || l[i - 1] === "--assets"))] }
+        build(buildHere, dir, 0, map)
+        const built = readBundleInfo(dir)
+        if (built.app !== c.app) fail(`the build is for app "${built.app}", zn-updates.json says "${c.app}"`)
+        if (!built.requires) fail("the build's zn-bundle.json has no requires (rebuild with the current tools)")
+        let peek: { serial: number; taken: boolean } | null = null
+        let why = ""
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          const cc = conn(c.server)
+          peek = await Promise.race([
+            call<{ serial: number; taken: boolean }>(cc, "POST", `/admin/apps/${c.app}/serials/peek`, { sha256: built.sha256, requires: built.requires }),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error("no answer in 15 s")), 15_000)
+            }),
+          ])
+        } catch (e) {
+          why = (e as Error).message
+        } finally {
+          clearTimeout(timer)
+        }
+        if (!peek) {
+          // Offline: a dev build may go on with serial 0 (its phone may then run an older OTA bundle); others may not.
+          if (flavor !== "dev") fail(`could not ask ${c.server} for the serial (${why}). A ${flavor} build must not ship with serial 0: try again when online. ${dir} now holds a serial-0 bundle, and Gradle refuses ${flavor} builds with it.`)
+          console.warn(`⚠ could not ask ${c.server} for the serial (${why}): this dev build keeps serial 0, so any OTA bundle counts as newer on its phone`)
+          keepMap(c.app, built.sha256, map)
+          rmSync(work, { recursive: true, force: true })
+          process.exit(0) // a request that never answered would keep the process open
+        }
+        const info = await setBundleSerial(dir, peek.serial)
+        if (info.serial !== peek.serial || info.sha256 !== built.sha256) fail(`setting serial ${peek.serial} changed the bundle (${info.sha256.slice(0, 12)} vs ${built.sha256.slice(0, 12)})`)
+        keepMap(c.app, info.sha256, map)
+        console.log(
+          peek.taken
+            ? `✓ built-in bundle #${peek.serial} (${info.id}) for ${flavor}: the same bytes as #${peek.serial} on the server`
+            : `✓ built-in bundle #${peek.serial} (${info.id}) for ${flavor}: the next serial, not taken (the next release or store build takes it)`,
+        )
+        if (flavor === "production") console.log("  a Play / App Store build: use `bun run updates store-build` instead (it takes the number and uploads the base for patches)")
+      } finally {
+        rmSync(work, { recursive: true, force: true })
+      }
       return
     }
     case "store-build": {

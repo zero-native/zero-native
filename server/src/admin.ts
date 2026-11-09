@@ -117,6 +117,12 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
     const before = url.searchParams.get("before")
     return json(await model.activity(db, app, Number(url.searchParams.get("limit") ?? "100"), before ? Number(before) : undefined))
   }
+  if (what === "serials" && p.length === 4 && p[3] === "peek" && method === "POST") {
+    // Read-only: the serial these bytes would get (a test APK's built-in bundle, `updates builtin`). Takes nothing.
+    const b = await body<{ sha256?: string; requires?: Manifest["requires"] }>(request)
+    if (!b.sha256 || !b.requires) throw new RuleError("send sha256 and requires")
+    return json(await model.peekSerial(db, app, { sha256: b.sha256, requires: b.requires }))
+  }
   if (what === "serials" && method === "POST") {
     const b = await body<{ kind: "bundle" | "store"; sha256?: string; requires?: Manifest["requires"] }>(request)
     if (b.kind !== "bundle" && b.kind !== "store") throw new RuleError("kind must be bundle or store")

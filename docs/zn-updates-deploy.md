@@ -122,6 +122,11 @@ you to type `FORCE UPDATE <version>`. Test rows reach only phones whose own vers
    wait (staging 3 s, production up to 6 h), for its next start (`docs/zn-updates-server.md` §4.4).
 6. Every AAB: `store-build` first (§4), so its own bundle's serial is above every OTA bundle. A store build made without
    it keeps running an older OTA bundle that still fits (seen on the Lava, 2026-11-09: built-in serial 0 lost to OTA #1).
+7. Every other APK (dev, staging, a test of production): the app's `app:js` is `updates builtin` (ZeroBill:
+   `bun run app:js -- --flavor staging`). It gives the built-in bundle a real serial without taking it: the serial the
+   same bytes already have, or the next free one. Test APKs built before the next release all show that same number
+   (Pavan, 2026-11-10: "unless it's published, APKs are meaningless"). Offline, dev keeps serial 0 with a warning and
+   staging / production stop. ZeroBill's Gradle refuses staging and production builds whose built-in serial is 0.
 
 ## 8. Local run (no Postgres, no bucket)
 ```bash

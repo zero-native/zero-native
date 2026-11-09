@@ -97,7 +97,7 @@ export async function check(d: PhoneDeps, request: Request): Promise<Response> {
   }
   const running = req.running?.id ?? `built-in:${req.builtIn.id}`
   void model.recordCheck(d.db, req.app, req.channel, req.installId, running, req.outcomes ?? [])
-  void model.learnCapabilities(d.db, req.app, req.builtIn.serial, req.capabilities)
+  void model.learnCapabilities(d.db, req.app, req.builtIn.serial, req.capabilities, req.builtIn.sha256)
   if (d.log ?? true) {
     console.log(`check ${req.app}/${req.channel} ${req.installId.slice(0, 8)} on ${running} seq ${req.seq} → ${decision.action} ${decision.reason}${decision.bundle ? ` ${decision.bundle.id}` : ""}${patch ? ` patch from ${patch.from} (${patch.size} B)` : ""}${store ? ` store ${req.store!.os} ${req.store!.version} → ${store.update ? `${store.update.version} critical ${store.update.critical}` : "nothing"}` : ""}`)
   }

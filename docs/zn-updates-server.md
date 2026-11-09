@@ -145,6 +145,10 @@ unreleased bundle.
 - `updates store-build` builds the JS twice: first with serial 0 (to learn its SHA-256 and requires), then, after the
   serial is taken for those bytes, with that serial into the host's assets. It stops if the second build has another
   bundle SHA-256 (a file must not hold the serial or the time).
+- `POST /admin/apps/<app>/serials/peek` `{ sha256, requires }`: read-only, takes nothing. `{ serial, taken }`: the serial
+  these bytes already have (`taken: true`), else the next free one. `updates builtin` (an app's `app:js`) uses it, so a
+  test APK's built-in bundle never has serial 0 and never uses up a number. Capabilities a phone reports are learned
+  for a store build only when the phone's built-in SHA-256 matches (a test APK can carry the same serial).
 - `POST /admin/apps/<app>/store-builds/<built-in serial>/base` (multipart `zip`): keeps a store build's built-in bundle as a
   base for patches. Refused when the zip is not a good bundle zip of this app, or its bundle SHA-256 or id is not the store
   build's. The same bytes again is fine (also for a second store build with that serial: every one of them points to the
