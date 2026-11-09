@@ -18,6 +18,12 @@ const RAW_PORT = 8789
 const LAB_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAaElEQVR42u3XMQ0AIAxFwZpBGfIrAgzQqQuEI4wM3PTyY8w83lWc294HAAAAAEAL8MpHq/cAAAAAAD2AEgMAAADYA0oMAAAAYA8oMQAAAIA9oMQAAAAA9oASAwAAANgDSgwAAADwDWADMWSCDlyYVuEAAAAASUVORK5CYII="
 
+// The image lab's counters (/slow-image).
+let imageOpen = 0
+let imageMaxOpen = 0
+let imageLog: string[] = []
+let imageT0 = performance.now()
+
 const json = (data: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(data), { ...init, headers: { "content-type": "application/json", ...init.headers } })
 
@@ -41,6 +47,26 @@ Bun.serve({
       await Bun.sleep(Number(url.searchParams.get("ms") ?? 3000))
       return json({ slept: true })
     }
+    // The image lab (/dev/image-par): a picture after `ms`, counting how many are being served at once.
+    if (path === "/slow-image") {
+      const t = performance.now()
+      imageOpen++
+      imageMaxOpen = Math.max(imageMaxOpen, imageOpen)
+      const id = url.searchParams.get("id") ?? "?"
+      imageLog.push(`start ${id} at ${Math.round(t - imageT0)} ms (${imageOpen} open)`)
+      await Bun.sleep(Number(url.searchParams.get("ms") ?? 2000))
+      imageOpen--
+      imageLog.push(`end ${id} at ${Math.round(performance.now() - imageT0)} ms`)
+      return new Response(Buffer.from(LAB_PNG, "base64"), { headers: { "content-type": "image/png", "cache-control": "no-store" } })
+    }
+    if (path === "/slow-image-reset") {
+      imageOpen = 0
+      imageMaxOpen = 0
+      imageLog = []
+      imageT0 = performance.now()
+      return json({ reset: true })
+    }
+    if (path === "/slow-image-stats") return json({ maxOpen: imageMaxOpen, open: imageOpen, log: imageLog })
     // The tabs lab (/dev/tabs): one tab's data after a delay.
     const tabs = await tabsAnswer(url)
     if (tabs) return tabs
