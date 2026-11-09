@@ -273,3 +273,34 @@ final class ZnClipboard: ZnModuleBase, @unchecked Sendable {
         function("hasString", onMain: true) { call in call.resolve(UIPasteboard.general.hasStrings) }
     }
 }
+
+// MARK: - Updates (ZnOta.kt Module), until iOS has OTA
+
+/// OTA isn't on iOS yet (milestones-ios.md, Phase 4a): Updates answers exactly as Android does for an app that never
+/// called `ZnOta.configure`, so JS sees "updates are off" instead of a missing module (`Updates.status()` would reject,
+/// and a `void Updates.status()` would be reported as an async error).
+/// - status: `{ enabled: false, phase: "off" }`; check: `{ action: "NONE", reason: "OFF", status }`;
+/// - applyNow: `{ applied: false, reason: "off" }`; markHealthy: done; hold: never answered, dropped when JS releases it.
+final class ZnUpdatesOff: ZnModuleBase, @unchecked Sendable {
+    init() {
+        super.init("Updates", version: 3)
+        function("status") { call in call.resolve(["enabled": false, "phase": "off"]) }
+        function("markHealthy") { call in call.resolve() }
+        // `status` too, as the JS type says (Android leaves it out when off: A15).
+        function("check") { call in call.resolve(["action": "NONE", "reason": "OFF", "status": ["enabled": false, "phase": "off"]]) }
+        function("applyNow") { call in call.resolve(["applied": false, "reason": "off"]) }
+        function("hold") { call in call.onCancel {} }  // as Android: answered only by JS cancelling it
+    }
+}
+
+// MARK: - Tasks (ZnBackground.kt), until iOS runs background tasks
+
+/// Nothing on iOS starts a background task yet (BGTaskScheduler, push-triggered runs: milestones-ios.md §8), so no TASK
+/// event reaches JS and `done` has nothing to finish. The module exists so a bundle that needs "Tasks" v1 runs, and a
+/// late answer resolves as on Android (true).
+final class ZnTasks: ZnModuleBase, @unchecked Sendable {
+    init() {
+        super.init("Tasks", version: 1)
+        function("done") { call in call.resolve(true) }
+    }
+}

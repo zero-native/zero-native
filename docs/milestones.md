@@ -148,6 +148,20 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS, Updates "OTA off" and Tasks modules for ZeroBill's bundle (Claude, Mac)
+- ZeroBill's bundle calls five zn modules iOS didn't have. Checked each JS side: AdId, Notifications and Push already
+  fall back when the module is missing (every call caught; listeners on a missing module are ignored), so nothing to
+  add. Updates and Tasks get iOS modules (ZnBuiltInModules.swift): `ZnUpdatesOff` answers as Android does with OTA
+  not configured (status `{ enabled: false, phase: "off" }`, check NONE / OFF, applyNow "off", hold until released,
+  markHealthy); `ZnTasks.done` answers true (nothing starts a task on iOS yet). ZeroBill's About screen calls
+  `void Updates.status()`, which would have been an unhandled rejection.
+- **A15** (Android): with OTA off, `Updates.check()` answers without `status`, which its JS type promises; the sample's
+  Updates screen threw on Check now. iOS includes it.
+- **Checked on the simulator:** route `updates`: "Updates are off", Check now → "Check: NONE OFF" (no error), Apply now
+  → "Apply: off", Hold / Release hold.
+- Also: `docs/milestones-ios.md` (1a62100), the iOS status in one place; Pavan's answers for Phase 2 (secrets file: he
+  copies it in; GoogleSignIn: build it now) recorded there.
+
 ### 2026-11-09: iOS Phase 1c, Splash hold, Sheet animateIn, error screen (Claude, Mac)
 - **Splash hold** (ZnUiModules.swift `ZnSplash`, Android's ZnSplash.holdUntilReady): the scene delegate calls
   `ZnSplash.holdUntilReady(window, capMs:)` after `makeKeyAndVisible`; a copy of the launch screen covers the window

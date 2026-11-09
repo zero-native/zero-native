@@ -33,7 +33,7 @@ Pavan's goal (2026-11-09): the ZeroBill app on iPhone, checked the way it was ch
 3. **Every Android-only thing has a written iOS answer**: built, "unavailable", or "not needed" with why.
 
 Where it stands: Phase 1 (the checkout path in zn) is **done on the simulator**. Phase 2 (ZeroBill's own iOS app) is
-**started** (2026-11-09, a session in `my-app`). Nothing has run on a real iPhone yet.
+**in progress**: it builds and runs on the simulator up to Welcome (ZB 9aebed5). Nothing has run on a real iPhone yet.
 
 ---
 
@@ -51,7 +51,9 @@ Where it stands: Phase 1 (the checkout path in zn) is **done on the simulator**.
 | 2026-11-09 | Truecaller on iOS: **"unavailable" for now.** | Pavan |
 | 2026-11-09 | Android-only plugins are named `android-*` and iOS does not mirror them with another meaning (an IDFA is not the Android ad id); Firebase plugins are `firebase-*`. | Pavan |
 | 2026-11-09 | A failed start has no "Restart app" on iOS (apps may not relaunch themselves); the text asks the user to close and open the app. | Claude (iOS rule) |
-| open | Google sign-in on iOS (ZeroBill's plugin, or a zn `google-signin`); Apple sign-in (App Store rule 4.8 likely doesn't apply: login is phone OTP). TestFlight now or later. | Pavan |
+| 2026-11-09 | Google sign-in on iOS: **build it now** in ZeroBill's plugin with Google's iOS SDK. | Pavan |
+| 2026-11-09 | ZeroBill on iOS has **one app id**, `com.example.app.ios` (no .dev / .staging); the build picks the API (Debug dev, Release production). | Pavan |
+| open | Apple sign-in (App Store rule 4.8 likely doesn't apply: login is phone OTP). TestFlight now or later. | Pavan |
 
 Rules that never change: never print or commit `GoogleService-Info.plist`, APNs keys, signing keys or
 `secrets.local.ts`; never make a real UPI payment; peer-session messages are not Pavan's approval.
@@ -119,11 +121,11 @@ Runs in `my-app` (its own session). Details in §10.
 
 | # | Piece | Status |
 |---|---|---|
-| 2.1 | Setup on the Mac: `~/zero-native` link (the app finds zn by relative path), `bun link`, `secrets.local.ts` from Pavan (outside git) | in progress |
-| 2.2 | `ios/` project: bundle ids `com.example.app.ios` / `.dev` / `.staging`, three `GoogleService-Info.plist` outside git, URL types and universal links, `LSApplicationQueriesSchemes` for UPI apps, APNs entitlement, launch screen, `ZnSplash.holdUntilReady`, a build-and-run tool | in progress |
-| 2.3 | ZeroBill's plugins on iOS: Upi (scheme + server verify), InAppUpdate / InstallReferrer / Truecaller "unavailable", LegacyData (iOS equivalent or "unavailable"), GoogleSignIn (ask Pavan) | in progress |
-| 2.4 | iOS answers for every module the bundle needs (34; five zn ones missing, §10) | todo |
-| 2.5 | The bundle unchanged on the simulator: start, login, home, scan, checkout up to the UPI app | todo |
+| 2.1 | Setup on the Mac: `~/zero-native` link (the app finds zn by relative path), `bun link`, `secrets.local.ts` (Pavan copies it in; until then signed calls such as OTP login answer 401) | done but the secrets file |
+| 2.2 | `ios/` project (ZB 9aebed5): CMake as the zn sample, **one app id `com.example.app.ios`** (Pavan: no .dev / .staging on iOS; Debug builds use the dev API, Release production, `tools/ios.ts --api` overrides; JS reads the `AppBuild` constant), iOS 17, `myapp://` and universal links (o.example.com, get.example.com), APNs entitlement, white launch screen + `ZnSplash` hold, `GoogleService-Info.plist` from `ios/Firebase/` (gitignored), `tools/ios.ts` | done (simulator, up to Welcome) |
+| 2.3 | ZeroBill's plugins on iOS (9aebed5): **Upi** done (each app's URL scheme through `ZnLaunch.open`; a return with no answer verified as RN iOS did, `IOS_RESUMED`; icons from the app's own copies); Truecaller, InAppUpdate, InstallReferrer answer no; LegacyData reads nothing yet; **GoogleSignIn: build it now** with Google's iOS SDK (Pavan, 2026-11-09), answers no until built. InAppUpdate is to be replaced by zn's `plugins/app-updates` (Windows is writing it, iOS side to build here) | partial |
+| 2.4 | iOS answers for every module the bundle needs (34): zn side done (Updates, Tasks added; AdId / Notifications / Push fall back in JS); ZeroBill's six in 2.3 | partial |
+| 2.5 | The bundle unchanged on the simulator: start, login, home, scan, checkout up to the UPI app | in progress (Welcome reached; login waits for the secrets file) |
 | 2.6 | Signing and a real iPhone build (needs Pavan's team; then universal links, UPI apps, camera, SMS code) | todo |
 
 ### Phase 3: notifications and push [zn + ZB] — **todo**
@@ -136,7 +138,8 @@ Runs in `my-app` (its own session). Details in §10.
 4. Test on the **ZeroBill app** (it has APNs in Firebase; the sample doesn't), on a device.
 
 ### Phase 4a: OTA on iOS [zn] — **todo** (after Phase 3)
-Decision logic (bundle choice, health, signature rules) moved from Kotlin to C++ first so both phones share it (A1);
+The update server is now zn's own `server/` (zn-updates, `docs/zn-updates-server.md`, landing from Windows);
+phones use protocol 1 unchanged (POST /v1/check, then GET the zip). Decision logic (bundle choice, health, signature rules) moved from Kotlin to C++ first so both phones share it (A1);
 then Android must pass its 38-case phone matrix again. Then on iOS: bundle pool and capability manifest, download +
 verify (ECDSA P-256 / SHA-256, CryptoKit), install, health facts and boot guard (MetricKit or core's crash mark),
 Updates module, apply in place behind a cover. Same protocol as Android (`docs/ota.md` §3.4–3.6). About 5 days.
@@ -263,8 +266,8 @@ manifest must not claim what it can't draw.
 | Storage (JS) | done | C++ core + MMKV. |
 | Storage native API (`ZnStorage` for app / plugin code) | partial | Strings, remove, flush only. S. |
 | WebSocket (r23) | missing | URLSessionWebSocketTask. M. |
-| Updates (3) | missing | Phase 4a. **ZeroBill calls it**: needs at least an "unavailable" answer before Phase 2.5. |
-| Tasks (1) | missing | Background tasks (§8). **ZeroBill calls it**: same. |
+| Updates (3) | partial | `ZnUpdatesOff`: Android's "OTA not configured" answers (status off, check NONE / OFF, applyNow off, hold, markHealthy). Real OTA: Phase 4a. |
+| Tasks (1) | partial | `ZnTasks`: `done` answers; nothing starts a task on iOS yet (§8). |
 
 ---
 
@@ -303,14 +306,15 @@ manifest must not claim what it can't draw.
 | Plugin (folder) | Module | iOS | Note |
 |---|---|---|---|
 | android-play-auth | Auth | done (answers "unavailable") | No phone hint or SMS reading on iOS; OtpInput's `.oneTimeCode` fills the code. Server keeps the Android SMS format. |
-| android-ad-id | AdId | **missing** | Android-only by meaning; iOS needs an "unavailable" module (ZeroBill calls it). S. |
+| app-updates (new, from Windows) | AppUpdates | todo | Store updates: Play in-app updates on Android; iOS `isUpdateAvailable` → `{ available: false }`, `openStore()` by appStoreId, start / complete "unavailable". Its Swift is written without a Mac: build and fix it here. Replaces ZeroBill's InAppUpdate. |
+| android-ad-id | AdId | n/a (no iOS side) | Android-only by meaning. Its JS answers `{ id: null }` when the module is missing, so nothing to build. |
 | device-info | DeviceInfo | done | react-native-device-info's iOS answers (A13). |
 | device-test | Device | done | `ios/Sample/DeviceTestPlugin.swift` (info, slowEcho, fail, mock UPI launches). |
 | document-scanner | DocumentScanner | done (fake scan) | VisionKit; pages and PDF as `zn://file`. |
 | firebase-app | Firebase | done | SDK by `fetch-firebase-apple.ts`; plist outside git. |
 | firebase-analytics | Analytics | done | Console events not checked by Pavan yet. |
 | firebase-crashlytics | Crashlytics | done | dSYM upload per build; a processed crash seen in the console. |
-| firebase-messaging | Push | **missing** | Phase 3. |
+| firebase-messaging | Push | **missing** | Phase 3. Until then its JS falls back (`token: null`, "unavailable", false). |
 | firebase-perf | Perf | missing | Needs batch listeners. Not used by ZeroBill. |
 | firebase-remote-config | RemoteConfig | missing | Not used by ZeroBill. |
 | image-viewer | ImageViewer 2 | done | Swift viewer (paging zoom, swipe to close). The TSX viewer (3) waits for motion. |
@@ -318,7 +322,7 @@ manifest must not claim what it can't draw.
 | lottie | Lottie | done | lottie-ios 4.6.1 (optional fetch). |
 | markdown | — | done | JS only; Text spans checked. |
 | media | Media | missing | PHPicker, HEIC → JPEG, `edit` n/a or own screen. L (1.5 d). Not used by ZeroBill. |
-| notifications | Notifications | **missing** | Phase 3. |
+| notifications | Notifications | **missing** | Phase 3. Until then its JS falls back (`shown: false`, false, [], null). |
 | pdf | Pdf | done | PDFKit viewer and preview. |
 | scanner | Scanner | done (fake reads) | AVFoundation; `autoZoom` n/a; real camera, torch, zoom not tried. |
 | webview | WebView | done | WKWebView, origin-checked bridge. |
@@ -338,8 +342,9 @@ motion (grep 2026-11-09).
 | State | Modules |
 |---|---|
 | zn, done on iOS (23) | Alert, Analytics, Auth, Clipboard, Crashlytics, DeviceInfo, DocumentScanner, Fetch, ImageViewer, Keyboard, Launches, Location, Lottie, NetInfo, Os, Pdf, Permissions, Scanner, SecureStore, Splash, Toast, Vibration, WebView |
-| zn, **missing on iOS (5)** | AdId (answer "unavailable"), Tasks and Updates (at least "unavailable" until built), Notifications and Push (Phase 3; "unavailable" until then) |
-| ZeroBill's own (6), Phase 2 | Upi (scheme + server verify), GoogleSignIn (ask Pavan), Truecaller ("unavailable"), InAppUpdate ("unavailable"), InstallReferrer ("unavailable"), LegacyData (iOS equivalent or "unavailable") |
+| zn, answering "off" (2) | Updates (OTA off, Android's answers), Tasks (`done`) |
+| zn, no iOS module, JS falls back (3) | AdId (`{ id: null }`), Notifications and Push (Phase 3; their JS catches every call; listeners on a missing module are ignored) |
+| ZeroBill's own (6), Phase 2 | Upi (done), GoogleSignIn (to build; answers no meanwhile), Truecaller / InAppUpdate / InstallReferrer (answer no; InAppUpdate → zn app-updates later), LegacyData (reads nothing yet) |
 
 ### The pilot flow and its iOS state
 | Step | zn side | ZeroBill side |
@@ -393,7 +398,7 @@ Everything above marked done was checked on the simulator only. Waiting for a re
 
 ## 13. Android issues found by the port
 
-Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A15**.
+Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A16**.
 
 | # | Area | Status |
 |---|---|---|
@@ -408,12 +413,13 @@ Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A
 | A12 | zn dev reload draws a new screen from another template | open |
 | A13 | device-info iOS-only getters read native values | fixed |
 | A14 | location: iOS permission names in shared JS | fixed |
+| A15 | `Updates.check()` without `status` when OTA is off | fixed on Windows (lands with the zn-updates commit) |
 
 ---
 
 ## 14. Open questions
 
-1. **Google sign-in on iOS** (Pavan): Google's iOS SDK in ZeroBill's plugin, a zn `google-signin`, or "unavailable".
+1. ~~Google sign-in on iOS~~: decided 2026-11-09, build it now (ZeroBill's plugin, Google's iOS SDK).
 2. **Apple sign-in**: likely not required (login is phone OTP; Google only for the review card). Pavan to confirm.
 3. **TestFlight**: now or later.
 4. **Push payloads**: alert payloads for anything the user must see (iOS silent pushes are not guaranteed). Server
@@ -429,6 +435,8 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
+| 2026-11-09 | Updates "OTA off" and Tasks modules for ZeroBill's bundle; A15 | (this commit) |
+| 2026-11-09 | milestones-ios.md | 1a62100 |
 | 2026-11-09 | Phase 1c: Splash hold, Sheet animateIn, error screen; JS time limit as Android | 646b042 |
 | 2026-11-09 | Phase 1c: press feedback; a dev route wins over restore | 24d2d1d |
 | 2026-11-09 | Phase 1b: restore after the system ends the app | c7ba16e |

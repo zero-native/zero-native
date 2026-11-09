@@ -28,6 +28,7 @@ Each entry says:
 | A12 | 2026-11-08 | zn dev | A reload that adds a screen draws it from another screen's template | open (found on Android; iOS has no `zn dev` yet) |
 | A13 | 2026-11-08 | device-info (shared JS) | `hasDynamicIsland`, `isDisplayZoomed`, `getBrightness` now read native values (iOS); Android answers stay false / -1 | fixed on ios (check the tests) |
 | A14 | 2026-11-08 | location (shared JS) | On iOS the plugin asks core's Permissions for "location" (iOS's name), not Android's two names | fixed on ios (no Android change expected) |
+| A15 | 2026-11-09 | OTA (Updates) | With OTA off, `Updates.check()` answers without `status`, which its JS type promises; the sample's Updates screen throws on "Check now" | open (Android fix: one line) |
 
 ---
 
@@ -258,3 +259,15 @@ Each entry says:
   precise switch is in iOS's own dialog). New test: "iOS: one location permission …"; the Android tests are unchanged.
 - **Check on Android:** `bun test plugins/location` (26 pass); the Location lab on the phone: Ask permission / Ask
   rough only behave as before.
+
+## A15. Updates.check() leaves out `status` when OTA is off
+- **Found:** 2026-11-09, on iOS, writing the "OTA off" Updates module (iOS has no OTA yet) to answer as Android does.
+- **Problem:** `ZnOta.kt` Module `check`: `if (config == null) return@function call.resolve(JSONObject().put("action",
+  "NONE").put("reason", "OFF"))` has no `status`, but `UpdateCheckResult.status` is not optional in
+  `packages/core/src/updates.ts`. The sample's `UpdatesScreen.tsx` calls `show(r.status)` and throws ("Check now" on an
+  app that didn't call `ZnOta.configure`: the error goes to `onError` as async). ZeroBill configures OTA, so it doesn't
+  hit it.
+- **Fix:** add `.put("status", status())` in that branch (status() is `{ enabled: false, phase: "off" }` then). iOS's
+  `ZnUpdatesOff` already answers with it.
+- **Check on Android:** the sample without OTA configured, route `updates`, Check now: "Check: NONE OFF", no error.
+
