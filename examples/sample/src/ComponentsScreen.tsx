@@ -83,6 +83,10 @@ export function ComponentsScreen() {
   const progressFraction = signal(0.4)
   // The sheet draws in its own window: a toast shown from it must still be visible (must-not-miss rule 8).
   const sheetOpen = signal(false)
+  // iOS checks (2026-11-09): a sheet closed while it still slides in must close (UIKit dropped that dismiss: ZeroBill's
+  // "Processing Secure Payment" stayed up; the log says "while it opens: closes when it has opened"), and a sheet whose
+  // content grows or shrinks must follow it ("content now N pt tall: resize").
+  const sheetMore = signal(false)
 
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
@@ -352,6 +356,21 @@ export function ComponentsScreen() {
             <Pressable onPress={() => sheetOpen.set(true)} style={actionButtonStyle}>
               <Text style={actionButtonTextStyle}>Toast from inside a sheet</Text>
             </Pressable>
+
+            <Pressable
+              onPress={() => {
+                const t0 = Date.now()
+                console.log("sheet-close-early: open")
+                sheetOpen.set(true)
+                setTimeout(() => {
+                  console.log("sheet-close-early: close after " + (Date.now() - t0) + " ms")
+                  sheetOpen.set(false)
+                }, 500)
+              }}
+              style={actionButtonStyle}
+            >
+              <Text style={actionButtonTextStyle}>Sheet: close while it slides in</Text>
+            </Pressable>
           </Column>
 
           {/* Section 8: Accessibility Basics & maxFontScale */}
@@ -431,6 +450,14 @@ export function ComponentsScreen() {
         <Pressable onPress={() => toast("UPI ID copied")} style={actionButtonStyle}>
           <Text style={actionButtonTextStyle}>Copy UPI ID</Text>
         </Pressable>
+        <Pressable onPress={() => sheetMore.set(!sheetMore())} style={actionButtonStyle}>
+          <Text style={actionButtonTextStyle}>{sheetMore() ? "Fewer lines" : "More lines (the sheet grows)"}</Text>
+        </Pressable>
+        {sheetMore() ? (
+          <Text fontSize={14} color={c.ink}>
+            Line one{"\n"}Line two{"\n"}Line three{"\n"}Line four
+          </Text>
+        ) : null}
       </Sheet>
     </Column>
   )

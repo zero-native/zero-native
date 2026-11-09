@@ -143,6 +143,12 @@ struct ZnNodeView: View {
         case Registry.Component.scroll:
             // The padding scrolls with the content (Android: the scroll's content padding), so nothing is clipped at
             // the edges and the last item can scroll clear of a floating button.
+            // A vertical Scroll with no height that doesn't fill (no flex, no stretch) is as tall as its content, up to
+            // what it is offered (its maxHeight, the space left): Compose's verticalScroll Column. A SwiftUI ScrollView
+            // takes all it is offered, so ZeroBill's checkout offers sheet (`maxHeight: 400`, one or two rows) was
+            // 400 tall with an empty band (2026-11-09).
+            let hug = s.props[Registry.Prop.horizontal]?.bool != true && s.height == nil && !outer.fillHeight
+            ZnScrollHugLayout(hug: hug) {
             ScrollView(s.props[Registry.Prop.horizontal]?.bool == true ? .horizontal : .vertical) {
                 flex(s, vertical: s.props[Registry.Prop.horizontal]?.bool != true)
                     .padding(s.paddingInsets(inst))
@@ -152,6 +158,7 @@ struct ZnNodeView: View {
                             ZnScrollRefresh(ctx: ctx, s: s, inst: inst, refreshing: s.refreshingNow(inst))
                         }
                     }
+            }
             }
         case Registry.Component.text:
             ZnTextView(ctx: ctx, s: s, inst: inst)
@@ -206,9 +213,10 @@ struct ZnNodeView: View {
         // An aspectRatio box is given both sides (ZnSizeFrame): its Stack fills them, so bottom / end children sit at
         // its bottom and end.
         let ratio = s.aspectRatio != nil
+        let (minW, minH) = innerMin(s)
         return ZnStackLayout(alignItems: s.alignItems, justify: s.justify,
                              fillWidth: outer.fillWidth || s.width != nil || ratio,
-                             fillHeight: outer.fillHeight || s.height != nil || ratio) {
+                             fillHeight: outer.fillHeight || s.height != nil || ratio, minWidth: minW, minHeight: minH) {
             ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
                 let child = ref.t.nodes[ref.node]
                 let fillW = child.absolute && child.posStart != nil && child.posEnd != nil
@@ -231,8 +239,10 @@ struct ZnNodeView: View {
         let definiteHeight = s.height != nil || outer.fillHeight || s.aspectRatio != nil
         let refs = znChildRefs(ctx, t, inst, s.children)
         let stretchAll = s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch
+        let (minW, minH) = innerMin(s)
         return ZnFlexLayout(vertical: vertical, justify: s.justify, alignItems: s.alignItems, gap: s.gap,
-                            definiteWidth: definiteWidth || s.width != nil, definiteHeight: definiteHeight) {
+                            definiteWidth: definiteWidth || s.width != nil, definiteHeight: definiteHeight,
+                            minWidth: minW, minHeight: minH) {
             ForEach(refs) { ref in
                 let child = ref.t.nodes[ref.node]
                 let (outer, childDefinite) = childLayout(s, child, vertical: vertical, stretchAll: stretchAll)
@@ -245,13 +255,21 @@ struct ZnNodeView: View {
         }
     }
 
+    /// minWidth / minHeight inside the padding and border (RN's min counts them): what a container's own layout is
+    /// raised to, so its children are aligned in the raised box, not at its top.
+    private func innerMin(_ s: ZnNodeSpec) -> (CGFloat, CGFloat) {
+        if s.type == Registry.Component.scroll { return (0, 0) }  // its content scrolls; the min is the viewport's
+        let i = s.contentInsets(inst)
+        return (max(0, (s.minWidth ?? 0) - i.leading - i.trailing), max(0, (s.minHeight ?? 0) - i.top - i.bottom))
+    }
+
     /// A Row with flexWrap "wrap" (registry 24): ZnWrapLayout, ZnRenderer.kt ZnWrapRow. A child stretches to its line's
     /// height only when stretch is written (alignItems or alignSelf) and it has no height; a flex child fills the share
     /// of its line the layout gives it.
     private func wrap(_ s: ZnNodeSpec) -> some View {
         ZnWrapLayout(justify: s.justify, alignItems: s.alignItems, alignContent: s.alignContent, gap: s.gap,
                      crossGap: s.crossGap ?? s.gap, definiteWidth: definiteWidth || s.width != nil,
-                     definiteHeight: s.height != nil || outer.fillHeight) {
+                     definiteHeight: s.height != nil || outer.fillHeight, minHeight: innerMin(s).1) {
             ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
                 let child = ref.t.nodes[ref.node]
                 let stretch = child.height == nil && (child.alignSelf == Registry.AlignSelf.stretch ||
@@ -377,6 +395,27 @@ struct ZnMinMaxLayout: Layout {
         let x = h == .center ? bounds.midX - cw / 2 : h == .trailing ? bounds.maxX - cw : bounds.minX
         let y = v == .center ? bounds.midY - ch / 2 : v == .bottom ? bounds.maxY - ch : bounds.minY
         child.place(at: CGPoint(x: x, y: y), proposal: offer)
+    }
+}
+
+/// A vertical Scroll that hugs its content (see the scroll case in content()): a ScrollView's ideal height (asked with no
+/// height) is its content's, so the Scroll takes that, up to the height it is offered. Without hug it is the ScrollView
+/// as it is.
+struct ZnScrollHugLayout: Layout {
+    var hug: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        guard hug else { return child.sizeThatFits(proposal) }
+        let ideal = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        var h = ideal.height
+        if let p = proposal.height, p.isFinite { h = min(h, p) }
+        let w = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? ideal.width
+        return CGSize(width: w, height: h)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
     }
 }
 

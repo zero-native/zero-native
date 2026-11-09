@@ -108,6 +108,12 @@ const EXPECT: Record<string, Frame> = {
   // 45. ZeroBill's scanner window: width "75%" + aspectRatio 1 in a centring Column 200 wide; an absolute child at its
   // bottom end (iOS drew the box 0 tall, 2026-11-09).
   c45a: [25, 0, 150, 150], c45b: [130, 140, 20, 10],
+  // 46. ZeroBill's ListTile: a Row raised to minHeight 56 (padding 8) centres its child; a Column raised to minHeight
+  // 100 with justifyContent center centres its child (iOS put both at the top, 2026-11-09).
+  c46a: [0, 18, 20, 20], c46b: [0, 45, 20, 10],
+  // 47. A Scroll with only maxHeight is as tall as its content, up to the max (ZeroBill's checkout offers sheet: iOS
+  // took the whole 400, 2026-11-09).
+  c47a: [0, 0, 200, 30], c47b: [0, 30, 200, 100],
 }
 
 const TOLERANCE = 1
@@ -454,6 +460,24 @@ export function LayoutLabScreen() {
             <Stack testID="c45a" onLayout={L("c45a")} style={{ width: "75%", aspectRatio: 1, backgroundColor: A }}>
               <Box testID="c45b" onLayout={L("c45b")} style={{ position: "absolute", bottom: 0, end: 0, width: 20, height: 10, backgroundColor: B }} />
             </Stack>
+          </Column>
+        </Case>
+        <Case title="46. minHeight raises a box: children aligned in it">
+          <Row alignItems="center" style={{ width: 200, minHeight: 56, paddingTop: 8, paddingBottom: 8, backgroundColor: BG }}>
+            <Box testID="c46a" onLayout={L("c46a")} style={{ width: 20, height: 20, backgroundColor: A }} />
+          </Row>
+          <Column justifyContent="center" alignItems="flex-start" style={{ width: 200, minHeight: 100, backgroundColor: BG }}>
+            <Box testID="c46b" onLayout={L("c46b")} style={{ width: 20, height: 10, backgroundColor: B }} />
+          </Column>
+        </Case>
+        <Case title="47. Scroll with maxHeight hugs its content">
+          <Column style={{ width: 200, backgroundColor: BG }}>
+            <Scroll testID="c47a" onLayout={L("c47a")} style={{ maxHeight: 100, backgroundColor: A }}>
+              <Box style={{ height: 30 }} />
+            </Scroll>
+            <Scroll testID="c47b" onLayout={L("c47b")} style={{ maxHeight: 100, backgroundColor: B }}>
+              <Box style={{ height: 150 }} />
+            </Scroll>
           </Column>
         </Case>
         <Case title="36. wrap: alignItems stretch">

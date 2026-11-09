@@ -38,11 +38,20 @@ struct ZnSheetContent: View {
     let t: ZnTemplate
     let inst: ZnInstance
     let s: ZnNodeSpec
+    /// UIKit variant: its height whenever it changes, so the "content" detent follows the content (text set after the
+    /// sheet opened, a row added).
+    var onHeight: ((CGFloat) -> Void)? = nil
 
     var body: some View {
-        ZnNodeView(ctx: ctx, t: t, inst: inst, n: s.index, outer: ZnOuter(fillWidth: true), definiteWidth: true,
-                   sheetBody: true)
+        let body = ZnNodeView(ctx: ctx, t: t, inst: inst, n: s.index, outer: ZnOuter(fillWidth: true), definiteWidth: true,
+                              sheetBody: true)
             .padding(.top, 20)  // room for the grabber
+        if let onHeight {
+            body.fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeight($0) }
+        } else {
+            body
+        }
     }
 }
 
@@ -87,7 +96,10 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
         let c = context.coordinator
         c.onAttempt = { [ctx, inst, s] in if s.dismissible, s.onDismiss != 0 { ctx.send(inst.id, s.onDismiss, .none) } }
         if visible, c.sheet == nil {
-            let content = UIHostingController(rootView: ZnSheetContent(ctx: ctx, t: t, inst: inst, s: s))
+            c.height = 0
+            let content = UIHostingController(rootView: ZnSheetContent(ctx: ctx, t: t, inst: inst, s: s) { [weak c] h in
+                c?.contentHeight(h)
+            })
             content.view.backgroundColor = .white
             content.presentationController?.delegate = c
             if let sheet = content.sheetPresentationController {
@@ -96,11 +108,19 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
                     case "half": return .medium()
                     case "full": return .large()
                     default:
-                        // "content": the content's height at the sheet's width.
-                        return .custom(identifier: .init("content")) { [weak content] dc in
+                        // "content": the content's height at the sheet's width. It was worked out once, when the
+                        // sheet opened: content that changed later (ZeroBill's scanner sheets get their title and text
+                        // after they open) left the sheet too tall or too short (2026-11-09). The content now reports
+                        // its height (onHeight) and the detent follows it.
+                        return .custom(identifier: .init("content")) { [weak content, weak c] dc in
                             guard let content else { return nil }
+                            if let h = c?.height, h > 0 { return min(h, dc.maximumDetentValue) }
                             let width = content.view.window?.bounds.width ?? UIScreen.main.bounds.width
-                            let h = content.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+                            // Before the content has reported its height (the first open). A detent is the height
+                            // above the bottom safe area (UIKit adds that area); once the sheet is on screen,
+                            // sizeThatFits counts the area too (346.67 → 380.67 on an iPhone 16), so it is taken off.
+                            let fit = content.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+                            let h = fit - content.view.safeAreaInsets.bottom
                             return min(h, dc.maximumDetentValue)
                         }
                     }
@@ -117,6 +137,13 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
             // In the same batch as a stack change (pick an app → receipt), close at once: UIKit would otherwise wait
             // for the sheet's animation before starting the navigation transition (2026-11-08, ~0.5 s).
             let animated = !ZnApp.shared.batchChangesStack
+            // UIKit drops a dismiss sent while the sheet is still sliding in: the sheet stayed up over the next screen
+            // (ZeroBill's "Processing Secure Payment" closed 231 ms after it opened, on an iPhone, 2026-11-09). The
+            // present's completion closes it instead.
+            if c.opening === sheet {
+                print("zn t=\(ZnDebug.ms()) sheet: dismiss (JS set visible false) while it opens: closes when it has opened")
+                return
+            }
             print("zn t=\(ZnDebug.ms()) sheet: dismiss (JS set visible false\(animated ? "" : ", with a stack change: no animation"))")
             sheet.dismiss(animated: animated)
         }
@@ -124,6 +151,19 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UIAdaptivePresentationControllerDelegate {
         var sheet: UIViewController?
+        /// The sheet UIKit is presenting now (its slide-in not finished).
+        var opening: UIViewController?
+        /// The content's own height (ZnSheetContent.onHeight); the "content" detent is this.
+        var height: CGFloat = 0
+
+        func contentHeight(_ h: CGFloat) {
+            guard abs(h - height) > 0.5 else { return }
+            let first = height == 0
+            height = h
+            guard !first, let sheet = sheet?.sheetPresentationController else { return }
+            print("zn t=\(ZnDebug.ms()) sheet: content now \(Int(h)) pt tall: resize")
+            sheet.animateChanges { sheet.invalidateDetents() }
+        }
         var onAttempt: () -> Void = {}
 
         /// Presents [content] once [host] is in the window. A sheet visible on its screen's first frame (a restored
@@ -141,7 +181,16 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
             }
             let wait = tries > 0 ? " after \(tries) frame(s) for its screen" : ""
             print("zn t=\(ZnDebug.ms()) sheet: present\(animated ? "" : " (animateIn false: at rest)")\(wait)")
-            host.present(content, animated: animated)
+            opening = content
+            host.present(content, animated: animated) { [weak self, weak content] in
+                guard let self, let content else { return }
+                if self.opening === content { self.opening = nil }
+                // visible went false while it slid in.
+                if self.sheet !== content {
+                    print("zn t=\(ZnDebug.ms()) sheet: opened after JS closed it: dismiss now")
+                    content.dismiss(animated: !ZnApp.shared.batchChangesStack)
+                }
+            }
         }
 
         // JS decides: the sheet never closes by itself.

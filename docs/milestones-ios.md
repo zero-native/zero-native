@@ -80,7 +80,7 @@ bun run tools/ios-sample.ts --route rnPropsLab --params '{}'
   (skip the dSYM upload). Env: `ZN_SCANNER_FAKE=<code>`, `ZN_DOCSCAN_FAKE=<pages>|cancel`, `ZN_IOS_*` switches.
 - Simulator "zn iPhone 16" (iOS 18.0). Xcode here has no device platform: simulator only until the device build.
 - Tests: `bun test packages plugins compiler tools` (1292 / 1293, the known A7), `bun run tools/run-core-tests-apple.ts
-  --sim` (C++ core), LayoutLab route `layoutLab` (93 / 93 on 2026-11-09). `--device <name>` picks a simulator when two are booted.
+  --sim` (C++ core), LayoutLab route `layoutLab` (97 / 97 on 2026-11-09). `--device <name>` picks a simulator when two are booted.
 - Tips (simulator taps, screenshots, swipes): `docs/ios-handoff.md`.
 
 ---
@@ -114,11 +114,13 @@ Checklist checked against the code; registry 24 read; LayoutLab 67 / 84.
 | 1c | Sheet `animateIn` (also at runtime; a sheet up on its screen's first frame) | **done** | 646b042 |
 | 1c | Error screen: NAV FAILED, hung JS, RETRY, Go back, failed start; JS time limit 3 s debug / 2 s release | **done** | 646b042 |
 | 1d | Registry 23 parts ZeroBill uses | **n/a**: ZeroBill's screens use none. Read from its built `main.zn.ui` 2026-11-09: the only runtime width / height / `scrollCommand` slots are in image-viewer's TSX screen (ImageViewerScreen, ViewerPhoto), which ZeroBill doesn't open (its route is `native: "imageviewer.full"`) | |
-| 1d | ImageViewer module 3 (`release`), so v3 bundles get the Swift viewer | **done** | (this commit) |
+| 1d | ImageViewer module 3 (`release`), so v3 bundles get the Swift viewer | **done** | d1875c7 |
 | 1d | `OsInfo.ios` in core's type (iOS already sent it) | **done** | d1875c7 |
-| 1e | Layout foundations from Pavan's look at ZeroBill (2026-11-09): min / max only cap or raise (SwiftUI's `.frame(maxWidth:)` grew views to their max); pictures centred in their box; StatusBar / NavigationBar; LayoutLab cases 41–44 | **done** | (this commit) |
+| 1e | Layout foundations from Pavan's look at ZeroBill (2026-11-09): min / max only cap or raise (SwiftUI's `.frame(maxWidth:)` grew views to their max); pictures centred in their box; StatusBar / NavigationBar; LayoutLab cases 41–44 | **done** | a3ec5ed |
 | 1e | Row `flexWrap` / `alignContent` / `crossGap` (LayoutLab 30–37; RN gaps lab §6–7) | **done** | 8339821 |
-| 1e | aspectRatio with a "%" side (ZeroBill's scanner window was 0 tall); a hidden tab's Pressables no longer swallow taps on the shown tab; LayoutLab 45 | **done** | (this commit) |
+| 1e | aspectRatio with a "%" side (ZeroBill's scanner window was 0 tall); a hidden tab's Pressables no longer swallow taps on the shown tab; LayoutLab 45 | **done** | 23ea2e9 |
+| 1e | From Pavan's iPhone test (2026-11-09): a box raised to its minHeight / minWidth aligns its children in the raised size (ListTile rows); sheets follow their content's height; a sheet closed while it slides in closes; LayoutLab 46 | **done** | 2e6df8e |
+| 1e | A vertical Scroll with no height and no flex hugs its content up to its maxHeight (ZeroBill's checkout offers sheet); LayoutLab 47 | **done** | (this commit) |
 | — | Fixes from Pavan's look: Tabs lab hint, border line over the Scan FAB | **done** | b0613b4 |
 
 ### Phase 2: the ZeroBill iOS app [ZB] — **in progress** (2026-11-09)
@@ -442,7 +444,9 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
-| 2026-11-09 | aspectRatio with a "%" side; hidden tabs' Pressables; LayoutLab 93 / 93 | (this commit) |
+| 2026-11-09 | Scroll with only maxHeight hugs its content; LayoutLab 97 / 97 | (this commit) |
+| 2026-11-09 | Pavan's iPhone test: min raises align children; sheet height follows content; close while sliding in; LayoutLab 95 / 95 | 2e6df8e |
+| 2026-11-09 | aspectRatio with a "%" side; hidden tabs' Pressables; LayoutLab 93 / 93 | 23ea2e9 |
 | 2026-11-09 | flexWrap on Row (LayoutLab 91 / 91) | 8339821 |
 | 2026-11-09 | Layout foundations: min / max, picture alignment, StatusBar / NavigationBar; LayoutLab 41–44 | a3ec5ed |
 | 2026-11-09 | ZeroBill session's zn issues: ImageViewer 3 (`release`), `OsInfo.ios`; registry 23 log and Motion explained | d1875c7 |

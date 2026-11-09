@@ -28,6 +28,9 @@ struct ZnStackLayout: Layout {
     /// The Stack takes the whole offered size on that axis (a set size, or its parent fills it).
     var fillWidth: Bool
     var fillHeight: Bool
+    /// minWidth / minHeight less padding and border (ZnFlexLayout.minWidth).
+    var minWidth: CGFloat = 0
+    var minHeight: CGFloat = 0
 
     private static func bounded(_ v: CGFloat?) -> CGFloat? {
         guard let v, v.isFinite else { return nil }
@@ -50,7 +53,7 @@ struct ZnStackLayout: Layout {
         }
         if fillWidth, let w = Self.bounded(proposal.width) { size.width = w }
         if fillHeight, let h = Self.bounded(proposal.height) { size.height = h }
-        return size
+        return CGSize(width: max(size.width, minWidth), height: max(size.height, minHeight))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {

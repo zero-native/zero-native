@@ -155,6 +155,8 @@ Only props whose iOS support is missing or partial. Everything else in the regis
 |---|---|---|---|
 | onDetentChange | missing | S | `sheetPresentationControllerDidChangeSelectedDetentIdentifier`. |
 | animateIn (also at runtime) | done | S | ZnSheet.swift: read when the sheet opens; false = presented with no animation, once its screen is in the window (a sheet up on its screen's first frame waits a frame or two). Checked: restored lab sheet at rest under the splash. |
+| "content" detent follows the content | done | S | ZnSheet.swift: the content reports its height and the detent is invalidated when it changes (it was measured once, when the sheet opened). Checked: Components screen "More lines" grows and shrinks the sheet. |
+| visible false while it slides in | done | S | UIKit drops a dismiss sent during the present animation; the present's completion closes it. Checked: Components screen "Sheet: close while it slides in". |
 | backgroundColor, borderRadius of the sheet | partial | S | The sheet view is always white (the 20 pt grabber strip shows white under a dark sheet) and uses the system corner radius. |
 
 ### Modal

@@ -25,6 +25,8 @@ struct ZnWrapLayout: Layout {
     var crossGap: CGFloat
     var definiteWidth: Bool
     var definiteHeight: Bool
+    /// minHeight less padding and border (ZnFlexLayout.minWidth): the lines are arranged in the raised height.
+    var minHeight: CGFloat = 0
 
     struct Measured {
         var size: CGSize
@@ -114,7 +116,7 @@ struct ZnWrapLayout: Layout {
         let contentW = lineWidths.max() ?? 0
         let width = definiteWidth ? (maxW ?? contentW) : min(contentW, maxW ?? .infinity)
         let contentH = lineHeights.reduce(0, +) + crossGap * CGFloat(max(lines - 1, 0))
-        let height = definiteHeight ? (Self.finite(proposal.height) ?? contentH) : contentH
+        let height = max(definiteHeight ? (Self.finite(proposal.height) ?? contentH) : contentH, minHeight)
         let tops = Self.arrange(alignContent, length: height, sizes: lineHeights, gap: crossGap)
         var frames = Array(repeating: CGRect.zero, count: n)
         for l in 0..<lines {

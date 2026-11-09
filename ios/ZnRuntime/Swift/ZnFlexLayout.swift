@@ -35,6 +35,10 @@ struct ZnFlexLayout: Layout {
     /// The container takes the whole offered size on that axis (a set size, or its parent fills it).
     var definiteWidth: Bool
     var definiteHeight: Bool
+    /// minWidth / minHeight less padding and border: a box raised to its min lays its children out in the raised size
+    /// (Yoga, Compose's heightIn), so alignItems center centres them in it (ZeroBill's ListTile rows, minHeight 56).
+    var minWidth: CGFloat = 0
+    var minHeight: CGFloat = 0
 
     struct Measured {
         var size: CGSize
@@ -84,8 +88,8 @@ struct ZnFlexLayout: Layout {
         let definiteMain = vertical ? definiteHeight : definiteWidth
         let definiteCross = vertical ? definiteWidth : definiteHeight
         // Flex children fill a bounded main axis, as Compose's weight() does.
-        let m = ((definiteMain || weights > 0) ? mainAvail : nil) ?? contentMain
-        let c = (definiteCross ? crossAvail : nil) ?? contentCross
+        let m = max(((definiteMain || weights > 0) ? mainAvail : nil) ?? contentMain, vertical ? minHeight : minWidth)
+        let c = max((definiteCross ? crossAvail : nil) ?? contentCross, vertical ? minWidth : minHeight)
         return Measured(size: vertical ? CGSize(width: c, height: m) : CGSize(width: m, height: c), children: sizes)
     }
 

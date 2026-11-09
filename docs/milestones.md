@@ -148,6 +148,36 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS, a Scroll with only maxHeight hugs its content (Claude, Mac)
+- ZeroBill's checkout opens with the offers sheet: a header, `<Scroll style={{ maxHeight: 400 }}>` with the offer rows,
+  then Continue. On Pavan's iPhone the sheet was too tall: a SwiftUI ScrollView takes all the height it is offered, so
+  the Scroll was 400 tall with one or two rows. Android's verticalScroll Column is as tall as its content, up to what
+  it is offered. ZnRenderer.swift `ZnScrollHugLayout`: a vertical Scroll with no height that doesn't fill (no flex, no
+  stretch) takes its ScrollView's ideal height (its content's), capped by the offer (so maxHeight still caps it and it
+  still scrolls). Scrolls with `flex: 1` (every ZeroBill tab and screen) are as before. LayoutLab case 47 (30 of
+  content → 30; 150 of content, maxHeight 100 → 100); 97 / 97. Checked in ZeroBill: the Rewards tab fills and scrolls.
+  ZeroBill's other sheets with a capped Scroll (payment methods 380, counter 320, txn details 640) hug the same way.
+
+### 2026-11-09: iOS, three bugs from Pavan's iPhone test (Claude, Mac)
+Pavan ran ZeroBill on his iPhone 11 (scan, a ₹1 payment) and the ZeroBill session passed on three iOS bugs.
+- **A Row raised to its minHeight kept its children at the top** (ZnFlexLayout / ZnStackLayout / ZnWrapLayout,
+  ZnRenderer.swift `innerMin`): ZeroBill's ListTile (`alignItems: "center", minHeight: 56`, padding 8) had its icon and
+  text at the top of the card on TxnInfo, Profile, About. The min raised the box around the Row, not the Row's own
+  layout. A container now gets its min (less padding and border) and lays its children out in it, as Yoga and
+  Compose's heightIn do. LayoutLab case 46 (a Row and a Column); 95 / 95. Checked in ZeroBill: TxnInfo rows centred.
+- **Sheets: the "content" detent was measured once** (ZnSheet.swift): when the sheet opened. Content that changed later
+  left the sheet too tall or too short. The content now reports its height and the detent is invalidated when it
+  changes; the first measure takes the bottom safe area off (UIKit adds it; sizeThatFits counts it once the sheet is on
+  screen). Checked: the sample's Components sheet "More lines" grows and shrinks it; ZeroBill's scanner error sheet is
+  20 pt grabber room + its padding + content + the home-indicator area (Android: 20 dp handle + content + the
+  navigation-bar inset).
+- **A sheet closed while it slid in stayed up** (ZnSheet.swift): ZeroBill's "Processing Secure Payment" was closed
+  231 ms after it opened, and UIKit drops a dismiss during the present animation, so it stayed over the success screen.
+  The dismiss now waits for the present's completion. Checked: the sample's "Sheet: close while it slides in" (closes
+  500 ms after the tap, 187 ms into the slide): "closes when it has opened", then gone.
+- Found on the way: with 200 ms between visible true and false, iOS never shows the sheet (both reach SwiftUI in one
+  update). Android may show and close it; not a bug for ZeroBill.
+
 ### 2026-11-09: iOS, the scanner window and taps after switching tabs (Claude, Mac)
 - **aspectRatio with a "%" side** (ZnRenderer.swift ZnSizeFrame): ZeroBill's scanner window (`width: "75%",
   aspectRatio: 1`, absolute corners) was drawn 0 tall: the ratio only worked with a width in points or with no side
