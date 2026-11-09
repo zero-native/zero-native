@@ -1104,7 +1104,7 @@ Written down before a break (Pavan near his weekly limit). [zn] = framework, [ZB
 - **Next (Pavan, 2026-11-06):** a sync flavor value, as a DeviceInfo-style plugin. Not built yet.
 
 ### 2026-11-06: SMS hash and OTP auto-read work in a real login (Pavan, on the Lava)
-- **What:** the first real end-to-end login on the pilot app (`my-app-prototype`, R37 in 5230779), with the dev
+- **What:** the first real end-to-end login on the pilot app (`my-app-prototype`, now `my-app`, R37 in 5230779), with the dev
   backend (`v1-nodejs-backend-api` dev 930002e) sending a real carrier SMS with the app hash. Phone hint sheet → number
   picked → OTP sent → `@zero-native/auth` SMS Retriever read it → `OtpInput` `setValue` filled the boxes → `onFilled`
   verified → logged in. No typing.

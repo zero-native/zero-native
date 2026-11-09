@@ -1341,8 +1341,8 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 | `@zero-native/firebase-app` | The base every Firebase plugin stands on: one Firebase version, one Gradle file, `Firebase.app()`, Installations (§49) | No size of its own is measured; the Firebase plugins below show their sizes on top of it |
 | `@zero-native/crashlytics` | Kotlin crashes, JS errors as non-fatals, OTA outcomes, bundle and route keys (§46) | About 232 KB; native (C++) crashes are +1.30 MB more, opt-in |
 | `@zero-native/analytics` | Google Analytics for Firebase, a `screen_view` per route; on from the first start (§50) | About 0.44 MB |
-| `@zero-native/notifications` | Notifications the app shows itself (buttons, progress, schedules), taps that open a route; `PushEvents` for any push service. No Firebase (§52, §53, §77) | Not measured on its own (most of push's 54 KB before the split) |
-| `@zero-native/push` | FCM messages as a JS task, the OTA check push; adds `@zero-native/notifications` (§48, §51, §77) | About 54 KB on top of Crashlytics, with notifications (2026-11-04) |
+| `@zero-native/notifications` | Notifications the app shows itself (buttons, progress, schedules), taps that open a route; `PushEvents` for any push service. No Firebase (§52, §53, §81) | Not measured on its own (most of push's 54 KB before the split) |
+| `@zero-native/push` | FCM messages as a JS task, the OTA check push; adds `@zero-native/notifications` (§48, §51, §81) | About 54 KB on top of Crashlytics, with notifications (2026-11-04) |
 | `@zero-native/remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
 | `@zero-native/perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
 | `@zero-native/lottie` | Lottie animations (`.json`, `.lottie`) with lottie-react-native's names and `ref` methods (§57) | About 85 KB (lottie-compose, bundled) |
@@ -2760,3 +2760,21 @@ Reference: `docs/components.md` §15, `docs/rn-compatibility.md` ScrollView.
 - **Do** use `<LottieView progress={value}>` to scrub an animation with a finger or a scroll (pull to refresh, an
   onboarding page). **Why:** it is read while drawing, with no JS per frame. While a value drives it, `autoPlay` and
   `play()` do nothing.
+
+## 81. Notifications without FCM (`@zero-native/notifications`, split from push 2026-11-09)
+```ts
+import { Notifications, PushEvents } from "@zero-native/notifications"   // no Firebase in the app
+import { Push } from "@zero-native/push"                                 // only if the app uses FCM
+```
+- **Do** import `Notifications` from `@zero-native/notifications` in new code. **Why:** a bundle that imports
+  `@zero-native/push` needs the "Push" module, so an app without push refuses it at start and in the OTA check
+  ("native modules missing"). Old imports from `@zero-native/push` keep working in apps that have push.
+- **Do** list `NotificationsPlugin()` in an app with no push. With push, `PushPlugin()` adds it; listing both is fine.
+- **Do** listen with `PushEvents.onMessage` / `onTokenRefresh` when the app may change push service.
+  `Push.onMessage` is the same task, so both hear FCM. `m.provider` says which service sent it (`"fcm"`).
+- **Do** use the new manifest keys `dev.zeronative.notifications.small_icon` / `.color`. The old
+  `dev.zeronative.push.*` keys are still read (deprecated).
+- **Know:** the boot receiver is now `dev.zeronative.plugins.notifications.ZnNotificationBoot` (README). Prefs and log
+  tags moved too (`zn-notifications-*`, tag `zn-notifications`); FCM's own lines stay `zn-push`.
+- **Know:** module names and versions did not change ("Push" 2, "Notifications" 3), so bundles and the OTA check are
+  as before.

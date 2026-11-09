@@ -1453,7 +1453,7 @@ change, and what evidence would make you change it?"
   flex-start): sample [AmountScreen.tsx:228](../examples/sample/src/AmountScreen.tsx:228) (the amount and the hint:
   10 dp further apart), [AmountScreen.tsx:230](../examples/sample/src/AmountScreen.tsx:230) (₹, the amount and the
   cursor: 8 dp apart), [OffersScreen.tsx:31](../examples/sample/src/OffersScreen.tsx:31) (banner name and title: 2 dp).
-  Prototype (`C:\work\projects\my-app-prototypepp\src`): `home/components/LocationPrompt.tsx` :52, :67, :82
+  Prototype (`C:\work\projects\my-app-prototype\app\src`, now `my-app`): `home/components/LocationPrompt.tsx` :52, :67, :82
   (three button rows, center, 8); `home/components/rewards/UseSheet.tsx:73` ("Scan to Pay", center, 8);
   `home/components/stores/StoresMessages.tsx:38` ("Expand Radius", center, 8);
   `home/components/transactions/FooterFollowUs.tsx:22` (4 social icons, center, 14);
@@ -2945,6 +2945,25 @@ change, and what evidence would make you change it?"
   there). (4) Fixed at build time, like `inverted`.
 - **Not checked:** inside a `Sheet` (its own window) and with pull to refresh on the same list; TalkBack.
 - **Risk if wrong:** only elements that set the prop change.
+
+## 196. Notifications split from push; `PushEvents` is the door for any push service (2026-11-09; Opus, Pavan's idea)
+- **What:** `plugins/notifications` (`@zero-native/notifications`) holds everything `Notifications` did, with no Firebase
+  (its Gradle module depends only on `:runtime`). `plugins/push` is FCM only and depends on it. `PushPlugin()` registers
+  `NotificationsPlugin()` itself (a second registration does nothing), so an app that lists only `PushPlugin()` (the
+  ZeroBill host) needs no change. `@zero-native/push` re-exports the notifications package.
+- **Hook:** `PushEvents` (Kotlin object + JS) lives in the notifications plugin: `message(PushMessage)`, `deleted`,
+  `token`, `taps(...)` for a service's own notifications, `inFront`. FCM's service calls it; the JS message shape gains
+  `provider`. Alternatives weighed: a third package (`push-core`), or leaving it in push (then an app on another
+  service imports FCM's JS package to hear messages). Pavan left it to us; the parent session chose the notifications
+  plugin: no new package, and no FCM anywhere for an app on APNs or OneSignal. A reviewer may prefer the name or the
+  place to change before iOS starts.
+- **Names:** no apps in production (Pavan), so receiver classes, prefs, intent extras and log tags moved to
+  `dev.zeronative.plugins.notifications` / `zn-notifications` with no old-name classes. Alarms and shown notifications
+  from an older build of the same app don't survive the update (accepted). Kept: the JS task names (`push.*`, an OTA
+  bundle names them), module names and versions, and the old manifest meta-data keys as a deprecated fallback.
+- **Checked:** both plugins' Kotlin and JS tests; a throwaway sample build with only the notifications plugin (merged
+  manifest has no FCM service; its dex has 0 `com/google/firebase/messaging` classes, 0 push classes) ran the local
+  phone steps on the emulator. Not done: iOS.
 
 ## 197. Canvas parse problems are warnings, not a red dev screen (runtime, 2026-11-09; Opus, canvas session)
 - **Chosen:** a bad command in a `<Canvas>` list (a NaN, an odd dash, an unknown type, a motion value where none may

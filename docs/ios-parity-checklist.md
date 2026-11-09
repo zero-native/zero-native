@@ -298,7 +298,7 @@ much the idea changes on iOS.
 **For ZeroBill:** auth is small; push and UPI need decisions with the server (alert payloads, the server as the only
 source of a payment's result); the Firebase plugins are mostly build work.
 
-**What ZeroBill uses (2026-11-08, my-app-prototype at 14a376e, from its bundle's `requires.modules` and JS
+**What ZeroBill uses (2026-11-08, my-app-prototype, now `my-app`, at 14a376e, from its bundle's `requires.modules` and JS
 imports):** AdId, Analytics, Auth, Crashlytics, DeviceInfo, DocumentScanner, ImageViewer 2, Location 2, Lottie, Pdf,
 Push, Scanner, WebView; Markdown (JS only). Firebase is on in its Android build (app, analytics, crashlytics with NDK,
 push). Not used: media, perf, remote-config. ZeroBill's own plugins (Upi, Truecaller, GoogleSignIn, InAppUpdate,
