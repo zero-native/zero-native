@@ -89,6 +89,7 @@ dependencies {
     implementation(project(":plugin-image-viewer"))
     implementation(project(":plugin-device-info"))
     implementation(project(":plugin-android-ad-id"))
+    implementation(project(":plugin-app-updates"))
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)

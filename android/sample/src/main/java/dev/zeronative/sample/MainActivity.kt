@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import dev.zeronative.plugins.appupdates.AppUpdatesModule
 import dev.zeronative.runtime.BatchListener
 import dev.zeronative.runtime.ZnActivity
 import dev.zeronative.runtime.ZnDebug
@@ -102,6 +103,14 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         val link = intent.data ?: return
         ZnTemplates.whenReady(ASSET) { ZnNav.openLink(link) }
+    }
+
+    // Play's in-app update sheet answers only here (startUpdateFlowForResult with a request code)
+    @Deprecated("Play Core's update sheet still answers through onActivityResult")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        AppUpdatesModule.onActivityResult(this, requestCode, resultCode)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

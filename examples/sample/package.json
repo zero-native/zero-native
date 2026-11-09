@@ -8,6 +8,7 @@
   "dependencies": {
     "@zero-native/core": "workspace:*",
     "@zero-native/android-ad-id": "workspace:*",
+    "@zero-native/app-updates": "workspace:*",
     "@zero-native/firebase-analytics": "workspace:*",
     "@zero-native/android-play-auth": "workspace:*",
     "@zero-native/device-info": "workspace:*",

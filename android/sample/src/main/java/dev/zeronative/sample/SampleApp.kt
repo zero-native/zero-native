@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import dev.zeronative.plugins.firebase.analytics.AnalyticsPlugin
 import dev.zeronative.plugins.android.playauth.AuthPlugin
+import dev.zeronative.plugins.appupdates.AppUpdatesPlugin
 import dev.zeronative.plugins.firebase.crashlytics.CrashlyticsPlugin
 import dev.zeronative.plugins.devicetest.DeviceTestPlugin
 import dev.zeronative.plugins.documentscanner.DocumentScannerPlugin
@@ -55,6 +56,8 @@ class SampleApp : Application() {
         ZnPlugins.register(this, LottiePlugin())
         ZnPlugins.register(this, DocumentScannerPlugin()) // ML Kit's scanner; Play downloads it on first use
         ZnPlugins.register(this, ImageViewerPlugin()) // the full-screen photo viewer ("imageviewer.full")
+        // Play's in-app updates; the native card follows an optional download. MainActivity forwards Play's result.
+        ZnPlugins.register(this, AppUpdatesPlugin(showCard = true))
         // Every JS error, hang or start failure, with the screen and the running bundle: where an app would call
         // Crashlytics' recordException(e.asThrowable()). The sample logs the full JS stack (with columns: the exact
         // TSX line with `bun run ota symbolicate`) and the Throwable a crash reporter would get.
@@ -82,13 +85,15 @@ class SampleApp : Application() {
                 Log.w("zn-sample", "launch results come $it ms late (debug.zn.launch_result_delay_ms)")
             }
         }
-        // OTA updates from the reference server on this computer (`bun run ota serve`, reached over
-        // `adb reverse tcp:8790 tcp:8790`), staging channel, signed with the sample's key (`bun run ota keygen`; the
-        // private key stays in ~/.zero-native/keys). A real app uses its HTTPS server and a main + backup key.
+        // OTA updates from the update server on this computer (`bun run updates:server`, or the old reference server
+        // `bun run ota serve`, reached over `adb reverse tcp:8790 tcp:8790`), staging channel, signed with the sample's
+        // key (the private key stays in ~/.zero-native/keys). A real app uses its HTTPS server and a main + backup key.
         ZnOta.configure(this, ZnOta.Config(
             server = "http://127.0.0.1:8790",
             channel = "staging",
             publicKeys = listOf(SAMPLE_OTA_KEY),
+            // The sample's release build (perf checks) talks to the same local server: plain HTTP on purpose.
+            allowHttpInRelease = true,
             // Every update outcome (rollbacks and blocked bundles too): where an app would log to Crashlytics, e.g.
             // recordException for a serious one. The sample only logs it.
             onReport = { r -> Log.println(if (r.serious) Log.WARN else Log.INFO, "zn-sample", "onReport $r (serious=${r.serious})") },

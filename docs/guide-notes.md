@@ -2867,3 +2867,43 @@ my-app/assets/fonts/Poppins-Bold.ttf
 - **Don't** use `numColumns` with `horizontal`, `stickyHeaderIndices` or `reorderable`: build errors. For a horizontal
   rail of small grids, use `<List horizontal>` with a `Row`-of-columns item.
 - **Don't** put other style keys in `columnWrapperStyle` (background, border): style the items. Build error.
+
+## 87. Store updates (`@zero-native/app-updates`, 2026-11-09)
+```ts
+const engine = createAppUpdateEngine({
+  source: { get: () => checkStore({ server, app: "myapp", os, version }) },  // the zn-updates server's store rules
+  play: os === "android" ? playUpdates : undefined,                         // Play's in-app updates
+  prompt: { forced: showForceUpdateScreen, optional: showUpdateSheet },      // iOS: the app's own screens
+  isBusy: () => checkout.isOpen(), currentRoute: () => nav.current()?.name,
+  holdRoutes: new Set(["login", "verify"]), isFront: () => appState() === "active",
+})
+AppUpdates.onState((s) => engine.onUpdateState(s)); engine.onStart()
+onAppState((s) => s === "active" && engine.onActive())
+```
+- **Do** send `version` as the store compares it: Android the versionCode (`DeviceInfo.getBuildNumber()`), iOS the
+  "1.6.2" version (`DeviceInfo.getVersion()`). **Why:** the server's rules are written in those numbers.
+- **Do** call `AppUpdates.setBusy(true)` while a payment or a form is open, and `false` after (again on every return).
+  **Why:** native keeps it on disk, so after Android kills the app in a UPI app, a forced update or a restart never
+  covers the payment when the user comes back.
+- **Do** forward the Activity's `onActivityResult` to `AppUpdatesModule.onActivityResult` (Android host). **Why:**
+  Play's sheet answers only there; without it a cancelled forced update is not opened again.
+- **Don't** open Play from the server's rule alone: the engine asks Play first and ignores a rule Play can't serve yet
+  (staged rollout). **Why:** Play's sheet with no update shows nothing, and the user sees a broken button.
+- **Know:** Play's in-app updates only answer for an app installed from Play. Test with internal app sharing
+  (`plugins/app-updates/README.md`); a sideloaded build always says "no update".
+- **Know:** iOS has no in-app update. The forced screen is yours (no Back, one button to `openStore({ appStoreId })`).
+
+## 88. OTA pushes: a new bundle downloads in the background (`@zero-native/firebase-messaging`, 2026-11-09)
+The OTA server sends `{ zn_ota: "check", zn_ota_delay_ms: "<n>" }` to the topic `zn-ota-<app>-<channel>` when a bundle
+is published. The phone joins that topic by itself and runs the normal OTA check in a WorkManager job, after a random
+wait, online only. The bundle runs from the next cold start (README, "OTA pushes").
+- **Do** keep `ZnOta.configure` in `Application.onCreate`. **Why:** the topic is read right after `onCreate` (app id
+  and channel come from ZnOta). An app that configures OTA later never joins its topic.
+- **Do** use a long wait on production (hours) and a short one on staging (seconds). **Why:** all phones get the push at
+  once; the wait spreads their checks so the server isn't hit in the same minute.
+- **Don't** subscribe to `zn-ota-*` topics from JS or handle `zn_ota` in `Push.onMessage`. **Why:** native does it, and
+  the message never reaches JS.
+- **Don't** expect a second push to bring a waiting job closer. **Why:** one job at a time (WorkManager KEEP), so a
+  push storm can't keep moving it; the job gets the newest bundle when it runs.
+- **Know:** `PushPlugin(otaCheck = false)` turns it off and unsubscribes the topic. Changing the channel (a staging
+  build becomes production) unsubscribes the old topic at the next start.

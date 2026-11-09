@@ -15,7 +15,7 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let env = ProcessInfo.processInfo.environment
         // Plugins first, before the bundle runs (docs/plugins.md).
-        ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin())
+        ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin(), AppUpdatesPlugin())
         _ = env
         return true
     }

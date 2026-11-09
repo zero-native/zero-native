@@ -1,0 +1,5 @@
+{
+  "app": "sample",
+  "server": "http://127.0.0.1:8790",
+  "build": ["bun", "run", "build.ts"]
+}
