@@ -38,6 +38,13 @@ class ZnInstance internal constructor(
 
     private val lists = HashMap<Int, ZnList>()
 
+    /**
+     * The last <Scroll ref> command run, per Scroll node (registry 24). Kept here, not in composition: the slot keeps
+     * its last "to:...:seq" when the Scroll leaves the screen (Back to it, a rail in a List row scrolled out), and a
+     * count kept in composition would start again at 0 and run that old command again.
+     */
+    internal val scrollSeqs = HashMap<Int, Int>()
+
     /** The state of the <List> at node [node] (created on first use). */
     fun list(node: Int): ZnList = lists.getOrPut(node) { ZnList() }
 

@@ -62,6 +62,8 @@ internal fun startCanvasImages(context: Context, commands: CanvasCommands, kept:
             val builder = (model as? ImageRequest)?.newBuilder(context) ?: ImageRequest.Builder(context).data(model)
             val request = builder
                 .size(op.decodeW, op.decodeH)
+                // At most this size, keeping the picture's shape; never blown up past its own pixels.
+                .precision(coil3.size.Precision.INEXACT)
                 // A software bitmap: a hardware one throws when this canvas is drawn into a software canvas.
                 .allowHardware(false)
                 .listener(onError = { _, result -> Log.w("zn", "<Canvas> image failed: ${op.src} — ${result.throwable}") })

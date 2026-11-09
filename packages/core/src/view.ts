@@ -701,10 +701,15 @@ export function scrollSnap(o: {
   if (o.snapToStart === false) out.push("s0")
   if (o.snapToEnd === false) out.push("e0")
   if (o.disableIntervalMomentum) out.push("m1")
+  // RN's numbers depend on the platform: iOS keeps this much speed per ms (normal 0.998, fast 0.99); Android's
+  // OverScroller uses 1 - rate as friction (normal 0.985, fast 0.9). zn reads iOS's scale, which is what "fast" sends
+  // (it stops about as soon as Android's 0.9). A number of 0.95 or less can only be Android's scale: it is converted
+  // (Android's friction 0.015 = iOS 0.998), so 0.9 written for Android stops soon instead of being read as "normal".
   const d = o.decelerationRate
   if (d === "fast") out.push("d0.99")
   else if (typeof d === "number") {
-    if (Number.isFinite(d) && d > 0 && d < 1) out.push(`d${d}`)
+    if (Number.isFinite(d) && d > 0 && d <= 0.95) out.push(`d${Math.max(0.91, Number(Math.exp((Math.log(0.998) * (1 - d)) / 0.015).toFixed(5)))}`)
+    else if (Number.isFinite(d) && d > 0 && d < 1) out.push(`d${d}`)
     else warn(`decelerationRate must be "normal", "fast" or a number between 0 and 1, got ${d}`)
   } else if (d !== undefined && d !== "normal") warn(`decelerationRate must be "normal", "fast" or a number`)
   return out.join(";")

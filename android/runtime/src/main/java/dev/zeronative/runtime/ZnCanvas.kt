@@ -580,9 +580,16 @@ private class CanvasParser(private val d: Float) {
         }
         val radius = if (opts != null) optNumV(opts, "radius", d) else null
         val opacity = (if (opts != null) optNumV(opts, "opacity") else null) ?: ONE
-        // Decoded at about the drawn size (a moving size: its size now), never above 4096 px a side.
-        val dw = w.initial().coerceIn(1f, 4096f).toInt()
-        val dh = h.initial().coerceIn(1f, 4096f).toInt()
+        // Decoded at about the drawn size, never above 4096 px a side. A size that follows a motion value (an image that
+        // grows) is decoded at the screen's longer side instead: its size when the list was read may be 1 px, and a
+        // decode at that size would stay blurry as it grows (review 2026-11-09). ZnCanvasImage asks Coil for an inexact
+        // size, so a small picture is not blown up to it.
+        val moving = w.src != null || h.src != null
+        val screen = if (!moving) 0f else runCatching {
+            android.content.res.Resources.getSystem().displayMetrics.let { maxOf(it.widthPixels, it.heightPixels) }.toFloat()
+        }.getOrDefault(2048f)
+        val dw = (if (moving) screen else w.initial()).coerceIn(1f, 4096f).toInt()
+        val dh = (if (moving) screen else h.initial()).coerceIn(1f, 4096f).toInt()
         return CanvasOp.ImageOp(src, x, y, w, h, fit, radius, opacity, dw, dh)
     }
 

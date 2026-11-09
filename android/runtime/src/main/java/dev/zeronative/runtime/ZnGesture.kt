@@ -262,7 +262,11 @@ internal class ZnGesture private constructor(
      * Moves scale, x and y to ([s], [tx], [ty]) together: one tween for the three, so the point zoomed around stays put
      * on the way. Answers [c] with {finished} at the end.
      */
-    fun zoomAnimate(s: Float, tx: Float, ty: Float, spec: ZnTimingSpec = ZOOM_TWEEN, c: ZnCall? = null) {
+    /**
+     * Animates the zoom to ([s], [tx], [ty]); "settle" when it rests. [sendEnd]: also "end" then (a zoom from JS or a
+     * double tap, which have no finger lift); a pinch released past a limit sends its own "end" at the lift.
+     */
+    fun zoomAnimate(s: Float, tx: Float, ty: Float, spec: ZnTimingSpec = ZOOM_TWEEN, c: ZnCall? = null, sendEnd: Boolean = true) {
         val parts = listOfNotNull(scale?.to(s), x?.to(tx), y?.to(ty))
         ZnMotion.scope.launch {
             var finished = true
@@ -272,8 +276,10 @@ internal class ZnGesture private constructor(
                 launch { if (!v.animate(to, spec)) finished = false }.also { v.job = it }
             }
             jobs.forEach { it.join() }
-            send("end", JSONObject().put("scale", (scale?.value ?: 1f).toDouble()).put("x", (x?.value ?: 0f).toDouble())
-                .put("y", (y?.value ?: 0f).toDouble()).put("cancelled", false))
+            val at = JSONObject().put("scale", (scale?.value ?: 1f).toDouble()).put("x", (x?.value ?: 0f).toDouble())
+                .put("y", (y?.value ?: 0f).toDouble())
+            if (sendEnd) send("end", JSONObject(at.toString()).put("cancelled", !finished))
+            send("settle", at)
             c?.resolve(JSONObject().put("finished", finished))
         }
     }
@@ -1253,7 +1259,9 @@ private class ZoomRec(g: ZnGesture) : ZnRecognizer(g) {
         if (inS != s || cancelled) {
             // Pinched past a limit: back inside it, around where the fingers were, and inside the edges.
             val (ns, nx, ny) = ZnZoomMath.zoomTo(s, tx, ty, lastQx, lastQy, w, h, cw, ch, inS)
-            g.zoomAnimate(ns, nx, ny)
+            // "end" now, at the lift, with the real flag (as the other branch); "settle" when it is back inside.
+            g.send("end", JSONObject().put("scale", s.toDouble()).put("x", tx.toDouble()).put("y", ty.toDouble()).put("cancelled", cancelled))
+            g.zoomAnimate(ns, nx, ny, sendEnd = false)
         } else {
             val vel = if (lastCount <= 1) vt.calculateVelocity() else Velocity.Zero
             val zoomed = s > g.zoomMin * 1.01f
@@ -1281,7 +1289,7 @@ private class ZoomRec(g: ZnGesture) : ZnRecognizer(g) {
                 g.send("settle", JSONObject().put("scale", (g.scale?.value ?: 1f).toDouble()).put("x", (g.x?.value ?: 0f).toDouble())
                     .put("y", (g.y?.value ?: 0f).toDouble()))
             }
-            g.send("end", JSONObject().put("scale", s.toDouble()).put("x", tx.toDouble()).put("y", ty.toDouble()).put("cancelled", false))
+            g.send("end", JSONObject().put("scale", s.toDouble()).put("x", tx.toDouble()).put("y", ty.toDouble()).put("cancelled", cancelled))
         }
         g.send("finalize")
     }

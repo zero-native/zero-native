@@ -84,9 +84,11 @@ internal fun ViewerPage(scope: ZnViewScope) {
         scope.emit("error")
     }
     val screen = remember { mutableStateOf(Dims(0f, 0f)) }
-    val camera = {
-        Camera(scale?.invoke()?.takeIf { it.isFinite() && it > 0f } ?: 1f, (tx?.invoke() ?: 0f) * d, (ty?.invoke() ?: 0f) * d)
-    }
+    // The zoom's values, read as plain floats (no object per frame); a Camera is made only where one is kept.
+    val zoomZ = { scale?.invoke()?.takeIf { it.isFinite() && it > 0f } ?: 1f }
+    val zoomX = { (tx?.invoke() ?: 0f) * d }
+    val zoomY = { (ty?.invoke() ?: 0f) * d }
+    val camera = { Camera(zoomZ(), zoomX(), zoomY()) }
     val sharp = rememberPageSharp(image, base, screen, camera)
     Box(
         Modifier.fillMaxSize().clipToBounds().onSizeChanged { screen.value = Dims(it.width.toFloat(), it.height.toFloat()) },
@@ -97,17 +99,19 @@ internal fun ViewerPage(scope: ZnViewScope) {
             contentDescription = null,
             // Read while drawing: the zoom moves the picture each frame with no recomposition.
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                val c = camera()
-                scaleX = c.z
-                scaleY = c.z
-                translationX = c.x
-                translationY = c.y
+                val z = zoomZ()
+                scaleX = z
+                scaleY = z
+                translationX = zoomX()
+                translationY = zoomY()
             },
             contentScale = ContentScale.Fit,
         )
         Canvas(Modifier.fillMaxSize()) {
             val s = sharp.value ?: return@Canvas
-            if (s.camera != camera()) return@Canvas // moved since: Coil's copy shows until the next sharp part
+            val c = s.camera
+            // Moved since: Coil's copy shows until the next sharp part.
+            if (c.z != zoomZ() || c.x != zoomX() || c.y != zoomY()) return@Canvas
             drawImage(
                 s.image,
                 dstOffset = IntOffset(s.screen.left.roundToInt(), s.screen.top.roundToInt()),
@@ -140,12 +144,15 @@ private fun rememberPageSharp(image: ViewerImage, base: coil3.Image?, screen: St
             holder.close()
         }
     }
-    LaunchedEffect(holder, base) {
+    // Keyed on the screen size too (rare: a turn, split screen), so the flow below only follows the zoom.
+    val scr = screen.value
+    LaunchedEffect(holder, base, scr) {
         if (base == null) return@LaunchedEffect
         val baseWidth = base.width.toFloat()
         val content = Dims(base.width.toFloat(), base.height.toFloat())
         // collectLatest: a new camera cancels the wait, so the part is made only after the zoom rests.
-        snapshotFlow { camera() to screen.value }.collectLatest { (c, scr) ->
+        // One Camera per change of the zoom; nothing while it rests.
+        snapshotFlow { camera() }.collectLatest { c ->
             val fitted = ViewerRules.fitted(content, scr)
             if (!ViewerRules.needsSharp(c, fitted, baseWidth, Float.MAX_VALUE)) {
                 sharp.value = null

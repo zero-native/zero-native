@@ -40,6 +40,12 @@ internal interface ZnScrollPos {
     /** The other axis's offset (always 0 here: zn scrolls one way at a time). */
     fun content(): Float = max() + viewport()
     fun cross(): Float
+    /**
+     * For a lazy list: how far to scroll (px) so the nearest row lines up with the viewport's start, centre or end
+     * ([align] 0 / 1 / 2). Rows on screen have exact places, so this corrects a snap picked from the estimated offset
+     * (a header, rows of mixed size). Null when exact anyway (a Scroll) or nothing is on screen.
+     */
+    fun rowCorrection(align: Int): Float? = null
 }
 
 internal class ZnScrollStatePos(private val state: ScrollState, private val crossSize: () -> Float) : ZnScrollPos {
@@ -66,6 +72,21 @@ internal class ZnLazyPos(private val state: LazyListState, private val horizonta
     }
     override fun cross(): Float = state.layoutInfo.let {
         (if (horizontal) it.viewportSize.height else it.viewportSize.width).toFloat()
+    }
+    override fun rowCorrection(align: Int): Float? {
+        val info = state.layoutInfo
+        val items = info.visibleItemsInfo
+        if (items.isEmpty()) return null
+        // Item offsets count from where the first row sits at rest (after the start padding).
+        val view = viewport() - info.beforeContentPadding - info.afterContentPadding
+        val anchor = when (align) { 1 -> view / 2f; 2 -> view; else -> 0f }
+        var best: Float? = null
+        for (it in items) {
+            val at = when (align) { 1 -> it.offset + it.size / 2f; 2 -> (it.offset + it.size).toFloat(); else -> it.offset.toFloat() }
+            val by = at - anchor
+            if (best == null || abs(by) < abs(best)) best = by
+        }
+        return best
     }
 }
 
@@ -219,11 +240,27 @@ internal class ZnScrollFling(
                 val target = snap!!.pick(start, projected, initialVelocity, pos.viewport(), pos.max(), d)
                 // A spring that starts with the finger's speed and settles on the snap point without bouncing past it.
                 var last = 0f
+                var hitEdge = false
                 AnimationState(0f, initialVelocity).animateTo(target - start, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow)) {
                     val delta = value - last
                     val used = scrollBy(delta)
                     last = value
-                    if (abs(delta - used) > 0.5f) cancelAnimation()
+                    if (abs(delta - used) > 0.5f) {
+                        hitEdge = true
+                        cancelAnimation()
+                    }
+                }
+                // A List: the pick came from an estimated offset; line the nearest row up exactly (snap by row).
+                // Not for snapToOffsets (they are distances, not rows) or at the list's ends.
+                val fix = if (hitEdge || snap.offsets.isNotEmpty()) null else pos.rowCorrection(if (snap.paging) 0 else snap.align)
+                if (fix != null && abs(fix) > 0.5f) {
+                    var done = 0f
+                    AnimationState(0f).animateTo(fix, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMedium)) {
+                        val delta = value - done
+                        val used = scrollBy(delta)
+                        done = value
+                        if (abs(delta - used) > 0.5f) cancelAnimation()
+                    }
                 }
             } else {
                 var last = 0f
@@ -320,18 +357,29 @@ internal fun ZnScrollEvents(s: ZnNodeSpec, inst: ZnInstance, pos: ZnScrollPos, i
  * bindListController. Numbers are dp; each sequence number runs once.
  */
 @Composable
-internal fun ZnScrollCommands(s: ZnNodeSpec, inst: ZnInstance, scroll: suspend (px: Int, animated: Boolean) -> Unit, max: () -> Int) {
+internal fun ZnScrollCommands(
+    s: ZnNodeSpec,
+    inst: ZnInstance,
+    scroll: suspend (px: Int, animated: Boolean) -> Unit,
+    max: () -> Int,
+    /** scrollToEnd, when the scroll knows its end better than [max] (a rail: its last item, not an estimate). */
+    end: (suspend (animated: Boolean) -> Unit)? = null,
+) {
     if (s.scrollCommandSlot < 0) return
     val cmd = inst.slot(s.scrollCommandSlot).value as? String
     val d = LocalDensity.current.density
-    val done = remember(inst) { IntArray(1) }
     LaunchedEffect(cmd) {
         val parts = cmd?.split(":") ?: return@LaunchedEffect
         val seq = parts.getOrNull(4)?.toIntOrNull() ?: return@LaunchedEffect
-        if (seq <= done[0]) return@LaunchedEffect
-        done[0] = seq
+        // On the instance, so a Scroll that comes back on screen doesn't run its last command again.
+        if (seq <= (inst.scrollSeqs[s.scrollCommandSlot] ?: 0)) return@LaunchedEffect
+        inst.scrollSeqs[s.scrollCommandSlot] = seq
         fun number(i: Int): Float = parts.getOrNull(i)?.toFloatOrNull()?.takeIf { it.isFinite() } ?: 0f
         val anim = parts.getOrNull(2) != "0"
+        if (parts.getOrNull(0) == "end" && end != null) {
+            launch { end(anim) }
+            return@LaunchedEffect
+        }
         val px = when (parts.getOrNull(0)) {
             "to" -> ((if (s.horizontal) number(1) else number(3)) * d)
             "offset" -> number(1) * d

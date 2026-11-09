@@ -18,6 +18,8 @@ export interface HeldItem {
 export interface ImageViewerModule {
   /** Keeps [items] in native memory under [key], for the screen. Not in the params: Android saves those, with a size limit. */
   hold(args: { key: string; items: HeldItem[] }): Promise<boolean>
+  /** Version 3: frees what [key] holds (the TSX screen calls it when it closes; the old screen frees its own). */
+  release(args: { key: string }): Promise<boolean>
 }
 
 /**
@@ -207,7 +209,13 @@ function show(route: string, params: Record<string, unknown>, held: string | und
     } catch (e) {
       // Not native (or not there at all): the TSX screen. nav.push says if the route is missing.
       if (!(e instanceof Error && e.message.includes("not a native screen"))) throw e
-      return openTsx(route, tsxOptions(params, held, from))
+      const shown = openTsx(route, tsxOptions(params, held, from))
+      // However it ends (closed, nav.back(), the screen gone), free the data: bytes and the headers (login tokens).
+      if (held !== undefined) {
+        const free = () => void ImageViewerNative.release({ key: held }).catch(() => {})
+        shown.then(free, free)
+      }
+      return shown
     }
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e)

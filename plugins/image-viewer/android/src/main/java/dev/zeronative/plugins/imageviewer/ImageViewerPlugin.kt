@@ -21,7 +21,7 @@ class ImageViewerPlugin : ZnPlugin {
  * The module "ImageViewer". It puts the plugin in a bundle's needs, so an app without the plugin never runs a bundle that
  * opens the viewer (docs/plugins.md D3). The screen "imageviewer.full" belongs to it.
  * Version 2 (2026-11-05): `hold`, for `data:` pictures and request headers (ViewerHeld).
- * Version 3 (2026-11-09, registry 24): the view "imageviewer.page" for the TSX viewer screen.
+ * Version 3 (2026-11-09, registry 24): the view "imageviewer.page" for the TSX viewer screen, and `release`.
  */
 internal class ImageViewerModule : ZnModuleBase("ImageViewer", version = 3) {
     init {
@@ -31,6 +31,12 @@ internal class ImageViewerModule : ZnModuleBase("ImageViewer", version = 3) {
             val items = call.args.optJSONArray("items")
             if (key.isEmpty() || items == null) return@function call.reject("invalid_args", "hold needs key and items")
             ViewerHeld.hold(key, items)
+            call.resolve(true)
+        }
+        // The TSX screen (version 3) frees its held parts when it closes: the bytes and the request headers (tokens).
+        function("release") { call ->
+            val key = call.args.optString("key", "")
+            if (key.isNotEmpty()) ViewerHeld.release(key)
             call.resolve(true)
         }
     }

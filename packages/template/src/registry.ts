@@ -858,6 +858,19 @@ export const LIST_EXTRAS_SINCE = 23
 export const NEGATIVE_MARGIN_SINCE = 23
 
 /**
+ * `<Scroll ref>` (scrollTo / scrollToEnd) runs since this registry version. It rides on `scrollCommand` (23), which
+ * older apps read only on a List, so on them scrollTo does nothing, with no error (review 2026-11-09).
+ */
+export const SCROLL_REF_SINCE = 24
+
+/**
+ * The Canvas commands and paint keys of registry 24 (image, paragraph, clipRoundRect, clipPath, clip `op`,
+ * sweepGradient, blendMode, shadow, blur, path trims) ride in `commands` (23): older apps skip them. The compiler
+ * finds them in app files (compiler/src/needs.ts) and raises the bundle's registry need to this.
+ */
+export const CANVAS_24_SINCE = 24
+
+/**
  * Newer forms of a string prop's value that older apps can't read (an older app would show the old behaviour, so a
  * bundle that uses one must ask for the version that brought it). [uses]: does this value use the form?
  */

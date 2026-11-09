@@ -242,6 +242,28 @@ test("TSX screen: held parts go native first, and the screen gets the key", asyn
   await later()
   expect(seen!.held).toBe(hold.args.key)
   expect(seen!.images).toEqual([{ uri: HELD_DATA }])
+  expect(host.calls.filter((c) => c.method === "release")).toEqual([])
+  nav.back() // the app took it away: the held parts are freed too
+  await later()
+  const release = host.calls.filter((c) => c.method === "release")
+  expect(release.length).toBe(1)
+  expect(release[0]!.args.key).toBe(hold.args.key)
+})
+
+test("TSX screen: closing it frees the held parts; without held parts nothing is called", async () => {
+  const p = ImageViewer.open({ images: [{ uri: "https://a/1.jpg", headers: { Authorization: "Bearer t" } }], route: "tsxViewer" })
+  const hold = host.calls.find((c) => c.method === "hold")!
+  reply({ id: hold.id, ok: true, value: true })
+  await later()
+  finishViewer(JSON.parse(pushes()[0]![3] as string).v, { index: 0 })
+  expect(await p).toEqual({ index: 0 })
+  await later()
+  expect(host.calls.filter((c) => c.method === "release").map((c) => c.args.key)).toEqual([hold.args.key])
+  const q = ImageViewer.open({ images: ["https://a/2.jpg"], route: "tsxViewer" })
+  nav.back()
+  await q
+  await later()
+  expect(host.calls.filter((c) => c.method === "release").length).toBe(1)
 })
 
 test("the TSX screen compiles, and uses the view the plugin registers", () => {

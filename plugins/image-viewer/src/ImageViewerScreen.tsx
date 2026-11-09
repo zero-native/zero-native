@@ -13,6 +13,7 @@ import {
   env,
   listController,
   nav,
+  onCleanup,
   signal,
   useBack,
   useMotion,
@@ -67,15 +68,17 @@ export function ImageViewerScreen(props: ImageViewerScreenProps) {
   // the flight would be over before there is a photo to fly.
   let started = false
   const start = () => {
-    if (started) return
+    if (started || closing) return // closed before the photo came: don't open again
     started = true
     void shown.to(1, { duration: FLY_MS, easing: "standard" })
   }
-  setTimeout(start, WAIT_MS)
+  const wait = setTimeout(start, WAIT_MS)
+  onCleanup(() => clearTimeout(wait))
 
   const close = () => {
     if (closing) return
     closing = true
+    clearTimeout(wait)
     const back = page() === o.index && from ? { duration: FLY_MS, easing: "standard" as const } : { duration: 180, easing: "standard" as const }
     if (!(page() === o.index && from)) flying.set(0) // another photo: fade, don't fly to a thumbnail it isn't
     void drag.y.to(0, back)

@@ -1,6 +1,7 @@
 // Bun build plugin: compiles every .tsx file with the zero-native compiler during bundling, collects all templates
 // into one .zn.ui file, and writes the manifest: component name → template id, and the route table read from the
 // app's `defineRoutes({...})` (ARCHITECTURE §11; a route's index in the table is its number at runtime).
+import { sourceRegistryNeed } from "./needs"
 import type { BunPlugin } from "bun"
 import { dirname, join, resolve } from "node:path"
 import { existsSync, readFileSync } from "node:fs"
@@ -64,10 +65,13 @@ export function znBuild(): ZnBuild {
   let seqInFile = 0
   /** Native module name → the highest version any loaded file asks for. */
   const modules = new Map<string, number>()
+  /** The registry version app sources need beyond what the templates show (compiler needs.ts: canvas commands). */
+  let sourceNeed = 0
   const addModules = (source: string, path: string) => {
     for (const { name, version } of nativeModuleUses(source, path)) {
       modules.set(name, Math.max(modules.get(name) ?? 0, version))
     }
+    sourceNeed = Math.max(sourceNeed, sourceRegistryNeed(source, path))
   }
   /** Every <NativeView>, checked in outputs(), when all files are read. */
   const nativeViews: { name: string; where: string }[] = []
@@ -171,7 +175,7 @@ export function znBuild(): ZnBuild {
         templates: file.bytes,
         manifest: { components: finalComponents, routes: table },
         js: filledJs,
-        requires: { registry: file.registry, hostApi: HOST_API_VERSION, modules: sortedModules },
+        requires: { registry: Math.max(file.registry, sourceNeed), hostApi: HOST_API_VERSION, modules: sortedModules },
       }
     },
   }

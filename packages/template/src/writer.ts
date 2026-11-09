@@ -34,6 +34,7 @@ import {
   TEXT_PRESS_SINCE,
   LIST_HORIZONTAL_SINCE,
   NEGATIVE_MARGIN_SINCE,
+  SCROLL_REF_SINCE,
 } from "./registry"
 
 /** The margin keys a negative value can be written in (RN's left / right are already start / end here). */
@@ -255,6 +256,8 @@ export function writeTemplateFile(roots: NodeSpec[]): { bytes: Uint8Array; ids: 
       if (spec.type === "List" && merged.horizontal === true) needs(LIST_HORIZONTAL_SINCE)
       // A negative margin is drawn only by newer apps (registry 23); older ones clamp it to 0.
       if (MARGIN_KEYS.some((k) => typeof merged[k] === "number" && (merged[k] as number) < 0)) needs(NEGATIVE_MARGIN_SINCE)
+      // <Scroll ref>: a Scroll reads scrollCommand only on newer apps (registry 24); a List always did (23).
+      if (spec.type === "Scroll" && "scrollCommand" in merged) needs(SCROLL_REF_SINCE)
       if (spec.needs !== undefined) needs(spec.needs)
       for (const [key, raw] of Object.entries(merged)) {
         if (raw === undefined) continue

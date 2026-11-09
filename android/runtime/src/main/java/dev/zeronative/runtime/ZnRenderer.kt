@@ -285,7 +285,11 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             ZnScrollCommands(s, inst, { px, anim ->
                 val by = px - railPos.offset()
                 if (anim) railState.animateScrollBy(by) else railState.scrollBy(by)
-            }, { railPos.max().roundToInt() })
+            }, { railPos.max().roundToInt() }, end = { anim ->
+                // The last child: a lazy row stops it at the real end (railPos.max() is an estimate).
+                val last = (refs.size - 1).coerceAtLeast(0)
+                if (anim) railState.animateScrollToItem(last) else railState.scrollToItem(last)
+            })
             LazyRow(
                 modifier = mod.znKeyboardDismiss(s.keyboardDismissMode, vertical = false),
                 state = railState,

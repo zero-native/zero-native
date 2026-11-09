@@ -103,6 +103,13 @@ describe("writeTemplateFile", () => {
     const tList = writeTemplateFile([el("List", { horizontal: true })])
     expect(read(tList.bytes).registry).toBe(23)
   })
+
+  test("a Scroll with scrollCommand (<Scroll ref>) requires registry 24; a List with it stays at 23", () => {
+    const tScroll = writeTemplateFile([el("Scroll", { scrollCommand: slot("cmd", "") })])
+    expect(read(tScroll.bytes).registry).toBe(24)
+    const tList = writeTemplateFile([el("List", { scrollCommand: slot("cmd", "") })])
+    expect(read(tList.bytes).registry).toBe(23)
+  })
 })
 
 describe("parseColor", () => {
