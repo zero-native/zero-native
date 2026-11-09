@@ -6,7 +6,7 @@ import type { Db } from "./db"
 import * as model from "./model"
 import { PATCH_FORMAT } from "./patches"
 import type { FileStore } from "./storage"
-import { OSES, type Os } from "./storeRules"
+import type { StoreAnswer } from "./storeRules"
 
 export const PROTOCOL = 1
 const MAX_BODY = 64 * 1024
@@ -49,7 +49,25 @@ export function pickPatch(rows: model.PatchRow[], req: CheckRequest): PatchOffer
   return best
 }
 
-/** POST /v1/check: protocol 1, the same request and answer as tools/ota/server.ts (what ZnOta sends today). */
+/** The store part of the answer: what the phone should do about its store version, on its channel (docs/zn-updates-server.md §4). */
+export interface StorePart {
+  update: StoreAnswer | null
+  /** iOS only, when the app's store facts have it: for the link to the App Store page. */
+  appStoreId?: string
+}
+
+/** The store answer for a phone that sent its store version. Can throw: the caller leaves `store` out then. */
+async function storePart(db: Db, req: CheckRequest): Promise<StorePart | undefined> {
+  if (!req.store) return undefined
+  const update = await model.storeAnswer(db, req.app, req.channel, req.store.os, req.store.version)
+  const appStoreId = req.store.os === "ios" ? await model.appStoreId(db, req.app) : undefined
+  return { update, ...(appStoreId ? { appStoreId } : {}) }
+}
+
+/**
+ * POST /v1/check: protocol 1, the same request and answer as tools/ota/server.ts (what ZnOta sends today), plus the
+ * store answer when the request has `store` (the phone's store version). The OTA part never depends on the store part.
+ */
 export async function check(d: PhoneDeps, request: Request): Promise<Response> {
   const text = await request.text()
   if (text.length > MAX_BODY) return json({ error: "body too large" }, 413)
@@ -70,17 +88,25 @@ export async function check(d: PhoneDeps, request: Request): Promise<Response> {
       console.warn(`patch lookup: ${(e as Error).message}`)
     }
   }
+  // The store answer, for the phone's channel. A failure here must never fail the OTA answer: leave `store` out.
+  let store: StorePart | undefined
+  try {
+    store = await storePart(d.db, req)
+  } catch (e) {
+    console.warn(`store answer ${req.app}/${req.channel}: ${(e as Error).message}`)
+  }
   const running = req.running?.id ?? `built-in:${req.builtIn.id}`
   void model.recordCheck(d.db, req.app, req.channel, req.installId, running, req.outcomes ?? [])
   void model.learnCapabilities(d.db, req.app, req.builtIn.serial, req.capabilities)
   if (d.log ?? true) {
-    console.log(`check ${req.app}/${req.channel} ${req.installId.slice(0, 8)} on ${running} seq ${req.seq} → ${decision.action} ${decision.reason}${decision.bundle ? ` ${decision.bundle.id}` : ""}${patch ? ` patch from ${patch.from} (${patch.size} B)` : ""}`)
+    console.log(`check ${req.app}/${req.channel} ${req.installId.slice(0, 8)} on ${running} seq ${req.seq} → ${decision.action} ${decision.reason}${decision.bundle ? ` ${decision.bundle.id}` : ""}${patch ? ` patch from ${patch.from} (${patch.size} B)` : ""}${store ? ` store ${req.store!.os} ${req.store!.version} → ${store.update ? `${store.update.version} critical ${store.update.critical}` : "nothing"}` : ""}`)
   }
   return json({
     protocol: PROTOCOL,
     ...decision,
     bundle: decision.bundle ? { ...decision.bundle, url: `/v1/files/${decision.bundle.zip.path}` } : undefined,
     ...(patch ? { patch } : {}),
+    ...(store ? { store } : {}),
   })
 }
 
@@ -108,45 +134,3 @@ export async function file(d: PhoneDeps, request: Request, path: string): Promis
     headers: { ...headers, "content-range": `bytes ${start}-${end}/${size}`, "content-length": String(end - start + 1) },
   })
 }
-
-/**
- * GET /v1/store?app=&os=&version=: the store update answer alone, for the app's JS (plugins/app-updates).
- * `{ update: null }` or `{ update: { version, critical, title?, message? }, store: { appStoreId? } }`.
- */
-export async function store(d: PhoneDeps, url: URL): Promise<Response> {
-  const app = url.searchParams.get("app") ?? ""
-  const os = url.searchParams.get("os") as Os
-  const version = url.searchParams.get("version") ?? ""
-  if (!OSES.includes(os) || !app || !version) return json({ error: "app, os (android|ios) and version are required" }, 400)
-  const a = await model.getApp(d.db, app).catch(() => null)
-  if (!a) return json({ update: null })
-  const update = await model.storeAnswer(d.db, app, os, version)
-  const facts = (a.store?.[os] ?? {}) as { appStoreId?: string }
-  return json({ update, store: os === "ios" && facts.appStoreId ? { appStoreId: facts.appStoreId } : {} })
-}
-
-/**
- * GET /v1/updates/check with the RN backend's `x-zota-*` headers, store part only: what the ZeroBill zn app's
- * storeUpdateSource.ts asks today. The package names the app and channel (the app's `store` facts). Answer headers:
- * `x-zota-store-version`, `x-zota-store-critical` (none = nothing to do), status 200.
- */
-export async function legacyStoreCheck(d: PhoneDeps, request: Request): Promise<Response> {
-  const pkg = (request.headers.get("x-zota-app-id") ?? "").trim()
-  const headers: Record<string, string> = { "cache-control": "private, no-store", "x-zota-status": "NO_CHANNEL" }
-  for (const a of await model.listApps(d.db)) {
-    for (const os of OSES) {
-      const facts = (a.store?.[os] ?? {}) as { packages?: Record<string, string> }
-      if (!facts.packages?.[pkg]) continue
-      const version = os === "ios" ? (request.headers.get("x-zota-version-name") ?? "") : (request.headers.get("x-zota-version-code") ?? "")
-      const answer = await model.storeAnswer(d.db, a.id, os, version.trim())
-      if (answer) {
-        headers["x-zota-store-version"] = String(answer.version)
-        headers["x-zota-store-critical"] = String(answer.critical)
-      }
-      headers["x-zota-status"] = "UP_TO_DATE"
-      return new Response(null, { status: 200, headers })
-    }
-  }
-  return new Response(null, { status: 200, headers })
-}
-

@@ -112,8 +112,9 @@ you to type `FORCE UPDATE <version>`. Test rows reach only phones whose own vers
    type>, publicKeys = listOf(MAIN, BACKUP)))`. Release builds refuse `http://` (only the sample sets
    `allowHttpInRelease`).
 3. Store updates: register `AppUpdatesPlugin()` (and forward `onActivityResult` to `AppUpdatesModule.onActivityResult`),
-   then in JS `checkStore({ server, app, os, version })` and `createAppUpdateEngine` (`plugins/app-updates/README.md`).
-   An app that keeps its old JS store check can point it at `GET /v1/updates/check` (the same `x-zota-*` headers).
+   then in JS `createAppUpdateEngine({ source: nativeStoreSource, autoCheck: false, ... })` and
+   `checkAfterUpdateChecks(engine)` (`plugins/app-updates/README.md`). The store answer comes with the OTA check (one
+   call, since 2026-11-10); the store-only routes `/v1/store` and `/v1/updates/check` are gone.
 4. During a payment: `AppUpdates.setBusy(true)` and the OTA hold, so neither a forced store update nor an OTA restart
    lands mid-checkout. `false` again when it ends.
 5. Push-triggered background updates: keep `PushPlugin()` (otaCheck on). The phone subscribes to `zn-ota-<app>-<channel>`

@@ -68,6 +68,8 @@ object ZnOta {
     private const val MAX_CHECK_ANSWER = 256 * 1024L
     /** The download has no total limit, so a slow one that still moves is fine. This is the longest gap between bytes. */
     private const val DOWNLOAD_IDLE_TIMEOUT_MS = 60_000L
+    /** Two automatic checks are at least this far apart, whatever [Config.checkIntervalMs] says. */
+    private const val MIN_CHECK_GAP_MS = 10_000L
 
     class Config(
         /** The update server's base URL (the reference server: `bun run ota serve`). */
@@ -76,7 +78,11 @@ object ZnOta {
         val channel: String,
         /** Trusted public keys, base64 SPKI DER: the main key first, the offline backup key second. */
         val publicKeys: List<String>,
-        /** Least time between two automatic checks (on returning to the foreground). */
+        /**
+         * Least time between two automatic checks (on returning to the foreground). 0: a check on every return (an
+         * app whose store update rules must reach phones at once). Never two within [MIN_CHECK_GAP_MS], so the launch
+         * gate's check at a cold start counts as that start's check.
+         */
         val checkIntervalMs: Long = 5 * 60_000L,
         /** Wait after the app comes on screen before the first check, so startup is never slowed. */
         val firstCheckDelayMs: Long = 3_000L,
@@ -193,7 +199,7 @@ object ZnOta {
     private fun maybeAutoCheck() {
         val c = config ?: return
         val now = SystemClock.elapsedRealtime()
-        if (checkQueued || (lastAutoCheck != 0L && now - lastAutoCheck < c.checkIntervalMs)) return
+        if (checkQueued || (lastAutoCheck != 0L && now - lastAutoCheck < maxOf(c.checkIntervalMs, MIN_CHECK_GAP_MS))) return
         lastAutoCheck = now
         checkQueued = true
         // A few seconds after the app comes on screen: never in the way of startup or of the screen opening.
@@ -289,6 +295,9 @@ object ZnOta {
             .put("lastCheckAt", if (st.lastCheckAt > 0) st.lastCheckAt else JSONObject.NULL)
             .put("lastResult", st.lastResult ?: JSONObject.NULL)
             .put("lastError", st.lastError ?: JSONObject.NULL)
+            // The store update answer of the last check that had one, for this APK only ([storeFor]): an answer
+            // saved before a store update must not ask the user again after it.
+            .put("store", st.storeAnswer(apkVersion())?.let(::JSONObject) ?: JSONObject.NULL)
     }
 
     private fun setPhase(p: String, prog: Double = 0.0) {
@@ -328,6 +337,8 @@ object ZnOta {
             noteRunning(st)
             val answer = post(c, builtIn, st)
             st.outcomes.clear() // they reached the server
+            // Before act: a bundle problem below must not lose the store answer (the catch saves this state too)
+            keepStoreAnswer(st, answer)
             val result = act(c, builtIn, st, answer)
             st.lastCheckAt = System.currentTimeMillis()
             st.lastResult = "${result.getString("action")} ${result.getString("reason")}"
@@ -369,6 +380,8 @@ object ZnOta {
             .put("seq", st.seq(c.channel))
             .put("outcomes", JSONArray(st.outcomes.toList()))
             .put("patches", JSONArray(listOf(ZnBsPatch.FORMAT))) // the patch formats this phone applies
+            // The same call answers "update from the store?" (docs/zn-updates-server.md): this APK's versionCode.
+            .put("store", JSONObject().put("os", "android").put("version", apkVersion()))
         val request = Request.Builder()
             .url(c.server.trimEnd('/') + "/v1/check")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
@@ -731,7 +744,17 @@ object ZnOta {
         var lastError: String?,
         /** The priority (0 / 1 / 2) of the last channel change acted on: what `current` waits with ([status]). */
         var nextPriority: Int = 0,
+        /** The last store answer ([ZnOtaStore.read]: JSON text), the versionCode it was for, and when it came. */
+        var store: String? = null,
+        var storeFor: Long = 0L,
+        var storeAt: Long = 0L,
     ) {
+        /** The saved store answer with its time, only if it was for [versionCode] (this APK). */
+        fun storeAnswer(versionCode: Long): String? {
+            val s = store ?: return null
+            if (storeFor != versionCode) return null
+            return runCatching { JSONObject(s).put("at", storeAt).toString() }.getOrNull()
+        }
         fun seq(channel: String) = seqs.optLong(channel, 0L)
         fun setSeq(channel: String, seq: Long) {
             seqs.put(channel, seq)
@@ -746,14 +769,40 @@ object ZnOta {
         val id = j.optString("installId").ifEmpty { UUID.randomUUID().toString() }
         return State(id, j.optJSONObject("seq") ?: JSONObject(), outcomes, j.optString("lastRunning").ifEmpty { null },
             j.optLong("lastCheckAt", 0L), j.optString("lastResult").ifEmpty { null }, j.optString("lastError").ifEmpty { null },
-            j.optInt("nextPriority", 0))
+            j.optInt("nextPriority", 0), j.optString("store").ifEmpty { null }, j.optLong("storeFor", 0L), j.optLong("storeAt", 0L))
     }
 
     private fun saveState(st: State) {
         val j = JSONObject().put("installId", st.installId).put("seq", st.seqs).put("outcomes", JSONArray(st.outcomes.takeLast(MAX_OUTCOMES)))
             .put("lastRunning", st.lastRunning ?: "").put("lastCheckAt", st.lastCheckAt)
             .put("lastResult", st.lastResult ?: "").put("lastError", st.lastError ?: "").put("nextPriority", st.nextPriority)
+            .put("store", st.store ?: "").put("storeFor", st.storeFor).put("storeAt", st.storeAt)
         ZnOtaInstall.writeAtomic(stateFile(), j.toString())
+    }
+
+    /** This APK's versionCode (what the store rules compare). */
+    private val apkVersionCode by lazy {
+        val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+        @Suppress("DEPRECATION")
+        if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+    }
+    private fun apkVersion(): Long = apkVersionCode
+
+    /**
+     * Keeps the answer's store part ([ZnOtaStore.read]). No `store` (an older server, or its rule lookup failed) or
+     * one this phone can't read: the last answer stays.
+     */
+    private fun keepStoreAnswer(st: State, answer: JSONObject) {
+        if (!answer.has("store")) return
+        val s = ZnOtaStore.read(answer.opt("store"))
+        if (s == null) {
+            Log.w(TAG, "check: a store answer this app can't read, keeping the last one")
+            return
+        }
+        if (s != st.store || st.storeFor != apkVersion()) Log.i(TAG, "check: store answer $s")
+        st.store = s
+        st.storeFor = apkVersion()
+        st.storeAt = System.currentTimeMillis()
     }
 
     /**

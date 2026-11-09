@@ -3198,3 +3198,35 @@ change, and what evidence would make you change it?"
 - **Open:** a plugin or app that keeps `ZnFetch.client` (or its own `newBuilder()`) in a field still uses the old pool
   (guide §89). Same dispatcher for old and new clients, so per-host limits count both. Not measured: the cost of
   `newBuilder().build()` at each change (no new TLS setup is expected; the socket factory is shared).
+
+## 216. Store updates: the answer rides on the OTA check, kept per APK (framework + server, 2026-11-10; Opus, Pavan's ask)
+- **Chosen:** `POST /v1/check` takes `store: { os, version }` and answers `store: { update, appStoreId? }` from the
+  Store page's rules for the phone's channel. ZnOta keeps the last answer with the versionCode it was for, and shows it
+  as `Updates.status().store` only while that versionCode runs. The store-only routes (`/v1/store`, the legacy
+  `/v1/updates/check`) are gone. Pavan: "one end point saying whether to OTA update or store update ... simple one
+  network call".
+- **Why per APK:** an answer saved before a Play update ("forced to 174") would ask again on 174 until the next check
+  answers. Tying it to the versionCode drops it at once.
+- **Kept on a failed check:** the last good answer stays (offline start). A forced update still needs Play to have the
+  build, and the engine asks Play first, so a stale "forced" can't block an offline user.
+- **Open:** the answer is not signed (like rollout / priority): a man in the middle could only make the app ask Play,
+  which shows nothing if Play has no newer build.
+
+## 217. Check on every return: a 10 s floor on automatic checks (runtime, 2026-11-10; Opus)
+- **Chosen:** `ZnOta.Config.checkIntervalMs = 0` means a check on every return (ZeroBill, Pavan: "let app devs decide
+  ... every onresume"), but two automatic checks are never less than 10 s apart.
+- **Why:** at a cold start the launch gate's check runs from `onActivityCreated`, and `onActivityStarted` then asks for
+  the automatic check; with 0 and no floor every cold start would make two calls. A quick back-and-forth (UPI app
+  closes in 2 s) also makes one call, not two.
+- **Not chosen:** a separate "first start" flag. The floor covers both cases with one rule.
+
+## 218. Release builds ship every CPU type, 32-bit ARM included (runtime + ZeroBill, 2026-11-10; Opus, Pavan's ask)
+- **Chosen:** release builds `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` (`-PznArm64Only` for a quick local build).
+  `libjsi.so` for v7a and x86 comes from the same `react-android-0.88.1` AAR as the others (checked byte for byte).
+  Pavan: "final aab that really goes into play store with all cpu types". RN shipped arm64 only.
+- **Why it matters:** many low-cost Indian phones run a 32-bit Android (Android Go) on 64-bit chips; Play doesn't offer
+  an arm64-only app to them. Play splits the AAB, so a phone downloads only its own libraries.
+- **Risk:** zn's C++ (`jni_bridge.cpp`, core) was only ever run on 64-bit. It stores the runtime pointer in a `jlong`
+  (fine on 32-bit), and mmaps the bytecode. Not yet run on a 32-bit process: test with `adb install --abi armeabi-v7a`
+  on the Lava (its chip runs 32-bit code) before the release.
+- **Open:** an app moving from RN to zn on a 32-bit phone: RN never installed there, so there is no RN data to move.

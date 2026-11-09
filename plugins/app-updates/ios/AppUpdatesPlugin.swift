@@ -1,7 +1,7 @@
 // The app-updates plugin's iOS side (plugins/app-updates, as android/.../AppUpdatesPlugin.kt). NOT BUILT ON A MAC YET
 // (written on Windows, 2026-11-09): check it compiles with the sample before relying on it.
 //
-// Apple has no in-app update API, so the zn-updates server's store rule is the truth on iOS (checkStore in JS), and the
+// Apple has no in-app update API, so the zn-updates server's store rule is the truth on iOS (storeAnswer in JS: it comes with the OTA check; iOS OTA is not built yet), and the
 // app shows its own screens (a forced full-screen screen, an optional sheet). This module only:
 // - isUpdateAvailable: { available: false } (there is no Play to ask);
 // - start / complete: { ok: false, unavailable: true };

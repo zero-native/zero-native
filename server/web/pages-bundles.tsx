@@ -136,7 +136,8 @@ export function Overview() {
 
 // ---- Bundles ----------------------------------------------------------------------------------------------------------
 
-export function BundleBadges({ s, b }: { s: State; b: Bundle }) {
+/** [builtIn]: the store builds that carry this bundle as their built-in bundle (one bundle = one serial, so a bundle can be both). */
+export function BundleBadges({ s, b, builtIn = [] }: { s: State; b: Bundle; builtIn?: StoreBuild[] }) {
   const lacking = cannotRun(s, b)
   return (
     <div className="badges">
@@ -146,6 +147,12 @@ export function BundleBadges({ s, b }: { s: State; b: Bundle }) {
       {b.stableAt ? <Badge tone="green">Stable</Badge> : null}
       {b.manifest.git.dirty ? <Badge tone="amber" title="Built from uncommitted changes">Uncommitted</Badge> : null}
       {b.customerTitle ? <Badge title="What customers see">Title: {b.customerTitle}</Badge> : null}
+      {builtIn.length ? <Badge title="Also inside a store build: phones on it already have this bundle">In the app</Badge> : null}
+      {builtIn.map((sb) => (
+        <Badge key={`${sb.os}-${sb.channel}-${sb.versionCode}`} tone="blue" title={`${sb.os === "ios" ? "iOS" : "Android"} ${sb.versionName} (${sb.versionCode}), ${sb.channel}`}>
+          {sb.label}
+        </Badge>
+      ))}
       {lacking.map((l) => (
         <Badge key={l.family} tone="amber" title={l.why}>
           Can't run on {l.labels.join(", ")}
@@ -162,9 +169,11 @@ type Filter = "all" | "live" | "stable" | "none" | "builtin"
  * patch "from #12 (built-in)" points at a row). It isn't an OTA bundle: no channel can serve it and it has no actions;
  * the row links to Store builds. Its zip on the server (if any) is only the base for patches.
  */
-function BuiltInRow({ sb }: { sb: StoreBuild }) {
+function BuiltInRow({ list }: { list: StoreBuild[] }) {
   const c = useApp()
   const to = c.href("/builds")
+  // Store builds with the same built-in serial carry the same bundle: one row, the newest build first.
+  const sb = list[0]!
   return (
     <div className="brow builtin">
       <a className="brow-serial num" href={to}>
@@ -172,7 +181,7 @@ function BuiltInRow({ sb }: { sb: StoreBuild }) {
       </a>
       <div className="brow-main">
         <a className="brow-title" href={to}>
-          Built into {sb.label}
+          Built into {list.map((x) => x.label).join(", ")}
         </a>
         <div className="brow-meta">
           <span className="code">{sb.git.commit.slice(0, 7)}</span>
@@ -185,7 +194,9 @@ function BuiltInRow({ sb }: { sb: StoreBuild }) {
         </div>
         <div className="badges">
           <Badge title="Inside the store build: no channel serves it">In the app</Badge>
-          <ChannelTag name={sb.channel} />
+          {[...new Set(list.map((x) => x.channel))].map((ch) => (
+            <ChannelTag key={ch} name={ch} />
+          ))}
           {sb.baseSize !== null ? (
             <Badge tone="green" title="Its zip is on the server: phones on this build get patches">
               Base for patches, {bytes(sb.baseSize)}
@@ -203,7 +214,7 @@ function BuiltInRow({ sb }: { sb: StoreBuild }) {
   )
 }
 
-type Row = { serial: number; key: string; ota?: Bundle; builtIn?: StoreBuild }
+type Row = { serial: number; key: string; ota?: Bundle; builtIn: StoreBuild[] }
 
 export function RowActions({ b }: { b: Bundle }) {
   const c = useApp()
@@ -231,18 +242,26 @@ export function Bundles() {
   const list = useMemo(() => {
     const term = q.trim().toLowerCase().replace(/^#/, "")
     const has = (...texts: string[]) => !term || texts.some((t) => t.toLowerCase().includes(term))
-    const ota: Row[] = filter === "builtin" ? [] : s.bundles
+    // One bundle = one serial: store builds are grouped by the serial of their built-in bundle
+    const carriers = new Map<number, StoreBuild[]>()
+    for (const sb of s.storeBuilds) carriers.set(sb.builtinSerial, [...(carriers.get(sb.builtinSerial) ?? []), sb])
+    const builtText = (list: StoreBuild[]) => list.flatMap((sb) => [sb.label, sb.git.commit, sb.builtBy, sb.versionName, String(sb.versionCode), "built-in", "in the app"])
+    // A bundle that is also built into a store build is ONE row (the bundle's), with the "In the app" chip
+    const ota: Row[] = s.bundles
       .filter((b) => {
+        const inApp = carriers.get(b.serial) ?? []
+        if (filter === "builtin") return inApp.length > 0 && has(String(b.serial), b.gitSubject, b.manifest.git.commit, b.builtBy, b.customerTitle ?? "", ...builtText(inApp))
         if (filter === "live" && b.liveOn.length === 0) return false
         if (filter === "stable" && !b.stableAt) return false
         if (filter === "none" && b.everOn.length > 0) return false
-        return has(String(b.serial), b.gitSubject, b.manifest.git.commit, b.builtBy, b.customerTitle ?? "")
+        return has(String(b.serial), b.gitSubject, b.manifest.git.commit, b.builtBy, b.customerTitle ?? "", ...builtText(inApp))
       })
-      .map((b) => ({ serial: b.serial, key: b.id, ota: b }))
-    // Built-in bundles have no channel: they show under All and their own filter only
-    const builtIn: Row[] = filter !== "all" && filter !== "builtin" ? [] : s.storeBuilds
-      .filter((sb) => has(String(sb.builtinSerial), sb.label, sb.git.commit, sb.builtBy, sb.versionName, String(sb.versionCode), "built-in", "in the app"))
-      .map((sb) => ({ serial: sb.builtinSerial, key: `built-in-${sb.os}-${sb.builtinSerial}`, builtIn: sb }))
+      .map((b) => ({ serial: b.serial, key: b.id, ota: b, builtIn: carriers.get(b.serial) ?? [] }))
+    // A built-in bundle nobody released has no channel: it shows under All and its own filter only
+    const released = new Set(s.bundles.map((b) => b.serial))
+    const builtIn: Row[] = filter !== "all" && filter !== "builtin" ? [] : [...carriers.entries()]
+      .filter(([serial, list]) => !released.has(serial) && has(String(serial), ...builtText(list)))
+      .map(([serial, list]) => ({ serial, key: `built-in-${serial}`, builtIn: list }))
     return [...ota, ...builtIn].sort((x, y) => y.serial - x.serial)
   }, [s.bundles, s.storeBuilds, filter, q])
   const none = s.bundles.length === 0 && s.storeBuilds.length === 0
@@ -269,7 +288,7 @@ export function Bundles() {
         <Empty title="No bundle matches">Change the filter or the search.</Empty>
       ) : (
         <div className="rows">
-          {list.map(({ key, ota: b, builtIn }) => !b ? <BuiltInRow key={key} sb={builtIn!} /> : (
+          {list.map(({ key, ota: b, builtIn }) => !b ? <BuiltInRow key={key} list={builtIn} /> : (
             <div key={key} className="brow">
               <a className="brow-serial num" href={c.href(`/bundles/${b.serial}`)}>
                 #{b.serial}
@@ -285,7 +304,7 @@ export function Bundles() {
                     built by {b.builtBy}, <When at={b.builtAt} />
                   </span>
                 </div>
-                <BundleBadges s={s} b={b} />
+                <BundleBadges s={s} b={b} builtIn={builtIn} />
               </div>
               <RowActions b={b} />
             </div>
@@ -345,7 +364,7 @@ export function BundlePage({ serial }: { serial: number }) {
         back={{ href: c.href("/bundles"), label: "All bundles" }}
         right={<RowActions b={b} />}
       />
-      <BundleBadges s={s} b={b} />
+      <BundleBadges s={s} b={b} builtIn={s.storeBuilds.filter((sb) => sb.builtinSerial === b.serial)} />
       <div className="grid two mt">
         <Card title="Facts">
           <dl className="facts wide">

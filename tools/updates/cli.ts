@@ -13,12 +13,14 @@
 //   bun run updates rollout --channel production --percent 50
 //   bun run updates kill --channel production --reason "…"                     (asks to type KILL PRODUCTION)
 //   bun run updates store-build --os android --channel production --label "production AAB" --version-code 170 --version-name 1.7.0
-//       reserves the store build's serial, builds the built-in bundle into the host's assets with it, records the
-//       store build, and uploads the built-in bundle as the base for OTA patches; then build the AAB / IPA as usual
+//       builds the JS once (serial 0) to learn its SHA-256, takes the serial for those bytes (the same JS, from an OTA
+//       release or an earlier store build, gets the same number), builds the built-in bundle into the host's assets with
+//       it, records the store build, and uploads the built-in bundle as the base for OTA patches; then build the AAB / IPA as usual
 //   bun run updates base --serial 14                     uploads the base for an older store build (from the assets folder;
 //       the folder must hold that build's built-in bundle: the SHA-256 must match)
 //   bun run updates patches --bundle 12                  makes the patches of a bundle again and prints them
-//   bun run updates rule --os android --version 170 --critical 2 [--test] [--title …] [--message …]   (forced asks FORCE UPDATE 170)
+//   bun run updates rule --os android --version 170 --critical 2 [--channel production] [--test] [--title …] [--message …]
+//       (a rule is for one channel, default production; forced asks FORCE UPDATE 170; saving it sends the "check now" push)
 //   bun run updates push --channel staging                                       ("check now" push to the channel's phones)
 //   bun run updates dashboard [--print]                                         (opens the dashboard, signed in, for 12 h)
 //   bun run updates status
@@ -329,14 +331,32 @@ async function main() {
       const g = git(appDir)
       if (channel === "production" && g.dirty) fail("a production store build needs a clean working tree (commit first)")
       const cc = conn(c.server)
-      const { serial } = await call<{ serial: number }>(cc, "POST", `/admin/apps/${c.app}/serials`, { kind: "store" })
       const work = mkdtempSync(join(tmpdir(), "zn-updates-store-"))
       try {
         const map = join(work, "main.js.map")
-        // The build writes straight into the host's assets with the reserved serial.
-        build({ ...c, build: [...c.build!.filter((x, i, l) => !(x === "--assets" || l[i - 1] === "--assets"))] }, resolve(appDir, c.assets), serial, map)
+        // The store build's own --assets (if the build command has one) is for the host's folder: we set it ourselves.
+        const buildHere = { ...c, build: [...c.build!.filter((x, i, l) => !(x === "--assets" || l[i - 1] === "--assets"))] }
+        // One bundle = one serial: build once with serial 0 (as `release` does) to learn the bytes, then take the serial for them.
+        const probe = join(work, "probe")
+        build(buildHere, probe, 0, join(work, "probe.js.map"))
+        const probed = readBundleInfo(probe)
+        if (probed.app !== c.app) fail(`the build is for app "${probed.app}", zn-updates.json says "${c.app}"`)
+        if (!probed.requires) fail("the build's zn-bundle.json has no requires (rebuild with the current tools)")
+        const reserved = await call<{ serial: number; existing: unknown }>(cc, "POST", `/admin/apps/${c.app}/serials`, {
+          kind: "store",
+          sha256: probed.sha256,
+          requires: probed.requires,
+        })
+        const serial = reserved.serial
+        if (reserved.existing) console.log(`  same bytes as the OTA bundle #${serial}: the store build gets that number`)
+        // The build writes straight into the host's assets with the serial.
+        build(buildHere, resolve(appDir, c.assets), serial, map)
         const info = readBundleInfo(resolve(appDir, c.assets))
         if (info.serial !== serial) fail(`the built-in bundle has serial ${info.serial}, expected ${serial}`)
+        // The bundle's SHA-256 covers the file list only, never the serial: it must not change. If it did, a file holds the serial.
+        if (info.sha256 !== probed.sha256) {
+          fail(`the build with serial ${serial} has another bundle SHA-256 (${info.sha256.slice(0, 12)}) than the build with serial 0 (${probed.sha256.slice(0, 12)}): some file changed between the two builds (does the JS use the serial or the time?). Serial ${serial} is taken for the first bytes: run the command again after fixing it.`)
+        }
         keepMap(c.app, info.sha256, map)
         await call(cc, "POST", `/admin/apps/${c.app}/store-builds`, {
           os, channel, label: a.label ?? `${channel} ${os === "ios" ? "IPA" : "AAB"}`, versionCode, versionName,
@@ -394,13 +414,15 @@ async function main() {
     case "rule": {
       const c = config()
       const os = a.os ?? "android"
-      if (!a.version || a.critical === undefined) fail("rule --os android|ios --version <v> --critical 0|1|2 [--test]")
+      if (!a.version || a.critical === undefined) fail("rule --os android|ios --version <v> --critical 0|1|2 [--channel production] [--test]")
       const critical = Number(a.critical)
+      const channel = a.channel ?? "production"
       const confirm = critical === 2 && !a.test ? confirmation(`FORCE UPDATE ${a.version}`) : undefined
-      await call(conn(c.server), "POST", `/admin/apps/${c.app}/store-rules`, {
-        os, version: os === "ios" ? a.version : Number(a.version), critical, isTest: !!a.test, title: a.title, message: a.message, note: a.note, confirm,
+      const r = await call<{ push: PushResult | null }>(conn(c.server), "POST", `/admin/apps/${c.app}/store-rules`, {
+        os, channel, version: os === "ios" ? a.version : Number(a.version), critical, isTest: !!a.test, title: a.title, message: a.message, note: a.note, confirm,
       })
-      console.log(`✓ ${os} ${a.version}: ${["no update", "optional update", "forced update"][critical]}${a.test ? " (test version)" : ""}`)
+      console.log(`✓ ${os} ${a.version} on ${channel}: ${["no update", "optional update", "forced update"][critical]}${a.test ? " (test version)" : ""}`)
+      pushNote(r.push)
       return
     }
     case "status": {

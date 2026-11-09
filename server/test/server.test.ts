@@ -13,6 +13,7 @@ import { type Conn, changeChannel, call, remakePatches, uploadBase, uploadBuilt 
 import { migrate, openDb, type Db } from "../src/db"
 import { startServer } from "../src/index"
 import { makeFor, readBundleZip, whenIdle } from "../src/patches"
+import * as phone from "../src/phone"
 import { delayFor } from "../src/push"
 import { resetFailures } from "../src/session"
 import { type FileStore, openStore } from "../src/storage"
@@ -179,23 +180,108 @@ describe("zn-updates", () => {
     expect(d.reason).toBe("APK_NEWER")
   })
 
-  test("store rules: forced needs its words; test rows only for test versions; the old header check works", async () => {
-    const add = (b: object) => call(c, "POST", "/admin/apps/shop/store-rules", b)
-    await expect(add({ os: "android", version: 170, critical: 2 })).rejects.toThrow(/FORCE UPDATE 170/)
-    await add({ os: "android", version: 170, critical: 2, confirm: "FORCE UPDATE 170", title: "Important update" })
-    await add({ os: "android", version: 175, critical: 1 })
-    await add({ os: "android", version: 180, critical: 2, isTest: true })
-    await add({ os: "android", version: 179, critical: 0, isTest: true })
-    const ask = async (v: number) => (await (await fetch(`${base}/v1/store?app=shop&os=android&version=${v}`)).json()) as { update: { version: number; critical: number; title?: string } | null }
-    expect((await ask(160)).update).toEqual({ version: 175, critical: 2, title: "Important update" })
-    expect((await ask(172)).update).toEqual({ version: 175, critical: 1 })
-    expect((await ask(175)).update).toBeNull()
-    expect((await ask(179)).update).toEqual({ version: 180, critical: 2 }) // a test version sees the test rows
-    const legacy = await fetch(`${base}/v1/updates/check`, { headers: { "x-zota-app-id": "com.shop", "x-zota-version-code": "160" } })
-    expect([legacy.headers.get("x-zota-store-version"), legacy.headers.get("x-zota-store-critical")]).toEqual(["175", "2"])
-    await add({ os: "ios", version: "1.7.0", critical: 1 })
-    const ios = (await (await fetch(`${base}/v1/store?app=shop&os=ios&version=1.6.2`)).json()) as { update: unknown; store: unknown }
-    expect(ios).toEqual({ update: { version: "1.7.0", critical: 1 }, store: { appStoreId: "123" } })
+  // The store question rides on the check (docs/zn-updates-server.md §4): the answer's `store`, for the phone's channel.
+  type StoreAsk = { os: "android" | "ios"; version: number | string }
+  type StoreAnswerBody = { action: string; reason: string; store?: { update: { version: number | string; critical: number; title?: string; message?: string } | null; appStoreId?: string } }
+  const askStore = async (channel: string, store: StoreAsk | unknown, over: Partial<CheckRequest> = {}) => {
+    const res = await fetch(`${base}/v1/check`, { method: "POST", body: JSON.stringify({ ...phoneReq({ channel, ...over }), store }) })
+    expect(res.status).toBe(200)
+    return (await res.json()) as StoreAnswerBody
+  }
+  const addRule = (b: object) => call(c, "POST", "/admin/apps/shop/store-rules", b)
+
+  test("store rules: forced needs its words; test rows only for test versions (the rules are production's by default)", async () => {
+    await expect(addRule({ os: "android", version: 170, critical: 2 })).rejects.toThrow(/FORCE UPDATE 170/)
+    await addRule({ os: "android", version: 170, critical: 2, confirm: "FORCE UPDATE 170", title: "Important update" })
+    await addRule({ os: "android", version: 175, critical: 1 })
+    await addRule({ os: "android", version: 180, critical: 2, isTest: true })
+    await addRule({ os: "android", version: 179, critical: 0, isTest: true })
+    const ask = async (v: number) => (await askStore("production", { os: "android", version: v })).store!.update
+    expect(await ask(160)).toEqual({ version: 175, critical: 2, title: "Important update" })
+    expect(await ask(172)).toEqual({ version: 175, critical: 1 })
+    expect(await ask(175)).toBeNull()
+    expect(await ask(179)).toEqual({ version: 180, critical: 2 }) // a test version sees the test rows
+    const rules = await call<{ rules: { channel: string }[] }>(c, "POST", "/admin/apps/shop/store-rules", { os: "android", version: 175, critical: 1 })
+    expect(rules.rules.every((r) => r.channel === "production")).toBe(true)
+    // The admin's phone checker takes the channel too (default production)
+    const viaAdmin = (ch: string) => call<{ update: unknown }>(c, "GET", `/admin/apps/shop/store-check?${ch ? `channel=${ch}&` : ""}os=android&version=160`)
+    expect((await viaAdmin("")).update).toEqual({ version: 175, critical: 2, title: "Important update" })
+    expect((await viaAdmin("staging")).update).toBeNull()
+  })
+
+  test("the check answers the store question for the phone's channel: a staging rule never reaches production, and the other way round", async () => {
+    // Production has rules (above), staging has none yet: a staging phone is told nothing.
+    expect((await askStore("staging", { os: "android", version: 160 })).store).toEqual({ update: null })
+    await addRule({ os: "android", channel: "staging", version: 200, critical: 1, note: "staging only" })
+    expect((await askStore("staging", { os: "android", version: 160 })).store).toEqual({ update: { version: 200, critical: 1 } })
+    // A production phone at 190 is fine for production's rules; staging's rule 200 is not its business.
+    expect((await askStore("production", { os: "android", version: 190 })).store).toEqual({ update: null })
+    // And production's rules (175 forced) don't reach a staging phone at 160 beyond staging's own: it is only asked for 200, optional.
+    expect((await askStore("staging", { os: "android", version: 172 })).store!.update).toEqual({ version: 200, critical: 1 })
+    // Test rows count per channel too: 179 is a test version on production only
+    expect((await askStore("production", { os: "android", version: 179 })).store!.update).toEqual({ version: 180, critical: 2 })
+    expect((await askStore("staging", { os: "android", version: 179 })).store!.update).toEqual({ version: 200, critical: 1 })
+    // The same version number can have a different rule on each channel
+    await addRule({ os: "android", channel: "staging", version: 175, critical: 0 })
+    const st = await call<{ rules: { android: { channel: string; version: number }[] } }>(c, "GET", "/admin/apps/shop/state")
+    expect(st.rules.android.filter((r) => r.version === 175).map((r) => r.channel).sort()).toEqual(["production", "staging"])
+    // The OTA part is the same as without `store`
+    const withStore = await askStore("staging", { os: "android", version: 160 })
+    expect((await phoneCheck(phoneReq())).reason).toBe(withStore.reason)
+    // An unknown channel can't take a rule
+    await expect(addRule({ os: "android", channel: "nope", version: 300, critical: 1 })).rejects.toThrow(/no channel/)
+  })
+
+  test("iOS: the answer has the App Store id when the app's store facts have it; Android never does", async () => {
+    await addRule({ os: "ios", version: "1.7.0", critical: 1 })
+    const prod = await askStore("production", { os: "ios", version: "1.6.2" })
+    expect(prod.store).toEqual({ update: { version: "1.7.0", critical: 1 }, appStoreId: "123" })
+    const stg = await askStore("staging", { os: "ios", version: "1.6.2" })
+    expect(stg.store).toEqual({ update: null, appStoreId: "123" }) // production's rule is not staging's
+    expect((await askStore("production", { os: "android", version: 160 })).store).not.toHaveProperty("appStoreId")
+    // Android's version may come as digits in a string; it is read as the number
+    expect((await askStore("production", { os: "android", version: "160" })).store!.update).toMatchObject({ version: 175, critical: 2 })
+  })
+
+  test("no `store` in the request = no `store` in the answer; a bad `store` field never breaks the OTA answer", async () => {
+    const plain = (await (await fetch(`${base}/v1/check`, { method: "POST", body: JSON.stringify(phoneReq()) })).json()) as object
+    expect(plain).not.toHaveProperty("store")
+    const reference = (await phoneCheck(phoneReq())).reason
+    for (const bad of [
+      { os: "windows", version: 1 },
+      { os: "android", version: "abc" },
+      { os: "android", version: 0 },
+      { os: "android", version: 1.5 },
+      { os: "ios", version: "latest" },
+      { os: "ios", version: 12 },
+      { os: "android" },
+      "android",
+      7,
+      [],
+    ]) {
+      const a = await askStore("staging", bad)
+      expect([JSON.stringify(bad), a.reason, "store" in a]).toEqual([JSON.stringify(bad), reference, false])
+    }
+    // A null store is the same as none
+    expect("store" in (await askStore("staging", null))).toBe(false)
+  })
+
+  test("if the store lookup fails, the OTA part answers as always and `store` is left out", async () => {
+    const broken = { ...db, query: (text: string, params?: unknown[]) => (/FROM store_rules/.test(text) ? Promise.reject(new Error("boom")) : db.query(text, params)) } as Db
+    // a channel that nothing asked before: its rules are not in the 10 s cache
+    const res = await phone.check(
+      { db: broken, store: files, log: false },
+      new Request(`${base}/v1/check`, { method: "POST", body: JSON.stringify({ ...phoneReq({ channel: "canary" }), store: { os: "android", version: 160 } }) }),
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { action: string; reason: string }
+    expect([body.action, body.reason]).toEqual(["NONE", "NO_CHANNEL"])
+    expect(body).not.toHaveProperty("store")
+  })
+
+  test("the store-only routes are gone: /v1/store and /v1/updates/check are 404", async () => {
+    expect((await fetch(`${base}/v1/store?app=shop&os=android&version=160`)).status).toBe(404)
+    expect((await fetch(`${base}/v1/updates/check`, { headers: { "x-zota-app-id": "com.shop", "x-zota-version-code": "160" } })).status).toBe(404)
   })
 
   test("stats: one phone a day, outcomes counted, stacks kept", async () => {
@@ -274,6 +360,45 @@ describe("check-now pushes", () => {
     const manual = await call<Push>(c, "POST", "/admin/apps/shop/channels/staging/push")
     expect([manual?.sent, manual?.topic]).toEqual([true, "zn-ota-shop-staging"])
     await expect(call(c, "POST", "/admin/apps/shop/channels/nope/push")).rejects.toThrow(/no channel/)
+  })
+
+  test("saving or deleting a store rule sends the check-now push to that rule's channel; a failed push never fails the save", async () => {
+    type RuleAnswer = { rules: { channel: string; version: number }[]; push: Push }
+    const save = (b: object) => call<RuleAnswer>(c, "POST", "/admin/apps/shop/store-rules", b)
+    const n = sent.length
+    const stg = await save({ os: "android", channel: "staging", version: 210, critical: 1 })
+    expect([stg.push?.sent, stg.push?.topic, stg.push?.delayMs, sent.length]).toEqual([true, "zn-ota-shop-staging", 3000, n + 1])
+    expect(sent.at(-1)!.message).toMatchObject({ topic: "zn-ota-shop-staging", data: { zn_ota: "check" } })
+    const prod = await save({ os: "android", version: 211, critical: 1 }) // no channel = production
+    expect([prod.push?.sent, prod.push?.topic, prod.push?.delayMs]).toEqual([true, "zn-ota-shop-production", 7_200_000])
+    expect(prod.rules.some((r) => r.channel === "production" && r.version === 211)).toBe(true)
+    // A forced rule gets the short wait (at most 10 min), like a critical OTA
+    const forced = await save({ os: "android", version: 214, critical: 2, confirm: "FORCE UPDATE 214" })
+    expect([forced.push?.topic, forced.push?.delayMs]).toEqual(["zn-ota-shop-production", 600_000])
+    await call(c, "DELETE", "/admin/apps/shop/store-rules/android/214?push=false")
+
+    const del = await call<RuleAnswer>(c, "DELETE", "/admin/apps/shop/store-rules/android/210?channel=staging")
+    expect([del.push?.sent, del.push?.topic, sent.length]).toEqual([true, "zn-ota-shop-staging", n + 4])
+    expect(del.rules.some((r) => r.version === 210)).toBe(false)
+    // The same version on production was not touched
+    await save({ os: "android", version: 210, critical: 1, push: false })
+    expect(sent.length).toBe(n + 4) // push: false = quiet
+    await call(c, "DELETE", "/admin/apps/shop/store-rules/android/210?channel=staging&push=false") // nothing there: fine
+    const left = (await call<RuleAnswer>(c, "DELETE", "/admin/apps/shop/store-rules/android/210?push=false")).rules
+    expect(left.some((r) => r.version === 210)).toBe(false)
+
+    failNextPush = true
+    const failed = await save({ os: "android", channel: "staging", version: 212, critical: 1 })
+    expect([failed.push?.sent, failed.rules.some((r) => r.version === 212 && r.channel === "staging")]).toEqual([false, true])
+    expect(failed.push?.error).toContain("503")
+    // An unknown channel is refused before anything is sent
+    const count = sent.length
+    await expect(save({ os: "android", channel: "nope", version: 213, critical: 1 })).rejects.toThrow(/no channel/)
+    expect(sent.length).toBe(count)
+    // The log says which channel
+    const act = await call<{ action: string; detail: { channel?: string } }[]>(c, "GET", "/admin/apps/shop/activity?limit=200")
+    expect(act.some((x) => x.action === "store.rule" && x.detail.channel === "staging")).toBe(true)
+    expect(act.some((x) => x.action === "store.rule.delete" && x.detail.channel === "staging")).toBe(true)
   })
 })
 
@@ -577,6 +702,220 @@ describe("priority", () => {
     const d = (await res.json()) as { action: string; pointer?: { priority: string } }
     expect([d.action, d.pointer?.priority]).toEqual(["BUILT_IN", "critical"])
   })
+})
+
+// ---- One bundle = one serial (store builds too) -----------------------------------------------------------------------
+
+describe("one bundle = one serial", () => {
+  const A = "reuse"
+  const jsA: Files = { "main.hbc": rnd(60_000, 11), "main.zn.ui": ui }
+  const jsB: Files = { "main.hbc": rnd(60_000, 12), "main.zn.ui": ui }
+  const jsC: Files = { "main.hbc": edited(jsB["main.hbc"]!, [[100, 50, 13]]), "main.zn.ui": ui }
+
+  /** A built bundle folder of app "reuse": serial 0, or [serial] (a store build's built-in bundle). */
+  async function folder(files: Files, serial = 0): Promise<string> {
+    const dir = mkdtempSync(join(tmpdir(), "znu-reuse-"))
+    for (const [name, bytes] of Object.entries(files)) writeFileSync(join(dir, name), bytes)
+    await writeBundleInfo(dir, { app: A, serial: 0, names: Object.keys(files), requires })
+    if (serial > 0) await setBundleSerial(dir, serial)
+    return dir
+  }
+  const reserve = (kind: "bundle" | "store", dir?: string) => {
+    const info = dir ? readBundleInfo(dir) : null
+    return call<{ serial: number; existing: { id: string } | null }>(c, "POST", `/admin/apps/${A}/serials`, { kind, ...(info ? { sha256: info.sha256, requires: info.requires } : {}) })
+  }
+  const storeBuild = (b: object) =>
+    call<{ family: string | null }>(c, "POST", `/admin/apps/${A}/store-builds`, { os: "android", channel: "production", label: "production AAB", versionCode: 10, versionName: "1.0.0", git: { commit: "abc1234", dirty: false }, ...b })
+  const state = () => call<{ storeBuilds: { builtinSerial: number; versionCode: number; os: string; baseSize: number | null }[]; bundles: { serial: number }[] }>(c, "GET", `/admin/apps/${A}/state`)
+  const serialRow = async (serial: number) => (await db.query<{ kind: string; bundle_sha256: string | null; requires_line: string | null }>(`SELECT kind, bundle_sha256, requires_line FROM serials WHERE app = $1 AND serial = $2`, [A, serial]))[0]!
+  let storeA = 0
+
+  test("setup: an app; a store build reserves its serial FOR its bytes (sha256 and requires are recorded)", async () => {
+    await call(c, "POST", "/admin/apps", { id: A, name: "Reuse", publicKeys: [keys.publicBase64] })
+    const dir = await folder(jsA)
+    const r = await reserve("store", dir)
+    expect([r.serial, r.existing]).toEqual([1, null])
+    storeA = r.serial
+    const row = await serialRow(1)
+    expect([row.kind, row.bundle_sha256, row.requires_line !== null]).toEqual(["store", readBundleInfo(dir).sha256, true])
+  })
+
+  test("two store builds with the same JS get the same number; other JS gets a new one", async () => {
+    expect((await reserve("store", await folder(jsA))).serial).toBe(storeA)
+    expect((await reserve("store", await folder(jsA))).existing).toBeNull() // not released as an OTA bundle
+    const other = await reserve("store", await folder(jsB))
+    expect(other.serial).toBe(2)
+    // other needs = other bytes for the serial's purposes
+    const needs = await folder(jsA)
+    const info = readBundleInfo(needs)
+    const r = await call<{ serial: number }>(c, "POST", `/admin/apps/${A}/serials`, { kind: "store", sha256: info.sha256, requires: { ...info.requires, hostApi: info.requires.hostApi + 1 } })
+    expect(r.serial).toBe(3)
+  })
+
+  test("an OTA release of the code that is in a store build gets that store build's number (and uploads fine)", async () => {
+    const u = await uploadBuilt(c, await folder(jsA), keys.privatePem, clean)
+    expect([u.manifest.serial, u.reused]).toEqual([storeA, false])
+    expect((await state()).bundles.map((b) => b.serial)).toEqual([storeA])
+    const again = await uploadBuilt(c, await folder(jsA), keys.privatePem, clean)
+    expect([again.manifest.serial, again.reused]).toEqual([storeA, true])
+    // and a store build for bytes that were released as a bundle gets the bundle's number back, with its manifest
+    const b = await uploadBuilt(c, await folder(jsC), keys.privatePem, clean)
+    expect(b.reused).toBe(false)
+    const r = await reserve("store", await folder(jsC))
+    expect([r.serial, r.existing?.id]).toEqual([b.manifest.serial, b.manifest.id])
+  })
+
+  test("record store builds: a second one with the same serial works (another OS, or another build); the same build twice is one row", async () => {
+    const dir = await folder(jsA, storeA)
+    const sha = readBundleInfo(dir).sha256
+    await storeBuild({ builtinSerial: storeA, builtinSha256: sha, versionCode: 10 })
+    await storeBuild({ os: "ios", label: "production IPA", builtinSerial: storeA, builtinSha256: sha, versionCode: 11, versionName: "1.0.0" })
+    await storeBuild({ channel: "staging", label: "staging APK", builtinSerial: storeA, builtinSha256: sha, versionCode: 12 })
+    // the same build recorded again (the CLI run twice): no second row
+    await storeBuild({ builtinSerial: storeA, builtinSha256: sha, versionCode: 10, label: "production AAB (again)" })
+    const rows = (await state()).storeBuilds.filter((b) => b.builtinSerial === storeA)
+    expect(rows.map((b) => b.versionCode).sort()).toEqual([10, 11, 12])
+    // wrong bytes for the serial, and a serial nobody reserved
+    await expect(storeBuild({ builtinSerial: storeA, builtinSha256: readBundleInfo(await folder(jsB, 2)).sha256, versionCode: 13 })).rejects.toThrow(/other bytes/)
+    await expect(storeBuild({ builtinSerial: 99, builtinSha256: sha, versionCode: 13 })).rejects.toThrow(/not reserved/)
+    // a store build whose serial is a released bundle's (OTA first, store build after)
+    const c1 = await uploadBuilt(c, await folder(jsB), keys.privatePem, clean)
+    expect([c1.manifest.serial, c1.reused]).toEqual([2, false]) // jsB took serial 2 as a store serial earlier: now it is released too
+    const sb = await reserve("store", await folder(jsB))
+    expect(sb.serial).toBe(c1.manifest.serial)
+    await storeBuild({ builtinSerial: sb.serial, builtinSha256: readBundleInfo(await folder(jsB)).sha256, versionCode: 14, label: "later AAB" })
+    expect((await state()).storeBuilds.some((b) => b.builtinSerial === sb.serial && b.versionCode === 14)).toBe(true)
+  })
+
+  test("the base for patches: the same bytes again works (also for a second store build of the serial); other bytes are refused", async () => {
+    const dir = await folder(jsA, storeA)
+    const first = await uploadBase(c, A, storeA, dir)
+    const again = await uploadBase(c, A, storeA, dir)
+    expect([again.serial, again.path, again.size]).toEqual([first.serial, first.path, first.size])
+    // every store build with this serial has the base
+    const withBase = (await state()).storeBuilds.filter((b) => b.builtinSerial === storeA)
+    expect(withBase.length).toBe(3)
+    expect(withBase.every((b) => b.baseSize === first.size)).toBe(true)
+    // a rebuilt folder (new builtAt, same files) is the same bundle: fine
+    const rebuilt = await uploadBase(c, A, storeA, await folder(jsA, storeA))
+    expect(rebuilt.path).toBe(first.path)
+    // other bytes: refused, and the base stays
+    await expect(uploadBase(c, A, storeA, await folder(jsB, storeA))).rejects.toThrow(/SHA-256/)
+    expect((await state()).storeBuilds.find((b) => b.builtinSerial === storeA)!.baseSize).toBe(rebuilt.size)
+  })
+
+  test("a bundle gets one patch from a built-in bundle even when several store builds share its serial", async () => {
+    const jsD: Files = { "main.hbc": rnd(60_000, 15), "main.zn.ui": ui }
+    const d = await reserve("store", await folder(jsD))
+    const builtIn = await folder(jsD, d.serial)
+    const sha = readBundleInfo(builtIn).sha256
+    for (const versionCode of [20, 21, 22]) await storeBuild({ builtinSerial: d.serial, builtinSha256: sha, versionCode })
+    await uploadBase(c, A, d.serial, builtIn)
+    const u = await uploadBuilt(c, await folder({ "main.hbc": edited(jsD["main.hbc"]!, [[500, 40, 14]]), "main.zn.ui": ui }), keys.privatePem, clean)
+    expect(u.manifest.serial).toBeGreaterThan(d.serial)
+    await whenIdle()
+    const rows = (await call<{ patches: { fromId: string; fromSha256: string }[] }>(c, "GET", `/admin/apps/${A}/bundles/${u.manifest.serial}`)).patches
+    expect(rows.filter((p) => p.fromId === `${A}_${d.serial}`).map((p) => p.fromSha256)).toEqual([sha])
+  })
+
+  test("an older CLI (a store serial without bytes) still gets a new number each time; sha256 and requires go together", async () => {
+    const a = await reserve("store")
+    const b = await reserve("store")
+    expect(b.serial).toBe(a.serial + 1)
+    expect((await serialRow(a.serial)).bundle_sha256).toBeNull()
+    await expect(call(c, "POST", `/admin/apps/${A}/serials`, { kind: "store", sha256: "a".repeat(64) })).rejects.toThrow(/together/)
+    await expect(call(c, "POST", `/admin/apps/${A}/serials`, { kind: "bundle" })).rejects.toThrow(/sha256/)
+  })
+})
+
+// ---- The release CLI: store-build and rule (a fake build command; the real server) ----------------------------------------
+
+describe("updates CLI", () => {
+  const cli = join(import.meta.dir, "..", "..", "tools", "updates", "cli.ts").replace(/\\/g, "/")
+  const info = join(import.meta.dir, "..", "..", "tools", "bundle-info.ts").replace(/\\/g, "/")
+  const app = "clitest"
+  let appDir = ""
+  // The CLI keeps source maps and logins in the home folder: give it a throwaway one
+  const home = mkdtempSync(join(tmpdir(), "znu-home-"))
+
+  const run = async (args: string[], env: Record<string, string> = {}) => {
+    const p = Bun.spawn([process.execPath, "run", cli, ...args, "--app-dir", appDir, "--server", base, "--token", TOKEN, "--by", "cli-test"], {
+      cwd: appDir,
+      env: { ...process.env, HOME: home, USERPROFILE: home, ...env },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited])
+    return { out, err, code }
+  }
+  const storeBuildArgs = (code: number, over: string[] = []) => ["store-build", "--os", "android", "--channel", "staging", "--label", `staging APK ${code}`, "--version-code", String(code), "--version-name", "1.0.0", ...over]
+  const sbs = () => call<{ storeBuilds: { builtinSerial: number; versionCode: number; baseSize: number | null }[]; bundles: { serial: number }[] }>(c, "GET", `/admin/apps/${app}/state`)
+
+  test("setup: an app folder with a fake build command", async () => {
+    appDir = mkdtempSync(join(tmpdir(), "znu-cli-"))
+    // The fake build writes a bundle like zn-build.ts does: --out <dir> --serial <n> --map <file>. FAKE_JS is its "source code".
+    // With FAKE_SERIAL_IN_JS the serial leaks into a file (the case the CLI must catch).
+    writeFileSync(
+      join(appDir, "fake-build.ts"),
+      `import { mkdirSync, writeFileSync } from "node:fs"
+import { writeBundleInfo } from "${info}"
+const arg = (n: string) => process.argv[process.argv.indexOf(n) + 1]!
+const out = arg("--out")
+const serial = Number(arg("--serial"))
+mkdirSync(out, { recursive: true })
+writeFileSync(out + "/main.hbc", (process.env.FAKE_JS ?? "v1").repeat(100) + (process.env.FAKE_SERIAL_IN_JS ? serial : ""))
+writeFileSync(arg("--map"), "{}")
+await writeBundleInfo(out, { app: "${app}", serial, names: ["main.hbc"], requires: ${JSON.stringify(requires)} })
+`,
+    )
+    writeFileSync(join(appDir, "zn-updates.json"), JSON.stringify({ app, server: base, build: [process.execPath, "run", join(appDir, "fake-build.ts").replace(/\\/g, "/")], assets: "assets" }))
+    await call(c, "POST", "/admin/apps", { id: app, name: "CLI test", publicKeys: [keys.publicBase64] })
+  }, 60_000)
+
+  test("store-build: builds twice (serial 0, then the real one), reserves for the bytes, records the build and the base", async () => {
+    const r = await run(storeBuildArgs(1))
+    expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
+    expect(r.out).toContain("built-in bundle #1")
+    const st = await sbs()
+    expect(st.storeBuilds.map((b) => [b.builtinSerial, b.versionCode, b.baseSize !== null])).toEqual([[1, 1, true]])
+    expect(readBundleInfo(join(appDir, "assets")).serial).toBe(1)
+  }, 60_000)
+
+  test("store-build again with the same JS: the same number (a second store build with that serial, one base)", async () => {
+    const r = await run(storeBuildArgs(2))
+    expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
+    const st = await sbs()
+    expect(st.storeBuilds.map((b) => [b.builtinSerial, b.versionCode]).sort()).toEqual([[1, 1], [1, 2]])
+    expect(st.storeBuilds.every((b) => b.baseSize !== null)).toBe(true)
+    // the number is taken once
+    expect((await db.query(`SELECT 1 FROM serials WHERE app = $1`, [app])).length).toBe(1)
+  }, 60_000)
+
+  test("an OTA release of that same JS gets the store build's number; other JS gets the next one", async () => {
+    const same = await uploadBuilt(c, await (async () => { const d = mkdtempSync(join(tmpdir(), "znu-cli-b-")); writeFileSync(join(d, "main.hbc"), "v1".repeat(100)); await writeBundleInfo(d, { app, serial: 0, names: ["main.hbc"], requires }); return d })(), keys.privatePem, clean)
+    expect([same.manifest.serial, same.reused]).toEqual([1, false])
+    const r = await run(storeBuildArgs(3), { FAKE_JS: "v2" })
+    expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
+    expect((await sbs()).storeBuilds.find((b) => b.versionCode === 3)!.builtinSerial).toBe(2)
+  }, 60_000)
+
+  test("store-build stops with a clear message when the bytes change between the two builds", async () => {
+    const r = await run(storeBuildArgs(4), { FAKE_JS: "v3", FAKE_SERIAL_IN_JS: "1" })
+    expect(r.code).toBe(1)
+    expect(r.err).toContain("another bundle SHA-256")
+    expect((await sbs()).storeBuilds.some((b) => b.versionCode === 4)).toBe(false) // nothing was recorded
+  }, 60_000)
+
+  test("rule --channel: saves for that channel (default production) and prints the push line", async () => {
+    const r = await run(["rule", "--os", "android", "--version", "50", "--critical", "1", "--channel", "staging"])
+    expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
+    expect(r.out).toContain("on staging")
+    expect(r.out).toContain("zn-ota-clitest-staging") // no Firebase project for this app: "no push to …"
+    const d = await run(["rule", "--os", "android", "--version", "51", "--critical", "1"])
+    expect(d.out).toContain("on production")
+    const rows = await db.query<{ version: number; channel: string }>(`SELECT version, channel FROM store_rules WHERE app = $1 ORDER BY version`, [app])
+    expect(rows).toEqual([{ version: 50, channel: "staging" }, { version: 51, channel: "production" }])
+  }, 60_000)
 })
 
 describe("dashboard sign-in", () => {

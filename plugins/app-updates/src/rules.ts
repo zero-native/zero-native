@@ -10,7 +10,8 @@
 //                                            Once per session, never on the "hold" routes (login, OTP)
 //   the app is busy (a payment, a form)   -> nothing at all; the next return checks again
 // A downloaded optional update is installed when the user comes back to the app, never while the app is busy.
-// The check runs 1 s after start and 1 s after every return to the app.
+// The check runs 1 s after start and 1 s after every return to the app, or (autoCheck false) after each of native's
+// update checks, which bring the store answer.
 //
 // No import from @zero-native/core here: the file runs in plain bun tests.
 
@@ -25,7 +26,7 @@ export interface StoreUpdate {
   message?: string
 }
 
-/** What the server says about this phone (GET /v1/store). `update` null = nothing to do. */
+/** What the server says about this phone (with the OTA check: `Updates.status().store`). `update` null = nothing to do. */
 export interface StoreCheck {
   update: StoreUpdate | null
   /** Store facts: the App Store id on iOS (for the "Update" button). */
@@ -90,6 +91,12 @@ export interface AppUpdateDeps {
   isFront(): boolean
   /** Resolves when the app knows where it is going (the stored login), so the first answer lands on the right screen. */
   ready?: Promise<unknown>
+  /**
+   * True (default): a check 1 s after `onStart` and after each `onActive`. False: the app calls `check()` itself, e.g.
+   * `checkAfterUpdateChecks(engine)` with `nativeStoreSource` (the answer comes with native's update check, so the
+   * engine checks when that answer is new); `onActive` then only installs a downloaded update.
+   */
+  autoCheck?: boolean
   clock?: Clock
   log?: Logger
 }
@@ -180,12 +187,12 @@ export function createAppUpdateEngine(deps: AppUpdateDeps): AppUpdateEngine {
     },
 
     onStart() {
-      schedule(CHECK_DELAY_MS)
+      if (deps.autoCheck !== false) schedule(CHECK_DELAY_MS)
     },
 
     onActive() {
       engine.installDownloadedOnReturn()
-      schedule(CHECK_DELAY_MS)
+      if (deps.autoCheck !== false) schedule(CHECK_DELAY_MS)
     },
 
     async check() {

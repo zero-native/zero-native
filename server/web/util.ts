@@ -189,11 +189,12 @@ export function actionWords(a: ActivityRow): { title: string; detail: string } {
     case "store.rule": {
       const os = s("os") as Os
       const v = typeof d.version === "number" ? showVersion(os, d.version) : s("version")
-      return { title: `Store rule saved (${os === "ios" ? "App Store" : "Play"})`, detail: `${v}: ${criticalWords(Number(d.critical)).toLowerCase()}${d.isTest ? ", test version" : ""}${s("note") ? `, ${s("note")}` : ""}` }
+      // Rules saved before channels existed have no channel in the log: they were production's.
+      return { title: `Store rule saved on ${s("channel") || "production"} (${os === "ios" ? "App Store" : "Play"})`, detail: `${v}: ${criticalWords(Number(d.critical)).toLowerCase()}${d.isTest ? ", test version" : ""}${s("note") ? `, ${s("note")}` : ""}` }
     }
     case "store.rule.delete": {
       const os = s("os") as Os
-      return { title: `Store rule deleted (${os === "ios" ? "App Store" : "Play"})`, detail: typeof d.version === "number" ? showVersion(os, d.version) : s("version") }
+      return { title: `Store rule deleted on ${s("channel") || "production"} (${os === "ios" ? "App Store" : "Play"})`, detail: typeof d.version === "number" ? showVersion(os, d.version) : s("version") }
     }
     default:
       return { title: a.action, detail: Object.entries(d).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ") }

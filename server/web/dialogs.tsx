@@ -1,7 +1,7 @@
 // Dialogs for every write. The server checks every rule again; each dialog explains its rules first.
 import { type ReactNode, useState } from "react"
 import { ApiError, type Priority, routes } from "./api"
-import { channelNow, cannotRun, olderThanStoreBuilds, PRODUCTION } from "./logic"
+import { channelNow, cannotRun, olderThanStoreBuilds, orderedChannels, PRODUCTION } from "./logic"
 import { buildPointer, loadSigningKey } from "./sign"
 import { Badge, Btn, Field, Modal, Notice, type DialogSpec, useApp } from "./ui"
 import { BUILT_IN, criticalWords, PRIORITY_LINES, showVersion, versionNumber } from "./util"
@@ -363,6 +363,9 @@ function DeleteDialog({ spec }: { spec: Extract<DialogSpec, { t: "delete" }> }) 
 function RuleDialog({ spec }: { spec: Extract<DialogSpec, { t: "rule" }> }) {
   const c = useApp()
   const { os, rule } = spec
+  // A rule belongs to one channel: a new rule starts on the channel the page shows, a saved one keeps its own.
+  const [channel, setChannel] = useState(rule?.channel ?? spec.channel)
+  const channelNames = orderedChannels(c.state!).map((x) => x.name)
   const [version, setVersion] = useState(rule ? showVersion(os, rule.version) : "")
   const [critical, setCritical] = useState<0 | 1 | 2>(rule?.critical ?? 1)
   const [isTest, setIsTest] = useState(rule?.isTest ?? false)
@@ -381,6 +384,7 @@ function RuleDialog({ spec }: { spec: Extract<DialogSpec, { t: "rule" }> }) {
     act.run(async () => {
       await routes.saveRule(c.appId, {
         os,
+        channel,
         version: os === "ios" ? version.trim() : Number(version),
         critical,
         isTest,
@@ -389,7 +393,7 @@ function RuleDialog({ spec }: { spec: Extract<DialogSpec, { t: "rule" }> }) {
         note: note.trim() || undefined,
         confirm: need || undefined,
       })
-      c.toast(`Rule for ${shown} saved`)
+      c.toast(`Rule for ${shown} saved on ${channel}`)
       c.close()
       await c.reload()
     })
@@ -400,8 +404,17 @@ function RuleDialog({ spec }: { spec: Extract<DialogSpec, { t: "rule" }> }) {
         ? `Optional: phones below ${shown || "this version"} are asked to update. They can say later.`
         : `Forced: phones below ${shown || "this version"} must update before they can go on.`
   return (
-    <Modal title={rule ? `Change rule for ${shown}` : `Add a rule (${os === "ios" ? "App Store" : "Play"})`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind={critical === 2 && !isTest ? "danger" : "primary"} busy={act.busy} disabled={problems.length > 0} onClick={submit}>Save rule</Btn></Foot>}>
+    <Modal title={rule ? `Change rule for ${shown} (${channel})` : `Add a rule (${os === "ios" ? "App Store" : "Play"})`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind={critical === 2 && !isTest ? "danger" : "primary"} busy={act.busy} disabled={problems.length > 0} onClick={submit}>Save rule</Btn></Foot>}>
       <div className="dialog-stack">
+        <Field label="Channel" hint={`Only phones on ${channel} are told about this rule. Saving it also tells those phones to check now.`}>
+          <select value={channel} disabled={!!rule} onChange={(e) => setChannel(e.target.value)}>
+            {channelNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </Field>
         <Field label={os === "ios" ? "Version (like 1.6.2)" : "Version code (a whole number)"}>
           <input value={version} disabled={!!rule} inputMode={os === "ios" ? "text" : "numeric"} onChange={(e) => setVersion(e.target.value)} placeholder={os === "ios" ? "1.6.2" : "150"} />
         </Field>
@@ -448,16 +461,16 @@ function RuleDeleteDialog({ spec }: { spec: Extract<DialogSpec, { t: "ruleDelete
   const v = showVersion(spec.os, spec.rule.version)
   const submit = () =>
     act.run(async () => {
-      await routes.deleteRule(c.appId, spec.os, spec.rule.version)
-      c.toast(`Rule for ${v} deleted`)
+      await routes.deleteRule(c.appId, spec.rule.channel, spec.os, spec.rule.version)
+      c.toast(`Rule for ${v} deleted from ${spec.rule.channel}`)
       c.close()
       await c.reload()
     })
   return (
-    <Modal title={`Delete the rule for ${v}`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind="danger" busy={act.busy} onClick={submit}>Delete rule</Btn></Foot>}>
+    <Modal title={`Delete the rule for ${v} (${spec.rule.channel})`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind="danger" busy={act.busy} onClick={submit}>Delete rule</Btn></Foot>}>
       <div className="dialog-stack">
         <p>
-          This is a <Badge tone={spec.rule.critical === 2 ? "red" : "grey"}>{criticalWords(spec.rule.critical)}</Badge> rule{spec.rule.isTest ? " for test versions" : ""}. After you delete it, phones stop being asked because of it.
+          This is a <Badge tone={spec.rule.critical === 2 ? "red" : "grey"}>{criticalWords(spec.rule.critical)}</Badge> rule{spec.rule.isTest ? " for test versions" : ""} on the {spec.rule.channel} channel. After you delete it, phones on {spec.rule.channel} stop being asked because of it.
         </p>
         {act.box}
       </div>

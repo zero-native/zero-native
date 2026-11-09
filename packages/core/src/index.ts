@@ -185,7 +185,7 @@ export {
   activeTimerCount,
 } from "./timers"
 export { onError, type ErrorInfo, type ErrorKind } from "./errors"
-export { Updates, type ApplyRefused, type UpdateCheckResult, type UpdateStatus } from "./updates"
+export { Updates, type ApplyRefused, type StoreStatus, type UpdateCheckResult, type UpdateStatus } from "./updates"
 export {
   canvasJson,
   draw,

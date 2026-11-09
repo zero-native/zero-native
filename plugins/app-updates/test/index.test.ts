@@ -2,7 +2,8 @@ import { beforeEach, expect, test } from "bun:test"
 import { installCalls } from "../../../packages/core/src/calls"
 import { installEvents } from "../../../packages/core/src/events"
 import { installFakeHost, type FakeHost } from "../../../packages/core/test/fake-host"
-import { AppUpdates, checkStore, playUpdates, type AppUpdateState, type StoreFetchResponse } from "../src/index"
+import type { UpdateStatus } from "../../../packages/core/src/updates"
+import { AppUpdates, checkAfterUpdateChecks, playUpdates, storeAnswer, type AppUpdateEngine, type AppUpdateState } from "../src/index"
 
 let host: FakeHost
 
@@ -79,60 +80,58 @@ test("state events reach the handler until it stops", () => {
   expect(seen).toEqual([{ status: "downloading", bytesDownloaded: 5, totalBytes: 10, errorCode: 0 }])
 })
 
-// ---- checkStore -------------------------------------------------------------------------------------------------------
+// ---- The store answer (from native's update check) --------------------------------------------------------------
 
-function fakeFetch(status: number, body: unknown, seen: string[] = [], timeouts: number[] = []) {
-  return async (url: string, init: { method: string; timeout: number }): Promise<StoreFetchResponse> => {
-    seen.push(url)
-    timeouts.push(init.timeout)
-    return { status, json: async () => (body instanceof Error ? Promise.reject(body) : body) }
-  }
-}
+const status = (store: unknown, lastCheckAt: number | null = 1) => ({ enabled: true, phase: "idle", progress: 0, lastCheckAt, store }) as UpdateStatus
 
-test("checkStore builds the URL and reads an update", async () => {
-  const seen: string[] = []
-  const timeouts: number[] = []
-  const answer = await checkStore({
-    server: "http://127.0.0.1:8790/",
-    app: "sample",
-    os: "android",
-    version: 168,
-    fetch: fakeFetch(200, { update: { version: 170, critical: 2, title: "New", message: "Please update" }, store: {} }, seen, timeouts),
-  })
-  expect(seen).toEqual(["http://127.0.0.1:8790/v1/store?app=sample&os=android&version=168"])
-  expect(timeouts).toEqual([8000])
-  expect(answer).toEqual({ update: { version: 170, critical: 2, title: "New", message: "Please update" }, store: {} })
-})
-
-test("checkStore: nothing to do, and the App Store id on iOS", async () => {
-  expect(await checkStore({ server: "s", app: "a", os: "android", version: "1", fetch: fakeFetch(200, { update: null }) })).toEqual({
-    update: null,
+test("storeAnswer reads the answer that came with the update check", async () => {
+  expect(await storeAnswer(status({ update: { version: 170, critical: 2, title: "New", message: "Please update" }, at: 5 }))).toEqual({
+    update: { version: 170, critical: 2, title: "New", message: "Please update" },
     store: {},
   })
-  const ios = await checkStore({
-    server: "https://u.example.com",
-    app: "a b",
-    os: "ios",
-    version: "1.6.2",
-    fetch: fakeFetch(200, { update: { version: "1.7.0", critical: 1 }, store: { appStoreId: "123" } }),
+  expect(await storeAnswer(status({ update: null, at: 5 }))).toEqual({ update: null, store: {} })
+  expect(await storeAnswer(status({ update: { version: "1.7.0", critical: 1 }, appStoreId: "123", at: 5 }))).toEqual({
+    update: { version: "1.7.0", critical: 1 },
+    store: { appStoreId: "123" },
   })
-  expect(ios).toEqual({ update: { version: "1.7.0", critical: 1 }, store: { appStoreId: "123" } })
 })
 
-test("checkStore answers null on any problem", async () => {
-  const base = { server: "s", app: "a", os: "android" as const, version: 1 }
-  expect(await checkStore({ ...base, fetch: fakeFetch(500, { error: "x" }) })).toBeNull()
-  expect(await checkStore({ ...base, fetch: fakeFetch(400, { error: "x" }) })).toBeNull()
-  expect(await checkStore({ ...base, fetch: fakeFetch(200, new Error("bad json")) })).toBeNull()
-  expect(await checkStore({ ...base, fetch: fakeFetch(200, "text") })).toBeNull()
-  expect(await checkStore({ ...base, fetch: fakeFetch(200, { update: { version: 2, critical: 3 } }) })).toBeNull()
-  expect(await checkStore({ ...base, fetch: fakeFetch(200, { update: { critical: 1 } }) })).toBeNull()
-  expect(
-    await checkStore({
-      ...base,
-      fetch: async () => {
-        throw new Error("offline")
-      },
-    }),
-  ).toBeNull()
+test("storeAnswer: null before the first answer, and for an answer it can't read", async () => {
+  expect(await storeAnswer(status(null))).toBeNull()
+  expect(await storeAnswer(status(undefined))).toBeNull()
+  expect(await storeAnswer(status({ update: { version: 2, critical: 3 }, at: 5 }))).toBeNull()
+  expect(await storeAnswer(status({ update: { critical: 1 }, at: 5 }))).toBeNull()
+})
+
+test("storeAnswer asks native when no status is given, and never rejects", async () => {
+  const a = storeAnswer()
+  expect(last("status").module).toBe("Updates")
+  reply(last("status").id, status({ update: null, at: 5 }))
+  expect(await a).toEqual({ update: null, store: {} })
+
+  const b = storeAnswer()
+  refuse(last("status").id, "E_FAILED")
+  expect(await b).toBeNull()
+})
+
+test("checkAfterUpdateChecks: one engine check per native update check, none for other status changes", async () => {
+  let checks = 0
+  const engine = { check: async () => void checks++ } as unknown as AppUpdateEngine
+  const stop = checkAfterUpdateChecks(engine)
+  // Native checked before JS was up: one check now
+  reply(last("status").id, status({ update: null, at: 5 }, 100))
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(checks).toBe(1)
+  const send = (s: UpdateStatus) => globalThis.__zn_onEvent(0, 8, JSON.stringify({ module: "Updates", event: "status", payload: s }))
+  send(status({ update: null, at: 5 }, 100)) // the same check (a phase change): nothing
+  send({ ...status({ update: null, at: 5 }, 100), phase: "downloading", progress: 0.5 })
+  expect(checks).toBe(1)
+  send(status({ update: { version: 175, critical: 2 }, at: 9 }, 200)) // a new check
+  expect(checks).toBe(2)
+  send(status(null, null)) // no check yet: nothing
+  expect(checks).toBe(2)
+  stop()
+  send(status({ update: null, at: 10 }, 300))
+  expect(checks).toBe(2)
 })

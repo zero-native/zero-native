@@ -41,6 +41,23 @@ function check(cond: unknown, what: string): asserts cond {
 const isId = (v: unknown, max = 80): v is string => typeof v === "string" && v.length > 0 && v.length <= max && /^[A-Za-z0-9_.:-]+$/.test(v)
 const isCount = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < 2 ** 31
 
+/**
+ * The optional `store` field: a good one comes back as it should be (Android version as a number, iOS as "1.6.2"),
+ * a bad one is dropped with a warning. It never fails the OTA check.
+ */
+function parseStore(v: unknown): CheckRequest["store"] {
+  if (v === undefined || v === null) return undefined
+  const s = v as Record<string, unknown>
+  if (s && typeof s === "object" && s.os === "android") {
+    const n = typeof s.version === "string" && /^\d{1,10}$/.test(s.version) ? Number(s.version) : s.version
+    if (typeof n === "number" && Number.isInteger(n) && n > 0 && n < 2 ** 31) return { os: "android", version: n }
+  } else if (s && typeof s === "object" && s.os === "ios") {
+    if (typeof s.version === "string" && /^\d{1,3}(\.\d{1,3}){0,2}$/.test(s.version.trim())) return { os: "ios", version: s.version.trim() }
+  }
+  console.warn(`check: ignoring a bad store field: ${JSON.stringify(v).slice(0, 80)}`)
+  return undefined
+}
+
 /** Validates the request body; throws BadRequest with what is wrong. */
 export function parseCheck(body: unknown): CheckRequest {
   check(typeof body === "object" && body !== null, "body must be a JSON object")
@@ -62,6 +79,7 @@ export function parseCheck(body: unknown): CheckRequest {
   const builtInSha = typeof builtIn.sha256 === "string" && /^[0-9a-f]{64}$/.test(builtIn.sha256) ? builtIn.sha256 : undefined
   const outcomes = r.outcomes ?? []
   check(Array.isArray(outcomes) && outcomes.length <= 50, "outcomes")
+  const store = parseStore(r.store)
   return {
     app: r.app,
     channel: r.channel,
@@ -70,6 +88,7 @@ export function parseCheck(body: unknown): CheckRequest {
     running: running as CheckRequest["running"],
     builtIn: { id: builtIn.id, serial: builtIn.serial, ...(builtInSha ? { sha256: builtInSha } : {}) },
     ...(patches ? { patches } : {}),
+    ...(store ? { store } : {}),
     kept: r.kept as string[],
     seq: r.seq,
     outcomes: (outcomes as Array<Record<string, unknown>>).map((o) => ({

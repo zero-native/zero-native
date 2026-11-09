@@ -1,14 +1,12 @@
-// A dev screen for @zero-native/app-updates. "Check store" asks the update server on this computer
-// (`bun run updates:server`, reached over `adb reverse tcp:8790 tcp:8790`) for app "sample"; the other buttons call
+// A dev screen for @zero-native/app-updates. "Check store" runs an update check (`Updates.check()`: the sample's OTA
+// server answers OTA and the store question in one call) and shows the store answer that came with it; the other buttons call
 // Play directly. Play's in-app updates only answer for an app installed from Play (README: internal app sharing), so a
 // sideloaded sample shows "available false". Each action logs one "app-updates-lab ..." line.
 import { Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { onCleanup, Platform, signal } from "@zero-native/core"
+import { onCleanup, Platform, signal, Updates } from "@zero-native/core"
 import DeviceInfo from "@zero-native/device-info"
-import { AppUpdates, checkStore } from "@zero-native/app-updates"
+import { AppUpdates, storeAnswer } from "@zero-native/app-updates"
 import { c } from "./tokens"
-
-const SERVER = "http://127.0.0.1:8790"
 
 function UpdatesButton(p: { label: string; onPress: () => void }) {
   return (
@@ -54,9 +52,10 @@ export function AppUpdatesLabScreen() {
 
   const check = async () => {
     store.set("checking…")
-    const answer = await checkStore({ server: SERVER, app: "sample", os: osName(), version: appVersion() })
+    const r = await Updates.check()
+    const answer = await storeAnswer(r.status)
     appStoreId = answer?.store.appStoreId
-    show(store, answer === null ? "no answer (server off, or offline)" : JSON.stringify(answer))
+    show(store, answer === null ? `no store answer (${r.error ?? "the server sent none"})` : JSON.stringify(answer))
   }
 
   const ask = async () => show(play, JSON.stringify(await AppUpdates.isUpdateAvailable()))

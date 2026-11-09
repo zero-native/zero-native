@@ -1,14 +1,15 @@
 // Store updates: Google Play's in-app updates on Android, the App Store on iOS, driven by the zn-updates server's store
-// rules (GET /v1/store). Native side: android/.../AppUpdatesPlugin.kt and ios/AppUpdatesPlugin.swift. README: how an app
-// wires it, the rules, and how to test with Play.
+// rules. The answer comes with native's OTA check (one call to the server: `Updates.status().store`), so this plugin
+// makes no network call. Native side: android/.../AppUpdatesPlugin.kt and ios/AppUpdatesPlugin.swift. README: how an
+// app wires it, the rules, and how to test with Play.
 //
-//   import { AppUpdates, checkStore, createAppUpdateEngine, playUpdates } from "@zero-native/app-updates"
-//   const answer = await checkStore({ server, app: "myapp", os: "android", version: DeviceInfo.getBuildNumber() })
+//   import { AppUpdates, storeAnswer, createAppUpdateEngine, playUpdates } from "@zero-native/app-updates"
+//   const answer = await storeAnswer()
 //   if (answer?.update?.critical === 2) await AppUpdates.start({ flexible: false })
 //
 // Nothing here rejects: a failure answers "no update" / false / null, because an update check must never stop the app.
-import { fetch, nativeModule, type CallOptions } from "@zero-native/core"
-import type { PlayUpdates, PlayUpdateState, StoreCheck, StoreUpdate } from "./rules"
+import { nativeModule, Updates, type CallOptions, type StoreStatus, type UpdateStatus } from "@zero-native/core"
+import type { AppUpdateEngine, PlayUpdates, PlayUpdateState, StoreCheck, StoreSource, StoreUpdate } from "./rules"
 
 export * from "./rules"
 
@@ -95,7 +96,7 @@ export const AppUpdates = {
   setBusy: (busy: boolean): Promise<null> => Native.setBusy({ busy: busy === true }, unowned).catch(() => null),
 
   /**
-   * Opens the app's store page: Play on Android, the App Store on iOS (needs `appStoreId`, from `checkStore`'s
+   * Opens the app's store page: Play on Android, the App Store on iOS (needs `appStoreId`, from `storeAnswer`'s
    * `store.appStoreId`). Never rejects.
    */
   openStore: (options: { appStoreId?: string } = {}): Promise<boolean> =>
@@ -115,72 +116,56 @@ export const playUpdates: PlayUpdates = {
   complete: () => AppUpdates.complete(),
 }
 
-// ---- The server's store answer --------------------------------------------------------------------------------------
-
-/** The time limit for `checkStore` (as ZeroBill's store check). */
-export const STORE_CHECK_TIMEOUT_MS = 8000
-
-/** The parts of a fetch answer `checkStore` reads. */
-export interface StoreFetchResponse {
-  status: number
-  json(): Promise<unknown>
-}
-
-export interface CheckStoreOptions {
-  /** The zn-updates server, e.g. "https://updates.example.com" (no "/v1"). */
-  server: string
-  /** The app's id on the server. */
-  app: string
-  os: "android" | "ios"
-  /** This build's version: Android versionCode ("168"), iOS CFBundleShortVersionString ("1.6.2"). */
-  version: string | number
-  timeoutMs?: number
-  /** For tests: a fetch to use instead of core's. */
-  fetch?: (url: string, init: { method: string; timeout: number }) => Promise<StoreFetchResponse>
-}
-
-function parseUpdate(v: unknown): StoreUpdate | null | undefined {
-  if (v === null) return null
-  if (!v || typeof v !== "object") return undefined
-  const u = v as Record<string, unknown>
-  const okVersion = (typeof u.version === "number" && Number.isFinite(u.version)) || (typeof u.version === "string" && u.version !== "")
-  if (!okVersion || (u.critical !== 1 && u.critical !== 2)) return undefined
-  const out: StoreUpdate = { version: u.version as number | string, critical: u.critical }
-  if (typeof u.title === "string" && u.title) out.title = u.title
-  if (typeof u.message === "string" && u.message) out.message = u.message
-  return out
-}
+// ---- The store answer (from the OTA check) -------------------------------------------------------------------------
 
 /**
- * Asks the zn-updates server if this build should update from the store: `GET <server>/v1/store?app=&os=&version=`.
- * Answers `{ update: null, store }` when there is nothing to do, and null when there is no answer (offline, a time-out
- * after 8 s, a server error, an answer it can't read). Never rejects.
+ * The store answer native got with its last update check (`Updates.status().store`: the zn-updates server answers OTA
+ * and "update from the store?" in the same call). `{ update: null, store }` when there is nothing to do; null before
+ * the first answer (or with an older server). Never rejects. No network call of its own.
  */
-export async function checkStore(options: CheckStoreOptions): Promise<StoreCheck | null> {
-  const timeout = options.timeoutMs ?? STORE_CHECK_TIMEOUT_MS
-  const base = options.server.replace(/\/+$/, "")
-  const query = `app=${encodeURIComponent(options.app)}&os=${encodeURIComponent(options.os)}&version=${encodeURIComponent(String(options.version))}`
-  const url = `${base}/v1/store?${query}`
+export async function storeAnswer(status?: UpdateStatus): Promise<StoreCheck | null> {
   try {
-    const get = options.fetch ?? ((u: string, init: { method: string; timeout: number }) => fetch(u, { ...init, headers: { accept: "application/json" } }))
-    const res = await get(url, { method: "GET", timeout })
-    if (res.status !== 200) {
-      console.warn(`[AppUpdates] store check answered ${res.status}`)
-      return null
-    }
-    const body = (await res.json()) as Record<string, unknown> | null
-    if (!body || typeof body !== "object") return null
-    const update = parseUpdate(body.update ?? null)
-    if (update === undefined) {
-      console.warn("[AppUpdates] store check: an answer this version can't read")
-      return null
-    }
-    const store = body.store && typeof body.store === "object" ? (body.store as Record<string, unknown>) : {}
-    return { update, store: typeof store.appStoreId === "string" && store.appStoreId ? { appStoreId: store.appStoreId } : {} }
+    const s = status ?? (await Updates.status())
+    return fromStatus(s.store)
   } catch (e) {
-    console.warn("[AppUpdates] store check failed:", e)
+    console.warn("[AppUpdates] store answer: Updates.status failed:", e)
     return null
   }
+}
+
+/** `storeAnswer` in the shape `createAppUpdateEngine` wants. */
+export const nativeStoreSource: StoreSource = { get: () => storeAnswer() }
+
+/**
+ * Runs `engine.check()` once after each update check native makes (start, return, push; how often is the app's
+ * `ZnOta.Config.checkIntervalMs`), and once now if native has checked already. For an engine made with
+ * `autoCheck: false` and `source: nativeStoreSource`. Returns the stop function.
+ */
+export function checkAfterUpdateChecks(engine: AppUpdateEngine): () => void {
+  let seen: number | null | undefined
+  const onStatus = (s: UpdateStatus) => {
+    const at = s.lastCheckAt ?? null
+    if (at === null || at === seen) return // not a new check (a phase or progress change)
+    seen = at
+    void engine.check()
+  }
+  const stop = Updates.onStatus(onStatus)
+  Updates.status().then(onStatus, () => {})
+  return stop
+}
+
+function fromStatus(v: StoreStatus | null | undefined): StoreCheck | null {
+  if (!v || typeof v !== "object") return null
+  const u = v.update
+  let update: StoreUpdate | null = null
+  if (u) {
+    const okVersion = (typeof u.version === "number" && Number.isFinite(u.version)) || (typeof u.version === "string" && u.version !== "")
+    if (!okVersion || (u.critical !== 1 && u.critical !== 2)) return null
+    update = { version: u.version, critical: u.critical }
+    if (typeof u.title === "string" && u.title) update.title = u.title
+    if (typeof u.message === "string" && u.message) update.message = u.message
+  }
+  return { update, store: typeof v.appStoreId === "string" && v.appStoreId ? { appStoreId: v.appStoreId } : {} }
 }
 
 export default AppUpdates

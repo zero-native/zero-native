@@ -20,7 +20,7 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
 | Dashboard | `server/web/` | React, served by the same server. Signs pointers **in the browser** (WebCrypto) with the key file loaded from the owner's laptop: the server never holds the private key |
 | CLI | `tools/updates/` (`bun run updates ...`) | Builds an app's bundle, signs it, uploads it; registers store builds (reserves their serial); every dashboard action too |
 | Phone | `android/runtime` `ZnOta` (built), iOS later | Unchanged protocol 1 (POST `/v1/check`, then GET the zip). Protocol 2 (one call that streams the zip) comes with the next store build |
-| Store updates | `plugins/app-updates` | Play in-app updates (Android), App Store page (iOS); the app's JS asks the server and shows its own screens |
+| Store updates | `plugins/app-updates` | Play in-app updates (Android), App Store page (iOS); the app shows its own screens. The store answer comes with the check (§4.6): no second request |
 
 ## 2. Trust (unchanged from docs/ota.md)
 - The phone runs only a bundle whose manifest is signed and a pointer that is signed, with a seq above the last one it
@@ -33,9 +33,15 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
 - `apps` (id = the zn app id, e.g. `zerobill`; name; public keys), `channels` (app, name).
 - `bundles`: app, serial, id `<app>_<serial>`, bundle SHA, `requires`, zip path / SHA / size, the signed manifest (as
   JSON, byte for byte what phones get), git commit / subject / dirty, built by / at, stable mark (at, by, note),
-  customer title. Same bytes + same requires = same serial (unique key).
+  customer title. Same bytes + same requires = same serial (see `serials` below).
+- `serials`: one number line per app, shared by OTA bundles and store builds' built-in bundles. Each serial records the
+  bytes it was taken for (bundle SHA-256 + requires). **One bundle = one serial = one SHA** (migration 006): the same
+  bytes get the same serial back, whether an OTA release or a store build asks first. Two store builds with the same JS
+  share a serial; an OTA release of the JS inside a store build gets that store build's number. (A serial made before
+  migration 006 has no bytes recorded and is never given back.)
 - `store_builds`: app, os, channel, version code, version name, label, **built-in serial** (reserved from the same
-  serial line as bundles, so a new store build never loses to an older OTA bundle), capabilities, **family** (a hash of
+  serial line as bundles, so a new store build never loses to an older OTA bundle; several store builds can have the
+  same one; the same OS + channel + version code + serial recorded twice is one row), capabilities, **family** (a hash of
   the capabilities), git, built by / at, and the **base** (`base_path`, `base_size`: the built-in bundle as a zip, kept
   as a base for patches; empty for a store build made before patches).
 - `pointers`: app, channel, seq, target (bundle id or `BUILT_IN`), rollout, priority (`normal` / `high` / `critical`),
@@ -44,8 +50,10 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
 - `patches` (migration 004): app, to id, from id, from SHA-256 (the base bundle's bundle SHA), path, patch zip SHA-256,
   size, made at. One row per "from bundle → to bundle". The zip is `<app>/patches/<to id>/<from sha>.zip`; the base zips
   of store builds are `<app>/bases/<bundle sha>.zip`. Format and rules: `docs/ota-patches.md`.
-- `store_rules`: app, os, version (Android versionCode; iOS "1.6.2" as one number), critical 0 / 1 / 2, test flag, note,
-  by, at. Same thresholds as the RN backend: optional = highest version with critical ≥ 1, forced = highest with
+- `store_rules`: app, os, **channel** (migration 005; rules made before it are production's), version (Android
+  versionCode; iOS "1.6.2" as one number), critical 0 / 1 / 2, test flag, note, by, at. One rule per
+  (app, os, channel, version). A rule is for the phones of its own channel: a staging rule never reaches a production
+  phone, and the other way round. Same thresholds as the RN backend (per channel): optional = highest version with critical ≥ 1, forced = highest with
   critical 2; test rows count only for phones whose own version is a test row.
 - Stats: `installs_daily` (day, app, channel, install hash, running bundle: one row per phone per day),
   `events_daily` (day, app, channel, bundle, kind, detail, count), `errors` (the last error stacks, for symbolicate).
@@ -53,16 +61,14 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
 - `activity`: every admin action (who, what, detail).
 
 ## 4. Phone API
-- `POST /v1/check` (protocol 1, today's phones): request and answer exactly as `tools/ota/decide.ts` / `server.ts`.
-  The answer also gets `store: { version, critical }` when a store rule applies (old phones ignore it). The decision
-  is `decide()` from `tools/ota/decide.ts`, unchanged.
+- `POST /v1/check` (protocol 1): the phone's **one** call. Request and answer as `tools/ota/decide.ts` / `server.ts`,
+  plus the store question (§4.6). The OTA decision is `decide()` from `tools/ota/decide.ts`, unchanged.
 - `GET /v1/files/<path>`: a bundle zip (`<app>/bundles/<id>/<sha>.zip`) or a patch zip
   (`<app>/patches/<to id>/<from sha>.zip`), resumable (Range), cached forever (the path has a SHA in it). Base zips
   (`<app>/bases/…`) are for the server only: phones get a 404.
-- `GET /v1/store?app=&os=&version=&channel=`: the store answer alone, for an app's JS (the ZB app's
-  `storeUpdateSource.ts` today asks the main backend with `x-zota-*` headers; `GET /v1/updates/check` answers those
-  headers too, so only the base URL changes).
 - `GET /health`.
+- **Removed 2026-11-09:** `GET /v1/store` and `GET /v1/updates/check` (the store-only route, and the `x-zota-*` header
+  one). They answer 404 now. The phone asks the store question in the check (§4.6).
 
 ### 4.3 Patches in the check (`docs/ota-patches.md` §4, 2026-11-09)
 - The request may carry two optional fields: `patches: ["znbsdiff1"]` (the formats the phone applies) and
@@ -81,6 +87,21 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
 - Trust: nothing new is signed. The phone checks every file against `zn-bundle.json` and the bundle SHA-256 against the
   signed manifest, as for a full zip. A bad patch can only fail, then the phone downloads the full zip.
 
+### 4.6 The store question in the check (2026-11-09)
+- The request may carry one more optional field: `store: { os, version }`. `os` is `"android"` (version = the
+  versionCode, a number) or `"ios"` (version = the app version, a string like `"1.6.2"`). Old phones don't send it.
+  A field in the wrong shape is dropped with a warning in the server log: it never fails the check.
+- When the request had a good `store`, the answer also has
+  `store: { update: { version, critical, title?, message? } | null, appStoreId? }`.
+  - `update` is the rules answer for the phone's **channel** (the request's `channel`): `null` = nothing to do;
+    `critical` 1 = ask, 2 = must update; `version` = the store version to reach (Android versionCode, iOS "1.6.2");
+    `title` / `message` = the text for the app's own update screen, if the rule has any. The rules are those of §3
+    (`store_rules`), test rows included: they count only for a phone whose own version is a test row **on that channel**.
+  - `appStoreId` is only there for iOS, when the app's store facts have it (`store.ios.appStoreId`).
+- No `store` in the request = no `store` in the answer. If the store lookup fails, `store` is left out of the answer
+  and the error is logged; the OTA part always answers as before.
+- Rules are cached for 10 s per app + channel + OS (saving or deleting a rule clears the cache at once).
+
 ### 4.4 "Check now" pushes (`server/src/push.ts`, 2026-11-09)
 After a publish, a rollback, a kill switch or a higher rollout, the server sends one FCM data message to the topic
 `zn-ota-<app>-<channel>`: `{ zn_ota: "check", zn_ota_delay_ms: "<n>" }`, Android priority high, TTL 1 day. The phone
@@ -90,6 +111,9 @@ app (`OtaCheckWorker.kt`).
 - Per app (`apps.push`): `{ fcmProject, delayMs: { <channel>: ms } }`. Defaults: staging 3 s, production 6 h. A kill
   switch, and a change with priority `high` or `critical`, wait at most 10 min; a `normal` change keeps the channel's wait.
   No `fcmProject` = no pushes. Set with `updates app --push '{"fcmProject":"…"}'`.
+- Saving or deleting a **store rule** sends the same push, to the rule's channel (so phones ask the store question
+  soon, not at their next start). The answer of the rule route has `push`, like the pointer route. `push: false` in the
+  body (for a delete: `?push=false`) makes it quiet. A failed push never fails the save.
 - A lower rollout sends nothing (it gives nobody anything). `POST /admin/apps/<app>/channels/<ch>/push` (CLI
   `updates push --channel <ch>`) sends one by hand.
 - A failed push never fails the change: the answer says so and the activity log has `push.failed`; phones still find
@@ -107,11 +131,24 @@ dashboard's Priority choice.
 Read: apps, state (bundles, channels with history, store builds, families, rules), stats, activity.
 Write: create app / channel; reserve a serial; upload a bundle (manifest + zip); register a store build; publish /
 roll back / roll out / kill (the body carries the signed pointer; the server checks the signature with the app's keys
-and the rules below); stable mark on / off; customer title; store rule add / change / delete; delete an unreleased
-bundle.
+and the rules below); stable mark on / off; customer title; store rule add / change / delete (per channel); delete an
+unreleased bundle.
+- `POST /admin/apps/<app>/serials` `{ kind: "bundle" | "store", sha256, requires }`: the serial for these bytes
+  (`{ serial, existing }`: `existing` is the released bundle, or null). Both kinds send the bytes; the same bytes give
+  the same serial back (§3). A store build may leave them out (an older CLI): then it only gets a new number.
+- `POST /admin/apps/<app>/store-rules` `{ os, channel?, version, critical, isTest?, title?, message?, note?, confirm?, push? }`
+  (`channel` default `production`) and `DELETE /admin/apps/<app>/store-rules/<os>/<version>?channel=<channel>`: the answer is
+  `{ rules, push }` (`rules`: every rule of that OS; `push`: the check-now push, §4.4). `GET …/store-check?channel=&os=&version=`
+  is the dashboard's phone checker (the same answer as `store.update` in a check).
+- `POST /admin/apps/<app>/store-builds`: several store builds can use the same built-in serial. The serial must be
+  reserved, and if it has bytes on record they must be the build's `builtinSha256`.
+- `updates store-build` builds the JS twice: first with serial 0 (to learn its SHA-256 and requires), then, after the
+  serial is taken for those bytes, with that serial into the host's assets. It stops if the second build has another
+  bundle SHA-256 (a file must not hold the serial or the time).
 - `POST /admin/apps/<app>/store-builds/<built-in serial>/base` (multipart `zip`): keeps a store build's built-in bundle as a
   base for patches. Refused when the zip is not a good bundle zip of this app, or its bundle SHA-256 or id is not the store
-  build's. `updates store-build` does it for you; `updates base --serial N` does it for an older store build.
+  build's. The same bytes again is fine (also for a second store build with that serial: every one of them points to the
+  base). `updates store-build` does it for you; `updates base --serial N` does it for an older store build.
 - `POST /admin/apps/<app>/bundles/<serial>/patches`: makes that bundle's patches again (waits for the job; answers with
   what was made, dropped and failed, and the patches kept). CLI: `updates patches --bundle N`.
 - `GET …/state` and `GET …/bundles/<serial>` list each bundle's patches (from, size); the dashboard's bundle page shows
@@ -137,7 +174,7 @@ seq must be the channel's next one (a 409 if someone else published first).
 - Later: per-person tokens; key changes signed by the current key.
 
 ## 6. Dashboard (pages)
-Overview · Bundles (+ bundle page) · Channels · Store updates (Play, App Store; with a phone checker) · Store builds
+Overview · Bundles (+ bundle page; a bundle that is also built into a store build is one row, with the "In the app" chip) · Channels · Store updates (Play, App Store, one channel at a time; with a phone checker) · Store builds
 & families · Phones (1 / 7 / 35 days) · Activity · Environment (server, database, storage, keys). Dialogs with typed
 confirms as in §5, a live log for long actions, and the key file picked once per browser session (kept in memory).
 

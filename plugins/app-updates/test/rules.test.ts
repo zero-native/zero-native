@@ -184,6 +184,19 @@ test("a second check while one runs does nothing", async () => {
   expect(t.calls).toEqual(["source"])
 })
 
+test("autoCheck false: start and return schedule no check, a return still installs a downloaded update", async () => {
+  const t = setup({ answer: answer(null), autoCheck: false })
+  t.engine.onStart()
+  t.engine.onActive()
+  await t.advance(CHECK_DELAY_MS * 5)
+  expect(t.calls).toEqual([])
+  expect(t.pending()).toBe(0)
+  t.engine.onUpdateState({ status: "downloaded", bytesDownloaded: 0, totalBytes: 0, errorCode: 0 })
+  t.engine.onActive()
+  await flush()
+  expect(t.calls).toEqual(["play.complete"])
+})
+
 test("start and return schedule a check in 1 s; a return installs a downloaded update unless busy", async () => {
   const t = setup({ answer: answer(null) })
   t.engine.onStart()

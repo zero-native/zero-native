@@ -128,6 +128,8 @@ export interface Family {
 }
 export interface Rule {
   id: number
+  /** The channel whose phones the rule is for. */
+  channel: string
   version: number
   critical: 0 | 1 | 2
   isTest: boolean
@@ -232,9 +234,9 @@ export const routes = {
   title: (app: string, serial: number, title: string) => api("POST", `/admin/apps/${enc(app)}/bundles/${serial}/title`, { title }),
   deleteBundle: (app: string, serial: number) => api("DELETE", `/admin/apps/${enc(app)}/bundles/${serial}`),
   saveRule: (app: string, body: Record<string, unknown>) => api("POST", `/admin/apps/${enc(app)}/store-rules`, body),
-  deleteRule: (app: string, os: Os, version: number) => api("DELETE", `/admin/apps/${enc(app)}/store-rules/${os}/${version}`),
-  storeCheck: (app: string, os: Os, version: string) =>
-    api<{ update: StoreAnswer | null }>("GET", `/admin/apps/${enc(app)}/store-check?os=${os}&version=${enc(version)}`),
+  deleteRule: (app: string, channel: string, os: Os, version: number) => api("DELETE", `/admin/apps/${enc(app)}/store-rules/${os}/${version}?channel=${enc(channel)}`),
+  storeCheck: (app: string, channel: string, os: Os, version: string) =>
+    api<{ update: StoreAnswer | null }>("GET", `/admin/apps/${enc(app)}/store-check?channel=${enc(channel)}&os=${os}&version=${enc(version)}`),
 }
 
 // ---- Saved sign-in (localStorage may be blocked: never throw) ---------------------------------------------------------

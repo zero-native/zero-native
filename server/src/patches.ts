@@ -200,7 +200,8 @@ async function basesFor(db: Db, app: string, serial: number): Promise<Base[]> {
   )
   for (const b of bundles) add({ id: b.id, sha256: b.bundle_sha256, kind: "bundle", path: b.zip_path })
   const builds = await db.query<{ builtin_serial: number; builtin_sha256: string; base_path: string | null }>(
-    `SELECT builtin_serial, builtin_sha256, base_path FROM store_builds WHERE app = $1 AND builtin_serial < $2 ORDER BY builtin_serial DESC LIMIT ${BASE_STORE_BUILDS}`,
+    `SELECT builtin_serial, builtin_sha256, max(base_path) AS base_path FROM store_builds WHERE app = $1 AND builtin_serial < $2
+     GROUP BY builtin_serial, builtin_sha256 ORDER BY builtin_serial DESC LIMIT ${BASE_STORE_BUILDS}`,
     [app, serial],
   )
   for (const b of builds) if (b.base_path) add({ id: `${app}_${b.builtin_serial}`, sha256: b.builtin_sha256, kind: "built-in", path: b.base_path })
@@ -314,7 +315,8 @@ export async function remake(db: Db, store: FileStore, app: string, serial: numb
  */
 export async function uploadBase(db: Db, store: FileStore, app: string, serial: number, zip: Uint8Array, by: string) {
   await model.getApp(db, app)
-  const rows = await db.query<{ builtin_sha256: string }>(`SELECT builtin_sha256 FROM store_builds WHERE app = $1 AND builtin_serial = $2`, [app, serial])
+  // Store builds with the same built-in serial share one bundle (and one base), so any of their rows will do.
+  const rows = await db.query<{ builtin_sha256: string }>(`SELECT DISTINCT builtin_sha256 FROM store_builds WHERE app = $1 AND builtin_serial = $2`, [app, serial])
   if (!rows[0]) throw new RuleError(`no store build with built-in serial #${serial} in ${app}`, 404)
   const c = readBundleZip(zip)
   if (c.info.app !== app) throw new RuleError(`the zip is for app "${c.info.app}"`)
@@ -324,6 +326,8 @@ export async function uploadBase(db: Db, store: FileStore, app: string, serial: 
     throw new RuleError(`the zip's bundle SHA-256 (${c.info.sha256.slice(0, 12)}) is not the store build's (${want.slice(0, 12)}): upload the built-in bundle of that build`)
   }
   const path = `${app}/bases/${want}.zip`
+  // The same bundle again (a second store build with this serial, or the CLI run again) is fine: the path has the
+  // bundle SHA in it, so the file is written again and every store build with this serial points to it.
   await store.put(path, zip)
   await db.tx(async (q) => {
     await q.query(`UPDATE store_builds SET base_path = $3, base_size = $4 WHERE app = $1 AND builtin_serial = $2`, [app, serial, path, zip.length])

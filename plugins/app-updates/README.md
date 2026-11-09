@@ -1,8 +1,9 @@
 # @zero-native/app-updates
 
 Store updates for zero-native apps: **Google Play's in-app updates** on Android, **the App Store** on iOS. The
-zn-updates server's store rules say who must or should update (`GET /v1/store`, `server/src/phone.ts`); this plugin
-asks the server, asks Play, and shows the update.
+zn-updates server's store rules say who must or should update. The answer comes with native's OTA check, the same
+call (`POST /v1/check`, `server/src/phone.ts`), and native keeps it (`Updates.status().store`); this plugin reads that
+answer, asks Play, and shows the update. It makes no network call of its own.
 
 Ported from ZeroBill's own plugin (`my-app/plugins/in-app-update`), which ported the RN app's
 `ZInAppUpdatesModule`. The native behaviour is the same, tested on the RN and zn ZeroBill apps.
@@ -14,7 +15,8 @@ APK / IPA.
 
 | | Android | iOS |
 |---|---|---|
-| `checkStore({ server, app, os, version })` | the server's answer (`{ update, store }`) or `null` | same |
+| `storeAnswer(status?)` | the store answer of native's last update check (`{ update, store }`), or `null` before the first one | same |
+| `nativeStoreSource`, `checkAfterUpdateChecks(engine)` | the engine's source, and "check after each of native's update checks" | same |
 | `AppUpdates.isUpdateAvailable()` | Play's answer: `{ available, versionCode, immediateAllowed, flexibleAllowed, stalenessDays? }` | `{ available: false }` (no Play) |
 | `AppUpdates.start({ flexible })` | Play's sheet: `false` = forced (IMMEDIATE), `true` = optional (FLEXIBLE) | `{ ok: false, unavailable: true }` |
 | `AppUpdates.complete()` | installs a downloaded optional update (Play restarts the app) | `unavailable` |
@@ -67,20 +69,13 @@ iOS host: `ZnPlugins.register(..., AppUpdatesPlugin())`.
 
 ```ts
 import { appState, nav, onAppState, Platform } from "@zero-native/core"
-import DeviceInfo from "@zero-native/device-info"
-import { AppUpdates, checkStore, createAppUpdateEngine, playUpdates } from "@zero-native/app-updates"
+import { AppUpdates, checkAfterUpdateChecks, createAppUpdateEngine, nativeStoreSource, playUpdates } from "@zero-native/app-updates"
 
 const os = Platform.OS === "ios" ? "ios" : "android"
 const engine = createAppUpdateEngine({
-  source: {
-    get: () => checkStore({
-      server: "https://updates.example.com",
-      app: "myapp",
-      os,
-      // Android: the versionCode; iOS: the "1.6.2" version. The server's rules use the same.
-      version: os === "ios" ? DeviceInfo.getVersion() : DeviceInfo.getBuildNumber(),
-    }),
-  },
+  // The answer comes with native's OTA check (the phone sends its versionCode / "1.6.2" version itself)
+  source: nativeStoreSource,
+  autoCheck: false, // checkAfterUpdateChecks below runs the checks
   play: os === "android" ? playUpdates : undefined,
   prompt: {
     forced: (u, store) => nav.replace("forceUpdate", { appStoreId: store.appStoreId, message: u.message }),
@@ -92,8 +87,11 @@ const engine = createAppUpdateEngine({
   isFront: () => appState() === "active",
 })
 AppUpdates.onState((s) => engine.onUpdateState(s))
-engine.onStart()
-onAppState((s) => s === "active" && engine.onActive())
+checkAfterUpdateChecks(engine) // one engine check after each of native's update checks
+onAppState((s) => s === "active" && engine.onActive()) // installs a downloaded optional update
+
+// How often native checks on a return is the app's choice: ZnOta.Config(checkIntervalMs = 0) checks on every return
+// (a forced rule then reaches the user at once); the default is at most every 5 min.
 
 // Tell native when a payment starts and ends (it also hides the card and holds a forced re-open)
 checkout.subscribe(() => void AppUpdates.setBusy(checkout.isOpen()))
@@ -139,8 +137,8 @@ ZeroBill's plugin, so a phone that updates from those keeps its forced-update re
   this session.
 - **Busy:** set busy, leave and come back with a forced update open in Play: it does not open again until busy ends.
 
-The sample's "App updates plugin" lab (Dev screen) calls `checkStore` against `http://127.0.0.1:8790` for app `sample`
-(`bun run updates:server`, `adb reverse tcp:8790 tcp:8790`) and has buttons for each call.
+The sample's "App updates plugin" lab (Dev screen) runs `Updates.check()` and shows the store answer that came with it
+(the sample's update server, `bun run updates:server`, `adb reverse tcp:8790 tcp:8790`), and has buttons for each call.
 
 ## iOS notes
 

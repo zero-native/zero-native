@@ -2879,20 +2879,26 @@ my-app/assets/fonts/Poppins-Bold.ttf
   rail of small grids, use `<List horizontal>` with a `Row`-of-columns item.
 - **Don't** put other style keys in `columnWrapperStyle` (background, border): style the items. Build error.
 
-## 87. Store updates (`@zero-native/app-updates`, 2026-11-09)
+## 87. Store updates (`@zero-native/app-updates`, 2026-11-09; one call since 2026-11-10)
 ```ts
 const engine = createAppUpdateEngine({
-  source: { get: () => checkStore({ server, app: "myapp", os, version }) },  // the zn-updates server's store rules
+  source: nativeStoreSource, autoCheck: false,   // the store answer comes with native's OTA check (one call)
   play: os === "android" ? playUpdates : undefined,                         // Play's in-app updates
   prompt: { forced: showForceUpdateScreen, optional: showUpdateSheet },      // iOS: the app's own screens
   isBusy: () => checkout.isOpen(), currentRoute: () => nav.current()?.name,
   holdRoutes: new Set(["login", "verify"]), isFront: () => appState() === "active",
 })
-AppUpdates.onState((s) => engine.onUpdateState(s)); engine.onStart()
+AppUpdates.onState((s) => engine.onUpdateState(s)); checkAfterUpdateChecks(engine)
 onAppState((s) => s === "active" && engine.onActive())
 ```
-- **Do** send `version` as the store compares it: Android the versionCode (`DeviceInfo.getBuildNumber()`), iOS the
-  "1.6.2" version (`DeviceInfo.getVersion()`). **Why:** the server's rules are written in those numbers.
+- **Don't** call the update server for store updates yourself. **Why:** the OTA check already asks it (the phone sends
+  its versionCode, iOS its "1.6.2" version), and native keeps the answer: `Updates.status().store`. One call per check,
+  and the answer is there offline too (the last one, for this APK only).
+- **Do** pick how often native checks on a return: `ZnOta.Config(checkIntervalMs = 0)` checks on every return (a
+  forced rule reaches the user the next time they open the app), the default at most every 5 min. **Why:** the store
+  answer is only as fresh as the last check. Saving a store rule also sends the "check now" push.
+- **Do** write store rules for the right channel on the dashboard (Store page). **Why:** rules are per channel since
+  2026-11-10; a staging rule never reaches production phones.
 - **Do** call `AppUpdates.setBusy(true)` while a payment or a form is open, and `false` after (again on every return).
   **Why:** native keeps it on disk, so after Android kills the app in a UPI app, a forced update or a restart never
   covers the payment when the user comes back.

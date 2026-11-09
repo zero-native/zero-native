@@ -54,8 +54,6 @@ export function startServer(o: StartOptions) {
         if (path.startsWith("/v1/files/") && (request.method === "GET" || request.method === "HEAD")) {
           return await phone.file(deps, request, decodeURIComponent(path.slice("/v1/files/".length)))
         }
-        if (path === "/v1/store" && request.method === "GET") return await phone.store(deps, url)
-        if (path === "/v1/updates/check" && request.method === "GET") return await phone.legacyStoreCheck(deps, request)
         if (path.startsWith("/admin/")) return await adminHandle(admin, request, url, address)
         // The one-time link from `bun run updates dashboard`: trade the code for a session cookie, then go to the page
         if (path === "/open" && request.method === "GET") {

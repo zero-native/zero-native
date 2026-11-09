@@ -41,6 +41,31 @@ export interface UpdateStatus {
   lastCheckAt?: number | null
   lastResult?: string | null
   lastError?: string | null
+  /**
+   * The store update answer that came with the last check (the same call as OTA, docs/zn-updates-server.md), for this
+   * APK; null before the first one (or an older server). `update` null = nothing to do. What to do with it (Play's
+   * in-app update, an App Store link, your own screen) is the app's call: `@zero-native/app-updates` does Play's.
+   * A new answer comes with a `status` event (`onStatus`) after each check: compare `at`. Missing on apps built
+   * before 2026-11-10.
+   */
+  store?: StoreStatus | null
+}
+
+/** The store part of `UpdateStatus`. */
+export interface StoreStatus {
+  update: {
+    /** The store version to reach: Android versionCode, iOS "1.6.2". */
+    version: number | string
+    /** 1 = optional, 2 = forced. */
+    critical: 1 | 2
+    /** The rule's own words for the app's update screen, if it has them. */
+    title?: string
+    message?: string
+  } | null
+  /** iOS: the App Store id, when the server knows it. */
+  appStoreId?: string
+  /** When this answer came (ms since 1970). */
+  at: number
 }
 
 export interface UpdateCheckResult {

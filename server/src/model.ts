@@ -80,6 +80,7 @@ export async function saveApp(db: Db, a: { id: string; name?: string; publicKeys
     }
     await logActivity(q, a.id, by, "app.save", { name: a.name, keys: a.publicKeys?.length, store: a.store, push: a.push })
   })
+  appStoreIdCache.clear()
 }
 
 export async function channels(db: Db, app: string): Promise<string[]> {
@@ -94,8 +95,11 @@ async function checkChannel(db: Db, app: string, channel: string) {
 
 /**
  * The serial for a bundle that was just built ([kind] "bundle"), or for a store build's built-in bundle ("store").
- * One line per app, shared by both, so a store build is always newer than every OTA bundle before it. The same bytes
- * (and the same needs) get the same bundle serial back; `existing` is the released bundle with those bytes, if any.
+ * One line per app, shared by both, so a store build is always newer than every OTA bundle before it.
+ * One bundle = one serial: the same bytes (and the same needs) get the same serial back, whichever kind took it first
+ * (an OTA release of the code that is in a store build gets that store build's number, and the other way round).
+ * `existing` is the released bundle with that serial, if any.
+ * [bytes] is required for a bundle. A store build should send it too; without it the serial is just a new number.
  */
 export async function reserveSerial(
   db: Db,
@@ -109,10 +113,10 @@ export async function reserveSerial(
   if (bytes && !/^[0-9a-f]{64}$/.test(bytes.sha256)) throw new RuleError("sha256 must be 64 hex characters")
   const line = bytes ? requiresLine(bytes.requires) : null
   for (let attempt = 0; attempt < 5; attempt++) {
-    if (kind === "bundle") {
+    if (bytes) {
       const same = await db.query<{ serial: number }>(
-        `SELECT serial FROM serials WHERE app = $1 AND kind = 'bundle' AND bundle_sha256 = $2 AND requires_line = $3`,
-        [app, bytes!.sha256, line],
+        `SELECT serial FROM serials WHERE app = $1 AND bundle_sha256 = $2 AND requires_line = $3 ORDER BY serial LIMIT 1`,
+        [app, bytes.sha256, line],
       )
       if (same[0]) {
         const released = await db.query<{ manifest: Manifest }>(`SELECT manifest FROM bundles WHERE app = $1 AND serial = $2`, [app, same[0].serial])
@@ -124,7 +128,7 @@ export async function reserveSerial(
     try {
       await db.query(
         `INSERT INTO serials (app, serial, kind, bundle_sha256, requires_line, taken_by) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [app, serial, kind, kind === "bundle" ? bytes!.sha256 : (bytes?.sha256 ?? null), kind === "bundle" ? line : null, by],
+        [app, serial, kind, bytes?.sha256 ?? null, line, by],
       )
       await logActivity(db, app, by, "serial.reserve", { serial, kind })
       return { serial, existing: null }
@@ -207,12 +211,13 @@ export async function uploadBundle(
   const text = bundleText({ app, id: m.id, serial: m.serial, bundleSha256: m.bundleSha256, requires: m.requires, zipSha256: zipSha, zipSize: zip.length })
   if (a.publicKeys.length === 0) throw new RuleError(`app ${app} has no public keys yet (Environment page)`)
   if (!verifyText(text, m.signature, a.publicKeys)) throw new RuleError("the bundle's signature doesn't match the app's public keys")
-  const reserved = await db.query<{ bundle_sha256: string; requires_line: string; kind: string }>(
-    `SELECT kind, bundle_sha256, requires_line FROM serials WHERE app = $1 AND serial = $2`,
+  const reserved = await db.query<{ bundle_sha256: string; requires_line: string }>(
+    `SELECT bundle_sha256, requires_line FROM serials WHERE app = $1 AND serial = $2`,
     [app, m.serial],
   )
+  // A store build's serial with these same bytes is fine too: one bundle = one serial.
   const r = reserved[0]
-  if (!r || r.kind !== "bundle" || r.bundle_sha256 !== m.bundleSha256 || r.requires_line !== requiresLine(m.requires)) {
+  if (!r || r.bundle_sha256 !== m.bundleSha256 || r.requires_line !== requiresLine(m.requires)) {
     throw new RuleError(`serial #${m.serial} was not reserved for these bytes; build again`)
   }
   const already = await db.query(`SELECT * FROM bundles WHERE app = $1 AND serial = $2`, [app, m.serial])
@@ -391,16 +396,26 @@ export interface StoreBuildInput {
 
 export async function addStoreBuild(db: Db, app: string, s: StoreBuildInput, by: string) {
   await checkChannel(db, app, s.channel)
-  const taken = await db.query<{ kind: string }>(`SELECT kind FROM serials WHERE app = $1 AND serial = $2`, [app, s.builtinSerial])
-  if (taken[0]?.kind !== "store") throw new RuleError(`serial #${s.builtinSerial} was not reserved for a store build`)
   if (!Number.isInteger(s.versionCode) || s.versionCode <= 0) throw new RuleError("versionCode must be a whole number")
   if (!/^[0-9a-f]{64}$/.test(s.builtinSha256)) throw new RuleError("builtinSha256 must be the built-in bundle's sha256 (zn-bundle.json)")
+  // The serial can be a store serial or an OTA bundle's (one bundle = one serial). If it has bytes on record, they must be these.
+  const taken = await db.query<{ bundle_sha256: string | null }>(`SELECT bundle_sha256 FROM serials WHERE app = $1 AND serial = $2`, [app, s.builtinSerial])
+  if (!taken[0]) throw new RuleError(`serial #${s.builtinSerial} was not reserved for a store build`)
+  if (taken[0].bundle_sha256 && taken[0].bundle_sha256 !== s.builtinSha256) {
+    throw new RuleError(`serial #${s.builtinSerial} was reserved for other bytes than this built-in bundle's; build again`)
+  }
+  // Store builds with the same serial have the same built-in bundle: patch bases are kept per serial.
+  const other = await db.query(`SELECT 1 FROM store_builds WHERE app = $1 AND builtin_serial = $2 AND builtin_sha256 <> $3 LIMIT 1`, [app, s.builtinSerial, s.builtinSha256])
+  if (other[0]) throw new RuleError(`another store build with built-in serial #${s.builtinSerial} has a different bundle SHA-256`)
   const family = s.capabilities ? familyOf(s.capabilities) : null
   await db.tx(async (q) => {
     await q.query(
       `INSERT INTO store_builds (app, os, channel, label, version_code, version_name, builtin_serial, builtin_sha256,
          capabilities, family, git_commit, git_dirty, built_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb, $10, $11, $12, $13)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb, $10, $11, $12, $13)
+       ON CONFLICT (app, os, channel, version_code, builtin_serial) DO UPDATE SET
+         label = $4, version_name = $6, capabilities = COALESCE($9::text::jsonb, store_builds.capabilities),
+         family = COALESCE($10, store_builds.family), git_commit = $11, git_dirty = $12, built_by = $13, built_at = now()`,
       [app, s.os, s.channel, s.label.slice(0, 60), s.versionCode, s.versionName.slice(0, 40), s.builtinSerial, s.builtinSha256,
         s.capabilities ? JSON.stringify(s.capabilities) : null, family, s.git.commit, s.git.dirty, by],
     )
@@ -410,7 +425,7 @@ export async function addStoreBuild(db: Db, app: string, s: StoreBuildInput, by:
 }
 
 export async function storeBuilds(db: Db, app: string) {
-  const rows = await db.query(`SELECT * FROM store_builds WHERE app = $1 ORDER BY builtin_serial DESC`, [app])
+  const rows = await db.query(`SELECT * FROM store_builds WHERE app = $1 ORDER BY builtin_serial DESC, built_at DESC, id DESC`, [app])
   return rows.map((r) => ({
     os: r.os as Os,
     channel: r.channel as string,
@@ -497,11 +512,14 @@ export async function patchesOf(db: Db, app: string, toId?: string): Promise<Pat
 }
 
 // ---- Store rules ------------------------------------------------------------------------------------------------------
+// Rules are per channel (a staging rule never reaches a production phone). `channel` is the phone's channel.
 
-export async function storeRules(db: Db, app: string, os: Os) {
-  const rows = await db.query(`SELECT * FROM store_rules WHERE app = $1 AND os = $2 ORDER BY version DESC`, [app, os])
+/** The rules of an app + OS: those of one [channel], or of every channel when it is left out. */
+export async function storeRules(db: Db, app: string, os: Os, channel?: string) {
+  const rows = await db.query(`SELECT * FROM store_rules WHERE app = $1 AND os = $2 AND ($3::text IS NULL OR channel = $3) ORDER BY channel, version DESC`, [app, os, channel ?? null])
   return rows.map((r) => ({
     id: r.id as number,
+    channel: r.channel as string,
     version: r.version as number,
     critical: r.critical as 0 | 1 | 2,
     isTest: r.is_test as boolean,
@@ -516,44 +534,59 @@ export async function storeRules(db: Db, app: string, os: Os) {
 export async function saveStoreRule(
   db: Db,
   app: string,
+  channel: string,
   os: Os,
   r: { version: number; critical: 0 | 1 | 2; isTest: boolean; title?: string | null; message?: string | null; note?: string | null },
   by: string,
 ) {
+  await checkChannel(db, app, channel)
   await db.tx(async (q) => {
     await q.query(
-      `INSERT INTO store_rules (app, os, version, critical, is_test, title, message, note, by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (app, os, version) DO UPDATE SET critical = $4, is_test = $5, title = $6, message = $7, note = $8, by = $9, at = now()`,
-      [app, os, r.version, r.critical, r.isTest, r.title?.trim() || null, r.message?.trim() || null, r.note?.trim() || null, by],
+      `INSERT INTO store_rules (app, os, channel, version, critical, is_test, title, message, note, by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (app, os, channel, version) DO UPDATE SET critical = $5, is_test = $6, title = $7, message = $8, note = $9, by = $10, at = now()`,
+      [app, os, channel, r.version, r.critical, r.isTest, r.title?.trim() || null, r.message?.trim() || null, r.note?.trim() || null, by],
     )
-    await logActivity(q, app, by, "store.rule", { os, ...r })
+    await logActivity(q, app, by, "store.rule", { channel, os, ...r })
   })
   storeCache.clear()
 }
 
-export async function deleteStoreRule(db: Db, app: string, os: Os, version: number, by: string) {
+export async function deleteStoreRule(db: Db, app: string, channel: string, os: Os, version: number, by: string) {
+  await checkChannel(db, app, channel)
   await db.tx(async (q) => {
-    await q.query(`DELETE FROM store_rules WHERE app = $1 AND os = $2 AND version = $3`, [app, os, version])
-    await logActivity(q, app, by, "store.rule.delete", { os, version })
+    await q.query(`DELETE FROM store_rules WHERE app = $1 AND os = $2 AND channel = $3 AND version = $4`, [app, os, channel, version])
+    await logActivity(q, app, by, "store.rule.delete", { channel, os, version })
   })
   storeCache.clear()
 }
 
 const storeCache = new Map<string, { at: number; rules: StoreRule[] }>()
 
-/** The store answer for one phone (cached 10 s per app + OS). */
-export async function storeAnswer(db: Db, app: string, os: Os, version: string | number) {
+/** The store answer for one phone of [channel] (rules cached 10 s per app + channel + OS). */
+export async function storeAnswer(db: Db, app: string, channel: string, os: Os, version: string | number) {
   const v = versionNumber(os, version)
   if (v === null) return null
-  const key = `${app}|${os}`
+  const key = `${app}|${channel}|${os}`
   let c = storeCache.get(key)
   if (!c || Date.now() - c.at > 10_000) {
-    const rules = (await storeRules(db, app, os)).map((r) => ({ version: r.version, critical: r.critical, isTest: r.isTest, title: r.title, message: r.message }))
+    const rules = (await storeRules(db, app, os, channel)).map((r) => ({ version: r.version, critical: r.critical, isTest: r.isTest, title: r.title, message: r.message }))
     c = { at: Date.now(), rules }
     storeCache.set(key, c)
   }
   return decideStore(os, c.rules, v)
+}
+
+const appStoreIdCache = new Map<string, { at: number; id: string | undefined }>()
+
+/** The app's App Store id (store facts, ios.appStoreId), for the iOS phone's store answer. Cached 10 s; unknown app = none. */
+export async function appStoreId(db: Db, app: string): Promise<string | undefined> {
+  const c = appStoreIdCache.get(app)
+  if (c && Date.now() - c.at < 10_000) return c.id
+  const a = (await listApps(db)).find((x) => x.id === app)
+  const id = ((a?.store?.ios ?? {}) as { appStoreId?: string }).appStoreId || undefined
+  appStoreIdCache.set(app, { at: Date.now(), id })
+  return id
 }
 
 // ---- The phone's check (cached answers) ------------------------------------------------------------------------------

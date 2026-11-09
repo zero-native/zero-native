@@ -35,6 +35,12 @@ export interface CheckRequest {
   kept: string[]
   /** Optional: the patch formats this phone applies (docs/ota-patches.md §4), e.g. ["znbsdiff1"]. Old phones send none. */
   patches?: string[]
+  /**
+   * Optional: the app's store version, so the answer can also say "update from the store" (Play / App Store).
+   * Android: the versionCode as a number. iOS: the app version, like "1.6.2". Old phones send none (then no store answer).
+   * A value in the wrong shape is dropped: it never fails the OTA check.
+   */
+  store?: { os: "android" | "ios"; version: number | string }
   /** The highest pointer seq the phone accepted on this channel (0 = none). It never accepts a lower one. */
   seq: number
   /** What happened since the last check (downloaded, applied, rollback, ...), for telemetry only. */

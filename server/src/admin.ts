@@ -120,8 +120,10 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
   if (what === "serials" && method === "POST") {
     const b = await body<{ kind: "bundle" | "store"; sha256?: string; requires?: Manifest["requires"] }>(request)
     if (b.kind !== "bundle" && b.kind !== "store") throw new RuleError("kind must be bundle or store")
-    // A store build's serial is only a number (its bytes are recorded with the store build); a bundle's is for its bytes.
-    const bytes = b.kind === "bundle" && b.sha256 && b.requires ? { sha256: b.sha256, requires: b.requires } : null
+    // Both kinds send the bytes they are for: the same bytes get the same serial (one bundle = one serial). A store
+    // build may leave them out (an older CLI): then it only gets a new number.
+    if (!!b.sha256 !== !!b.requires) throw new RuleError("send sha256 and requires together")
+    const bytes = b.sha256 && b.requires ? { sha256: b.sha256, requires: b.requires } : null
     return json(await model.reserveSerial(db, app, b.kind, bytes, by))
   }
   if (what === "bundles") {
@@ -198,25 +200,35 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
   }
   if (what === "store-rules") {
     if (p.length === 3 && method === "POST") {
-      const b = await body<{ os: string; version: string | number; critical: number; isTest?: boolean; title?: string; message?: string; note?: string; confirm?: string }>(request)
+      const b = await body<{ os: string; channel?: string; version: string | number; critical: number; isTest?: boolean; title?: string; message?: string; note?: string; confirm?: string; push?: boolean }>(request)
       const os = osParam(b.os)
+      const channel = b.channel ?? model.PRODUCTION
       const version = versionNumber(os, b.version)
       const critical = Number(b.critical)
       const problems = ruleProblems(os, { version, critical, isTest: !!b.isTest }, b.confirm)
       if (problems.length) throw new RuleError(problems.join("; "))
-      await model.saveStoreRule(db, app, os, { version: version!, critical: critical as 0 | 1 | 2, isTest: !!b.isTest, title: b.title, message: b.message, note: b.note }, by)
-      return json(await model.storeRules(db, app, os))
+      await model.saveStoreRule(db, app, channel, os, { version: version!, critical: critical as 0 | 1 | 2, isTest: !!b.isTest, title: b.title, message: b.message, note: b.note }, by)
+      return json({ rules: await model.storeRules(db, app, os), push: b.push === false ? null : await pushChannel(d, app, channel, by, critical === 2) })
     }
+    // DELETE /store-rules/<os>/<version>?channel=<channel> (no channel = production)
     if (p.length === 5 && method === "DELETE") {
       const os = osParam(p[3])
+      const channel = url.searchParams.get("channel") ?? model.PRODUCTION
       const version = Number(p[4])
-      await model.deleteStoreRule(db, app, os, version, by)
-      return json(await model.storeRules(db, app, os))
+      await model.deleteStoreRule(db, app, channel, os, version, by)
+      return json({ rules: await model.storeRules(db, app, os), push: url.searchParams.get("push") === "false" ? null : await pushChannel(d, app, channel, by) })
     }
   }
   if (what === "store-check" && method === "GET") {
     const os = osParam(url.searchParams.get("os"))
-    return json({ update: await model.storeAnswer(db, app, os, url.searchParams.get("version") ?? "") })
+    return json({ update: await model.storeAnswer(db, app, url.searchParams.get("channel") ?? model.PRODUCTION, os, url.searchParams.get("version") ?? "") })
   }
   throw new RuleError("not found", 404)
+}
+
+/** A store rule changed: tell the channel's phones to check now (the same push a channel change sends). Never throws. */
+function pushChannel(d: AdminDeps, app: string, channel: string, by: string, forced = false) {
+  // A forced rule (critical 2) gets the short wait, like a critical OTA (at most 10 min); other rule changes the
+  // channel's normal wait (production: hours).
+  return model.getApp(d.db, app).then((a) => tellPhones(d.db, d.push, a, channel, { kind: "store.rule", by, ...(forced ? { priority: "critical" as const } : {}) }))
 }

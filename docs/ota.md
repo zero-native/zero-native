@@ -136,6 +136,13 @@ Answer: `{ protocol: 1, action, reason, detail?, pointer?, bundle? }`. `pointer`
 sent whenever its seq is newer than the phone's (so the phone records it, even with NONE). `bundle` is the signed
 manifest plus `url` (`/v1/files/<app>/bundles/<id>/<zip sha256>.zip`).
 
+**The store question (optional, 2026-11-09):** the request may also carry `store: { os, version }` (`os` `"android"` with the
+versionCode as a number, or `"ios"` with the app version like `"1.6.2"`; old phones send none; a wrong shape is dropped,
+never an error). Then the answer also has `store: { update: { version, critical, title?, message? } | null, appStoreId? }`:
+whether to update from Play / the App Store (`critical` 1 = ask, 2 = must), by the store rules of the phone's channel.
+The reference server (`tools/ota/server.ts`) only parses the field; the update server (`docs/zn-updates-server.md` §4.6)
+answers it. No `store` in the request = none in the answer, and the OTA part is the same either way.
+
 **The decision** (`tools/ota/decide.ts`, pure, one test per row, in this order; RN's `otaDecide` lessons):
 | # | When | Action / reason |
 |---|---|---|

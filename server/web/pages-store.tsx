@@ -1,7 +1,7 @@
 // Channels, Store updates, Store builds & families.
 import { useState } from "react"
 import { type Os, type Rule, routes, type State, type StoreAnswer } from "./api"
-import { channelNow, orderedChannels } from "./logic"
+import { channelNow, orderedChannels, PRODUCTION } from "./logic"
 import { ChannelTag, servesText } from "./pages-bundles"
 import { Badge, Btn, Card, CopyBlock, Empty, Notice, PageHead, Segmented, Stat, useApp, When } from "./ui"
 import { bytes, capabilityList, criticalWords, dateTime, kindWords, priorityWords, showVersion, targetLabel, versionNumber } from "./util"
@@ -129,7 +129,7 @@ function Thresholds({ os, rules, label }: { os: Os; rules: Rule[]; label: string
   )
 }
 
-function Checker({ os }: { os: Os }) {
+function Checker({ os, channel }: { os: Os; channel: string }) {
   const c = useApp()
   const [v, setV] = useState("")
   const [ans, setAns] = useState<{ update: StoreAnswer | null; version: string } | null>(null)
@@ -140,7 +140,7 @@ function Checker({ os }: { os: Os }) {
     setBusy(true)
     setErr("")
     try {
-      setAns({ ...(await routes.storeCheck(c.appId, os, v.trim())), version: v.trim() })
+      setAns({ ...(await routes.storeCheck(c.appId, channel, os, v.trim())), version: v.trim() })
     } catch (e) {
       setAns(null)
       setErr((e as Error).message)
@@ -149,7 +149,7 @@ function Checker({ os }: { os: Os }) {
     }
   }
   return (
-    <Card title="Phone checker" right={<span className="muted small">What would a phone on this version be told?</span>}>
+    <Card title="Phone checker" right={<span className="muted small">What would a phone on {channel} with this version be told?</span>}>
       <form
         className="checker"
         onSubmit={(e) => {
@@ -183,7 +183,11 @@ export function StoreUpdates() {
   const c = useApp()
   const s = c.state!
   const [os, setOs] = useState<Os>("android")
-  const rules = s.rules[os]
+  // Rules are per channel: a rule only reaches the phones of its own channel.
+  const channelNames = orderedChannels(s).map((x) => x.name)
+  const [picked, setChannel] = useState(PRODUCTION)
+  const channel = channelNames.includes(picked) ? picked : (channelNames[0] ?? PRODUCTION)
+  const rules = s.rules[os].filter((r) => r.channel === channel)
   const customers = thresholds(rules.filter((r) => !r.isTest))
   const noCustomerRule = rules.length > 0 && !customers.optional
   return (
@@ -192,7 +196,7 @@ export function StoreUpdates() {
         title="Store updates"
         sub="Ask phones to update from Play or the App Store. The app shows its own update screen."
         right={
-          <Btn kind="primary" onClick={() => c.open({ t: "rule", os })}>
+          <Btn kind="primary" onClick={() => c.open({ t: "rule", os, channel })}>
             Add a rule
           </Btn>
         }
@@ -206,15 +210,16 @@ export function StoreUpdates() {
             ["ios", "iOS (App Store)"],
           ]}
         />
+        <Segmented<string> value={channel} onChange={setChannel} options={channelNames.map((n): [string, string] => [n, n])} />
       </div>
       <div className="grid two">
-        <Thresholds os={os} rules={rules.filter((r) => !r.isTest)} label="For customers" />
-        <Thresholds os={os} rules={rules} label="For test versions" />
+        <Thresholds os={os} rules={rules.filter((r) => !r.isTest)} label={`For customers on ${channel}`} />
+        <Thresholds os={os} rules={rules} label={`For test versions on ${channel}`} />
       </div>
       {noCustomerRule ? <Notice tone="blue">Only test rules exist. Customers are not asked to update.</Notice> : null}
-      <Card title="Rules">
+      <Card title={<>Rules on <ChannelTag name={channel} /></>} right={<span className="muted small">Saving or deleting a rule tells the phones on {channel} to check now.</span>}>
         {rules.length === 0 ? (
-          <Empty title="No rules yet">Phones are never asked to update. Add a rule to ask them.</Empty>
+          <Empty title={`No rules on ${channel} yet`}>Phones on {channel} are never asked to update. Add a rule to ask them.</Empty>
         ) : (
           <div className="table-wrap">
             <table>
@@ -248,7 +253,7 @@ export function StoreUpdates() {
                       <When at={r.at} />
                     </td>
                     <td className="nowrap">
-                      <Btn small onClick={() => c.open({ t: "rule", os, rule: r })}>
+                      <Btn small onClick={() => c.open({ t: "rule", os, channel, rule: r })}>
                         Change
                       </Btn>{" "}
                       <Btn small kind="ghost" onClick={() => c.open({ t: "ruleDelete", os, rule: r })}>
@@ -262,7 +267,7 @@ export function StoreUpdates() {
           </div>
         )}
       </Card>
-      <Checker key={os} os={os} />
+      <Checker key={`${os}-${channel}`} os={os} channel={channel} />
     </>
   )
 }
@@ -289,7 +294,7 @@ function Families({ s, href }: { s: State; href: (p: string) => string }) {
         <Card key={f.family} title={<span className="code">{f.family}</span>} right={<span className="muted small">{f.builds.length} store {f.builds.length === 1 ? "build" : "builds"}</span>}>
           <div className="chips-static">
             {f.builds.map((b) => (
-              <Badge key={`${b.os}-${b.versionCode}-${b.builtinSerial}`} tone="blue">
+              <Badge key={`${b.os}-${b.channel}-${b.versionCode}-${b.builtinSerial}`} tone="blue">
                 {b.label}: {b.os} {b.versionName} ({b.versionCode})
               </Badge>
             ))}
@@ -357,7 +362,7 @@ export function StoreBuilds() {
               </thead>
               <tbody>
                 {s.storeBuilds.map((b) => (
-                  <tr key={`${b.os}-${b.versionCode}-${b.builtinSerial}`}>
+                  <tr key={`${b.os}-${b.channel}-${b.versionCode}-${b.builtinSerial}`}>
                     <td className="strong">{b.label}</td>
                     <td>{b.os === "ios" ? "iOS" : "Android"}</td>
                     <td>
