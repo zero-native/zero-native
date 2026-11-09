@@ -72,7 +72,7 @@ struct ZnImageView: View {
         // A new src starts again (a reused row); what is shown belongs to this src only.
         let image = loaded.src == src ? loaded.image : nil
         let waiting = image == nil && (loaded.src != src || loaded.stage != .none)
-        ZStack {
+        ZnPictureBox {
             if let image {
                 picture(image, tint: tint)
             } else if waiting && s.loading == Registry.Loading.shimmer {
@@ -162,5 +162,22 @@ struct ZnShimmerView: View {
                     startPoint: CGPoint(x: startX, y: 0), endPoint: CGPoint(x: startX + sweep, y: size.height)))
             }
         }
+    }
+}
+
+/// An Image's box: the size it is offered (its width / height), with the picture centred in it, as Android's Image
+/// (Alignment.Center). A ZStack took the picture's own size, so the node's frame put a `contain` picture at the top left
+/// of its box and cropped a `cover` one from the top left. Offered no size on an axis, the box takes the picture's.
+struct ZnPictureBox: Layout {
+    private static func finite(_ v: CGFloat?) -> CGFloat? { v.flatMap { $0.isFinite ? $0 : nil } }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let fit = subviews.first?.sizeThatFits(proposal) ?? .zero
+        return CGSize(width: Self.finite(proposal.width) ?? fit.width, height: Self.finite(proposal.height) ?? fit.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center,
+                              proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }

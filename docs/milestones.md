@@ -148,6 +148,48 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS, the scanner window and taps after switching tabs (Claude, Mac)
+- **aspectRatio with a "%" side** (ZnRenderer.swift ZnSizeFrame): ZeroBill's scanner window (`width: "75%",
+  aspectRatio: 1`, absolute corners) was drawn 0 tall: the ratio only worked with a width in points or with no side
+  set. Now a "%" width (or a "%" height alone) gives the other side, the box's content fills the ratio's size, and a
+  Stack / Column inside counts its height as set (bottom / end children at its bottom). LayoutLab case 45; 93 / 93.
+  Checked in ZeroBill (Scan with `ZN_SCANNER_FAKE`): the window is 296 pt square with its corners on it.
+- **Taps after switching tabs** (ZnPress.swift, ZnTabsRefresh.swift): a Pressable lets a smaller Pressable under the
+  finger take the touch (nested buttons). A hidden tab's Pressables were faded out, not hidden, so a small button on
+  the hidden Rewards tab "won" the tap on Offers' card and then couldn't take it: nothing happened (ZeroBill: Offers →
+  Rewards → Offers, tap a card). A hidden tab's touch views are now hidden (environment `znInHiddenTab`, nested Tabs
+  too). Needs a logged-in ZeroBill to check: the ZeroBill session checks it.
+- `tools/ios-sample.ts --device <name or UDID>`: a second simulator ("zn iPhone 16 B") so this session and the ZeroBill
+  session don't take turns on one.
+
+### 2026-11-09: iOS flexWrap on Row (Claude, Mac)
+- New ZnWrapLayout.swift, ZnWrap.kt's rules: lines by width (flex children 0 wide, then sharing their line's rest; "%"
+  of the whole Row), justifyContent per line with gap, alignItems / alignSelf in the line (stretch only when written),
+  alignContent with crossGap (rowGap, else gap). Points are floats as Yoga's dp, so no pixel slack is needed (Android's
+  half pixel per child); a hundredth of a point is kept for float noise.
+- **Checked on the simulator:** LayoutLab **91 / 91** (cases 30–37 were the last misses); RN gaps lab §6 chips wrap
+  three lines, §7 centres each line. Not yet: a gap / rowGap from a signal (iOS doesn't apply layout values from slots,
+  registry 23; ZeroBill uses none).
+
+### 2026-11-09: iOS layout foundations from ZeroBill (Claude, Mac)
+- Pavan, looking at ZeroBill on the simulator: "lot of glitches reg. width, height, margins, paddings, flex". Went
+  through Home, Offers, Offer Details, Stores, Rewards, Profile, Welcome and Scan against their TSX and zn's rules
+  (no Android device on the Mac). Found and fixed:
+  - **min / max sizes** (ZnRenderer.swift `ZnMinMaxLayout`): SwiftUI's `.frame(maxWidth: 190)` grows a view to 190
+    when offered more; RN and Android only cap. Offer Details' store pill (Text maxWidth 190) took 190 and squeezed
+    the price pill beside it to three lines. Now a max only caps, a min only raises, a fill (stretch, flex) takes the
+    offer kept between them. ZeroBill uses min / max 46 times.
+  - **Pictures** (ZnImage.swift `ZnPictureBox`): a `contain` picture sat at the top left of its box and a `cover` one
+    was cropped from the top left (the box took the picture's size; the node's frame then aligned it). Now centred,
+    as Android. ZeroBill's offer cards and Offer Details' photo showed it.
+  - **StatusBar / NavigationBar** (new ZnSystemBars.swift, ZnSystemBars.kt's rules): were drawn as nothing. barStyle
+    (light / dark text), hidden, backgroundColor per screen, newest element wins; the colours are strips over the top
+    and bottom safe areas under the content. ZeroBill uses them on 10 screens (Scan's light text checked).
+- **LayoutLab** cases 41–44 (content-sized children with min / max, and the Offer Details pills): 74 / 91 on iOS; the
+  17 misses are flexWrap (next). Android should pass 41–44 (Compose's widthIn only caps): not run on a phone yet.
+- Not zn: Home's grey strip under the tab bar is the screen's own background (#F7F8FA) in the bottom safe area; on
+  Android it shows in the gesture area too. ZeroBill can add `<NavigationBar backgroundColor={c.white} />` to Home.
+
 ### 2026-11-09: iOS, the ZeroBill session's zn issues (Claude, Mac)
 - The ZeroBill iOS session (Phase 2) reported five zn issues. Checked each against ZeroBill's built bundle
   (`ios/bundle/main.zn.ui`, read template by template):

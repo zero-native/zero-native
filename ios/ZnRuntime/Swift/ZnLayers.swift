@@ -67,6 +67,7 @@ final class ZnRootController: UIViewController {
     }
 
     override var childForStatusBarStyle: UIViewController? { height > 0 ? nil : nav }
+    override var childForStatusBarHidden: UIViewController? { height > 0 ? nil : nav }
     override var preferredStatusBarStyle: UIStatusBarStyle { lightIcons ? .lightContent : .darkContent }
 
     private var inset: CGFloat { view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top }

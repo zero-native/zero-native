@@ -35,7 +35,7 @@ struct ZnEntryScreen: View {
             // "none": the keyboard covers the screen.
             ZnScreenView(ctx: ctx, root: root)
                 .ignoresSafeArea(.container, edges: unsafeEdges(route))
-                .background((background ?? .white).ignoresSafeArea())
+                .background(ZnBarStrips(entry: entry, base: background ?? .white))
                 .ignoresSafeArea(.keyboard, edges: route?.resizeForKeyboard == false ? .bottom : [])
         } else {
             Color.white
@@ -53,7 +53,13 @@ struct ZnEntryScreen: View {
 /// A screen's controller: its route's status bar style.
 final class ZnScreenController: UIHostingController<ZnEntryScreen> {
     var lightStatusBar = false
-    override var preferredStatusBarStyle: UIStatusBarStyle { lightStatusBar ? .lightContent : .darkContent }
+    var entry: UInt32 = 0
+    /// The screen's <StatusBar barStyle> (ZnSystemBars), else its route's `statusBar` option.
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        (ZnSystemBars.shared.merged(entry, navigation: false)?.lightContent ?? lightStatusBar) ? .lightContent : .darkContent
+    }
+    /// <StatusBar hidden>.
+    override var prefersStatusBarHidden: Bool { ZnSystemBars.shared.merged(entry, navigation: false)?.hidden == true }
 }
 
 // MARK: - SwiftUI: NavigationStack(path:)
@@ -153,6 +159,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             } ?? {
                 let vc = ZnScreenController(rootView: ZnEntryScreen(app: app, entry: entry))
                 vc.lightStatusBar = app.route(of: entry)?.lightStatusBar ?? false
+                vc.entry = entry
                 vc.view.backgroundColor = .white
                 screens[entry] = vc
                 return vc
@@ -169,6 +176,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     // A swipe that finished: native popped; JS is told (FORCED_BACK).
     override var childForStatusBarStyle: UIViewController? { topViewController }
+    override var childForStatusBarHidden: UIViewController? { topViewController }
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()

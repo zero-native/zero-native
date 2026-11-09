@@ -137,7 +137,7 @@ struct ZnNodeView: View {
         case Registry.Component.modal:
             if sheetBody { flex(s, vertical: true) } else { ZnModalHost(ctx: ctx, t: t, inst: inst, s: s) }
         case Registry.Component.row:
-            flex(s, vertical: false)
+            if s.flexWrap { wrap(s) } else { flex(s, vertical: false) }
         case Registry.Component.stack:
             stack(s)
         case Registry.Component.scroll:
@@ -188,9 +188,10 @@ struct ZnNodeView: View {
             ZnShimmerView(s: s)
         case Registry.Component.spacer:
             Color.clear.frame(width: 0, height: 0)
-        case Registry.Component.anchor,
-             Registry.Component.statusBar, Registry.Component.navigationBar:
-            EmptyView()  // anchors are expanded by the parent; the rest take no room here (not drawn on iOS yet)
+        case Registry.Component.statusBar, Registry.Component.navigationBar:
+            ZnBarElement(s: s, inst: inst, navigation: s.type == Registry.Component.navigationBar)
+        case Registry.Component.anchor:
+            EmptyView()  // anchors are expanded by the parent
         default:
             ZnMissing(type: s.type)
         }
@@ -202,8 +203,12 @@ struct ZnNodeView: View {
         // A normal child stretches to the Stack's width like a Column's (zn flex rule 4, RN's alignItems: 'stretch').
         let stretchAll = s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch
         let stretch = definiteWidth || s.width != nil
+        // An aspectRatio box is given both sides (ZnSizeFrame): its Stack fills them, so bottom / end children sit at
+        // its bottom and end.
+        let ratio = s.aspectRatio != nil
         return ZnStackLayout(alignItems: s.alignItems, justify: s.justify,
-                             fillWidth: outer.fillWidth || s.width != nil, fillHeight: outer.fillHeight || s.height != nil) {
+                             fillWidth: outer.fillWidth || s.width != nil || ratio,
+                             fillHeight: outer.fillHeight || s.height != nil || ratio) {
             ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
                 let child = ref.t.nodes[ref.node]
                 let fillW = child.absolute && child.posStart != nil && child.posEnd != nil
@@ -223,7 +228,7 @@ struct ZnNodeView: View {
 
     /// Column (vertical) or Row: the children with their flex, stretch and alignSelf (ZnRenderer.kt ZnColumn / Row).
     private func flex(_ s: ZnNodeSpec, vertical: Bool) -> some View {
-        let definiteHeight = s.height != nil || outer.fillHeight
+        let definiteHeight = s.height != nil || outer.fillHeight || s.aspectRatio != nil
         let refs = znChildRefs(ctx, t, inst, s.children)
         let stretchAll = s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch
         return ZnFlexLayout(vertical: vertical, justify: s.justify, alignItems: s.alignItems, gap: s.gap,
@@ -236,6 +241,29 @@ struct ZnNodeView: View {
                     .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
                     .layoutValue(key: ZnPercentKey.self, value: child.percent)
                     .zIndex(child.zIndex ?? 0)  // R23: a row with zIndex draws its tooltip over the rows after it
+            }
+        }
+    }
+
+    /// A Row with flexWrap "wrap" (registry 24): ZnWrapLayout, ZnRenderer.kt ZnWrapRow. A child stretches to its line's
+    /// height only when stretch is written (alignItems or alignSelf) and it has no height; a flex child fills the share
+    /// of its line the layout gives it.
+    private func wrap(_ s: ZnNodeSpec) -> some View {
+        ZnWrapLayout(justify: s.justify, alignItems: s.alignItems, alignContent: s.alignContent, gap: s.gap,
+                     crossGap: s.crossGap ?? s.gap, definiteWidth: definiteWidth || s.width != nil,
+                     definiteHeight: s.height != nil || outer.fillHeight) {
+            ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
+                let child = ref.t.nodes[ref.node]
+                let stretch = child.height == nil && (child.alignSelf == Registry.AlignSelf.stretch ||
+                    (child.alignSelf == -1 && s.alignItems == Registry.AlignItems.stretch))
+                ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node,
+                           outer: ZnOuter(fillWidth: child.flex > 0, fillHeight: stretch),
+                           definiteWidth: child.width != nil || child.flex > 0)
+                    .layoutValue(key: ZnFlexKey.self, value: child.flex)
+                    .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
+                    .layoutValue(key: ZnPercentKey.self, value: child.percent)
+                    .layoutValue(key: ZnStretchKey.self, value: stretch)
+                    .zIndex(child.zIndex ?? 0)
             }
         }
     }
@@ -283,11 +311,80 @@ struct ZnSizeFrame: ViewModifier {
         let fillH = (outer.fillHeight && s.height == nil) || hf != nil
         // A fill (stretch, flex) still stops at maxWidth / maxHeight; a min beats a max (RN), and SwiftUI wants min <= max.
         let maxW = s.maxWidth.map { max($0, s.minWidth ?? 0) }, maxH = s.maxHeight.map { max($0, s.minHeight ?? 0) }
+        // aspectRatio with no side in points gives one side from the other: the width it is offered (set by a stretch,
+        // a flex or a "%" width), or a "%" height alone. Its content then fills that size (a Stack's absolute children
+        // are placed in it: ZeroBill's scanner window, width "75%" + aspectRatio 1, was 0 tall with its corners on one
+        // line, 2026-11-09).
+        let ratio: CGFloat? = w == nil && h == nil && !(wf != nil && hf != nil) ? s.aspectRatio.flatMap { $0 > 0 ? $0 : nil } : nil
+        let bounds = ZnMinMaxLayout(minW: s.minWidth, maxW: maxW, minH: s.minHeight, maxH: maxH,
+                                    fillW: fillW || ratio != nil, fillH: fillH || ratio != nil, alignment: alignment)
         content
             .frame(width: w, height: h, alignment: alignment)
-            .frame(minWidth: s.minWidth, maxWidth: fillW ? maxW ?? .infinity : maxW,
-                   minHeight: s.minHeight, maxHeight: fillH ? maxH ?? .infinity : maxH, alignment: alignment)
-            .modifier(ZnRatioFrame(ratio: w == nil && h == nil && wf == nil && hf == nil ? s.aspectRatio : nil))
+            .modifier(ZnMinMaxFrame(layout: bounds))
+            .modifier(ZnRatioFrame(ratio: ratio, fromHeight: wf == nil && hf != nil))
+    }
+}
+
+/// minWidth / maxWidth / minHeight / maxHeight and a fill, with RN's (Yoga's) meaning, as android/runtime's
+/// widthIn / heightIn: a max only caps the size and a min only raises it. SwiftUI's own `.frame(maxWidth: 190)` grows a
+/// view to 190 when it is offered more, so a Text with maxWidth took 190 points whatever it said (ZeroBill's store pill
+/// on Offer Details squeezed the price pill beside it to three lines).
+/// - A fill (stretch, flex) takes what it is offered, kept between min and max.
+/// - Otherwise the child is offered at most max and keeps its own size, kept between min and max.
+/// A child smaller than its box (a min above its size) is placed by the node's content alignment.
+struct ZnMinMaxLayout: Layout {
+    var minW: CGFloat?, maxW: CGFloat?, minH: CGFloat?, maxH: CGFloat?
+    var fillW: Bool, fillH: Bool
+    var alignment: Alignment
+
+    var needed: Bool { minW != nil || maxW != nil || minH != nil || maxH != nil || fillW || fillH }
+
+    private static func clamp(_ v: CGFloat, _ lo: CGFloat?, _ hi: CGFloat?) -> CGFloat {
+        var r = v
+        if let hi { r = min(r, hi) }
+        if let lo { r = max(r, lo) }  // a min beats a max (RN); ZnSizeFrame already raised max to min
+        return r
+    }
+
+    private static func finite(_ v: CGFloat?) -> CGFloat? { v.flatMap { $0.isFinite ? $0 : nil } }
+
+    /// What the child is offered on one axis: the fill's size, or the offer capped at max.
+    private static func offer(_ p: CGFloat?, fill: Bool, lo: CGFloat?, hi: CGFloat?) -> CGFloat? {
+        guard let p = finite(p) else { return hi }
+        return fill ? clamp(p, lo, hi) : min(p, hi ?? p)
+    }
+
+    private func axes(_ proposal: ProposedViewSize, _ child: LayoutSubview) -> CGSize {
+        let ow = Self.offer(proposal.width, fill: fillW, lo: minW, hi: maxW)
+        let oh = Self.offer(proposal.height, fill: fillH, lo: minH, hi: maxH)
+        let fit = child.sizeThatFits(ProposedViewSize(width: ow, height: oh))
+        let w = fillW && ow != nil ? ow! : Self.clamp(fit.width, minW, maxW)
+        let h = fillH && oh != nil ? oh! : Self.clamp(fit.height, minH, maxH)
+        return CGSize(width: w, height: h)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        return axes(proposal, child)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        let offer = ProposedViewSize(width: bounds.width, height: bounds.height)
+        let s = child.sizeThatFits(offer)
+        let cw = min(s.width, bounds.width), ch = min(s.height, bounds.height)
+        let h = alignment.horizontal, v = alignment.vertical
+        let x = h == .center ? bounds.midX - cw / 2 : h == .trailing ? bounds.maxX - cw : bounds.minX
+        let y = v == .center ? bounds.midY - ch / 2 : v == .bottom ? bounds.maxY - ch : bounds.minY
+        child.place(at: CGPoint(x: x, y: y), proposal: offer)
+    }
+}
+
+struct ZnMinMaxFrame: ViewModifier {
+    let layout: ZnMinMaxLayout
+
+    func body(content: Content) -> some View {
+        if layout.needed { layout { content } } else { content }
     }
 }
 
@@ -295,16 +392,20 @@ struct ZnSizeFrame: ViewModifier {
 /// with the size it answered gives the same size, so a re-proposal at placement is safe.
 struct ZnRatioFrame: ViewModifier {
     let ratio: CGFloat?
+    /// The height is the given side (a "%" height and no width): the width follows it.
+    var fromHeight = false
 
     func body(content: Content) -> some View {
-        if let ratio, ratio > 0 { ZnRatioLayout(ratio: ratio) { content } } else { content }
+        if let ratio, ratio > 0 { ZnRatioLayout(ratio: ratio, fromHeight: fromHeight) { content } } else { content }
     }
 }
 
 struct ZnRatioLayout: Layout {
     let ratio: CGFloat
+    var fromHeight = false
 
     private func size(_ p: ProposedViewSize, _ child: LayoutSubview) -> CGSize {
+        if fromHeight, let h = p.height, h.isFinite { return CGSize(width: h * ratio, height: h) }
         if let w = p.width, w.isFinite { return CGSize(width: w, height: w / ratio) }
         let fit = child.sizeThatFits(p)
         return CGSize(width: fit.width, height: fit.width / ratio)

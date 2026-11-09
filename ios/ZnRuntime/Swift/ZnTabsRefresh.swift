@@ -19,6 +19,8 @@ struct ZnTabsView: View {
     let inst: ZnInstance
     let s: ZnNodeSpec
     @State private var seen = Set<Int>()
+    /// These Tabs are themselves on a hidden tab: every child counts as hidden.
+    @Environment(\.znInHiddenTab) private var inHiddenTab
 
     var body: some View {
         let refs = znChildRefs(ctx, t, inst, s.children)
@@ -30,6 +32,7 @@ struct ZnTabsView: View {
                                definiteWidth: true)
                         .opacity(i == selected ? 1 : 0)
                         .allowsHitTesting(i == selected)
+                        .environment(\.znInHiddenTab, inHiddenTab || i != selected)
                         .accessibilityHidden(i != selected)
                 }
             }

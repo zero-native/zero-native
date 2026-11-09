@@ -237,7 +237,13 @@ final class ZnApp {
     }
 
     /// The window's safe-area insets changed (start, rotation): JS's insets() hears them (INSETS, as on Android).
+    /// The window's top and bottom safe areas, for ZnBarStrips (the status bar's and the home indicator's strips).
+    private(set) var windowInsetTop: CGFloat = 0
+    private(set) var windowInsetBottom: CGFloat = 0
+
     func reportInsets(top: CGFloat, bottom: CGFloat, start: CGFloat, end: CGFloat) {
+        if windowInsetTop != top { windowInsetTop = top }
+        if windowInsetBottom != bottom { windowInsetBottom = bottom }
         print("zn t=\(ZnDebug.ms()) insets: top \(top) bottom \(bottom) (JS started: \(jsStarted))")
         insetsNow = "{\"top\":\(Double(top)),\"bottom\":\(Double(bottom)),\"start\":\(Double(start)),\"end\":\(Double(end))}"
         sendInsets()

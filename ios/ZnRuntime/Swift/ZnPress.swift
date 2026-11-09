@@ -140,6 +140,8 @@ struct ZnTouchTarget: UIViewRepresentable {
 
     func updateUIView(_ c: ZnTouchControl, context: Context) {
         let s = s, inst = inst, ctx = ctx, state = state
+        // On a hidden tab (ZnTabsView): out of every hit test, also the inner-Pressable check of the controls over it.
+        c.isHidden = context.environment.znInHiddenTab
         c.isEnabled = !disabled
         c.haptic = s.haptic
         c.repeatDelay = s.onPressRepeat != 0 ? s.repeatDelayMs / 1000 : nil
@@ -261,4 +263,12 @@ final class ZnTouchControl: UIView {
         active = false
         onEvent?(.out, .bool(cancelled))
     }
+}
+
+extension EnvironmentValues {
+    /// The view is on a <Tabs> child that isn't selected (kept, faded out). Its Pressables hide their touch views: SwiftUI's
+    /// allowsHitTesting(false) keeps them from taking touches, but ZnTouchControl's inner-Pressable check still saw
+    /// them, so a smaller button on a hidden tab swallowed taps on the shown one (ZeroBill: Offers' card after visiting
+    /// Rewards, 2026-11-09).
+    @Entry var znInHiddenTab = false
 }

@@ -80,7 +80,7 @@ bun run tools/ios-sample.ts --route rnPropsLab --params '{}'
   (skip the dSYM upload). Env: `ZN_SCANNER_FAKE=<code>`, `ZN_DOCSCAN_FAKE=<pages>|cancel`, `ZN_IOS_*` switches.
 - Simulator "zn iPhone 16" (iOS 18.0). Xcode here has no device platform: simulator only until the device build.
 - Tests: `bun test packages plugins compiler tools` (1292 / 1293, the known A7), `bun run tools/run-core-tests-apple.ts
-  --sim` (C++ core), LayoutLab route `layoutLab` (67 / 84; the 17 misses are flexWrap / grids, registry 24).
+  --sim` (C++ core), LayoutLab route `layoutLab` (93 / 93 on 2026-11-09). `--device <name>` picks a simulator when two are booted.
 - Tips (simulator taps, screenshots, swipes): `docs/ios-handoff.md`.
 
 ---
@@ -115,7 +115,10 @@ Checklist checked against the code; registry 24 read; LayoutLab 67 / 84.
 | 1c | Error screen: NAV FAILED, hung JS, RETRY, Go back, failed start; JS time limit 3 s debug / 2 s release | **done** | 646b042 |
 | 1d | Registry 23 parts ZeroBill uses | **n/a**: ZeroBill's screens use none. Read from its built `main.zn.ui` 2026-11-09: the only runtime width / height / `scrollCommand` slots are in image-viewer's TSX screen (ImageViewerScreen, ViewerPhoto), which ZeroBill doesn't open (its route is `native: "imageviewer.full"`) | |
 | 1d | ImageViewer module 3 (`release`), so v3 bundles get the Swift viewer | **done** | (this commit) |
-| 1d | `OsInfo.ios` in core's type (iOS already sent it) | **done** | (this commit) |
+| 1d | `OsInfo.ios` in core's type (iOS already sent it) | **done** | d1875c7 |
+| 1e | Layout foundations from Pavan's look at ZeroBill (2026-11-09): min / max only cap or raise (SwiftUI's `.frame(maxWidth:)` grew views to their max); pictures centred in their box; StatusBar / NavigationBar; LayoutLab cases 41–44 | **done** | (this commit) |
+| 1e | Row `flexWrap` / `alignContent` / `crossGap` (LayoutLab 30–37; RN gaps lab §6–7) | **done** | 8339821 |
+| 1e | aspectRatio with a "%" side (ZeroBill's scanner window was 0 tall); a hidden tab's Pressables no longer swallow taps on the shown tab; LayoutLab 45 | **done** | (this commit) |
 | — | Fixes from Pavan's look: Tabs lab hint, border line over the Scan FAB | **done** | b0613b4 |
 
 ### Phase 2: the ZeroBill iOS app [ZB] — **in progress** (2026-11-09)
@@ -162,11 +165,11 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | # | Component | iOS | Left | Size |
 |---|---|---|---|---|
 | 1 | Column | done | | |
-| 2 | Row | done | flexWrap / alignContent / crossGap (registry 24, §6) | |
+| 2 | Row | done | flexWrap / alignContent / crossGap done 2026-11-09 (ZnWrapLayout.swift); a runtime rowGap / gap (slot) is not applied yet (§6 layout values from slots) | |
 | 3 | Stack | done | | |
 | 4 | Box | done | | |
 | 5 | Text | partial | Dynamic Type + maxFontScale, accessibility, `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` (r23), `fontFamily` (r24) | §6 |
-| 6 | Image | done | asset, http, file, `zn://file` handles, fallback, tint, events. `zn://app-icon` is n/a (no installed-apps icons on iOS) | |
+| 6 | Image | done | asset, http, file, `zn://file` handles, fallback, tint, events. `zn://app-icon` is n/a (no installed-apps icons on iOS). The picture is centred in its box for contain and cover (2026-11-09; it sat at the top left) | |
 | 7 | Pressable | partial | hitSlop, accessibility. Press feedback and runtime `disabled` done | §6 |
 | 8 | Spacer | done | | |
 | 9 | Icon | done | | |
@@ -187,8 +190,8 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 24 | Shimmer | done | | |
 | 30 | Tabs | done | | |
 | 31 | Modal | done | onRequestClose is n/a (no system Back) | |
-| 32 | StatusBar | missing | drawn as nothing; barStyle / hidden / backgroundColor per screen, newest wins. The route's `statusBar` option works | M |
-| 33 | NavigationBar | missing | decide: colour behind the home indicator, or ignore | S |
+| 32 | StatusBar | done (2026-11-09) | barStyle / hidden / backgroundColor per screen, newest wins (ZnSystemBars.swift) | |
+| 33 | NavigationBar | done (2026-11-09) | backgroundColor fills the bottom safe area behind the home indicator; barStyle does nothing (the indicator has no colour of its own) | |
 | 34 | OtpInput | done | | |
 | 35 | Canvas | missing | Core Graphics, as Svg (r23); Canvas v2 waits for motion | L |
 
@@ -232,7 +235,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 |---|---|---|
 | List header / footer / empty, `scrollCommand` (r23) | missing | M |
 | `numColumns` / `columnWrapper` (r24) | missing | M |
-| Row `flexWrap` / `alignContent` / `crossGap` (r24; LayoutLab 30–37) | missing | M |
+| Row `flexWrap` / `alignContent` / `crossGap` (r24; LayoutLab 30–37) | done (2026-11-09) | |
 | Scroll onRefresh / refreshing | missing | S |
 | Carousel `itemWidthPercent` (r23) | missing | S |
 | Text `selectable`, `adjustsFontSizeToFit`, `minimumFontScale` (r23) | missing | S |
@@ -439,7 +442,10 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
-| 2026-11-09 | ZeroBill session's zn issues: ImageViewer 3 (`release`), `OsInfo.ios`; registry 23 log and Motion explained | (this commit) |
+| 2026-11-09 | aspectRatio with a "%" side; hidden tabs' Pressables; LayoutLab 93 / 93 | (this commit) |
+| 2026-11-09 | flexWrap on Row (LayoutLab 91 / 91) | 8339821 |
+| 2026-11-09 | Layout foundations: min / max, picture alignment, StatusBar / NavigationBar; LayoutLab 41–44 | a3ec5ed |
+| 2026-11-09 | ZeroBill session's zn issues: ImageViewer 3 (`release`), `OsInfo.ios`; registry 23 log and Motion explained | d1875c7 |
 | 2026-11-09 | Updates "OTA off" and Tasks modules for ZeroBill's bundle; A15 | 9290731 |
 | 2026-11-09 | milestones-ios.md | 1a62100 |
 | 2026-11-09 | Phase 1c: Splash hold, Sheet animateIn, error screen; JS time limit as Android | 646b042 |

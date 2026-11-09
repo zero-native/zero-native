@@ -43,6 +43,11 @@ final class ZnNodeSpec {
     /// Padding / margin props whose value changes at runtime (a slot), prop id → slot: `paddingTop: insets().top + 32`.
     let edgeSlots: [Int: Int]
     let gap: CGFloat
+    /// RN flexWrap "wrap" on a Row (registry 24): ZnWrapLayout. alignContent with justifyContent's numbers (-1 = start);
+    /// crossGap is the gap between lines (rowGap; unset = gap).
+    let flexWrap: Bool
+    let alignContent: Int
+    let crossGap: CGFloat?
     let justify: Int
     let alignItems: Int
     let absolute: Bool
@@ -216,6 +221,12 @@ final class ZnNodeSpec {
     let animationType: Int
     let statusBarTranslucent: Bool
     let navigationBarTranslucent: Bool
+    // StatusBar / NavigationBar (registry 15)
+    let barStyle: Int
+    let barStyleSlot: Int
+    let hidden: Bool
+    let hasHiddenProp: Bool
+    let hiddenSlot: Int
     let onShow: Int
     let detents: [String]
     let dismissible: Bool
@@ -300,6 +311,9 @@ final class ZnNodeSpec {
         edgeSlots = slots
         padding = edges(P.padding, P.paddingHorizontal, P.paddingVertical, P.paddingStart, P.paddingTop, P.paddingEnd, P.paddingBottom)
         gap = num(P.gap) ?? 0
+        flexWrap = en(P.flexWrap) == Registry.FlexWrap.wrap
+        alignContent = en(P.alignContent)
+        crossGap = num(P.crossGap)
         justify = en(P.justifyContent)
         alignItems = en(P.alignItems)
         absolute = en(P.position) == Registry.Position.absolute
@@ -434,6 +448,11 @@ final class ZnNodeSpec {
         animationType = en(P.animationType)
         statusBarTranslucent = p[P.statusBarTranslucent]?.bool ?? false
         navigationBarTranslucent = p[P.navigationBarTranslucent]?.bool ?? false
+        barStyle = en(P.barStyle)
+        barStyleSlot = slotFor(P.barStyle)
+        hidden = p[P.hidden]?.bool ?? false
+        hasHiddenProp = p[P.hidden] != nil
+        hiddenSlot = slotFor(P.hidden)
         onShow = eventFor(Registry.Event.onShow)
         detents = (p[P.detents]?.string ?? "content").split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { ["content", "half", "full"].contains($0) }

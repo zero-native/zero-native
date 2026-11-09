@@ -8,6 +8,7 @@
 //   bun run tools/ios-sample.ts --link zn://sample/pay/m7    start as if this link opened the app
 //   bun run tools/ios-sample.ts --build-only
 //   bun run tools/ios-sample.ts --splash-hold 4000     keep a launch-screen cover until JS is ready, at most 4 s (ZnSplash)
+//   bun run tools/ios-sample.ts --device "zn iPhone 16 B"  another simulator (default: the booted one; name or UDID)
 //   bun run tools/ios-sample.ts --no-symbols           don't upload the dSYM to Crashlytics (it does when Firebase is on)
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -19,6 +20,9 @@ const opt = (name: string) => {
   const i = args.indexOf(name)
   return i >= 0 ? args[i + 1] : undefined
 }
+
+/** The simulator: --device (a name or UDID), else "booted" (ambiguous when two are booted). */
+const device = opt("--device") ?? "booted"
 
 function must(cmd: string[], quietFilter?: RegExp) {
   const p = Bun.spawnSync(cmd, { stdout: quietFilter ? "pipe" : "inherit", stderr: quietFilter ? "pipe" : "inherit" })
@@ -52,7 +56,7 @@ if (!args.includes("--no-symbols") && existsSync(uploadSymbols) && existsSync(pl
 if (args.includes("--build-only")) process.exit(0)
 
 const app = join(buildDir, "Debug-iphonesimulator/ZnSample.app")
-must(["xcrun", "simctl", "install", "booted", app])
+must(["xcrun", "simctl", "install", device, app])
 const env: Record<string, string> = { ...process.env } as Record<string, string>
 if (args.includes("--count")) env.SIMCTL_CHILD_ZN_COUNT_BODIES = "1"
 // i.1c switches (ios/ZnRuntime/Swift/ZnImpl.swift): ZN_IOS_PRESS=swiftui bun run tools/ios-sample.ts
@@ -67,6 +71,6 @@ if (opt("--params")) env.SIMCTL_CHILD_ZN_PARAMS = opt("--params")!
 if (opt("--splash-hold")) env.SIMCTL_CHILD_ZN_SPLASH_HOLD_MS = opt("--splash-hold")!
 if (opt("--link")) env.SIMCTL_CHILD_ZN_LINK = opt("--link")! // a cold start by this link (zn://sample/...)
 // Attached to the console: the app's prints show here until it exits (Ctrl-C stops watching).
-const p = Bun.spawn(["xcrun", "simctl", "launch", "--console-pty", "--terminate-running-process", "booted",
+const p = Bun.spawn(["xcrun", "simctl", "launch", "--console-pty", "--terminate-running-process", device,
   "dev.zeronative.sample"], { stdout: "inherit", stderr: "inherit", env })
 process.exit(await p.exited)

@@ -96,6 +96,18 @@ const EXPECT: Record<string, Frame> = {
   c39a: [0, 0, 50, 20], c39b: [50, 0, 50, 20],
   // 40. RN two columns: "48%" + "48%", space-between, padding 10 (content 180): 86.4 wide each, at 10 and 103.6.
   c40a: [10, 10, 86.4, 20], c40b: [103.6, 10, 86.4, 20],
+  // 41–44. min / max on a child sized by its content (2026-11-09: iOS grew a maxWidth child to its max).
+  // 41. maxWidth only caps: a 60 wide child in a maxWidth 150 box keeps 60; the next one follows at 60.
+  c41a: [0, 0, 60, 10], c41b: [60, 0, 40, 10],
+  // 42. minWidth only raises: a 30 wide child in a minWidth 80 box makes it 80.
+  c42a: [0, 0, 80, 10], c42b: [80, 0, 40, 10],
+  // 43. maxWidth caps a box whose content is wider (160 in a maxWidth 120 box, in a Column that doesn't stretch).
+  c43a: [0, 0, 120, 10],
+  // 44. ZeroBill's Offer Details pills: space-between, a maxWidth 190 box with 60 of content and a 100 wide box.
+  c44a: [0, 0, 60, 10], c44b: [100, 0, 100, 10],
+  // 45. ZeroBill's scanner window: width "75%" + aspectRatio 1 in a centring Column 200 wide; an absolute child at its
+  // bottom end (iOS drew the box 0 tall, 2026-11-09).
+  c45a: [25, 0, 150, 150], c45b: [130, 140, 20, 10],
 }
 
 const TOLERANCE = 1
@@ -405,6 +417,44 @@ export function LayoutLabScreen() {
             <Box testID="c40a" onLayout={L("c40a")} style={{ width: "48%", height: 20, backgroundColor: A }} />
             <Box testID="c40b" onLayout={L("c40b")} style={{ width: "48%", height: 20, backgroundColor: B }} />
           </Row>
+        </Case>
+        <Case title="41. maxWidth only caps">
+          <Row style={{ width: 200, backgroundColor: BG }}>
+            <Box testID="c41a" onLayout={L("c41a")} style={{ maxWidth: 150, backgroundColor: A }}>
+              <Box style={{ width: 60, height: 10 }} />
+            </Box>
+            <Box testID="c41b" onLayout={L("c41b")} style={{ width: 40, height: 10, backgroundColor: B }} />
+          </Row>
+        </Case>
+        <Case title="42. minWidth only raises">
+          <Row style={{ width: 200, backgroundColor: BG }}>
+            <Box testID="c42a" onLayout={L("c42a")} style={{ minWidth: 80, backgroundColor: A }}>
+              <Box style={{ width: 30, height: 10 }} />
+            </Box>
+            <Box testID="c42b" onLayout={L("c42b")} style={{ width: 40, height: 10, backgroundColor: B }} />
+          </Row>
+        </Case>
+        <Case title="43. maxWidth caps wider content">
+          <Column alignItems="flex-start" style={{ width: 200, backgroundColor: BG }}>
+            <Box testID="c43a" onLayout={L("c43a")} style={{ maxWidth: 120, overflow: "hidden", backgroundColor: A }}>
+              <Box style={{ width: 160, height: 10 }} />
+            </Box>
+          </Column>
+        </Case>
+        <Case title="44. space-between with a maxWidth pill">
+          <Row justifyContent="space-between" style={{ width: 200, backgroundColor: BG }}>
+            <Box testID="c44a" onLayout={L("c44a")} style={{ maxWidth: 190, backgroundColor: A }}>
+              <Box style={{ width: 60, height: 10 }} />
+            </Box>
+            <Box testID="c44b" onLayout={L("c44b")} style={{ width: 100, height: 10, backgroundColor: B }} />
+          </Row>
+        </Case>
+        <Case title="45. % width + aspectRatio, absolute child">
+          <Column alignItems="center" style={{ width: 200, backgroundColor: BG }}>
+            <Stack testID="c45a" onLayout={L("c45a")} style={{ width: "75%", aspectRatio: 1, backgroundColor: A }}>
+              <Box testID="c45b" onLayout={L("c45b")} style={{ position: "absolute", bottom: 0, end: 0, width: 20, height: 10, backgroundColor: B }} />
+            </Stack>
+          </Column>
         </Case>
         <Case title="36. wrap: alignItems stretch">
           <Row alignItems="stretch" style={{ width: 200, flexWrap: "wrap", backgroundColor: BG }}>
