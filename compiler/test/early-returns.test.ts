@@ -40,6 +40,34 @@ describe("H2: Early returns in components", () => {
     expect(roots["Card__after1"].traps).toHaveLength(0)
   })
 
+  test("the tail component's template id goes through ctx.ref, so the app build can fill in the final id", () => {
+    // Before 2026-11-10 it wrote the raw reservation number, which depends on Bun's load order: the same code gave
+    // different bytecode from one build to the next (a later line set the right id, so phones were fine).
+    const ctx = {
+      reserveTemplate: (() => {
+        let n = 0
+        return () => n++
+      })(),
+      defineTemplate: () => {},
+      ref: (id: number) => `__ID${id}__`,
+    }
+    const { code } = compileModule(
+      `
+      import { Text, Column } from "@zero-native/ui"
+      export function Card(props: { loading: () => boolean }) {
+        if (props.loading()) return <Text>Loading...</Text>
+        return <Column><Text>Done</Text></Column>
+      }
+    `,
+      "test.tsx",
+      ctx,
+      new Map(),
+    )
+    const lines = code.split("\n").filter((l) => l.includes("Card__after1.__zt"))
+    expect(lines.length).toBeGreaterThan(0)
+    for (const l of lines) expect(l).toMatch(/Card__after1\.__zt = __ID\d+__;/)
+  })
+
   test("two consecutive guards become nested ternary in source order", () => {
     const { code, roots } = compile(`
       import { Text } from "@zero-native/ui"

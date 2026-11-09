@@ -1203,7 +1203,7 @@ export function compileModule(
 
       const unpackLines = Array.from(capturedLocals).map((k) => `const ${k} = __znProps[${JSON.stringify(k)}];`).join("\n  ")
       const tailBodyStmts = tailStmtsBeforeReturn.map((s) => text(s)).join("\n  ")
-      const tailFnCode = `\nfunction ${tailName}(__znProps: any) {\n  ${unpackLines}\n  ${tailBodyStmts}\n  return ${tailCompiled.code};\n}\n${tailName}.__zt = ${tailTemplateId};\n`
+      const tailFnCode = `\nfunction ${tailName}(__znProps: any) {\n  ${unpackLines}\n  ${tailBodyStmts}\n  return ${tailCompiled.code};\n}\n${tailName}.__zt = ${ref(tailTemplateId)};\n`
       edits.push({
         start: fn.getEnd(),
         end: fn.getEnd(),
