@@ -18,6 +18,69 @@ import UIKit
 @Observable
 final class ZnPressState {
     var pressed = false
+    /// Where the finger went down, in the Pressable's own space (the ripple starts there).
+    var touch: CGPoint?
+}
+
+/// Pressable's press feedback, as Android's ZnRipple / ZnHighlight (ZnAnimation.kt), drawn over the content and inside
+/// the node's shape. ripple (the default): a circle from the finger, black at 12 % (a `rippleColor` at 24 %;
+/// `rippleOpacity` wins), growing to cover the node in ~225 ms and fading ~150 ms after the finger leaves (Material's
+/// timings); `rippleBorderless`: not clipped, `rippleRadius` its size. highlight: a flat overlay while pressed.
+struct ZnPressFeedback: View {
+    let s: ZnNodeSpec
+    let state: ZnPressState
+    @State private var origin: CGPoint = .zero
+    @State private var grown = false
+    @State private var shown = false
+    @State private var downAt = Date.distantPast
+
+    var body: some View {
+        switch s.pressFeedback {
+        case Registry.PressFeedback.none:
+            EmptyView()
+        case Registry.PressFeedback.highlight:
+            s.shape.fill(s.highlightColor).opacity(state.pressed ? 1 : 0).allowsHitTesting(false)
+        default:
+            GeometryReader { geo in
+                let size = geo.size
+                // To the farthest corner: the circle covers the node wherever the finger was.
+                let far = [CGPoint.zero, CGPoint(x: size.width, y: 0), CGPoint(x: 0, y: size.height), CGPoint(x: size.width, y: size.height)]
+                    .map { hypot($0.x - origin.x, $0.y - origin.y) }.max() ?? 0
+                let r = s.rippleRadius ?? (s.rippleBorderless ? max(size.width, size.height) / 2 : far)
+                let alpha = s.rippleOpacity ?? (s.rippleColor == nil ? 0.12 : 0.24)
+                Circle()
+                    .fill(s.rippleColor ?? .black)
+                    .frame(width: r * 2, height: r * 2)
+                    .scaleEffect(grown ? 1 : 0.2)
+                    .position(origin)
+                    .opacity(shown ? alpha : 0)
+            }
+            .modifier(ZnRippleClip(clip: !s.rippleBorderless, shape: s.shape))
+            .allowsHitTesting(false)
+            .onChange(of: state.pressed) { _, pressed in
+                if pressed {
+                    origin = state.touch ?? .zero
+                    downAt = Date()
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { grown = false; shown = true }
+                    withAnimation(.easeOut(duration: 0.225)) { grown = true }
+                } else {
+                    // A quick tap still shows the ripple grow a little before it fades.
+                    let wait = max(0, 0.1 - Date().timeIntervalSince(downAt))
+                    withAnimation(.easeOut(duration: 0.15).delay(wait)) { shown = false }
+                }
+            }
+        }
+    }
+}
+
+private struct ZnRippleClip: ViewModifier {
+    let clip: Bool
+    let shape: UnevenRoundedRectangle
+    func body(content: Content) -> some View {
+        if clip { content.clipShape(shape) } else { content }
+    }
 }
 
 struct ZnPressable<Label: View>: View {
@@ -42,6 +105,7 @@ struct ZnPressable<Label: View>: View {
             .disabled(disabled)
         case .uiKit:
             label()
+                .overlay { ZnPressFeedback(s: s, state: state) }
                 .scaleEffect(state.pressed ? s.pressScale : 1)
                 .opacity(state.pressed ? s.pressOpacity : 1)
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
@@ -81,9 +145,12 @@ struct ZnTouchTarget: UIViewRepresentable {
         c.repeatDelay = s.onPressRepeat != 0 ? s.repeatDelayMs / 1000 : nil
         c.repeatInterval = s.repeatIntervalMs / 1000
         c.longPressOn = { s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false)) }
-        c.onEvent = { kind, payload in
+        c.onEvent = { [weak c] kind, payload in
             switch kind {
-            case .down: state.pressed = true; if s.onPressIn != 0 { ctx.send(inst.id, s.onPressIn, .none) }
+            case .down:
+                state.touch = c?.lastDown
+                state.pressed = true
+                if s.onPressIn != 0 { ctx.send(inst.id, s.onPressIn, .none) }
             case .out: state.pressed = false; if s.onPressOut != 0 { ctx.send(inst.id, s.onPressOut, payload) }
             case .tap:
                 print("zn t=\(ZnDebug.ms()) tap on \(inst.id).\(s.index)")
@@ -108,6 +175,8 @@ final class ZnTouchControl: UIView {
     private var timer: Timer?
     private var handled = false  // a long press or a repeat fired: no onPress on release
     private var active = false   // between onPressIn and its onPressOut
+    /// Where the last press began, in this view's space (the same as the Pressable's).
+    private(set) var lastDown: CGPoint = .zero
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event), let window else { return nil }
@@ -142,6 +211,7 @@ final class ZnTouchControl: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard isEnabled, !active else { return }
+        lastDown = touches.first?.location(in: self) ?? CGPoint(x: bounds.midX, y: bounds.midY)
         handled = false
         active = true
         if haptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }

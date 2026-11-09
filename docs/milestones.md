@@ -146,6 +146,20 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-09: iOS Phase 1c, press feedback (Claude, Mac)
+- **ZnPress.swift `ZnPressFeedback`**, Android's ZnRipple / ZnHighlight (ZnAnimation.kt, ZnTemplate.kt defaults):
+  `pressFeedback` ripple (default) = a circle from the finger inside the node's shape, black at 12 % (a `rippleColor`
+  at 24 %, `rippleOpacity` wins), growing to the farthest corner in ~225 ms and fading ~150 ms after release (a quick tap
+  still shows it); `rippleBorderless` = not clipped, `rippleRadius` its size; `highlight` = a flat `highlightColor`
+  (black at 10 %) while pressed; `none`. It sits under the press scale / opacity, as Android's indication. Before this,
+  every iOS button without pressScale / pressOpacity showed nothing (ZeroBill: 18 files use pressFeedback).
+- Also: a route named for a dev run (`--route`) now wins over state restoration (the tool's relaunch counts as a
+  system end, so restore had opened the old screen instead).
+- **Checked on the simulator (Press lab, screenshots while the finger is down):** default card grey ripple in its
+  rounded shape; dark button white ripple; icon button borderless 24-point circle.
+- **Not checked:** the ripple's timing against Android side by side (no phone here); Switch / Checkbox ripples
+  (Android has them, iOS doesn't yet).
+
 ### 2026-11-09: iOS Phase 1b, restore after the system ends the app (Claude, Mac)
 - **ZnApp.swift**, as ZnNav.kt saveState / restart: each entry's params and its `restorableSignal` values (NAV RESTORE,
   kind 9) are kept natively; `restorationActivity()` gives the stack (route names, params, values; up to the first

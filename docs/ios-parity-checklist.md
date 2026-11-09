@@ -128,7 +128,7 @@ Only props whose iOS support is missing or partial. Everything else in the regis
 ### Pressable
 | Prop / event | iOS | Size | Note |
 |---|---|---|---|
-| pressFeedback (ripple is the default, highlight, none) + highlightColor | missing | M | Android shows a ripple on every Pressable by default. iOS shows no feedback unless pressScale or pressOpacity is set, so every button in the app looks dead when pressed. highlightColor is read only for Shimmer. |
+| pressFeedback (ripple is the default, highlight, none) + highlightColor | done (simulator) | M | ZnPress.swift ZnPressFeedback, Android's values: ripple from the finger (black 12 %, a rippleColor 24 %, rippleOpacity wins; rippleBorderless / rippleRadius), ~225 ms grow, ~150 ms fade; highlight (highlightColor, black 10 %); none. Inside the node's shape, under the press scale / opacity. |
 | rippleColor, rippleOpacity, rippleBorderless, rippleRadius | missing | S | After the above: draw a ripple, or map it to a highlight on iOS. |
 | disabled at runtime (slot) | partial | S | Bug. `disabledSlot` is read in ZnTemplate.swift but ZnPress.swift uses only the static `s.disabled`. So `disabled={!active()}` (the sample's Pay button, AmountScreen.tsx:288) still sends onPress on iOS. |
 | hitSlop | missing | S | Grow the press view's hit test (`point(inside:)`). |
@@ -383,7 +383,7 @@ the rest is OTA, the Firebase plugins, the other plugins and the tools.
 **Status 2026-11-09:** 1 done (OtpInput, `.oneTimeCode`, runtime `disabled`); 2 done (plugins, native screens and
 views, Launches ack + start / finish); 3 done on the simulator (scanner, camera untested); 4 done on the simulator
 (links and launches by URL; the UPI plugin itself is ZeroBill's, Phase 2); 5 done on the simulator (restore after kill). Of the
-small ones: Tabs done; press feedback, Splash hold, Sheet `animateIn`, the error screen not done (ZeroBill uses
+small ones: Tabs and press feedback done; Splash hold, Sheet `animateIn`, the error screen not done (ZeroBill uses
 `pressFeedback` in 18 files, `animateIn` and Splash once each). Plugins ZeroBill needs: all on iOS but push +
 notifications (Phase 3) and ad-id (answers "unavailable", Android-only by meaning). ZeroBill's own plugins (Upi,
 Truecaller, GoogleSignIn, InAppUpdate, InstallReferrer, LegacyData) are Phase 2.

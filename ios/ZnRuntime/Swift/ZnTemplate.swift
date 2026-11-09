@@ -240,6 +240,14 @@ final class ZnNodeSpec {
     let haptic: Bool
     let pressScale: CGFloat
     let pressOpacity: Double
+    /// Press feedback (ZnTemplate.kt): Registry.PressFeedback ripple (default) / highlight / none; the ripple's colour
+    /// (nil: black), opacity (nil: 12 %, 24 % with a colour), borderless and radius; highlight's colour (black at 10 %).
+    let pressFeedback: Int
+    let rippleColor: Color?
+    let rippleOpacity: Double?
+    let rippleBorderless: Bool
+    let rippleRadius: CGFloat?
+    let highlightColor: Color
 
     // Slots this node reads (-1: none) and its events (0: none)
     let textSlot: Int, colorSlot: Int, backgroundSlot: Int, opacitySlot: Int, visibleSlot: Int, disabledSlot: Int, srcSlot: Int
@@ -445,6 +453,12 @@ final class ZnNodeSpec {
         haptic = p[P.haptic]?.bool ?? false
         pressScale = num(P.pressScale) ?? 1
         pressOpacity = Double(num(P.pressOpacity) ?? 1)
+        pressFeedback = en(P.pressFeedback) ?? Registry.PressFeedback.ripple
+        rippleColor = znColor(p[P.rippleColor])
+        rippleOpacity = num(P.rippleOpacity).map { min(max(Double($0), 0), 1) }
+        rippleBorderless = p[P.rippleBorderless]?.bool ?? false
+        rippleRadius = num(P.rippleRadius)
+        highlightColor = znColor(p[P.highlightColor]) ?? Color.black.opacity(0.1)
 
         textSlot = slotFor(P.text); colorSlot = slotFor(P.color); backgroundSlot = slotFor(P.backgroundColor)
         opacitySlot = slotFor(P.opacity); visibleSlot = slotFor(P.visible); disabledSlot = slotFor(P.disabled)

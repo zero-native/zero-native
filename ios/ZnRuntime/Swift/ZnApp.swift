@@ -260,7 +260,7 @@ final class ZnApp {
     /// [routeName] nil: the app's start route (path "/"), with [link]'s screen on top when a link started the app (as
     /// Android's ZnNav). A route name (the sample's ZN_ROUTE, debug) opens that route alone.
     /// [restoring]: the scene's `stateRestorationActivity` (restorationActivity's): iOS gives it back only after it ended
-    /// the app itself, never after the user closed it, as Android's saved state. It wins over [link].
+    /// the app itself, never after the user closed it, as Android's saved state. It wins over [link], not over [routeName].
     func start(bundle: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil) {
         bundleURL = bundle
         do {
@@ -278,7 +278,7 @@ final class ZnApp {
             // The first screens: (route, params JSON, link, restorableSignal values JSON).
             var first: [(Int, String, String?, String?)] = []
             var unmatched: URL?
-            if let saved = Self.saved(restoring, routes) {
+            if routeName == nil, let saved = Self.saved(restoring, routes) {  // a route named for a dev run wins
                 print("zn: nav: iOS restored the app; reopening \(saved.count) screen(s): \(saved.map { routes[$0.0].name })")
                 first = saved
             } else if let routeName {
