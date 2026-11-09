@@ -68,8 +68,6 @@ object ZnOta {
     private const val MAX_CHECK_ANSWER = 256 * 1024L
     /** The download has no total limit, so a slow one that still moves is fine. This is the longest gap between bytes. */
     private const val DOWNLOAD_IDLE_TIMEOUT_MS = 60_000L
-    /** Two automatic checks are at least this far apart, whatever [Config.checkIntervalMs] says. */
-    private const val MIN_CHECK_GAP_MS = 10_000L
 
     class Config(
         /** The update server's base URL (the reference server: `bun run ota serve`). */
@@ -80,10 +78,15 @@ object ZnOta {
         val publicKeys: List<String>,
         /**
          * Least time between two automatic checks (on returning to the foreground). 0: a check on every return (an
-         * app whose store update rules must reach phones at once). Never two within [MIN_CHECK_GAP_MS], so the launch
-         * gate's check at a cold start counts as that start's check.
+         * app whose store update rules must reach phones at once), at most one per [minCheckGapMs].
          */
         val checkIntervalMs: Long = 5 * 60_000L,
+        /**
+         * Two automatic checks are never closer than this, whatever [checkIntervalMs] says: the launch gate's check at
+         * a cold start counts as that start's check, and a quick back-and-forth (a UPI app that closes in 2 s) makes
+         * one call. 0: no floor, the app's [checkIntervalMs] alone decides (a cold start then makes two calls).
+         */
+        val minCheckGapMs: Long = 5_000L,
         /** Wait after the app comes on screen before the first check, so startup is never slowed. */
         val firstCheckDelayMs: Long = 3_000L,
         /**
@@ -219,7 +222,7 @@ object ZnOta {
     private fun maybeAutoCheck() {
         val c = config ?: return
         val now = SystemClock.elapsedRealtime()
-        if (checkQueued || (lastAutoCheck != 0L && now - lastAutoCheck < maxOf(c.checkIntervalMs, MIN_CHECK_GAP_MS))) return
+        if (checkQueued || (lastAutoCheck != 0L && now - lastAutoCheck < maxOf(c.checkIntervalMs, c.minCheckGapMs))) return
         lastAutoCheck = now
         checkQueued = true
         // A few seconds after the app comes on screen: never in the way of startup or of the screen opening.

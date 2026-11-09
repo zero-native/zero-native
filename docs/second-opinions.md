@@ -3219,6 +3219,8 @@ change, and what evidence would make you change it?"
   the automatic check; with 0 and no floor every cold start would make two calls. A quick back-and-forth (UPI app
   closes in 2 s) also makes one call, not two.
 - **Not chosen:** a separate "first start" flag. The floor covers both cases with one rule.
+- **Changed the same day (Pavan: "allow override ... let it be 5s"):** the floor is `Config.minCheckGapMs`, 5 s by
+  default. ZeroBill sets 0 (any return checks), and so takes the second call at a cold start.
 
 ## 218. Release builds ship every CPU type, 32-bit ARM included (runtime + ZeroBill, 2026-11-10; Opus, Pavan's ask)
 - **Chosen:** release builds `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` (`-PznArm64Only` for a quick local build).

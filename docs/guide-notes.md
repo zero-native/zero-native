@@ -2897,6 +2897,8 @@ onAppState((s) => s === "active" && engine.onActive())
 - **Do** pick how often native checks on a return: `ZnOta.Config(checkIntervalMs = 0)` checks on every return (a
   forced rule reaches the user the next time they open the app), the default at most every 5 min. **Why:** the store
   answer is only as fresh as the last check. Saving a store rule also sends the "check now" push.
+  Two automatic checks are never closer than `minCheckGapMs` (5 s by default); 0 removes that floor too, and a cold
+  start then makes two calls (the launch gate's and the return's).
 - **Do** write store rules for the right channel on the dashboard (Store page). **Why:** rules are per channel since
   2026-11-10; a staging rule never reaches production phones.
 - **Do** call `AppUpdates.setBusy(true)` while a payment or a form is open, and `false` after (again on every return).
