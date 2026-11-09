@@ -2,8 +2,10 @@ package dev.zeronative.plugins.appupdates
 
 import android.app.Activity
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
-import com.google.android.gms.tasks.Tasks
+import java.util.concurrent.atomic.AtomicBoolean
 import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
@@ -51,6 +53,7 @@ internal class AppUpdatesHelper(
 ) : InstallStateUpdatedListener {
 
     private val appUpdateManager = AppUpdateManagerFactory.create(activity)
+    private val main = Handler(Looper.getMainLooper())
 
     init {
         appUpdateManager.registerListener(this)
@@ -60,6 +63,8 @@ internal class AppUpdatesHelper(
 
     companion object {
         private const val TAG = "zn-app-updates"
+        /** [availability] answers "no update" when Play hasn't answered by then. JS waits a little longer (rules.ts). */
+        const val PLAY_WAIT_MS = 10_000L
         private const val PREFS = "app_updates"
 
         private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -171,23 +176,52 @@ internal class AppUpdatesHelper(
         }
     }
 
-    /** Blocks until Play answers: call it off the main thread. Any failure answers "no update". */
-    fun availability(): PlayAvailability {
+    /**
+     * Asks Play without waiting on any thread. [answer] runs once: with Play's answer, with "no update" on an error, or
+     * with "no update" after [PLAY_WAIT_MS] if Play hasn't answered (a late answer is then ignored).
+     * Never `Tasks.await` here: on zero-native's shared call pool (2 threads) a Play answer that doesn't come holds a
+     * thread for good, and two of them stop every fetch in the app (docs/http-stall-investigation.md, F2).
+     */
+    fun availability(answer: (PlayAvailability) -> Unit) {
+        val none = PlayAvailability(false, 0, false, false, null)
+        val done = AtomicBoolean(false)
+        val timeout = Runnable {
+            if (done.compareAndSet(false, true)) {
+                Log.w(TAG, "no answer from Play in $PLAY_WAIT_MS ms; answering no update")
+                answer(none)
+            }
+        }
+        fun finish(a: PlayAvailability) {
+            if (!done.compareAndSet(false, true)) {
+                Log.w(TAG, "Play answered after the time limit; ignored")
+                return
+            }
+            main.removeCallbacks(timeout)
+            answer(a)
+        }
+        main.postDelayed(timeout, PLAY_WAIT_MS)
         try {
-            val info = Tasks.await(appUpdateManager.appUpdateInfo)
-            // Clear a pending forced-update request only when Play answers "no update" (RN hardening F10): a failed
-            // check (offline) must not clear it, or the forced update is not opened again
-            if (info.updateAvailability() == UpdateAvailability.UPDATE_NOT_AVAILABLE) setRequestPending(activity, false)
-            return PlayAvailability(
-                available = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE,
-                versionCode = info.availableVersionCode(),
-                immediateAllowed = info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE),
-                flexibleAllowed = info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE),
-                stalenessDays = info.clientVersionStalenessDays(),
-            )
+            appUpdateManager.appUpdateInfo.addOnSuccessListener { info ->
+                val read = ignoreError(TAG) {
+                    // Clear a pending forced-update request only when Play answers "no update" (RN hardening F10): a
+                    // failed check (offline) must not clear it, or the forced update is not opened again
+                    if (info.updateAvailability() == UpdateAvailability.UPDATE_NOT_AVAILABLE) setRequestPending(activity, false)
+                    PlayAvailability(
+                        available = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE,
+                        versionCode = info.availableVersionCode(),
+                        immediateAllowed = info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE),
+                        flexibleAllowed = info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE),
+                        stalenessDays = info.clientVersionStalenessDays(),
+                    )
+                }
+                finish(read ?: none)
+            }.addOnFailureListener {
+                Log.w(TAG, "could not ask Play for an update", it)
+                finish(none)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "could not ask Play for an update", e)
-            return PlayAvailability(false, 0, false, false, null)
+            finish(none)
         }
     }
 

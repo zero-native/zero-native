@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import {
   CHECK_DELAY_MS,
+  PLAY_ANSWER_LIMIT_MS,
   WAIT_RECHECK_MS,
   createAppUpdateEngine,
   type AppUpdateDeps,
@@ -272,4 +273,35 @@ test("ready is awaited before the store is asked", async () => {
   open()
   await p
   expect(t.calls).toEqual(["source"])
+})
+
+test("Play never answers: the check ends after the limit, opens nothing, and the next check asks Play again", async () => {
+  let asked = 0
+  const t = setup({
+    answer: answer(forced),
+    play: {
+      isAvailable: () => {
+        asked++
+        return new Promise<never>(() => {})
+      },
+      start: async () => {
+        throw new Error("must not start")
+      },
+      complete: async () => null,
+    },
+  })
+  let ended = false
+  const first = t.engine.check().then(() => (ended = true))
+  await t.advance(0) // the check reaches Play
+  await t.advance(PLAY_ANSWER_LIMIT_MS - 1)
+  expect(ended).toBe(false)
+  await t.advance(1)
+  await first
+  expect(t.pending()).toBe(0)
+  // Before the limit, `running` stayed true for good: no later check reached Play
+  const second = t.engine.check()
+  await t.advance(0)
+  await t.advance(PLAY_ANSWER_LIMIT_MS)
+  await second
+  expect(asked).toBe(2)
 })

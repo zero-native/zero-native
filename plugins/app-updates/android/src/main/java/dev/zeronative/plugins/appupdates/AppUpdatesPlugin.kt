@@ -68,19 +68,22 @@ class AppUpdatesModule(private val context: Context) : ZnModuleBase("AppUpdates"
 
         function("isUpdateAvailable") { call ->
             val activity = ZnActivity.current ?: return@function call.resolve(JSONObject().put("available", false).put("versionCode", 0))
-            val a = try {
-                helperFor(activity).availability()
+            val send = { a: PlayAvailability ->
+                val out = JSONObject()
+                    .put("available", a.available)
+                    .put("versionCode", a.versionCode)
+                    .put("immediateAllowed", a.immediateAllowed)
+                    .put("flexibleAllowed", a.flexibleAllowed)
+                a.stalenessDays?.let { out.put("stalenessDays", it) }
+                call.resolve(out)
+            }
+            // Answers from Play's listener or the helper's time limit: no zero-native call thread waits for Play
+            try {
+                helperFor(activity).availability(send)
             } catch (e: Throwable) {
                 Log.w(TAG, "isUpdateAvailable failed", e)
-                PlayAvailability(false, 0, false, false, null)
+                send(PlayAvailability(false, 0, false, false, null))
             }
-            val out = JSONObject()
-                .put("available", a.available)
-                .put("versionCode", a.versionCode)
-                .put("immediateAllowed", a.immediateAllowed)
-                .put("flexibleAllowed", a.flexibleAllowed)
-            a.stalenessDays?.let { out.put("stalenessDays", it) }
-            call.resolve(out)
         }
 
         function("start", onMain = true) { call ->

@@ -11,7 +11,8 @@ forever. Two such waits (or one plus any other slow native call) and **no native
 `Os.info`, nothing. The UI keeps working (taps and screens don't use the pool). Only a new process frees the threads.
 The pool part is reproduced on the emulator; the "Play never answers" part is reasoned, not seen.
 
-Status: nothing in networking or the app was changed. Added: a lab screen in the sample, a driver script, this report.
+Status (2026-11-09, later): fixes 1-4 of section 3 are built and checked on the emulator, waiting for Pavan's review
+before commit (section 5). Fixes 5 and 6 are not done.
 
 ## 1. Findings
 
@@ -141,6 +142,19 @@ bun run tools/repro/http-stall.ts net --apk C:/work/zero-native/android/sample/b
 
 With a hold that never ends (a Play task that never completes), the third and fifth rows never finish.
 
+After fix 3 (fetch on its own thread), same run, same emulator:
+
+| case | before | after |
+|---|---|---|
+| 2 threads held 6 s, fetch | 5737 ms | **15 ms** |
+| 2 threads held, `Device.info` | 5712 ms | 5701 ms (still on the pool, as expected) |
+| 2 threads held, `fetch({ timeout: 2000 })` | 5735 ms, timeout never fired | **19 ms** |
+| 2 threads held, `fetch` with `AbortSignal.timeout(2000)` | TimeoutError at 2002 ms | **16 ms**, answered |
+
+And the watch (fix 4) logged each hold, for example
+`W/zn: native call Device.slowEcho has held a call thread for 5009 ms, and 1 other native calls wait for a thread...`
+and `... gave its call thread back after 6019 ms`.
+
 ### Network changes (emulator)
 
 A fetch every 3 s to `https://www.gstatic.com/generate_204` (HTTP/2) and to the local server (through `adb reverse`),
@@ -212,3 +226,56 @@ Today, on a release build (Play or the staging APK), there is no way to see the 
   each `zn-call` thread. Both threads inside `Tasks.await` (or another wait) confirms F1 + F2.
 - Also worth noting when it happens: was a Play build newer than the phone's out at that time (F2 only runs then), and
   was the app reopened from the launcher or did an OTA apply happen earlier in the same process.
+
+## 5. What was built (2026-11-09, Pavan's go: "if all of them are very serious ... sure")
+
+| fix | where | what |
+|---|---|---|
+| 1 | ZeroBill `plugins/in-app-update` (InAppUpdateHelper.kt, InAppUpdatePlugin.kt) | Play's answer comes from its listener; "no update" after 10 s; no `Tasks.await` |
+| 1 | ZeroBill `src/system/appUpdate.ts` + test | Play's answer counts as none after 15 s, so `running` can't stay true |
+| 2 | zero-native `plugins/app-updates` (AppUpdatesHelper.kt, AppUpdatesPlugin.kt, src/rules.ts + test) | the same |
+| 3 | zero-native `ZnModules.kt` | `Fetch.send` on its own thread (`zn-fetch`). WebSocket already had its own thread |
+| 4 | zero-native `ZnModules.kt` (`ZnSlowCalls`) + `ZnSlowCallsTest` | logs a pool call that holds its thread over 5 s, with the queue length, and when it ends |
+
+Docs: guide-notes §90 (module functions must never wait on the pool), second-opinions 221.
+
+Not done: fix 5 (a JS timer for fetch's `timeout`: with fetch off the pool it matters much less) and fix 6 (a limit on
+ZeroBill's `sessionReady`: needs Pavan's call). Not built: an app hook to send the watch's lines to Crashlytics.
+
+## 6. Follow-up: are images loaded one by one? (Pavan, 2026-11-09)
+
+Lab: sample `/dev/image-par` ([CallPoolLab.tsx](../examples/sample/src/CallPoolLab.tsx)), 21 images from one host as
+the offers tab lays them out (a row of 6 on screen, a `Scroll horizontal` rail of 10, a `Carousel` of 5). The local
+server answers each after 2 s and counts how many it serves at once. `bun run tools/repro/http-stall.ts images`.
+
+Result (emulator, sample debug build):
+- **Parallel, 10 at a time per host.** The first 10 requests started within 13 ms of each other and all ended at 2.6 s.
+  The 11th (rail3, on screen) waited for a free slot and loaded at 4.6 s. That is the dispatcher's 10-per-host limit
+  ([ZnFetch.kt:239](../android/runtime/src/main/java/dev/zeronative/runtime/ZnFetch.kt:239)); images use the same
+  OkHttp client and dispatcher as fetch (`useForImages`).
+- **Only what is on screen is loaded.** Rail items 4-10 and banners 3-5 were never requested in 30 s: `Scroll
+  horizontal` and `Carousel` load a picture when it comes into view. So scrolling an offers rail shows each new card
+  with its shimmer and then its picture: on a slow image host this looks like "one after another", but it isn't.
+- Not related to the pool stall: images load in Compose (Coil), never through JS or the native call pool.
+
+Found on the way (not changed, needs Pavan's go): **merchant icons come from the API host**
+(`merchantIcon`: `api.example.com/merchants/icon?mid=...`, ZB `app/src/services.ts:568`). Images and fetch share the
+dispatcher, so up to 10 icon loads count against the same 10-per-host limit as API calls, payment verify included. A
+screen full of merchant icons on a slow icon endpoint makes the next API call wait for a slot (each icon is bounded by
+the 30 s image read limit). Offer pictures are on `storage.googleapis.com`, a separate host, so they don't compete.
+Fix options: (a) images get a dispatcher of their own in `useForImages` (for example 6 per host), so they never take
+fetch's slots; (b) raise fetch's per-host limit. (a) is my pick: it keeps payments apart from pictures. Risk: low; a
+network change still rebuilds the image client (`derived`).
+
+**Built (Pavan's go, 2026-11-09): option (a), 10 per host.** `ZnFetch.useForImages` gives the image client its own
+`Dispatcher` (`imageDispatcher`, `IMAGE_MAX_PER_HOST = 10`). Measured in the image lab, a fetch to the same host while
+images load:
+
+| build | fetch waited | images at once | 11th on-screen image |
+|---|---|---|---|
+| before (shared dispatcher) | 1973 ms | 10 | 4.6 s (first image-lab run) |
+| own dispatcher, 6 per host | 67 ms | 6 | 4.5 s (two rounds) |
+| **own dispatcher, 10 per host (kept)** | **207 ms** | 10 | 4.5 s |
+
+(207 ms includes opening a new connection on the emulator; the local server answers in ~10 ms.) Second-opinions 222,
+guide-notes §89.

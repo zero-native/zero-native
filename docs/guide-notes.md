@@ -2945,3 +2945,19 @@ connection pool (same settings, interceptors and dispatcher). Calls already runn
   a lifted block sent nothing and the app's offline screen stayed.
 - **Know:** `Image` and the image viewer load through `ZnFetch.client` (30 s read limit), so the app's pins and
   interceptors apply to images too. An app that sets its own Coil `SingletonImageLoader` before `ZnRuntime.start` keeps it.
+- **Know:** images wait in a queue of their own (10 at once per host), not in fetch's (also 10 per host). Before
+  2026-11-09 they shared fetch's: a screen of merchant icons from the API host made an API call wait 2 s for a slot.
+
+## 90. Native module functions must never wait on the call pool (runtime, 2026-11-09)
+Module functions that aren't `onMain` run on one shared pool of 2 threads (`ZnModules.io`). `fetch` has its own thread
+since 2026-11-09; every other module call (Os, SecureStore, Updates, NetInfo, all plugins) still shares the pool.
+- **Do** answer from a listener (`task.addOnCompleteListener { call.resolve(...) }`) or hand long work to a thread of
+  your own, as AdId, Media, Pdf and WebSocket do. Give anything that waits on another app or service (Play, Google
+  Play services, a system service) a time limit of your own, and answer once (an `AtomicBoolean`: first answer wins).
+- **Don't** call `Tasks.await(...)`, `future.get()`, `latch.await()` with no limit, or a blocking network call on the
+  pool. **Why:** a Play call with no time limit held a pool thread for good; two of them stopped every native call of
+  the app, fetch included, until the user swiped the app away (ZeroBill, docs/http-stall-investigation.md).
+- **Know:** a call that holds a pool thread over 5 s is logged once (`adb logcat -s zn`, "has held a call thread"),
+  with how many calls wait behind it, and again when it ends. Nothing is stopped.
+- **Know:** a fetch's `timeout` starts when `Fetch.send` runs on its thread, not when JS called it. For a limit that
+  covers everything from the JS side, also pass an `AbortSignal` (ZeroBill's request client does).

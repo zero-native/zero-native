@@ -164,6 +164,18 @@ object ZnFetch : ZnModuleBase("Fetch") {
 
     /** No idle limit on [client] (each fetch sets its own): an image that stops arriving must still end. */
     private const val IMAGE_READ_TIMEOUT_S = 30L
+    /**
+     * Images loaded at once from one host: 10, as before they had a queue of their own (with 6, 5 of the 11 pictures on
+     * the lab's screen waited for a second round; with 10, one). Fetch keeps its own 10 per host.
+     */
+    internal const val IMAGE_MAX_PER_HOST = 10
+
+    /**
+     * Images wait in a queue of their own, not in fetch's: a screen of pictures from the API host (ZeroBill's merchant
+     * icons) took all 10 of fetch's slots for that host, and an API call (a payment verify too) waited for one, 2 s in
+     * the sample's image lab (docs/http-stall-investigation.md §6). One for the whole process: kept across network changes.
+     */
+    private val imageDispatcher = Dispatcher().apply { maxRequestsPerHost = IMAGE_MAX_PER_HOST }
 
     /**
      * Coil's shared image loader (Image, the image viewer) on [client], read for each call: the same fresh pool after a
@@ -173,7 +185,7 @@ object ZnFetch : ZnModuleBase("Fetch") {
      */
     internal fun useForImages() {
         val calls = okhttp3.Call.Factory { request ->
-            derived("zn.images") { it.readTimeout(IMAGE_READ_TIMEOUT_S, TimeUnit.SECONDS) }.newCall(request)
+            derived("zn.images") { it.readTimeout(IMAGE_READ_TIMEOUT_S, TimeUnit.SECONDS).dispatcher(imageDispatcher) }.newCall(request)
         }
         coil3.SingletonImageLoader.setSafe { context ->
             coil3.ImageLoader.Builder(context)

@@ -2,9 +2,14 @@ package dev.zeronative.runtime
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 
 /**
@@ -150,7 +155,23 @@ object ZnModules {
     private val active = ConcurrentHashMap<Int, CallImpl>()
     private val latest = HashMap<String, String>() // module\u0000event → newest payload JSON (latestOnly events)
     private val listening = HashMap<String, Int>() // module\u0000event → JS listener count; main thread only
-    private val io = Executors.newFixedThreadPool(2) { r -> Thread(r, "zn-call").apply { isDaemon = true } }
+    // The shared call pool (same as Executors.newFixedThreadPool(2); typed, so the watch can read its queue length).
+    // A module function that waits here holds up every other module's calls: see [ZnSlowCalls].
+    private val io = ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue()) { r ->
+        Thread(r, "zn-call").apply { isDaemon = true }
+    }
+    /**
+     * Fetch.send has a thread of its own: it only builds the request and hands it to OkHttp (it never waits), so one is
+     * enough. On [io], two calls of another module that never returned (a Play call with no time limit) stopped every
+     * fetch in the app until a new process (docs/http-stall-investigation.md). WebSocket already uses its own thread.
+     */
+    private val fetchThread = Executors.newSingleThreadExecutor { r -> Thread(r, "zn-fetch").apply { isDaemon = true } }
+    /** A call that holds an [io] thread longer than this is logged (once), with how many calls wait behind it. */
+    private const val SLOW_CALL_MS = 5_000L
+    private val slow = ZnSlowCalls(SLOW_CALL_MS) { SystemClock.uptimeMillis() }
+    private val watch = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "zn-call-watch").apply { isDaemon = true } }
+    /** A watch tick is scheduled. Ticks run only while [io] has calls running. */
+    private val watching = AtomicBoolean(false)
     private val main = Handler(Looper.getMainLooper())
     /** Set once the running bundle is chosen: the module list has been compared with the bundle's needs. */
     @Volatile private var chosen = false
@@ -254,7 +275,38 @@ object ZnModules {
                 call.reject("failed", "$module.$method failed: ${e.message ?: e::class.java.simpleName}")
             }
         }
-        if (m.runsOnMain(method)) main.post(run) else io.execute(run)
+        when {
+            m.runsOnMain(method) -> main.post(run)
+            m === ZnFetch -> fetchThread.execute(run)
+            else -> io.execute(watched(run, "$module.$method"))
+        }
+    }
+
+    /** [run] on the pool, timed: [ZnSlowCalls] logs it if it holds its thread too long. */
+    private fun watched(run: Runnable, what: String) = Runnable {
+        val key = Any()
+        slow.start(key, what)
+        watchSoon()
+        try {
+            run.run()
+        } finally {
+            slow.end(key)?.let { Log.w(TAG, it) }
+        }
+    }
+
+    private fun watchSoon() {
+        if (watching.compareAndSet(false, true)) watch.schedule(::watchTick, 1, TimeUnit.SECONDS)
+    }
+
+    /** The watch thread: logs calls over the limit; ticks again while calls still run (a call started meanwhile too). */
+    private fun watchTick() {
+        try {
+            for (line in slow.check(waiting = io.queue.size)) Log.w(TAG, line)
+        } catch (t: Throwable) {
+            Log.e(TAG, "native call watch failed", t)
+        }
+        watching.set(false)
+        if (!slow.isEmpty()) watchSoon()
     }
 
     internal fun cancel(callbackId: Int) {
@@ -329,5 +381,43 @@ object ZnModules {
             if (body == null) ZnRuntime.dispatchAnswer(EVENT_RESULT, payload.toString(), generation)
             else ZnRuntime.dispatchAnswerBytes(EVENT_RESULT_BYTES, payload.toString().toByteArray(), body, generation)
         }
+    }
+}
+
+/**
+ * The native calls running on the shared call pool, and the ones that hold their thread too long. Only for logs:
+ * nothing is stopped. A module function must answer from a listener or a thread of its own, never wait on the pool
+ * (guide-notes §90). Thread-safe. JVM-tested (ZnSlowCallsTest).
+ */
+internal class ZnSlowCalls(private val limitMs: Long, private val now: () -> Long) {
+    private class Running(val what: String, val since: Long) {
+        @Volatile var warned = false
+    }
+
+    private val running = ConcurrentHashMap<Any, Running>()
+
+    fun start(key: Any, what: String) {
+        running[key] = Running(what, now())
+    }
+
+    /** The call ended. A line to log when it had been reported slow, else null. */
+    fun end(key: Any): String? {
+        val r = running.remove(key) ?: return null
+        return if (r.warned) "native call ${r.what} gave its call thread back after ${now() - r.since} ms" else null
+    }
+
+    fun isEmpty(): Boolean = running.isEmpty()
+
+    /** One line for each call that passed the limit since the last check (each call once). [waiting]: calls queued. */
+    fun check(waiting: Int): List<String> {
+        val t = now()
+        val out = ArrayList<String>()
+        for (r in running.values) {
+            if (r.warned || t - r.since < limitMs) continue
+            r.warned = true
+            out += "native call ${r.what} has held a call thread for ${t - r.since} ms, and $waiting other native calls " +
+                "wait for a thread. A module function must not wait: answer from a listener or use a thread of its own"
+        }
+        return out
     }
 }

@@ -105,6 +105,8 @@ export interface AppUpdateDeps {
 export const CHECK_DELAY_MS = 1000
 /** An optional update that waits for a hold route to close asks again this often (zn has no "route changed" event). */
 export const WAIT_RECHECK_MS = 2000
+/** Play's availability answer counts as "none" after this (native answers "no update" itself after 10 s). */
+export const PLAY_ANSWER_LIMIT_MS = 15_000
 
 export type UpdatePhase = "idle" | "downloading" | "downloaded"
 
@@ -147,6 +149,23 @@ export function createAppUpdateEngine(deps: AppUpdateDeps): AppUpdateEngine {
       checkTimer = null
       void engine.check()
     }, ms)
+  }
+
+  /** [p]'s value, or null when it hasn't settled within [ms]. A rejection stays a rejection. */
+  function withinLimit<T>(p: Promise<T>, ms: number): Promise<T | null> {
+    return new Promise<T | null>((resolve, reject) => {
+      const timer = clock.setTimeout(() => resolve(null), ms)
+      p.then(
+        (v) => {
+          clock.clearTimeout(timer)
+          resolve(v)
+        },
+        (e) => {
+          clock.clearTimeout(timer)
+          reject(e)
+        },
+      )
+    })
   }
 
   /** The optional update waits for the user to leave a hold route: ask again soon, only while the app is in front. */
@@ -226,7 +245,12 @@ export function createAppUpdateEngine(deps: AppUpdateDeps): AppUpdateEngine {
 
         if (play) {
           // Play may not offer the build to this phone yet (staged rollout, propagation): ask again next return
-          const status = await play.isAvailable()
+          // With a time limit: a Play answer that never comes would keep `running` true, and no later check would run
+          const status = await withinLimit(play.isAvailable(), PLAY_ANSWER_LIMIT_MS)
+          if (status === null) {
+            log.warn(`${TAG} Play gave no answer in ${PLAY_ANSWER_LIMIT_MS} ms; asking again on the next return`)
+            return
+          }
           if (!status.available) {
             log.log(`${TAG} Play has no update for this phone yet. Asking again on the next return.`)
             return

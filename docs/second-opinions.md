@@ -3263,3 +3263,31 @@ change, and what evidence would make you change it?"
 - **Not covered by a unit test:** the runtime's tests are JVM-only, with no Compose UI test setup. Checked on the Lava:
   the repro, plus short drag springs back, fast swipe / Back / scrim tap close, first tap after a close reaches the
   screen.
+
+## 221. Fetch gets a thread of its own, and the call pool gets a watch (runtime, 2026-11-09; Opus, HTTP stall)
+- **Problem:** every native call, `Fetch.send` too, ran on one 2-thread pool. A module function that never returns
+  (ZeroBill's `InAppUpdate.isUpdateAvailable`: `Tasks.await` with no limit) holds a thread for good; two of them and no
+  fetch can start, until a new process. Reproduced with `Device.slowEcho` (docs/http-stall-investigation.md).
+- **Chosen:** `Fetch.send` runs on its own single thread (`zn-fetch`). It never waits (it builds the request and calls
+  OkHttp's `enqueue`), so one thread is enough, and sends now go out in the order JS made them. A watch logs any pool
+  call that holds its thread over 5 s (`ZnSlowCalls`), with the queue length. The Play callers in ZeroBill and in
+  `@zero-native/app-updates` answer from Play's listener, with a 10 s native limit and a 15 s JS limit.
+- **Not chosen (yet):** a bigger pool. It would hide a blocking module instead of showing it, and a module that never
+  returns would still eat one thread per call. Also not done: a JS-side timer for fetch's `timeout` (fix 5 in the
+  report): with fetch off the pool, the only wait before `send` is the `zn-fetch` thread itself.
+- **Open:** the watch only writes logcat. An app hook (for example Crashlytics breadcrumbs) would make it visible on
+  users' phones; not built. Other pool users that wait with a limit (geocoding, up to 10 s) still hold up other modules
+  meanwhile, not fetch.
+
+## 222. Images get their own OkHttp dispatcher, 10 per host (runtime, 2026-11-09; Opus, image lab)
+- **Problem:** images (Coil, `ZnFetch.useForImages`) and fetch shared one dispatcher, 10 calls per host. ZeroBill's
+  merchant icons come from the API host, so a screen of icons could take all 10 slots and an API call (a payment
+  verify too) waited for one. Measured in the sample's image lab: a fetch to the same host waited 1973 ms.
+- **Chosen:** the image client (`derived("zn.images")`) uses a dispatcher of its own, one per process, 10 per host.
+  After: the same fetch took 44-207 ms.
+- **Not chosen:** 6 per host for images (what browsers allow). Measured with a 2 s server: 5 of the 11 pictures on
+  screen then waited for a second round (done at 4.5 s instead of 2.7 s); with 10, only the 11th. Images were already
+  slow-looking on the offers tab; no reason to slow them.
+  Also not chosen: raising fetch's limit; it doesn't keep pictures apart from payments.
+- **Trade-off:** on an HTTP/1.1 host, up to 20 connections at once from one phone (10 fetch + 10 images). On HTTP/2
+  both share one connection per host, so nothing changes there.
