@@ -103,6 +103,16 @@ P.1–P.6, decisions D1–D7 open). This table is kept as the earlier notes; plu
 | 6b | **Native media pipeline** (Pavan, 2026-10-30) | Camera / gallery photos, 4K images, video and PDFs stay native and reach JS only as `zn://` handles (ARCHITECTURE §15.4). Build the pieces apps need around them: resize / compress / crop / rotate natively (`Media.resize(handle, { maxSide: 1600, quality: 0.8 }) → handle`), EXIF orientation, upload a handle with `fetch` (body = handle, streamed from the file, no bytes in JS), thumbnails for lists, and clean-up of temp handles. KYC and receipt photos are the first users. |
 | 7 | **Research the building blocks apps use** (Pavan's idea) | Ask Gemini (`agy`) to list what RN / Flutter apps commonly build custom views from: a `<Canvas>` with draw commands (Flutter's `CustomPainter`), clip / mask, blur, blend modes, gradients, paths, gesture detectors, layout builders. Building the common low-level pieces once means app UI changes rarely need a framework (registry) change, so OTA bundles rarely need a newer app. |
 
+## RN gaps pack: parked (Pavan, 2026-11-09)
+Items 4 and 5 of the RN gaps pack. Items 1-3 (fontFamily, flexWrap, List numColumns) are built (registry 24). Pavan
+parked these two when the focus moved to iOS and OTA for ZeroBill. The API proposal with options is in the session
+notes (`rn-gaps-header-datepicker-proposal-2026-11-09.md`); the short form:
+
+| Item | Proposed (Opus's pick) | Notes |
+|---|---|---|
+| **Header bar** (RN's `headerShown`, `headerTitle`, `headerLeft` / `headerRight`, back button, large collapsing title) | Not in the framework for now: the app writes its own `AppHeader.tsx` from Row / Text / Pressable, `insets().top`, `nav.back()`, and motion values for a collapsing title. If more zn apps need one: a `<ScreenHeader>` TSX component in `@zero-native/ui` with RN's prop names (no native code, no registry ids). | A route option (`header: {...}` + `useHeader()`, RN's `setOptions`) was the other option: it needs new native work to show JSX in a native bar. |
+| **Date / time picker** (`@react-native-community/datetimepicker`) | A plugin `@zero-native/datetimepicker`: Android's own `DatePickerDialog` / `TimePickerDialog` (what RN uses; no new dependency), both RN forms (`DateTimePickerAndroid.open({...})` and `<DateTimePicker>` that opens on mount), `onChange(event, date)` with `"set"` / `"dismissed"`, `mode` date / time / datetime (date then time), `minimumDate` / `maximumDate`, `is24Hour`. Colour from the app theme. | Other options: the Material 3 Compose picker (adds material3), or a picker drawn in TSX (days of work). iOS later with UIDatePicker. |
+
 ## Project
 | Item | Notes |
 |---|---|
