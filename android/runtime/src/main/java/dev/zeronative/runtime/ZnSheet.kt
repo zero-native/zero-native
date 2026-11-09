@@ -59,6 +59,7 @@ import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -220,8 +221,16 @@ private fun SheetBody(
             }
         }
 
+        // The user may move the sheet only while it is open: not once JS closed it, and not while the user's close waits
+        // for JS's answer. Else a drag still running stops the close animation, the sheet springs back to rest and
+        // onGone never runs: an empty sheet and its scrim stay over the app, and taps pass through them (ZeroBill,
+        // Lava 2026-11-09: the referral reward sheet, closed by a swipe while JS was busy after login).
+        // Reads state, not composition values: the nested-scroll object below keeps these functions for a while.
+        fun userCanMove() = currentVisible && !dismissing
+
         // The user asks to close: animate down, tell JS, spring back if JS keeps it open.
         fun askToClose(velocity: Float = 0f) {
+            if (!currentVisible) return // JS closed it already: its close animation runs (LaunchedEffect below)
             if (!s.dismissible) {
                 scope.launch { offset.animateTo(restOffsets.getValue(detent), springOpen, velocity) }
                 return
@@ -240,6 +249,7 @@ private fun SheetBody(
         }
 
         fun settle(velocity: Float) {
+            if (!userCanMove()) return // closing: the close animation decides where it goes
             val lowest = restOffsets.values.max()
             val dragged = offset.value - lowest
             if (velocity > FLING_VELOCITY * 1.5f || (dragged > (closed - lowest) * DISMISS_FRACTION && velocity > -FLING_VELOCITY)) {
@@ -255,6 +265,7 @@ private fun SheetBody(
         }
 
         fun dragBy(dy: Float): Float {
+            if (!userCanMove()) return 0f // closing: a drag that began before must not move it
             val top = restOffsets.values.min()
             val next = offset.value + dy
             val applied = if (next < top) offset.value + dy * 0.25f else next // rubber-band above the top
@@ -272,7 +283,14 @@ private fun SheetBody(
                 if (offset.value >= closed - 1f && !animateInNow()) offset.snapTo(restOffsets.getValue(detent))
                 else offset.animateTo(restOffsets.getValue(detent), springOpen)
             } else {
-                offset.animateTo(closed, springClose)
+                // JS closed it: the window must always go. If something else stops this animation (another animation
+                // of `offset`), close at once rather than leave a scrim that lets taps through. Only a restart of this
+                // effect (new size: it closes again from there) or the sheet leaving the screen ends it without onGone.
+                try {
+                    offset.animateTo(closed, springClose)
+                } catch (e: CancellationException) {
+                    if (!isActive) throw e
+                }
                 onGone()
             }
         }
@@ -318,10 +336,10 @@ private fun SheetBody(
             val rest = restOffsets.getValue(detent)
             val travel = (closed - rest) * if (s.dismissible) BACK_TRAVEL else BACK_TRAVEL_FIXED
             try {
-                events.collect { e -> offset.snapTo(rest + travel * e.progress) }
+                events.collect { e -> if (userCanMove()) offset.snapTo(rest + travel * e.progress) }
                 askToClose()
             } catch (e: CancellationException) {
-                scope.launch { offset.animateTo(restOffsets.getValue(detent), springOpen) }
+                if (userCanMove()) scope.launch { offset.animateTo(restOffsets.getValue(detent), springOpen) }
                 throw e
             }
         }

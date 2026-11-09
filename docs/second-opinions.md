@@ -3246,3 +3246,20 @@ change, and what evidence would make you change it?"
 - **Risk:** ZnSplash's own cap (ZeroBill 2 s) still lets the app draw if Play is slow; Play's screen then opens a moment
   later over it. An OTA swap waits while a forced store answer is open; if Play can't serve it, the swap goes on.
 - **Not tested on a phone yet** (needs Play: internal app sharing, 173/174 AABs).
+
+## 220. A closing Sheet ignores the user's drags, and always removes its window (runtime, 2026-11-09; Opus, Pavan's bug)
+- **Bug:** ZeroBill, right after login: the referral reward sheet was swiped down, and an empty white strip with the
+  handle plus the full grey scrim stayed over the app, while taps went through to the screen. Cause in `ZnSheet.kt`:
+  once JS closed the sheet (`visible` false), a drag still running (`dragBy` snapTo, then `settle`) stopped the close
+  animation and sprang the sheet back to rest; `onGone` never ran. The window stayed in its "closing" state (passes
+  taps). Likely path: swipe, JS busy after login so the sheet springs back after 0.7 s, swipe again, JS's close lands
+  during that drag. Reproduced on the Lava with the sample (JS closes the sheet during a slow drag): stuck 1 of 1
+  before, closed 3 of 3 after.
+- **Chosen:** the user may move the sheet only while it is open (`visible` and not waiting for JS's answer to a
+  dismiss): drag, settle, predictive back and the non-dismissible spring do nothing then. And the close itself: if its
+  animation is stopped by anything but a restart of its own effect, the window goes at once (`onGone`).
+- **Trade-off:** a drag that starts in the moment between "user asked to close" and the window passing taps no longer
+  moves the sheet. Before, it could leave the sheet open in the "passes taps" state.
+- **Not covered by a unit test:** the runtime's tests are JVM-only, with no Compose UI test setup. Checked on the Lava:
+  the repro, plus short drag springs back, fast swipe / Back / scrim tap close, first tap after a close reaches the
+  screen.
