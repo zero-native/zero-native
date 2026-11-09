@@ -265,7 +265,10 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   and when a crash dialog was closed with a force stop. Native crashes never reach it.
 - **A bundle that fails its checks at a start** (missing files, wrong hash, a module the app lacks; 2026-11-02): the last
   good bundle runs if it passes the same checks, and `current` points at it; else the APK's bundle runs and `current`
-  goes. `bundle_unusable` is sent once per bundle id, and the next prune deletes the folder.
+  goes. `bundle_unusable` is sent once per bundle id, and the next prune deletes the folder. A bundle that is only
+  older than the APK's own bundle (a store update came after it) is normal: it sends `bundle_superseded` instead, which
+  is not serious (no crash report, and a rollout's health doesn't count it). Seen on the Lava 2026-11-09 as a
+  Crashlytics non-fatal after installing a newer staging APK.
 - **Blocked bundles** never run, are never switched to, never offered as `kept`, and their folders are deleted. A
   channel pointing to a blocked bundle (a newer seq) → the seq is saved, nothing downloaded, result NONE BLOCKED,
   outcome `blocked`. The way forward is a fixed bundle (a new id).
@@ -331,7 +334,7 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   `Device.crash`); cold start median 195 ms (n=10, as before).
 - Small telemetry with the next check, no extra requests. Outcome kinds so far: `downloaded`, `switched`, `started`,
   `applied`, `apply_failed`, `healthy`, `error_screen`, `error_rollback`, `launch_crashed`, `watchdog_block`,
-  `blocked`, `bundle_unusable`, `apk_changed`, `init_failed`, `ota_off`, `pointer_refused`, and a failed check's code
+  `blocked`, `bundle_unusable`, `bundle_superseded`, `apk_changed`, `init_failed`, `ota_off`, `pointer_refused`, and a failed check's code
   (`server`, `download`, `zip_sha`, `signature`, `incompatible`, `bundle`, `no_space`, ...). Serious (a safety net acted,
   or a signed file didn't check out): `error_rollback`, `launch_crashed`, `watchdog_block`, `apply_failed`, `init_failed`,
   `ota_off`, `signature`, `zip_sha`, `bundle_unusable`.

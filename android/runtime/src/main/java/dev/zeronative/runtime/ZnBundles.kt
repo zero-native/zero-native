@@ -306,12 +306,18 @@ object ZnBundles {
             id = good
         }
         val caps = ZnCapabilities.current()
-        val reason = when (val v = tryBundle(ota, id, builtIn, caps)) {
+        val no = when (val v = tryBundle(ota, id, builtIn, caps)) {
             is Check.Ok -> return Running(v.info, File(ota, "bundles/$id"))
-            is Check.No -> v.reason
+            is Check.No -> v
         }
-        Log.w(TAG, "bundle: not running $id: $reason (this app: $caps)")
-        ZnOtaHealth.unusable(id, reason)
+        val reason = no.reason
+        if (no.superseded) {
+            Log.i(TAG, "bundle: not running $id: $reason (a store update came after it)")
+            ZnOtaHealth.superseded(id, reason)
+        } else {
+            Log.w(TAG, "bundle: not running $id: $reason (this app: $caps)")
+            ZnOtaHealth.unusable(id, reason)
+        }
         if (ZnOtaHealth.lastGood == id) ZnOtaHealth.forgetGood(id)
         val good = ZnOtaHealth.lastGood?.takeIf { !ZnOtaHealth.isBlocked(it) }
         if (good != null) {
@@ -358,7 +364,11 @@ object ZnBundles {
     /** Whether a downloaded bundle may run: [Ok] with its info, or [No] with the reason (for the log). */
     internal sealed interface Check {
         class Ok(val info: Info) : Check
-        class No(val reason: String) : Check
+        /**
+         * [superseded]: nothing is wrong with it, the APK's own bundle is the same or newer (a store update came after
+         * this OTA bundle). Normal, so not reported as a problem (Crashlytics non-fatal on the Lava, 2026-11-09).
+         */
+        class No(val reason: String, val superseded: Boolean = false) : Check
     }
 
     /**
@@ -377,7 +387,7 @@ object ZnBundles {
         }
         if (info.id != id) return Check.No("its $INFO_FILE says ${info.id}")
         if (info.app != builtIn.app) return Check.No("it is for app \"${info.app}\", this app is \"${builtIn.app}\"")
-        if (info.serial <= builtIn.serial) return Check.No("the built-in bundle #${builtIn.serial} is the same or newer")
+        if (info.serial <= builtIn.serial) return Check.No("the built-in bundle #${builtIn.serial} is the same or newer", superseded = true)
         val missingCode = builtIn.files.keys.filter { name -> CODE_SUFFIXES.any { name.endsWith(it) } }
             .filterNot { info.files.containsKey(it) }
         if (missingCode.isNotEmpty()) return Check.No("it has no ${missingCode.joinToString()}")

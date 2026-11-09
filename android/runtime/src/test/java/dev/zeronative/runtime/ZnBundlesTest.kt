@@ -3,6 +3,7 @@ package dev.zeronative.runtime
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -66,6 +67,8 @@ class ZnBundlesTest {
         assertNo("sample_3", "same or newer")
         bundle("sample_2")
         assertNo("sample_2", "same or newer")
+        // Normal after a store update: marked superseded, so it is not reported as a problem
+        assertTrue((check("sample_2") as ZnBundles.Check.No).superseded)
     }
 
     @Test
@@ -109,6 +112,7 @@ class ZnBundlesTest {
         bundle("sample_5")
         File(root, "sample_5/main.zn.ui").delete()
         assertNo("sample_5", "main.zn.ui is missing")
+        assertFalse((check("sample_5") as ZnBundles.Check.No).superseded) // a real problem: still reported
 
         bundle("sample_6")
         File(root, "sample_6/main.hbc").writeText("cod") // a cut download

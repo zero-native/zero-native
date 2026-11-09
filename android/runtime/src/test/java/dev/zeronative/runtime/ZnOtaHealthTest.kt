@@ -244,6 +244,14 @@ class ZnOtaHealthTest {
         assertEquals(2, s.events.count { it.kind == "bundle_unusable" })
     }
 
+    @Test fun aBundleOlderThanTheApkIsAnInfoEventOnce() {
+        // A store update with a newer built-in bundle: normal, not "unusable" (not serious, so no crash report)
+        val s = fresh()
+        Rules.superseded(s, "app_14", "the built-in bundle #15 is the same or newer", 1_000)
+        Rules.superseded(s, "app_14", "the built-in bundle #15 is the same or newer", 2_000)
+        assertEquals(listOf("bundle_superseded"), s.events.map { it.kind })
+    }
+
     @Test fun maskHidesPrivateData() {
         assertEquals("pay failed for ***", Rules.mask("pay failed for 9876543210"))
         assertEquals("call *** now", Rules.mask("call 98765 43210 now"))

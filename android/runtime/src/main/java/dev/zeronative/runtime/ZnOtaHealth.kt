@@ -198,6 +198,17 @@ internal object ZnOtaHealth {
         }
 
         /**
+         * [bundle] is older than the APK's own bundle (a store update came after it): normal, the built-in runs. An
+         * info event (not serious: no crash report), once per bundle like [unusable].
+         */
+        fun superseded(s: State, bundle: String, reason: String, now: Long) {
+            if (bundle in s.unusable) return
+            s.unusable += bundle
+            while (s.unusable.size > MAX_UNUSABLE) s.unusable.removeAt(0)
+            event(s, "bundle_superseded", bundle, reason, now)
+        }
+
+        /**
          * Hides what could be private in a JS error's text before it is stored or sent (H.4): URL query strings, bearer
          * tokens, anything like `a@b` (VPAs, emails), and runs of 6 or more digits, which may have spaces or dashes
          * between them (phone numbers, account numbers). Stack frames hold no values and stay as they are.
@@ -474,6 +485,11 @@ internal object ZnOtaHealth {
      * bundle: the same error comes back at every start. Returns true if [id] is now blocked.
      */
     fun startFailed(id: String): Boolean = edit(sync = false) { Rules.countDeath(it, id, "start failed", Rules.WATCHDOG_LIMIT, System.currentTimeMillis()) }
+
+    /** [id] is older than the APK's own bundle (a store update): the built-in runs. Not a problem (Rules.superseded). */
+    fun superseded(id: String, reason: String) {
+        edit(sync = false) { Rules.superseded(it, id, reason, System.currentTimeMillis()) }
+    }
 
     /** [id] can't run: it failed its checks (at a start, off the main thread). */
     fun unusable(id: String, reason: String) {
