@@ -89,14 +89,46 @@ RN Firebase's names for ported code: `messaging().getToken()`, `onTokenRefresh`,
   app is behind (JS doesn't run for them then), and a tap opens the app on its start screen. The message's data comes
   with the tap: `getInitialNotification()` (the app was closed) or `onNotificationOpenedApp` (it was behind). Open a
   `data.link` from there yourself. For pictures and groups, send data-only messages and call `Notifications.show`.
-- **"Check for an update now":** a data message `zn_ota=check` (to a topic like `ota-android`) runs core's OTA check at
-  once, natively, as at a start (`ZnOta.check`). It never reaches JS. A new bundle installs and applies by the app's
-  normal OTA rules. Turn it off with `PushPlugin(otaCheck = false)`.
+- **"Check for an update":** a data message `zn_ota=check` runs core's OTA check natively, in a background job after
+  a random wait (see "OTA pushes" below). It never reaches JS. Turn it off with `PushPlugin(otaCheck = false)`.
 - `onMessage` has 15 s (FCM gives about 20). Long work goes to the server, or to a later start.
 - Never log `m.data` as a whole, and never put private data in it: FCM servers and the phone's notification log keep it.
 - Phones with no Google Play services get no FCM. `getToken` says why; local notifications still work.
 - Logs use the tag `zn-push` (the message line itself, `fcm message ...`, is `zn-notifications`).
 - **Not built yet:** iOS (APNs). The design for other push services and iOS: the notifications README, "Push services".
+
+## OTA pushes (a new bundle downloads in the background)
+When the OTA server publishes a bundle, it sends one FCM data message to the channel's topic. Each phone then downloads
+the bundle in the background, at a random moment, and runs it from its **next cold start**. Nothing is applied in the
+background (`Updates.applyNow()` still works as usual).
+
+**The contract (server → phone):**
+- Topic: `zn-ota-<app>-<channel>`. `app` is the OTA app id of the APK's own bundle (`zn-updates.json` `app`, e.g.
+  `sample`); `channel` is `ZnOta.Config.channel` (e.g. `staging`). Example: `zn-ota-sample-staging`.
+- Data (all strings, no `notification` block): `{ "zn_ota": "check", "zn_ota_delay_ms": "<n>" }`. `n`: the longest
+  random wait in whole ms. Missing or not a number: 0. Clamped to 0 .. 24 h.
+- `android.priority`: `high` (a normal message can wait for hours on a phone in Doze).
+- One message per publish is enough. The phone asks the OTA server what to do; the message carries no bundle id.
+
+**What the phone does:**
+1. At each start of the main process (after `Application.onCreate`), with `otaCheck` on and `ZnOta` configured, it
+   subscribes to its topic. FCM ignores a repeat. It keeps the last topic; when the topic changes (another channel or
+   app id), it unsubscribes the old one. Log: `subscribed to the OTA topic zn-ota-sample-staging`. With
+   `otaCheck = false` it unsubscribes the kept topic. With OTA off (no `ZnOta.configure`) nothing changes.
+2. The message schedules a WorkManager job (`zn-ota-push-check`): a random wait in 0 .. `zn_ota_delay_ms`, and only
+   with a network. Log: `OTA check job in 1234 ms (random in 0..3000 ms), once online`.
+3. **One job at a time.** A push while a job waits changes nothing (`a job is already enqueued (due in 40 s), kept as it
+   is`): a second push can't move it further away. When the job runs, it gets whatever is newest.
+4. The job runs `ZnOta.check` (the same check as at a start) and waits up to 8 min (WorkManager stops a job at 10).
+   A failed check on the network (no answer, server error, cut download) runs again later, at most 3 runs in all. Other
+   failures (bad signature, a bundle that doesn't fit) don't retry. After that, the next start checks as always.
+5. The new bundle runs from the next cold start. Logs: `zn-ota: installed sample_7; it runs from the next start`.
+
+**Choosing the wait:** a few seconds on staging (testers want it now). On production, spread the phones over a few
+hours (for example 6 h = `21600000`), so a million phones don't call the server in the same minute.
+
+Logs use the tag `zn-push` (the job) and `zn-ota` (the check). `PushPlugin` adds `androidx.work:work-runtime-ktx`; an app
+that turned off WorkManager's start-up initializer must set it up itself, or the push logs `can't schedule`.
 
 ## Size
 | Dependency | Version | Why |
@@ -104,6 +136,7 @@ RN Firebase's names for ported code: `messaging().getToken()`, `onTokenRefresh`,
 | `com.google.firebase:firebase-bom` | 35.1.0 | Firebase versions (from `@zero-native/firebase-app`) |
 | `com.google.firebase:firebase-messaging` | from the BoM (26.0.x) | FCM |
 | `@zero-native/notifications` | this repo | Notifications and `PushEvents` (no Firebase) |
+| `androidx.work:work-runtime-ktx` | 2.12.0 | The OTA check job after an OTA push (added 2026-11-09, size not measured) |
 
 Measured on the sample's R8 release APK (arm64), 2026-11-04, before the split (push and notifications together):
 **about 54 KB** on top of `@zero-native/firebase-crashlytics`

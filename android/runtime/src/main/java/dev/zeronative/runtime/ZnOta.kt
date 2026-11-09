@@ -3,6 +3,7 @@ package dev.zeronative.runtime
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -96,6 +97,11 @@ object ZnOta {
          * private data only your app knows the shape of. Keep it fast and simple. If it throws, the masked text is used.
          */
         val redact: ((String) -> String)? = null,
+        /**
+         * A release build may use an `http://` server only with this on (a test against a server on this computer).
+         * Off: a release build with an http server turns OTA off and logs why (2026-11-09, zn-updates P2).
+         */
+        val allowHttpInRelease: Boolean = false,
     )
 
     @Volatile private var config: Config? = null
@@ -132,6 +138,13 @@ object ZnOta {
         require(config.publicKeys.isNotEmpty()) { "ZnOta needs at least one public key" }
         require(config.server.startsWith("https://") || config.server.startsWith("http://")) { "ZnOta server must be an http(s) URL" }
         require(Regex("^[a-z][a-z0-9-]{0,31}$").matches(config.channel)) { "ZnOta channel \"${config.channel}\": use a-z, 0-9 and -" }
+        val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (config.server.startsWith("http://") && !debuggable && !config.allowHttpInRelease) {
+            // Release builds talk to the update server over HTTPS only. The signatures still stop a wrong bundle over
+            // plain HTTP, but anyone on the way could read every check or block updates.
+            Log.e(TAG, "OTA is off: a release build needs an https:// server, not ${config.server} (or Config.allowHttpInRelease for a local test)")
+            return
+        }
         appContext = context.applicationContext
         ZnBundles.init(appContext)
         this.config = config
@@ -172,6 +185,16 @@ object ZnOta {
     /** Runs a check now (on the client's thread); [done] gets the result on that thread. */
     fun check(done: (JSONObject) -> Unit = {}) {
         worker.execute { done(runCheck()) }
+    }
+
+    /**
+     * The OTA app id (the APK's own bundle's) and the configured channel, or null while OTA is off or the APK has no
+     * bundle info. Read-only, for plugins (the push plugin's FCM topic `zn-ota-<app>-<channel>`).
+     */
+    fun appAndChannel(): Pair<String, String>? {
+        val c = config ?: return null
+        val app = ZnBundles.builtIn?.app ?: return null
+        return app to c.channel
     }
 
     // ---- Status (also for JS: Updates.status / onStatus) ----------------------------------------------------------
@@ -1051,7 +1074,8 @@ object ZnOta {
                 call.resolve()
             }
             function("check") { call ->
-                if (config == null) return@function call.resolve(JSONObject().put("action", "NONE").put("reason", "OFF"))
+                // A15 (found building iOS): the answer always carries `status`, OTA on or off (UpdateCheckResult.status isn't optional).
+                if (config == null) return@function call.resolve(JSONObject().put("action", "NONE").put("reason", "OFF").put("status", status()))
                 check { result -> call.resolve(result.put("status", status())) }
             }
             // v2 (step 4.6). Both run on the main thread, so a hold sent before applyNow is always seen by it.

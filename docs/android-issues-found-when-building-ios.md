@@ -28,7 +28,7 @@ Each entry says:
 | A12 | 2026-11-08 | zn dev | A reload that adds a screen draws it from another screen's template | open (found on Android; iOS has no `zn dev` yet) |
 | A13 | 2026-11-08 | device-info (shared JS) | `hasDynamicIsland`, `isDisplayZoomed`, `getBrightness` now read native values (iOS); Android answers stay false / -1 | fixed on ios (check the tests) |
 | A14 | 2026-11-08 | location (shared JS) | On iOS the plugin asks core's Permissions for "location" (iOS's name), not Android's two names | fixed on ios (no Android change expected) |
-| A15 | 2026-11-09 | OTA (Updates) | With OTA off, `Updates.check()` answers without `status`, which its JS type promises; the sample's Updates screen throws on "Check now" | open (Android fix: one line) |
+| A15 | 2026-11-09 | OTA (Updates) | With OTA off, `Updates.check()` answers without `status`, which its JS type promises; the sample's Updates screen throws on "Check now" | fixed 2026-11-09 (`ZnOta.kt` Module `check` adds `status` when OTA is off); not phone-checked: the sample has OTA on |
 
 ---
 

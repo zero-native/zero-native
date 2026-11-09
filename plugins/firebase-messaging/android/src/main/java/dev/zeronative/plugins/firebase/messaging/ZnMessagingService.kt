@@ -5,9 +5,6 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dev.zeronative.plugins.notifications.PushEvents
 import dev.zeronative.plugins.notifications.PushMessage
-import dev.zeronative.runtime.ZnOta
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * Every FCM message and new token, in front, behind, or with the app closed (FCM starts the process; Application.onCreate
@@ -20,7 +17,7 @@ import java.util.concurrent.TimeUnit
  */
 class ZnMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
-        if (PushState.otaCheck && PushRules.isOtaCheck(message.data)) return otaCheck(message.messageId)
+        if (PushState.otaCheck && PushRules.isOtaCheck(message.data)) return otaCheck(message.data, message.messageId)
         PushEvents.message(
             PushMessage(
                 provider = PROVIDER,
@@ -44,15 +41,16 @@ class ZnMessagingService : FirebaseMessagingService() {
         PushEvents.deleted(PROVIDER)
     }
 
-    /** "Check for an update now" from the server (PushRules.OTA_KEY): core's normal check, as at a start. */
-    private fun otaCheck(id: String?) {
-        Log.i(TAG, "message $id: OTA check asked")
-        val done = CountDownLatch(1)
-        ZnOta.check { r ->
-            Log.i(TAG, "OTA check from push: ${r.optString("action")} ${r.optString("reason")}")
-            done.countDown()
+    /**
+     * "Check for an update" from the server (PushRules.OTA_KEY): core's normal check, as at a start, in a background job
+     * ([OtaCheckJob]) after the message's random wait, once online. FCM's ~20 s are too short for a download.
+     */
+    private fun otaCheck(data: Map<String, String>, id: String?) {
+        try {
+            OtaCheckJob.schedule(applicationContext, data, id)
+        } catch (e: Exception) { // WorkManager not set up (an app that turned off its start-up initializer)
+            Log.e(TAG, "message $id: can't schedule the OTA check job", e)
         }
-        done.await(PushRules.OTA_WAIT_MS, TimeUnit.MILLISECONDS)
     }
 
     private fun priority(p: Int) = when (p) {

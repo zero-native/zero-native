@@ -360,6 +360,11 @@ checks use (about 3 s, "never in the way of startup"). A new bundle is still **n
 is held, but it **can download and unzip while a payment screen is open**. If that matters for a payment, send
 this push only at quiet times, or set `otaCheck = false`. The apply itself stays safe.
 
+**Changed 2026-11-09 (push v3, Android):** the push no longer checks at once. It schedules a WorkManager job after a
+random wait of 0 .. `zn_ota_delay_ms` (clamped to 24 h), online only, one job at a time (a second push doesn't move
+it), at most 3 runs. Phones join the topic `zn-ota-<app>-<channel>` by themselves. Contract and logs:
+`plugins/firebase-messaging/README.md`, "OTA pushes". The limit above still holds for a wait of 0 (a staging push).
+
 **Phone test matrix (4.9):** first install → no OTA; publish #1 → downloads, applies on next cold start; `applyNow`
 during a visit; held during checkout; kill during download / install / apply; tampered zip; wrong bundle signature;
 wrong pointer signature; replayed old pointer (lower seq); kill switch; rollback to a kept bundle (no download);

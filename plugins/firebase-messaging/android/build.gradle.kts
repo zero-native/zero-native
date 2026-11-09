@@ -27,5 +27,7 @@ dependencies {
     // The Firebase version (BoM) comes from plugins/firebase-app.
     implementation(project(":plugin-firebase-app"))
     implementation("com.google.firebase:firebase-messaging")
+    // The OTA check a `zn_ota=check` push asks for runs as a WorkManager job (OtaCheckJob): a random wait, online only.
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     testImplementation("junit:junit:4.13.2")
 }
