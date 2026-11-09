@@ -596,6 +596,10 @@ hears only the events it has handlers for. Guide notes §79.
 
 A `List`'s offset past the measured rows is an estimate. One event id (27) carries all five events.
 
-**Route option `transparent: true`:** the screen is drawn over the one below, which stays visible and drawn (an
-overlay). The screen gets no enter / exit transition and no shared elements: it animates itself (the image viewer's
-photo flight). Use it with `restore: false` when the screen's data lives in JS memory.
+**Route option `transparent: true`:** the screen is drawn over the one below, which stays visible and drawn (one
+scene with both). Use `transition: "none"`: the screen animates itself (the image viewer's photo flight); it shares
+no elements with the screen below. A screen pushed over it slides over both, and Back slides them back. Use it with
+`restore: false` when the screen's data lives in JS memory.
+
+On a `List`, a snap lands on a row (the nearest row lines up after the fling). `decelerationRate` numbers are iOS's
+(0.998 / 0.99); 0.95 or less is read as Android's (0.9 = fast). Guide notes §82.

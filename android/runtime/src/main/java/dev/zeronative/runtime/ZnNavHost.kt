@@ -59,7 +59,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.scene.Scene
-import androidx.navigation3.scene.OverlayScene
 import androidx.navigation3.scene.SceneStrategy
 import androidx.navigation3.scene.SceneStrategyScope
 import androidx.navigation3.scene.SinglePaneSceneStrategy
@@ -283,7 +282,7 @@ private fun ScreensDisplay(bundle: ZnBundle, safe: WindowInsets, shared: SharedT
         modifier = Modifier.fillMaxSize().znTestTags(),
         sharedTransitionScope = shared,
         onBack = { ZnNav.navDisplayBack() },
-        // Registry 24: a `transparent` route is an overlay scene: the screens below stay drawn under it.
+        // Registry 24: a `transparent` route on top is drawn in one scene with the screens below it (they stay drawn).
         sceneStrategies = listOf(ZnSeeThroughStrategy(), SinglePaneSceneStrategy()),
         entryProvider = { entry ->
             val meta = transitions(entry.route.transition, entry.openedAtStart).let { if (entry.route.transparent) it + (SEE_THROUGH to true) else it }
@@ -330,8 +329,8 @@ private fun ScreensDisplay(bundle: ZnBundle, safe: WindowInsets, shared: SharedT
                         )
                     } else {
                         if (e.route.transparent) {
-                            // An overlay scene has no enter transition (and no AnimatedVisibilityScope): it is settled
-                            // at once, and shares no element with the screens below (it animates its own content).
+                            // A see-through screen animates its own content (route transition "none"): it is settled at
+                            // once, and shares no element with the screens below.
                             CompositionLocalProvider(LocalZnEntry provides e.id, LocalZnSharedVisibility provides null) {
                                 ZnScreen(bundle.templates, root, Modifier.fillMaxSize())
                             }
@@ -361,25 +360,35 @@ private fun ScreensDisplay(bundle: ZnBundle, safe: WindowInsets, shared: SharedT
 private const val SEE_THROUGH = "zn.seeThrough"
 
 /**
- * Registry 24: a `transparent` route on top is drawn as an overlay scene (Navigation 3's OverlayScene, as its dialogs):
- * NavDisplay keeps drawing the scene below it, so the screens under it show through where it draws nothing. It has no
- * enter / exit transition: the screen animates its own content.
+ * Registry 24: a `transparent` route on top is drawn in one scene with the screens it covers: from the last opaque
+ * screen up (a see-through screen over a see-through screen shows both). The screens below stay drawn where it draws
+ * nothing. It is a normal scene, not an OverlayScene (as Navigation 3's dialogs are), so a screen pushed over it
+ * slides in over the whole scene and Back slides it out again; an overlay vanished at once on that push and came
+ * back at once on Back (review 2026-11-09, seen on the Lava). Navigation 3 draws an entry that two scenes show (the
+ * screen under it, while it opens or closes) only in the newest one.
  */
 private class ZnSeeThroughStrategy : SceneStrategy<ZnEntry> {
     override fun SceneStrategyScope<ZnEntry>.calculateScene(entries: List<NavEntry<ZnEntry>>): Scene<ZnEntry>? {
         val top = entries.lastOrNull() ?: return null
         if (entries.size < 2 || top.metadata[SEE_THROUGH] != true) return null
-        val below = entries.dropLast(1)
-        return ZnSeeThroughScene(top, below)
+        // The last opaque entry and every see-through one above it.
+        var from = entries.size - 2
+        while (from > 0 && entries[from].metadata[SEE_THROUGH] == true) from--
+        return ZnSeeThroughScene(entries.subList(from, entries.size).toList(), entries.dropLast(1))
     }
 }
 
-private class ZnSeeThroughScene(private val top: NavEntry<ZnEntry>, below: List<NavEntry<ZnEntry>>) : OverlayScene<ZnEntry> {
-    override val key: Any = top.contentKey
-    override val entries: List<NavEntry<ZnEntry>> = listOf(top)
-    override val previousEntries: List<NavEntry<ZnEntry>> = below
-    override val overlaidEntries: List<NavEntry<ZnEntry>> = below
-    override val content: @Composable () -> Unit = { top.Content() }
+private class ZnSeeThroughScene(override val entries: List<NavEntry<ZnEntry>>, override val previousEntries: List<NavEntry<ZnEntry>>) :
+    Scene<ZnEntry> {
+    override val key: Any = "zn.seeThrough:" + entries.last().contentKey
+    override val content: @Composable () -> Unit = {
+        Box(Modifier.fillMaxSize()) {
+            for (e in entries) {
+                // Keyed, so each screen keeps its own state when the list changes.
+                androidx.compose.runtime.key(e.contentKey) { e.Content() }
+            }
+        }
+    }
 }
 
 /** A plugin's native screen (docs/plugins.md §5), with the route's safe area. The bundle needs its plugin's module, so a missing one is rare. */

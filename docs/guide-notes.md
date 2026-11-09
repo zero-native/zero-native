@@ -2778,3 +2778,18 @@ import { Push } from "@zero-native/firebase-messaging"                          
   tags moved too (`zn-notifications-*`, tag `zn-notifications`); FCM's own lines stay `zn-push`.
 - **Know:** module names and versions did not change ("Push" 2, "Notifications" 3), so bundles and the OTA check are
   as before.
+
+## 82. Snapping, scroll refs and canvas features: what to know (registry 24, review fixes 2026-11-09)
+- **Know:** on a `List`, a snap lands on a row: after the fling, the nearest row lines up with the start (paging) or
+  with `snapToAlignment`. **Do** set `snapToInterval` to the row or card size (with the gap). **Why:** the List's
+  offset is an estimate past the rows it has measured; the last step lines up a real row.
+- **Know:** `decelerationRate` numbers are iOS's (0.998 normal, 0.99 fast). A number of 0.95 or less is read as
+  Android's (0.9 fast) and converted. **Do** use `"fast"` / `"normal"` when you can.
+- **Know:** `<Scroll ref>` and the registry-24 canvas commands (`image`, `paragraph`, `clipRoundRect`, `clipPath`,
+  clip `op`, `sweepGradient`, `blendMode`, `shadow`, `blur`, path trims) make the bundle need registry 24. **Why:** an
+  older app would skip them without an error; now it keeps its own bundle instead.
+- **Know:** a screen pushed over a `transparent` screen (the image viewer) slides over it, and Back slides it back,
+  like any screen.
+- **Know:** a canvas `image` whose size follows a motion value is decoded at the screen's size (Coil keeps the
+  picture's own size if smaller), so it stays sharp as it grows. **Don't** animate many such images at once. **Why:**
+  each one can take a screen of memory.

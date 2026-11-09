@@ -17,6 +17,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -99,6 +100,9 @@ internal fun ViewerPage(scope: ZnViewScope) {
             contentDescription = null,
             // Read while drawing: the zoom moves the picture each frame with no recomposition.
             modifier = Modifier.fillMaxSize().graphicsLayer {
+                // Hidden until the painter knows the picture's size: before that, Fit fills the whole box and the
+                // photo shows stretched for a frame or two (seen on the Lava when a page is built again after Back).
+                alpha = if (painter.intrinsicSize.isSpecified) 1f else 0f
                 val z = zoomZ()
                 scaleX = z
                 scaleY = z
