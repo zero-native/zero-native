@@ -1,0 +1,11 @@
+# Context = the repo root; only these are sent to the build.
+*
+!server/package.json
+!server/tsconfig.json
+!server/src/**
+!server/web/**
+!tools/bundle-info.ts
+!tools/ota/**
+!tools/updates/**
+tools/ota/test/**
+server/web/**/*.test.ts

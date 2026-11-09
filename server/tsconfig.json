@@ -1,0 +1,15 @@
+{
+  // For editors and `bun run typecheck` (bun runs the TS directly).
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "types": ["bun"]
+  },
+  "include": ["src", "web", "test", "../tools/updates"]
+}

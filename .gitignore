@@ -52,6 +52,7 @@ test-kit/offers-data.json
 .zn-ota-data/
 # The phone matrix's own store, telemetry and results (bun run ota:phone)
 .zn-ota-test/
+.zn-updates-phone/
 
 # Part names the zero-native build writes next to each .svg (docs/svg.md §16)
 *.d.svg.ts

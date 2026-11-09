@@ -1,0 +1,121 @@
+# zn-updates on GKE (docs/zn-updates-server.md §7). One replica is enough at ZeroBill's size: answers are cached in
+# memory and every write clears the cache. With 2+ replicas a change reaches all of them within 5 s (the cache time).
+# Secrets (create once):
+#   kubectl create secret generic zn-updates --from-literal=DATABASE_URL='postgres://…' --from-literal=ADMIN_TOKEN='<32+ random chars>'
+# Storage: the pod's service account needs Storage Object Admin on the bucket (Workload Identity), or mount a key and set
+# GOOGLE_APPLICATION_CREDENTIALS.
+# Storage access: the Kubernetes account below acts as the Google account zn-updates@ (Workload Identity), which has
+# Storage Object Admin on gs://my-app-updates only (made once, 2026-11-09; see docs/zn-updates-deploy.md §1).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zn-updates
+  annotations:
+    iam.gke.io/gcp-service-account: zn-updates@my-gcp-project.iam.gserviceaccount.com
+---
+# appupdates.example.com on the shared gateway (TLS from the *.example.com cert in my-cert-map)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app-updates-route
+spec:
+  parentRefs:
+    - kind: Gateway
+      name: z-prod-gateway
+  hostnames:
+    - appupdates.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: zn-updates-ip-service
+          port: 3000
+---
+# The load balancer's own check. By default it asks GET /, but / answers 404 without a dashboard session
+# (src/session.ts), so the pod would never get traffic (seen 2026-11-09: "LoadBalancerNegNotReady"). Ask /health.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: zn-updates-healthcheck
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        port: 3000
+        requestPath: /health
+  targetRef:
+    group: ""
+    kind: Service
+    name: zn-updates-ip-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zn-updates-ip-service
+spec:
+  type: ClusterIP
+  selector:
+    component: zn-updates-deployment
+  ports:
+    - name: zn-updates-ip-service
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zn-updates-deployment
+  labels:
+    component: zn-updates-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: zn-updates-deployment
+  template:
+    metadata:
+      labels:
+        component: zn-updates-deployment
+    spec:
+      serviceAccountName: zn-updates
+      containers:
+        - name: zn-updates
+          image: asia-south1-docker.pkg.dev/my-gcp-project/containers/zn-updates:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: STORAGE
+              value: "gs://my-app-updates/zn"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: zn-updates
+                  key: DATABASE_URL
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: zn-updates
+                  key: ADMIN_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi

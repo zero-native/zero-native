@@ -6,16 +6,20 @@
     "packages/*",
     "plugins/*",
     "compiler",
-    "examples/*"
+    "examples/*",
+    "server"
   ],
   "scripts": {
     "sample:js": "bun run examples/sample/build.ts",
     "dev": "bun run tools/zn-dev.ts",
     "ota": "bun run tools/ota/cli.ts",
     "ota:phone": "bun run tools/ota/phone-matrix.ts",
+    "updates": "bun run tools/updates/cli.ts",
+    "updates:server": "bun run server/src/local.ts",
+    "updates:phone": "bun run tools/updates/phone-suite.ts",
     "gen:registry": "bun run tools/gen-registry.ts",
     "gen:tag-props": "bun run tools/gen-tag-props.ts",
-    "test": "bun test packages plugins compiler tools && bun run test:types",
+    "test": "bun test packages plugins compiler tools server && bun run test:types",
     "test:types": "tsc -p packages/core/test/tsconfig.types.json && tsc -p examples/sample"
   },
   "devDependencies": {

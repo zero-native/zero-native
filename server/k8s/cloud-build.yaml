@@ -1,0 +1,39 @@
+# zn-updates: build the image and deploy it to GKE, like the other Bun services (receipt-viewer).
+# Run from the zero-native repo root:
+#   gcloud builds submit --config server/k8s/cloud-build.yaml --substitutions _CLOUDSDK_COMPUTE_ZONE=asia-south1-b,_CLOUDSDK_CONTAINER_CLUSTER=my-cluster .
+# The root .gcloudignore keeps the upload to the files server/Dockerfile needs.
+steps:
+  - id: Pull Docker Cache
+    name: gcr.io/cloud-builders/docker
+    entrypoint: "bash"
+    args: ["-c", "docker pull asia-south1-docker.pkg.dev/$PROJECT_ID/containers/zn-updates:latest || exit 0"]
+
+  - id: Build Image
+    name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args:
+      - build
+      - "-f"
+      - server/Dockerfile
+      - "-t"
+      - asia-south1-docker.pkg.dev/$PROJECT_ID/containers/zn-updates:$BUILD_ID
+      - "-t"
+      - asia-south1-docker.pkg.dev/$PROJECT_ID/containers/zn-updates:latest
+      - --cache-from
+      - asia-south1-docker.pkg.dev/$PROJECT_ID/containers/zn-updates:latest
+      - .
+
+  - id: Push Image
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "--all-tags", "asia-south1-docker.pkg.dev/$PROJECT_ID/containers/zn-updates"]
+
+  - id: Deploy Image
+    name: gcr.io/cloud-builders/gke-deploy
+    args:
+      - run
+      - "--image=asia-south1-docker.pkg.dev/$PROJECT_ID/containers/zn-updates:$BUILD_ID"
+      - "--filename=server/k8s/deployment.yaml"
+      - "--location=${_CLOUDSDK_COMPUTE_ZONE}"
+      - "--cluster=${_CLOUDSDK_CONTAINER_CLUSTER}"
+
+timeout: 1800s

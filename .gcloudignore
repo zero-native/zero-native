@@ -1,0 +1,17 @@
+# `gcloud builds submit` from the repo root (server/k8s/cloud-build.yaml): upload only what server/Dockerfile needs.
+/*
+!/server/
+/server/*
+!/server/Dockerfile
+!/server/Dockerfile.dockerignore
+!/server/package.json
+!/server/tsconfig.json
+!/server/src/
+!/server/web/
+!/server/k8s/
+!/tools/
+/tools/*
+!/tools/bundle-info.ts
+!/tools/ota/
+!/tools/updates/
+/tools/ota/test/

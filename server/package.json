@@ -1,0 +1,24 @@
+{
+  "name": "@zero-native/updates-server",
+  "private": true,
+  "type": "module",
+  "description": "zn-updates: the OTA + store update server and its dashboard (docs/zn-updates-server.md)",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "local": "bun run src/local.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.3.14",
+    "@google-cloud/storage": "7.17.3",
+    "fflate": "0.8.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@types/bun": "1.3.2"
+  }
+}
