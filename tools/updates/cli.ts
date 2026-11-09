@@ -52,10 +52,12 @@ function openInBrowser(url: string): boolean {
 }
 
 /** One line about the "check now" push the server sent after a change. */
-function pushNote(p: PushResult | null | undefined) {
+/** [what]: "bundle" (a channel change: phones download, it runs from their next start) or "rule" (a store rule). */
+function pushNote(p: PushResult | null | undefined, what: "bundle" | "rule" = "bundle") {
   if (!p) return
-  if (p.sent) console.log(`  push → ${p.topic}: phones check within ${Math.round((p.delayMs ?? 0) / 1000)} s (only downloads; it runs from their next start)`)
-  else console.log(`  no push to ${p.topic}: ${p.error ?? "not sent"} (phones still find it at their next start)`)
+  const after = what === "rule" ? "the app shows the store update after that check" : "only downloads; it runs from their next start"
+  if (p.sent) console.log(`  push → ${p.topic}: phones check within ${Math.round((p.delayMs ?? 0) / 1000)} s (${after})`)
+  else console.log(`  no push to ${p.topic}: ${p.error ?? "not sent"} (phones still find it at their next check)`)
 }
 
 const { values: a, positionals } = parseArgs({
@@ -422,7 +424,7 @@ async function main() {
         os, channel, version: os === "ios" ? a.version : Number(a.version), critical, isTest: !!a.test, title: a.title, message: a.message, note: a.note, confirm,
       })
       console.log(`✓ ${os} ${a.version} on ${channel}: ${["no update", "optional update", "forced update"][critical]}${a.test ? " (test version)" : ""}`)
-      pushNote(r.push)
+      pushNote(r.push, "rule")
       return
     }
     case "status": {
