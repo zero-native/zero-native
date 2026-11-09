@@ -46,6 +46,7 @@ until it is proven.
 | `storage.md` | app storage (MMKV, synchronous), SecureStore, and when a store can be lost |
 | `hermes-features.md` | what Hermes 260318099 added (JSI runtime data, `ISerialization`, faster JSON, ...) and how we could use it later |
 | `milestones.md` | **the build plan, progress log, and how to build and run the sample app** |
+| `milestones-ios.md` | **the iOS track: phases, status per area, what is left, ZeroBill on iOS** |
 | `after-foundations.md` | parked ideas to pick up once the foundations work |
 | `rn-compat-sweep.md` | where RN code could just work in zn (2026-11-05 sweep): silent differences to fix first, cheap RN names, bigger items; waits on Pavan's picks |
 | `production-readiness.md` | what is left before apps with 10M+ users (Android at scale, iOS, security, CI), as a checklist with a step-by-step ladder |

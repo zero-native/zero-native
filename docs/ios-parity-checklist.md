@@ -8,6 +8,8 @@ ZeroBill app (my-app 29bd563) uses none of §1b / §1c: a grep finds `ListEmptyC
 
 # iOS parity checklist
 
+The overview (phases, status per area, what is left, ZeroBill) is `docs/milestones-ios.md`; this file keeps the item-level notes.
+
 Everything Android has, item by item, and whether iOS has it. Android (`android/runtime`, `plugins/*/android`) is
 the reference. Status words:
 - **done**: iOS has it and covers what Android does.

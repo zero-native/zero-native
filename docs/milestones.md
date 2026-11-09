@@ -114,6 +114,8 @@ Hermes debugger (Chrome DevTools), the flow engine (parked), iOS.
 Parked ideas: `docs/after-foundations.md`.
 
 ## iOS track (started 2026-11-08)
+**The iOS status, phases and what's left live in `docs/milestones-ios.md`** (kept current after every iOS piece); the
+table below is the original 2026-11-08 plan. iOS log entries stay in `## Log` below.
 Agreed with Pavan 2026-11-08: the renderer mixes SwiftUI and UIKit, chosen per component (`ARCHITECTURE.md` §20).
 Android fixes the port shows are made as it goes and recorded in `android-issues-found-when-building-ios.md`.
 All iOS work happens on the `ios` branch (Pavan, 2026-11-08).
