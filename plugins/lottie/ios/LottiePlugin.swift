@@ -109,10 +109,10 @@ enum LottieFiles {
 
     /// On `queue`. `base`: the bundle folder (ZnApp.bundleURL), read on the main thread by the caller.
     static func load(_ source: String?, cache useCache: Bool, base: URL?) -> Load {
-        guard let path = LottieRules.assetPath(source), let base else { return .failed("bad_source") }
+        guard let path = LottieRules.assetPath(source), base != nil else { return .failed("bad_source") }
         let key = "zn-lottie:app:\(path)" as NSString
         if useCache, let hit = cache.object(forKey: key) { return .ok(hit) }
-        let url = base.appendingPathComponent(path)
+        let url = ZnBundles.assetURL(path)  // the running bundle's copy, else the app's own
         guard FileManager.default.fileExists(atPath: url.path) else { return .failed("not_found") }
         guard let data = try? Data(contentsOf: url) else { return .failed("failed") }
         let animation: LottieAnimation?

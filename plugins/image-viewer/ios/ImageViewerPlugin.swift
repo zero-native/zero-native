@@ -229,8 +229,8 @@ enum ViewerLoader {
                 decode(ok ? data : nil)
             }.resume()
         case .asset:
-            guard let path = ViewerRules.assetPath(uri), let base else { return done(nil) }
-            decode(try? Data(contentsOf: base.appendingPathComponent(path)))
+            guard let path = ViewerRules.assetPath(uri), base != nil else { return done(nil) }
+            decode(try? Data(contentsOf: ZnBundles.assetURL(path)))  // the running bundle's copy, else the app's own
         case .file:
             decode(ZnHandles.fileOf(uri).flatMap { try? Data(contentsOf: $0) })
         case .fileUri:

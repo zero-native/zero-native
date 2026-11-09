@@ -37,7 +37,8 @@ set(zlib "z" CACHE STRING "zlib for MMKV" FORCE)
 add_subdirectory("${ZN_REPO}/core" zn_core)
 
 set(bundle_dir "${ZN_REPO}/android/sample/src/main/assets")
-set(bundle_files "${bundle_dir}/main.hbc" "${bundle_dir}/main.zn.ui" "${bundle_dir}/main.zn.ui.json")
+set(bundle_files "${bundle_dir}/main.hbc" "${bundle_dir}/main.zn.ui" "${bundle_dir}/main.zn.ui.json"
+  "${bundle_dir}/zn-bundle.json")  # what the built-in bundle is: OTA bundles are checked against it (ZnOta.swift)
 foreach(f IN LISTS bundle_files)
   if(NOT EXISTS "${f}")
     message(FATAL_ERROR "No ${f}. Run: bun run sample:js")

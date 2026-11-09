@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "zn/engine.h"
 #include "zn/runtime.h"
 #include "zn/storage.h"
 
@@ -114,6 +115,18 @@ class IosPlatform final : public zn::Platform {
   dispatch_semaphore_t _ready;
   std::unique_ptr<IosPlatform> _platform;
   std::unique_ptr<zn::Runtime> _runtime;
+}
+
++ (NSInteger)bytecodeVersion {
+  return zn::hermesBytecodeVersion();
+}
+
++ (NSInteger)hostApiVersion {
+  return zn::kHostApiVersion;
+}
+
++ (NSInteger)hostApiOldest {
+  return zn::kHostApiOldest;
 }
 
 + (ZNHost*)shared {

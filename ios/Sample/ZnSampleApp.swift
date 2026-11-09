@@ -7,16 +7,36 @@
 //   ZN_LINK          the link that starts the app, as if it opened it (tools/ios-sample.ts --link)
 //   ZN_JS_DELAY_MS   start JS this much later, to see the skeleton on its own (debug)
 //   ZN_COUNT_BODIES  1: log how many SwiftUI bodies each batch ran (debug)
+//   ZN_OTA_KEY       the OTA public key to trust instead of the sample's (debug: a test store with its own key)
+//   ZN_OTA_HEALTHY_MS  a downloaded bundle is healthy this long after its first screens (debug; default 4000)
 import UIKit
 
 @main
 final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
+    /// The sample's OTA public key (android/sample SampleApp.kt SAMPLE_OTA_KEY).
+    static let sampleOtaKey =
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyDRVX10DZWMDeefhkH4saosxvE6AwYffTsDANIEemGkrKcGD/8Cj5SEzM0NZVjWHWl0Y1hTlsVxJQBdqxIvfxw=="
+
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let env = ProcessInfo.processInfo.environment
         // Plugins first, before the bundle runs (docs/plugins.md).
         ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin(), AppUpdatesPlugin())
         _ = env
+        // OTA updates from the update server on this computer (`bun run updates:server`, or `bun run ota serve`; the
+        // simulator reaches it at localhost), staging channel, signed with the sample's key (the private key stays in
+        // ~/.zero-native/keys). As android/sample's SampleApp.kt. A real app uses its HTTPS server and a main + backup key.
+        var key = Self.sampleOtaKey
+        #if DEBUG
+        if let test = env["ZN_OTA_KEY"], !test.isEmpty { key = test }  // debug: a test key's public half (a test store)
+        #endif
+        var ota = ZnOta.Config(server: "http://localhost:8790", channel: "staging", publicKeys: [key])
+        #if DEBUG
+        if let ms = env["ZN_OTA_HEALTHY_MS"].flatMap(Double.init) { ota.healthyAfterMs = ms }  // debug: tests' crash window
+        #endif
+        ota.allowHttpInRelease = true  // the sample's release build talks to the same local server
+        ota.onReport = { r in print("zn-sample: onReport \(r) (serious=\(r.serious))") }
+        ZnOta.configure(ota)
         return true
     }
 

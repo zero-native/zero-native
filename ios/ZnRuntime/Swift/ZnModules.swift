@@ -180,12 +180,23 @@ enum ZnModules {
     /// A module of this name is registered (built-in or a plugin's).
     static func has(_ name: String) -> Bool { lock.withLock { modules[name] != nil } }
 
-    /// The built-in modules, and the host's call and cancel paths. Main thread, before JS starts.
-    @MainActor static func install() {
+    /// Every registered module's version (name → version): what a bundle's `requires.modules` is checked against.
+    static func versions() -> [String: Int] {
+        lock.withLock { modules.mapValues(\.version) }
+    }
+
+    /// The built-in modules (an app's own of the same name win). Main thread; again is a no-op. Before the bundle is
+    /// chosen (ZnBundles.choose checks a bundle's needs against every module), and from install().
+    @MainActor static func registerBuiltIns() {
         for m: ZnModule in [ZnPlatformFacts(), ZnOs(), ZnNetInfo(), ZnSecureStore(), ZnClipboard(), ZnFetch.shared,
                              ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash.Module(), ZnLaunch(), ZnUpdatesOff(), ZnTasks()] where !has(m.name) {
             register(m)
         }
+    }
+
+    /// The built-in modules, and the host's call and cancel paths. Main thread, before JS starts.
+    @MainActor static func install() {
+        registerBuiltIns()
         let host = ZNHost.shared
         host.onNativeCall = { module, method, argsJson, id, bytes in
             call(module, method, argsJson, id, bytes)

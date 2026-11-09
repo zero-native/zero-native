@@ -36,17 +36,17 @@ Recommended for launch:
   every return to the app (ZeroBill already asks for that: `checkIntervalMs = 0`).
 
 ## The steps (each ends with a commit and a check)
-1. **Config and disk** (0.5 d). `ZnOta.configure` in Swift with the same fields as Android's `Config` (server,
+1. **Config and disk** — **done 2026-11-10** (0.5 d). `ZnOta.configure` in Swift with the same fields as Android's `Config` (server,
    channel, public keys). Files under Application Support/zn-ota, kept out of iCloud backup, same layout as Android
    (`bundles/<id>/`, `tmp/`, `current`, `state.json`, `health.json`). App id from the built-in `zn-bundle.json`.
    The sample gets a local test server config.
-2. **Rules** (1.5 d). Bundle choice, the `requires` check (registry, bytecode, host API, module versions), the health
+2. **Rules** — **done 2026-11-10** (1.5 d). Bundle choice, the `requires` check (registry, bytecode, host API, module versions), the health
    rules (1 sure crash, 2 unsure, 3 for last good; healthy after 4 s in front), signatures (CryptoKit P-256, the same
    `zn-ota-v1` texts). The Kotlin tests copied as Swift tests and passing.
-3. **Check, download, install** (1.5 d). `POST /v1/check` with the same fields as Android, plus
+3. **Check, download, install** — **done 2026-11-10** (1.5 d). `POST /v1/check` with the same fields as Android, plus
    `store: { os: "ios", version: "<CFBundleShortVersionString>" }`. Resumed download, space check, unzip only the
    listed files, check each SHA, atomic rename, `current` written last. Unzip uses zlib (ships with iOS).
-4. **Start and rollback** (1 d). At start: choose the bundle, run it, mark the launch; a crash before "healthy" is
+4. **Start and rollback** — **done 2026-11-10** (1 d). At start: choose the bundle, run it, mark the launch; a crash before "healthy" is
    counted by a crash mark (iOS has no exit-reason API like Android's), and the next start rolls back to the last good
    bundle, else the built-in one. A new App Store version clears downloaded bundles older than the built-in one.
 5. **Apply in place and the launch gate** (1 d). A restart of the JS engine: Android deletes the engine and makes a new

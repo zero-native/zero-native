@@ -148,6 +148,35 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-10: iOS OTA steps 1–4: rules, check, download, install, safety nets (Claude, Mac)
+Pavan's plan (docs/ios-ota-plan-2026-11-10.md, "go as recommended"): Android's Kotlin rules copied to Swift, no patches
+and no push-triggered check yet. New in ios/ZnRuntime/Swift:
+- **ZnOtaRules.swift** (Foundation + CryptoKit, no UIKit): bundle info and `requires`, signatures (P-256 DER, the same
+  texts as Android), store answers, health rules. **ZnOtaInstall.swift**: a zip reader (stored / raw deflate through
+  Compression) and the install checks (zip SHA, each file's size and SHA, the bundle SHA). `bun run ios:ota-test` runs
+  52 tests on the Mac, against the CLI's signature fixture and a zip made the CLI's way.
+- **ZnOta.swift**: the bundle choice at ZnApp.start (`zn-ota/current` in Application Support, not in backups; the
+  built-in bundle when anything is wrong), the check (protocol 1, `patches: []`, `store: { os: "ios", version }`),
+  resumable download, install, prune, state.json, the safety nets and the `Updates` module (v3; `applyNow` answers
+  `not_started` until step 5).
+- **How a launch ended** on iOS (no ApplicationExitInfo): a crash mark written by signal and exception handlers
+  (sure: 1 blocks), else an unsure death if the app ended while active (2 block). The handlers go on 3 s after start,
+  only while a downloaded bundle runs, and call the handler before them, because Crashlytics warned it "will interfere"
+  when ours came first. A launch stops counting when the app goes inactive (an app-switcher swipe may end it there).
+- Hooks: ZnModules.registerBuiltIns before the choice (module versions), `screensUp` at NAV STARTED, start / screen /
+  hang errors → `errorScreen` (once per process), `asset:` files from the running bundle else the app's
+  (ZnImage, Lottie, image viewer), zn-bundle.json in the app (ios/CMakeLists.txt). ZNHost gives bytecode and host API
+  versions. The iOS sample talks to a server on this Mac (staging, the sample's key; debug: ZN_OTA_KEY,
+  ZN_OTA_HEALTHY_MS).
+- **Checked on the simulator** (reference server, a scratch store and key): the Android sample's bundle is refused
+  (it needs AdId, Motion, Push, Notifications, Media, Perf, RemoteConfig, Device 6); a bundle that fits downloads,
+  runs from the next start, turns healthy after 4 s; SIGSEGV before healthy → crash mark → blocked → the last good
+  bundle runs; a main.hbc that can't start → blocked, last good from the next start; a pointer signed by another key →
+  refused; kill switch → built-in; closed from the background → not counted.
+- Not yet: apply in place and the launch gate (step 5), ZeroBill (step 6), the full iOS matrix (step 7: resume,
+  no space, fuse, first-screen timeout). ZeroBill's bundle will be refused until iOS has AdId, Motion, Notifications
+  and Push.
+
 ### 2026-11-10: iOS image viewer, made to behave as Android's (Claude, Mac)
 Pavan's order (2026-11-10, through the Windows session): the image viewer first, working as on Android everywhere
 ZeroBill opens it (Offer Details picture, Notifications hero picture: `ImageViewer.open({ images: [url] })`, route

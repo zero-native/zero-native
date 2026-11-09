@@ -48,7 +48,7 @@ struct ZnImageError: LocalizedError {
 @MainActor
 func znImageURL(_ src: String) -> URL? {
     for prefix in ["asset://", "asset:"] where src.hasPrefix(prefix) {
-        return ZnApp.shared.bundleURL?.appendingPathComponent(String(src.dropFirst(prefix.count)))
+        return ZnApp.shared.bundleURL == nil ? nil : ZnBundles.assetURL(String(src.dropFirst(prefix.count)))
     }
     if src.hasPrefix("zn://") { return ZnHandles.fileOf(src) }
     guard let url = URL(string: src), let scheme = url.scheme else { return nil }

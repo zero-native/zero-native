@@ -10,6 +10,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface ZNHost : NSObject
 
+/// What this app's engine runs, for OTA's capability check (docs/ota.md §3.2, ZnCapabilities): the Hermes bytecode
+/// format, and the host API range of this native side (core/include/zn/engine.h).
+@property (class, readonly) NSInteger bytecodeVersion;
+@property (class, readonly) NSInteger hostApiVersion;
+@property (class, readonly) NSInteger hostApiOldest;
+
 /// The process's host. Created on first use; lives until the process ends (one runtime per process, §8.2).
 @property (class, readonly, strong) ZNHost* shared;
 

@@ -144,7 +144,10 @@ Runs in `my-app` (its own session). Details in §10.
    swipe: anything the user must see needs an alert payload (server decision).
 4. Test on the **ZeroBill app** (it has APNs in Firebase; the sample doesn't), on a device.
 
-### Phase 4a: OTA on iOS [zn] — **todo** (after Phase 3)
+### Phase 4a: OTA on iOS [zn] — **in progress** (steps 1–4 done on the simulator, 2026-11-10)
+Plan: docs/ios-ota-plan-2026-11-10.md (Swift copy of the Kotlin rules, no patches yet). Done: rules, check, download,
+install, crash mark, rollback (ZnOta.swift, ZnOtaRules.swift, ZnOtaInstall.swift; `bun run ios:ota-test`). Next: apply
+in place and the launch gate (5), ZeroBill (6), the iOS matrix (7). Earlier text:
 The update server is now zn's own `server/` (zn-updates, `docs/zn-updates-server.md`, landing from Windows);
 phones use protocol 1 unchanged (POST /v1/check, then GET the zip). Decision logic (bundle choice, health, signature rules) moved from Kotlin to C++ first so both phones share it (A1);
 then Android must pass its 38-case phone matrix again. Then on iOS: bundle pool and capability manifest, download +
@@ -297,7 +300,7 @@ manifest must not claim what it can't draw.
 | Plugin loading: activity events, batch listeners, packaging a plugin's iOS code | partial | M | Today the app compiles plugin Swift (CMake globs `plugins/*/ios`). |
 | A push before NAV STARTED comes in with no slide | partial | S | Only under the splash; without it a push at START slides. |
 | Screens kept until their exit transition ends | partial | S | Fixed 0.6 s release. |
-| OTA (C++ rules, pool, manifest, download / verify / install, health, Updates, apply behind a cover) | missing | L (5 d) | Phase 4a. |
+| OTA (rules, pool, manifest, download / verify / install, health, Updates, apply behind a cover) | partial | L (5 d) | Phase 4a: steps 1–4 done on the simulator (Swift copy of the rules, 2026-11-10); apply in place and the launch gate next. |
 | Background tasks (`defineTask`, TASK event) | missing | L | BGTaskScheduler, push-triggered runs. Phase 3 needs part of it. |
 | zn dev (live reload, dev error overlay) | missing | L | Simulator reaches the Mac on localhost. |
 | Secure screens (route `secure`) | missing | M | Decide: blank the app-switcher snapshot, screenshot layer trick. |
@@ -444,7 +447,8 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
-| 2026-11-10 | Image viewer as Android's: one page per swipe, no paging while zoomed, Android's bar; checked in ZeroBill's Offer Details | (this commit) |
+| 2026-11-10 | OTA steps 1–4: rules, check, download, install, crash mark, rollback (simulator) | (this commit) |
+| 2026-11-10 | Image viewer as Android's: one page per swipe, no paging while zoomed, Android's bar; checked in ZeroBill's Offer Details | 53bc864 |
 | 2026-11-09 | Scroll with only maxHeight hugs its content; LayoutLab 97 / 97 | 9afd9ff |
 | 2026-11-09 | Pavan's iPhone test: min raises align children; sheet height follows content; close while sliding in; LayoutLab 95 / 95 | 2e6df8e |
 | 2026-11-09 | aspectRatio with a "%" side; hidden tabs' Pressables; LayoutLab 93 / 93 | 23ea2e9 |

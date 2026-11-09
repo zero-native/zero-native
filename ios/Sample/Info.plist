@@ -68,5 +68,11 @@
 	<string>Show stores near you.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Pay a friend from your contacts.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- The sample's OTA server on this Mac (http://localhost:8790). Only local addresses; real apps use HTTPS. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

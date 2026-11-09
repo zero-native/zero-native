@@ -270,7 +270,10 @@ final class ZnApp {
     /// Android's ZnNav). A route name (the sample's ZN_ROUTE, debug) opens that route alone.
     /// [restoring]: the scene's `stateRestorationActivity` (restorationActivity's): iOS gives it back only after it ended
     /// the app itself, never after the user closed it, as Android's saved state. It wins over [link], not over [routeName].
-    func start(bundle: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil) {
+    func start(bundle builtIn: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil) {
+        // The bundle to run: a downloaded one when OTA is on and it passes every check, else the app's own (ZnOta.swift).
+        ZnModules.registerBuiltIns()  // a bundle's needs are checked against every module
+        let bundle = ZnBundles.choose(builtIn: builtIn).dir ?? builtIn
         bundleURL = bundle
         do {
             let file = try TemplateReader.read(try Data(contentsOf: bundle.appendingPathComponent("main.zn.ui")))
@@ -340,6 +343,11 @@ final class ZnApp {
                 ZnDebug.log.error("js error \(whereText, privacy: .public) [\(kind, privacy: .public)]: \(details, privacy: .public)")
                 // JS stopped by the time limit: the top screen's state may be half updated; it shows the error screen
                 // and "Try again" builds it again (Android's ZnNav.hung).
+                // A downloaded bundle that isn't healthy yet and shows an error screen is blocked and the last good
+                // one runs from the next start (Android's ZnRuntime.jsError). A hang in the background (a task) doesn't count.
+                if kind == "start" || kind == "screen" || (kind == "hang" && ZnOtaHealth.inFront) {
+                    ZnOta.errorScreen(kind: kind, where: whereText, details: details)
+                }
                 if kind == "hang", let self, let top = self.stack.last {
                     self.failedScreens[top] = String(details.split(separator: "\n", maxSplits: 1).first ?? "")
                 }
@@ -352,7 +360,7 @@ final class ZnApp {
             DispatchQueue.main.asyncAfter(deadline: .now() + delayMs / 1000) { [host] in
                 host.evalFile(mainScript) { ok, result, ms in
                     guard ok else {
-                        self.failure = "main.hbc failed: \(result)"
+                        self.failure = "main.hbc failed: \(result)"  // the host also sent it as a "start" JS error (OTA)
                         return
                     }
                     print("zn: main.hbc evaluated in \(String(format: "%.1f", ms)) ms")
@@ -373,6 +381,7 @@ final class ZnApp {
             }
         } catch {
             failure = "can't start: \(error)"
+            ZnOta.errorScreen(kind: "start", where: "the bundle", details: "\(error)")
         }
     }
 
@@ -484,6 +493,7 @@ final class ZnApp {
             print("zn t=\(ZnDebug.ms()) nav: screen \(entry) failed: \(failedScreens[entry] ?? "")")
         case NavKind.started:
             firstScreensUp = true  // JS handled START: the splash may go (ZnSplash)
+            ZnOta.screensUp()  // a downloaded bundle's healthy clock starts
             print("zn t=\(ZnDebug.ms()) nav: first screens up")
         default:
             break  // BACK_ANSWERED, …: not needed by the spike
