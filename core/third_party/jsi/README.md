@@ -5,7 +5,9 @@ Copied from `com.facebook.react:react-android:0.88.1` (prefab module `jsi`), the
 version of each RN release). The matching `libjsi.so` (the stripped one from the AAR's `jni/arm64-v8a/`) lives in
 `android/runtime/src/main/jniLibs/arm64-v8a/`. The x86_64 one (for emulators, debug builds only) is from the same AAR's
 `jni/x86_64/`, added 2026-11-03 from Maven Central's `react-android-0.88.1-release.aar` (SHA-1 matched Maven's; its arm64
-`libjsi.so` is byte-identical to ours). Upgraded 2026-10-30 from RN 0.87.1 / Hermes 250829098.0.17: only
+`libjsi.so` is byte-identical to ours). The `armeabi-v7a` and `x86` ones (release builds have every CPU type Play serves,
+2026-11-10) are from the same AAR (SHA-1 a720d40f… matched Maven's `.sha1`; its arm64 and x86_64 `libjsi.so` were again
+byte-identical to ours). Upgraded 2026-10-30 from RN 0.87.1 / Hermes 250829098.0.17: only
 `decorator.h` changed; `jsi.h` was identical.
 
 Hermes' own headers include `<jsi/jsi.h>`, but the Hermes AAR doesn't ship them (verified 2026-10-27).

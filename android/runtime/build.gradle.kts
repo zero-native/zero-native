@@ -27,13 +27,19 @@ android {
     }
 
     buildTypes {
-        // Debug also builds x86_64, so the app runs on an emulator. Release stays arm64-only (phones).
+        // Debug also builds x86_64, so the app runs on an emulator.
         debug {
             ndk {
                 abiFilters += listOf("x86_64")
             }
         }
+        // Release builds every CPU type Play serves (Pavan, 2026-11-10): 32-bit ARM too (low-cost phones, many with a
+        // 32-bit Android Go on 64-bit chips), and x86 / x86_64 (Chromebooks, emulators). An app's own abiFilters pick
+        // what goes into its APK / AAB; Play then gives each phone only its own. `-PznArm64Only`: arm64 only, for a
+        // quicker local release build (perf numbers on the Lava).
+        if (!project.hasProperty("znArm64Only")) release { ndk { abiFilters += listOf("armeabi-v7a", "x86", "x86_64") } }
         // `-PznX86Release` (with the sample's same flag): also x86_64, to check an R8 build on the emulator. Off by default.
+        // (Since 2026-11-10 a release has x86_64 anyway, unless -PznArm64Only.)
         if (project.hasProperty("znX86Release")) release { ndk { abiFilters += listOf("x86_64") } }
     }
 
