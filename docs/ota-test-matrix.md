@@ -71,6 +71,45 @@ other (seen 2026-11-03: a second run deleted the lock, reinstalled the app and e
 | permission-blocked | pass | 27 s | launch-test camera: blocked |
 | icon-handle | pass | 14 s | image failed: zn://app-icon/dev.zeronative.no.such.app — android.content.pm.PackageManager$NameNotFoundException: dev.zeronative.no.such.app |
 
+## iOS (simulator, 2026-11-10)
+
+iOS OTA plan step 7 (docs/ios-ota-plan-2026-11-10.md). Run by hand on the iOS Simulator (iPhone 16, iOS 26.2), debug
+sample, with the same fault proxy as above (a scratch copy, port 8790) in front of the reference server (8791) and a
+scratch key. Each relaunch first brings another app to the front, then kills the sample: a kill while on screen counts
+as an unsure crash on iOS (iOS can't say why a process ended), and three of those block a bundle. Debug-only helper:
+`ZN_OTA_FREE_BYTES` (environment, through `SIMCTL_CHILD_`) for low storage. Earlier OTA steps checked update, refused
+needs, sure crash, error rollback, kill switch, apply now, holds and the launch gate (docs/milestones.md, 2026-11-10).
+**18 of 18 passed.**
+
+| Case | Result | Proof |
+|---|---|---|
+| tampered-zip | pass | check failed (zip_sha): the downloaded zip doesn't match the signed manifest |
+| bad-bundle-signature | pass | check failed (signature): bad bundle signature on sample_17 |
+| bad-pointer-signature | pass | report: pointer_refused sample_17: seq 18, phone has 17 |
+| replayed-pointer | pass | report: pointer_refused sample_17: seq 18, phone has 19 |
+| network-cut | pass | resuming sample_19 at 382483 of 764966 bytes (the server answered 206) |
+| kill-download | pass | resuming sample_20 at 147456 of 764963 bytes |
+| low-storage | pass | check failed (no_space): sample_21 needs 53.6 MB free (with 50.0 MB kept for the user), the phone has 1.0 MB |
+| server-error | pass | check failed (server): check answered HTTP 503; the gate let the app open at 487 ms |
+| check-stall | pass | gate: no answer within 800 ms (809 ms after the tap); later: check failed (server): no full answer within 30 s |
+| download-stall | pass | check failed (download): no data for 60 s, at 382485 of 764970 bytes |
+| killed-install | pass | report: bundle_unusable sample_98: its folder has no zn-bundle.json; running the last good bundle sample_20 |
+| app-newer | pass | new app install: 6 bundle(s) that no longer fit (or are blocked) deleted; check: NONE APK_NEWER |
+| store-forced | pass | check: store answer {"appStoreId":"1234567890","update":{"critical":2,...,"version":"9.9.9"}} |
+| store-optional | pass | check: store answer {"appStoreId":"1234567890","update":{"critical":1,"version":"9.9.8"}} |
+| store-bad | pass | check: a store answer this app can't read, keeping the last one |
+| store-none | pass | check: store answer {"appStoreId":"1234567890","update":null} |
+| first-screen-timeout | pass | safety: the first screens weren't up after 10000 ms (sample_22); rolled back in place to the built-in bundle in 178 ms |
+| blocked-after-timeout | pass | next start: the built-in bundle runs; check: NONE ALREADY_DONE |
+
+Notes:
+- The store answers come from ZeroBill's update server, not the reference server: the proxy added them to the check
+  answer. The store screens themselves are the app's (ZeroBill, step 6).
+- The start-up fuse (two failed OTA start-ups in a row turn OTA off) can't be caused from outside without a debug
+  hook; `bun run ios:ota-test` covers it (ZnOtaHealthRules.guardFailed / fuseBlown), as on Android.
+- Prune keeps the running, waiting and last good bundles plus the 4 newest others (7 folders at most), as Android.
+- Still to do: on Pavan's iPhone, one real OTA and one forced store screen from staging (with ZeroBill).
+
 ## Found while building the matrix (the Lava, Android 14)
 
 - **Crash dialog keeps the process alive.** The Lava shows "zn sample has stopped" after a crash

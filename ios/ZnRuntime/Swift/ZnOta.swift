@@ -903,7 +903,11 @@ final class ZnOta: @unchecked Sendable {
         let have = same ? min(ZnBundleRules.fileSize(ota.appendingPathComponent("download.part")), m.zipSize) : 0
         let need = (m.zipSize - max(have, 0)) + m.zipSize * Self.unzipFactor + Self.minFreeBytes
         let values = try? ota.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        let free = values?.volumeAvailableCapacityForImportantUsage ?? Int64.max
+        var free = values?.volumeAvailableCapacityForImportantUsage ?? Int64.max
+        #if DEBUG
+        // The test matrix's low-storage case (Android: debug.zn.ota_free_bytes). Debug builds only.
+        if let s = ProcessInfo.processInfo.environment["ZN_OTA_FREE_BYTES"], let n = Int64(s) { free = n }
+        #endif
         if free < need {
             throw ZnOtaError("no_space", "\(m.id) needs \(Self.mb(need)) MB free (with \(Self.mb(Self.minFreeBytes)) MB kept for the user), the phone has \(Self.mb(free)) MB")
         }

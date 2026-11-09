@@ -144,10 +144,11 @@ Runs in `my-app` (its own session). Details in §10.
    swipe: anything the user must see needs an alert payload (server decision).
 4. Test on the **ZeroBill app** (it has APNs in Firebase; the sample doesn't), on a device.
 
-### Phase 4a: OTA on iOS [zn] — **in progress** (steps 1–4 and apply in place done on the simulator, 2026-11-10)
+### Phase 4a: OTA on iOS [zn] — **in progress** (steps 1–5 and the simulator matrix done, 2026-11-10)
 Plan: docs/ios-ota-plan-2026-11-10.md (Swift copy of the Kotlin rules, no patches yet). Done: rules, check, download,
 install, crash mark, rollback (ZnOta.swift, ZnOtaRules.swift, ZnOtaInstall.swift; `bun run ios:ota-test`). Apply in place
-and rollback in place done (5a), the launch gate (5b). Next: ZeroBill (6), the iOS matrix (7). Earlier text:
+and rollback in place done (5a), the launch gate (5b), the simulator matrix (7, 18 of 18, docs/ota-test-matrix.md).
+Next: ZeroBill (6, its session), then the phone part of 7 on Pavan's iPhone. Earlier text:
 The update server is now zn's own `server/` (zn-updates, `docs/zn-updates-server.md`, landing from Windows);
 phones use protocol 1 unchanged (POST /v1/check, then GET the zip). Decision logic (bundle choice, health, signature rules) moved from Kotlin to C++ first so both phones share it (A1);
 then Android must pass its 38-case phone matrix again. Then on iOS: bundle pool and capability manifest, download +
@@ -300,7 +301,7 @@ manifest must not claim what it can't draw.
 | Plugin loading: activity events, batch listeners, packaging a plugin's iOS code | partial | M | Today the app compiles plugin Swift (CMake globs `plugins/*/ios`). |
 | A push before NAV STARTED comes in with no slide | partial | S | Only under the splash; without it a push at START slides. |
 | Screens kept until their exit transition ends | partial | S | Fixed 0.6 s release. |
-| OTA (rules, pool, manifest, download / verify / install, health, Updates, apply behind a cover) | partial | L (5 d) | Phase 4a: steps 1–4 done on the simulator (Swift copy of the rules, 2026-11-10); apply in place and the launch gate next. |
+| OTA (rules, pool, manifest, download / verify / install, health, Updates, apply behind a cover) | partial | L (5 d) | Phase 4a: steps 1–5 and the fault matrix done on the simulator (2026-11-10); ZeroBill (6) and the phone check left. |
 | Background tasks (`defineTask`, TASK event) | missing | L | BGTaskScheduler, push-triggered runs. Phase 3 needs part of it. |
 | zn dev (live reload, dev error overlay) | missing | L | Simulator reaches the Mac on localhost. |
 | Secure screens (route `secure`) | missing | M | Decide: blank the app-switcher snapshot, screenshot layer trick. |
@@ -386,7 +387,7 @@ brings its TSX screen along; ZeroBill opens the Swift one. The debug log's "does
 | Golden `.zn.ui` / batch files read by both test suites (i.0) | missing | M |
 | Startup / frame / tabs measurements (`measure-*.ps1`, `measure-tabs.ts`) | missing | M × 3 |
 | Plugin phone checks (`plugin-phone.ts`) | missing | L (2 d) |
-| OTA phone matrix (38 cases) | missing | L (1.5 d), after OTA |
+| OTA phone matrix (38 cases) | partial: 18 iOS fault cases on the simulator (2026-11-10, docs/ota-test-matrix.md); phone part left | L (1.5 d), after OTA |
 | `zn-dev.ts` without adb, `ota/cli.ts`, `push-send.ts` | missing | S × 3 |
 | Macrobenchmarks (startup, typing, journey) | missing | M, device |
 | Docs' `gradlew.bat` commands in Mac form (A2) | missing | S |
@@ -447,6 +448,7 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
+| 2026-11-10 | OTA step 7: the fault matrix on the simulator, 18 of 18 | i.10 |
 | 2026-11-10 | AdId and Motion stubs; Updates status only to JS listeners | i.9 |
 | 2026-11-10 | OTA step 5b: the launch gate and update screen (simulator) | c07563b |
 | 2026-11-10 | OTA step 5a: apply in place, rollback in place (simulator) | 9aae06f |

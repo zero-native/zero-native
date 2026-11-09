@@ -148,6 +148,15 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-10: iOS OTA step 7: the fault matrix on the simulator (Claude, Mac)
+- 18 cases by hand with the fault proxy: changed zip, wrong bundle and pointer signatures, a replayed answer, a cut
+  and a killed download (both resumed at the byte they stopped), low storage, a 503, a check and a download that go
+  quiet (30 s / 60 s), a planted half-installed folder, a newer app install, the four store answers, and a bundle that
+  shows no screen (blocked after 10 s, rolled back in place in 178 ms). All passed: docs/ota-test-matrix.md, iOS.
+- ZnOta: a debug-only `ZN_OTA_FREE_BYTES` override for the low-storage case (Android: debug.zn.ota_free_bytes).
+- Left: the phone part (one real OTA and one forced store screen from staging on Pavan's iPhone), after ZeroBill's
+  step 6.
+
 ### 2026-11-10: iOS AdId and Motion stubs; Updates status only to listeners (Claude, Mac)
 - ZnBuiltInModules.swift: **AdId v1** answers `{ id: null, limitAdTracking: true }` (the IDFA needs Apple's tracking
   prompt, not asked), and **Motion v1** is registered with no methods (every call "unavailable"): core imports Motion,

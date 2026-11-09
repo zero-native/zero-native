@@ -196,7 +196,7 @@ Android's built-in modules (ZnModules.kt `init`) plus storage. iOS registers the
 | NetInfo (1) | fetch, event `change` | done | | |
 | Splash (1) | hold, release | done | M | ZnUiModules.swift `ZnSplash`: the app calls `ZnSplash.holdUntilReady(window, capMs:)` after showing its window; a copy of the launch screen (launch storyboard, else UILaunchScreen colour / image) stays until NAV STARTED and `Splash.holdUntil`'s work (at most its maxMs, and capMs), then two frames for the pushed screen, then a 0.2 s fade. Pushes under it come in with no slide. Without the call (the default) hold is ignored, as on Android. Checked: the props lab tile (1.5 s), no Home flash. |
 | Storage | JS `storage` / `createStorage` | partial | S | JS storage works (C++ core + MMKV, `storageDir` in ZNHost.mm). The native API for app and plugin code (ZnStorage.kt: `store(id).get/set/keys/...`) has no Swift version. |
-| Updates (3) | status, markHealthy, check, applyNow, hold, event `Updates` | partial | §4 | `ZnUpdatesOff` without OTA (A15); with `ZnOta.configure`, ZnOta.Module (2026-11-10). applyNow: step 5. |
+| Updates (3) | status, markHealthy, check, applyNow, hold, event `Updates` | partial | §4 | `ZnUpdatesOff` without OTA (A15); with `ZnOta.configure`, ZnOta.Module (2026-11-10), applyNow and hold (step 5); fault matrix on the simulator 18 of 18. |
 | Launches (1) | ack, event `result` | done | §4 | `ack`, the `result` event (ZnLaunch.start / finish / open, 2026-11-09). |
 | Tasks (1) | done, app event TASK | partial | §4 | `ZnTasks` (2026-11-09): `done` answers true; nothing starts a task on iOS yet (background tasks, §4). |
 | Platform (iOS only) | constants | iOS extra | | Tells JS it runs on iOS before any code runs (A9). |
