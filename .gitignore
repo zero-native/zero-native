@@ -40,6 +40,7 @@ android/sample/src/main/assets/zn-bundle.json
 # Copied from examples/sample/assets/ by the sample build
 android/sample/src/main/assets/images/
 android/sample/src/main/assets/lottie/
+android/sample/src/main/assets/fonts/
 
 # Compiler test artifacts
 compiler/test/.tmp/
