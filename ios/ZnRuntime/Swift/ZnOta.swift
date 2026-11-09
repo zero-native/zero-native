@@ -673,7 +673,12 @@ final class ZnOta: @unchecked Sendable {
         emitStatus()
     }
 
+    /// JS listeners of Updates' "status" event (fieldsLock; a new runtime has none). Status goes only to listeners:
+    /// an event before JS has started would reach no handler.
+    fileprivate var statusListeners = 0
+
     private func emitStatus() {
+        guard fieldsLock.withLock({ statusListeners }) > 0 else { return }
         let s = status()
         DispatchQueue.main.async { ZnModules.emit("Updates", "status", s, latestOnly: true) }
     }
@@ -1346,6 +1351,7 @@ final class ZnOta: @unchecked Sendable {
         let from = ZnBundles.running
         stopTimers()
         screensAreUp = false
+        fieldsLock.withLock { statusListeners = 0 }  // the new runtime's JS registers its own
         ZnBundles.switchTo(target)
         let id = target.key
         ZnApp.shared.restart(bundle: target.dir ?? ZnBundles.builtInURL, in: Self.window()) { [self] ok, error in
@@ -1407,6 +1413,11 @@ final class ZnOta: @unchecked Sendable {
     // MARK: JS: the built-in Updates module (packages/core/src/updates.ts)
 
     final class Module: ZnModuleBase, @unchecked Sendable {
+        override func onListenerCount(_ event: String, _ count: Int) {
+            let s = ZnOta.shared
+            if event == "status" { s.fieldsLock.withLock { s.statusListeners = count } }
+        }
+
         init() {
             super.init("Updates", version: 3)
             function("status") { call in call.resolve(ZnOta.shared.status()) }

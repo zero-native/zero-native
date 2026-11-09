@@ -276,8 +276,8 @@ final class ZnClipboard: ZnModuleBase, @unchecked Sendable {
 
 // MARK: - Updates (ZnOta.kt Module), until iOS has OTA
 
-/// OTA isn't on iOS yet (milestones-ios.md, Phase 4a): Updates answers exactly as Android does for an app that never
-/// called `ZnOta.configure`, so JS sees "updates are off" instead of a missing module (`Updates.status()` would reject,
+/// An app that never called `ZnOta.configure` (ZnOta.swift): Updates answers exactly as Android does then, so JS sees
+/// "updates are off" instead of a missing module (`Updates.status()` would reject,
 /// and a `void Updates.status()` would be reported as an async error).
 /// - status: `{ enabled: false, phase: "off" }`; check: `{ action: "NONE", reason: "OFF", status }`;
 /// - applyNow: `{ applied: false, reason: "off" }`; markHealthy: done; hold: never answered, dropped when JS releases it.
@@ -303,4 +303,22 @@ final class ZnTasks: ZnModuleBase, @unchecked Sendable {
         super.init("Tasks", version: 1)
         function("done") { call in call.resolve(true) }
     }
+}
+
+/// The advertising id (Android: plugins/android-ad-id). iOS gives the IDFA only after Apple's tracking prompt (ATT,
+/// NSUserTrackingUsageDescription), which zero-native apps don't ask yet, so `get` answers as Android does with no id:
+/// `{ id: null, limitAdTracking: true }`. Never rejects. A plugin registering "AdId" replaces it.
+final class ZnAdIdNone: ZnModuleBase, @unchecked Sendable {
+    init() {
+        super.init("AdId", version: 1)
+        function("get") { call in call.resolve(["id": NSNull(), "limitAdTracking": true]) }
+    }
+}
+
+/// Native motion (Android: ZnMotion.kt, values driven on the UI thread) isn't on iOS yet (milestones-ios.md, Phase 4).
+/// Core imports it, so every bundle lists Motion v1 in its needs, though an app that never calls it (ZeroBill) doesn't
+/// need it. Registered so such bundles (and OTA updates of them) run; every call answers "unavailable", as for a
+/// missing method. A bundle that does use Motion must not ship to iOS until Phase 4.
+final class ZnMotionNone: ZnModuleBase, @unchecked Sendable {
+    init() { super.init("Motion", version: 1) }
 }

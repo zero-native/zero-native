@@ -148,6 +148,15 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-10: iOS AdId and Motion stubs; Updates status only to listeners (Claude, Mac)
+- ZnBuiltInModules.swift: **AdId v1** answers `{ id: null, limitAdTracking: true }` (the IDFA needs Apple's tracking
+  prompt, not asked), and **Motion v1** is registered with no methods (every call "unavailable"): core imports Motion,
+  so every bundle lists it, and ZeroBill never calls it. Both give way to a plugin of the same name. ZeroBill's bundle
+  still needs Notifications and Push on iOS (Phase 3) before its OTA bundles are accepted there.
+- Fix: ZnOta sent Updates "status" events before JS had started (the launch gate's early check), and JS logged
+  "global function not defined: __zn_onEvent" twice per start. Status now goes only while JS listens
+  (onListenerCount, as Android), and the count resets when the runtime is replaced.
+
 ### 2026-11-10: iOS OTA step 5b: the launch gate (Claude, Mac)
 ios/ZnRuntime/Swift/ZnOtaGate.swift, as Android's ZnOtaGate: at a cold start the check runs at once and ZnSplash keeps
 the launch screen while it runs (at most `launchDecisionMs`, 800 ms, from the tap: the process start time). A priority

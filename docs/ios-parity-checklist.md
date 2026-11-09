@@ -104,7 +104,7 @@ layout animation), so it waits as a whole (plan §4, Phase 4).
 
 | Item | iOS | Size | Note |
 |---|---|---|---|
-| Motion values, timings, env values, formulas, bindings | missing | L (3 d) | CADisplayLink clock; port ZnFormula.kt op for op; bind on CALayer. |
+| Motion values, timings, env values, formulas, bindings | missing (module stub) | L (3 d) | 2026-11-10: a "Motion" v1 stub with no methods is registered so bundles that list it start (ZeroBill never calls it). Real port: CADisplayLink clock; port ZnFormula.kt op for op; bind on CALayer. |
 | Gestures (pan, pinch, long press, ...), element values, shared elements, reorder, drop zones, tilt | missing | L (3 d) | UIKit recognizers; the four rules of motion.md §14. |
 | `useZoom`, Scroll / List snapping and scroll events | missing | M | |
 | `keyboardDismissMode` | missing | S | UIScrollView's own. |
@@ -254,7 +254,7 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 
 | Plugin | What it does | iOS side | Android files | Size | Note |
 |---|---|---|---|---|---|
-| ad-id | Google advertising id (module AdId) | no | AdIdPlugin.kt, AdIdRules.kt | M | IDFA needs the App Tracking Transparency prompt. |
+| ad-id | Google advertising id (module AdId) | stub | AdIdPlugin.kt, AdIdRules.kt | M | ZnAdIdNone (2026-11-10): `{ id: null, limitAdTracking: true }`. A real IDFA needs the App Tracking Transparency prompt (Pavan decides). |
 | analytics | Firebase Analytics, RN Firebase API (Analytics) | done (simulator) | AnalyticsPlugin.kt, AnalyticsRules.kt | M | After firebase-app. |
 | auth | Phone number hint sheet, SMS Retriever (Auth) | done (stubs) | AuthPlugin.kt, AuthModule.kt, AuthRules.kt | S | iOS has neither. Answer "unavailable" so the app falls back to typing; the OTP fills from the keyboard via OtpInput's `.oneTimeCode`. |
 | crashlytics | Firebase Crashlytics, JS errors (Crashlytics) | done (simulator) | CrashlyticsPlugin.kt, CrashlyticsModule.kt, CrashlyticsRules.kt | M | dSYM upload; needs the JS error listener (§4). |

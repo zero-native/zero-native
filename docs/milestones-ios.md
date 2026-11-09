@@ -447,9 +447,10 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
-| 2026-11-10 | OTA step 5b: the launch gate and update screen (simulator) | (this commit) |
-| 2026-11-10 | OTA step 5a: apply in place, rollback in place (simulator) | e5d3a6b |
-| 2026-11-10 | OTA steps 1–4: rules, check, download, install, crash mark, rollback (simulator) | f8d935b |
+| 2026-11-10 | AdId and Motion stubs; Updates status only to JS listeners | i.9 |
+| 2026-11-10 | OTA step 5b: the launch gate and update screen (simulator) | c07563b |
+| 2026-11-10 | OTA step 5a: apply in place, rollback in place (simulator) | 9aae06f |
+| 2026-11-10 | OTA steps 1–4: rules, check, download, install, crash mark, rollback (simulator) | 5049461 |
 | 2026-11-10 | Image viewer as Android's: one page per swipe, no paging while zoomed, Android's bar; checked in ZeroBill's Offer Details | 53bc864 |
 | 2026-11-09 | Scroll with only maxHeight hugs its content; LayoutLab 97 / 97 | 9afd9ff |
 | 2026-11-09 | Pavan's iPhone test: min raises align children; sheet height follows content; close while sliding in; LayoutLab 95 / 95 | 2e6df8e |
