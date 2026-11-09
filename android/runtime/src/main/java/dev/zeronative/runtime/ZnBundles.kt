@@ -89,6 +89,10 @@ object ZnBundles {
     /** Template files of the chosen downloaded bundle, already read (and checked) while choosing it. */
     private val preRead = java.util.concurrent.ConcurrentHashMap<String, TemplateFile>()
 
+    /** The APK's assets (app fonts read from the APK, ZnFonts.kt). */
+    internal fun apkAssets(): android.content.res.AssetManager =
+        checkNotNull(appContext) { "ZnBundles.init() was not called" }.assets
+
     /** Remembers the app context; does no work. Called by [ZnRuntime.start] and [ZnTemplates.preload]. */
     fun init(context: Context) {
         if (appContext == null) appContext = context.applicationContext

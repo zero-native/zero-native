@@ -157,7 +157,7 @@ describe("H1: Dynamic Layout Values", () => {
       export function Bad(props: { w: () => string }) {
         return <View style={{ flexWrap: props.w() }} />
       }
-    `)).toMatch(/flexWrap must be known at build time/)
+    `)).toMatch(/"flexWrap" must be known at build time/)
 
     expect(err(`
       import { View } from "@zero-native/ui"

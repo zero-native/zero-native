@@ -3087,35 +3087,33 @@ change, and what evidence would make you change it?"
   view), and its routes.ts viewer line changes to the TSX form. Handed to the app-home-tabs session.
 - **Why keep `open()` the same:** the call sites in ZeroBill don't change; only the route line does.
 
-## 207. Registry needs read from the source, for features that ride in an older prop (compiler, 2026-11-09; Opus, review fix)
-- **Chosen:** `compiler/src/needs.ts` scans app files that import the canvas API (`draw`, `smoothPath`, the Canvas
-  types) for the registry-24 commands (`draw.image`, `paragraph`, `clipRoundRect`, `clipPath`, `clipRect` with `op`)
-  and paint / path keys (`sweepGradient`, `blendMode`, `shadow`, `blur`, `trimStart / End / Offset`). Any hit raises
-  the bundle's `requires.registry` to 24. `<Scroll ref>` raises it in the writer (a Scroll with `scrollCommand`).
-- **Why:** both ride in props of registry 23 (`commands`, `scrollCommand`), so the template file alone said 23. A 23
-  app would run the bundle and skip the clip, image or shadow (a warning only), or ignore scrollTo, with no error.
-- **Over-counts on purpose:** a key name like `blur` in any object of such a file counts, even if it never reaches a
-  canvas. The cost is a bundle that needs the newer app; a miss would draw wrong on an older one.
-- **Option not taken:** a runtime check in `draw.*`: the need is decided at build time (zn-bundle.json), so a runtime
-  check can't stop an older app from taking the bundle.
+## 210. App fonts: a font table built from file names and OS/2, Compose picks the face (compiler + runtime, 2026-11-09; Opus, RN gaps pack)
+- **Chosen:** fonts live in `<app>/assets/fonts/` and ship as bundle files. The build reads each file's OS/2 weight and
+  italic bit, groups files into families by name (`Poppins-SemiBold` → `Poppins`, 600; RN's `_bold` too), and writes
+  `fonts` into the manifest: family → faces, plus each file name as a one-face family. Native makes one Compose
+  `FontFamily` per family (`Font(file | asset, weight, style)`), and Compose's matcher picks the face per text.
+- **Why:** both RN Android names work (file name, and family + fontWeight as RN's ReactFontManager), so ported code needs
+  no change. The weight from OS/2 beats the name, so odd names ("Book", "Heavy", "SemiBold" vs "DemiBold") do no harm.
+  Bundle files mean OTA can add fonts and a bundle always carries what it names; the per-bundle table (not global)
+  keeps a running update or a rollback from mixing two bundles' fonts.
+- **OTA safety:** an unknown name, a missing file, or a file that doesn't start like a font draws the system font with
+  one log line. The check is only the 4-byte tag, on first use; a font with a good tag and bad tables would fail inside
+  Compose. The build already parsed it and the bundle's file hashes are checked before it runs, so this is left as is.
+- **Not taken:** reading the family name from the font's `name` table (iOS's PostScript name). RN Android uses file
+  names; iOS will need the PostScript name mapped from the same table (ios-parity-checklist).
+- **Known gaps:** no variable fonts (build error), no app-wide default font (a styled `AppText` component, as in RN),
+  Canvas and SVG text use the system font. First use loads the font on the main thread (a few ms per face, measured
+  only on the emulator).
 
-## 208. List snapping lines up a row after the fling (runtime, 2026-11-09; Opus, review fix)
-- **Chosen:** the snap point is picked as before (from the List's offset, an estimate past the measured rows); when
-  the spring stops, a short second spring moves the nearest row on screen to the start, centre or end (snapToAlignment;
-  paging uses the start). Not for `snapToOffsets` (distances, not rows) and not when the list hit its end.
-- **Why:** with a header or rows of mixed size the estimate is off, so a page or card stopped a few dp off. Rows on
-  screen have exact places, so the correction is exact. It is invisible when the estimate was right (all rows the same
-  size, the common case: a pager or a card rail).
-- **Meaning:** on a List a snap lands on a row. `snapToInterval` shorter than a row still stops on rows. RN does the
-  same in practice, as apps set the interval to the row size.
-- **Option not taken:** Compose's `SnapLayoutInfoProvider`: its fling ends on rows too, but it doesn't do RN's
-  `snapToStart / snapToEnd`, one-at-a-time paging or our momentum events; the correction keeps one fling code path.
-
-## 209. decelerationRate numbers: iOS's scale; Android-style numbers converted (core, 2026-11-09; Opus, review fix)
-- **Chosen:** zn reads the iOS meaning (speed kept per ms: "normal" 0.998, "fast" 0.99). A number of 0.95 or less can
-  only be Android's meaning (OverScroller friction 1 - rate: normal 0.985, fast 0.9), so it is converted (friction
-  0.015 = 0.998). "fast" stays 0.99.
-- **Why:** the reviewer suggested sending 0.9 for "fast" (RN Android's value), but our decay reads per-ms speed; 0.9
-  there was outside the valid range and fell back to "normal". iOS 0.99 and Android 0.9 stop at about the same place.
-  An RN app that wrote `decelerationRate={0.9}` for Android now gets a short fling instead of a normal one.
-- **Gap:** numbers between 0.95 and 0.985 are read as iOS's scale (a very short fling); RN apps don't use those.
+## 211. flexWrap: our own wrap layout, not Compose's FlowRow (runtime, 2026-11-09; Opus, RN gaps pack)
+- **Chosen:** `ZnWrapLayout` (ZnWrap.kt), about 150 lines, with Yoga's rules: lines decided in px with half a pixel of
+  room per child and gap, `flex` children count 0 wide when lines are made (RN's flexBasis 0) and share what their line
+  has left, justifyContent per line and alignContent for the lines reuse the Row / Column arrangements (gap included).
+- **Why:** FlowRow was tried first. It rounds each child to whole pixels and the gap **up**, then breaks lines: three
+  60 dp boxes with 10 dp gaps in a 200 dp Row went on two lines on a 2.625x screen (layout lab case 30), and two
+  `width: "50%"` children can do the same on some widths. That would make an RN two-column pattern break on some phones
+  only. With the slack, a line may hang out by at most a pixel.
+- **Kept from zn's Row:** unset alignItems is flex-start; only an explicit stretch stretches (to the line's height). A
+  stretched child's width comes from its max intrinsic width, as FlowRow's fillMaxRowHeight; a child that can't answer
+  (a lazy list inside) is not stretched instead of crashing.
+- **Not built:** a wrapping Column (rare in RN apps; FlowColumn later if asked), `wrap-reverse`, `alignContent: stretch`.

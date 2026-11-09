@@ -53,6 +53,7 @@ export const REGISTRY_VERSION = 24 // 2: Anchor. 3: transforms, shadow, absolute
 //     blurRadius (draw-phase targets that follow motion values); `motion` (values from an element: box, scroll, page,
 //     press); animateLayout; List itemAnimation. A slot holding a motion value needs the Motion module.
 //     Scroll / List keyboardDismissMode (RN's "on-drag" and "interactive", for chats).
+//     RN gaps pack: fontFamily (app fonts from assets/fonts); flexWrap, alignContent and crossGap (a wrapped Row).
 
 export const Component = {
   Column: 1,
@@ -500,6 +501,21 @@ export const Prop = {
    * "t16;s;b;e;mb;me" (onScroll, onScrollBeginDrag, onScrollEndDrag, onMomentumScrollBegin, onMomentumScrollEnd).
    */
   scrollEvents: { id: 162, type: "string" },
+  // RN gaps pack (registry 24; ids 214-249 reserved for it on 2026-11-09).
+  /**
+   * RN fontFamily: a name in the bundle manifest's font table (compiler fonts.ts; ZnFonts.kt picks the face by
+   * fontWeight / fontStyle), or a system name. An unknown name draws the system font.
+   */
+  fontFamily: { id: 214, type: "string" },
+  /** RN flexWrap on a Row (chips, tags): "wrap" lays the children out in lines (Compose FlowRow). Build-time. */
+  flexWrap: { id: 215, type: "enum" },
+  /** RN alignContent: where a wrapped Row with a height puts its lines (as justifyContent's values; no "stretch"). */
+  alignContent: { id: 216, type: "enum" },
+  /**
+   * The space between the lines of a wrapped Row (RN rowGap; RN's gap sets both), in dp. Absent: the same as gap.
+   * Written by the compiler.
+   */
+  crossGap: { id: 217, type: "number" },
 } as const satisfies Record<string, { id: number; type: PropType }>
 export type PropName = keyof typeof Prop
 
@@ -515,6 +531,9 @@ export const Enum = {
   },
   alignItems: { "flex-start": 0, center: 1, "flex-end": 2, stretch: 3 },
   alignSelf: { "flex-start": 0, center: 1, "flex-end": 2, stretch: 3 },
+  flexWrap: { nowrap: 0, wrap: 1 },
+  /** The same numbers as justifyContent's (native reuses its arrangements). */
+  alignContent: { "flex-start": 0, center: 1, "flex-end": 2, "space-between": 3, "space-around": 4, "space-evenly": 5 },
   overflow: { visible: 0, hidden: 1 },
   textAlign: { start: 0, center: 1, end: 2 },
   contentScale: { cover: 0, contain: 1, fill: 2 },
@@ -727,6 +746,8 @@ export const DynamicProps: ReadonlySet<PropName> = new Set<PropName>([
   "sharedTag",
   // Registry 24: snap rules may come from data (snapToOffsets of measured rows).
   "snap",
+  // RN gaps pack (registry 24): the gap between a wrapped Row's lines (rowGap from a signal).
+  "crossGap",
 ])
 
 // ---- Which registry version each thing needs (OTA capability check, docs/ota.md §3.2) -------------------------------
@@ -774,6 +795,7 @@ export const Added: {
     commands: 23,
     gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, animateLayout: 24,
     itemAnimation: 24, sharedTag: 24, reorderable: 24, keyboardDismissMode: 24, snap: 24, scrollEvents: 24,
+    fontFamily: 24, flexWrap: 24, alignContent: 24, crossGap: 24,
   },
   dynamic: {
     viewProps: 9, selected: 11, refreshing: 12, fill: 13, stroke: 13, trimStart: 13, trimEnd: 13, trimOffset: 13,
@@ -791,8 +813,12 @@ export const Added: {
     fontSize: 23, lineHeight: 23, letterSpacing: 23, display: 23, scrollCommand: 23, selectable: 23,
     commands: 23,
     gesture: 24, rotateX: 24, rotateY: 24, cameraDistance: 24, blurRadius: 24, motion: 24, sharedTag: 24, snap: 24,
+    crossGap: 24,
   },
   enumValue: {
+    "flexWrap.nowrap": 24, "flexWrap.wrap": 24,
+    ...Object.fromEntries(["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"]
+      .map((v) => [`alignContent.${v}`, 24])),
     "display.flex": 23, "display.none": 23,
     "textTransform.none": 15, "textTransform.uppercase": 15, "textTransform.lowercase": 15, "textTransform.capitalize": 15,
     "pointerEvents.auto": 15, "pointerEvents.none": 15, "pointerEvents.box-none": 15, "pointerEvents.box-only": 15,

@@ -596,10 +596,29 @@ hears only the events it has handlers for. Guide notes §79.
 
 A `List`'s offset past the measured rows is an estimate. One event id (27) carries all five events.
 
-**Route option `transparent: true`:** the screen is drawn over the one below, which stays visible and drawn (one
-scene with both). Use `transition: "none"`: the screen animates itself (the image viewer's photo flight); it shares
-no elements with the screen below. A screen pushed over it slides over both, and Back slides them back. Use it with
-`restore: false` when the screen's data lives in JS memory.
+**Route option `transparent: true`:** the screen is drawn over the one below, which stays visible and drawn (an
+overlay). The screen gets no enter / exit transition and no shared elements: it animates itself (the image viewer's
+photo flight). Use it with `restore: false` when the screen's data lives in JS memory.
 
-On a `List`, a snap lands on a row (the nearest row lines up after the fling). `decelerationRate` numbers are iOS's
-(0.998 / 0.99); 0.95 or less is read as Android's (0.9 = fast). Guide notes §82.
+## 17. RN gaps pack (registry 24, 2026-11-09)
+Five React Native capabilities that zn was missing. Lab: Dev → "RN gaps lab" (`/dev/rn-gaps`); wrap cases also in the
+layout conformance lab (cases 30–37).
+
+### App fonts: `fontFamily`
+| Where | What |
+|---|---|
+| Files | `.ttf` / `.otf` in the app's `assets/fonts/`, one file per face (no variable fonts, no `.ttc`) |
+| `fontFamily` on `Text`, `TextField`, `OtpInput` digits, spans | A family (`"Poppins"`, faces picked by `fontWeight` / `fontStyle`), a file name (`"Poppins-SemiBold"`), or a system name (`System`, `sans-serif`, `serif`, `monospace`, `sans-serif-medium`, ...) |
+| Unknown name | Build error (with the names the app has); in spans from data, the system font |
+| Changes at runtime | No (spans from data may name any font) |
+Guide notes §84; second-opinions 210.
+
+### Wrapping rows: `flexWrap`
+| Key | On | What |
+|---|---|---|
+| `flexWrap: "wrap"` | `Row`, `View` with `flexDirection: "row"` | Children go on more lines; `"nowrap"` is the default |
+| `justifyContent`, `alignItems`, `alignSelf` | the Row / its children | Per line, as in RN (unset alignItems: top of the line) |
+| `columnGap` / `rowGap` / `gap` | the Row | Along a line / between lines / both. `rowGap` (and `gap`) can change at runtime |
+| `alignContent` | the Row with a height | Where the lines go: `flex-start` (default), `center`, `flex-end`, `space-between`, `space-around`, `space-evenly` |
+| `flex` | children | Shares what is left of the child's own line |
+Guide notes §85; second-opinions 211.

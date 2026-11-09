@@ -30,7 +30,7 @@ export function span(style: unknown, onPress: unknown, children: readonly unknow
 export const SPAN_FONT_STYLE: Record<string, number> = { normal: 0, italic: 1 }
 export const SPAN_DECORATION: Record<string, number> = { none: 0, underline: 1, "line-through": 2 }
 
-type Style = Record<string, number>
+type Style = Record<string, number | string>
 
 /**
  * The span keys native reads (ZnTemplate.kt parseSpans), as native values: colours as ARGB, weights and enums as
@@ -57,6 +57,10 @@ function spanKey(out: Style, key: string, v: unknown): void {
       return
     case "textDecorationLine":
       if (String(v) in SPAN_DECORATION) out[key] = SPAN_DECORATION[String(v)]
+      return
+    case "fontFamily":
+      // Registry 24: native looks the name up in the app's fonts (ZnFonts.kt); an unknown name draws the system font.
+      if (typeof v === "string" && v !== "") out[key] = v
       return
   }
 }

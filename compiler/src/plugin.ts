@@ -12,6 +12,7 @@ import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
 import { nativeModuleUses } from "./modules"
 import { compileDerives } from "./motion"
+import { fontFamilyProblem, type FontTable } from "./fonts"
 import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
 
 /** One route in the manifest: the route entry with its screen's template id (-1 for a native screen). */
@@ -20,6 +21,8 @@ export type ManifestRoute = RouteEntry & { screen: number }
 export interface ZnManifest {
   components: Record<string, number>
   routes: ManifestRoute[]
+  /** The app's fonts (registry 24, compiler/src/fonts.ts): family → faces. Absent when the app has none. */
+  fonts?: FontTable
 }
 
 /**
@@ -49,7 +52,11 @@ export interface ZnBuild {
 const PLACEHOLDER = /__znT(\d{6})__/g
 const placeholder = (n: number) => `__znT${String(n).padStart(6, "0")}__`
 
-export function znBuild(): ZnBuild {
+/**
+ * [fonts]: the app's font table (fonts.ts scanFonts; undefined: the app has no assets/fonts). Every fontFamily is
+ * checked against it, and it goes into the manifest.
+ */
+export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
   // Indexed by reservation number (the order templates were reserved in, which depends on Bun's load order).
   const specs: NodeSpec[] = []
   const reservedBy: { file: string; seq: number }[] = []
@@ -75,6 +82,8 @@ export function znBuild(): ZnBuild {
   }
   /** Every <NativeView>, checked in outputs(), when all files are read. */
   const nativeViews: { name: string; where: string }[] = []
+  /** Every fontFamily name, checked in outputs() against the app's fonts. */
+  const fontUses: { name: string; where: string }[] = []
   const ctx = {
     reserveTemplate() {
       specs.push(null as unknown as NodeSpec)
@@ -87,6 +96,9 @@ export function znBuild(): ZnBuild {
     ref: placeholder,
     nativeView(name: string, where: string) {
       nativeViews.push({ name, where })
+    },
+    fontFamily(name: string, where: string) {
+      fontUses.push({ name, where })
     },
   }
 
@@ -153,6 +165,10 @@ export function znBuild(): ZnBuild {
       })
 
       for (const v of nativeViews) checkNativeName(v.name, `${v.where}: <NativeView>`, modules)
+      for (const f of fontUses) {
+        const problem = fontFamilyProblem(f.name, options.fonts)
+        if (problem) throw new Error(`${f.where}: ${problem}`)
+      }
       const table: ManifestRoute[] = (routes?.entries ?? []).map((r) => {
         if (r.native !== undefined) {
           checkNativeName(r.native, `${routes!.file}: route "${r.name}"`, modules)
@@ -173,7 +189,7 @@ export function znBuild(): ZnBuild {
       const sortedModules = Object.fromEntries([...modules.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
       return {
         templates: file.bytes,
-        manifest: { components: finalComponents, routes: table },
+        manifest: { components: finalComponents, routes: table, ...(options.fonts ? { fonts: options.fonts } : {}) },
         js: filledJs,
         requires: { registry: Math.max(file.registry, sourceNeed), hostApi: HOST_API_VERSION, modules: sortedModules },
       }

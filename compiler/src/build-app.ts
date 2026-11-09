@@ -3,6 +3,7 @@
 // made from `js` afterwards (tools/hermesc.ts).
 import { existsSync } from "node:fs"
 import { dirname, relative, resolve } from "node:path"
+import { scanFonts } from "./fonts"
 import { type BundleRequires, znBuild, type ZnManifest } from "./plugin"
 import { decodeSourceMap, type DecodedMap, encodeSourceMap, type LineMap, lookup } from "./sourcemap"
 
@@ -25,7 +26,9 @@ export interface AppBuild {
 }
 
 export async function buildApp(entry: string): Promise<AppBuild> {
-  const zn = znBuild()
+  // The app's fonts: <app>/assets/fonts next to <app>/src (the entry's folder). Read on every build, so a font added
+  // while `zn dev` runs is known at the next build (its file reaches the phone with the next APK or OTA bundle).
+  const zn = znBuild({ fonts: scanFonts(resolve(dirname(resolve(entry)), "../assets/fonts")) })
   const result = await Bun.build({
     entrypoints: [entry],
     target: "browser",

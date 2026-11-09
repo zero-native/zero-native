@@ -53,6 +53,11 @@ export interface CompileContext {
   ref?(id: number): string
   /** A <NativeView> names [name]; [where] is its place in the source. The app build checks its plugin once all files are read. */
   nativeView?(name: string, where: string): void
+  /**
+   * A fontFamily names [name] (registry 24, compiler/src/fonts.ts); [where] is its place in the source. The app build
+   * checks it against the app's assets/fonts once all files are read.
+   */
+  fontFamily?(name: string, where: string): void
   /** Compiles the .svg file at [path] (absolute). Default: read it from disk (svg.ts, cached). */
   svg?(path: string): CompiledSvg
 }
@@ -104,7 +109,7 @@ export interface OnceTrap {
 
 const RUNTIME = "__zn"
 /** What a nested <Text> span can change (ZnTemplate.kt parseSpans; core text-spans.ts for spans at runtime). */
-const SPAN_STYLE_KEYS = ["color", "fontSize", "fontWeight", "fontStyle", "textDecorationLine", "letterSpacing", "backgroundColor"]
+const SPAN_STYLE_KEYS = ["color", "fontSize", "fontWeight", "fontStyle", "fontFamily", "textDecorationLine", "letterSpacing", "backgroundColor"]
 const UI_MODULE = "@zero-native/ui"
 type JsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment
 
@@ -1855,6 +1860,14 @@ export function compileModule(
       case "height":
         if (value() === "auto") return null // zn's default: the size of the content
         return k
+      case "alignContent":
+        if (value() === "stretch") {
+          return fail(at, `alignContent "stretch" isn't supported (lines keep their own height): use "flex-start" (RN's default)`)
+        }
+        return k
+      case "flexWrap":
+        if (value() === "wrap-reverse") return fail(at, `flexWrap "wrap-reverse" isn't supported: use "wrap" and reverse the children`)
+        return k
     }
     return k
   }
@@ -2086,12 +2099,29 @@ export function compileModule(
     delete props.__rowGapExpr
     delete props.__columnGapExpr
     const across = tag === "Row" || tag === "Carousel" || ((tag === "Scroll" || tag === "List") && props.horizontal === true) || isRowTouchable
+    const gapBefore = props.gap
     const main = across ? columnGap : rowGap
     if (main !== undefined && tag !== "Stack") props.gap = main
     const mainExpr = across ? columnGapExpr : rowGapExpr
     if (mainExpr !== undefined && tag !== "Stack") {
       setProp(props, b, "gap", mainExpr.initializer, mainExpr)
     }
+    // flexWrap (registry 24): a Row whose children go on more lines (chips, tags). columnGap is the gap along a line
+    // (set above), rowGap the gap between lines (crossGap); RN's gap is both, so native uses gap when crossGap is unset.
+    if (props.flexWrap === "nowrap") delete props.flexWrap
+    if (props.flexWrap !== undefined) {
+      if (tag !== "Row") {
+        fail(at, 'flexWrap: "wrap" works on a <Row> (or a <View> with flexDirection: "row"), for chips and tags. ' +
+          "Put the wrapping children in a <Row>")
+      }
+      if (rowGap !== undefined) props.crossGap = rowGap
+      else if (rowGapExpr !== undefined) setProp(props, b, "crossGap", rowGapExpr.initializer, rowGapExpr)
+      else if (columnGap !== undefined || columnGapExpr !== undefined) {
+        // columnGap changed the gap along a line; the lines keep gap's own value (RN), or none.
+        if (typeof gapBefore === "object" && gapBefore !== null) fail(at, "flexWrap with columnGap and a gap that changes at runtime: give rowGap too")
+        props.crossGap = typeof gapBefore === "number" ? gapBefore : 0
+      }
+    } else delete props.alignContent // RN: alignContent only moves wrapped lines
 
     if (rn === "TouchableOpacity") {
       props.pressFeedback ??= "none"
@@ -3118,6 +3148,7 @@ export function compileModule(
     }
     props[name] =
       name === "fontWeight" ? fontWeight(value, at)
+      : name === "fontFamily" ? fontFamilyName(value, at)
       : name === "backgroundImage" ? linearGradient(value, at)
       : name === "animate" ? animateSpec(value, at)
       : name === "animateLayout" ? timing(value, at, "animateLayout")
@@ -3128,6 +3159,13 @@ export function compileModule(
       : name === "keyboardType" && value === "numeric" ? "decimal-pad" // RN's numeric: digits and a decimal point
       : name === "autoComplete" && typeof value === "string" && value in AUTOCOMPLETE_ALIASES ? AUTOCOMPLETE_ALIASES[value]
       : value
+  }
+
+  /** RN fontFamily (registry 24): a font name; the app build checks it against assets/fonts (fonts.ts). */
+  function fontFamilyName(value: unknown, at: ts.Node): string {
+    if (typeof value !== "string" || value.trim() === "") return fail(at, "fontFamily needs a font name, like \"Inter\"")
+    ctx.fontFamily?.(value, where(at))
+    return value
   }
 
   /**
@@ -3783,6 +3821,7 @@ export function compileModule(
       if (!allowed.includes(key)) fail(at, `"${key}" isn't supported on a nested <Text> span (use ${allowed.join(", ")})`)
       if (value === undefined || value === null) return
       if (key === "fontWeight") out[key] = fontWeight(value, at)
+      else if (key === "fontFamily") out[key] = fontFamilyName(value, at)
       else if (key === "color" || key === "backgroundColor") {
         try {
           out[key] = parseColor(String(value))

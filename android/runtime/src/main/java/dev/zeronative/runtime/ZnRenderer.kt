@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -201,7 +202,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
         Registry.Component.MODAL -> ZnModal(f, t, s, inst) // the same
         Registry.Component.STATUS_BAR -> ZnBarElement(s, inst, navigation = false) // takes no space
         Registry.Component.NAVIGATION_BAR -> ZnBarElement(s, inst, navigation = true)
-        Registry.Component.ROW -> {
+        Registry.Component.ROW -> if (s.flexWrap) ZnWrapRow(f, t, inst, s, mod) else {
             val gap = if (s.gapSlot >= 0) inst.finiteNum(s.gapSlot) ?: s.gap else s.gap
             Row(
                 modifier = mod,
@@ -354,7 +355,7 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
             val textStyle = s.effectiveTextStyle(fontScale, fs, lh, ls)
             // Registry 16: spans that change at runtime come as JSON in a slot (core text-spans.ts); else the template's.
             val spansJson = if (s.spansSlot >= 0) inst.slot(s.spansSlot).value as? String else null
-            val spans = if (s.spansSlot >= 0) remember(spansJson) { spansJson?.let(::parseSpans) } else s.spans
+            val spans = if (s.spansSlot >= 0) remember(spansJson) { spansJson?.let { parseSpans(it, s.fonts) } } else s.spans
             val presses = if (s.spansSlot >= 0 && s.onSpanPress != 0) remember(spansJson) { spansJson?.let(::parseSpanPresses) } else null
             // textDecorationStyle dashed / dotted (registry 16): drawn here from the laid-out lines.
             val layout = if (s.dashedDecoration != 0) remember { mutableStateOf<TextLayoutResult?>(null) } else null
@@ -1490,5 +1491,25 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTextDecoration(
         val base = r.getLineBaseline(i)
         val y = if (line == Registry.TextDecorationLine.LINE_THROUGH) base - size * 0.27f else base + size * 0.11f
         drawLine(color, Offset(left, y), Offset(right, y), thick, pathEffect = effect)
+    }
+}
+
+/** RN flexWrap: "wrap" on a Row (registry 24): chips and tags, laid out by [ZnWrapLayout] (ZnWrap.kt). */
+@Composable
+private fun ZnWrapRow(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, s: ZnNodeSpec, mod: Modifier) {
+    val gap = if (s.gapSlot >= 0) inst.finiteNum(s.gapSlot) ?: s.gap else s.gap
+    // rowGap; unset: gap, as RN's gap sets both.
+    val crossGap = (if (s.crossGapSlot >= 0) inst.finiteNum(s.crossGapSlot) else null) ?: s.crossGap ?: gap
+    ZnWrapLayout(mod, s.justify, gap, s.alignItems, s.alignContent, crossGap) {
+        for (ref in shownRefs(f, t, inst, s)) key(ref.key) {
+            val child = ref.template.nodes[ref.node]
+            val childFlex = if (child.flexSlot >= 0) inst.finiteNum(child.flexSlot) ?: child.flex else child.flex
+            val stretch = (child.alignSelf == Registry.AlignSelf.STRETCH ||
+                (child.alignSelf == -1 && s.alignItems == Registry.AlignItems.STRETCH)) &&
+                child.height == null && child.heightSlot < 0
+            var m: Modifier = Modifier.layoutId(ZnWrapItem(childFlex.coerceAtLeast(0f), child.alignSelf, stretch))
+            child.zIndex?.let { m = m.zIndex(it) }
+            ZnNode(f, ref.template, ref.instance, ref.node, m, definiteWidth = child.width != null || child.widthSlot >= 0 || childFlex > 0f)
+        }
     }
 }

@@ -131,7 +131,8 @@ known at build time (section 0).
 | `left`, `right`, `top`, `bottom` | same, or `start`, `end` | same | `left` / `right` work since 2026-11-05 (= `start` / `end`). `position: "absolute"` only for children of `Stack` (a build error elsewhere, since 2026-11-05). |
 | `flexDirection` | `Row` / `Column`, or `<View>` | different | On `<View>` it picks Row or Column at build time (since 2026-11-05). On Touchable / Pressable with `flexDirection: "row"`, compiler automatically wraps children in a `<Row>` (registry 23). On other elements: a build error with a hint. |
 | `flexGrow`, `flexShrink`, `flexBasis`, `rowGap`, `columnGap` | `flex`, dropped, `gap` | different | Since 2026-11-05: `flexGrow: n` = `flex: n` (two growing children with different content widths split the space a little differently). `flexShrink` 0 / 1 and `flexBasis` 0 / `"auto"` are dropped; other values fail. `rowGap` in a Column (or vertical List / Scroll), `columnGap` in a Row (or horizontal Scroll / Carousel / horizontal List) is the `gap`, and beats `gap`; the other one is dropped. |
-| `flexWrap`, `alignContent`, `display` | none | missing | Wrap: no replacement yet. `display: "none"` → `cond && <X/>`. |
+| `flexWrap`, `alignContent` | same | different | Registry 24 (2026-11-09, guide notes §85): `flexWrap: "wrap"` on a `Row` or a `View` with `flexDirection: "row"` (chips, tags), with `justifyContent` and `alignItems` per line, `columnGap` along a line, `rowGap` between lines (`gap`: both; `rowGap` can change at runtime), `alignContent` (no `"stretch"`), `flex` sharing what a line has left. Matches Yoga in the layout lab (cases 30–37). Not on a Column; no `"wrap-reverse"`; unset `alignItems` puts children at the line's top (only an explicit `"stretch"` stretches, as zn's Row). From a signal: a build error. |
+| `display` | same | same | Registry 23: `"none"` / `"flex"`, can change at runtime. |
 | `backgroundColor`, `opacity`, `elevation`, `shadowColor` | same | same | `backgroundColor` and `opacity` can change at runtime. |
 | `borderRadius`, `borderWidth`, `borderColor` | same | same | `borderWidth` and `borderColor` can change at runtime (registry 15). |
 | `borderTopWidth`, `borderBottomWidth` | same | same | Both use the one `borderColor`. |
@@ -151,7 +152,8 @@ known at build time (section 0).
 | `textTransform` | same | same | Registry 15, also on runtime text. |
 | `includeFontPadding` | same | different | Registry 16 (since 2026-11-05). zn's default is `false` (RN Android's is `true`): write `true` to get RN's 2-3 dp taller lines. |
 | `textDecorationStyle` | same | different | Registry 16: `"solid"`, `"dashed"`, `"dotted"` with an underline or line-through, on a whole `Text` (not a span). RN draws this on iOS only; zn draws it on Android too. `"double"` / `"wavy"` are a build error. |
-| `fontFamily`, `textAlignVertical`, `textShadow*`, `userSelect` | none | missing | Only the system font. Custom fonts are not built. With no `textAlignVertical`, a single-line `TextField` centres its text vertically (as RN on Android) and a multiline one starts at the top (RN centres it; apps add `textAlignVertical="top"`) (2026-11-05). |
+| `fontFamily` | same | same | Registry 24 (2026-11-09, guide notes §84): `.ttf` / `.otf` files in the app's `assets/fonts/` (RN / Expo's place); the name is a file name without the extension (`"Poppins-SemiBold"`, as RN Android) or the family the files share (`"Poppins"`), where `fontWeight` / `fontStyle` pick the face. On Text, TextField, OtpInput digits and spans (also spans from data). System names work: `System`, `sans-serif`, `serif`, `monospace`, `sans-serif-medium`, ... A name the app has no file for fails the build; from data, an unknown name draws the system font. Fonts are bundle files, so an OTA update can add one. No variable fonts, no `.ttc`, not from a signal. iOS: not built yet. |
+| `textAlignVertical`, `textShadow*`, `userSelect` | none | missing | With no `textAlignVertical`, a single-line `TextField` centres its text vertically (as RN on Android) and a multiline one starts at the top (RN centres it; apps add `textAlignVertical="top"`) (2026-11-05). |
 | `resizeMode` (as a style) | `contentScale` prop | renamed | See Image. `tintColor` on `Image`: see Image. |
 
 ## 3. Navigation
@@ -352,8 +354,9 @@ Ordered by the work they usually cause. "Missing" and "different" items only.
 7. **Other apps and results through JS** (different). `Linking.openURL` opens any app's link as in RN (since
    2026-11-08). Starting an app **for a result** (a UPI payment's answer) or an `intent:` link needs a Kotlin plugin;
    results come back through `launches` with `ack`. ([§6](#6-device-and-os), [§7](#7-opening-another-app-for-a-result))
-8. **Styling gaps** (missing). No `flexWrap`, `fontFamily` (custom fonts), per-side border colours. (`textTransform`,
-   per-corner radius, `Image` `tintColor` and the iOS shadow keys came in RN props pack 2.) Designs that use them need a
+8. **Styling gaps** (missing). No per-side border colours. (`textTransform`,
+   per-corner radius, `Image` `tintColor` and the iOS shadow keys came in RN props pack 2; `flexWrap` on a Row and
+   `fontFamily` with app fonts in registry 24, 2026-11-09.) Designs that use them need a
    workaround or a framework change. ([§2](#2-style-keys))
 9. **Animation model** (different). No `Animated.Value`. Since registry 24 (2026-11-09), motion values, compiled
    `derive` formulas and native gestures cover Reanimated + gesture-handler: drag-to-dismiss, parallax, snap points,
@@ -466,3 +469,21 @@ From react-native-gesture-handler v2 and Reanimated 3 / 4. Our own short names; 
 | `Gesture.Native`, `Gesture.Manual`, `Hover`, `ForceTouch` | none | Not phone gestures, or not needed |
 | worklet runtimes on other threads (frame processors) | native plugins | The scanner does QR natively |
 
+
+### 12.1 Not built yet (later work, not blocking ZeroBill)
+Gaps against the RN gesture and animation libraries, listed by the motion v1.1 session on 2026-11-09 from its work and
+the docs (not re-checked in code). Pavan: write them down as later work. Suggested order: useInk and A6 first
+(signatures, chart and icon morphs); worklets are a design question, not a quick add.
+
+| Gap | What RN has | Today in zn |
+|---|---|---|
+| **Worklets** (the big one) | Own JS on the UI thread | Only options and `derive` formulas (≤ 64 steps, `Math.*`, no own functions). Anything else is one JS message per frame (`onUpdate`) or a round trip (`manualActivation`). Custom physics and game-like logic don't fit |
+| A6: SVG path morph | redash `interpolatePath`, animated `d` | None |
+| A8: shared element into a Sheet, Modal or see-through screen | `sharedTransitionTag` anywhere | Screen to screen only; the image viewer uses a measured box |
+| Layout keys per frame | Any style key in `useAnimatedStyle` | Only `width` / `height` follow a motion value; not margin, padding, top / left, flex |
+| C3 useInk: finger drawing, signature pad | Skia + pan | None |
+| Gesture kinds | Hover, ForceTouch, raw touches on the UI thread (`Gesture.Manual`, `onTouchesMove`) | None |
+| Sensors | `useAnimatedSensor` (gyroscope, rotation vector, …) | Gravity tilt only (`useTilt`) |
+| Skia extras | Shaders (SkSL), text measuring from JS, snapshot to an image, Atlas, Picture recording, video frames | None. Gradients, dash, path data and text layout can't follow a motion value |
+| Libraries | Rive, maps with gestures, @gorhom bottom-sheet, FlashList, SectionList | Our Sheet and List only (grids: rn-gaps-pack). List offset is an estimate past measured rows |
+| Platform | Both | Nothing in §12 runs on iOS yet. Pinch, rotate, the edge-back band, TalkBack and frame timings not yet proven on the Lava |

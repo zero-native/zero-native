@@ -82,6 +82,14 @@ Missing work: 2 L, 3 M (with WebSocket), 4 S = **about 4.5 days**.
 
 ---
 
+## 1c. RN gaps pack (registry 24, 2026-11-09, on main)
+Android is built; iOS has none of it yet. A bundle that uses these needs registry 24.
+
+| Item | Android | iOS | Size | Note |
+|---|---|---|---|---|
+| `fontFamily` (prop 214) with app fonts | ZnFonts.kt (`ZnFontTable`, one per bundle), ZnTemplate.kt textStyle + parseSpans | missing | M | Read the manifest's `fonts` (family → `{ file, weight, italic }`). Register each bundle file with `CTFontManagerRegisterFontsForURL` (APK-like built-in copy, or the OTA bundle's), then pick the face by weight / italic yourself (closest weight, as CSS) and build `UIFont(descriptor:)` from its PostScript name (read it with `CGFont(dataProvider).postScriptName` once per file). System names: `System` / `sans-serif` / `Roboto` = system font, `serif` = New York, `monospace` = SF Mono, `sans-serif-medium` = system medium. Unknown: system font + one log. Also spans (`"fontFamily"` key) and TextField / OtpInput. Check: RN gaps lab §1–5. |
+| `flexWrap` (215), `alignContent` (216), `crossGap` (217, can change at runtime) on Row | ZnWrap.kt `ZnWrapLayout` | missing | M | A SwiftUI `Layout` with the same rules: lines in pt with half a pixel of slack per child, `flex` children 0 wide for line breaking then sharing the line's rest, justifyContent per line (with gap), alignContent with crossGap (unset: gap), alignItems per line (unset = top; stretch only when written). Check: LayoutLab cases 30–37, RN gaps lab §6–7. |
+
 ## 2. Props and events where iOS is missing or partial
 
 Only props whose iOS support is missing or partial. Everything else in the registry is read and used on iOS.

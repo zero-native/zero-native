@@ -80,6 +80,17 @@ export interface StyleProps {
   gap?: number
   justifyContent?: "flex-start" | "center" | "flex-end" | "space-between" | "space-around" | "space-evenly"
   alignItems?: "flex-start" | "center" | "flex-end" | "stretch"
+  /**
+   * RN flexWrap (registry 24): "wrap" puts a Row's children on more lines when they don't fit (chips, tags).
+   * Only on a Row (or a View with flexDirection: "row"). justifyContent and alignItems work per line; columnGap is the
+   * space between children, rowGap the space between lines (gap: both). Fixed at build time.
+   */
+  flexWrap?: "wrap" | "nowrap"
+  /**
+   * RN alignContent (registry 24): where a wrapped Row with a height puts its lines. Default "flex-start". No
+   * "stretch". No effect without flexWrap: "wrap".
+   */
+  alignContent?: "flex-start" | "center" | "flex-end" | "space-between" | "space-around" | "space-evenly"
   alignSelf?: "flex-start" | "center" | "flex-end" | "stretch"
   backgroundColor?: Color | MotionColorInput
   /** React Native's CSS gradient: `"linear-gradient(180deg, rgba(0,0,0,0) 0%, #000 100%)"` (build-time only). */
@@ -185,6 +196,13 @@ export interface TextStyleProps {
   lineHeight?: number
   letterSpacing?: number
   fontStyle?: "normal" | "italic"
+  /**
+   * A font from the app's assets/fonts folder (registry 24, guide notes §84), as React Native on Android: a file name
+   * without ".ttf" ("Poppins-SemiBold"), or the family the files share ("Poppins"), where fontWeight and fontStyle
+   * pick the face. The phone's own: "System", "sans-serif", "serif", "monospace", "sans-serif-medium", ...
+   * A name the app has no file for fails the build. Fixed at build time; works on nested spans too.
+   */
+  fontFamily?: string
   textDecorationLine?: "none" | "underline" | "line-through"
   /**
    * The underline / line-through drawn dashed or dotted (registry 16). RN draws this on iOS only; zn draws it on

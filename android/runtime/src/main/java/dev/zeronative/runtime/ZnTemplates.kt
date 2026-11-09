@@ -51,9 +51,11 @@ object ZnTemplates {
             val preRead = ZnBundles.takeTemplateFile(asset)
             val f = preRead ?: TemplateReader.read(checkNotNull(ZnBundles.map(asset, r)) { "bundle $r has no $asset" })
             val t1 = System.nanoTime()
-            val templates = templatesOf(f)
+            // The manifest is read first: its font table (registry 24) is needed to prepare the templates.
+            val manifest = manifestOf("$asset.json", r)
+            val templates = templatesOf(f, ZnFontTable(manifest, r))
             val t2 = System.nanoTime()
-            val bundle = readManifest("$asset.json", templates, r)
+            val bundle = readManifest("$asset.json", manifest, templates)
             val t3 = System.nanoTime()
             val ms = (t3 - t0) / 1e6
             Log.i(TAG, "template $asset: ${bundle.templates.size} template(s), ${bundle.routes.all.size} route(s) " +
@@ -80,8 +82,11 @@ object ZnTemplates {
     fun get(asset: String): ZnBundle? = files[asset]?.value
 
     /** Debug builds (`zn dev`): reads and prepares a bundle sent by the dev server. Any thread. */
-    internal fun prepare(name: String, templates: ByteArray, manifest: String): ZnBundle =
-        readManifest(name, manifest, templatesOf(TemplateReader.read(ByteBuffer.wrap(templates))))
+    internal fun prepare(name: String, templates: ByteArray, manifest: String): ZnBundle {
+        val json = JSONObject(manifest)
+        val fonts = ZnFontTable(json, ZnBundles.runningIfChosen)
+        return readManifest(name, json, templatesOf(TemplateReader.read(ByteBuffer.wrap(templates)), fonts))
+    }
 
     /**
      * Reads and prepares template file [asset] of bundle [r] (any thread but main). [file]: the file already read
@@ -89,13 +94,14 @@ object ZnTemplates {
      */
     internal fun load(asset: String, r: ZnBundles.Running, file: TemplateFile? = null): ZnBundle {
         val f = file ?: TemplateReader.read(checkNotNull(ZnBundles.map(asset, r)) { "bundle $r has no $asset" })
-        return readManifest("$asset.json", templatesOf(f), r)
+        val manifest = manifestOf("$asset.json", r)
+        return readManifest("$asset.json", manifest, templatesOf(f, ZnFontTable(manifest, r)))
     }
 
     /** The file's templates, sharing one SVG cache: it lives as long as the bundle that holds them (ZnSvg.kt). */
-    private fun templatesOf(f: TemplateFile): List<ZnTemplate> {
+    private fun templatesOf(f: TemplateFile, fonts: ZnFontTable): List<ZnTemplate> {
         val svgs = ZnSvgCache()
-        return f.templates.map { ZnTemplate(it, svgs) }.also { svgs.big = ZnSvgCache.bigOf(it) }
+        return f.templates.map { ZnTemplate(it, svgs, fonts) }.also { svgs.big = ZnSvgCache.bigOf(it) }
     }
 
     /** The template files loaded or loading (main thread): an update applied while the app runs reloads each. */
@@ -110,13 +116,11 @@ object ZnTemplates {
         waiting.remove(asset)?.forEach { it(bundle) }
     }
 
-    private fun readManifest(name: String, templates: List<ZnTemplate>, r: ZnBundles.Running): ZnBundle {
-        val text = ZnBundles.readText(name, r) ?: return ZnBundle(templates, emptyMap(), ZnRoutes(emptyList()))
-        return readManifest(name, text, templates)
-    }
+    /** The manifest [name] of bundle [r], or null when the bundle has none. */
+    private fun manifestOf(name: String, r: ZnBundles.Running): JSONObject? = ZnBundles.readText(name, r)?.let(::JSONObject)
 
-    private fun readManifest(name: String, text: String, templates: List<ZnTemplate>): ZnBundle {
-        val json = JSONObject(text)
+    private fun readManifest(name: String, json: JSONObject?, templates: List<ZnTemplate>): ZnBundle {
+        if (json == null) return ZnBundle(templates, emptyMap(), ZnRoutes(emptyList()))
         val c = json.getJSONObject("components")
         val components = c.keys().asSequence().associateWith { c.getInt(it) }
         val list = json.optJSONArray("routes")

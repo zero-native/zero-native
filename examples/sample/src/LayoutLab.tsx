@@ -73,6 +73,23 @@ const EXPECT: Record<string, Frame> = {
   c28a: [0, 0, 50, 40],
   // 29. min beats max (RN): a fixed width and a stretched child, each with minWidth above maxWidth.
   c29a: [0, 0, 80, 10], c29b: [0, 10, 120, 10],
+  // 30–36. flexWrap: "wrap" on a Row (registry 24; RN's results, Yoga).
+  // 30. gap (both ways): three 60s fit in 200 exactly, two go on the next line.
+  c30a: [0, 0, 60, 20], c30b: [70, 0, 60, 20], c30c: [140, 0, 60, 20], c30d: [0, 30, 60, 20], c30e: [70, 30, 60, 20],
+  // 31. columnGap 10, rowGap 4, justifyContent center: each line centred on its own.
+  c31a: [15, 0, 50, 20], c31b: [75, 0, 50, 20], c31c: [135, 0, 50, 20], c31d: [45, 24, 50, 20], c31e: [105, 24, 50, 20],
+  // 32. alignContent center in a Row 100 tall: the two lines together in the middle.
+  c32a: [0, 30, 80, 20], c32b: [80, 30, 80, 20], c32c: [0, 50, 80, 20],
+  // 33. alignContent space-between: the first line at the top, the last at the bottom.
+  c33a: [0, 0, 80, 20], c33b: [80, 0, 80, 20], c33c: [0, 80, 80, 20],
+  // 34. alignItems center: within each line (the line is as tall as its tallest child).
+  c34a: [0, 10, 90, 20], c34b: [90, 0, 90, 40], c34c: [0, 40, 90, 10],
+  // 35. flex 1 takes what is left of its line.
+  c35a: [0, 0, 120, 20], c35b: [120, 0, 80, 20], c35c: [0, 20, 150, 20],
+  // 36. alignItems stretch: a child without a height is as tall as its line.
+  c36a: [0, 0, 90, 40], c36b: [90, 0, 90, 40], c36c: [0, 40, 90, 10],
+  // 37. Two width "50%" children share one line (in pixels they can add up to one more than the Row: still one line).
+  c37a: [0, 0, 100, 20], c37b: [100, 0, 100, 20], c37c: [0, 20, 100, 20],
 }
 
 const TOLERANCE = 1
@@ -311,6 +328,66 @@ export function LayoutLabScreen() {
             <Box testID="c29a" onLayout={L("c29a")} style={{ width: 50, height: 10, minWidth: 80, maxWidth: 60, alignSelf: "flex-start", backgroundColor: A }} />
             <Box testID="c29b" onLayout={L("c29b")} style={{ height: 10, minWidth: 120, maxWidth: 100, backgroundColor: B }} />
           </Column>
+        </Case>
+        <Case title="30. wrap with gap">
+          <Row gap={10} style={{ width: 200, flexWrap: "wrap", backgroundColor: BG }}>
+            <Box testID="c30a" onLayout={L("c30a")} style={{ width: 60, height: 20, backgroundColor: A }} />
+            <Box testID="c30b" onLayout={L("c30b")} style={{ width: 60, height: 20, backgroundColor: B }} />
+            <Box testID="c30c" onLayout={L("c30c")} style={{ width: 60, height: 20, backgroundColor: A }} />
+            <Box testID="c30d" onLayout={L("c30d")} style={{ width: 60, height: 20, backgroundColor: B }} />
+            <Box testID="c30e" onLayout={L("c30e")} style={{ width: 60, height: 20, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="31. wrap: columnGap, rowGap, center">
+          <Row justifyContent="center" style={{ width: 200, flexWrap: "wrap", columnGap: 10, rowGap: 4, backgroundColor: BG }}>
+            <Box testID="c31a" onLayout={L("c31a")} style={{ width: 50, height: 20, backgroundColor: A }} />
+            <Box testID="c31b" onLayout={L("c31b")} style={{ width: 50, height: 20, backgroundColor: B }} />
+            <Box testID="c31c" onLayout={L("c31c")} style={{ width: 50, height: 20, backgroundColor: A }} />
+            <Box testID="c31d" onLayout={L("c31d")} style={{ width: 50, height: 20, backgroundColor: B }} />
+            <Box testID="c31e" onLayout={L("c31e")} style={{ width: 50, height: 20, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="32. wrap: alignContent center">
+          <Row style={{ width: 200, height: 100, flexWrap: "wrap", alignContent: "center", backgroundColor: BG }}>
+            <Box testID="c32a" onLayout={L("c32a")} style={{ width: 80, height: 20, backgroundColor: A }} />
+            <Box testID="c32b" onLayout={L("c32b")} style={{ width: 80, height: 20, backgroundColor: B }} />
+            <Box testID="c32c" onLayout={L("c32c")} style={{ width: 80, height: 20, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="33. wrap: alignContent space-between">
+          <Row style={{ width: 200, height: 100, flexWrap: "wrap", alignContent: "space-between", backgroundColor: BG }}>
+            <Box testID="c33a" onLayout={L("c33a")} style={{ width: 80, height: 20, backgroundColor: A }} />
+            <Box testID="c33b" onLayout={L("c33b")} style={{ width: 80, height: 20, backgroundColor: B }} />
+            <Box testID="c33c" onLayout={L("c33c")} style={{ width: 80, height: 20, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="34. wrap: alignItems center">
+          <Row alignItems="center" style={{ width: 200, flexWrap: "wrap", backgroundColor: BG }}>
+            <Box testID="c34a" onLayout={L("c34a")} style={{ width: 90, height: 20, backgroundColor: A }} />
+            <Box testID="c34b" onLayout={L("c34b")} style={{ width: 90, height: 40, backgroundColor: B }} />
+            <Box testID="c34c" onLayout={L("c34c")} style={{ width: 90, height: 10, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="35. wrap: flex fills the line">
+          <Row style={{ width: 200, flexWrap: "wrap", backgroundColor: BG }}>
+            <Box testID="c35a" onLayout={L("c35a")} style={{ width: 120, height: 20, backgroundColor: A }} />
+            <Box testID="c35b" onLayout={L("c35b")} style={{ height: 20, flex: 1, backgroundColor: B }} />
+            <Box testID="c35c" onLayout={L("c35c")} style={{ width: 150, height: 20, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="37. wrap: 50% columns">
+          <Row style={{ width: 200, flexWrap: "wrap", backgroundColor: BG }}>
+            <Box testID="c37a" onLayout={L("c37a")} style={{ width: "50%", height: 20, backgroundColor: A }} />
+            <Box testID="c37b" onLayout={L("c37b")} style={{ width: "50%", height: 20, backgroundColor: B }} />
+            <Box testID="c37c" onLayout={L("c37c")} style={{ width: "50%", height: 20, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="36. wrap: alignItems stretch">
+          <Row alignItems="stretch" style={{ width: 200, flexWrap: "wrap", backgroundColor: BG }}>
+            <Box testID="c36a" onLayout={L("c36a")} style={{ width: 90, backgroundColor: A }} />
+            <Box testID="c36b" onLayout={L("c36b")} style={{ width: 90, height: 40, backgroundColor: B }} />
+            <Box testID="c36c" onLayout={L("c36c")} style={{ width: 90, height: 10, backgroundColor: A }} />
+          </Row>
         </Case>
       </Column>
     </Scroll>

@@ -122,7 +122,13 @@ class ZnIcon(val minX: Float, val minY: Float, val width: Float, val height: Flo
  * nothing in it changes at runtime.
  */
 @Immutable
-class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val children: IntArray) {
+class ZnNodeSpec internal constructor(
+    raw: RawTemplate,
+    val index: Int,
+    val children: IntArray,
+    /** The bundle's app fonts (registry 24): fontFamily here and in spans, also spans that come from a slot. */
+    internal val fonts: ZnFontTable = ZnFontTable.EMPTY,
+) {
     val type: Int = raw.component[index]
     private val p: Map<Int, Any?> = raw.props[index]
 
@@ -156,6 +162,12 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val gap = num(Registry.Prop.GAP) ?: 0f
     val justify = enum(Registry.Prop.JUSTIFY_CONTENT)
     val alignItems = enum(Registry.Prop.ALIGN_ITEMS)
+    /** RN flexWrap "wrap" on a Row (registry 24): drawn as a FlowRow (ZnRenderer.kt ZnWrapRow). */
+    val flexWrap = enum(Registry.Prop.FLEX_WRAP) == Registry.FlexWrap.WRAP
+    /** RN alignContent (registry 24), with justifyContent's numbers; -1 = flex-start. */
+    val alignContent = enum(Registry.Prop.ALIGN_CONTENT)
+    /** The gap between a wrapped Row's lines (RN rowGap); null = the same as [gap]. */
+    val crossGap: Float? = num(Registry.Prop.CROSS_GAP)
 
     // Drawing
     val background: Color? = color(Registry.Prop.BACKGROUND_COLOR)
@@ -236,6 +248,8 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         fontSize = (num(Registry.Prop.FONT_SIZE) ?: 14f).sp,
         fontWeight = num(Registry.Prop.FONT_WEIGHT)?.let { FontWeight(it.toInt().coerceIn(1, 1000)) },
         fontStyle = if (enum(Registry.Prop.FONT_STYLE) == Registry.FontStyle.ITALIC) FontStyle.Italic else null,
+        // RN fontFamily (registry 24): the app's font (Compose picks the face for fontWeight / fontStyle), else system.
+        fontFamily = fonts.family(p[Registry.Prop.FONT_FAMILY] as String?),
         textDecoration = if (dashedDecoration != 0) null else when (enum(Registry.Prop.TEXT_DECORATION_LINE)) {
             Registry.TextDecorationLine.UNDERLINE -> TextDecoration.Underline
             Registry.TextDecorationLine.LINE_THROUGH -> TextDecoration.LineThrough
@@ -254,7 +268,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
         letterSpacing = num(Registry.Prop.LETTER_SPACING)?.sp ?: TextStyle.Default.letterSpacing,
     )
     /** Nested <Text> spans: one style per span; the text holds the spans' texts joined by U+001F. */
-    val spans: List<SpanStyle>? = (p[Registry.Prop.SPANS] as String?)?.let(::parseSpans)
+    val spans: List<SpanStyle>? = (p[Registry.Prop.SPANS] as String?)?.let { parseSpans(it, fonts) }
     /** Registry 16: spans that change at runtime (core text-spans.ts) come in this slot, as the same JSON. */
     val spansSlot = slotFor(raw, Registry.Prop.SPANS)
     /** Registry 16: a span with onPress was tapped; the payload is its index. */
@@ -574,6 +588,7 @@ class ZnNodeSpec internal constructor(raw: RawTemplate, val index: Int, val chil
     val flexSlot = slotFor(raw, Registry.Prop.FLEX)
     val aspectRatioSlot = slotFor(raw, Registry.Prop.ASPECT_RATIO)
     val gapSlot = slotFor(raw, Registry.Prop.GAP)
+    val crossGapSlot = slotFor(raw, Registry.Prop.CROSS_GAP)
     val displaySlot = slotFor(raw, Registry.Prop.DISPLAY)
 
     val topSlot = slotFor(raw, Registry.Prop.TOP)
@@ -1002,7 +1017,12 @@ private fun Modifier.layoutPadding(edges: () -> Edges): Modifier = layout { meas
  * one cache shared by all templates of the same file (ZnSvg.kt).
  */
 @Immutable
-class ZnTemplate internal constructor(val raw: RawTemplate, internal val svgs: ZnSvgCache) {
+class ZnTemplate internal constructor(
+    val raw: RawTemplate,
+    internal val svgs: ZnSvgCache,
+    /** The bundle's app fonts (registry 24, ZnFonts.kt). */
+    internal val fonts: ZnFontTable = ZnFontTable.EMPTY,
+) {
     constructor(raw: RawTemplate) : this(raw, ZnSvgCache())
 
     val nodes: Array<ZnNodeSpec>
@@ -1013,7 +1033,7 @@ class ZnTemplate internal constructor(val raw: RawTemplate, internal val svgs: Z
         val n = raw.component.size
         val children = Array(n) { ArrayList<Int>() }
         for (i in 1 until n) children[raw.parent[i]].add(i)
-        nodes = Array(n) { ZnNodeSpec(raw, it, children[it].toIntArray()) }
+        nodes = Array(n) { ZnNodeSpec(raw, it, children[it].toIntArray(), fonts) }
     }
 }
 
@@ -1033,7 +1053,7 @@ internal fun parseSpanPresses(json: String): BooleanArray {
     return BooleanArray(list.length()) { i -> list.optJSONObject(i)?.optInt("p", 0) == 1 }
 }
 
-internal fun parseSpans(json: String): List<SpanStyle> {
+internal fun parseSpans(json: String, fonts: ZnFontTable = ZnFontTable.EMPTY): List<SpanStyle> {
     val list = org.json.JSONArray(json)
     return List(list.length()) { i ->
         val o = list.getJSONObject(i)
@@ -1048,6 +1068,8 @@ internal fun parseSpans(json: String): List<SpanStyle> {
                 Registry.FontStyle.NORMAL -> FontStyle.Normal
                 else -> null
             },
+            // Registry 24: a span's own font (null: the outer Text's).
+            fontFamily = if (o.has("fontFamily")) fonts.family(o.optString("fontFamily")) else null,
             textDecoration = when (if (o.has("textDecorationLine")) o.getInt("textDecorationLine") else -1) {
                 Registry.TextDecorationLine.UNDERLINE -> TextDecoration.Underline
                 Registry.TextDecorationLine.LINE_THROUGH -> TextDecoration.LineThrough

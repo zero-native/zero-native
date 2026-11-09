@@ -53,7 +53,7 @@ const s = StyleSheet.create({          // only for typing and reuse; the compile
 | `alignItems` | `flex-start` `center` `flex-end` `stretch` | `Alignment.*` (+ stretch rule §5) | `alignment:` |
 | `alignSelf` | same as alignItems | `Modifier.align(...)` | `.frame(alignment:)` |
 | `gap`, `rowGap`, `columnGap` | number | `Arrangement.spacedBy` | `spacing:` |
-| `flexWrap` | `wrap` (Row only) | renders as `FlowRow` | custom wrapping `Layout` |
+| `flexWrap`, `alignContent` | `wrap` / `nowrap` (Row only); justifyContent's values | `ZnWrapLayout` (ZnWrap.kt, Yoga's rules; built 2026-11-09, registry 24) | custom wrapping `Layout` (not built) |
 | `width`, `height` | number, `'N%'`, `'auto'` | `width/height`, `fillMaxWidth(f)` | `.frame` / `containerRelativeFrame` |
 | `minWidth`, `maxWidth`, `minHeight`, `maxHeight` | number | `widthIn / heightIn` | `.frame(min:max:)` |
 | `aspectRatio` | number | `aspectRatio` | `.aspectRatio` |
@@ -288,3 +288,5 @@ together (stretch); drawing: `backgroundColor`, `borderRadius` (one value), `bor
 'absolute'` + `top/bottom/start/end` + `zIndex` inside `Stack`. Images clip to their rounded shape by default.
 Not yet: per-corner radii, per-side border colours, `shadowOffset/Opacity/Radius`, `textTransform`, `fontFamily`,
 dynamic transforms. They are build errors until added.
+(Update 2026-11-09, registry 24: `flexWrap` / `alignContent` on a Row and `fontFamily` with app fonts are built;
+guide notes §84, §85. Most of the others came in RN props pack 2 and registry 23-24.)

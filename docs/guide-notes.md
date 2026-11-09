@@ -2779,17 +2779,52 @@ import { Push } from "@zero-native/firebase-messaging"                          
 - **Know:** module names and versions did not change ("Push" 2, "Notifications" 3), so bundles and the OTA check are
   as before.
 
-## 82. Snapping, scroll refs and canvas features: what to know (registry 24, review fixes 2026-11-09)
-- **Know:** on a `List`, a snap lands on a row: after the fling, the nearest row lines up with the start (paging) or
-  with `snapToAlignment`. **Do** set `snapToInterval` to the row or card size (with the gap). **Why:** the List's
-  offset is an estimate past the rows it has measured; the last step lines up a real row.
-- **Know:** `decelerationRate` numbers are iOS's (0.998 normal, 0.99 fast). A number of 0.95 or less is read as
-  Android's (0.9 fast) and converted. **Do** use `"fast"` / `"normal"` when you can.
-- **Know:** `<Scroll ref>` and the registry-24 canvas commands (`image`, `paragraph`, `clipRoundRect`, `clipPath`,
-  clip `op`, `sweepGradient`, `blendMode`, `shadow`, `blur`, path trims) make the bundle need registry 24. **Why:** an
-  older app would skip them without an error; now it keeps its own bundle instead.
-- **Know:** a screen pushed over a `transparent` screen (the image viewer) slides over it, and Back slides it back,
-  like any screen.
-- **Know:** a canvas `image` whose size follows a motion value is decoded at the screen's size (Coil keeps the
-  picture's own size if smaller), so it stays sharp as it grows. **Don't** animate many such images at once. **Why:**
-  each one can take a screen of memory.
+## 84. App fonts: `fontFamily` (registry 24, RN gaps pack 2026-11-09)
+```
+my-app/assets/fonts/Poppins-Regular.ttf
+my-app/assets/fonts/Poppins-SemiBold.ttf
+my-app/assets/fonts/Poppins-Bold.ttf
+```
+```tsx
+<Text style={{ fontFamily: "Poppins", fontWeight: "600" }}>₹1,299</Text>      // the SemiBold file
+<Text style={{ fontFamily: "Poppins-Bold" }}>Pay</Text>                        // one file by its name (RN Android)
+```
+- **Do** put the `.ttf` / `.otf` files in the app's `assets/fonts/` folder (RN and Expo's place) and name each file
+  `<Family>-<Weight>`: `Thin`, `ExtraLight`, `Light`, `Regular`, `Medium`, `SemiBold`, `Bold`, `ExtraBold`, `Black`,
+  plus `Italic` (RN's `Poppins_bold`, `Poppins_bold_italic` work too). **Why:** the build groups the files into one
+  family by that name; the weight comes from the file itself (its OS/2 table), so a wrong word in a name does no harm.
+- **Do** write the family name with `fontWeight` / `fontStyle`, or a file name alone. Both are RN Android's names, so
+  ported code works. A weight with no file of its own takes the closest one (`bold` on a family with up to SemiBold
+  draws SemiBold, never a fake bold of Regular). An italic with no italic file is slanted by the phone.
+- **Do** use the phone's names for its own fonts: `System` (Roboto), `sans-serif`, `serif`, `monospace`,
+  `sans-serif-medium`, `sans-serif-light`, `sans-serif-condensed`.
+- **Don't** use a variable font (`Inter[wght].ttf`) or a `.ttc` collection: the build refuses them. Use the static
+  files (Google Fonts' `static/` folder). **Why:** one file per face is what every Android version can read.
+- **Don't** pick the font from a signal. **Why:** a face is chosen when the screen's templates are read. Pick between two
+  `Text`s, or use spans from data (below).
+- **Know:** a name the app has no file for fails the build, with the names it has. Spans built from data (`.map` of
+  parts) may name any font; an unknown one draws the system font and logs `font: this bundle has no font ...`.
+- **Know:** fonts are bundle files like `asset:` images, so an OTA update can add or change fonts (only changed files
+  download). A font is read the first time a screen uses it (a few ms per face, once).
+- **Know:** the fonts work in `Text`, `TextField` (text and placeholder), the `OtpInput` digits
+  (`theme.pinCodeTextStyle.fontFamily`) and nested spans. Not yet in `Canvas` text or `.svg` text.
+
+## 85. Wrapping rows: `flexWrap` (registry 24, RN gaps pack 2026-11-09)
+```tsx
+<View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+  {tags.map((t) => <Chip key={t} label={t} />)}
+</View>
+```
+- **Do** use `flexWrap: "wrap"` on a `Row` (or a `View` with `flexDirection: "row"`) for chips, tags, filters and small
+  grids of buttons. `justifyContent` and `alignItems` work per line, `columnGap` is the space along a line, `rowGap` the
+  space between lines, `gap` both. `alignContent` places the lines when the Row has a fixed height.
+- **Do** use `width: "50%"` / `"33.3%"` children for a short grid inside a screen; they stay on one line on every
+  screen width. **Why:** zn decides lines in dp with half a pixel of room per child (Compose's FlowRow decided in whole
+  pixels, and two 50% children could go on two lines on some phones; second-opinions 211).
+- **Don't** use it for a long or growing list. **Why:** every child is composed. Use `<List numColumns>` (a grid that
+  draws only the rows on screen).
+- **Don't** put `flexWrap` on a `Column`, or use `"wrap-reverse"` or `alignContent: "stretch"`: build errors.
+- **Know:** with `alignItems` unset, children sit at the top of their line; RN stretches them to the line's height.
+  Write `alignItems: "stretch"` for RN's look (zn's Row rule, platform-differences.md). Chips are all one height, so
+  this rarely shows.
+- **Know:** `flex: 1` children share what is left of their own line, as in RN.
