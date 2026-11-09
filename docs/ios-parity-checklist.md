@@ -72,7 +72,7 @@ Missing work: 1 L, 2 M, 2 S = **2.5 days**.
 
 Main's Gemini batches and their review raised the registry to 23. iOS now reads 23 templates (Registry.swift
 regenerated), so a 23 bundle starts, but these aren't drawn yet. Debug builds log each one once ("iOS doesn't draw …
-yet (registry 23)"). ZeroBill's bundle is still 22 (Android session, 2026-11-08), so none blocks its checkout.
+yet (registry 23)"). ZeroBill's bundle is 24 now (2026-11-10); its screens still use none of these (milestones-ios.md 1d: read from its built main.zn.ui).
 
 | Item | Android | iOS | Size | Note |
 |---|---|---|---|---|
@@ -132,7 +132,7 @@ Only props whose iOS support is missing or partial. Everything else in the regis
 |---|---|---|---|
 | pressFeedback (ripple is the default, highlight, none) + highlightColor | done (simulator) | M | ZnPress.swift ZnPressFeedback, Android's values: ripple from the finger (black 12 %, a rippleColor 24 %, rippleOpacity wins; rippleBorderless / rippleRadius), ~225 ms grow, ~150 ms fade; highlight (highlightColor, black 10 %); none. Inside the node's shape, under the press scale / opacity. |
 | rippleColor, rippleOpacity, rippleBorderless, rippleRadius | missing | S | After the above: draw a ripple, or map it to a highlight on iOS. |
-| disabled at runtime (slot) | partial | S | Bug. `disabledSlot` is read in ZnTemplate.swift but ZnPress.swift uses only the static `s.disabled`. So `disabled={!active()}` (the sample's Pay button, AmountScreen.tsx:288) still sends onPress on iOS. |
+| disabled at runtime (slot) | done | S | ZnPress.swift reads `disabledNow` (the slot) since 774308f, so `disabled={!active()}` (ZeroBill's Pay button) stops presses. |
 | hitSlop | missing | S | Grow the press view's hit test (`point(inside:)`). |
 
 ### TextField
@@ -262,7 +262,7 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 | device-test | Test plugin for the sample (Device) | no | DeviceTestPlugin.kt, DeviceModule.kt, FakeNative.kt | S | Port it first: the template for every iOS plugin. |
 | document-scanner | ML Kit document scanner, pages and PDF as handles (DocumentScanner) | done (simulator, fake scan) | DocumentScannerPlugin.kt, DocScanModule.kt, DocScanRules.kt | L | VisionKit `VNDocumentCameraViewController`, PDFKit for the PDF. |
 | firebase-app | Firebase base, one Firebase version (Firebase, Installations) | done (simulator) | FirebaseAppPlugin.kt, firebase.gradle.kts | L | Getting the Firebase iOS SDK into the CMake build, GoogleService-Info.plist. |
-| image-viewer | Full-screen photo viewer, pinch zoom (ImageViewer, screen imageviewer.full) | done (simulator) | ImageViewerPlugin.kt, ImageViewerScreen.kt, ViewerParts.kt, ZoomState.kt, SharpSource.kt, ViewerSpec.kt, ViewerHeld.kt, ViewerRules.kt, DebugGestures.kt | L (1.5 d) | Needs native screens. |
+| image-viewer | Full-screen photo viewer, pinch zoom (ImageViewer, screen imageviewer.full) | done (simulator; 2026-11-10: one page per swipe, no paging while zoomed, Android's bar; ZeroBill Offer Details checked) | ImageViewerPlugin.kt, ImageViewerScreen.kt, ViewerParts.kt, ZoomState.kt, SharpSource.kt, ViewerSpec.kt, ViewerHeld.kt, ViewerRules.kt, DebugGestures.kt | L (1.5 d) | Needs native screens. |
 | location | Location and geocoding (Location) | done (simulator) | LocationPlugin.kt, LocationModule.kt, LocationRules.kt | L | CoreLocation, CLGeocoder. |
 | lottie | Lottie view, lottie-react-native names (Lottie, view lottie.view) | done (simulator) | LottiePlugin.kt, LottieView.kt, LottieModule.kt, LottieFiles.kt, LottieRules.kt | M | lottie-ios. Needs NativeView. |
 | markdown | Markdown drawn as Text with spans | done (JS only; checked) | none | 0 | Should work: Text spans and onSpanPress are on iOS. Not run on iOS yet. |

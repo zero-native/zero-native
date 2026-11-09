@@ -148,6 +148,27 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-10: iOS image viewer, made to behave as Android's (Claude, Mac)
+Pavan's order (2026-11-10, through the Windows session): the image viewer first, working as on Android everywhere
+ZeroBill opens it (Offer Details picture, Notifications hero picture: `ImageViewer.open({ images: [url] })`, route
+`native: "imageviewer.full"`). plugins/image-viewer/ios/ImageViewerPlugin.swift:
+- **One swipe skipped a picture (2 → 4)**: adding the next page during a swipe runs a layout, and the layout set the
+  pager's offset again mid-swipe. The pages lay out again only when the screen's size changes.
+- **Swipes moved to the next picture while zoomed**: Android's pager stops while a picture is zoomed (the drag pans to
+  the picture's edge and stops there). Each page reports its zoom; the pager scrolls only at fit.
+- **The bar is Android's**: a white back arrow (no circle) in a 48 pt touch area at the start of a 56 pt row under the
+  status bar, the count in the middle, over a black 55 % → clear fade; it fades with the drag to close. The spinner is
+  the small one; the error has a picture sign over "Couldn't load this photo" and Try again.
+- iOS has no Back button: the viewer is a fade screen, so ZnNavHost's edge swipe doesn't close it (as an iOS modal);
+  it closes with the back arrow or a drag up or down, both answering `{ index }`. With several pictures the left-edge
+  swipe pages back, as in Photos. ZeroBill is portrait only, so turning the phone does nothing.
+Checked on the simulator (sample's Image viewer lab, old screen): opens on the tapped photo, one page per swipe,
+double tap zooms at the finger and back, pinch, pan while zoomed stays on the page, drag down closes and answers the
+index, back arrow answers, broken / refused / good (error, Try again, the good one), 5000 × 3333, the options case
+(grey, no drag close, no double tap), two opens at once (one screen, both answered). In ZeroBill (zn iPhone 16):
+Offer Details picture opens, double tap is sharp, drag down returns to Offer Details. No notification in the test
+account has a picture; that screen uses the same call. Waits for Pavan's iPhone.
+
 ### 2026-11-09: iOS, a Scroll with only maxHeight hugs its content (Claude, Mac)
 - ZeroBill's checkout opens with the offers sheet: a header, `<Scroll style={{ maxHeight: 400 }}>` with the offer rows,
   then Continue. On Pavan's iPhone the sheet was too tall: a SwiftUI ScrollView takes all the height it is offered, so

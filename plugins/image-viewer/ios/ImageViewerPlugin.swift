@@ -7,8 +7,11 @@
 // - Pictures are decoded once with ImageIO (EXIF turns applied, mirror images too), at most 4096 pixels on the long side:
 //   a 5000 × 3333 photo is a little soft at 5x, where Android decodes the visible part again at full size.
 // - `content://` links are Android's: refused here (the error shows). `file://` must be inside the app's own folder.
-// - The edge swipe back closes it with no answer (null), like nav.back(); the close button and the swipe up or down
-//   answer { index }.
+// - No edge swipe back: the route is a fade screen, and ZnNavHost's back swipe is only for screens that slid in (an
+//   iOS modal closes with its own button). It closes with the back arrow or a drag up or down, both answering
+//   { index }, as on Android. A left-edge swipe pages back, as in Photos.
+// - ZeroBill is portrait only, so turning the phone does nothing; the pages lay out again only when the size changes
+//   (laying out again at the same size used to reset the pager while it slid, skipping a page).
 // - Version 3's TSX viewer (a route with `screen: ImageViewerScreen`, src/ImageViewerScreen.tsx) is not drawn yet: it
 //   needs the view "imageviewer.page" and zero-native's Motion gestures (useZoom), which iOS doesn't have. A route that
 //   still says `native: "imageviewer.full"` (ZeroBill's) gets this screen. Module v3 is here for `release`, which the
@@ -265,9 +268,11 @@ enum ViewerLoader {
 /// One picture: zoom, pan, double tap; spinner while loading; error and retry.
 private final class ZoomPage: UIScrollView, UIScrollViewDelegate {
     let imageView = UIImageView()
-    private let spinner = UIActivityIndicatorView(style: .large)
+    private let spinner = UIActivityIndicatorView(style: .medium)  // Android: a small turning white arc
     private let errorStack = UIStackView()
     var onRetry: (() -> Void)?
+    /// The zoom changed (the screen stops swipes between pictures while one is zoomed, as Android's pager).
+    var onZoom: ((CGFloat) -> Void)?
     var imageSize: CGSize = .zero
 
     init(spec: ViewerSpec) {
@@ -300,6 +305,10 @@ private final class ZoomPage: UIScrollView, UIScrollViewDelegate {
         errorStack.axis = .vertical
         errorStack.alignment = .center
         errorStack.spacing = 16
+        // A picture sign over the words, as Android's broken-picture drawing.
+        let sign = UIImageView(image: UIImage(systemName: "photo", withConfiguration: UIImage.SymbolConfiguration(pointSize: 40, weight: .light)))
+        sign.tintColor = UIColor.white.withAlphaComponent(0.7)
+        errorStack.addArrangedSubview(sign)
         errorStack.addArrangedSubview(label)
         errorStack.addArrangedSubview(button)
         errorStack.isHidden = true
@@ -315,6 +324,7 @@ private final class ZoomPage: UIScrollView, UIScrollViewDelegate {
         imageView.image = image
         imageSize = image?.size ?? .zero
         setZoomScale(1, animated: false)
+        onZoom?(1)
         setNeedsLayout()
     }
 
@@ -345,7 +355,10 @@ private final class ZoomPage: UIScrollView, UIScrollViewDelegate {
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView.image == nil ? nil : imageView }
-    func scrollViewDidZoom(_ scrollView: UIScrollView) { center() }
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        center()
+        onZoom?(zoomScale)
+    }
 
     /// Zoomed: back to fit. Not zoomed: 2.5x with the tapped point kept under the finger.
     func doubleTap(at p: CGPoint) {
@@ -367,9 +380,14 @@ final class ImageViewerScreen: UIViewController, UIScrollViewDelegate, UIGesture
     private var failed = Set<Int>()
     private var loading = Set<Int>()
     private let counter = UILabel()
+    /// The bar over the pictures: the close arrow and the count, on a black 55 % → clear fade (Android's, from ZeroBill's
+    /// React Native viewer). It fades with the swipe to close.
+    private let bar = UIView()
+    private let fade = CAGradientLayer()
     private var current: Int
     private var closing = false
     private var drag: CGFloat = 0
+    private var laidOut: CGSize = .zero
 
     init(_ scope: ZnScreenScope) {
         self.scope = scope
@@ -407,26 +425,43 @@ final class ImageViewerScreen: UIViewController, UIScrollViewDelegate, UIGesture
             view.addGestureRecognizer(pan)
         }
 
+        // Android's bar: a 56 pt row under the status bar, the white back arrow (24 pt in a 48 pt touch area, no circle)
+        // at its start, the count in its middle, over a fade that reaches 24 pt below the row.
+        fade.colors = [UIColor.black.withAlphaComponent(0.55).cgColor, UIColor.black.withAlphaComponent(0).cgColor]
+        bar.layer.addSublayer(fade)
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bar)
+        let arrow = UIImage(systemName: "arrow.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold))?
+            .imageFlippedForRightToLeftLayoutDirection()
         let close = UIButton(type: .system, primaryAction: UIAction { [weak self] _ in self?.closeByUser() })
-        close.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)), for: .normal)
+        close.setImage(arrow, for: .normal)
         close.tintColor = .white
-        close.backgroundColor = UIColor.black.withAlphaComponent(0.35)
-        close.layer.cornerRadius = 22
         close.accessibilityLabel = spec.close
         close.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(close)
+        bar.addSubview(close)
         counter.textColor = .white
         counter.font = .systemFont(ofSize: 16, weight: .semibold)
         counter.isHidden = spec.images.count < 2
         counter.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(counter)
+        bar.addSubview(counter)
+        let row = UILayoutGuide()
+        bar.addLayoutGuide(row)
         NSLayoutConstraint.activate([
-            close.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            close.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            close.widthAnchor.constraint(equalToConstant: 44), close.heightAnchor.constraint(equalToConstant: 44),
-            counter.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            counter.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+            bar.topAnchor.constraint(equalTo: view.topAnchor),
+            bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            row.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            row.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            row.heightAnchor.constraint(equalToConstant: 56),
+            bar.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: 24),
+            close.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
+            close.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            close.widthAnchor.constraint(equalToConstant: 48), close.heightAnchor.constraint(equalToConstant: 48),
+            counter.centerXAnchor.constraint(equalTo: row.centerXAnchor),
+            counter.centerYAnchor.constraint(equalTo: row.centerYAnchor),
         ])
+        bar.accessibilityElements = [close, counter]  // VoiceOver reads the close button and the count first
         updateCounter()
     }
 
@@ -434,6 +469,11 @@ final class ImageViewerScreen: UIViewController, UIScrollViewDelegate, UIGesture
         super.viewDidLayoutSubviews()
         guard !spec.images.isEmpty else { return }
         let size = view.bounds.size
+        // Only when the size changes (first layout, a turn of the screen). Adding the next page during a swipe runs a
+        // layout too, and setting the offset then moved the pager mid-swipe: one swipe went from photo 2 to 4.
+        fade.frame = bar.bounds
+        guard size != laidOut else { return }
+        laidOut = size
         pager.frame = view.bounds
         pager.contentSize = CGSize(width: size.width * CGFloat(spec.images.count), height: size.height)
         pager.contentOffset = CGPoint(x: size.width * CGFloat(current), y: 0)
@@ -458,6 +498,11 @@ final class ImageViewerScreen: UIViewController, UIScrollViewDelegate, UIGesture
                 UIAccessibilityCustomAction(name: spec.previous) { [weak self] _ in self?.go(i - 1) ?? false },
             ]
             p.onRetry = { [weak self] in self?.failed.remove(i); self?.load(i) }
+            // Android's pager doesn't swipe while the picture is zoomed: the drag pans the picture to its edge and stops.
+            p.onZoom = { [weak self] z in
+                guard let self, i == self.current else { return }
+                self.pager.isScrollEnabled = z <= ViewerRules.zoomed
+            }
             pager.addSubview(p)
             pages[i] = p
             load(i)
@@ -494,6 +539,7 @@ final class ImageViewerScreen: UIViewController, UIScrollViewDelegate, UIGesture
         guard i != current else { return }
         pages[current]?.setZoomScale(1, animated: false)
         current = i
+        pager.isScrollEnabled = (pages[i]?.zoomScale ?? 1) <= ViewerRules.zoomed
         updateCounter()
         showPages()
     }
@@ -528,6 +574,7 @@ final class ImageViewerScreen: UIViewController, UIScrollViewDelegate, UIGesture
             drag = g.translation(in: view).y
             p.transform = CGAffineTransform(translationX: 0, y: drag)
             view.backgroundColor = spec.background.withAlphaComponent(ViewerRules.backgroundAlpha(drag, h) * spec.background.cgColor.alpha)
+            bar.alpha = ViewerRules.backgroundAlpha(drag, h)
         case .ended, .cancelled:
             let speed = g.velocity(in: view).y
             if g.state == .ended && ViewerRules.closes(drag, speed, h) {
@@ -539,6 +586,7 @@ final class ImageViewerScreen: UIViewController, UIScrollViewDelegate, UIGesture
                 UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0) {
                     p.transform = .identity
                     self.view.backgroundColor = self.spec.background
+                    self.bar.alpha = 1
                 }
             }
             drag = 0

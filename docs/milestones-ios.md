@@ -120,7 +120,7 @@ Checklist checked against the code; registry 24 read; LayoutLab 67 / 84.
 | 1e | Row `flexWrap` / `alignContent` / `crossGap` (LayoutLab 30–37; RN gaps lab §6–7) | **done** | 8339821 |
 | 1e | aspectRatio with a "%" side (ZeroBill's scanner window was 0 tall); a hidden tab's Pressables no longer swallow taps on the shown tab; LayoutLab 45 | **done** | 23ea2e9 |
 | 1e | From Pavan's iPhone test (2026-11-09): a box raised to its minHeight / minWidth aligns its children in the raised size (ListTile rows); sheets follow their content's height; a sheet closed while it slides in closes; LayoutLab 46 | **done** | 2e6df8e |
-| 1e | A vertical Scroll with no height and no flex hugs its content up to its maxHeight (ZeroBill's checkout offers sheet); LayoutLab 47 | **done** | (this commit) |
+| 1e | A vertical Scroll with no height and no flex hugs its content up to its maxHeight (ZeroBill's checkout offers sheet); LayoutLab 47 | **done** | 9afd9ff |
 | — | Fixes from Pavan's look: Tabs lab hint, border line over the Scan FAB | **done** | b0613b4 |
 
 ### Phase 2: the ZeroBill iOS app [ZB] — **in progress** (2026-11-09)
@@ -324,7 +324,7 @@ manifest must not claim what it can't draw.
 | firebase-messaging | Push | **missing** | Phase 3. Until then its JS falls back (`token: null`, "unavailable", false). |
 | firebase-perf | Perf | missing | Needs batch listeners. Not used by ZeroBill. |
 | firebase-remote-config | RemoteConfig | missing | Not used by ZeroBill. |
-| image-viewer | ImageViewer 3 | done (Swift screen) | Swift viewer (paging zoom, swipe to close) for routes with `native: "imageviewer.full"`; module 3 adds `release`. The TSX viewer (view `imageviewer.page`, useZoom) waits for motion: on iOS its thumbnail tap does nothing yet. |
+| image-viewer | ImageViewer 3 | done (Swift screen, simulator; 2026-11-10 as Android: no page skip, no paging while zoomed, Android's bar) | Swift viewer (paging zoom, swipe to close) for routes with `native: "imageviewer.full"`; module 3 adds `release`. The TSX viewer (view `imageviewer.page`, useZoom) waits for motion: on iOS its thumbnail tap does nothing yet. |
 | location | Location 2 | done | Core Location, CLGeocoder; `turnOn` / `providers` n/a (A14). |
 | lottie | Lottie | done | lottie-ios 4.6.1 (optional fetch). |
 | markdown | — | done | JS only; Text spans checked. |
@@ -444,7 +444,8 @@ Full entries are in `docs/milestones.md` `## Log`, newest first.
 
 | Date | Piece | Commit |
 |---|---|---|
-| 2026-11-09 | Scroll with only maxHeight hugs its content; LayoutLab 97 / 97 | (this commit) |
+| 2026-11-10 | Image viewer as Android's: one page per swipe, no paging while zoomed, Android's bar; checked in ZeroBill's Offer Details | (this commit) |
+| 2026-11-09 | Scroll with only maxHeight hugs its content; LayoutLab 97 / 97 | 9afd9ff |
 | 2026-11-09 | Pavan's iPhone test: min raises align children; sheet height follows content; close while sliding in; LayoutLab 95 / 95 | 2e6df8e |
 | 2026-11-09 | aspectRatio with a "%" side; hidden tabs' Pressables; LayoutLab 93 / 93 | 23ea2e9 |
 | 2026-11-09 | flexWrap on Row (LayoutLab 91 / 91) | 8339821 |
