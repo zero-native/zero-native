@@ -42,10 +42,10 @@ internal class PdfModule(private val context: Context, private val views: PdfVie
      * The app's own client (pinning and interceptors from ZnFetch.configure), but redirects are followed here, so a
      * redirect to another host can't take the app's headers with it. ZnFetch has no read limit: a stalled download must end.
      */
-    private val client: OkHttpClient by lazy {
-        ZnFetch.client.newBuilder().followRedirects(false).followSslRedirects(false)
-            .readTimeout(30, TimeUnit.SECONDS).callTimeout(5, TimeUnit.MINUTES).build()
-    }
+    private val client: OkHttpClient
+        get() = ZnFetch.derived("zn.pdf") { // per call: built again on the fresh pool after a network change
+            it.followRedirects(false).followSslRedirects(false).readTimeout(30, TimeUnit.SECONDS).callTimeout(5, TimeUnit.MINUTES)
+        }
 
     init {
         function("download") { call ->

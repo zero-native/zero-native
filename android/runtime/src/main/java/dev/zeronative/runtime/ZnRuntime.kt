@@ -204,6 +204,7 @@ object ZnRuntime {
         }
         // Built-in modules (Keyboard, Fetch, SecureStore, Toast, Updates) are registered by ZnModules itself; two need a Context.
         ZnFetch.init(appContext) // built-in module behind the global fetch()
+        ZnFetch.useForImages() // Coil's image loader on ZnFetch's client (unless the app set its own loader)
         ZnSecureStore.init(appContext) // built-in module: SecureStore (Keystore-encrypted secrets)
         if (BuildConfig.DEBUG) ZnDev.start(appContext)
     }

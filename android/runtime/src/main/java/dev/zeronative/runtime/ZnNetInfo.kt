@@ -26,6 +26,8 @@ internal object ZnNetInfo : ZnModuleBase("NetInfo", version = 1) {
     private var callback: ConnectivityManager.NetworkCallback? = null
     private var network: Network? = null
     private var caps: NetworkCapabilities? = null
+    /** Android 10+ says the app is blocked on [network] (onBlockedStatusChanged). */
+    private var blocked = false
     private var sent: String? = null
     private val send = Runnable { sendIfChanged() }
 
@@ -51,9 +53,13 @@ internal object ZnNetInfo : ZnModuleBase("NetInfo", version = 1) {
         else -> "other"
     }
 
-    /** The state JS gets (NetInfoState). [r] null: no network. */
-    fun stateJson(r: Reading?): JSONObject {
-        if (r == null) {
+    /**
+     * The state JS gets (NetInfoState). [r] null: no network. [blocked]: Android blocks this app on the network
+     * (data saver, background data off, a phone maker's per-app switch): the same as no network, as `fetch` reads it
+     * (`activeNetwork` is null for a blocked app).
+     */
+    fun stateJson(r: Reading?, blocked: Boolean = false): JSONObject {
+        if (r == null || blocked) {
             return JSONObject().put("type", "none").put("isConnected", false).put("isInternetReachable", false)
                 .put("details", JSONObject.NULL)
         }
@@ -78,8 +84,8 @@ internal object ZnNetInfo : ZnModuleBase("NetInfo", version = 1) {
         notMetered = c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
     )
 
-    private fun json(network: Network?, caps: NetworkCapabilities?): JSONObject = when {
-        network == null -> stateJson(null)
+    private fun json(network: Network?, caps: NetworkCapabilities?, blocked: Boolean = false): JSONObject = when {
+        network == null || blocked -> stateJson(null)
         caps == null -> unknownJson()
         else -> stateJson(reading(caps))
     }
@@ -117,9 +123,19 @@ internal object ZnNetInfo : ZnModuleBase("NetInfo", version = 1) {
             override fun onAvailable(n: Network) = onMain {
                 if (n != network) {
                     network = n
+                    blocked = false // Android 10+ sends the new network's blocked status next
                     // Android 8+ sends the capabilities next; Android 7 may not.
                     caps = try { cm.getNetworkCapabilities(n) } catch (e: SecurityException) { null }
                 }
+                settle()
+            }
+
+            // Android 10+. Without it a lifted block sends no other callback, so JS kept "offline" (review 2026-11-09).
+            override fun onBlockedStatusChanged(n: Network, isBlocked: Boolean) = onMain {
+                if (n != network && network != null) return@onMain
+                network = n
+                if (blocked != isBlocked) Log.i(TAG, "NetInfo: Android ${if (isBlocked) "blocks" else "no longer blocks"} this app on the network")
+                blocked = isBlocked
                 settle()
             }
 
@@ -133,6 +149,7 @@ internal object ZnNetInfo : ZnModuleBase("NetInfo", version = 1) {
                 if (n == network) {
                     network = null
                     caps = null
+                    blocked = false
                 }
                 settle()
             }
@@ -152,6 +169,7 @@ internal object ZnNetInfo : ZnModuleBase("NetInfo", version = 1) {
         main.removeCallbacks(send)
         network = null
         caps = null
+        blocked = false
         sent = null // a new listener hears the state again
         try {
             connectivity()?.unregisterNetworkCallback(cb)
@@ -167,7 +185,7 @@ internal object ZnNetInfo : ZnModuleBase("NetInfo", version = 1) {
 
     private fun sendIfChanged() {
         if (callback == null) return
-        val state = json(network, caps)
+        val state = json(network, caps, blocked)
         val text = state.toString()
         if (text == sent) return
         sent = text

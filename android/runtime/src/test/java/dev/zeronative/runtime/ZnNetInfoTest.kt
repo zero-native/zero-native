@@ -54,6 +54,15 @@ class ZnNetInfoTest {
         )
     }
 
+    @Test fun aBlockedAppHasNoNetwork() {
+        // Android blocks this app on a working network (onBlockedStatusChanged): JS reads "none", as NetInfo.fetch does.
+        val r = ZnNetInfo.Reading(setOf(TRANSPORT_CELLULAR), internet = true, validated = true, notMetered = false)
+        assertState(
+            """{"type":"none","isConnected":false,"isInternetReachable":false,"details":null}""",
+            ZnNetInfo.stateJson(r, blocked = true),
+        )
+    }
+
     @Test fun aNetworkWithoutInternetIsNotConnected() {
         // A Wi-Fi with no internet (a printer's own Wi-Fi, say): validated means nothing without INTERNET.
         val r = ZnNetInfo.Reading(setOf(TRANSPORT_WIFI), internet = false, validated = true, notMetered = true)

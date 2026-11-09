@@ -126,19 +126,60 @@ object ZnFetch : ZnModuleBase("Fetch") {
         }
     }
 
-    /** The shared client (also for app code that wants the same pool and settings). Built on first use. */
-    val client: OkHttpClient by lazy { build() }
+    @Volatile private var current: OkHttpClient? = null
+    /** Goes up at each fresh pool ([freshPool]): the clients [derived] made before it are built again. */
+    @Volatile private var generation = 0
+    private val derivedClients = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, OkHttpClient>>()
+
+    /**
+     * The shared client (also for app code that wants the same pool and settings). Built on first use. After a change
+     * of the default network (Wi-Fi ↔ mobile) this is a new client with a fresh connection pool (same settings,
+     * interceptors and dispatcher): read it for each call, don't keep it. For your own settings on top, use [derived].
+     */
+    val client: OkHttpClient
+        get() = current ?: synchronized(this) { current ?: build().also { current = it } }
+
+    /**
+     * A client made from [client] by [change] (another timeout, no redirects, ...), kept under [key] and built again
+     * after a network change, so it gets the fresh pool too. Read it for each call.
+     */
+    fun derived(key: String, change: (OkHttpClient.Builder) -> Unit): OkHttpClient {
+        val gen = generation // before `client`: a fresh pool in between only makes the next read build it again
+        val base = client
+        derivedClients[key]?.let { (g, c) -> if (g == gen) return c }
+        return base.newBuilder().also(change).build().also { derivedClients[key] = gen to it }
+    }
 
     /** The User-Agent fetch sends by default (WebSocket handshakes send it too). Builds the client first if needed. */
     internal val defaultUserAgent: String get() = client.let { userAgent }
-    private val noRedirectClient: OkHttpClient by lazy { client.newBuilder().followRedirects(false).build() }
-    private val idleLimitClient: OkHttpClient by lazy {
-        client.newBuilder().readTimeout(IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            .writeTimeout(IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS).build()
-    }
+    private val noRedirectClient: OkHttpClient get() = derived("zn.noRedirect") { it.followRedirects(false) }
+    private val idleLimitClient: OkHttpClient
+        get() = derived("zn.idleLimit") {
+            it.readTimeout(IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS).writeTimeout(IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        }
 
     internal fun init(context: Context) {
         appContext = context.applicationContext
+    }
+
+    /** No idle limit on [client] (each fetch sets its own): an image that stops arriving must still end. */
+    private const val IMAGE_READ_TIMEOUT_S = 30L
+
+    /**
+     * Coil's shared image loader (Image, the image viewer) on [client], read for each call: the same fresh pool after a
+     * network change, the app's pins and interceptors. Coil's default was its own OkHttpClient (5 min idle pool, kept
+     * across Wi-Fi ↔ mobile: images stalled after a switch; review 2026-11-09, finding 8). `setSafe`: an app that set
+     * its own loader keeps it. The client itself is still built on the first image or fetch, not here.
+     */
+    internal fun useForImages() {
+        val calls = okhttp3.Call.Factory { request ->
+            derived("zn.images") { it.readTimeout(IMAGE_READ_TIMEOUT_S, TimeUnit.SECONDS) }.newCall(request)
+        }
+        coil3.SingletonImageLoader.setSafe { context ->
+            coil3.ImageLoader.Builder(context)
+                .components { add(coil3.network.okhttp.OkHttpNetworkFetcherFactory(callFactory = calls)) }
+                .build()
+        }
     }
 
     private fun build(): OkHttpClient {
@@ -148,9 +189,28 @@ object ZnFetch : ZnModuleBase("Fetch") {
         configure?.invoke(builder)
         for (p in plugins) builder.addInterceptor(PluginInterceptor(p))
         val built = builder.build()
-        watchNetwork(built)
+        watchNetwork()
         return built
     }
+
+    /**
+     * The default network changed: new calls get a new client with an empty pool. `evictAll` alone closes only idle
+     * connections: an HTTP/2 connection still in use on the old network kept taking new calls (they hung until its
+     * ping failed, 10-20 s: a verify right after the UPI app failed). Calls already running finish on the old client;
+     * its connections close when idle (30 s) or when their ping fails. Review 2026-11-09, finding 3.
+     */
+    internal fun freshPool(why: String) {
+        synchronized(this) {
+            val old = current ?: return
+            current = old.newBuilder().connectionPool(newPool()).build()
+            generation++ // after `current`: see derived()
+            old.connectionPool.evictAll()
+        }
+        Log.i(TAG, "fetch: $why: new calls use new connections")
+    }
+
+    /** Mobile carriers drop idle NAT mappings after 30–60 s; reusing such a connection hangs. Default: 5 min. */
+    private fun newPool() = ConnectionPool(5, 30, TimeUnit.SECONDS)
 
     /**
      * How often an open HTTP/2 connection is checked. With no answer by the next check, OkHttp drops the connection and
@@ -173,28 +233,31 @@ object ZnFetch : ZnModuleBase("Fetch") {
             .followRedirects(true)
             .followSslRedirects(false) // never follow HTTPS → HTTP; send() turns it into an error
             // Mobile carriers drop idle NAT mappings after 30–60 s; reusing such a connection hangs. Default: 5 min.
-            .connectionPool(ConnectionPool(5, 30, TimeUnit.SECONDS))
+            .connectionPool(newPool())
             // A connection still in use is never idle, so the 30 s above never drops a dead one: check it (PAY-5).
             .pingInterval(pingIntervalMs, TimeUnit.MILLISECONDS)
             .dispatcher(Dispatcher().apply { maxRequestsPerHost = 10 }) // default 5: the 6th call to a host waits
             .cookieJar(okhttp3.CookieJar.NO_COOKIES) // cookies are off (ARCHITECTURE §14)
 
-    /** Closes pooled connections when the default network changes: they belong to the old network and would hang. */
-    private fun watchNetwork(client: OkHttpClient) {
+    /**
+     * A fresh pool when the default network changes: the old connections belong to the old network and would hang.
+     * Once per process (the first client build); [freshPool] works on whatever client is current.
+     */
+    private fun watchNetwork() {
         val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return
         try {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
-                private var current: Network? = null
+                private var now: Network? = null
                 override fun onAvailable(network: Network) {
-                    val previous = current
-                    current = network
-                    if (previous != null && previous != network) client.connectionPool.evictAll()
+                    val previous = now
+                    now = network
+                    if (previous != null && previous != network) freshPool("the default network changed")
                 }
 
                 override fun onLost(network: Network) {
-                    if (network == current) {
-                        current = null
-                        client.connectionPool.evictAll()
+                    if (network == now) {
+                        now = null
+                        freshPool("the network was lost")
                     }
                 }
             })
