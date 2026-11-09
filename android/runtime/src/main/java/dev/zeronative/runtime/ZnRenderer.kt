@@ -207,8 +207,13 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
         Registry.Component.NAVIGATION_BAR -> ZnBarElement(s, inst, navigation = true)
         Registry.Component.ROW -> if (s.flexWrap) ZnWrapRow(f, t, inst, s, mod) else {
             val gap = if (s.gapSlot >= 0) inst.finiteNum(s.gapSlot) ?: s.gap else s.gap
+            val refs = shownRefs(f, t, inst, s)
+            // A child's static "48%" is 48% of this Row (RN), not of what the children before it left (2026-11-09,
+            // found by the RN gaps pack). Only Rows with such a child get the extra layout step.
+            val rowWidth = remember { IntArray(1) }
+            val anyPercent = refs.any { r -> r.template.nodes[r.node].let { it.width is ZnPercent && it.widthSlot < 0 } }
             Row(
-                modifier = mod,
+                modifier = if (anyPercent) mod.znSaveRowWidth(rowWidth) else mod,
                 // B1 (2026-11-08): justifyContent is kept with a gap, as in RN; spacedBy alone dropped it.
                 horizontalArrangement = znHorizontalArrangement(s.justify, gap),
                 verticalAlignment = verticalAlignment(s.alignItems),
@@ -219,11 +224,13 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                 // swipe-row buttons behind a row were a thin strip at its top).
                 val pinnedH = s.absolute && (s.top != null || s.topSlot >= 0) && (s.bottom != null || s.bottomSlot >= 0)
                 val definiteHeight = s.height is Double || s.heightSlot >= 0 || pinnedH
-                for (ref in shownRefs(f, t, inst, s)) key(ref.key) {
+                for (ref in refs) key(ref.key) {
                     val child = ref.template.nodes[ref.node]
                     var m: Modifier = Modifier
                     val childFlex = if (child.flexSlot >= 0) inst.finiteNum(child.flexSlot) ?: child.flex else child.flex
                     if (childFlex > 0f) m = m.weight(childFlex) // finiteNum: never NaN or Infinity
+                    val pct = child.width as? ZnPercent
+                    if (pct != null && childFlex <= 0f && child.widthSlot < 0) m = m.znPercentOfRow(rowWidth, pct)
                     // A11-1 (2026-11-08): alignSelf "stretch" stretches too, whatever alignItems says, as in RN.
                     val stretchChild = child.alignSelf == Registry.AlignSelf.STRETCH ||
                         (child.alignSelf == -1 && s.alignItems == Registry.AlignItems.STRETCH)
@@ -1008,11 +1015,7 @@ private fun ZnGridLine(f: List<ZnTemplate>, s: ZnNodeSpec, list: ZnList, line: I
     val rowWidth = remember { IntArray(1) }
     Row(
         modifier = itemMod.fillMaxWidth().padding(start = w.start.dp, top = w.top.dp, end = w.end.dp, bottom = w.bottom.dp)
-            .layout { m, c ->
-                rowWidth[0] = c.maxWidth
-                val p = m.measure(c)
-                layout(p.width, p.height) { p.place(0, 0) }
-            },
+            .znSaveRowWidth(rowWidth),
         horizontalArrangement = znHorizontalArrangement(w.justify, w.gap),
         verticalAlignment = verticalAlignment(w.align),
     ) {
@@ -1045,17 +1048,37 @@ private fun RowScope.ZnGridCell(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInst
     var m: Modifier = Modifier
     if (flex > 0f) m = m.weight(flex)
     val pct = root.width as? ZnPercent
-    if (pct != null && flex <= 0f && root.widthSlot < 0) {
-        // A percent of the whole row (RN), not of what the items before it left; never more than is left.
-        m = m.layout { measurable, c ->
-            val want = (rowWidth[0] * pct.fraction).roundToInt().coerceIn(0, c.maxWidth)
-            val p = measurable.measure(c.copy(minWidth = want, maxWidth = want))
-            layout(p.width, p.height) { p.place(0, 0) }
-        }
-    }
+    if (pct != null && flex <= 0f && root.widthSlot < 0) m = m.znPercentOfRow(rowWidth, pct)
     if (root.alignSelf != -1) m = m.align(verticalAlignment(root.alignSelf))
     if (ghost) m = m.alpha(0f).clearAndSetSemantics {}
     ZnNode(f, t, inst, 0, m, definiteWidth = root.width != null || root.widthSlot >= 0 || flex > 0f)
+}
+
+/**
+ * The content width (px) of a Row, saved when the Row is measured, for [znPercentOfRow]. Put it last on the Row's
+ * modifier (after its padding), so it sees the width its children share.
+ */
+private fun Modifier.znSaveRowWidth(rowWidth: IntArray): Modifier = layout { m, c ->
+    rowWidth[0] = c.maxWidth
+    val p = m.measure(c)
+    layout(p.width, p.height) { p.place(0, 0) }
+}
+
+/**
+ * A Row child with a static % width: a percent of the whole Row's content width, as in RN, not of the width the
+ * children before it left (Compose's Row measures each child with what remains, so a second "48%" came out 25%).
+ * Never more than is left. The % covers the child's whole box, margins included. Unbounded (a Row in a horizontal
+ * Scroll): measured as before.
+ */
+private fun Modifier.znPercentOfRow(rowWidth: IntArray, pct: ZnPercent): Modifier = layout { measurable, c ->
+    val full = rowWidth[0]
+    if (full <= 0 || full == Constraints.Infinity || !c.hasBoundedWidth) {
+        val p = measurable.measure(c)
+        return@layout layout(p.width, p.height) { p.place(0, 0) }
+    }
+    val want = (full * pct.fraction).roundToInt().coerceIn(0, c.maxWidth)
+    val p = measurable.measure(c.copy(minWidth = want, maxWidth = want))
+    layout(p.width, p.height) { p.place(0, 0) }
 }
 
 /** A List extra's instance (header / footer / empty), when it is mounted and its template is in this file. */

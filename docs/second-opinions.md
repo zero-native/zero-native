@@ -3161,8 +3161,9 @@ change, and what evidence would make you change it?"
   and scroll commands keep working with no new code paths.
 - **Found while building:** zn's `Row` gives a percent-width child a percent of the width **left** by the children
   before it (Compose's Row measures children with what remains): two `width: "48%"` children came out 48% and 25%. The
-  grid row fixes this for its items (a percent of the row's content width). A plain `<Row>` still has the bug; not
-  changed here because it would move existing screens. Follow-up for Pavan to decide.
+  grid row fixes this for its items (a percent of the row's content width). **Fixed for every `<Row>` the same day**
+  (Pavan's ask; `znPercentOfRow` in ZnRenderer.kt, LayoutLab cases 38-40, 84/84 on the Lava). ZeroBill has no % widths,
+  so none of its screens moved. Left as before: a dynamic % width (a slot) in a Row still takes a percent of what is left.
 - **Not taken:** the short last row as in RN (widened flex items). Most RN apps pad their data to avoid it; the brief
   asked for padded rows.
 - **Costs:** a grid row recomposes when any of its items mounts (n items per row); measured only on the emulator.

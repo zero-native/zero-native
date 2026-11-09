@@ -90,6 +90,12 @@ const EXPECT: Record<string, Frame> = {
   c36a: [0, 0, 90, 40], c36b: [90, 0, 90, 40], c36c: [0, 40, 90, 10],
   // 37. Two width "50%" children share one line (in pixels they can add up to one more than the Row: still one line).
   c37a: [0, 0, 100, 20], c37b: [100, 0, 100, 20], c37c: [0, 20, 100, 20],
+  // 38. A Row's "%" child is a percent of the whole Row (RN), not of what the children before it left: two "50%".
+  c38a: [0, 0, 100, 20], c38b: [100, 0, 100, 20],
+  // 39. "25%" after a fixed 50: 50 wide (25% of 200), at x 50.
+  c39a: [0, 0, 50, 20], c39b: [50, 0, 50, 20],
+  // 40. RN two columns: "48%" + "48%", space-between, padding 10 (content 180): 86.4 wide each, at 10 and 103.6.
+  c40a: [10, 10, 86.4, 20], c40b: [103.6, 10, 86.4, 20],
 }
 
 const TOLERANCE = 1
@@ -380,6 +386,24 @@ export function LayoutLabScreen() {
             <Box testID="c37a" onLayout={L("c37a")} style={{ width: "50%", height: 20, backgroundColor: A }} />
             <Box testID="c37b" onLayout={L("c37b")} style={{ width: "50%", height: 20, backgroundColor: B }} />
             <Box testID="c37c" onLayout={L("c37c")} style={{ width: "50%", height: 20, backgroundColor: A }} />
+          </Row>
+        </Case>
+        <Case title="38. Row: two 50%">
+          <Row style={{ width: 200, backgroundColor: BG }}>
+            <Box testID="c38a" onLayout={L("c38a")} style={{ width: "50%", height: 20, backgroundColor: A }} />
+            <Box testID="c38b" onLayout={L("c38b")} style={{ width: "50%", height: 20, backgroundColor: B }} />
+          </Row>
+        </Case>
+        <Case title="39. Row: 25% after a fixed 50">
+          <Row style={{ width: 200, backgroundColor: BG }}>
+            <Box testID="c39a" onLayout={L("c39a")} style={{ width: 50, height: 20, backgroundColor: A }} />
+            <Box testID="c39b" onLayout={L("c39b")} style={{ width: "25%", height: 20, backgroundColor: B }} />
+          </Row>
+        </Case>
+        <Case title="40. Row: 48% + 48%, space-between, padding">
+          <Row justifyContent="space-between" style={{ width: 200, padding: 10, backgroundColor: BG }}>
+            <Box testID="c40a" onLayout={L("c40a")} style={{ width: "48%", height: 20, backgroundColor: A }} />
+            <Box testID="c40b" onLayout={L("c40b")} style={{ width: "48%", height: 20, backgroundColor: B }} />
           </Row>
         </Case>
         <Case title="36. wrap: alignItems stretch">
