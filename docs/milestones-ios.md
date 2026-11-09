@@ -215,7 +215,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | testID | missing | S | `accessibilityIdentifier`. |
 | pointerEvents | missing | M | `allowsHitTesting` + the press view's hit test. |
 | impressionKey | missing | §8 | |
-| Layout values from slots (width, height, min / max, flex, aspectRatio, gap, insets, radii, font sizes) (r23) | missing | L | Padding and margin slots work. Check: DynamicLayoutLab. |
+| Layout values from slots (width, height, min / max, flex, aspectRatio, gap, insets, radii, font sizes) (r23) | missing | L | Padding and margin slots work. Check: DynamicLayoutLab. ZeroBill hit it 2026-11-10 (the store sheet's app icon took its size from a prop and drew huge; ZeroBill now writes fixed numbers). |
 | `display: "none"` (r23) | missing | M | |
 | Negative margins | not checked | S | Needs a LayoutLab case. |
 | `fontFamily` with app fonts (r24) | missing | M | Register bundle fonts, pick the face by weight / italic. |

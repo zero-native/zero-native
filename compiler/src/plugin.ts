@@ -324,6 +324,10 @@ async function loadStaticImports(source: string, path: string): Promise<Map<stri
     if (!file) continue
     const named = stmt.importClause?.namedBindings
     if (!named || !ts.isNamedImports(named)) continue
+    // Issue A16: a .ts file that imports a .tsx file (an index.ts that re-exports components) is not loaded. Bun would
+    // read that .tsx as React JSX here ("Cannot find package 'react'"), not with the zero-native compiler. Its values
+    // are then not folded: they are read at runtime, like any value not known at build time.
+    if (reachesTsx(file, new Set())) continue
     // The query makes Bun load the file again: `zn dev` rebuilds in the same process, and tokens may have changed.
     const mod = await import(`${file}?t=${Date.now()}`)
     for (const el of named.elements) {
@@ -332,4 +336,27 @@ async function loadStaticImports(source: string, path: string): Promise<Map<stri
     }
   }
   return out
+}
+
+/**
+ * True when the .ts / .js file [file] imports or re-exports a .tsx / .jsx file, directly or through other relative
+ * files. Type-only imports don't count (Bun drops them). [seen] stops loops.
+ */
+function reachesTsx(file: string, seen: Set<string>): boolean {
+  if (seen.has(file)) return false
+  seen.add(file)
+  const sf = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
+  for (const stmt of sf.statements) {
+    let spec: ts.Expression | undefined
+    if (ts.isImportDeclaration(stmt) && !stmt.importClause?.isTypeOnly) spec = stmt.moduleSpecifier
+    else if (ts.isExportDeclaration(stmt) && !stmt.isTypeOnly) spec = stmt.moduleSpecifier
+    if (!spec || !ts.isStringLiteral(spec) || !spec.text.startsWith(".")) continue
+    const base = resolve(dirname(file), spec.text)
+    const target = [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts"), join(base, "index.tsx")].find(
+      (f) => /\.[jt]sx?$/.test(f) && existsSync(f),
+    )
+    if (!target) continue
+    if (/\.[jt]sx$/.test(target) || reachesTsx(target, seen)) return true
+  }
+  return false
 }

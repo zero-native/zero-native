@@ -76,7 +76,7 @@ yet (registry 23)"). ZeroBill's bundle is 24 now (2026-11-10); its screens still
 
 | Item | Android | iOS | Size | Note |
 |---|---|---|---|---|
-| Layout values from slots (#171): width, height, min / max, flex, aspectRatio, gap, top / bottom / start / end, radii, fontSize, lineHeight, letterSpacing | ZnRenderer.kt dynamicSize, ZnLayoutBox.kt | missing | L | iOS keeps the template's value. Padding and margin slots already work. Check: DynamicLayoutLab. |
+| Layout values from slots (#171): width, height, min / max, flex, aspectRatio, gap, top / bottom / start / end, radii, fontSize, lineHeight, letterSpacing | ZnRenderer.kt dynamicSize, ZnLayoutBox.kt | missing | L | iOS keeps the template's value. Padding and margin slots already work. Check: DynamicLayoutLab. ZeroBill hit it 2026-11-10 (the store sheet's app icon took its size from a prop and drew huge; ZeroBill now writes fixed numbers). |
 | `display: "none"` (written or a slot) | ZnRenderer.kt displayNone | missing | M | Row / Column leave the child out, its gap too. |
 | Canvas (component 35, `commands`) | ZnCanvas.kt | missing | L | Core Graphics, as Svg. Debug shows ⟨Canvas⟩, release nothing. Check: CanvasLab. |
 | List header / footer / empty, `scrollCommand` | ZnRenderer.kt, ZnTemplate.kt | missing | M | Second-opinions 174. |

@@ -74,3 +74,22 @@ describe("the saved source map (step 4.8, `ota symbolicate`)", () => {
     expect(two.sourceMap("main.js", dirname(entry))).toBe(one.sourceMap("main.js", dirname(entry)))
   })
 })
+
+describe("a .ts file that imports a .tsx file (issue A16)", () => {
+  const a16 = join(import.meta.dir, "fixtures/ts-imports-tsx/main.ts")
+
+  test("builds: the .tsx file goes through the zero-native compiler, not React's JSX", async () => {
+    // screen.tsx imports Badge and GAP from parts.ts, which re-exports Badge from badge.tsx. Loading parts.ts at
+    // build time to fold GAP made Bun read badge.tsx as React JSX: "Cannot find package 'react'".
+    const app = await buildApp(a16)
+    expect(Object.keys(app.manifest.components).sort()).toEqual(["Badge", "HomeScreen"])
+    expect(app.js).toContain(`component(__i0, 2, Badge, { label: "new" })`)
+    expect(app.js).not.toContain("jsx")
+  })
+
+  test("its values are read at runtime; a tokens file with no .tsx import is still folded", async () => {
+    const app = await buildApp(a16)
+    expect(app.js).toContain("() => GAP") // a slot: parts.ts is not loaded at build time
+    expect(app.js).not.toContain("PAD") // folded into the template from tokens.ts
+  })
+})

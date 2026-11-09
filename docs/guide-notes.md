@@ -88,6 +88,9 @@ const paise = computed(() => toPaise(amount()))
 - Unsupported keys are **build errors**, never silently ignored (e.g. `flexDirection`: use `Row` / `Column`).
 - Static styles cost nothing at runtime: they are folded into the template at build time. Design tokens (`c.*`) in a
   side-effect-free `.ts` file are folded too.
+- **Do** keep design tokens in a `.ts` file that imports no `.tsx` file. **Why:** a `.ts` file that imports a `.tsx`
+  file (an `index.ts` that re-exports components) is not loaded at build time, so its values are not folded: they are
+  read at runtime instead. It still builds and works (issue A16 in `docs/android-issues-found-when-building-ios.md`).
 - **Dynamic style values at runtime (Registry 23).** The full list of supported dynamic keys is `DynamicProps` in
   `packages/template/src/registry.ts`. In Registry 23, dynamic layout values are fully supported: dimensions (`width`,
   `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `aspectRatio`), `flex`, `margin` (and all per-edge variants),

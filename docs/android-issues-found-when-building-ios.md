@@ -29,6 +29,7 @@ Each entry says:
 | A13 | 2026-11-08 | device-info (shared JS) | `hasDynamicIsland`, `isDisplayZoomed`, `getBrightness` now read native values (iOS); Android answers stay false / -1 | fixed on ios (check the tests) |
 | A14 | 2026-11-08 | location (shared JS) | On iOS the plugin asks core's Permissions for "location" (iOS's name), not Android's two names | fixed on ios (no Android change expected) |
 | A15 | 2026-11-09 | OTA (Updates) | With OTA off, `Updates.check()` answers without `status`, which its JS type promises; the sample's Updates screen throws on "Check now" | fixed 2026-11-09 (`ZnOta.kt` Module `check` adds `status` when OTA is off); not phone-checked: the sample has OTA on |
+| A16 | 2026-11-10 | Build (app:js, shared) | A plain `.ts` file that imports a `.tsx` file with components fails the build: "Cannot find package 'react'" (found by the ZeroBill session; worked around in ZeroBill) | fixed 2026-11-10 (`compiler/src/plugin.ts`: such a `.ts` file is no longer loaded at build time); test in `compiler/test/build-app.test.ts`; same build for Android and iOS, nothing to check on a phone |
 
 ---
 
@@ -273,4 +274,21 @@ Each entry says:
 - **Fix:** add `.put("status", status())` in that branch (status() is `{ enabled: false, phase: "off" }` then). iOS's
   `ZnUpdatesOff` already answers with it.
 - **Check on Android:** the sample without OTA configured, route `updates`, Check now: "Check: NONE OFF", no error.
+
+## A16. A `.ts` file that imports a `.tsx` file fails the build
+- **Status:** fixed 2026-11-10 (Windows session). Shared build code, so Android and iOS both have the fix.
+- **Found:** 2026-11-10 by the ZeroBill session. ZeroBill worked around it by keeping the state of its iOS store update
+  screens in a plain `.ts` file (`app/src/system/storePrompt.ts`) apart from the views (`StoreUpdateViews.tsx`).
+- **Problem:** the build error was "Cannot find package 'react' imported from <file>.tsx". It is not the bundler: Bun's
+  bundler sends every `.tsx` file through the zero-native compiler, whoever imports it. The cause was the build-time
+  load of design tokens: when a `.tsx` file imports names from a relative `.ts` file, `loadStaticImports` in
+  `compiler/src/plugin.ts` runs that `.ts` file with `import()` to fold its values into the templates. If that `.ts`
+  file imports a `.tsx` file (an `index.ts` that re-exports components, a service that imports views), Bun's runtime
+  reads the `.tsx` file as React JSX and asks for `react/jsx-dev-runtime`.
+- **Fix:** before that load, `reachesTsx` follows the `.ts` file's relative imports and re-exports (type-only ones
+  don't count). If one reaches a `.tsx` / `.jsx` file, the `.ts` file is not loaded: its values are read at runtime,
+  like any value not known at build time (a `gap={GAP}` becomes a slot). A tokens file with no `.tsx` import is folded
+  as before. The sample's bundle and ZeroBill's build give the same bytes with and without the fix.
+- **Test:** `compiler/test/build-app.test.ts` "a .ts file that imports a .tsx file (issue A16)", fixture
+  `compiler/test/fixtures/ts-imports-tsx/` (fails with the old code with ZeroBill's error).
 
