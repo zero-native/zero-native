@@ -161,6 +161,23 @@ forwards them to the Android machine. Work on the `ios` branch.
   (second-opinions 193, pre-existing), `keyboardDismissMode` planned (waits on Pavan).
 - Decisions: second-opinions 186–192. iOS port notes: `docs/motion.md` §14.
 
+### 2026-11-08: iOS i.4, the document scanner (Claude, `ios` branch)
+- **document-scanner** (`plugins/document-scanner/ios`): Apple's VisionKit document camera as a launch, so the JS side
+  is Android's: the job ("zn.docscanner" / "job") is on disk before the camera opens; the pages come back as images in
+  memory and are written at once as our JPEGs (and the PDF, by PDFKit, when asked) in ZnHandles.fileDir before JS hears;
+  collect / forget / cleanup and the 7-day trim as on Android. iOS: getStatus / download answer "available" (nothing to
+  download); `maxNumDocuments` keeps the first pages; `galleryImport` and `mode` are checked and ignored; a kill while
+  the camera is open is "lost" (the pages were only in memory).
+- **Runtime:** `ZnLaunch.start` / `finish` (a plugin's own launch: "waiting" on disk, then the result record and the
+  Launches `result` event; "busy" / "unacked" as ZnLaunch.kt), and a launch still waiting at start becomes "lost".
+  `<Image src="zn://file/…">` now loads (ZnImage → ZnHandles).
+- **Debug hook:** the simulator's VisionKit opens but can't capture ("Unable to capture media"). With no camera,
+  `ZN_DOCSCAN_FAKE=<pages>` (or `cancel`) makes a fake scan of drawn pages through the same files, job and launch.
+- **Checked on the simulator:** the real camera's error comes back as "cancel" (Android: any answer that isn't OK);
+  fake: 3 pages 1240x1754 with the tag, pages + PDF (3 pages) with a thumbnail through zn://file, bad option
+  invalid_args, cleanup of 7 files, a kill with the camera open → next start "lost" with its tag.
+- **Not checked:** a real camera scan (needs an iPhone).
+
 ### 2026-11-08: iOS, Linking.openURL opens any app's link (Claude, `ios` branch)
 - As Pavan decided on main (second-opinions 185, ZnOs.kt): `Os.openUrl` / `Linking.openURL` open any scheme, except
   text with no valid scheme and `intent:`, `file:`, `javascript:` (not_allowed). `canOpenUrl` answers true for other

@@ -231,8 +231,9 @@ struct ZnNativeViewNode: UIViewRepresentable {
 // MARK: - Launches (ZnLaunch.kt): the store native screens answer through
 
 /// The "Launches" module: records of results JS hasn't acted on yet, in the "zn.launch" store (key
-/// "launch.record.<key>"). On iOS so far: native screens' answers and `ack`. Opening another app for a result (UPI,
-/// Android's Intents) is i.4 (URL schemes).
+/// "launch.record.<key>"). On iOS: native screens' answers, `ack`, and launches a plugin starts itself (`start` and
+/// `finish`: the document scanner's camera; ZnLaunch.kt's start and onResult). Opening another app for a result (UPI)
+/// comes back by URL, not here.
 final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
     static let store = "zn.launch"
     static let record = "launch.record."
@@ -240,6 +241,13 @@ final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
 
     init() {
         super.init("Launches", version: 1)
+        // A launch still "waiting" from an earlier run never got its answer (the app was killed while it was open): JS
+        // hears "lost", as on Android.
+        if let key = ZNStorage.string(Self.store, key: Self.current), var rec = Self.read(key), rec["status"] as? String == "waiting" {
+            rec["status"] = "lost"
+            Self.write(key, rec)
+            print("zn: launch \(key) was open when the app ended: lost")
+        }
         // Only the id it answers clears a record, so an old screen can't clear a new payment; a waiting one has nothing
         // to confirm.
         function("ack", onMain: true) { call in
@@ -255,6 +263,36 @@ final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
             }
             call.resolve(ok)
         }
+    }
+
+    private static func read(_ key: String) -> [String: Any]? {
+        ZNStorage.string(store, key: record + key).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+    }
+
+    private static func write(_ key: String, _ rec: [String: Any]) {
+        guard let json = ZnModules.json(rec) else { return }
+        ZNStorage.set(store, key: record + key, string: json)
+        ZNStorage.flush(store)
+    }
+
+    /// Starts a launch of [key] with [id]: its "waiting" record is on disk before anything opens. Refused with "busy"
+    /// while another launch is open, and "unacked" while this key has an answer JS hasn't acked (ZnLaunch.kt's rules).
+    @MainActor static func start(_ key: String, id: String) -> (launched: Bool, reason: String?) {
+        if let open = ZNStorage.string(store, key: current), read(open)?["status"] as? String == "waiting" { return (false, "busy") }
+        if read(key) != nil { return (false, "unacked") }
+        write(key, ["key": key, "id": id, "status": "waiting"])
+        ZNStorage.set(store, key: current, string: key)
+        ZNStorage.flush(store)
+        return (true, nil)
+    }
+
+    /// The launch's answer: on disk, then JS's `launches.onResult` hears it. Only the open launch with this id; the first
+    /// answer wins. [resultCode]: -1 OK, 0 cancelled (Android's codes, which JS reads).
+    @MainActor static func finish(_ key: String, id: String, resultCode: Int, extras: [String: Any] = [:]) {
+        guard let rec = read(key), rec["id"] as? String == id, rec["status"] as? String == "waiting" else { return }
+        let done: [String: Any] = ["key": key, "id": id, "status": "result", "resultCode": resultCode, "data": NSNull(), "extras": extras]
+        write(key, done)
+        ZnModules.emit("Launches", "result", done, latestOnly: false)
     }
 
     /// A native screen's answer, on disk before JS hears of it.

@@ -4,7 +4,8 @@
 // one way only: src → fallbackSrc (if any) → an empty box; never back to src (on Android the two once swapped
 // forever). contentScale cover (default) / contain / fill; tintColor draws the picture's shape in one colour; RN
 // onLoad { source: { width, height, uri } } (pixels), onError { error }, and onLoadEnd after either, for src only.
-// loading="shimmer" shimmers the box until the picture is in. Not on iOS yet: `zn://` handles (ZnHandles.kt).
+// loading="shimmer" shimmers the box until the picture is in. `zn://file/<name>` handles (a file a plugin made, as a
+// scanned page) load from ZnHandles.fileDir; other `zn://` kinds (Android's app icons) are not on iOS.
 //
 // Shimmer: a base colour with a lighter band sweeping across, every Shimmer on screen in step (one shared clock,
 // the time since boot modulo the period), as on Android.
@@ -49,6 +50,7 @@ func znImageURL(_ src: String) -> URL? {
     for prefix in ["asset://", "asset:"] where src.hasPrefix(prefix) {
         return ZnApp.shared.bundleURL?.appendingPathComponent(String(src.dropFirst(prefix.count)))
     }
+    if src.hasPrefix("zn://") { return ZnHandles.fileOf(src) }
     guard let url = URL(string: src), let scheme = url.scheme else { return nil }
     return ["http", "https", "file"].contains(scheme) ? url : nil
 }

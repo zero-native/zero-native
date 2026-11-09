@@ -1,5 +1,10 @@
 Made 2026-11-08.
 Checked against the code on the `ios` branch at commit be2ccc7; the four controls updated for 2f1d6d3.
+**Refreshed 2026-11-09 (Step 0 of docs/ios-plan-2026-11-09.md) at 6d33f93** (origin/ios = main 072db1e + the document
+scanner): iOS builds; it reads registry 24 (Registry.swift regenerated on main); LayoutLab 67/84 on the simulator, the 17
+misses all cases 30–37 (flexWrap and grids, §1c: **not needed for ZeroBill, later**); Row % widths (cases 38–40, 072db1e) pass. The
+ZeroBill app (my-app 29bd563) uses none of §1b / §1c: a grep finds `ListEmptyComponent`,
+`adjustsFontSizeToFit` and `selectable` only in comments.
 
 # iOS parity checklist
 
@@ -90,6 +95,21 @@ Android is built; iOS has none of it yet. A bundle that uses these needs registr
 | `fontFamily` (prop 214) with app fonts | ZnFonts.kt (`ZnFontTable`, one per bundle), ZnTemplate.kt textStyle + parseSpans | missing | M | Read the manifest's `fonts` (family → `{ file, weight, italic }`). Register each bundle file with `CTFontManagerRegisterFontsForURL` (APK-like built-in copy, or the OTA bundle's), then pick the face by weight / italic yourself (closest weight, as CSS) and build `UIFont(descriptor:)` from its PostScript name (read it with `CGFont(dataProvider).postScriptName` once per file). System names: `System` / `sans-serif` / `Roboto` = system font, `serif` = New York, `monospace` = SF Mono, `sans-serif-medium` = system medium. Unknown: system font + one log. Also spans (`"fontFamily"` key) and TextField / OtpInput. Check: RN gaps lab §1–5. |
 | `numColumns` (218, can change at runtime), `columnWrapper` (219) on List | ZnRenderer.kt `ZnGridLine` / `ZnGridCell`, `gridColumns`, range and scrollToIndex in ZnLazyList | missing | M | One LazyVStack item per grid row: an HStack laid out like a zn Row with the wrapper's gap / justify / align / padding; items by their own flex / width (a percent of the row's content width, not of what is left). Short last row: invisible copies of the last item. Range to JS in item indexes (row g covers g*n…g*n+n-1); scrollToIndex goes to row index/n. Check: Grid lab. |
 | `flexWrap` (215), `alignContent` (216), `crossGap` (217, can change at runtime) on Row | ZnWrap.kt `ZnWrapLayout` | missing | M | A SwiftUI `Layout` with the same rules: lines in pt with half a pixel of slack per child, `flex` children 0 wide for line breaking then sharing the line's rest, justifyContent per line (with gap), alignContent with crossGap (unset: gap), alignItems per line (unset = top; stretch only when written). Check: LayoutLab cases 30–37, RN gaps lab §6–7. |
+
+## 1d. Gestures and motion v1 / v1.1 (on main after 2026-11-08; docs/motion.md §14 is the porting guide)
+Android only. ZeroBill's code uses none of it (grep 2026-11-09: no motion hooks, gestures, `sharedTag`, enter / exit or
+layout animation), so it waits as a whole (plan §4, Phase 4).
+
+| Item | iOS | Size | Note |
+|---|---|---|---|
+| Motion values, timings, env values, formulas, bindings | missing | L (3 d) | CADisplayLink clock; port ZnFormula.kt op for op; bind on CALayer. |
+| Gestures (pan, pinch, long press, ...), element values, shared elements, reorder, drop zones, tilt | missing | L (3 d) | UIKit recognizers; the four rules of motion.md §14. |
+| `useZoom`, Scroll / List snapping and scroll events | missing | M | |
+| `keyboardDismissMode` | missing | S | UIScrollView's own. |
+| Width / height from a value; Lottie progress from a value | missing | S | After motion values. |
+| Transparent route option | missing | S | |
+| Canvas v2 (motion values, images, text, clips) | missing | L | Canvas itself is §1b. |
+| Image viewer as a TSX screen (ImageViewer 3) | missing | after motion | The Swift viewer (ImageViewer 2) stays until both platforms pass. |
 
 ## 2. Props and events where iOS is missing or partial
 
@@ -236,7 +256,7 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 | crashlytics | Firebase Crashlytics, JS errors (Crashlytics) | done (simulator) | CrashlyticsPlugin.kt, CrashlyticsModule.kt, CrashlyticsRules.kt | M | dSYM upload; needs the JS error listener (§4). |
 | device-info | react-native-device-info values (DeviceInfo) | done (simulator) | DeviceInfoPlugin.kt, DeviceInfoRules.kt | M | |
 | device-test | Test plugin for the sample (Device) | no | DeviceTestPlugin.kt, DeviceModule.kt, FakeNative.kt | S | Port it first: the template for every iOS plugin. |
-| document-scanner | ML Kit document scanner, pages and PDF as handles (DocumentScanner) | no | DocumentScannerPlugin.kt, DocScanModule.kt, DocScanRules.kt | L | VisionKit `VNDocumentCameraViewController`, PDFKit for the PDF. |
+| document-scanner | ML Kit document scanner, pages and PDF as handles (DocumentScanner) | done (simulator, fake scan) | DocumentScannerPlugin.kt, DocScanModule.kt, DocScanRules.kt | L | VisionKit `VNDocumentCameraViewController`, PDFKit for the PDF. |
 | firebase-app | Firebase base, one Firebase version (Firebase, Installations) | done (simulator) | FirebaseAppPlugin.kt, firebase.gradle.kts | L | Getting the Firebase iOS SDK into the CMake build, GoogleService-Info.plist. |
 | image-viewer | Full-screen photo viewer, pinch zoom (ImageViewer, screen imageviewer.full) | done (simulator) | ImageViewerPlugin.kt, ImageViewerScreen.kt, ViewerParts.kt, ZoomState.kt, SharpSource.kt, ViewerSpec.kt, ViewerHeld.kt, ViewerRules.kt, DebugGestures.kt | L (1.5 d) | Needs native screens. |
 | location | Location and geocoding (Location) | done (simulator) | LocationPlugin.kt, LocationModule.kt, LocationRules.kt | L | CoreLocation, CLGeocoder. |
@@ -359,6 +379,13 @@ checks of each piece, or fixes the device finds. Of that, about 11 days is what 
 the rest is OTA, the Firebase plugins, the other plugins and the tools.
 
 ## What ZeroBill's checkout needs first
+
+**Status 2026-11-09:** 1 done (OtpInput, `.oneTimeCode`, runtime `disabled`); 2 done (plugins, native screens and
+views, Launches ack + start / finish); 3 done on the simulator (scanner, camera untested); 4 and 5 not started. Of the
+small ones: Tabs done; press feedback, Splash hold, Sheet `animateIn`, the error screen not done (ZeroBill uses
+`pressFeedback` in 18 files, `animateIn` and Splash once each). Plugins ZeroBill needs: all on iOS but push +
+notifications (Phase 3) and ad-id (answers "unavailable", Android-only by meaning). ZeroBill's own plugins (Upi,
+Truecaller, GoogleSignIn, InAppUpdate, InstallReferrer, LegacyData) are Phase 2.
 
 The pilot is login, scan and a UPI transaction (milestones.md: P.4a, i.4), opened from a QR link, and it must survive
 being killed while the UPI app is open. The five to do first:
