@@ -57,7 +57,7 @@ Recommended for launch:
    screen and an optional sheet for iOS that open the App Store with `AppUpdates.openStore({ appStoreId })`
    (`appStoreId` comes in the server's answer). Build zn's app-updates plugin on the Mac (written on Windows, never
    compiled).
-7. **Tests** (1 d). Simulator part **done** 2026-11-10 (18 of 18, docs/ota-test-matrix.md); the iPhone part is left. An iOS version of the phone matrix on the simulator (simctl instead of adb): update, bad
+7. **Tests** (1 d). Simulator part **done** 2026-11-10 (18 of 18, docs/ota-test-matrix.md); iPhone forced store screen **done** 2026-11-11; a real iPhone OTA waits for Phase 3 (ZeroBill needs Notifications and Push on iOS). An iOS version of the phone matrix on the simulator (simctl instead of adb): update, bad
    signature, wrong SHA, `requires` refused, crash → rollback, no space, cut download resumed, store forced / optional
    / none. Then on Pavan's iPhone: one real OTA and one forced store screen from staging.
 

@@ -108,7 +108,12 @@ Notes:
 - The start-up fuse (two failed OTA start-ups in a row turn OTA off) can't be caused from outside without a debug
   hook; `bun run ios:ota-test` covers it (ZnOtaHealthRules.guardFailed / fuseBlown), as on Android.
 - Prune keeps the running, waiting and last good bundles plus the 4 newest others (7 folders at most), as Android.
-- Still to do: on Pavan's iPhone, one real OTA and one forced store screen from staging (with ZeroBill).
+- iPhone (2026-11-11, Pavan's iPhone 11, ZeroBill Debug on staging, a staging-only iOS rule 2.0.1 forced, deleted
+  after): the forced store screen showed, couldn't be closed, and Update opened ZeroBill's App Store page (Pavan).
+  It first came 34 s late (the launch check's status event was lost, fixed in add2006, and ZeroBill's engine dropped a
+  check asked while one ran, fixed in ZeroBill aefe66b); with the fixes it opened 222 ms after launch.
+- Still to do: one real OTA on an iPhone. ZeroBill's bundles are refused on iOS until Notifications and Push exist
+  there (Phase 3); the sample has no device signing.
 
 ## Found while building the matrix (the Lava, Android 14)
 

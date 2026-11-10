@@ -673,12 +673,18 @@ final class ZnOta: @unchecked Sendable {
         emitStatus()
     }
 
-    /// JS listeners of Updates' "status" event (fieldsLock; a new runtime has none). Status goes only to listeners:
-    /// an event before JS has started would reach no handler.
-    fileprivate var statusListeners = 0
+    /// The main script is queued on the JS thread (fieldsLock): status events go only from then on, as Android's
+    /// `ZnRuntime.isStarted`. An event posted earlier would run before the script and find no `__zn_onEvent`; one
+    /// posted after it runs after the script, and JS drops it if nobody listens. Not JS's listener count: that comes
+    /// through the main thread, which is busy building the first screens when the launch check often ends, so the
+    /// launch check's event was lost (ZeroBill's forced store screen waited for the next check, 2026-11-11).
+    private var jsQueued = false
+
+    /// ZnApp, on the main thread, right before it posts the main script.
+    static func mainScriptQueued() { shared.fieldsLock.withLock { shared.jsQueued = true } }
 
     private func emitStatus() {
-        guard fieldsLock.withLock({ statusListeners }) > 0 else { return }
+        guard fieldsLock.withLock({ jsQueued }) else { return }
         let s = status()
         DispatchQueue.main.async { ZnModules.emit("Updates", "status", s, latestOnly: true) }
     }
@@ -1360,7 +1366,7 @@ final class ZnOta: @unchecked Sendable {
         let from = ZnBundles.running
         stopTimers()
         screensAreUp = false
-        fieldsLock.withLock { statusListeners = 0 }  // the new runtime's JS registers its own
+        fieldsLock.withLock { jsQueued = false }  // until the new runtime's main script is queued
         ZnBundles.switchTo(target)
         let id = target.key
         ZnApp.shared.restart(bundle: target.dir ?? ZnBundles.builtInURL, in: Self.window()) { [self] ok, error in
@@ -1422,11 +1428,6 @@ final class ZnOta: @unchecked Sendable {
     // MARK: JS: the built-in Updates module (packages/core/src/updates.ts)
 
     final class Module: ZnModuleBase, @unchecked Sendable {
-        override func onListenerCount(_ event: String, _ count: Int) {
-            let s = ZnOta.shared
-            if event == "status" { s.fieldsLock.withLock { s.statusListeners = count } }
-        }
-
         init() {
             super.init("Updates", version: 3)
             function("status") { call in call.resolve(ZnOta.shared.status()) }

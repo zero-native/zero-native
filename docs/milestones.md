@@ -148,6 +148,34 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-11: iOS OTA step 7, iPhone part: the forced store screen (Claude, Mac; checked by Pavan)
+- ZeroBill Debug (staging) on Pavan's iPhone 11 with a staging-only iOS store rule 2.0.1 forced (production answered
+  nothing throughout; the rule was deleted after). The forced screen can't be closed, and Update opens ZeroBill's App
+  Store page (id 1234567890). With add2006 and ZeroBill's aefe66b / 51c145e it opens 222 ms after launch (was 34 s).
+- Left: a real OTA on an iPhone, after Notifications and Push on iOS (Phase 3).
+
+### 2026-11-11: iOS: location ask at a cold start; zn.ts runs on the Mac (Claude, Mac)
+- Location (iOS): the plugin set "in front" from `applicationState == .active` when it was created. At a cold start the
+  app is still `.inactive` when the first screens ask, so ZeroBill's Home location ask was refused ("ask refused
+  (background)", Pavan's iPhone). Now "in front" means "not in the background". Checked on the simulator: the start
+  ask gets a fix.
+- tools/zn.ts: this Mac's working copy had CRLF (git has LF), so `#!/usr/bin/env bun\r` broke the global `zn` command
+  (`bun run app:js:ios` in ZeroBill). Back to LF; the file is now executable in git (the `zn` link runs it directly).
+- Not changed, same as Android: no OTA check after a system prompt (only after a real background); Android checks on
+  onActivityStarted, not after a dialog. The two returns in the iPhone log were prompts (no check line 3 s later).
+
+### 2026-11-11: iOS: Updates status events after the launch check (Claude, Mac)
+- Found on Pavan's iPhone (ZeroBill Debug, staging, a test forced store rule 2.0.1): the forced App Store screen came
+  34 s after launch, at the next check, though the store answer came at 0.4 s. The launch check ended while JS was
+  already listening, but native still counted 0 listeners: the count comes through the main thread, busy building the
+  first screens then. Its status event was dropped.
+- Fix: status events go once the main script is queued on the JS thread (ZnApp calls ZnOta.mainScriptQueued() right
+  before evalFile; reset when the runtime is swapped), as Android's `ZnRuntime.isStarted`. JS drops an event nobody
+  listens to. Checked with ZeroBill on the simulator: the event now reaches JS after the launch check, and with a saved
+  answer the forced screen shows at start.
+- ZeroBill side (its session): the engine drops a check asked while one runs (`if (running) return`), so the launch
+  check's event can still be lost when an earlier answer started a check first; it should run again after.
+
 ### 2026-11-10: iOS OTA step 7: the fault matrix on the simulator (Claude, Mac)
 - 18 cases by hand with the fault proxy: changed zip, wrong bundle and pointer signatures, a replayed answer, a cut
   and a killed download (both resumed at the byte they stopped), low storage, a 503, a check and a download that go

@@ -365,6 +365,7 @@ final class ZnApp {
             let mainScript = bundle.appendingPathComponent("main.hbc").path
             ZnModules.install()  // before the main script: its constants are read as it starts
             DispatchQueue.main.asyncAfter(deadline: .now() + delayMs / 1000) { [host] in
+                ZnOta.mainScriptQueued()  // OTA status events may go now: they run after the script
                 host.evalFile(mainScript) { ok, result, ms in
                     // A restart's caller hears first; it may restart again on another bundle (that resets `failure`).
                     let evaluated = self.onEvaluated

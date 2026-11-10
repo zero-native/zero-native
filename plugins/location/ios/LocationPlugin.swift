@@ -81,7 +81,9 @@ final class LocationModule: ZnModuleBase, @unchecked Sendable {
     // Main thread only, all of it.
     private var asks: [ObjectIdentifier: Ask] = [:]
     private var watches: [String: Watch] = [:]
-    private var inFront = UIApplication.shared.applicationState == .active
+    /// Not in the background. At a cold start the app is still `.inactive` when JS's first screens ask (didBecomeActive
+    /// comes later), and that ask must be answered: found 2026-11-11, ZeroBill's Home location ask was refused at start.
+    private var inFront = UIApplication.shared.applicationState != .background
     private lazy var probe = CLLocationManager()
 
     @MainActor init() {
