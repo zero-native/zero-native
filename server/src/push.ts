@@ -50,6 +50,10 @@ export function message(app: string, channel: string, delayMs: number): Record<s
     data: { zn_ota: "check", zn_ota_delay_ms: String(delayMs) },
     // High: a data message at normal priority can wait for hours in Doze. The phone itself spreads the checks.
     android: { priority: "HIGH", ttl: "86400s" },
+    // iOS (plugins/firebase-messaging/ios/OtaPush.swift): a silent background push, no alert. APNs needs this block to
+    // wake the app; iOS limits such pushes to a few an hour and never sends them to an app the user swiped away (those
+    // phones check at their next start or return). Android ignores it.
+    apns: { headers: { "apns-push-type": "background", "apns-priority": "5" }, payload: { aps: { "content-available": 1 } } },
   }
 }
 

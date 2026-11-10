@@ -314,7 +314,13 @@ describe("check-now pushes", () => {
     expect([back.kind, back.push?.sent, back.push?.delayMs]).toEqual(["rollback", true, 3000])
     expect(sent.at(-1)).toEqual({
       project: "proj-1",
-      message: { topic: "zn-ota-shop-staging", data: { zn_ota: "check", zn_ota_delay_ms: "3000" }, android: { priority: "HIGH", ttl: "86400s" } },
+      message: {
+        topic: "zn-ota-shop-staging",
+        data: { zn_ota: "check", zn_ota_delay_ms: "3000" },
+        android: { priority: "HIGH", ttl: "86400s" },
+        // iOS: silent, no alert
+        apns: { headers: { "apns-push-type": "background", "apns-priority": "5" }, payload: { aps: { "content-available": 1 } } },
+      },
     })
 
     const down = await change({ app: "shop", channel: "production", target: 1, rollout: 40 })

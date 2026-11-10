@@ -107,7 +107,10 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
 
 ### 4.4 "Check now" pushes (`server/src/push.ts`, 2026-11-09)
 After a publish, a rollback, a kill switch or a higher rollout, the server sends one FCM data message to the topic
-`zn-ota-<app>-<channel>`: `{ zn_ota: "check", zn_ota_delay_ms: "<n>" }`, Android priority high, TTL 1 day. The phone
+`zn-ota-<app>-<channel>`: `{ zn_ota: "check", zn_ota_delay_ms: "<n>" }`, Android priority high, TTL 1 day. For iOS
+(2026-11-10) it also carries a silent `apns` block (`apns-push-type: background`, priority 5, `content-available: 1`, no
+alert): iOS wakes the app for it a few times an hour at most, and never an app the user swiped away
+(`plugins/firebase-messaging/ios/OtaPush.swift`). Android ignores that block. The phone
 (PushPlugin with `otaCheck`, subscribed to that topic) waits a random 0..n ms (WorkManager, needs a network), then runs
 the normal check. The check only downloads: the bundle runs from the next start, as at launch. Same idea as ZeroBill's RN
 app (`OtaCheckWorker.kt`).
