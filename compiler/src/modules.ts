@@ -206,6 +206,17 @@ const packageRoots = new Map<string, { root: string; name: string } | null>()
  */
 export function stableFileKey(fileName: string): string {
   if (!fileName) return ""
+  const found = packageAt(fileName)
+  if (!found) return fileName.replaceAll("\\", "/")
+  return `${found.name}/${relative(found.root, fileName).replaceAll("\\", "/")}`
+}
+
+/** The folder of the nearest package.json above [fileName], or null when there is none. */
+export function packageRootOf(fileName: string): string | null {
+  return fileName ? (packageAt(fileName)?.root ?? null) : null
+}
+
+function packageAt(fileName: string): { root: string; name: string } | null {
   let dir = dirname(fileName)
   const seen: string[] = []
   let found: { root: string; name: string } | null = null
@@ -233,6 +244,5 @@ export function stableFileKey(fileName: string): string {
     dir = up
   }
   for (const d of seen) packageRoots.set(d, found)
-  if (!found) return fileName.replaceAll("\\", "/")
-  return `${found.name}/${relative(found.root, fileName).replaceAll("\\", "/")}`
+  return found
 }

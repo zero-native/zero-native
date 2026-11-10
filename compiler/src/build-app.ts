@@ -2,8 +2,9 @@
 // bundle with its source map. Used by an app's build script and by `zn dev` (tools/zn-dev.ts). Hermes bytecode is
 // made from `js` afterwards (tools/hermesc.ts).
 import { existsSync } from "node:fs"
-import { dirname, relative, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { scanFonts } from "./fonts"
+import { packageRootOf, stableFileKey } from "./modules"
 import { type BundleRequires, znBuild, type ZnManifest } from "./plugin"
 import { decodeSourceMap, type DecodedMap, encodeSourceMap, type LineMap, lookup } from "./sourcemap"
 
@@ -49,11 +50,22 @@ export async function buildApp(entry: string): Promise<AppBuild> {
   // Bun also names each module in a comment line (`// packages/core/src/log.ts`), relative to the working folder: the
   // same source built from another folder gave other bytes, so `ota keep-map` (run in the app's folder) didn't match
   // the APK's bundle (step 4.8). They are named relative to the entry's folder instead; one line stays one line.
+  // A file outside the app's own package (core, a plugin) is named by its package instead ("@zero-native/lottie/src/
+  // index.tsx", modules.ts stableFileKey): the path from the app to the framework differs per machine, and Hermes keeps
+  // a hash of the whole source (comments too) in main.hbc's header, so a Mac and Windows built other bytes (2026-11-10).
+  const entryDir = dirname(resolve(entry))
+  const appRoot = packageRootOf(resolve(entry))
+  const inApp = (file: string) => {
+    if (appRoot === null) return true
+    const r = relative(appRoot, file)
+    return !r.startsWith("..") && !isAbsolute(r)
+  }
   const bundled = (await js.text())
     .replace(/\n\/\/# debugId=[0-9A-Fa-f]+\s*$/, "\n")
     .replace(/^([ \t]*)\/\/ (\S+\.(?:[cm]?[jt]sx?|json))$/gm, (line, indent: string, path: string) => {
       const file = resolve(process.cwd(), path)
-      return existsSync(file) ? `${indent}// ${relative(dirname(resolve(entry)), file).replaceAll("\\", "/")}` : line
+      if (!existsSync(file)) return line
+      return `${indent}// ${inApp(file) ? relative(entryDir, file).replaceAll("\\", "/") : stableFileKey(file)}`
     })
   const { templates, manifest, js: filledJs, requires, moduleFrom } = zn.outputs(bundled)
   const bundleMap: DecodedMap | null = mapFile ? decodeSourceMap(JSON.parse(await mapFile.text())) : null

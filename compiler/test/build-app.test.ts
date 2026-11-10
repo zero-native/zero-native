@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { dirname, join } from "node:path"
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { buildApp } from "../src/build-app"
 import { decodeSourceMap, encodeSourceMap, lookup } from "../src/sourcemap"
 
@@ -34,6 +36,34 @@ describe("buildApp output is the same for the same source (docs/ota.md §3.1)", 
       expect(inApp.js).toContain("// b.tsx") // Bun's module comments, named from the entry's folder
     } finally {
       process.chdir(here)
+    }
+  })
+
+  test("where the framework sits next to the app doesn't change the bytes (a Mac and Windows, 2026-11-10)", async () => {
+    // The same app and the same linked package, in two folder layouts. Bun names each module in a comment; Hermes keeps
+    // a hash of the whole source in main.hbc, so a path from the app to the package gave each machine other bytes.
+    const root = mkdtempSync(join(tmpdir(), "zn-layout-"))
+    try {
+      const make = (pkgDir: string, appDir: string) => {
+        mkdirSync(join(pkgDir, "src"), { recursive: true })
+        writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "plug", main: "src/index.ts" }))
+        writeFileSync(join(pkgDir, "src", "index.ts"), `export const hello = () => "hi"
+`)
+        mkdirSync(join(appDir, "src"), { recursive: true })
+        mkdirSync(join(appDir, "node_modules"), { recursive: true })
+        writeFileSync(join(appDir, "package.json"), JSON.stringify({ name: "app" }))
+        writeFileSync(join(appDir, "src", "main.ts"), `import { hello } from "plug"
+;(globalThis as any).x = hello()
+`)
+        symlinkSync(pkgDir, join(appDir, "node_modules", "plug"), "junction") // as `bun install` links a workspace package
+        return join(appDir, "src", "main.ts")
+      }
+      const a = await buildApp(make(join(root, "a", "Futuristic", "fw", "plug"), join(root, "a", "projects", "app")))
+      const b = await buildApp(make(join(root, "b", "fw", "plug"), join(root, "b", "z", "y", "app")))
+      expect(b.js).toBe(a.js)
+      expect(a.js).toContain("// plug/src/index.ts") // named by its package, not by a path from the app
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 
