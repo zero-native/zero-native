@@ -335,3 +335,52 @@ export async function uploadBase(db: Db, store: FileStore, app: string, serial: 
   })
   return { serial, path, size: zip.length }
 }
+
+/** A store build's built-in bundle as the dashboard shows it (Pavan, 2026-11-10: every bundle opens the same way). */
+export interface BuiltInBundle {
+  serial: number
+  sha256: string
+  /** The base zip's size; null = no base uploaded (then needs and files are unknown too). */
+  zipSize: number | null
+  /** From the base zip's zn-bundle.json. */
+  requires: BundleInfo["requires"] | null
+  moduleFrom: Record<string, string> | null
+  files: number | null
+  /** Patches made from this bundle to later ones: what its phones download. */
+  patches: Array<{ toId: string; size: number }>
+}
+
+/** Built-in bundle #[serial]: from its store builds, their base zip (if any) and the patches made from it. */
+export async function builtInBundle(db: Db, store: FileStore, app: string, serial: number): Promise<BuiltInBundle> {
+  const builds = await db.query<{ builtin_sha256: string; base_path: string | null }>(
+    `SELECT builtin_sha256, base_path FROM store_builds WHERE app = $1 AND builtin_serial = $2 ORDER BY built_at DESC`,
+    [app, serial],
+  )
+  if (!builds[0]) throw new RuleError(`no built-in bundle #${serial} in ${app}`, 404)
+  const sha256 = builds[0].builtin_sha256
+  const basePath = builds.find((b) => b.base_path)?.base_path ?? null
+  let zipSize: number | null = null
+  let info: (BundleInfo & { moduleFrom?: Record<string, string> }) | null = null
+  if (basePath) {
+    const local = await store.local(basePath)
+    if (local) {
+      const zip = new Uint8Array(await Bun.file(local).arrayBuffer())
+      zipSize = zip.length
+      const entry = unzipSync(zip, { filter: (f) => f.name === "zn-bundle.json" })["zn-bundle.json"]
+      if (entry) info = JSON.parse(new TextDecoder().decode(entry))
+    }
+  }
+  const patches = await db.query<{ to_id: string; size: number }>(
+    `SELECT to_id, size FROM patches WHERE app = $1 AND from_sha256 = $2 ORDER BY made_at DESC`,
+    [app, sha256],
+  )
+  return {
+    serial,
+    sha256,
+    zipSize,
+    requires: info?.requires ?? null,
+    moduleFrom: info?.moduleFrom ?? null,
+    files: info ? Object.keys(info.files).length : null,
+    patches: patches.map((p) => ({ toId: p.to_id, size: Number(p.size) })),
+  }
+}

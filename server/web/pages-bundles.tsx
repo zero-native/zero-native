@@ -175,11 +175,11 @@ type Filter = "all" | "live" | "stable" | "none" | "builtin" | "deleting"
 /**
  * A store build's built-in bundle, as a row of the Bundles list (Pavan, 2026-11-09: every bundle number is listed, so a
  * patch "from #12 (built-in)" points at a row). It isn't an OTA bundle: no channel can serve it and it has no actions;
- * the row links to Store builds. Its zip on the server (if any) is only the base for patches.
+ * the row opens its own bundle page (BuiltInPage). Its zip on the server (if any) is only the base for patches.
  */
 function BuiltInRow({ list }: { list: StoreBuild[] }) {
   const c = useApp()
-  const to = c.href("/builds")
+  const to = c.href(`/bundles/${list[0]!.builtinSerial}`)
   // Store builds with the same built-in serial carry the same bundle: one row, the newest build first.
   const sb = list[0]!
   return (
@@ -378,6 +378,9 @@ export function BundlePage({ serial }: { serial: number }) {
   const stg = useLoad(() => routes.stats(s.app.id, STAGING, 1), [s.app.id, c.rev])
   const prd = useLoad(() => routes.stats(s.app.id, PRODUCTION, 1), [s.app.id, c.rev])
   if (!b) {
+    // A store build's built-in bundle has no OTA bundle row: it gets its own page (Pavan, 2026-11-10)
+    const builds = s.storeBuilds.filter((x) => x.builtinSerial === serial)
+    if (builds.length) return <BuiltInPage serial={serial} builds={builds} />
     return (
       <>
         <PageHead title={`Bundle #${serial}`} back={{ href: c.href("/bundles"), label: "All bundles" }} />
@@ -573,7 +576,133 @@ function changes(now: Sizes, was: Sizes) {
 
 const signed = (n: number) => `${n >= 0 ? "+" : "−"}${bytes(Math.abs(n))}`
 
-function SizeCard({ serial }: { serial: number }) {
+/**
+ * A store build's built-in bundle (Pavan, 2026-11-10: every bundle opens the same way). The same cards as an OTA
+ * bundle's page, from what the server keeps for it: its store builds, the base zip's zn-bundle.json (needs, files), the
+ * patches made from it, its source map. No actions: it isn't signed for a channel, so no channel can serve it.
+ */
+function BuiltInPage({ serial, builds }: { serial: number; builds: StoreBuild[] }) {
+  const c = useApp()
+  const s = c.state!
+  const r = useLoad(() => routes.builtIn(s.app.id, serial), [s.app.id, serial, c.rev])
+  const stg = useLoad(() => routes.stats(s.app.id, STAGING, 1), [s.app.id, c.rev])
+  const prd = useLoad(() => routes.stats(s.app.id, PRODUCTION, 1), [s.app.id, c.rev])
+  const id = `built-in:${s.app.id}_${serial}`
+  const onIt = (st: Stats | undefined) => (st ? st.phones.filter((p) => p.day === todayUtc() && p.running === id).reduce((n, p) => n + p.phones, 0) : 0)
+  const newest = builds[0]!
+  const live = builds.find((x) => x.liveAt)
+  const info = r.data
+  return (
+    <>
+      <PageHead
+        title={<>Bundle <span className="num">#{serial}</span></>}
+        sub={`Built into ${builds.map((x) => x.label).join(", ")}`}
+        back={{ href: c.href("/bundles"), label: "All bundles" }}
+      />
+      <div className="badges">
+        <Badge title="Inside the store build: no channel serves it">In the app</Badge>
+        {live ? <Badge tone="green" title="A store build with it is marked live on the store: it can't be deleted">Live on {live.os === "ios" ? "App Store" : "Play"}</Badge> : null}
+        {[...new Set(builds.map((x) => x.channel))].map((ch) => (
+          <ChannelTag key={ch} name={ch} />
+        ))}
+      </div>
+      <div className="grid two mt">
+        <Card title="Facts">
+          {r.loading && !info ? (
+            <Skeleton rows={5} />
+          ) : r.error ? (
+            <ErrorBox error={r.error} retry={r.reload} />
+          ) : (
+            <dl className="facts wide">
+              <dt>Id</dt>
+              <dd className="code">{`${s.app.id}_${serial}`}</dd>
+              <dt>Bundle SHA-256</dt>
+              <dd className="code break">{newest.builtinSha256}</dd>
+              <dt>Base zip</dt>
+              <dd>{info?.zipSize ? `${bytes(info.zipSize)}, ${info.files ?? "?"} files (the base for patches)` : <span className="muted">not uploaded: phones on it get full zips</span>}</dd>
+              <dt>Needs</dt>
+              <dd className="needs">
+                {info?.requires ? (
+                  requiresGroups(info.requires, info.moduleFrom ?? undefined).map((g) => (
+                    <div key={g.title} className="needs-group">
+                      <div className="needs-title muted">{g.title}</div>
+                      <div className="chips-static">
+                        {g.items.map((x) => (
+                          <Badge key={x.label} title={x.from}>
+                            {x.label}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <span className="muted">unknown (no base zip)</span>
+                )}
+              </dd>
+              <dt>Git</dt>
+              <dd>
+                <span className="code">{newest.git.commit.slice(0, 7)}</span> {newest.git.dirty ? <Badge tone="amber">uncommitted changes</Badge> : null}
+              </dd>
+              <dt>Store builds</dt>
+              <dd>
+                <ul className="plain">
+                  {builds.map((x) => (
+                    <li key={x.id}>
+                      <a href={c.href("/builds")}>{x.label}</a>: {x.os === "ios" ? "iOS" : "Android"} {x.versionName} ({x.versionCode}), {dateTime(x.builtAt)} by {x.builtBy}
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </dl>
+          )}
+        </Card>
+        <Card title="Phones on it today">
+          <div className="cc-stats">
+            <div>
+              <div className="stat-label">Staging</div>
+              <div className="stat-value small num">{stg.loading && !stg.data ? "…" : onIt(stg.data)}</div>
+            </div>
+            <div>
+              <div className="stat-label">Production</div>
+              <div className="stat-value small num">{prd.loading && !prd.data ? "…" : onIt(prd.data)}</div>
+            </div>
+          </div>
+        </Card>
+      </div>
+      <Card title="Patches from it">
+        {!info ? (
+          <Skeleton rows={2} />
+        ) : info.patches.length === 0 ? (
+          <p className="muted">No patches from #{serial} yet. When a newer bundle is released, the server makes a patch from this one, so its phones download only what changed.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>To</th>
+                  <th>Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {info.patches.map((p) => (
+                  <tr key={p.toId}>
+                    <td className="num">
+                      <a href={c.href(`/bundles/${serialOf(p.toId)}`)}>#{serialOf(p.toId)}</a>
+                    </td>
+                    <td className="num">{(p.size / 1024).toFixed(1)} KB</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      <SizeCard serial={serial} zipSize={info?.zipSize ?? undefined} />
+    </>
+  )
+}
+
+function SizeCard({ serial, zipSize }: { serial: number; zipSize?: number }) {
   const c = useApp()
   const r = useLoad(() => routes.bundleSize(c.appId, serial), [c.appId, serial])
   const [view, setView] = useState<"folders" | "files">("folders")
@@ -583,7 +712,7 @@ function SizeCard({ serial }: { serial: number }) {
   const totalBefore = before ? before.sizes.mapped + before.sizes.unmapped : 0
   const moved = sz && before ? changes(sz, before.sizes) : []
   const was = before ? new Map((view === "folders" ? before.sizes.folders : before.sizes.files).map((p) => [p.name, p.bytes])) : undefined
-  const zip = c.state!.bundles.find((x) => x.serial === serial)?.manifest.zip.size ?? 0
+  const zip = c.state!.bundles.find((x) => x.serial === serial)?.manifest.zip.size ?? zipSize ?? 0
   return (
     <Card
       title="Size by file"

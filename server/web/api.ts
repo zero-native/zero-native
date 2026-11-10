@@ -135,6 +135,18 @@ export interface StoreBuild {
   deleteAt: string | null
   deleteBy: string | null
 }
+/** A store build's built-in bundle (server/src/patches.ts builtInBundle): no OTA bundle has its number. */
+export interface BuiltInBundle {
+  serial: number
+  sha256: string
+  /** The base zip's size; null = no base uploaded (then needs and files are unknown too). */
+  zipSize: number | null
+  requires: Requires | null
+  moduleFrom: Record<string, string> | null
+  files: number | null
+  /** Patches made from it to later bundles. */
+  patches: Array<{ toId: string; size: number }>
+}
 export interface Family {
   family: string
   capabilities: Capabilities
@@ -259,6 +271,7 @@ export const routes = {
   /** on = mark for delete (removed in 30 days), off = undo. */
   markDelete: (app: string, serial: number, on: boolean) => api<{ deleteAt: string | null }>("POST", `/admin/apps/${enc(app)}/bundles/${serial}/delete`, { on }),
   bundlePhones: (app: string, serial: number) => api<{ phones: number; days: number }>("GET", `/admin/apps/${enc(app)}/bundles/${serial}/phones`),
+  builtIn: (app: string, serial: number) => api<BuiltInBundle>("GET", `/admin/apps/${enc(app)}/bundles/${serial}/builtin`),
   bundleSize: (app: string, serial: number) => api<{ sizes: Sizes | null; before: { serial: number; sizes: Sizes } | null }>("GET", `/admin/apps/${enc(app)}/bundles/${serial}/size`),
   storeLive: (app: string, id: number, on: boolean) => api("POST", `/admin/apps/${enc(app)}/store-builds/${id}/live`, { on }),
   storeDelete: (app: string, id: number, on: boolean) => api("POST", `/admin/apps/${enc(app)}/store-builds/${id}/delete`, { on }),

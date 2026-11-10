@@ -8,7 +8,7 @@ import type { Db } from "./db"
 import { bundleSizes, decodeStacks, mapText, putMap } from "./maps"
 import * as model from "./model"
 import { RuleError } from "./model"
-import { makeInBackground, remake, uploadBase } from "./patches"
+import { builtInBundle, makeInBackground, remake, uploadBase } from "./patches"
 import { type PushSender, tellPhones, worthPush } from "./push"
 import { ADMIN_HEADER, cookieOf, createLoginCode, endSession, isBlocked, isHttps, noteFailure, sessionCookie, sessionOf } from "./session"
 import type { FileStore } from "./storage"
@@ -170,9 +170,15 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
       return json({ phones: await model.phonesOn(db, app, model.runningIds(app, serial)), days: model.DELETE_AFTER_DAYS })
     }
     // What the bundle is made of (from its source map), and the bundle before it for the change
+    // A store build's built-in bundle (no OTA bundle with this number): what the dashboard's bundle page shows for it
+    if (p[4] === "builtin" && p.length === 5 && method === "GET") return json(await builtInBundle(db, d.store, app, serial))
     if (p[4] === "size" && p.length === 5 && method === "GET") {
-      const b = await model.bundle(db, app, serial)
-      const now = await bundleSizes(d.store, app, b.manifest.bundleSha256)
+      // An OTA bundle's bytes, else the built-in bundle's with this number (its map is kept by store-build too)
+      const sha = await model.bundle(db, app, serial).then(
+        (b) => b.manifest.bundleSha256,
+        async (e) => (e instanceof RuleError && e.status === 404 ? (await builtInBundle(db, d.store, app, serial)).sha256 : Promise.reject(e)),
+      )
+      const now = await bundleSizes(d.store, app, sha)
       let before: { serial: number; sizes: Awaited<ReturnType<typeof bundleSizes>> } | null = null
       if (now) {
         const older = (await model.bundles(db, app)).filter((x) => x.serial < serial)

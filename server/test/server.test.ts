@@ -569,6 +569,21 @@ describe("OTA patches", () => {
     expect(made?.detail.made.map((m: { from: string }) => m.from).sort()).toEqual(["patchy_1", "patchy_2"])
   })
 
+  test("a built-in bundle opens like any bundle: needs and files from its base zip, the patches made from it (2026-11-10)", async () => {
+    type BuiltIn = { serial: number; sha256: string; zipSize: number | null; requires: { registry: number } | null; files: number | null; patches: { toId: string; size: number }[] }
+    const b = await call<BuiltIn>(c, "GET", "/admin/apps/patchy/bundles/2/builtin")
+    const st = await call<{ storeBuilds: { baseSize: number | null }[] }>(c, "GET", "/admin/apps/patchy/state")
+    expect([b.serial, b.sha256, b.zipSize]).toEqual([2, builtInSha, st.storeBuilds[0]!.baseSize])
+    expect(b.requires?.registry).toBeGreaterThan(0)
+    expect(b.files).toBe(Object.keys(builtInFiles).length)
+    expect(b.patches.map((p) => p.toId)).toEqual(["patchy_3"])
+    // The size route answers for it too (no source map in this test: no sizes, and no error)
+    expect(await call<unknown>(c, "GET", "/admin/apps/patchy/bundles/2/size")).toEqual({ sizes: null, before: null })
+    // An OTA bundle's number, or none at all, is not a built-in bundle
+    await expect(call(c, "GET", "/admin/apps/patchy/bundles/1/builtin")).rejects.toThrow(/no built-in bundle #1/)
+    await expect(call(c, "GET", "/admin/apps/patchy/bundles/99/size")).rejects.toThrow(/no built-in bundle #99/)
+  })
+
   test("the check answer offers the smallest patch whose base the phone has; the full bundle is always there too", async () => {
     // Publish #3 to staging (this also shows that priority "critical" is accepted).
     const r = await changeChannel(c, keys.privatePem, { app: "patchy", channel: "staging", target: 3, rollout: 100, priority: "critical" })
