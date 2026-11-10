@@ -558,6 +558,14 @@ export async function addPointer(db: Db, app: string, req: PointerRequest, by: s
 
 // ---- Store builds and families ----------------------------------------------------------------------------------------
 
+/**
+ * A bundle's needs in 6 characters (from the signed needs line, tools/ota/signing.ts requiresLine): the same tag = the
+ * same needs, for every module and both OSes. The dashboard colours bundles and store builds by it.
+ */
+export function needsTag(requiresLine: string): string {
+  return createHash("sha256").update(requiresLine).digest("hex").slice(0, 6)
+}
+
 /** A capability set's short name: store builds with the same one can run exactly the same bundles. */
 export function familyOf(c: Capabilities): string {
   const modules = Object.keys(c.modules).sort().map((m) => `${m}:${c.modules[m]}`).join(",")
@@ -913,11 +921,26 @@ export async function state(db: Db, app: string) {
     if (c.current && c.current.pointer.target !== BUILT_IN) served.set(c.current.pointer.target, [...(served.get(c.current.pointer.target) ?? []), c.name])
     for (const h of c.history) everOn.set(h.pointer.target, (everOn.get(h.pointer.target) ?? new Set()).add(c.name))
   }
+  // Needs tags: a store build's built-in needs come from its serial's row (store-build sends the bundle's needs)
+  const lines = new Map<number, string>()
+  for (const r of await db.query<{ serial: number; requires_line: string | null }>(`SELECT serial, requires_line FROM serials WHERE app = $1`, [app])) {
+    if (r.requires_line) lines.set(r.serial, r.requires_line)
+  }
   return {
     app: a,
     channels: channelState,
-    bundles: all.map((b) => ({ ...b, liveOn: served.get(b.id) ?? [], everOn: [...(everOn.get(b.id) ?? [])], patches: patchesByTo.get(b.id) ?? [] })),
-    storeBuilds: builds,
+    bundles: all.map((b) => ({
+      ...b,
+      liveOn: served.get(b.id) ?? [],
+      everOn: [...(everOn.get(b.id) ?? [])],
+      patches: patchesByTo.get(b.id) ?? [],
+      needs: needsTag(requiresLine(b.manifest.requires)),
+    })),
+    // (a store build that took its serial without its needs: the OTA bundle with that serial, if any, has them)
+    storeBuilds: builds.map((s) => {
+      const line = lines.get(s.builtinSerial) ?? all.find((b) => b.serial === s.builtinSerial)?.manifest.requires
+      return { ...s, needs: line === undefined ? null : needsTag(typeof line === "string" ? line : requiresLine(line)) }
+    }),
     families: familiesView(builds, all),
     rules: { android: await storeRules(db, app, "android"), ios: await storeRules(db, app, "ios") },
   }

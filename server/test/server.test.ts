@@ -8,10 +8,11 @@ import { unzipSync, zipSync } from "fflate"
 import { bundleSha256, readBundleInfo, setBundleSerial, writeBundleInfo } from "../../tools/bundle-info"
 import { applyPatch } from "../../tools/ota/bsdiff"
 import type { CheckRequest } from "../../tools/ota/decide"
-import { BUILT_IN, generateKeys } from "../../tools/ota/signing"
+import { BUILT_IN, generateKeys, requiresLine } from "../../tools/ota/signing"
 import { type Conn, changeChannel, call, remakePatches, uploadBase, uploadBuilt } from "../../tools/updates/client"
 import { migrate, openDb, type Db } from "../src/db"
 import { startServer } from "../src/index"
+import { needsTag } from "../src/model"
 import { makeFor, readBundleZip, whenIdle } from "../src/patches"
 import * as phone from "../src/phone"
 import { delayFor } from "../src/push"
@@ -585,6 +586,12 @@ describe("OTA patches", () => {
     expect(b.patches.map((p) => p.toId)).toEqual(["patchy_3"])
     // The size route answers for it too (no source map in this test: no sizes, and no error)
     expect(await call<unknown>(c, "GET", "/admin/apps/patchy/bundles/2/size")).toEqual({ sizes: null, before: null })
+    // Needs tags (the dashboard's colours): the store build's tag is its built-in bundle's needs; OTA bundles have theirs
+    const tags = await call<{ storeBuilds: { needs: string | null }[]; bundles: { serial: number; needs: string; manifest: { requires: Parameters<typeof requiresLine>[0] } }[] }>(c, "GET", "/admin/apps/patchy/state")
+    // (this store build took its serial without sending its bundle's needs, the old way: its tag is unknown)
+    expect(tags.storeBuilds[0]!.needs).toBeNull()
+    for (const x of tags.bundles) expect(x.needs).toBe(needsTag(requiresLine(x.manifest.requires)))
+    expect(tags.bundles.every((x) => /^[0-9a-f]{6}$/.test(x.needs))).toBe(true)
     // An OTA bundle's number, or none at all, is not a built-in bundle
     await expect(call(c, "GET", "/admin/apps/patchy/bundles/1/builtin")).rejects.toThrow(/no built-in bundle #1/)
     await expect(call(c, "GET", "/admin/apps/patchy/bundles/99/size")).rejects.toThrow(/no built-in bundle #99/)
@@ -806,6 +813,13 @@ describe("one bundle = one serial", () => {
     expect(sb.serial).toBe(c1.manifest.serial)
     await storeBuild({ builtinSerial: sb.serial, builtinSha256: readBundleInfo(await folder(jsB)).sha256, versionCode: 14, label: "later AAB" })
     expect((await state()).storeBuilds.some((b) => b.builtinSerial === sb.serial && b.versionCode === 14)).toBe(true)
+    // Needs tags (the dashboard's colours): other JS with the same needs = the same tag; other needs = another tag
+    const st = await call<{ storeBuilds: { builtinSerial: number; needs: string | null }[] }>(c, "GET", `/admin/apps/${A}/state`)
+    const tagOf = (n: number) => st.storeBuilds.find((x) => x.builtinSerial === n)!.needs
+    const reqA = readBundleInfo(await folder(jsA)).requires
+    expect(tagOf(storeA)).toBe(needsTag(requiresLine(reqA)))
+    expect(tagOf(sb.serial)).toBe(tagOf(storeA))
+    expect(needsTag(requiresLine({ ...reqA, hostApi: reqA.hostApi + 1 }))).not.toBe(tagOf(storeA))
   })
 
   test("the base for patches: the same bytes again works (also for a second store build of the serial); other bytes are refused", async () => {

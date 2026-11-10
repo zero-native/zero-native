@@ -1,8 +1,8 @@
 // Overview, Bundles and the bundle page.
 import { useMemo, useState } from "react"
 import { type Bundle, routes, type Sizes, type State, type Stats, type StoreBuild } from "./api"
-import { bundleActions, cannotRun, channelNow, type ChannelNow, keptStoreBuilds, nextHints, PRODUCTION, STAGING } from "./logic"
-import { Badge, Btn, Card, Empty, ErrorBox, Menu, Notice, PageHead, Segmented, Skeleton, Stat, useApp, useLoad, When } from "./ui"
+import { bundleActions, cannotRun, channelNow, type ChannelNow, keptStoreBuilds, needsColours, nextHints, PRODUCTION, sameNeeds, STAGING } from "./logic"
+import { Badge, Btn, Card, Empty, ErrorBox, Menu, NeedsTag, needsVar, Notice, PageHead, Segmented, Skeleton, Stat, useApp, useLoad, When } from "./ui"
 import { actionWords, ago, bytes, dateOnly, dateTime, daysLeft, kindWords, priorityWords, requiresGroups, serialOf, targetLabel } from "./util"
 
 export function todayUtc() {
@@ -143,6 +143,7 @@ export function BundleBadges({ s, b, builtIn = [] }: { s: State; b: Bundle; buil
   const lacking = cannotRun(s, b)
   return (
     <div className="badges">
+      <NeedsTag tag={b.needs} colour={needsColours(s).get(b.needs) ?? 0} same={sameNeeds(s, b.needs, b.serial)} />
       {b.deleteAt ? (
         <Badge tone="red" title={`Marked by ${b.deleteBy ?? "?"}: removed for good on ${dateOnly(b.deleteAt)}. Undo from the menu.`}>
           Deletes in {daysLeft(b.deleteAt)} {daysLeft(b.deleteAt) === 1 ? "day" : "days"}
@@ -179,11 +180,13 @@ type Filter = "all" | "live" | "stable" | "none" | "builtin" | "deleting"
  */
 function BuiltInRow({ list }: { list: StoreBuild[] }) {
   const c = useApp()
+  const s = c.state!
   const to = c.href(`/bundles/${list[0]!.builtinSerial}`)
   // Store builds with the same built-in serial carry the same bundle: one row, the newest build first.
   const sb = list[0]!
+  const colour = sb.needs ? needsColours(s).get(sb.needs) : undefined
   return (
-    <div className="brow builtin">
+    <div className="brow builtin" data-needs={colour !== undefined ? "" : undefined} style={colour !== undefined ? needsVar(colour) : undefined}>
       <a className="brow-serial num" href={to}>
         #{sb.builtinSerial}
       </a>
@@ -201,6 +204,7 @@ function BuiltInRow({ list }: { list: StoreBuild[] }) {
           </span>
         </div>
         <div className="badges">
+          {sb.needs && colour !== undefined ? <NeedsTag tag={sb.needs} colour={colour} same={sameNeeds(s, sb.needs, sb.builtinSerial)} /> : null}
           <Badge title="Inside the store build: no channel serves it">In the app</Badge>
           {list.some((x) => x.liveAt) ? (
             <Badge tone="green" title="A store build with it is marked live on the store: it can't be deleted">
@@ -294,6 +298,7 @@ export function Bundles() {
     return [...ota, ...builtIn].sort((x, y) => y.serial - x.serial)
   }, [s.bundles, s.storeBuilds, filter, q])
   const none = s.bundles.length === 0 && s.storeBuilds.length === 0
+  const colours = useMemo(() => needsColours(s), [s.bundles, s.storeBuilds])
   const marked = s.bundles.filter((b) => b.deleteAt).length
   return (
     <>
@@ -320,7 +325,7 @@ export function Bundles() {
       ) : (
         <div className="rows">
           {list.map(({ key, ota: b, builtIn }) => !b ? <BuiltInRow key={key} list={builtIn} /> : (
-            <div key={key} className="brow">
+            <div key={key} className="brow" data-needs="" style={needsVar(colours.get(b.needs) ?? 0)}>
               <a className="brow-serial num" href={c.href(`/bundles/${b.serial}`)}>
                 #{b.serial}
               </a>
@@ -421,6 +426,9 @@ export function BundlePage({ serial }: { serial: number }) {
             <dd>{bytes(m.zip.size)}</dd>
             <dt>Needs</dt>
             <dd className="needs">
+              <div className="needs-group">
+                <NeedsTag tag={b.needs} colour={needsColours(s).get(b.needs) ?? 0} same={sameNeeds(s, b.needs, b.serial)} />
+              </div>
               {requiresGroups(m.requires, m.moduleFrom).map((g) => (
                 <div key={g.title} className="needs-group">
                   <div className="needs-title muted">{g.title}</div>
@@ -622,6 +630,11 @@ function BuiltInPage({ serial, builds }: { serial: number; builds: StoreBuild[] 
               <dd>{info?.zipSize ? `${bytes(info.zipSize)}, ${info.files ?? "?"} files (the base for patches)` : <span className="muted">not uploaded: phones on it get full zips</span>}</dd>
               <dt>Needs</dt>
               <dd className="needs">
+                {newest.needs ? (
+                  <div className="needs-group">
+                    <NeedsTag tag={newest.needs} colour={needsColours(s).get(newest.needs) ?? 0} same={sameNeeds(s, newest.needs, serial)} />
+                  </div>
+                ) : null}
                 {info?.requires ? (
                   requiresGroups(info.requires, info.moduleFrom ?? undefined).map((g) => (
                     <div key={g.title} className="needs-group">

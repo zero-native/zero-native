@@ -1,5 +1,5 @@
 // Shared parts: the app context, small components, dialogs' frame, hooks.
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { createContext, type CSSProperties, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react"
 import type { Os, Rule, State } from "./api"
 import type { SigningKey } from "./sign"
 import { ago, copy as copyText, dateTime } from "./util"
@@ -336,5 +336,26 @@ export function Field({ label, hint, children, counter }: { label: string; hint?
       {children}
       {hint ? <span className="hint">{hint}</span> : null}
     </label>
+  )
+}
+
+/** The CSS variable a needs colour sets (styles.css: .needs-tag, the .brow[data-needs] ribbon). */
+export function needsVar(colour: number): CSSProperties {
+  return { ["--needs" as string]: `var(--needs-${colour})` }
+}
+
+/**
+ * A bundle's needs tag (server model.ts needsTag) in its colour: the same colour and tag = the same needs (every module,
+ * both OSes). [same]: the other bundle numbers with these needs, for the tooltip.
+ */
+export function NeedsTag({ tag, colour, same }: { tag: string; colour: number; same: number[] }) {
+  const title = same.length
+    ? `Same needs as ${same.map((n) => `#${n}`).join(", ")}: these bundles need exactly the same native modules and versions`
+    : "No other bundle needs exactly these native modules and versions"
+  return (
+    <span className="needs-tag" style={needsVar(colour)} title={title}>
+      <span className="needs-dot" />
+      needs {tag}
+    </span>
   )
 }

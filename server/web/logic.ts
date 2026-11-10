@@ -157,3 +157,30 @@ export function orderedChannels(s: State) {
   const rank = (n: string) => (n === STAGING ? 0 : n === PRODUCTION ? 1 : 2)
   return [...s.channels].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))
 }
+
+/** How many needs colours the dashboard has (styles.css --needs-0 .. --needs-7). */
+export const NEEDS_COLOURS = 8
+
+/**
+ * One colour per distinct needs tag, so bundles and store builds that need exactly the same things show the same colour
+ * (Pavan, 2026-11-10). Colours go by the oldest serial with each tag, so an older bundle keeps its colour when newer ones
+ * come; after 8 tags the colours repeat (the tag's text still tells them apart).
+ */
+export function needsColours(s: State): Map<string, number> {
+  const first = new Map<string, number>()
+  const seen = (tag: string | null, serial: number) => {
+    if (tag && (!first.has(tag) || serial < first.get(tag)!)) first.set(tag, serial)
+  }
+  for (const b of s.bundles) seen(b.needs, b.serial)
+  for (const sb of s.storeBuilds) seen(sb.needs, sb.builtinSerial)
+  const order = [...first.entries()].sort((a, b) => a[1] - b[1])
+  return new Map(order.map(([tag], i) => [tag, i % NEEDS_COLOURS]))
+}
+
+/** The other bundle numbers (OTA bundles and built-in ones) with the same needs tag, oldest first. */
+export function sameNeeds(s: State, tag: string, serial: number): number[] {
+  const out = new Set<number>()
+  for (const b of s.bundles) if (b.needs === tag && b.serial !== serial) out.add(b.serial)
+  for (const sb of s.storeBuilds) if (sb.needs === tag && sb.builtinSerial !== serial) out.add(sb.builtinSerial)
+  return [...out].sort((a, b) => a - b)
+}

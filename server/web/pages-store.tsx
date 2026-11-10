@@ -1,9 +1,9 @@
 // Channels, Store updates, Store builds & families.
 import { useState } from "react"
 import { type Os, type Rule, routes, type State, type StoreAnswer, type StoreBuild } from "./api"
-import { channelNow, orderedChannels, PRODUCTION } from "./logic"
+import { channelNow, needsColours, orderedChannels, PRODUCTION, sameNeeds } from "./logic"
 import { ChannelTag, servesText } from "./pages-bundles"
-import { Badge, Btn, Card, CopyBlock, Empty, Notice, PageHead, Segmented, Stat, useApp, When } from "./ui"
+import { Badge, Btn, Card, CopyBlock, Empty, NeedsTag, needsVar, Notice, PageHead, Segmented, Stat, useApp, When } from "./ui"
 import { bytes, capabilityList, criticalWords, dateOnly, dateTime, daysLeft, kindWords, priorityWords, showVersion, targetLabel, versionNumber } from "./util"
 
 // ---- Channels ---------------------------------------------------------------------------------------------------------
@@ -281,6 +281,7 @@ const CMD_STORE = `bun run updates store-build <appDir> --name <app> --assets <h
 function Families({ s, href }: { s: State; href: (p: string) => string }) {
   const [all, setAll] = useState(false)
   const bundles = all ? s.bundles : s.bundles.slice(0, 12)
+  const colours = needsColours(s)
   if (s.families.length === 0) {
     return (
       <Empty title="No families yet">
@@ -293,11 +294,17 @@ function Families({ s, href }: { s: State; href: (p: string) => string }) {
       {s.families.map((f) => (
         <Card key={f.family} title={<span className="code">{f.family}</span>} right={<span className="muted small">{f.builds.length} store {f.builds.length === 1 ? "build" : "builds"}</span>}>
           <div className="chips-static">
-            {f.builds.map((b) => (
-              <Badge key={`${b.os}-${b.channel}-${b.versionCode}-${b.builtinSerial}`} tone="blue">
-                {b.label}: {b.os} {b.versionName} ({b.versionCode})
-              </Badge>
-            ))}
+            {f.builds.map((b) => {
+              const needs = s.storeBuilds.find((x) => x.builtinSerial === b.builtinSerial && x.os === b.os && x.versionCode === b.versionCode)?.needs
+              return (
+                <span key={`${b.os}-${b.channel}-${b.versionCode}-${b.builtinSerial}`} className="chips-static">
+                  <Badge tone="blue">
+                    {b.label}: {b.os} {b.versionName} ({b.versionCode})
+                  </Badge>
+                  {needs ? <NeedsTag tag={needs} colour={colours.get(needs) ?? 0} same={sameNeeds(s, needs, b.builtinSerial)} /> : null}
+                </span>
+              )
+            })}
           </div>
           <h4>What this app build has</h4>
           <div className="chips-static">
@@ -353,6 +360,7 @@ function NextDownload({ s, b }: { s: State; b: StoreBuild }) {
 
 function StoreBuildTable({ s, list, marked }: { s: State; list: StoreBuild[]; marked?: boolean }) {
   const c = useApp()
+  const colours = needsColours(s)
   return (
     <div className="table-wrap">
       <table>
@@ -373,7 +381,7 @@ function StoreBuildTable({ s, list, marked }: { s: State; list: StoreBuild[]; ma
         </thead>
         <tbody>
           {list.map((b) => (
-            <tr key={b.id}>
+            <tr key={b.id} data-needs={b.needs ? "" : undefined} style={b.needs ? needsVar(colours.get(b.needs) ?? 0) : undefined}>
               <td className="strong">
                 {b.label}
                 <div className="muted small">{b.os === "ios" ? "iOS" : "Android"}</div>
@@ -398,7 +406,12 @@ function StoreBuildTable({ s, list, marked }: { s: State; list: StoreBuild[]; ma
                 {b.versionName} ({b.versionCode})
               </td>
               <td className="num">
-                {s.bundles.some((x) => x.serial === b.builtinSerial) ? <a href={c.href(`/bundles/${b.builtinSerial}`)}>#{b.builtinSerial}</a> : `#${b.builtinSerial}`}
+                <a href={c.href(`/bundles/${b.builtinSerial}`)}>#{b.builtinSerial}</a>
+                {b.needs ? (
+                  <div>
+                    <NeedsTag tag={b.needs} colour={colours.get(b.needs) ?? 0} same={sameNeeds(s, b.needs, b.builtinSerial)} />
+                  </div>
+                ) : null}
               </td>
               <td>{b.baseSize ? bytes(b.baseSize) : <span className="muted">none</span>}</td>
               <td>{marked ? <span className="muted">-</span> : <NextDownload s={s} b={b} />}</td>

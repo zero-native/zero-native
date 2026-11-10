@@ -105,6 +105,8 @@ export interface Bundle {
   /** Marked for delete: hidden, removed for good 30 days after the mark was made (null = not marked). */
   deleteAt: string | null
   deleteBy: string | null
+  /** Its needs in 6 characters (server model.ts needsTag): the same tag = the same needs. */
+  needs: string
 }
 export interface AppRecord {
   id: string
@@ -134,6 +136,8 @@ export interface StoreBuild {
   liveBy: string | null
   deleteAt: string | null
   deleteBy: string | null
+  /** Its built-in bundle's needs tag (as Bundle.needs); null = not known (a store build made without the bundle's needs). */
+  needs: string | null
 }
 /** A store build's built-in bundle (server/src/patches.ts builtInBundle): no OTA bundle has its number. */
 export interface BuiltInBundle {
