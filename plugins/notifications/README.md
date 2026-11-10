@@ -126,7 +126,9 @@ the permission dialog comes from `requestPermission`.
   (iOS is on time). iOS keeps at most 64 scheduled.
 - Taps, swipes and buttons work as on Android: `link`, else `onPress` / `getInitialNotification`; a swipe runs
   `onDismiss`; a button with no `link` runs `onAction` (with the typed reply). A swipe or button while JS isn't running
-  is kept and runs at the next start.
+  is kept and runs at the next start. The same for pushes iOS showed itself (`provider` set; the push plugin's README).
+- Groups: `group.key` is the thread id; `group.summaryFormat` makes a category with that summary ("%u more offers",
+  `ios.summaryArgument` fills `%@`). iOS draws the stack and its summary itself: there is no summary notification to tap.
 - Channels, channel groups, `canScheduleExact`, `isBatteryOptimized`: answer as notifee does on iOS (true / [] / null /
   false). `openSettings("notifications")` opens the app's page in Settings; other pages: false.
 

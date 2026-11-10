@@ -4,6 +4,11 @@
 //   as the notifications plugin's NotificationRules.plain;
 // - the push's picture is downloaded and attached: FCM's `fcm_options.image` (the server's `apns.fcmOptions.imageUrl`),
 //   else the first data key named in the extension's Info.plist `ZnNotificationImageKeys` (default: `image`).
+// - a push with no category gets `zn.default` (the notifications plugin registers it with the dismiss action, so a swipe
+//   reaches the app's `onDismiss`), or the Info.plist's `ZnNotificationDefaultCategory` (an empty string: none);
+// - with an App Group (Info.plist `ZnAppGroup`, in both the app and the extension), each push is noted in the group's
+//   shared storage: the messaging plugin runs `push.message` for it at the app's next start or return to the front, with
+//   `shown: true` (iOS showed it), so the app can save it and count it as received and shown.
 // If the time runs out, iOS shows what is there by then (the text cleaned, no picture).
 //
 // The app adds a second target, an app extension with only this file (it uses no zero-native runtime), with
@@ -36,6 +41,32 @@ enum ZnServiceRules {
         return nil
     }
 
+    /// The notifications plugin's category with the dismiss action (NotificationRules.defaultCategory).
+    static let defaultCategory = "zn.default"
+
+    /// Where the extension notes delivered pushes for the app (FirebaseMessagingPlugin reads it). At most [maxDelivered].
+    static let deliveredKey = "zn.push.delivered", maxDelivered = 100
+
+    /// The push's own data (all strings), without APNs' and FCM's keys (PushRules.data in the messaging plugin).
+    static func data(_ info: [AnyHashable: Any]) -> [String: String] {
+        var out: [String: String] = [:]
+        for (k, v) in info {
+            guard let key = k as? String, let value = v as? String else { continue }
+            if key == "aps" || key == "fcm_options" || key == "from" || key == "collapse_key" { continue }
+            if key.hasPrefix("gcm.") || key.hasPrefix("google.") { continue }
+            out[key] = value
+        }
+        return out
+    }
+
+    /// A delivered push as the messaging plugin reads it back.
+    static func delivered(_ info: [AnyHashable: Any], title: String, body: String, at: Int64) -> [String: Any] {
+        var e: [String: Any] = ["data": data(info), "title": title, "body": body, "at": at]
+        if let id = info["gcm.message_id"] as? String { e["id"] = id }
+        if let from = info["from"] as? String { e["from"] = from }
+        return e
+    }
+
     /// A file extension iOS can read the attachment by: from the MIME type, else the URL's.
     static func fileExtension(mime: String?, url: URL) -> String? {
         switch mime?.lowercased() {
@@ -63,6 +94,11 @@ class ZnNotificationService: UNNotificationServiceExtension {
         content.title = ZnServiceRules.plain(content.title)
         content.subtitle = ZnServiceRules.plain(content.subtitle)
         content.body = ZnServiceRules.plain(content.body)
+        if content.categoryIdentifier.isEmpty {
+            content.categoryIdentifier = Bundle.main.object(forInfoDictionaryKey: "ZnNotificationDefaultCategory") as? String
+                ?? ZnServiceRules.defaultCategory
+        }
+        noteDelivered(content)
 
         let keys = Bundle.main.object(forInfoDictionaryKey: "ZnNotificationImageKeys") as? [String] ?? ["image"]
         guard content.attachments.isEmpty, let url = ZnServiceRules.imageURL(content.userInfo, keys: keys) else { return finish() }
@@ -88,6 +124,17 @@ class ZnNotificationService: UNNotificationServiceExtension {
     override func serviceExtensionTimeWillExpire() {
         lock.withLock { download }?.cancel()
         finish()
+    }
+
+    /// Notes the push in the App Group's storage for the app (nothing without `ZnAppGroup`).
+    private func noteDelivered(_ content: UNNotificationContent) {
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "ZnAppGroup") as? String,
+              let store = UserDefaults(suiteName: group) else { return }
+        let at = Int64(Date().timeIntervalSince1970 * 1000)
+        var list = store.array(forKey: ZnServiceRules.deliveredKey) as? [[String: Any]] ?? []
+        list.append(ZnServiceRules.delivered(content.userInfo, title: content.title, body: content.body, at: at))
+        if list.count > ZnServiceRules.maxDelivered { list.removeFirst(list.count - ZnServiceRules.maxDelivered) }
+        store.set(list, forKey: ZnServiceRules.deliveredKey)
     }
 
     /// Hands iOS the content, once.

@@ -402,7 +402,8 @@ final class ZnTasks: ZnModuleBase, @unchecked Sendable {
         task.onDone(outcome)
     }
 
-    // MARK: Kept tasks (UserDefaults: a list of { id, name, data, timeoutMs })
+    // MARK: Kept tasks (UserDefaults: a list of { id, name, json, timeoutMs })
+    // The data is kept as JSON text: a property list can't hold null (NSNull), which task data often has.
 
     private func keptList() -> [[String: Any]] {
         UserDefaults.standard.array(forKey: Self.keptKey) as? [[String: Any]] ?? []
@@ -411,7 +412,10 @@ final class ZnTasks: ZnModuleBase, @unchecked Sendable {
     private func saveKept(_ name: String, _ data: Any?, _ timeoutMs: Int) -> String {
         let id = UUID().uuidString
         var entry: [String: Any] = ["id": id, "name": name, "timeoutMs": timeoutMs]
-        if let data, JSONSerialization.isValidJSONObject(["d": data]) { entry["data"] = data }
+        if let data, JSONSerialization.isValidJSONObject(["d": data]),
+           let json = try? JSONSerialization.data(withJSONObject: ["d": data]) {
+            entry["json"] = String(decoding: json, as: UTF8.self)
+        }
         var list = keptList()
         list.append(entry)
         if list.count > Self.maxKept { list.removeFirst(list.count - Self.maxKept) }  // the oldest go first
@@ -426,7 +430,10 @@ final class ZnTasks: ZnModuleBase, @unchecked Sendable {
     private func restoreKept() {
         for entry in keptList() {
             guard let id = entry["id"] as? String, let name = entry["name"] as? String else { continue }
-            enqueue(Task(name: name, data: entry["data"], timeoutMs: entry["timeoutMs"] as? Int ?? 30_000, keptId: id,
+            // "data": kept before 2026-11-10 (no nulls in it)
+            let data = (entry["json"] as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["d"]
+                ?? entry["data"]
+            enqueue(Task(name: name, data: data, timeoutMs: entry["timeoutMs"] as? Int ?? 30_000, keptId: id,
                          onDone: { _ in }, timeout: nil))
         }
     }

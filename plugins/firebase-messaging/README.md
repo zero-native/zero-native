@@ -113,11 +113,23 @@ calls. Plan and reasons: `docs/ios-notifications-plan.md`.
 5. For pushes iOS shows itself: a **notification service extension** with `ios-service/ZnNotificationService.swift`
    (ZeroBill: the `AppNotificationService` target in ios/CMakeLists.txt). It removes HTML tags from the title and
    body and attaches the picture (`fcm_options.image`, else the data keys in its Info.plist `ZnNotificationImageKeys`).
+   A push with no category gets `zn.default` (its swipe reaches `onDismiss`), or the extension's Info.plist
+   `ZnNotificationDefaultCategory`.
+6. Optional, so JS hears of **every** push iOS showed: an **App Group** for the app and the extension (the entitlement
+   `com.apple.security.application-groups` in both, and Info.plist `ZnAppGroup` = the group's id in both). The
+   extension notes each push there. Without it JS hears only of the ones still in the notification centre, or acted on.
 
 **How messages arrive on iOS (not as on Android):**
 - **The server must send an alert for iOS** (an `apns` block with `aps.alert` and `"mutable-content": 1`). iOS shows
-  it while the app is behind or closed; JS hears of it only when the user taps it (`onNotificationOpenedApp`, or
-  `getInitialNotification` after a cold start). Its `data` comes with the tap.
+  it while the app is behind or closed, with no app code. JS hears of it later, once per message id:
+  - `onMessage` with `shown: true` and `shownAt` (when iOS showed it), at the next start or return to the front, or
+    with its tap, swipe or button. Save it and count it; don't show it again.
+  - a tap: `onNotificationOpenedApp`, or `getInitialNotification` after a cold start. Its `data` comes with it.
+  - a swipe: `Notifications.onDismiss` (`id` the message id, `provider: "fcm"`), if its category has the dismiss
+    action (`zn.default` from the extension, or one set with `setNotificationCategories`).
+  - a button of its category (the server's `aps.category`): `Notifications.onAction` (`provider: "fcm"`).
+  - Whether iOS could show it isn't known per push (Android's "can't show"): `Notifications.getNotificationSettings()`
+    says what the user allows. iOS groups pushes by the server's `aps.thread-id`; there is no summary to tap.
 - While the app is in front the same push runs `onMessage` (`inFront: true`, `notification` set) and iOS shows nothing,
   so the app shows its own with `Notifications.show`, as on Android. `FirebaseMessagingPlugin(foreground: [.banner])`
   makes iOS show it too.

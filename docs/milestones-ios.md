@@ -135,7 +135,12 @@ Runs in `my-app` (its own session). Details in §10.
 | 2.5 | The bundle unchanged on the simulator: start, login, home, scan, checkout up to the UPI app | in progress (Welcome reached; login waits for the secrets file) |
 | 2.6 | Signing and a real iPhone build (needs Pavan's team; then universal links, UPI apps, camera, SMS code) | todo |
 
-### Phase 3: notifications and push [zn + ZB] — **todo**
+### Phase 3: notifications and push [zn + ZB] — **zn done** (i.16–i.19, 2026-11-10); ZeroBill's wiring in its session
+zn: notifications (show, schedule, actions, threads, summaries, taps, swipes), FCM (token, topics, messages, taps), the
+service extension, and every event for pushes iOS shows itself (i.19). Checked on the simulator and on Pavan's iPhone
+(real FCM pushes, i.18). Left: ZeroBill's Flutter-style categories and event counting (its session), the server's apns
+block (docs/ios-push-server-change.md in ZeroBill; Pavan and the Windows session), buttons and App Group on a device.
+Original plan:
 1. `@zero-native/notifications` on iOS: UNUserNotificationCenter show, schedule (64 max), actions with reply, groups
    (thread ids), taps open the link; channel calls do nothing (n/a).
 2. `@zero-native/firebase-messaging` (Push) on iOS: APNs token → FCM token and topics (the backend sends through FCM);
@@ -325,7 +330,7 @@ manifest must not claim what it can't draw.
 | firebase-app | Firebase | done | SDK by `fetch-firebase-apple.ts`; plist outside git. |
 | firebase-analytics | Analytics | done | Console events not checked by Pavan yet. |
 | firebase-crashlytics | Crashlytics | done | dSYM upload per build; a processed crash seen in the console. |
-| firebase-messaging | Push | **missing** | Phase 3. Until then its JS falls back (`token: null`, "unavailable", false). |
+| firebase-messaging | Push | done | Phase 3 (i.18, i.19): token, topics, messages, taps, swipes, buttons, the service extension. |
 | firebase-perf | Perf | missing | Needs batch listeners. Not used by ZeroBill. |
 | firebase-remote-config | RemoteConfig | missing | Not used by ZeroBill. |
 | image-viewer | ImageViewer 3 | done (Swift screen, simulator; 2026-11-10 as Android: no page skip, no paging while zoomed, Android's bar) | Swift viewer (paging zoom, swipe to close) for routes with `native: "imageviewer.full"`; module 3 adds `release`. The TSX viewer (view `imageviewer.page`, useZoom) waits for motion: on iOS its thumbnail tap does nothing yet. |
@@ -333,7 +338,7 @@ manifest must not claim what it can't draw.
 | lottie | Lottie | done | lottie-ios 4.6.1 (optional fetch). |
 | markdown | — | done | JS only; Text spans checked. |
 | media | Media | missing | PHPicker, HEIC → JPEG, `edit` n/a or own screen. L (1.5 d). Not used by ZeroBill. |
-| notifications | Notifications | **missing** | Phase 3. Until then its JS falls back (`shown: false`, false, [], null). |
+| notifications | Notifications | done | Phase 3 (i.17): show, schedule, actions, threads, summaries, badge, categories. |
 | pdf | Pdf | done | PDFKit viewer and preview. |
 | scanner | Scanner | done (fake reads) | AVFoundation; `autoZoom` n/a; real camera, torch, zoom not tried. |
 | webview | WebView | done | WKWebView, origin-checked bridge. |
@@ -411,7 +416,7 @@ Everything above marked done was checked on the simulator only. Waiting for a re
 
 ## 13. Android issues found by the port
 
-Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A22**.
+Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A23**.
 
 | # | Area | Status |
 |---|---|---|
@@ -427,6 +432,7 @@ Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A
 | A13 | device-info iOS-only getters read native values | fixed |
 | A14 | location: iOS permission names in shared JS | fixed |
 | A15 | `Updates.check()` without `status` when OTA is off | fixed on Windows (lands with the zn-updates commit) |
+| A22 | Android doesn't report shown / swipe / buttons for pushes FCM shows itself (iOS now does) | open, a gap |
 
 ---
 

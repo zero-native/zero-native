@@ -44,6 +44,15 @@ export interface PushMessage {
   notification: { title: string | null; body: string | null } | null
   /** True once: the service dropped messages it couldn't deliver (offline too long). Sync with your server instead. */
   deleted?: boolean
+  /**
+   * iOS: the phone showed this push itself (the server's `apns` alert) while the app was behind or closed; it reaches JS
+   * at the next start or return to the front, or with its tap, swipe or button (once per message id). Don't show it
+   * again: save it, count it. Every one with an App Group (the service extension notes it); without one, only the ones
+   * still in the notification centre or acted on.
+   */
+  shown?: boolean
+  /** With `shown`: when iOS showed it, ms since 1970. */
+  shownAt?: number
 }
 
 export type Importance = "none" | "min" | "low" | "default" | "high"
@@ -403,17 +412,26 @@ export const Notifications = {
   /** All of the app's notifications (on logout). */
   cancelAll: (): Promise<boolean> => NativeNotifications.cancelAll({}, unowned).catch(no),
 
-  /** A notification swiped away, with its `data`. Call it once, at the top of main.ts. */
-  onDismiss: (handler: (event: { id: string; data: Record<string, string> }, signal: AbortSignal) => unknown): void =>
+  /**
+   * A notification swiped away, with its `data`. Call it once, at the top of main.ts. iOS also gives it for a push the
+   * phone showed itself (its category has the dismiss action; the service extension gives `zn.default`): then `id` is
+   * the message id and `provider` is set ("fcm"). Android doesn't for pushes FCM shows itself.
+   */
+  onDismiss: (handler: (event: { id: string; data: Record<string, string>; provider?: string }, signal: AbortSignal) => unknown): void =>
     defineTask(DISMISS_TASK, handler),
 
   /**
    * A button with no `link` pressed, with the notification's `data` and the typed `input` of a reply button. Runs with
    * no screen, 8 s at most. Call it once, at the top of main.ts. The notification stays: cancel it, or show the same
-   * id again (Android shows a spinner after a reply until you do). Native version 2.
+   * id again (Android shows a spinner after a reply until you do). Native version 2. iOS also gives it for a button
+   * on a push the phone showed (the server's `aps.category`, one set with `setNotificationCategories`): then `id` is the
+   * message id and `provider` is set ("fcm").
    */
   onAction: (
-    handler: (event: { id: string; actionId: string; data: Record<string, string>; input?: string }, signal: AbortSignal) => unknown,
+    handler: (
+      event: { id: string; actionId: string; data: Record<string, string>; input?: string; provider?: string },
+      signal: AbortSignal,
+    ) => unknown,
   ): void => defineTask(ACTION_TASK, handler),
 
   /** A heading over channels in the phone's settings. Android 8+. Native version 2. */

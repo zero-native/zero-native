@@ -337,3 +337,14 @@ Each entry says:
   The worker sends `notification: {}` today, so ZeroBill shows its own and taps go through `Notifications.onPress` as
   before. If the server ever sends a real `notification` block, its taps now open the action instead of just the app.
 - **Check on Android (Windows):** a staging push on the Lava shows once and its tap opens once (no double open).
+
+## A22. Pushes the phone showed itself: iOS now reports shown, swipe and buttons; Android doesn't (from iOS work)
+- **Status:** open, a gap, nothing broken. Found on the Mac 2026-11-10 (Phase 3).
+- **iOS (i.19):** for a push iOS showed while the app was behind or closed, JS now gets `push.message` with
+  `shown: true` / `shownAt` at the next start or return to the front, `onDismiss` for a swipe and `onAction` for a
+  button (both with `provider: "fcm"`). The new fields are optional in `PushMessage` and the event types.
+- **Android:** a message with a non-empty `notification` block is shown by FCM's SDK while the app is behind; JS hears
+  only its tap. No shown, no swipe, no buttons. Apps that send `notification: {}` (ZeroBill) show their own and get
+  every event already, so nothing changes for them.
+- **If wanted later:** the Android plugin could report FCM-shown pushes from `getActiveNotifications()` at the return
+  to the front, as iOS's fallback does. Not planned.

@@ -20,9 +20,14 @@
 // It also needs the push entitlement (aps-environment) and the remote-notification background mode.
 //
 // iOS differences from Android:
-// - iOS shows a push with an alert itself while the app is behind or closed (the server's `apns` block); JS hears of it
-//   only when the user taps it. While the app is in front, `push.message` runs (with `notification` set) and iOS shows
-//   nothing (`foreground`), so the app shows its own, as on Android.
+// - iOS shows a push with an alert itself while the app is behind or closed (the server's `apns` block), with no app
+//   code. JS hears of it later, once per message id: at the next start or return to the front `push.message` runs with
+//   `shown: true` and `shownAt` (from the service extension's notes with an App Group, else from the notification
+//   centre's list), and a tap (`opened`), a swipe (`push.dismissed`, the notifications plugin's onDismiss) or a button
+//   (`push.action`, onAction) reach JS as for the app's own notifications. Whether iOS could show it (permission, Focus)
+//   isn't known per push: `Notifications.getNotificationSettings` says what the user allows.
+//   While the app is in front, `push.message` runs (with `notification` set) and iOS shows nothing (`foreground`), so
+//   the app shows its own, as on Android.
 // - Data-only messages reach the app only while it runs, or as a background wake that iOS throttles and never gives
 //   after the user closed the app. JS doesn't start for a background launch yet (§3), so such a task waits for the next
 //   start and then times out.
@@ -36,7 +41,9 @@ import FirebaseMessaging
 
 /// The plugin's choices with no iOS in them (PushRules.kt).
 enum PushRules {
-    static let messageTask = "push.message", tokenTask = "push.token"
+    static let messageTask = "push.message", tokenTask = "push.token", dismissTask = "push.dismissed", actionTask = "push.action"
+    /// The service extension's notes of pushes iOS showed (ZnServiceRules.deliveredKey).
+    static let deliveredKey = "zn.push.delivered"
     static let provider = "fcm"
     /// The task's time (Android: PushEvents.MESSAGE_TIMEOUT_MS). iOS gives a background wake about 30 s.
     static let messageTimeoutMs = 15_000
@@ -125,6 +132,7 @@ struct FirebaseMessagingPlugin: ZnPlugin {
         let on = ZnFirebase.start()
         let module = FirebaseMessagingModule.shared
         module.start(on: on, foreground: foreground)
+        module.startDelivered()
         r.module(module)
     }
 
@@ -148,8 +156,10 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
     private var apnsError: String?
     /// A tap that came before JS had loaded: `getInitialNotification`, once.
     private var initial: [String: Any]?
-    /// Recent message ids: a push can reach both willPresent and the app delegate.
-    private var seen: [String] = []
+    /// Recent message ids, kept across starts: a push can reach willPresent, the app delegate, the service extension's
+    /// note and the notification centre's list.
+    private lazy var seen: [String] = UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? []
+    private static let seenKey = "zn.push.seen", maxSeen = 200
     /// The token whose `push.token` task is running.
     private var tokenRunning: String?
     private let delegate = Delegate()
@@ -203,6 +213,73 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         // With auto init FCM makes its token at the first start; it needs the APNs token for that.
         if Messaging.messaging().isAutoInitEnabled { UIApplication.shared.registerForRemoteNotifications() }
         #endif
+    }
+
+    /// Before Firebase's check: pushes iOS showed while the app was behind or closed reach JS on any app.
+    @MainActor func startDelivered() {
+        takeDelivered()
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.takeDelivered() }
+        }
+    }
+
+    // MARK: pushes iOS showed (the service extension's notes)
+
+    /// The App Group the service extension writes to (Info.plist `ZnAppGroup`), if the app has one.
+    private static var deliveredStore: UserDefaults? {
+        (Bundle.main.object(forInfoDictionaryKey: "ZnAppGroup") as? String).flatMap { UserDefaults(suiteName: $0) }
+    }
+
+    /// Runs `push.message` (`shown: true`) for each push iOS showed that JS hasn't heard of: first the service
+    /// extension's notes (with an App Group: every one, with the time), then the ones still in the notification centre
+    /// (no extension needed; the ones the user already cleared are missed). Each is kept until JS has run it.
+    @MainActor private func takeDelivered() {
+        var count = 0
+        if let store = Self.deliveredStore, let list = store.array(forKey: PushRules.deliveredKey) as? [[String: Any]], !list.isEmpty {
+            store.removeObject(forKey: PushRules.deliveredKey)
+            for e in list {
+                var info: [AnyHashable: Any] = e["data"] as? [String: String] ?? [:]
+                if let id = e["id"] as? String { info["gcm.message_id"] = id }
+                if let from = e["from"] as? String { info["from"] = from }
+                if shown(info, title: e["title"] as? String, body: e["body"] as? String, at: (e["at"] as? NSNumber)?.int64Value ?? Self.now) {
+                    count += 1
+                }
+            }
+        }
+        UNUserNotificationCenter.current().getDeliveredNotifications { list in
+            DispatchQueue.main.async {
+                var more = 0
+                for n in list where !ZnNotificationCenter.isOwn(n) && PushRules.messageId(n.request.content.userInfo) != nil {
+                    if self.shown(n) { more += 1 }
+                }
+                if count + more > 0 { print("zn-push: \(count + more) push(es) iOS showed, sent to JS") }
+            }
+        }
+    }
+
+    /// `push.message` with `shown: true` for a push iOS showed, once per message id (also across starts). False if JS had it.
+    @MainActor @discardableResult private func shown(_ info: [AnyHashable: Any], title: String?, body: String?, at: Int64) -> Bool {
+        guard PushRules.data(info)[PushRules.otaKey] != PushRules.otaCheck, first(info) else { return false }
+        var message = PushRules.message(info, inFront: false, notification: (title: title, body: body), now: at)
+        message["shown"] = true
+        message["shownAt"] = at
+        ZnTasks.shared.run(PushRules.messageTask, message, timeoutMs: PushRules.messageTimeoutMs, keep: true)
+        return true
+    }
+
+    @MainActor @discardableResult private func shown(_ n: UNNotification) -> Bool {
+        let c = n.request.content
+        return shown(c.userInfo, title: c.title.isEmpty ? nil : c.title, body: c.body.isEmpty ? nil : c.body,
+                     at: Int64(n.date.timeIntervalSince1970 * 1000))
+    }
+
+    /// A push in front was noted by the extension too, but iOS didn't show it (the app does): its note goes.
+    private func dropDelivered(_ id: String?) {
+        guard let id, let store = Self.deliveredStore,
+              var list = store.array(forKey: PushRules.deliveredKey) as? [[String: Any]] else { return }
+        let before = list.count
+        list.removeAll { $0["id"] as? String == id }
+        if list.count != before { store.set(list, forKey: PushRules.deliveredKey) }
     }
 
     // MARK: the token
@@ -310,7 +387,8 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         return lock.withLock {
             if seen.contains(id) { return false }
             seen.append(id)
-            if seen.count > 50 { seen.removeFirst(seen.count - 50) }
+            if seen.count > Self.maxSeen { seen.removeFirst(seen.count - Self.maxSeen) }
+            UserDefaults.standard.set(seen, forKey: Self.seenKey)
             return true
         }
     }
@@ -345,17 +423,41 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
     @MainActor fileprivate func willPresent(_ n: UNNotification) -> UNNotificationPresentationOptions {
         let c = n.request.content
         let notice = c.title.isEmpty && c.body.isEmpty ? nil : (title: c.title.isEmpty ? nil : c.title, body: c.body.isEmpty ? nil : c.body)
+        dropDelivered(PushRules.messageId(c.userInfo))
         deliver(c.userInfo, inFront: true, notification: notice ?? PushRules.alert(c.userInfo))
         return foreground
     }
 
-    /// A tap on a notification iOS showed from a push.
+    /// A tap, a swipe or a button on a notification iOS showed from a push.
     @MainActor fileprivate func didReceive(_ response: UNNotificationResponse) {
         let info = response.notification.request.content.userInfo
         #if canImport(FirebaseMessaging)
         if on { Messaging.messaging().appDidReceiveMessage(info) }
         #endif
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+        // iOS showed it: JS hears that first, if no other way told it yet (no service extension, or not noted)
+        shown(response.notification)
+        let id = PushRules.messageId(info) ?? response.notification.request.identifier
+        switch response.actionIdentifier {
+        case UNNotificationDefaultActionIdentifier:
+            break
+        case UNNotificationDismissActionIdentifier:
+            // A swipe (its category has the dismiss action: the service extension's default, zn.default): the
+            // notifications plugin's onDismiss, as for the app's own. Kept until JS runs it (iOS may start the app in
+            // the background for it; JS runs it at the next start).
+            print("zn-push: a push swiped away, sent to JS")
+            ZnTasks.shared.run(PushRules.dismissTask, ["id": id, "data": PushRules.data(info), "provider": PushRules.provider],
+                               timeoutMs: 8_000, keep: true)
+            return
+        default:
+            // A button of the push's category (`aps.category`, one the app set with setNotificationCategories):
+            // the notifications plugin's onAction. A button marked foreground has opened the app too.
+            var event: [String: Any] = ["id": id, "actionId": response.actionIdentifier, "data": PushRules.data(info),
+                                        "provider": PushRules.provider]
+            if let text = (response as? UNTextInputNotificationResponse)?.userText { event["input"] = text }
+            print("zn-push: a button on a push, sent to JS")
+            ZnTasks.shared.run(PushRules.actionTask, event, timeoutMs: 8_000, keep: true)
+            return
+        }
         let message = PushRules.opened(info, now: Self.now)
         if ZnTasks.shared.isLoaded {
             emit("opened", message)

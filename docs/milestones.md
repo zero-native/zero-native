@@ -149,6 +149,24 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-10: iOS i.19: every event for pushes iOS shows itself (Claude, Mac; Pavan asked: plugin first, ZeroBill later)
+- `plugins/firebase-messaging/ios/FirebaseMessagingPlugin.swift`: a push iOS showed while the app was behind or closed
+  now reaches JS once per message id as `push.message` with `shown: true` and `shownAt`: from the service extension's
+  notes (an App Group, Info.plist `ZnAppGroup`: every push, with the time), else from the notification centre's list
+  at the next start or return to the front, or with its tap / swipe / button. A swipe runs `push.dismissed` (onDismiss)
+  and a button `push.action` (onAction), both with `provider: "fcm"`. Seen message ids are kept across starts (200).
+- `ios-service/ZnNotificationService.swift`: a push with no category gets `zn.default` (the dismiss action), or the
+  extension's Info.plist `ZnNotificationDefaultCategory`; with `ZnAppGroup` each push is noted for the app.
+- Core (`ZnBuiltInModules.swift`): kept tasks save their data as JSON text. A property list can't hold null, so a kept
+  task with a null field crashed the app at start (found here: the push message's `from`).
+- `plugins/notifications/src/index.ts`: `PushMessage.shown` / `shownAt`; `provider` on onDismiss / onAction events.
+- Checked on the simulator (simctl push, ZeroBill): behind → back to the front ran `push.message` once (`shown`); a
+  push cleared with "Clear" ran onDismiss and `push.message` (shown). A fast full swipe on the simulator's lock-screen
+  list removed it with no dismiss sent to the app. Not checked: buttons on a push, the App Group notes (need a device
+  and the group in an app). SHOW_ERROR per push stays impossible on iOS (only `getNotificationSettings`).
+- ZeroBill's own changes (Flutter-style categories, counting shown pushes) are parked in a git stash in its repo until
+  Pavan decides. Android: A22 (a gap only).
+
 ### 2026-11-11: iOS i.18: FCM on iOS, taps on pushes, the notification service extension (Claude, Mac; Pavan asked: Phase 3)
 - `plugins/firebase-messaging/ios/FirebaseMessagingPlugin.swift` (module "FirebaseMessaging" v2): the APNs token to
   FCM, `getToken` (waits up to 10 s for APNs: `not_now` without it), `deleteToken`, topics, auto init; a new FCM token
