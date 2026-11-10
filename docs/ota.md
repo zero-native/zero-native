@@ -68,8 +68,12 @@ keeping every lesson that applies.
     it equal to the C++ number).
   - `modules`: every `nativeModule("X", { version })` / `callNative("X", ..., { __v })` in the bundled code, with
     the highest version asked for, read from the source at build time. The name must be a string literal (else a
-    build error).
-- **Rule:** the bundle runs only if the app covers all of it. Checked by the phone before loading (`ZnBundles`) and,
+    build error). These are the modules needed on **both** OSes.
+  - `os` (2026-11-11, docs/ota-requires-per-os.md): modules needed on one OS only, `{ "android": {...}, "ios": {...} }`,
+    absent when there are none. A module's OS comes from the package of the file that calls it: a plugin's
+    `zeroNative.platforms`, else its `android/` and `ios/` folders; core and the app's own files count for both.
+- **Rule:** the bundle runs only if the app covers all of it: `modules` plus `os` for the app's own OS (the phone sends
+  `capabilities.os`; a check without it counts as Android). Checked by the phone before loading (`ZnBundles`) and,
   from step 4.4, by the server. **Safety net:** the phone also reads the bundle's templates while choosing it and
   refuses any id it doesn't know (unknown component, prop, enum value, event, or a slot on a prop that can't change
   at runtime in this app). A mistake in `requires` costs one refused update, never a wrong screen.
@@ -89,7 +93,7 @@ base64 SPKI DER, one line each. The texts are byte-identical in `tools/ota/signi
 - **Bundle** (once, at release): `zn-ota-v1 \n bundle \n <app> \n <bundle id> \n <serial> \n <bundle sha256> \n
   <requires line> \n <zip sha256> \n <zip size>`. The bundle SHA covers every file (code and images), so no separate
   image digest is needed; the requires line (`registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1`, modules
-  sorted) is signed because `zn-bundle.json` itself isn't hashed; the zip SHA lets the phone check the download
+  sorted; one-OS modules appended as `;android=AdId:1;ios=…` only when there are some) is signed because `zn-bundle.json` itself isn't hashed; the zip SHA lets the phone check the download
   before unzipping it.
 - **Pointer** (every change): `zn-ota-v1 \n pointer \n <app> \n <channel> \n <seq> \n <bundle id | BUILT_IN>`. The app
   is in the text (not in the first proposal), so a pointer of one app can't be replayed to another signed by the

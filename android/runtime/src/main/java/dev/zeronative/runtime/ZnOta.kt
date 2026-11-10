@@ -414,7 +414,7 @@ object ZnOta {
             .put("channel", c.channel)
             .put("installId", st.installId)
             .put("capabilities", JSONObject().put("registry", caps.registry).put("bytecode", caps.bytecode)
-                .put("hostApi", caps.hostApi).put("hostApiOldest", caps.hostApiOldest).put("modules", JSONObject(caps.modules)))
+                .put("hostApi", caps.hostApi).put("hostApiOldest", caps.hostApiOldest).put("modules", JSONObject(caps.modules)).put("os", caps.os))
             .put("running", if (running.builtIn) JSONObject.NULL else JSONObject().put("id", running.info!!.id).put("sha256", running.info.sha256))
             // sha256: so the server can use the APK's own bundle as a patch base (docs/ota-patches.md §4).
             .put("builtIn", JSONObject().put("id", builtIn.id).put("serial", builtIn.serial).put("sha256", builtIn.sha256))

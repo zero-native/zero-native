@@ -561,7 +561,9 @@ export async function addPointer(db: Db, app: string, req: PointerRequest, by: s
 /** A capability set's short name: store builds with the same one can run exactly the same bundles. */
 export function familyOf(c: Capabilities): string {
   const modules = Object.keys(c.modules).sort().map((m) => `${m}:${c.modules[m]}`).join(",")
-  const line = `registry=${c.registry};bytecode=${c.bytecode};hostApi=${c.hostApiOldest}-${c.hostApi};modules=${modules}`
+  // iOS apps are a family of their own (per-OS needs); Android keeps the name it had before the OS was sent
+  const os = c.os === "ios" ? ";os=ios" : ""
+  const line = `registry=${c.registry};bytecode=${c.bytecode};hostApi=${c.hostApiOldest}-${c.hostApi};modules=${modules}${os}`
   return `fam_${createHash("sha256").update(line).digest("hex").slice(0, 12)}`
 }
 

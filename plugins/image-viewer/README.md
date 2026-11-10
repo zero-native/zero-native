@@ -29,7 +29,7 @@ Since registry 24 (ImageViewer module 3) the screen is TSX (`ImageViewerScreen`)
 5. `routes.ts`: one route for the screen. `open` uses the name `imageViewer` unless you give another.
 
 ```ts
-import { ImageViewerScreen } from "@zero-native/image-viewer"
+import { ImageViewerScreen } from "@zero-native/image-viewer/screen"
 
 imageViewer: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
 ```

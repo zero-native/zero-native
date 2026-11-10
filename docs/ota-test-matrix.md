@@ -79,7 +79,7 @@ scratch key. Each relaunch first brings another app to the front, then kills the
 as an unsure crash on iOS (iOS can't say why a process ended), and three of those block a bundle. Debug-only helper:
 `ZN_OTA_FREE_BYTES` (environment, through `SIMCTL_CHILD_`) for low storage. Earlier OTA steps checked update, refused
 needs, sure crash, error rollback, kill switch, apply now, holds and the launch gate (docs/milestones.md, 2026-11-10).
-**18 of 18 passed.**
+**20 of 20 passed** (the two per-OS cases on 2026-11-11, iPhone 16 simulator, with the per-OS runtime and server).
 
 | Case | Result | Proof |
 |---|---|---|
@@ -101,6 +101,8 @@ needs, sure crash, error rollback, kill switch, apply now, holds and the launch 
 | store-none | pass | check: store answer {"appStoreId":"1234567890","update":null} |
 | first-screen-timeout | pass | safety: the first screens weren't up after 10000 ms (sample_22); rolled back in place to the built-in bundle in 178 ms |
 | blocked-after-timeout | pass | next start: the built-in bundle runs; check: NONE ALREADY_DONE |
+| per-os-android-only | pass | sample_23 needs `os.android` AdId, Device, Media, Perf, RemoteConfig: check UPDATE NEW_BUNDLE, installed; next start: running sample_23 from files, healthy |
+| per-os-ios-missing | pass | sample_24 also needs `os.ios` Notifications 1 (not on iOS yet): check NONE INCOMPATIBLE, nothing downloaded, sample_23 kept |
 
 Notes:
 - The store answers come from ZeroBill's update server, not the reference server: the proxy added them to the check

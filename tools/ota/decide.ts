@@ -4,7 +4,7 @@
 // and bundle signatures, the seq and its capabilities again, so a wrong answer can delay an update, never install a
 // wrong one.
 import { createHash } from "node:crypto"
-import type { BundleRequires } from "../bundle-info"
+import type { BundleOs, BundleRequires } from "../bundle-info"
 import type { Manifest, Pointer } from "./core"
 import { BUILT_IN } from "./signing"
 
@@ -15,6 +15,8 @@ export interface Capabilities {
   hostApi: number
   hostApiOldest: number
   modules: Record<string, number>
+  /** The phone's OS. Absent: Android (every app built before per-OS needs is Android). */
+  os?: BundleOs
 }
 
 /** What the phone sends (POST /v1/check). */
@@ -84,13 +86,17 @@ export interface Decision {
   detail?: string
 }
 
-/** Why an app with [caps] can't run a bundle that needs [req], or null if it can. Same rule as ZnCapabilities.kt. */
+/**
+ * Why an app with [caps] can't run a bundle that needs [req], or null if it can: the modules for both OSes and those for
+ * the phone's own OS (docs/ota-requires-per-os.md §4). Same rule as ZnCapabilities.kt and ZnOtaRules.swift.
+ */
 export function missing(caps: Capabilities, req: BundleRequires): string | null {
   if (req.registry > caps.registry) return `needs registry v${req.registry}, app has v${caps.registry}`
   if (req.bytecode !== caps.bytecode) return `bytecode format ${req.bytecode}, app runs ${caps.bytecode}`
   if (req.hostApi > caps.hostApi) return `needs host API v${req.hostApi}, app has v${caps.hostApi}`
   if (req.hostApi < caps.hostApiOldest) return `built for host API v${req.hostApi}, app runs v${caps.hostApiOldest}+`
-  for (const [name, v] of Object.entries(req.modules)) {
+  const own = req.os?.[caps.os ?? "android"] ?? {}
+  for (const [name, v] of [...Object.entries(req.modules), ...Object.entries(own)]) {
     const have = caps.modules[name]
     if (have === undefined) return `needs native module ${name}`
     if (have < v) return `needs ${name} v${v}, app has v${have}`

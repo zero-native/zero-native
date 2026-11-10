@@ -12,6 +12,8 @@ class ZnCapabilities(
     val hostApi: Int,
     val hostApiOldest: Int,
     val modules: Map<String, Int>,
+    /** This app's OS, for a bundle's per-OS needs (docs/ota-requires-per-os.md §4). */
+    val os: String = "android",
 ) {
     /** Why this app can't run a bundle that needs [req], or null if it can. */
     fun missing(req: ZnBundles.Requires): String? {
@@ -21,7 +23,8 @@ class ZnCapabilities(
         if (req.hostApi < hostApiOldest) {
             return "it was built for host API v${req.hostApi}; this app runs v$hostApiOldest and newer"
         }
-        for ((name, version) in req.modules) {
+        // Both OSes' modules, then this OS's own
+        for ((name, version) in req.modules.entries + req.os[os].orEmpty().entries) {
             val have = modules[name] ?: return "it needs native module $name, this app doesn't have it"
             if (have < version) return "it needs $name v$version, this app has v$have"
         }
@@ -29,7 +32,7 @@ class ZnCapabilities(
     }
 
     override fun toString() =
-        "registry v$registry, bytecode $bytecode, host API v$hostApiOldest–$hostApi, modules $modules"
+        "$os, registry v$registry, bytecode $bytecode, host API v$hostApiOldest–$hostApi, modules $modules"
 
     companion object {
         /**

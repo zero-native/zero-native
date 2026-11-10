@@ -139,8 +139,8 @@ class ZnBundlesTest {
 
     // ---- Capabilities (step 4.2): the app must cover what the bundle needs ------------------------------------------
 
-    private fun needs(registry: Int = 8, bytecode: Int = 99, hostApi: Int = 1, modules: String = "{\"Device\":1}") =
-        Raw("{\"registry\":$registry,\"bytecode\":$bytecode,\"hostApi\":$hostApi,\"modules\":$modules}")
+    private fun needs(registry: Int = 8, bytecode: Int = 99, hostApi: Int = 1, modules: String = "{\"Device\":1}", os: String? = null) =
+        Raw("{\"registry\":$registry,\"bytecode\":$bytecode,\"hostApi\":$hostApi,\"modules\":$modules" + (os?.let { ",\"os\":$it" } ?: "") + "}")
 
     @Test
     fun aBundleThatListsNoNeedsIsRefused() {
@@ -181,6 +181,21 @@ class ZnBundlesTest {
     }
 
     @Test
+    fun onlyThisOsPartCounts() {
+        // docs/ota-requires-per-os.md: an iOS-only module never stops Android; an Android-only one does when missing
+        bundle("sample_5") { it["requires"] = needs(os = "{\"ios\":{\"Haptics\":1}}") }
+        assertTrue("an iOS-only module doesn't stop Android", check("sample_5") is ZnBundles.Check.Ok)
+        bundle("sample_6") { it["requires"] = needs(os = "{\"android\":{\"AdId\":1}}") }
+        assertNo("sample_6", "needs native module AdId")
+        val ios = ZnCapabilities(9, 99, 2, 1, mapOf("Device" to 2), os = "ios")
+        assertEquals(null, ios.missing(ZnBundles.Requires(8, 99, 1, mapOf("Device" to 1), mapOf("android" to mapOf("AdId" to 1)))))
+        assertEquals(
+            "it needs native module Haptics, this app doesn't have it",
+            ios.missing(ZnBundles.Requires(8, 99, 1, mapOf("Device" to 1), mapOf("ios" to mapOf("Haptics" to 1)))),
+        )
+    }
+
+    @Test
     fun parseInfoReadsRequires() {
         val info = ZnBundles.parseInfo(
             """{"format":1,"app":"sample","serial":2,"id":"sample_2","sha256":"ab","files":{},
@@ -191,5 +206,11 @@ class ZnBundlesTest {
         assertEquals(99, r.bytecode)
         assertEquals(1, r.hostApi)
         assertEquals(mapOf("Fetch" to 1, "Device" to 2), r.modules)
+        assertEquals(emptyMap<String, Map<String, Int>>(), r.os)
+        val withOs = ZnBundles.parseInfo(
+            """{"format":1,"app":"sample","serial":3,"id":"sample_3","sha256":"ab","files":{},
+               "requires":{"registry":8,"bytecode":99,"hostApi":1,"modules":{"Fetch":1},"os":{"android":{"AdId":1}}}}""",
+        )
+        assertEquals(mapOf("android" to mapOf("AdId" to 1)), withOs.requires!!.os)
     }
 }

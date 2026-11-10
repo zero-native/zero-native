@@ -90,6 +90,12 @@ export function requiresList(r: Requires): string[] {
     ...Object.keys(r.modules)
       .sort()
       .map((m) => `${m} v${r.modules[m]}`),
+    // Modules for one OS only (docs/ota-requires-per-os.md), marked with the OS
+    ...(["android", "ios"] as const).flatMap((os) =>
+      Object.keys(r.os?.[os] ?? {})
+        .sort()
+        .map((m) => `${m} v${r.os![os]![m]} (${os === "ios" ? "iOS" : "Android"} only)`),
+    ),
   ]
 }
 export function capabilityList(c: Capabilities): string[] {
@@ -97,6 +103,7 @@ export function capabilityList(c: Capabilities): string[] {
     `Registry v${c.registry}`,
     `Bytecode ${c.bytecode}`,
     `Host API v${c.hostApiOldest} to v${c.hostApi}`,
+    ...(c.os ? [c.os === "ios" ? "iOS" : "Android"] : []),
     ...Object.keys(c.modules)
       .sort()
       .map((m) => `${m} v${c.modules[m]}`),

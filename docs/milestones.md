@@ -148,6 +148,27 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-11: OTA bundle needs per OS (Claude, Mac; Pavan decided)
+- A bundle's modules now come in three parts: both OSes (`requires.modules`), Android only and iOS only
+  (`requires.os`). The compiler takes each module's OS from the package of the file that calls it
+  (`zeroNative.platforms`, else the plugin's android/ and ios/ folders; core and app files count for both). The signed
+  line appends the OS parts only when there are some, so older bundles keep their line, signature and serial. Phones
+  send `capabilities.os` and check both parts plus their own. Plan and record: docs/ota-requires-per-os.md.
+- notifications and firebase-messaging say `platforms: ["android", "ios"]` (iOS keeps refusing ZeroBill's bundles
+  until Phase 3 builds them); android-ad-id says `["android"]`. image-viewer's TSX screen is its own import
+  (`@zero-native/image-viewer/screen`), so an app that only opens the viewer needs neither Motion nor registry 24.
+- ZeroBill's bundle built with it: registry 22 (was 24), no Motion, `os: { android: { AdId: 1 } }`, Notifications and
+  Push for both. Tests: TS (new cases in decide, core, compiler modules), iOS OTA tests 55 / 55 (new: per-OS check,
+  the fixture's `bundleOs`). The full TS run's 5 core calls.test failures are the same without this change (they pass alone).
+- Android (Kotlin) written here, not compiled: Gradle couldn't download on this Mac. Windows runs the tests and the Lava
+  matrix, deploys the server, then makes ZeroBill's Play build and a new staging APK (A18, A19).
+- The dashboard lists a bundle's one-OS modules ("AdId v1 (Android only)") and a store build's OS (server/web
+  util.ts, test util.test.ts): missed in the first commit, added after Pavan asked whether the plan was fully done.
+- iOS Simulator end to end (Pavan asked): the sample's own bundle now lists 5 Android-only modules; a release with them
+  installed and ran healthy on iOS (so iOS also verified the signed line's `android=` part), and one that adds
+  `os.ios` Notifications was refused as INCOMPATIBLE (docs/ota-test-matrix.md, iOS cases per-os-*). The phone's own
+  refusal (a server that offers it anyway) is covered by the iOS OTA tests, not run here.
+
 ### 2026-11-11: iOS App Store build for ZeroBill (Claude, Mac; Pavan asked)
 - **Privacy manifests:** zero-native's own (`ios/ZnRuntime/ZnRuntime_Privacy.bundle`: UserDefaults CA92.1, file
   timestamps C617.1, disk space E174.1, from `nm -u` of the app and the sources); Hermes's, written into each iOS slice of

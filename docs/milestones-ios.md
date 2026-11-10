@@ -411,7 +411,7 @@ Everything above marked done was checked on the simulator only. Waiting for a re
 
 ## 13. Android issues found by the port
 
-Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A16**.
+Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A20**.
 
 | # | Area | Status |
 |---|---|---|

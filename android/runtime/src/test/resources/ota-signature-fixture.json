@@ -1,8 +1,9 @@
 {
   "note": "Made by tools/ota/make-signature-fixture.ts with a throwaway key; no private key is stored.",
-  "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuYuAcTFvv/ac90TZJ1plNUz/yk+K8O17ux7dJNbEd87sI1CQ8tUbusqJNUD+GVkR3j9/CCMN/VsA8/F301QXwg==",
-  "otherPublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEon5zpLeyqZugwK2SrfkgBk73EnocZrPfQTWgtfxNewPTsc+PljUBOQGS3GoV1kRRhA9mepx5QMcV+72W3kdJiQ==",
+  "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEU/13z1hTsyyNeH4js3U9sq49WLgoKinogYjn5lwGt/BrAaid99Z6z6DvU35QYKwv9KVdklC9Viu/vHX1cvbWVw==",
+  "otherPublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3XD9Sde07sxhSYex4bOpGwatNeACtA/1uNMZAWncdlB4PKwXrBAZ92w7KvqF+mUH8zjt7Dbvgt2gBwTDZgPWzA==",
   "requiresLine": "registry=8;bytecode=99;hostApi=2;modules=Device:2,Fetch:1,Toast:1",
+  "requiresLineOs": "registry=8;bytecode=99;hostApi=2;modules=Device:2,Fetch:1,Toast:1;android=AdId:1,Play:3;ios=Haptics:1",
   "bundle": {
     "app": "sample",
     "id": "sample_12",
@@ -21,7 +22,36 @@
     "zipSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
     "zipSize": 118034,
     "text": "zn-ota-v1\nbundle\nsample\nsample_12\n12\nabababababababababababababababababababababababababababababababab\nregistry=8;bytecode=99;hostApi=2;modules=Device:2,Fetch:1,Toast:1\ncdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\n118034",
-    "signature": "MEUCIQCcpAA4Uz4R9uAGmqOMbT8rKl0c2k13rAt+iWwYcnWodQIgKC8wS2dQjJuoC1/LxvOKYpGX08waupH7nJjfWEJqrr8="
+    "signature": "MEYCIQDO/5h05hEV66RuaJuFUrGdJ7w6SFfxI7UeVkIfzv9ZMAIhAIl1JpBHiZw6ExPtg3u9XBHr3AUWLf077DxMdQ7lpiGo"
+  },
+  "bundleOs": {
+    "app": "sample",
+    "id": "sample_13",
+    "serial": 13,
+    "bundleSha256": "abababababababababababababababababababababababababababababababab",
+    "requires": {
+      "registry": 8,
+      "bytecode": 99,
+      "hostApi": 2,
+      "modules": {
+        "Toast": 1,
+        "Device": 2,
+        "Fetch": 1
+      },
+      "os": {
+        "ios": {
+          "Haptics": 1
+        },
+        "android": {
+          "AdId": 1,
+          "Play": 3
+        }
+      }
+    },
+    "zipSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "zipSize": 118034,
+    "text": "zn-ota-v1\nbundle\nsample\nsample_13\n13\nabababababababababababababababababababababababababababababababab\nregistry=8;bytecode=99;hostApi=2;modules=Device:2,Fetch:1,Toast:1;android=AdId:1,Play:3;ios=Haptics:1\ncdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\n118034",
+    "signature": "MEYCIQDsl4oc/a3oty/xAUimp+cvll4ftrLg6erM8F30OCopAAIhAPnwAE0wDJj8izhBxdB9WL8nKk3S0coU7lSEqGkYv+nC"
   },
   "pointer": {
     "app": "sample",
@@ -29,7 +59,7 @@
     "seq": 7,
     "target": "sample_12",
     "text": "zn-ota-v1\npointer\nsample\nproduction\n7\nsample_12",
-    "signature": "MEUCIQC4pasN6WCiU4sg/equsK5Gd8evXukQJfM8MbHZjrKG8QIgEhMPsbe4nDiCiCvHX06J+O7LVl+ydVM7+3GuxpFQ0q8="
+    "signature": "MEUCIQDCheGKR5iRrOx8hL1cKoQLSOarRPXQ/kNw5Ut+KonEogIgeNyYqCePEy2ii5ebnXG104hCVN6XYcyvRocaMsoLD2A="
   },
   "kill": {
     "app": "sample",
@@ -37,6 +67,6 @@
     "seq": 8,
     "target": "BUILT_IN",
     "text": "zn-ota-v1\npointer\nsample\nproduction\n8\nBUILT_IN",
-    "signature": "MEQCIB/6wwOfF0p4SG3XTHcAe18304k61SV8aDSZ2kR7H0kJAiAQd+rfF0PxUgUvkYybo9wD7YxqSJlT//wdR6po0MrEqA=="
+    "signature": "MEYCIQDAuxgpDlsEIzjp+iZD6YDuzOqw38eL+NRqKCwGGVO8uQIhAMRpNPZopMkbmaXaJUBkqx0IZUi+xLw1D/burz7zAwc2"
   }
 }

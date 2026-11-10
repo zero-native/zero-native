@@ -1,0 +1,8 @@
+{
+  "name": "per-os-both",
+  "private": true,
+  "main": "src/index.ts",
+  "zeroNative": {
+    "platforms": ["android", "ios"]
+  }
+}

@@ -11,6 +11,7 @@
     "@zero-native/core": "workspace:*"
   },
   "zeroNative": {
+    "platforms": ["android", "ios"],
     "android": {
       "plugin": "dev.zeronative.plugins.notifications.NotificationsPlugin"
     }

@@ -10,7 +10,7 @@ import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule, type ComponentRoots, type OnceTrap, type PropUse } from "./compile"
 import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
-import { nativeModuleUses } from "./modules"
+import { BOTH_OSES, nativeModuleUses, platformsOf, type ModuleOs } from "./modules"
 import { compileDerives } from "./motion"
 import { fontFamilyProblem, type FontTable } from "./fonts"
 import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
@@ -33,7 +33,10 @@ export interface ZnManifest {
 export interface BundleRequires {
   registry: number
   hostApi: number
+  /** Modules needed on both OSes. */
   modules: Record<string, number>
+  /** Modules needed on one OS only (from Android-only or iOS-only plugins: docs/ota-requires-per-os.md). */
+  os?: Partial<Record<ModuleOs, Record<string, number>>>
 }
 
 export interface ZnBuild {
@@ -72,11 +75,18 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
   let seqInFile = 0
   /** Native module name → the highest version any loaded file asks for. */
   const modules = new Map<string, number>()
+  /** Native module name → the OSes of the packages that call it (modules.ts platformsOf). */
+  const moduleOses = new Map<string, Set<ModuleOs>>()
   /** The registry version app sources need beyond what the templates show (compiler needs.ts: canvas commands). */
   let sourceNeed = 0
   const addModules = (source: string, path: string) => {
-    for (const { name, version } of nativeModuleUses(source, path)) {
+    const uses = nativeModuleUses(source, path)
+    const oses = uses.length > 0 ? platformsOf(path) : BOTH_OSES
+    for (const { name, version } of uses) {
       modules.set(name, Math.max(modules.get(name) ?? 0, version))
+      const set = moduleOses.get(name) ?? new Set<ModuleOs>()
+      for (const os of oses) set.add(os)
+      moduleOses.set(name, set)
     }
     sourceNeed = Math.max(sourceNeed, sourceRegistryNeed(source, path))
   }
@@ -186,12 +196,28 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
       })
       checkOnceTraps(roots, new Set(table.map((r) => r.component).filter((c): c is string => !!c)), [...propUses.values()].flat())
       const file = writeTemplateFile(finalSpecs)
-      const sortedModules = Object.fromEntries([...modules.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      // Both OSes, or one OS's own part (requires.os), by the packages that call each module
+      const sortedModules: Record<string, number> = {}
+      const osModules: Partial<Record<ModuleOs, Record<string, number>>> = {}
+      for (const [name, version] of [...modules.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        const oses = moduleOses.get(name) ?? BOTH_OSES
+        if (oses.size === 1) {
+          const os = [...oses][0]
+          ;(osModules[os] ??= {})[name] = version
+        } else {
+          sortedModules[name] = version
+        }
+      }
       return {
         templates: file.bytes,
         manifest: { components: finalComponents, routes: table, ...(options.fonts ? { fonts: options.fonts } : {}) },
         js: filledJs,
-        requires: { registry: Math.max(file.registry, sourceNeed), hostApi: HOST_API_VERSION, modules: sortedModules },
+        requires: {
+          registry: Math.max(file.registry, sourceNeed),
+          hostApi: HOST_API_VERSION,
+          modules: sortedModules,
+          ...(Object.keys(osModules).length > 0 ? { os: osModules } : {}),
+        },
       }
     },
   }

@@ -11,6 +11,7 @@
     "@zero-native/core": "workspace:*"
   },
   "zeroNative": {
+    "platforms": ["android"],
     "android": {
       "plugin": "dev.zeronative.plugins.android.adid.AdIdPlugin"
     }

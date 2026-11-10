@@ -782,7 +782,7 @@ final class ZnOta: @unchecked Sendable {
         let body: [String: Any] = [
             "app": builtIn.app, "channel": c.channel, "installId": st.installId,
             "capabilities": ["registry": caps.registry, "bytecode": caps.bytecode, "hostApi": caps.hostApi,
-                             "hostApiOldest": caps.hostApiOldest, "modules": caps.modules],
+                             "hostApiOldest": caps.hostApiOldest, "modules": caps.modules, "os": caps.os],
             "running": runningJson,
             "builtIn": ["id": builtIn.id, "serial": builtIn.serial, "sha256": builtIn.sha256],
             "kept": Array(ZnBundles.kept(builtIn, caps).prefix(16)),

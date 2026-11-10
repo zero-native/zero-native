@@ -29,6 +29,8 @@ export interface Requires {
   bytecode: number
   hostApi: number
   modules: Record<string, number>
+  /** Modules needed on one OS only (docs/ota-requires-per-os.md). */
+  os?: Partial<Record<"android" | "ios", Record<string, number>>>
 }
 export interface Capabilities {
   registry: number
@@ -36,6 +38,8 @@ export interface Capabilities {
   hostApi: number
   hostApiOldest: number
   modules: Record<string, number>
+  /** The store build's OS; absent from Android apps built before per-OS needs. */
+  os?: "android" | "ios"
 }
 export interface Manifest {
   format: number

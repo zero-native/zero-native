@@ -4,7 +4,7 @@
 // The signed texts must stay byte-identical here, in the phone's verifier (android/runtime/.../ZnOtaSignature.kt) and
 // in the update server (step 4.4). A test checks a signature made here on the JVM.
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto"
-import type { BundleRequires } from "../bundle-info"
+import { BUNDLE_OSES, type BundleRequires } from "../bundle-info"
 
 export const SIGNATURE_VERSION = "zn-ota-v1"
 /** The pointer target that means "run the APK's own bundle" (the kill switch, ota.md §3.1). */
@@ -18,15 +18,22 @@ export interface Signature {
 }
 
 /**
- * A bundle's needs as one line, the same in every language: modules sorted by name.
- * "registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1"
+ * A bundle's needs as one line, the same in every language: modules sorted by name, then each OS's own modules
+ * (Android, then iOS), only when it has some (docs/ota-requires-per-os.md §3), so a bundle without them keeps its line.
+ * "registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1;android=AdId:1"
  */
 export function requiresLine(r: BundleRequires): string {
-  const modules = Object.keys(r.modules)
-    .sort()
-    .map((m) => `${m}:${r.modules[m]}`)
-    .join(",")
-  return `registry=${r.registry};bytecode=${r.bytecode};hostApi=${r.hostApi};modules=${modules}`
+  const list = (m: Record<string, number>) =>
+    Object.keys(m)
+      .sort()
+      .map((k) => `${k}:${m[k]}`)
+      .join(",")
+  let line = `registry=${r.registry};bytecode=${r.bytecode};hostApi=${r.hostApi};modules=${list(r.modules)}`
+  for (const os of BUNDLE_OSES) {
+    const m = r.os?.[os]
+    if (m && Object.keys(m).length > 0) line += `;${os}=${list(m)}`
+  }
+  return line
 }
 
 /** What a bundle's signature covers: the bundle is these exact files, needs this, and is this exact zip. */

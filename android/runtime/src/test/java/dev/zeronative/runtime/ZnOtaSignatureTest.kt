@@ -15,11 +15,7 @@ class ZnOtaSignatureTest {
     private val main = f.getString("publicKey")
     private val other = f.getString("otherPublicKey")
 
-    private fun requires(o: JSONObject): ZnBundles.Requires {
-        val r = o.getJSONObject("requires")
-        val m = r.getJSONObject("modules")
-        return ZnBundles.Requires(r.getInt("registry"), r.getInt("bytecode"), r.getInt("hostApi"), m.keys().asSequence().associateWith { m.getInt(it) })
-    }
+    private fun requires(o: JSONObject): ZnBundles.Requires = ZnBundles.Requires.from(o.getJSONObject("requires"))
 
     @Test
     fun bundleTextAndSignatureMatchTheCli() {
@@ -32,6 +28,26 @@ class ZnOtaSignatureTest {
         assertEquals(b.getString("text"), text)
         assertEquals(0, ZnOtaSignature.verify(text, b.getString("signature"), listOf(main)))
         assertEquals("the signing key in the second (backup) place is found too", 1, ZnOtaSignature.verify(text, b.getString("signature"), listOf(other, main)))
+    }
+
+    @Test
+    fun perOsNeedsMatchTheCli() {
+        val b = f.getJSONObject("bundleOs")
+        val req = requires(b)
+        assertEquals(f.getString("requiresLineOs"), ZnOtaSignature.requiresLine(req))
+        val text = ZnOtaSignature.bundleText(
+            b.getString("app"), b.getString("id"), b.getInt("serial"), b.getString("bundleSha256"), req,
+            b.getString("zipSha256"), b.getLong("zipSize"),
+        )
+        assertEquals(b.getString("text"), text)
+        assertEquals(0, ZnOtaSignature.verify(text, b.getString("signature"), listOf(main)))
+        // An app that drops the OS parts (built before them) builds another text, and the signature fails
+        val old = ZnBundles.Requires(req.registry, req.bytecode, req.hostApi, req.modules)
+        val oldText = ZnOtaSignature.bundleText(
+            b.getString("app"), b.getString("id"), b.getInt("serial"), b.getString("bundleSha256"), old,
+            b.getString("zipSha256"), b.getLong("zipSize"),
+        )
+        assertEquals(-1, ZnOtaSignature.verify(oldText, b.getString("signature"), listOf(main)))
     }
 
     @Test

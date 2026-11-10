@@ -31,6 +31,8 @@ Each entry says:
 | A15 | 2026-11-09 | OTA (Updates) | With OTA off, `Updates.check()` answers without `status`, which its JS type promises; the sample's Updates screen throws on "Check now" | fixed 2026-11-09 (`ZnOta.kt` Module `check` adds `status` when OTA is off); not phone-checked: the sample has OTA on |
 | A16 | 2026-11-10 | Build (app:js, shared) | A plain `.ts` file that imports a `.tsx` file with components fails the build: "Cannot find package 'react'" (found by the ZeroBill session; worked around in ZeroBill) | fixed 2026-11-10 (`compiler/src/plugin.ts`: such a `.ts` file is no longer loaded at build time); test in `compiler/test/build-app.test.ts`; same build for Android and iOS, nothing to check on a phone |
 | A17 | 2026-11-11 | updates CLI (shared) | `updates login` writes ~/.zero-native/updates.json with `mode: 0o600`, but Node applies the mode only when it creates the file: a file made earlier (another server's login) keeps its open mode (found as rw-rw-r-- on the Mac, holding the production admin token; set to 600 by hand). Fix: `chmodSync(loginFile, 0o600)` after the write | open |
+| A18 | 2026-11-11 | OTA needs (shared + Android runtime) | Every module a bundle calls counted for both OSes, so iOS refused every ZeroBill OTA bundle (AdId is Android-only). Per-OS needs written on the Mac, Kotlin included but not compiled there (Gradle couldn't download): docs/ota-requires-per-os.md | open: Windows runs the Android tests and the Lava matrix |
+| A19 | 2026-11-11 | Repo (Android) | `android/gradlew` is mode 100644 in git: on the Mac `./gradlew` says "permission denied" (`bash ./gradlew` works). Fix: `git update-index --chmod=+x android/gradlew` | open |
 
 ---
 
@@ -292,4 +294,18 @@ Each entry says:
   as before. The sample's bundle and ZeroBill's build give the same bytes with and without the fix.
 - **Test:** `compiler/test/build-app.test.ts` "a .ts file that imports a .tsx file (issue A16)", fixture
   `compiler/test/fixtures/ts-imports-tsx/` (fails with the old code with ZeroBill's error).
+
+## A18. Every module a bundle calls counted for both OSes
+- **Status:** written on the Mac 2026-11-11 (Pavan asked; plan and record: docs/ota-requires-per-os.md). Android
+  side not compiled there: this Mac's Gradle couldn't download its distribution, and Pavan said to leave it to Windows.
+- **Problem:** a bundle's `requires.modules` listed every native module any of its files calls, and a phone ran the
+  bundle only if it had all of them. ZeroBill's bundle calls AdId (the `android-ad-id` plugin, Android only), so iOS
+  refused every ZeroBill OTA bundle, though the same JS runs as the built-in bundle.
+- **Fix:** `requires.os` holds modules from one-OS plugins (from the calling file's package); the signed line appends
+  them; each phone checks both OSes' modules plus its own OS's. Android: `ZnBundles.Requires.os` and `from()`,
+  `ZnOtaSignature.requiresLine`, `ZnCapabilities.os` / `missing`, `capabilities.os` in the check.
+- **Check on Android (Windows):** `:runtime:testDebugUnitTest` (ZnBundlesTest `onlyThisOsPartCounts`,
+  ZnOtaSignatureTest `perOsNeedsMatchTheCli`, ZnOtaInstall*); the OTA phone matrix on the Lava; ZeroBill's rebuilt
+  bundle shows `"os":{"android":{"AdId":1}}`. Deploy the zn-updates server before the first bundle with OS parts; then
+  ZeroBill's Play build and a new staging APK (an APK built before can't verify bundles with OS parts).
 

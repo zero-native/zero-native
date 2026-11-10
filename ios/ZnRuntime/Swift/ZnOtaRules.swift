@@ -38,12 +38,18 @@ enum ZnBundleRules {
         var description: String { "\(id) (#\(serial))" }
     }
 
-    /// A bundle's needs (docs/ota.md §3.2). [modules]: native module name → lowest version.
+    /// A bundle's needs (docs/ota.md §3.2). [modules]: native module name → lowest version, on both OSes. [os]: modules
+    /// needed on one OS only ("android" / "ios" → name → version), from Android-only or iOS-only plugins
+    /// (docs/ota-requires-per-os.md); empty when the bundle has none.
     struct Requires: Equatable {
         let registry: Int
         let bytecode: Int
         let hostApi: Int
         let modules: [String: Int]
+        var os: [String: [String: Int]] = [:]
+
+        /// The OSes a bundle's needs can name, in the signed line's order.
+        static let oses = ["android", "ios"]
     }
 
     /// Whether a downloaded bundle may run. [superseded]: nothing is wrong with it, the app's own bundle is the same or
@@ -78,11 +84,20 @@ enum ZnBundleRules {
     }
 
     static func parseRequires(_ r: [String: Any]) throws -> Requires {
-        let m = try ZnJSON.obj(r, "modules")
-        var modules: [String: Int] = [:]
-        for key in m.keys { modules[key] = try ZnJSON.int(m, key) }
+        func map(_ m: [String: Any]) throws -> [String: Int] {
+            var out: [String: Int] = [:]
+            for key in m.keys { out[key] = try ZnJSON.int(m, key) }
+            return out
+        }
+        var os: [String: [String: Int]] = [:]
+        if let o = r["os"] as? [String: Any] {
+            for (name, value) in o {
+                guard let m = value as? [String: Any] else { throw ZnOtaError("bundle", "requires.os.\(name) is not an object") }
+                os[name] = try map(m)
+            }
+        }
         return Requires(registry: try ZnJSON.int(r, "registry"), bytecode: try ZnJSON.int(r, "bytecode"),
-                        hostApi: try ZnJSON.int(r, "hostApi"), modules: modules)
+                        hostApi: try ZnJSON.int(r, "hostApi"), modules: try map(try ZnJSON.obj(r, "modules")), os: os)
     }
 
     /// A plain relative path: no leading "/", no "..", no empty part (and no backslash).
@@ -141,23 +156,27 @@ struct ZnCapabilities: CustomStringConvertible {
     let hostApi: Int
     let hostApiOldest: Int
     let modules: [String: Int]
+    /// This app's OS, for a bundle's per-OS needs (docs/ota-requires-per-os.md §4).
+    var os = "ios"
 
-    /// Why this app can't run a bundle that needs [req], or nil if it can.
+    /// Why this app can't run a bundle that needs [req], or nil if it can: the modules for both OSes, then this OS's own.
     func missing(_ req: ZnBundleRules.Requires) -> String? {
         if req.registry > registry { return "it needs registry v\(req.registry), this app has v\(registry)" }
         if req.bytecode != bytecode { return "its bytecode is format \(req.bytecode), this app's Hermes runs format \(bytecode)" }
         if req.hostApi > hostApi { return "it needs host API v\(req.hostApi), this app has v\(hostApi)" }
         if req.hostApi < hostApiOldest { return "it was built for host API v\(req.hostApi); this app runs v\(hostApiOldest) and newer" }
-        for name in req.modules.keys.sorted() {
-            let version = req.modules[name]!
-            guard let have = modules[name] else { return "it needs native module \(name), this app doesn't have it" }
-            if have < version { return "it needs \(name) v\(version), this app has v\(have)" }
+        for part in [req.modules, req.os[os] ?? [:]] {
+            for name in part.keys.sorted() {
+                let version = part[name]!
+                guard let have = modules[name] else { return "it needs native module \(name), this app doesn't have it" }
+                if have < version { return "it needs \(name) v\(version), this app has v\(have)" }
+            }
         }
         return nil
     }
 
     var description: String {
-        "registry v\(registry), bytecode \(bytecode), host API v\(hostApiOldest)–\(hostApi), modules \(modules.sorted { $0.key < $1.key })"
+        "\(os), registry v\(registry), bytecode \(bytecode), host API v\(hostApiOldest)–\(hostApi), modules \(modules.sorted { $0.key < $1.key })"
     }
 }
 
@@ -171,12 +190,19 @@ enum ZnOtaSignature {
     /// The pointer target that means "run the app's own bundle" (the kill switch).
     static let builtIn = "BUILT_IN"
 
-    /// "registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1" (modules sorted by name).
+    /// "registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1;android=AdId:1" (modules sorted by name; each OS's own
+    /// modules after, Android then iOS, only when it has some: docs/ota-requires-per-os.md §3).
     static func requiresLine(_ r: ZnBundleRules.Requires) -> String {
         // Sorted as Kotlin's `sorted()` on Strings: by UTF-16 code units.
-        let modules = r.modules.keys.sorted { Array($0.utf16).lexicographicallyPrecedes(Array($1.utf16)) }
-            .map { "\($0):\(r.modules[$0]!)" }.joined(separator: ",")
-        return "registry=\(r.registry);bytecode=\(r.bytecode);hostApi=\(r.hostApi);modules=\(modules)"
+        func list(_ m: [String: Int]) -> String {
+            m.keys.sorted { Array($0.utf16).lexicographicallyPrecedes(Array($1.utf16)) }
+                .map { "\($0):\(m[$0]!)" }.joined(separator: ",")
+        }
+        var line = "registry=\(r.registry);bytecode=\(r.bytecode);hostApi=\(r.hostApi);modules=\(list(r.modules))"
+        for os in ZnBundleRules.Requires.oses {
+            if let m = r.os[os], !m.isEmpty { line += ";\(os)=\(list(m))" }
+        }
+        return line
     }
 
     /// What a bundle's signature covers.

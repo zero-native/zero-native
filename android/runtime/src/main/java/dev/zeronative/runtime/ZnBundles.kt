@@ -50,7 +50,35 @@ object ZnBundles {
     }
 
     /** A bundle's needs (docs/ota.md §3.2). [modules]: native module name → lowest version. */
-    class Requires(val registry: Int, val bytecode: Int, val hostApi: Int, val modules: Map<String, Int>)
+    /**
+     * [modules]: needed on both OSes. [os]: modules needed on one OS only ("android" / "ios" → name → version), from
+     * Android-only or iOS-only plugins (docs/ota-requires-per-os.md); empty when the bundle has none.
+     */
+    class Requires(
+        val registry: Int,
+        val bytecode: Int,
+        val hostApi: Int,
+        val modules: Map<String, Int>,
+        val os: Map<String, Map<String, Int>> = emptyMap(),
+    ) {
+        companion object {
+            /** The OSes a bundle's needs can name, in the signed line's order. */
+            val OSES = listOf("android", "ios")
+
+            /** `requires` as zn-bundle.json and the server's manifests write it. */
+            fun from(r: JSONObject): Requires {
+                fun map(o: JSONObject) = o.keys().asSequence().associateWith { o.getInt(it) }
+                val os = r.optJSONObject("os")
+                return Requires(
+                    registry = r.getInt("registry"),
+                    bytecode = r.getInt("bytecode"),
+                    hostApi = r.getInt("hostApi"),
+                    modules = map(r.getJSONObject("modules")),
+                    os = os?.keys()?.asSequence()?.associateWith { map(os.getJSONObject(it)) } ?: emptyMap(),
+                )
+            }
+        }
+    }
 
     /** The bundle this process runs. [dir] is null for the built-in bundle (the APK's assets). */
     class Running(val info: Info?, val dir: File?) {
@@ -413,15 +441,7 @@ object ZnBundles {
         }
         val serial = json.getInt("serial")
         require(serial >= 0) { "serial $serial" }
-        val requires = json.optJSONObject("requires")?.let { r ->
-            val m = r.getJSONObject("modules")
-            Requires(
-                registry = r.getInt("registry"),
-                bytecode = r.getInt("bytecode"),
-                hostApi = r.getInt("hostApi"),
-                modules = m.keys().asSequence().associateWith { m.getInt(it) },
-            )
-        }
+        val requires = json.optJSONObject("requires")?.let { Requires.from(it) }
         return Info(json.getString("app"), serial, json.getString("id"), json.getString("sha256"), sizes, requires)
     }
 }

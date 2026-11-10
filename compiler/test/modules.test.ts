@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
-import { nativeModuleUses } from "../src/modules"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { nativeModuleUses, platformsOf } from "../src/modules"
 import { buildApp } from "../src/build-app"
 import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
 
@@ -52,5 +54,39 @@ describe("native modules a bundle needs (docs/ota.md §3.2)", () => {
     expect(nativeModuleUses(call, "/app/src/chat.ts")).toEqual([{ name: "WebSocket", version: 1 }])
     // Any other core module still counts.
     expect(nativeModuleUses(`callNative("Toast", "show", {})`, "/x/packages/core/src/toast.ts")).toEqual([{ name: "Toast", version: 1 }])
+  })
+})
+
+describe("per-OS needs (docs/ota-requires-per-os.md)", () => {
+  test("buildApp puts a one-OS plugin's modules under requires.os", async () => {
+    const app = await buildApp(join(import.meta.dir, "fixtures/per-os/main.ts"))
+    expect(app.requires.modules.Pay).toBe(1) // the app's own call: both OSes
+    expect(app.requires.modules.Share).toBe(2) // a plugin for both
+    expect(app.requires.modules.AdId).toBeUndefined()
+    expect(app.requires.os).toEqual({ android: { AdId: 2 }, ios: { Haptics: 2 } })
+  })
+
+  test("a plugin's platforms: zeroNative.platforms, else its folders; anything else is both", () => {
+    const root = mkdtempSync(join(tmpdir(), "zn-platforms-"))
+    try {
+      const pkg = (name: string, zeroNative?: object, folders: string[] = []) => {
+        const dir = join(root, name)
+        mkdirSync(join(dir, "src"), { recursive: true })
+        for (const f of folders) mkdirSync(join(dir, f))
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name, ...(zeroNative ? { zeroNative } : {}) }))
+        return join(dir, "src", "index.ts")
+      }
+      const sorted = (s: ReadonlySet<string>) => [...s].sort()
+      expect(sorted(platformsOf(pkg("droid", { android: { plugin: "x" } })))).toEqual(["android"])
+      expect(sorted(platformsOf(pkg("folders", {}, ["android", "ios"])))).toEqual(["android", "ios"])
+      expect(sorted(platformsOf(pkg("apple", {}, ["ios"])))).toEqual(["ios"])
+      // Written platforms win over folders (a plugin meant for both, not built on iOS yet)
+      expect(sorted(platformsOf(pkg("planned", { platforms: ["android", "ios"] }, ["android"])))).toEqual(["android", "ios"])
+      expect(sorted(platformsOf(pkg("lib")))).toEqual(["android", "ios"]) // not a plugin
+      expect(sorted(platformsOf(pkg("bare", {})))).toEqual(["android", "ios"]) // a plugin with no native side yet
+      expect(() => platformsOf(pkg("bad", { platforms: ["web"] }))).toThrow("zeroNative.platforms")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

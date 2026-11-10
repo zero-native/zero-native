@@ -24,9 +24,18 @@ export interface BundleRequires {
   bytecode: number
   /** Host API of the bundled `@zero-native/core`. */
   hostApi: number
-  /** Native module name → lowest version needed. */
+  /** Native module name → lowest version needed, on both OSes. */
   modules: Record<string, number>
+  /**
+   * Modules needed on one OS only (docs/ota-requires-per-os.md): from plugins that are Android-only or iOS-only. Only
+   * the OSes that have one; absent when none. A module is in `modules` or here, never both.
+   */
+  os?: Partial<Record<BundleOs, Record<string, number>>>
 }
+
+/** The OSes a bundle's needs can name, in the signed line's order. */
+export const BUNDLE_OSES = ["android", "ios"] as const
+export type BundleOs = (typeof BUNDLE_OSES)[number]
 
 export interface BundleInfo {
   format: number

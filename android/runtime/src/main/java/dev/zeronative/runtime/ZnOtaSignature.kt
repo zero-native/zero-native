@@ -17,10 +17,18 @@ internal object ZnOtaSignature {
     /** The pointer target that means "run the APK's own bundle" (the kill switch). */
     const val BUILT_IN = "BUILT_IN"
 
-    /** "registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1" (modules sorted by name). */
+    /**
+     * "registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1;android=AdId:1" (modules sorted by name; each OS's own
+     * modules after, Android then iOS, only when it has some: docs/ota-requires-per-os.md §3).
+     */
     fun requiresLine(r: ZnBundles.Requires): String {
-        val modules = r.modules.keys.sorted().joinToString(",") { "$it:${r.modules[it]}" }
-        return "registry=${r.registry};bytecode=${r.bytecode};hostApi=${r.hostApi};modules=$modules"
+        fun list(m: Map<String, Int>) = m.keys.sorted().joinToString(",") { "$it:${m[it]}" }
+        val line = StringBuilder("registry=${r.registry};bytecode=${r.bytecode};hostApi=${r.hostApi};modules=${list(r.modules)}")
+        for (os in ZnBundles.Requires.OSES) {
+            val m = r.os[os]
+            if (!m.isNullOrEmpty()) line.append(";$os=${list(m)}")
+        }
+        return line.toString()
     }
 
     /** What a bundle's signature covers. */

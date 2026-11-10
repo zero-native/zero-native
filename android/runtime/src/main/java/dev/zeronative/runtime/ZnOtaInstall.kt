@@ -44,7 +44,7 @@ internal object ZnOtaInstall {
             id = j.getString("id"),
             serial = j.getInt("serial"),
             bundleSha256 = j.getString("bundleSha256"),
-            requires = ZnBundles.Requires(r.getInt("registry"), r.getInt("bytecode"), r.getInt("hostApi"), m.keys().asSequence().associateWith { m.getInt(it) }),
+            requires = ZnBundles.Requires.from(r),
             zipSha256 = zip.getString("sha256"),
             zipSize = zip.getLong("size"),
             url = j.optString("url", ""),

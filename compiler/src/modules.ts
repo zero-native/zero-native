@@ -3,6 +3,8 @@
 // an app that lacks a module (or has an older version of it) (docs/ota.md §3.2). The module name must be a string
 // literal; the version a number literal (default 1, as in calls.ts).
 import ts from "typescript"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 
 export interface ModuleUse {
   name: string
@@ -94,4 +96,57 @@ export function nativeModuleUses(source: string, fileName: string): ModuleUse[] 
   }
   visit(sf)
   return uses
+}
+
+/** The OSes a native module can be on. */
+export type ModuleOs = "android" | "ios"
+export const BOTH_OSES: ReadonlySet<ModuleOs> = new Set(["android", "ios"])
+
+/** Folder → the platforms of the package it is in (memo for platformsOf). */
+const packagePlatforms = new Map<string, ReadonlySet<ModuleOs>>()
+
+/**
+ * The OSes a module call in [fileName] counts for (docs/ota-requires-per-os.md §2): the platforms of the plugin package
+ * the file is in; both for @zero-native/core, the app's own files and anything that isn't a plugin. A plugin's platforms:
+ * `zeroNative.platforms` when written, else its folders (`android/` or a `zeroNative.android` entry; `ios/`).
+ */
+export function platformsOf(fileName: string): ReadonlySet<ModuleOs> {
+  let dir = dirname(fileName)
+  const seen: string[] = []
+  for (;;) {
+    const known = packagePlatforms.get(dir)
+    if (known) return remember(seen, known)
+    seen.push(dir)
+    const pkgPath = join(dir, "package.json")
+    if (existsSync(pkgPath)) return remember(seen, pluginPlatforms(dir, pkgPath))
+    const up = dirname(dir)
+    if (up === dir) return remember(seen, BOTH_OSES)
+    dir = up
+  }
+}
+
+function remember(dirs: string[], p: ReadonlySet<ModuleOs>): ReadonlySet<ModuleOs> {
+  for (const d of dirs) packagePlatforms.set(d, p)
+  return p
+}
+
+function pluginPlatforms(dir: string, pkgPath: string): ReadonlySet<ModuleOs> {
+  let zn: { platforms?: unknown; android?: unknown } | undefined
+  try {
+    zn = (JSON.parse(readFileSync(pkgPath, "utf8")) as { zeroNative?: typeof zn }).zeroNative
+  } catch {
+    return BOTH_OSES
+  }
+  if (!zn) return BOTH_OSES // not a plugin: core, the app, a plain library
+  if (zn.platforms !== undefined) {
+    const list = zn.platforms
+    if (!Array.isArray(list) || list.length === 0 || !list.every((p) => p === "android" || p === "ios")) {
+      throw new Error(`${pkgPath}: zeroNative.platforms must list "android" and / or "ios"`)
+    }
+    return new Set(list as ModuleOs[])
+  }
+  const found = new Set<ModuleOs>()
+  if (zn.android !== undefined || existsSync(join(dir, "android"))) found.add("android")
+  if (existsSync(join(dir, "ios"))) found.add("ios")
+  return found.size > 0 ? found : BOTH_OSES // a plugin with no native side yet: not one OS's
 }

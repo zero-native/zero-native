@@ -406,6 +406,17 @@ test("anOlderAppWithoutAModuleIgnoresTheBundle") {
     bundle("sample_18") { $0["requires"] = #"{"registry":8,"bytecode":99,"hostApi":1,"modules":{"Device":3}}"# }
     refused("sample_18", "Device v3, this app has v2")
 }
+test("onlyThisOsPartCounts") {
+    // docs/ota-requires-per-os.md: an Android-only module never stops iOS; an iOS-only one does when missing
+    bundle("sample_19") { $0["requires"] = #"{"registry":8,"bytecode":99,"hostApi":1,"modules":{},"os":{"android":{"AdId":1}}}"# }
+    if case .no(let why, _) = check("sample_19") { fail("sample_19 should run: \(why)") }
+    bundle("sample_20") { $0["requires"] = #"{"registry":8,"bytecode":99,"hostApi":1,"modules":{},"os":{"ios":{"Haptics":1}}}"# }
+    refused("sample_20", "native module Haptics")
+    let android = ZnCapabilities(registry: 9, bytecode: 99, hostApi: 2, hostApiOldest: 1, modules: ["Device": 2], os: "android")
+    eq(android.missing(ZnBundleRules.Requires(registry: 8, bytecode: 99, hostApi: 1, modules: [:], os: ["ios": ["Haptics": 1]])), nil)
+    eq(android.missing(ZnBundleRules.Requires(registry: 8, bytecode: 99, hostApi: 1, modules: [:], os: ["android": ["AdId": 1]])),
+       "it needs native module AdId, this app doesn't have it")
+}
 
 // MARK: Store answer (ZnOtaStoreTest.kt)
 
@@ -443,6 +454,21 @@ test("bundleTextAndSignatureMatchTheCli") {
     eq(text, b["text"] as! String)
     eq(ZnOtaSignature.verify(text, signature: b["signature"] as! String, publicKeys: [mainKey]), 0)
     eq(ZnOtaSignature.verify(text, signature: b["signature"] as! String, publicKeys: [otherKey, mainKey]), 1)
+}
+test("perOsNeedsMatchTheCli") {
+    let b = f["bundleOs"] as! [String: Any]
+    let r = req(b)
+    eq(ZnOtaSignature.requiresLine(r), f["requiresLineOs"] as! String)
+    func text(_ r: ZnBundleRules.Requires) -> String {
+        ZnOtaSignature.bundleText(app: b["app"] as! String, id: b["id"] as! String, serial: b["serial"] as! Int,
+                                  bundleSha256: b["bundleSha256"] as! String, requires: r,
+                                  zipSha256: b["zipSha256"] as! String, zipSize: (b["zipSize"] as! NSNumber).int64Value)
+    }
+    eq(text(r), b["text"] as! String)
+    eq(ZnOtaSignature.verify(text(r), signature: b["signature"] as! String, publicKeys: [mainKey]), 0)
+    // An app built before per-OS needs drops the OS parts: another text, and the signature fails
+    let old = ZnBundleRules.Requires(registry: r.registry, bytecode: r.bytecode, hostApi: r.hostApi, modules: r.modules)
+    eq(ZnOtaSignature.verify(text(old), signature: b["signature"] as! String, publicKeys: [mainKey]), -1)
 }
 test("pointerAndKillSwitchMatchTheCli") {
     for name in ["pointer", "kill"] {

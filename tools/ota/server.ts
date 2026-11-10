@@ -68,6 +68,8 @@ export function parseCheck(body: unknown): CheckRequest {
   const c = r.capabilities as Record<string, unknown> | undefined
   check(c && isCount(c.registry) && isCount(c.bytecode) && isCount(c.hostApi) && isCount(c.hostApiOldest), "capabilities")
   check(typeof c.modules === "object" && c.modules !== null && Object.entries(c.modules).every(([k, v]) => isId(k, 64) && isCount(v)), "capabilities.modules")
+  // The phone's OS (docs/ota-requires-per-os.md §4): absent from apps built before it, all Android
+  check(c.os === undefined || c.os === "android" || c.os === "ios", "capabilities.os")
   const running = r.running as Record<string, unknown> | null
   check(running === null || (running && isId(running.id) && isId(running.sha256)), "running")
   const builtIn = r.builtIn as Record<string, unknown> | undefined

@@ -109,6 +109,14 @@ describe("rules underneath", () => {
     expect(missing(caps, { ...r, modules: { Device: 3 } })).toBe("needs Device v3, app has v2")
   })
 
+  test("per-OS needs: only the phone's own OS part counts; no os means Android", () => {
+    const r = { registry: 8, bytecode: 99, hostApi: 2, modules: { Fetch: 1 }, os: { android: { AdId: 1 }, ios: { Haptics: 1 } } }
+    expect(missing(caps, r)).toBe("needs native module AdId") // an older Android app sends no os
+    expect(missing({ ...caps, modules: { ...caps.modules, AdId: 1 } }, r)).toBeNull()
+    expect(missing({ ...caps, os: "ios" }, r)).toBe("needs native module Haptics")
+    expect(missing({ ...caps, os: "ios", modules: { ...caps.modules, Haptics: 1 } }, r)).toBeNull()
+  })
+
   test("rollout buckets are stable and spread evenly; raising the rollout only adds installs", () => {
     expect(rolloutBucket("a", "sample", "production")).toBe(rolloutBucket("a", "sample", "production"))
     const buckets = Array.from({ length: 10_000 }, (_, i) => rolloutBucket(`install-${i}`, "sample", "production"))

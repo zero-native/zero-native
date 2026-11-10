@@ -44,6 +44,10 @@ describe("build: one bundle = one serial = one SHA", () => {
     expect(b.manifest.serial).toBe(2)
     expect(await core.current(ctx, "staging")).toBeNull()
     expect(requiresLine(b.manifest.requires)).toBe("registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1")
+    // Per-OS parts at the end, Android then iOS, only when not empty: a bundle without them keeps its line
+    const r = { registry: 8, bytecode: 99, hostApi: 2, modules: { Fetch: 1 } }
+    expect(requiresLine({ ...r, os: { ios: { B: 1 }, android: { A: 2 } } })).toBe("registry=8;bytecode=99;hostApi=2;modules=Fetch:1;android=A:2;ios=B:1")
+    expect(requiresLine({ ...r, os: { android: {} } })).toBe(requiresLine(r))
   })
 
   test("the released zip holds the files with the serial stamped in zn-bundle.json", async () => {

@@ -2745,7 +2745,9 @@ Reference: `docs/motion.md` §6, `plugins/image-viewer/README.md`.
   **Why:** coming back to a photo still zoomed at 4x looks like a bug.
 - **Do** add the viewer route as `screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light",
   restore: false, transition: "none"`. **Why:** see-through keeps the screen below drawn while the photo flies and the
-  backdrop fades; `restore: false` because its photos live in JS memory and are gone after a kill.
+  backdrop fades; `restore: false` because its photos live in JS memory and are gone after a kill. Import the screen from
+  `@zero-native/image-viewer/screen`, not the package root: only an app that shows the TSX viewer should need Motion
+  and registry 24 (docs/ota-requires-per-os.md §5).
 - **Do** pass `from: box` (a `useElementMotion()` bound on the thumbnail) to `ImageViewer.open`. **Why:** the photo
   then flies from the thumbnail and back into it. Without it the viewer fades in and out.
 - **Don't** use `sharedTag` into the viewer. **Why:** a see-through screen has no transition, so shared elements don't
