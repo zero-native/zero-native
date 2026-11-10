@@ -95,7 +95,7 @@ RN Firebase's names for ported code: `messaging().getToken()`, `onTokenRefresh`,
 - Never log `m.data` as a whole, and never put private data in it: FCM servers and the phone's notification log keep it.
 - Phones with no Google Play services get no FCM. `getToken` says why; local notifications still work.
 - Logs use the tag `zn-push` (the message line itself, `fcm message ...`, is `zn-notifications`).
-- **Not built yet:** the OTA check push on iOS. Other push services: the notifications README, "Push services".
+- Other push services: the notifications README, "Push services".
 
 ## iOS
 The plugin's Swift (`ios/FirebaseMessagingPlugin.swift`) gets the APNs token, hands it to FCM, and answers the same
@@ -137,7 +137,7 @@ calls. Plan and reasons: `docs/ios-notifications-plan.md`.
   after the user closed the app. JS doesn't start for a background launch yet, so don't rely on them.
 - `getToken` waits up to 10 s for the APNs token: `not_now` without it (no network; a simulator build without the push
   entitlement). A message reaching both the app delegate and the notification center runs `onMessage` once.
-- `zn_ota=check` messages do nothing on iOS yet.
+- `zn_ota=check` messages run the OTA check natively: "OTA pushes" below, "On iOS".
 - Logs start with `zn-push:`. The APNs token and the FCM token are never logged.
 
 Checked on the iOS Simulator (2026-11-11) with `xcrun simctl push`: a push in front (onMessage, the app's own
@@ -176,6 +176,19 @@ background (`Updates.applyNow()` still works as usual).
 
 **Choosing the wait:** a few seconds on staging (testers want it now). On production, spread the phones over a few
 hours (for example 6 h = `21600000`), so a million phones don't call the server in the same minute.
+
+**On iOS** (`ios/OtaPush.swift`; `FirebaseMessagingPlugin(otaCheck: false)` turns it off): the same topic, joined once per start
+when FCM has its token (FCM can't join a topic before APNs has answered), and the same message. Not as on Android:
+- The message must wake the app: the server sends it with an `apns` block for a background push
+  (`apns-push-type: background`, `apns-priority: 5`, `aps: { "content-available": 1 }`). iOS throttles those (a few an
+  hour) and never delivers them to an app the user swiped away in the app switcher; such phones check at their next
+  start or return, as always.
+- A woken app has about 30 s. A random wait up to 10 s runs in it, then the check (under a background task while it
+  lasts). A longer wait becomes a background refresh task due after the wait, only if the app declares it:
+  `BGTaskSchedulerPermittedIdentifiers` = [`dev.zeronative.ota-check`] and `fetch` in `UIBackgroundModes`. iOS
+  decides when it runs. Without it nothing is scheduled; the next start or return checks.
+- No retries after a failed check (Android: 3 runs). Logs: `zn-push: message …: OTA check in 1234 ms`,
+  `zn-push: OTA check: <action> <reason>` (the check's own logs start with `zn-ota:`).
 
 Logs use the tag `zn-push` (the job) and `zn-ota` (the check). `PushPlugin` adds `androidx.work:work-runtime-ktx`; an app
 that turned off WorkManager's start-up initializer must set it up itself, or the push logs `can't schedule`.

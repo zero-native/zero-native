@@ -149,6 +149,53 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-10: OTA: `store-build --into` for an IPA (Claude, Mac; found by the the iOS app session)
+- `updates store-build` and `updates base` always used zn-updates.json's "assets" (ZeroBill: Android's assets
+  folder), so an iOS store build rebuilt Android's built-in bundle and left ios/bundle on its dev bundle. Both now take
+  `--into <dir>` as `builtin` does: `store-build --os ios ... --into ios/bundle`.
+
+### 2026-11-10: iOS i.20: the OTA topic joined on a fresh install (Claude, Mac)
+- On a fresh install FCM said its token before APNs answered, so joining `zn-ota-<app>-<channel>` failed ("No APNS
+  token specified") and nothing tried again until the next start. Now the join is also tried when the APNs token
+  comes, a failed join can be tried again, and if APNs answered while the try was out it is tried again 2 s later
+  (at most twice).
+- Checked on Pavan's iPhone after a reinstall: failed, then APNs token received, then subscribed.
+- The republish of #3 woke nothing: the reinstalled app had already downloaded #3 at its first start (the earlier
+  publish was still live), and no push reached it that time (iOS limits background pushes; many were sent today).
+  The push-started check itself was seen working earlier the same day.
+- Then the whole flow, on the iPhone with ZeroBill not open and running #3: `zn publish --channel staging --bundle 4`
+  at 21:46:56; the push woke the app, its check ran at 21:47:00 (UPDATE NEW_BUNDLE) and zerobill_4 (849 KB) was
+  downloaded the same second (read from the phone's zn-ota/state.json). It runs from the next start.
+- Again with ZeroBill swiped away in the app switcher (Pavan): #5 published at 21:48:53, zerobill_5 was on the phone
+  by 21:48:59; Pavan's next open applied it (was zerobill_4, 189 ms). Apple says a swiped-away app isn't woken by
+  background pushes, so this isn't counted on: the next start checks anyway.
+
+### 2026-11-10: iOS i.20: OTA lined up with Android; the OTA check started by push (Claude, Mac; Pavan: align with Windows)
+- From the Windows session's side-by-side check of the OTA constants (all the same but these):
+  - `ZnOta.swift`: a return from the background checks after 1 s (`Config.returnCheckDelayMs`), 3 s only the first
+    time in front after a cold start (Android 2e1df95, Pavan: the store screen came ~4 s after a return). The cover's
+    cap is 3 s, as Android's COVER_TIMEOUT_MS (4 s had no reason).
+- `plugins/firebase-messaging/ios/OtaPush.swift` (new; `FirebaseMessagingPlugin(otaCheck:)`, default true): the topic
+  `zn-ota-<app>-<channel>`, joined once per start when FCM has its token (FCM refuses a topic before APNs answered:
+  found on the simulator), the old one dropped; `zn_ota=check` runs `ZnOta.shared.check` natively. A random wait up to
+  10 s runs in the woken app's ~30 s (under a background task); a longer one becomes a BGAppRefreshTask
+  (`dev.zeronative.ota-check`) if the app declares it, else the next start checks. Same rules as PushRules.kt (a Mac
+  test: clamp, random range, topic names). The server sends the background `apns` block since Windows' 2ce485d.
+- Checked on the simulator (ZeroBill, "zn iPhone 16"): `subscribed to the OTA topic zn-ota-myapp-staging`; a
+  `zn_ota=check` push in front → `OTA check in 2710 ms (random in 0..3000 ms)` → `NONE NO_CHANNEL` (staging is empty).
+  Not checked: the app behind or closed. The simulator refuses to wake it for any background push ("doesn't declare
+  the proper UIBackgroundMode" while it does), so that needs Pavan's iPhone and a staging release (his go).
+- Then on Pavan's iPhone (his go; ZeroBill d208a35, staging): `zn release` gave #2 (the same bytes as the phone's
+  built-in) and #3 (a temporary log line, reverted), `zn publish --channel staging --bundle 3` at 21:27:34 → the
+  iPhone, app behind, ran the check at 21:27:36 (state.json): **the push woke it**. Its answer: `NONE STALE_SEQ`. The
+  phone had accepted staging seq 15 before the server's reset (2026-11-10), and the reset started pointers at 1 again,
+  so every phone that saw an old pointer refuses new ones until the seq passes its own (the anti-replay rule, right).
+  Server side: the Windows session. The download in the woken app's time is not checked yet.
+- Same day, the iPhone also showed the i.19 events working: 3 FCM pushes iOS showed (offers stacked, one cleared)
+  reached JS through the App Group notes in the background launch iOS made for the swipe (the phone's seen ids, no
+  kept tasks left, inbox rows for all three in ZeroBill's store).
+- `OtaPush.swift`: no Sendable warnings (Firebase imported with @preconcurrency; no UserDefaults or Messaging captured).
+
 ### 2026-11-10: iOS i.19: every event for pushes iOS shows itself (Claude, Mac; Pavan asked: plugin first, ZeroBill later)
 - `plugins/firebase-messaging/ios/FirebaseMessagingPlugin.swift`: a push iOS showed while the app was behind or closed
   now reaches JS once per message id as `push.message` with `shown: true` and `shownAt`: from the service extension's

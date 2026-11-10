@@ -31,7 +31,8 @@
 // - Data-only messages reach the app only while it runs, or as a background wake that iOS throttles and never gives
 //   after the user closed the app. JS doesn't start for a background launch yet (§3), so such a task waits for the next
 //   start and then times out.
-// - `zn_ota=check` messages do nothing on iOS yet (Android runs a background OTA check).
+// - `zn_ota=check` messages run core's OTA check natively (OtaPush.swift), as Android's OTA check job, within iOS's
+//   limits for background pushes.
 import Foundation
 import UIKit
 import UserNotifications
@@ -123,8 +124,11 @@ enum PushRules {
 /// so an app that lists only this plugin keeps its notifications.
 /// `foreground`: what iOS shows of a push while the app is in front. None by default: `push.message` runs and the app
 /// shows its own (with its tap rules), as on Android.
+/// `otaCheck`: a `zn_ota=check` message runs core's OTA check natively, and the app joins the OTA server's topic
+/// `zn-ota-<app>-<channel>` (OtaPush.swift; Android: PushPlugin(otaCheck)). False: the kept topic is left.
 struct FirebaseMessagingPlugin: ZnPlugin {
     var foreground: UNNotificationPresentationOptions = []
+    var otaCheck = true
 
     func register(_ r: ZnPluginRegistry) {
         r.requireHostApi(8)
@@ -134,6 +138,10 @@ struct FirebaseMessagingPlugin: ZnPlugin {
         module.start(on: on, foreground: foreground)
         module.startDelivered()
         r.module(module)
+        MainActor.assumeIsolated {
+            OtaPush.enabled = otaCheck
+            OtaPush.registerTask()  // before the launch ends (iOS's rule)
+        }
     }
 
     // The app delegate's calls (the file's header).
@@ -327,6 +335,8 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         #if canImport(FirebaseMessaging)
         if on { Messaging.messaging().apnsToken = token }  // FCM tells sandbox from production by the app's profile
         #endif
+        // A topic FCM refused before APNs answered (a fresh install) can be joined now
+        if on { DispatchQueue.main.async { OtaPush.syncTopic(firebaseOn: true) } }
         let waiters = lock.withLock { () -> [(String?) -> Void] in defer { apnsWaiters = []; apnsError = nil }; return apnsWaiters }
         waiters.forEach { $0(nil) }
     }
@@ -341,6 +351,8 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
 
     /// A new FCM token (FCM says it at every start): `push.token` when it changed since the last one JS took.
     fileprivate func newToken(_ token: String) {
+        // FCM says its token at every start once APNs answered: only then can it join a topic
+        if !token.isEmpty { DispatchQueue.main.async { OtaPush.syncTopic(firebaseOn: true) } }
         guard !token.isEmpty, UserDefaults.standard.string(forKey: Self.lastTokenKey) != token else { return }
         // FCM can say the same token twice at a start, before the first task has answered
         guard lock.withLock({ () -> Bool in defer { tokenRunning = token }; return tokenRunning != token }) else { return }
@@ -400,11 +412,11 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         if on { Messaging.messaging().appDidReceiveMessage(info) }  // FCM's delivery analytics
         #endif
         let data = PushRules.data(info)
-        if data[PushRules.otaKey] == PushRules.otaCheck {
-            print("zn-push: an OTA check message: not on iOS yet")
-            return done(false)
-        }
         guard first(info) else { return done(false) }
+        if data[PushRules.otaKey] == PushRules.otaCheck {
+            // Not for JS: core's OTA check (OtaPush.swift)
+            return DispatchQueue.main.async { OtaPush.message(data, id: PushRules.messageId(info), done: done) }
+        }
         let message = PushRules.message(info, inFront: inFront, notification: notification, now: Self.now)
         ZnTasks.shared.run(PushRules.messageTask, message, timeoutMs: PushRules.messageTimeoutMs) { outcome in
             if case .done = outcome { done(true) } else { done(false) }

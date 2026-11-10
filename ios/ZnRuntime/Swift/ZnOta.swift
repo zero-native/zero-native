@@ -522,6 +522,9 @@ final class ZnOta: @unchecked Sendable {
         var minCheckGapMs: Double = 5_000
         /// Wait after the app comes on screen before the first check, so startup is never slowed.
         var firstCheckDelayMs: Double = 3_000
+        /// Wait before the check on a return from the background (Android: Config.returnCheckDelayMs, Pavan 2026-11-10:
+        /// a 3 s wait made a store update screen come ~4 s after the return).
+        var returnCheckDelayMs: Double = 1_000
         /// A downloaded bundle is healthy once its first screens were up this long in the foreground. 0: only when JS
         /// calls `Updates.markHealthy()`.
         var healthyAfterMs: Double = 4_000
@@ -698,7 +701,7 @@ final class ZnOta: @unchecked Sendable {
         if !screensAreUp { armFirstScreen() } else { armHealthy() }
         // Checks at the first start and on returns from the background; not after a system alert or Control Center
         // (active again, never in the background).
-        if !frontOnce || wentBack { maybeAutoCheck() }
+        if !frontOnce || wentBack { maybeAutoCheck(returning: frontOnce) }
         frontOnce = true
         wentBack = false
     }
@@ -709,13 +712,14 @@ final class ZnOta: @unchecked Sendable {
         ZnOtaHealth.onBack()
     }
 
-    private func maybeAutoCheck() {
+    private func maybeAutoCheck(returning: Bool) {
         guard let c = Self.config else { return }
         let now = CACurrentMediaTime() * 1000
         if checkQueued || (lastAutoCheck != 0 && now - lastAutoCheck < max(c.checkIntervalMs, c.minCheckGapMs)) { return }
         lastAutoCheck = now
         checkQueued = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + c.firstCheckDelayMs / 1000) { [self] in
+        let delayMs = returning ? c.returnCheckDelayMs : c.firstCheckDelayMs
+        DispatchQueue.main.asyncAfter(deadline: .now() + delayMs / 1000) { [self] in
             checkQueued = false  // main thread, as the rest of the auto-check facts
             worker.async { [self] in _ = runCheck() }
         }
@@ -1284,7 +1288,7 @@ final class ZnOta: @unchecked Sendable {
     private var rollingBack = false
     private var coverView: UIView?
     private var uncoverWork: DispatchWorkItem?
-    private static let coverTimeout: TimeInterval = 4
+    private static let coverTimeout: TimeInterval = 3  // Android's COVER_TIMEOUT_MS
 
     enum Swap { case apply, rollBack, fallback }
 

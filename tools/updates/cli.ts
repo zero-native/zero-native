@@ -13,6 +13,7 @@
 //   bun run updates rollout --channel production --percent 50
 //   bun run updates kill --channel production --reason "…"                     (asks to type KILL PRODUCTION)
 //   bun run updates store-build --os android --channel production --label "production AAB" --version-code 170 --version-name 1.7.0
+//   bun run updates store-build --os ios --channel production --label "production IPA" --version-code 170 --version-name 1.7.0 --into ios/bundle
 //       builds the JS once (serial 0) to learn its SHA-256, takes the serial for those bytes (the same JS, from an OTA
 //       release or an earlier store build, gets the same number), builds the built-in bundle into the host's assets with
 //       it, records the store build, and uploads the built-in bundle as the base for OTA patches; then build the AAB / IPA as usual
@@ -20,7 +21,7 @@
 //       the normal JS build for any APK / IPA (an app's `app:js`): builds into the host's assets and gives the built-in
 //       bundle a real serial, never 0 (the serial the same bytes already have, else the next free one, not taken).
 //       Offline: dev keeps serial 0 with a warning; staging / production stop. Play / App Store builds use store-build.
-//   bun run updates base --serial 14                     uploads the base for an older store build (from the assets folder;
+//   bun run updates base --serial 14 [--into ios/bundle] uploads the base for an older store build (from the assets folder;
 //       the folder must hold that build's built-in bundle: the SHA-256 must match)
 //   bun run updates patches --bundle 12                  makes the patches of a bundle again and prints them
 //   bun run updates rule --os android --version 170 --critical 2 [--channel production] [--test] [--title …] [--message …]
@@ -428,7 +429,9 @@ async function main() {
       const versionCode = Number(a["version-code"])
       const versionName = a["version-name"] ?? ""
       if (!Number.isInteger(versionCode) || versionCode <= 0 || !versionName) fail("--version-code <n> --version-name <x.y.z>")
-      if (!c.assets) fail(`zn-updates.json has no "assets" (the host's assets folder, e.g. android/app/src/main/assets)`)
+      // --into: another host's folder (an IPA: ios/bundle); else zn-updates.json's "assets"
+      const into = a.into ?? c.assets
+      if (!into) fail(`zn-updates.json has no "assets" (the host's assets folder, e.g. android/app/src/main/assets); or pass --into <dir>`)
       const g = git(appDir)
       if (channel === "production" && g.dirty) fail("a production store build needs a clean working tree (commit first)")
       const cc = conn(c.server)
@@ -451,8 +454,8 @@ async function main() {
         const serial = reserved.serial
         if (reserved.existing) console.log(`  same bytes as the OTA bundle #${serial}: the store build gets that number`)
         // The build writes straight into the host's assets with the serial.
-        build(buildHere, resolve(appDir, c.assets), serial, map)
-        const info = readBundleInfo(resolve(appDir, c.assets))
+        build(buildHere, resolve(appDir, into), serial, map)
+        const info = readBundleInfo(resolve(appDir, into))
         if (info.serial !== serial) fail(`the built-in bundle has serial ${info.serial}, expected ${serial}`)
         // The bundle's SHA-256 covers the file list only, never the serial: it must not change. If it did, a file holds the serial.
         if (info.sha256 !== probed.sha256) {
@@ -463,13 +466,13 @@ async function main() {
           os, channel, label: a.label ?? `${channel} ${os === "ios" ? "IPA" : "AAB"}`, versionCode, versionName,
           builtinSerial: serial, builtinSha256: info.sha256, git: { commit: g.commit, dirty: g.dirty },
         })
-        console.log(`✓ store build ${versionName} (${versionCode}) for ${channel}: built-in bundle #${serial} (${info.id}) is in ${c.assets}`)
+        console.log(`✓ store build ${versionName} (${versionCode}) for ${channel}: built-in bundle #${serial} (${info.id}) is in ${into}`)
         // The built-in bundle is a base for patches: phones on this build then get small OTA downloads.
         try {
-          const base = await uploadBase(cc, c.app, serial, resolve(appDir, c.assets))
+          const base = await uploadBase(cc, c.app, serial, resolve(appDir, into))
           console.log(`✓ base for patches uploaded (${Math.round(base.size / 1024)} KB)`)
         } catch (e) {
-          fail(`the store build is recorded, but its base for patches was not uploaded: ${(e as Error).message}\n  Run \`bun run updates base --serial ${serial}\` before you change the assets folder.`)
+          fail(`the store build is recorded, but its base for patches was not uploaded: ${(e as Error).message}\n  Run \`bun run updates base --serial ${serial}${a.into ? ` --into ${a.into}` : ""}\` before you change the assets folder.`)
         }
         console.log(`  now build the ${os === "ios" ? "IPA" : "AAB"} as usual. Its family shows on the dashboard after the first phone checks.`)
       } finally {
@@ -482,15 +485,17 @@ async function main() {
       const c = config()
       const serial = Number(a.serial)
       if (!Number.isInteger(serial) || serial < 1) fail("base --serial <the store build's built-in serial>")
-      if (!c.assets) fail(`zn-updates.json has no "assets" (the host's assets folder, e.g. android/app/src/main/assets)`)
-      const dir = resolve(appDir, c.assets)
+      // --into: another host's folder (an IPA: ios/bundle); else zn-updates.json's "assets"
+      const into = a.into ?? c.assets
+      if (!into) fail(`zn-updates.json has no "assets" (the host's assets folder, e.g. android/app/src/main/assets); or pass --into <dir>`)
+      const dir = resolve(appDir, into)
       const cc = conn(c.server)
       const st = await call<{ storeBuilds: { builtinSerial: number; builtinSha256: string; label: string; baseSize: number | null }[] }>(cc, "GET", `/admin/apps/${c.app}/state`)
       const build = st.storeBuilds.find((b) => b.builtinSerial === serial)
       if (!build) fail(`no store build with built-in serial #${serial}`)
       const info = readBundleInfo(dir)
       if (info.sha256 !== build.builtinSha256) {
-        fail(`${c.assets} holds bundle ${info.sha256.slice(0, 12)} (#${info.serial}), the store build "${build.label}" has ${build.builtinSha256.slice(0, 12)}: check out that build's code and build it again, or point --app-dir at the right folder`)
+        fail(`${into} holds bundle ${info.sha256.slice(0, 12)} (#${info.serial}), the store build "${build.label}" has ${build.builtinSha256.slice(0, 12)}: check out that build's code and build it again, or point --app-dir at the right folder`)
       }
       const r = await uploadBase(cc, c.app, serial, dir)
       console.log(`✓ base for store build #${serial} ("${build.label}") uploaded (${Math.round(r.size / 1024)} KB)${build.baseSize ? " (it had one: replaced)" : ""}`)

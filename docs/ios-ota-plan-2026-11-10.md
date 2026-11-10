@@ -32,7 +32,9 @@ Recommended for launch:
   answer.
 - **Patches later.** The phone tells the server which patch formats it reads; iOS sends none, so the server sends
   full zips. Nothing breaks and nothing is lost but download size. Patches can come in a later app version.
-- **The push-triggered check comes with Phase 3** (push on iOS isn't built). Until then iOS checks at launch and on
+- **The push-triggered check: built 2026-11-10** (`plugins/firebase-messaging/ios/OtaPush.swift`, after Phase 3's FCM):
+  the topic, and `zn_ota=check` runs the check in the woken app's time (or a background refresh task the app may
+  declare). It needs the server's background `apns` block (the Windows session, `server/src/push.ts`). Before that, iOS checks at launch and on
   every return to the app (ZeroBill already asks for that: `checkIntervalMs = 0`).
 
 ## The steps (each ends with a commit and a check)
