@@ -186,6 +186,11 @@ forwards them to the Android machine. Work on the `ios` branch.
   > Settings > Components; only the 18.0 simulator runtime is installed). No Apple Distribution certificate yet: the
   export makes one with Pavan's account signed in to Xcode. The new Sign in with Apple entitlement updates the app id's
   profile at the first signed build.
+- Unblocked (Pavan installed the iOS 26.2 platform): an unsigned `xcodebuild archive` of ZeroBill succeeds, with the
+  app icon's asset catalog, release Hermes and the 10 privacy bundles. Found: the archive's dSYMs folder was empty (CMake's
+  Xcode project builds into its own Release-iphoneos folder); `tools/ios.ts --release` now copies the app's dSYM in
+  (ZeroBill a42a0e1, UUID checked). Still to do: the signed archive and export with Pavan's team, and a store build
+  (`updates store-build --os ios`) for the built-in bundle (the check used the old serial 22).
 - Not done: the zn sample's CMakeLists.txt has none of this yet (ZeroBill's is the App Store app).
 
 ### 2026-11-11: iOS TextField: autofill hints (Claude, Mac; Pavan asked)
