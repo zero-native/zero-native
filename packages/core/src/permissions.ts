@@ -9,7 +9,11 @@ import { callNative } from "./calls"
 /** "blocked": refused, and Android won't ask again: only the app's settings page can change it. */
 export type PermissionState = "granted" | "denied" | "blocked"
 
-/** A short name, or a full `android.permission.X`. */
+/**
+ * A short name, or a full `android.permission.X`. iOS: "contacts" works only in an app built with the Swift condition
+ * `ZN_CONTACTS` (and NSContactsUsageDescription), else it is "not_declared": the App Store refuses an app whose code
+ * references the Contacts API without that text.
+ */
 export type PermissionName = "camera" | "contacts" | "location" | "microphone" | "notifications" | (string & {})
 
 /**

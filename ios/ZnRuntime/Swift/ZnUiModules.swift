@@ -3,7 +3,9 @@
 // permissions.ts, splash.ts). Main-thread work runs with `onMain: true`.
 import AVFoundation
 import AudioToolbox
+#if ZN_CONTACTS
 import Contacts
+#endif
 import CoreLocation
 import UIKit
 import UserNotifications
@@ -206,6 +208,11 @@ final class ZnAlert: ZnModuleBase, @unchecked Sendable {
 /// Settings can change it). Names: camera, microphone, location (+ "location.precise"), notifications, contacts.
 /// A permission whose Info.plist usage text is missing is "not_declared" (iOS would end the app if asked). An Android
 /// name (`android.permission.X`) is "denied" here: it has no iOS meaning.
+///
+/// "contacts" is built only with the Swift condition `ZN_CONTACTS` (the app's SWIFT_ACTIVE_COMPILATION_CONDITIONS):
+/// App Store Connect refuses an app whose code references the Contacts API (CNContactStore) without an
+/// NSContactsUsageDescription, even if it never asks (ITMS-90683, ZeroBill 1.6.2). Without it, "contacts" is
+/// "not_declared" and a request for it is refused as not_declared.
 final class ZnPermissions: ZnModuleBase, @unchecked Sendable {
     private static let usageKeys = [
         "camera": "NSCameraUsageDescription", "microphone": "NSMicrophoneUsageDescription",
@@ -231,6 +238,11 @@ final class ZnPermissions: ZnModuleBase, @unchecked Sendable {
         }
         function("request", onMain: true) { call in
             let names = try self.names(call)
+            #if !ZN_CONTACTS
+            if names.contains("contacts") {
+                return call.reject("not_declared", "contacts isn't built in this app (Swift condition ZN_CONTACTS, plus NSContactsUsageDescription)")
+            }
+            #endif
             let missing = names.filter { n in Self.usageKeys[n].map { Bundle.main.object(forInfoDictionaryKey: $0) == nil } ?? false }
             if !missing.isEmpty {
                 return call.reject("not_declared", "no usage text in Info.plist for: \(missing.map { Self.usageKeys[$0]! }.joined(separator: ", "))")
@@ -261,9 +273,11 @@ final class ZnPermissions: ZnModuleBase, @unchecked Sendable {
             let type: AVMediaType = name == "camera" ? .video : .audio
             guard AVCaptureDevice.authorizationStatus(for: type) == .notDetermined else { return next() }
             AVCaptureDevice.requestAccess(for: type) { _ in next() }
+        #if ZN_CONTACTS
         case "contacts":
             guard CNContactStore.authorizationStatus(for: .contacts) == .notDetermined else { return next() }
             CNContactStore().requestAccess(for: .contacts) { _, _ in next() }
+        #endif
         case "notifications":
             UNUserNotificationCenter.current().getNotificationSettings { s in
                 guard s.authorizationStatus == .notDetermined else { return next() }
@@ -302,9 +316,13 @@ final class ZnPermissions: ZnModuleBase, @unchecked Sendable {
                         let s = AVCaptureDevice.authorizationStatus(for: n == "camera" ? .video : .audio)
                         out[n] = Self.state(granted: s == .authorized, notDetermined: s == .notDetermined)
                     case "contacts":
+                        #if ZN_CONTACTS
                         let s = CNContactStore.authorizationStatus(for: .contacts)
                         let granted = s == .authorized || s.rawValue == 4  // 4: .limited (iOS 18)
                         out[n] = Self.state(granted: granted, notDetermined: s == .notDetermined)
+                        #else
+                        out[n] = "not_declared"
+                        #endif
                     case "notifications":
                         let s = settings.authorizationStatus
                         out[n] = Self.state(granted: [.authorized, .provisional, .ephemeral].contains(s), notDetermined: s == .notDetermined)

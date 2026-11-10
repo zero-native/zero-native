@@ -149,6 +149,16 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-10: iOS: the Contacts API only with ZN_CONTACTS (Claude, Mac; TestFlight refused ZeroBill 1.6.2 (1))
+- App Store Connect refused the IPA with ITMS-90683: no NSContactsUsageDescription. ZeroBill never asks for contacts
+  (Flutter's app has no contacts text either), but the built-in Permissions module (ZnUiModules.swift) referenced
+  CNContactStore for its "contacts" name, and that alone needs the text.
+- Now the contacts code is built only with the Swift condition `ZN_CONTACTS` (an app's
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS). Without it "contacts" is "not_declared". ZeroBill's simulator build has no
+  CNContactStore left. The location plugin still imports Contacts for CNPostalAddressFormatter (no permission).
+- The rest of the IPA's privacy APIs were checked against Flutter's Info.plist: camera and location (when in use) have
+  texts; LAContext is only canEvaluatePolicy (no Face ID text needed); AVAudioSession only reads the audio route.
+
 ### 2026-11-10: OTA: `store-build --into` for an IPA (Claude, Mac; found by the the iOS app session)
 - `updates store-build` and `updates base` always used zn-updates.json's "assets" (ZeroBill: Android's assets
   folder), so an iOS store build rebuilt Android's built-in bundle and left ios/bundle on its dev bundle. Both now take
