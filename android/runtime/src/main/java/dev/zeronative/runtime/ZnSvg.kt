@@ -514,7 +514,7 @@ private class SvgScanner(private val s: String) {
         i = end + 1
         endOfToken("expected a space after ;")
         val nodes = try {
-            pathParser.pathStringToNodes(s.substring(start, end), ArrayList())
+            znAbsoluteMovesAfterClose(pathParser.pathStringToNodes(s.substring(start, end), ArrayList()))
         } catch (e: IllegalArgumentException) { // an unknown command letter
             fail("bad path data: ${e.message}", start)
         }
@@ -1906,6 +1906,54 @@ internal class ZnSvgLengths(ops: Array<SvgOp>, paths: Array<Path>, matrices: Arr
 
     /** Shape [index]'s whole drawn length. */
     fun length(index: Int): Float = contours[index].sum() * scale[index]
+}
+
+/**
+ * [nodes] with each relative move right after a close made absolute (the same shape). Compose's toPath hands a relative
+ * move to android.graphics.Path.rMoveTo; on Android 9 and older (old Skia) that starts from the last point drawn, not
+ * from the start of the closed shape as SVG says, so the next shapes and holes land in the wrong place (seen on an
+ * Infinix Hot 8). Returns [nodes] itself when no such move is in it.
+ */
+internal fun znAbsoluteMovesAfterClose(nodes: List<PathNode>): List<PathNode> {
+    var out: ArrayList<PathNode>? = null
+    var x = 0f
+    var y = 0f
+    var sx = 0f // start of the current shape
+    var sy = 0f
+    var prev: PathNode? = null
+    for ((k, n) in nodes.withIndex()) {
+        var put = n
+        when (n) {
+            is PathNode.Close -> { x = sx; y = sy }
+            is PathNode.MoveTo -> { x = n.x; y = n.y; sx = x; sy = y }
+            is PathNode.RelativeMoveTo -> {
+                x += n.dx; y += n.dy; sx = x; sy = y
+                if (prev is PathNode.Close) {
+                    put = PathNode.MoveTo(x, y)
+                    if (out == null) out = ArrayList<PathNode>(nodes.size).also { it.addAll(nodes.subList(0, k)) }
+                }
+            }
+            is PathNode.LineTo -> { x = n.x; y = n.y }
+            is PathNode.RelativeLineTo -> { x += n.dx; y += n.dy }
+            is PathNode.HorizontalTo -> x = n.x
+            is PathNode.RelativeHorizontalTo -> x += n.dx
+            is PathNode.VerticalTo -> y = n.y
+            is PathNode.RelativeVerticalTo -> y += n.dy
+            is PathNode.CurveTo -> { x = n.x3; y = n.y3 }
+            is PathNode.RelativeCurveTo -> { x += n.dx3; y += n.dy3 }
+            is PathNode.ReflectiveCurveTo -> { x = n.x2; y = n.y2 }
+            is PathNode.RelativeReflectiveCurveTo -> { x += n.dx2; y += n.dy2 }
+            is PathNode.QuadTo -> { x = n.x2; y = n.y2 }
+            is PathNode.RelativeQuadTo -> { x += n.dx2; y += n.dy2 }
+            is PathNode.ReflectiveQuadTo -> { x = n.x; y = n.y }
+            is PathNode.RelativeReflectiveQuadTo -> { x += n.dx; y += n.dy }
+            is PathNode.ArcTo -> { x = n.arcStartX; y = n.arcStartY }
+            is PathNode.RelativeArcTo -> { x += n.arcStartDx; y += n.arcStartDy }
+        }
+        out?.add(put)
+        prev = n
+    }
+    return out ?: nodes
 }
 
 private fun SvgPath.toPath(rule: Int): Path {

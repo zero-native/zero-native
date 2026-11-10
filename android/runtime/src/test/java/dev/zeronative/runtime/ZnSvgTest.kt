@@ -19,6 +19,21 @@ class ZnSvgTest {
     private fun read(s: String) = ZnSvgReader.read(s)
 
     @Test
+    fun relativeMoveAfterCloseBecomesAbsolute() {
+        // Android 9 and older start a relative m from the last point drawn (2,6 here), not the shape's start (2,2).
+        val nodes = androidx.compose.ui.graphics.vector.PathParser().pathStringToNodes("M2 2h4v4h-4zm6 0h4v4h-4zq1 1 2 0m1 1l1 1", ArrayList())
+        val fixed = znAbsoluteMovesAfterClose(nodes)
+        assertEquals(PathNode.MoveTo(8f, 2f), fixed[5])
+        // Only a move right after z changes; the relative m after the curve stays (every Android reads it the same).
+        assertEquals(PathNode.RelativeMoveTo(1f, 1f), fixed[11])
+        assertEquals(nodes.size, fixed.size)
+        assertEquals(nodes.filterIndexed { k, _ -> k != 5 }, fixed.filterIndexed { k, _ -> k != 5 })
+        // Nothing to change: the same list, no copy.
+        val plain = androidx.compose.ui.graphics.vector.PathParser().pathStringToNodes("M1 1l2 2zM5 5h1", ArrayList())
+        assertSame(plain, znAbsoluteMovesAfterClose(plain))
+    }
+
+    @Test
     fun headerAndAspectCodes() {
         val d = read("Z1 -1.5 0 24 12.25 4")
         assertEquals(-1.5f, d.vx)

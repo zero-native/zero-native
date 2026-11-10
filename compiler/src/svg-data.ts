@@ -285,7 +285,10 @@ export function writePath(p: PathCmd[], decimals: number): string {
         const x = r(c[1])
         const y = r(c[2])
         // The first M of a path is always absolute (relative to 0,0 it is the same).
-        choose("M", [x, y], [x - cx, y - cy])
+        // After z, always absolute: Android 9 and older (old Skia rMoveTo) take a relative m from the last point
+        // drawn, not from the start of the closed shape as SVG says, so holes and parts moved (Infinix Hot 8).
+        if (prevLetter === "z") emit("M", [x, y])
+        else choose("M", [x, y], [x - cx, y - cy])
         cx = sx = x
         cy = sy = y
         prevC = prevQ = null

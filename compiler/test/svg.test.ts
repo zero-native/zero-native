@@ -113,6 +113,12 @@ describe("path data", () => {
     const last = back[back.length - 1] as [string, number, number]
     expect(last[1]).toBeCloseTo(166.5, 6)
   })
+  test("an M after z is always written absolute (Android 9 and older read a relative m from the wrong point)", () => {
+    // Two squares; the second starts at 8,2 (start of the first + 6,0 in SVG terms). Relative "m6 0" would be shorter.
+    expect(writePath(parsePathData("M2 2h4v4h-4zm6 0h4v4h-4z"), 2)).toBe("M2 2H6V6H2zM8 2h4V6H8z")
+    // Without a z before it, a relative m stays allowed (every reader agrees on the point then).
+    expect(writePath(parsePathData("M20 20h4m2 0h4"), 2)).toBe("M20 20h4m2 0h4")
+  })
 })
 
 describe("colours", () => {

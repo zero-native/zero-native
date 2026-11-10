@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.graphics.vector.toPath
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
@@ -110,7 +111,7 @@ class ZnIcon(val minX: Float, val minY: Float, val width: Float, val height: Flo
             if (bar < 0) return null
             val box = spec.substring(0, bar).trim().split(Regex("[\\s,]+")).mapNotNull { it.toFloatOrNull() }
             if (box.size != 4 || box[2] <= 0f || box[3] <= 0f) return null
-            val path = PathParser().parsePathString(spec.substring(bar + 1)).toPath()
+            val path = znAbsoluteMovesAfterClose(PathParser().parsePathString(spec.substring(bar + 1)).toNodes()).toPath()
             return ZnIcon(box[0], box[1], box[2], box[3], path)
         }
     }

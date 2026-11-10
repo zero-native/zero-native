@@ -3010,3 +3010,11 @@ since 2026-11-09; every other module call (Os, SecureStore, Updates, NetInfo, al
   `zn ota ...`, `zn server --demo`, `zn where` (which checkout it uses).
 - **Don't** drop the checkout's folder from Gradle (`zeroNativeDir`) or CMake (`ZN_DIR`): they need the native code
   there, not the CLI.
+
+## 94. SVG paths on Android 9 and older: `z` then a relative `m` (runtime + compiler, 2026-11-10)
+- **Know:** nothing to change in your SVG files. Material Symbols icons write many shapes as `...z m6 0 ...`. Android 9
+  and older start that relative `m` from the last point drawn, not from the start of the closed shape (SVG's rule), so
+  holes and later shapes moved (the scan and receipt icons looked melted on an Infinix Hot 8). The compiler now writes
+  an absolute `M` after every `z`, and the Android runtime fixes the same in path data it reads (canvas `path` /
+  `clipPath`, `Icon`).
+- **Do** check new icons on an Android 9 phone or the API 24 emulator when an icon looks odd only on old phones.

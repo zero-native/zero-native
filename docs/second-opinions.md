@@ -3668,3 +3668,23 @@ change, and what evidence would make you change it?"
 - **Not verified:** the purge on the GCS store in production (tested on the folder store and in PGlite); the dashboard on a
   phone-width screen; `updates maps` against production (it writes to the production bucket: waits for Pavan's go).
 
+## 227. SVG: an absolute M after every z, in the compiler and the runtime (compiler + runtime, 2026-11-10; Opus, Pavan's bug)
+- **Bug:** filled icons with holes looked melted on an Infinix Hot 8 (Android 9), fine on the Lava (Android 14).
+- **Cause (proven):** not the GPU. Compose's `toPath` passes a relative `m` to `android.graphics.Path.rMoveTo`. Old Skia's
+  `rMoveTo` after `close()` starts from the last point drawn; newer Skia starts from the start of the closed shape (SVG's
+  rule). A small probe (`Path` built in `app_process`, bounds read back) on `M2 2h4v4h-4zm6 0h4v4h-4z`: API 24 emulator
+  gives bottom 10 (wrong), Lava API 34 gives bottom 6 (right). Our compiler wrote `zm...` as relative whenever shorter.
+  The GPU guesses (small path atlas, scaled path cache) were dropped: the shape is wrong before any drawing.
+- **Fix:** `writePath` (compiler/src/svg-data.ts) always writes `M` absolute after `z` (a few bytes per icon). The runtime
+  (`znAbsoluteMovesAfterClose`, ZnSvg.kt) turns a relative move right after a close into an absolute one when it reads
+  path data: SVG data, canvas `path` / `clipPath`, `Icon`. Same shape on Android 10+, once per parse, no per-frame cost.
+- **Judgment calls (mine):** fixed in both places. The compiler fix reaches phones by OTA (old APKs too); the runtime fix
+  covers path data that never goes through the compiler and bundles built by an older compiler. Applied on every API
+  level, not only <= 28: one code path, and the shape is the same on new Android.
+- **Not verified:** the Infinix itself (not connected; Android 9 is expected to behave like API 24 here, as the Skia
+  change came later). ZnSvgMorph is safe: it builds its `android.graphics.Path` from absolute `M` / `Z` only (checked in code).
+- **iOS (checked in code, 2026-11-10):** not affected. Every iOS path (SVG data in `ZnSvgData.swift`, `<Icon>`) goes
+  through our own `SvgPathParser` (`ios/ZnRuntime/Swift/ZnIcon.swift`), which keeps the point itself and sets it back to
+  the shape's start on `z` (SVG's rule), so a relative `m` after `z` is right; Core Graphics never sees a relative move.
+  Morphs (`ZnSvgMorph` in `ZnSvgGeometry.swift`) use absolute `M` / `Z` only. The compiler fix also covers it. Rule for
+  a new parser on any platform: after `z`, the current point is the shape's start.

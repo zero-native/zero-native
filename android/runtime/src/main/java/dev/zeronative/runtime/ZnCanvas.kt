@@ -456,7 +456,7 @@ private class CanvasParser(private val d: Float) {
             )
             "path" -> {
                 val data = o.opt("d") as? String ?: throw BadCommand("\"d\" must be a string")
-                val nodes = pathParser.pathStringToNodes(data, ArrayList())
+                val nodes = znAbsoluteMovesAfterClose(pathParser.pathStringToNodes(data, ArrayList()))
                 // Drawn under scale(density): the paint is in dp, so its gradient and stroke are not scaled twice.
                 CanvasOp.PathOp(nodes, paint(o, 1f), optNumV(o, "trimStart"), optNumV(o, "trimEnd"), optNumV(o, "trimOffset"))
             }
@@ -475,7 +475,7 @@ private class CanvasParser(private val d: Float) {
             "clipRoundRect" -> CanvasOp.ClipRoundRectOp(pxV(o, "x"), pxV(o, "y"), pxV(o, "w"), pxV(o, "h"), pxV(o, "r"), clipOp(o))
             "clipPath" -> {
                 val data = o.opt("d") as? String ?: throw BadCommand("\"d\" must be a string")
-                CanvasOp.ClipPathOp(pathParser.pathStringToNodes(data, ArrayList()), d, fillType(o), clipOp(o))
+                CanvasOp.ClipPathOp(znAbsoluteMovesAfterClose(pathParser.pathStringToNodes(data, ArrayList())), d, fillType(o), clipOp(o))
             }
             "" -> throw BadCommand("no \"type\"")
             else -> throw BadCommand("unknown type \"$type\"")
