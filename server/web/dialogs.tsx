@@ -3,8 +3,11 @@ import { type ReactNode, useState } from "react"
 import { ApiError, type Priority, routes } from "./api"
 import { channelNow, cannotRun, olderThanStoreBuilds, orderedChannels, PRODUCTION } from "./logic"
 import { buildPointer, loadSigningKey } from "./sign"
-import { Badge, Btn, Field, Modal, Notice, type DialogSpec, useApp } from "./ui"
-import { BUILT_IN, criticalWords, PRIORITY_LINES, showVersion, versionNumber } from "./util"
+import { Badge, Btn, Field, Modal, Notice, type DialogSpec, useApp, useLoad } from "./ui"
+import { BUILT_IN, criticalWords, dateOnly, num, PRIORITY_LINES, showVersion, versionNumber } from "./util"
+
+/** Days between a delete mark and the removal (server: model.DELETE_AFTER_DAYS). */
+const DELETE_DAYS = 30
 
 // ---- Shared bits ------------------------------------------------------------------------------------------------------
 
@@ -332,26 +335,127 @@ function TitleDialog({ spec }: { spec: Extract<DialogSpec, { t: "title" }> }) {
 
 // ---- Delete bundle ----------------------------------------------------------------------------------------------------
 
+/** "12 phones ran it in the last 30 days" (the server counts each phone once). */
+function PhonesLine({ load, what }: { load: () => Promise<{ phones: number; days: number }>; what: string }) {
+  const p = useLoad(load, [])
+  if (p.loading && !p.data) return <p className="muted">Counting the phones that ran {what}…</p>
+  if (p.error || !p.data) return <p className="muted">Could not count the phones that ran {what}.</p>
+  const { phones, days } = p.data
+  if (phones === 0) return <Notice tone="green">No phone ran {what} in the last {days} days.</Notice>
+  return (
+    <Notice tone="amber">
+      <strong>{num(phones)} {phones === 1 ? "phone" : "phones"}</strong> ran {what} in the last {days} days. They keep running it. Their next update is a full download, because the patches from it go too.
+    </Notice>
+  )
+}
+
 function DeleteDialog({ spec }: { spec: Extract<DialogSpec, { t: "delete" }> }) {
   const c = useApp()
   const act = useAction()
+  const b = c.state!.bundles.find((x) => x.serial === spec.serial)
+  const due = new Date(Date.now() + DELETE_DAYS * 86_400_000).toISOString()
   const submit = () =>
     act.run(async () => {
-      await routes.deleteBundle(c.appId, spec.serial)
-      c.toast(`#${spec.serial} deleted`)
-      c.go("/bundles")
+      await routes.markDelete(c.appId, spec.serial, spec.on)
+      c.toast(spec.on ? `#${spec.serial} goes on ${dateOnly(due)}. You can undo until then.` : `#${spec.serial} stays: delete mark taken off`)
       c.close()
       await c.reload()
     })
+  if (!spec.on) {
+    return (
+      <Modal title={`Keep #${spec.serial}`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind="primary" busy={act.busy} onClick={submit}>Keep #{spec.serial}</Btn></Foot>}>
+        <div className="dialog-stack">
+          <p>
+            #{spec.serial} was marked for delete{b?.deleteBy ? ` by ${b.deleteBy}` : ""}
+            {b?.deleteAt ? `, to go on ${dateOnly(b.deleteAt)}` : ""}. Taking the mark off keeps it, its patches and its source map. It shows in the list again and can be published again.
+          </p>
+          {act.box}
+        </div>
+      </Modal>
+    )
+  }
   return (
-    <Modal title={`Delete #${spec.serial}`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind="danger" busy={act.busy} onClick={submit}>Delete #{spec.serial}</Btn></Foot>}>
+    <Modal title={`Delete #${spec.serial}`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind="danger" busy={act.busy} onClick={submit}>Mark #{spec.serial} for delete</Btn></Foot>}>
       <div className="dialog-stack">
         <ul className="plain">
-          <li>Only the newest bundle can be deleted, and never one that was on production.</li>
+          <li>
+            It is hidden now and removed for good on <strong>{dateOnly(due)}</strong> ({DELETE_DAYS} days). Until then you can undo it from Bundles, filter "Marked for delete".
+          </li>
+          <li>Removed: its zip, the patches to and from it, and its source map (unless a store build has the same bytes).</li>
           <li>The number #{spec.serial} stays used. It is never given to another bundle.</li>
-          <li>A phone that ran it on staging keeps it until the next update.</li>
-          <li>This cannot be undone. You would have to build it again.</li>
+          <li>A bundle a channel serves can't be deleted, and nor can the built-in bundle of a store build marked live on the store.</li>
         </ul>
+        <PhonesLine load={() => routes.bundlePhones(c.appId, spec.serial)} what={`#${spec.serial}`} />
+        {act.box}
+      </div>
+    </Modal>
+  )
+}
+
+// ---- Store build: live mark, delete mark ------------------------------------------------------------------------------
+
+function StoreBuildDialog({ spec }: { spec: Extract<DialogSpec, { t: "storeBuild" }> }) {
+  const c = useApp()
+  const act = useAction()
+  const sb = c.state!.storeBuilds.find((x) => x.id === spec.id)
+  if (!sb) return null
+  const store = sb.os === "ios" ? "the App Store" : "Play"
+  const due = new Date(Date.now() + DELETE_DAYS * 86_400_000).toISOString()
+  const submit = () =>
+    act.run(async () => {
+      if (spec.mode === "live" || spec.mode === "unlive") await routes.storeLive(c.appId, sb.id, spec.mode === "live")
+      else await routes.storeDelete(c.appId, sb.id, spec.mode === "delete")
+      c.toast(
+        spec.mode === "live" ? `${sb.label} marked live on ${store}` : spec.mode === "unlive" ? `Live mark taken off ${sb.label}` : spec.mode === "delete" ? `${sb.label} goes on ${dateOnly(due)}` : `${sb.label} stays`,
+      )
+      c.close()
+      await c.reload()
+    })
+  const name = `${sb.label} (${sb.versionName}, ${sb.versionCode})`
+  const body: Record<typeof spec.mode, { title: string; button: string; danger?: boolean; text: ReactNode }> = {
+    live: {
+      title: `Mark ${name} live on ${store}`,
+      button: "Mark live",
+      text: (
+        <>
+          <p>Do this when customers can download this build from {store}. While it is marked live, nobody can delete it or its built-in bundle #{sb.builtinSerial}: phones on it need that bundle as the base for small patches.</p>
+          <p className="muted">Take the mark off when {store} no longer offers this build and few phones still run it.</p>
+        </>
+      ),
+    },
+    unlive: {
+      title: `Take the live mark off ${name}`,
+      button: "Take mark off",
+      text: <p>Then the build and its built-in bundle #{sb.builtinSerial} can be deleted. Do this only when {store} no longer offers it.</p>,
+    },
+    delete: {
+      title: `Delete ${name}`,
+      button: "Mark for delete",
+      danger: true,
+      text: (
+        <>
+          <ul className="plain">
+            <li>
+              It is hidden now and removed for good on <strong>{dateOnly(due)}</strong> ({DELETE_DAYS} days). You can undo it until then.
+            </li>
+            <li>Removed: this record and, when no other store build has the same built-in bundle, its patch base and the patches from it.</li>
+            <li>Built-in bundle #{sb.builtinSerial} keeps its number. If it was also released as an OTA bundle, that bundle stays.</li>
+          </ul>
+          <PhonesLine load={() => routes.storePhones(c.appId, sb.id)} what={`built-in #${sb.builtinSerial}`} />
+        </>
+      ),
+    },
+    undo: {
+      title: `Keep ${name}`,
+      button: "Keep it",
+      text: <p>It was marked for delete{sb.deleteBy ? ` by ${sb.deleteBy}` : ""}{sb.deleteAt ? `, to go on ${dateOnly(sb.deleteAt)}` : ""}. Taking the mark off keeps it and its patch base.</p>,
+    },
+  }
+  const d = body[spec.mode]
+  return (
+    <Modal title={d.title} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind={d.danger ? "danger" : "primary"} busy={act.busy} onClick={submit}>{d.button}</Btn></Foot>}>
+      <div className="dialog-stack">
+        {d.text}
         {act.box}
       </div>
     </Modal>
@@ -501,6 +605,8 @@ export function DialogHost({ spec }: { spec: DialogSpec | null }) {
       return <TitleDialog spec={spec} />
     case "delete":
       return <DeleteDialog spec={spec} />
+    case "storeBuild":
+      return <StoreBuildDialog spec={spec} />
     case "rule":
       return <RuleDialog spec={spec} />
     case "ruleDelete":

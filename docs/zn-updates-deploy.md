@@ -36,6 +36,11 @@ The server is `server/` (design: `docs/zn-updates-server.md`). It runs as one co
    The same file has a HealthCheckPolicy: the load balancer checks `/health`, because `/` answers 404 without a
    dashboard session. Without it a new pod never gets traffic and Cloud Build fails after 5 min (seen 2026-11-09).
 6. **Upload size:** the root `.gcloudignore` makes `gcloud builds submit` send only the files the image needs.
+   **A new file the server imports from outside `server/` must be added in three places:** `.gcloudignore` (what gcloud
+   uploads), `server/Dockerfile.dockerignore` (what Docker sees) and a `COPY` in `server/Dockerfile`. Miss one and the
+   build fails, or the new pod crashes with "Cannot find module" (2026-11-10: `compiler/src/sourcemap.ts`; the old pods
+   kept serving). Check before a deploy: copy only those files into an empty folder, `bun install --production`, then
+   `bun build server/src/index.ts --target bun` there; and `gcloud meta list-files-for-upload .` lists the upload.
 
 ## 2. Deploy (each time the server changes)
 From the zero-native repo root:

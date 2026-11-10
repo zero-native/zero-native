@@ -1,9 +1,9 @@
 // Overview, Bundles and the bundle page.
 import { useMemo, useState } from "react"
-import { type Bundle, routes, type State, type Stats, type StoreBuild } from "./api"
-import { bundleActions, cannotRun, channelNow, type ChannelNow, nextHints, PRODUCTION, STAGING } from "./logic"
+import { type Bundle, routes, type Sizes, type State, type Stats, type StoreBuild } from "./api"
+import { bundleActions, cannotRun, channelNow, type ChannelNow, keptStoreBuilds, nextHints, PRODUCTION, STAGING } from "./logic"
 import { Badge, Btn, Card, Empty, ErrorBox, Menu, Notice, PageHead, Segmented, Skeleton, Stat, useApp, useLoad, When } from "./ui"
-import { actionWords, ago, bytes, dateTime, kindWords, priorityWords, requiresList, serialOf, targetLabel } from "./util"
+import { actionWords, ago, bytes, dateOnly, dateTime, daysLeft, kindWords, priorityWords, requiresList, serialOf, targetLabel } from "./util"
 
 export function todayUtc() {
   return new Date().toISOString().slice(0, 10)
@@ -81,7 +81,9 @@ export function Overview() {
   const s = c.state!
   const act = useLoad(() => routes.activity(s.app.id, undefined, 8), [s.app.id, c.rev])
   const hints = nextHints(s, c.keyOk)
-  const stable = s.bundles.filter((b) => b.stableAt).length
+  const stable = s.bundles.filter((b) => b.stableAt && !b.deleteAt).length
+  const kept = s.bundles.filter((b) => !b.deleteAt).length
+  const marked = s.bundles.length - kept
   const rules = s.rules.android.length + s.rules.ios.length
   return (
     <>
@@ -100,7 +102,7 @@ export function Overview() {
         <ChannelCard s={s} name={PRODUCTION} />
       </div>
       <div className="grid stats">
-        <Stat label="Bundles" value={s.bundles.length} sub={`${stable} stable`} />
+        <Stat label="Bundles" value={kept} sub={`${stable} stable${marked ? `, ${marked} marked for delete` : ""}`} />
         <Stat label="Store builds" value={s.storeBuilds.length} sub={`${s.families.length} app build ${s.families.length === 1 ? "family" : "families"}`} />
         <Stat label="Store rules" value={rules} sub={`${s.rules.android.length} Play, ${s.rules.ios.length} App Store`} />
         <Stat label="Public keys" value={s.app.publicKeys.length} sub="can sign for this app" />
@@ -141,6 +143,11 @@ export function BundleBadges({ s, b, builtIn = [] }: { s: State; b: Bundle; buil
   const lacking = cannotRun(s, b)
   return (
     <div className="badges">
+      {b.deleteAt ? (
+        <Badge tone="red" title={`Marked by ${b.deleteBy ?? "?"}: removed for good on ${dateOnly(b.deleteAt)}. Undo from the menu.`}>
+          Deletes in {daysLeft(b.deleteAt)} {daysLeft(b.deleteAt) === 1 ? "day" : "days"}
+        </Badge>
+      ) : null}
       {b.liveOn.includes(STAGING) ? <Badge tone="blue">Live on staging</Badge> : null}
       {b.liveOn.includes(PRODUCTION) ? <Badge tone="brand">Live on production</Badge> : null}
       {b.everOn.includes(PRODUCTION) && !b.liveOn.includes(PRODUCTION) ? <Badge title="Production served it before">Was on production</Badge> : null}
@@ -148,6 +155,7 @@ export function BundleBadges({ s, b, builtIn = [] }: { s: State; b: Bundle; buil
       {b.manifest.git.dirty ? <Badge tone="amber" title="Built from uncommitted changes">Uncommitted</Badge> : null}
       {b.customerTitle ? <Badge title="What customers see">Title: {b.customerTitle}</Badge> : null}
       {builtIn.length ? <Badge title="Also inside a store build: phones on it already have this bundle">In the app</Badge> : null}
+      {builtIn.some((x) => x.liveAt) ? <Badge tone="green" title="Built into a store build marked live on the store: it can't be deleted">Live on the store</Badge> : null}
       {builtIn.map((sb) => (
         <Badge key={`${sb.os}-${sb.channel}-${sb.versionCode}`} tone="blue" title={`${sb.os === "ios" ? "iOS" : "Android"} ${sb.versionName} (${sb.versionCode}), ${sb.channel}`}>
           {sb.label}
@@ -162,7 +170,7 @@ export function BundleBadges({ s, b, builtIn = [] }: { s: State; b: Bundle; buil
   )
 }
 
-type Filter = "all" | "live" | "stable" | "none" | "builtin"
+type Filter = "all" | "live" | "stable" | "none" | "builtin" | "deleting"
 
 /**
  * A store build's built-in bundle, as a row of the Bundles list (Pavan, 2026-11-09: every bundle number is listed, so a
@@ -194,6 +202,11 @@ function BuiltInRow({ list }: { list: StoreBuild[] }) {
         </div>
         <div className="badges">
           <Badge title="Inside the store build: no channel serves it">In the app</Badge>
+          {list.some((x) => x.liveAt) ? (
+            <Badge tone="green" title="A store build with it is marked live on the store: it can't be deleted">
+              Live on {list.find((x) => x.liveAt)!.os === "ios" ? "App Store" : "Play"}
+            </Badge>
+          ) : null}
           {[...new Set(list.map((x) => x.channel))].map((ch) => (
             <ChannelTag key={ch} name={ch} />
           ))}
@@ -220,8 +233,9 @@ export function RowActions({ b }: { b: Bundle }) {
   const c = useApp()
   const s = c.state!
   const { steps, extras } = bundleActions(s, b)
-  const visible = steps.filter((a) => a.enabled).slice(0, 2)
-  const rest = [...steps.filter((a) => !visible.includes(a)), ...extras]
+  // Marked for delete: the one thing to offer is keeping it (publishing waits for that)
+  const visible = b.deleteAt ? extras.filter((a) => a.id === "undelete") : steps.filter((a) => a.enabled).slice(0, 2)
+  const rest = [...steps.filter((a) => !visible.includes(a)), ...extras.filter((a) => !visible.includes(a))]
   return (
     <div className="row-actions">
       {visible.map((a) => (
@@ -231,6 +245,18 @@ export function RowActions({ b }: { b: Bundle }) {
       ))}
       <Menu items={rest.map((a) => ({ label: a.label, onClick: () => c.open(a.dialog), disabled: !a.enabled, why: a.why, danger: a.danger }))} />
     </div>
+  )
+}
+
+/** "3 patches, from 41.2 KB": what phones on older bundles download instead of the full zip. */
+function PatchesText({ b }: { b: Bundle }) {
+  if (b.patches.length === 0) return <span title="Phones on older bundles download the full zip">no patches</span>
+  const small = Math.min(...b.patches.map((p) => p.size))
+  const from = b.patches.map((p) => `#${serialOf(p.fromId)} ${bytes(p.size)}`).join(", ")
+  return (
+    <span title={`Patches from: ${from}`}>
+      {b.patches.length} {b.patches.length === 1 ? "patch" : "patches"}, from {bytes(small)}
+    </span>
   )
 }
 
@@ -244,11 +270,14 @@ export function Bundles() {
     const has = (...texts: string[]) => !term || texts.some((t) => t.toLowerCase().includes(term))
     // One bundle = one serial: store builds are grouped by the serial of their built-in bundle
     const carriers = new Map<number, StoreBuild[]>()
-    for (const sb of s.storeBuilds) carriers.set(sb.builtinSerial, [...(carriers.get(sb.builtinSerial) ?? []), sb])
+    // Store builds marked for delete are listed on Store builds only
+    for (const sb of keptStoreBuilds(s)) carriers.set(sb.builtinSerial, [...(carriers.get(sb.builtinSerial) ?? []), sb])
     const builtText = (list: StoreBuild[]) => list.flatMap((sb) => [sb.label, sb.git.commit, sb.builtBy, sb.versionName, String(sb.versionCode), "built-in", "in the app"])
     // A bundle that is also built into a store build is ONE row (the bundle's), with the "In the app" chip
     const ota: Row[] = s.bundles
       .filter((b) => {
+        // Bundles marked for delete are hidden, except under their own filter (to undo one)
+        if ((filter === "deleting") !== !!b.deleteAt) return false
         const inApp = carriers.get(b.serial) ?? []
         if (filter === "builtin") return inApp.length > 0 && has(String(b.serial), b.gitSubject, b.manifest.git.commit, b.builtBy, b.customerTitle ?? "", ...builtText(inApp))
         if (filter === "live" && b.liveOn.length === 0) return false
@@ -265,6 +294,7 @@ export function Bundles() {
     return [...ota, ...builtIn].sort((x, y) => y.serial - x.serial)
   }, [s.bundles, s.storeBuilds, filter, q])
   const none = s.bundles.length === 0 && s.storeBuilds.length === 0
+  const marked = s.bundles.filter((b) => b.deleteAt).length
   return (
     <>
       <PageHead title="Bundles" sub="Every bundle of this app: the ones uploaded for channels, and the ones built into store builds. New ones come from the CLI (see Store builds & families for the commands)." />
@@ -278,6 +308,7 @@ export function Bundles() {
             ["stable", "Stable"],
             ["none", "Not on any channel"],
             ["builtin", "In an app"],
+            ...(marked || filter === "deleting" ? [["deleting", `Marked for delete (${marked})`] as [Filter, string]] : []),
           ]}
         />
         <input className="search" type="search" placeholder="Search number, commit, subject, person" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search bundles" />
@@ -285,7 +316,7 @@ export function Bundles() {
       {none ? (
         <Empty title="No bundles yet">Build one with the CLI: bun run updates build, then bun run updates upload.</Empty>
       ) : list.length === 0 ? (
-        <Empty title="No bundle matches">Change the filter or the search.</Empty>
+        filter === "deleting" ? <Empty title="Nothing is marked for delete" /> : <Empty title="No bundle matches">Change the filter or the search.</Empty>
       ) : (
         <div className="rows">
           {list.map(({ key, ota: b, builtIn }) => !b ? <BuiltInRow key={key} list={builtIn} /> : (
@@ -300,6 +331,7 @@ export function Bundles() {
                 <div className="brow-meta">
                   <span className="code">{b.manifest.git.commit.slice(0, 7)}</span>
                   <span>{bytes(b.manifest.zip.size)}</span>
+                  <PatchesText b={b} />
                   <span>
                     built by {b.builtBy}, <When at={b.builtAt} />
                   </span>
@@ -365,6 +397,14 @@ export function BundlePage({ serial }: { serial: number }) {
         right={<RowActions b={b} />}
       />
       <BundleBadges s={s} b={b} builtIn={s.storeBuilds.filter((sb) => sb.builtinSerial === b.serial)} />
+      {b.deleteAt ? (
+        <div className="mt">
+          <Notice tone="red">
+            Marked for delete by {b.deleteBy ?? "?"}. It goes for good on <strong>{dateOnly(b.deleteAt)}</strong>, with its patches and source map. Until then it can't be published.{" "}
+            <a href="#" onClick={(e) => { e.preventDefault(); c.open({ t: "delete", serial: b.serial, on: false }) }}>Keep it</a>
+          </Notice>
+        </div>
+      ) : null}
       <div className="grid two mt">
         <Card title="Facts">
           <dl className="facts wide">
@@ -462,6 +502,7 @@ export function BundlePage({ serial }: { serial: number }) {
           </>
         )}
       </Card>
+      <SizeCard serial={b.serial} />
       <Card title="Timeline">
         <ul className="timeline">
           {timeline(s, b).map((t, i) => (
@@ -475,6 +516,97 @@ export function BundlePage({ serial }: { serial: number }) {
         </ul>
       </Card>
     </>
+  )
+}
+
+// ---- Size by file (from the source map) -------------------------------------------------------------------------------
+
+function Bars({ parts, total, before }: { parts: { name: string; bytes: number }[]; total: number; before?: Map<string, number> }) {
+  const top = parts[0]?.bytes ?? 1
+  return (
+    <ul className="bars">
+      {parts.map((p) => {
+        const was = before?.get(p.name)
+        const change = was === undefined ? p.bytes : p.bytes - was
+        return (
+          <li key={p.name}>
+            <div className="bar-name" title={p.name}>
+              {p.name}
+            </div>
+            <div className="bar-track">
+              <div className="bar-fill" style={{ width: `${Math.max(1, (p.bytes / top) * 100)}%` }} />
+            </div>
+            <div className="bar-num num">{bytes(p.bytes)}</div>
+            <div className="bar-pct num muted">{((p.bytes / total) * 100).toFixed(1)}%</div>
+            {before ? (
+              <div className={`bar-change num ${change >= 1024 ? "red" : change <= -1024 ? "green" : "muted"}`}>
+                {was === undefined ? "new" : Math.abs(change) < 1024 ? "same" : `${change > 0 ? "+" : "−"}${bytes(Math.abs(change))}`}
+              </div>
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/** Biggest changes by folder against the bundle before (new folders count all their size, gone ones a minus). */
+function changes(now: Sizes, was: Sizes) {
+  const a = new Map(now.folders.map((f) => [f.name, f.bytes]))
+  const b = new Map(was.folders.map((f) => [f.name, f.bytes]))
+  const names = new Set([...a.keys(), ...b.keys()])
+  return [...names]
+    .map((name) => ({ name, change: (a.get(name) ?? 0) - (b.get(name) ?? 0) }))
+    .filter((x) => Math.abs(x.change) >= 1024)
+    .sort((x, y) => Math.abs(y.change) - Math.abs(x.change))
+    .slice(0, 8)
+}
+
+const signed = (n: number) => `${n >= 0 ? "+" : "−"}${bytes(Math.abs(n))}`
+
+function SizeCard({ serial }: { serial: number }) {
+  const c = useApp()
+  const r = useLoad(() => routes.bundleSize(c.appId, serial), [c.appId, serial])
+  const [view, setView] = useState<"folders" | "files">("folders")
+  const sz = r.data?.sizes
+  const before = r.data?.before ?? null
+  const total = sz ? sz.mapped + sz.unmapped : 0
+  const totalBefore = before ? before.sizes.mapped + before.sizes.unmapped : 0
+  const moved = sz && before ? changes(sz, before.sizes) : []
+  const was = before ? new Map((view === "folders" ? before.sizes.folders : before.sizes.files).map((p) => [p.name, p.bytes])) : undefined
+  const zip = c.state!.bundles.find((x) => x.serial === serial)?.manifest.zip.size ?? 0
+  return (
+    <Card
+      title="Size by file"
+      right={sz ? <Segmented<"folders" | "files"> value={view} onChange={setView} options={[["folders", "Packages & folders"], ["files", "Files"]]} /> : null}
+    >
+      {r.loading && !r.data ? (
+        <Skeleton rows={4} />
+      ) : r.error ? (
+        <ErrorBox error={r.error} retry={r.reload} />
+      ) : !sz ? (
+        <p className="muted">
+          No source map on the server for #{serial}. The CLI uploads one with each new bundle. For older bundles, run <span className="code">bun run updates maps</span> in the app folder.
+        </p>
+      ) : (
+        <>
+          <div className="grid stats tight">
+            <Stat label="JavaScript, about" value={bytes(total)} sub={`${sz.fileCount} source files`} />
+            {before ? <Stat label={`Change since #${before.serial}`} value={signed(total - totalBefore)} tone={total - totalBefore > 10 * 1024 ? "red" : undefined} sub="the JavaScript, before Hermes" /> : null}
+            {sz.unmapped > 0 ? <Stat label="Not from a file" value={bytes(sz.unmapped)} sub="code the bundler added" /> : null}
+          </div>
+          {moved.length ? (
+            <p className="muted small">
+              Biggest changes since #{before!.serial}: {moved.map((m) => `${m.name} ${signed(m.change)}`).join(", ")}
+            </p>
+          ) : null}
+          <Bars parts={view === "folders" ? sz.folders : sz.files} total={total} before={was} />
+          <p className="muted small mt">
+            The JavaScript before Hermes compiles it, read from the source map: about 10% under the real size, the same for every file. Good for "what is big" and "what grew", not for exact bytes. Phones download a zip of {bytes(zip)}.
+          </p>
+        </>
+      )}
+    </Card>
   )
 }
 

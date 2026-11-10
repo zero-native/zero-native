@@ -1,7 +1,7 @@
 # zn-updates image. Build from the zero-native repo root (the server shares code with tools/ota):
 #   docker build -f server/Dockerfile -t zn-updates .
 # Only the files below go into the image (server/Dockerfile.dockerignore keeps the context small).
-FROM oven/bun:1.3.2-slim
+FROM oven/bun:1.4.4-slim
 
 WORKDIR /app
 
@@ -10,6 +10,8 @@ COPY server/package.json ./package.json
 RUN bun install --production
 
 COPY tools/bundle-info.ts ./tools/bundle-info.ts
+# Source maps: decoding stacks and "size by file" (server/src/maps.ts, tools/ota/symbolicate.ts); no imports of its own
+COPY compiler/src/sourcemap.ts ./compiler/src/sourcemap.ts
 COPY tools/ota ./tools/ota
 COPY tools/updates ./tools/updates
 COPY server/src ./server/src

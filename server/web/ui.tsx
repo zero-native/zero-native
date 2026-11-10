@@ -10,7 +10,8 @@ export type DialogSpec =
   | { t: "change"; mode: "publish" | "rollback" | "rollout" | "kill"; channel: string; serial?: number }
   | { t: "stable"; serial: number; on: boolean }
   | { t: "title"; serial: number }
-  | { t: "delete"; serial: number }
+  | { t: "delete"; serial: number; on: boolean }
+  | { t: "storeBuild"; id: number; mode: "live" | "unlive" | "delete" | "undo" }
   | { t: "rule"; os: Os; channel: string; rule?: Rule }
   | { t: "ruleDelete"; os: Os; rule: Rule }
   | { t: "key" }

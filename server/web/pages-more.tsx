@@ -191,7 +191,8 @@ export function Phones() {
                             <When at={e.at} />
                           </span>
                         </div>
-                        {e.stack ? <CopyBlock text={e.stack} /> : <p className="muted small">No stack was sent.</p>}
+                        {e.decoded ? <CopyBlock text={e.decoded} /> : e.stack ? <CopyBlock text={e.stack} /> : <p className="muted small">No stack was sent.</p>}
+                        {e.stack && !e.decoded ? <p className="muted small">Shown as the phone sent it: the server has no source map for this bundle (bun run updates maps uploads them).</p> : null}
                       </li>
                     ))}
                   </ul>

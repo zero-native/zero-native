@@ -96,6 +96,9 @@ export interface Bundle {
   everOn: string[]
   /** Smaller than the full zip: what phones on an older bundle can download instead (made after the upload). */
   patches: Patch[]
+  /** Marked for delete: hidden, removed for good 30 days after the mark was made (null = not marked). */
+  deleteAt: string | null
+  deleteBy: string | null
 }
 export interface AppRecord {
   id: string
@@ -105,6 +108,7 @@ export interface AppRecord {
 }
 export type Os = "android" | "ios"
 export interface StoreBuild {
+  id: number
   os: Os
   channel: string
   label: string
@@ -119,6 +123,11 @@ export interface StoreBuild {
   builtAt: string
   /** Size of the built-in bundle's zip kept as a patch base; null = none (phones on it get full zips). */
   baseSize: number | null
+  /** Marked "live on Play / App Store" by a person: then it and its built-in bundle can't be deleted. */
+  liveAt: string | null
+  liveBy: string | null
+  deleteAt: string | null
+  deleteBy: string | null
 }
 export interface Family {
   family: string
@@ -155,7 +164,16 @@ export interface State {
 export interface Stats {
   phones: { day: string; running: string; phones: number }[]
   events: { day: string; bundle: string; kind: string; detail: string; count: number }[]
-  errors: { at: string; bundle: string; kind: string; detail: string; stack: string | null; sha: string | null }[]
+  /** decoded: the stack with the app's TSX file:line (when the bundle's source map is on the server), else null. */
+  errors: { at: string; bundle: string; kind: string; detail: string; stack: string | null; sha: string | null; decoded?: string | null }[]
+}
+/** The JS size by file and folder, read from a bundle's source map (the JS before Hermes, so about, not exact). */
+export interface Sizes {
+  mapped: number
+  unmapped: number
+  files: { name: string; bytes: number }[]
+  folders: { name: string; bytes: number }[]
+  fileCount: number
 }
 export interface ActivityRow {
   id: number
@@ -232,7 +250,13 @@ export const routes = {
     api<{ pointer: Pointer; kind: string }>("POST", `/admin/apps/${enc(app)}/pointers`, { pointer, confirm }),
   stable: (app: string, serial: number, on: boolean, note?: string) => api("POST", `/admin/apps/${enc(app)}/bundles/${serial}/stable`, { on, note }),
   title: (app: string, serial: number, title: string) => api("POST", `/admin/apps/${enc(app)}/bundles/${serial}/title`, { title }),
-  deleteBundle: (app: string, serial: number) => api("DELETE", `/admin/apps/${enc(app)}/bundles/${serial}`),
+  /** on = mark for delete (removed in 30 days), off = undo. */
+  markDelete: (app: string, serial: number, on: boolean) => api<{ deleteAt: string | null }>("POST", `/admin/apps/${enc(app)}/bundles/${serial}/delete`, { on }),
+  bundlePhones: (app: string, serial: number) => api<{ phones: number; days: number }>("GET", `/admin/apps/${enc(app)}/bundles/${serial}/phones`),
+  bundleSize: (app: string, serial: number) => api<{ sizes: Sizes | null; before: { serial: number; sizes: Sizes } | null }>("GET", `/admin/apps/${enc(app)}/bundles/${serial}/size`),
+  storeLive: (app: string, id: number, on: boolean) => api("POST", `/admin/apps/${enc(app)}/store-builds/${id}/live`, { on }),
+  storeDelete: (app: string, id: number, on: boolean) => api("POST", `/admin/apps/${enc(app)}/store-builds/${id}/delete`, { on }),
+  storePhones: (app: string, id: number) => api<{ phones: number; days: number }>("GET", `/admin/apps/${enc(app)}/store-builds/${id}/phones`),
   saveRule: (app: string, body: Record<string, unknown>) => api("POST", `/admin/apps/${enc(app)}/store-rules`, body),
   deleteRule: (app: string, channel: string, os: Os, version: number) => api("DELETE", `/admin/apps/${enc(app)}/store-rules/${os}/${version}?channel=${enc(channel)}`),
   storeCheck: (app: string, channel: string, os: Os, version: string) =>

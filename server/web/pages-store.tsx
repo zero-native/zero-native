@@ -1,10 +1,10 @@
 // Channels, Store updates, Store builds & families.
 import { useState } from "react"
-import { type Os, type Rule, routes, type State, type StoreAnswer } from "./api"
+import { type Os, type Rule, routes, type State, type StoreAnswer, type StoreBuild } from "./api"
 import { channelNow, orderedChannels, PRODUCTION } from "./logic"
 import { ChannelTag, servesText } from "./pages-bundles"
 import { Badge, Btn, Card, CopyBlock, Empty, Notice, PageHead, Segmented, Stat, useApp, When } from "./ui"
-import { bytes, capabilityList, criticalWords, dateTime, kindWords, priorityWords, showVersion, targetLabel, versionNumber } from "./util"
+import { bytes, capabilityList, criticalWords, dateOnly, dateTime, daysLeft, kindWords, priorityWords, showVersion, targetLabel, versionNumber } from "./util"
 
 // ---- Channels ---------------------------------------------------------------------------------------------------------
 
@@ -335,58 +335,131 @@ function Families({ s, href }: { s: State; href: (p: string) => string }) {
   )
 }
 
+/** What a phone on this store build downloads for the newest bundle: a patch (from its base) or the full zip. */
+function NextDownload({ s, b }: { s: State; b: StoreBuild }) {
+  const newest = s.bundles.filter((x) => !x.deleteAt && x.serial > b.builtinSerial).sort((x, y) => y.serial - x.serial)[0]
+  if (!newest) return <span className="muted">nothing newer</span>
+  const patch = newest.patches.find((p) => p.fromSha256 === b.builtinSha256)
+  return patch ? (
+    <span title={`#${newest.serial}: a patch of ${bytes(patch.size)} instead of the full ${bytes(newest.manifest.zip.size)}`}>
+      #{newest.serial}: <strong>{bytes(patch.size)}</strong> patch
+    </span>
+  ) : (
+    <span title={b.baseSize === null ? "No patch base: phones get the full zip" : "No patch from this build to the newest bundle"}>
+      #{newest.serial}: full zip, {bytes(newest.manifest.zip.size)}
+    </span>
+  )
+}
+
+function StoreBuildTable({ s, list, marked }: { s: State; list: StoreBuild[]; marked?: boolean }) {
+  const c = useApp()
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>On the store</th>
+            <th>Channel</th>
+            <th>Version</th>
+            <th>Built-in</th>
+            <th title="The built-in bundle's zip kept as a base for patches">Patch base</th>
+            <th title="What a phone on this build downloads to get the newest bundle">Next download</th>
+            <th>Family</th>
+            <th>Git</th>
+            <th>Built</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((b) => (
+            <tr key={b.id}>
+              <td className="strong">
+                {b.label}
+                <div className="muted small">{b.os === "ios" ? "iOS" : "Android"}</div>
+              </td>
+              <td>
+                {b.deleteAt ? (
+                  <Badge tone="red" title={`Marked by ${b.deleteBy ?? "?"}: removed for good on ${dateOnly(b.deleteAt)}`}>
+                    Deletes in {daysLeft(b.deleteAt)} {daysLeft(b.deleteAt) === 1 ? "day" : "days"}
+                  </Badge>
+                ) : b.liveAt ? (
+                  <Badge tone="green" title={`Marked live by ${b.liveBy ?? "?"}, ${dateTime(b.liveAt)}: it and its built-in bundle can't be deleted`}>
+                    Live on {b.os === "ios" ? "App Store" : "Play"}
+                  </Badge>
+                ) : (
+                  <span className="muted">not marked</span>
+                )}
+              </td>
+              <td>
+                <ChannelTag name={b.channel} />
+              </td>
+              <td className="num">
+                {b.versionName} ({b.versionCode})
+              </td>
+              <td className="num">
+                {s.bundles.some((x) => x.serial === b.builtinSerial) ? <a href={c.href(`/bundles/${b.builtinSerial}`)}>#{b.builtinSerial}</a> : `#${b.builtinSerial}`}
+              </td>
+              <td>{b.baseSize ? bytes(b.baseSize) : <span className="muted">none</span>}</td>
+              <td>{marked ? <span className="muted">-</span> : <NextDownload s={s} b={b} />}</td>
+              <td>{b.family ? <span className="code">{b.family}</span> : <span className="muted">learning from the first phone</span>}</td>
+              <td>
+                <span className="code">{b.git.commit.slice(0, 7)}</span> {b.git.dirty ? <Badge tone="amber">uncommitted</Badge> : null}
+              </td>
+              <td title={dateTime(b.builtAt)}>
+                {b.builtBy}, <When at={b.builtAt} />
+              </td>
+              <td>
+                {b.deleteAt ? (
+                  <Btn small kind="soft" onClick={() => c.open({ t: "storeBuild", id: b.id, mode: "undo" })}>
+                    Keep it
+                  </Btn>
+                ) : (
+                  // Buttons, not a menu: the table scrolls sideways and would cut a menu off
+                  <div className="btn-row nowrap">
+                    {b.liveAt ? (
+                      <Btn small kind="ghost" onClick={() => c.open({ t: "storeBuild", id: b.id, mode: "unlive" })}>
+                        Not live
+                      </Btn>
+                    ) : (
+                      <Btn small kind="soft" onClick={() => c.open({ t: "storeBuild", id: b.id, mode: "live" })}>
+                        Mark live
+                      </Btn>
+                    )}
+                    <Btn small kind="ghost" disabled={!!b.liveAt} title={b.liveAt ? "Marked live on the store: take that mark off first" : undefined} onClick={() => c.open({ t: "storeBuild", id: b.id, mode: "delete" })}>
+                      Delete
+                    </Btn>
+                  </div>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function StoreBuilds() {
   const c = useApp()
   const s = c.state!
+  const kept = s.storeBuilds.filter((b) => !b.deleteAt)
+  const marked = s.storeBuilds.filter((b) => b.deleteAt)
   return (
     <>
       <PageHead title="Store builds & families" sub="The app builds you put on Play and the App Store, and which bundles each can run." />
-      <Card title="Store builds">
-        {s.storeBuilds.length === 0 ? (
+      <Card title="Store builds" right={<span className="muted small">Mark a build live when customers can download it: then nobody can delete it.</span>}>
+        {kept.length === 0 ? (
           <Empty title="No store builds yet">Make one with the commands below. It reserves the built-in bundle's number.</Empty>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Label</th>
-                  <th>OS</th>
-                  <th>Channel</th>
-                  <th>Version</th>
-                  <th>Built-in</th>
-                  <th title="The built-in bundle's zip kept as a base for patches">Patch base</th>
-                  <th>Family</th>
-                  <th>Git</th>
-                  <th>Built</th>
-                </tr>
-              </thead>
-              <tbody>
-                {s.storeBuilds.map((b) => (
-                  <tr key={`${b.os}-${b.channel}-${b.versionCode}-${b.builtinSerial}`}>
-                    <td className="strong">{b.label}</td>
-                    <td>{b.os === "ios" ? "iOS" : "Android"}</td>
-                    <td>
-                      <ChannelTag name={b.channel} />
-                    </td>
-                    <td className="num">
-                      {b.versionName} ({b.versionCode})
-                    </td>
-                    <td className="num">#{b.builtinSerial}</td>
-                    <td>{b.baseSize ? bytes(b.baseSize) : <span className="muted">none</span>}</td>
-                    <td>{b.family ? <span className="code">{b.family}</span> : <span className="muted">learning from the first phone</span>}</td>
-                    <td>
-                      <span className="code">{b.git.commit.slice(0, 7)}</span> {b.git.dirty ? <Badge tone="amber">uncommitted</Badge> : null}
-                    </td>
-                    <td title={dateTime(b.builtAt)}>
-                      {b.builtBy}, <When at={b.builtAt} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <StoreBuildTable s={s} list={kept} />
         )}
       </Card>
+      {marked.length ? (
+        <Card title={`Marked for delete (${marked.length})`} right={<span className="muted small">Removed for good 30 days after the mark. Keep one to undo.</span>}>
+          <StoreBuildTable s={s} list={marked} marked />
+        </Card>
+      ) : null}
       <h2 className="section">App build families</h2>
       <Families s={s} href={c.href} />
       <h2 className="section">Commands</h2>

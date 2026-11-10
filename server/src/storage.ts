@@ -1,13 +1,15 @@
 // Where bundle zips live: a local folder (`file:<folder>`) or a GCS bucket (`gs://<bucket>/<prefix>`). Files are
 // written once and never changed (their path has their SHA-256 in it), so the server keeps a local copy of every
 // file it serves and answers Range requests from that copy (RN learned: streaming each request from GCS is slow).
-import { mkdirSync, renameSync } from "node:fs"
+import { mkdirSync, renameSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 export interface FileStore {
   readonly where: string
   /** Writes the file (a retry of the same path writes the same bytes). */
-  put(path: string, data: Uint8Array): Promise<void>
+  put(path: string, data: Uint8Array, contentType?: string): Promise<void>
+  /** Deletes the file (and the local copy); a file that isn't there is fine. */
+  remove(path: string): Promise<void>
   /** A local file with the bytes (downloaded once into the cache for GCS), or null if the store doesn't have it. */
   local(path: string): Promise<string | null>
 }
@@ -47,6 +49,10 @@ class FolderStore implements FileStore {
     const full = join(this.root, ...path.split("/"))
     return (await Bun.file(full).exists()) ? full : null
   }
+  async remove(path: string) {
+    checkPath(path)
+    rmSync(join(this.root, ...path.split("/")), { force: true })
+  }
 }
 
 class GcsStore implements FileStore {
@@ -71,12 +77,17 @@ class GcsStore implements FileStore {
   private key(path: string) {
     return this.prefix ? `${this.prefix}/${path}` : path
   }
-  async put(path: string, data: Uint8Array) {
+  async put(path: string, data: Uint8Array, contentType = "application/zip") {
     checkPath(path)
-    await (await this.b()).file(this.key(path)).save(Buffer.from(data), { resumable: false, contentType: "application/zip" })
+    await (await this.b()).file(this.key(path)).save(Buffer.from(data), { resumable: false, contentType })
     const full = join(this.cacheDir, ...path.split("/"))
     mkdirSync(dirname(full), { recursive: true })
     await Bun.write(full, data)
+  }
+  async remove(path: string) {
+    checkPath(path)
+    await (await this.b()).file(this.key(path)).delete({ ignoreNotFound: true })
+    rmSync(join(this.cacheDir, ...path.split("/")), { force: true })
   }
   local(path: string): Promise<string | null> {
     checkPath(path)

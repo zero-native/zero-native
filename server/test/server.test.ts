@@ -659,7 +659,7 @@ describe("OTA patches", () => {
   })
 
   test("a base that can't be read is logged as patches.failed; the other patches are made, the old patch stays", async () => {
-    const broken: FileStore = { where: files.where, put: (p, d) => files.put(p, d), local: (p) => (p.includes("/bases/") ? Promise.resolve(null) : files.local(p)) }
+    const broken: FileStore = { where: files.where, put: (p, d) => files.put(p, d), remove: (p) => files.remove(p), local: (p) => (p.includes("/bases/") ? Promise.resolve(null) : files.local(p)) }
     const r = await makeFor(db, broken, "patchy", 3, "test", true)
     expect([r.made.map((m) => m.from), r.failed.map((f) => f.from)]).toEqual([["patchy_1"], ["patchy_2"]])
     expect(r.failed[0]!.error).toContain("bases/")
@@ -906,7 +906,7 @@ const out = arg("--out")
 const serial = Number(arg("--serial"))
 mkdirSync(out, { recursive: true })
 writeFileSync(out + "/main.hbc", (process.env.FAKE_JS ?? "v1").repeat(100) + (process.env.FAKE_SERIAL_IN_JS ? serial : ""))
-writeFileSync(arg("--map"), "{}")
+writeFileSync(arg("--map"), JSON.stringify({ version: 3, sources: ["src/App.tsx"], names: [], mappings: "AAAA" }))
 await writeBundleInfo(out, { app: "${app}", serial, names: ["main.hbc"], requires: ${JSON.stringify(requires)} })
 `,
     )
@@ -921,6 +921,9 @@ await writeBundleInfo(out, { app: "${app}", serial, names: ["main.hbc"], require
     const st = await sbs()
     expect(st.storeBuilds.map((b) => [b.builtinSerial, b.versionCode, b.baseSize !== null])).toEqual([[1, 1, true]])
     expect(readBundleInfo(join(appDir, "assets")).serial).toBe(1)
+    // the source map went to the server too (stacks from phones are decoded there)
+    const m = await call<{ sources: string[] }>(c, "GET", `/admin/apps/${app}/maps/${readBundleInfo(join(appDir, "assets")).sha256}`)
+    expect(m.sources).toEqual(["src/App.tsx"])
   }, 60_000)
 
   test("store-build again with the same JS: the same number (a second store build with that serial, one base)", async () => {
@@ -1064,5 +1067,157 @@ describe("dashboard sign-in", () => {
     expect((await raw("/admin/apps", { headers: { authorization: `Bearer ${TOKEN}` } })).status).toBe(429) // even the right one, for a while
     resetFailures()
     expect((await raw("/admin/apps", { headers: { authorization: `Bearer ${TOKEN}` } })).status).toBe(200)
+  })
+})
+
+describe("delete with a 30-day hold, the live mark, source maps (2026-11-10)", () => {
+  const T = "trim"
+  async function trimBuilt(code: string): Promise<string> {
+    const dir = mkdtempSync(join(tmpdir(), "znu-trim-"))
+    writeFileSync(join(dir, "main.hbc"), code)
+    writeFileSync(join(dir, "main.zn.ui"), "templates")
+    await writeBundleInfo(dir, { app: T, serial: 0, names: ["main.hbc", "main.zn.ui"], requires })
+    return dir
+  }
+  const mark = (serial: number, on = true) => call<{ deleteAt: string | null }>(c, "POST", `/admin/apps/${T}/bundles/${serial}/delete`, { on })
+  type TrimState = {
+    bundles: { serial: number; deleteAt: string | null; manifest: { bundleSha256: string; zip: { path: string } } }[]
+    storeBuilds: { id: number; builtinSerial: number; versionCode: number; liveAt: string | null; deleteAt: string | null }[]
+  }
+  const st = () => call<TrimState>(c, "GET", `/admin/apps/${T}/state`)
+  const sha: Record<number, string> = {}
+  const map = JSON.stringify({ version: 3, sources: ["src/Home.tsx", "src/Pay.tsx"], names: [], mappings: "AAAA,SCAA,KAAK;AAAL" })
+
+  test("setup: bundles #1, #2 (staging serves #2), a store build #3 whose bytes are also released as an OTA bundle", async () => {
+    await call(c, "POST", "/admin/apps", { id: T, name: "Trim", publicKeys: [keys.publicBase64] })
+    for (const code of ["one", "two"]) {
+      const r = await uploadBuilt(c, await trimBuilt(code), keys.privatePem, clean)
+      sha[r.manifest.serial] = r.manifest.bundleSha256
+    }
+    await changeChannel(c, keys.privatePem, { app: T, channel: "staging", target: 2, rollout: 100 })
+    const dir = await trimBuilt("three")
+    const info = readBundleInfo(dir)
+    const s = await call<{ serial: number }>(c, "POST", `/admin/apps/${T}/serials`, { kind: "store", sha256: info.sha256, requires: info.requires })
+    expect(s.serial).toBe(3)
+    await call(c, "POST", `/admin/apps/${T}/store-builds`, {
+      os: "android", channel: "production", label: "production AAB", versionCode: 10, versionName: "1.0.0",
+      builtinSerial: 3, builtinSha256: info.sha256, capabilities: caps, git: { commit: "abc1234", dirty: false },
+    })
+    const r3 = await uploadBuilt(c, await trimBuilt("three"), keys.privatePem, clean)
+    expect(r3.manifest.serial).toBe(3) // the same bytes: the store build's number
+    sha[3] = r3.manifest.bundleSha256
+  })
+
+  test("a bundle a channel serves can't be marked; others can, with an undo; a marked bundle can't be published", async () => {
+    await expect(mark(2)).rejects.toThrow(/staging serves #2/)
+    const m = await mark(1)
+    const days = (Date.parse(m.deleteAt!) - Date.now()) / 86_400_000
+    expect(days).toBeGreaterThan(29.9)
+    expect(days).toBeLessThan(30.1)
+    await expect(mark(1)).rejects.toThrow(/already marked/)
+    await expect(changeChannel(c, keys.privatePem, { app: T, channel: "staging", target: 1, rollout: 100 })).rejects.toThrow(/marked for delete/)
+    expect((await mark(1, false)).deleteAt).toBeNull()
+    await expect(mark(1, false)).rejects.toThrow(/not marked/)
+    // DELETE (older dashboards, the CLI) is a mark too, not a removal
+    await call(c, "DELETE", `/admin/apps/${T}/bundles/1`)
+    expect((await st()).bundles.find((b) => b.serial === 1)!.deleteAt).not.toBeNull()
+  })
+
+  test("the live mark: a live store build and its built-in bundle can't be marked; without it they can", async () => {
+    const id = (await st()).storeBuilds[0]!.id
+    await call(c, "POST", `/admin/apps/${T}/store-builds/${id}/live`, { on: true })
+    expect((await st()).storeBuilds[0]!.liveAt).not.toBeNull()
+    await expect(mark(3)).rejects.toThrow(/marked live on the store/)
+    await expect(call(c, "POST", `/admin/apps/${T}/store-builds/${id}/delete`, { on: true })).rejects.toThrow(/marked live/)
+    await call(c, "POST", `/admin/apps/${T}/store-builds/${id}/live`, { on: false })
+    await call(c, "POST", `/admin/apps/${T}/store-builds/${id}/delete`, { on: true })
+    await expect(call(c, "POST", `/admin/apps/${T}/store-builds/${id}/live`, { on: true })).rejects.toThrow(/undo that first/)
+    expect((await st()).storeBuilds[0]!.deleteAt).not.toBeNull()
+  })
+
+  test("phones on a bundle in the last 30 days: as an OTA bundle or as the APK's own", async () => {
+    const ask = (installId: string, over: object) => fetch(`${base}/v1/check`, { method: "POST", body: JSON.stringify({ ...phoneReq(), app: T, installId, ...over }) })
+    await ask("install-trim-1", { running: { id: `${T}_1`, sha256: sha[1] } })
+    await ask("install-trim-2", { builtIn: { id: `${T}_3`, serial: 3, sha256: sha[3] } })
+    await ask("install-trim-3", { builtIn: { id: `${T}_3`, serial: 3, sha256: sha[3] } })
+    expect((await call<{ phones: number }>(c, "GET", `/admin/apps/${T}/bundles/1/phones`)).phones).toBe(1)
+    expect((await call<{ phones: number }>(c, "GET", `/admin/apps/${T}/bundles/3/phones`)).phones).toBe(2)
+    const id = (await st()).storeBuilds[0]!.id
+    expect((await call<{ phones: number }>(c, "GET", `/admin/apps/${T}/store-builds/${id}/phones`)).phones).toBe(2)
+  })
+
+  test("source maps: upload, read back; a phone's stack is shown with its TSX lines; the size by file", async () => {
+    const send = (s: string, body: string) => {
+      const form = new FormData()
+      form.append("map", new Blob([body]), "x.map")
+      return call(c, "POST", `/admin/apps/${T}/maps/${s}`, form)
+    }
+    await expect(send(sha[2]!, "not json")).rejects.toThrow(/not JSON/)
+    await expect(send("abc", map)).rejects.toThrow(/64 hex/)
+    await send(sha[2]!, map)
+    expect(await (await fetch(`${base}/admin/apps/${T}/maps/${sha[2]}`, { headers: { authorization: `Bearer ${TOKEN}` } })).text()).toBe(map)
+    await expect(call(c, "GET", `/admin/apps/${T}/maps/${"0".repeat(64)}`)).rejects.toThrow(/no source map/)
+
+    const stack = "TypeError: x\n    at Pay (main.js:2:1)\n    at Home (main.js:1:3)"
+    await fetch(`${base}/v1/check`, {
+      method: "POST",
+      body: JSON.stringify({ ...phoneReq(), app: T, installId: "install-trim-4", running: { id: `${T}_2`, sha256: sha[2] }, outcomes: [{ kind: "error_screen", bundle: `${T}_2`, detail: "x", stack, sha: sha[2] }] }),
+    })
+    const s = await call<{ errors: { stack: string; decoded: string | null }[] }>(c, "GET", `/admin/apps/${T}/stats?channel=staging&days=1`)
+    expect(s.errors[0]!.decoded).toContain("src/Pay.tsx:1:1 (main.js:2:1)")
+    expect(s.errors[0]!.decoded).toContain("src/Home.tsx:1:3 (main.js:1:3)")
+
+    type Size = { sizes: { mapped: number; files: { name: string; bytes: number }[]; folders: { name: string }[] } | null; before: unknown }
+    const z = await call<Size>(c, "GET", `/admin/apps/${T}/bundles/2/size`)
+    // Line 1: Home 0-9, Pay 9-14 and 14 (+1, a line's last piece); line 2: Pay at 0 (+1)
+    expect(z.sizes!.files).toEqual([{ name: "src/Home.tsx", bytes: 9 }, { name: "src/Pay.tsx", bytes: 7 }])
+    expect(z.sizes!.folders[0]!.name).toBe("src")
+    expect(z.before).toBeNull()
+    expect((await call<Size>(c, "GET", `/admin/apps/${T}/bundles/1/size`)).sizes).toBeNull() // no map
+  })
+
+  test("purge: due marks go (rows and files), the serial stays taken; a bundle a channel serves keeps no mark", async () => {
+    const { purgeDeleted } = await import("../src/model")
+    const zip1 = (await st()).bundles.find((b) => b.serial === 1)!.manifest.zip.path
+    expect(await files.local(zip1)).not.toBeNull()
+    // Not due yet: nothing goes
+    expect(await purgeDeleted(db, files)).toEqual({ bundles: [], storeBuilds: [] })
+    // Staging serves #2: a mark made behind the rules' back is taken off, not acted on
+    await db.query(`UPDATE bundles SET delete_at = now() WHERE app = $1 AND serial = 2`, [T])
+    // A second store build with built-in #3 (not marked), and OTA #3 marked: the patches from #3's bytes and its map
+    // must stay for that store build's phones. Patches from #1 (nobody keeps its bytes) go.
+    await call(c, "POST", `/admin/apps/${T}/store-builds`, {
+      os: "android", channel: "production", label: "production AAB 11", versionCode: 11, versionName: "1.0.1",
+      builtinSerial: 3, builtinSha256: sha[3], capabilities: caps, git: { commit: "abc1234", dirty: false },
+    })
+    await mark(3)
+    const fake = async (from: number) => {
+      const path = `${T}/patches/${T}_2/${sha[from]}.zip`
+      await files.put(path, new Uint8Array([1, 2, 3]))
+      await db.query(`INSERT INTO patches (app, to_id, from_id, from_sha256, path, sha256, size) VALUES ($1, $2, $3, $4, $5, $6, 3)`, [T, `${T}_2`, `${T}_${from}`, sha[from], path, "0".repeat(64)])
+      return path
+    }
+    const fromOne = await fake(1)
+    const fromThree = await fake(3)
+    await files.put(`${T}/maps/${sha[3]}.map`, new TextEncoder().encode(map))
+    const later = new Date(Date.now() + 31 * 86_400_000)
+    const r = await purgeDeleted(db, files, later)
+    expect(r.bundles.sort()).toEqual([1, 3])
+    expect(r.storeBuilds.length).toBe(1)
+    const after = await st()
+    expect(after.bundles.map((b) => b.serial).sort()).toEqual([2])
+    expect(after.bundles.find((b) => b.serial === 2)!.deleteAt).toBeNull()
+    expect(after.storeBuilds.map((b) => b.versionCode)).toEqual([11])
+    expect(await files.local(zip1)).toBeNull()
+    expect(await files.local(fromOne)).toBeNull()
+    expect(await files.local(fromThree)).not.toBeNull()
+    expect((await db.query<{ from_id: string }>(`SELECT from_id FROM patches WHERE app = $1`, [T])).map((p) => p.from_id)).toEqual([`${T}_3`])
+    expect(await files.local(`${T}/maps/${sha[3]}.map`)).not.toBeNull()
+    expect((await db.query(`SELECT 1 FROM serials WHERE app = $1 AND serial = 1`, [T])).length).toBe(1) // never reused
+    // Done once: a second run finds nothing
+    expect(await purgeDeleted(db, files, later)).toEqual({ bundles: [], storeBuilds: [] })
+    // A new bundle never gets #1 again
+    const r4 = await uploadBuilt(c, await trimBuilt("four"), keys.privatePem, clean)
+    expect(r4.manifest.serial).toBe(4)
   })
 })

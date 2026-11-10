@@ -3643,3 +3643,28 @@ change, and what evidence would make you change it?"
 - **Not verified:** an HTTP/2 host with a lost packet (the lab server is local HTTP/1.1); a Wi-Fi ↔ mobile switch with
   pictures loading.
 
+## 226. OTA dashboard: delete with a 30-day hold, a manual live mark, source maps on the server (server, 2026-11-10; Opus, Pavan's ask)
+- **Where:** `server/src/model.ts` (`markBundleDelete`, `setStoreBuildLive`, `markStoreBuildDelete`, `purgeDeleted`),
+  `server/src/maps.ts`, migration 007, `tools/updates/cli.ts` (`uploadMap`, `updates maps`), dashboard `server/web`.
+  Doc: `docs/zn-updates-server.md` §5.2, §5.3.
+- **Chosen (Pavan):** anything not marked "live on Play / App Store" may be deleted, also a bundle production served
+  before. Delete is a mark: hidden, removed 30 days later by an hourly purge, with an undo. The serial stays taken.
+- **Judgment calls (mine):**
+  - The live mark is set by hand. The server can't know what Play offers. A store build nobody marked live can be deleted
+    while phones still run it: the dialog shows "N phones ran it in the last 30 days" to catch that.
+  - Deleting a bundle production served before means a rollback to it is no longer possible after 30 days.
+  - The purge keeps the patches from a bundle's bytes (and its map) while a store build has the same built-in bundle
+    (one bundle = one serial = one SHA): that build's phones still use them. A bug in my first version deleted them;
+    the test covers it now.
+  - A channel serving a due bundle (rows changed by hand) only takes its mark off; the purge never removes what phones get.
+  - `DELETE /admin/apps/<app>/bundles/<serial>` now marks instead of removing (an older dashboard or script gets the
+    hold, not an instant removal).
+  - Files are removed after the rows commit; a failed remove is only logged (an orphan file of a few KB, never a row that
+    points to a missing file).
+  - "Size by file" is read from the source map alone (positions in the JS, before Hermes). On the sample it was about 9 %
+    under the exact sizes, evenly. Exact numbers would need the build to write sizes; not worth it for "what is big".
+  - Maps are readable by any admin session (same as everything else on the admin API). They hold file names and
+    positions, no source text (Bun writes no `sourcesContent`).
+- **Not verified:** the purge on the GCS store in production (tested on the folder store and in PGlite); the dashboard on a
+  phone-width screen; `updates maps` against production (it writes to the production bucket: waits for Pavan's go).
+

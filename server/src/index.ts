@@ -8,7 +8,7 @@
 import { handle as adminHandle } from "./admin"
 import { dashboardFile } from "./dashboard"
 import { type Db, migrate, openDb } from "./db"
-import { pruneStats } from "./model"
+import { pruneStats, purgeDeleted } from "./model"
 import * as phone from "./phone"
 import { fcmSender, type PushSender } from "./push"
 import { clientAddress, cookieOf, isBlocked, isHttps, noteFailure, pruneSessions, sessionCookie, sessionOf, useLoginCode } from "./session"
@@ -34,10 +34,14 @@ export function startServer(o: StartOptions) {
   const started = new Date().toISOString()
   const deps = { db: o.db, store: o.store, log: o.log }
   const admin = { db: o.db, store: o.store, token: o.adminToken, started, version: SERVER_VERSION, push: o.push ?? fcmSender }
+  // What was marked for delete 30 days ago goes too (model.purgeDeleted: safe with more than one server copy)
+  const purge = () => void purgeDeleted(o.db, o.store).catch((e) => console.warn(`purge: ${(e as Error).message}`))
   const prune = setInterval(() => {
     void pruneStats(o.db).catch(() => {})
     void pruneSessions(o.db).catch(() => {})
+    purge()
   }, 3_600_000)
+  const firstPurge = setTimeout(purge, 60_000)
   const server = Bun.serve({
     port: o.port ?? 3000,
     hostname: o.hostname ?? "0.0.0.0",
@@ -91,6 +95,7 @@ export function startServer(o: StartOptions) {
     server,
     stop: async () => {
       clearInterval(prune)
+      clearTimeout(firstPurge)
       server.stop(true)
     },
   }

@@ -27,6 +27,8 @@
 //       (a rule is for one channel, default production; forced asks FORCE UPDATE 170; saving it sends the "check now" push)
 //   bun run updates push --channel staging                                       ("check now" push to the channel's phones)
 //   bun run updates dashboard [--print]                                         (opens the dashboard, signed in, for 12 h)
+//   bun run updates maps                                 uploads the source maps kept on this computer (each build
+//       uploads its own; this sends older ones, or one whose upload failed)
 //   bun run updates status
 //
 // Options: --app-dir <dir> (default: the current folder; holds zn-updates.json), --key <private key PEM>,
@@ -35,7 +37,7 @@
 //     "build": ["bun", "run", "../../Futuristic/zero-native/tools/zn-build.ts", "app", "--name", "zerobill"],
 //     "assets": "android/app/src/main/assets" }
 // The token comes from `login` (~/.zero-native/updates.json) or ZN_UPDATES_TOKEN; who you are from --by / ZN_UPDATES_BY.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
@@ -161,12 +163,29 @@ function build(c: AppConfig, out: string, serial: number, map: string) {
   if (p.exitCode !== 0) fail("the build failed")
 }
 
-/** Source maps stay on this computer, by bundle SHA (a stack trace from a phone names the SHA). */
-function keepMap(app: string, sha: string, mapFile: string) {
+/**
+ * Source maps, by bundle SHA (a stack trace from a phone names the SHA): kept on this computer, and uploaded to the
+ * server ([cc]) into the same private storage as the zips (Pavan, 2026-11-10), so a lost laptop or a build on the Mac
+ * never leaves a bundle's stacks without their TSX lines. A failed upload only warns: `updates maps` sends it later.
+ */
+async function keepMap(app: string, sha: string, mapFile: string, cc?: Conn) {
   if (!existsSync(mapFile)) return
   const dir = join(home, "maps", app)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, `${sha}.map`), readFileSync(mapFile))
+  if (cc) await uploadMap(cc, app, sha, readFileSync(mapFile))
+}
+
+async function uploadMap(cc: Conn, app: string, sha: string, data: Uint8Array): Promise<boolean> {
+  try {
+    const form = new FormData()
+    form.append("map", new Blob([new Uint8Array(data)], { type: "application/json" }), `${sha}.map`)
+    await call(cc, "POST", `/admin/apps/${app}/maps/${sha}`, form)
+    return true
+  } catch (e) {
+    console.warn(`⚠ the source map was not uploaded (${(e as Error).message}): run \`bun run updates maps\` later`)
+    return false
+  }
 }
 
 function channelArg(): string {
@@ -245,7 +264,7 @@ async function main() {
         build(c, out, 0, map)
         const info = readBundleInfo(out)
         if (info.app !== c.app) fail(`the build is for app "${info.app}", zn-updates.json says "${c.app}"`)
-        keepMap(c.app, info.sha256, map)
+        await keepMap(c.app, info.sha256, map, conn(c.server))
         const r = await uploadBuilt(conn(c.server), out, pem, g)
         const m = r.manifest
         if (r.reused) console.log(`✓ same bytes as #${m.serial} (${m.id}): nothing new`)
@@ -321,6 +340,19 @@ async function main() {
       console.log(`✓ #${a.bundle} ${command === "stable" ? "marked stable" : "no longer stable"}`)
       return
     }
+    case "maps": {
+      // Uploads every source map kept on this computer (the ones made before maps went to the server, or whose upload
+      // failed). The server keeps one per bundle SHA; sending one again is fine.
+      const c = config()
+      const dir = join(home, "maps", c.app)
+      const files = existsSync(dir) ? readdirSync(dir).filter((f) => /^[0-9a-f]{64}\.map$/.test(f)) : []
+      if (files.length === 0) fail(`no source maps in ${dir}`)
+      const cc = conn(c.server)
+      let ok = 0
+      for (const f of files) if (await uploadMap(cc, c.app, f.slice(0, 64), readFileSync(join(dir, f)))) ok++
+      console.log(`✓ ${ok} of ${files.length} source maps uploaded for ${c.app}`)
+      return
+    }
     case "title": {
       const c = config()
       if (!a.bundle) fail("--bundle <serial> --title <text>")
@@ -369,14 +401,14 @@ async function main() {
           // Offline: a dev build may go on with serial 0 (its phone may then run an older OTA bundle); others may not.
           if (flavor !== "dev") fail(`could not ask ${c.server} for the serial (${why}). A ${flavor} build must not ship with serial 0: try again when online. ${dir} now holds a serial-0 bundle, and Gradle refuses ${flavor} builds with it.`)
           console.warn(`⚠ could not ask ${c.server} for the serial (${why}): this dev build keeps serial 0, so any OTA bundle counts as newer on its phone`)
-          keepMap(c.app, built.sha256, map)
+          await keepMap(c.app, built.sha256, map) // offline: kept here only (`updates maps` uploads it later)
           rmSync(work, { recursive: true, force: true })
           process.exit(0) // a request that never answered would keep the process open
         }
         // Not taken: zn-bundle.json says so, and the app's production release build refuses it (#223)
         const info = await setBundleSerial(dir, peek.serial, { taken: peek.taken })
         if (info.serial !== peek.serial || info.sha256 !== built.sha256) fail(`setting serial ${peek.serial} changed the bundle (${info.sha256.slice(0, 12)} vs ${built.sha256.slice(0, 12)})`)
-        keepMap(c.app, info.sha256, map)
+        await keepMap(c.app, info.sha256, map, conn(c.server))
         console.log(
           peek.taken
             ? `✓ built-in bundle #${peek.serial} (${info.id}) for ${flavor}: the same bytes as #${peek.serial} on the server`
@@ -426,7 +458,7 @@ async function main() {
         if (info.sha256 !== probed.sha256) {
           fail(`the build with serial ${serial} has another bundle SHA-256 (${info.sha256.slice(0, 12)}) than the build with serial 0 (${probed.sha256.slice(0, 12)}): some file changed between the two builds (does the JS use the serial or the time?). Serial ${serial} is taken for the first bytes: run the command again after fixing it.`)
         }
-        keepMap(c.app, info.sha256, map)
+        await keepMap(c.app, info.sha256, map, cc)
         await call(cc, "POST", `/admin/apps/${c.app}/store-builds`, {
           os, channel, label: a.label ?? `${channel} ${os === "ios" ? "IPA" : "AAB"}`, versionCode, versionName,
           builtinSerial: serial, builtinSha256: info.sha256, git: { commit: g.commit, dirty: g.dirty },

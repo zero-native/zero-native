@@ -34,6 +34,18 @@ export function dateTime(iso: string): string {
   return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
 }
 
+/** "10 Dec 2026": for the day a delete mark comes due. */
+export function dateOnly(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+}
+
+/** Whole days from now until [iso] (0 when it is due). */
+export function daysLeft(iso: string, now = Date.now()): number {
+  return Math.max(0, Math.ceil((new Date(iso).getTime() - now) / 86_400_000))
+}
+
 export function dayLabel(day: string): string {
   const d = new Date(`${day}T00:00:00Z`)
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" })
@@ -165,7 +177,21 @@ export function actionWords(a: ActivityRow): { title: string; detail: string } {
     case "bundle.title":
       return { title: "Customer title set", detail: `#${s("serial")}: ${s("title") ? `"${s("title")}"` : "empty (silent fix)"}` }
     case "bundle.delete":
-      return { title: "Bundle deleted", detail: `#${s("serial")}` }
+      return { title: "Bundle deleted", detail: `#${s("serial")}${a.by === "server" ? ": 30 days after the mark" : ""}` }
+    case "bundle.delete.mark":
+      return { title: "Bundle marked for delete", detail: `#${s("serial")}, goes on ${d.at ? dateOnly(s("at")) : "?"}` }
+    case "bundle.delete.undo":
+      return { title: "Delete mark taken off", detail: `#${s("serial")}${d.why ? ` (${s("why")})` : ""}` }
+    case "storebuild.live":
+      return { title: "Store build marked live on the store", detail: `${s("label")}, built-in #${s("serial")}` }
+    case "storebuild.unlive":
+      return { title: "Live mark taken off a store build", detail: `${s("label")}, built-in #${s("serial")}` }
+    case "storebuild.delete.mark":
+      return { title: "Store build marked for delete", detail: `${s("label")}, goes on ${d.at ? dateOnly(s("at")) : "?"}` }
+    case "storebuild.delete.undo":
+      return { title: "Store build delete mark taken off", detail: s("label") }
+    case "storebuild.delete":
+      return { title: "Store build deleted", detail: `${s("label")}, built-in #${s("serial")}` }
     case "channel.publish":
     case "channel.rollback":
     case "channel.rollout":
@@ -210,7 +236,12 @@ export const ACTION_FILTERS: [string, string][] = [
   ["bundle.stable", "Marked stable"],
   ["bundle.unstable", "Stable mark removed"],
   ["bundle.title", "Customer title"],
+  ["bundle.delete.mark", "Marked for delete"],
+  ["bundle.delete.undo", "Delete mark taken off"],
   ["bundle.delete", "Bundle deleted"],
+  ["storebuild.live", "Store build live"],
+  ["storebuild.delete.mark", "Store build marked for delete"],
+  ["storebuild.delete", "Store build deleted"],
   ["store.rule", "Store rule saved"],
   ["store.rule.delete", "Store rule deleted"],
   ["storebuild.add", "Store build added"],

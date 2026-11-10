@@ -181,6 +181,9 @@ export interface BundleRow {
   stableNote: string | null
   customerTitle: string | null
   note: string | null
+  /** Marked for delete: the server removes it at this time (30 days after the mark); null = kept. */
+  deleteAt: string | null
+  deleteBy: string | null
 }
 
 function bundleRow(r: Record<string, unknown>): BundleRow {
@@ -197,6 +200,8 @@ function bundleRow(r: Record<string, unknown>): BundleRow {
     stableNote: (r.stable_note as string) ?? null,
     customerTitle: (r.customer_title as string) ?? null,
     note: (r.note as string) ?? null,
+    deleteAt: r.delete_at ? iso(r.delete_at) : null,
+    deleteBy: (r.delete_by as string) ?? null,
   }
 }
 
@@ -281,22 +286,178 @@ export async function setTitle(db: Db, app: string, serial: number, title: strin
   await logActivity(db, app, by, "bundle.title", { serial, title: t })
 }
 
-/** Deletes a bundle nobody can have: the newest one, never served by production, not what any channel serves now. */
-export async function deleteBundle(db: Db, app: string, serial: number, by: string) {
-  const b = await bundle(db, app, serial)
-  const newest = (await db.query<{ max: number }>(`SELECT max(serial)::int AS max FROM bundles WHERE app = $1`, [app]))[0]?.max
-  if (newest !== serial) throw new RuleError(`only the newest bundle (#${newest}) can be deleted`)
-  if ((await db.query(`SELECT 1 FROM pointers WHERE app = $1 AND channel = $2 AND target = $3 LIMIT 1`, [app, PRODUCTION, b.id]))[0]) {
-    throw new RuleError(`#${serial} was on production: customers' phones may have it`)
-  }
+// ---- Delete with a 30-day hold, the "live" mark (Pavan, 2026-11-10) ---------------------------------------------------
+// A delete is a mark: the dashboard hides the item, and the server removes it (rows and files) DELETE_AFTER_DAYS later
+// (purgeDeleted). Until then it can be undone. Phones that run a deleted bundle keep their own copy; we only lose the
+// rollback to it, patches from it (those phones download full zips) and, with its map, decoding its stacks.
+// The serial stays taken for good: a phone that ran it must never see another bundle under the same number.
+
+export const DELETE_AFTER_DAYS = 30
+
+/** Why [b] can't be marked for delete now, or null. */
+async function whyKeepBundle(db: Db, app: string, b: BundleRow): Promise<string | null> {
   for (const ch of await channels(db, app)) {
-    if ((await current(db, app, ch))?.target === b.id) throw new RuleError(`${ch} serves #${serial} now: publish another bundle first`)
+    if ((await current(db, app, ch))?.target === b.id) return `${ch} serves #${b.serial} now: publish another bundle there (or use the kill switch) first`
   }
+  const live = await db.query<{ label: string }>(
+    `SELECT label FROM store_builds WHERE app = $1 AND builtin_serial = $2 AND live_at IS NOT NULL AND delete_at IS NULL LIMIT 1`,
+    [app, b.serial],
+  )
+  if (live[0]) return `#${b.serial} is built into "${live[0].label}", which is marked live on the store: its phones need it as a patch base`
+  return null
+}
+
+/** Marks a bundle for delete ([on]), or takes the mark back. */
+export async function markBundleDelete(db: Db, app: string, serial: number, on: boolean, by: string) {
+  const b = await bundle(db, app, serial)
+  if (on) {
+    if (b.deleteAt) throw new RuleError(`#${serial} is already marked for delete`)
+    const why = await whyKeepBundle(db, app, b)
+    if (why) throw new RuleError(why)
+  } else if (!b.deleteAt) throw new RuleError(`#${serial} is not marked for delete`)
+  const at = on ? new Date(Date.now() + DELETE_AFTER_DAYS * 86_400_000).toISOString() : null
   await db.tx(async (q) => {
-    await q.query(`DELETE FROM bundles WHERE app = $1 AND serial = $2`, [app, serial])
-    await logActivity(q, app, by, "bundle.delete", { serial })
+    await q.query(`UPDATE bundles SET delete_at = $3, delete_by = $4 WHERE app = $1 AND serial = $2`, [app, serial, at, on ? by : null])
+    await logActivity(q, app, by, on ? "bundle.delete.mark" : "bundle.delete.undo", { serial, at })
   })
-  // The serial stays taken (a phone that ran it on staging must never see another bundle under the same number).
+  return bundle(db, app, serial)
+}
+
+/** Kept for the CLI and older dashboards: a delete is now a mark (removed 30 days later). */
+export async function deleteBundle(db: Db, app: string, serial: number, by: string) {
+  await markBundleDelete(db, app, serial, true, by)
+}
+
+/** Phones that ran any of [running] (bundle ids, or `built-in:<id>`) in the last [days] days (stats keep 35). */
+export async function phonesOn(db: Db, app: string, running: string[], days = DELETE_AFTER_DAYS): Promise<number> {
+  if (running.length === 0) return 0
+  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+  const marks = running.map((_, i) => `$${i + 3}`).join(", ")
+  const rows = await db.query<{ n: number }>(
+    `SELECT count(DISTINCT install)::int AS n FROM installs_daily WHERE app = $1 AND day >= $2 AND running IN (${marks})`,
+    [app, since, ...running],
+  )
+  return rows[0]?.n ?? 0
+}
+
+/** The ids a phone reports while it runs bundle #[serial]: as an OTA bundle, or as the APK's own (built-in) one. */
+export function runningIds(app: string, serial: number): string[] {
+  return [`${app}_${serial}`, `built-in:${app}_${serial}`]
+}
+
+async function storeBuildRow(db: Db, app: string, id: number) {
+  const rows = await db.query(`SELECT * FROM store_builds WHERE app = $1 AND id = $2`, [app, id])
+  if (!rows[0]) throw new RuleError(`no store build ${id} in ${app}`, 404)
+  return rows[0]
+}
+
+/** Marks a store build "live on Play / App Store" ([on]) or takes the mark off. A live build can't be deleted. */
+export async function setStoreBuildLive(db: Db, app: string, id: number, on: boolean, by: string) {
+  const r = await storeBuildRow(db, app, id)
+  if (on && r.delete_at) throw new RuleError(`"${r.label}" is marked for delete: undo that first`)
+  await db.tx(async (q) => {
+    await q.query(`UPDATE store_builds SET live_at = $3, live_by = $4 WHERE app = $1 AND id = $2`, [app, id, on ? new Date().toISOString() : null, on ? by : null])
+    await logActivity(q, app, by, on ? "storebuild.live" : "storebuild.unlive", { id, label: r.label, serial: r.builtin_serial })
+  })
+}
+
+/** Marks a store build for delete ([on]), or takes the mark back. Not while it is marked live. */
+export async function markStoreBuildDelete(db: Db, app: string, id: number, on: boolean, by: string) {
+  const r = await storeBuildRow(db, app, id)
+  if (on) {
+    if (r.delete_at) throw new RuleError(`"${r.label}" is already marked for delete`)
+    if (r.live_at) throw new RuleError(`"${r.label}" is marked live on the store: take that mark off first`)
+  } else if (!r.delete_at) throw new RuleError(`"${r.label}" is not marked for delete`)
+  const at = on ? new Date(Date.now() + DELETE_AFTER_DAYS * 86_400_000).toISOString() : null
+  await db.tx(async (q) => {
+    await q.query(`UPDATE store_builds SET delete_at = $3, delete_by = $4 WHERE app = $1 AND id = $2`, [app, id, at, on ? by : null])
+    await logActivity(q, app, by, on ? "storebuild.delete.mark" : "storebuild.delete.undo", { id, label: r.label, serial: r.builtin_serial, at })
+  })
+}
+
+/** Phones that ran store build [id]'s built-in bundle (any store build with that serial) in the last 30 days. */
+export async function storeBuildPhones(db: Db, app: string, id: number) {
+  const r = await storeBuildRow(db, app, id)
+  return phonesOn(db, app, [`built-in:${app}_${r.builtin_serial}`])
+}
+
+/**
+ * Removes what was marked for delete and is due ([now]): its rows, then its files (zip, patches to and from it, its
+ * patch base, its map when nothing kept has the same bytes). Each row is taken with DELETE ... RETURNING, so two
+ * server copies never remove the same thing twice. A bundle a channel serves again (published after the mark) is
+ * skipped and its mark taken off. Files that fail to go are logged (they cost space only).
+ */
+export async function purgeDeleted(db: Db, store: FileStore, now = new Date()): Promise<{ bundles: number[]; storeBuilds: number[] }> {
+  const done = { bundles: [] as number[], storeBuilds: [] as number[] }
+  const files: string[] = []
+  const at = now.toISOString()
+  const dueBundles = await db.query<{ app: string; serial: number; id: string }>(`SELECT app, serial, id FROM bundles WHERE delete_at IS NOT NULL AND delete_at <= $1`, [at])
+  for (const d of dueBundles) {
+    let servedNow = false
+    for (const ch of await channels(db, d.app)) if ((await current(db, d.app, ch))?.target === d.id) servedNow = true
+    if (servedNow) {
+      await db.query(`UPDATE bundles SET delete_at = NULL, delete_by = NULL WHERE app = $1 AND serial = $2`, [d.app, d.serial])
+      await logActivity(db, d.app, "server", "bundle.delete.undo", { serial: d.serial, why: "a channel serves it" })
+      continue
+    }
+    await db.tx(async (q) => {
+      const gone = await q.query<{ zip_path: string; bundle_sha256: string }>(
+        `DELETE FROM bundles WHERE app = $1 AND serial = $2 AND delete_at IS NOT NULL AND delete_at <= $3 RETURNING zip_path, bundle_sha256`,
+        [d.app, d.serial, at],
+      )
+      if (!gone[0]) return // another server copy took it
+      // Patches to it go. Patches from its bytes stay while a store build has the same built-in bundle (one bundle = one
+      // serial = one SHA): that build's phones still use them. Its map stays then too.
+      const kept = await shaKept(q, d.app, gone[0].bundle_sha256)
+      const patches = await q.query<{ path: string }>(
+        kept ? `DELETE FROM patches WHERE app = $1 AND to_id = $2 RETURNING path` : `DELETE FROM patches WHERE app = $1 AND (to_id = $2 OR from_id = $2 OR from_sha256 = $3) RETURNING path`,
+        kept ? [d.app, d.id] : [d.app, d.id, gone[0].bundle_sha256],
+      )
+      files.push(gone[0].zip_path, ...patches.map((p) => p.path))
+      if (!kept) files.push(`${d.app}/maps/${gone[0].bundle_sha256}.map`)
+      await logActivity(q, d.app, "server", "bundle.delete", { serial: d.serial })
+      done.bundles.push(d.serial)
+    })
+  }
+  const dueBuilds = await db.query<{ app: string; id: number }>(`SELECT app, id FROM store_builds WHERE delete_at IS NOT NULL AND delete_at <= $1`, [at])
+  for (const d of dueBuilds) {
+    await db.tx(async (q) => {
+      const gone = await q.query<{ label: string; builtin_serial: number; builtin_sha256: string; base_path: string | null }>(
+        `DELETE FROM store_builds WHERE app = $1 AND id = $2 AND delete_at IS NOT NULL AND delete_at <= $3 AND live_at IS NULL
+         RETURNING label, builtin_serial, builtin_sha256, base_path`,
+        [d.app, d.id, at],
+      )
+      const g = gone[0]
+      if (!g) return
+      const sameSerial = await q.query(`SELECT 1 FROM store_builds WHERE app = $1 AND builtin_serial = $2 LIMIT 1`, [d.app, g.builtin_serial])
+      if (!sameSerial[0]) {
+        // No other store build carries this built-in bundle: its base goes, and the patches from it and its map unless
+        // an OTA bundle with the same bytes is kept (then they still serve that bundle's phones).
+        if (g.base_path) files.push(g.base_path)
+        if (!(await shaKept(q, d.app, g.builtin_sha256))) {
+          const patches = await q.query<{ path: string }>(`DELETE FROM patches WHERE app = $1 AND from_sha256 = $2 RETURNING path`, [d.app, g.builtin_sha256])
+          files.push(...patches.map((p) => p.path), `${d.app}/maps/${g.builtin_sha256}.map`)
+        }
+      }
+      await logActivity(q, d.app, "server", "storebuild.delete", { id: d.id, label: g.label, serial: g.builtin_serial })
+      done.storeBuilds.push(d.id)
+    })
+  }
+  for (const f of files) {
+    try {
+      await store.remove(f)
+    } catch (e) {
+      console.warn(`purge: could not remove ${f}: ${(e as Error).message}`)
+    }
+  }
+  if (done.bundles.length || done.storeBuilds.length) console.log(`purge: removed bundles ${done.bundles.join(", ") || "none"}, store builds ${done.storeBuilds.join(", ") || "none"}`)
+  return done
+}
+
+/** True when a bundle or store build that stays has these bytes (its map and the patches from it are still needed). */
+async function shaKept(q: Pick<Db, "query">, app: string, sha: string): Promise<boolean> {
+  if ((await q.query(`SELECT 1 FROM bundles WHERE app = $1 AND bundle_sha256 = $2 LIMIT 1`, [app, sha]))[0]) return true
+  return !!(await q.query(`SELECT 1 FROM store_builds WHERE app = $1 AND builtin_sha256 = $2 LIMIT 1`, [app, sha]))[0]
 }
 
 // ---- Pointers ---------------------------------------------------------------------------------------------------------
@@ -364,6 +525,7 @@ export async function addPointer(db: Db, app: string, req: PointerRequest, by: s
     if (prod && !p.reason?.trim()) throw new RuleError("a production kill switch needs a reason")
   } else {
     const b = await bundle(db, app, p.target)
+    if (b.deleteAt) throw new RuleError(`#${b.serial} is marked for delete: undo that first`)
     if (now && now.target === p.target) {
       kind = "rollout"
     } else {
@@ -449,6 +611,7 @@ export async function addStoreBuild(db: Db, app: string, s: StoreBuildInput, by:
 export async function storeBuilds(db: Db, app: string) {
   const rows = await db.query(`SELECT * FROM store_builds WHERE app = $1 ORDER BY builtin_serial DESC, built_at DESC, id DESC`, [app])
   return rows.map((r) => ({
+    id: r.id as number,
     os: r.os as Os,
     channel: r.channel as string,
     label: r.label as string,
@@ -463,6 +626,12 @@ export async function storeBuilds(db: Db, app: string) {
     builtAt: iso(r.built_at),
     /** The size of the built-in bundle's zip kept as a patch base (docs/ota-patches.md §5); null = none (full zips only). */
     baseSize: (r.base_size as number) ?? null,
+    /** Marked "live on Play / App Store": it can't be deleted, nor can its built-in bundle. */
+    liveAt: r.live_at ? iso(r.live_at) : null,
+    liveBy: (r.live_by as string) ?? null,
+    /** Marked for delete: removed at this time; null = kept. */
+    deleteAt: r.delete_at ? iso(r.delete_at) : null,
+    deleteBy: (r.delete_by as string) ?? null,
   }))
 }
 
@@ -691,7 +860,7 @@ export async function stats(db: Db, app: string, channel: string, days: number) 
      GROUP BY day, bundle, kind, detail ORDER BY day`,
     [app, channel, since],
   )
-  const errors = await db.query(`SELECT at, bundle, kind, detail, stack, sha FROM errors WHERE app = $1 AND channel = $2 AND at >= $3 ORDER BY at DESC LIMIT 50`, [app, channel, since])
+  const errors = await db.query<{ at: unknown; bundle: string; kind: string; detail: string; stack: string | null; sha: string | null }>(`SELECT at, bundle, kind, detail, stack, sha FROM errors WHERE app = $1 AND channel = $2 AND at >= $3 ORDER BY at DESC LIMIT 50`, [app, channel, since])
   return {
     phones: phones.map((r) => ({ day: day(r.day), running: r.running, phones: r.phones })),
     events: events.map((r) => ({ day: day(r.day), bundle: r.bundle, kind: r.kind, detail: r.detail, count: r.count })),

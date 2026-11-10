@@ -2989,3 +2989,15 @@ since 2026-11-09; every other module call (Os, SecureStore, Updates, NetInfo, al
   that build then skips it for good (second-opinions #223). `builtin` writes `"serialTaken": false` into
   `zn-bundle.json`; the same Gradle check should refuse it for the production release build (ZeroBill does, with
   `-PznAllowUntakenSerial` for a local test build). A store build uses `updates store-build`, which takes the number.
+
+## 92. Store builds live mark, deletes, source maps (zn-updates dashboard, 2026-11-10)
+- **Do** mark a store build "live" (Store builds page, "Mark live") as soon as customers can download it from Play or
+  the App Store, and take the mark off when the store no longer offers it. **Why:** only the live mark stops a delete of
+  the build and its built-in bundle; their phones need those bytes for small patches.
+- **Do** read the phone count in the delete dialog. A delete waits 30 days and can be undone until then ("Marked for
+  delete" filter / list). **Don't** expect a deleted number to come back: the serial stays taken.
+- **Do** run `bun run updates maps` once in the app folder to upload the source maps of bundles made before 2026-11-10.
+  New `release`, `store-build` and `builtin` runs upload their map themselves. **Why:** with the map on the server, error
+  stacks on the Phones page show TSX file:line, and the bundle page shows "Size by file".
+- **Do** use "Size by file" for "what is big / what grew" (by npm package or folder, and the change since the bundle
+  before). **Don't** read it as exact bytes: it is the JS before Hermes, about 10 % under the real size.

@@ -33,7 +33,8 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
 - `apps` (id = the zn app id, e.g. `zerobill`; name; public keys), `channels` (app, name).
 - `bundles`: app, serial, id `<app>_<serial>`, bundle SHA, `requires`, zip path / SHA / size, the signed manifest (as
   JSON, byte for byte what phones get), git commit / subject / dirty, built by / at, stable mark (at, by, note),
-  customer title. Same bytes + same requires = same serial (see `serials` below).
+  customer title, the delete mark (`delete_at`, `delete_by`: migration 007, §5.2). Same bytes + same requires = same
+  serial (see `serials` below).
 - `serials`: one number line per app, shared by OTA bundles and store builds' built-in bundles. Each serial records the
   bytes it was taken for (bundle SHA-256 + requires). **One bundle = one serial = one SHA** (migration 006): the same
   bytes get the same serial back, whether an OTA release or a store build asks first. Two store builds with the same JS
@@ -43,7 +44,9 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
   serial line as bundles, so a new store build never loses to an older OTA bundle; several store builds can have the
   same one; the same OS + channel + version code + serial recorded twice is one row), capabilities, **family** (a hash of
   the capabilities), git, built by / at, and the **base** (`base_path`, `base_size`: the built-in bundle as a zip, kept
-  as a base for patches; empty for a store build made before patches).
+  as a base for patches; empty for a store build made before patches), and (migration 007) the **live mark**
+  (`live_at`, `live_by`: "customers can download it from Play / the App Store") and the delete mark (§5.2).
+- Source maps (no table): `<app>/maps/<bundle sha>.map` in the file store, one per bundle SHA (§5.3).
 - `pointers`: app, channel, seq, target (bundle id or `BUILT_IN`), rollout, priority (`normal` / `high` / `critical`),
   reason, kind (publish / rollback / rollout / kill), the signed pointer JSON, by, at. Append-only; the highest seq is
   what the channel serves.
@@ -131,8 +134,8 @@ dashboard's Priority choice.
 Read: apps, state (bundles, channels with history, store builds, families, rules), stats, activity.
 Write: create app / channel; reserve a serial; upload a bundle (manifest + zip); register a store build; publish /
 roll back / roll out / kill (the body carries the signed pointer; the server checks the signature with the app's keys
-and the rules below); stable mark on / off; customer title; store rule add / change / delete (per channel); delete an
-unreleased bundle.
+and the rules below); stable mark on / off; customer title; store rule add / change / delete (per channel); mark a
+bundle or a store build for delete (§5.2); the live mark; source maps (§5.3).
 - `POST /admin/apps/<app>/serials` `{ kind: "bundle" | "store", sha256, requires }`: the serial for these bytes
   (`{ serial, existing }`: `existing` is the released bundle, or null). Both kinds send the bytes; the same bytes give
   the same serial back (§3). A store build may leave them out (an older CLI): then it only gets a new number.
@@ -161,8 +164,46 @@ unreleased bundle.
 **Rules (checked by the server, again in the dashboard):** production takes only a bundle that is stable, built from a
 commit (not dirty), with an explicit rollout and the typed `PRODUCTION #N`; stable needs a bundle staging served after
 it was built; the kill switch needs `KILL <CHANNEL>` (+ a reason on production) and carries priority `critical`; a forced production store rule needs
-`FORCE UPDATE <version>`; delete only the newest unreleased serial, never one a production pointer or store build names;
+`FORCE UPDATE <version>`; a delete is a mark with a 30-day hold (§5.2), never for a bundle a channel serves or the
+built-in bundle of a store build marked live; a bundle marked for delete can't be published;
 seq must be the channel's next one (a 409 if someone else published first).
+
+### 5.2 Delete with a 30-day hold, the live mark (migration 007, 2026-11-10; Pavan's ask)
+- **Live mark** on a store build: `POST /admin/apps/<app>/store-builds/<id>/live` `{ on }`. A person sets it when customers
+  can download that build from Play / the App Store. While it is on, the store build can't be marked for delete, and nor
+  can its built-in bundle (as an OTA bundle): its phones need those bytes as a patch base. Refused while the build is
+  marked for delete ("undo that first").
+- **Delete = a mark.** `POST /admin/apps/<app>/bundles/<serial>/delete` `{ on }` (`DELETE …/bundles/<serial>` is the same
+  as `on: true`) and `POST …/store-builds/<id>/delete` `{ on }`. The mark sets `delete_at` = now + 30 days. Until then the
+  row is hidden in the dashboard (own filter / own list) and `{ on: false }` undoes it. A bundle can't be marked while a
+  channel serves it ("publish another bundle there first"), and a marked bundle can't be published. Any older bundle can
+  be marked now, also one production served before (the old rule "only the newest, never one production had" is gone).
+- **The purge** (`model.purgeDeleted`): hourly, and once a minute after start. Safe with more than one server copy (each
+  row is taken with `DELETE … RETURNING` in a transaction). For a due bundle: a channel serving it again (someone
+  changed the rows by hand) only takes the mark off; else the row, its zip, the patches **to** it, and, when no store build
+  has the same bytes, the patches from it and its map. For a due store build (not live): the row; when no other store
+  build has the same built-in serial, its base zip; and, when no OTA bundle has the same bytes, the patches from it and its
+  map. Files go after the rows (a failed file remove is logged, never retried: an orphan file costs a few KB).
+- **The serial stays taken** (the `serials` row is kept): a number is never given to other bytes.
+- `GET …/bundles/<serial>/phones` and `GET …/store-builds/<id>/phones`: `{ phones, days }`, the phones that ran it (as an
+  OTA bundle, or as the APK's own bundle `built-in:<app>_<serial>`) in the last 30 days, from `installs_daily`. The delete
+  dialogs show it. Those phones keep running the bundle; their next update is a full zip (the patches from it are gone).
+- Activity: `bundle.delete.mark` / `.undo`, `bundle.delete` (by `server`), `storebuild.live` / `.unlive`,
+  `storebuild.delete.mark` / `.undo`, `storebuild.delete`.
+
+### 5.3 Source maps on the server (2026-11-10; Pavan's ask)
+- `POST /admin/apps/<app>/maps/<bundle sha>` (multipart `map`, at most 40 MB; JSON with `mappings` and `sources`) and
+  `GET …/maps/<bundle sha>` (the map, or 404 "no source map"). Stored at `<app>/maps/<sha>.map` (GCS in production).
+  Bun's maps have file names and positions, no source text.
+- The CLI uploads the map with each `release`, `store-build` and online `builtin` (and still keeps a copy in
+  `~/.zero-native/maps/<app>/`). An offline `builtin` keeps it locally only. `updates maps` uploads every local map
+  (for bundles made before this). A failed upload only warns.
+- `stats` decodes each error stack with the map (`decoded`: the stack with `src/Pay.tsx:12:5 (main.js:1:2345)` per
+  frame), so the dashboard's Phones page shows TSX lines. 4 decoded maps are kept in memory.
+- `GET …/bundles/<serial>/size`: `{ sizes, before }`, the JS size by file and by folder (an npm package counts as one
+  folder) from the map, and the same for the nearest of the 5 older bundles that has a map. Sizes are the JS before Hermes,
+  read from the map's positions: about 9 % under the real size on the sample, evenly across files. Good for "what is big"
+  and "what grew", not exact bytes.
 
 ### 5.1 Dashboard sign-in (`server/src/session.ts`, 2026-11-09)
 - The browser never gets the admin token. `updates dashboard` sends the token (`POST /admin/login-links`, with
@@ -178,8 +219,11 @@ seq must be the channel's next one (a 409 if someone else published first).
 - Later: per-person tokens; key changes signed by the current key.
 
 ## 6. Dashboard (pages)
-Overview · Bundles (+ bundle page; a bundle that is also built into a store build is one row, with the "In the app" chip) · Channels · Store updates (Play, App Store, one channel at a time; with a phone checker) · Store builds
-& families · Phones (1 / 7 / 35 days) · Activity · Environment (server, database, storage, keys). Dialogs with typed
+Overview · Bundles (+ bundle page; a bundle that is also built into a store build is one row, with the "In the app" chip;
+each row shows its patches; marked bundles under "Marked for delete"; the bundle page has "Size by file" from the source
+map, with the change since the bundle before) · Channels · Store updates (Play, App Store, one channel at a time; with a phone checker) · Store builds
+& families (live mark, delete / keep, and "next download": the patch or full zip a phone on that build gets for the newest
+bundle) · Phones (1 / 7 / 35 days) · Activity · Environment (server, database, storage, keys). Dialogs with typed
 confirms as in §5, a live log for long actions, and the key file picked once per browser session (kept in memory).
 
 ## 7. Config (environment)

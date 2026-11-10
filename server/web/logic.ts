@@ -81,18 +81,30 @@ export function bundleActions(s: State, b: Bundle): { steps: RowAction[]; extras
       dialog: { t: "change", mode: back ? "rollback" : "publish", channel: PRODUCTION, serial: b.serial },
     })
   }
+  // A bundle marked for delete can't be published (the server refuses): undo the mark first
+  if (b.deleteAt) for (const a of steps) Object.assign(a, { enabled: false, why: "Marked for delete: undo that first" })
   const extras: RowAction[] = [{ id: "title", label: "Customer title…", enabled: true, dialog: { t: "title", serial: b.serial } }]
   if (b.stableAt) extras.push({ id: "unstable", label: "Remove stable mark", enabled: true, dialog: { t: "stable", serial: b.serial, on: false } })
-  const newest = newestSerial(s)
-  extras.push({
-    id: "delete",
-    label: "Delete…",
-    danger: true,
-    enabled: b.serial === newest && !b.everOn.includes(PRODUCTION) && b.liveOn.length === 0,
-    why: b.serial !== newest ? `Only the newest (#${newest}) can be deleted` : b.everOn.includes(PRODUCTION) ? "It was on production" : "A channel serves it now",
-    dialog: { t: "delete", serial: b.serial },
-  })
+  if (b.deleteAt) {
+    extras.push({ id: "undelete", label: "Keep it…", enabled: true, dialog: { t: "delete", serial: b.serial, on: false } })
+  } else {
+    const keep = whyKeep(s, b)
+    extras.push({ id: "delete", label: "Delete…", danger: true, enabled: !keep, why: keep ?? undefined, dialog: { t: "delete", serial: b.serial, on: true } })
+  }
   return { steps, extras }
+}
+
+/** Why a bundle can't be marked for delete now, or null when it can (the same rules as the server's whyKeepBundle). */
+export function whyKeep(s: State, b: Bundle): string | null {
+  if (b.liveOn.length) return `${b.liveOn.join(" and ")} serves it now: publish another bundle there first`
+  const live = s.storeBuilds.find((x) => x.builtinSerial === b.serial && x.liveAt && !x.deleteAt)
+  if (live) return `It is the built-in bundle of ${live.label}, marked live on the store`
+  return null
+}
+
+/** Store builds that are not marked for delete (the marked ones show in their own list). */
+export function keptStoreBuilds(s: State) {
+  return s.storeBuilds.filter((x) => !x.deleteAt)
 }
 
 /** Families (app builds) that cannot run this bundle, with what each lacks. */
@@ -125,7 +137,7 @@ export function nextHints(s: State, keyLoaded: boolean): Hint[] {
   if (s.bundles.length === 0) out.push({ tone: "blue", text: "No bundles yet. Build one with the CLI, then it shows up here.", to: "/builds" })
   if (prd.killed) out.push({ tone: "red", text: "Production is killed: phones run the app's own bundle. Publish a bundle to end it.", to: "/channels" })
   if (stg.killed) out.push({ tone: "amber", text: "Staging is killed: phones run the app's own bundle.", to: "/channels" })
-  const newest = s.bundles[0]
+  const newest = s.bundles.find((b) => !b.deleteAt)
   if (newest && !newest.everOn.includes(STAGING)) out.push({ tone: "blue", text: `#${newest.serial} is built but not on staging yet.`, to: `/bundles/${newest.serial}` })
   if (stg.serial !== null) {
     const b = by(stg.serial)

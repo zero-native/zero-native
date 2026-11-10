@@ -5,6 +5,7 @@
 !server/src/**
 !server/web/**
 !tools/bundle-info.ts
+!compiler/src/sourcemap.ts
 !tools/ota/**
 !tools/updates/**
 tools/ota/test/**

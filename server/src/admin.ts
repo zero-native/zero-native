@@ -5,6 +5,7 @@
 import type { Manifest } from "../../tools/ota/core"
 import type { Capabilities } from "../../tools/ota/decide"
 import type { Db } from "./db"
+import { bundleSizes, decodeStacks, mapText, putMap } from "./maps"
 import * as model from "./model"
 import { RuleError } from "./model"
 import { makeInBackground, remake, uploadBase } from "./patches"
@@ -111,7 +112,9 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
   if (!what && method === "GET") return json(await model.getApp(db, app))
   if (what === "state" && method === "GET") return json(await model.state(db, app))
   if (what === "stats" && method === "GET") {
-    return json(await model.stats(db, app, url.searchParams.get("channel") ?? model.PRODUCTION, Number(url.searchParams.get("days") ?? "7")))
+    const st = await model.stats(db, app, url.searchParams.get("channel") ?? model.PRODUCTION, Number(url.searchParams.get("days") ?? "7"))
+    // Error stacks with their TSX lines, when the bundle's map is on the server (src/maps.ts)
+    return json({ ...st, errors: await decodeStacks(d.store, app, st.errors) })
   }
   if (what === "activity" && method === "GET") {
     const before = url.searchParams.get("before")
@@ -157,9 +160,31 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
       return json({ ...row, patches: await model.patchesOf(db, app, row.id) })
     }
     if (p[4] === "patches" && p.length === 5 && method === "POST") return json(await remake(db, d.store, app, serial, by))
-    if (p.length === 4 && method === "DELETE") {
-      await model.deleteBundle(db, app, serial, by)
-      return json({ ok: true })
+    // A delete is a mark: removed 30 days later (model.purgeDeleted), with an undo until then
+    if (p.length === 4 && method === "DELETE") return json(await model.markBundleDelete(db, app, serial, true, by))
+    if (p[4] === "delete" && p.length === 5 && method === "POST") {
+      const b = await body<{ on?: boolean }>(request)
+      return json(await model.markBundleDelete(db, app, serial, b.on !== false, by))
+    }
+    if (p[4] === "phones" && p.length === 5 && method === "GET") {
+      return json({ phones: await model.phonesOn(db, app, model.runningIds(app, serial)), days: model.DELETE_AFTER_DAYS })
+    }
+    // What the bundle is made of (from its source map), and the bundle before it for the change
+    if (p[4] === "size" && p.length === 5 && method === "GET") {
+      const b = await model.bundle(db, app, serial)
+      const now = await bundleSizes(d.store, app, b.manifest.bundleSha256)
+      let before: { serial: number; sizes: Awaited<ReturnType<typeof bundleSizes>> } | null = null
+      if (now) {
+        const older = (await model.bundles(db, app)).filter((x) => x.serial < serial)
+        for (const o of older.slice(0, 5)) {
+          const s = await bundleSizes(d.store, app, o.manifest.bundleSha256)
+          if (s) {
+            before = { serial: o.serial, sizes: s }
+            break
+          }
+        }
+      }
+      return json({ sizes: now, before })
     }
     if (p[4] === "stable" && method === "POST") {
       const b = await body<{ on: boolean; note?: string }>(request)
@@ -199,6 +224,34 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
     const zip = form?.get("zip")
     if (!(zip instanceof Blob)) throw new RuleError("send multipart form data with the zip (file)")
     return json(await uploadBase(db, d.store, app, baseSerial, new Uint8Array(await zip.arrayBuffer()), by))
+  }
+  // A store build by its id: the "live on Play / App Store" mark, the delete mark, the phones on it
+  if (what === "store-builds" && p.length === 5 && ["live", "delete", "phones"].includes(p[4]!)) {
+    const id = Number(p[3])
+    if (!Number.isInteger(id)) throw new RuleError("store build id must be a number")
+    if (p[4] === "phones" && method === "GET") return json({ phones: await model.storeBuildPhones(db, app, id), days: model.DELETE_AFTER_DAYS })
+    if (method === "POST") {
+      const b = await body<{ on?: boolean }>(request)
+      if (p[4] === "live") await model.setStoreBuildLive(db, app, id, b.on !== false, by)
+      else await model.markStoreBuildDelete(db, app, id, b.on !== false, by)
+      return json({ ok: true })
+    }
+  }
+  // Source maps (src/maps.ts): the CLI uploads one per bundle; the CLI or a person reads it back
+  if (what === "maps" && p.length === 4) {
+    const sha = p[3]!
+    if (method === "POST") {
+      const form = await request.formData().catch(() => null)
+      const map = form?.get("map")
+      if (!(map instanceof Blob)) throw new RuleError("send multipart form data with the map (file)")
+      await putMap(d.store, app, sha, new Uint8Array(await map.arrayBuffer()))
+      return json({ ok: true })
+    }
+    if (method === "GET") {
+      const text = await mapText(d.store, app, sha)
+      if (text === null) throw new RuleError(`no source map for ${sha.slice(0, 12)} on the server`, 404)
+      return new Response(text, { headers: { "content-type": "application/json", "cache-control": "no-store" } })
+    }
   }
   if (what === "store-builds" && method === "POST") {
     const b = await body<model.StoreBuildInput>(request)

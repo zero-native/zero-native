@@ -1363,3 +1363,65 @@ tr:last-child td {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---- Size by file (bundle page) ---- */
+.bars {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(120px, 2fr) 3fr 76px 52px auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bar-track {
+  height: 10px;
+  border-radius: 6px;
+  background: var(--grey-soft);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: var(--brand);
+}
+.bar-num,
+.bar-pct,
+.bar-change {
+  text-align: right;
+  white-space: nowrap;
+}
+.bar-change {
+  min-width: 64px;
+  font-weight: 600;
+}
+.bar-change.red {
+  color: var(--red);
+}
+.bar-change.green {
+  color: var(--green);
+}
+.btn-row.nowrap {
+  flex-wrap: nowrap;
+  margin-top: 0;
+}
+@media (max-width: 860px) {
+  .bars li {
+    grid-template-columns: 1fr 64px 48px;
+  }
+  .bars .bar-track,
+  .bars .bar-change {
+    display: none;
+  }
+}

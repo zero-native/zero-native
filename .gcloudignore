@@ -15,3 +15,9 @@
 !/tools/ota/
 !/tools/updates/
 /tools/ota/test/
+# Source maps (server/src/maps.ts): this one file only
+!/compiler/
+/compiler/*
+!/compiler/src/
+/compiler/src/*
+!/compiler/src/sourcemap.ts
