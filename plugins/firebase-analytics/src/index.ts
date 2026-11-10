@@ -50,7 +50,7 @@ export interface AnalyticsModule {
   setSessionTimeoutDuration(args: { ms: number }, options?: CallOptions): Promise<boolean>
 }
 
-const Native = nativeModule<AnalyticsModule>("Analytics", { version: 1 })
+const Native = nativeModule<AnalyticsModule>("FirebaseAnalytics", { version: 1 })
 // Not tied to a screen: an event must not be cancelled because the screen that sent it closed.
 const unowned = { owned: false }
 

@@ -84,7 +84,7 @@ export interface AuthModule {
   events: { otp: OtpEvent }
 }
 
-const Native = nativeModule<AuthModule>("Auth", { version: 1 })
+const Native = nativeModule<AuthModule>("AndroidPlayAuth", { version: 1 })
 const HINT_KEY = "auth.phone-hint" // AuthRules.HINT_KEY
 const ASKED = "hint.asked"
 const store = createStorage("zn.auth")

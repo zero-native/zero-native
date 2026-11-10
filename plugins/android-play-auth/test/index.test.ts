@@ -25,7 +25,7 @@ const calls = (method: string) => host.calls.filter((c) => c.method === method)
 const tick = async () => {
   for (let i = 0; i < 10; i++) await Promise.resolve()
 }
-const otpEvent = (id: string, code: string | null, reason: string | null) => module("Auth", "otp", { id, code, reason })
+const otpEvent = (id: string, code: string | null, reason: string | null) => module("AndroidPlayAuth", "otp", { id, code, reason })
 const answerAcks = () => calls("ack").forEach((c) => reply(c.id, true))
 
 beforeEach(() => {
@@ -44,7 +44,7 @@ test("a hint opens through native, and the number comes through launches and is 
   const p = Auth.phoneHint({ draft })
   await tick()
   const [c] = calls("phoneHint")
-  expect(c).toMatchObject({ module: "Auth", args: { __v: 1 } })
+  expect(c).toMatchObject({ module: "AndroidPlayAuth", args: { __v: 1 } })
   reply(c.id, { launched: true })
   await tick()
   launchResult({ id: c.args.id, status: "result", resultCode: -1, extras: { phone: PHONE } })
@@ -222,7 +222,7 @@ test("a late result of a replaced hint is acked and goes nowhere", async () => {
 test("listen sends its options, and the event answers it", async () => {
   const p = Auth.listenForOtp({ pattern: "(\\d{6})", timeoutMs: 3000 })
   const [c] = calls("listenOtp")
-  expect(c).toMatchObject({ module: "Auth", args: { pattern: "(\\d{6})", timeoutMs: 3000, __v: 1 } })
+  expect(c).toMatchObject({ module: "AndroidPlayAuth", args: { pattern: "(\\d{6})", timeoutMs: 3000, __v: 1 } })
   reply(c.id, true)
   otpEvent(c.args.id, OTP, null)
   expect(await p).toEqual({ code: OTP, reason: null })

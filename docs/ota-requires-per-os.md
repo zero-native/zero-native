@@ -1,5 +1,8 @@
 # OTA bundle needs per OS (2026-11-11)
 
+Module names below are the ones from after the rename of 2026-11-11 (docs/plugins.md, "Module names"): `Push` is
+`FirebaseMessaging`, `AdId` is `AndroidAdId`. The record in §1 keeps the names of the time.
+
 Decided by Pavan on 2026-11-11 (docs/ios-plan-2026-11-09.md §6). Built on the Mac. This doc is the plan and the record,
 so the Windows machine can follow it, check it on the Lava, and make the Play build after it.
 
@@ -47,8 +50,8 @@ Write `platforms` when the folders don't tell the truth:
 ```json
 "requires": {
   "registry": 23, "bytecode": 99, "hostApi": 6,
-  "modules": { "Alert": 1, "Fetch": 1, "Notifications": 1, "Push": 1 },
-  "os": { "android": { "AdId": 1 } }
+  "modules": { "Alert": 1, "Fetch": 1, "FirebaseMessaging": 1, "Notifications": 1 },
+  "os": { "android": { "AndroidAdId": 1 } }
 }
 ```
 
@@ -60,7 +63,7 @@ Write `platforms` when the folders don't tell the truth:
 Android then iOS, each only when it isn't empty:
 
 ```
-registry=23;bytecode=99;hostApi=6;modules=Alert:1,Fetch:1,Notifications:1,Push:1;android=AdId:1
+registry=23;bytecode=99;hostApi=6;modules=Alert:1,Fetch:1,FirebaseMessaging:1,Notifications:1;android=AndroidAdId:1
 ```
 
 A bundle with no OS parts has exactly the line it had before: its signature, its serial and the server's serial

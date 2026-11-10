@@ -15,7 +15,7 @@ import org.json.JSONObject
  * ([ZnMessagingService]), not through this module. With no Firebase in the app (no google-services.json) every call
  * answers `unavailable` and nothing else happens.
  */
-internal class PushModule(context: Context) : ZnModuleBase("Push", version = 2) {
+internal class PushModule(context: Context) : ZnModuleBase("FirebaseMessaging", version = 2) {
     private val available = try {
         FirebaseApp.getApps(context).isNotEmpty()
     } catch (e: Exception) {

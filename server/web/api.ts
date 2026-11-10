@@ -52,6 +52,8 @@ export interface Manifest {
   git: { commit: string; dirty: boolean }
   builtAt: string
   signature: Signature
+  /** Each needed module → the package it comes from; absent in bundles built before 2026-11-11. Not signed. */
+  moduleFrom?: Record<string, string>
 }
 /** How soon phones update: normal = next start, high = may update at the splash, critical = update now. */
 export type Priority = "normal" | "high" | "critical"

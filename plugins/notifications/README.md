@@ -27,7 +27,7 @@ Each call answers with a value and never rejects. Nothing asks for a permission 
    **Deprecated:** the old keys `dev.zeronative.push.small_icon` and `dev.zeronative.push.color` (from before the
    split, 2026-11-09) still work; the new key wins when both are there. Move to the new ones.
 5. JS: import from `@zero-native/notifications`. Importing `Notifications` from `@zero-native/firebase-messaging` still works, but
-   then the app's bundle also needs the "Push" module (the OTA check refuses it on an app without push).
+   then the app's bundle also needs the "FirebaseMessaging" module (the OTA check refuses it on an app without push).
 
 The plugin's manifest adds `POST_NOTIFICATIONS` (Android 13+) and three receivers (none exported):
 `ZnNotificationDismissed` (swipes), `ZnNotificationTrigger` (the alarm of a scheduled notification) and
@@ -96,7 +96,7 @@ task. What a service plugin does:
   and sets `opens.emit` for taps while the app runs. The notifications plugin gives every one of them the Activity's
   events.
 - `PushEvents.inFront` says whether the app is on screen.
-- Getting a token, topics and the like stay in the service's own module (FCM: the "Push" module).
+- Getting a token, topics and the like stay in the service's own module (FCM: the "FirebaseMessaging" module).
 
 **iOS (not built yet):** the notifications plugin would own `UNUserNotificationCenter` (show, schedule, actions,
 taps). An APNs-only push path would get the device token from `application(_:didRegisterForRemoteNotifications...)`

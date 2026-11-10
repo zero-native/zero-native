@@ -51,7 +51,7 @@ export interface ConfigValue {
   getSource(): ValueSource
 }
 
-const Native = nativeModule<RemoteConfigModule>("RemoteConfig", { version: 1 })
+const Native = nativeModule<RemoteConfigModule>("FirebaseRemoteConfig", { version: 1 })
 // Not tied to a screen: a fetch started on one screen must still land when it closes.
 const unowned = { owned: false }
 

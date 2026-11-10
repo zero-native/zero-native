@@ -543,6 +543,19 @@ code,
 .badges {
   margin-top: 8px;
 }
+.needs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.needs .badge {
+  white-space: normal;
+}
+.needs-title {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
 .badges:empty {
   display: none;
 }

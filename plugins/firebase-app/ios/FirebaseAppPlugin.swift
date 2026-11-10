@@ -58,7 +58,7 @@ struct FirebaseAppPlugin: ZnPlugin {
 /// `Firebase.app()` and the data collection default.
 final class FirebaseModule: ZnModuleBase, @unchecked Sendable {
     init() {
-        super.init("Firebase", version: 1)
+        super.init("FirebaseApp", version: 1)
         function("app") { call in call.resolve(Self.info()) }
         function("setDataCollectionDefault") { call in
             guard let on = call.args["on"] as? Bool else { throw ZnInvalidArgs("\"on\" must be a boolean") }
@@ -91,7 +91,7 @@ final class FirebaseModule: ZnModuleBase, @unchecked Sendable {
 /// RN Firebase's `installations`: the install id Firebase services know this app by.
 final class InstallationsModule: ZnModuleBase, @unchecked Sendable {
     init() {
-        super.init("Installations", version: 1)
+        super.init("FirebaseInstallations", version: 1)
         function("getId") { call in
             #if canImport(FirebaseCore)
             guard ZnFirebase.available else { return call.resolve(nil) }

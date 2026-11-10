@@ -35,7 +35,7 @@ object ZnFirebase {
 }
 
 /** `Firebase.app()` and the data collection default (RN Firebase's `app` module). */
-internal class FirebaseModule(private val context: Context) : ZnModuleBase("Firebase", version = 1) {
+internal class FirebaseModule(private val context: Context) : ZnModuleBase("FirebaseApp", version = 1) {
     init {
         function("app") { it.resolve(info()) }
 
@@ -62,7 +62,7 @@ internal class FirebaseModule(private val context: Context) : ZnModuleBase("Fire
 }
 
 /** RN Firebase's `installations`: the install id Firebase services know this app by. */
-internal class InstallationsModule(private val context: Context) : ZnModuleBase("Installations", version = 1) {
+internal class InstallationsModule(private val context: Context) : ZnModuleBase("FirebaseInstallations", version = 1) {
     init {
         function("getId") { call ->
             if (!ZnFirebase.available(context)) return@function call.resolve(null)

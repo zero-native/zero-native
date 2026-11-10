@@ -148,6 +148,27 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+
+### 2026-11-11: Module names follow their plugin; the dashboard groups a bundle's needs (Claude, Mac; Pavan asked)
+- Native modules renamed after their plugin (docs/plugins.md, "Module names"): `Push` → `FirebaseMessaging`,
+  `Analytics` → `FirebaseAnalytics`, `Crashlytics` → `FirebaseCrashlytics`, `Perf` → `FirebasePerf`, `RemoteConfig`
+  → `FirebaseRemoteConfig`, `Firebase` → `FirebaseApp`, `Installations` → `FirebaseInstallations`, `AdId` →
+  `AndroidAdId`, `Auth` → `AndroidPlayAuth`. Only the registered names; the JS objects keep theirs. No old-name
+  aliases: the only case they help is a new app running an OTA bundle made before the rename, and a new app's own
+  built-in bundle is newer than that. `plugins/module-names.test.ts` checks the rule and that TS, Kotlin and Swift agree.
+- iOS: the built-in `AdId` stand-in (ZnAdIdNone) is gone: bundles don't need the module on iOS since per-OS needs, and
+  `AdId.get()` answers `{ id: null }` without it.
+- The compiler writes `moduleFrom` (each needed module → its package) into zn-bundle.json, outside the signed needs;
+  releases copy it into the manifest; the dashboard's bundle page shows the needs in rows: Framework, Core, zero-native
+  plugins, App's own (one "Modules" row for older bundles). Checked on a local zn-updates (`updates:server --demo`,
+  which now seeds grouped needs).
+- Removed the leftover plugin folders from the 2026-11-09 rename (push, crashlytics, analytics, perf, remote-config,
+  ad-id, auth: only ignored node_modules).
+- Checked: TS 1549 pass (the 5 known calls.test failures pass alone), types; ZeroBill's bundle lists the new names and
+  groups as expected; ZeroBill on the iOS Simulator starts on it and shows Home. Kotlin not compiled here (A20): Windows
+  runs the plugin tests, then ZeroBill's Play build and a new staging APK; zn-updates needs a redeploy for the rows.
+- Old staging bundles name the old modules, so a new app answers INCOMPATIBLE to them until a new bundle is released.
+
 ### 2026-11-11: OTA bundle needs per OS (Claude, Mac; Pavan decided)
 - A bundle's modules now come in three parts: both OSes (`requires.modules`), Android only and iOS only
   (`requires.os`). The compiler takes each module's OS from the package of the file that calls it

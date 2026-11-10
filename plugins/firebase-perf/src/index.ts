@@ -31,7 +31,7 @@ export interface PerfModule {
   stopTrace(args: { id: string }, options?: CallOptions): Promise<string>
 }
 
-const Native = nativeModule<PerfModule>("Perf", { version: 1 })
+const Native = nativeModule<PerfModule>("FirebasePerf", { version: 1 })
 // Not tied to a screen: a trace may outlive the screen that started it.
 const unowned = { owned: false }
 let nextId = 1

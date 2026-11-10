@@ -256,9 +256,9 @@ export function B() { return <Box enter="fade" /> }`)
 
 describe("the Motion module requirement", () => {
   test("an app file importing a motion API needs Motion 1", () => {
-    expect(nativeModuleUses(`import { usePan, signal } from "@zero-native/core"`, "C:/app/src/Card.tsx")).toEqual([{ name: "Motion", version: 1 }])
+    expect(nativeModuleUses(`import { usePan, signal } from "@zero-native/core"`, "C:/app/src/Card.tsx")).toEqual([{ name: "Motion", version: 1, core: true }])
     expect(nativeModuleUses(`import { signal } from "@zero-native/core"`, "C:/app/src/Card.tsx")).toEqual([])
-    expect(nativeModuleUses(`import * as zn from "@zero-native/core"`, "C:/app/src/x.ts")).toEqual([{ name: "Motion", version: 1 }])
+    expect(nativeModuleUses(`import * as zn from "@zero-native/core"`, "C:/app/src/x.ts")).toEqual([{ name: "Motion", version: 1, core: true }])
   })
 
   test("core's own Motion calls don't count", () => {

@@ -32,7 +32,7 @@ import org.json.JSONObject
  * Any Play services failure is a clean answer that means "type it by hand", never a crash and never a wait with no end.
  * An OTP is secret and a phone number is private: neither goes in a log line, not even in debug builds.
  */
-class AuthModule(private val context: Context) : ZnModuleBase("Auth", version = 1) {
+class AuthModule(private val context: Context) : ZnModuleBase("AndroidPlayAuth", version = 1) {
     private val main = Handler(Looper.getMainLooper())
     private val hint = Latest<HintAsk>()
     private val otp = Latest<OtpListen>()

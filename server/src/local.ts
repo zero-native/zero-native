@@ -55,13 +55,16 @@ async function demo() {
     publicKeys: [keys.publicBase64, backup.publicBase64],
     store: { android: { packages: { "com.demo.shop": "production", "com.demo.shop.staging": "staging" } }, ios: { appStoreId: "1234567890" } },
   })
-  const requires = { registry: 24, bytecode: 99, hostApi: 9, modules: { Fetch: 1, Device: 6 } }
+  const requires = { registry: 24, bytecode: 99, hostApi: 9, modules: { Device: 6, Fetch: 1, FirebaseMessaging: 1, ShopPay: 1 }, os: { android: { AndroidAdId: 1 } } }
+  // Where each module comes from: the dashboard groups the needs by it (core, zero-native plugins, the app's own)
+  const moduleFrom = { Device: "@zero-native/core", Fetch: "@zero-native/core", FirebaseMessaging: "@zero-native/firebase-messaging",
+    ShopPay: "@demo/shop-pay", AndroidAdId: "@zero-native/android-ad-id" }
   const build = async (code: string) => {
     const dir = mkdtempSync(join(tmpdir(), "znu-demo-"))
     writeFileSync(join(dir, "main.hbc"), code.repeat(2000))
     writeFileSync(join(dir, "main.zn.ui"), "templates")
     writeFileSync(join(dir, "main.zn.ui.json"), "{}")
-    await writeBundleInfo(dir, { app: "demo", serial: 0, names: ["main.hbc", "main.zn.ui", "main.zn.ui.json"], requires })
+    await writeBundleInfo(dir, { app: "demo", serial: 0, names: ["main.hbc", "main.zn.ui", "main.zn.ui.json"], requires, moduleFrom })
     return dir
   }
   const git = (subject: string) => ({ commit: Math.random().toString(16).slice(2, 9), dirty: false, subject })
@@ -78,7 +81,7 @@ async function demo() {
       method: "POST",
       body: JSON.stringify({
         app: "demo", channel: i % 3 ? "production" : "staging", installId: `demo-install-${i}`,
-        capabilities: { registry: 24, bytecode: 99, hostApi: 9, hostApiOldest: 1, modules: { Fetch: 1, Device: 6 } },
+        capabilities: { registry: 24, bytecode: 99, hostApi: 9, hostApiOldest: 1, modules: { Fetch: 1, Device: 6, FirebaseMessaging: 1, ShopPay: 1, AndroidAdId: 1 }, os: "android" },
         running: i % 2 ? { id: one.manifest.id, sha256: one.manifest.bundleSha256 } : null,
         builtIn: { id: "demo_0", serial: 0 }, kept: [], seq: 0,
         outcomes: i === 5 ? [{ kind: "error_screen", bundle: one.manifest.id, detail: "render", stack: "at Home (main.js:12:3)" }] : [],

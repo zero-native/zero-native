@@ -221,7 +221,8 @@ seq must be the channel's next one (a 409 if someone else published first).
 ## 6. Dashboard (pages)
 Overview · Bundles (+ bundle page; a bundle that is also built into a store build is one row, with the "In the app" chip;
 each row shows its patches; marked bundles under "Marked for delete"; the bundle page has "Size by file" from the source
-map, with the change since the bundle before) · Channels · Store updates (Play, App Store, one channel at a time; with a phone checker) · Store builds
+map, with the change since the bundle before, and the needs in rows: framework, core, zero-native plugins, the app's own,
+from the manifest's `moduleFrom`; one row for bundles built before it) · Channels · Store updates (Play, App Store, one channel at a time; with a phone checker) · Store builds
 & families (live mark, delete / keep, and "next download": the patch or full zip a phone on that build gets for the newest
 bundle) · Phones (1 / 7 / 35 days) · Activity · Environment (server, database, storage, keys). Dialogs with typed
 confirms as in §5, a live log for long actions, and the key file picked once per browser session (kept in memory).

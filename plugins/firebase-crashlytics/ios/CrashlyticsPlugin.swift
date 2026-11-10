@@ -98,7 +98,7 @@ final class CrashlyticsModule: ZnModuleBase, @unchecked Sendable {
     init(on: Bool, redact: ((String) -> String)?) {
         self.on = on
         self.redact = redact
-        super.init("Crashlytics", version: 1)
+        super.init("FirebaseCrashlytics", version: 1)
         function("status") { call in call.resolve(self.status()) }
         function("setCollectionEnabled") { call in
             guard let enabled = call.args["on"] as? Bool else { throw ZnInvalidArgs("\"on\" must be a boolean") }

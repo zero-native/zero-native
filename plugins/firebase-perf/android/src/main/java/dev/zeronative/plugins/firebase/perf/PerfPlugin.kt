@@ -152,7 +152,7 @@ private class ScreenTraces(private val perf: FirebasePerformance) {
 }
 
 /** RN Firebase's `perf()`: custom traces. Each JS trace has an id (JS makes it) until it stops. */
-internal class PerfModule(private val perf: FirebasePerformance?) : ZnModuleBase("Perf", version = 1) {
+internal class PerfModule(private val perf: FirebasePerformance?) : ZnModuleBase("FirebasePerf", version = 1) {
     private val traces = ConcurrentHashMap<String, Trace>()
 
     init {

@@ -98,6 +98,42 @@ export function requiresList(r: Requires): string[] {
     ),
   ]
 }
+/** One row of a bundle's needs on the dashboard: a title and its chips (`from`: the package, shown on hover). */
+export interface NeedsGroup {
+  title: string
+  items: { label: string; from?: string }[]
+}
+
+/**
+ * A bundle's needs in groups (Pavan, 2026-11-11): the framework's versions, then modules by where they come from:
+ * core, zero-native plugins, the app's own (its plugins and sources). [from] is the manifest's `moduleFrom`; a bundle
+ * built before it has none and gets one "Modules" row. One-OS modules keep their mark.
+ */
+export function requiresGroups(r: Requires, from?: Record<string, string>): NeedsGroup[] {
+  const groups: NeedsGroup[] = [
+    { title: "Framework", items: [{ label: `Registry v${r.registry}` }, { label: `Bytecode ${r.bytecode}` }, { label: `Host API v${r.hostApi}` }] },
+  ]
+  const all: { name: string; label: string }[] = [
+    ...Object.keys(r.modules).map((m) => ({ name: m, label: `${m} v${r.modules[m]}` })),
+    ...(["android", "ios"] as const).flatMap((os) =>
+      Object.keys(r.os?.[os] ?? {}).map((m) => ({ name: m, label: `${m} v${r.os![os]![m]} (${os === "ios" ? "iOS" : "Android"} only)` })),
+    ),
+  ].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  if (!from) {
+    if (all.length > 0) groups.push({ title: "Modules", items: all.map(({ label }) => ({ label })) })
+    return groups
+  }
+  const titles = ["Core", "zero-native plugins", "App's own"] as const
+  const byTitle = new Map<string, NeedsGroup["items"]>(titles.map((t) => [t, []]))
+  for (const m of all) {
+    const pkg = from[m.name] ?? ""
+    const title = pkg === "@zero-native/core" ? "Core" : pkg.startsWith("@zero-native/") ? "zero-native plugins" : "App's own"
+    byTitle.get(title)!.push(pkg ? { label: m.label, from: pkg } : { label: m.label })
+  }
+  for (const t of titles) if (byTitle.get(t)!.length > 0) groups.push({ title: t, items: byTitle.get(t)! })
+  return groups
+}
+
 export function capabilityList(c: Capabilities): string[] {
   return [
     `Registry v${c.registry}`,

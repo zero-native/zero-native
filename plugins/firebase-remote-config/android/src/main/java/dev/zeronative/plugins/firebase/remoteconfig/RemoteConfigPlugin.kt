@@ -32,7 +32,7 @@ class RemoteConfigPlugin : ZnPlugin {
  * RN Firebase's `remoteConfig()`. Values go to JS all at once (`getAll` after `activate`), so JS reads them with no
  * call. With no Firebase every call answers with the defaults JS set, and `available: false`.
  */
-internal class RemoteConfigModule(private val rc: FirebaseRemoteConfig?) : ZnModuleBase("RemoteConfig", version = 1) {
+internal class RemoteConfigModule(private val rc: FirebaseRemoteConfig?) : ZnModuleBase("FirebaseRemoteConfig", version = 1) {
     private var updates: ConfigUpdateListenerRegistration? = null
 
     init {

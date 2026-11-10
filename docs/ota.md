@@ -72,6 +72,11 @@ keeping every lesson that applies.
   - `os` (2026-11-11, docs/ota-requires-per-os.md): modules needed on one OS only, `{ "android": {...}, "ios": {...} }`,
     absent when there are none. A module's OS comes from the package of the file that calls it: a plugin's
     `zeroNative.platforms`, else its `android/` and `ios/` folders; core and the app's own files count for both.
+  - Next to `requires`, not in it: `moduleFrom` (2026-11-11), each needed module → the package whose files call it
+    (`@zero-native/core`, `@zero-native/firebase-messaging`, the app's own `@acme/upi`...; core wins when core calls
+    it too). Not signed and ignored by phones; the release copies it into the manifest, and the dashboard groups a
+    bundle's needs by it (framework, core, zero-native plugins, the app's own). Module names follow their plugin
+    (docs/plugins.md, "Module names").
 - **Rule:** the bundle runs only if the app covers all of it: `modules` plus `os` for the app's own OS (the phone sends
   `capabilities.os`; a check without it counts as Android). Checked by the phone before loading (`ZnBundles`) and,
   from step 4.4, by the server. **Safety net:** the phone also reads the bundle's templates while choosing it and
@@ -93,7 +98,7 @@ base64 SPKI DER, one line each. The texts are byte-identical in `tools/ota/signi
 - **Bundle** (once, at release): `zn-ota-v1 \n bundle \n <app> \n <bundle id> \n <serial> \n <bundle sha256> \n
   <requires line> \n <zip sha256> \n <zip size>`. The bundle SHA covers every file (code and images), so no separate
   image digest is needed; the requires line (`registry=8;bytecode=99;hostApi=2;modules=Device:1,Fetch:1`, modules
-  sorted; one-OS modules appended as `;android=AdId:1;ios=…` only when there are some) is signed because `zn-bundle.json` itself isn't hashed; the zip SHA lets the phone check the download
+  sorted; one-OS modules appended as `;android=AndroidAdId:1;ios=…` only when there are some) is signed because `zn-bundle.json` itself isn't hashed; the zip SHA lets the phone check the download
   before unzipping it.
 - **Pointer** (every change): `zn-ota-v1 \n pointer \n <app> \n <channel> \n <seq> \n <bundle id | BUILT_IN>`. The app
   is in the text (not in the first proposal), so a pointer of one app can't be replayed to another signed by the

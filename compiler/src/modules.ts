@@ -9,6 +9,8 @@ import { dirname, join } from "node:path"
 export interface ModuleUse {
   name: string
   version: number
+  /** A gated core module (GATED_CORE_MODULES) an app file needs by importing its API: it comes from core, not the file. */
+  core?: true
 }
 
 /** `@zero-native/core`'s calls.ts implements nativeModule() with a variable name; it is the only file allowed to. */
@@ -53,7 +55,7 @@ export function nativeModuleUses(source: string, fileName: string): ModuleUse[] 
       // `import * as zn from "@zero-native/core"` can reach anything: it counts for every gated module.
       const star = !!named && ts.isNamespaceImport(named)
       for (const [module, g] of Object.entries(GATED_CORE_MODULES)) {
-        if (star || names.some((n) => g.names.has(n))) uses.push({ name: module, version: g.version })
+        if (star || names.some((n) => g.names.has(n))) uses.push({ name: module, version: g.version, core: true })
       }
     }
   }
@@ -149,4 +151,45 @@ function pluginPlatforms(dir: string, pkgPath: string): ReadonlySet<ModuleOs> {
   if (zn.android !== undefined || existsSync(join(dir, "android"))) found.add("android")
   if (existsSync(join(dir, "ios"))) found.add("ios")
   return found.size > 0 ? found : BOTH_OSES // a plugin with no native side yet: not one OS's
+}
+
+/** What `packageOf` answers for @zero-native/core's own files (and gated core modules). */
+export const CORE_PACKAGE = "@zero-native/core"
+
+/** Folder → the name of the package it is in (memo for packageOf). */
+const packageNames = new Map<string, string>()
+
+/**
+ * The package a module call in [fileName] comes from, for the bundle's `moduleFrom` (shown by the dashboard: core,
+ * zero-native plugins, the app's own): the `name` of the nearest package.json; "" when there is none or it has no name.
+ * Not signed and never checked by a phone: it only says where each needed module comes from.
+ */
+export function packageOf(fileName: string): string {
+  if (CORE_SRC.test(fileName)) return CORE_PACKAGE
+  let dir = dirname(fileName)
+  const seen: string[] = []
+  let name = ""
+  for (;;) {
+    const known = packageNames.get(dir)
+    if (known !== undefined) {
+      name = known
+      break
+    }
+    seen.push(dir)
+    const pkgPath = join(dir, "package.json")
+    if (existsSync(pkgPath)) {
+      try {
+        const n = (JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: unknown }).name
+        name = typeof n === "string" ? n : ""
+      } catch {
+        name = ""
+      }
+      break
+    }
+    const up = dirname(dir)
+    if (up === dir) break
+    dir = up
+  }
+  for (const d of seen) packageNames.set(d, name)
+  return name
 }

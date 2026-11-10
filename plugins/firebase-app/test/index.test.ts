@@ -20,7 +20,7 @@ beforeEach(() => {
 test("app() answers the native info, and off when the plugin is missing", async () => {
   const info = { available: true, name: "[DEFAULT]", projectId: "p", appId: "1:2:android:3", dataCollectionDefault: true }
   const p = firebase.app()
-  expect(last("app").module).toBe("Firebase")
+  expect(last("app").module).toBe("FirebaseApp")
   reply(last("app").id, info)
   expect(await p).toEqual(info)
 
@@ -36,7 +36,7 @@ test("setDataCollectionDefault sends the switch", () => {
 
 test("Installations calls never reject", async () => {
   const id = installations().getId()
-  expect(last("getId").module).toBe("Installations")
+  expect(last("getId").module).toBe("FirebaseInstallations")
   refuse(last("getId").id, "unavailable")
   expect(await id).toBeNull()
 

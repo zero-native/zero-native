@@ -254,7 +254,7 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 
 | Plugin | What it does | iOS side | Android files | Size | Note |
 |---|---|---|---|---|---|
-| ad-id | Google advertising id (module AdId) | stub | AdIdPlugin.kt, AdIdRules.kt | M | ZnAdIdNone (2026-11-10): `{ id: null, limitAdTracking: true }`. A real IDFA needs the App Tracking Transparency prompt (Pavan decides). |
+| android-ad-id | Google advertising id (module AndroidAdId) | n/a | AdIdPlugin.kt, AdIdRules.kt | - | Android only (`platforms: ["android"]`): bundles don't need it on iOS, and `AdId.get()` answers `{ id: null }` there. The ZnAdIdNone stand-in was removed on 2026-11-11. A real IDFA needs the App Tracking Transparency prompt and its own plugin (Pavan decides). |
 | analytics | Firebase Analytics, RN Firebase API (Analytics) | done (simulator) | AnalyticsPlugin.kt, AnalyticsRules.kt | M | After firebase-app. |
 | auth | Phone number hint sheet, SMS Retriever (Auth) | done (stubs) | AuthPlugin.kt, AuthModule.kt, AuthRules.kt | S | iOS has neither. Answer "unavailable" so the app falls back to typing; the OTP fills from the keyboard via OtpInput's `.oneTimeCode`. |
 | crashlytics | Firebase Crashlytics, JS errors (Crashlytics) | done (simulator) | CrashlyticsPlugin.kt, CrashlyticsModule.kt, CrashlyticsRules.kt | M | dSYM upload; needs the JS error listener (§4). |

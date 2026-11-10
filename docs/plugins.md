@@ -94,11 +94,20 @@ class ScannerPlugin : ZnPlugin {
 (`android-play-auth`: Google's phone number hint and SMS reading; `android-ad-id`: Google's ad id). One built on
 Firebase starts with `firebase-` (`firebase-analytics`, `firebase-crashlytics`, `firebase-messaging`, `firebase-perf`,
 `firebase-remote-config`, with `firebase-app` as their base). The same goes for `ios-` later. iOS does not copy an
-Android-only plugin under a different meaning (Apple's IDFA is not Google's ad id). Native module names stay the API
-names (`Auth`, `AdId`, `Analytics`, `Push`...): they are what bundles and the OTA check name. Kotlin packages follow
-the folder (`dev.zeronative.plugins.android.playauth`, `dev.zeronative.plugins.firebase.messaging`).
-Today a bundle that needs an Android-only module is refused on a platform without it, so such a plugin keeps a tiny
-iOS side that answers "unavailable" (`plugins/android-play-auth/ios`). Folders were renamed on 2026-11-09 (old names:
+Android-only plugin under a different meaning (Apple's IDFA is not Google's ad id).
+
+**Module names (Pavan, 2026-11-11).** A plugin's native modules are named after the plugin: the name starts with the
+package's first word (`firebase-messaging` → `FirebaseMessaging`, `firebase-app` → `FirebaseApp` and
+`FirebaseInstallations`, `android-ad-id` → `AndroidAdId`, `android-play-auth` → `AndroidPlayAuth`). These names are
+what a bundle's needs list and the OTA check show, so a short one ("Push", "Auth") hides where it comes from and two
+plugins could take the same one. `plugins/module-names.test.ts` checks the rule, and that the JS, Kotlin and Swift
+sides register the same names. The JS objects keep their API names (`Push`, `Analytics`, `AdId`...). Renamed on
+2026-11-11, before any zn app was in a store (old: `Push`, `Analytics`, `Crashlytics`, `Perf`, `RemoteConfig`,
+`Firebase`, `Installations`, `AdId`, `Auth`). Kotlin packages follow the folder
+(`dev.zeronative.plugins.android.playauth`, `dev.zeronative.plugins.firebase.messaging`).
+A plugin's `zeroNative.platforms` (or its android/ and ios/ folders) says which OSes its modules count for in a
+bundle's needs (docs/ota-requires-per-os.md); `android-play-auth` still has a tiny iOS side that answers
+"unavailable" from before that. Folders were renamed on 2026-11-09 (old names:
 `auth`, `ad-id`, `analytics`, `crashlytics`, `perf`, `push`, `remote-config`).
 
 **JS-only plugins** (a date picker built from zn components, a formatting library) are plain TS packages that import

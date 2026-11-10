@@ -33,6 +33,7 @@ Each entry says:
 | A17 | 2026-11-11 | updates CLI (shared) | `updates login` writes ~/.zero-native/updates.json with `mode: 0o600`, but Node applies the mode only when it creates the file: a file made earlier (another server's login) keeps its open mode (found as rw-rw-r-- on the Mac, holding the production admin token; set to 600 by hand). Fix: `chmodSync(loginFile, 0o600)` after the write | open |
 | A18 | 2026-11-11 | OTA needs (shared + Android runtime) | Every module a bundle calls counted for both OSes, so iOS refused every ZeroBill OTA bundle (AdId is Android-only). Per-OS needs written on the Mac, Kotlin included but not compiled there (Gradle couldn't download): docs/ota-requires-per-os.md | open: Windows runs the Android tests and the Lava matrix |
 | A19 | 2026-11-11 | Repo (Android) | `android/gradlew` is mode 100644 in git: on the Mac `./gradlew` says "permission denied" (`bash ./gradlew` works). Fix: `git update-index --chmod=+x android/gradlew` | open |
+| A20 | 2026-11-11 | Plugins (shared + Android) | Native module names didn't say their plugin (`Push` in firebase-messaging, `Auth` in android-play-auth): Pavan found the dashboard's needs list confusing. Renamed to `FirebaseMessaging`, `FirebaseAnalytics`, `FirebaseCrashlytics`, `FirebasePerf`, `FirebaseRemoteConfig`, `FirebaseApp`, `FirebaseInstallations`, `AndroidAdId`, `AndroidPlayAuth` (docs/plugins.md, "Module names"); Kotlin `ZnModuleBase(...)` names changed on the Mac, not compiled there | open: Windows runs the plugin unit tests, a ZeroBill build on the Lava, then the Play build |
 
 ---
 
@@ -309,3 +310,19 @@ Each entry says:
   bundle shows `"os":{"android":{"AdId":1}}`. Deploy the zn-updates server before the first bundle with OS parts; then
   ZeroBill's Play build and a new staging APK (an APK built before can't verify bundles with OS parts).
 
+## A20. Native module names didn't say their plugin
+- **Status:** written on the Mac 2026-11-11 (Pavan asked). Kotlin not compiled there (no Gradle).
+- **Problem:** a bundle's needs list (and the dashboard) names native modules, and several had short names that hid
+  their plugin and could clash with another plugin: `Push` (firebase-messaging), `Analytics`, `Crashlytics`, `Perf`,
+  `RemoteConfig`, `Firebase` and `Installations` (firebase-app), `AdId` (android-ad-id), `Auth` (android-play-auth).
+- **Fix:** each name starts with its package's first word: `FirebaseMessaging`, `FirebaseAnalytics`,
+  `FirebaseCrashlytics`, `FirebasePerf`, `FirebaseRemoteConfig`, `FirebaseApp`, `FirebaseInstallations`, `AndroidAdId`,
+  `AndroidPlayAuth`. Only the registered name changed (`ZnModuleBase("...")` in Kotlin, `super.init("...")` in Swift,
+  `nativeModule("...")` in TS); classes and the JS objects (`Push`, `Analytics`, `AdId`...) keep their names.
+  `plugins/module-names.test.ts` checks the rule and that TS, Kotlin and Swift agree. The bundle also gets
+  `moduleFrom` (not signed) so the dashboard groups needs: framework, core, zero-native plugins, the app's own.
+- **Check on Android (Windows):** the plugins' unit tests; ZeroBill's bundle needs the new names
+  (`"os":{"android":{"AndroidAdId":1}}`, `FirebaseMessaging`...); ZeroBill starts on the Lava with its new built-in
+  bundle (an app that registers old names refuses it). An APK built before this can't run bundles built after it
+  (missing modules), and the reverse: make ZeroBill's Play build and a new staging APK after this lands, and redeploy
+  zn-updates for the grouped needs.

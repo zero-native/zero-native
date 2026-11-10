@@ -36,6 +36,8 @@ export interface Manifest {
   git: { commit: string; dirty: boolean }
   builtAt: string
   signature: Signature
+  /** Each needed module → its package (tools/bundle-info.ts BundleInfo.moduleFrom): not signed, for the dashboard. */
+  moduleFrom?: Record<string, string>
 }
 
 /**
@@ -193,6 +195,7 @@ export async function releaseBuilt(
     git,
     builtAt: at(ctx),
     signature: signText(bundleText(base), signingKey),
+    ...(info.moduleFrom ? { moduleFrom: info.moduleFrom } : {}),
   }
   await ctx.store.write(zipPath, zip)
   // Creating the manifest is the moment the bundle exists. If someone took this serial first, nothing is lost: run again.

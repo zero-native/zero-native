@@ -10,7 +10,7 @@ import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule, type ComponentRoots, type OnceTrap, type PropUse } from "./compile"
 import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
-import { BOTH_OSES, nativeModuleUses, platformsOf, type ModuleOs } from "./modules"
+import { BOTH_OSES, CORE_PACKAGE, nativeModuleUses, packageOf, platformsOf, type ModuleOs } from "./modules"
 import { compileDerives } from "./motion"
 import { fontFamilyProblem, type FontTable } from "./fonts"
 import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
@@ -46,7 +46,11 @@ export interface ZnBuild {
    * Templates are numbered by file path, then by their order in the file, so the same source always gives the same
    * bytes (one bundle = one SHA-256, docs/ota.md §3.1; small binary patches later), whatever order Bun loaded files.
    */
-  outputs(js: string): { templates: Uint8Array; manifest: ZnManifest; js: string; requires: BundleRequires }
+  /**
+   * `moduleFrom`: each needed module → the package it comes from (modules.ts packageOf; core wins when core calls it
+   * too). Goes in zn-bundle.json next to `requires`, not in it: not signed, only for the dashboard.
+   */
+  outputs(js: string): { templates: Uint8Array; manifest: ZnManifest; js: string; requires: BundleRequires; moduleFrom: Record<string, string> }
   /** After Bun.build: per .tsx file (absolute path), compiler output position → TSX position. */
   maps: Map<string, LineMap>
 }
@@ -77,13 +81,19 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
   const modules = new Map<string, number>()
   /** Native module name → the OSes of the packages that call it (modules.ts platformsOf). */
   const moduleOses = new Map<string, Set<ModuleOs>>()
+  /** Native module name → the packages whose files call it (modules.ts packageOf). */
+  const modulePackages = new Map<string, Set<string>>()
   /** The registry version app sources need beyond what the templates show (compiler needs.ts: canvas commands). */
   let sourceNeed = 0
   const addModules = (source: string, path: string) => {
     const uses = nativeModuleUses(source, path)
     const oses = uses.length > 0 ? platformsOf(path) : BOTH_OSES
-    for (const { name, version } of uses) {
+    const pkg = uses.length > 0 ? packageOf(path) : ""
+    for (const { name, version, core } of uses) {
       modules.set(name, Math.max(modules.get(name) ?? 0, version))
+      const pkgs = modulePackages.get(name) ?? new Set<string>()
+      pkgs.add(core ? CORE_PACKAGE : pkg)
+      modulePackages.set(name, pkgs)
       const set = moduleOses.get(name) ?? new Set<ModuleOs>()
       for (const os of oses) set.add(os)
       moduleOses.set(name, set)
@@ -199,7 +209,11 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
       // Both OSes, or one OS's own part (requires.os), by the packages that call each module
       const sortedModules: Record<string, number> = {}
       const osModules: Partial<Record<ModuleOs, Record<string, number>>> = {}
+      const moduleFrom: Record<string, string> = {}
       for (const [name, version] of [...modules.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        // Core wins (a core module that a plugin also calls is still core's); then the first other package by name
+        const pkgs = [...(modulePackages.get(name) ?? [])].sort()
+        moduleFrom[name] = pkgs.includes(CORE_PACKAGE) ? CORE_PACKAGE : (pkgs.find((p) => p !== "") ?? "")
         const oses = moduleOses.get(name) ?? BOTH_OSES
         if (oses.size === 1) {
           const os = [...oses][0]
@@ -218,6 +232,7 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
           modules: sortedModules,
           ...(Object.keys(osModules).length > 0 ? { os: osModules } : {}),
         },
+        moduleFrom,
       }
     },
   }

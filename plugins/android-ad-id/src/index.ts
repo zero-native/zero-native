@@ -21,7 +21,7 @@ interface AdIdModule {
   get(args?: Record<string, never>, options?: CallOptions): Promise<AdIdInfo | null>
 }
 
-const Native = nativeModule<AdIdModule>("AdId", { version: 1 })
+const Native = nativeModule<AdIdModule>("AndroidAdId", { version: 1 })
 const unowned: CallOptions = { owned: false } // module-level code and stores call it too
 
 const NONE: AdIdInfo = { id: null, limitAdTracking: false }

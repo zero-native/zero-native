@@ -76,7 +76,7 @@ export async function znBuild(defaults: { appDir?: string; name?: string; assets
 
   const names = ["main.hbc", "main.zn.ui", "main.zn.ui.json", ...assetNames]
   const requires = { ...app.requires, bytecode: await bytecodeVersion(join(assets, "main.hbc")) }
-  const info = await writeBundleInfo(assets, { app: name, serial, names, requires })
+  const info = await writeBundleInfo(assets, { app: name, serial, names, requires, moduleFrom: app.moduleFrom })
   console.log(`${name}: wrote zn-bundle.json (${info.id}, sha256 ${info.sha256.slice(0, 12)}…, needs ${JSON.stringify(info.requires)})`)
 
   // The source map: main.js → the TSX files (named relative to the app's folder), and which bundle it belongs to.

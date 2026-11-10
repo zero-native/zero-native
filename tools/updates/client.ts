@@ -91,6 +91,7 @@ export async function uploadBuilt(
       bundleText({ app, id: stamped.id, serial: r.serial, bundleSha256: info.sha256, requires: info.requires, zipSha256, zipSize: zip.length }),
       privatePem,
     ),
+    ...(info.moduleFrom ? { moduleFrom: info.moduleFrom } : {}),
   }
   const form = new FormData()
   form.set("manifest", JSON.stringify(m))

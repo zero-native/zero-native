@@ -62,7 +62,7 @@ test("onConfigUpdated starts real-time updates for the first listener and stops 
   const off1 = RemoteConfig.onConfigUpdated((e) => seen.push(e.updatedKeys))
   const off2 = RemoteConfig.onConfigUpdated(() => {})
   expect(host.calls.filter((c) => c.method === "startUpdates").length).toBe(1)
-  globalThis.__zn_onEvent(0, 8, JSON.stringify({ module: "RemoteConfig", event: "updated", payload: { updatedKeys: ["greeting"] } }))
+  globalThis.__zn_onEvent(0, 8, JSON.stringify({ module: "FirebaseRemoteConfig", event: "updated", payload: { updatedKeys: ["greeting"] } }))
   expect(seen).toEqual([["greeting"]])
   off1()
   off1()

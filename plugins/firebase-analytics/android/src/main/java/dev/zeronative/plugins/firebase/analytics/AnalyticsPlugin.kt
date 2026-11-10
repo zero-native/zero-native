@@ -65,7 +65,7 @@ class AnalyticsPlugin(
 }
 
 /** RN Firebase's `analytics()` calls. A call with a bad name answers its reason ("" when sent). */
-internal class AnalyticsModule(private val analytics: FirebaseAnalytics?) : ZnModuleBase("Analytics", version = 1) {
+internal class AnalyticsModule(private val analytics: FirebaseAnalytics?) : ZnModuleBase("FirebaseAnalytics", version = 1) {
     // The bundle parameter is kept here so the app's setDefaultEventParameters(null) doesn't clear it.
     private var bundle: String? = null
 

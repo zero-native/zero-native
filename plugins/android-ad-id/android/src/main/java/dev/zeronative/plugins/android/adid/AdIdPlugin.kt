@@ -23,7 +23,7 @@ class AdIdPlugin : ZnPlugin {
  * The Google advertising id (2026-11-07, for ad attribution). `get` answers `{ id, limitAdTracking }` and never
  * rejects: no Play services, a Play services error or an id the user deleted all answer `id: null`.
  */
-internal class AdIdModule(private val app: Context) : ZnModuleBase("AdId", version = 1) {
+internal class AdIdModule(private val app: Context) : ZnModuleBase("AndroidAdId", version = 1) {
     /**
      * Its own thread: the read is a call into Play services that can wait (a busy phone, Play services updating). On
      * the shared call pool (2 threads) it would hold up other modules' calls meanwhile.

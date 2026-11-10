@@ -6,7 +6,7 @@
 // - stopOtp: true; appHash: "".
 // What iOS gives instead needs no plugin: OtpInput offers the code from Messages above the keyboard (`.oneTimeCode`),
 // and a phone field marked as a phone number gets the user's own number from AutoFill. The module still exists, so a
-// bundle that needs "Auth" v1 runs here.
+// bundle that needs "AndroidPlayAuth" v1 runs here.
 import Foundation
 
 struct AuthPlugin: ZnPlugin {
@@ -17,7 +17,7 @@ struct AuthPlugin: ZnPlugin {
 
 final class AuthModule: ZnModuleBase, @unchecked Sendable {
     init() {
-        super.init("Auth", version: 1)
+        super.init("AndroidPlayAuth", version: 1)
         function("phoneHint") { call in call.resolve(["launched": false, "reason": "unavailable"]) }
         function("listenOtp") { call in call.reject("unavailable", "iOS apps can't read SMS; OtpInput offers the code from Messages") }
         function("stopOtp") { call in call.resolve(true) }

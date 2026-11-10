@@ -7,7 +7,7 @@ import dev.zeronative.runtime.ZnPlugin
 import dev.zeronative.runtime.ZnPluginRegistry
 
 /**
- * Add it with `ZnPlugins.register(this, PushPlugin())`. The "Push" module: FCM's token and topics; messages arrive as the
+ * Add it with `ZnPlugins.register(this, PushPlugin())`. The "FirebaseMessaging" module: FCM's token and topics; messages arrive as the
  * JS task "push.message" through the notifications plugin's PushEvents. It adds [NotificationsPlugin] ("Notifications")
  * itself, so an app that lists only PushPlugin keeps its notifications. The app's Activity needs
  * `ZnActivity.attach(this)`: messages say whether the app was in front.

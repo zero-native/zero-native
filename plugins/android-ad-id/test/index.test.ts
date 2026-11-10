@@ -19,7 +19,7 @@ beforeEach(() => {
 
 test("the id and the user's choice come back as native gives them", async () => {
   const a = AdId.get()
-  expect(last().module).toBe("AdId")
+  expect(last().module).toBe("AndroidAdId")
   reply(last().id, { id: "38400000-8cf0-11bd-b23e-10b96e40000d", limitAdTracking: true })
   expect(await a).toEqual({ id: "38400000-8cf0-11bd-b23e-10b96e40000d", limitAdTracking: true })
 })

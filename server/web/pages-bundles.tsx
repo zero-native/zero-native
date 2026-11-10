@@ -3,7 +3,7 @@ import { useMemo, useState } from "react"
 import { type Bundle, routes, type Sizes, type State, type Stats, type StoreBuild } from "./api"
 import { bundleActions, cannotRun, channelNow, type ChannelNow, keptStoreBuilds, nextHints, PRODUCTION, STAGING } from "./logic"
 import { Badge, Btn, Card, Empty, ErrorBox, Menu, Notice, PageHead, Segmented, Skeleton, Stat, useApp, useLoad, When } from "./ui"
-import { actionWords, ago, bytes, dateOnly, dateTime, daysLeft, kindWords, priorityWords, requiresList, serialOf, targetLabel } from "./util"
+import { actionWords, ago, bytes, dateOnly, dateTime, daysLeft, kindWords, priorityWords, requiresGroups, serialOf, targetLabel } from "./util"
 
 export function todayUtc() {
   return new Date().toISOString().slice(0, 10)
@@ -417,9 +417,18 @@ export function BundlePage({ serial }: { serial: number }) {
             <dt>Zip size</dt>
             <dd>{bytes(m.zip.size)}</dd>
             <dt>Needs</dt>
-            <dd className="chips-static">
-              {requiresList(m.requires).map((r) => (
-                <Badge key={r}>{r}</Badge>
+            <dd className="needs">
+              {requiresGroups(m.requires, m.moduleFrom).map((g) => (
+                <div key={g.title} className="needs-group">
+                  <div className="needs-title muted">{g.title}</div>
+                  <div className="chips-static">
+                    {g.items.map((x) => (
+                      <Badge key={x.label} title={x.from}>
+                        {x.label}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
               ))}
             </dd>
             <dt>Git</dt>

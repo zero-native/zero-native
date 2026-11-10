@@ -42,8 +42,8 @@ export interface InstallationsModule {
   delete(args?: Record<string, never>, options?: CallOptions): Promise<boolean>
 }
 
-const NativeApp = nativeModule<FirebaseModule>("Firebase", { version: 1 })
-const NativeInstallations = nativeModule<InstallationsModule>("Installations", { version: 1 })
+const NativeApp = nativeModule<FirebaseModule>("FirebaseApp", { version: 1 })
+const NativeInstallations = nativeModule<InstallationsModule>("FirebaseInstallations", { version: 1 })
 // Not tied to a screen: a setting must not be cancelled because the screen that set it closed.
 const unowned = { owned: false }
 const off: FirebaseAppInfo = { available: false }

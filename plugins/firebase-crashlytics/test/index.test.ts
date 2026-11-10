@@ -21,7 +21,7 @@ test("recordError sends the name, message, Hermes stack and tag", async () => {
   const e = new TypeError("amount is undefined")
   const p = Crashlytics.recordError(e, "Checkout.verify")
   const c = last("recordError")
-  expect(c.module).toBe("Crashlytics")
+  expect(c.module).toBe("FirebaseCrashlytics")
   expect(c.args).toMatchObject({ name: "TypeError", message: "amount is undefined", tag: "Checkout.verify" })
   expect(typeof (c.args as { stack: string }).stack).toBe("string")
   reply(c.id, true)

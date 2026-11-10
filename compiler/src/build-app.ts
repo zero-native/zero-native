@@ -15,6 +15,8 @@ export interface AppBuild {
   js: string
   /** What an app must have to run this build (OTA capability check, docs/ota.md §3.2); bytecode format not included. */
   requires: BundleRequires
+  /** Each needed module → the package it comes from (zn-bundle.json `moduleFrom`, for the dashboard; not signed). */
+  moduleFrom: Record<string, string>
   /** Maps a position in `js` (0-based line and column) back to the TSX / TS file. */
   original(line: number, col: number): { file: string; line: number; col: number } | null
   /**
@@ -53,7 +55,7 @@ export async function buildApp(entry: string): Promise<AppBuild> {
       const file = resolve(process.cwd(), path)
       return existsSync(file) ? `${indent}// ${relative(dirname(resolve(entry)), file).replaceAll("\\", "/")}` : line
     })
-  const { templates, manifest, js: filledJs, requires } = zn.outputs(bundled)
+  const { templates, manifest, js: filledJs, requires, moduleFrom } = zn.outputs(bundled)
   const bundleMap: DecodedMap | null = mapFile ? decodeSourceMap(JSON.parse(await mapFile.text())) : null
 
   const original = (line: number, col: number) => {
@@ -73,6 +75,7 @@ export async function buildApp(entry: string): Promise<AppBuild> {
     manifest,
     js: filledJs,
     requires,
+    moduleFrom,
     original,
     sourceMap(file, relativeTo) {
       const sources: string[] = []

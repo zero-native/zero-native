@@ -57,6 +57,12 @@ export interface BundleInfo {
    * build refuses it for a store build (second-opinions #223). The phone ignores it.
    */
   serialTaken?: boolean
+  /**
+   * Each needed module → the package it comes from ("@zero-native/core", "@zero-native/firebase-messaging", the app's
+   * own plugin...), from the compiler. Only for the dashboard (core / zero-native plugins / the app's own): not signed,
+   * not in `requires`, ignored by phones. Absent in bundles built before 2026-11-11.
+   */
+  moduleFrom?: Record<string, string>
 }
 
 function sha256Hex(data: Uint8Array | string): string {
@@ -77,7 +83,7 @@ export function bundleSha256(files: Record<string, BundleFile>): string {
  */
 export async function writeBundleInfo(
   dir: string,
-  opts: { app: string; serial: number; names: string[]; requires: BundleRequires },
+  opts: { app: string; serial: number; names: string[]; requires: BundleRequires; moduleFrom?: Record<string, string> },
 ): Promise<BundleInfo> {
   if (!/^[a-z][a-z0-9_.-]*$/.test(opts.app)) throw new Error(`bundle app id "${opts.app}": use a-z, 0-9, _ . -`)
   if (!Number.isInteger(opts.serial) || opts.serial < 0) throw new Error(`bundle serial must be 0 or more`)
@@ -102,6 +108,7 @@ export async function writeBundleInfo(
     requires: opts.requires,
     files,
     builtAt: new Date().toISOString(),
+    ...(opts.moduleFrom ? { moduleFrom: opts.moduleFrom } : {}),
   }
   await Bun.write(join(dir, BUNDLE_INFO_FILE), JSON.stringify(info, null, 2) + "\n")
   return info

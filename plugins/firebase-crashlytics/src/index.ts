@@ -37,7 +37,7 @@ export interface CrashlyticsModule {
   crash(args: { kind: CrashKind }, options?: CallOptions): Promise<boolean>
 }
 
-const Native = nativeModule<CrashlyticsModule>("Crashlytics", { version: 1 })
+const Native = nativeModule<CrashlyticsModule>("FirebaseCrashlytics", { version: 1 })
 // Not tied to a screen: a log line or a report must not be cancelled because the screen that sent it closed.
 const unowned = { owned: false }
 const off: CrashlyticsStatus = { available: false, enabled: false }

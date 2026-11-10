@@ -124,7 +124,7 @@ final class AnalyticsModule: ZnModuleBase, @unchecked Sendable {
 
     init(on: Bool) {
         self.on = on
-        super.init("Analytics", version: 1)
+        super.init("FirebaseAnalytics", version: 1)
         function("status") { call in call.resolve(["available": on]) }
         function("setCollectionEnabled") { call in
             guard let enabled = call.args["on"] as? Bool else { throw ZnInvalidArgs("\"on\" must be a boolean") }

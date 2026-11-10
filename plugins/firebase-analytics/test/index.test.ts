@@ -20,7 +20,7 @@ beforeEach(() => {
 test("logEvent sends the name and params, leaving undefined values out", async () => {
   const p = analytics().logEvent("pay_tapped", { amount: 499, method: "upi", note: undefined })
   const c = last("logEvent")
-  expect(c.module).toBe("Analytics")
+  expect(c.module).toBe("FirebaseAnalytics")
   expect(c.args).toMatchObject({ name: "pay_tapped", params: { amount: 499, method: "upi" } })
   expect("note" in (c.args as { params: object }).params).toBe(false)
   reply(c.id, "")

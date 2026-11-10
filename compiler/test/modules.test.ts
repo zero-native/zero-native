@@ -66,6 +66,18 @@ describe("per-OS needs (docs/ota-requires-per-os.md)", () => {
     expect(app.requires.os).toEqual({ android: { AdId: 2 }, ios: { Haptics: 2 } })
   })
 
+  test("buildApp says which package each needed module comes from (moduleFrom, for the dashboard)", async () => {
+    const app = await buildApp(join(import.meta.dir, "fixtures/per-os/main.ts"))
+    expect(app.moduleFrom.AdId).toBe("per-os-droid")
+    expect(app.moduleFrom.Haptics).toBe("per-os-apple")
+    expect(app.moduleFrom.Share).toBe("per-os-both")
+    expect(app.moduleFrom.Pay).toBe("@zero-native/compiler") // the app's own call: the nearest package.json (here the compiler's)
+    // Core's own modules say core; every needed module has an entry
+    const needed = [...Object.keys(app.requires.modules), ...Object.values(app.requires.os ?? {}).flatMap((m) => Object.keys(m))]
+    expect(Object.keys(app.moduleFrom).sort()).toEqual(needed.sort())
+    expect(Object.entries(app.moduleFrom).filter(([, p]) => p === "@zero-native/core").length).toBeGreaterThan(0)
+  })
+
   test("a plugin's platforms: zeroNative.platforms, else its folders; anything else is both", () => {
     const root = mkdtempSync(join(tmpdir(), "zn-platforms-"))
     try {

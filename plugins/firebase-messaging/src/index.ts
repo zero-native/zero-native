@@ -57,7 +57,7 @@ export interface PushModule {
   events: { opened: OpenedMessage }
 }
 
-const NativePush = nativeModule<PushModule>("Push", { version: 1 })
+const NativePush = nativeModule<PushModule>("FirebaseMessaging", { version: 1 })
 // Not tied to a screen: a task has no screen, and a token sync must not stop because a screen closed.
 const unowned = { owned: false }
 const no = () => false

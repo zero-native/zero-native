@@ -22,7 +22,7 @@ import org.json.JSONObject
 internal class CrashlyticsModule(
     private val crashlytics: FirebaseCrashlytics?,
     private val redact: ((String) -> String)?,
-) : ZnModuleBase("Crashlytics", version = 1) {
+) : ZnModuleBase("FirebaseCrashlytics", version = 1) {
     private val main = Handler(Looper.getMainLooper())
 
     init {
