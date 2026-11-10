@@ -30,6 +30,7 @@ Each entry says:
 | A14 | 2026-11-08 | location (shared JS) | On iOS the plugin asks core's Permissions for "location" (iOS's name), not Android's two names | fixed on ios (no Android change expected) |
 | A15 | 2026-11-09 | OTA (Updates) | With OTA off, `Updates.check()` answers without `status`, which its JS type promises; the sample's Updates screen throws on "Check now" | fixed 2026-11-09 (`ZnOta.kt` Module `check` adds `status` when OTA is off); not phone-checked: the sample has OTA on |
 | A16 | 2026-11-10 | Build (app:js, shared) | A plain `.ts` file that imports a `.tsx` file with components fails the build: "Cannot find package 'react'" (found by the ZeroBill session; worked around in ZeroBill) | fixed 2026-11-10 (`compiler/src/plugin.ts`: such a `.ts` file is no longer loaded at build time); test in `compiler/test/build-app.test.ts`; same build for Android and iOS, nothing to check on a phone |
+| A17 | 2026-11-11 | updates CLI (shared) | `updates login` writes ~/.zero-native/updates.json with `mode: 0o600`, but Node applies the mode only when it creates the file: a file made earlier (another server's login) keeps its open mode (found as rw-rw-r-- on the Mac, holding the production admin token; set to 600 by hand). Fix: `chmodSync(loginFile, 0o600)` after the write | open |
 
 ---
 
