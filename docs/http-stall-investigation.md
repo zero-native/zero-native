@@ -257,6 +257,9 @@ Result (emulator, sample debug build):
   horizontal` and `Carousel` load a picture when it comes into view. So scrolling an offers rail shows each new card
   with its shimmer and then its picture: on a slow image host this looks like "one after another", but it isn't.
 - Not related to the pool stall: images load in Compose (Coil), never through JS or the native call pool.
+- **Built 2026-11-10** (Fable's image plan, Pavan's go): `<List>` rows load their pictures 8 rows ahead, 3 at once
+  (second-opinions 224), pictures have their own connection pool (225) and a 150 ms fade. `Scroll horizontal` and
+  `Carousel` still load on view. Lab for lists: `/dev/image-list`, `bun run tools/repro/http-stall.ts list`.
 
 Found on the way (not changed, needs Pavan's go): **merchant icons come from the API host**
 (`merchantIcon`: `api.example.com/merchants/icon?mid=...`, ZB `app/src/services.ts:568`). Images and fetch share the

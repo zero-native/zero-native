@@ -1,5 +1,6 @@
 package dev.zeronative.runtime
 
+import coil3.request.crossfade
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
@@ -178,6 +179,38 @@ object ZnFetch : ZnModuleBase("Fetch") {
     private val imageDispatcher = Dispatcher().apply { maxRequestsPerHost = IMAGE_MAX_PER_HOST }
 
     /**
+     * Pictures loaded before their List row is on screen (ZnImagePreload) wait in a queue of their own with a low
+     * limit, 3 at once in all, so they never crowd an on-screen picture or an API call (image plan C1, 2026-11-10).
+     */
+    internal const val PRELOAD_MAX = 3
+    private val preloadDispatcher = Dispatcher().apply { maxRequests = PRELOAD_MAX; maxRequestsPerHost = PRELOAD_MAX }
+
+    /** Marks a Coil request as a preload (ZnImagePreload); taken off before the request goes out. */
+    internal const val PRELOAD_HEADER = "X-Zn-Preload"
+
+    /** True once Coil's shared loader is ours ([useForImages]): only then can preloads use the preload queue. */
+    @Volatile internal var ownImageLoader = false
+        private set
+
+    /**
+     * The client for pictures: its own connection pool (image plan C2, 2026-11-10), so an API call never shares an
+     * HTTP/2 connection with picture bytes (on a mobile network one lost packet of a picture stalls everything on that
+     * connection, a payment verify too). It costs one more TLS setup for a host that serves both (ZeroBill's merchant
+     * icons came from the API host). Made in [derived], so it is new, with a new pool, after each network change.
+     */
+    private fun imageClient(): OkHttpClient =
+        derived("zn.images") {
+            it.readTimeout(IMAGE_READ_TIMEOUT_S, TimeUnit.SECONDS).dispatcher(imageDispatcher).connectionPool(newPool())
+        }
+
+    @Volatile private var preloadClient: Pair<OkHttpClient, OkHttpClient>? = null
+
+    /** The image client with the preload queue: the same pool, so the on-screen request can reuse its connection. */
+    private fun preloadClientFor(images: OkHttpClient): OkHttpClient =
+        preloadClient?.takeIf { it.first === images }?.second
+            ?: images.newBuilder().dispatcher(preloadDispatcher).build().also { preloadClient = images to it }
+
+    /**
      * Coil's shared image loader (Image, the image viewer) on [client], read for each call: the same fresh pool after a
      * network change, the app's pins and interceptors. Coil's default was its own OkHttpClient (5 min idle pool, kept
      * across Wi-Fi ↔ mobile: images stalled after a switch; review 2026-11-09, finding 8). `setSafe`: an app that set
@@ -185,14 +218,21 @@ object ZnFetch : ZnModuleBase("Fetch") {
      */
     internal fun useForImages() {
         val calls = okhttp3.Call.Factory { request ->
-            derived("zn.images") { it.readTimeout(IMAGE_READ_TIMEOUT_S, TimeUnit.SECONDS).dispatcher(imageDispatcher) }.newCall(request)
+            val images = imageClient()
+            if (request.header(PRELOAD_HEADER) == null) images.newCall(request)
+            else preloadClientFor(images).newCall(request.newBuilder().removeHeader(PRELOAD_HEADER).build())
         }
         coil3.SingletonImageLoader.setSafe { context ->
+            ownImageLoader = true
             coil3.ImageLoader.Builder(context)
                 .components { add(coil3.network.okhttp.OkHttpNetworkFetcherFactory(callFactory = calls)) }
+                // A short fade instead of a pop (image plan B, 2026-11-10). Coil never fades a memory-cache hit.
+                .crossfade(IMAGE_FADE_MS)
                 .build()
         }
     }
+
+    internal const val IMAGE_FADE_MS = 150
 
     private fun build(): OkHttpClient {
         built = true
@@ -217,6 +257,8 @@ object ZnFetch : ZnModuleBase("Fetch") {
             current = old.newBuilder().connectionPool(newPool()).build()
             generation++ // after `current`: see derived()
             old.connectionPool.evictAll()
+            // Derived clients with a pool of their own (pictures): close its idle connections too
+            for ((_, c) in derivedClients.values) if (c.connectionPool !== old.connectionPool) c.connectionPool.evictAll()
         }
         Log.i(TAG, "fetch: $why: new calls use new connections")
     }

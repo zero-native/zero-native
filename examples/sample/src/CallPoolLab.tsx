@@ -12,7 +12,7 @@
 // /dev/net-loop: a fetch every 3 s to a public HTTPS host and the local server, each on its own (a stuck one doesn't
 // stop the next), logged as "net-loop". For network changes while it runs: mobile data / Wi-Fi off and on, Doze.
 // tools/repro/http-stall.ts drives both.
-import { Carousel, Column, Image, Pressable, Row, Scroll, Text } from "@zero-native/ui"
+import { Carousel, Column, Image, List, Pressable, Row, Scroll, Text } from "@zero-native/ui"
 import { FetchError, nav, signal, type Signal } from "@zero-native/core"
 import { Device } from "@zero-native/device-test"
 import { c } from "./tokens"
@@ -207,6 +207,55 @@ export function ImageParLab() {
           {lines().join("\n")}
         </Text>
       </Scroll>
+    </Column>
+  )
+}
+
+// /dev/image-list: do the pictures of the rows below the screen load before the user scrolls there (ZnImagePreload,
+// image plan A)? A <List> of 60 rows, each with a picture that answers after 1 s (/slow-image). Rows that were loaded
+// ahead show soon after they come on screen (from the disk cache); the others take the 1 s. Logged as "image-list";
+// the script (tools/repro/http-stall.ts list) scrolls and reads the server's log: when each picture was asked for, and
+// how many were asked for twice.
+interface ListRowItem {
+  id: string
+  n: number
+}
+const LIST_ROWS: ListRowItem[] = Array.from({ length: 60 }, (_, i) => ({ id: `row${i + 1}`, n: i + 1 }))
+
+export function ImageListLab() {
+  const t0 = Date.now()
+  const img = (id: string) => `${L}/slow-image?ms=1000&id=${id}&run=${t0}`
+  console.log(`image-list open run=${t0}`)
+  return (
+    <Column style={{ flex: 1, backgroundColor: c.bg }}>
+      <Row style={{ gap: 8, alignItems: "center", paddingHorizontal: 20, paddingVertical: 12 }}>
+        <Pressable onPress={() => nav.back()} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+          <Text fontSize={20} fontWeight={700} color={c.ink}>
+            ←
+          </Text>
+        </Pressable>
+        <Text fontSize={20} fontWeight={700} color={c.ink}>
+          Pictures ahead?
+        </Text>
+      </Row>
+      <List
+        data={LIST_ROWS}
+        key={(r) => r.id}
+        style={{ flex: 1 }}
+        row={(r) => (
+          <Row style={{ gap: 12, alignItems: "center", paddingHorizontal: 16, height: 72 }}>
+            <Image
+              src={img(r.id)}
+              loading="shimmer"
+              onLoad={() => console.log(`image-list ${r.id} loaded at ${Date.now() - t0} ms`)}
+              style={{ width: 56, height: 56, borderRadius: 8 }}
+            />
+            <Text fontSize={15} color={c.ink}>
+              Row {r.n}
+            </Text>
+          </Row>
+        )}
+      />
     </Column>
   )
 }

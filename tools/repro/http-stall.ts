@@ -6,6 +6,8 @@
 //     AbortSignal behind them.
 //   bun run tools/repro/http-stall.ts images [--serial emulator-5554]
 //     The image lab: when each of 21 slow images (2 s each, one host) arrives, and how many the server served at once.
+//   bun run tools/repro/http-stall.ts list [--serial emulator-5554]
+//     The List image lab: are the pictures of the rows below the screen loaded before a scroll brings them on screen?
 //   bun run tools/repro/http-stall.ts net [--serial emulator-5554] [--apk C:/path/sample-debug.apk]
 //     A fetch every 3 s (public HTTPS host + local server) while the script turns mobile data and Wi-Fi off and on,
 //     sends the app to the background, forces Doze, and (with --apk) installs the APK over the running app.
@@ -181,10 +183,50 @@ async function images(): Promise<void> {
   for (const l of stats.log) console.log(`  ${l}`)
 }
 
+/**
+ * /dev/image-list: a <List> of 60 rows with a slow picture each (1 s). Waits on the first screen, then scrolls one
+ * screen at a time. Prints when each row's picture came after the scroll that brought it on screen, which pictures the
+ * server was asked for before any scroll (the preloads), and the ones asked for twice (a preload and the on-screen load).
+ */
+async function list(): Promise<void> {
+  await fetch("http://localhost:8788/slow-image-reset")
+  const size = /(\d+)x(\d+)/.exec(sh("wm size")) ?? ["", "1080", "2400"]
+  const w = Number(size[1])
+  const h = Number(size[2])
+  let scrollAt = 0
+  let scrolls = 0
+  const stop = watchLog("image-", (l) => {
+    const m = / (row\d+) loaded at (\d+) ms/.exec(l)
+    if (m && scrolls > 0) console.log(`${at()}  ${m[1]} shown ${Date.now() - scrollAt} ms after scroll ${scrolls}`)
+    else console.log(`${at()}  ${l}`)
+  })
+  open("/dev/image-list")
+  await sleep(6000)
+  const before = (await (await fetch("http://localhost:8788/slow-image-stats")).json()) as { log: string[] }
+  const asked = before.log.filter((l) => l.startsWith("start ")).map((l) => l.split(" ")[1])
+  console.log(`
+before any scroll the server was asked for ${asked.length} pictures: ${asked.join(" ")}
+`)
+  for (let i = 0; i < 3; i++) {
+    scrolls++
+    scrollAt = Date.now()
+    sh(`input swipe ${Math.round(w / 2)} ${Math.round(h * 0.8)} ${Math.round(w / 2)} ${Math.round(h * 0.25)} 400`)
+    await sleep(5000)
+  }
+  stop()
+  const stats = (await (await fetch("http://localhost:8788/slow-image-stats")).json()) as { maxOpen: number; log: string[] }
+  const count = new Map<string, number>()
+  for (const l of stats.log) if (l.startsWith("start ")) count.set(l.split(" ")[1], (count.get(l.split(" ")[1]) ?? 0) + 1)
+  const twice = [...count].filter(([, n]) => n > 1).map(([id, n]) => `${id}×${n}`)
+  console.log(`
+server: ${count.size} pictures, at most ${stats.maxOpen} at once; asked for more than once: ${twice.join(" ") || "none"}`)
+}
+
 await ensureServer()
 adb("reverse", "tcp:8788", "tcp:8788")
 if (mode === "pool") await pool()
 else if (mode === "images") await images()
 else if (mode === "net") await net()
-else console.log(`unknown mode "${mode}": use pool or net`)
+else if (mode === "list") await list()
+else console.log(`unknown mode "${mode}": use pool, images, list or net`)
 process.exit(0)

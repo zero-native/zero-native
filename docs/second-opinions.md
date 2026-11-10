@@ -3604,3 +3604,42 @@ change, and what evidence would make you change it?"
   when the serial is only the next free one (the phone ignores the field); ZeroBill's Gradle check refuses it for
   `mergeProductionReleaseAssets` (`-PznAllowUntakenSerial` for a local test build). Option (b) not done. iOS: no Xcode
   check yet (an IPA for the App Store must come from `store-build` too).
+
+## 224. List rows load their pictures ahead, into the disk cache only; a 150 ms fade (runtime, 2026-11-10; Opus, from Fable's image plan, Pavan's go)
+- **Where:** `ZnImagePreload.kt`, `ZnPreloadAhead` in `ZnRenderer.kt` (called by `ZnLazyList`), `ZnFetch.useForImages`.
+- **Problem:** pictures looked slower than in RN. zn asked for a picture only when its `<Image>` was drawn, and a lazy
+  list draws only the rows on screen; RN's FlatList renders ~10 screens ahead.
+- **Chosen:** for the next 8 rows past the screen in the scroll direction (rows that already have an instance), Coil
+  downloads each http(s) `src` into its disk cache, decoded at 1×1 px, memory cache off. Own queue, 3 at once in all
+  (`ZnFetch.PRELOAD_MAX`, image plan C1). Cancelled when the row's instance goes or the list leaves the screen; off
+  with Data Saver, for a minute after a trim-memory call, and when the app set its own Coil loader. Plus
+  `crossfade(150)` on zn's loader (no fade for a memory-cache hit).
+- **Why disk and not memory (Fable's plan said memory):** Coil's memory cache key holds the drawn pixel size, and only
+  layout knows it (padding, borders, flex and percent sizes). A wrong size misses and holds memory for nothing. The
+  download is the slow part; a decode from disk is quick.
+- **Measured (Lava, sample debug, `bun run tools/repro/http-stall.ts list`, 1 s pictures):** before any scroll the
+  server was asked for rows 1-18 (10 on screen + 8 ahead). Preloaded rows showed 515-610 ms after a 400 ms swipe
+  began; rows past the 8 took 1.9-2.2 s. 4 of 42 pictures were downloaded twice (rows at the window's edge: the
+  on-screen load started while the preload ran; Coil doesn't join the two). `/dev/image-par` unchanged: 11 of 21 (all
+  on screen), a same-host fetch 35 ms.
+- **Found on ZeroBill (Lava, staging):** one merchant's icon in several payment rows was downloaded twice at start (a
+  preload for a row below while a row on screen loaded it). A URL an on-screen <Image> has asked for is now never
+  preloaded.
+- **Risk if wrong:** more data on a metered network (8 rows of pictures the user may never see); ~10 % double
+  downloads on a fast scroll. Memory: no bitmaps are kept.
+- **Not done:** `Carousel` pages and `Scroll horizontal` children (not list rows); joining a preload and the on-screen
+  load (would remove the doubles); Coil's decode limit (4) left as it is (more peak bitmap memory on low-end phones; Opus's advice, Pavan's "sure").
+- **Change:** `ROWS_AHEAD`, `PRELOAD_MAX`, `IMAGE_FADE_MS`.
+
+## 225. Pictures get their own connection pool (runtime, 2026-11-10; Opus, Fable's image plan C2, Pavan's go)
+- **Where:** `ZnFetch.imageClient()` (`derived("zn.images")` with `connectionPool(newPool())`), `freshPool`.
+- **Problem:** the image client was derived from the fetch client and shared its pool. On HTTP/2 one connection to a
+  host carried API calls and picture bytes together, so one lost packet of a picture stalled a payment verify on it.
+- **Chosen:** a pool of its own (same 30 s idle rule), made again with the image client after each network change;
+  `freshPool` also closes the idle connections of derived clients with their own pool. Preloads use the same pool.
+- **Cost:** one more TLS setup for a host that serves both. ZeroBill (Pavan, 2026-11-10) now loads merchant icons from
+  `storage.googleapis.com/my-gcp-project.appspot.com/merchant_icons/{zmc}.png` instead of `api.example.com/merchants/icon`
+  (which only redirected there with a signed URL), so its icons no longer touch the API host at all.
+- **Not verified:** an HTTP/2 host with a lost packet (the lab server is local HTTP/1.1); a Wi-Fi ↔ mobile switch with
+  pictures loading.
+

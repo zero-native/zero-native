@@ -2950,6 +2950,13 @@ connection pool (same settings, interceptors and dispatcher). Calls already runn
   interceptors apply to images too. An app that sets its own Coil `SingletonImageLoader` before `ZnRuntime.start` keeps it.
 - **Know:** images wait in a queue of their own (10 at once per host), not in fetch's (also 10 per host). Before
   2026-11-09 they shared fetch's: a screen of merchant icons from the API host made an API call wait 2 s for a slot.
+- **Know (2026-11-10):** images also have a connection pool of their own, so an API call never shares an HTTP/2
+  connection with picture bytes. **Do** still serve pictures from a storage or CDN host, not the API host (ZeroBill's
+  merchant icons moved to Firebase Storage's public URL): the API host then only carries API calls.
+- **Know (2026-11-10):** a `<List>` loads the pictures of the next 8 rows past the screen into Coil's disk cache before
+  they are drawn, 3 at once, and pictures fade in over 150 ms (second-opinions 224). **Do** give a row's `<Image>` its
+  `src` from the row's own data (a slot), not from state that is set only after the row is drawn. **Why:** the preload
+  reads the `src` of rows JS has mounted but Compose hasn't drawn yet.
 
 ## 90. Native module functions must never wait on the call pool (runtime, 2026-11-09)
 Module functions that aren't `onMain` run on one shared pool of 2 threads (`ZnModules.io`). `fetch` has its own thread

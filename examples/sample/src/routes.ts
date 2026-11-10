@@ -9,7 +9,7 @@ import { LaunchScreen } from "./LaunchScreen"
 import { ModulesScreen } from "./ModulesScreen"
 import { InputScreen } from "./InputScreen"
 import { FetchScreen } from "./FetchScreen"
-import { CallPoolLab, ImageParLab, NetLoopLab } from "./CallPoolLab"
+import { CallPoolLab, ImageListLab, ImageParLab, NetLoopLab } from "./CallPoolLab"
 import { StorageScreen } from "./StorageScreen"
 import { AnimationScreen } from "./AnimationScreen"
 import { DevScreen } from "./DevScreen"
@@ -72,6 +72,7 @@ export const routes = defineRoutes({
   callPool: { path: "/dev/call-pool", screen: CallPoolLab, deepLink: true },
   netLoop: { path: "/dev/net-loop", screen: NetLoopLab, deepLink: true },
   imagePar: { path: "/dev/image-par", screen: ImageParLab, deepLink: true },
+  imageList: { path: "/dev/image-list", screen: ImageListLab, deepLink: true },
   storage: { path: "/dev/storage", screen: StorageScreen, deepLink: true },
   animation: { path: "/dev/animation", screen: AnimationScreen, deepLink: true },
   dev: { path: "/dev", screen: DevScreen, deepLink: true },

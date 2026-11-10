@@ -466,7 +466,10 @@ private fun ZnNodeContent(f: List<ZnTemplate>, t: ZnTemplate, inst: ZnInstance, 
                 // reads it once; without a label the image is decorative and skipped.
                 contentDescription = null,
                 modifier = imageModifier,
-                onLoading = { isLoading = true },
+                onLoading = {
+                    isLoading = true
+                    if (stage == IMAGE_SRC && src != null) ZnImagePreload.onScreen(src) // counts double downloads
+                },
                 onSuccess = {
                     isLoading = false
                     // RN onLoad / onLoadEnd (registry 15): for src only, as RN's defaultSource sends none.
@@ -780,6 +783,8 @@ private fun ZnLazyList(f: List<ZnTemplate>, s: ZnNodeSpec, inst: ZnInstance, nod
     }
     // Registry 24: snapping and scroll events (ZnScrollExtras.kt).
     val listPos = remember(state, s.horizontal) { ZnLazyPos(state, s.horizontal) }
+    // The pictures of the rows just past the screen load ahead (ZnImagePreload, image plan A)
+    ZnPreloadAhead(f, list, state, cols)
     ZnScrollEvents(s, inst, listPos, state.interactionSource)
     val listFling = znScrollFling(s, inst, listPos) ?: ScrollableDefaults.flingBehavior()
     val scrollCmd = if (s.scrollCommandSlot >= 0) inst.slot(s.scrollCommandSlot).value as? String else null
@@ -1123,6 +1128,51 @@ private const val IMAGE_NONE = 2
  * `asset:path` (or `asset://path`) → the running bundle's image (a downloaded OTA bundle's copy, else the APK's
  * assets, [ZnBundles.assetModel]); `zn://` handles load natively ([ZnHandles]); http(s) URLs as they are.
  */
+/**
+ * Asks [ZnImagePreload] for the pictures of the next [ZnImagePreload.ROWS_AHEAD] rows past the screen, in the direction
+ * the list last moved (down / right at first). Runs again when the screen's rows change or a row near it gets its
+ * instance. Reads [ZnList.bound] in a snapshotFlow, not in composition, so a row bind doesn't recompose the list (M9).
+ */
+@Composable
+private fun ZnPreloadAhead(f: List<ZnTemplate>, list: ZnList, state: LazyListState, cols: Int) {
+    val context = LocalContext.current.applicationContext
+    val owner = remember(list) { "list@" + System.identityHashCode(list) }
+    DisposableEffect(owner) { onDispose { ZnImagePreload.cancelOwner(owner) } }
+    LaunchedEffect(owner, state, cols) {
+        val per = cols.coerceAtLeast(1)
+        val lazyAhead = (ZnImagePreload.ROWS_AHEAD + per - 1) / per // lazy items (a grid's item is a row of `cols`)
+        var lastFirst = -1
+        var forward = true
+        // Lazy item index → the instances of its rows (rows without an instance yet are skipped)
+        fun rowsOf(items: IntProgression, head: Int): List<Int> {
+            val out = ArrayList<Int>()
+            for (item in items) {
+                val g = item - head
+                if (g < 0) continue
+                for (r in g * per until g * per + per) {
+                    val key = list.rows.getOrNull(r)?.key ?: break
+                    list.bound[key]?.let(out::add)
+                }
+            }
+            return out
+        }
+        snapshotFlow {
+            val info = state.layoutInfo.visibleItemsInfo
+            if (info.isEmpty()) return@snapshotFlow null
+            val first = info.first().index
+            val last = info.last().index
+            val head = if (list.header.value != null) 1 else 0
+            Triple(first, rowsOf((last + 1)..(last + lazyAhead), head), rowsOf((first - 1) downTo (first - lazyAhead), head))
+        }.collect { v ->
+            val (first, below, above) = v ?: return@collect
+            if (lastFirst >= 0 && first != lastFirst) forward = first > lastFirst
+            lastFirst = first
+            val ids = if (forward) below else above
+            ZnImagePreload.want(context, owner, ids.mapNotNull(ZnStore::find), f)
+        }
+    }
+}
+
 private fun imageModel(src: String?, context: Context): Any? = when {
     src == null -> null
     src.startsWith("zn://") -> ZnHandles.request(context, src)
