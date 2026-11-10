@@ -155,6 +155,10 @@ change, and what evidence would make you change it?"
   a JS bundle can't normally cause.
 - **Other options:** count it; or use `Settings.Global.BOOT_COUNT` in place of the clock sum.
 - **Evidence:** `launch_crashed` with "no exit record" from the field would show what this misses.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Two small hardening steps, not urgent: save `Settings.Global.BOOT_COUNT`
+  with the pending mark (the clock sum is wrong when the phone's clock jumps, and cheap phones start with a wrong date
+  after a flat battery), and ask Android for the exit record by pid (`getHistoricalProcessExitReasons(pkg, pid, 1)`)
+  instead of reading the last 8 records.
 
 ## 9. App state follows resume and pause, not start and stop (H.7)
 - **Where:** `ZnAppState.kt`, `packages/core/src/app-state.ts`; guide-notes §29.
@@ -165,6 +169,7 @@ change, and what evidence would make you change it?"
   heavy work on `active` runs it after each one.
 - **Other options:** a third state like iOS's `inactive` for "visible but not in front".
 - **Evidence:** what the pilot's verify-on-return code needs. A third state can be added with a new host API.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Same as RN on Android.
 
 ## 10. A plugin that fails is skipped in release, not a crash (P.1)
 - **Where:** `ZnPlugins.register` (`android/runtime/.../ZnPlugins.kt`); guide-notes §30.
@@ -178,6 +183,8 @@ change, and what evidence would make you change it?"
 - **Other options:** crash in release too (fails loud, and a crash reporter sees it); or let each plugin say it is required.
 - **Evidence:** this shouldn't fire at all in a tested APK: `register` only declares things. If it ever shows up in the
   field, look at why first. A `required` flag is a small addition later.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Concern: a skipped plugin is only a logcat line. Send it to `onReport`
+  (Crashlytics) too, so a failure on one phone model is seen before users fail at checkout.
 
 ## 11. A new launch is refused while a result isn't acked (P.2)
 - **Where:** `ZnLaunch.Rules.refusal`; guide-notes §31.
@@ -187,6 +194,8 @@ change, and what evidence would make you change it?"
   users.
 - **Other options:** replace the record and log it; or keep a short history per key.
 - **Evidence:** how often the pilot logs `unacked`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Refusing is right: a lost paid result is worse than a Pay button that
+  says no. Count `unacked` in the field.
 
 ## 12. START waits for Android's answer, so `pending()` can be sync (P.2)
 - **Where:** `ZnLaunch.whenSettled`, `ZnNav.startWith`.
@@ -198,6 +207,7 @@ change, and what evidence would make you change it?"
   screens, but nothing is on show then either.
 - **Other options:** an async `pending()`: every restore path would have to wait, and the first screen would need a loading state.
 - **Evidence:** `result-after-kill` in the phone matrix. Timing on other ROMs.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 13. Only Kotlin can open another app (P.2)
 - **Changed 2026-11-08 (entry 185):** `Os.openUrl` / `Linking.openURL` now open any scheme, as in RN. Launches for a
@@ -208,6 +218,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** each new kind of app needs a plugin and an APK release.
 - **Other options:** a generic `launch(intent)` with an allow-list in the manifest.
 - **Evidence:** how many plugins end up doing nothing but one `startActivity`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (the `openUrl` part is history: see 185).
 
 ## 14. The other app's answer sits in a plain store until ack (P.2)
 - **Where:** the store `zn.launch`, in `noBackupFilesDir`, excluded from backups. It holds the result's simple extras, at most 16 KB.
@@ -217,6 +228,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** some other app's result might hold something private, on a rooted phone. A plugin controls what it opens.
 - **Other options:** encrypt with a Keystore key, read async; or drop the extras a plugin doesn't list.
 - **Evidence:** a review of what P.3's real UPI apps and the auth plugin put in their results.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. A UPI answer has no secret in it.
 
 ## 15. Under a see-through window, a killed app can't get its result (P.2)
 - **Where:** Android, not our code. Found with the mock's first window; `result-under-see-through` in the matrix.
@@ -229,6 +241,7 @@ change, and what evidence would make you change it?"
   which keeps the process alive, at the cost of a notification.
 - **Evidence:** how often the pilot logs `lost` right after a launch. A real UPI app does open such a window for 1 to 4 seconds
   (noted in the private app's older reference code), so the case is real, not only the mock's.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. The app can't fix this; the server check is the truth.
 
 ## 16. UPI is the app's plugin, not an official one (P.3)
 - **Where:** `docs/plugins.md` D7, reversed in part. The plugin lives in the app's private repo.
@@ -238,6 +251,7 @@ change, and what evidence would make you change it?"
   chooser, a retry with the same id) would then repeat. The rules are in `docs/guide-notes.md` §31 for that reason.
 - **Other options:** keep `@zero-native/upi` here, and the pilot only uses it.
 - **Evidence:** a second app that wants UPI is the moment to move it.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 17. An outside app uses a composite build and `bun link` until packages exist (P.3)
 - **Where:** `docs/guide-notes.md` §34.
@@ -248,6 +262,8 @@ change, and what evidence would make you change it?"
   its own setup. Two apps on one computer share the one link.
 - **Other options:** publish to a local Maven folder; npm `file:` paths, which copy, so a framework edit needs a new install.
 - **Evidence:** the first CI build of the pilot.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep for now. `bun link` per computer is the weak part: change it when CI or a
+  second developer starts.
 
 ## 18. A native screen's answer goes in the launch store (P.3b)
 - **Where:** `ZnLaunch.saveScreenResult`, `ZnNav.answer`, `packages/core/src/nav.ts` `onNavResultEvent`.
@@ -257,6 +273,7 @@ change, and what evidence would make you change it?"
   meet them.
 - **Other options:** a small store of its own: more code for the same rules.
 - **Evidence:** the kill case on the phone passed. A second writer of records would show the limit.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 19. `pushForResult` works only on native routes (P.3b)
 - **Where:** `packages/core/src/nav.ts`. The type limits it to native routes too.
@@ -264,6 +281,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a screen picker written in TSX can't use it; it must pass a callback or use a store. RN apps do that today.
 - **Other options:** `nav.finish(value)` from a zn screen, later, on the same path.
 - **Evidence:** a real picker screen that wants it.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 20. `<NativeView>` props are one JSON string (P.4b)
 - **Where:** `compiler/src/compile.ts` `nativeViewElement`.
@@ -271,6 +289,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** each change pays for the whole JSON, and the view parses it. Fine for a torch flag; poor for a prop that changes each frame.
 - **Other options:** typed props per view: a registry change per plugin, which is what D3 avoids.
 - **Evidence:** a view with a prop that changes per frame. It should use its module instead.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 21. Dark mode comes after the template (P.6)
 - **Where:** `docs/guide-notes.md` §37, `ZnRuntime.afterMainScript`, `packages/core/src/appearance.ts`.
@@ -279,6 +298,8 @@ change, and what evidence would make you change it?"
   looked right, but a slow phone may flash. Only colours that can change at runtime can use it.
 - **Other options:** light and dark values in the template, chosen natively with no JS: no flash, but a template format change and a colour token system.
 - **Evidence:** the first app that ships a dark mode, on a slow phone.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Check a dark-mode cold start on a slow phone before any app ships dark
+  mode.
 
 ## 22. Background JS has no user yet (P.5)
 - **Where:** `ZnBackground.kt`, `packages/core/src/tasks.ts`.
@@ -288,6 +309,7 @@ change, and what evidence would make you change it?"
   `Tasks` module to every bundle's needs, so bundles built from here need a new APK; host API 6 needs that anyway.
 - **Other options:** wait for push.
 - **Evidence:** the first push plugin.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (push uses it now).
 
 ## 23. `secure` ends as the closing animation starts (P.6)
 - **Where:** `ZnNavHost.kt` `SecureWindow`.
@@ -295,6 +317,8 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a screenshot in that moment can catch the sliding screen. Also, Android may apply the flag a frame after a push.
 - **Other options:** keep the flag until the entry has left: more state in the host, for a small window. RN's `FLAG_SECURE` libraries set it per Activity or by hand.
 - **Evidence:** a security review that asks for it.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. The 300 ms window is small; hold the flag until the screen has left only
+  if a security review asks.
 
 ## 24. `ZnLaunch.readResult`: a plugin reads its own answer (P.3b)
 - **Where:** `ZnLaunch.kt`.
@@ -303,6 +327,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** the 16 KB limit on extras doesn't apply to it, as the plugin is trusted code. A slow reader would stall the return from the other app.
 - **Other options:** keep raw extras and parse in JS: Play services' format isn't ours to read.
 - **Evidence:** the `auth` plugin on the phone.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 25. `zn://file` is one flat folder in the cache (P.3b)
 - **Where:** `ZnHandles.kt`.
@@ -311,12 +336,14 @@ change, and what evidence would make you change it?"
   handle over days must copy the file.
 - **Other options:** `filesDir`, with a cleanup rule. Survives, but it grows.
 - **Evidence:** the first app that keeps a handle for long.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 26. `onLowMemory` doesn't clear images (P.6)
 - **Where:** `ZnActivity.kt`.
 - **Chosen:** dropped the plan's line. Coil's own `AndroidSystemCallbacks` clears its memory cache at trim level 40 and above (checked in the 3.6.3 bytecode). A second clear adds nothing.
 - **Risk if wrong:** below level 40 the cache stays; on Android 14 those levels aren't sent anyway. A new Coil version could change it.
 - **Evidence:** a memory test on a low-end phone.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 27. The scanner's stale window counts from the first real frame (P.4)
 - **Where:** `plugins/scanner/.../ScannerRules.kt` `ScanGate`.
@@ -324,18 +351,21 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** assumes the first frame we see is the stale one. A slower scan open by up to 500 ms.
 - **Other options:** RN's way, from mount.
 - **Evidence:** the `scanner stale frames` phone steps.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 28. CameraX 1.4.2, not the newest (P.4)
 - **Where:** `plugins/scanner/android/build.gradle.kts`.
 - **Chosen:** the version RN runs today. The newest, 1.6, has a new camera backend, which nobody here has tried in the field.
 - **Risk if wrong:** we stay on an older line with fewer fixes for new phones.
 - **Evidence:** a camera bug that a newer version fixes.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Move only for a real camera bug.
 
 ## 29. ML Kit's start provider is removed (P.4)
 - **Where:** `plugins/scanner/android/src/main/AndroidManifest.xml`, `CameraSession.kt`.
 - **Chosen:** `tools:node="remove"` and `MlKit.initialize` on the camera's thread. It would otherwise run in every app start, also for users who never scan.
 - **Risk if wrong:** another ML Kit user in the same app must start it itself. A second `initialize` throws, so the scanner starts it once per process, and a start by another user counts.
 - **Evidence:** the sample's cold start with the plugin on.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 30. The picked number stays in a plain store until read (P.3b)
 - **Where:** `plugins/android-play-auth/src/index.ts`, the launch record.
@@ -343,12 +373,14 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a phone number sits unencrypted in app storage for a time. It is not a credential, and the app's private folder holds it.
 - **Other options:** SecureStore for this record: a special case in `ZnLaunch`.
 - **Evidence:** a security review.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 31. An OTP is never on disk (P.3b)
 - **Where:** `plugins/android-play-auth`. RN writes it to its login draft.
 - **Chosen:** memory only. A rebuilt screen joins by `key`; after a kill the code is gone, and the user types it. RN's receiver dies with a kill too, so only a code that came just before the kill is affected.
 - **Risk if wrong:** a user who gets a kill right after the SMS retypes. The SMS is in their inbox.
 - **Evidence:** a login drop report.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Right call: an OTP must never be on disk.
 
 ## 32. WebView refuses `intent:` outright (P.6)
 - **Where:** `plugins/webview/.../WebViewRules.kt`.
@@ -356,18 +388,21 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a payment page that uses `intent:` for its UPI button won't work. Plain `upi:` does, but with no answer back.
 - **Other options:** parse the Intent, allow only `ACTION_VIEW` to a listed package, and strip everything else.
 - **Evidence:** the first payment page an app must host.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 33. WebView upload doesn't use `ZnLaunch` (P.6)
 - **Where:** `plugins/webview/.../WebViewPage.kt`.
 - **Chosen:** a new `activityResultRegistry` key per launch. WebView's callback is in memory, so after a kill there is no one to give the file to, and a saved record would only block the next launch: one upload would make a UPI launch answer `busy`.
 - **Risk if wrong:** a kill while the picker is open loses the pick. The user picks again.
 - **Evidence:** the `webview kill while the picker is open` phone step.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 34. A pushed screen destroys the WebView (P.6)
 - **Where:** core's `NavDisplay`, `plugins/webview`.
 - **Chosen:** accepted. Keeping it needs a change to how screens are drawn, or `WebView.saveState`, which keeps little.
 - **Risk if wrong:** a page state, such as a half-filled form, is lost when the app pushes a screen on top. Use a sheet, which stays on the same screen.
 - **Evidence:** an app that needs a screen over a web page.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 35. Media re-encodes every photo (P.4)
 - **Where:** `plugins/media`.
@@ -375,6 +410,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a PNG with see-through parts turns white, and a small photo gets a second round of JPEG loss.
 - **Other options:** copy as is when the photo is small and has no EXIF.
 - **Evidence:** a complaint about quality, or a PNG need.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 36. WebView pages don't load on the Lava: DuraSpeed, not our code (P.6)
 - **Where:** the Lava's MediaTek ROM; `plugins/webview/`.
@@ -399,6 +435,10 @@ change, and what evidence would make you change it?"
 - **Risk:** if real users hit it, any WebView in a ZeroBill app shows a blank page on these phones, RN or zero-native.
   The plugin already reports a renderer that is gone; a renderer that never starts gives no event yet.
 - **Evidence wanted:** the same app on a non-MediaTek phone; the list after a reboot or an icon tap.
+- **Reviewed 2026-11-10 (Fable 5.2):** concern: this is worked around in our test tools, not solved for users. A user
+  (or a cleaner app) who force-stops the app and then opens it from a notification or a link may get blank WebViews
+  and no FCM. Check on the Lava: Force stop in Settings, open by a notification tap, then load a WebView and send a
+  push. RN has the same risk, so it does not block the release.
 
 ## 37. A JS hang while a background task runs: whose is it? (review fix 1, P.5)
 - **Where:** `android/runtime/.../ZnRuntime.kt` `jsError`.
@@ -411,6 +451,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a task that freezes the UI for 2 s with the app open still fails the top screen and can roll back a new bundle.
   That is a real freeze, so it is arguably right; the guide says not to do long sync work in a task (§36).
 - **Evidence wanted:** whether Hermes' time limit fires inside a task's event at all (not tested; the reviewer couldn't confirm it).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Still wanted: a test that the JS time limit fires inside a task.
 
 ## 38. RN names live in `@zero-native/core`, next to the zn names (RN basics pack)
 - **Where:** `packages/core/src/index.ts` (`Alert`, `Clipboard`, `Share`, `Linking`, `Platform`, `Dimensions`, `PixelRatio`,
@@ -423,6 +464,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** two names for one thing (`Os.share` and `Share.share`). The docs point ported code to the RN name.
 - **Also:** `docs/rn-compatibility.md` §11 names ZeroBill, as asked. The leak audit wants neutral names in public docs:
   the public-repo pass must reword it ("the reference RN app").
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 39. `TextField` focus: `ref={createRef()}`, a new event kind (RN basics pack)
 - **Where:** `packages/template/src/registry.ts` (`EventKind.ref = 16`, registry 10), `compiler/src/compile.ts`,
@@ -442,6 +484,7 @@ change, and what evidence would make you change it?"
   **Known edge:** if a field has focus and the phone turns, Compose doesn't give focus back, and no `onBlur` is sent for
   the lost focus (`isFocused()` stays true until the next change). Sending one when the field leaves composition would
   log "no handler" warnings each time a screen closes with a focused field, so it isn't done.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 40. Alert: Android's own dialog, one at a time, shown again after rotation (RN basics pack)
 - **Where:** `android/runtime/.../ZnAlert.kt`, `packages/core/src/alert.ts`.
@@ -453,6 +496,7 @@ change, and what evidence would make you change it?"
 - **Why:** RN parity, no drawing code. **Risk if wrong:** the dialog follows the app theme, not `colorScheme()`: an app
   with a light-only theme shows a light alert in dark mode (RN does the same). An app that never shows `ZnNavHost` keeps
   alerts queued for ever.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 41. Platform, Dimensions and the keyboard come as app events, not sync constants (RN basics pack)
 - **Where:** `android/runtime/.../ZnWindow.kt`, `ZnNavHost.kt` (`ReportWindow`, `ReportKeyboard`), app events 16–18
@@ -466,6 +510,7 @@ change, and what evidence would make you change it?"
   Android number has differed between versions; ours is written in the guide. **Window:** includes the system bars
   (we draw edge to edge).
 - **Evidence wanted:** split screen and font-size changes on a phone; a keyboard that changes height (emoji panel).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 42. NetInfo: Android's "validated" for `isInternetReachable`, 250 ms settle (RN basics pack)
 - **Where:** `android/runtime/.../ZnNetInfo.kt`.
@@ -474,6 +519,7 @@ change, and what evidence would make you change it?"
   callbacks sends one event 250 ms after the last one. The network is watched only while JS listens.
 - **Risk if wrong:** a network Android validated may still block our API host (a firewall), and the 250 ms delay makes
   a change arrive late. For payments, still handle `FetchError` `offline` on each call; don't gate a payment on NetInfo.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Right that a payment is never gated on NetInfo.
 
 ## 43. Smaller calls in the RN basics pack
 - **`Vibration` needs `VIBRATE` in the app's manifest** (Pavan agreed: same as RN). The runtime doesn't add it, so apps
@@ -491,6 +537,7 @@ change, and what evidence would make you change it?"
   iOS-style code doesn't share nothing.
 - **Not built, on purpose:** `StatusBar` (route option; `setBarStyle` later if a screen needs it), toast gravity,
   `Alert.prompt` (iOS only in RN), RN's Android-only `AppState` `focus` / `blur`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 44. Tabs live inside one screen, not as stack entries (tabs)
 - **Where:** `packages/core/src/tabs.ts`, `nav.ts`, registry 11 `Tabs` (`ZnRenderer.kt` `ZnTabs`), route option `tabs`.
@@ -504,6 +551,7 @@ change, and what evidence would make you change it?"
   pushed as a screen of its own. Both are written in guide notes §40.
 - **Risk if wrong:** an app that needs a stack inside each tab (Instagram-style) can't have it. Today screens pushed from
   a tab cover the whole screen, bar too, which is what ZeroBill does.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 45. A hidden tab is not drawn; its state is kept (tabs)
 - **Where:** `ZnRenderer.kt` `ZnTabs`.
@@ -514,6 +562,7 @@ change, and what evidence would make you change it?"
   back: see docs/startup-and-performance.md (tabs rows).
 - **Risk if wrong:** a `NativeView` in a hidden tab is made again on return (a WebView reloads). Documented as a "don't".
 - **Default lazy** (Pavan agreed): a tab is built on first show; `preload: true` builds all at start.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 46. Back on the only screen goes to JS only when asked (NAV BACK_WANTED, host API 8; widened by entry 161)
 - **Where:** `nav.ts` `setBackWanted`, `ZnNav.backWanted`, `ZnNavHost` (a `BackHandler` when the stack has one screen).
@@ -525,6 +574,7 @@ change, and what evidence would make you change it?"
   `restorableSignal`), and a screen can have several handlers: the newest is asked first. Before, a second `useBack` in a
   screen replaced the first. No sample or test relied on that.
 - **Risk if wrong:** a `useBack` on a root screen's first tab is still not asked (the system takes Back). Same as before.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 47. A link to a tabs screen in the stack goes back to it (tabs)
 - **Where:** `nav.ts` `onOpenLink` / `tabHostFor`.
@@ -535,6 +585,10 @@ change, and what evidence would make you change it?"
   payment is open (guide notes §40 says so).
 - **Also changed (host API 8):** a cold link that matches the start route itself now gives its params to the start screen
   (before, they were dropped and `onLink` was never asked). Refused, the start screen opens without them.
+- **Reviewed 2026-11-10 (Fable 5.2):** concern: closing the screens above on a link is risky when one of them is a
+  payment. Today only the app's `onLink` stops it. Safer default: core refuses the stack change by itself while a
+  launch waits for its result (`ZnLaunch.waitingHere`) or updates are held. Check that ZeroBill's `onLink` refuses
+  during a payment.
 
 ## 48. `useFocus` and `tabs.onFocus` (tabs)
 - **Where:** `nav.ts` `useFocus`, `watchFocus`; `tabs.ts` `onFocus`.
@@ -542,6 +596,7 @@ change, and what evidence would make you change it?"
   computed in JS from the stack; nothing new from native. The returned function runs on blur, like `useFocusEffect`.
 - **Why:** ZeroBill reloads a tab's data on focus, so the cashback balance is fresh after a payment.
 - **Not done:** focus does not follow the app going to the background (React Navigation doesn't either). Use `onAppState`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 49. Pull to refresh: drawn on the list itself, Android's look, a 1 second wait for JS (registry 12)
 - **Where:** `android/runtime/.../ZnPullRefresh.kt`, `ZnRenderer.kt` (vertical `Scroll`, `ZnLazyList`),
@@ -567,6 +622,7 @@ change, and what evidence would make you change it?"
   false" [check when iOS starts].
 - **Not done:** `progressViewOffset` (where the disc rests, for a header drawn over the list), `size`, `enabled`. Add
   when a screen needs them.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 50. SVG is compiled at build time and drawn by our own small interpreter (SVG design, not built)
 - **Where:** `docs/svg.md` §3, §5, §6, §8.
@@ -581,6 +637,7 @@ change, and what evidence would make you change it?"
 - **Other options:** AndroidSVG at runtime (more features, ~100+ KB, parse per start); a WebView (no); bitmaps exported at build time
   (lose runtime colours and animation).
 - **Evidence wanted:** a side-by-side check of real SVGs (S.4, S.5 in `docs/svg.md`), and how many real files fail the build.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 51. SVG part overrides are one `parts` prop, grouped by part (SVG design, not built)
 - **Where:** `docs/svg.md` §4.3.
@@ -593,6 +650,7 @@ change, and what evidence would make you change it?"
 - **Other options:** per-attribute maps (`fill={{ ring }}`, `opacity={{ dot }}`); `<Part id="ring" fill={...} animate={...} />` children
   (reuses the existing `style` / `animate` props exactly, but part names can't be typed and children get special rules).
 - **Evidence wanted:** how screens look after porting the RN app's 13 inline SVG files.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 52. SVG draw data lives in the template file, not in its own file (SVG design, not built)
 - **Where:** `docs/svg.md` §6.1, §7.
@@ -607,6 +665,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** `main.zn.ui` size and template read time with the lab screen (S.6), and whether real apps need runtime choice.
 - **Update (built, 2026-11-03):** the "~30 % smaller binary" number was a guess for the first format (absolute cubics). The built format
   writes paths as SVG path text (entry 53), which is already compact; a binary form would now save much less.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 53. SVG paths are written as minified SVG path text, arcs kept (SVG phase 1, built)
 - **Where:** `docs/svg.md` §6.1, §14; `compiler/src/svg-data.ts` (`writePath`); `ZnSvg.kt` reads paths with Compose's `PathParser`.
@@ -622,6 +681,7 @@ change, and what evidence would make you change it?"
 - **Other options:** absolute cubics (simplest reader, biggest data); a binary path form (smaller, new value kind in the template format).
 - **Evidence wanted:** the lab screen on the Lava next to the source SVGs. The browser side-by-side check of 39 files (draw data turned back
   into SVG) showed no strong pixel differences. **Update:** the lab looks right on the Lava (debug and release).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 54. A big SVG is still parsed on the main thread at its first draw (SVG phase 1, measured on the Lava)
 - **Where:** `docs/svg.md` §13, §14; `ZnSvgCache.get` in `ZnSvg.kt`.
@@ -635,6 +695,7 @@ change, and what evidence would make you change it?"
 - **Other options:** parse every SVG of the bundle on the I/O thread after the first frame; a baseline profile with the SVG reader and
   Compose's `PathParser` in it.
 - **Evidence wanted:** first-draw time of a real big illustration on a Play-installed build (cloud profiles), and on a slower phone.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (71 added the background read).
 
 ## 55. `repeat` counts all plays, not extra ones (motion, registry 11)
 - **Where:** `docs/svg.md` §9; `timing()` in `compiler/src/compile.ts`; `motionAt` in `ZnAnimation.kt`.
@@ -645,6 +706,7 @@ change, and what evidence would make you change it?"
   error that names the rule.
 - **Other options:** `iterations` as the name (clearer, longer); `repeat` as extra plays (like GSAP).
 - **Evidence wanted:** what authors write first in the lab and in ZeroBill screens; any confusion in review.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 56. `paused` and `replay` are element props, not timing options (motion, registry 11)
 - **Where:** `docs/svg.md` §9; `Base` in `packages/ui/src/index.ts`; `znMotionInputs` in `ZnAnimation.kt`.
@@ -655,6 +717,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** no way to pause one prop of an element while another loops. Rare; split the element in two.
 - **Other options:** a runtime `animate`; a `paused` per prop (`animate={{ rotate: { ..., paused } }}`) compiled to a slot per prop.
 - **Evidence wanted:** a real screen that needs per-prop pause.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 57. A new registry entry kind, `format`, for new forms inside a string value (motion, registry 11)
 - **Where:** `Formats` in `packages/template/src/registry.ts`; the check in `writer.ts`; `registry.lock.json` (`format:timing.motion`).
@@ -668,6 +731,7 @@ change, and what evidence would make you change it?"
   `gen:registry` shows it in review.
 - **Other options:** a new prop (`animateMotion`) for the new form; always raising the registry for any `animate`.
 - **Evidence wanted:** none; review the idea once.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 58. SVG moved from registry 10 to 11 (motion, 2026-11-03)
 - **Where:** `packages/template/src/registry.ts` (history comment), `registry.lock.json`, `Registry.kt`; `docs/svg.md` §7.
@@ -681,6 +745,7 @@ change, and what evidence would make you change it?"
 - **Merged main (2026-11-03):** done as written: event `ref` (16, since 10) and the SVG entries (since 11) are both in the lock; no id is
   used twice. The RN basics pack had also taken second-opinions 38–43 and guide §39, so the SVG entries moved to 44–56 and the SVG guide
   section to §40, with every link fixed.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 59. Animated .svg files: geometry becomes a scale and a move (S.14, built)
 - **Where:** `docs/svg.md` §15; `motionParts` in `compiler/src/svg-anim.ts`.
@@ -694,6 +759,7 @@ change, and what evidence would make you change it?"
 - **Other options:** real geometry animation (the phone rebuilds the circle / rect path each frame): exact for strokes and corners,
   but a new draw-data form and runtime code.
 - **Evidence wanted:** files that people actually bring with stroked growing shapes (`puff`, `ball-triangle` in the corpus).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 60. SMIL begin chains are solved at build time into one cycle (S.14, built)
 - **Where:** `solveBegins`, `smilTiming`, `mergeSame` in `compiler/src/svg-anim.ts`.
@@ -706,6 +772,7 @@ change, and what evidence would make you change it?"
   A chain that never settles fails the build.
 - **Other options:** a small SMIL timeline engine on the phone (exact, more runtime code, per-frame work).
 - **Evidence wanted:** a loader that looks wrong in the lab next to the browser.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 61. Third-party SVG files live in the repo as test fixtures (S.14)
 - **Where:** `compiler/test/fixtures/animated-svg/` (104 files, with each set's MIT licence), `examples/sample/src/svg/loaders/` (6).
@@ -715,6 +782,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** the public repo later carries third-party files; they must keep the licence files (they do).
 - **Other options:** fetch the corpus in CI (network in tests), or our own handmade SVGs only (misses what real files do).
 - **Evidence wanted:** a licence check before the public repo.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Do the licence check before the public repo.
 
 ## 62. One easing per keyframe segment, and a step easing, in the timing format (S.14, registry 11)
 - **Where:** the `z` option in `ZnTiming` (`android/runtime/.../ZnAnimation.kt`), `encode` in `compiler/src/svg-anim.ts`.
@@ -727,6 +795,7 @@ change, and what evidence would make you change it?"
   every segment with one easing: a wrong curve, not a crash.
 - **Other options:** split each segment into its own sub-animation (many more parts), or bake the curve into many keyframes (big strings).
 - **Evidence wanted:** none before shipping; the lab's Ring and Bars loaders use it.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 63. SVG phase 3 is registry 12, though 11 has not shipped (2026-11-03)
 - **Where:** `packages/template/src/registry.ts` (ids 192–196), `registry.lock.json`, `Registry.kt`; `docs/svg.md` §7.
@@ -736,6 +805,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** none for users. Bundles that use the new props ask for 12; the rest still ask for 11 or less.
 - **Other options:** hand-edit the lock to add them to 11 (fewer numbers, but breaks the rule the tests check).
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 64. One animated dash becomes trims, cut at the line's ends (phase 3, built)
 - **Where:** `bakeStroke` and `clampSplit` in `compiler/src/svg-anim.ts`; `docs/svg.md` §16.
@@ -750,6 +820,7 @@ change, and what evidence would make you change it?"
 - **Other options:** real dash animation on the phone for every pattern (more runtime work per frame).
 - **Evidence wanted:** a file with a moving multi-dash pattern that people want; then `dashOffset` plus animated dash
   lengths.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 65. Morphs are mixed number by number in one cubic form (phase 3, built)
 - **Where:** `cubicForm` in `compiler/src/svg-anim.ts`; `ZnSvgMorph` in `ZnSvg.kt`.
@@ -761,6 +832,7 @@ change, and what evidence would make you change it?"
   different cubic counts) fail at build. Flubber-style matching would cover them, at a cost.
 - **Other options:** resample both paths to the same number of points at build time (works on any pair, not exact).
 - **Evidence wanted:** real files that fail with "the paths of this morph don't match".
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 66. Part name types are generated files next to each .svg, not committed (phase 3, built)
 - **Where:** `writeSvgTypes` in `compiler/src/compile.ts`; `.gitignore`; the sample's tsconfig.
@@ -772,6 +844,7 @@ change, and what evidence would make you change it?"
   A stale file after a part is renamed fixes itself on the next build.
 - **Other options:** one generated `svg-types.d.ts` per app (needs a module name per file); commit the files.
 - **Evidence wanted:** Pavan's view on files in source folders.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 67. A non-scaling stroke is a negative width in the draw data (phase 3, built)
 - **Where:** `svg.ts` shape(), `svg-data.ts` writer, `ZnSvgReader.strokeSpec` and `strokeFor` in `ZnSvg.kt`.
@@ -784,6 +857,7 @@ change, and what evidence would make you change it?"
   has one ask for registry 12, also for a static file (found while writing this entry; test in `registry.test.ts`).
 - **Other options:** a flag token after the stroke, or a new format version Z2.
 - **Evidence wanted:** none more.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 68. `begin="click"` starts on a tap anywhere on the Svg (phase 4, built)
 - **Where:** `solveBegins` in `compiler/src/svg-anim.ts` (the `~w` timing option); `ZnSvg` composable (`pointerInput`)
@@ -797,6 +871,7 @@ change, and what evidence would make you change it?"
   loader files; the build could refuse files with two different click sources.
 - **Other options:** hit-test the clicked element's shape; refuse `click` and ask for `replay`.
 - **Evidence wanted:** a real file with more than one click target.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 69. Filters below Android 12 draw a plain shadow, not a blur (phase 4, built)
 - **Where:** `ZnSvgEffects.drawFiltered`; the shadow list at the end of each "FL" in `svg-data.ts`; `docs/svg.md` §17.
@@ -808,6 +883,7 @@ change, and what evidence would make you change it?"
   9–11 (how many ZeroBill users have those is not known yet).
 - **Other options:** blur once into a cached bitmap (fine for still pictures, not for moving ones); refuse filters below 12.
 - **Evidence wanted:** the lab on an Android 9–11 phone or emulator; share of such phones among ZeroBill users.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. A missing blur is better than a slow list.
 
 ## 70. Small calls in the animated import (phase 4, built)
 - **Where:** `compiler/src/svg-anim.ts` (`motionTrack`, `cssMotion`, `mediaApplies`, `resolveVars`, the begin hold).
@@ -822,6 +898,7 @@ change, and what evidence would make you change it?"
   that clash). None of the 182 corpus files hit them.
 - **Other options:** a base hold in every loop (one more keyframe per loop); case-kept names.
 - **Evidence wanted:** a real file where Chrome and the phone differ.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 71. Big SVGs are read in the background after the first frame, from 8 KB (phase 4, built)
 - **Where:** `ZnSvgCache.prefetch` / `bigOf` in `ZnSvg.kt`, set in `ZnTemplates.templatesOf`; `docs/svg.md` §13, §17.
@@ -834,6 +911,7 @@ change, and what evidence would make you change it?"
 - **Other options:** read on first composition (not first draw) in the background and draw nothing until ready; a lower
   or higher limit.
 - **Evidence wanted:** a startup trace on the Lava with a real bundle that has big SVGs.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 72. A non-scaling stroke is drawn in screen space only when the scale is uneven (phase 4, built)
 - **Where:** `screenStroke` / `strokePath` in `ZnSvg.kt`; `docs/svg.md` §17 (known limit 4).
@@ -844,6 +922,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a stretched chart line inside a filtered or masked group is a little thicker or thinner on one axis.
 - **Other options:** always draw non-scaling strokes in screen space (one more path transform per stroke per frame).
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 73. All SVG at registry 13 after main took 11 and 12 (merge, 2026-11-03)
 - **Where:** `packages/template/src/registry.ts` (`Added`, the version comment), `registry.lock.json`, `Registry.kt`;
@@ -857,6 +936,7 @@ change, and what evidence would make you change it?"
   so a non-SVG bundle that uses a loop also asks for 13. That is the same app, as nothing between 11 and 13 shipped.
 - **Other options:** 13, 14 and 15, one per phase (keeps the phase history in the numbers).
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 74. An element with no handlers lets taps through, except an absolute layer (RN props pack 2, built)
 - **Where:** `android/runtime/src/main/java/dev/zeronative/runtime/ZnTouch.kt` (`znBlockTouches`), `ZnRenderer.kt`
@@ -875,6 +955,7 @@ change, and what evidence would make you change it?"
 - **Other options:** RN's rule for all `Stack` children (overlapping is only possible there), behind a registry
   version; or a compile warning for an absolute full-size child with no `pointerEvents`.
 - **Evidence wanted:** how many ZeroBill overlays rely on RN's blocking (a grep for absolute `View`s over pressables).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (Pavan's option B).
 
 ## 75. hitSlop is Compose's minimum touch size, not touchBoundsExpansion (RN props pack 2, built)
 - **Where:** `ZnTouch.kt` (`WithHitSlop`).
@@ -886,6 +967,7 @@ change, and what evidence would make you change it?"
   to the one on top. Uneven slops (`{ left: 4, right: 20 }`) reach 20 on both sides.
 - **Other options:** a bigger invisible touch box drawn over the element (changes layout); our own hit test.
 - **Evidence wanted:** a phone check of small icon buttons near other buttons in a ported screen.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 76. The iOS shadow keys are dropped, not drawn (RN props pack 2, built)
 - **Where:** `compiler/src/compile.ts` (`IGNORED_STYLE_KEYS`).
@@ -895,6 +977,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a designer who tuned shadows on iOS sees none of that on Android (as in the RN app).
 - **Other options:** draw them with `dropShadow` when they are set (a visible change from the RN app).
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 77. StatusBar backgroundColor is drawn by zn, per screen (RN props pack 2, built)
 - **Where:** `ZnSystemBars.kt`, `ZnNavHost.kt` (`barStrips`, `BarIcons`).
@@ -907,6 +990,7 @@ change, and what evidence would make you change it?"
   "swipe shows it for a moment"; a full-screen app may want a different behaviour.
 - **Other options:** RN's imperative `StatusBar.setBarStyle` (global, not per screen); not built.
 - **Evidence wanted:** a 3-button-navigation phone with `<NavigationBar backgroundColor>`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Check `<NavigationBar backgroundColor>` on a 3-button phone.
 
 ## 78. RN's Modal is its own window with no look of its own (RN props pack 2, built)
 - **Where:** `ZnModal.kt`.
@@ -920,6 +1004,7 @@ change, and what evidence would make you change it?"
 - **Other options:** draw it inside the screen's window (cheaper, but it can't cover the status bar or come above a
   Sheet).
 - **Evidence wanted:** ZeroBill's `TxnV1ProcessingModalSheet` ported and compared side by side.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 79. Registry 14 is only the long press change; the rest of the pack is 15 (RN props pack 2)
 - **Where:** `packages/template/src/registry.ts`, `registry.lock.json`.
@@ -930,6 +1015,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** none for users. A bundle that uses only the long press change runs on a 14 app.
 - **Other options:** all at 14.
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 80. PDF downloads use the app's OkHttp, so the plugin compiles against it (PDF plugin, built)
 - **Where:** `plugins/pdf/android/build.gradle.kts` (`implementation("com.squareup.okhttp3:okhttp:5.5.1")`),
@@ -943,6 +1029,7 @@ change, and what evidence would make you change it?"
 - **Other options:** (a) `HttpURLConnection`: no Gradle line, but it skips the app's pinning; (b) make the runtime expose
   OkHttp as `api`: a runtime change for one plugin.
 - **Evidence wanted:** none, unless a second plugin needs the client; then (b).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 81. A redirect to another host drops the app's headers (PDF plugin, built)
 - **Where:** `PdfModule.kt` (`fetch`), `PdfRules.sameOrigin`.
@@ -954,6 +1041,7 @@ change, and what evidence would make you change it?"
 - **Other options:** keep headers on every redirect (like OkHttp); an option `headersOnRedirect: true`.
 - **Evidence wanted:** what ZeroBill's receipt endpoint does: serve the PDF itself, or redirect to a signed GCS link.
   Both work now.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Dropping the token on another host is the safe default.
 
 ## 82. PdfRenderer runs in the app's own process, on one thread for the whole app (PDF plugin, built)
 - **Where:** `PdfDoc.kt` (`PdfThread`).
@@ -968,6 +1056,7 @@ change, and what evidence would make you change it?"
   only that process; costs ~30 MB of memory while open, and every bitmap crosses processes. Worth it only for PDFs from
   outside (user uploads, third-party links).
 - **Evidence wanted:** crash reports with a pdfium frame in them.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep, as long as PDFs come only from our own server.
 
 ## 83. The viewer is a Canvas with two layers, not a list of page images (PDF plugin, built)
 - **Where:** `PdfViewer.kt`, `PdfRules.budget`, `baseWidth`, `areaScale`.
@@ -986,6 +1075,7 @@ change, and what evidence would make you change it?"
   library that needs Android 11+ (we support 7+).
 - **Evidence wanted:** on the Lava and a 2 GB phone, `dumpsys meminfo` while flinging the 50-page lab file and zooming,
   and how pinch feels next to the RN app.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. The memory numbers are guesses: check on a 2 GB phone.
 
 ## 84. The cache name leaves out the headers, and release builds take https only (PDF plugin, built)
 - **Where:** `PdfRules.fileName`, `PdfRules.urlAllowed`; README "Downloads"; guide notes §44.
@@ -1000,6 +1090,7 @@ change, and what evidence would make you change it?"
 - **Other options:** put a hash of the headers in the name; send `If-None-Match` and check the server each time.
 - **Evidence wanted:** whether a ZeroBill receipt can change after it is first served (a corrected bill under the same
   file key).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. The app must call `Pdf.cleanup` at logout.
 
 ## 85. Location from Android's LocationManager, not Play's fused provider (location plugin, built)
 - **Where:** `plugins/location/android/.../LocationModule.kt`; `plugins/location/README.md`.
@@ -1023,6 +1114,7 @@ change, and what evidence would make you change it?"
   no Play code. Not chosen: no such build is planned, and the fallback to the Location screen already covers it.
 - **Evidence wanted:** time to the first fix and its accuracy on the Lava, indoors and outdoors, with and without Google
   Location Accuracy, against the RN app's fused fix at the same spot.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. The fused provider is the fallback if field fixes are slow indoors.
 
 ## 86. Location calls answer a reason and never reject (location plugin, built)
 - **Where:** `plugins/location/src/index.ts`.
@@ -1034,6 +1126,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** an author who wants errors as exceptions writes an `if` instead. Small.
 - **Other options:** reject with `NativeError` codes, as most zn modules do.
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 87. A hidden app: one-shots answer at once, watches pause (location plugin, built)
 - **Where:** `LocationModule.onBack` / `onFront`.
@@ -1045,6 +1138,7 @@ change, and what evidence would make you change it?"
   running then. That is right: the user can still see our app.
 - **Other options:** keep one-shots running to their timeout; stop watches for good and make JS start them again.
 - **Evidence wanted:** none (checked with `dumpsys location` on the Lava, see milestones).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 88. The plugin asks for both location permissions; core's "location" stays the precise one alone (location plugin) (core changed 2026-11-04, see "Changed" below)
 - **Where:** `plugins/location/src/index.ts` (`requestPermission`), `ZnPermissions.kt:24`.
@@ -1071,6 +1165,7 @@ change, and what evidence would make you change it?"
   alone, and the user may want to pick "Approximate". No host API change. **What an app must do:** declare both lines
   (the location plugin's manifest already does). The plugin's own call still answers `{ permission, precise }` and
   stays the better choice for fixes (guide notes §32, §45).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 89. Accuracy levels, limits, and the geocoder in the same plugin (location plugin, built)
 - **Where:** `LocationRules.kt`; `plugins/location/README.md`.
@@ -1086,6 +1181,7 @@ change, and what evidence would make you change it?"
   `enableHighAccuracy: true` to it waits longer than on RN's fused provider.
 - **Other options:** RN's limits (no timeout cap); a separate geocoder plugin.
 - **Evidence wanted:** accuracy numbers from the Lava at a few spots.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 90. JS errors reach Crashlytics by themselves, through add-only listener lists in core (Crashlytics plugin, built)
 - **Where:** `ZnRuntime.addJsErrorListener`, `ZnOta.addReportListener` (core, Kotlin only); `CrashlyticsPlugin.register`.
@@ -1099,6 +1195,7 @@ change, and what evidence would make you change it?"
 - **Other options:** the app forwards to the plugin by hand (Flutter style); the plugin chains the old hook (breaks if
   the app sets it later).
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 91. Nothing is masked before Crashlytics; the app can pass `redact` (Crashlytics plugin, built)
 - **Where:** `CrashlyticsPlugin(redact = ...)`, `CrashlyticsModule.clean`.
@@ -1111,6 +1208,7 @@ change, and what evidence would make you change it?"
   RN app sends the raw phone today as an attribute (ZeroBill item, not the framework's).
 - **Other options:** core's OTA masks on by default with an opt-out (my first proposal).
 - **Evidence wanted:** none; a privacy review of ZeroBill's keys before the pilot.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep as the framework default (Pavan's call). ZeroBill should pass `redact`.
 
 ## 92. Native crash reporting (firebase-crashlytics-ndk) is opt-in (Crashlytics plugin, built)
 - **Where:** `plugins/firebase-crashlytics/README.md` "Native crashes"; the sample adds it only with `-PznCrashlyticsNdk`.
@@ -1121,6 +1219,9 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** Hermes or C++ crashes are invisible in the console for apps that skip it.
 - **Other options:** always on (RN Firebase's default); a separate `plugin-crashlytics-ndk` Gradle project.
 - **Evidence wanted:** how often native crashes happen in the pilot (Android vitals shows them without the NDK).
+- **Reviewed 2026-11-10 (Fable 5.2):** concern: opt-in is fine for the framework, but ZeroBill should turn it on for
+  the first releases. zn's own C++ and Hermes run in every start, and 32-bit ARM is new and not tested yet (218).
+  Without the NDK part a native crash is only a count in Play vitals, with a poor stack.
 
 ## 93. One JS task for every push message, in front, behind or closed (push plugin, built)
 - **Where:** `ZnMessagingService.onMessageReceived` → `ZnBackground.run("push.message")`; `Push.onMessage`.
@@ -1131,6 +1232,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a message that only matters on screen still costs a task when the app is closed (a cold JS start).
 - **Other options:** RN's two handlers.
 - **Evidence wanted:** cold-start time of a task started by FCM on the Lava.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 94. Group summaries are kept by the plugin, from 2 notifications on; FCM's own notifications open the app only (push plugin, built)
 - **Where:** `Groups.refresh` (after show, cancel and swipe; summary options saved per group in a small prefs file).
@@ -1143,6 +1245,7 @@ change, and what evidence would make you change it?"
   adds it by hand. A launcher that hides groups shows the summary only.
 - **Other options:** leave grouping to Android; route FCM-shown taps with a `link` data key (core change).
 - **Evidence wanted:** the group on the Lava and one Android 8–10 phone.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 95. Firebase Gradle plugins only when google-services.json is there; R8 mapping upload only on request (Firebase plugins)
 - **Where:** `plugins/firebase-app/firebase.gradle.kts` (applied at the end of `android/sample/build.gradle.kts` since
@@ -1158,6 +1261,7 @@ change, and what evidence would make you change it?"
   flavour does). The shared file sets Crashlytics' `mappingFileUploadEnabled` by name (a script file can't see
   Firebase's Gradle classes): if Firebase renames it, the build fails at once, which is the safe side.
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 96. Analytics is on from the first start; the app gives the opt-out (Analytics plugin, built; changed 2026-11-04)
 - **Where:** `plugins/firebase-analytics/android/src/main/AndroidManifest.xml` (no collection flag: Firebase's default).
@@ -1174,6 +1278,8 @@ change, and what evidence would make you change it?"
   `session_start`, screen views and the app instance id before the app can ask anything.
 - **Evidence wanted:** a check against India's DPDP Act and rules before real users: is analytics data from the first
   start allowed with only a privacy notice, or must consent come first (then ZeroBill sets the manifest flag)?
+- **Reviewed 2026-11-10 (Fable 5.2):** keep as the framework default. The DPDP check is ZeroBill's to do before real
+  users.
 
 ## 97. One screen_view per top route, Firebase's own screen views off (Analytics plugin, built)
 - **Where:** `AnalyticsPlugin.watchRoute`, the plugin's manifest (`google_analytics_automatic_screen_reporting_enabled=false`).
@@ -1185,6 +1291,7 @@ change, and what evidence would make you change it?"
   route. Apps call `logScreenView` for parts of a screen.
 - **Other options:** screen_class = "zero-native" for all; no automatic views at all (RN Firebase's default).
 - **Evidence wanted:** what ZeroBill's reports need (route names vs friendlier names) once Pavan uses it.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 98. Names checked in the plugin; booleans sent as 1 or 0 (Analytics plugin, built)
 - **Where:** `AnalyticsRules.kt`.
@@ -1196,6 +1303,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** if Google relaxes a rule, the plugin refuses names Firebase would take, until the rule is updated.
 - **Other options:** pass everything to Firebase and let it drop; booleans as "true" / "false" strings.
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 99. The app removes the ad id permissions, not the plugin (Analytics plugin, built)
 - **Where:** `android/sample/src/main/AndroidManifest.xml`, the plugin README step 5.
@@ -1207,6 +1315,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** an app that forgets step 5 ships the permissions, and Play's data safety form asks about the ad id.
 - **Other options:** remove them in the plugin's manifest; exclude `play-services-ads-identifier` in Gradle.
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 100. No per-call-site sizes for atoms ("G3"); named sizes instead (compiler pack, decided, not built)
 - **Where:** guide-notes §47 "Sized atoms"; rn-compatibility §10 item 1.
@@ -1223,6 +1332,7 @@ change, and what evidence would make you change it?"
   work for every layout key.
 - **Evidence wanted:** the pilot port's count of atoms whose sizes don't fit 2–3 named sizes. If many, prefer runtime
   `width` / `height` over G3.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (171 later made sizes runtime values, so this is mostly history).
 
 ## 101. A JSX variable is copied into each place that uses it (compiler pack, built)
 - **Where:** `compiler/src/compile.ts` `seeThrough`, `bindingOf`, `freeNames` (the "JSX variables" part).
@@ -1239,6 +1349,7 @@ change, and what evidence would make you change it?"
 - **Other options:** compile each JSX const once into a function and call it per use (one template, a runtime call);
   or keep the old error and ask authors to make components.
 - **Evidence wanted:** template bytes in a real port with many JSX consts.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 102. Build-time values: body consts, simple operators, JavaScript scope (compiler pack, built)
 - **Where:** `compiler/src/fold.ts` `fold`, `binary`, `localBinding`, `declaredIn`.
@@ -1255,6 +1366,7 @@ change, and what evidence would make you change it?"
   (not the behaviour). Checked: the sample and the ZeroBill prototype compile to the same bytes as before.
 - **Other options:** fold only module consts (as before); evaluate the initialisers with a JS engine at build time.
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 103. No NativeWind `className`, and no port tool for it ("G5", dropped)
 - **Where:** ARCHITECTURE §3 principle 7, §25; rn-compatibility §10.
@@ -1269,6 +1381,7 @@ change, and what evidence would make you change it?"
   report; it adds nothing to the framework.
 - **Evidence wanted:** hours spent on `className` in the pilot port. If it dominates, reconsider only the one-time
   codemod.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 104. A handler written as a call is made once; everything else is read at tap time (audit fix, built)
 - **Where:** `compiler/src/compile.ts` `handlerCode`, `isHandlerCall`, `propsObject`; guide-notes §5.
@@ -1283,6 +1396,7 @@ change, and what evidence would make you change it?"
 - **Other options:** make every expression once (the old way; breaks `props.onPress` that changes); make calls once
   per value of the signals they read (a memo); a lint rule that asks for `const payOnce = once(pay)` in the body.
 - **Evidence wanted:** none, unless a port shows handlers built from signals.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Good rule: it removes a double `/pay` risk.
 
 ## 105. Plugins add only an interceptor to core's fetch client, and a throwing one fails only its fetch (core, built 2026-11-04)
 - **Where:** `ZnFetch.addInterceptor` and `ZnFetch.PluginInterceptor` (`android/runtime/.../ZnFetch.kt`); tests in
@@ -1302,6 +1416,7 @@ change, and what evidence would make you change it?"
 - **Cronet later (Pavan's question, 2026-11-04):** Cronet's OkHttp bridge is an application interceptor (`CronetInterceptor`), so
   it fits this hook. It must run last, so its plugin is registered last (from Cronet's docs, not tried here).
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 106. FlowStore reserves disk space up front; a failed save still means "don't open the UPI app" (core, built 2026-11-04)
 - **Where:** `reserve()` in `core/src/flowstore.cpp` (used by `open`, `grow` and the first `write` of an older file);
@@ -1329,6 +1444,10 @@ change, and what evidence would make you change it?"
   comes before `/pay`).
 - **Evidence wanted:** a phone with a nearly full disk: the first save returns `false`, and a second save of an existing
   key still works. Tested on the Android 13 emulator (ext4) with a file size limit standing in for a full disk.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep the design. Concern: it was tested only on the emulator (ext4) with a file
+  size limit. Most low-end phones use f2fs for app data, and the f2fs part is reasoned, not tested. Run it once on the
+  Lava with a really full disk: the first save answers false, a second save of an existing key works, and there is no
+  SIGBUS.
 
 ## 107. SQL on Android's own SQLite, with live queries from day 1; Drizzle later and optional (sqlite plugin, study only, not built)
 - **Where:** `docs/sqlite-plugin-proposal.md` (the whole study; decisions in §1, §2.6, §3.3, §4, §6). Nothing is built.
@@ -1364,6 +1483,7 @@ change, and what evidence would make you change it?"
   unsafe migrations are an opt-in, not refused (the OTA release tool warns). Added for that: `unsafe` / `reset`
   migrations with a schema epoch, so an older bundle after a rollback resets to its own shape and the app syncs again
   (`onReset`), proposal §3.5. Risk 4 above is handled by the epoch instead of a refusal.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (not built).
 
 ## 108. A screen with two different JSX returns fails the build (compiler, built 2026-11-05)
 - **Where:** `compiler/src/plugin.ts` `checkScreenRoots`; `compiler/src/compile.ts` `CompileOutput.roots`;
@@ -1393,6 +1513,7 @@ change, and what evidence would make you change it?"
   slower first frame); make the compiler wrap all returns into one template with an anchor per return (hidden cost,
   and different from what the author wrote); a runtime error screen only (found late, on a phone).
 - **Evidence wanted:** how often the ZeroBill port hits it; if often, the anchor wrap may be worth it.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (172 now rewrites early returns).
 
 ## 109. A single-line TextField centres its content vertically; multiline starts at the top (runtime, built 2026-11-05)
 - **Where:** `android/runtime/.../ZnTextField.kt` (the decorator's `Box` alignment).
@@ -1404,6 +1525,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a ported multiline field that relied on RN's centring now starts at the top.
 - **Other options:** centre both (RN's exact default) and add `textAlignVertical` now.
 - **Evidence wanted:** none. Checked on the Android 13 emulator (sample Inputs screen, tall OTP field).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 111. List padding scrolls with the rows; `contentContainerStyle` is the same padding; Stack stretches its children (runtime + compiler, built 2026-11-05)
 - **Where:** `ZnTemplate.kt` `paddingIsContent` (now also LIST), `ZnRenderer.kt` `contentPaddingOf` (List, Scroll,
@@ -1430,6 +1552,7 @@ change, and what evidence would make you change it?"
   List vs Scroll); stretch only when the Stack has an explicit width.
 - **Evidence wanted:** the 4 ZeroBill home tabs on the Lava. Checked on the Android 13 emulator (RN props lab,
   "contentContainerStyle, Stack stretch": the last row scrolls 72 dp above the button, rows are full width).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 112. `gap` is kept with every `justifyContent`, with Yoga's numbers (runtime, built 2026-11-05)
 - **Where:** `android/runtime/.../ZnArrangement.kt` (new), used by `verticalArrangement` / `horizontalArrangement` in
@@ -1464,6 +1587,7 @@ change, and what evidence would make you change it?"
   for no good reason).
 - **Evidence wanted:** the 11 prototype rows on the Lava (app-home-tabs). Checked on the Android 13 emulator (sample
   Amount and Offers screens, before and after).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 113. A negative margin, padding or border width fails the build; the runtime clamps at 0 (compiler + runtime, built 2026-11-05)
 - **Where:** `compiler/src/compile.ts` `setStatic` (`MARGIN_KEYS`, `NOT_NEGATIVE_KEYS`); `ZnTemplate.kt`
@@ -1487,6 +1611,7 @@ change, and what evidence would make you change it?"
 - **Later (not built):** a real negative margin needs a custom layout modifier (measure the child, report a smaller
   size, place it shifted). About half a day, plus checks with fill / weight children. Worth it only if ported apps hit
   it often; the build error will tell us.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (175 later built real negative margins).
 
 ## 114. An effect that returns a function gets it as its cleanup (JS core, built 2026-11-05)
 - **Where:** `packages/core/src/signals.ts` `Computation.run` and `effect`; tests in `packages/core/test/signals.test.ts`.
@@ -1500,6 +1625,7 @@ change, and what evidence would make you change it?"
   `effect(() => once(...))`), which stays ignored.
 - **Risk if wrong:** code that returns a function from an effect for another reason now has it called. None exists.
 - **Other options:** a build error on a returned function (RN code would need a rewrite for no reason).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 115. RN code that built and did nothing (or the wrong thing) now fails the build (compiler, built 2026-11-05)
 - **Where:** `compiler/src/compile.ts`: `stackChildCheck` (P0.4), the `PRESS_EVENTS` check (P0.5), `listElement`
@@ -1524,6 +1650,7 @@ change, and what evidence would make you change it?"
   (a script): no new errors. One sample test fixture used `<Column onPress>` and was changed to `<Pressable>`.
 - **Risk if wrong:** the root-of-component gap for absolute children. A new error on a pattern that worked: none found.
 - **Other options:** real taps on Text and real absolute layout in Column (registry work; later, if asked).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 116. Props are checked per element, from a table generated from the UI types (compiler, built 2026-11-05)
 - **Where:** `tools/gen-tag-props.ts` writes `compiler/src/tag-props.ts` (`bun run gen:tag-props`);
@@ -1537,6 +1664,7 @@ change, and what evidence would make you change it?"
 - **Before building:** the sample and the prototype build with no edits (Pavan's condition for P0.8).
 - **Risk if wrong:** a prop that works at run time but is missing from the types now fails. Fix: add it to the type.
   `hitSlop` and the refresh props are handled by the compiler itself and skipped.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 117. RN names in the compiler, and the calls made for them (compiler, built 2026-11-05)
 - **Where:** `compile.ts` `RN_TAGS`, `rnStyleKey`, `rnAttribute`, `rnFinish`; `fold.ts` (`hairlineWidth`, `flatten`);
@@ -1562,6 +1690,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** the four approximations above (left/right, flexGrow, hairline, Highlight). All documented in
   rn-compatibility.md and guide §56.
 - **Left out:** `borderLeftWidth` (zn has no per-side border width), `SafeAreaView` / `KeyboardAvoidingView` (Pavan).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 118. RN and React Navigation names in JS core (JS core, built 2026-11-05)
 - **Where:** `packages/core/src/rn.ts` (new); `nav.ts` `addBackHandler`, `exitApp`; `appearance.ts`
@@ -1580,6 +1709,7 @@ change, and what evidence would make you change it?"
 - **Not given on purpose:** `useMemo` (it would never compute again; `computed` does), `useState` / `useEffect` /
   `useContext` (zn's signals differ; a look-alike would mislead).
 - **Risk if wrong:** the global `setImmediate` could clash with a library that sets its own; none in zn's bundles.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 119. CSS colour names and `hsl()` in the shared colour parser (JS core + compiler, built 2026-11-05)
 - **Where:** `packages/core/src/color.ts` (used by the compiler and at run time); tests in
@@ -1591,6 +1721,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a colour that was a build error (`"red"`) now builds. That is the point. `"reddish"` still fails.
 - **Other options:** fold names only at build time (no run-time names from data). Rejected: a colour from the server
   or a signal would then fail at run time only.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 120. The OTA "check now" push runs natively and never reaches JS (push plugin v2, built)
 - **Where:** `ZnMessagingService.otaCheck`, `PushRules.OTA_KEY`.
@@ -1604,6 +1735,10 @@ change, and what evidence would make you change it?"
 - **Other options:** a JS handler that calls `Updates.check()` (fails with a broken bundle); a separate FCM service in
   core (core would then depend on Firebase).
 - **Evidence wanted:** the OTA server's load from one topic message, before ZeroBill uses it for all phones.
+- **Reviewed 2026-11-10 (Fable 5.2):** concern: the path is right (native, no JS), but one topic message makes every
+  online phone call `/v1/check` within seconds, and each check does two database writes. Before using it for all
+  phones: load-test the server, and add a way to send in waves (for example one FCM topic per rollout bucket group, so
+  10 sends reach 10 % each).
 
 ## 121. A tap on FCM's own notification gives the data to JS; the plugin opens no link by itself (push plugin v2, built)
 - **Where:** `Opens.kt`, `Push.getInitialNotification`, `Push.onNotificationOpenedApp`.
@@ -1614,6 +1749,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** apps that forget the two calls land on the start screen after a tap. §51 says to call them.
 - **Other options:** core API to add a start link from a plugin (host API 9); `click_action` intent filters.
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 122. A button with no link runs a JS task; a button with a link opens the app (push plugin, Notifications v2, built)
 - **Where:** `Actions.kt`, `ZnNotificationAction`, `Notifications.onAction`.
@@ -1627,6 +1763,7 @@ change, and what evidence would make you change it?"
   §52 say it.
 - **Other options:** cancel on every press (notifee doesn't); open the app for every button.
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 123. Lock screen default is "private" (push plugin, Notifications v2, built)
 - **Where:** `PushRules.visibility`, `NotificationsModule.show`.
@@ -1636,6 +1773,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** promotional notifications show only "zn sample" on the lock screen; apps set `"public"` for those.
 - **Other options:** Android's own default (no call).
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 124. Scheduled notifications are shown natively by an alarm; inexact by default; the boot receiver is the app's (push plugin, Notifications v2, built)
 - **Where:** `Schedule.kt`, `ZnNotificationTrigger`, `ZnNotificationBoot`.
@@ -1652,6 +1790,7 @@ change, and what evidence would make you change it?"
 - **Other options:** WorkManager (no exact times, minimum 15 minutes for periodic); notifee's AlarmManager with exact
   alarms by default.
 - **Evidence wanted:** a check on a Xiaomi or Oppo phone with the app swiped away.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 125. Remote Config values are pushed to JS with each answer, so reads are plain calls (Remote Config plugin, built)
 - **Where:** `plugins/firebase-remote-config/src/index.ts`, `RemoteConfigModule.result`.
@@ -1662,6 +1801,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a very large template (hundreds of keys, long JSON values) crosses the bridge on each answer.
 - **Other options:** an async `getValue`; a native snapshot read at runtime start (core change).
 - **Evidence wanted:** none.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 126. Performance: on by default, URLs without the query, network traces through a new add-only core hook (Perf plugin, built)
 - **Where:** `plugins/firebase-perf/android/.../PerfPlugin.kt`, `ZnFetch.addClientSetup` (core; replaced by
@@ -1678,6 +1818,7 @@ change, and what evidence would make you change it?"
   now on by default too, so Perf and Analytics both collect from the first start; to wait for consent, either one needs
   its manifest flag, `firebase_performance_collection_enabled=false` for Perf); the Firebase Perf Gradle plugin.
 - **Evidence wanted:** whether ZeroBill's consent screen covers diagnostics.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 127. An absolute Stack child takes no room; an absolute Svg sized by its insets gets no aspect ratio; a missing plugin is reported at start (runtime + compiler, built 2026-11-05)
 - **Where:** `ZnRenderer.kt` STACK branch + `absoluteChild()`; `compile.ts` `svgNode()`; `ZnSvg.kt` (24 dp fallback);
@@ -1710,6 +1851,7 @@ change, and what evidence would make you change it?"
   "Absolute children take no room" (Stack 41 dp from its text, shape 120 dp stretched over the next row, end/bottom
   dot, 220 dp bubble from a 120 dp Stack), Tabs lab (Scan button 25 dp up and centred, badges incl. "₹22.1k+"),
   Offers banner, the older contentContainerStyle FAB; no missing-module error in the sample.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 128. Registry 16: runtime text spans with onPress, dashed and dotted lines, includeFontPadding (compiler + JS core + runtime, built 2026-11-05)
 - **Where:** `compile.ts` `needsRuntimeSpans` / `runtimeSpans`; `packages/core/src/text-spans.ts`; `ZnRenderer.kt` TEXT
@@ -1747,6 +1889,7 @@ change, and what evidence would make you change it?"
   links. Checked on the Android 13 emulator: RN props lab "Dashed lines, font padding, spans": dashed pill, dotted
   box, dashed divider, dashed underline and dotted line-through, includeFontPadding 2.3 dp taller, Terms and Privacy
   taps logged (a tap on plain text does nothing), bold spans from data change colour and an `&&` span appears.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 129. zIndex works on a child of Column / Row / Box / Pressable (runtime + compiler + writer, built 2026-11-05)
 - **Where:** `ZnRenderer.kt` (Column, Row and vertical Scroll child loops apply `Modifier.zIndex`); `compile.ts`
@@ -1764,6 +1907,7 @@ change, and what evidence would make you change it?"
 - **Other options:** an overlay / popover layer (a portal), still possible later for menus that must cover everything.
 - **Evidence wanted:** the port's TxnInfo tooltip on the Lava with RN's shape. Checked on the Android 13 emulator: RN
   props lab, a bubble from row 1 (`zIndex: 10`) drawn over row 2's yellow background.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 130. Lottie: RN's `ref` methods are state sent as view props, not native calls by view id (lottie plugin, built 2026-11-05)
 - **Where:** `plugins/lottie/src/api.ts` (`lottieController`, `lottieProps`), `LottieView.tsx`, `LottieRules.start` /
@@ -1791,6 +1935,7 @@ change, and what evidence would make you change it?"
   (debug and R8 release) in the lottie lab: play, pause, resume (also after 3 s), reset, a second play after the end,
   parts both ways, reset while playing, `progress` after an ended play. The first emulator run found two bugs in this
   design (no `plays`, no "ended" rule), both fixed and covered by `LottieRulesTest`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 131. Lottie: `LottieView` fills its parent; `style` on it is a type error, no compiler change (lottie plugin, built 2026-11-05)
 - **Where:** `plugins/lottie/src/LottieView.tsx` (`style={{ width: "100%", height: "100%" }}`), `LottieViewProps.style?: never`.
@@ -1807,6 +1952,7 @@ change, and what evidence would make you change it?"
   (works for every NativeView wrapper, a compiler change); runtime `width` / `height` on native views (the bigger fix
   second-opinions 100 names); an aspect-ratio box from the file's size (a jump in layout when the file loads).
 - **Evidence wanted:** how often ported RN code passes a style to plugin components. If often, the compiler rule.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 132. Lottie: assets only, "Remove animations" shows the last frame, one parse thread, lottie-compose 6.7.1 with its appcompat (lottie plugin, built 2026-11-05)
 - **Where:** `LottieFiles.kt`, `LottieRules.assetPath` / `motionOff` / `newPlay`, `plugins/lottie/android/build.gradle.kts`.
@@ -1832,6 +1978,7 @@ change, and what evidence would make you change it?"
 - **Other options:** show the first frame with motion off; a `reducedMotion` prop; `https` sources through `ZnFetch`
   into a file, then `LottieCompositionSpec.File`.
 - **Evidence wanted:** ZeroBill's `.lottie` files in use (9) with motion off on the Lava (is each last frame a good still?).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 133. Markdown: our own small parser, not a library (`@zero-native/markdown`, built 2026-11-05)
 - **Where:** `plugins/markdown/src/parse.ts`; README; guide §58.
@@ -1853,6 +2000,7 @@ change, and what evidence would make you change it?"
   slower on Hermes); keep the RN view's regex split (smaller, but no nesting, and `*a **b** c*` breaks).
 - **Evidence wanted:** a dump of real `offer.details` and notification bodies from the server, run through
   `parseMarkdown`, compared with what the RN app shows today.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 134. Markdown: lines inside a paragraph stay lines (`@zero-native/markdown`, built 2026-11-05)
 - **Where:** `parse.ts` `joinLines`, `parseMarkdown`.
@@ -1865,6 +2013,7 @@ change, and what evidence would make you change it?"
   breaks where the author wrapped lines.
 - **Other options:** a `softBreaks: "space" | "newline"` option (cheap to add when an app needs it).
 - **Evidence wanted:** the same server dump as entry 133: do offer texts contain wrapped lines meant as one line?
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 135. Markdown: links do nothing unless the app says so; no HTML, no images (`@zero-native/markdown`, built 2026-11-05)
 - **Where:** `Markdown.tsx` `linkPress`; `parse.ts` (HTML, images); README "Limits".
@@ -1883,6 +2032,8 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** a security review of how the ZeroBill port writes `onLinkPress`. Checked on the Android 13
   emulator: the lab's links reach `onLinkPress` with URL and text; `javascript:` and `zn://` were refused by the lab's
   own check; with no `onLinkPress` nothing is tappable (unit test).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. ZeroBill's `onLinkPress` needs a security read: it must never pass a link
+  straight to `Linking.openURL`.
 
 ## 136. Image viewer: sharp zoom from our own region decoder on Coil's disk copy, not a library (image viewer plugin, built 2026-11-05)
 - **Where:** `plugins/image-viewer/android/.../SharpSource.kt`, `ImageViewerScreen.kt` `rememberSharp`, `ViewerRules.kt`
@@ -1905,6 +2056,7 @@ change, and what evidence would make you change it?"
   second, bigger Coil decode (2x screen) when zoomed: simpler, still soft at 5x on a receipt, more memory.
 - **Evidence wanted:** on the Lava, a real ZeroBill receipt photo zoomed to read the line items; a store's CDN
   photo's `Cache-Control` header (must allow a disk copy).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 137. Image viewer: Back, the close button and a swipe all answer `{ index }` (image viewer plugin, built 2026-11-05)
 - **Where:** `ImageViewerScreen.kt` (`BackHandler` inside the screen), `plugins/image-viewer/src/index.ts` `open`.
@@ -1919,6 +2071,7 @@ change, and what evidence would make you change it?"
   (not checked: the sample doesn't use it).
 - **Other options:** keep the core rule (Back → null) and give the index only from the close button and swipe; or no
   answer at all (`Promise<void>`).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 138. Image viewer: only https, `asset:` and `zn://file` links; no headers, no `data:` (image viewer plugin, built 2026-11-05)
 - **Where:** `ViewerRules.kind`, `ImageViewerScreen.kt` `imageModel`, README "Links that load".
@@ -1934,6 +2087,7 @@ change, and what evidence would make you change it?"
 - **Changed 2026-11-05 (Pavan's ask):** `content://`, `file://` inside the app's own folders, `data:` up to 5 MB and
   headers are now supported, with headers and `data:` held in native memory only. See 143; the rest of this entry is the
   first version.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (see 143).
 
 ## 139. Document scanner: ML Kit's Play services module, the one exception to "bundle, don't download from Play" (document-scanner plugin, built 2026-11-05; Pavan's call)
 - **Where:** `plugins/document-scanner/android/build.gradle.kts` (`play-services-mlkit-document-scanner:16.0.0`),
@@ -1958,6 +2112,7 @@ change, and what evidence would make you change it?"
   screen; (b) take a photo with `@zero-native/media` and crop with `Media.edit` (no edge finding); (c) a server-side crop.
 - **Evidence wanted:** on ZeroBill's users, how often `getStatus` says `not_downloaded` / `failed` at the receipt screen, and
   how long the first download takes on the Lava with low storage. If often, (a) or (b) as a fallback.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (Pavan's call). The app must keep a way without the scanner.
 
 ## 140. Document scanner results: on ZnLaunch, one handler per run, until ack; the promise path acks before it answers (document-scanner plugin, built 2026-11-05)
 - **Where:** `plugins/document-scanner/src/index.ts` (`waiting`, `handed`, `scanDocument`, `onResult`), `DocScanModule.onResult`
@@ -1982,6 +2137,7 @@ change, and what evidence would make you change it?"
   deliver to every listener (RN `DeviceEventEmitter` style); native read-and-clear (refused: guide §31, a rollback could lose it).
 - **Evidence wanted:** a kill test right after the promise answers (hard to time); ZeroBill's ReceiptCapture code using
   `onResult` with `tag`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 141. Document scanner files: ML Kit's files are moved, not copied; own names; its own launch key; ML Kit started early only after a kill (document-scanner plugin, built 2026-11-05)
 - **Where:** `DocScanModule.take` / `ours` / `trim`, `DocScanRules.pageName` / `pdfName` / `toDelete`, `DocScanModule.KEY`,
@@ -2007,6 +2163,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** ML Kit's link scheme and folder on more phones and Play services versions. Checked only on the Android 13
   emulator (Play services 26.40): files in `cache/mlkit_docscan_ui_client`, moved out, that folder left empty. The ML Kit start
   time on the Lava after a kill.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 142. Markdown: spacing chosen for reading, not copied from the RN app (`@zero-native/markdown`, built 2026-11-05)
 - **Where:** `plugins/markdown/src/Markdown.tsx` (line heights, marker columns, quote and code boxes),
@@ -2051,6 +2208,7 @@ change, and what evidence would make you change it?"
 - **Evidence wanted:** the prototype's offer screen on the Lava with these numbers. Checked on the Lava in the sample
   lab, before and after: the old 20 dp column pushed "10." text out of line; now 1-10 line up, bullet text is 16 dp
   from the dot, the quote bar runs the box's full height, and a compact `spacing` applies at runtime.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 143. Image viewer: `file://` only inside the app's own folders, `content://` through ContentResolver, `data:` capped at 5 MB, headers and `data:` in memory only (image viewer plugin, 2026-11-05; Pavan's ask, safe form)
 - **Where:** `ViewerRules.kind` / `filePath` / `insideRoots` / `dataStart` / `safeHeader`, `ImageViewerScreen.kt` `appFile` /
@@ -2083,6 +2241,7 @@ change, and what evidence would make you change it?"
   `zn://file` (more API, slower first view); `file://` anywhere with a runtime switch (an OTA bundle could flip it).
 - **Evidence wanted:** a real ZeroBill receipt link behind a login, end to end, on the Lava. A `content://` link from
   another app's share sheet (only the app's own provider and a missing MediaStore id were checked).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 144. React habits that read a value once: build errors where the value can really change, `return null` draws nothing (compiler + runtime, 2026-11-05; Pavan's go)
 - **Where:** `compile.ts` `checkOnceTraps`, `propUses`, `NOT_SIGNAL_METHODS`; `plugin.ts` `checkOnceTraps`; `view.ts`
@@ -2122,6 +2281,7 @@ change, and what evidence would make you change it?"
   `computed`, early returns into a ternary). Bigger compiler work; it would also hide what a zn component is. Later, if
   ports keep hitting it. Warnings instead of errors: easy to miss in a build log.
 - **Evidence wanted:** the ZeroBill prototype building clean after its one fix; a second ported app.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 145. Registry 17: a Carousel with a height shares it out; TextField autoComplete as Android autofill hints (runtime + compiler, 2026-11-05; prototype asks R35, R36, Pavan's go)
 - **Where:** `ZnRenderer.kt` `ZnCarousel`; `ZnAutofill.kt` `autofillHint`, `ZnTextField.kt`; `registry.ts`
@@ -2164,6 +2324,7 @@ change, and what evidence would make you change it?"
 - **Checked 2026-11-06:** a real SMS with the app's hash, in Pavan's real login on the Lava: the SMS Retriever read it and
   the code reached the field with no typing. Still wanted: Gboard's own `sms-otp` offer from an SMS without the hash, a
   Samsung phone.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 
 ## 146. OtpInput is a core native component, with react-native-otp-entry's API (registry 18, 2026-11-06; Pavan's go: "Option A, in the core")
@@ -2192,6 +2353,7 @@ change, and what evidence would make you change it?"
   `TextField` still works.
 - **Other options:** a plugin on `<NativeView>` (theme as runtime JSON: boxes drawn only after JS); a JS component in the
   app (sizes fixed inside it).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 147. Native constants before the JS starts; device-info; push HTML and presses; links that match no route (core + plugins, 2026-11-06; Pavan's go)
 - **What:**
@@ -2226,6 +2388,8 @@ change, and what evidence would make you change it?"
   `constants()` throws gives none that start (logged), the app still starts.
 - **Other options:** constants in the app's storage (sync reads exist), written by native at each start: a disk
   write per start and a misuse of storage. A sync native call API: a bigger change, and a way to block the JS thread.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. FCM tap data can be faked by another app: ZeroBill must treat `data.link`
+  as outside input and never open a pay screen from it without a check.
 
 ## 148. App layers: `startApp(routes, { top, overlay })` (core, 2026-11-06; asked by app-home-tabs for the offline strip, Pavan's go)
 - **What:** two roots outside the screen stack. `top` sits above the screens and pushes them down by its height;
@@ -2250,6 +2414,7 @@ change, and what evidence would make you change it?"
   screens at 0 as before. A layer root that grows very tall would push the screens off: the app's choice.
 - **Other options:** shrink the screens' top inset (above); draw the strip inside each screen (what the app would do
   without this: every screen changes).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 149. `<List inverted>` and a build error for a flipped List (registry 19, 2026-11-06; ask R13 from app-home-tabs, Pavan's go)
 - **What:** RN FlatList's `inverted` on `<List>`, as Compose `LazyColumn(reverseLayout = true)`, bottom arrangement
@@ -2268,6 +2433,7 @@ change, and what evidence would make you change it?"
   the milestones entry.
 - **Not checked:** `stickyHeaderIndices` and pull to refresh on an inverted list.
 - **Risk if wrong:** only lists that set `inverted` change; others get the same arrangement as before.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 150. Screens have no owner; native answers count only the runtime generation (core + runtime, 2026-11-06; bugs Pavan hit on the Lava, Pavan's go)
 - **What:** (A) `nav.ts` `render()` and `mountLayer()` build with `runWithOwner(null, ...)`. (B) `ZnRuntime.dispatchAnswer`,
@@ -2291,6 +2457,7 @@ change, and what evidence would make you change it?"
   moves the task to the back on Android 12+, so the emulator check used `am start -f 0x10008000`).
 - **Risk if wrong:** A: a screen that relied on being stopped by its opener (none known; close() and reset() still stop
   screens). B: an event from the old runtime's last moments reaching the new one (it has no listener yet, so ignored).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 151. What a tap's work belongs to: one-shot work to the screen, repeating work to the part (core, 2026-11-06; Pavan's pick "option 3")
 - **What:** `on()` runs handlers through `runEventHandler`. Directly in a handler, `oneShotOwner()` gives the root above the
@@ -2313,6 +2480,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a timeout or call started in a tap now lives until its screen closes instead of until its part
   goes. A timeout whose callback touched the gone part's signals now runs: harmless (no native node), but it runs.
   An unhandled "cancelled" from an effect re-run is now reported as an async error where it used to hang silently.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 ## 152. SecureStore: only "lost for good" deletes; "can't right now" rejects `temporarily_unavailable` (runtime + core, 2026-11-06; old-phone audit, Pavan's go)
 - **What:** a read that fails is tried 3 times. It deletes the value and answers null only for errors that mean it can
   never be read again (`ZnSecureStore.Rules.lostForGood`). Every other error keeps the file and rejects with code
@@ -2336,6 +2504,14 @@ change, and what evidence would make you change it?"
   out, and a save after login makes a new key, as before).
 - **Risk if wrong:** an app that never offers "Log in again" on `temporarily_unavailable` could leave a user stuck on a
   retry screen if a vendor reports a lost key in a new way. The guide says to always offer it.
+- **Reviewed 2026-11-10 (Fable 5.2):** change: two cases can still delete good values on old phones. (1)
+  `UnrecoverableKeyException` counts as lost for good, but below Android 13 the Keystore wraps every load failure in
+  it, also passing ones (binder or daemon trouble: "Failed to obtain information about key"). Treat it as
+  `temporarily_unavailable` unless its cause says the key is missing or its blob is invalid. (2) On a save,
+  `secretKey(create = true)` makes a new key when `getEntry` answers null. A null can come from a passing Keystore
+  failure too; the new key then makes every other stored value unreadable (bad tag, deleted). If value files exist and
+  the key looks missing, wait and try again, and reject the save instead of making a new key. Evidence: counts of
+  `temporarily_unavailable` and of deleted values per Android version.
 ## 153. `ZnSplash.holdUntilReady`: hold Android's splash until NAV STARTED, 1 s cap (runtime, 2026-11-07; R53 from app-home-tabs, Pavan's pick "(b)")
 - **What:** a pre-draw listener on the Activity's content view cancels frames until `ZnNav.firstScreensUp` (set by
   NAV STARTED, or by START handled for a host API 2 bundle; reset when new first screens are opened) or until
@@ -2353,6 +2529,7 @@ change, and what evidence would make you change it?"
 - **Not checked:** a phone; Android 7-11 (no system splash there); the time cost on a real cold start.
 - **Risk if wrong:** a start whose NAV STARTED never comes (a bundle that never calls `startApp`) always waits the full
   cap. The template-speed part of R53 (prepare faster) is still open; this only hides the blank frame.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 154. A branch runs before its parts: a `guard` on each part's root, and `runTop` in flush (core, 2026-11-07; ask from the ZeroBill payment pass, Pavan's go)
 - **What:** `mountChild` sets `root.guard` to the `when` / `insert` / `each` / `<List>` effect that mounted the part.
@@ -2370,6 +2547,7 @@ change, and what evidence would make you change it?"
   read from outside the part can still run with the new value.
 - **Risk if wrong:** a screen that relied on a part's effect running before its branch (no known one). Cost: one walk
   up the owner chain per effect run, usually 2-5 steps.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 155. A push while START builds the first screens joins them, with no slide-in; Sheet `animateIn` (core + runtime, registry 21, 2026-11-07; asks from app-home-tabs, Pavan's go)
 - **What:** `nav.push` while a screen is being built (or while START opens the first screens) is queued and done
@@ -2390,6 +2568,7 @@ change, and what evidence would make you change it?"
   held), and the push still comes in without a slide.
 - **Not checked:** the Lava; `nav.replace` / `reset` / `pushForResult` during a build (not queued: rare).
 - **Risk if wrong:** an app that pushed from a screen body and relied on the old order (no known one).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 156. After a kill, the first resume waits up to 1 s for a late result before "lost" (runtime, 2026-11-07; found on the Lava in the ZeroBill payment pass, Pavan's go "start working on fixes")
 - **What:** `ZnLaunch.onResumed`, at the first resume after a kill while a launch still waits: if the record has no
@@ -2407,6 +2586,7 @@ change, and what evidence would make you change it?"
   `late-result-after-kill`, `result-after-the-wait` added, not run in the full matrix yet.
 - **Not checked:** the Lava; the full matrix (the see-through and swipe cases now take 1 s more).
 - **Risk if wrong:** a start after a kill with a waiting launch takes up to 1 s more. No change when nothing waits.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 157. Sheet `animateIn` can be a value, read once when the sheet opens (registry 22, 2026-11-07; ask from app-home-tabs, Pavan's go)
 - **What:** `animateIn` is in DynamicProps, so `animateIn={expr}` becomes a slot. Native reads it when the sheet opens
@@ -2417,6 +2597,7 @@ change, and what evidence would make you change it?"
 - **Checked:** compiler test (literal = prop, expression = slot); emulator, RN props lab both ways.
 - **Not checked:** the Lava.
 - **Risk if wrong:** low. A literal works as before.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 158. Sheet and Modal windows clear `FLAG_DIM_BEHIND` (runtime, 2026-11-07; found on the Lava by app-home-tabs, Pavan's go)
 - **What:** `Window.noDimLayer()` clears the flag on our Sheet and Modal dialog windows (only when it is set).
@@ -2427,6 +2608,7 @@ change, and what evidence would make you change it?"
   close now land.
 - **Risk if wrong:** a phone that draws its own dim from the flag would now show none. We set the amount to 0 before,
   so nothing visible changes.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 159. Scanner zoom: preview hidden until the zoom takes; auto-zoom glides; zoom in only (plugin, 2026-11-07; asks from app-home-tabs, Pavan's go)
 - **`zoom`:** CameraX goes back to 1x at each camera open, so we set it at each open. The preview stays hidden until
@@ -2442,6 +2624,7 @@ change, and what evidence would make you change it?"
 - **Not checked:** the glide on the Lava (the emulator camera gives no frames).
 - **Risk if wrong:** the glide calls CameraX up to ~18 times per suggestion. CameraX drops a call when a newer one
   comes, so this costs little; if a phone stutters, go back to jumps.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 160. `Splash.holdUntil`: release one JS turn late, then wait for the top screen to draw (core, 2026-11-07; ask from app-home-tabs, Pavan's go "Sure")
 - **What:** `Splash.holdUntil(work, { maxMs })` asks native to keep Android's splash up. When `work` settles, JS sends
@@ -2462,6 +2645,7 @@ change, and what evidence would make you change it?"
   later, so the black "starting" screen still showed. This is the app's call ([ZB]): a larger `maxMs`, or start
   `/init` earlier (before the first screens). Not decided yet.
 - **Risk if wrong:** a cold start waits up to `maxMs` longer. A stuck `work` can't hold past `maxMs` or `capMs`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 161. WebSocket: 1 MB message cap, text frames only in v1 (core + runtime, 2026-11-08; parity batch 1)
 - **What:** browser-compatible `WebSocket` API (`packages/core/src/websocket.ts`) backed by OkHttp (`ZnWebSocket.kt`)
@@ -2488,6 +2672,8 @@ change, and what evidence would make you change it?"
   - The 1 MB incoming cap protects JS only. OkHttp 5.5.1 reads the whole message into memory first and has no setting to stop that.
   - A binary frame from the server: one `error`, then we close with 1003. A message over 1 MB: `error`, then close 1009.
   - The handshake now sends the app's own User-Agent, as fetch does (it sent `okhttp/5.5.1`).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. The 10 s ping on open sockets in the background costs battery: close
+  sockets on background in the app, or let the runtime do it.
 
 ## 162. Destructured props: rewrite at build time to read live (compiler, 2026-11-08; parity batch 1)
 - **What:** simple destructured props in components and screens (`function Card({ title, size = "md", user: u }: Props)`)
@@ -2509,6 +2695,7 @@ change, and what evidence would make you change it?"
   properties, all refused shapes, shadowing, handlers, `.map` rows, and template byte equivalence).
 - **Risk if wrong:** an edge case in shadowing could either miss a prop rewrite or rewrite a shadowed inner variable.
   Mitigated by complete AST scope walking.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 163. Top-level `<Text onPress>` and row-laid Touchables (`flexDirection: "row"`) (compiler + runtime, 2026-11-08; registry 23; parity batch 1)
 - **What:**
@@ -2545,6 +2732,7 @@ change, and what evidence would make you change it?"
 - **Correction (Opus review, 2026-11-08, M6):** `flex` gives the inner Row `height: "100%"` only when the Touchable's
   parent is not a Row. In a Row, flex sets the width, so two `flex: 1` buttons in a bottom bar filled the bar's whole
   free height. A written `height` still gives "100%". A dynamic `gap` already moved to the inner Row (checked).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 164. `<List horizontal>` / `<FlatList horizontal>` via `LazyRow` (runtime + compiler, 2026-11-08; registry 23; parity batch 1 G6)
 - **Where:** `compile.ts`, `ZnRenderer.kt`, `writer.ts`, `registry.ts` (`LIST_HORIZONTAL_SINCE = 23`).
@@ -2569,6 +2757,7 @@ change, and what evidence would make you change it?"
   provides virtualized rendering with identical windowing and memory safety.
 - **Risk if wrong:** horizontal rails with variable-height items could require alignment policies; solved by respecting
   `alignItems` mapped to `verticalAlignment(s.alignItems)`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 171. Dynamic layout values via reactive slots (compiler + runtime, 2026-11-08; registry 23; parity batch 2 H1)
 - **Where:** `compiler/src/compile.ts`, `packages/template/src/registry.ts`, `packages/ui/src/index.ts`, `android/runtime/.../ZnRenderer.kt`, `ZnTemplate.kt`.
@@ -2610,6 +2799,7 @@ change, and what evidence would make you change it?"
   - `flexShrink` / `flexBasis` from a variable is a build error again (it was dropped silently).
   - "Zero recompositions" is true for sizes, min / max, aspectRatio and display (read while measuring). Margin, radius,
     gap and font values are read in composition and recompose that node.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 172. Top-level early returns rewritten to branch components (compiler, 2026-11-08; parity batch 2 H2)
 - **Where:** `compiler/src/compile.ts`, `compiler/src/plugin.ts`, `compiler/test/early-returns.test.ts`, `compiler/test/once-traps.test.ts`, `compiler/test/screen-roots.test.ts`.
@@ -2631,6 +2821,8 @@ change, and what evidence would make you change it?"
   - Updated `once-traps.test.ts` and `screen-roots.test.ts` to assert branch component generation and refusal of disallowed shapes.
   - Interactive lab section added in `examples/sample/src/DynamicLayoutLab.tsx` with toggleable loading/error signals and tail calculation over `data()`.
   - All 325 compiler tests pass, `test:types` clean, `sample:js` compiles cleanly (`DataCard__after1`).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Document one difference: state made after the guard starts fresh each
+  time the guard flips.
 
 ## 173. `<Canvas>` primitive: draw-only native 2D canvas vs bundling Skia (compiler + core + runtime, 2026-11-08; registry 23; parity batch 2 H4)
 - **Where:** `packages/template/src/registry.ts` (Component `Canvas` = 35, Prop `commands` = 298), `packages/core/src/canvas.ts`, `packages/ui/src/index.ts`, `compiler/src/compile.ts`, `android/runtime/src/main/java/dev/zeronative/runtime/ZnCanvas.kt`, `ZnRenderer.kt`.
@@ -2659,6 +2851,7 @@ change, and what evidence would make you change it?"
     checked when the list is parsed. The whole draw is also in a try/catch, and a throw leaves only that canvas empty.
   - Over 10,000 commands draws nothing (checked in JS and native), not "skipped at 60 fps".
   - There is no touch in v1, so no signature pad yet.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 174. List header / footer / empty and scroll commands, as fixed after review (core + runtime + compiler, 2026-11-08; registry 23; parity batch 2 H3, Opus review)
 - **Where:** `packages/core/src/view.ts` (`list`, `listExtra`, `bindListController`), `ZnStore.kt` (`ZnList`), `ZnRenderer.kt` (`ZnLazyList`), `compile.ts` (`compileExtra`).
@@ -2685,6 +2878,8 @@ change, and what evidence would make you change it?"
   search is done while measuring. A Carousel percent is of the pager's width inside its padding; the gap is not taken off.
 - **Risk if wrong:** a List with a header and `stickyHeaderIndices` is the case most likely to show a wrong range.
   `review-fixes.test.ts` checks the compiler side only; the range and scroll paths need a phone check.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. To the question: "lands close" is good enough for an animated non-zero
+  offset; RN's FlatList also estimates.
 
 ## 175. Layout values from JS can't crash the app; RN's edge order; negative margins (runtime, 2026-11-08; Opus review of H1, B1, M1, M8)
 - **What:**
@@ -2700,6 +2895,7 @@ change, and what evidence would make you change it?"
   Only a JVM unit test that loads the class caught it. Rule: don't use labelled returns out of `key { }` in composables.
 - **Risk if wrong:** a full-bleed row (`marginHorizontal: -16`) now really bleeds. Check ZeroBill screens that had a
   negative margin "doing nothing" before.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 176. Soft core modules: core's own WebSocket and Splash calls don't go into a bundle's requirements (compiler + core, 2026-11-08; Opus review B4; Opus's call, told to Pavan)
 - **Problem:** the build lists every `callNative("X")` in every loaded file, core's own included. Core loads all its files,
@@ -2715,6 +2911,7 @@ change, and what evidence would make you change it?"
   loading such modules only when imported (changes core's loading).
 - **Risk if wrong:** an app on an old APK that uses `new WebSocket` gets a socket that fails at once, instead of the
   bundle being refused. That is the browser's own failure shape, and the app must handle it anyway (no network).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Good rule; keep the list short.
 
 ## 177. A registry marker the template can't show: `NodeSpec.needs`; negative margins need 23 (template + compiler, 2026-11-08; Opus review B5)
 - **Problem:** List header / footer / empty live only in the JS, and negative margins are plain numbers. Neither raised
@@ -2723,6 +2920,7 @@ change, and what evidence would make you change it?"
   - `NodeSpec.needs?: number`: the compiler marks a List with extras (`LIST_EXTRAS_SINCE = 23`). The writer raises the version; nothing is written to the file.
   - Any static margin below 0 needs `NEGATIVE_MARGIN_SINCE = 23`.
 - **Checked:** `review-fixes.test.ts`: a List with only a header gives 23, the same List without one stays below 23.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 178. A lower-case name imported from `@zero-native/ui` is a build error (compiler, 2026-11-08; Opus review B2)
 - **Problem:** the compiler removes every `@zero-native/ui` import (ui holds components and types). Gemini declared
@@ -2731,6 +2929,7 @@ change, and what evidence would make you change it?"
   letter fails the build: "... is not part of @zero-native/ui at runtime. Import it from @zero-native/core". Type
   imports (`import type`, `type X`) pass. Every ui export today is a component (upper case), a type, or `StyleSheet`.
 - **Risk if wrong:** a future lower-case ui export would be refused; then make it a core export, which is the rule anyway.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 179. WebSocket: call order and ids across JS runtimes (runtime + core, 2026-11-08; Opus review M2-M4; built by an Opus helper)
 - **Call order:** `connect` / `send` / `close` are `onMain = true` only to keep JS call order (the main Handler runs
@@ -2748,6 +2947,7 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** each send takes two thread hops (small, not measured). Checked against OkHttp 5.5.1's source and with
   JS tests only; no real server or phone test yet.
 - **Revisit if:** `ZnModules.emit` gets a generation check (then ids can start at 0 again).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. It still needs one test against a real server on a phone.
 
 ## 180. Canvas colours become ARGB numbers in JS, not parsed in native (core + runtime + compiler, 2026-11-08; Opus review M12; built by an Opus helper)
 - **Problem:** Gemini's `ZnCanvas` used `android.graphics.Color.parseColor`. That reads `#RRGGBBAA` as `#AARRGGBB` (a wrong
@@ -2759,6 +2959,8 @@ change, and what evidence would make you change it?"
 - **Cost:** one walk per list change in JS. A string-literal command list must use ARGB numbers.
 - **Option not taken:** a small hex parser in Kotlin: a second colour parser that could drift from core's.
 - **Question for the reviewer:** should a bad colour literal inside a `draw.*` call fail the build instead of warning at runtime?
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. To the question: yes, a bad colour literal in `draw.*` should fail the
+  build, like a bad style colour.
 
 ## 181. onLayout x / y from the parent's box, through a marker node (runtime, 2026-11-08; A11-2; Opus)
 - **Problem:** RN gives x / y from the parent's top-left corner, padding and border included. Compose's
@@ -2775,6 +2977,8 @@ change, and what evidence would make you change it?"
 - **Option not taken:** passing the parent's padding and border numbers down: wrong for dynamic padding, borders from
   slots and Scroll content padding, and easy to drift from the chain's real order.
 - **Question for the reviewer:** should onLayout rows inside a List report x / y from the List (RN's FlatList does)?
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. To the question: leave List rows as they are until an app needs RN's
+  numbers.
 
 ## 182. A max beats a stretch; the box keeps its room and sits at the start (runtime, 2026-11-08; A11-3; Opus)
 - **Problem:** Compose's `widthIn(max)` can't go below the minimum the parent asks for, so `fillMaxWidth()` from a stretch
@@ -2786,6 +2990,7 @@ change, and what evidence would make you change it?"
   the rest to its siblings. Rare; not seen in ZeroBill.
 - **Option not taken:** have each parent read its child's maxWidth and margins before stretching: needs the child's
   dynamic margins, and every parent type (Column, Stack, Scroll, Row, Sheet) would repeat it.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 183. NAV BACK_WANTED for any screen with an app back handler; native back gestures only on screens without one (2026-11-08, iOS work, A8)
 - **What:** JS sends BACK_WANTED (kind 10, no host API change) while a screen has a `useBack` / `BackHandler` or its
@@ -2807,6 +3012,7 @@ change, and what evidence would make you change it?"
   **Android: not compiled here**; checks in `android-issues-found-when-building-ios.md` A8.
 - **Risk if wrong:** an app with a handler on every screen gets no native back gestures anywhere (works, feels less
   native). A root screen with `useBack` now catches Back instead of leaving the app.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 184. Predictive back on for Android 13+; native pops a screen without a back handler (runtime, 2026-11-08; Opus)
 - **Problem:** our apps target SDK 36 and never chose. Android 16 then turns predictive back on by itself; Android 13-15
@@ -2825,6 +3031,9 @@ change, and what evidence would make you change it?"
   the iOS-like gesture is what ZeroBill wants.
 - **Not verified:** an Android 16 phone; the finish after the lift is quick (1-2 frames on the Lava's recording)
   rather than a full slide, and Pavan judged it fine.
+- **Reviewed 2026-11-10 (Fable 5.2):** concern (known, parked): the 3-button case is not fixed and Android 16 is not
+  tested. For the first Play release the safe choice is to turn predictive back off in the ZeroBill manifest
+  (`tools:replace`, one line) and turn it on again when the fix is in. Not a blocker: no Back is lost today.
 
 ## 185. Linking.openURL opens any app's link, as in RN (runtime, 2026-11-08; Pavan + Opus)
 - **Problem:** `Os.openUrl` / `Linking.openURL` opened only http, https, mailto and tel (entry 13), so an OTA bundle
@@ -2839,6 +3048,8 @@ change, and what evidence would make you change it?"
   that show others' links must filter them (guide-notes §39); ZeroBill's offer text already does (https, tel, mailto).
 - **Option not taken:** an allowlist in app config (Gemini's roadmap §6.3): a list inside the JS bundle can be widened by
   the same OTA it guards against; a native list adds a step RN doesn't have.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep (Pavan's call, same as RN). Know the cost: the OTA signing key now also
+  guards "open `upi://pay` with any payee", so key handling matters more.
 
 ## 186. Motion objects are made at runtime, not stored in a `.zn.ui` section (gestures and motion, 2026-11-09; Opus)
 - **Problem:** plan §5 put values, gestures, formulas and bindings in a new `motion` section of the template, with a
@@ -2852,6 +3063,7 @@ change, and what evidence would make you change it?"
   at bundle load.
 - **Option not taken:** the section. It would need the compiler to know every instance up front, or a second id space
   per instance; and a load-time check catches nothing a make-time check doesn't.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 187. Inside derive, motion values are read as `v()` (2026-11-09; Opus, after the lab agent's cast hack)
 - **Problem:** a motion value is callable (a signal), so TypeScript rejects `Math.abs(pan.x) / 120`. The lab agent
@@ -2860,12 +3072,14 @@ change, and what evidence would make you change it?"
   It typechecks as a number and reads like JS. Bare `pan.x` still compiles (old code), but the docs use `()`.
 - **Risk:** `count()` where `count` is a signal compiles to an input that isn't a motion value: a clear error at run
   time ("a signal or your own function can't drive a formula").
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 188. `m.follow(v)` drives scroll from a value; no `scroll.follow` prop (2026-11-09; Opus)
 - **Chosen:** an element-motion command (`elementFollow`), no new registry prop. A Scroll follows dp, a List an item
   index (fraction = part of that item, if laid out), a Carousel a page. Each change of v scrolls at once; smoothness
   comes from v (a spring, a drag). The user can still scroll; the next change of v wins.
 - **Option not taken:** an animated scroll per change (fights a dragging finger, lags a spring).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 189. Shared elements: SharedTransitionLayout around NavDisplay; Image = sharedElement, others = sharedBounds (2026-11-09; Opus)
 - **Chosen:** `sharedTag` (registry 24, a slot). Navigation 3's NavDisplay gets the scope; each screen gives its
@@ -2875,6 +3089,7 @@ change, and what evidence would make you change it?"
   activity window). Checked by comparing root views.
 - **Not verified:** on a phone. Screens with a back handler (A8) skip the predictive preview, so their shared element
   plays only after JS pops.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 190. List reorder shows its own order until JS moves the data (2026-11-09; Opus)
 - **Chosen:** while dragging, the List keeps a local order (positions → rows), so the picked row stays composed under
@@ -2884,11 +3099,13 @@ change, and what evidence would make you change it?"
 - **Option not taken:** offsets only (translate rows, keep the order): the picked row would be disposed once it scrolls
   out of the visible window.
 - **Not with** stickyHeaderIndices. A row's own onLongPress competes with the pick-up.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 191. No `Tabs` progress source; tabs that follow the finger use a Carousel (2026-11-09; Opus)
 - **Why:** `<Tabs>` draws one child and has no swipe, so it has no progress between tabs. A Carousel already pages
   natively; `m.page` drives an indicator and `m.follow` moves the pages from tab taps. Plan §2.8's Tabs row is covered
   this way.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 192. Plugin motion: values, drivers and view props through `ZnMotionApi`; gated by the plugin's module (2026-11-09; Opus)
 - **Chosen (D8):** a public `ZnMotionApi`: `value(id)` (JS made the id with `nativeMotion`), `onFrame`, `registerDriver`,
@@ -2896,6 +3113,7 @@ change, and what evidence would make you change it?"
   (its version in `requires`); a driver unknown to the app fails the command with a clear error.
 - **Option not taken:** separate ids for sources and drivers in `requires`: a second gating system next to modules.
 - **Tilt** is built in (`useTilt`, gravity sensor, smoothed, only while held and in front).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 193. A slow first frame of a new screen eats its push slide; not fixed yet (2026-11-09; Opus, found from Pavan's report)
 - **Seen (Lava, sample):** the first push to a screen often has no slide: it just appears. Pavan: Home → Dev screens and
@@ -2933,6 +3151,8 @@ change, and what evidence would make you change it?"
   `LocalNavAnimatedContentScope` / `sharedTag` must stay outside the hidden part, a pop during the hidden frame.
   Not for start screens, native screens or `transition: none`. A time-shifted animation spec doesn't work: Compose
   reads the duration once at the start.
+- **Reviewed 2026-11-10 (Fable 5.2):** concern (known, parked): looks only, no harm to payments. Not a blocker. The
+  proposed one-frame pre-build is the right fix.
 
 ## 194. `keyboardDismissMode` on Scroll / List: Compose imeNestedScroll for "interactive", focus cleared for "on-drag" (2026-11-09; Opus, Pavan's chat idea)
 - **What:** RN's prop, registry 24 (not shipped, so no new number). "interactive" = `Modifier.imeNestedScroll()` on the
@@ -2945,6 +3165,7 @@ change, and what evidence would make you change it?"
   there). (4) Fixed at build time, like `inverted`.
 - **Not checked:** inside a `Sheet` (its own window) and with pull to refresh on the same list; TalkBack.
 - **Risk if wrong:** only elements that set the prop change.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 196. Notifications split from push; `PushEvents` is the door for any push service (2026-11-09; Opus, Pavan's idea)
 - **What:** `plugins/notifications` (`@zero-native/notifications`) holds everything `Notifications` did, with no Firebase
@@ -2964,6 +3185,7 @@ change, and what evidence would make you change it?"
 - **Checked:** both plugins' Kotlin and JS tests; a throwaway sample build with only the notifications plugin (merged
   manifest has no FCM service; its dex has 0 `com/google/firebase/messaging` classes, 0 push classes) ran the local
   phone steps on the emulator. Not done: iOS.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 197. Canvas parse problems are warnings, not a red dev screen (runtime, 2026-11-09; Opus, canvas session)
 - **Chosen:** a bad command in a `<Canvas>` list (a NaN, an odd dash, an unknown type, a motion value where none may
@@ -2976,6 +3198,7 @@ change, and what evidence would make you change it?"
   the runtime or a case the parse checks missed.
 - **Option not taken:** a small dev badge on the canvas itself: needs a draw of its own and a design; the log is enough
   while the JS warning names the same index.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 198. Motion values in canvas commands: what may move, what may not (core + runtime, 2026-11-09; Opus, canvas session)
 - **Chosen:** every number of a shape, text, paragraph, image, transform and clip may be a motion value, and paint
@@ -2992,6 +3215,7 @@ change, and what evidence would make you change it?"
   gradients have fixed points, so the size never changes the shader).
 - **Option not taken:** moving gradient stops (a shimmer). Possible later with a shader matrix that moves (a translate
   of a fixed shader, no rebuild); not needed by the labs or ZeroBill now.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 199. Canvas blend modes draw into their own layer; canvas images are software bitmaps (runtime, 2026-11-09; Opus, canvas session)
 - **Blend modes:** a list with any blendMode other than srcOver is drawn inside one `saveLayer` the size of the canvas.
@@ -3005,6 +3229,7 @@ change, and what evidence would make you change it?"
 - **Image source forms:** the runtime's `imageModel` (ZnRenderer.kt) is private, so ZnCanvasImage.kt has its own copy
   of the same three rules (`asset:`, `zn://`, URL). If `<Image>` learns a new form, add it in both places (or make
   that function internal and share it).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 200. `useZoom` is its own recognizer, not usePinch + usePan in a group (runtime + core, 2026-11-09; Opus, motion batch 2)
 - **Chosen:** one native recognizer (ZoomRec, kind 8) that reads all fingers and works out scale and move together
@@ -3020,6 +3245,7 @@ change, and what evidence would make you change it?"
   zn arbiter's parents.
 - **Check on the phone:** a slow sideways drag of a zoomed photo near the edge. It may feel sticky if the edge test
   fires late; today it needs the photo within half a pixel of its edge.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 201. Scroll snapping in the fling, and one event id for five scroll events (runtime + compiler, 2026-11-09; Opus, motion batch 2)
 - **Chosen:** the snap props become one compact string prop (`snap`, id 161, "p1;i80;a1;..."), read into a Compose
@@ -3032,6 +3258,7 @@ change, and what evidence would make you change it?"
   estimated offset after the measured rows; documented.
 - **Option not taken:** Compose's `SnapFlingBehavior` with a `SnapLayoutInfoProvider`: it works on LazyList only, and
   RN's `snapToOffsets` with free scrolling before / after (snapToStart / End false) needs our own pick.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 202. Lottie progress from a motion value: no Lottie module bump (plugin, 2026-11-09; Opus, motion batch 2)
 - **Chosen:** `progress` on `<LottieView>` may be a motion value; the native view reads it while drawing. The Lottie
@@ -3041,6 +3268,7 @@ change, and what evidence would make you change it?"
   that uses Lottie (also the ones that never pass a value) refuse older APKs, for no gain.
 - **Risk:** a bundle with a value-driven Lottie on an APK that has Motion 1 but an older Lottie plugin. That APK does
   not exist: Motion 1 and this Lottie change land in the same release.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 203. `width` / `height` may follow a motion value (runtime, 2026-11-09; Opus, motion batch 2)
 - **Chosen:** allowed for `width` and `height` only, read in the layout phase (no recomposition; one relayout per
@@ -3050,6 +3278,7 @@ change, and what evidence would make you change it?"
 - **Cost:** not measured yet on the Lava (Layout lab, Height tab, `dumpsys gfxinfo` with and without). Docs and the
   guide say "one element, not rows".
 - **Option not taken:** all layout keys. Margins and padding per frame would invite rows that relayout a whole list.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 204. See-through routes as a Navigation 3 overlay scene (runtime + compiler, 2026-11-09; Opus, motion batch 2)
 - **Chosen:** route option `transparent: true`. ZnNavHost puts such an entry in its own `OverlayScene` (strategy
@@ -3066,6 +3295,7 @@ change, and what evidence would make you change it?"
   over it (the new screen slid in over the screen below the viewer) and came back at once on Back. It is now a normal
   Scene that draws the last opaque screen and the see-through ones above it in one Box; Navigation 3 draws an entry
   two scenes share only in the newest. Push and Back now slide the whole scene. Checked on the Lava (release).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 205. The image viewer's flight uses a measured box, not `sharedTag` (plugin, 2026-11-09; Opus, motion batch 2)
 - **Chosen:** `ImageViewer.open({ from })` takes the thumbnail's `useElementMotion()` (measured once) or a box. The
@@ -3077,6 +3307,7 @@ change, and what evidence would make you change it?"
 - **Known gap:** the thumbnail's crop (`cover`) vs the viewer's `contain`: the flight lands on the thumbnail's box, not
   its crop, so the last frames show the whole photo shrinking into the box rather than a crop opening up. A clip that
   animates from the crop is a follow-up if Pavan wants it.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 206. ImageViewer module 3 and the old screen kept for now (plugin, 2026-11-09; Opus, motion batch 2)
 - **Chosen:** the TSX screen draws each photo with a new native view `imageviewer.page`, so the module goes 2 → 3. The
@@ -3086,6 +3317,7 @@ change, and what evidence would make you change it?"
 - **Side effect for ZeroBill:** its next bundle that imports the plugin needs an APK with ImageViewer 3 (new native
   view), and its routes.ts viewer line changes to the TSX form. Handed to the app-home-tabs session.
 - **Why keep `open()` the same:** the call sites in ZeroBill don't change; only the route line does.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 207. Registry needs read from the source, for features that ride in an older prop (compiler, 2026-11-09; Opus, review fix)
 - **Chosen:** `compiler/src/needs.ts` scans app files that import the canvas API (`draw`, `smoothPath`, the Canvas
@@ -3098,6 +3330,7 @@ change, and what evidence would make you change it?"
   canvas. The cost is a bundle that needs the newer app; a miss would draw wrong on an older one.
 - **Option not taken:** a runtime check in `draw.*`: the need is decided at build time (zn-bundle.json), so a runtime
   check can't stop an older app from taking the bundle.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 208. List snapping lines up a row after the fling (runtime, 2026-11-09; Opus, review fix)
 - **Chosen:** the snap point is picked as before (from the List's offset, an estimate past the measured rows); when
@@ -3110,6 +3343,7 @@ change, and what evidence would make you change it?"
   same in practice, as apps set the interval to the row size.
 - **Option not taken:** Compose's `SnapLayoutInfoProvider`: its fling ends on rows too, but it doesn't do RN's
   `snapToStart / snapToEnd`, one-at-a-time paging or our momentum events; the correction keeps one fling code path.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 209. decelerationRate numbers: iOS's scale; Android-style numbers converted (core, 2026-11-09; Opus, review fix)
 - **Chosen:** zn reads the iOS meaning (speed kept per ms: "normal" 0.998, "fast" 0.99). A number of 0.95 or less can
@@ -3119,6 +3353,7 @@ change, and what evidence would make you change it?"
   there was outside the valid range and fell back to "normal". iOS 0.99 and Android 0.9 stop at about the same place.
   An RN app that wrote `decelerationRate={0.9}` for Android now gets a short fling instead of a normal one.
 - **Gap:** numbers between 0.95 and 0.985 are read as iOS's scale (a very short fling); RN apps don't use those.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 210. App fonts: a font table built from file names and OS/2, Compose picks the face (compiler + runtime, 2026-11-09; Opus, RN gaps pack)
 - **Chosen:** fonts live in `<app>/assets/fonts/` and ship as bundle files. The build reads each file's OS/2 weight and
@@ -3137,6 +3372,8 @@ change, and what evidence would make you change it?"
 - **Known gaps:** no variable fonts (build error), no app-wide default font (a styled `AppText` component, as in RN),
   Canvas and SVG text use the system font. First use loads the font on the main thread (a few ms per face, measured
   only on the emulator).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Measure the first-use font load on the Lava: 5 or 6 faces on the first
+  screen all load on the main thread at a cold start.
 
 ## 211. flexWrap: our own wrap layout, not Compose's FlowRow (runtime, 2026-11-09; Opus, RN gaps pack)
 - **Chosen:** `ZnWrapLayout` (ZnWrap.kt), about 150 lines, with Yoga's rules: lines decided in px with half a pixel of
@@ -3150,6 +3387,7 @@ change, and what evidence would make you change it?"
   stretched child's width comes from its max intrinsic width, as FlowRow's fillMaxRowHeight; a child that can't answer
   (a lazy list inside) is not stretched instead of crashing.
 - **Not built:** a wrapping Column (rare in RN apps; FlowColumn later if asked), `wrap-reverse`, `alignContent: stretch`.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 212. Grids: rows of a LazyColumn laid out as RN's rows, not LazyVerticalGrid (runtime, 2026-11-09; Opus, RN gaps pack)
 - **Chosen:** `<List numColumns>` stays one LazyColumn; each lazy item is one grid row, a `Row` styled by
@@ -3167,6 +3405,7 @@ change, and what evidence would make you change it?"
 - **Not taken:** the short last row as in RN (widened flex items). Most RN apps pad their data to avoid it; the brief
   asked for padded rows.
 - **Costs:** a grid row recomposes when any of its items mounts (n items per row); measured only on the emulator.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 213. OTA patches: bsdiff with deflate, our own ZNBSDIFF1 container (framework, 2026-11-09; Opus, OTA parity)
 - **Chosen:** Percival's bsdiff 4.3 (tools/ota/bsdiff.ts; phone ZnBsPatch.kt), its control / diff / extra parts in one
@@ -3175,6 +3414,9 @@ change, and what evidence would make you change it?"
   2 KB small, 61 vs 56 KB medium) and needs no library on Android or iOS. zstd was dropped by Pavan (native library).
 - **Trust:** nothing new signed. Every built file is checked against the signed bundle SHA's file list.
 - **Open:** the 60 % keep rule and the 5 bundles + 3 store builds as bases are RN's numbers, not measured for zn.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Read `ZnBsPatch.kt` and `buildFromPatch`: every number is checked, every
+  built file is checked against the signed list, and a failed patch falls back to the full zip in the same check. The
+  60 % rule and the base counts can be measured later.
 
 ## 214. OTA launch gate: 800 ms to wait for the answer, not RN's 400 ms (runtime, 2026-11-09; Opus, OTA parity)
 - **Chosen:** at a start with UI the check runs at once; the launch screen waits for its answer at most 800 ms from
@@ -3186,6 +3428,13 @@ change, and what evidence would make you change it?"
   screen, at most ~0.5 s. To be measured on the Lava (check time at a cold start); 0 turns the gate off.
 - **Also:** the old bundle's first screen is built under the update screen, then built again after the swap (JS
   start work can run twice). RN had the same (its JS splash ran before the reload).
+- **Reviewed 2026-11-10 (Fable 5.2):** concern: (1) the check now starts at process start, so its JSON, state file and
+  TLS work run next to the JS start on a slow phone; the old rule was "never in the way of startup". Measure the first
+  frame on the Lava on 4G with the gate on and with `launchDecisionMs = 0`. (2) A user on a slow network pays up to
+  ~0.5 s at every cold start. Send the gate's wait time with the outcomes to see how often. (3) A swap at the gate
+  replaces the JS runtime while the old bundle's start work is running. A call that must not be lost (a refresh token
+  that the server rotates) can be answered into a runtime that is gone. Check ZeroBill's start calls before the first
+  high or critical update is published.
 
 ## 215. Wi-Fi ↔ mobile: a new client with a fresh pool, not cancelling calls (runtime, 2026-11-09; Opus, network review)
 - **Chosen:** when the default network changes, `ZnFetch.client` becomes `old.newBuilder().connectionPool(new)` and the
@@ -3198,6 +3447,8 @@ change, and what evidence would make you change it?"
 - **Open:** a plugin or app that keeps `ZnFetch.client` (or its own `newBuilder()`) in a field still uses the old pool
   (guide §89). Same dispatcher for old and new clients, so per-host limits count both. Not measured: the cost of
   `newBuilder().build()` at each change (no new TLS setup is expected; the socket factory is shared).
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Not cancelling POSTs is right. Old and new clients share one dispatcher,
+  so calls hung on the old network hold per-host slots until their ping fails; fine unless many are in flight.
 
 ## 216. Store updates: the answer rides on the OTA check, kept per APK (framework + server, 2026-11-10; Opus, Pavan's ask)
 - **Chosen:** `POST /v1/check` takes `store: { os, version }` and answers `store: { update, appStoreId? }` from the
@@ -3211,6 +3462,7 @@ change, and what evidence would make you change it?"
   build, and the engine asks Play first, so a stale "forced" can't block an offline user.
 - **Open:** the answer is not signed (like rollout / priority): a man in the middle could only make the app ask Play,
   which shows nothing if Play has no newer build.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep. Not signing it is fine: the worst a wrong answer does is ask Play.
 
 ## 217. Check on every return: a 10 s floor on automatic checks (runtime, 2026-11-10; Opus)
 - **Chosen:** `ZnOta.Config.checkIntervalMs = 0` means a check on every return (ZeroBill, Pavan: "let app devs decide
@@ -3221,6 +3473,11 @@ change, and what evidence would make you change it?"
 - **Not chosen:** a separate "first start" flag. The floor covers both cases with one rule.
 - **Changed the same day (Pavan: "allow override ... let it be 5s"):** the floor is `Config.minCheckGapMs`, 5 s by
   default. ZeroBill sets 0 (any return checks), and so takes the second call at a cold start.
+- **Reviewed 2026-11-10 (Fable 5.2):** change: each failed check adds an outcome, and only the last 20 are kept
+  (`MAX_OUTCOMES`). With a check on every return and no floor (ZeroBill), a phone that is offline for 20 returns
+  pushes its `launch_crashed` / `error_rollback` outcomes out before they reach the server. Fix: count failed checks
+  in one outcome (or don't store network failures), and never drop a serious outcome for a plain one. Also load-test:
+  every return is one `/v1/check` with two database writes.
 
 ## 218. Release builds ship every CPU type, 32-bit ARM included (runtime + ZeroBill, 2026-11-10; Opus, Pavan's ask)
 - **Chosen:** release builds `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` (`-PznArm64Only` for a quick local build).
@@ -3232,6 +3489,11 @@ change, and what evidence would make you change it?"
   (fine on 32-bit), and mmaps the bytecode. Not yet run on a 32-bit process: test with `adb install --abi armeabi-v7a`
   on the Lava (its chip runs 32-bit code) before the release.
 - **Open:** an app moving from RN to zn on a 32-bit phone: RN never installed there, so there is no RN data to move.
+- **Reviewed 2026-11-10 (Fable 5.2):** concern: right to ship it, but nothing native has run in a 32-bit process yet.
+  I read `jni_bridge.cpp` and `core/src`: file formats use fixed-size numbers and the pointer in a `jlong` is fine, so
+  I expect it to work. Still run the full sample steps and a ZeroBill payment with `adb install --abi armeabi-v7a`
+  before the release, and turn on Crashlytics NDK (92) so 32-bit crashes have stacks. Blocks the release until that
+  run passes.
 
 ## 219. A forced store update opens natively at launch (runtime + app-updates + ZeroBill, 2026-11-10; Opus, Pavan's ask)
 - **Chosen:** a `ZnStoreLauncher` hook in the launch gate. At a start with UI the plugin asks Play at once; the OTA
@@ -3246,6 +3508,11 @@ change, and what evidence would make you change it?"
 - **Risk:** ZnSplash's own cap (ZeroBill 2 s) still lets the app draw if Play is slow; Play's screen then opens a moment
   later over it. An OTA swap waits while a forced store answer is open; if Play can't serve it, the swap goes on.
 - **Not tested on a phone yet** (needs Play: internal app sharing, 173/174 AABs).
+- **Reviewed 2026-11-10 (Fable 5.2):** concern: (1) not tested on a phone: blocks using a forced rule until it is. (2)
+  `onLaunch` asks Play at every cold start, also when no forced rule exists; that wakes the Play Store process on
+  low-RAM phones during our start. Measure cold start on the Lava with and without the launcher; if it costs, ask Play
+  only when the saved or the fresh answer is forced. (3) A saved forced answer opens Play's screen before the fresh
+  answer comes, so a rule that was taken back still shows once.
 
 ## 220. A closing Sheet ignores the user's drags, and always removes its window (runtime, 2026-11-09; Opus, Pavan's bug)
 - **Bug:** ZeroBill, right after login: the referral reward sheet was swiped down, and an empty white strip with the
@@ -3263,6 +3530,7 @@ change, and what evidence would make you change it?"
 - **Not covered by a unit test:** the runtime's tests are JVM-only, with no Compose UI test setup. Checked on the Lava:
   the repro, plus short drag springs back, fast swipe / Back / scrim tap close, first tap after a close reaches the
   screen.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 221. Fetch gets a thread of its own, and the call pool gets a watch (runtime, 2026-11-09; Opus, HTTP stall)
 - **Problem:** every native call, `Fetch.send` too, ran on one 2-thread pool. A module function that never returns
@@ -3278,6 +3546,11 @@ change, and what evidence would make you change it?"
 - **Open:** the watch only writes logcat. An app hook (for example Crashlytics breadcrumbs) would make it visible on
   users' phones; not built. Other pool users that wait with a limit (geocoding, up to 10 s) still hold up other modules
   meanwhile, not fetch.
+- **Reviewed 2026-11-10 (Fable 5.2):** change: fetch on its own thread is right, but SecureStore, Storage and every
+  plugin still share 2 threads. Two slow calls (a geocode at 10 s, a Keystore read that retries) hold up a token read
+  in a payment. The reason against a bigger pool ("it hides a blocking module") is weaker now that the watch exists.
+  Give the core storage modules their own thread, or raise the pool to 4, and send `ZnSlowCalls` to `onReport` so it
+  shows in Crashlytics.
 
 ## 222. Images get their own OkHttp dispatcher, 10 per host (runtime, 2026-11-09; Opus, image lab)
 - **Problem:** images (Coil, `ZnFetch.useForImages`) and fetch shared one dispatcher, 10 calls per host. ZeroBill's
@@ -3291,6 +3564,7 @@ change, and what evidence would make you change it?"
   Also not chosen: raising fetch's limit; it doesn't keep pictures apart from payments.
 - **Trade-off:** on an HTTP/1.1 host, up to 20 connections at once from one phone (10 fetch + 10 images). On HTTP/2
   both share one connection per host, so nothing changes there.
+- **Reviewed 2026-11-10 (Fable 5.2):** keep.
 
 ## 223. Every built-in bundle gets a real serial; test APKs share the next one (tools + server, 2026-11-10; Opus, Pavan's ask)
 - **Bug:** `app:js` (zn-build) wrote the built-in bundle with serial 0. A phone takes an OTA bundle only when its serial is
@@ -3306,3 +3580,9 @@ change, and what evidence would make you change it?"
   staging and production builds with serial 0, so a forgotten step can't ship.
 - **Not chosen:** taking a serial for every build (numbers jump by dozens a day, Pavan said no); making the phone ignore
   OTA when the built-in serial is 0 (it would stop the sample's OTA tests).
+- **Reviewed 2026-11-10 (Fable 5.2):** change: add a guard so a store build can't ship with a serial that was only
+  looked at. `updates builtin` for production only prints a hint. If a Play build goes out with a peeked #N and an OTA
+  bundle later takes #N with other bytes, every phone on that build skips that OTA for good (`APK_NEWER`, and the
+  phone's own `serial <= builtIn` rule), with no error. Fix: write "taken: false" next to the bundle and make the
+  release Gradle task refuse it for production; or count an equal serial as "APK newer" only when the SHA-256 is the
+  same.
