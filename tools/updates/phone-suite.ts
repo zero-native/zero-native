@@ -358,7 +358,18 @@ function expectRunning(run: Run, id: string, ev: string[]) {
 }
 
 /** "installed <id>" came in this run (the download), or didn't (no download). */
-const installedIn = (run: Run, id?: string) => tap.since(run.from).some((l) => l.tag === "zn-ota" && (id ? l.msg.startsWith(`installed ${id};`) : l.msg.startsWith("installed ")))
+/**
+ * How [id] came, from its "installed <id> (how); ..." line ("patch from x_3, 3.4 KB" / "full zip, 824 KB"), for the
+ * case's evidence. A patch the phone could not use fails the case: it falls back to the full zip, so the update still
+ * works, but the patch path is broken (docs/ota-patches.md §6).
+ */
+function installedHow(line: LogLine, from: number): string {
+  const failed = tap.since(from).find((l) => l.tag === "zn-ota" && /patch_failed/.test(l.msg))
+  if (failed) throw new Fail(`a patch failed on the phone: ${failed.msg}`)
+  return /\(([^)]*)\)/.exec(line.msg)?.[1] ?? "?"
+}
+let byPatch = 0
+const installedIn = (run: Run, id?: string) => tap.since(run.from).some((l) => l.tag === "zn-ota" && (id ? l.msg.startsWith(`installed ${id} (`) : l.msg.startsWith("installed ")))
 
 const healthySeen = new Set<string>()
 
@@ -431,8 +442,11 @@ const cases: Case[] = [
       const s1 = await startAndCheck()
       expectCheck(s1, "UPDATE", "NEW_BUNDLE", ev)
       if (logsWork) {
-        if (!(await tap.wait(new RegExp(`installed ${A.id};`), s1.from, 15_000))) throw new Fail(`no "installed ${A.id}" line`)
-        ev.push("log: installed")
+        const line = await tap.wait(new RegExp(`installed ${A.id} \\(`), s1.from, 15_000)
+        if (!line) throw new Fail(`no "installed ${A.id}" line`)
+        const how = installedHow(line, s1.from)
+        if (how.startsWith("patch")) byPatch++
+        ev.push(`log: installed (${how})`)
       }
       const s2 = await startAndCheck()
       noteRun(s2)
@@ -507,13 +521,19 @@ const cases: Case[] = [
     async run() {
       const ev: string[] = []
       const before = await getStats()
+      const mark = tap.mark()
       changedChannel = true
       const r = await changeChannel(conn, privatePem, {
         app: appId, channel, target: BUILT_IN, rollout: 100, priority: "critical", reason: "phone suite: kill switch", confirm: `KILL ${channel.toUpperCase()}`, push: false,
       })
       say(`  kill switch on ${channel} (seq ${r.pointer.seq})`)
       const s1 = await startAndCheck()
-      expectCheck(s1, "BUILT_IN", "KILL_SWITCH", ev)
+      // The app may still be alive from the case before and check on its own before this start (a "check now" push, or
+      // coming back to the front): then it already went back to its built-in bundle, and this start's check says
+      // NONE KILL_SWITCH (seen on the Lava, 2026-11-10). Both are right; the switch must have come one way or the other.
+      const early = logsWork ? tap.since(mark).find((l) => l.tag === "zn-ota" && l.msg.includes(`check ${channel}: BUILT_IN KILL_SWITCH`)) : undefined
+      if (early && s1.check?.action === "NONE" && s1.check.reason === "KILL_SWITCH") ev.push(`log: switched to built-in before this start (${early.msg}); check NONE KILL_SWITCH`)
+      else expectCheck(s1, "BUILT_IN", "KILL_SWITCH", ev)
       const s2 = await startAndCheck()
       noteRun(s2)
       if (s2.running !== null) {
@@ -565,7 +585,7 @@ const cases: Case[] = [
       let wasForeground = false
       let serverSawIt = false
       while (Date.now() - t0 < pushWaitS * 1000) {
-        installed = await tap.wait(new RegExp(`installed ${C.id};`), mark, 3000)
+        installed = await tap.wait(new RegExp(`installed ${C.id} \\(`), mark, 3000)
         if (installed) break
         // The app is not on screen at any time while we wait.
         if (sh("dumpsys activity activities | grep -i resumedactivity").includes(`${pkg}/`)) wasForeground = true
@@ -587,7 +607,11 @@ const cases: Case[] = [
       if (!logsWork && !serverSawIt) throw new Fail(`the app's process did not start within ${pushWaitS} s of the push`)
       if (!logsWork) ev.push(`app process started by the push after ${secs} s (no logs: the download is proved by the next start)`)
       if (wasForeground) throw new Fail("the app came to the front during the background download")
-      if (logsWork) ev.push(`log: installed in ${secs} s, app process started by the push`)
+      if (logsWork && installed) {
+        const how = installedHow(installed, mark)
+        if (how.startsWith("patch")) byPatch++
+        ev.push(`log: installed in ${secs} s (${how}), app process started by the push`)
+      }
       const top = sh("dumpsys activity activities | grep -i resumedactivity")
       if (top.includes(`${pkg}/`)) throw new Fail(`the app is on screen after the push: ${top.trim().split("\n")[0]}`)
       ev.push("no screen shown")
@@ -890,6 +914,10 @@ async function main() {
     )
     say(`\n${table}\n`)
     say(`${passed} passed, ${skipped} skipped, ${failed} failed (of ${cases.length}); table in ${join(outDir, "results.md")}`)
+    // A run where every download was a full zip still passes, but says so: the patch path wasn't tried on this phone
+    // (the server makes patches in the background after each upload; the first update from a built-in bundle that was
+    // never uploaded has no base).
+    if (logsWork) say(byPatch ? `${byPatch} download(s) came as a patch` : "note: no download came as a patch in this run")
     if (failed > 0 || results.length < (a.until ? cases.findIndex((c) => c.id === a.until) + 1 : cases.length)) process.exitCode = 1
   } finally {
     cleanup()

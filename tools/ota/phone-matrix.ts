@@ -77,7 +77,14 @@ async function expectNoLog(re: RegExp, waitMs: number) {
 }
 
 const clearLog = () => adb("logcat", "-c")
-const forceStop = () => shell("am", "force-stop", PKG)
+// Android 14+: `am stop-app` ends the app like a force stop, without the "stopped" state. A force stop puts the app on
+// MediaTek DuraSpeed's suppress list (the Lava), which then refuses its WebView renderer and manifest receivers
+// (~/.claude/android-phone-notes.md). Older phones (the emulator) have no stop-app; there force-stop is fine.
+let sdk = 0
+const forceStop = () => {
+  if (!sdk) sdk = Number(shell("getprop", "ro.build.version.sdk").trim()) || 1
+  shell("am", sdk >= 34 ? "stop-app" : "force-stop", PKG)
+}
 
 /** A cold start with the UI (force stop first), logs cleared. */
 async function launch() {
@@ -93,9 +100,13 @@ async function launch() {
  * process alive until the dialog is closed. Closes it like a user would ("Close app", else Back), then waits for the
  * process to end. A force stop would not do: Android would record the exit as a force stop, not a crash.
  */
-async function closeCrashDialog() {
+async function closeCrashDialog(crashLine: string) {
+  // Only the crashed process counts: Android may start the app again at once for a background job (Firebase's
+  // JobInfoSchedulerService uploads the crash), so "no process at all" may never come (seen on the Lava, 2026-11-10).
+  const pid = /\(\s*(\d+)\)/.exec(crashLine)?.[1]
+  check(pid, `no process id in "${crashLine}"`)
   for (let i = 0; i < 20; i++) {
-    if (!shell("pidof", PKG).trim()) return
+    if (!shell("pidof", PKG).trim().split(/\s+/).includes(pid!)) return
     const close = screenTexts().find((t) => /^close app$/i.test(t.text))
     if (close) shell("input", "tap", String(close.x), String(close.y))
     else if (i >= 4) shell("input", "keyevent", "KEYCODE_BACK")
@@ -133,6 +144,24 @@ async function tap(text: string) {
     await sleep(700)
   }
   throw new Fail(`"${text}" isn't on screen`)
+}
+
+/**
+ * Scrolls down (slowly: a tap during a fling only stops the list) until [text] is on screen, then taps it. The row's
+ * place moves: after a crash the crash lab shows more lines at the top (2026-11-10).
+ */
+async function scrollToAndTap(text: string) {
+  for (let i = 0; i < 6; i++) {
+    const n = screenTexts().find((t) => t.text === text)
+    if (n) {
+      shell("input", "tap", String(n.x), String(n.y))
+      await sleep(800)
+      return
+    }
+    shell("input", "swipe", "500", "1300", "500", "700", "1000")
+    await sleep(900)
+  }
+  throw new Fail(`"${text}" isn't on screen after scrolling`)
 }
 
 async function expectText(re: RegExp, timeoutMs = 8_000) {
@@ -208,16 +237,17 @@ const KINDS: Record<string, Patch[]> = {
   good: [],
   "throw-start": [{ file: "main.ts", old: "installRuntime()\n", new: 'installRuntime()\nif (Date.now() > 0) throw new Error("OTA test: this bundle fails at start on purpose")\n' }],
   "crash-home": [
-    { file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nav, setTimeout, signal } from "@zero-native/core"\nimport { Device } from "@zero-native/device-test"\n' },
+    { file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zero-native/core"\n', new: 'import { createStorage, nav, setTimeout, signal, Splash } from "@zero-native/core"\nimport { Device } from "@zero-native/device-test"\n' },
     HOME_START("  setTimeout(() => void Device.crash(), 1500) // OTA test: crash before the healthy mark\n"),
   ],
   "throw-second": [
-    { file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nav, signal, storage } from "@zero-native/core"\n' },
+    { file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zero-native/core"\n', new: 'import { createStorage, nav, signal, Splash, storage } from "@zero-native/core"\n' },
     HOME_START('  const launch = (storage.getNumber("zn-test.launch") ?? 0) + 1\n  storage.set("zn-test.launch", launch)\n  if (launch === 2) throw new Error("OTA test: the home screen throws on the second launch")\n'),
   ],
-  // Needs Device v6; the app has v5: an older app offered a bundle for newer native code. The build takes the highest
-  // version it finds, so one more line is enough; the plugin's own files stay as they are. Raise both when Device moves.
-  "needs-module": [{ file: "HomeScreen.tsx", old: 'import { nav, signal } from "@zero-native/core"\n', new: 'import { nativeModule, nav, signal } from "@zero-native/core"\nconst newerDevice = nativeModule("Device", { version: 6 })\n' }],
+  // Needs Device v99; the app has a lower one (v6 on 2026-11-10): an older app offered a bundle for newer native code.
+  // The build takes the highest version it finds, so one more line is enough; the plugin's own files stay as they are.
+  // (v6 here went stale once Device itself reached v6.)
+  "needs-module": [{ file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zero-native/core"\n', new: 'import { createStorage, nativeModule, nav, signal, Splash } from "@zero-native/core"\nconst newerDevice = nativeModule("Device", { version: 99 })\n' }],
 }
 
 /** Puts the sample's sources back from the backup; [stopped]: left by a run that was killed (say so). */
@@ -373,7 +403,7 @@ const cases: Case[] = [
       b.a = release("good", "A")
       publish(b.a.serial)
       await launch()
-      await expectLog(new RegExp(`installed ${b.a.id}; it runs from the next start`))
+      await expectLog(new RegExp(`installed ${b.a.id} \\([^)]*\\); it runs from the next start`))
       await launch()
       await expectLog(new RegExp(`running bundle ${b.a.id}@`))
       await expectText(/^OTA A$/)
@@ -471,9 +501,7 @@ const cases: Case[] = [
       await expectLog(new RegExp(`safety: ${b.ret.id} is healthy`))
       for (let i = 1; i <= 3; i++) {
         await openDeepLink("dev/crash")
-        shell("input", "swipe", "500", "1500", "500", "500", "1200") // slow: a tap during a fling only stops the list
-        await sleep(1000)
-        await tap("Open the mock UPI app")
+        await scrollToAndTap("Open the mock UPI app")
         await sleep(2500)
         check(/topResumedActivity.*p2pupiapp/.test(shell("dumpsys", "activity", "activities")), "the mock UPI app didn't open")
         // The mock has two screens to go back through; then we are in front again.
@@ -485,8 +513,7 @@ const cases: Case[] = [
         check(onTop(/zeronative\.sample/), "the sample didn't come back from the mock UPI app")
         await sleep(800)
         await tap("Crash the app")
-        await expectLog(/crashing on purpose/)
-        await closeCrashDialog()
+        await closeCrashDialog(await expectLog(/crashing on purpose/))
         await launch()
         await expectLog(new RegExp(`launch_crashed ${b.ret.id}: crash \\(${i} of 3\\)`))
       }
@@ -590,8 +617,7 @@ const cases: Case[] = [
       await launch()
       await expectLog(new RegExp(`installed ${b.crash.id}`))
       await launch()
-      await expectLog(/crashing on purpose/)
-      await closeCrashDialog()
+      await closeCrashDialog(await expectLog(/crashing on purpose/))
       // The next start judges the crash; logs aren't cleared, to keep the crash lines.
       shell("am", "start", "-n", `${PKG}/.MainActivity`)
       await expectLog(new RegExp(`launch_crashed ${b.crash.id}: crash \\(1 of 1\\)`))

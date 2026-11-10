@@ -55,7 +55,9 @@ export function LaunchScreen() {
   const info = () => Os.info().then((r) => say(`os: ${r.appVersion} build ${r.appBuild}, ${r.manufacturer} ${r.model}, SDK ${r.sdk}`), failed)
   const haptic = () => Os.haptic("success").then((r) => say(`haptic: ${r}`), failed)
   // Not upi: if the check ever broke, that would open a real payment app. A scheme nothing handles is safe either way.
-  const badLink = () => Os.openUrl("zn-test://x").then((r) => say(`link opened: ${r}`), failed)
+  // A link openUrl always refuses (`not_allowed`). Since 2026-11-08 any app's own scheme is allowed (as RN), so an
+  // unknown scheme like zn-test:// only says `no_app`; javascript: stays blocked.
+  const badLink = () => Os.openUrl("javascript:alert(1)").then((r) => say(`link opened: ${r}`), failed)
 
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>

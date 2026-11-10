@@ -23,6 +23,9 @@ function describe(s: UpdateStatus): string[] {
 
 export function UpdatesScreen() {
   const lines = signal<string[]>(["…"])
+  // What the buttons answered ("Check: …", "Apply: …"), kept apart from the status lines: a status event (a healthy
+  // mark right after applyNow answered) must not wipe them (the OTA phone matrix reads them, 2026-11-10).
+  const answers = signal<string[]>([])
   const busy = signal(false)
   const show = (s: UpdateStatus) => lines.set(describe(s))
   Updates.status().then(show)
@@ -34,7 +37,7 @@ export function UpdatesScreen() {
     try {
       const r = await Updates.check()
       show(r.status)
-      lines.set([...lines(), `Check: ${r.action} ${r.reason}${r.bundle ? ` ${r.bundle}` : ""}${r.error ? ` (${r.error})` : ""}`])
+      answers.set([...answers(), `Check: ${r.action} ${r.reason}${r.bundle ? ` ${r.bundle}` : ""}${r.error ? ` (${r.error})` : ""}`])
     } finally {
       busy.set(false)
     }
@@ -43,7 +46,7 @@ export function UpdatesScreen() {
   // Step 4.6: run the installed update now; the hold stands in for a payment in progress.
   const applyNow = async () => {
     const r = await Updates.applyNow() // settles only when nothing was applied (otherwise this JS is gone)
-    lines.set([...lines(), `Apply: ${r.reason}${r.error ? ` (${r.error})` : ""}`])
+    answers.set([...answers(), `Apply: ${r.reason}${r.error ? ` (${r.error})` : ""}`])
   }
   let release: (() => void) | null = null
   const held = signal(false)
@@ -72,6 +75,11 @@ export function UpdatesScreen() {
       <Column style={{ paddingHorizontal: 20, gap: 12 }}>
         <Column style={card}>
           {lines().map((l) => (
+            <Text key={l} fontSize={13} color={c.ink}>
+              {l}
+            </Text>
+          ))}
+          {answers().map((l) => (
             <Text key={l} fontSize={13} color={c.ink}>
               {l}
             </Text>
