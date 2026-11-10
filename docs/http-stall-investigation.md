@@ -282,3 +282,19 @@ images load:
 
 (207 ms includes opening a new connection on the emulator; the local server answers in ~10 ms.) Second-opinions 222,
 guide-notes §89.
+
+## 7. iOS: the same problems? (Claude, Mac, 2026-11-11; Pavan asked)
+Read against the Android fixes 03d357a, 7e3fa51, af21335 and d40fea6. Nothing changed on iOS; nothing found to change.
+- **F1, one small pool for every call: not on iOS.** Module calls run on a concurrent GCD queue (`zn-call`,
+  ZnModules.swift), which starts more threads when calls block, so two stuck calls don't stop the rest. `Fetch.send`
+  starts its URLSession task right away, and every fetch has its own whole-call timer (ZnFetch.swift). The session's
+  delegate queue is serial, but it only runs short callbacks.
+- **Images vs fetch: separate already.** Images load through `URLSession.shared` (ZnImage.swift), not ZnFetch's
+  session, so they don't take fetch's connections.
+- **Network change (af21335): handled by the system, one case unproven.** URLSession runs on Network.framework, which
+  fails a connection when its interface goes away, and NWPathMonitor reports a per-app block (mobile data off for the
+  app) as no network. Not proven: Android's finding 3 (an HTTP/2 connection still in use on the old network keeps taking
+  new calls after Wi-Fi to mobile). If iOS did that, a call would end at its own timeout (30 s default), not hang.
+  Check on an iPhone: ZeroBill on Wi-Fi, turn Wi-Fi off, refresh Home; the calls should answer within a few seconds.
+- **Not on iOS yet (features, not stalls):** d40fea6's loading pictures ahead for List rows and the 150 ms fade; the
+  same URL loading twice at once isn't shared; decoding happens on the main thread when the picture is first drawn.

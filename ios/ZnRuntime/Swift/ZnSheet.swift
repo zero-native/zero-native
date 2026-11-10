@@ -145,8 +145,16 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
                 return
             }
             print("zn t=\(ZnDebug.ms()) sheet: dismiss (JS set visible false\(animated ? "" : ", with a stack change: no animation"))")
-            sheet.dismiss(animated: animated)
+            Self.close(sheet, animated: animated)
         }
+    }
+
+    /// Closes [sheet] and whatever it presents. `sheet.dismiss` alone closes only the controller the sheet presents
+    /// when it presents one (UIKit's rule): a StoreKit page or share sheet over it went, and the sheet stayed up while
+    /// JS counted it closed (ZeroBill's optional store sheet, Update Now, Pavan's iPhone 2026-11-11). Through its
+    /// presenter, as ZnModal does.
+    static func close(_ sheet: UIViewController, animated: Bool) {
+        (sheet.presentingViewController ?? sheet).dismiss(animated: animated)
     }
 
     final class Coordinator: NSObject, UIAdaptivePresentationControllerDelegate {
@@ -188,7 +196,7 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
                 // visible went false while it slid in.
                 if self.sheet !== content {
                     print("zn t=\(ZnDebug.ms()) sheet: opened after JS closed it: dismiss now")
-                    content.dismiss(animated: !ZnApp.shared.batchChangesStack)
+                    ZnSheetPresenter.close(content, animated: !ZnApp.shared.batchChangesStack)
                 }
             }
         }

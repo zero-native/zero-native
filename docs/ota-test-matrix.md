@@ -112,6 +112,10 @@ Notes:
   after): the forced store screen showed, couldn't be closed, and Update opened ZeroBill's App Store page (Pavan).
   It first came 34 s late (the launch check's status event was lost, fixed in add2006, and ZeroBill's engine dropped a
   check asked while one ran, fixed in ZeroBill aefe66b); with the fixes it opened 222 ms after launch.
+- iPhone, optional store sheet (2026-11-11, a staging-only rule 2.0.1 critical 1, deleted after): the sheet opens on
+  Home at launch (never on login or OTP); Update Now opens the App Store page over it and the sheet stays (ZeroBill
+  79ab0f5, Pavan's choice); Later closes it for the session (Pavan). Found on the way: a sheet that presented the
+  store page stayed stuck when JS closed it (fixed in zero-native 672ab30).
 - Still to do: one real OTA on an iPhone. ZeroBill's bundles are refused on iOS until Notifications and Push exist
   there (Phase 3); the sample has no device signing.
 

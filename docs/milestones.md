@@ -148,6 +148,23 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-11: iOS checked against Android's sheet and networking fixes (Claude, Mac; Pavan asked)
+- Sheets: f638975 (dim layer drops taps) is Android-only (a window flag iOS doesn't have). d489f2f (JS closes a sheet
+  during a drag; it sprang back and stayed): UIKit owns the iOS sheet's drag, and ZnSheet refuses the user's dismiss
+  (shouldDismiss false), so no dismissal is running when JS closes it; likely not affected. Not reproduced: the
+  simulator's injected touches don't reach the sheet's drag. A hand check on an iPhone (drag and hold while the app
+  closes the sheet) would settle it.
+- Networking: no shared small pool, fetch and images on separate sessions, network changes handled by Network.framework;
+  one case to check on an iPhone (Wi-Fi off mid-use). docs/http-stall-investigation.md §7.
+
+### 2026-11-11: iOS: a sheet that presents something closes with it (Claude, Mac)
+- Found on Pavan's iPhone (ZeroBill's optional store sheet, Update Now): StoreKit's page opened over the sheet, then
+  JS closed the sheet. ZnSheet called `sheet.dismiss`, and UIKit closes only the controller the sheet presents when it
+  presents one: the store page went, the sheet stayed up while JS counted it closed, and taps and drag-down did nothing.
+- Fix: ZnSheet closes through the sheet's presenter, as ZnModal does, so the sheet and anything over it close.
+  Checked on the simulator with a test bundle (an alert over a sheet, JS closes the sheet at 2.5 s): before, the alert
+  closed and the sheet stayed; after, both close. ZeroBill also closes its sheet before opening the store (040a420).
+
 ### 2026-11-11: iOS OTA step 7, iPhone part: the forced store screen (Claude, Mac; checked by Pavan)
 - ZeroBill Debug (staging) on Pavan's iPhone 11 with a staging-only iOS store rule 2.0.1 forced (production answered
   nothing throughout; the rule was deleted after). The forced screen can't be closed, and Update opens ZeroBill's App
