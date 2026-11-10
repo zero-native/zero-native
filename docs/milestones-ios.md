@@ -363,7 +363,7 @@ brings its TSX screen along; ZeroBill opens the Swift one. The debug log's "does
 | Step | zn side | ZeroBill side |
 |---|---|---|
 | Cold start by a QR link, splash held until `/init` answers | done (links, Splash hold) | Phase 2 |
-| Login: phone field, OTP boxes, SMS code fill | done (OtpInput `.oneTimeCode`); TextField autoComplete missing (S) | Phase 2; code fill needs a device |
+| Login: phone field, OTP boxes, SMS code fill | done (OtpInput `.oneTimeCode`; TextField autoComplete → textContentType, 2026-11-11, iPhone check waits) | Phase 2; code fill needs a device |
 | Home tabs, press feedback | done | Phase 2 |
 | Scan a QR | done (camera untested) | Phase 2; device |
 | Checkout, UPI app by scheme, back by link, server verify | done (Launches by URL, links) | Upi plugin, Phase 2; device |

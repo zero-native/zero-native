@@ -148,6 +148,17 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-11: iOS TextField: autofill hints (Claude, Mac; Pavan asked)
+- `autoComplete` reached iOS's TextField as a registry value but was never read, so the login's phone field had no
+  hint and the keyboard never offered the user's own number. ZnTextField now sets `textContentType` from it (all three
+  field kinds); tel / tel-national / tel-device are `.telephoneNumber`, sms-otp `.oneTimeCode`, and so on. OtpInput
+  already used `.oneTimeCode`.
+- iOS suggests the number as saved ("+91 98765 43210"), longer than ZeroBill's `maxLength={10}`, so the old rule
+  refused it whole. A "tel-national" field with a maxLength now keeps the last maxLength digits of a suggestion or paste
+  that doesn't fit; typing one key is unchanged.
+- Builds (ZeroBill, simulator). Not checked by hand: the simulator has no own number to suggest; on an iPhone, the
+  Login screen's keyboard should offer it.
+
 ### 2026-11-11: iOS checked against Android's sheet and networking fixes (Claude, Mac; Pavan asked)
 - Sheets: f638975 (dim layer drops taps) is Android-only (a window flag iOS doesn't have). d489f2f (JS closes a sheet
   during a drag; it sprang back and stayed): UIKit owns the iOS sheet's drag, and ZnSheet refuses the user's dismiss

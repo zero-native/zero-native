@@ -223,6 +223,10 @@ struct ZnUIKitField: UIViewRepresentable {
         f.textColor = s.color.map(UIColor.init) ?? .black
         f.isSecureTextEntry = s.secure
         f.keyboardType = znKeyboard(s.keyboardType)
+        // The keyboard's autofill (the user's own phone number, email, an SMS code). Only when it changes: setting it
+        // while focused reloads the keyboard's suggestions.
+        let hint = znContentType(s.autoComplete)
+        if f.textContentType != hint { f.textContentType = hint }
         f.returnKeyType = znReturnKey(s.returnKeyType) ?? .done
         f.textAlignment = s.textAlign == Registry.TextAlign.center ? .center : s.textAlign == Registry.TextAlign.end ? .right : .left
 
@@ -260,8 +264,16 @@ struct ZnUIKitField: UIViewRepresentable {
 
         func textField(_ f: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
             guard let max = s?.maxLength else { return true }
-            let current = (f.text ?? "") as NSString
-            return current.replacingCharacters(in: range, with: string).count <= max
+            let current = f.text ?? ""
+            if let phone = znNationalPhone(s, current: current, range: range, insert: string) {
+                print("zn t=\(ZnDebug.ms()) field: a phone number suggestion of \(string.count) characters, kept its last \(phone.count) digits")
+                f.text = phone
+                let end = f.endOfDocument
+                f.selectedTextRange = f.textRange(from: end, to: end)
+                changed(f)  // setting text by code sends no editingChanged
+                return false
+            }
+            return (current as NSString).replacingCharacters(in: range, with: string).count <= max
         }
 
         func textFieldDidBeginEditing(_ f: UITextField) {
@@ -303,6 +315,7 @@ struct ZnSwiftUIField: View {
             .font(.system(size: s.fontSize, weight: znWeight(s.fontWeight)))
             .foregroundStyle(s.color ?? .black)
             .keyboardType(znKeyboard(s.keyboardType))
+            .textContentType(znContentType(s.autoComplete))
             .onAppear { text = znFieldValue(raw).1 }
             .onChange(of: raw) { _, v in
                 let (answers, value) = znFieldValue(v)
@@ -378,6 +391,8 @@ struct ZnUIKitTextView: UIViewRepresentable {
         v.font = font
         v.textColor = s.color.map(UIColor.init) ?? .black
         v.keyboardType = znKeyboard(s.keyboardType)
+        let hint = znContentType(s.autoComplete)
+        if v.textContentType != hint { v.textContentType = hint }
         v.returnKeyType = znReturnKey(s.returnKeyType) ?? .default
         c.placeholder?.text = s.placeholder
         c.placeholder?.font = font
@@ -443,6 +458,41 @@ func znReturnKey(_ k: Int) -> UIReturnKeyType? {
     case Registry.ReturnKeyType.send: return .send
     default: return nil
     }
+}
+
+/// `autoComplete` as iOS's autofill hint (RN's textContentType; the compiler keeps autoComplete only, as on Android).
+/// nil: no hint (not written, "off", or no iOS match: tel-country-code, gender).
+func znContentType(_ a: Int) -> UITextContentType? {
+    typealias A = Registry.AutoComplete
+    switch a {
+    case A.tel, A.telNational, A.telDevice: return .telephoneNumber
+    case A.smsOtp: return .oneTimeCode
+    case A.email: return .emailAddress
+    case A.name: return .name
+    case A.givenName: return .givenName
+    case A.familyName: return .familyName
+    case A.nameMiddle: return .middleName
+    case A.username, A.usernameNew: return .username
+    case A.password: return .password
+    case A.newPassword: return .newPassword
+    case A.postalCode: return .postalCode
+    case A.streetAddress, A.postalAddress: return .fullStreetAddress
+    case A.country: return .countryName
+    case A.birthdateFull: return .birthdate
+    default: return nil
+    }
+}
+
+/// A national phone field (autoComplete "tel-national") with a maxLength: what iOS's suggestion of the user's own number
+/// ("+91 98765 43210") becomes. Its digits, the last `max` of them when there are more (the country code and a leading
+/// 0 go). nil for any other change, which the plain maxLength rule then decides. Only for an insert of more than one
+/// character that doesn't fit as it is (a suggestion or a paste): typing one key never changes.
+func znNationalPhone(_ s: ZnNodeSpec?, current: String, range: NSRange, insert: String) -> String? {
+    guard let s, s.autoComplete == Registry.AutoComplete.telNational, let max = s.maxLength, insert.count > 1 else { return nil }
+    let next = (current as NSString).replacingCharacters(in: range, with: insert)
+    guard next.count > max else { return nil }
+    let digits = next.filter(\.isASCII).filter(\.isNumber)
+    return String(digits.suffix(max))
 }
 
 func znKeyboard(_ k: Int) -> UIKeyboardType {
