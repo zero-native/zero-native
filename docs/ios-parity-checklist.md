@@ -269,8 +269,8 @@ Only scanner has an iOS side so far (2026-11-08). Plugin loading (§4) is done e
 | media | Pick photos / files, camera, compress, edit, as handles (Media) | no | MediaPlugin.kt, MediaModule.kt, MediaImage.kt, MediaFileProvider.kt, MediaRules.kt | L (1.5 d) | PHPicker, UIImagePickerController, UIDocumentPicker. |
 | pdf | Download, keep and show PDFs (Pdf, views pdf.preview, pdf.view) | done (simulator) | PdfPlugin.kt, PdfModule.kt, PdfDoc.kt, PdfPreview.kt, PdfViewer.kt, PdfViews.kt, PdfRules.kt | L | PDFKit. Needs NativeView. |
 | perf | Firebase Performance (Perf) | no | PerfPlugin.kt | M | Needs batch listeners (§4). |
-| notifications | Local notifications (Notifications) and `PushEvents`, the door every push service uses; no Firebase | no | NotificationsPlugin.kt, NotificationsModule.kt, PushEvents.kt, Taps.kt, Schedule.kt, Actions.kt, Groups.kt, NotificationRules.kt | L (1.5 d) | UNUserNotificationCenter, actions, groups (thread ids), schedules, taps. Split from push 2026-11-09 (second-opinions 196). |
-| push | FCM token, topics, data messages as JS tasks (Push); on top of notifications | no | PushPlugin.kt, PushModule.kt, ZnMessagingService.kt, Opens.kt, PushRules.kt | M (1 d) | APNs; FCM on top only if we keep FCM topics and tokens. An APNs-only path hands tokens and messages to `PushEvents` (provider "apns") with no FCM. Needs background tasks. |
+| notifications | Local notifications (Notifications) and `PushEvents`, the door every push service uses; no Firebase | done (simulator, 2026-11-11) | NotificationsPlugin.kt, NotificationsModule.kt, PushEvents.kt, Taps.kt, Schedule.kt, Actions.kt, Groups.kt, NotificationRules.kt | L (1.5 d) | UNUserNotificationCenter, actions, groups (thread ids), schedules, taps. Split from push 2026-11-09 (second-opinions 196). |
+| push | FCM token, topics, data messages as JS tasks (Push); on top of notifications | done (simulator, 2026-11-11; plugins/firebase-messaging; a real push on an iPhone not yet) | PushPlugin.kt, PushModule.kt, ZnMessagingService.kt, Opens.kt, PushRules.kt | M (1 d) | APNs; FCM on top only if we keep FCM topics and tokens. An APNs-only path hands tokens and messages to `PushEvents` (provider "apns") with no FCM. Needs background tasks. |
 | remote-config | Firebase Remote Config (RemoteConfig) | no | RemoteConfigPlugin.kt | M | |
 | scanner | QR / barcode scan, full screen and a view (Scanner, screen scanner.full, view scanner.qr) | done (simulator) | ScannerPlugin.kt, ScannerModule.kt, ScannerScreen.kt, ScannerView.kt, ScannerParts.kt, ScannerCamera.kt, CameraSession.kt, ScannerTexts.kt, ScannerRules.kt | L (1.5 d) | plugins/scanner/ios: AVFoundation metadata output. `autoZoom` ignored. Real camera, torch and zoom not tried (simulator: ZN_SCANNER_FAKE). |
 | webview | Web page in a screen, host allow-list, messages both ways (WebView, view webview.page) | done (simulator) | WebViewPlugin.kt, WebViewModule.kt, WebViewPage.kt, WebViewRules.kt | L (1.5 d) | WKWebView. Needs NativeView. |
@@ -388,8 +388,7 @@ the rest is OTA, the Firebase plugins, the other plugins and the tools.
 views, Launches ack + start / finish); 3 done on the simulator (scanner, camera untested); 4 done on the simulator
 (links and launches by URL; the UPI plugin itself is ZeroBill's, Phase 2); 5 done on the simulator (restore after kill). Of the
 small ones: Tabs, press feedback, Splash hold, Sheet `animateIn` and the error screen done: Phase 1 is done on the
-simulator. Plugins ZeroBill needs: all on iOS but push +
-notifications (Phase 3) and ad-id (answers "unavailable", Android-only by meaning). ZeroBill's own plugins (Upi,
+simulator. Plugins ZeroBill needs: all on iOS (push and notifications since 2026-11-11, Phase 3) but media and ad-id (answers "unavailable", Android-only by meaning). ZeroBill's own plugins (Upi,
 Truecaller, GoogleSignIn, InAppUpdate, InstallReferrer, LegacyData) are Phase 2.
 
 The pilot is login, scan and a UPI transaction (milestones.md: P.4a, i.4), opened from a QR link, and it must survive

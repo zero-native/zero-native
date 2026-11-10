@@ -43,7 +43,8 @@ notification iOS showed from a push), `onMessage` (data), `onTokenRefresh`. Need
 
 One UNUserNotificationCenter delegate (the notifications plugin's). A tap on a notification the app showed goes to its
 `link`, else `onPress`; a tap on one iOS showed from a push goes to the messaging plugin (`opened`, initial). Foreground
-presentation: the app's own use `ios.foregroundPresentationOptions`; a push with an alert shows as a banner.
+presentation: the app's own use `ios.foregroundPresentationOptions`; a push with an alert shows nothing by default
+(`FirebaseMessagingPlugin(foreground:)`): `onMessage` runs and the app shows its own, as on Android.
 
 ## 2. Pushes while ZeroBill is behind or closed
 
@@ -64,8 +65,8 @@ Android ignores `apns`, so Android doesn't change. In the iOS app, a **notificat
 second target in ZeroBill's Xcode project) runs before iOS shows it: strips the HTML tags from title and body and
 attaches `large_image_url`'s picture, as Android shows them. A tap carries the message's `data`, so ZeroBill's tap rules
 (`tapFromData`) work the same; ZeroBill listens to `Push.onNotificationOpenedApp` / `Push.getInitialNotification` on iOS.
-While the app is in front, the message also reaches `onMessage` with `notification` set: ZeroBill then only records it
-(inbox), it doesn't show it again.
+While the app is in front, iOS shows nothing and the message reaches `onMessage` with `notification` set: ZeroBill
+saves it to the inbox and shows its own, as on Android (decided 2026-11-11; one notification, ZeroBill's tap rules).
 
 The exact server diff (cron-jobs `workers/fcm-notifications-sender.worker.ts`) is written for Pavan to review;
 nothing is deployed from here.

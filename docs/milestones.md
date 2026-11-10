@@ -149,6 +149,29 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-11: iOS i.18: FCM on iOS, taps on pushes, the notification service extension (Claude, Mac; Pavan asked: Phase 3)
+- `plugins/firebase-messaging/ios/FirebaseMessagingPlugin.swift` (module "FirebaseMessaging" v2): the APNs token to
+  FCM, `getToken` (waits up to 10 s for APNs: `not_now` without it), `deleteToken`, topics, auto init; a new FCM token
+  runs `push.token` (only when it changed); a push while the app is in front runs `push.message` (`inFront`,
+  `notification`) and iOS shows nothing by default (`foreground:`), so the app shows its own as on Android; a tap on a
+  push iOS showed → `opened` / `getInitialNotification`. One message id runs once (app delegate and notification
+  center). No swizzling: the app forwards three app delegate calls (README, "iOS"). `zn_ota=check` does nothing on iOS yet.
+- `plugins/firebase-messaging/ios-service/ZnNotificationService.swift`: a service extension for the pushes iOS shows
+  itself: HTML tags out of title and body, the picture attached (`fcm_options.image`, else the Info.plist's keys).
+- NotificationsPlugin registers once (the messaging plugin adds it, as on Android).
+- ZeroBill: both plugins, FirebaseMessaging linked, `FirebaseAppDelegateProxyEnabled` NO, `remote-notification`, the
+  app delegate forwarding, the `AppNotificationService` target, and the tap path for pushes iOS showed
+  (`tapFromPush`). The server change (an `apns` alert block, HTML stripped on the server for the live Flutter app) is
+  written for Pavan: ZeroBill docs/ios-push-server-change.md; not deployed.
+- Checked on the iOS Simulator with `xcrun simctl push`: in front (one notification, ZeroBill's), behind and closed
+  (iOS shows it; a tap opens its action). The simulator got an APNs token. `simctl push` skips service extensions, so
+  the extension's code was run on its own on the Mac (HTML out, picture attached).
+- On Pavan's iPhone 11 (signed debug build, Pavan's go; automatic signing registered com.example.app.ios.NotificationService):
+  real FCM pushes sent with gcloud in the server's planned shape. In front: `onMessage`, ZeroBill's own notification.
+  Closed: iOS showed it with clean text and the picture (the extension runs), and a tap opened its action (Pavan
+  checked on the phone). Fixed after: a stray "no APNs token" log after the token came, `push.token` twice at a start.
+- Not done: the server change (Pavan deploys).
+
 ### 2026-11-11: iOS i.17: notifications on iOS (notifee's shape) and JS tasks (Claude, Mac; Pavan asked: Phase 3)
 - TS (6a50c8e): `Notifications.show` takes notifee's shape: shared options plus `android: {...}` / `ios: {...}`; the
   flat Android fields still work (deprecated) and Android's payload is unchanged, so no Kotlin change. New, notifee's

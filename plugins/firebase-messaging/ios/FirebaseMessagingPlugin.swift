@@ -1,0 +1,385 @@
+// The messaging plugin's iOS side (plugins/firebase-messaging, as android/.../PushPlugin.kt, PushModule.kt,
+// ZnMessagingService.kt and Opens.kt): FCM's token and topics, messages as the JS task "push.message", new tokens as
+// "push.token", and taps on the notifications iOS showed from a push (`opened`, `getInitialNotification`).
+// docs/ios-notifications-plan.md §1.2, §2.
+//
+// The app turns off Firebase's app delegate proxy (Info.plist FirebaseAppDelegateProxyEnabled = NO) and forwards three
+// app delegate calls itself, so nothing is swizzled:
+//
+//   func application(_ a: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+//       FirebaseMessagingPlugin.apnsToken(token)
+//   }
+//   func application(_ a: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+//       FirebaseMessagingPlugin.apnsFailed(error)
+//   }
+//   func application(_ a: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any],
+//                    fetchCompletionHandler done: @escaping (UIBackgroundFetchResult) -> Void) {
+//       FirebaseMessagingPlugin.remoteNotification(info, done)
+//   }
+//
+// It also needs the push entitlement (aps-environment) and the remote-notification background mode.
+//
+// iOS differences from Android:
+// - iOS shows a push with an alert itself while the app is behind or closed (the server's `apns` block); JS hears of it
+//   only when the user taps it. While the app is in front, `push.message` runs (with `notification` set) and iOS shows
+//   nothing (`foreground`), so the app shows its own, as on Android.
+// - Data-only messages reach the app only while it runs, or as a background wake that iOS throttles and never gives
+//   after the user closed the app. JS doesn't start for a background launch yet (§3), so such a task waits for the next
+//   start and then times out.
+// - `zn_ota=check` messages do nothing on iOS yet (Android runs a background OTA check).
+import Foundation
+import UIKit
+import UserNotifications
+#if canImport(FirebaseMessaging)
+import FirebaseMessaging
+#endif
+
+/// The plugin's choices with no iOS in them (PushRules.kt).
+enum PushRules {
+    static let messageTask = "push.message", tokenTask = "push.token"
+    static let provider = "fcm"
+    /// The task's time (Android: PushEvents.MESSAGE_TIMEOUT_MS). iOS gives a background wake about 30 s.
+    static let messageTimeoutMs = 15_000
+    /// The APNs token comes back in a moment; with no network or no push entitlement it never does.
+    static let apnsWaitMs = 10_000
+    static let otaKey = "zn_ota", otaCheck = "check"
+
+    /// FCM's own rule for topic names.
+    static func validTopic(_ topic: String) -> Bool { topic.range(of: #"^[a-zA-Z0-9\-_.~%]{1,900}$"#, options: .regularExpression) != nil }
+
+    /// FCM's id for a message (in every push it sends).
+    static func messageId(_ info: [AnyHashable: Any]) -> String? { info["gcm.message_id"] as? String }
+
+    /// The message's own data: APNs' and FCM's keys (aps, gcm.*, google.*, fcm_options, from, collapse_key) left out.
+    static func data(_ info: [AnyHashable: Any]) -> [String: String] {
+        var out: [String: String] = [:]
+        for (k, v) in info {
+            guard let key = k as? String, let value = v as? String else { continue }
+            if key == "aps" || key == "fcm_options" || key == "from" || key == "collapse_key" { continue }
+            if key.hasPrefix("gcm.") || key.hasPrefix("google.") { continue }
+            out[key] = value
+        }
+        return out
+    }
+
+    /// The alert's title and body from `aps.alert` (a string is the body alone); nil with no alert.
+    static func alert(_ info: [AnyHashable: Any]) -> (title: String?, body: String?)? {
+        let alert = (info["aps"] as? [String: Any])?["alert"]
+        if let s = alert as? String { return (nil, s) }
+        guard let d = alert as? [String: Any] else { return nil }
+        let title = d["title"] as? String, body = d["body"] as? String
+        return title == nil && body == nil ? nil : (title, body)
+    }
+
+    /// When FCM sent it (google.c.a.ts, seconds, with analytics on), else [now], ms since 1970.
+    static func sentAt(_ info: [AnyHashable: Any], now: Int64) -> Int64 {
+        if let s = info["google.c.a.ts"] as? String, let t = Int64(s) { return t * 1000 }
+        return now
+    }
+
+    /// What FCM's token errors mean for the app (TokenReason in src/index.ts).
+    static func tokenReason(_ message: String?) -> String {
+        guard let m = message?.lowercased() else { return "failed" }
+        if m.contains("network") || m.contains("timed out") || m.contains("offline") || m.contains("internet") { return "not_now" }
+        return "failed"
+    }
+
+    /// The message JS gets (PushMessage in plugins/notifications/src/index.ts).
+    static func message(_ info: [AnyHashable: Any], inFront: Bool, notification: (title: String?, body: String?)?,
+                        now: Int64) -> [String: Any] {
+        let notice: Any = notification.map { ["title": $0.title as Any? ?? NSNull(), "body": $0.body as Any? ?? NSNull()] } ?? NSNull()
+        return [
+            "provider": provider,
+            "messageId": messageId(info) as Any? ?? NSNull(),
+            "from": (info["from"] as? String) as Any? ?? NSNull(),
+            "sentAt": sentAt(info, now: now),
+            // APNs doesn't tell the app its priority
+            "priority": "unknown", "originalPriority": "unknown",
+            "inFront": inFront,
+            "data": data(info),
+            "notification": notice,
+        ]
+    }
+
+    /// A tap on a notification iOS showed from a push (OpenedMessage in src/index.ts).
+    static func opened(_ info: [AnyHashable: Any], now: Int64) -> [String: Any] {
+        [
+            "messageId": messageId(info) ?? "",
+            "from": (info["from"] as? String) as Any? ?? NSNull(),
+            "sentAt": sentAt(info, now: now),
+            "data": data(info),
+        ]
+    }
+}
+
+/// Add it with `ZnPlugins.register(..., FirebaseMessagingPlugin())`. It adds NotificationsPlugin itself (as on Android),
+/// so an app that lists only this plugin keeps its notifications.
+/// `foreground`: what iOS shows of a push while the app is in front. None by default: `push.message` runs and the app
+/// shows its own (with its tap rules), as on Android.
+struct FirebaseMessagingPlugin: ZnPlugin {
+    var foreground: UNNotificationPresentationOptions = []
+
+    func register(_ r: ZnPluginRegistry) {
+        r.requireHostApi(8)
+        NotificationsPlugin().register(r)  // does nothing when the app listed it already
+        let on = ZnFirebase.start()
+        let module = FirebaseMessagingModule.shared
+        module.start(on: on, foreground: foreground)
+        r.module(module)
+    }
+
+    // The app delegate's calls (the file's header).
+    @MainActor static func apnsToken(_ token: Data) { FirebaseMessagingModule.shared.apnsToken(token) }
+    @MainActor static func apnsFailed(_ error: Error) { FirebaseMessagingModule.shared.apnsFailed(error) }
+    @MainActor static func remoteNotification(_ info: [AnyHashable: Any], _ done: @escaping (UIBackgroundFetchResult) -> Void) {
+        FirebaseMessagingModule.shared.remoteNotification(info, done)
+    }
+}
+
+/// The "FirebaseMessaging" module. With Firebase off (no SDK or no GoogleService-Info.plist) every call answers
+/// "unavailable" / false, and taps still reach JS.
+final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
+    static let shared = FirebaseMessagingModule()
+    private let lock = NSLock()
+    private var on = false
+    private var foreground: UNNotificationPresentationOptions = []
+    /// Waiting for the APNs token: each gets nil (have it) or a TokenReason.
+    private var apnsWaiters: [(String?) -> Void] = []
+    private var apnsError: String?
+    /// A tap that came before JS had loaded: `getInitialNotification`, once.
+    private var initial: [String: Any]?
+    /// Recent message ids: a push can reach both willPresent and the app delegate.
+    private var seen: [String] = []
+    /// The token whose `push.token` task is running.
+    private var tokenRunning: String?
+    private let delegate = Delegate()
+    private static let lastTokenKey = "zn.push.lastToken"
+
+    private init() {
+        super.init("FirebaseMessaging", version: 2)
+        function("status") { $0.resolve(["available": self.on]) }
+        function("getToken") { call in self.token { call.resolve($0) } }
+        function("deleteToken") { call in
+            guard self.on else { return call.resolve(false) }
+            #if canImport(FirebaseMessaging)
+            Messaging.messaging().deleteToken { error in
+                if error == nil { UserDefaults.standard.removeObject(forKey: Self.lastTokenKey) }
+                call.resolve(error == nil)
+            }
+            #else
+            call.resolve(false)
+            #endif
+        }
+        function("subscribe") { call in self.topic(call, subscribe: true) }
+        function("unsubscribe") { call in self.topic(call, subscribe: false) }
+        function("getInitialNotification", onMain: true) { call in
+            call.resolve(self.lock.withLock { () -> Any? in defer { self.initial = nil }; return self.initial })
+        }
+        function("setAutoInitEnabled") { call in
+            let value = call.args["on"] as? Bool ?? false
+            #if canImport(FirebaseMessaging)
+            if self.on { Messaging.messaging().isAutoInitEnabled = value }
+            #endif
+            call.resolve(self.on)
+        }
+        function("isAutoInitEnabled") { call in
+            #if canImport(FirebaseMessaging)
+            call.resolve(self.on && Messaging.messaging().isAutoInitEnabled)
+            #else
+            call.resolve(false)
+            #endif
+        }
+    }
+
+    @MainActor func start(on: Bool, foreground: UNNotificationPresentationOptions) {
+        self.on = on
+        self.foreground = foreground
+        delegate.module = self
+        ZnNotificationCenter.shared.remote = delegate
+        if !on { print("zn-push: Firebase is off, so push is off (taps on notifications still reach JS)") }
+        #if canImport(FirebaseMessaging)
+        guard on else { return }
+        Messaging.messaging().delegate = delegate
+        // With auto init FCM makes its token at the first start; it needs the APNs token for that.
+        if Messaging.messaging().isAutoInitEnabled { UIApplication.shared.registerForRemoteNotifications() }
+        #endif
+    }
+
+    // MARK: the token
+
+    private func token(_ done: @escaping ([String: Any]) -> Void) {
+        func none(_ reason: String) -> [String: Any] { ["token": NSNull(), "reason": reason] }
+        guard on else { return done(none("unavailable")) }
+        #if canImport(FirebaseMessaging)
+        apns { reason in
+            if let reason { return done(none(reason)) }
+            Messaging.messaging().token { token, error in
+                if let token, !token.isEmpty { return done(["token": token, "reason": NSNull()]) }
+                let reason = PushRules.tokenReason(error?.localizedDescription)
+                print("zn-push: no FCM token (\(reason)): \(error?.localizedDescription ?? "-")")
+                done(none(reason))
+            }
+        }
+        #else
+        done(none("unavailable"))
+        #endif
+    }
+
+    /// Calls back once FCM has the APNs token (nil), or with a reason after a failure or [PushRules.apnsWaitMs].
+    private func apns(_ done: @escaping (String?) -> Void) {
+        #if canImport(FirebaseMessaging)
+        if Messaging.messaging().apnsToken != nil { return done(nil) }
+        #endif
+        var once = false
+        let finish: (String?) -> Void = { [weak self] r in
+            guard let self, self.lock.withLock({ () -> Bool in defer { once = true }; return !once }) else { return }
+            done(r)
+        }
+        lock.withLock { apnsWaiters.append(finish) }
+        DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(PushRules.apnsWaitMs)) {
+            guard !self.lock.withLock({ once }) else { return }  // the token came in time
+            let reason = self.lock.withLock { self.apnsError } ?? "not_now"
+            print("zn-push: no APNs token after \(PushRules.apnsWaitMs) ms (\(reason))")
+            finish(reason)
+        }
+    }
+
+    @MainActor func apnsToken(_ token: Data) {
+        print("zn-push: APNs token received")  // never the token itself
+        #if canImport(FirebaseMessaging)
+        if on { Messaging.messaging().apnsToken = token }  // FCM tells sandbox from production by the app's profile
+        #endif
+        let waiters = lock.withLock { () -> [(String?) -> Void] in defer { apnsWaiters = []; apnsError = nil }; return apnsWaiters }
+        waiters.forEach { $0(nil) }
+    }
+
+    @MainActor func apnsFailed(_ error: Error) {
+        // No aps-environment entitlement, or no network for APNs: a simulator without push says so here too
+        print("zn-push: APNs registration failed: \(error.localizedDescription)")
+        let reason = PushRules.tokenReason(error.localizedDescription)
+        let waiters = lock.withLock { () -> [(String?) -> Void] in defer { apnsWaiters = []; apnsError = reason }; return apnsWaiters }
+        waiters.forEach { $0(reason) }
+    }
+
+    /// A new FCM token (FCM says it at every start): `push.token` when it changed since the last one JS took.
+    fileprivate func newToken(_ token: String) {
+        guard !token.isEmpty, UserDefaults.standard.string(forKey: Self.lastTokenKey) != token else { return }
+        // FCM can say the same token twice at a start, before the first task has answered
+        guard lock.withLock({ () -> Bool in defer { tokenRunning = token }; return tokenRunning != token }) else { return }
+        ZnTasks.shared.run(PushRules.tokenTask, ["token": token, "provider": PushRules.provider],
+                           timeoutMs: PushRules.messageTimeoutMs) { outcome in
+            if case .done = outcome { UserDefaults.standard.set(token, forKey: Self.lastTokenKey) }
+            self.lock.withLock { if self.tokenRunning == token { self.tokenRunning = nil } }
+        }
+    }
+
+    private func topic(_ call: ZnCall, subscribe: Bool) {
+        let topic = call.args["topic"] as? String ?? ""
+        guard PushRules.validTopic(topic) else { return call.reject("invalid_args", "\"\(topic)\" is not a valid FCM topic name") }
+        guard on else { return call.resolve(false) }
+        #if canImport(FirebaseMessaging)
+        // FCM waits for its token before it subscribes; with no APNs token that is never, so the call has a limit
+        var once = false
+        let finish: (Bool) -> Void = { ok in
+            guard self.lock.withLock({ () -> Bool in defer { once = true }; return !once }) else { return }
+            call.resolve(ok)
+        }
+        let done: (Error?) -> Void = { error in
+            if let error { print("zn-push: \(subscribe ? "subscribe" : "unsubscribe") \(topic) failed: \(error.localizedDescription)") }
+            finish(error == nil)
+        }
+        apns { reason in
+            if reason != nil { return finish(false) }
+            if subscribe { Messaging.messaging().subscribe(toTopic: topic, completion: done) }
+            else { Messaging.messaging().unsubscribe(fromTopic: topic, completion: done) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { finish(false) }
+        #else
+        call.resolve(false)
+        #endif
+    }
+
+    // MARK: messages and taps
+
+    private static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    /// True the first time this message id is seen (messages with no id always pass).
+    private func first(_ info: [AnyHashable: Any]) -> Bool {
+        guard let id = PushRules.messageId(info) else { return true }
+        return lock.withLock {
+            if seen.contains(id) { return false }
+            seen.append(id)
+            if seen.count > 50 { seen.removeFirst(seen.count - 50) }
+            return true
+        }
+    }
+
+    /// Runs `push.message` for a push (once per message id); [done] after the task.
+    private func deliver(_ info: [AnyHashable: Any], inFront: Bool, notification: (title: String?, body: String?)?,
+                         done: @escaping (Bool) -> Void = { _ in }) {
+        #if canImport(FirebaseMessaging)
+        if on { Messaging.messaging().appDidReceiveMessage(info) }  // FCM's delivery analytics
+        #endif
+        let data = PushRules.data(info)
+        if data[PushRules.otaKey] == PushRules.otaCheck {
+            print("zn-push: an OTA check message: not on iOS yet")
+            return done(false)
+        }
+        guard first(info) else { return done(false) }
+        let message = PushRules.message(info, inFront: inFront, notification: notification, now: Self.now)
+        ZnTasks.shared.run(PushRules.messageTask, message, timeoutMs: PushRules.messageTimeoutMs) { outcome in
+            if case .done = outcome { done(true) } else { done(false) }
+        }
+    }
+
+    /// A push the app delegate got: a data message (content-available), or one iOS also shows.
+    @MainActor func remoteNotification(_ info: [AnyHashable: Any], _ done: @escaping (UIBackgroundFetchResult) -> Void) {
+        let inFront = UIApplication.shared.applicationState == .active
+        deliver(info, inFront: inFront, notification: PushRules.alert(info)) { ran in
+            DispatchQueue.main.async { done(ran ? .newData : .noData) }
+        }
+    }
+
+    /// A push iOS is about to show while the app is in front.
+    @MainActor fileprivate func willPresent(_ n: UNNotification) -> UNNotificationPresentationOptions {
+        let c = n.request.content
+        let notice = c.title.isEmpty && c.body.isEmpty ? nil : (title: c.title.isEmpty ? nil : c.title, body: c.body.isEmpty ? nil : c.body)
+        deliver(c.userInfo, inFront: true, notification: notice ?? PushRules.alert(c.userInfo))
+        return foreground
+    }
+
+    /// A tap on a notification iOS showed from a push.
+    @MainActor fileprivate func didReceive(_ response: UNNotificationResponse) {
+        let info = response.notification.request.content.userInfo
+        #if canImport(FirebaseMessaging)
+        if on { Messaging.messaging().appDidReceiveMessage(info) }
+        #endif
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+        let message = PushRules.opened(info, now: Self.now)
+        if ZnTasks.shared.isLoaded {
+            emit("opened", message)
+        } else {
+            lock.withLock { initial = message }
+        }
+    }
+
+    /// The NSObject side: FCM's and the notification center's delegates.
+    final class Delegate: NSObject, ZnNotificationCenter.Remote {
+        weak var module: FirebaseMessagingModule?
+        func willPresent(_ notification: UNNotification) -> UNNotificationPresentationOptions {
+            MainActor.assumeIsolated { module?.willPresent(notification) ?? [] }
+        }
+        func didReceive(_ response: UNNotificationResponse) {
+            MainActor.assumeIsolated { module?.didReceive(response) }
+        }
+    }
+}
+
+#if canImport(FirebaseMessaging)
+extension FirebaseMessagingModule.Delegate: MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        if let fcmToken { module?.newToken(fcmToken) }
+    }
+}
+#endif

@@ -34,6 +34,7 @@ Each entry says:
 | A18 | 2026-11-11 | OTA needs (shared + Android runtime) | Every module a bundle calls counted for both OSes, so iOS refused every ZeroBill OTA bundle (AdId is Android-only). Per-OS needs written on the Mac, Kotlin included but not compiled there (Gradle couldn't download): docs/ota-requires-per-os.md | open: Windows runs the Android tests and the Lava matrix |
 | A19 | 2026-11-11 | Repo (Android) | `android/gradlew` is mode 100644 in git: on the Mac `./gradlew` says "permission denied" (`bash ./gradlew` works). Fix: `git update-index --chmod=+x android/gradlew` | open |
 | A20 | 2026-11-11 | Plugins (shared + Android) | Native module names didn't say their plugin (`Push` in firebase-messaging, `Auth` in android-play-auth): Pavan found the dashboard's needs list confusing. Renamed to `FirebaseMessaging`, `FirebaseAnalytics`, `FirebaseCrashlytics`, `FirebasePerf`, `FirebaseRemoteConfig`, `FirebaseApp`, `FirebaseInstallations`, `AndroidAdId`, `AndroidPlayAuth` (docs/plugins.md, "Module names"); Kotlin `ZnModuleBase(...)` names changed on the Mac, not compiled there | open: Windows runs the plugin unit tests, a ZeroBill build on the Lava, then the Play build |
+| A21 | 2026-11-11 | ZeroBill JS (shared) | ZeroBill now listens to `Push.onNotificationOpenedApp` and `Push.getInitialNotification` (for pushes iOS shows itself). They run on Android too: a tap on a notification FCM showed itself (a message with a `notification` block) now opens the push's `action`. Today's server sends `notification: {}`, so Android shows ZeroBill's own and this path isn't hit. Also: the server change for iOS (an `apns` block) is written for Pavan; Android ignores `apns` | open: Windows checks a normal push on the Lava still opens once (no second open) |
 
 ---
 
@@ -326,3 +327,13 @@ Each entry says:
   bundle (an app that registers old names refuses it). An APK built before this can't run bundles built after it
   (missing modules), and the reverse: make ZeroBill's Play build and a new staging APK after this lands, and redeploy
   zn-updates for the grouped needs.
+
+## A21. ZeroBill reads taps on pushes the phone showed itself (from iOS work)
+- **Status:** written on the Mac 2026-11-11 (Phase 3). JS only; Android not run.
+- **Change:** `app/src/system/pushService.ts` listens to `Push.onNotificationOpenedApp` and, at start,
+  `Push.getInitialNotification()`, mapping the message's data with `tapFromPush` (src/system/push.ts) to the same
+  action as ZeroBill's own notifications. Needed for iOS, where iOS shows the push itself while the app is behind.
+- **Android:** these fire only for a notification FCM showed itself (a message with a non-empty `notification` block).
+  The worker sends `notification: {}` today, so ZeroBill shows its own and taps go through `Notifications.onPress` as
+  before. If the server ever sends a real `notification` block, its taps now open the action instead of just the app.
+- **Check on Android (Windows):** a staging push on the Lava shows once and its tap opens once (no double open).

@@ -1,6 +1,6 @@
 # @zero-native/notifications
 
-Notifications the app shows itself, on Android, with no Firebase and no push service in it. A notifee-like API:
+Notifications the app shows itself, on Android and iOS, with no Firebase and no push service in it. A notifee-like API:
 channels and channel groups, `show` with big text, a big picture, a large icon, inbox lines, a progress bar, buttons
 (with an inline reply), groups with a summary, scheduled notifications, cancel, lists of what is shown and of channels,
 and a check before showing. A tap opens the notification's `link` through the app's normal link path. A button or a
@@ -77,10 +77,20 @@ start), a web link opens the browser, no link opens the app. To count opens, put
 | `Notifications.canScheduleExact()` / `isBatteryOptimized()` | true / false | Power checks |
 | `Notifications.openSettings(page)` | true / false | `exact_alarms` (Android 12+), `battery`, `notifications` |
 | `Notifications.getInitialNotification()` / `onPress(fn)` | `{ id, data }` / null | A tap with no `link`: the one that started the app, once; or while it runs (native version 3) |
+| `Notifications.requestPermission({ ios })` | as above | iOS: asks with notifee's options (`provisional`, `criticalAlert`, `alert`, `badge`, `sound`...); Android ignores them |
+| `Notifications.getNotificationSettings()` | `{ authorizationStatus, ios? }` | `notDetermined`, `denied`, `authorized`, `provisional`, `ephemeral`; `ios`: what the user left on (alert, badge, sound, lock screen...). Native version 3 |
+| `setBadgeCount(n)` / `getBadgeCount()` / `incrementBadgeCount(by?)` / `decrementBadgeCount(by?)` | true / number | iOS: the app icon's badge. Android: false / 0 |
+| `setNotificationCategories([...])` / `getNotificationCategories()` | true / list | iOS categories (buttons, summary format, hidden preview text). Android: false / [] |
 | `PushEvents.onMessage(fn)` | — | A message from any push service: `{ provider, data, inFront, priority, notification, sentAt, from, messageId, deleted? }` |
 | `PushEvents.onTokenRefresh(fn)` | — | `{ token, provider }` |
 
 Notifee's `displayNotification` maps to `Notifications.show`, `createTriggerNotification` to `schedule`.
+
+**Notifee's shape (2026-11-11):** `show({ id, title, body, data, link, imageUrl, group, actions, android: {...}, ios: {...} })`.
+`android` holds Android's options (`channelId`, `bigText`, `largeIconUrl`, `lines`, `progress`, `ongoing`, `color`...);
+`ios` holds iOS's (`subtitle`, `sound`, `badgeCount`, `threadId`, `interruptionLevel`, `relevanceScore`,
+`attachments`, `foregroundPresentationOptions`, `summaryArgument`, `categoryId`). Each OS reads its own block and
+ignores the other. The flat Android fields (`channelId`, `bigText`, ... at the top) still work, deprecated.
 
 ## Push services (`PushEvents`)
 A push service gets its messages and tokens its own way, then hands them to `PushEvents` (Kotlin,
@@ -98,10 +108,27 @@ task. What a service plugin does:
 - `PushEvents.inFront` says whether the app is on screen.
 - Getting a token, topics and the like stay in the service's own module (FCM: the "FirebaseMessaging" module).
 
-**iOS (not built yet):** the notifications plugin would own `UNUserNotificationCenter` (show, schedule, actions,
-taps). An APNs-only push path would get the device token from `application(_:didRegisterForRemoteNotifications...)`
-and remote messages from the app delegate, and hand them to the same `PushEvents` (provider `"apns"`). FCM on iOS would
-sit on top of APNs. See `docs/ios-parity-checklist.md` and `docs/second-opinions.md` entry 196.
+**iOS:** the notifications plugin owns `UNUserNotificationCenter` (one delegate, `ZnNotificationCenter`). A push
+service's notifications (not the app's own) go to `ZnNotificationCenter.shared.remote`, which the push plugin sets (FCM:
+`@zero-native/firebase-messaging`). Messages and tokens run the same JS tasks through `ZnTasks.shared.run`.
+
+## iOS
+Add `NotificationsPlugin()` to `ZnPlugins.register(...)` in the app delegate (`FirebaseMessagingPlugin()` adds it by
+itself) and the plugin's Swift to the app target (ZeroBill: `APP_ZN_PLUGINS` in ios/CMakeLists.txt). No Info.plist key;
+the permission dialog comes from `requestPermission`.
+- `show`: title, `ios.subtitle`, body, `data`, `link`, `imageUrl` or `ios.attachments` (downloaded natively, 4 s),
+  `group.key` as the thread id (`ios.threadId` wins), `actions` (a category made for them; `input` is a text reply),
+  `silent` / `ios.sound`, `ios.badgeCount`, `ios.interruptionLevel`, `ios.relevanceScore`. **HTML tags are removed**
+  (iOS shows text only); `<br>` becomes a new line.
+- While the app is in front its own notifications show as a banner, in the list, with sound and badge;
+  `ios.foregroundPresentationOptions` changes that.
+- `schedule`: one time at `at`; `repeat` hourly, daily or weekly from `at`'s minute, time or weekday. `exact` is ignored
+  (iOS is on time). iOS keeps at most 64 scheduled.
+- Taps, swipes and buttons work as on Android: `link`, else `onPress` / `getInitialNotification`; a swipe runs
+  `onDismiss`; a button with no `link` runs `onAction` (with the typed reply). A swipe or button while JS isn't running
+  is kept and runs at the next start.
+- Channels, channel groups, `canScheduleExact`, `isBatteryOptimized`: answer as notifee does on iOS (true / [] / null /
+  false). `openSettings("notifications")` opens the app's page in Settings; other pages: false.
 
 ## Rules worth knowing
 - A channel's importance, sound and vibration are fixed once made (the user owns them after). Only the name and
@@ -140,7 +167,8 @@ sit on top of APNs. See `docs/ios-parity-checklist.md` and `docs/second-opinions
   app's private storage, so another app can't fake one by sending your launcher Activity the same extras. A push
   service's own notifications keep their own calls (FCM: `Push.getInitialNotification`, `onNotificationOpenedApp`).
 - Logs use the tag `zn-notifications`. Saved state: prefs `zn-notifications-scheduled`, `-groups`, `-press`.
-- **Not built yet:** foreground services, messaging style, full-screen intents, iOS.
+- **Not built yet:** foreground services, messaging style, full-screen intents; on iOS, communication notifications and
+  the custom notification content extension.
 
 ## Size
 | Dependency | Version | Why |

@@ -1,6 +1,6 @@
 # @zero-native/firebase-messaging
 
-Push messages from Firebase Cloud Messaging, on Android. **`Push`**: the FCM token, topics, and every data message, as
+Push messages from Firebase Cloud Messaging, on Android and iOS. **`Push`**: the FCM token, topics, and every data message, as
 a JS task. The task runs when the app is in front, behind, or closed (FCM starts the app). One path for all three, so
 nothing "only works while open".
 
@@ -95,7 +95,45 @@ RN Firebase's names for ported code: `messaging().getToken()`, `onTokenRefresh`,
 - Never log `m.data` as a whole, and never put private data in it: FCM servers and the phone's notification log keep it.
 - Phones with no Google Play services get no FCM. `getToken` says why; local notifications still work.
 - Logs use the tag `zn-push` (the message line itself, `fcm message ...`, is `zn-notifications`).
-- **Not built yet:** iOS (APNs). The design for other push services and iOS: the notifications README, "Push services".
+- **Not built yet:** the OTA check push on iOS. Other push services: the notifications README, "Push services".
+
+## iOS
+The plugin's Swift (`ios/FirebaseMessagingPlugin.swift`) gets the APNs token, hands it to FCM, and answers the same
+calls. Plan and reasons: `docs/ios-notifications-plan.md`.
+
+**Add it:**
+1. Firebase as for `@zero-native/firebase-crashlytics` on iOS (GoogleService-Info.plist, the SDK from
+   `bun run tools/fetch-firebase-apple.ts`), plus the `FirebaseMessaging` xcframeworks and their privacy bundles.
+2. `FirebaseMessagingPlugin()` in `ZnPlugins.register(...)`. It adds `NotificationsPlugin()` itself.
+3. Info.plist: `FirebaseAppDelegateProxyEnabled` = NO and `UIBackgroundModes` = [`remote-notification`]. The
+   entitlement `aps-environment` (Xcode turns `development` into `production` for an App Store build). Firebase's
+   project needs the app's APNs key (Firebase console, Cloud Messaging, Apple app configuration).
+4. The app delegate forwards three calls (the header of `FirebaseMessagingPlugin.swift` has them):
+   `FirebaseMessagingPlugin.apnsToken(token)`, `.apnsFailed(error)`, `.remoteNotification(info, done)`.
+5. For pushes iOS shows itself: a **notification service extension** with `ios-service/ZnNotificationService.swift`
+   (ZeroBill: the `AppNotificationService` target in ios/CMakeLists.txt). It removes HTML tags from the title and
+   body and attaches the picture (`fcm_options.image`, else the data keys in its Info.plist `ZnNotificationImageKeys`).
+
+**How messages arrive on iOS (not as on Android):**
+- **The server must send an alert for iOS** (an `apns` block with `aps.alert` and `"mutable-content": 1`). iOS shows
+  it while the app is behind or closed; JS hears of it only when the user taps it (`onNotificationOpenedApp`, or
+  `getInitialNotification` after a cold start). Its `data` comes with the tap.
+- While the app is in front the same push runs `onMessage` (`inFront: true`, `notification` set) and iOS shows nothing,
+  so the app shows its own with `Notifications.show`, as on Android. `FirebaseMessagingPlugin(foreground: [.banner])`
+  makes iOS show it too.
+- Data-only messages reach iOS only while the app runs, or as a throttled background wake (`content-available`), never
+  after the user closed the app. JS doesn't start for a background launch yet, so don't rely on them.
+- `getToken` waits up to 10 s for the APNs token: `not_now` without it (no network; a simulator build without the push
+  entitlement). A message reaching both the app delegate and the notification center runs `onMessage` once.
+- `zn_ota=check` messages do nothing on iOS yet.
+- Logs start with `zn-push:`. The APNs token and the FCM token are never logged.
+
+Checked on the iOS Simulator (2026-11-11) with `xcrun simctl push`: a push in front (onMessage, the app's own
+notification, no second one from iOS), behind and closed (iOS shows it; a tap reaches `onNotificationOpenedApp` /
+`getInitialNotification`). `simctl push` skips service extensions; the extension's code was run on its own on the Mac.
+Then on an iPhone 11 through FCM (2026-11-11, a signed debug build, the server's planned `apns` shape): in front
+(`onMessage`, the app's own notification), closed (iOS showed it with the HTML gone and the picture attached; a tap
+started the app and opened its action).
 
 ## OTA pushes (a new bundle downloads in the background)
 When the OTA server publishes a bundle, it sends one FCM data message to the channel's topic. Each phone then downloads

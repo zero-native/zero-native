@@ -13,7 +13,12 @@ import UIKit
 import UserNotifications
 
 struct NotificationsPlugin: ZnPlugin {
+    @MainActor private static var registered = false
+
     func register(_ r: ZnPluginRegistry) {
+        // Once: the messaging plugin adds it too (as on Android), for apps that list only that one
+        guard !Self.registered else { return }
+        Self.registered = true
         r.module(NotificationsModule.shared)
         ZnNotificationCenter.shared.install()
     }
