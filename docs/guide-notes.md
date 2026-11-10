@@ -3001,3 +3001,12 @@ since 2026-11-09; every other module call (Os, SecureStore, Updates, NetInfo, al
   stacks on the Phones page show TSX file:line, and the bundle page shows "Size by file".
 - **Do** use "Size by file" for "what is big / what grew" (by npm package or folder, and the change since the bundle
   before). **Don't** read it as exact bytes: it is the JS before Hermes, about 10 % under the real size.
+
+## 93. The `zn` command, from any folder (tools/zn.ts, 2026-11-10)
+- **Do** set it up once per computer, from the zero-native root: `bun link`, then `bun link zero-native -g`. Bun puts
+  `zn.exe` in `~/.bun/bin`. It runs the tools of that checkout, so a `git pull` there updates `zn` too.
+- **Do** call it from the app folder: `zn builtin`, `zn store-build ...`, `zn release`, `zn dashboard`, `zn status` (all
+  zn-updates commands; also `zn updates <command>`), `zn build <appDir> ...`, `zn dev` (this folder, or its `app/`),
+  `zn ota ...`, `zn server --demo`, `zn where` (which checkout it uses).
+- **Don't** drop the checkout's folder from Gradle (`zeroNativeDir`) or CMake (`ZN_DIR`): they need the native code
+  there, not the CLI.

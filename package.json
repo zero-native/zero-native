@@ -2,6 +2,9 @@
   "name": "zero-native",
   "private": true,
   "type": "module",
+  "bin": {
+    "zn": "tools/zn.ts"
+  },
   "workspaces": [
     "packages/*",
     "plugins/*",
