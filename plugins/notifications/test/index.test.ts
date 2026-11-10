@@ -185,3 +185,55 @@ test("requestPermission and hasPermission use core's notifications permission, w
   refuse(last("Permissions", "status").id, "unavailable")
   expect(await r).toBe("denied")
 })
+
+test("notifee's shape: android's options go flat (as Android reads them), ios stays a block; the flat fields still work", () => {
+  void Notifications.show({
+    id: "offer-13",
+    title: "Cafe",
+    body: "<b>10%</b> off",
+    imageUrl: "https://example.com/p.jpg",
+    android: { channelId: "offers", bigText: "More", lines: ["a"], color: "#E23744" },
+    ios: { subtitle: "Today only", threadId: "offers", interruptionLevel: "timeSensitive", foregroundPresentationOptions: { banner: true, sound: false } },
+  })
+  const args = last("Notifications", "show").args as Record<string, unknown>
+  expect(args).toMatchObject({ id: "offer-13", channelId: "offers", bigText: "More", lines: ["a"], color: "#E23744", imageUrl: "https://example.com/p.jpg" })
+  expect(args.ios).toEqual({ subtitle: "Today only", threadId: "offers", interruptionLevel: "timeSensitive", foregroundPresentationOptions: { banner: true, sound: false } })
+  expect(args.android).toBeUndefined()
+  // android's block wins over a flat field of the same name
+  void Notifications.show({ id: "x", title: "t", channelId: "old", android: { channelId: "new" } })
+  expect(last("Notifications", "show").args).toMatchObject({ channelId: "new" })
+  // schedule converts the same way
+  void Notifications.schedule({ id: "r", title: "t", android: { channelId: "offers" }, ios: { sound: false } }, { at: Date.now() + 60_000 })
+  expect(last("Notifications", "schedule").args).toMatchObject({ notification: { channelId: "offers", ios: { sound: false } } })
+})
+
+test("iOS-only calls answer harmlessly where the module lacks them (Android)", async () => {
+  const badge = Notifications.setBadgeCount(3.7)
+  expect(last("Notifications", "setBadgeCount").args).toMatchObject({ count: 3 })
+  refuse(last("Notifications", "setBadgeCount").id, "unavailable")
+  expect(await badge).toBe(false)
+  const count = Notifications.getBadgeCount()
+  refuse(last("Notifications", "getBadgeCount").id, "unavailable")
+  expect(await count).toBe(0)
+  const cats = Notifications.getNotificationCategories()
+  refuse(last("Notifications", "getNotificationCategories").id, "unavailable")
+  expect(await cats).toEqual([])
+})
+
+test("badge count goes up and down from what native says, never below 0", async () => {
+  const p = Notifications.decrementBadgeCount(5)
+  reply(last("Notifications", "getBadgeCount").id, 2)
+  await tick()
+  expect(last("Notifications", "setBadgeCount").args).toMatchObject({ count: 0 })
+  reply(last("Notifications", "setBadgeCount").id, true)
+  expect(await p).toBe(true)
+})
+
+test("getNotificationSettings falls back to the permission where native lacks it", async () => {
+  const p = Notifications.getNotificationSettings()
+  refuse(last("Notifications", "getNotificationSettings").id, "unavailable")
+  await tick()
+  const status = last("Permissions", "status")
+  reply(status.id, { notifications: "granted" })
+  expect(await p).toEqual({ authorizationStatus: "authorized" })
+})

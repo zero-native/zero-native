@@ -381,6 +381,7 @@ final class ZnApp {
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.device), string: Self.deviceJson())
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.window), string: Self.windowJson())
                     self.jsStarted = true
+                    ZnTasks.shared.jsLoaded()  // tasks that waited for JS (a push, a dismiss, a button)
                     ZnSystemEvents.shared.start()  // the colour scheme now, then app state, memory, keyboard changes
                     self.sendInsets()  // before START, so a full-bleed first screen pads its header at once
                     host.dispatchEvent(0, event: UInt16(ZnAppEvent.start), string: startPayload)
@@ -425,6 +426,7 @@ final class ZnApp {
         nativeParams = [:]
         insetsSent = nil
         jsStarted = false
+        ZnTasks.shared.jsStopped()
         firstScreensUp = false
         jsDrew = false
         batchChangesStack = false

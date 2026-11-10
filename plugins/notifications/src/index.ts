@@ -1,4 +1,6 @@
-// The notifications plugin's JS side. Native side: android/.../NotificationsPlugin.kt (NotificationCompat; no Firebase).
+// The notifications plugin's JS side. Native side: android/.../NotificationsPlugin.kt (NotificationCompat; no Firebase) and
+// ios/NotificationsPlugin.swift (UNUserNotificationCenter). Options as notifee's: shared fields, then `android: {...}` and
+// `ios: {...}` (docs/ios-notifications-plan.md). Android-only calls answer harmlessly on iOS, and iOS-only ones on Android.
 //
 // At start (safe every time):
 //
@@ -14,7 +16,7 @@
 // On a tap ("Turn on notifications"): `Notifications.requestPermission()` (Android 13+ asks; older: on).
 // A tap on a notification opens its `link` through the app's normal link path (`onLink` in startApp).
 // Each call answers with a value and never rejects.
-import { defineTask, nativeModule, Permissions, type CallOptions, type PermissionState } from "@zero-native/core"
+import { defineTask, nativeModule, Permissions, Platform, type CallOptions, type PermissionState } from "@zero-native/core"
 
 /** Core task names the native side runs (PushEvents.kt, NotificationRules.kt). */
 export const MESSAGE_TASK = "push.message"
@@ -85,7 +87,9 @@ export interface NotificationAction {
   /** Opens like a tap on the notification. Without it, the button runs `onAction` with no screen. */
   link?: string
   /** The user types a reply in the notification first (Android's inline reply); `onAction` gets `input`. */
-  input?: { placeholder?: string }
+  input?: { placeholder?: string; buttonTitle?: string }
+  /** iOS only: `foreground` opens the app first; `destructive` shows it red; `authenticationRequired` needs an unlocked phone. */
+  ios?: { foreground?: boolean; destructive?: boolean; authenticationRequired?: boolean }
 }
 
 /** What the lock screen shows: "private" (default) hides the text, "secret" the whole notification. */
@@ -107,38 +111,16 @@ export interface DisplayedNotification {
   data: Record<string, string>
 }
 
-export interface ShowOptions {
-  /** Yours. Showing the same id again replaces it. */
-  id: string
-  channelId: string
-  /**
-   * Title, body, bigText and lines may be HTML, as in notifee: `<b>`, `<i>`, `<u>`, `<span style="color:#E23744">`.
-   * Text with no tag stays exactly as given. Native version 3 (older apps show the tags as text).
-   */
-  title: string
-  body?: string
+/** Android's own options (notifee's `android: {...}`). On iOS they are ignored. */
+export interface AndroidShowOptions {
+  /** Needed on Android 8+: a channel made with `createChannel`. */
+  channelId?: string
   /** The text when expanded. Without it, a body longer than ~40 characters expands by itself. */
   bigText?: string
-  /**
-   * Opened on a tap, through the app's link path. Another app's or a web link opens there. None: the app opens, and
-   * `Notifications.onPress` hears it with the `id` and `data`.
-   */
-  link?: string
   /** https only (http also in debug builds). Downloaded natively in at most 4 s, else left out. */
   largeIconUrl?: string
-  /** A big picture when expanded. Same rules as largeIconUrl. */
-  imageUrl?: string
-  /**
-   * Notifications with the same key are grouped. From 2 on, a summary shows (the newest 5 lines). A tap on the
-   * summary opens its `link`; with none, `onPress` hears `{ id: key, data }` (native version 3).
-   */
-  group?: { key: string; title?: string; summaryFormat?: string; link?: string; data?: Record<string, string> }
-  /** Strings given back to `onDismiss`. */
-  data?: Record<string, string>
   /** Removed when tapped. Default true. */
   autoCancel?: boolean
-  /** Buttons (3 at most). Native version 2. */
-  actions?: NotificationAction[]
   /** Inbox style: up to 6 short lines when expanded ("₹499 from Ravi", "₹120 from Asha"). A picture wins over it. */
   lines?: string[]
   /** A progress bar: `current` of `max`, or `indeterminate`. Update it by showing the same id again with `onlyAlertOnce`. */
@@ -147,8 +129,6 @@ export interface ShowOptions {
   ongoing?: boolean
   /** Sound and vibration only the first time this id shows, not on updates. */
   onlyAlertOnce?: boolean
-  /** No sound or vibration at all. */
-  silent?: boolean
   /** The count on the app icon's badge (launchers that show counts). */
   number?: number
   /** The time shown, ms since 1970 (default: when it was shown). */
@@ -157,8 +137,156 @@ export interface ShowOptions {
   /** Default "private": the lock screen shows only the app name. Use "secret" for anything about money. */
   visibility?: Visibility
   category?: Category
-  /** "#RRGGBB": the accent colour (the icon and buttons). Default: the manifest's `dev.zeronative.push.color`. */
+  /** "#RRGGBB": the accent colour (the icon and buttons). Default: the manifest's `dev.zeronative.notifications.color`. */
   color?: string
+}
+
+/** How iOS may interrupt: "passive" stays quiet, "timeSensitive" breaks through Focus (the app's capability), "critical" needs Apple's entitlement. */
+export type IosInterruptionLevel = "passive" | "active" | "timeSensitive" | "critical"
+
+/** What iOS shows while the app is in front. Default: banner, list, sound and badge. */
+export interface IosForegroundPresentation {
+  banner?: boolean
+  list?: boolean
+  sound?: boolean
+  badge?: boolean
+}
+
+/** A picture (or other media) shown in the notification: https, `asset:<path>` or `zn://file/<name>`. Downloaded natively in at most 4 s. */
+export interface IosAttachment {
+  url: string
+  id?: string
+  /** Hide the small picture on the right; it shows when expanded. */
+  thumbnailHidden?: boolean
+}
+
+/** iOS's own options (notifee's `ios: {...}`). On Android they are ignored. */
+export interface IosShowOptions {
+  /** A second line under the title. */
+  subtitle?: string
+  /** Notifications with the same thread id are grouped. Default: `group.key`. */
+  threadId?: string
+  /** A category set with `setNotificationCategories` (its buttons). Default: one made for `actions`. */
+  categoryId?: string
+  /** "default" (the default), a sound file in the app, or false for none. `silent: true` means false. */
+  sound?: string | false
+  /** The app icon's badge after this one shows. */
+  badgeCount?: number
+  interruptionLevel?: IosInterruptionLevel
+  /** 0 to 1: which one leads its group and the notification summary. */
+  relevanceScore?: number
+  /** Fills the category's `summaryFormat` ("%u more offers from %@"). */
+  summaryArgument?: string
+  summaryArgumentCount?: number
+  /** Media shown in it. `imageUrl` adds one picture by itself. */
+  attachments?: IosAttachment[]
+  foregroundPresentationOptions?: IosForegroundPresentation
+}
+
+export interface ShowOptions {
+  /** Yours. Showing the same id again replaces it. */
+  id: string
+  /**
+   * Title, body, bigText and lines may be HTML, as in notifee: `<b>`, `<i>`, `<u>`, `<span style="color:#E23744">`.
+   * Text with no tag stays exactly as given. Native version 3 (older apps show the tags as text). iOS has no rich
+   * text: it shows the text with the tags taken out.
+   */
+  title: string
+  body?: string
+  /**
+   * Opened on a tap, through the app's link path. Another app's or a web link opens there. None: the app opens, and
+   * `Notifications.onPress` hears it with the `id` and `data`.
+   */
+  link?: string
+  /** A big picture when expanded (iOS: an attachment). https only (http also in debug builds); at most 4 s to download. */
+  imageUrl?: string
+  /**
+   * Notifications with the same key are grouped. From 2 on, a summary shows (the newest 5 lines). A tap on the
+   * summary opens its `link`; with none, `onPress` hears `{ id: key, data }` (native version 3). iOS groups by it
+   * (its thread id) and shows its own summary.
+   */
+  group?: { key: string; title?: string; summaryFormat?: string; link?: string; data?: Record<string, string> }
+  /** Strings given back to `onPress`, `onDismiss` and `onAction`. */
+  data?: Record<string, string>
+  /** Buttons (Android 3 at most, iOS 4). Native version 2. */
+  actions?: NotificationAction[]
+  /** No sound or vibration at all. */
+  silent?: boolean
+  android?: AndroidShowOptions
+  ios?: IosShowOptions
+
+  /** @deprecated Use `android.channelId`. */
+  channelId?: string
+  /** @deprecated Use `android.bigText`. */
+  bigText?: string
+  /** @deprecated Use `android.largeIconUrl`. */
+  largeIconUrl?: string
+  /** @deprecated Use `android.autoCancel`. */
+  autoCancel?: boolean
+  /** @deprecated Use `android.lines`. */
+  lines?: string[]
+  /** @deprecated Use `android.progress`. */
+  progress?: { max?: number; current?: number; indeterminate?: boolean }
+  /** @deprecated Use `android.ongoing`. */
+  ongoing?: boolean
+  /** @deprecated Use `android.onlyAlertOnce`. */
+  onlyAlertOnce?: boolean
+  /** @deprecated Use `android.number` (iOS: `ios.badgeCount`). */
+  number?: number
+  /** @deprecated Use `android.timestamp`. */
+  timestamp?: number
+  /** @deprecated Use `android.showTimestamp`. */
+  showTimestamp?: boolean
+  /** @deprecated Use `android.visibility`. */
+  visibility?: Visibility
+  /** @deprecated Use `android.category`. */
+  category?: Category
+  /** @deprecated Use `android.color`. */
+  color?: string
+}
+
+/**
+ * What the native side gets: the shared fields with Android's options flat (as every Android app has read them since
+ * native version 1: Kotlin is unchanged), and `ios` as it is. Android ignores `ios`; iOS ignores Android's fields.
+ */
+export function nativeShowArgs(options: ShowOptions): Record<string, unknown> {
+  const { android, ios, ...rest } = options
+  return { ...rest, ...(android ?? {}), ...(ios ? { ios } : {}) }
+}
+
+/** A set of buttons iOS shows on notifications with this category id (notifee's `setNotificationCategories`). */
+export interface IosCategory {
+  id: string
+  actions?: NotificationAction[]
+  /** The group's summary, "%u more offers" (`%u` the count, `%@` the summaryArgument). */
+  summaryFormat?: string
+  /** What a hidden preview says ("New offer"). */
+  hiddenPreviewsBodyPlaceholder?: string
+  /** Swiping it away runs `onDismiss`. Default true. */
+  customDismissAction?: boolean
+}
+
+/** What iOS may ask for (notifee's `requestPermission({ ... })`). Default: alert, badge, sound. */
+export interface IosPermissionOptions {
+  alert?: boolean
+  badge?: boolean
+  sound?: boolean
+  /** Shown quietly in the notification centre with no dialog; the user decides there. */
+  provisional?: boolean
+  /** Needs Apple's critical alerts entitlement. */
+  criticalAlert?: boolean
+  carPlay?: boolean
+  /** A "Notification settings" button in the phone's settings for the app (the app gets `openSettings`). */
+  providesAppNotificationSettings?: boolean
+}
+
+/** notifee's `AuthorizationStatus` names. */
+export type AuthorizationStatus = "notDetermined" | "denied" | "authorized" | "provisional" | "ephemeral"
+
+export interface NotificationSettings {
+  authorizationStatus: AuthorizationStatus
+  /** iOS only: what the user left on. */
+  ios?: { alert: boolean; badge: boolean; sound: boolean; lockScreen: boolean; notificationCenter: boolean; criticalAlert: boolean; carPlay: boolean }
 }
 
 /** When a scheduled notification shows (notifee's timestamp trigger). */
@@ -212,6 +340,13 @@ export interface NotificationsModule {
   isBatteryOptimized(args?: Record<string, never>, options?: CallOptions): Promise<boolean>
   openSettings(args: { page: SettingsPage }, options?: CallOptions): Promise<boolean>
   getInitialNotification(args?: Record<string, never>, options?: CallOptions): Promise<PressedNotification | null>
+  // iOS only (Android's module doesn't have them: the calls answer false / 0 / [] there)
+  requestPermission(args: { ios: IosPermissionOptions }, options?: CallOptions): Promise<PermissionState>
+  getNotificationSettings(args?: Record<string, never>, options?: CallOptions): Promise<NotificationSettings>
+  setBadgeCount(args: { count: number }, options?: CallOptions): Promise<boolean>
+  getBadgeCount(args?: Record<string, never>, options?: CallOptions): Promise<number>
+  setNotificationCategories(args: { categories: IosCategory[] }, options?: CallOptions): Promise<boolean>
+  getNotificationCategories(args?: Record<string, never>, options?: CallOptions): Promise<IosCategory[]>
   events: { pressed: PressedNotification }
 }
 
@@ -237,9 +372,15 @@ export const PushEvents = {
 }
 
 export const Notifications = {
-  /** Android 13+ asks (from a tap: "Turn on notifications"); older Android: granted. Core's Permissions. */
-  requestPermission: (): Promise<PermissionState> =>
-    Permissions.request(["notifications"]).then((r) => r.notifications, (): PermissionState => "denied"),
+  /**
+   * Android 13+ asks (from a tap: "Turn on notifications"); older Android: granted. iOS asks once (alert, badge, sound),
+   * or with [options].ios (provisional: no dialog). Core's Permissions.
+   */
+  requestPermission: (options?: { ios?: IosPermissionOptions }): Promise<PermissionState> => {
+    const viaCore = () => Permissions.request(["notifications"]).then((r) => r.notifications, (): PermissionState => "denied")
+    if (options?.ios && Platform.OS === "ios") return NativeNotifications.requestPermission({ ios: options.ios }, unowned).catch(viaCore)
+    return viaCore()
+  },
   hasPermission: (): Promise<PermissionState> =>
     Permissions.status(["notifications"]).then((r) => r.notifications, (): PermissionState => "denied"),
 
@@ -256,7 +397,7 @@ export const Notifications = {
 
   /** Shows it, or says why not (`shown: false` with the reason). */
   show: (options: ShowOptions): Promise<{ shown: boolean; reason: BlockedReason | null }> =>
-    NativeNotifications.show(options, unowned).catch(() => ({ shown: false, reason: "off" as BlockedReason })),
+    NativeNotifications.show(nativeShowArgs(options) as unknown as ShowOptions, unowned).catch(() => ({ shown: false, reason: "off" as BlockedReason })),
 
   cancel: (id: string): Promise<boolean> => NativeNotifications.cancel({ id }, unowned).catch(no),
   /** All of the app's notifications (on logout). */
@@ -293,7 +434,10 @@ export const Notifications = {
    * Native version 2.
    */
   schedule: (notification: ShowOptions, trigger: Trigger): Promise<{ scheduled: boolean; reason: ScheduleReason | null }> =>
-    NativeNotifications.schedule({ notification, ...trigger }, unowned).catch(() => ({ scheduled: false, reason: null })),
+    NativeNotifications.schedule({ notification: nativeShowArgs(notification) as unknown as ShowOptions, ...trigger }, unowned).catch(() => ({
+      scheduled: false,
+      reason: null,
+    })),
 
   /** The scheduled ones, soonest first: `[{ id, at, repeat }]`. */
   getScheduled: (): Promise<{ id: string; at: number; repeat: Trigger["repeat"] | null }[]> =>
@@ -321,4 +465,30 @@ export const Notifications = {
    * version 3.
    */
   onPress: (handler: (notification: PressedNotification) => void): (() => void) => NativeNotifications.on("pressed", handler),
+
+  /**
+   * notifee's settings: `authorizationStatus`, and on iOS what the user left on. Android: "authorized" or "denied" from
+   * the permission.
+   */
+  getNotificationSettings: (): Promise<NotificationSettings> =>
+    NativeNotifications.getNotificationSettings({}, unowned).catch(() =>
+      Notifications.hasPermission().then((s): NotificationSettings => ({ authorizationStatus: s === "granted" ? "authorized" : "denied" })),
+    ),
+
+  /** iOS: the number on the app icon (0 hides it). Android: false (launchers count notifications themselves; `android.number`). */
+  setBadgeCount: (count: number): Promise<boolean> => NativeNotifications.setBadgeCount({ count: Math.max(0, Math.trunc(count)) }, unowned).catch(no),
+  /** iOS: the number on the app icon. Android: 0. */
+  getBadgeCount: (): Promise<number> => NativeNotifications.getBadgeCount({}, unowned).catch(() => 0),
+  incrementBadgeCount: (by = 1): Promise<boolean> =>
+    Notifications.getBadgeCount().then((n) => Notifications.setBadgeCount(n + by)),
+  decrementBadgeCount: (by = 1): Promise<boolean> =>
+    Notifications.getBadgeCount().then((n) => Notifications.setBadgeCount(Math.max(0, n - by))),
+
+  /**
+   * iOS: the app's categories (buttons for `ios.categoryId`, group summaries). Replaces the ones set before; the ones
+   * `show` makes for its `actions` are kept. Android: false (buttons come with each notification).
+   */
+  setNotificationCategories: (categories: IosCategory[]): Promise<boolean> =>
+    NativeNotifications.setNotificationCategories({ categories }, unowned).catch(no),
+  getNotificationCategories: (): Promise<IosCategory[]> => NativeNotifications.getNotificationCategories({}, unowned).catch(() => []),
 }

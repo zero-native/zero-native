@@ -189,7 +189,7 @@ enum ZnModules {
     /// chosen (ZnBundles.choose checks a bundle's needs against every module), and from install().
     @MainActor static func registerBuiltIns() {
         for m: ZnModule in [ZnPlatformFacts(), ZnOs(), ZnNetInfo(), ZnSecureStore(), ZnClipboard(), ZnFetch.shared,
-                             ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash.Module(), ZnLaunch(), ZnUpdatesOff(), ZnTasks(), ZnMotionNone()] where !has(m.name) {
+                             ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash.Module(), ZnLaunch(), ZnUpdatesOff(), ZnTasks.shared, ZnMotionNone()] where !has(m.name) {
             register(m)
         }
     }

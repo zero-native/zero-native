@@ -293,15 +293,142 @@ final class ZnUpdatesOff: ZnModuleBase, @unchecked Sendable {
     }
 }
 
-// MARK: - Tasks (ZnBackground.kt), until iOS runs background tasks
+// MARK: - Tasks (ZnBackground.kt)
 
-/// Nothing on iOS starts a background task yet (BGTaskScheduler, push-triggered runs: milestones-ios.md §8), so no TASK
-/// event reaches JS and `done` has nothing to finish. The module exists so a bundle that needs "Tasks" v1 runs, and a
-/// late answer resolves as on Android (true).
+/// Runs a JS task with no screen (docs/plugins.md §6): `defineTask("sync", async (data, signal) => ...)` in JS, and
+/// `ZnTasks.shared.run("sync", data) { outcome in ... }` from a plugin (the notifications plugin's dismiss and button
+/// events, the messaging plugin's messages and tokens). As Android's ZnBackground: a queue until JS has loaded, a time
+/// limit, one answer per task. iOS starts JS when the window opens, so a task that comes while JS isn't running waits;
+/// one run with `keep: true` is also saved, so it runs at the app's next start if this process ends first
+/// (docs/ios-notifications-plan.md §3). It doesn't keep the process alive: the plugin's own background time does.
 final class ZnTasks: ZnModuleBase, @unchecked Sendable {
-    init() {
+    enum Outcome: String { case done, failed, noTask = "no_task", timedOut = "timed_out" }
+
+    static let shared = ZnTasks()
+    private static let appEventTask: UInt16 = 13  // ZnAppEvent.TASK on Android
+    private static let keptKey = "zn.tasks.kept"
+    private static let maxKept = 50
+
+    private struct Task {
+        let name: String
+        let data: Any?
+        let timeoutMs: Int
+        let keptId: String?
+        let onDone: (Outcome) -> Void
+        var timeout: DispatchWorkItem?
+    }
+
+    // All main thread.
+    private var tasks: [String: Task] = [:]
+    private var queued: [String] = []
+    private var loaded = false
+    private var nextId = 0
+
+    /// Main thread: JS has loaded and gets tasks (and events) now.
+    var isLoaded: Bool { loaded }
+
+    private init() {
         super.init("Tasks", version: 1)
-        function("done") { call in call.resolve(true) }
+        function("done", onMain: true) { call in
+            let outcome: Outcome = switch try call.stringOrNil("outcome") {
+            case "done": .done
+            case "no_task": .noTask
+            default: .failed
+            }
+            self.finish(try call.string("id"), outcome)
+            call.resolve(true)
+        }
+        // Saved tasks from an earlier process: queued now, sent when JS has loaded
+        DispatchQueue.main.async { self.restoreKept() }
+    }
+
+    /// Runs task [name] with [data] (a JSON value). [onDone] is called once, on the main thread. The [timeoutMs] limit
+    /// starts when JS gets the task: then JS's `signal` is aborted and the outcome is timedOut. [keep]: saved until JS has
+    /// run it, also across app starts (events a user made: a dismiss, a button). Any thread.
+    func run(_ name: String, _ data: Any? = nil, timeoutMs: Int = 30_000, keep: Bool = false, onDone: @escaping (Outcome) -> Void = { _ in }) {
+        DispatchQueue.main.async {
+            let keptId = keep ? self.saveKept(name, data, timeoutMs) : nil
+            self.enqueue(Task(name: name, data: data, timeoutMs: timeoutMs, keptId: keptId, onDone: onDone))
+        }
+    }
+
+    private func enqueue(_ task: Task) {
+        nextId += 1
+        let id = "\(nextId)"
+        tasks[id] = task
+        if loaded { send(id) } else { queued.append(id) }
+    }
+
+    /// ZnApp: main.hbc has run (startApp installed the task listener). Queued tasks go now.
+    @MainActor func jsLoaded() {
+        loaded = true
+        let ids = queued
+        queued = []
+        ids.forEach(send)
+    }
+
+    /// ZnApp: JS is being replaced (an OTA restart). Tasks it was running are answered as failed; new ones wait.
+    @MainActor func jsStopped() {
+        loaded = false
+        for (id, t) in tasks where !queued.contains(id) && t.keptId == nil { finish(id, .failed) }
+        // A kept task JS hadn't answered runs again on the new JS
+        for (id, t) in tasks where !queued.contains(id) && t.keptId != nil {
+            t.timeout?.cancel()
+            queued.append(id)
+        }
+    }
+
+    private func send(_ id: String) {
+        guard var task = tasks[id] else { return }
+        var message: [String: Any] = ["id": id, "name": task.name, "data": task.data ?? NSNull()]
+        if JSONSerialization.isValidJSONObject(message) == false { message["data"] = NSNull() }
+        guard let json = ZnModules.json(message) else { return finish(id, .failed) }
+        let timeout = DispatchWorkItem { [weak self] in
+            ZNHost.shared.dispatchEvent(0, event: Self.appEventTask, string: ZnModules.json(["id": id, "abort": true]) ?? "{}")
+            self?.finish(id, .timedOut)
+        }
+        task.timeout = timeout
+        tasks[id] = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(task.timeoutMs), execute: timeout)
+        ZNHost.shared.dispatchEvent(0, event: Self.appEventTask, string: json)
+    }
+
+    private func finish(_ id: String, _ outcome: Outcome) {
+        guard let task = tasks.removeValue(forKey: id) else { return }  // timed out already, or a late answer
+        queued.removeAll { $0 == id }
+        task.timeout?.cancel()
+        if let kept = task.keptId { dropKept(kept) }
+        print("zn: task \(task.name): \(outcome.rawValue)")
+        task.onDone(outcome)
+    }
+
+    // MARK: Kept tasks (UserDefaults: a list of { id, name, data, timeoutMs })
+
+    private func keptList() -> [[String: Any]] {
+        UserDefaults.standard.array(forKey: Self.keptKey) as? [[String: Any]] ?? []
+    }
+
+    private func saveKept(_ name: String, _ data: Any?, _ timeoutMs: Int) -> String {
+        let id = UUID().uuidString
+        var entry: [String: Any] = ["id": id, "name": name, "timeoutMs": timeoutMs]
+        if let data, JSONSerialization.isValidJSONObject(["d": data]) { entry["data"] = data }
+        var list = keptList()
+        list.append(entry)
+        if list.count > Self.maxKept { list.removeFirst(list.count - Self.maxKept) }  // the oldest go first
+        UserDefaults.standard.set(list, forKey: Self.keptKey)
+        return id
+    }
+
+    private func dropKept(_ id: String) {
+        UserDefaults.standard.set(keptList().filter { $0["id"] as? String != id }, forKey: Self.keptKey)
+    }
+
+    private func restoreKept() {
+        for entry in keptList() {
+            guard let id = entry["id"] as? String, let name = entry["name"] as? String else { continue }
+            enqueue(Task(name: name, data: entry["data"], timeoutMs: entry["timeoutMs"] as? Int ?? 30_000, keptId: id,
+                         onDone: { _ in }, timeout: nil))
+        }
     }
 }
 

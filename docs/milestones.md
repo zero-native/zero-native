@@ -149,6 +149,21 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-11: iOS i.17: notifications on iOS (notifee's shape) and JS tasks (Claude, Mac; Pavan asked: Phase 3)
+- TS (6a50c8e): `Notifications.show` takes notifee's shape: shared options plus `android: {...}` / `ios: {...}`; the
+  flat Android fields still work (deprecated) and Android's payload is unchanged, so no Kotlin change. New, notifee's
+  iOS calls: `requestPermission({ ios })`, `getNotificationSettings`, badge count calls, notification categories
+  (Android answers false / 0 / []). Plan: docs/ios-notifications-plan.md.
+- iOS: `plugins/notifications/ios/NotificationsPlugin.swift` (UNUserNotificationCenter): show, schedule (one time and
+  repeat), cancel, displayed / scheduled, categories and buttons (typed reply), attachments (imageUrl, 4 s), thread
+  ids, badge, interruption level, foreground presentation; tap → `link` or `onPress` / initial, swipe → `onDismiss`,
+  button → `onAction`. HTML tags are stripped (iOS has no rich text). Android-only calls answer as notifee does on iOS.
+- iOS `Tasks` is real (ZnTasks, as Android's ZnBackground): a queue until JS has loaded, a time limit, one answer;
+  dismiss and button events with no JS running are kept (UserDefaults) and run at the next start.
+- Checked on the iOS Simulator with ZeroBill's lab: permission prompt, "Test push" shows a banner (title HTML
+  stripped, grouped by thread), a tap opens example.com in the in-app browser, a swipe runs `push.dismissed`.
+- Not done yet: FirebaseMessaging on iOS, the server's iOS alert block, the notification service extension.
+
 ### 2026-11-11: Module names follow their plugin; the dashboard groups a bundle's needs (Claude, Mac; Pavan asked)
 - Native modules renamed after their plugin (docs/plugins.md, "Module names"): `Push` → `FirebaseMessaging`,
   `Analytics` → `FirebaseAnalytics`, `Crashlytics` → `FirebaseCrashlytics`, `Perf` → `FirebasePerf`, `RemoteConfig`

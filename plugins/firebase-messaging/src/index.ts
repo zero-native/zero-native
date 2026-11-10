@@ -19,7 +19,7 @@
 // Each call answers with a value and never rejects. With no Firebase (no google-services.json) Push says
 // `available: false`; Notifications still work.
 import { nativeModule, type CallOptions, type PermissionState } from "@zero-native/core"
-import { Notifications, PushEvents, type PushMessage } from "@zero-native/notifications"
+import { Notifications, PushEvents, type IosPermissionOptions, type PushMessage } from "@zero-native/notifications"
 
 // Moved to @zero-native/notifications (2026-11-09): Notifications, PushEvents, their types and task names. Import them
 // from there in new code; this keeps old imports from "@zero-native/firebase-messaging" working.
@@ -99,12 +99,15 @@ export const Push = {
   setAutoInitEnabled: (on: boolean): Promise<boolean> => NativePush.setAutoInitEnabled({ on }, unowned).catch(no),
   isAutoInitEnabled: (): Promise<boolean> => NativePush.isAutoInitEnabled({}, unowned).catch(no),
 
-  /** Android 13+ asks (from a tap: "Turn on notifications"); older Android: granted. The same as Notifications'. */
-  requestPermission: (): Promise<PermissionState> => Notifications.requestPermission(),
+  /**
+   * Android 13+ asks (from a tap: "Turn on notifications"); older Android: granted. iOS asks once, or with [options]
+   * (provisional: no dialog). The same as Notifications'.
+   */
+  requestPermission: (options?: { ios?: IosPermissionOptions }): Promise<PermissionState> => Notifications.requestPermission(options),
   hasPermission: (): Promise<PermissionState> => Notifications.hasPermission(),
 }
 
-/** RN Firebase's `messaging.AuthorizationStatus`, for code that ports over. Android has no "provisional". */
+/** RN Firebase's `messaging.AuthorizationStatus`, for code that ports over. Only iOS has "provisional". */
 export const AuthorizationStatus = { NOT_DETERMINED: -1, DENIED: 0, AUTHORIZED: 1, PROVISIONAL: 2 } as const
 const authorization = (s: PermissionState) => (s === "granted" ? AuthorizationStatus.AUTHORIZED : AuthorizationStatus.DENIED)
 
@@ -119,6 +122,6 @@ export const messaging = () => ({
   getInitialNotification: () => Push.getInitialNotification(),
   onNotificationOpenedApp: (fn: (message: OpenedMessage) => void) => Push.onNotificationOpenedApp(fn),
   setAutoInitEnabled: (on: boolean) => Push.setAutoInitEnabled(on).then(() => undefined),
-  requestPermission: () => Push.requestPermission().then(authorization),
+  requestPermission: (ios?: IosPermissionOptions) => Push.requestPermission(ios ? { ios } : undefined).then(authorization),
   hasPermission: () => Push.hasPermission().then(authorization),
 })
