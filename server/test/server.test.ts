@@ -956,12 +956,15 @@ await writeBundleInfo(out, { app: "${app}", serial, names: ["main.hbc"], require
     let r = await run(["builtin", "--flavor", "staging"])
     expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
     expect(readBundleInfo(join(appDir, "assets")).serial).toBe(1)
+    expect(readBundleInfo(join(appDir, "assets")).serialTaken).toBeUndefined() // taken: a release build may ship it
     // New JS, twice (two test APKs): the same next number both times, and nothing is taken
     for (const js of ["t1", "t2"]) {
       r = await run(["builtin", "--flavor", "staging"], { FAKE_JS: js })
       expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
       expect(r.out).toContain("not taken")
       expect(readBundleInfo(join(appDir, "assets")).serial).toBe(top + 1)
+      // #223: marked, so the app's production release build refuses it
+      expect(readBundleInfo(join(appDir, "assets")).serialTaken).toBe(false)
     }
     expect(await serials()).toBe(before)
     // Offline: dev goes on with serial 0 and a warning; staging and production stop

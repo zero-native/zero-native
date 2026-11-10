@@ -606,6 +606,25 @@ enum ZnOtaHealthRules {
     static func fuseBlown(_ s: State) -> Bool { s.guardFails >= 2 }
 }
 
+/// How the OTA client keeps its outcomes while checks fail (Android: ZnOtaOutcomes.kt; second-opinions #217).
+enum ZnOtaOutcomeRules {
+    /// Keeps at most [max] items, oldest dropped first, but plain ones before serious ones: a serious item goes only
+    /// when nothing else is left to drop. The order of what stays doesn't change.
+    static func trim<T>(_ items: [T], _ max: Int, serious: (T) -> Bool) -> [T] {
+        if items.count <= max { return items }
+        var plainToDrop = min(items.count - max, items.filter { !serious($0) }.count)
+        var seriousToDrop = items.count - max - plainToDrop
+        var kept: [T] = []
+        for item in items {
+            let isSerious = serious(item)
+            if !isSerious && plainToDrop > 0 { plainToDrop -= 1 }
+            else if isSerious && seriousToDrop > 0 { seriousToDrop -= 1 }
+            else { kept.append(item) }
+        }
+        return kept
+    }
+}
+
 // MARK: - JSON helpers
 
 enum ZnJSON {

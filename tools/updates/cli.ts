@@ -373,7 +373,8 @@ async function main() {
           rmSync(work, { recursive: true, force: true })
           process.exit(0) // a request that never answered would keep the process open
         }
-        const info = await setBundleSerial(dir, peek.serial)
+        // Not taken: zn-bundle.json says so, and the app's production release build refuses it (#223)
+        const info = await setBundleSerial(dir, peek.serial, { taken: peek.taken })
         if (info.serial !== peek.serial || info.sha256 !== built.sha256) fail(`setting serial ${peek.serial} changed the bundle (${info.sha256.slice(0, 12)} vs ${built.sha256.slice(0, 12)})`)
         keepMap(c.app, info.sha256, map)
         console.log(
@@ -381,7 +382,8 @@ async function main() {
             ? `✓ built-in bundle #${peek.serial} (${info.id}) for ${flavor}: the same bytes as #${peek.serial} on the server`
             : `✓ built-in bundle #${peek.serial} (${info.id}) for ${flavor}: the next serial, not taken (the next release or store build takes it)`,
         )
-        if (flavor === "production") console.log("  a Play / App Store build: use `bun run updates store-build` instead (it takes the number and uploads the base for patches)")
+        if (flavor === "production" && !peek.taken) console.log("  a Play / App Store build: use `bun run updates store-build` instead (it takes the number and uploads the base for patches). A production release build refuses this bundle.")
+        else if (flavor === "production") console.log("  a Play / App Store build: use `bun run updates store-build` instead (it takes the number and uploads the base for patches)")
       } finally {
         rmSync(work, { recursive: true, force: true })
       }

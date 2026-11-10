@@ -42,6 +42,12 @@ export interface BundleInfo {
   /** Paths relative to the bundle root, with "/" separators. */
   files: Record<string, BundleFile>
   builtAt: string
+  /**
+   * Only `updates builtin` writes it, and only as `false`: the serial is the next free one, looked at but not taken on
+   * the server, so a later OTA bundle may get the same number with other bytes. Fine for test APKs; the app's release
+   * build refuses it for a store build (second-opinions #223). The phone ignores it.
+   */
+  serialTaken?: boolean
 }
 
 function sha256Hex(data: Uint8Array | string): string {
@@ -101,10 +107,13 @@ export function readBundleInfo(dir: string): BundleInfo {
  * Gives a built bundle its released serial (the release CLI takes the next free one only after it knows the bundle is
  * new). The files and their SHA-256 don't change: the serial is only in `zn-bundle.json`, which isn't hashed.
  */
-export async function setBundleSerial(dir: string, serial: number): Promise<BundleInfo> {
+export async function setBundleSerial(dir: string, serial: number, opts: { taken?: boolean } = {}): Promise<BundleInfo> {
   if (!Number.isInteger(serial) || serial < 1) throw new Error(`a released serial is 1 or more, got ${serial}`)
-  const info = { ...readBundleInfo(dir), serial }
+  const info: BundleInfo = { ...readBundleInfo(dir), serial }
   info.id = `${info.app}_${serial}`
+  // A taken serial (the default: release, store-build) never carries an old "not taken" mark
+  if (opts.taken === false) info.serialTaken = false
+  else delete info.serialTaken
   await Bun.write(join(dir, BUNDLE_INFO_FILE), JSON.stringify(info, null, 2) + "\n")
   return info
 }

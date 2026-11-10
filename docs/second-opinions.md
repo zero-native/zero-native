@@ -2512,6 +2512,13 @@ change, and what evidence would make you change it?"
   failure too; the new key then makes every other stored value unreadable (bad tag, deleted). If value files exist and
   the key looks missing, wait and try again, and reject the save instead of making a new key. Evidence: counts of
   `temporarily_unavailable` and of deleted values per Android version.
+- **Built 2026-11-10 (Opus, Pavan's "get all small fixes done"): case (2) only.** `ZnSecureStore.secretKey`: when
+  `getEntry` gives nothing but the Keystore still lists the key (`containsAlias`), reads and saves throw
+  `KeyNotLoaded` (a ProviderException, so "passes": nothing deleted, no new key, JS gets `temporarily_unavailable`).
+  With no stored value a save may still replace the key. Test: `ZnSecureStoreTest.aListedKeyThatDidNotLoadKeepsEverything`.
+  Left: a key that stays listed but never loads would then fail every time (the app's "Log in again" covers it).
+  **Case (1) not changed:** treating `UnrecoverableKeyException` as passing could leave a really lost key failing
+  forever; first count it in the field (per Android version and maker), then decide.
 ## 153. `ZnSplash.holdUntilReady`: hold Android's splash until NAV STARTED, 1 s cap (runtime, 2026-11-07; R53 from app-home-tabs, Pavan's pick "(b)")
 - **What:** a pre-draw listener on the Activity's content view cancels frames until `ZnNav.firstScreensUp` (set by
   NAV STARTED, or by START handled for a host API 2 bundle; reset when new first screens are opened) or until
@@ -3034,6 +3041,9 @@ change, and what evidence would make you change it?"
 - **Reviewed 2026-11-10 (Fable 5.2):** concern (known, parked): the 3-button case is not fixed and Android 16 is not
   tested. For the first Play release the safe choice is to turn predictive back off in the ZeroBill manifest
   (`tools:replace`, one line) and turn it on again when the fix is in. Not a blocker: no Back is lost today.
+- **ZeroBill, 2026-11-10 (Pavan):** off for the first Play release (`enableOnBackInvokedCallback="false"` with
+  `tools:replace` in its manifest). Turning it on again is that line only, in a new APK: the JS bundle's needs don't
+  change, so OTA bundles keep reaching both APKs. The framework keeps it on.
 
 ## 185. Linking.openURL opens any app's link, as in RN (runtime, 2026-11-08; Pavan + Opus)
 - **Problem:** `Os.openUrl` / `Linking.openURL` opened only http, https, mailto and tel (entry 13), so an OTA bundle
@@ -3478,6 +3488,10 @@ change, and what evidence would make you change it?"
   pushes its `launch_crashed` / `error_rollback` outcomes out before they reach the server. Fix: count failed checks
   in one outcome (or don't store network failures), and never drop a serious outcome for a plain one. Also load-test:
   every return is one `/v1/check` with two database writes.
+- **Built 2026-11-10 (Opus):** both parts, Android and iOS. The same failed-check outcome again (same kind, no
+  bundle, not serious) replaces the last one instead of adding one; the saved list drops plain outcomes before serious
+  ones (`ZnOtaOutcomes.kt` + `ZnOtaOutcomesTest`, iOS `ZnOtaOutcomeRules` + `ios/tests/ota`). No server change: a
+  repeated failure now counts once on the dashboard. The load test is still open.
 
 ## 218. Release builds ship every CPU type, 32-bit ARM included (runtime + ZeroBill, 2026-11-10; Opus, Pavan's ask)
 - **Chosen:** release builds `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` (`-PznArm64Only` for a quick local build).
@@ -3586,3 +3600,7 @@ change, and what evidence would make you change it?"
   phone's own `serial <= builtIn` rule), with no error. Fix: write "taken: false" next to the bundle and make the
   release Gradle task refuse it for production; or count an equal serial as "APK newer" only when the SHA-256 is the
   same.
+- **Built 2026-11-10 (Opus):** option (a). `updates builtin` writes `"serialTaken": false` into `zn-bundle.json`
+  when the serial is only the next free one (the phone ignores the field); ZeroBill's Gradle check refuses it for
+  `mergeProductionReleaseAssets` (`-PznAllowUntakenSerial` for a local test build). Option (b) not done. iOS: no Xcode
+  check yet (an IPA for the App Store must come from `store-build` too).

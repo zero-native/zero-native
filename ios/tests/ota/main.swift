@@ -523,6 +523,16 @@ test("atomicWritesLeaveTheNewTextAndNoTempFile") {
     eq(ZnOtaFiles.readText(file), "sample_5")
     eq(try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path), ["current"])
 }
+// #217: failed checks must not push serious outcomes out (Android: ZnOtaOutcomesTest)
+test("aCrashSurvives25FailedChecks") {
+    let items = ["!launch_crashed"] + (0..<25).map { "failed\($0)" }
+    let kept = ZnOtaOutcomeRules.trim(items, 20) { $0.hasPrefix("!") }
+    eq(kept.count, 20)
+    eq(kept.first, "!launch_crashed")
+    eq(kept.last, "failed24")
+    eq(ZnOtaOutcomeRules.trim(["!crash", "f1", "f2", "f3", "!rollback", "f4"], 4) { $0.hasPrefix("!") }, ["!crash", "f3", "!rollback", "f4"])
+    eq(ZnOtaOutcomeRules.trim((0..<25).map { "!s\($0)" }, 20) { $0.hasPrefix("!") }, (5..<25).map { "!s\($0)" })
+}
 
 try? FileManager.default.removeItem(at: root)
 print(failures == 0 ? "ok: \(count) tests" : "\(failures) failure(s) in \(count) tests")

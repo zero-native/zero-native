@@ -75,7 +75,9 @@ and a boolean back, JS reads all three with their types.
   `"temporarily_unavailable"` and **nothing is deleted**; `SecureStore.isTemporary(e)` tells it. Saving never makes a
   new key for a failure known to pass (it would make every other value unreadable). Before, any Keystore error deleted
   the value, and an app that logs out on "no token" signed the user out and wiped their data on such a phone. Android
-  13+ also uses the Keystore's own code and "transient" flag. The rules: `ZnSecureStore.Rules`, `ZnSecureStoreTest`.
+  13+ also uses the Keystore's own code and "transient" flag. A key the Keystore still lists but doesn't load (an
+  empty answer on old phones) counts as "can't right now" too: no new key is made while values are stored
+  (2026-11-10, second-opinions #152). The rules: `ZnSecureStore.Rules`, `ZnSecureStoreTest`.
   **App rule:** on `isTemporary`, keep the user signed in, retry, and offer "Log in again" (a key really broken in a
   way the phone doesn't tell would otherwise keep failing).
 

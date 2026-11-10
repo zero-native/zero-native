@@ -51,4 +51,10 @@ class ZnSecureStoreTest {
         assertFalse(Rules.passes(InvalidKeyException("Keystore operation failed")))
         assertFalse(Rules.passes(UnrecoverableKeyException("Failed to obtain information about key")))
     }
+
+    @Test fun aListedKeyThatDidNotLoadKeepsEverything() {
+        // #152 case 2: the Keystore lists the key but gave no entry. Reads keep the value, saves make no new key.
+        assertFalse(Rules.lostForGood(ZnSecureStore.KeyNotLoaded()))
+        assertTrue(Rules.passes(ZnSecureStore.KeyNotLoaded()))
+    }
 }

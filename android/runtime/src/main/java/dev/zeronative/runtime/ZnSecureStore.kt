@@ -64,6 +64,12 @@ object ZnSecureStore : ZnModuleBase("SecureStore") {
     internal class NoKey : Exception("no Keystore key")
 
     /**
+     * The Keystore lists our key but gave no entry for it: a Keystore problem now, not a lost key. A ProviderException,
+     * so [Rules] treats it as one that passes: nothing is deleted and no new key is made.
+     */
+    internal class KeyNotLoaded : ProviderException("the Keystore lists the key but did not load it")
+
+    /**
      * What an error means for a stored value (ZnSecureStoreTest). Only [lostForGood] errors delete anything; when in
      * doubt the value is kept. Wrongly keeping a broken value costs a "try again" the app can offer with "log in
      * again"; wrongly deleting a good one signs the user out for nothing.
@@ -234,7 +240,17 @@ object ZnSecureStore : ZnModuleBase("SecureStore") {
     private fun keyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
     private fun secretKey(create: Boolean): SecretKey? {
-        (keyStore().getEntry(ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        val ks = keyStore()
+        (ks.getEntry(ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        // No entry came back, but the Keystore still lists the key: a Keystore problem now, not a lost key. A new key
+        // here would make every stored value unreadable, a silent sign-out (second-opinions #152, case 2; Fable's
+        // review, 2026-11-10). Reads and saves reject with "temporarily_unavailable" instead. With no stored value
+        // there is nothing to lose, so a save may replace the key.
+        if (ks.containsAlias(ALIAS)) {
+            if (!create || hasValues()) throw KeyNotLoaded()
+            Log.w(TAG, "SecureStore: the Keystore lists the key but did not load it, and no value is stored; making a new one")
+            ks.deleteEntry(ALIAS)
+        }
         if (!create) return null
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         generator.init(
@@ -246,6 +262,9 @@ object ZnSecureStore : ZnModuleBase("SecureStore") {
         )
         return generator.generateKey()
     }
+
+    /** True when at least one value is stored (a temp file of a save cut short doesn't count). */
+    private fun hasValues(): Boolean = dir.listFiles()?.any { it.isFile && !it.name.endsWith(".tmp") } == true
 
     private fun fileFor(key: String): File {
         val hash = MessageDigest.getInstance("SHA-256").digest(key.toByteArray(Charsets.UTF_8))

@@ -2977,3 +2977,8 @@ since 2026-11-09; every other module call (Os, SecureStore, Updates, NetInfo, al
   shows the next free one without taking it. Offline, dev keeps 0 with a warning; staging / production stop.
 - **Do** add a Gradle check that refuses release flavors with serial 0 (ZeroBill's `android/app/build.gradle.kts`, the
   `merge…Assets` check), so a forgotten step fails the build instead of reaching phones.
+- **Don't** send a build made with `updates builtin` to Play or the App Store when it says "not taken". **Why:** that
+  serial is only the next free one; a later OTA bundle may get the same number with other bytes, and every phone on
+  that build then skips it for good (second-opinions #223). `builtin` writes `"serialTaken": false` into
+  `zn-bundle.json`; the same Gradle check should refuse it for the production release build (ZeroBill does, with
+  `-PznAllowUntakenSerial` for a local test build). A store build uses `updates store-build`, which takes the number.

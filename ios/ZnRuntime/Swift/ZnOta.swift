@@ -752,6 +752,11 @@ final class ZnOta: @unchecked Sendable {
             let e = error as? ZnOtaError ?? ZnOtaError("failed", "\(error)")
             print("zn-ota: check failed (\(e.code)): \(e.message)")
             stateLock.withLock {
+                // The same failure again (offline, every return) takes the last one's place, not a new one (#217)
+                if let last = st.outcomes.last, last["bundle"] == nil, !Self.serious.contains(e.code),
+                   last["kind"] as? String == e.code {
+                    st.outcomes.removeLast()
+                }
                 outcome(st, e.code, nil, e.message)
                 st.lastCheckAt = Int64(Date().timeIntervalSince1970 * 1000)
                 st.lastError = "\(e.code): \(e.message)"
@@ -1062,7 +1067,7 @@ final class ZnOta: @unchecked Sendable {
 
     private func saveState(_ st: OtaState) {
         let j: [String: Any] = [
-            "installId": st.installId, "seq": st.seqs, "outcomes": Array(st.outcomes.suffix(Self.maxOutcomes)),
+            "installId": st.installId, "seq": st.seqs, "outcomes": ZnOtaOutcomeRules.trim(st.outcomes, Self.maxOutcomes) { Self.serious.contains($0["kind"] as? String ?? "") },
             "lastRunning": st.lastRunning ?? "", "lastCheckAt": st.lastCheckAt, "lastResult": st.lastResult ?? "",
             "lastError": st.lastError ?? "", "nextPriority": st.nextPriority, "store": st.store ?? "",
             "storeFor": st.storeFor, "storeAt": st.storeAt,

@@ -387,6 +387,11 @@ object ZnOta {
             val code = (e as? ZnOtaError)?.code ?: "failed"
             Log.w(TAG, "check failed ($code): ${e.message}")
             synchronized(stateLock) {
+                // The same failure again (offline, every return) takes the last one's place, not a new one (#217)
+                val last = st.outcomes.lastOrNull()
+                if (ZnOtaOutcomes.sameFailureAgain(last?.optString("kind"), last?.has("bundle") == true, code, code in SERIOUS)) {
+                    st.outcomes.removeAt(st.outcomes.size - 1)
+                }
                 outcome(st, code, null, e.message)
                 st.lastCheckAt = System.currentTimeMillis()
                 st.lastError = "$code: ${e.message}"
@@ -810,7 +815,7 @@ object ZnOta {
     }
 
     private fun saveState(st: State) {
-        val j = JSONObject().put("installId", st.installId).put("seq", st.seqs).put("outcomes", JSONArray(st.outcomes.takeLast(MAX_OUTCOMES)))
+        val j = JSONObject().put("installId", st.installId).put("seq", st.seqs).put("outcomes", JSONArray(ZnOtaOutcomes.trim(st.outcomes, MAX_OUTCOMES) { it.optString("kind") in SERIOUS }))
             .put("lastRunning", st.lastRunning ?: "").put("lastCheckAt", st.lastCheckAt)
             .put("lastResult", st.lastResult ?: "").put("lastError", st.lastError ?: "").put("nextPriority", st.nextPriority)
             .put("store", st.store ?: "").put("storeFor", st.storeFor).put("storeAt", st.storeAt)
