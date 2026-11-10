@@ -148,6 +148,25 @@ forwards them to the Android machine. Work on the `ios` branch.
 | Core plugin parts and the official plugins on the phone (~15 min without hands) | `bun run tools/plugin-phone.ts --no-hands`, then `--hands` | `tools/plugin-phone/` |
 
 ## Log
+### 2026-11-11: iOS App Store build for ZeroBill (Claude, Mac; Pavan asked)
+- **Privacy manifests:** zero-native's own (`ios/ZnRuntime/ZnRuntime_Privacy.bundle`: UserDefaults CA92.1, file
+  timestamps C617.1, disk space E174.1, from `nm -u` of the app and the sources); Hermes's, written into each iOS slice of
+  hermesvm.framework by `fetch-hermes-apple.ts` (also when already fetched); Firebase's nine `*_Privacy.bundle`s, which
+  static frameworks can't bring along. The Flutter app on the store ships the same Firebase ones (and none of its own).
+- **ZeroBill** (its CMakeLists.txt, tools/ios.ts): release Hermes by `-DZN_HERMES_FLAVOR=release` (a Release build
+  with debug Hermes stops); Release makes a dSYM and uploads it to Crashlytics after every iPhone Release build
+  (`upload-dsym.cmake`, `-DZB_UPLOAD_SYMBOLS=OFF` to skip); an archive scheme with only the app installed;
+  `tools/ios.ts --release [--upload]` archives and exports for the App Store; `ITSAppUsesNonExemptEncryption` false;
+  the Sign in with Apple capability as the Flutter app (entitlement only).
+- Checked: iPhone Release build (signing off): 10 privacy bundles in the app, dSYM UUID matches, dSYM uploaded,
+  Info.plist production / 2.0.0 / 169; simulator Release build: signature valid over the bundles (copied before
+  signing); it starts with release Hermes and draws Welcome (splash 365 ms).
+- **Blocked on this Mac:** `xcodebuild archive` and the app icon's asset catalog both need the iOS 26.2 platform (Xcode
+  > Settings > Components; only the 18.0 simulator runtime is installed). No Apple Distribution certificate yet: the
+  export makes one with Pavan's account signed in to Xcode. The new Sign in with Apple entitlement updates the app id's
+  profile at the first signed build.
+- Not done: the zn sample's CMakeLists.txt has none of this yet (ZeroBill's is the App Store app).
+
 ### 2026-11-11: iOS TextField: autofill hints (Claude, Mac; Pavan asked)
 - `autoComplete` reached iOS's TextField as a registry value but was never read, so the login's phone field had no
   hint and the keyboard never offered the user's own number. ZnTextField now sets `textContentType` from it (all three

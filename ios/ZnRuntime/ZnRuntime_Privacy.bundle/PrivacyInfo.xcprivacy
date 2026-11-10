@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- zero-native's own privacy manifest: the runtime (ios/ZnRuntime), the C++ core (MMKV) and the zero-native plugins,
+     all compiled into the app. A resource bundle, as static SDKs ship theirs (Firebase's *_Privacy.bundle): the app's
+     CMakeLists.txt copies it into the app. The app's own code and the data it collects go in the app's own manifest.
+     Apple's required-reason APIs, what uses them, and why (keep in step when a use is added):
+     - UserDefaults (CA92.1, the app's own values): ZnBuiltInModules' new-install marker.
+     - File timestamps (C617.1, files inside the app's container): MMKV's stat / fstat / lstat; ZnOta's app-binary date
+       (a new store build); device-info's first install time (the Documents folder's creation date).
+     - Disk space (E174.1, check space before writing files): ZnOta checks free space before a bundle download. -->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

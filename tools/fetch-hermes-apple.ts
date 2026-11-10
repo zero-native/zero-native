@@ -8,7 +8,11 @@
 // The tarball comes from Maven Central (which redirects to Meta's repo.reactnative.dev) and must match the SHA-256
 // pinned below, from Maven Central's own .sha256 files. When upgrading Hermes, change VERSION and both hashes together
 // with android/runtime's hermes-android, hermes-compiler in package.json and core/third_party/jsi.
-import { existsSync, mkdirSync, rmSync } from "node:fs"
+//
+// Meta's hermesvm.framework has no privacy manifest, and Apple wants one from Hermes (it is on Apple's list of SDKs
+// that need one). This tool writes it into every iOS slice, also when Hermes was fetched before, so the app embeds
+// (and signs) the framework with it.
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 const VERSION = "260318099.0.5"
@@ -23,8 +27,52 @@ if (!(flavor in SHA256)) throw new Error(`unknown flavor "${flavor}" (debug or r
 const root = join(import.meta.dir, "..")
 const outDir = join(root, "ios/third_party/hermes", flavor)
 const marker = join(outDir, `.version-${VERSION}`)
+/**
+ * Hermes's own required-reason APIs (`nm -u hermesvm`: stat, fstat, for the bytecode files it maps, inside the app's
+ * container: C617.1). It collects nothing and tracks nothing.
+ */
+const PRIVACY = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>NSPrivacyTracking</key>
+\t<false/>
+\t<key>NSPrivacyTrackingDomains</key>
+\t<array/>
+\t<key>NSPrivacyCollectedDataTypes</key>
+\t<array/>
+\t<key>NSPrivacyAccessedAPITypes</key>
+\t<array>
+\t\t<dict>
+\t\t\t<key>NSPrivacyAccessedAPIType</key>
+\t\t\t<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+\t\t\t<key>NSPrivacyAccessedAPITypeReasons</key>
+\t\t\t<array>
+\t\t\t\t<string>C617.1</string>
+\t\t\t</array>
+\t\t</dict>
+\t</array>
+</dict>
+</plist>
+`
+
+/** Writes PRIVACY into each iOS slice's hermesvm.framework (device, simulator, Mac Catalyst). */
+function writePrivacyManifests(): void {
+  const xcf = join(outDir, "destroot/Library/Frameworks/universal/hermesvm.xcframework")
+  let n = 0
+  for (const slice of readdirSync(xcf)) {
+    if (!slice.startsWith("ios-")) continue
+    const fw = join(xcf, slice, "hermesvm.framework")
+    if (!existsSync(fw)) continue
+    writeFileSync(join(fw, "PrivacyInfo.xcprivacy"), PRIVACY)
+    n++
+  }
+  console.log(`hermes (${flavor}): privacy manifest in ${n} iOS slice(s)`)
+}
+
 if (existsSync(marker)) {
   console.log(`hermes ${VERSION} (${flavor}) already in ${outDir}`)
+  writePrivacyManifests()
   process.exit(0)
 }
 
@@ -46,5 +94,6 @@ await Bun.write(tarball, bytes)
 const tar = Bun.spawnSync(["tar", "-xzf", tarball, "-C", outDir, "destroot/include", "destroot/Library", "LICENSE"])
 if (tar.exitCode !== 0) throw new Error(`tar failed: ${tar.stderr.toString()}`)
 rmSync(tarball)
+writePrivacyManifests()
 await Bun.write(marker, "")
 console.log(`hermes ${VERSION} (${flavor}) → ${outDir} (${(bytes.length / 1e6).toFixed(1)} MB download)`)
