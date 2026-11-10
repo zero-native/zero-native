@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { nativeModuleUses, platformsOf } from "../src/modules"
+import { nativeModuleUses, platformsOf, stableFileKey } from "../src/modules"
 import { buildApp } from "../src/build-app"
 import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
 
@@ -97,6 +97,42 @@ describe("per-OS needs (docs/ota-requires-per-os.md)", () => {
       expect(sorted(platformsOf(pkg("lib")))).toEqual(["android", "ios"]) // not a plugin
       expect(sorted(platformsOf(pkg("bare", {})))).toEqual(["android", "ios"]) // a plugin with no native side yet
       expect(() => platformsOf(pkg("bad", { platforms: ["web"] }))).toThrow("zeroNative.platforms")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("stableFileKey: template ids don't depend on where the folders are", () => {
+  test("the same app and plugin give the same keys and order on two machines", () => {
+    const root = mkdtempSync(join(tmpdir(), "zn-stable-key-"))
+    try {
+      // Machine A: the framework sorts before the app by absolute path; machine B: after it (the 2026-11-10 case).
+      const machines = {
+        a: { plugin: join(root, "a", "Futuristic", "zero-native", "plugins", "lottie"), app: join(root, "a", "projects", "shop") },
+        b: { plugin: join(root, "b", "zz", "zero-native", "plugins", "lottie"), app: join(root, "b", "projects", "shop") },
+      }
+      const keys: Record<string, string[]> = {}
+      for (const [m, p] of Object.entries(machines)) {
+        mkdirSync(join(p.plugin, "src"), { recursive: true })
+        mkdirSync(join(p.app, "app", "src"), { recursive: true })
+        writeFileSync(join(p.plugin, "package.json"), JSON.stringify({ name: "@zero-native/lottie" }))
+        writeFileSync(join(p.app, "package.json"), JSON.stringify({ name: "shop" }))
+        keys[m] = [join(p.app, "app", "src", "Home.tsx"), join(p.plugin, "src", "index.tsx")].map(stableFileKey).sort()
+      }
+      expect(keys.a).toEqual(["@zero-native/lottie/src/index.tsx", "shop/app/src/Home.tsx"])
+      expect(keys.b).toEqual(keys.a)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("a package.json without a name uses its folder's name", () => {
+    const root = mkdtempSync(join(tmpdir(), "zn-stable-key-"))
+    try {
+      mkdirSync(join(root, "myapp", "src"), { recursive: true })
+      writeFileSync(join(root, "myapp", "package.json"), JSON.stringify({ private: true }))
+      expect(stableFileKey(join(root, "myapp", "src", "A.tsx"))).toBe("myapp/src/A.tsx")
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

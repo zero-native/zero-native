@@ -4,7 +4,7 @@
 // literal; the version a number literal (default 1, as in calls.ts).
 import ts from "typescript"
 import { existsSync, readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { basename, dirname, join, relative } from "node:path"
 
 export interface ModuleUse {
   name: string
@@ -192,4 +192,47 @@ export function packageOf(fileName: string): string {
   }
   for (const d of seen) packageNames.set(d, name)
   return name
+}
+
+/** Folder → its nearest package.json folder and that package's name (memo for stableFileKey). */
+const packageRoots = new Map<string, { root: string; name: string } | null>()
+
+/**
+ * A name for [fileName] that is the same on every machine: "<package name>/<path inside the package>", with "/"
+ * separators ("@zero-native/lottie/src/index.tsx", "my-app/app/src/main.ts"). Template ids are
+ * sorted by it, so the same code builds the same bytes on Windows and on a Mac (the absolute path put a linked
+ * plugin before the app on one and after it on the other, 2026-11-10). A file with no package.json above it keeps
+ * its own path.
+ */
+export function stableFileKey(fileName: string): string {
+  if (!fileName) return ""
+  let dir = dirname(fileName)
+  const seen: string[] = []
+  let found: { root: string; name: string } | null = null
+  for (;;) {
+    const known = packageRoots.get(dir)
+    if (known !== undefined) {
+      found = known
+      break
+    }
+    seen.push(dir)
+    const pkgPath = join(dir, "package.json")
+    if (existsSync(pkgPath)) {
+      let name = ""
+      try {
+        const n = (JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: unknown }).name
+        name = typeof n === "string" ? n : ""
+      } catch {
+        name = ""
+      }
+      found = { root: dir, name: name || basename(dir) }
+      break
+    }
+    const up = dirname(dir)
+    if (up === dir) break
+    dir = up
+  }
+  for (const d of seen) packageRoots.set(d, found)
+  if (!found) return fileName.replaceAll("\\", "/")
+  return `${found.name}/${relative(found.root, fileName).replaceAll("\\", "/")}`
 }

@@ -10,7 +10,7 @@ import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
 import { compileModule, type ComponentRoots, type OnceTrap, type PropUse } from "./compile"
 import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
-import { BOTH_OSES, CORE_PACKAGE, nativeModuleUses, packageOf, platformsOf, type ModuleOs } from "./modules"
+import { BOTH_OSES, CORE_PACKAGE, nativeModuleUses, packageOf, platformsOf, stableFileKey, type ModuleOs } from "./modules"
 import { compileDerives } from "./motion"
 import { fontFamilyProblem, type FontTable } from "./fonts"
 import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
@@ -167,10 +167,13 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
     plugin,
     maps,
     outputs(js: string) {
-      // Final ids: by file path, then by order in the file.
+      // Final ids: by file (its package name and path inside the package, the same on every machine; modules.ts
+      // stableFileKey), then by order in the file.
+      const keys = new Map<string, string>()
+      const keyOf = (file: string) => keys.get(file) ?? keys.set(file, stableFileKey(file)).get(file)!
       const order = reservedBy
-        .map((r, reservation) => ({ ...r, reservation }))
-        .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.seq - b.seq))
+        .map((r, reservation) => ({ ...r, key: keyOf(r.file), reservation }))
+        .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.seq - b.seq))
       const finalId: number[] = []
       order.forEach((r, id) => (finalId[r.reservation] = id))
       const finalSpecs = order.map((r) => specs[r.reservation])
