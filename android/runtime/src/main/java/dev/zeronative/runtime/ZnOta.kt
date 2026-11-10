@@ -90,6 +90,12 @@ object ZnOta {
         /** Wait after the app comes on screen before the first check, so startup is never slowed. */
         val firstCheckDelayMs: Long = 3_000L,
         /**
+         * Wait before the check when the app comes back to the front (not its first time on screen in this process).
+         * Nothing starts up then, and the same call brings the store update answer, so a forced store update shows
+         * soon after the return (Pavan, 2026-11-10: 3 s → 1 s). Still long enough to let the screen settle first.
+         */
+        val returnCheckDelayMs: Long = 1_000L,
+        /**
          * A downloaded bundle is healthy once its first screens were up this long while the app is in the foreground
          * (step 4.7). 0: only when JS calls `Updates.markHealthy()` (for an app whose first screen loads its data).
          */
@@ -123,7 +129,13 @@ object ZnOta {
         val launchCapCriticalMs: Long = 5_800L,
         /** How the update screen looks: its words and the brand colour of its progress bar. */
         val updateScreen: ZnUpdateScreen = ZnUpdateScreen(),
-    )
+    ) {
+        /**
+         * How long the automatic check waits once the app is on screen: [firstCheckDelayMs] the first time in this
+         * process (a cold start, where startup must not be slowed), [returnCheckDelayMs] when it comes back.
+         */
+        fun autoCheckDelayMs(returning: Boolean): Long = if (returning) returnCheckDelayMs else firstCheckDelayMs
+    }
 
     @Volatile private var config: Config? = null
     private lateinit var appContext: Context
@@ -195,10 +207,12 @@ object ZnOta {
         // background), and the last one leaving it (not a rotation: that Activity comes back at once).
         (appContext as Application).registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             private var started = 0
+            private var frontBefore = false
             override fun onActivityStarted(activity: Activity) {
                 if (started++ == 0) {
                     onFront()
-                    maybeAutoCheck()
+                    config?.let { maybeAutoCheck(it.autoCheckDelayMs(returning = frontBefore)) }
+                    frontBefore = true
                 }
             }
             override fun onActivityStopped(activity: Activity) {
@@ -219,14 +233,14 @@ object ZnOta {
         deliverSoon() // safety-net events noted before OTA was turned on
     }
 
-    private fun maybeAutoCheck() {
+    private fun maybeAutoCheck(delayMs: Long) {
         val c = config ?: return
         val now = SystemClock.elapsedRealtime()
         if (checkQueued || (lastAutoCheck != 0L && now - lastAutoCheck < maxOf(c.checkIntervalMs, c.minCheckGapMs))) return
         lastAutoCheck = now
         checkQueued = true
-        // A few seconds after the app comes on screen: never in the way of startup or of the screen opening.
-        main.postDelayed({ worker.execute { checkQueued = false; runCheck() } }, c.firstCheckDelayMs)
+        // After the app comes on screen: never in the way of startup or of the screen opening.
+        main.postDelayed({ worker.execute { checkQueued = false; runCheck() } }, delayMs)
     }
 
     /** Main thread: an Activity of this process was created already (the launch gate runs once per process). */

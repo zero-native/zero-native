@@ -3020,3 +3020,11 @@ since 2026-11-09; every other module call (Os, SecureStore, Updates, NetInfo, al
   an absolute `M` after every `z`, and the Android runtime fixes the same in path data it reads (canvas `path` /
   `clipPath`, `Icon`).
 - **Do** check new icons on an Android 9 phone or the API 24 emulator when an icon looks odd only on old phones.
+
+## 95. The update check after a return waits 1 s, not 3 s (`ZnOta.Config.returnCheckDelayMs`, 2026-11-10)
+- **Know** that the automatic update check waits `firstCheckDelayMs` (3 s) only the first time the app is on screen in a
+  process (a cold start: startup first), and `returnCheckDelayMs` (1 s) when it comes back from the background. **Why:**
+  the store update answer comes with that check, so a forced Play update used to open about 4 s after a return (seen on
+  the Lava with ZeroBill's AABs); now about 1.5 s.
+- **Don't** set `returnCheckDelayMs` to 0 without a reason: the second right after a return is when the screen settles
+  and a quick trip to the UPI app comes back.

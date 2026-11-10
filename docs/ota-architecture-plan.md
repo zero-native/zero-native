@@ -108,7 +108,7 @@ same app, serial above the built-in one, all code files there, sizes match, capa
   15 s (`plugins/firebase-messaging/.../ZnMessagingService.kt:22, 53-61`); off with `PushPlugin(otaCheck = false)`.
 - Downloads resume with `Range` (`download.part` + `download.json`, `ZnOta.kt:425-474`). Zips are served
   `public, max-age=31536000, immutable`, ETag = zip SHA, Range 206/416 (`tools/ota/server.ts:139-163`).
-- Config in code: `ZnOta.Config(server, channel, publicKeys, checkIntervalMs, firstCheckDelayMs, healthyAfterMs,
+- Config in code: `ZnOta.Config(server, channel, publicKeys, checkIntervalMs, firstCheckDelayMs, returnCheckDelayMs, healthyAfterMs,
   firstScreenTimeoutMs, onReport, redact)` (`ZnOta.kt:71-99`).
 
 ### 2.4 Signing
