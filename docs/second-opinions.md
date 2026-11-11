@@ -3688,3 +3688,21 @@ change, and what evidence would make you change it?"
   the shape's start on `z` (SVG's rule), so a relative `m` after `z` is right; Core Graphics never sees a relative move.
   Morphs (`ZnSvgMorph` in `ZnSvgGeometry.swift`) use absolute `M` / `Z` only. The compiler fix also covers it. Rule for
   a new parser on any platform: after `z`, the current point is the shape's start.
+
+## 228. The runtime's Baseline Profile is wide: our classes plus the libraries we use (runtime, 2026-11-11; Opus, Pavan's lean)
+- **Where:** the `baselineProfile { filter { } }` block in `android/runtime/build.gradle.kts`; the profile in
+  `android/runtime/src/main/generated/baselineProfiles/baseline-prof.txt`; journeys in `android/baselineprofile/`.
+- **Problem:** list scroll lagged on a slow Android 9 phone (Infinix). A JIT trace while scrolling ZeroBill showed 499
+  methods compiled on the phone during the first flings, 99 of them ours; ZeroBill's merged profile had 0 rules for
+  `dev/zeronative`. The runtime's profile had never been recorded (the Lava drops the "save profile" broadcast).
+- **Choices:** (a) runtime only (`dev.zeronative.runtime.**`; Compose and the others ship their own profiles), or
+  (b) wide: also `androidx.compose.**`, `kotlinx.coroutines.**`, `kotlin.**`, `coil3.**`, `okhttp3.**`, `okio.**`.
+- **Chosen: (b).** The libraries' own profiles cover their common paths, not the paths our renderer, lists, sheets and
+  image loading take; most of the 400 non-zn methods in the trace were Compose and Kotlin. The phone compiles those
+  methods anyway once the app is used, so ahead-of-time only moves the work to install time. Pavan leaned to wide
+  ("your call").
+- **Cost:** a bigger compiled file on the phone (odex) and a longer install-time compile. Size: 24,679 lines, of them 2,706 for `dev/zeronative` (Compose ~16,700, Kotlin ~4,000, coroutines ~1,800, OkHttp ~1,500, Coil ~1,100, Okio ~470; a method line can name two of them). Two packages only the sample uses are excluded (`kotlinx.coroutines.tasks`, `kotlinx.serialization.json`; the `kotlin.**` include also takes `kotlinx.*`). The AAR's `baseline-prof.txt` is 2.7 MB of text; the compiled size on a phone is not measured yet (the before / after test).
+- **Risk if wrong:** more odex for methods some apps never run (an app with no lists still gets the list rules).
+  Lambda classes (`$$ExternalSyntheticLambdaN`) are numbered per build, so those rules may not match in an app's R8
+  build; R8 should keep a lambda's rules when its outer method is in the profile (to check in the before / after test).
+- **Change:** remove includes from the filter and record again (`bun run tools/baseline-profile.ts`).

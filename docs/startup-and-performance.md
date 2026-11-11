@@ -16,6 +16,13 @@ measurement methods and every number measured so far.
    read into a Java byte array and copied. [check the best Hermes API for this]
 6. **Baseline Profiles on by default.** The framework ships profiles for Compose and the zn runtime; apps generate
    their own for their screens. (v0 exp 2: 191 ms without vs 158 ms with ahead-of-time compilation.)
+   The runtime's profile is `android/runtime/src/main/generated/baselineProfiles/baseline-prof.txt` (committed;
+   every app's build merges it). It is recorded by driving the sample on an emulator, never on the Lava:
+   `bun run tools/baseline-profile.ts`. The journey: start, Home's list flings, a merchant → amount screen → keypad
+   → UPI sheet, Offers flings with a sideways rail, the tabs lab, the components screen, typing in an input. It keeps
+   our classes **and** the parts of Compose, coroutines, Kotlin, Coil, OkHttp and Okio that this journey runs
+   ("wide", second-opinions 228). Record again after big runtime changes; `ZnBaselineProfileTest` fails when a class
+   in it no longer exists. It reaches users only with a new store build (an OTA bundle can't carry it).
 7. **One JS runtime per process** (ARCHITECTURE §8.2). Recreating an Activity must not restart JS.
 8. **Startup budget:** ≤ 250 ms `am start` TotalTime on the Lava Blaze 2 5G for a release build of a sample app
    (Flutter 1.6.0 measures ~300–330 ms on the same phone).

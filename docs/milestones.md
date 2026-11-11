@@ -149,6 +149,34 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-11: the runtime's Baseline Profile, recorded (Claude, Windows; from the Infinix list-lag finding)
+- First real runtime profile (startup rule 6): `android/runtime/src/main/generated/baselineProfiles/baseline-prof.txt`,
+  24,679 lines, 2,706 of them `dev/zeronative`. Every app's release build merges it. It reaches users only with a new store build.
+- Recorded on the Android 13 emulator, never on the Lava (its ROM drops the "save profile" broadcast). One command:
+  `bun run tools/baseline-profile.ts` (starts the emulator with no window, sets ANDROID_SERIAL so a phone on adb is
+  never used, records, prints the counts, shuts the emulator down). About 50 minutes: the start-up test was stable after
+  6 rounds, the journeys test ran all 15 rounds (never stable on the emulator).
+- The plugin writes a library's profile to `src/main/generated/`, not `src/release/generated/` (the hand-over guessed
+  the second). The release AAR carries it as `baseline-prof.txt`.
+- Journeys (`android/baselineprofile/`): start onto Home and its list flings (also the start-up profile); a merchant row,
+  the keypad, "Pay Now →" and the UPI sheet; Offers flings with a sideways rail; the tabs lab (data from
+  `tools/fetch-test-server.ts`); the components screen; typing in an input. `StartupBenchmark` and `TypingBenchmark`
+  waited for the old start screen ("Enter Amount"); now they wait for Home and open the amount screen.
+- Wide filter: our classes plus Compose, coroutines, Kotlin, Coil, OkHttp, Okio (second-opinions 228). Two packages only
+  the sample's plugins use are excluded (`kotlinx.coroutines.tasks`, `kotlinx.serialization.json`).
+- `ZnBaselineProfileTest` fails when a class in the profile no longer exists (lambda classes skipped): record again.
+  Checked: it failed on the first merge (35 sample-only classes), passes now; 328 runtime unit tests pass.
+- The journey's "Pay Now →" step now closes the UPI sheet with Back before holding backspace (the sheet covers the
+  keypad; the old journey was written before the sheet).
+- Proof (ZeroBill staging release, same JS #1, `Infinix_like_API_28` emulator, 500-transaction account, put in the
+  Play-like state: only the APK's profile compiled; `list-lag-tools/play-state.sh` in the list-lag notes). ZeroBill's
+  merged profile now has 2,706 `dev/zeronative` lines (0 before). Methods JIT-compiled during 50 s of flinging: 499 →
+  218 (JIT time 1,779 → 715 ms); zn runtime 99 → 38 (left: lambdas and SVG / press paths the sample doesn't run).
+  odex 10.1 → 12.6 MB (x86_64). `am start` TotalTime 2.1–2.7 s → 1.8–1.9 s. Main-thread slow frames in the first 6
+  flings did not change on the emulator (4 / 8 / 9 before, 6 / 6 / 6 after): there the Play-like state was already at
+  its floor (the warm D3 phase shows the same). The real gain is the JIT work removed, which costs more on the
+  Infinix's slower CPU: not measured on the Infinix yet (its check script waits for the phone).
+
 ### 2026-11-10: iOS: the Contacts API only with ZN_CONTACTS (Claude, Mac; TestFlight refused ZeroBill 1.6.2 (1))
 - App Store Connect refused the IPA with ITMS-90683: no NSContactsUsageDescription. ZeroBill never asks for contacts
   (Flutter's app has no contacts text either), but the built-in Permissions module (ZnUiModules.swift) referenced

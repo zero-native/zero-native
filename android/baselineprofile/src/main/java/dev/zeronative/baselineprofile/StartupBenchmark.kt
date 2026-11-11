@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 /**
  * Cold start of the sample, with and without the Baseline Profile.
  * timeToInitialDisplay = first frame (same clock as `am start` TotalTime);
- * timeToFullDisplay = reportFullyDrawn(), called once JS has filled the screen.
+ * timeToFullDisplay = reportFullyDrawn(), called once JS has filled the screen (the start screen is Home).
  */
 @RunWith(AndroidJUnit4::class)
 class StartupBenchmark {
@@ -35,6 +35,6 @@ class StartupBenchmark {
         setupBlock = { pressHome() },
     ) {
         startActivityAndWait()
-        waitForAmountScreen()
+        waitForHome()
     }
 }

@@ -25,7 +25,7 @@ class TypingBenchmark {
         iterations = 5,
         setupBlock = {
             startActivityAndWait()
-            waitForAmountScreen()
+            openAmountScreen()
         },
     ) {
         typeAndPay()

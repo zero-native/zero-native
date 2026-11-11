@@ -102,12 +102,25 @@ dependencies {
     testImplementation("org.json:json:20250517")
 
     // The runtime's own Baseline Profile ships inside the library, so every app gets it (startup rule 6).
-    // Recorded by driving the sample; only our classes are kept (Compose ships its own profile).
+    // Recorded by driving the sample (tools/baseline-profile.ts, on an emulator). It keeps our classes and the parts
+    // of the libraries we use (Compose, coroutines, Kotlin, Coil, OkHttp): their own profiles miss the code our list
+    // scroll and screens run, and the phone compiles that code anyway once the app is used (docs/second-opinions.md).
+    // ZnBaselineProfileTest fails when a class in it no longer exists: record again.
     baselineProfile(project(":baselineprofile"))
 }
 
 baselineProfile {
     filter {
         include("dev.zeronative.runtime.**")
+        include("androidx.compose.**")
+        include("kotlinx.coroutines.**")
+        include("kotlin.**")
+        include("coil3.**")
+        include("okhttp3.**")
+        include("okio.**")
+        // Used by the sample's plugins, not by the runtime (the "kotlin" include also takes kotlinx.*). Kept out so
+        // every class in the profile is in the runtime's own dependencies (ZnBaselineProfileTest checks that).
+        exclude("kotlinx.coroutines.tasks.**")
+        exclude("kotlinx.serialization.json.**")
     }
 }
