@@ -87,6 +87,8 @@ export function bundleActions(s: State, b: Bundle): { steps: RowAction[]; extras
   if (b.stableAt) extras.push({ id: "unstable", label: "Remove stable mark", enabled: true, dialog: { t: "stable", serial: b.serial, on: false } })
   if (b.deleteAt) {
     extras.push({ id: "undelete", label: "Keep it…", enabled: true, dialog: { t: "delete", serial: b.serial, on: false } })
+    // Skips the rest of the 30-day hold (Pavan, 2026-11-12). The server checks the mark's rules again.
+    extras.push({ id: "deleteNow", label: "Delete now…", danger: true, enabled: true, dialog: { t: "deleteNow", serial: b.serial } })
   } else {
     const keep = whyKeep(s, b)
     extras.push({ id: "delete", label: "Delete…", danger: true, enabled: !keep, why: keep ?? undefined, dialog: { t: "delete", serial: b.serial, on: true } })
@@ -96,7 +98,10 @@ export function bundleActions(s: State, b: Bundle): { steps: RowAction[]; extras
 
 /** Why a bundle can't be marked for delete now, or null when it can (the same rules as the server's whyKeepBundle). */
 export function whyKeep(s: State, b: Bundle): string | null {
-  if (b.liveOn.length) return `${b.liveOn.join(" and ")} serves it now: publish another bundle there first`
+  // Staging (test phones only) doesn't block: the delete dialog turns staging back to the built-in bundle first (kill
+  // switch), and the server's rule is then met (Pavan, 2026-11-12). Any other channel must move on by a person first.
+  const others = b.liveOn.filter((ch) => ch !== STAGING)
+  if (others.length) return `${others.join(" and ")} serves it now: publish another bundle there (or use the kill switch) first`
   const live = s.storeBuilds.find((x) => x.builtinSerial === b.serial && x.liveAt && !x.deleteAt)
   if (live) return `It is the built-in bundle of ${live.label}, marked live on the store`
   return null

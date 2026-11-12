@@ -12,6 +12,10 @@
 //   bun run updates publish --channel production --bundle 12 --rollout 5        (asks to type PRODUCTION #12)
 //   bun run updates rollout --channel production --percent 50
 //   bun run updates kill --channel production --reason "…"                     (asks to type KILL PRODUCTION)
+//   bun run updates delete --bundle 12      marks it for delete: gone with its patches and source map in 30 days. If
+//       staging serves it, kills staging first (asks to type KILL STAGING); refused while production serves it.
+//       --bundle 3,4,5 or 3-7 for several; --now removes them today, no undo (asks to type DELETE #3 #4 NOW)
+//   bun run updates keep --bundle 12        takes the delete mark off
 //   bun run updates store-build --os android --channel production --label "production AAB" --version-code 170 --version-name 1.7.0
 //   bun run updates store-build --os ios --channel production --label "production IPA" --version-code 170 --version-name 1.7.0 --into ios/bundle
 //       builds the JS once (serial 0) to learn its SHA-256, takes the serial for those bytes (the same JS, from an OTA
@@ -132,6 +136,7 @@ const { values: a, positionals } = parseArgs({
     flavor: { type: "string" },
     into: { type: "string" },
     test: { type: "boolean" },
+    now: { type: "boolean" },
     print: { type: "boolean" },
   },
 })
@@ -368,6 +373,79 @@ async function main() {
       const r = await changeChannel(conn(c.server), privateKey(c.app), { app: c.app, channel, target: BUILT_IN, rollout: 100, priority: "critical", reason: a.reason, confirm })
       console.log(`✓ ${channel}: kill switch on (seq ${r.pointer.seq}); phones go back to their built-in bundle. Publish a bundle to end it.`)
       pushNote(r.push)
+      return
+    }
+    case "delete": {
+      // Marks a bundle for delete: removed for good 30 days later with its patches and source map; `keep` undoes it.
+      // The dashboard's rules (Pavan, 2026-11-12): if staging serves it, staging goes back to the built-in bundle first
+      // (the kill switch: asks to type KILL STAGING); a bundle production serves, or the built-in bundle of a store
+      // build marked live on the store, can't go. The server checks the same again.
+      // --bundle takes a list (3,4,5 or 3-7). --now removes them at once, no 30-day hold, no undo (Pavan, 2026-11-12):
+      // one confirmation, "DELETE #3 #4 NOW", that also covers staging's kill switch. Every bundle is checked before
+      // anything changes.
+      const c = config()
+      if (!a.bundle) fail("delete --bundle <serial>[,<serial>…] (or 3-7) [--now]")
+      const serials = [...new Set(a.bundle.split(",").flatMap((part) => {
+        const m = /^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$/.exec(part)
+        if (!m) fail(`--bundle: "${part}" is not a serial or a range like 3-7`)
+        const from = Number(m[1]), to = Number(m[2] ?? m[1])
+        if (to < from || to - from > 200) fail(`--bundle: bad range ${part}`)
+        return Array.from({ length: to - from + 1 }, (_, i) => from + i)
+      }))]
+      const now = !!a.now
+      const cc = conn(c.server)
+      const st = await call<{
+        bundles: { serial: number; liveOn: string[]; deleteAt: string | null }[]
+        storeBuilds: { builtinSerial: number; label: string; liveAt: string | null; deleteAt: string | null }[]
+      }>(cc, "GET", `/admin/apps/${c.app}/state`)
+      const list = serials.map((serial) => {
+        const b = st.bundles.find((x) => x.serial === serial)
+        if (!b) fail(`no bundle #${serial}`)
+        if (b.deleteAt && !now) fail(`#${serial} is already marked for delete (removed on ${b.deleteAt.slice(0, 10)}); \`keep --bundle ${serial}\` takes the mark off, --now removes it today`)
+        const others = b.liveOn.filter((ch) => ch !== "staging")
+        if (others.length) fail(`${others.join(" and ")} serves #${serial} now: publish another bundle there (or use the kill switch) first`)
+        const live = st.storeBuilds.find((x) => x.builtinSerial === serial && x.liveAt && !x.deleteAt)
+        if (live) fail(`#${serial} is built into "${live.label}", which is marked live on the store: its phones need it as a patch base`)
+        return b
+      })
+      const onStaging = list.find((b) => b.liveOn.includes("staging"))
+      // The confirmation: with --now one phrase for all (it also covers staging's kill switch); else KILL STAGING when needed
+      let killConfirm: string | undefined
+      if (now) {
+        const phrase = `DELETE ${serials.map((n) => `#${n}`).join(" ")} NOW`
+        console.log(`removes ${serials.map((n) => `#${n}`).join(", ")} now, with their patches and source maps: no undo${onStaging ? `; staging serves #${onStaging.serial}, so staging goes back to the built-in bundle first (kill switch)` : ""}`)
+        if (confirmation(phrase) !== phrase) fail(`type the confirmation exactly: ${phrase} (nothing was changed)`)
+        killConfirm = "KILL STAGING"
+      } else if (onStaging) {
+        console.log(`staging serves #${onStaging.serial}: staging goes back to the built-in bundle first (kill switch)`)
+        killConfirm = confirmation("KILL STAGING")
+      }
+      if (onStaging) {
+        const r = await changeChannel(cc, privateKey(c.app), {
+          app: c.app, channel: "staging", target: BUILT_IN, rollout: 100, priority: "critical", reason: a.reason ?? `Delete #${onStaging.serial}`, confirm: killConfirm,
+        })
+        console.log(`✓ staging: kill switch on (seq ${r.pointer.seq}); its phones go back to their built-in bundle. Publish a bundle to end it.`)
+        pushNote(r.push)
+      }
+      for (const b of list) {
+        if (!b.deleteAt) {
+          const r = await call<{ deleteAt: string | null }>(cc, "POST", `/admin/apps/${c.app}/bundles/${b.serial}/delete`, { on: true })
+          if (!now) {
+            console.log(`✓ #${b.serial} marked for delete: removed for good on ${r.deleteAt?.slice(0, 10)}, with its patches and source map. The number is never reused.`)
+            console.log(`  undo until then: bun run updates keep --bundle ${b.serial}`)
+            continue
+          }
+        }
+        await call(cc, "POST", `/admin/apps/${c.app}/bundles/${b.serial}/delete-now`, { confirm: `DELETE #${b.serial} NOW` })
+        console.log(`✓ #${b.serial} deleted now, with its patches and source map. The number is never reused.`)
+      }
+      return
+    }
+    case "keep": {
+      const c = config()
+      if (!a.bundle) fail("keep --bundle <serial>")
+      await call(conn(c.server), "POST", `/admin/apps/${c.app}/bundles/${Number(a.bundle)}/delete`, { on: false })
+      console.log(`✓ #${a.bundle} stays: delete mark taken off (it can be published again)`)
       return
     }
     case "stable":

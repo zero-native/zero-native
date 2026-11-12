@@ -11,6 +11,7 @@ export type DialogSpec =
   | { t: "stable"; serial: number; on: boolean }
   | { t: "title"; serial: number }
   | { t: "delete"; serial: number; on: boolean }
+  | { t: "deleteNow"; serial: number }
   | { t: "storeBuild"; id: number; mode: "live" | "unlive" | "delete" | "undo" }
   | { t: "rule"; os: Os; channel: string; rule?: Rule }
   | { t: "ruleDelete"; os: Os; rule: Rule }

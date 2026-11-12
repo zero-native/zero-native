@@ -323,6 +323,28 @@ export async function markBundleDelete(db: Db, app: string, serial: number, on: 
   return bundle(db, app, serial)
 }
 
+/**
+ * Removes a bundle that waits for its delete now, without the rest of the hold (Pavan, 2026-11-12: "force delete").
+ * Only a bundle already marked (mark first, then this), with the mark's rules checked again: no channel serves it (so
+ * never one production serves), not the built-in bundle of a store build marked live. Asks for `DELETE #N NOW`. The
+ * purge does the work (rows, then files: zip, patches to and from it, its map unless a store build has the bytes); the
+ * serial stays taken, so the next new bundle still gets the next number.
+ */
+export async function deleteBundleNow(db: Db, store: FileStore, app: string, serial: number, confirm: string, by: string) {
+  const b = await bundle(db, app, serial)
+  if (!b.deleteAt) throw new RuleError(`#${serial} is not marked for delete: mark it first`)
+  const why = await whyKeepBundle(db, app, b)
+  if (why) throw new RuleError(why)
+  if (confirm !== `DELETE #${serial} NOW`) throw new RuleError(`type the confirmation exactly: DELETE #${serial} NOW`)
+  const now = new Date()
+  await db.query(`UPDATE bundles SET delete_at = $3 WHERE app = $1 AND serial = $2 AND delete_at IS NOT NULL`, [app, serial, now.toISOString()])
+  await logActivity(db, app, by, "bundle.delete.now", { serial })
+  // Removes this one, and anything else already due (it would go within the hour anyway)
+  const r = await purgeDeleted(db, store, now)
+  if (!r.bundles.includes(serial)) throw new RuleError(`#${serial} was not removed (did a channel publish it again?): reload and look`, 409)
+  return { serial, removed: true }
+}
+
 /** Kept for the CLI and older dashboards: a delete is now a mark (removed 30 days later). */
 export async function deleteBundle(db: Db, app: string, serial: number, by: string) {
   await markBundleDelete(db, app, serial, true, by)

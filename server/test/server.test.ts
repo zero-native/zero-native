@@ -1086,6 +1086,62 @@ await writeBundleInfo(out, { app: "${app}", serial, names: ["main.hbc"], require
     expect(r.err).not.toContain("can't run")
   }, 60_000)
 
+  test("delete: staging's bundle kills staging first, then is marked; keep undoes it; production's bundle is refused", async () => {
+    const key = join(mkdtempSync(join(tmpdir(), "znu-key-")), "clitest-main.pem")
+    writeFileSync(key, keys.privatePem)
+    const bundles = async () => (await call<{ bundles: { serial: number; deleteAt: string | null; liveOn: string[] }[] }>(c, "GET", `/admin/apps/${app}/state`)).bundles
+    // The last test left production on the newest bundle: refused, nothing changes
+    const prodServes = (await bundles()).find((b) => b.liveOn.includes("production"))!.serial
+    let r = await run(["delete", "--bundle", String(prodServes), "--key", key])
+    expect([r.code, r.err]).toEqual([1, expect.stringContaining(`production serves #${prodServes} now`)])
+    // A new bundle on staging: delete kills staging (with the confirmation), then marks it
+    r = await run(["release", "--key", key], { FAKE_JS: "w2" })
+    const serial = Number(/uploaded #(\d+)/.exec(r.out)![1])
+    expect((await run(["publish", "--channel", "staging", "--bundle", String(serial), "--key", key])).code).toBe(0)
+    r = await run(["delete", "--bundle", String(serial), "--key", key, "--confirm", "WRONG"])
+    expect(r.code).toBe(1) // the server refuses the kill without the exact words; nothing is marked
+    expect((await bundles()).find((b) => b.serial === serial)!.deleteAt).toBeNull()
+    r = await run(["delete", "--bundle", String(serial), "--key", key, "--confirm", "KILL STAGING"])
+    expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
+    expect(r.out).toContain("staging: kill switch on")
+    expect(r.out).toContain(`#${serial} marked for delete`)
+    const after = (await bundles()).find((b) => b.serial === serial)!
+    expect([after.deleteAt !== null, after.liveOn]).toEqual([true, []])
+    expect((await run(["delete", "--bundle", String(serial)])).err).toContain("already marked")
+    r = await run(["keep", "--bundle", String(serial)])
+    expect([r.code, r.out]).toEqual([0, expect.stringContaining("stays")])
+    expect((await bundles()).find((b) => b.serial === serial)!.deleteAt).toBeNull()
+    // A bundle nobody serves: marked straight away, no key or confirmation needed
+    r = await run(["delete", "--bundle", String(serial)])
+    expect([r.code, r.out]).toEqual([0, expect.stringContaining(`#${serial} marked for delete`)])
+    expect(r.out).not.toContain("kill switch")
+    // Leave no mark: the purge test later purges every app's due marks
+    expect((await run(["keep", "--bundle", String(serial)])).code).toBe(0)
+  }, 60_000)
+
+  test("delete --now: a list, one confirmation that also kills staging, all gone at once; a wrong phrase changes nothing", async () => {
+    const key = join(mkdtempSync(join(tmpdir(), "znu-key-")), "clitest-main.pem")
+    writeFileSync(key, keys.privatePem)
+    const bundles = async () => (await call<{ bundles: { serial: number; deleteAt: string | null; liveOn: string[] }[] }>(c, "GET", `/admin/apps/${app}/state`)).bundles
+    const made: number[] = []
+    for (const js of ["n1", "n2"]) made.push(Number(/uploaded #(\d+)/.exec((await run(["release", "--key", key], { FAKE_JS: js })).out)![1]))
+    const [x, y] = made as [number, number]
+    expect((await run(["publish", "--channel", "staging", "--bundle", String(y), "--key", key])).code).toBe(0)
+    expect((await run(["delete", "--bundle", String(x)])).code).toBe(0) // x waits (marked), y is on staging
+    let r = await run(["delete", "--bundle", `${x},${y}`, "--now", "--key", key, "--confirm", `DELETE #${x} NOW`])
+    expect([r.code, r.err]).toEqual([1, expect.stringContaining(`DELETE #${x} #${y} NOW`)])
+    expect((await bundles()).filter((b) => made.includes(b.serial)).length).toBe(2) // nothing changed
+    r = await run(["delete", "--bundle", `${x}-${y}`, "--now", "--key", key, "--confirm", `DELETE #${x} #${y} NOW`])
+    expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
+    expect(r.out).toContain("staging: kill switch on")
+    expect(r.out).toContain(`#${x} deleted now`)
+    expect(r.out).toContain(`#${y} deleted now`)
+    expect((await bundles()).filter((b) => made.includes(b.serial))).toEqual([])
+    // The next new bundle gets the next number, not a freed one
+    r = await run(["release", "--key", key], { FAKE_JS: "n3" })
+    expect(Number(/uploaded #(\d+)/.exec(r.out)![1])).toBe(y + 1)
+  }, 60_000)
+
   test("rule --channel: saves for that channel (default production) and prints the push line", async () => {
     const r = await run(["rule", "--os", "android", "--version", "50", "--critical", "1", "--channel", "staging"])
     expect([r.code, r.err.slice(0, 200)]).toEqual([0, ""])
@@ -1322,5 +1378,32 @@ describe("delete with a 30-day hold, the live mark, source maps (2026-11-10)", (
     // A new bundle never gets #1 again
     const r4 = await uploadBuilt(c, await trimBuilt("four"), keys.privatePem, clean)
     expect(r4.manifest.serial).toBe(4)
+  })
+
+  test("the dashboard's staging delete: the kill switch on staging, then the mark, is allowed; production still blocks", async () => {
+    // Staging serves #2: the server's rule still refuses the mark on its own
+    await expect(mark(2)).rejects.toThrow(/staging serves #2/)
+    // The dialog's order: kill staging (signed, with the confirmation), then mark
+    await changeChannel(c, keys.privatePem, { app: T, channel: "staging", target: BUILT_IN, rollout: 100, priority: "critical", confirm: "KILL STAGING" })
+    expect((await mark(2)).deleteAt).not.toBeNull()
+    // Production serving a bundle still blocks it (a person moves production on first)
+    await changeChannel(c, keys.privatePem, { app: T, channel: "staging", target: 4, rollout: 100 })
+    await call(c, "POST", `/admin/apps/${T}/bundles/4/stable`, { on: true })
+    await changeChannel(c, keys.privatePem, { app: T, channel: "production", target: 4, rollout: 10, confirm: "PRODUCTION #4" })
+    await expect(mark(4)).rejects.toThrow(/production serves #4/)
+  })
+
+  test("delete now: only a marked bundle, only with DELETE #N NOW; it goes at once (rows and zip), the serial stays", async () => {
+    const now = (serial: number, confirm: string) => call(c, "POST", `/admin/apps/${T}/bundles/${serial}/delete-now`, { confirm })
+    // #2 waits (marked by the test before); #4 is on production and not marked
+    await expect(now(4, "DELETE #4 NOW")).rejects.toThrow(/not marked for delete/)
+    await expect(now(2, "DELETE #2")).rejects.toThrow(/DELETE #2 NOW/)
+    const zip2 = (await st()).bundles.find((b) => b.serial === 2)!.manifest.zip.path
+    expect(await files.local(zip2)).not.toBeNull()
+    expect(await now(2, "DELETE #2 NOW")).toEqual({ serial: 2, removed: true })
+    expect((await st()).bundles.some((b) => b.serial === 2)).toBe(false)
+    expect(await files.local(zip2)).toBeNull()
+    expect((await db.query(`SELECT 1 FROM serials WHERE app = $1 AND serial = 2`, [T])).length).toBe(1) // never reused
+    await expect(now(2, "DELETE #2 NOW")).rejects.toThrow(/no bundle|not found/i)
   })
 })

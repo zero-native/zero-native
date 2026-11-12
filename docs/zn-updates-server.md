@@ -189,6 +189,16 @@ seq must be the channel's next one (a 409 if someone else published first).
   row is hidden in the dashboard (own filter / own list) and `{ on: false }` undoes it. A bundle can't be marked while a
   channel serves it ("publish another bundle there first"), and a marked bundle can't be published. Any older bundle can
   be marked now, also one production served before (the old rule "only the newest, never one production had" is gone).
+- **Staging's bundle in one step** (Pavan, 2026-11-12): the dashboard's Delete… and `zn delete --bundle N` first turn
+  staging back to the built-in bundle (a signed kill switch, priority critical, reason "Delete #N"; the CLI asks to type
+  `KILL STAGING`), then mark the bundle. The server's rule is unchanged: the kill comes first, so it is met. A bundle
+  production serves is still refused (publish another there, or kill production, by hand first). `zn keep --bundle N`
+  takes a mark off.
+- **Delete now** (Pavan, 2026-11-12): `POST /admin/apps/<app>/bundles/<serial>/delete-now` `{ confirm: "DELETE #N NOW" }`
+  removes a bundle that is already marked, at once (the purge, with the mark's rules checked again), no undo. The
+  dashboard offers "Delete now…" on a marked bundle; `zn delete --bundle 3-7 --now` marks, kills staging if it serves one,
+  and removes them all after one confirmation (`DELETE #3 #4 #5 #6 #7 NOW`). Serials stay taken either way: the next new
+  bundle gets the next number (#8), never a freed one. Only the exact same bytes get their old number back.
 - **The purge** (`model.purgeDeleted`): hourly, and once a minute after start. Safe with more than one server copy (each
   row is taken with `DELETE … RETURNING` in a transaction). For a due bundle: a channel serving it again (someone
   changed the rows by hand) only takes the mark off; else the row, its zip, the patches **to** it, and, when no store build

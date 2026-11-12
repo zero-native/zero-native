@@ -20,7 +20,7 @@ const tool = (path: string) => join(root, path)
 
 // The zn-updates commands, so `zn release` works without `updates` in front (tools/updates/cli.ts, the `case` list).
 const UPDATES = new Set([
-  "login", "keygen", "app", "release", "publish", "rollout", "dashboard", "push", "kill", "stable", "unstable", "maps",
+  "login", "keygen", "app", "release", "publish", "rollout", "dashboard", "push", "kill", "delete", "keep", "stable", "unstable", "maps",
   "title", "builtin", "store-build", "base", "patches", "rule", "status", "public-key",
 ])
 

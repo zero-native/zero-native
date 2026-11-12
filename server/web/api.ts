@@ -274,6 +274,7 @@ export const routes = {
   title: (app: string, serial: number, title: string) => api("POST", `/admin/apps/${enc(app)}/bundles/${serial}/title`, { title }),
   /** on = mark for delete (removed in 30 days), off = undo. */
   markDelete: (app: string, serial: number, on: boolean) => api<{ deleteAt: string | null }>("POST", `/admin/apps/${enc(app)}/bundles/${serial}/delete`, { on }),
+  deleteNow: (app: string, serial: number, confirm: string) => api<{ serial: number; removed: boolean }>("POST", `/admin/apps/${enc(app)}/bundles/${serial}/delete-now`, { confirm }),
   bundlePhones: (app: string, serial: number) => api<{ phones: number; days: number }>("GET", `/admin/apps/${enc(app)}/bundles/${serial}/phones`),
   builtIn: (app: string, serial: number) => api<BuiltInBundle>("GET", `/admin/apps/${enc(app)}/bundles/${serial}/builtin`),
   bundleSize: (app: string, serial: number) => api<{ sizes: Sizes | null; before: { serial: number; sizes: Sizes } | null }>("GET", `/admin/apps/${enc(app)}/bundles/${serial}/size`),

@@ -1,7 +1,7 @@
 // Dialogs for every write. The server checks every rule again; each dialog explains its rules first.
 import { type ReactNode, useState } from "react"
 import { ApiError, type Priority, routes } from "./api"
-import { channelNow, cannotRun, olderThanStoreBuilds, orderedChannels, PRODUCTION } from "./logic"
+import { channelNow, cannotRun, olderThanStoreBuilds, orderedChannels, PRODUCTION, STAGING } from "./logic"
 import { buildPointer, loadSigningKey } from "./sign"
 import { Badge, Btn, Field, Modal, Notice, type DialogSpec, useApp, useLoad } from "./ui"
 import { BUILT_IN, criticalWords, dateOnly, num, PRIORITY_LINES, showVersion, versionNumber } from "./util"
@@ -352,12 +352,30 @@ function PhonesLine({ load, what }: { load: () => Promise<{ phones: number; days
 function DeleteDialog({ spec }: { spec: Extract<DialogSpec, { t: "delete" }> }) {
   const c = useApp()
   const act = useAction()
-  const b = c.state!.bundles.find((x) => x.serial === spec.serial)
+  const s = c.state!
+  const b = s.bundles.find((x) => x.serial === spec.serial)
   const due = new Date(Date.now() + DELETE_DAYS * 86_400_000).toISOString()
+  // Staging serves it: the delete first turns staging back to the built-in bundle (a signed kill switch), in this one
+  // step. Only staging: production must be moved on by a person (logic.whyKeep).
+  const killStaging = spec.on && !!b?.liveOn.includes(STAGING)
   const submit = () =>
     act.run(async () => {
+      if (killStaging) {
+        if (!c.key) throw new Error("load your signing key first")
+        const now = channelNow(s, STAGING)
+        const next = await routes.next(s.app.id, STAGING, BUILT_IN)
+        if (next.seq !== now.seq + 1) {
+          throw new ApiError(`${STAGING} was changed by someone else since you opened this page (it is at change ${next.seq - 1} now, you saw ${now.seq}). Nothing was changed. Reload and look again.`, 409)
+        }
+        const pointer = await buildPointer(c.key, {
+          app: s.app.id, channel: STAGING, seq: next.seq, text: next.text, target: BUILT_IN, rollout: 100, priority: "critical",
+          reason: `Delete #${spec.serial}`,
+        })
+        // The Delete button is the confirmation here (the dialog says staging is switched back).
+        await routes.pointer(s.app.id, pointer, `KILL ${STAGING.toUpperCase()}`)
+      }
       await routes.markDelete(c.appId, spec.serial, spec.on)
-      c.toast(spec.on ? `#${spec.serial} goes on ${dateOnly(due)}. You can undo until then.` : `#${spec.serial} stays: delete mark taken off`)
+      c.toast(spec.on ? `${killStaging ? "Staging killed. " : ""}#${spec.serial} goes on ${dateOnly(due)}. You can undo until then.` : `#${spec.serial} stays: delete mark taken off`)
       c.close()
       await c.reload()
     })
@@ -375,17 +393,57 @@ function DeleteDialog({ spec }: { spec: Extract<DialogSpec, { t: "delete" }> }) 
     )
   }
   return (
-    <Modal title={`Delete #${spec.serial}`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind="danger" busy={act.busy} onClick={submit}>Mark #{spec.serial} for delete</Btn></Foot>}>
+    <Modal title={`Delete #${spec.serial}`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind="danger" busy={act.busy} disabled={killStaging && !c.keyOk} onClick={submit}>{killStaging ? `Kill staging and delete #${spec.serial}` : `Mark #${spec.serial} for delete`}</Btn></Foot>}>
       <div className="dialog-stack">
+        {killStaging ? (
+          <Notice tone="red">
+            Staging serves #{spec.serial} now. This also turns on the kill switch for staging: staging phones go back to the bundle built into their app. Publish a bundle to staging to end it.
+          </Notice>
+        ) : null}
         <ul className="plain">
           <li>
             It is hidden now and removed for good on <strong>{dateOnly(due)}</strong> ({DELETE_DAYS} days). Until then you can undo it from Bundles, filter "Marked for delete".
           </li>
           <li>Removed: its zip, the patches to and from it, and its source map (unless a store build has the same bytes).</li>
           <li>The number #{spec.serial} stays used. It is never given to another bundle.</li>
-          <li>A bundle a channel serves can't be deleted, and nor can the built-in bundle of a store build marked live on the store.</li>
+          <li>A bundle production serves can't be deleted, and nor can the built-in bundle of a store build marked live on the store.</li>
         </ul>
         <PhonesLine load={() => routes.bundlePhones(c.appId, spec.serial)} what={`#${spec.serial}`} />
+        {killStaging ? <KeyPanel /> : null}
+        {act.box}
+      </div>
+    </Modal>
+  )
+}
+
+/** A bundle that waits for its delete, removed now (no undo). Only offered for a marked bundle. */
+function DeleteNowDialog({ spec }: { spec: Extract<DialogSpec, { t: "deleteNow" }> }) {
+  const c = useApp()
+  const act = useAction()
+  const b = c.state!.bundles.find((x) => x.serial === spec.serial)
+  const need = `DELETE #${spec.serial} NOW`
+  const [confirm, setConfirm] = useState("")
+  const submit = () =>
+    act.run(async () => {
+      await routes.deleteNow(c.appId, spec.serial, confirm)
+      c.toast(`#${spec.serial} deleted`)
+      c.close()
+      await c.reload()
+    })
+  return (
+    <Modal title={`Delete #${spec.serial} now`} onClose={c.close} footer={<Foot onClose={c.close}><Btn kind="danger" busy={act.busy} disabled={confirm !== need} onClick={submit}>Delete #{spec.serial} now</Btn></Foot>}>
+      <div className="dialog-stack">
+        <Notice tone="red">
+          This can't be undone. #{spec.serial} is removed now, not on {b?.deleteAt ? dateOnly(b.deleteAt) : "its date"}: its zip, the patches to and from it, and its source map (unless a store build has the same bytes).
+        </Notice>
+        <ul className="plain">
+          <li>The number #{spec.serial} stays used: the next new bundle still gets the next free number.</li>
+          <li>Phones that run it keep their own copy; their next update is a full download.</li>
+        </ul>
+        <PhonesLine load={() => routes.bundlePhones(c.appId, spec.serial)} what={`#${spec.serial}`} />
+        <Field label={`Type ${need} to confirm`}>
+          <input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={need} autoCapitalize="off" autoComplete="off" spellCheck={false} />
+        </Field>
         {act.box}
       </div>
     </Modal>
@@ -605,6 +663,8 @@ export function DialogHost({ spec }: { spec: DialogSpec | null }) {
       return <TitleDialog spec={spec} />
     case "delete":
       return <DeleteDialog spec={spec} />
+    case "deleteNow":
+      return <DeleteNowDialog spec={spec} />
     case "storeBuild":
       return <StoreBuildDialog spec={spec} />
     case "rule":

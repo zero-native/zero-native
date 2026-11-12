@@ -166,6 +166,11 @@ async function route(d: AdminDeps, request: Request, url: URL, p: string[], meth
       const b = await body<{ on?: boolean }>(request)
       return json(await model.markBundleDelete(db, app, serial, b.on !== false, by))
     }
+    // A marked bundle removed now, not after the hold (asks for `DELETE #N NOW`)
+    if (p[4] === "delete-now" && p.length === 5 && method === "POST") {
+      const b = await body<{ confirm?: string }>(request)
+      return json(await model.deleteBundleNow(db, d.store, app, serial, b.confirm ?? "", by))
+    }
     if (p[4] === "phones" && p.length === 5 && method === "GET") {
       return json({ phones: await model.phonesOn(db, app, model.runningIds(app, serial)), days: model.DELETE_AFTER_DAYS })
     }
