@@ -211,6 +211,10 @@ forwards them to the Android machine. Work on the `ios` branch.
   flings did not change on the emulator (4 / 8 / 9 before, 6 / 6 / 6 after): there the Play-like state was already at
   its floor (the warm D3 phase shows the same). The real gain is the JIT work removed, which costs more on the
   Infinix's slower CPU: not measured on the Infinix yet (its check script waits for the phone).
+- **Infinix Hot 8 (Android 9), 2026-11-12, Pavan by hand:** the 500-transaction Transactions list now scrolls smoothly
+  from the first flings. Felt, not measured (no frame numbers). The app was AAB 169 installed from the Play Store, so
+  this also confirms Play compiles the APK's profile at install (until now only documented). A sideloaded APK still
+  starts uncompiled: judge scroll speed on test phones only with a Play install (or after `cmd package compile`).
 
 ### 2026-11-10: iOS: the Contacts API only with ZN_CONTACTS (Claude, Mac; TestFlight refused ZeroBill 1.6.2 (1))
 - App Store Connect refused the IPA with ITMS-90683: no NSContactsUsageDescription. ZeroBill never asks for contacts
