@@ -9,6 +9,7 @@
 //   bun run tools/ios-sample.ts --build-only
 //   bun run tools/ios-sample.ts --splash-hold 4000     keep a launch-screen cover until JS is ready, at most 4 s (ZnSplash)
 //   bun run tools/ios-sample.ts --device "zn iPhone 16 B"  another simulator (default: the booted one; name or UDID)
+//   bun run tools/ios-sample.ts --slow 0.1 --touches   animations 10x slower, each touch logged with the view it hits
 //   bun run tools/ios-sample.ts --no-symbols           don't upload the dSYM to Crashlytics (it does when Firebase is on)
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -70,6 +71,9 @@ if (opt("--route")) env.SIMCTL_CHILD_ZN_ROUTE = opt("--route")!
 if (opt("--params")) env.SIMCTL_CHILD_ZN_PARAMS = opt("--params")!
 if (opt("--splash-hold")) env.SIMCTL_CHILD_ZN_SPLASH_HOLD_MS = opt("--splash-hold")!
 if (opt("--link")) env.SIMCTL_CHILD_ZN_LINK = opt("--link")! // a cold start by this link (zn://sample/...)
+// --slow 0.1: every animation 10x slower (to tap during a sheet's slide); --touches: log each touch and what it hits
+if (opt("--slow")) env.SIMCTL_CHILD_ZN_ANIM_SPEED = opt("--slow")!
+if (args.includes("--touches")) env.SIMCTL_CHILD_ZN_TOUCH_LOG = "1"
 // Attached to the console: the app's prints show here until it exits (Ctrl-C stops watching).
 const p = Bun.spawn(["xcrun", "simctl", "launch", "--console-pty", "--terminate-running-process", device,
   "dev.zeronative.sample"], { stdout: "inherit", stderr: "inherit", env })

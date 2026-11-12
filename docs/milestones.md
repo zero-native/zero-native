@@ -149,6 +149,27 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-12: iOS: a closing Sheet or Modal no longer eats the next tap (Claude, Mac)
+- Bug (ZeroBill: offers sheet → "Continue to Checkout" → the first keypad digit was lost). UIKit's
+  UISheetPresentationController sends no touch to any window of the app for ~0.3 s while it dismisses, even with
+  dismiss(animated: false) (a test window over the app got none either; isIgnoringInteractionEvents stayed false).
+  The Modal lost it another way: UIKit's container (UITransitionView) took the tap during our fade.
+- Fix, native only (no registry / hostApi change): the UIKit Sheet is now our own (`ZnSheetLayer`, as Android's
+  ZnSheet.kt): a layer over the full screen, presented with no animation (as ZnModal), with our dim, card, grabber,
+  detents, drag, fling, tap outside and keyboard lift. Same look as UIKit's on iOS 18 (dim 12%, corners 10 pt,
+  36 x 5 grabber). JS closes it: the layer leaves at once and a picture of it slides down, taking no touches. The
+  user closes it (drag, fling, tap outside): onDismiss once, it slides down taking no touches, and comes back up after
+  0.4 s if JS keeps it open (Android's KEEP_OPEN_MS). The Modal turns its container's touches off as it starts closing.
+- Also: a sheet opened in the same update that closes another (processing → cancelled) waits one frame, else it went
+  with the closing one; half / full-only sheets give their content the sheet's height (a List inside was blank); a
+  list inside scrolls first, then pulling down at its top moves the sheet.
+- Simulator (sample, RnPropsLab, `tools/ios-sample.ts --touches` logs each touch and what it hits): page taps 40–190 ms
+  after "Continue" all landed (10 of 10); drag-down, tap outside, a sheet JS keeps open, a sheet that can't be
+  dismissed, sheet over sheet (nested and sibling), the swap, the keyboard and the Modal all checked. Pavan's
+  iPhone 11 (ZeroBill, Debug): working, same day.
+- Not copied from UIKit: the screen behind a "full" sheet doesn't shrink back. Still missing on iOS (as before):
+  onDetentChange and `motion` (registry 24).
+
 ### 2026-11-12: Android: a "content" sheet follows its content while open (Claude, Windows; found by the ZeroBill session)
 - Bug (Lava, ZeroBill's offers sheet, "View all"): the sheet kept the height it had when it opened; new rows ran off the
   bottom and hid "Continue to Checkout". The surface's fixed height held the content to its first height, and the open

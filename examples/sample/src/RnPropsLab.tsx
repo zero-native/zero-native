@@ -63,6 +63,7 @@ export function RnPropsLabScreen() {
   const shimmerOn = signal(false)
   const overlay = signal<"" | "processing" | "cancelled">("") // one set() swaps two sheets (ZeroBill cancel)
   const sheet = signal(false) // a closing Sheet passes the next tap to the page (ZeroBill payment pass)
+  const listSheet = signal(false) // half / full with a list inside: the list scrolls first, then the sheet moves
   // Opened by Home at start (devStart in HomeScreen): this sheet is already open then, at rest, with no slide-up.
   const devStart = createStorage("dev.start")
   const restSheet = signal(devStart.getString("sheet") === "1")
@@ -505,6 +506,23 @@ export function RnPropsLabScreen() {
             2 offers on this store
           </Text>
           <HoldTile label="Continue to checkout" onPress={() => sheet.set(false)} />
+        </Sheet>
+        {/* Half / full with a list that fills it: drag up opens it to full (the list stays still), then the list
+            scrolls; pulling down scrolls it back to its top first, then moves the sheet (iOS 2026-11-12: it was blank). */}
+        <HoldTile label="Open list sheet (half, full)" onPress={() => listSheet.set(true)} />
+        <Sheet visible={listSheet()} detents="half,full" onDismiss={() => listSheet.set(false)}>
+          <List
+            data={Array.from({ length: 60 }, (_, i) => i)}
+            key={(i) => String(i)}
+            style={{ flex: 1 }}
+            row={(i) => (
+              <Pressable onPress={() => say(`row ${i}`)} style={{ padding: 14 }}>
+                <Text fontSize={15} color={c.ink}>
+                  Row {i}
+                </Text>
+              </Pressable>
+            )}
+          />
         </Sheet>
         {/* A payment restored after a kill: kill the app after this tile, open it again; this lab is one of the first
             screens (no slide-in) and its sheet is already up (animateIn={false}). */}

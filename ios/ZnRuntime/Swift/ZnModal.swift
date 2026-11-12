@@ -102,6 +102,10 @@ struct ZnModalPresenter: UIViewControllerRepresentable {
     private static func close(_ layer: UIViewController, _ anim: Int) {
         guard let v = layer.viewIfLoaded else { return layer.dismiss(animated: false) }
         v.isUserInteractionEnabled = false
+        // UIKit's container (UITransitionView) stays over the screen until the fade or slide ends and took the next
+        // tap (2026-11-12): it takes none from now, so the screen below gets it at once (Android: ZnModal.kt).
+        layer.presentationController?.containerView?.isUserInteractionEnabled = false
+        v.superview?.isUserInteractionEnabled = false
         let gone = { layer.presentingViewController?.dismiss(animated: false) ?? layer.dismiss(animated: false) }
         switch anim {
         case Registry.AnimationType.fade:

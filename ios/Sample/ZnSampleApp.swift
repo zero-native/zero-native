@@ -9,6 +9,8 @@
 //   ZN_COUNT_BODIES  1: log how many SwiftUI bodies each batch ran (debug)
 //   ZN_OTA_KEY       the OTA public key to trust instead of the sample's (debug: a test store with its own key)
 //   ZN_OTA_HEALTHY_MS  a downloaded bundle is healthy this long after its first screens (debug; default 4000)
+//   ZN_ANIM_SPEED    the window's animation speed, e.g. 0.1: every animation 10x slower, to tap during one (debug)
+//   ZN_TOUCH_LOG     1: log each touch that begins, with the view it hits (debug)
 import UIKit
 import notify
 
@@ -70,7 +72,8 @@ final class ZnSceneDelegate: UIResponder, UIWindowSceneDelegate {
         // After iOS itself ended the app (never after the user closed it), the screens come back (restorationActivity).
         ZnApp.shared.start(bundle: Bundle.main.resourceURL!, routeName: env["ZN_ROUTE"], params: env["ZN_PARAMS"] ?? "{}", link: link,
                            restoring: session.stateRestorationActivity)
-        let window = UIWindow(windowScene: scene)
+        let window: UIWindow = env["ZN_TOUCH_LOG"] == "1" ? ZnTouchLogWindow(windowScene: scene) : UIWindow(windowScene: scene)
+        if let speed = env["ZN_ANIM_SPEED"].flatMap(Float.init), speed > 0 { window.layer.speed = speed }
         window.rootViewController = ZnApp.shared.makeRootViewController()
         window.makeKeyAndVisible()
         // Off by default, so the first frame stays the template skeleton; ios-sample.ts --splash-hold 1000 keeps a
@@ -91,5 +94,17 @@ final class ZnSceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// A universal link while the app runs.
     func scene(_ scene: UIScene, continue activity: NSUserActivity) {
         if activity.activityType == NSUserActivityTypeBrowsingWeb, let url = activity.webpageURL { ZnApp.shared.openLink(url) }
+    }
+}
+
+/// ZN_TOUCH_LOG=1 (debug): each touch that begins, with the view it hits, so a lost tap shows where it went.
+final class ZnTouchLogWindow: UIWindow {
+    override func sendEvent(_ event: UIEvent) {
+        for t in event.allTouches ?? [] where t.phase == .began {
+            let p = t.location(in: self)
+            let hit = hitTest(p, with: event).map { String(describing: type(of: $0)) } ?? "nothing"
+            print("zn t=\(ZnDebug.ms()) touch: began at \(Int(p.x)),\(Int(p.y)) on \(hit)")
+        }
+        super.sendEvent(event)
     }
 }
