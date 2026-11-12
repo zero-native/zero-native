@@ -1,7 +1,7 @@
 // zn-updates end to end, in one process: PGlite in memory, files in a temp folder, the real HTTP server, and the
 // release client signing locally. The phone side is played by the protocol-1 request ZnOta sends.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { unzipSync, zipSync } from "fflate"
@@ -903,6 +903,48 @@ describe("one bundle = one serial", () => {
     await whenIdle()
     expect(await capsOf()).not.toBeNull()
   })
+
+  test("an Android phone never fills an IPA's capabilities (an AAB and an IPA share the built-in serial and bytes)", async () => {
+    const jsH: Files = { "main.hbc": rnd(60_000, 19), "main.zn.ui": ui }
+    const h = await reserve("store", await folder(jsH))
+    const sha = readBundleInfo(await folder(jsH, h.serial)).sha256
+    await storeBuild({ os: "android", builtinSerial: h.serial, builtinSha256: sha, versionCode: 31 })
+    await storeBuild({ os: "ios", label: "production IPA", builtinSerial: h.serial, builtinSha256: sha, versionCode: 1 })
+    const capsOf = async (os: string) =>
+      (await db.query<{ capabilities: { os?: string } | null; family: string | null }>(
+        `SELECT capabilities, family FROM store_builds WHERE app = $1 AND builtin_serial = $2 AND os = $3`, [A, h.serial, os],
+      ))[0]!
+    const check = (os: "android" | "ios") =>
+      fetch(`${base}/v1/check`, {
+        method: "POST",
+        body: JSON.stringify({ app: A, channel: "production", installId: `install-os-${os}`, capabilities: { ...caps, os }, running: null, builtIn: { id: `${A}_${h.serial}`, serial: h.serial, sha256: sha }, kept: [], seq: 0 }),
+      })
+    await check("android")
+    await whenIdle()
+    expect((await capsOf("android")).capabilities?.os).toBe("android")
+    expect((await capsOf("ios")).capabilities).toBeNull()
+    // The iPhone still fills its own row: the Android check did not use up the server's "already learned" memo
+    await check("ios")
+    await whenIdle()
+    expect((await capsOf("ios")).capabilities?.os).toBe("ios")
+    expect((await capsOf("ios")).family).not.toBe((await capsOf("android")).family)
+  })
+
+  test("migration 008 clears learned facts of another OS, and nothing else", async () => {
+    const sql = readFileSync(join(import.meta.dir, "..", "src", "migrations", "008_capabilities_by_os.sql"), "utf8")
+    const jsI: Files = { "main.hbc": rnd(60_000, 20), "main.zn.ui": ui }
+    const i = await reserve("store", await folder(jsI))
+    const sha = readBundleInfo(await folder(jsI, i.serial)).sha256
+    await storeBuild({ os: "android", builtinSerial: i.serial, builtinSha256: sha, versionCode: 32 })
+    await storeBuild({ os: "ios", label: "production IPA", builtinSerial: i.serial, builtinSha256: sha, versionCode: 2 })
+    // The old bug's result: the Android facts in both rows
+    await db.query(`UPDATE store_builds SET capabilities = $3::text::jsonb, family = 'fam_x' WHERE app = $1 AND builtin_serial = $2`,
+      [A, i.serial, JSON.stringify({ ...caps, os: "android" })])
+    await db.query(sql)
+    const rows = await db.query<{ os: string; capabilities: unknown; family: string | null }>(
+      `SELECT os, capabilities, family FROM store_builds WHERE app = $1 AND builtin_serial = $2 ORDER BY os`, [A, i.serial])
+    expect(rows.map((r) => [r.os, r.capabilities === null, r.family])).toEqual([["android", false, "fam_x"], ["ios", true, null]])
+  })
 })
 
 // ---- The release CLI: store-build and rule (a fake build command; the real server) ----------------------------------------
@@ -1016,6 +1058,32 @@ await writeBundleInfo(out, { app: "${app}", serial, names: ["main.hbc"], require
     expect(r.err).toContain("must not ship with serial 0")
     r = await run(["builtin", "--flavor", "beta"])
     expect(r.code).toBe(1)
+  }, 60_000)
+
+  test("release and publish warn (never stop) about store builds that can't run the bundle, and name unknown ones", async () => {
+    const key = join(mkdtempSync(join(tmpdir(), "znu-key-")), "clitest-main.pem")
+    writeFileSync(key, keys.privatePem)
+    // Store builds 1 and 2 (built-in #1) and 3 (built-in #2), all staging: 1 is too old for registry 8, 2 can run it, 3 unknown
+    const set = (versionCode: number, registry: number) =>
+      db.query(`UPDATE store_builds SET capabilities = $3::text::jsonb WHERE app = $1 AND version_code = $2`,
+        [app, versionCode, JSON.stringify({ ...caps, registry, modules: { Fetch: 1 }, os: "android" })])
+    await set(1, 7)
+    await set(2, 24)
+    let r = await run(["release", "--key", key], { FAKE_JS: "w1" })
+    expect([r.code, r.out]).toEqual([0, expect.stringContaining("✓ uploaded #")])
+    const serial = Number(/uploaded #(\d+)/.exec(r.out)![1])
+    expect(r.err).toContain(`staging APK 1 1.0.0 (1) can't run #${serial}: needs registry v8, app has v7`)
+    expect(r.err).not.toContain("staging APK 2 1.0.0 (2) can't")
+    expect(r.err).toContain(`not known yet whether staging APK 3 1.0.0 (3) can run #${serial}`)
+    r = await run(["publish", "--channel", "staging", "--bundle", String(serial), "--key", key])
+    expect(r.code).toBe(0)
+    expect(r.out).toContain(`staging → #${serial}`)
+    expect(r.err).toContain(`staging APK 1 1.0.0 (1) can't run #${serial}`)
+    // Production has no store builds of this app: nothing to say (production takes only a bundle marked stable)
+    expect((await run(["stable", "--bundle", String(serial)])).code).toBe(0)
+    r = await run(["publish", "--channel", "production", "--bundle", String(serial), "--rollout", "10", "--key", key, "--confirm", `PRODUCTION #${serial}`])
+    expect([r.code, r.err.slice(0, 200)]).toEqual([0, expect.any(String)])
+    expect(r.err).not.toContain("can't run")
   }, 60_000)
 
   test("rule --channel: saves for that channel (default production) and prints the push line", async () => {

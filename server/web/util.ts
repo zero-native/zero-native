@@ -146,6 +146,12 @@ export function capabilityList(c: Capabilities): string[] {
   ]
 }
 
+/** One short line of what a store build's app can run (store builds table): "Registry v24 · Host API v1–v9 · 39 modules". */
+export function canRunShort(c: Capabilities): string {
+  const n = Object.keys(c.modules).length
+  return `Registry v${c.registry} · Host API v${c.hostApiOldest}–v${c.hostApi} · ${n} ${n === 1 ? "module" : "modules"}`
+}
+
 // ---- Plain words for codes --------------------------------------------------------------------------------------------
 
 const EVENT_WORDS: Record<string, string> = {

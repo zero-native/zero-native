@@ -4,7 +4,7 @@ import { type Os, type Rule, routes, type State, type StoreAnswer, type StoreBui
 import { channelNow, needsColours, orderedChannels, PRODUCTION, sameNeeds } from "./logic"
 import { ChannelTag, servesText } from "./pages-bundles"
 import { Badge, Btn, Card, CopyBlock, Empty, NeedsTag, needsVar, Notice, PageHead, Segmented, Stat, useApp, When } from "./ui"
-import { bytes, capabilityList, criticalWords, dateOnly, dateTime, daysLeft, kindWords, priorityWords, showVersion, targetLabel, versionNumber } from "./util"
+import { bytes, canRunShort, capabilityList, criticalWords, dateOnly, dateTime, daysLeft, kindWords, priorityWords, showVersion, targetLabel, versionNumber } from "./util"
 
 // ---- Channels ---------------------------------------------------------------------------------------------------------
 
@@ -358,6 +358,37 @@ function NextDownload({ s, b }: { s: State; b: StoreBuild }) {
   )
 }
 
+/**
+ * What a store build's app can run (its own capabilities, learned from the first phone on it), not its bundle's needs.
+ * A red line for each channel's bundle it can't run.
+ */
+function CanRun({ s, b }: { s: State; b: StoreBuild }) {
+  if (!b.capabilities) {
+    return <span className="muted" title="Learned from the first phone that checks in with this build">not known yet: open this build on a phone once</span>
+  }
+  const fam = s.families.find((f) => f.family === b.family)
+  const cant = orderedChannels(s)
+    .map((c) => channelNow(s, c.name))
+    .flatMap((ch) => {
+      const bundle = ch.serial === null ? undefined : s.bundles.find((x) => x.serial === ch.serial)
+      const why = bundle && fam ? fam.canRun[bundle.id] : null
+      return why ? [{ ch: ch.name, serial: bundle!.serial, why }] : []
+    })
+  return (
+    <>
+      <div className="small">{canRunShort(b.capabilities)}</div>
+      {b.family ? <div className="code muted small">{b.family}</div> : null}
+      {cant.map((x) => (
+        <div key={x.ch}>
+          <Badge tone="red" title={`It lacks: ${x.why}`}>
+            can't run #{x.serial} ({x.ch})
+          </Badge>
+        </div>
+      ))}
+    </>
+  )
+}
+
 function StoreBuildTable({ s, list, marked }: { s: State; list: StoreBuild[]; marked?: boolean }) {
   const c = useApp()
   const colours = needsColours(s)
@@ -373,7 +404,7 @@ function StoreBuildTable({ s, list, marked }: { s: State; list: StoreBuild[]; ma
             <th>Built-in</th>
             <th title="The built-in bundle's zip kept as a base for patches">Patch base</th>
             <th title="What a phone on this build downloads to get the newest bundle">Next download</th>
-            <th>Family</th>
+            <th title="What this build's app can run, from the first phone that checked in with it (the Built-in column shows what its bundle needs)">Can run</th>
             <th>Git</th>
             <th>Built</th>
             <th />
@@ -415,7 +446,9 @@ function StoreBuildTable({ s, list, marked }: { s: State; list: StoreBuild[]; ma
               </td>
               <td>{b.baseSize ? bytes(b.baseSize) : <span className="muted">none</span>}</td>
               <td>{marked ? <span className="muted">-</span> : <NextDownload s={s} b={b} />}</td>
-              <td>{b.family ? <span className="code">{b.family}</span> : <span className="muted">learning from the first phone</span>}</td>
+              <td>
+                <CanRun s={s} b={b} />
+              </td>
               <td>
                 <span className="code">{b.git.commit.slice(0, 7)}</span> {b.git.dirty ? <Badge tone="amber">uncommitted</Badge> : null}
               </td>

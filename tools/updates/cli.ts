@@ -45,6 +45,7 @@ import { parseArgs } from "node:util"
 import { readBundleInfo, setBundleSerial } from "../bundle-info"
 import { BUILT_IN, generateKeys, keyId, publicKeyOf } from "../ota/signing"
 import { PRIORITIES, type Priority } from "../ota/core"
+import { type Capabilities, missing } from "../ota/decide"
 import { type Conn, type PatchInfo, type PushResult, call, changeChannel, remakePatches, uploadBase, uploadBuilt } from "./client"
 
 /** Opens [url] in the default browser. False when there is no way to (then the CLI prints it). */
@@ -65,6 +66,38 @@ function pushNote(p: PushResult | null | undefined, what: "bundle" | "rule" = "b
   const after = what === "rule" ? "the app shows the store update after that check" : "only downloads; it runs from their next start"
   if (p.sent) console.log(`  push → ${p.topic}: phones check within ${Math.round((p.delayMs ?? 0) / 1000)} s (${after})`)
   else console.log(`  no push to ${p.topic}: ${p.error ?? "not sent"} (phones still find it at their next check)`)
+}
+
+type StoreBuildFacts = {
+  os: string; channel: string; label: string; versionCode: number; versionName: string; builtinSerial: number
+  capabilities: Capabilities | null; deleteAt: string | null
+}
+
+/**
+ * Warns (never blocks) about store builds whose app can't run bundle #[serial] that needs [requires]: their phones
+ * keep their current bundle. Their capabilities come from the first phone that checked in with them; unknown ones are
+ * named too. [channel]: only that channel's store builds (a publish); none = all (a release). Server decides per phone
+ * from its own report anyway (decide.ts), so this is only a heads-up for the person releasing (2026-11-12).
+ */
+async function storeBuildWarnings(cc: Conn, app: string, serial: number, req: Parameters<typeof missing>[1] | null, channel?: string) {
+  try {
+    const st = await call<{ storeBuilds: StoreBuildFacts[]; bundles: { serial: number; manifest: { requires?: Parameters<typeof missing>[1] } }[] }>(
+      cc, "GET", `/admin/apps/${app}/state`,
+    )
+    const requires = req ?? st.bundles.find((b) => b.serial === serial)?.manifest.requires
+    if (!requires) return
+    const builds = st.storeBuilds.filter((b) => !b.deleteAt && (!channel || b.channel === channel))
+    const name = (b: StoreBuildFacts) => `${b.label} ${b.versionName} (${b.versionCode})`
+    const cant = builds.flatMap((b) => {
+      const why = b.capabilities ? missing(b.capabilities, requires) : null
+      return why ? [`${name(b)} can't run #${serial}: ${why}`] : []
+    })
+    const unknown = builds.filter((b) => !b.capabilities).map(name)
+    for (const line of cant) console.warn(`⚠ ${line}. Its phones keep the bundle they run now.`)
+    if (unknown.length > 0) console.warn(`  not known yet whether ${unknown.join(", ")} can run #${serial} (no phone has checked in with ${unknown.length === 1 ? "it" : "them"})`)
+  } catch (e) {
+    console.warn(`  could not check the store builds: ${(e as Error).message}`)
+  }
 }
 
 const { values: a, positionals } = parseArgs({
@@ -265,11 +298,13 @@ async function main() {
         build(c, out, 0, map)
         const info = readBundleInfo(out)
         if (info.app !== c.app) fail(`the build is for app "${info.app}", zn-updates.json says "${c.app}"`)
-        await keepMap(c.app, info.sha256, map, conn(c.server))
-        const r = await uploadBuilt(conn(c.server), out, pem, g)
+        const cc = conn(c.server)
+        await keepMap(c.app, info.sha256, map, cc)
+        const r = await uploadBuilt(cc, out, pem, g)
         const m = r.manifest
         if (r.reused) console.log(`✓ same bytes as #${m.serial} (${m.id}): nothing new`)
         else console.log(`✓ uploaded #${m.serial} (${m.id}), zip ${Math.round(m.zip.size / 1024)} KB${g.dirty ? ", from uncommitted changes (staging only)" : ""}`)
+        await storeBuildWarnings(cc, c.app, m.serial, info.requires ?? null)
         console.log(`  next: bun run updates publish --channel staging --bundle ${m.serial}`)
       } finally {
         rmSync(work, { recursive: true, force: true })
@@ -283,11 +318,13 @@ async function main() {
       const rollout = rolloutArg(channel)
       const serial = Number(a.bundle)
       const confirm = channel === "production" ? confirmation(`PRODUCTION #${serial}`) : undefined
-      const r = await changeChannel(conn(c.server), privateKey(c.app), {
+      const cc = conn(c.server)
+      const r = await changeChannel(cc, privateKey(c.app), {
         app: c.app, channel, target: serial, rollout, priority: priorityArg(), reason: a.reason, confirm,
       })
       console.log(`✓ ${channel} → #${serial} at ${rollout} % (${r.kind}, seq ${r.pointer.seq})`)
       pushNote(r.push)
+      await storeBuildWarnings(cc, c.app, serial, null, channel)
       return
     }
     case "rollout": {

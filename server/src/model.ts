@@ -663,18 +663,22 @@ const learned = new Set<string>()
  * A store build registered without its capabilities gets them from the first phone that runs it (the phone sends
  * exactly what its app has). Cheap: once per built-in bundle per process. Matched by the built-in bundle's SHA-256 too
  * (when the phone sends it): a test APK carries the next serial before it is taken (`updates builtin`), so a serial
- * alone could name a later store build with other bytes.
+ * alone could name a later store build with other bytes. Matched by OS too: an AAB and an IPA of one commit share the
+ * built-in serial and bytes (2026-11-10), and an Android phone filled the IPA's row with its own facts (2026-11-12).
+ * A phone that sends no OS is an Android one (as in `missing`).
  */
 export async function learnCapabilities(db: Db, app: string, builtinSerial: number, caps: Capabilities, builtinSha256?: string) {
   const sha = builtinSha256 && /^[0-9a-f]{64}$/.test(builtinSha256) ? builtinSha256 : null
-  const key = `${app}|${builtinSerial}|${sha ?? ""}`
+  const os = caps.os ?? "android"
+  const key = `${app}|${os}|${builtinSerial}|${sha ?? ""}`
   if (builtinSerial < 1 || learned.has(key)) return
   learned.add(key)
   try {
     await db.query(
       `UPDATE store_builds SET capabilities = $3::text::jsonb, family = $4
-       WHERE app = $1 AND builtin_serial = $2 AND capabilities IS NULL AND ($5::text IS NULL OR builtin_sha256 = $5)`,
-      [app, builtinSerial, JSON.stringify(caps), familyOf(caps), sha],
+       WHERE app = $1 AND builtin_serial = $2 AND capabilities IS NULL AND ($5::text IS NULL OR builtin_sha256 = $5)
+         AND os = $6`,
+      [app, builtinSerial, JSON.stringify(caps), familyOf(caps), sha, os],
     )
   } catch (e) {
     learned.delete(key)

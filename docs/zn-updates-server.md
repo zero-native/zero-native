@@ -154,7 +154,15 @@ bundle or a store build for delete (§5.2); the live mark; source maps (§5.3).
 - `POST /admin/apps/<app>/serials/peek` `{ sha256, requires }`: read-only, takes nothing. `{ serial, taken }`: the serial
   these bytes already have (`taken: true`), else the next free one. `updates builtin` (an app's `app:js`) uses it, so a
   test APK's built-in bundle never has serial 0 and never uses up a number. Capabilities a phone reports are learned
-  for a store build only when the phone's built-in SHA-256 matches (a test APK can carry the same serial).
+  for a store build only when the phone's built-in SHA-256 matches (a test APK can carry the same serial), and only
+  for a store build of the phone's own OS (an AAB and an IPA of one commit share the serial and bytes; fixed
+  2026-11-12, migration 008 cleared the rows an Android phone had filled for an IPA).
+- What a store build's app **can run** is these learned capabilities, not its built-in bundle's needs: the dashboard's
+  store builds table shows both ("Built-in" = what the bundle needs, "Can run" = what the app has, with a red line for
+  each channel's bundle it can't run). `store-build` runs before the AAB / IPA is built, and the module list exists only
+  when the app starts (its `ZnPlugins.register` call), so the first phone check is the host's own answer.
+  `updates release` and `updates publish` print a warning for each store build that can't run the bundle, and name the
+  ones not known yet. They never stop: the server decides per phone from that phone's own report (decide.ts).
 - `POST /admin/apps/<app>/store-builds/<built-in serial>/base` (multipart `zip`): keeps a store build's built-in bundle as a
   base for patches. Refused when the zip is not a good bundle zip of this app, or its bundle SHA-256 or id is not the store
   build's. The same bytes again is fine (also for a second store build with that serial: every one of them points to the
