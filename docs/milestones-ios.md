@@ -181,7 +181,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 4 | Box | done | | |
 | 5 | Text | partial | Dynamic Type + maxFontScale, accessibility, `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` (r23), `fontFamily` (r24) | §6 |
 | 6 | Image | done | asset, http, file, `zn://file` handles, fallback, tint, events. `zn://app-icon` is n/a (no installed-apps icons on iOS). The picture is centred in its box for contain and cover (2026-11-09; it sat at the top left) | |
-| 7 | Pressable | partial | hitSlop, accessibility. Press feedback and runtime `disabled` done | §6 |
+| 7 | Pressable | partial | accessibility. Press feedback, runtime `disabled` and hitSlop (2026-11-12) done | §6 |
 | 8 | Spacer | done | | |
 | 9 | Icon | done | | |
 | 10 | Anchor | done | | |
@@ -231,7 +231,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 |---|---|---|---|
 | pressFeedback, highlightColor, rippleColor / Opacity / Borderless / Radius | done | | ZnPress.swift `ZnPressFeedback`. |
 | disabled at runtime | done | | 774308f. |
-| hitSlop | missing | S | `point(inside:)`. |
+| hitSlop | done (2026-11-12) | S | The touch area grows by negative padding; in the slop, another Pressable under the finger wins (Android's rule). |
 
 ### TextField
 | Prop | iOS | Size |

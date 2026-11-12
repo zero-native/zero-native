@@ -149,6 +149,20 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-12: iOS checks from bugs found on Android: 3 fixes (Claude, Mac)
+The rows of docs/ios-checks-from-android-bugs.md checked on the simulator and in the code; results table in that doc.
+- **R1 fixed** (fffd9be): after `Updates.applyNow`, a slow call from the old runtime could settle the new runtime's
+  call with the same id (both number calls from 1). Each call keeps its runtime's generation; a restart cancels open
+  calls and tells event sources they have no listeners (Android's resetForReload); module events go to the runtime
+  that runs then, so a latestOnly event can't stop for good. Reproduced before, right after (3 restarts in a row).
+  Debug sample hook: `notifyutil -p dev.zeronative.sample.restart`.
+- **T1 fixed** (746a2e3): Pressable `hitSlop` on iOS (it was not done): 15 pt outside counts, 26 pt doesn't.
+- **B4 fixed** (eef3800): a single-line TextField in a taller box centres its text (it was at the top).
+- Not affected: S2 (JS closes a sheet mid-drag), S3, S4, B2 (`1,25,000`, `12 Nov 2026`), R6 (no scroll commands on
+  iOS yet), B3. Code ok, hand check: T4, R5, R7. Need the iPhone: R2, R3, R4, N1, N2, B1.
+- Left: S5 edge cases (a sheet closed while a share sheet still slides in; an Alert over a closed sheet never
+  answers); iOS has no `scrollToIndex` / `scrollToEnd` yet. The sample's offers sheet has "View all / View less" (S3).
+
 ### 2026-11-12: iOS: a closing Sheet or Modal no longer eats the next tap (Claude, Mac)
 - Bug (ZeroBill: offers sheet → "Continue to Checkout" → the first keypad digit was lost). UIKit's
   UISheetPresentationController sends no touch to any window of the app for ~0.3 s while it dismisses, even with

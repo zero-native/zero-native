@@ -24,14 +24,18 @@ final class ZnCall: @unchecked Sendable {
     /// Binary input from JS (`callNative(..., { bytes })`), or nil.
     let bytes: Data?
     private let id: UInt32
+    /// The runtime that made the call (ZNHost.runtimeGeneration): its answer is dropped once that runtime was replaced.
+    private let generation: UInt64
     private let what: String
     private let lock = NSLock()
     private var done = false
     private var cancelled = false
     private var hooks: [() -> Void] = []
 
+    /// JS thread (where the runtime's generation is read).
     init(id: UInt32, what: String, args: [String: Any], bytes: Data?) {
         self.id = id; self.what = what; self.args = args; self.bytes = bytes
+        generation = ZNHost.shared.runtimeGeneration
     }
 
     var isCancelled: Bool { lock.withLock { cancelled } }
@@ -39,18 +43,18 @@ final class ZnCall: @unchecked Sendable {
     /// `value`: nil, Bool, a number, String, [Any] or [String: Any] (anything JSONSerialization takes).
     func resolve(_ value: Any? = nil) {
         guard let json = ZnModules.json(value) else { return reject("failed", "\(what): the answer is not JSON") }
-        finish { ZNHost.shared.answerCall(self.id, ok: true, valueJson: json, code: nil, message: nil) }
+        finish { ZNHost.shared.answerCall(self.id, generation: self.generation, ok: true, valueJson: json, code: nil, message: nil) }
     }
 
     /// Answers with binary data: JS gets `{ value, bytes }`, `bytes` a Uint8Array (no base64).
     func resolveBytes(_ value: Any?, _ data: Data) {
         guard let json = ZnModules.json(value) else { return reject("failed", "\(what): the answer is not JSON") }
-        finish { ZNHost.shared.answerCall(self.id, valueJson: json, bytes: data) }
+        finish { ZNHost.shared.answerCall(self.id, generation: self.generation, valueJson: json, bytes: data) }
     }
 
     /// `code`: "invalid_args", "failed", "unavailable", or the module's own; JS gets NativeError(code, message).
     func reject(_ code: String, _ message: String) {
-        finish { ZNHost.shared.answerCall(self.id, ok: false, valueJson: nil, code: code, message: message) }
+        finish { ZNHost.shared.answerCall(self.id, generation: self.generation, ok: false, valueJson: nil, code: code, message: message) }
     }
 
     /// Runs `block` (once, on any thread) if JS cancels this call; at once if it already did.
@@ -172,6 +176,8 @@ enum ZnModules {
     nonisolated(unsafe) private static var modules: [String: ZnModule] = [:]
     nonisolated(unsafe) private static var active: [UInt32: ZnCall] = [:]
     nonisolated(unsafe) private static var latest: [String: String] = [:]
+    /// module\u{0}event → how many JS listeners it has now (what `onListenerCount` last said).
+    nonisolated(unsafe) private static var listening: [String: Int] = [:]
     private static let work = DispatchQueue(label: "zn-call", qos: .userInitiated, attributes: .concurrent)
 
     /// Registers a module (built-in ones in `installBuiltIns`; an app's own before the app starts).
@@ -225,6 +231,21 @@ enum ZnModules {
         return String(data: data, encoding: .utf8)
     }
 
+    /// The JS runtime is being replaced (ZnApp.restart), main thread: the old JS is gone, so every running call is
+    /// cancelled (its answer would be dropped anyway) and every event source is told it has no listeners left; the new
+    /// JS says again what it listens to. As Android's ZnModules.resetForReload (2026-11-12).
+    @MainActor static func runtimeReplaced() {
+        let (calls, heard, mods) = lock.withLock {
+            defer { active = [:]; listening = [:] }
+            return (Array(active.values), listening.filter { $0.value > 0 }.keys, modules)
+        }
+        calls.forEach { $0.cancel() }
+        for key in heard {
+            let parts = key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            if parts.count == 2 { mods[parts[0]]?.onListenerCount(parts[1], 0) }
+        }
+    }
+
     static func finished(_ id: UInt32, _ call: ZnCall) {
         lock.withLock { if active[id] === call { active[id] = nil } }
     }
@@ -237,6 +258,7 @@ enum ZnModules {
         if method == "__listeners" {
             guard let m, let parsed else { return }
             let event = parsed["event"] as? String ?? "", count = (parsed["count"] as? NSNumber)?.intValue ?? 0
+            lock.withLock { listening["\(module)\u{0}\(event)"] = count }
             DispatchQueue.main.async { m.onListenerCount(event, count) }
             return
         }
@@ -269,7 +291,8 @@ enum ZnModules {
         let body: [String: Any] = ["module": module, "event": event, "payload": payload ?? NSNull()]
         guard let text = json(body) else { return ZnDebug.log.error("\(module, privacy: .public).\(event, privacy: .public): payload is not JSON") }
         let host = ZNHost.shared
-        guard latestOnly else { return host.dispatchEvent(0, event: 8, string: text) }
+        // Through stringFrom too, as Android: not dropped while the runtime is replaced (dispatchEvent drops then).
+        guard latestOnly else { return host.dispatchEvent(0, event: 8, stringFrom: { text }) }
         let key = "\(module)\u{0}\(event)"
         // One delivery is queued at a time per event; it takes whatever is newest when the JS thread gets to it.
         let first = lock.withLock { latest.updateValue(text, forKey: key) == nil }

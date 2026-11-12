@@ -63,6 +63,7 @@ export function RnPropsLabScreen() {
   const shimmerOn = signal(false)
   const overlay = signal<"" | "processing" | "cancelled">("") // one set() swaps two sheets (ZeroBill cancel)
   const sheet = signal(false) // a closing Sheet passes the next tap to the page (ZeroBill payment pass)
+  const moreOffers = signal(false) // "View all": the "content" sheet grows (and shrinks) with its rows
   const listSheet = signal(false) // half / full with a list inside: the list scrolls first, then the sheet moves
   // Opened by Home at start (devStart in HomeScreen): this sheet is already open then, at rest, with no slide-up.
   const devStart = createStorage("dev.start")
@@ -505,6 +506,14 @@ export function RnPropsLabScreen() {
           <Text fontSize={16} fontWeight={700} color={c.ink}>
             2 offers on this store
           </Text>
+          <HoldTile label={moreOffers() ? "View less" : "View all"} onPress={() => moreOffers.set(!moreOffers())} />
+          {moreOffers() && (
+            <Column style={{ gap: 12 }}>
+              <Text fontSize={14} color={c.ink}>10% off on bills over ₹500</Text>
+              <Text fontSize={14} color={c.ink}>₹50 cashback on your first UPI payment</Text>
+              <Text fontSize={14} color={c.ink}>Free delivery this weekend</Text>
+            </Column>
+          )}
           <HoldTile label="Continue to checkout" onPress={() => sheet.set(false)} />
         </Sheet>
         {/* Half / full with a list that fills it: drag up opens it to full (the list stays still), then the list

@@ -39,7 +39,7 @@ ZnAppEvent.kt and NAV kind in ZnNav.kt against ZnApp.swift.
 | 4 | Box | done | | |
 | 5 | Text | partial | §2 | No font scaling (Dynamic Type), no maxFontScale, no accessibility. |
 | 6 | Image | partial | §4 | No `zn://` handles. asset / http / file, fallback, tint, events done. |
-| 7 | Pressable | partial | §2 | No pressFeedback (ripple / highlight), no hitSlop (runtime `disabled` fixed in 774308f), no accessibility. |
+| 7 | Pressable | partial | §2 | No pressFeedback (ripple / highlight), no accessibility (runtime `disabled` fixed in 774308f, hitSlop done 2026-11-12). |
 | 8 | Spacer | done | | |
 | 9 | Icon | done | | |
 | 10 | Anchor | done | | |
@@ -133,7 +133,7 @@ Only props whose iOS support is missing or partial. Everything else in the regis
 | pressFeedback (ripple is the default, highlight, none) + highlightColor | done (simulator) | M | ZnPress.swift ZnPressFeedback, Android's values: ripple from the finger (black 12 %, a rippleColor 24 %, rippleOpacity wins; rippleBorderless / rippleRadius), ~225 ms grow, ~150 ms fade; highlight (highlightColor, black 10 %); none. Inside the node's shape, under the press scale / opacity. |
 | rippleColor, rippleOpacity, rippleBorderless, rippleRadius | missing | S | After the above: draw a ripple, or map it to a highlight on iOS. |
 | disabled at runtime (slot) | done | S | ZnPress.swift reads `disabledNow` (the slot) since 774308f, so `disabled={!active()}` (ZeroBill's Pay button) stops presses. |
-| hitSlop | missing | S | Grow the press view's hit test (`point(inside:)`). |
+| hitSlop | done (2026-11-12) | S | Negative padding on the touch overlay; `ZnTouchControl.slop`: in the slop, another Pressable under the finger wins, as Android. |
 
 ### TextField
 | Prop / event | iOS | Size | Note |

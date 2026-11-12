@@ -255,6 +255,8 @@ final class ZnNodeSpec {
     let haptic: Bool
     let pressScale: CGFloat
     let pressOpacity: Double
+    /// hitSlop (registry 15): taps this far past each edge still count ("start,top,end,bottom" from the compiler), or nil.
+    let hitSlop: ZnEdges?
     /// Press feedback (ZnTemplate.kt): Registry.PressFeedback ripple (default) / highlight / none; the ripple's colour
     /// (nil: black), opacity (nil: 12 %, 24 % with a colour), borderless and radius; highlight's colour (black at 10 %).
     let pressFeedback: Int
@@ -478,6 +480,7 @@ final class ZnNodeSpec {
         haptic = p[P.haptic]?.bool ?? false
         pressScale = num(P.pressScale) ?? 1
         pressOpacity = Double(num(P.pressOpacity) ?? 1)
+        hitSlop = Self.parseHitSlop(p[P.hitSlop]?.string)
         pressFeedback = en(P.pressFeedback) ?? Registry.PressFeedback.ripple
         rippleColor = znColor(p[P.rippleColor])
         rippleOpacity = num(P.rippleOpacity).map { min(max(Double($0), 0), 1) }
@@ -522,6 +525,13 @@ final class ZnNodeSpec {
     static let paddingProps = [Registry.Prop.padding, Registry.Prop.paddingHorizontal, Registry.Prop.paddingVertical,
                                Registry.Prop.paddingStart, Registry.Prop.paddingTop, Registry.Prop.paddingEnd,
                                Registry.Prop.paddingBottom]
+    /// "start,top,end,bottom" → edges, or nil (none written, or all 0), as Android's parseHitSlop.
+    static func parseHitSlop(_ spec: String?) -> ZnEdges? {
+        let v = (spec ?? "").split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }.map { CGFloat($0) }
+        guard v.count == 4, v.contains(where: { $0 > 0 }) else { return nil }
+        return ZnEdges(start: v[0], top: v[1], end: v[2], bottom: v[3])
+    }
+
     static let marginProps = [Registry.Prop.margin, Registry.Prop.marginHorizontal, Registry.Prop.marginVertical,
                               Registry.Prop.marginStart, Registry.Prop.marginTop, Registry.Prop.marginEnd,
                               Registry.Prop.marginBottom]

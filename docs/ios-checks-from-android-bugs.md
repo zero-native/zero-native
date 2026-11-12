@@ -8,11 +8,35 @@ Each row: what the user saw, the Android cause and fix (commit), why iOS might h
 Status: **check** = not looked at on iOS; **code ok, hand check** = the iOS code handles it, one hand check left;
 **done** = checked on iOS before (milestones entry named). Rule for fixes: native only, no registry or host API change.
 
+## Results on the Mac (2026-11-12)
+
+Simulator (zn iPhone 16, the sample) and code reading; Pavan's iPhone only for S1. Not pushed yet.
+
+| # | Result | Fix | Seen / why |
+|---|---|---|---|
+| S1 | **fixed** | 401503b (pushed) | Our own sheet layer; 10 of 10 taps 40–190 ms after "Continue" landed; Pavan's iPhone 11 ok |
+| S2 | **not affected** | — | Simulator: drag held on the processing sheet, JS closed it 6 s in: it went at once, the next sheet came up. Hand check on the referral sheet still good |
+| S3 | **not affected** | — | Sample offers sheet: "View all" 166 → 253 pt, "Continue" stays on screen; "View less" back to 166 pt |
+| S4 | **not affected** | — | Every sample sheet's last button sits above the home indicator. Not seen on a home-button iPhone (SE) |
+| S5 | **not affected** | — | Code: closing dismisses from the presenter, so a share sheet / store page over it goes too. Two edge cases left: JS closes while that page still slides in (UIKit may refuse); an `Alert` over a closed sheet never settles its promise |
+| T1 | **fixed** | 746a2e3 | hitSlop was not done on iOS at all. Now 15 pt outside counts, 26 pt doesn't |
+| T4 | **code ok, hand check** | — | The edge swipe on a screen with a JS Back handler sends Back to JS, no pop; ZeroBill shows "Please wait" |
+| R1 | **fixed** | fffd9be | Worse than Android: an old runtime's late answer settled the new runtime's call with the same id (reproduced). 3 restarts in a row: all answers right |
+| R2, R3, R4 | **not checked** | — | Need the iPhone (a UPI app, iOS ending the app in background, Settings) |
+| R5 | **code ok, hand check** | — | No read error deletes. Side risk: `forgetEarlierInstall` before first unlock (not seen) |
+| R6 | **not affected** | — | iOS has no scroll commands yet (`scrollToIndex` etc. do nothing); ZeroBill uses none |
+| R7 | **code ok, hand check** | — | Opens `openNotificationSettingsURLString` (iOS 17+) |
+| N1, N2 | **not checked** | — | Need real UPI payments / network changes on the iPhone |
+| B1 | **not checked** | — | Needs a Release (TestFlight) build on the iPhone |
+| B2 | **not affected** | — | Simulator: `1,25,000`, `12 Nov 2026` (Hermes Intl on Foundation) |
+| B3 | **not affected** | — | Code: errors are returned, not thrown (see the B3 row: no F_PREALLOCATE) |
+| B4 | **fixed** | eef3800 | Single-line field in a 64 pt box had its text at the top; now centred. ZeroBill's own fields weren't hit (their boxes fit the text) |
+
 ## Sheets and modals
 
 | # | What the user saw | Android cause and fix | iOS | How to check on the iPhone |
 |---|---|---|---|---|
-| S1 | After a sheet closes, the first tap below is lost (offers sheet → "Continue" → first keypad digit missing); `onDismiss` sent twice | The closing sheet window still took taps while it slid down. Fix: not touchable from the moment the close starts (4396e153); Android 14 also needed the dim flag gone (f638975, Android only) | **In progress** on the Mac (2026-11-12 brief) | 10 tries: digit tapped ~100 ms after "Continue" lands every time; one `onDismiss` log line. Same for `<Modal>` |
+| S1 | After a sheet closes, the first tap below is lost (offers sheet → "Continue" → first keypad digit missing); `onDismiss` sent twice | The closing sheet window still took taps while it slid down. Fix: not touchable from the moment the close starts (4396e153); Android 14 also needed the dim flag gone (f638975, Android only) | **Done** (401503b, 2026-11-12) | 10 tries: digit tapped ~100 ms after "Continue" lands every time; one `onDismiss` log line. Same for `<Modal>` |
 | S2 | JS closed a sheet while the finger still dragged it: the sheet sprang back and stayed, an empty scrim let taps through | The drag kept moving it after JS closed it (d489f2f) | **Code ok, hand check** (milestones 2026-11-11: UIKit owns the drag, dismiss is refused, so likely fine; the simulator couldn't test it) | Drag the referral reward sheet and hold while the app closes it (e.g. right after login); the sheet must go |
 | S3 | "View all" added rows but the sheet kept its first height; the button below was cut | Content measured at the sheet's first height (b71d5b9) | **Done** (iOS i.5, "content detent follows the content") | ZeroBill offers sheet → "View all": the sheet rises, "Continue to Checkout" stays on screen; "View less" shrinks it |
 | S4 | The sheet's last row was cut at the bottom | The dialog window learned its navigation-bar inset after the first layout | **Check** (the iPhone's home indicator is the same risk) | Every ZeroBill sheet: the last button is fully above the home indicator, also on an iPhone without a home button |
@@ -52,6 +76,6 @@ Status: **check** = not looked at on iOS; **code ok, hand check** = the iOS code
 |---|---|---|---|---|
 | B1 | The QR scanner never started in the store build (fine in debug) | R8 stripped ML Kit constructors (Android only) | **Check** the iOS Release config the same way | In the TestFlight / App Store build (not debug): scan a real UPI QR |
 | B2 | ₹ amounts or dates wrong, or a crash on `Intl` | Hermes `Intl` crashed (2026-10-30) | **Check** | Amounts show `₹1,25,000` (Indian grouping) and dates in en-IN on the iPhone |
-| B3 | App crash when the disk was full | FlowStore files with holes (posix_fallocate, 2026-11-04) | **Code ok, hand check** (flowstore.cpp has an Apple path with F_PREALLOCATE) | Hard to make on a phone; core tests on the simulator are enough |
+| B3 | App crash when the disk was full | FlowStore files with holes (posix_fallocate, 2026-11-04) | **Code ok** (flowstore.cpp's Apple path writes every block to fill the holes, no F_PREALLOCATE; ENOSPC is returned and the callers report it) | Hard to make on a phone; core tests on the simulator are enough |
 | B4 | A single-line field with a tall box showed its text at the top | `ZnTextField` didn't centre single-line text (2026-11-05) | **Check** | ZeroBill login phone field and amount fields: text and cursor centred |
 | B5 | `flexWrap` rows | iOS added flexWrap 2026-11-09 | **Done** | ZeroBill "You saved ₹X on this bill!" row wraps on a narrow iPhone |

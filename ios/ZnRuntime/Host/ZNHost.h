@@ -30,6 +30,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// the call is rejected with "unavailable". Must not block.
 @property (nonatomic, copy, nullable) BOOL (^onNativeCall)
     (NSString* module, NSString* method, NSString* argsJson, uint32_t callbackId, NSData* _Nullable bytes);
+/// JS thread: which runtime runs now (`restartRuntime` replaces it). Read it when a call comes and pass it with the
+/// call's answer, so an answer that comes after the runtime was replaced is dropped: the new runtime numbers its calls
+/// from 1 again, and an old answer must not settle a new call with the same id (2026-11-12; Android: 8a311b2).
+@property (nonatomic, readonly) uint64_t runtimeGeneration;
 /// JS thread: JS gave up on a call (AbortSignal, or its screen closed). Its answer will be dropped by JS anyway.
 @property (nonatomic, copy, nullable) void (^onCancelCall)(uint32_t callbackId);
 
@@ -49,16 +53,20 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event number:(double)payload;
 - (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event boolean:(BOOL)payload;
 /// Posts an event whose string payload is made on the JS thread, when JS gets to it: for "only the newest value"
-/// events (a module event sent often), [payload] takes whatever is newest then. nil: nothing is sent.
+/// events (a module event sent often), [payload] takes whatever is newest then. nil: nothing is sent. Unlike the
+/// others, it goes to the runtime that runs then, even a new one (`restartRuntime`): [payload] always runs, so a
+/// module's "newest value" slot is always emptied (as Android's dispatchLatest).
 - (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event stringFrom:(NSString* _Nullable (^)(void))payload;
 
 /// The answer to a call taken by `onNativeCall`. `valueJson` is JSON text (or nil for null) when `ok`; else `code`
-/// ("invalid_args", "failed", "unavailable", or the module's own) and `message`. Any thread.
-- (void)answerCall:(uint32_t)callbackId ok:(BOOL)ok valueJson:(nullable NSString*)valueJson
-              code:(nullable NSString*)code message:(nullable NSString*)message;
+/// ("invalid_args", "failed", "unavailable", or the module's own) and `message`. `generation`: `runtimeGeneration`
+/// when the call came; dropped if that runtime was replaced since. Any thread.
+- (void)answerCall:(uint32_t)callbackId generation:(uint64_t)generation ok:(BOOL)ok
+         valueJson:(nullable NSString*)valueJson code:(nullable NSString*)code message:(nullable NSString*)message;
 
 /// A successful answer with binary data (app event 9: JS gets `{ value, bytes }`, bytes a Uint8Array). Any thread.
-- (void)answerCall:(uint32_t)callbackId valueJson:(nullable NSString*)valueJson bytes:(NSData*)bytes;
+- (void)answerCall:(uint32_t)callbackId generation:(uint64_t)generation valueJson:(nullable NSString*)valueJson
+             bytes:(NSData*)bytes;
 
 @end
 

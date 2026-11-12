@@ -427,6 +427,7 @@ final class ZnApp {
         insetsSent = nil
         jsStarted = false
         ZnTasks.shared.jsStopped()
+        ZnModules.runtimeReplaced()
         firstScreensUp = false
         jsDrew = false
         batchChangesStack = false

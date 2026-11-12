@@ -42,13 +42,18 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         ZnOta.configure(ota)
         #if DEBUG
         // Tests: `xcrun simctl spawn <device> notifyutil -p dev.zeronative.sample.ota.apply` runs Updates.applyNow,
-        // `... .ota.check` Updates.check.
+        // `... .ota.check` Updates.check, `... .restart` replaces the JS runtime on the same bundle (as an applyNow).
         var token: Int32 = 0
         notify_register_dispatch("dev.zeronative.sample.ota.apply", &token, .main) { _ in
             ZnOta.shared.applyNow { print("zn-sample: applyNow → \($0)") }
         }
         notify_register_dispatch("dev.zeronative.sample.ota.check", &token, .main) { _ in
             ZnOta.shared.check { print("zn-sample: check → \($0)") }
+        }
+        notify_register_dispatch("dev.zeronative.sample.restart", &token, .main) { _ in
+            MainActor.assumeIsolated {
+                ZnApp.shared.restart(bundle: ZnBundles.builtInURL, in: ZnOta.window()) { print("zn-sample: restart → \($0) \($1)") }
+            }
         }
         #endif
         return true

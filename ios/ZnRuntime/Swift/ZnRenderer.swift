@@ -119,6 +119,9 @@ struct ZnNodeView: View {
     }
 
     private func contentAlignment(_ s: ZnNodeSpec) -> Alignment {
+        // A one-line field in a taller box (height, minHeight, a stretch): text and cursor in the middle, as RN and
+        // Android (B4, 2026-11-12: they were at the top). A multiline one starts at the top.
+        if s.type == Registry.Component.textField { return s.multiline ? .topLeading : .leading }
         guard s.type == Registry.Component.text else { return .topLeading }
         switch s.textAlign {
         case Registry.TextAlign.center: return .center

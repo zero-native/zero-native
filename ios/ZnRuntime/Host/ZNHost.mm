@@ -37,6 +37,7 @@ static std::string privateDir(NSString* name) {
 
 @interface ZNHost ()
 - (void)post:(void (^)(void))task;
+- (void)post:(void (^)(void))task forGeneration:(uint64_t)generation;
 - (void)post:(void (^)(void))task afterMs:(double)ms;
 - (void)applyOnMain;
 - (zn::Runtime*)runtime;
@@ -75,7 +76,8 @@ class IosPlatform final : public zn::Platform {
     if (host.onNativeCall && host.onNativeCall(m, fn, toNS(argsJson), callbackId, data)) return;
     // Answered later, never inside the call (JS is running).
     NSString* message = [NSString stringWithFormat:@"no native module \"%@\" in this app (iOS)", m];
-    [host answerCall:callbackId ok:NO valueJson:nil code:@"unavailable" message:message];
+    [host answerCall:callbackId generation:host.runtimeGeneration ok:NO valueJson:nil code:@"unavailable"
+             message:message];
   }
 
   void cancelNative(uint32_t callbackId) override {
@@ -120,6 +122,8 @@ class IosPlatform final : public zn::Platform {
   /// Which runtime a posted task is for: `restartRuntime` adds one, and tasks posted for the old runtime (its timers,
   /// events and call answers) are dropped.
   std::atomic<uint64_t> _generation;
+  /// JS thread: the generation of the runtime that runs now (`_generation` changes first, on the caller's thread).
+  uint64_t _runtimeGeneration;
 }
 
 + (NSInteger)bytecodeVersion {
@@ -151,13 +155,14 @@ class IosPlatform final : public zn::Platform {
     [_thread start];
     dispatch_semaphore_wait(_ready, DISPATCH_TIME_FOREVER);  // the run loop exists; a few µs
     _platform = std::make_unique<IosPlatform>(self);
-    [self post:^{ [self makeRuntime]; }];
+    [self post:^{ [self makeRuntime:0]; }];
   }
   return self;
 }
 
 /// JS thread.
-- (void)makeRuntime {
+- (void)makeRuntime:(uint64_t)generation {
+  _runtimeGeneration = generation;
   _runtime = std::make_unique<zn::Runtime>(*_platform, zn::createHermesEngine);
   // A JS task that runs longer is stopped (step 3.9); Android's ZnRuntime.jsTimeLimitMs: 3 s debug, 2 s release.
 #ifndef NDEBUG  // CMake defines NDEBUG in Release (the Swift side uses DEBUG)
@@ -168,11 +173,12 @@ class IosPlatform final : public zn::Platform {
 }
 
 - (void)restartRuntime:(void (^)(void))done {
-  _generation.fetch_add(1);  // first: anything posted from now on is for the new runtime
+  // First: anything posted from now on is for the new runtime.
+  const uint64_t generation = _generation.fetch_add(1) + 1;
   void (^task)(void) = ^{
     const double t0 = CACurrentMediaTime();
     self->_runtime.reset();
-    [self makeRuntime];
+    [self makeRuntime:generation];
     os_log(znLog(), "JS runtime replaced in %.1f ms", (CACurrentMediaTime() - t0) * 1000.0);
     dispatch_async(dispatch_get_main_queue(), done);
   };
@@ -192,12 +198,24 @@ class IosPlatform final : public zn::Platform {
   }
 }
 
+- (uint64_t)runtimeGeneration {
+  return _runtimeGeneration;
+}
+
 - (zn::Runtime*)runtime {
   return _runtime.get();
 }
 
 - (void)post:(void (^)(void))task {
   const uint64_t generation = _generation.load();
+  CFRunLoopPerformBlock(_jsLoop, kCFRunLoopDefaultMode, ^{
+    if (self->_generation.load() == generation) task();
+  });
+  CFRunLoopWakeUp(_jsLoop);
+}
+
+/// Runs [task] only if the runtime of [generation] still runs then (a call's answer).
+- (void)post:(void (^)(void))task forGeneration:(uint64_t)generation {
   CFRunLoopPerformBlock(_jsLoop, kCFRunLoopDefaultMode, ^{
     if (self->_generation.load() == generation) task();
   });
@@ -268,13 +286,17 @@ class IosPlatform final : public zn::Platform {
 }
 
 - (void)dispatchEvent:(uint32_t)instance event:(uint16_t)event stringFrom:(NSString* (^)(void))payload {
-  [self post:^{
+  // Not through `post`: dropped there after a restart, [payload] never ran, the module's slot stayed full and that
+  // event never reached JS again (2026-11-12).
+  CFRunLoopPerformBlock(_jsLoop, kCFRunLoopDefaultMode, ^{
     NSString* text = payload();
-    if (text) self->_runtime->dispatchEvent(instance, event, zn::Value::string(toStd(text)));
-  }];
+    if (text && self->_runtime) self->_runtime->dispatchEvent(instance, event, zn::Value::string(toStd(text)));
+  });
+  CFRunLoopWakeUp(_jsLoop);
 }
 
-- (void)answerCall:(uint32_t)callbackId valueJson:(NSString*)valueJson bytes:(NSData*)bytes {
+- (void)answerCall:(uint32_t)callbackId generation:(uint64_t)generation valueJson:(NSString*)valueJson
+             bytes:(NSData*)bytes {
   // App event 9 (CALL_RESULT_BYTES, calls.ts): [u32 LE head size][head: the same JSON as event 7][body bytes].
   NSString* head = [NSString stringWithFormat:@"{\"id\":%u,\"ok\":true,\"value\":%@}", callbackId, valueJson ?: @"null"];
   const std::string h = toStd(head);
@@ -284,11 +306,11 @@ class IosPlatform final : public zn::Platform {
   memcpy(buffer.data() + 4, h.data(), h.size());
   if (bytes.length) memcpy(buffer.data() + 4 + h.size(), bytes.bytes, bytes.length);
   auto shared = std::make_shared<std::vector<uint8_t>>(std::move(buffer));
-  [self post:^{ self->_runtime->dispatchBytes(0, 9, std::move(*shared)); }];
+  [self post:^{ self->_runtime->dispatchBytes(0, 9, std::move(*shared)); } forGeneration:generation];
 }
 
-- (void)answerCall:(uint32_t)callbackId ok:(BOOL)ok valueJson:(NSString*)valueJson code:(NSString*)code
-           message:(NSString*)message {
+- (void)answerCall:(uint32_t)callbackId generation:(uint64_t)generation ok:(BOOL)ok
+         valueJson:(NSString*)valueJson code:(NSString*)code message:(NSString*)message {
   NSString* json;
   if (ok) {
     json = [NSString stringWithFormat:@"{\"id\":%u,\"ok\":true,\"value\":%@}", callbackId, valueJson ?: @"null"];
@@ -297,7 +319,8 @@ class IosPlatform final : public zn::Platform {
     json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:body options:0 error:nil]
                                  encoding:NSUTF8StringEncoding];
   }
-  [self dispatchEvent:0 event:7 string:json];  // CALL_RESULT (ZnAppEvent.kt)
+  const std::string s = toStd(json);
+  [self post:^{ self->_runtime->dispatchEvent(0, 7, zn::Value::string(s)); } forGeneration:generation];  // CALL_RESULT
 }
 
 @end

@@ -109,7 +109,10 @@ struct ZnPressable<Label: View>: View {
                 .scaleEffect(state.pressed ? s.pressScale : 1)
                 .opacity(state.pressed ? s.pressOpacity : 1)
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
-                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled))
+                // hitSlop: the touch view reaches past the Pressable by the slop (start / end follow the layout
+                // direction, as SwiftUI's leading / trailing).
+                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled)
+                    .padding(s.hitSlop.map { EdgeInsets(top: -$0.top, leading: -$0.start, bottom: -$0.bottom, trailing: -$0.end) } ?? EdgeInsets()))
         }
     }
 }
@@ -142,6 +145,9 @@ struct ZnTouchTarget: UIViewRepresentable {
         let s = s, inst = inst, ctx = ctx, state = state
         // On a hidden tab (ZnTabsView): out of every hit test, also the inner-Pressable check of the controls over it.
         c.isHidden = context.environment.znInHiddenTab
+        let slop = s.hitSlop ?? ZnEdges()
+        let rtl = context.environment.layoutDirection == .rightToLeft
+        c.slop = UIEdgeInsets(top: slop.top, left: rtl ? slop.end : slop.start, bottom: slop.bottom, right: rtl ? slop.start : slop.end)
         c.isEnabled = !disabled
         c.haptic = s.haptic
         c.repeatDelay = s.onPressRepeat != 0 ? s.repeatDelayMs / 1000 : nil
@@ -177,20 +183,28 @@ final class ZnTouchControl: UIView {
     private var timer: Timer?
     private var handled = false  // a long press or a repeat fired: no onPress on release
     private var active = false   // between onPressIn and its onPressOut
-    /// Where the last press began, in this view's space (the same as the Pressable's).
+    /// Where the last press began, in the Pressable's space (the ripple starts there).
     private(set) var lastDown: CGPoint = .zero
+    /// hitSlop: how far this view reaches past the Pressable on each side (0 without one).
+    var slop: UIEdgeInsets = .zero
+    /// The Pressable itself, without its slop.
+    var core: CGRect { bounds.inset(by: slop) }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event), let window else { return nil }
         let p = convert(point, to: window)
-        let area = bounds.width * bounds.height
+        let area = core.width * core.height
+        // In the slop, past the Pressable's own edges: another Pressable right under the finger wins, as on Android
+        // (Compose's minimum touch size; RN would give it to the one on top). Over empty space the slop counts.
+        let inSlop = !core.contains(point)
         let screen = screenController
         // Only controls of the same screen: a screen under the top one (still in the hierarchy during and after a
         // push) must not take its taps (found 2026-11-08: Home's buttons blocked the Dev screen's).
         for other in ZnTouchControl.live.allObjects
         where other !== self && other.window === window && !other.isHidden && other.screenController === screen {
-            let f = other.convert(other.bounds, to: window)
-            if f.contains(p) && f.width * f.height < area { return nil }  // an inner Pressable: it takes the touch
+            let f = other.convert(other.core, to: window)
+            // An inner Pressable takes the touch; in our slop, any Pressable under the finger does.
+            if f.contains(p) && (inSlop || f.width * f.height < area) { return nil }
         }
         return hit
     }
@@ -213,7 +227,8 @@ final class ZnTouchControl: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard isEnabled, !active else { return }
-        lastDown = touches.first?.location(in: self) ?? CGPoint(x: bounds.midX, y: bounds.midY)
+        let at = touches.first?.location(in: self) ?? CGPoint(x: bounds.midX, y: bounds.midY)
+        lastDown = CGPoint(x: at.x - slop.left, y: at.y - slop.top)
         handled = false
         active = true
         if haptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
