@@ -319,6 +319,10 @@ const pickerOpen = signal(false)
 - `detents="content"` (default: as tall as its content), `"half"`, `"full"`, or several (`"half,full"`: opens at the
   first, the user can drag between them; `onDetentChange` tells you). `dismissible={false}` for sheets the user must
   answer.
+- **Do** let a `"content"` sheet change its content while open ("View all", an error line): it grows (up to full
+  height, then a `Scroll` inside should take the rest) and shrinks with a spring. **Don't** give a list a fixed height
+  just to keep the sheet still. **Why:** both Android and iOS follow the content (Android since 2026-11-12; before, it
+  kept its first height and the bottom was cut).
 - Style the sheet's content with `style` (padding, gap); its background is white unless you set `backgroundColor`.
   Don't set `borderRadius` on it (the top corners are rounded for you).
 - Close the sheet **before** navigating (`pickerOpen.set(false); nav.push(...)`), as in the sample.

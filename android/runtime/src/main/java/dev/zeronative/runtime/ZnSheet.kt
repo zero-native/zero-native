@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -62,6 +63,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /** How long native waits for JS to close a dismissed sheet before springing it back (JS kept `visible` true). */
@@ -106,7 +108,8 @@ internal fun Window.passTouchesThrough(on: Boolean) {
  *   never writes `visible`.
  * - **No JS during a gesture:** drag, rubber-band above the top, fling and settling are native; JS only hears
  *   onDismiss and onDetentChange (when it settles on another detent).
- * - **Detents:** "content" (its content's height), "half", "full"; the first one is where it opens.
+ * - **Detents:** "content" (its content's height), "half", "full"; the first one is where it opens. "content" follows
+ *   the content while open: it grows (up to "full") and shrinks with a spring.
  * - Content that scrolls (a list inside) scrolls first; at its top, pulling down moves the sheet (nested scroll).
  * - Its content keeps clear of the navigation bar; "full" stops below the status bar.
  */
@@ -203,17 +206,22 @@ private fun SheetBody(
             "full" -> maxH
             else -> (contentH + handleH + bottomInset).coerceAtMost(maxH)
         }
-        // The sheet's box is as tall as its tallest detent; `offset` moves it down from there (0 = tallest).
+        // The sheet's box is as tall as its tallest detent. `sheetTop` is where its top edge is, from the top of the
+        // window (screenH = closed, just below the screen). In screen terms, not as a shift of a box pinned to the bottom:
+        // when the content grows or shrinks while the sheet is open, the edge stays where it is for that frame and then
+        // springs to its new rest (2026-11-12, ZeroBill's offers sheet: "View all" added rows and the sheet didn't grow).
         val boxH = s.detents.maxOf { height(it) }
-        val restOffsets = s.detents.associateWith { boxH - height(it) }
-        val closed = boxH
-        val offset = remember { Animatable(screenH) }
+        val restTops = s.detents.associateWith { screenH - height(it) }
+        val closed = screenH
+        val sheetTop = remember { Animatable(screenH) }
         var detent by remember { mutableStateOf(s.detents.first()) }
         var gesture by remember { mutableStateOf(false) }
+        // The open / close effect below saw the sheet open already (a size change then is not an opening).
+        val wasOpen = remember { booleanArrayOf(false) }
 
         fun nearest(v: Float): String {
-            val current = offset.value
-            val sorted = restOffsets.entries.sortedBy { it.value } // tallest first
+            val current = sheetTop.value
+            val sorted = restTops.entries.sortedBy { it.value } // tallest first
             return when {
                 v < -FLING_VELOCITY -> sorted.lastOrNull { it.value < current - 1f }?.key ?: sorted.first().key
                 v > FLING_VELOCITY -> sorted.firstOrNull { it.value > current + 1f }?.key ?: sorted.last().key
@@ -232,32 +240,32 @@ private fun SheetBody(
         fun askToClose(velocity: Float = 0f) {
             if (!currentVisible) return // JS closed it already: its close animation runs (LaunchedEffect below)
             if (!s.dismissible) {
-                scope.launch { offset.animateTo(restOffsets.getValue(detent), springOpen, velocity) }
+                scope.launch { sheetTop.animateTo(restTops.getValue(detent), springOpen, velocity) }
                 return
             }
             if (dismissing || !currentVisible) return // already closing: one onDismiss per close
             dismissing = true
             scope.launch {
                 if (s.onDismiss != 0) ZnRuntime.dispatchEvent(inst.id, s.onDismiss)
-                offset.animateTo(closed, springClose, velocity)
+                sheetTop.animateTo(closed, springClose, velocity)
                 delay(KEEP_OPEN_MS)
                 if (currentVisible) {
                     dismissing = false // JS kept it open: it takes touches again
-                    offset.animateTo(restOffsets.getValue(detent), springOpen)
+                    sheetTop.animateTo(restTops.getValue(detent), springOpen)
                 }
             }
         }
 
         fun settle(velocity: Float) {
             if (!userCanMove()) return // closing: the close animation decides where it goes
-            val lowest = restOffsets.values.max()
-            val dragged = offset.value - lowest
+            val lowest = restTops.values.max()
+            val dragged = sheetTop.value - lowest
             if (velocity > FLING_VELOCITY * 1.5f || (dragged > (closed - lowest) * DISMISS_FRACTION && velocity > -FLING_VELOCITY)) {
                 askToClose(velocity)
                 return
             }
             val target = nearest(velocity)
-            scope.launch { offset.animateTo(restOffsets.getValue(target), springOpen, velocity) }
+            scope.launch { sheetTop.animateTo(restTops.getValue(target), springOpen, velocity) }
             if (target != detent) {
                 detent = target
                 if (s.onDetentChange != 0) ZnRuntime.dispatchEvent(inst.id, s.onDetentChange, target)
@@ -266,28 +274,34 @@ private fun SheetBody(
 
         fun dragBy(dy: Float): Float {
             if (!userCanMove()) return 0f // closing: a drag that began before must not move it
-            val top = restOffsets.values.min()
-            val next = offset.value + dy
-            val applied = if (next < top) offset.value + dy * 0.25f else next // rubber-band above the top
-            scope.launch { offset.snapTo(applied) }
+            val highest = restTops.values.min()
+            val next = sheetTop.value + dy
+            val applied = if (next < highest) sheetTop.value + dy * 0.25f else next // rubber-band above the top
+            scope.launch { sheetTop.snapTo(applied) }
             return dy
         }
 
-        // JS opens / closes it.
-        LaunchedEffect(visible, boxH) {
+        // JS opens / closes it; a new size (content, insets, screen) moves it to its new rest.
+        LaunchedEffect(visible, restTops) {
             if (contentH <= 0f) return@LaunchedEffect
             if (visible) {
-                dismissing = false // opened again while a user's dismiss waited (its wait was cancelled)
+                val opening = !wasOpen[0]
+                wasOpen[0] = true
+                // A new size while open: not while the user drags it or their close waits for JS (their gesture or the
+                // close decides where it goes, with the new rests).
+                if (!opening && (gesture || dismissing)) return@LaunchedEffect
+                if (opening) dismissing = false // opened again while a user's dismiss waited (its wait was cancelled)
                 // animateIn={false}: from closed (opening), it is at rest at once; later size changes still animate.
                 // Read here, as it opens: a later change of the value doesn't move an open sheet.
-                if (offset.value >= closed - 1f && !animateInNow()) offset.snapTo(restOffsets.getValue(detent))
-                else offset.animateTo(restOffsets.getValue(detent), springOpen)
+                if (sheetTop.value >= closed - 1f && !animateInNow()) sheetTop.snapTo(restTops.getValue(detent))
+                else sheetTop.animateTo(restTops.getValue(detent), springOpen)
             } else {
+                wasOpen[0] = false
                 // JS closed it: the window must always go. If something else stops this animation (another animation
-                // of `offset`), close at once rather than leave a scrim that lets taps through. Only a restart of this
+                // of `sheetTop`), close at once rather than leave a scrim that lets taps through. Only a restart of this
                 // effect (new size: it closes again from there) or the sheet leaving the screen ends it without onGone.
                 try {
-                    offset.animateTo(closed, springClose)
+                    sheetTop.animateTo(closed, springClose)
                 } catch (e: CancellationException) {
                     if (!isActive) throw e
                 }
@@ -296,18 +310,18 @@ private fun SheetBody(
         }
 
         // A list inside scrolls first; at its top, pulling down moves the sheet; pushing up opens it to the top.
-        val nested = remember(restOffsets) {
+        val nested = remember(restTops) {
             object : NestedScrollConnection {
                 override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                    val top = restOffsets.values.min()
-                    return if (available.y < 0f && offset.value > top) Offset(0f, dragBy(available.y)) else Offset.Zero
+                    val highest = restTops.values.min()
+                    return if (available.y < 0f && sheetTop.value > highest) Offset(0f, dragBy(available.y)) else Offset.Zero
                 }
 
                 override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
                     if (available.y > 0f && source == NestedScrollSource.UserInput) Offset(0f, dragBy(available.y)) else Offset.Zero
 
                 override suspend fun onPreFling(available: Velocity): Velocity {
-                    if (restOffsets.values.none { abs(it - offset.value) < 1f }) {
+                    if (restTops.values.none { abs(it - sheetTop.value) < 1f }) {
                         settle(available.y)
                         return available
                     }
@@ -318,11 +332,15 @@ private fun SheetBody(
 
         // Registry 24: `<Sheet motion={m}>` gives m.progress, 0 closed → 1 at its tallest detent, read frame by frame
         // (a backdrop, a header or a map that fades as the sheet rises).
-        val closedNow by rememberUpdatedState(closed)
+        // Shown height over the tallest detent's height (the same number as before the sheet kept its top edge in
+        // screen terms).
+        fun progressOf(top: Float, tallest: Float, bottom: Float) = if (tallest > 0f) ((bottom - top) / tallest).coerceIn(0f, 1f) else 0f
+        val boxHNow by rememberUpdatedState(boxH)
+        val screenHNow by rememberUpdatedState(screenH)
         znElementOf(s, inst)?.let { e ->
-            ZnProvide(e, "progress") { if (closedNow > 0f) (1f - offset.value / closedNow).coerceIn(0f, 1f) else 0f }
+            ZnProvide(e, "progress") { progressOf(sheetTop.value, boxHNow, screenHNow) }
         }
-        val progress = if (closed > 0f) (1f - offset.value / closed).coerceIn(0f, 1f) else 0f
+        val progress = progressOf(sheetTop.value, boxH, screenH)
         // Scrim: darkens with the sheet; a tap asks to close.
         Box(
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f * progress)).clickable(
@@ -333,24 +351,27 @@ private fun SheetBody(
         // Back closes the sheet. With Android 13+ predictive back, the sheet follows the back gesture down (a third of
         // its height; a sheet that can't be dismissed only gives a little) and springs back if the user cancels.
         androidx.activity.compose.PredictiveBackHandler(enabled = true) { events ->
-            val rest = restOffsets.getValue(detent)
+            val rest = restTops.getValue(detent)
             val travel = (closed - rest) * if (s.dismissible) BACK_TRAVEL else BACK_TRAVEL_FIXED
             try {
-                events.collect { e -> if (userCanMove()) offset.snapTo(rest + travel * e.progress) }
+                events.collect { e -> if (userCanMove()) sheetTop.snapTo(rest + travel * e.progress) }
                 askToClose()
             } catch (e: CancellationException) {
-                if (userCanMove()) scope.launch { offset.animateTo(restOffsets.getValue(detent), springOpen) }
+                if (userCanMove()) scope.launch { sheetTop.animateTo(restTops.getValue(detent), springOpen) }
                 throw e
             }
         }
 
         val radius = (if (s.radius > 0f) s.radius else 24f).dp
         val shape = RoundedCornerShape(topStart = radius, topEnd = radius)
+        // At least down to the screen's bottom edge: while it springs down to a new, shorter rest (content shrank) or is
+        // pulled above its top, no gap shows under it.
+        val surfaceH = max(boxH, screenH - sheetTop.value)
         Box(
-            Modifier.align(Alignment.BottomCenter)
+            Modifier.align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .then(if (contentH > 0f) Modifier.height(with(density) { boxH.toDp() }) else Modifier.heightIn(max = with(density) { maxH.toDp() }))
-                .offset { IntOffset(0, offset.value.roundToInt()) }
+                .then(if (contentH > 0f) Modifier.height(with(density) { surfaceH.toDp() }) else Modifier.heightIn(max = with(density) { maxH.toDp() }))
+                .offset { IntOffset(0, sheetTop.value.roundToInt()) }
                 .shadow(16.dp, shape)
                 .clip(shape)
                 .background(s.background ?: Color.White)
@@ -367,13 +388,22 @@ private fun SheetBody(
                 Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp), contentAlignment = Alignment.Center) {
                     Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFFCBD5E1)))
                 }
-                // The sheet node's own children (its style applies here: padding, gap, ...).
-                Box(Modifier.fillMaxWidth().onSizeChanged { size ->
+                // The sheet node's own children (its style applies here: padding, gap, ...). With a "content" detent they
+                // are measured up to the tallest the sheet may be, not the sheet's height now: else content that grows
+                // after the sheet opened is held to its first height (its bottom cut) and the sheet never grows
+                // (2026-11-12). It still takes no more room than the sheet has; the extra is clipped until it grows.
+                // Half / full sheets keep the sheet's own height (content that fills them stays as it was).
+                val maxContent = (maxH - handleH - bottomInset).coerceAtLeast(0f).roundToInt()
+                val growing = if ("content" !in s.detents) Modifier else Modifier.layout { m, c ->
+                    val p = m.measure(c.copy(minHeight = 0, maxHeight = max(maxContent, c.minHeight)))
+                    layout(p.width, p.height.coerceIn(c.minHeight, c.maxHeight)) { p.place(0, 0) }
+                }
+                Box(Modifier.fillMaxWidth().then(growing).onSizeChanged { size ->
                     val h = size.height.toFloat()
                     if (h > 0f && abs(h - contentH) > 0.5f) {
                         val first = contentH <= 0f
                         contentH = h
-                        if (first) scope.launch { offset.snapTo(screenH) }
+                        if (first) scope.launch { sheetTop.snapTo(screenH) }
                     }
                 }) {
                     ZnColumn(f, t, inst, s, Modifier.fillMaxWidth().then(nodeChain(s, inst)), definiteWidth = true)

@@ -149,6 +149,20 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-12: Android: a "content" sheet follows its content while open (Claude, Windows; found by the ZeroBill session)
+- Bug (Lava, ZeroBill's offers sheet, "View all"): the sheet kept the height it had when it opened; new rows ran off the
+  bottom and hid "Continue to Checkout". The surface's fixed height held the content to its first height, and the open
+  animation only followed the tallest detent's height. iOS was already right (i.5).
+- Fix (`ZnSheet.kt`): with a "content" detent the content is measured up to the full height (the handle and the
+  navigation-bar inset still added after, so the old "last row cut" fix stays). The sheet's top edge is kept in screen
+  terms and springs to its new rest when any size changes; not during a drag or while a user's close waits for JS.
+  The surface reaches at least the screen's bottom, so a shrinking sheet shows no gap. Half / full-only sheets measure
+  as before.
+- Checked on the Android 13 emulator (sample, debug): the Components sheet "More lines" grows the sheet (top 2012 →
+  1808 px, the last line above the navigation bar) and "Fewer lines" shrinks it back to 2012; a drag down closes it; the
+  Motion sheets lab's half / full sheet opens at half, drags to full, Back closes it. Runtime unit tests 328 pass. Not
+  checked: the Lava, and ZeroBill's offers sheet itself.
+
 ### 2026-11-11: the runtime's Baseline Profile, recorded (Claude, Windows; from the Infinix list-lag finding)
 - First real runtime profile (startup rule 6): `android/runtime/src/main/generated/baselineProfiles/baseline-prof.txt`,
   24,679 lines, 2,706 of them `dev/zeronative`. Every app's release build merges it. It reaches users only with a new store build.
