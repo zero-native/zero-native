@@ -16,9 +16,10 @@ internal class ScannerTexts(from: JSONObject) {
     val torchOn = from.text("torchOnLabel", "Turn flash on")
     val torchOff = from.text("torchOffLabel", "Turn flash off")
     val permissionTitle = from.text("permissionTitle", "Camera is off")
-    val permissionBody = from.text("permissionBody", "Allow the camera to scan codes.")
+    val permissionBody = from.text("permissionBody", "The camera is used to scan codes.")
     val blockedBody = from.text("blockedBody", "Turn on the camera for this app in Settings.")
-    val allow = from.text("allowLabel", "Allow camera")
+    // "Continue", never "Allow ...": App Review rejects that before the system prompt (5.1.1(iv)); same words on both.
+    val allow = from.text("allowLabel", "Continue")
     val settings = from.text("settingsLabel", "Open settings")
     val failedTitle = from.text("failedTitle", "Camera can't start")
     val failedBody = from.text("failedBody", "Another app may be using it. Close that app and try again.")

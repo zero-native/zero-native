@@ -149,6 +149,14 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-16: iOS: the scanner never says "Allow camera" (Claude, Mac)
+App Review rejected ZeroBill 1.6.2 again (5.1.1(iv), an "Allow camera" button before the camera prompt). ZeroBill's
+scan screen passes "Continue", and on the simulator it shows it; the plugin's own defaults still said "Allow camera" /
+"Allow the camera to scan codes." Now: defaults "Continue" / "The camera is used to scan codes." on both platforms
+(A23); on iOS the permission message is made again when its words change (a view made before its props came kept the
+defaults) and after "Don't Allow" (it kept a dead "Continue"; now "Open Device Settings"). Checked in ZeroBill on the
+simulator: Continue under the prompt, Settings after Don't Allow.
+
 ### 2026-11-12: iOS checks from bugs found on Android: 3 fixes (Claude, Mac)
 The rows of docs/ios-checks-from-android-bugs.md checked on the simulator and in the code; results table in that doc.
 - **R1 fixed** (fffd9be): after `Updates.applyNow`, a slow call from the old runtime could settle the new runtime's

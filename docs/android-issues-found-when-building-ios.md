@@ -348,3 +348,13 @@ Each entry says:
   every event already, so nothing changes for them.
 - **If wanted later:** the Android plugin could report FCM-shown pushes from `getActiveNotifications()` at the return
   to the front, as iOS's fallback does. Not planned.
+
+## A23. The scanner's default button said "Allow camera" (from iOS work)
+- **Status:** changed on both, 2026-11-16. App Review rejected ZeroBill 1.6.2 again under 5.1.1(iv): a button before
+  the system camera prompt said "Allow camera". ZeroBill passes `allowLabel="Continue"`, but the plugin's own
+  defaults said "Allow camera" and "Allow the camera to scan codes.".
+- **Change (shared, ScannerTexts on both):** the defaults are now "Continue" and "The camera is used to scan codes.".
+  An app that passes its own words sees no change.
+- **iOS only:** the permission message is made again when the view's words change, and after "Don't Allow" it offers
+  Settings (it kept a "Continue" that did nothing).
+- **Check on Android (Windows):** the sample scanner lab with no words passed shows "Continue".

@@ -80,7 +80,7 @@ export interface QrScannerProps extends ScannerLook, ScannerZoom {
   scanKey?: string | number
   /** False stops the camera. Default true. */
   active?: boolean
-  /** False: no dialog by itself; the view shows an "Allow camera" button. Default true. */
+  /** False: no dialog by itself; the view shows a "Continue" button. Default true. */
   askPermission?: boolean
   formats?: BarcodeFormat[]
 }

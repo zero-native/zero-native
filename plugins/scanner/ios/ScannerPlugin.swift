@@ -22,7 +22,9 @@ final class ScannerModule: ZnModuleBase, @unchecked Sendable {
     }
 }
 
-/// Words and colours, from the route's params or the view's props. The defaults are plain and belong to no brand.
+/// Words and colours, from the route's params or the view's props. The defaults are plain and belong to no brand. The
+/// button before the system prompt says "Continue", never "Allow ...": App Review rejects a button that tells the user
+/// to allow (guideline 5.1.1(iv), ZeroBill 1.6.2, 2026-11-12 and 2026-11-16).
 struct ScannerTexts {
     let title, hint, linkLabel, close, torchOn, torchOff: String
     let permissionTitle, permissionBody, blockedBody, allow, settings, failedTitle, failedBody, retry: String
@@ -40,9 +42,9 @@ struct ScannerTexts {
         }
         title = t("title", "Scan a QR code"); hint = t("hint", ""); linkLabel = t("linkLabel", "")
         close = t("closeLabel", "Close"); torchOn = t("torchOnLabel", "Turn flash on"); torchOff = t("torchOffLabel", "Turn flash off")
-        permissionTitle = t("permissionTitle", "Camera is off"); permissionBody = t("permissionBody", "Allow the camera to scan codes.")
+        permissionTitle = t("permissionTitle", "Camera is off"); permissionBody = t("permissionBody", "The camera is used to scan codes.")
         blockedBody = t("blockedBody", "Turn on the camera for this app in Settings.")
-        allow = t("allowLabel", "Allow camera"); settings = t("settingsLabel", "Open settings")
+        allow = t("allowLabel", "Continue"); settings = t("settingsLabel", "Open settings")
         failedTitle = t("failedTitle", "Camera can't start")
         failedBody = t("failedBody", "Another app may be using it. Close that app and try again.")
         retry = t("retryLabel", "Try again")
@@ -159,7 +161,7 @@ final class ScannerMessageView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    /// The permission message: "Allow camera" asks (first time), "Open settings" once iOS won't ask again.
+    /// The permission message: "Continue" asks (first time), "Open settings" once iOS won't ask again.
     static func permission(_ state: ScanPermission, _ texts: ScannerTexts, asked: @escaping () -> Void) -> ScannerMessageView {
         let blocked = state == .blocked
         return ScannerMessageView(title: texts.permissionTitle, body: blocked ? texts.blockedBody : texts.permissionBody,
@@ -383,6 +385,9 @@ final class ScannerView: UIView {
     private var lastKey: String
     private var held = false
     private var lastPermission: ScanPermission?
+    /// The state the permission message on screen was made for: it is made again when the state changes (after "Don't
+    /// Allow" it offers Settings; it kept "Continue", which then did nothing, 2026-11-16).
+    private var messageFor: ScanPermission?
 
     init(_ scope: ZnViewScope) {
         self.scope = scope
@@ -391,7 +396,13 @@ final class ScannerView: UIView {
         super.init(frame: .zero)
         backgroundColor = .black
         clipsToBounds = true
-        scope.onProps = { [weak self] p in self?.apply(p) }
+        scope.onProps = { [weak self] p in
+            guard let self else { return }
+            // New words: a permission message on screen is made again with them (it kept the ones it was made with).
+            self.texts = ScannerTexts(p)
+            if self.camera == nil { self.messageFor = nil; self.show() }
+            self.apply(p)
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(back), name: UIApplication.didBecomeActiveNotification, object: nil)
         let ask = scope.props["askPermission"] as? Bool ?? true
         if ask && ScanPermission.askable && ScannerRules.fakeCode == nil {
@@ -418,6 +429,7 @@ final class ScannerView: UIView {
         if state == .granted {
             message?.removeFromSuperview()
             message = nil
+            messageFor = nil
             if camera == nil {
                 let cam = ScannerCameraView(gate: gate)
                 cam.formats = texts.formats
@@ -449,9 +461,10 @@ final class ScannerView: UIView {
                 camera = cam
             }
             apply(scope.props)
-        } else if message == nil || camera != nil {
+        } else if message == nil || camera != nil || messageFor != state {
             camera?.removeFromSuperview()
             camera = nil
+            messageFor = state
             place(ScannerMessageView.permission(state, texts) { [weak self] in self?.show() })
         }
     }
