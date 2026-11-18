@@ -221,6 +221,35 @@ describe("H2: Early returns in components", () => {
     `)).toMatch(/Bad assigns to pre-guard variable "count" after an early return guard/)
   })
 
+  // A name the tail declares again is its own, not the pre-guard one: no refusal (these built before the fix above).
+  test("a handler's own let with a pre-guard name may be assigned", () => {
+    const { code } = compile(`
+      import { Text, Pressable } from "@zero-native/ui"
+      declare function useStore(): { data: number, loading: () => boolean }
+      export function Card(props: { id: string }) {
+        const { data, loading } = useStore()
+        if (loading()) return <Text>Spinner</Text>
+        return <Pressable onPress={() => { let data = 1; data = 2; console.log(data) }}><Text>{data}</Text></Pressable>
+      }
+    `)
+    expect(code).toContain("Card__after1")
+  })
+
+  test("a loop variable in the tail may reuse a pre-guard var name", () => {
+    const { code } = compile(`
+      import { Text } from "@zero-native/ui"
+      export function Card(props: { n: number, ready: () => boolean }) {
+        let total = 0
+        for (var i = 0; i < props.n; i++) total
+        if (!props.ready()) return <Text>Wait</Text>
+        let s = 0
+        for (let i = 0; i < 3; i++) s = s + i
+        return <Text>{s}</Text>
+      }
+    `)
+    expect(code).toContain("Card__after1")
+  })
+
   // Review 2026-11-18 #3: a pre-guard JSX variable was passed to the tail as a value (its declaration is gone from
   // the JS), and the names its JSX reads were not passed at all.
   test("a pre-guard JSX variable is not passed to the tail, the names it reads are", () => {

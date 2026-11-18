@@ -1057,9 +1057,35 @@ export function compileModule(
         }, /* stopAtFunctions */ true)
       }
 
+      // A name the tail declares again (a handler's own `let`, a loop variable) is not the pre-guard one.
+      const isShadowedInTail = (id: ts.Identifier, varName: string): boolean => {
+        let cur: ts.Node | undefined = id.parent
+        while (cur && cur !== body) {
+          if (ts.isFunctionLike(cur)) {
+            for (const p of cur.parameters) {
+              if (declaresName(p.name, varName)) return true
+            }
+          }
+          if (ts.isBlock(cur) || ts.isCaseClause(cur) || ts.isDefaultClause(cur)) {
+            for (const stmt of cur.statements) {
+              if (declaresInStatement(stmt, varName)) return true
+            }
+          }
+          // `for (let i = 0; ...)`, `for (const k of ...)`: the loop declares its own name.
+          if ((ts.isForStatement(cur) || ts.isForInStatement(cur) || ts.isForOfStatement(cur)) && cur.initializer && ts.isVariableDeclarationList(cur.initializer)) {
+            for (const d of cur.initializer.declarations) if (declaresName(d.name, varName)) return true
+          }
+          if (ts.isCatchClause(cur) && cur.variableDeclaration) {
+            if (declaresName(cur.variableDeclaration.name, varName)) return true
+          }
+          cur = cur.parent
+        }
+        return false
+      }
+
       for (const s of tailStmts) {
         forEachDescendant(s, (n) => {
-          if (ts.isIdentifier(n) && preGuardDecls.has(n.text) && isAssigned(n)) {
+          if (ts.isIdentifier(n) && preGuardDecls.has(n.text) && isAssigned(n) && !isShadowedInTail(n, n.text)) {
             fail(n, `${name} assigns to pre-guard variable "${n.text}" after an early return guard: variables declared before a guard are read-only in the tail`)
           }
         })
@@ -1073,7 +1099,7 @@ export function compileModule(
               if (isLet) {
                 let reassigned = false
                 forEachDescendant(fn, (n) => {
-                  if (ts.isIdentifier(n) && n.text === id.text && isAssigned(n)) reassigned = true
+                  if (ts.isIdentifier(n) && n.text === id.text && isAssigned(n) && !isShadowedInTail(n, id.text)) reassigned = true
                 })
                 if (reassigned) {
                   fail(id, `${name} has a pre-guard "let ${id.text}" that is reassigned: pre-guard variables cannot be reassigned with early returns`)
@@ -1088,26 +1114,6 @@ export function compileModule(
       const destructure = destructuredByFn.get(fn)
       const propsParamName = destructure ? "__p" : (fn.parameters[0] && ts.isIdentifier(fn.parameters[0].name) ? fn.parameters[0].name.text : undefined)
 
-      const isShadowedInTail = (id: ts.Identifier, varName: string): boolean => {
-        let cur: ts.Node | undefined = id.parent
-        while (cur && cur !== body) {
-          if (ts.isFunctionLike(cur)) {
-            for (const p of cur.parameters) {
-              if (declaresName(p.name, varName)) return true
-            }
-          }
-          if (ts.isBlock(cur) || ts.isCaseClause(cur) || ts.isDefaultClause(cur)) {
-            for (const stmt of cur.statements) {
-              if (declaresInStatement(stmt, varName)) return true
-            }
-          }
-          if (ts.isCatchClause(cur) && cur.variableDeclaration) {
-            if (declaresName(cur.variableDeclaration.name, varName)) return true
-          }
-          cur = cur.parent
-        }
-        return false
-      }
 
       const capture = (n: ts.Identifier) => {
         if (propsParamName && (n.text === propsParamName || (destructure && destructure.props.has(n.text)))) {

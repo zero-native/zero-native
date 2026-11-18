@@ -171,6 +171,8 @@ forwards them to the Android machine. Work on the `ios` branch.
   passed (destructured, function / class / enum declarations, a `var` in a block). A JSX variable is not passed; the
   names its JSX reads are. A destructured pre-guard `let` that is reassigned is now refused, as a plain one
   (second-opinions 172).
+- Follow-up (same day, from the fix review): a name the tail declares again (a handler's own `let data`, a
+  `for (let i ...)` loop) is its own, so assigning to it is not refused. Two tests added.
 - Checked: 10 new tests in `compiler/test/early-returns.test.ts` (8 failed before the fix); they also check the output
   with TypeScript for names nothing declares. `bun test compiler` and `bun run test` pass. Not run on a phone.
 
@@ -182,6 +184,8 @@ forwards them to the Android machine. Work on the `ios` branch.
 - Fix (`ZnNav.systemBack`, `backFallbackArms`): no fallback timer when the top screen asked for Back first; JS
   always decides there. A really stuck JS is stopped by the time limit, then the waiting BACK runs. Screens without a
   handler keep the 300 ms fallback (second-opinions 229). iOS had no such timer. Needs a store build (native only).
+- Follow-up (same day, from the fix review): the timer also checks again when it fires, so it no longer pops a screen
+  that a busy task pushed in those 300 ms, or one that asked for Back meanwhile (a child with `useBack` mounted).
 - Checked: runtime unit tests 332 (1 skipped, 0 failed), with the new `ZnNavBackTest`. Not checked on a phone: a
   busy JS during Back on a guarded screen (needs a test hook that blocks the JS thread).
 
