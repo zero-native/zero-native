@@ -28,6 +28,7 @@ import { TabsLabScreen } from "./TabsLab"
 import { PdfLabScreen } from "./PdfLab"
 import { LocationLabScreen } from "./LocationLab"
 import { RnPropsLabScreen } from "./RnPropsLab"
+import { SheetLeaveLabScreen } from "./SheetLeaveLab"
 import { LayoutLabScreen } from "./LayoutLab"
 import { RnGapsLabScreen } from "./RnGapsLab"
 import { GridLabScreen } from "./GridLab"
@@ -136,6 +137,8 @@ export const routes = defineRoutes({
   imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
   // The TSX viewer (registry 24): see-through, so the lab stays drawn under it while the photo flies and fades.
   photoViewer: { path: "/dev/image-viewer/tsx", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
+  // Sheets that leave the tree while open (zn ca3734d). Last, so the numbers of the routes before it do not move.
+  sheetLeaveLab: { path: "/dev/sheet-leave", screen: SheetLeaveLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
