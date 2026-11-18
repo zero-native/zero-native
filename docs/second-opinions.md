@@ -3732,3 +3732,19 @@ change, and what evidence would make you change it?"
   time-limit stop.
 - **Change:** in `backFallbackArms`, return true for every screen (old behaviour), or arm a longer timer in
   `systemBack` when it returns false.
+
+## 230. iOS: a Sheet that leaves the screen while open closes with it, with no onDismiss (runtime, 2026-11-18; Opus, review finding 4)
+- **Where:** `ZnSheetPresenter.dismantleUIViewController` and the present's completion in
+  `ios/ZnRuntime/Swift/ZnSheet.swift`.
+- **Problem:** the UIKit sheet layer is presented over the full screen from the root, so it outlived its node (screen
+  popped / replaced / reset, `{cond && <Sheet/>}` turned false, the error screen took the screen's place) and could
+  never be closed: the user had to kill the app.
+- **Choices:** (1) send onDismiss when the node goes, or not; (2) slide it down or close at once; (3) a node removed
+  while UIKit is still presenting its layer.
+- **Chosen:** (1) no onDismiss, as ZnModal sends nothing and Android's Dialog just leaves with its node: the node and
+  its handler are gone, and the user did not ask to close. (2) slide down, unless the same batch changes the stack
+  (then at once, as when JS sets `visible` false). (3) wait for the present's completion, as the `visible` false path
+  does; if SwiftUI already dropped the coordinator, the completion closes the layer itself (before, it returned).
+- **Risk if wrong:** if SwiftUI does not call dismantle when a popped screen's hosting controller goes away, the
+  pop / replace case stays as before (ZnModal relies on the same call). Not built yet: Mac check needed.
+- **Change:** the dismantle function is ~15 lines; remove it to get the old behaviour.

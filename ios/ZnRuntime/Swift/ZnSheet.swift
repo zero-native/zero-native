@@ -136,6 +136,24 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
         }
     }
 
+    static func dismantleUIViewController(_ host: UIViewController, coordinator: Coordinator) {
+        // The Sheet left the screen while open (its screen closed or was replaced, the error screen took its place, or
+        // JS removed it): the layer goes with it, as ZnModal. Without this it stayed up for good, and a drag or a tap
+        // outside sent nothing and brought it back up (review finding 4). No onDismiss: the node is gone, and a
+        // closed layer sends none (askToClose checks `closed`).
+        coordinator.onAttempt = {}
+        guard let sheet = coordinator.sheet else { return }
+        coordinator.sheet = nil
+        // Still being presented: UIKit would drop the dismiss. The present's completion closes it (the coordinator
+        // has no sheet now, or is gone).
+        if coordinator.opening === sheet {
+            return print("zn t=\(ZnDebug.ms()) sheet: left the screen while it opens: closes when it has opened")
+        }
+        let animated = !ZnApp.shared.batchChangesStack
+        print("zn t=\(ZnDebug.ms()) sheet: left the screen while open: close\(animated ? "" : " (with a stack change: no animation)")")
+        sheet.close(animated: animated)
+    }
+
     @MainActor final class Coordinator {
         var sheet: ZnSheetLayer?
         /// The sheet UIKit is presenting now (its present not finished).
@@ -165,7 +183,13 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
             print("zn t=\(ZnDebug.ms()) sheet: present\(animated ? "" : " (animateIn false: at rest)")\(wait) over \(type(of: top))")
             opening = layer
             top.present(layer, animated: false) { [weak self, weak layer] in
-                guard let self, let layer else { return }
+                guard let layer else { return }
+                guard let self else {
+                    // Its Sheet left the screen while it was being presented (dismantle), and SwiftUI dropped this
+                    // coordinator: nothing else will close it.
+                    print("zn t=\(ZnDebug.ms()) sheet: opened after it left the screen: dismiss now")
+                    return layer.close(animated: !ZnApp.shared.batchChangesStack)
+                }
                 if self.opening === layer { self.opening = nil }
                 if self.sheet !== layer {
                     // visible went false while it was being presented.

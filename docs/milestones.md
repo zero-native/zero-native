@@ -149,6 +149,17 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-18: iOS: a Sheet that leaves the screen while open closes with it (Claude, Windows; review finding 4)
+- Bug: a UIKit Sheet whose node left the tree while `visible` was still true (nav replace / pop / reset, a
+  `{cond && <Sheet/>}` that turned false, the error screen in place of the screen) stayed on screen for good. A drag
+  or a tap outside sent nothing and it came back up after 0.4 s, so the user could not reach the screen under it.
+- Fix, native only (no registry / hostApi change): `ZnSheetPresenter` gets `dismantleUIViewController`, as ZnModal
+  has: it closes the layer (no animation in a batch that changes the stack) and sends no onDismiss. A sheet still
+  being presented is closed by the present's completion, also when SwiftUI already dropped its coordinator
+  (second-opinions 230).
+- **Not built yet** (written on Windows): needs a Mac build and a simulator / iPhone check of each case: pop, replace,
+  the conditional, the error screen, and a node removed in the same update that opens the sheet.
+
 ### 2026-11-18: compiler: early-return tails get every pre-guard name (Claude, Windows; review findings #2 and #3)
 - Bug: with `if (loading()) return <Spinner />`, the part after the guard is its own function (`Card__after1`), and
   only plain `const x = ...` names from before the guard were passed to it. `const { data } = useStore()`, a

@@ -329,6 +329,9 @@ const pickerOpen = signal(false)
 - Style the sheet's content with `style` (padding, gap); its background is white unless you set `backgroundColor`.
   Don't set `borderRadius` on it (the top corners are rounded for you).
 - Close the sheet **before** navigating (`pickerOpen.set(false); nav.push(...)`), as in the sample.
+- **Know:** a sheet whose node goes while it is open (its screen is replaced or popped, a `{cond && <Sheet/>}` turns
+  false, the screen shows the error screen) closes with it on both platforms, and sends no `onDismiss`. Since
+  2026-11-18 on iOS; before, it stayed on screen for good and the user had to kill the app.
 - **Know:** once it starts closing (`visible` false, or the user dismissed it), the screen below takes taps and Back at
   once, while the sheet still slides down; so does a `<Modal>` fading out. `onDismiss` fires once per close.
   Since 2026-11-07; before, the first tap after the close was lost on the sheet's scrim (ZeroBill's keypad after
