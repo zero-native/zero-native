@@ -149,10 +149,15 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
         if coordinator.opening === sheet {
             return print("zn t=\(ZnDebug.ms()) sheet: left the screen while it opens: closes when it has opened")
         }
-        let animated = !ZnApp.shared.batchChangesStack
-        print("zn t=\(ZnDebug.ms()) sheet: left the screen while open: close\(animated ? "" : " (with a stack change: no animation)")")
+        let animated = Self.leavesAnimated
+        print("zn t=\(ZnDebug.ms()) sheet: left the screen while open: close\(animated ? "" : " (with a stack change or a restart: no animation)")")
         sheet.close(animated: animated)
     }
+
+    /// A sheet whose node left closes without its slide-down picture with a stack change, and while the runtime is
+    /// replaced (an OTA apply or rollback): ZnOta's cover hides that swap, and the picture is drawn over it (it was,
+    /// for 0.3 s: 2026-11-18 review of ca3734d).
+    @MainActor static var leavesAnimated: Bool { !ZnApp.shared.batchChangesStack && !ZnApp.shared.restarting }
 
     @MainActor final class Coordinator {
         var sheet: ZnSheetLayer?
@@ -188,7 +193,7 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
                     // Its Sheet left the screen while it was being presented (dismantle), and SwiftUI dropped this
                     // coordinator: nothing else will close it.
                     print("zn t=\(ZnDebug.ms()) sheet: opened after it left the screen: dismiss now")
-                    return layer.close(animated: !ZnApp.shared.batchChangesStack)
+                    return layer.close(animated: ZnSheetPresenter.leavesAnimated)
                 }
                 if self.opening === layer { self.opening = nil }
                 if self.sheet !== layer {

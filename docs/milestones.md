@@ -157,8 +157,19 @@ forwards them to the Android machine. Work on the `ios` branch.
   has: it closes the layer (no animation in a batch that changes the stack) and sends no onDismiss. A sheet still
   being presented is closed by the present's completion, also when SwiftUI already dropped its coordinator
   (second-opinions 230).
-- **Not built yet** (written on Windows): needs a Mac build and a simulator / iPhone check of each case: pop, replace,
-  the conditional, the error screen, and a node removed in the same update that opens the sheet.
+- **Checked on the Mac (simulator, zn iPhone 16; new sample lab zn://sample/dev/sheet-leave):** builds, no new
+  warnings. Pop, replace and reset with a not-dismissible sheet open: the sheet stays over the transition and goes
+  0.58–0.70 s after the stack change, at once (no slide), nothing left over the next screen, no onDismiss. The
+  conditional: slides away, no onDismiss. A JS hang with the sheet open: the error screen shows, Try again and Go back
+  are reachable, one Submit after Try again counts once. Removed 12–72 ms after opening (16 tries): before the present
+  (closed while waiting for the window), during it (16–24 ms: the completion closes it, coordinator gone) and after.
+  Regressions fine: JS close (a page tap 231 ms later lands), drag-to-close (one onDismiss, back up), removed during a
+  drag's slide (no re-raise), a sheet over a sheet (the top one goes alone; both go with a pop).
+- Review on the Mac (3 lenses, 2 skeptics each): during an OTA restart the leaving sheet closed with its slide-down
+  picture, drawn over ZnOta's cover. Now no animation while the runtime is replaced (`leavesAnimated`); not seen on
+  the simulator (there UIKit drops the old sheet with the old root), kept as a guard. Noted for finding 20: the late
+  close (when UIKit releases the old screen) also takes down a sheet or Modal the next screen opens over it in that
+  ~0.6 s.
 
 ### 2026-11-18: compiler: early-return tails get every pre-guard name (Claude, Windows; review findings #2 and #3)
 - Bug: with `if (loading()) return <Spinner />`, the part after the guard is its own function (`Card__after1`), and
