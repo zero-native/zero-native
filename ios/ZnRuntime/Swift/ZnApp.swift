@@ -415,6 +415,7 @@ final class ZnApp {
     func restart(bundle: URL, in window: UIWindow?, done: @escaping (Bool, String) -> Void) {
         let saved = savedStack(values: false)
         restarting = true
+        ZnPopups.shared.closeAll(why: "the runtime is replaced")  // no slide over the OTA cover; the new root has its own box
         stack = []
         failure = nil
         failedScreens = [:]
@@ -489,7 +490,12 @@ final class ZnApp {
                 if case let .nav(kind, _, _, _) = $0 { return [NavKind.push, NavKind.remove, NavKind.clear].contains(kind) }
                 return false
             }
+            let before = stack
             store.apply(ops)
+            // Screens that left the stack in this batch (pop, replace, reset) close their Sheets and Modals now, before
+            // the next screen's own open (finding 20): not when UIKit releases them ~0.6 s later.
+            let gone = Set(before).subtracting(stack)
+            if !gone.isEmpty { ZnPopups.shared.closeEntries(gone, why: "its screen left the stack") }
             ZnDebug.afterBatch("a batch of \(ops.count) op(s)")
             if !jsDrew {
                 jsDrew = true
@@ -540,7 +546,10 @@ final class ZnApp {
             guard let name, name == Self.layerTop || name == Self.layerOverlay else {
                 return print("zn nav: unknown layer \(params ?? "")")
             }
-            if let old = layers.removeValue(forKey: name) { store.removeTree(old) }
+            if let old = layers.removeValue(forKey: name) {
+                ZnPopups.shared.closeEntries([old], why: "app layer \(name) replaced")
+                store.removeTree(old)
+            }
             guard entry != 0 else { return }
             guard let t = ctx.templates[safe: route] else { return print("zn nav: layer \(name) has no template \(route)") }
             store.mountRoot(id: entry, templateId: route, template: t)
@@ -593,6 +602,7 @@ final class ZnApp {
         print("zn nav: native shows \(shown), JS had \(stack); FORCED_BACK for \(removed)")
         guard !removed.isEmpty else { return }
         stack = stack.filter { shown.contains($0) }
+        ZnPopups.shared.closeEntries(Set(removed), why: "swiped back")
         for e in removed { backWanted.remove(e); failedScreens[e] = nil }
         for e in removed.reversed() { host.dispatchEvent(0, event: UInt16(ZnAppEvent.forcedBack), number: Double(e)) }
         releaseLater(removed)

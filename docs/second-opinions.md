@@ -3748,3 +3748,30 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** if SwiftUI does not call dismantle when a popped screen's hosting controller goes away, the
   pop / replace case stays as before (ZnModal relies on the same call). Not built yet: Mac check needed.
 - **Change:** the dismantle function is ~15 lines; remove it to get the old behaviour.
+
+## 231. iOS: Sheets and Modals live in our own layer box, not UIKit presentations (runtime, 2026-11-18; Opus, review finding 20)
+- **Where:** `ios/ZnRuntime/Swift/ZnPopups.swift` (new), `ZnSheet.swift`, `ZnModal.swift`, `ZnLayers.swift`
+  (ZnRootController), `ZnApp.swift` (the nav-step hooks).
+- **Problem:** a UIKit dismiss closes everything presented over the closing controller, so closing a lower Sheet or
+  Modal closed the ones over it (JS still thought them open). And a leaving screen's layers closed only when UIKit
+  released it, ~0.6 s later, taking down what the next screen had opened over them.
+- **Choices:** (1) keep presenting and work around dismiss (re-present what was over it); (2) a passthrough window over
+  the app window; (3) a box in the root controller, layers as its child view controllers; (4) a plain view in the
+  window, re-attached at each new root.
+- **Chosen:** (3), with a registry keyed by (screen entry, node, template index). ZnRootController already holds the
+  nav controller and startApp's layers, so the box is one more child view; system controllers (Alert, share sheet,
+  StoreKit, document camera) still present from the root and draw over every layer; the status bar and the keyboard
+  need nothing new. (2) needs the status bar forwarded and every presenter taught to use the other window; (4) needs
+  re-attaching at every restart and fights the root's own subviews. Leaving screens close their layers at the nav step,
+  with no slide (the batch's stack diff, a swipe back, an app layer replaced); dismantle stays as the close for
+  `{cond && ...}` and the error screen, and is a no-op after a nav-step close.
+- **Behaviour changes:** a popped / replaced / reset screen's layer now goes at the step, not ~0.6 s later (Android's
+  Dialog stays for its 300 ms exit: A24). A Modal on a leaving screen goes without its fade. A Sheet or Modal opened
+  while an Alert or share sheet is up opens under it. S5 (a share sheet or store page opened from a sheet goes with
+  it) is now a rule: closing the top layer dismisses what was presented after it opened, but not one still sliding in (JS
+  started it in the same turn that closed the layer: `open.set(false); Alert.alert(...)` keeps the Alert; before this
+  change that Alert went with the sheet). ZN_IOS_NAV=swiftui (a
+  comparison root) has no box: Sheets and Modals don't show there (logged).
+- **Risk if wrong:** a layer whose screen entry is wrong would be closed with another screen, or kept; the key comes
+  from `znScreenEntry` (the instance's root), as `<StatusBar>` already uses it.
+- **Change:** revert the six files to go back to presentations.

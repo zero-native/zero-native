@@ -1,6 +1,7 @@
-// React Native's <Modal> on iOS (registry 15), as android/runtime's ZnModal.kt: a full-screen layer over the app (a
-// view controller presented over full screen, from the frontmost one, so it also opens over a sheet), in which the
-// app draws its own content, laid out like a Column that fills it (`flex: 1`, `justifyContent: "center"`).
+// React Native's <Modal> on iOS (registry 15), as android/runtime's ZnModal.kt: a full-screen layer over the app (in
+// ZnPopups' box, over the screens and any Sheet or Modal opened before it; not presented, so closing it, or one under
+// it, closes that one alone: finding 20, 2026-11-18), in which the app draws its own content, laid out like a Column
+// that fills it (`flex: 1`, `justifyContent: "center"`).
 // - Controlled by JS: shown while `visible` is true (true when not written); native never closes it.
 // - `transparent`: the screen shows through where the content draws nothing (else white). `animationType`: "none"
 //   (default), "fade", "slide" (up from the bottom), 250 ms as RN on Android.
@@ -55,7 +56,7 @@ struct ZnModalPresenter: UIViewControllerRepresentable {
     static let duration = 0.25
 
     final class Coordinator {
-        var layer: UIViewController?
+        var layer: ZnModalLayer?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -65,53 +66,70 @@ struct ZnModalPresenter: UIViewControllerRepresentable {
         let c = context.coordinator
         let anim = s.animationType
         if visible, c.layer == nil {
-            let layer = UIHostingController(rootView: ZnModalContent(ctx: ctx, t: t, inst: inst, s: s))
+            let layer = ZnModalLayer(rootView: ZnModalContent(ctx: ctx, t: t, inst: inst, s: s))
             layer.view.backgroundColor = .clear
-            layer.modalPresentationStyle = .overFullScreen
-            c.layer = layer
-            guard let top = znTopController() else { return }
-            print("zn t=\(ZnDebug.ms()) modal: open (\(anim == Registry.AnimationType.fade ? "fade" : anim == Registry.AnimationType.slide ? "slide" : "no animation"))")
+            layer.anim = anim
             let (ctx, id, onShow) = (ctx, inst.id, s.onShow)
-            let shown = { if onShow != 0 { ctx.send(id, onShow, .none) } }
-            top.present(layer, animated: false) {
-                guard let v = layer.view else { return }
-                switch anim {
-                case Registry.AnimationType.fade:
-                    v.alpha = 0
-                    UIView.animate(withDuration: Self.duration, animations: { v.alpha = 1 }) { _ in shown() }
-                case Registry.AnimationType.slide:
-                    v.transform = CGAffineTransform(translationX: 0, y: v.bounds.height)
-                    UIView.animate(withDuration: Self.duration, animations: { v.transform = .identity }) { _ in shown() }
-                default:
-                    shown()
-                }
-            }
+            layer.onShown = { if onShow != 0 { ctx.send(id, onShow, .none) } }
+            c.layer = layer
+            print("zn t=\(ZnDebug.ms()) modal: open (\(anim == Registry.AnimationType.fade ? "fade" : anim == Registry.AnimationType.slide ? "slide" : "no animation"))")
+            ZnPopups.shared.open(layer, key: ZnPopups.Key(entry: znScreenEntry(inst), node: inst.id, index: s.index))
         } else if !visible, let layer = c.layer {
             c.layer = nil
             print("zn t=\(ZnDebug.ms()) modal: close")
-            Self.close(layer, anim)
+            // Its fade or slide, as before (also in a batch that changes the stack); none while the runtime is replaced.
+            ZnPopups.shared.close(layer, animated: !ZnApp.shared.restarting, why: "JS set visible false")
         }
     }
 
     static func dismantleUIViewController(_ host: UIViewController, coordinator: Coordinator) {
-        // The Modal left the screen (its screen closed, or JS removed it): the layer goes with it.
-        if let layer = coordinator.layer { close(layer, -1) }
+        // The Modal left the screen (its node removed, the error screen): the layer goes with it, at once. A screen
+        // that left the stack closed it at the nav step already (then this finds nothing).
+        if let layer = coordinator.layer { ZnPopups.shared.close(layer, animated: false, why: "its node left the screen") }
         coordinator.layer = nil
     }
+}
 
-    private static func close(_ layer: UIViewController, _ anim: Int) {
-        guard let v = layer.viewIfLoaded else { return layer.dismiss(animated: false) }
-        v.isUserInteractionEnabled = false
-        // UIKit's container (UITransitionView) stays over the screen until the fade or slide ends and took the next
-        // tap (2026-11-12): it takes none from now, so the screen below gets it at once (Android: ZnModal.kt).
-        layer.presentationController?.containerView?.isUserInteractionEnabled = false
-        v.superview?.isUserInteractionEnabled = false
-        let gone = { layer.presentingViewController?.dismiss(animated: false) ?? layer.dismiss(animated: false) }
+/// A Modal's layer in ZnPopups' box: the hosting controller itself, faded or slid in and out.
+final class ZnModalLayer: UIHostingController<ZnModalContent>, ZnPopupLayer {
+    var anim = 0
+    /// onShow, once it is on screen (after its animation).
+    var onShown: () -> Void = {}
+
+    func willAppear(in box: ZnPopupBox) {
+        switch anim {
+        case Registry.AnimationType.fade: view.alpha = 0
+        case Registry.AnimationType.slide: view.transform = CGAffineTransform(translationX: 0, y: box.bounds.height)
+        default: break
+        }
+    }
+
+    func shown() {
         switch anim {
         case Registry.AnimationType.fade:
-            UIView.animate(withDuration: duration, animations: { v.alpha = 0 }) { _ in gone() }
+            UIView.animate(withDuration: ZnModalPresenter.duration, animations: { self.view.alpha = 1 }) { _ in self.onShown() }
         case Registry.AnimationType.slide:
-            UIView.animate(withDuration: duration, animations: { v.transform = CGAffineTransform(translationX: 0, y: v.bounds.height) }) { _ in gone() }
+            UIView.animate(withDuration: ZnModalPresenter.duration, animations: { self.view.transform = .identity }) { _ in self.onShown() }
+        default:
+            onShown()
+        }
+    }
+
+    func leave(animated: Bool, in box: ZnPopupBox) {
+        // From now on the next tap goes below, also during the fade or slide (2026-11-12).
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        let gone = { [weak self, weak box] in
+            guard let self, let box else { return }
+            box.drop(self)
+        }
+        switch animated ? anim : -1 {
+        case Registry.AnimationType.fade:
+            UIView.animate(withDuration: ZnModalPresenter.duration, animations: { self.view.alpha = 0 }) { _ in gone() }
+        case Registry.AnimationType.slide:
+            UIView.animate(withDuration: ZnModalPresenter.duration, animations: {
+                self.view.transform = CGAffineTransform(translationX: 0, y: self.view.bounds.height)
+            }) { _ in gone() }
         default:
             gone()
         }

@@ -6,7 +6,8 @@
 //   layer covers nothing and no screen's insets change. The height animates (open 200 ms, close 250 ms, as RN's
 //   offline strip) and clips the content. While it shows, the status bar's icons follow the layer's background.
 // - `overlay`: over the whole window, under toasts and alerts. Where it draws nothing tappable, touches go through to
-//   the screens. A <Sheet> in it presents as usual.
+//   the screens.
+// Sheets and Modals (the screens' and the layers') sit above both, in ZnPopups' box (ZnPopups.swift).
 import SwiftUI
 import UIKit
 
@@ -17,6 +18,8 @@ final class ZnRootController: UIViewController {
     private let top: UIHostingController<ZnTopLayerView>
     private let overlay: UIHostingController<ZnOverlayLayerView>
     private let overlayBox = ZnPassThroughView()
+    /// Sheets and Modals, over everything else here (ZnPopups).
+    private let popups = ZnPopupBox()
     /// The top layer's content height, and its height now (status bar area included; animated).
     private var content: CGFloat = 0
     private var height: CGFloat = 0
@@ -36,6 +39,7 @@ final class ZnRootController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        ZnPopups.shared.install(root: self, box: popups)  // before any screen exists, so before any Sheet can open
         view.backgroundColor = .white
         addChild(nav)
         view.addSubview(nav.view)
@@ -56,6 +60,7 @@ final class ZnRootController: UIViewController {
         overlayBox.addSubview(overlay.view)
         view.addSubview(overlayBox)
         overlay.didMove(toParent: self)
+        view.addSubview(popups)
     }
 
     /// The window's safe area (this view always fills the window), for JS's insets().
@@ -86,6 +91,10 @@ final class ZnRootController: UIViewController {
         if top.rootView.statusBar != inset { top.rootView.statusBar = inset }
         overlayBox.frame = b
         overlay.view.frame = overlayBox.bounds
+        // The whole window (not the screens' moved frame): Sheets and Modals get the window's safe area, as they did
+        // presented over the full screen.
+        popups.frame = b
+        ZnPopups.shared.layout()
     }
 
     private func contentChanged(_ c: CGFloat) {
@@ -94,6 +103,9 @@ final class ZnRootController: UIViewController {
         let target = c > 0 ? c + inset : 0
         print("zn t=\(ZnDebug.ms()) layers: top \(c > 0 ? "opens to \(Int(c)) pt" : "closes")")
         lightIcons = app.topLayerIsDark
+        // A Sheet or Modal that opened in this same update gets its first frames now, not inside the animation (they
+        // would grow from the corner).
+        UIView.performWithoutAnimation { popups.layoutIfNeeded() }
         UIView.animate(withDuration: target > height ? 0.2 : 0.25, delay: 0, options: [.curveEaseInOut]) {
             self.height = target
             self.place()

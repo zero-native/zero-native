@@ -149,6 +149,38 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-18: iOS: Sheets and Modals in their own layer box; closing one closes it alone (Claude, Mac; review finding 20)
+- Bug (finding 20): Sheets and Modals were UIKit presentations, and a dismiss also closed everything presented over the
+  closing one. Closing a payment sheet took down the sheet or Modal opened over it, while JS still thought it open (so
+  it could not open again). And a leaving screen's layers closed only when UIKit released the screen (~0.6 s, the
+  finding-4 check above), taking down a sheet the next screen opened in that time. Both reproduced on the simulator
+  with the new lab cases before the fix.
+- Fix, native only (no JS API, registry or hostApi change; Pavan's design, ids from the Windows session):
+  `ZnPopups.swift`, a registry of open layers keyed by (screen entry, node, template index) and a pass-through box,
+  the last subview of ZnRootController (over the screens and the app layers). Each Sheet (ZnSheetLayer) and Modal
+  (new ZnModalLayer) is a child view controller in it, in open order; closing matches the layer itself. ZnApp closes
+  a leaving screen's layers at the nav step (the batch's stack diff: pop, replace, reset; a swipe back; an app layer
+  replaced) with no slide, and remembers the entry so its leaving tree can't open one again; a restart closes all.
+  Dismantle stays for `{cond && <Sheet/>}` and the error screen. Gone: the present retry loop, the `opening` guard
+  and the swap's frame wait (a layer is added in the same update as its node).
+- S5 kept as a rule: closing the top layer dismisses an Alert, share sheet or store page presented after it opened;
+  one still sliding in stays (an Alert shown in the same tap that closes the sheet: before, it went with the sheet).
+  System controllers present from the root, over every layer (an Alert from a sheet as before; a sheet opened while
+  an Alert is up now opens under it).
+- **Checked on the simulator (zn iPhone 16, SheetLeaveLab and RnPropsLab):** a sheet over the payment sheet, and a
+  Modal over it: closing the payment sheet leaves the upper one, which keeps working; a screen that opens a sheet at
+  once after replace / reset / pop of a screen with its sheet open: the new one stays (old one closed at the step,
+  14–25 ms before). Back / replace / reset in 1 s: the sheet goes at the step (was 0.58–0.70 s later). JS hang: error
+  screen, Try again, the screen opens sheets again. Conditional, 12–72 ms open-and-remove (16 tries), drag with
+  keepOpen, Modal fade close then a page tap 200 ms later, offers sheet "Continue" then a page tap 193 ms later, View
+  all resize, processing → cancelled swap (no wait), half/full list with nested scroll, a field in a sheet rests on the
+  keyboard, Alert and share sheet over a sheet go with it (S5), restart with a sheet open, then sheets open again. ZeroBill
+  builds; its checkout sheet is not checked yet (needs the iPhone). Review on the Mac (4 lenses, 2 skeptics each): two
+  low findings fixed (the top layer's height animation no longer animates a just-opened layer's first frames; S5
+  remembers every controller up at open), and the same-turn Alert above.
+- Found, not part of this: a TextField inside a Pressable (the RnPropsLab dialog Modal's note field) can't be focused
+  on iOS (the Pressable's touch layer takes the tap); the same on main before this change.
+
 ### 2026-11-18: iOS: a Sheet that leaves the screen while open closes with it (Claude, Windows; review finding 4)
 - Bug: a UIKit Sheet whose node left the tree while `visible` was still true (nav replace / pop / reset, a
   `{cond && <Sheet/>}` that turned false, the error screen in place of the screen) stayed on screen for good. A drag

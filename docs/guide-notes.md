@@ -332,6 +332,10 @@ const pickerOpen = signal(false)
 - **Know:** a sheet whose node goes while it is open (its screen is replaced or popped, a `{cond && <Sheet/>}` turns
   false, the screen shows the error screen) closes with it on both platforms, and sends no `onDismiss`. Since
   2026-11-18 on iOS; before, it stayed on screen for good and the user had to kill the app.
+- **Know:** sheets and Modals stack in the order they open, and each closes alone: closing one under another leaves
+  the upper one open, and a screen that opens a sheet right after a pop or replace keeps it. On iOS since 2026-11-18
+  (review finding 20); before, closing the lower one also closed the upper one. An Alert or share sheet shown from a
+  sheet goes when JS closes that sheet.
 - **Know:** once it starts closing (`visible` false, or the user dismissed it), the screen below takes taps and Back at
   once, while the sheet still slides down; so does a `<Modal>` fading out. `onDismiss` fires once per close.
   Since 2026-11-07; before, the first tap after the close was lost on the sheet's scrim (ZeroBill's keypad after

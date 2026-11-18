@@ -3,7 +3,8 @@
 // it stays. Detents "content" (its content's height), "half", "full"; the first is where it opens.
 //
 // UIKit variant: our own sheet in a layer over the full screen (ZnSheetLayer, as Android's), not
-// UISheetPresentationController, whose dismiss blocks every touch for ~0.3 s (2026-11-12).
+// UISheetPresentationController, whose dismiss blocks every touch for ~0.3 s (2026-11-12). The layer sits in ZnPopups'
+// box (not presented): it opens and closes alone, and goes with its screen at the nav step (finding 20, 2026-11-18).
 // SwiftUI variant: .sheet(isPresented:) + presentationDetents. SwiftUI has no "attempted to dismiss" callback: the
 // sheet is already gone when the binding's setter tells us, so JS can't keep it (it would come back up).
 import SwiftUI
@@ -118,40 +119,29 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
             // screen). Read now, when it opens; later opens read it again.
             let animated = s.animateInSlot >= 0 ? inst.slot(s.animateInSlot).value != .bool(false) : s.animateIn
             layer.atRestOnOpen = !animated
-            c.present(layer, from: host, animated: animated)
+            // Added now, in this update (a close in a later one finds it); it slides up a turn later. A layer that
+            // isn't opened (its screen has left) stays in c.sheet, so later updates don't try again.
+            let key = ZnPopups.Key(entry: znScreenEntry(inst), node: inst.id, index: s.index)
+            print("zn t=\(ZnDebug.ms()) sheet: open \(key)\(animated ? "" : " (animateIn false: at rest)")")
+            ZnPopups.shared.open(layer, key: key)
         } else if !visible, let sheet = c.sheet {
             c.sheet = nil
-            // In the same batch as a stack change (pick an app → receipt), close at once: no slide down over the
-            // navigation transition (2026-11-08).
-            let animated = !ZnApp.shared.batchChangesStack
-            // UIKit drops a dismiss sent while a presentation is still running: the sheet stayed up over the next
-            // screen (ZeroBill's "Processing Secure Payment" closed 231 ms after it opened, on an iPhone, 2026-11-09).
-            // The present's completion closes it instead.
-            if c.opening === sheet {
-                print("zn t=\(ZnDebug.ms()) sheet: dismiss (JS set visible false) while it opens: closes when it has opened")
-                return
-            }
+            // In the same batch as a stack change (pick an app → receipt), or while the runtime is replaced: at once,
+            // no slide down over the navigation transition (2026-11-08) or over the OTA cover.
+            let animated = Self.leavesAnimated
             print("zn t=\(ZnDebug.ms()) sheet: dismiss (JS set visible false\(animated ? "" : ", with a stack change: no animation"))")
-            sheet.close(animated: animated)
+            ZnPopups.shared.close(sheet, animated: animated, why: "JS set visible false")
         }
     }
 
     static func dismantleUIViewController(_ host: UIViewController, coordinator: Coordinator) {
-        // The Sheet left the screen while open (its screen closed or was replaced, the error screen took its place, or
-        // JS removed it): the layer goes with it, as ZnModal. Without this it stayed up for good, and a drag or a tap
-        // outside sent nothing and brought it back up (review finding 4). No onDismiss: the node is gone, and a
-        // closed layer sends none (askToClose checks `closed`).
+        // The Sheet's node left the tree while open: a {cond && <Sheet/>} turned false, or the error screen took its
+        // screen's place. The layer goes with it (review finding 4). A screen that left the stack closed its layers
+        // at the nav step already (ZnApp): then this finds nothing to close. No onDismiss: the node is gone.
         coordinator.onAttempt = {}
         guard let sheet = coordinator.sheet else { return }
         coordinator.sheet = nil
-        // Still being presented: UIKit would drop the dismiss. The present's completion closes it (the coordinator
-        // has no sheet now, or is gone).
-        if coordinator.opening === sheet {
-            return print("zn t=\(ZnDebug.ms()) sheet: left the screen while it opens: closes when it has opened")
-        }
-        let animated = Self.leavesAnimated
-        print("zn t=\(ZnDebug.ms()) sheet: left the screen while open: close\(animated ? "" : " (with a stack change or a restart: no animation)")")
-        sheet.close(animated: animated)
+        ZnPopups.shared.close(sheet, animated: Self.leavesAnimated, why: "its node left the screen")
     }
 
     /// A sheet whose node left closes without its slide-down picture with a stack change, and while the runtime is
@@ -161,55 +151,12 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
 
     @MainActor final class Coordinator {
         var sheet: ZnSheetLayer?
-        /// The sheet UIKit is presenting now (its present not finished).
-        var opening: ZnSheetLayer?
         var onAttempt: () -> Void = {}
-
-        /// Presents [layer] once [host] is in the window. A sheet visible on its screen's first frame (a restored
-        /// payment, animateIn false) gets here before SwiftUI has put the host in the window, and UIKit ignores a
-        /// present from a view that isn't there ("not in the window hierarchy"): try again each frame, up to ~2 s.
-        func present(_ layer: ZnSheetLayer, from host: UIViewController, animated: Bool, tries: Int = 0) {
-            guard sheet === layer else { return }  // closed (visible false) before it could open
-            // From the frontmost controller over the host: a sheet opened while another (or a Modal) is up goes over it.
-            var top = host
-            while let p = top.presentedViewController { top = p }
-            // Not from a sheet JS just closed, in this same update (a processing sheet swapped for a cancelled one):
-            // it is still leaving, and the new sheet went with it (2026-11-12). Its presenter is free a frame later.
-            let leaving = (top as? ZnSheetLayer)?.closed == true || top.isBeingDismissed
-            guard host.view.window != nil, !leaving else {
-                if tries >= 120 { return print("zn sheet: its screen never reached the window; not shown") }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self, weak host] in
-                    guard let self, let host else { return }
-                    self.present(layer, from: host, animated: animated, tries: tries + 1)
-                }
-                return
-            }
-            let wait = tries > 0 ? " after \(tries) frame(s)" : ""
-            print("zn t=\(ZnDebug.ms()) sheet: present\(animated ? "" : " (animateIn false: at rest)")\(wait) over \(type(of: top))")
-            opening = layer
-            top.present(layer, animated: false) { [weak self, weak layer] in
-                guard let layer else { return }
-                guard let self else {
-                    // Its Sheet left the screen while it was being presented (dismantle), and SwiftUI dropped this
-                    // coordinator: nothing else will close it.
-                    print("zn t=\(ZnDebug.ms()) sheet: opened after it left the screen: dismiss now")
-                    return layer.close(animated: ZnSheetPresenter.leavesAnimated)
-                }
-                if self.opening === layer { self.opening = nil }
-                if self.sheet !== layer {
-                    // visible went false while it was being presented.
-                    print("zn t=\(ZnDebug.ms()) sheet: opened after JS closed it: dismiss now")
-                    layer.close(animated: !ZnApp.shared.batchChangesStack)
-                } else {
-                    layer.opened(animated: animated)
-                }
-            }
-        }
     }
 }
 
-/// The UIKit variant's sheet: a layer over the full screen, presented with no animation (as ZnModal), in which we draw
-/// the dim and the sheet and run its drag, detents and slides ourselves, as android/runtime's ZnSheet.kt does.
+/// The UIKit variant's sheet: a layer over the full screen, in ZnPopups' box (as ZnModal), in which we draw the dim and
+/// the sheet and run its drag, detents and slides ourselves, as android/runtime's ZnSheet.kt does.
 ///
 /// Not UISheetPresentationController: while it dismisses, UIKit sends no touch to any window of the app for ~0.3 s,
 /// even with dismiss(animated: false) (2026-11-12, a test window over the app got none either), so the first tap after
@@ -232,6 +179,8 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
     var onAttempt: () -> Void = {}
     var atRestOnOpen = false
     private(set) var closed = false
+    /// shown() came before the view had its size: the first real layout slides it up.
+    private var waitsToOpen = false
     /// The user asked to close and JS hasn't answered yet.
     private var dismissing = false
     private var dragging = false
@@ -254,7 +203,6 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         self.dismissible = dismissible
         detent = self.detents[0]
         super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .overFullScreen
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -327,6 +275,7 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        guard view.bounds.height > 0 else { return }  // not sized yet: not its first layout
         let key = [view.bounds.width, view.bounds.height, view.safeAreaInsets.top, view.safeAreaInsets.bottom]
         guard key != laidOut else { return }
         let first = laidOut.isEmpty
@@ -342,13 +291,19 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
             top = rest(detent)
         }
         place()
+        if first, waitsToOpen {
+            waitsToOpen = false
+            DispatchQueue.main.async { [weak self] in self?.opened() }
+        }
     }
 
-    /// Presented: slide up (unless it opened at rest).
-    func opened(animated: Bool) {
+    /// On screen (a turn after ZnPopups added it): slide up, unless it opened at rest.
+    func opened() {
         guard !closed, !open else { return }
-        open = true
         view.layoutIfNeeded()
+        guard !laidOut.isEmpty else { waitsToOpen = true; return }  // no size yet: its first real layout opens it
+        guard !open else { return }  // opened at rest in that layout (animateIn false)
+        open = true
         animate(to: rest(detent), duration: 0.45)
     }
 
@@ -374,12 +329,10 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
 
     // MARK: Closing
 
-    /// Takes touches or lets them through to the screen below. UIKit's container (UITransitionView) holds the view: it
-    /// would take them otherwise (ZnModal, 2026-11-12).
+    /// Takes touches or lets them through to what is below (another layer, the screen). Its own view only: the box
+    /// lets a touch through where no layer takes it, and the other layers in it keep theirs.
     private func takesTouches(_ on: Bool) {
         view.isUserInteractionEnabled = on
-        view.superview?.isUserInteractionEnabled = on
-        presentationController?.containerView?.isUserInteractionEnabled = on
     }
 
     /// The user asks to close (drag, fling, tap outside): onDismiss, slide down; back up if JS keeps it.
@@ -399,32 +352,6 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
                 self.animate(to: self.rest(self.detent))
             }
         }
-    }
-
-    /// JS closed it: it leaves at once (with whatever it presents: a StoreKit page or share sheet over it, ZeroBill's
-    /// store sheet 2026-11-11), so the screen below takes the next tap; a picture of it slides down.
-    func close(animated: Bool) {
-        closed = true
-        takesTouches(false)
-        if animated, let window = view.window, let pic = card.snapshotView(afterScreenUpdates: false) {
-            let from = card.layer.presentation()?.frame.minY ?? card.frame.minY
-            if from < screenH - 1 {
-                let ghost = UIView(frame: window.bounds)
-                ghost.isUserInteractionEnabled = false
-                let shade = UIView(frame: window.bounds)
-                shade.backgroundColor = .black
-                shade.alpha = CGFloat(dim.layer.presentation()?.opacity ?? Float(dim.alpha))
-                pic.frame = CGRect(origin: view.convert(CGPoint(x: 0, y: from), to: window), size: pic.bounds.size)
-                ghost.addSubview(shade)
-                ghost.addSubview(pic)
-                window.addSubview(ghost)
-                UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
-                    pic.frame.origin.y = window.bounds.height
-                    shade.alpha = 0
-                } completion: { _ in ghost.removeFromSuperview() }
-            }
-        }
-        (presentingViewController ?? self).dismiss(animated: false)
     }
 
     @objc private func tapOutside() { askToClose() }
@@ -530,5 +457,39 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         top = rest(detent)
         UIView.animate(withDuration: duration, delay: 0,
                        options: [.beginFromCurrentState, UIView.AnimationOptions(rawValue: curve << 16)]) { self.place() }
+    }
+}
+
+extension ZnSheetLayer: ZnPopupLayer {
+    func willAppear(in box: ZnPopupBox) {}
+
+    func shown() { opened() }
+
+    /// It closes (JS, its screen left, its node left): it leaves the box at once, so the next tap goes below, and a
+    /// picture of it slides down in its place, taking no touches. What it presented is ZnPopups' business (S5).
+    func leave(animated: Bool, in box: ZnPopupBox) {
+        closed = true
+        takesTouches(false)
+        if isViewLoaded { view.accessibilityElementsHidden = true }
+        if animated, isViewLoaded, !laidOut.isEmpty, let pic = card.snapshotView(afterScreenUpdates: false) {
+            let from = card.layer.presentation()?.frame.minY ?? card.frame.minY
+            if from < screenH - 1 {
+                let ghost = UIView(frame: box.bounds)
+                ghost.isUserInteractionEnabled = false
+                ghost.accessibilityElementsHidden = true
+                let shade = UIView(frame: box.bounds)
+                shade.backgroundColor = .black
+                shade.alpha = CGFloat(dim.layer.presentation()?.opacity ?? Float(dim.alpha))
+                pic.frame = CGRect(origin: view.convert(CGPoint(x: 0, y: from), to: box), size: pic.bounds.size)
+                ghost.addSubview(shade)
+                ghost.addSubview(pic)
+                box.insertSubview(ghost, aboveSubview: view)  // in its own place: under any layer over it
+                UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
+                    pic.frame.origin.y = box.bounds.height
+                    shade.alpha = 0
+                } completion: { _ in ghost.removeFromSuperview() }
+            }
+        }
+        box.drop(self)
     }
 }

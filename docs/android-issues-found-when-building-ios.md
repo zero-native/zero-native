@@ -358,3 +358,12 @@ Each entry says:
 - **iOS only:** the permission message is made again when the view's words change, and after "Don't Allow" it offers
   Settings (it kept a "Continue" that did nothing).
 - **Check on Android (Windows):** the sample scanner lab with no words passed shows "Continue".
+
+## A24. A leaving screen's Sheet / Modal stays for the exit transition on Android (from iOS work, finding 20)
+- **Status:** open, a difference, maybe nothing to change. Found on the Mac 2026-11-18.
+- **iOS now:** a popped, replaced or reset screen's Sheets and Modals close at the nav step, with no slide, before the
+  next screen's own can open (ZnPopups, second-opinions 231). Each layer closes alone (what is over it stays).
+- **Android:** the leaving screen's Dialog stays (and may take touches) for its 300 ms exit transition. Check with the
+  sample lab `zn://sample/dev/sheet-leave`: "Replace with a screen that opens a sheet", "Reset to a screen that opens
+  a sheet", "Back: the screen below opens a sheet" (push another lab screen first), and "Close the payment sheet under
+  this one" (from the sheet or the Modal over it). The new sheet must stay; the upper one must stay.
