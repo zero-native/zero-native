@@ -199,6 +199,9 @@ useBack(() => {
   native swipe and preview.
 - **Why:** both gestures show the screen leaving before JS could answer. A handler that then keeps the screen would
   make it look gone and then come back (Android), or be skipped (iOS).
+- **Know:** on a screen with a handler, only your JS closes the screen, even when the JS thread is busy and answers
+  late (since 2026-11-18). Before, Android closed it by itself after 300 ms with no answer. A screen without a handler
+  still goes back after 300 ms if JS doesn't answer.
 - The last screen's back goes to the system (the app moves to the background) unless the screen has a handler or
   shows a tab other than the first (§40); then Back goes to JS. A root screen with `useBack` is now asked (before
   2026-11-08 it wasn't), and it loses Android's predictive "back to home" while the handler is there.

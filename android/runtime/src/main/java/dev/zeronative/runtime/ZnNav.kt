@@ -58,6 +58,16 @@ internal fun readSavedStack(json: String): List<ZnSavedEntry>? = try {
 }
 
 /**
+ * Whether a back press on the entry [top] arms native's own pop ([ZnNav.systemBack]'s 300 ms fallback). Not for a
+ * screen that asked for Back first ([backWanted], NAV BACK_WANTED: a `useBack` / `BackHandler`, or tabs on a later
+ * tab): its handler may keep the screen, so only JS closes it. A busy JS thread (a big response read, a list mounting
+ * rows, the app starting) often takes more than 300 ms on a low-end phone, and the timer then closed a payment screen
+ * JS meant to keep (review 2026-11-18, finding 1). A JS that is really stuck is stopped by the time limit
+ * (Engine::setTimeLimit); then the waiting BACK runs and JS decides. Screens without a handler keep the fallback.
+ */
+internal fun backFallbackArms(top: Int, backWanted: Map<Int, Unit>): Boolean = !backWanted.containsKey(top)
+
+/**
  * The native side of navigation (ARCHITECTURE §11). The back stack is **owned by JS**: native only applies the
  * NAV ops JS sends (BatchReader, core/include/zn/batch.h) and reports system back presses as events. Process-wide,
  * like [ZnStore], so a recreated Activity shows the same stack. Main thread only.
@@ -419,6 +429,8 @@ object ZnNav {
     /**
      * The system back button or gesture. JS decides (pops, or a `useBack` handler keeps the screen). If JS doesn't
      * answer in [BACK_TIMEOUT_MS] (it is stuck), native goes back by itself and tells JS which entry it removed.
+     * Only on a screen without a back handler: on a screen that asked for Back first, JS always decides
+     * ([backFallbackArms]).
      */
     fun systemBack() {
         // The JS runtime is being replaced: the press would be dropped, and the fallback below would pop a screen of
@@ -427,6 +439,8 @@ object ZnNav {
         val top = stack.lastOrNull() ?: return
         ZnRuntime.dispatchEvent(APP, EVENT_BACK, top.id.u32())
         backFallback?.let(main::removeCallbacks)
+        backFallback = null
+        if (!backFallbackArms(top.id, backWanted)) return
         backFallback = Runnable {
             backFallback = null
             Log.w(TAG, "JS didn't answer a back press in $BACK_TIMEOUT_MS ms; going back natively")

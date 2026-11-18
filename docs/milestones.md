@@ -149,6 +149,17 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-18: Android: a busy JS no longer closes a screen with a back handler (Claude, Windows; review finding 1)
+- Bug: on a screen with `useBack` / `BackHandler` (NAV BACK_WANTED), Back still armed the 300 ms fallback. When the JS
+  thread was busy for 300 ms or more (a big response read, a list mounting rows, the app starting: common on low-end
+  phones), native popped the screen itself (FORCED_BACK). ZeroBill's checkout ("can't leave while a payment is
+  pending") could close, and a waiting `pushForResult` got null.
+- Fix (`ZnNav.systemBack`, `backFallbackArms`): no fallback timer when the top screen asked for Back first; JS
+  always decides there. A really stuck JS is stopped by the time limit, then the waiting BACK runs. Screens without a
+  handler keep the 300 ms fallback (second-opinions 229). iOS had no such timer. Needs a store build (native only).
+- Checked: runtime unit tests 332 (1 skipped, 0 failed), with the new `ZnNavBackTest`. Not checked on a phone: a
+  busy JS during Back on a guarded screen (needs a test hook that blocks the JS thread).
+
 ### 2026-11-16: iOS: the scanner never says "Allow camera" (Claude, Mac)
 App Review rejected ZeroBill 1.6.2 again (5.1.1(iv), an "Allow camera" button before the camera prompt). ZeroBill's
 scan screen passes "Continue", and on the simulator it shows it; the plugin's own defaults still said "Allow camera" /

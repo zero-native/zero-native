@@ -3706,3 +3706,19 @@ change, and what evidence would make you change it?"
   Lambda classes (`$$ExternalSyntheticLambdaN`) are numbered per build, so those rules may not match in an app's R8
   build; R8 should keep a lambda's rules when its outer method is in the profile (to check in the before / after test).
 - **Change:** remove includes from the filter and record again (`bun run tools/baseline-profile.ts`).
+
+## 229. No 300 ms back fallback on a screen with a back handler (runtime, 2026-11-18; Opus, review finding 1)
+- **Where:** `ZnNav.systemBack` and `backFallbackArms` in `android/runtime/.../ZnNav.kt`.
+- **Problem:** Back on a screen with `useBack` / `BackHandler` (NAV BACK_WANTED) armed the same 300 ms timer as any
+  other screen. When the JS thread was busy for 300 ms (common on low-end phones), native popped the screen. Entry 184
+  says such screens keep A8 ("JS decides"); the timer broke that, and ZeroBill's checkout guard with it.
+- **Choices:** (a) no timer for such a screen; (b) a long timer, as long as the JS time limit; (c) keep 300 ms.
+- **Chosen: (a).** A handler may keep the screen, so a native pop at any time can be wrong. A really stuck JS entry
+  is already stopped by the time limit (Engine::setTimeLimit, step 3.9); then the waiting BACK runs and JS decides.
+  (b) adds a second clock that must stay in step with the time limit and still pops a screen JS wanted to keep.
+  Screens without a handler keep the 300 ms fallback: nothing in JS can keep them.
+- **Risk if wrong:** if JS stays stuck in a way the time limit doesn't stop (a native call that blocks the JS thread,
+  for example), Back on that screen does nothing until JS frees up. The hang error screen still shows for a
+  time-limit stop.
+- **Change:** in `backFallbackArms`, return true for every screen (old behaviour), or arm a longer timer in
+  `systemBack` when it returns false.
