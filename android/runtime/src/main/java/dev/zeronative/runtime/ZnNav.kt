@@ -443,6 +443,9 @@ object ZnNav {
         if (!backFallbackArms(top.id, backWanted)) return
         backFallback = Runnable {
             backFallback = null
+            // Check again when it fires: in the 300 ms the top screen may have changed (a busy task pushed a screen) or
+            // asked for Back (a child with useBack mounted). Then the pop would close a screen JS wants to keep.
+            if (stack.lastOrNull()?.id != top.id || !backFallbackArms(top.id, backWanted)) return@Runnable
             Log.w(TAG, "JS didn't answer a back press in $BACK_TIMEOUT_MS ms; going back natively")
             if (stack.size > 1) {
                 val e = stack.removeAt(stack.lastIndex)
