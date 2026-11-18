@@ -2388,9 +2388,14 @@ function Sheet({ amount }) {                         function Sheet(p) {
   The compiler rewrites the tail after each guard into a generated module-level child component (`Card__after1`, etc.)
   mounted inside a nested ternary (`loading() ? <Spinner /> : <Card__after1 {...captured} />`). When `cond` changes, the
   tail mounts or unmounts, so its body and calculations (`const sum = data().items.reduce(...)`) run fresh each time,
-  preventing crashes on unready data. Pre-guard signals, plain values, and functions are passed as props.
+  preventing crashes on unready data. Every name the body sets up before the first guard and the tail reads is passed
+  as a prop: signals, plain values, destructured names (`const { data, loading } = useStore()`), `function` and `class`
+  declarations. A JSX variable from before the guard (`const header = <Title text={title} />`) works in the tail too:
+  the tail gets its own copy of the JSX, and the names that JSX reads (`title`, props) are passed (fixed 2026-11-18;
+  before, these built and then threw ReferenceError when the guard turned false).
   **What still errors:** early returns inside loops, `try`, `switch`, or nested blocks; a tail that assigns to a pre-guard
-  local; a pre-guard `let` that is reassigned; generators; and guards inside nested functions. For those shapes, rewrite into
+  local; a pre-guard `let` that is reassigned (destructured too: `let [a, b] = pair(); b = 2`); generators; and guards
+  inside nested functions. For those shapes, rewrite into
   explicit ternaries or move logic before the guard.
 - **Destructured props:** simple patterns (`function Row({ title, amount = 0, label: l })`) work in both children
   and screens: the compiler rewrites them to `Row(__p)` so every read accesses `__p.title` live. Defaults use standard

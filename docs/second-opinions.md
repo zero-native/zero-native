@@ -2830,6 +2830,16 @@ change, and what evidence would make you change it?"
   - All 325 compiler tests pass, `test:types` clean, `sample:js` compiles cleanly (`DataCard__after1`).
 - **Reviewed 2026-11-10 (Fable 5.2):** keep. Document one difference: state made after the guard starts fresh each
   time the guard flips.
+- **Fixed 2026-11-18 (Opus; review findings #2 and #3):** point 3 only passed plain `const x = ...` names. Now every
+  name bound before the first guard is passed: destructured (object, array, nested, rest), `function` / `class` / `enum`
+  declarations, and a `var` inside a pre-guard block (it belongs to the whole function). A pre-guard JSX variable is
+  no longer passed (it is not a value at runtime); the names its JSX reads (through JSX variables it holds, and the
+  props) are passed instead. Tests check the output with TypeScript for names nothing declares.
+  **Judgment calls (mine):** (a) the "pre-guard `let` reassigned" refusal now covers destructured names too
+  (`let [a, b] = pair(); b = 2`). Same reason as for a plain `let`: the tail reads its copy once, at mount. This
+  refuses a shape that built before (when the tail did not read it); no `.tsx` in this repo or in my-app has a destructured `let`. (b) The nested `var`
+  and `class` / `enum` cases are rare, but cost a few lines and were the same ReferenceError.
+  **Change:** drop (a) if a real app needs a reassigned destructured `let` before a guard that the tail never reads.
 
 ## 173. `<Canvas>` primitive: draw-only native 2D canvas vs bundling Skia (compiler + core + runtime, 2026-11-08; registry 23; parity batch 2 H4)
 - **Where:** `packages/template/src/registry.ts` (Component `Canvas` = 35, Prop `commands` = 298), `packages/core/src/canvas.ts`, `packages/ui/src/index.ts`, `compiler/src/compile.ts`, `android/runtime/src/main/java/dev/zeronative/runtime/ZnCanvas.kt`, `ZnRenderer.kt`.

@@ -149,6 +149,20 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-18: compiler: early-return tails get every pre-guard name (Claude, Windows; review findings #2 and #3)
+- Bug: with `if (loading()) return <Spinner />`, the part after the guard is its own function (`Card__after1`), and
+  only plain `const x = ...` names from before the guard were passed to it. `const { data } = useStore()`, a
+  `function fmt()` before the guard, and the names read by a JSX variable from before the guard
+  (`const header = <Text>{title}</Text>`) were not. The build passed; when the guard turned false the tail threw
+  ReferenceError (a blank part in release). A pre-guard JSX variable was also passed as a value, but its declaration
+  is gone from the JS, so that getter threw too.
+- Fix (compiler only, no registry / hostApi change; reaches phones by OTA): every name bound before the guard is
+  passed (destructured, function / class / enum declarations, a `var` in a block). A JSX variable is not passed; the
+  names its JSX reads are. A destructured pre-guard `let` that is reassigned is now refused, as a plain one
+  (second-opinions 172).
+- Checked: 10 new tests in `compiler/test/early-returns.test.ts` (8 failed before the fix); they also check the output
+  with TypeScript for names nothing declares. `bun test compiler` and `bun run test` pass. Not run on a phone.
+
 ### 2026-11-18: Android: a busy JS no longer closes a screen with a back handler (Claude, Windows; review finding 1)
 - Bug: on a screen with `useBack` / `BackHandler` (NAV BACK_WANTED), Back still armed the 300 ms fallback. When the JS
   thread was busy for 300 ms or more (a big response read, a list mounting rows, the app starting: common on low-end

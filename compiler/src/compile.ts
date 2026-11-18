@@ -1034,15 +1034,27 @@ export function compileModule(
         fail(lastTailStmt, `${name} has early return guards but the rest of the body does not end in a return statement`)
       }
 
-      const preGuardDecls = new Map<string, ts.VariableDeclaration>()
+      // Every name the body binds before the first guard: plain and destructured const / let / var (`const { data,
+      // loading } = useStore()`), and function, class and enum declarations. The tail is a separate function, so each one
+      // it reads must be passed in; a name left out here is not in the tail's scope (ReferenceError on the phone).
+      const boundNames = (n: ts.BindingName): ts.Identifier[] =>
+        ts.isIdentifier(n) ? [n] : n.elements.flatMap((el) => (ts.isBindingElement(el) ? boundNames(el.name) : []))
+      const preGuardDecls = new Set<string>()
       for (const s of preGuardStmts) {
         if (ts.isVariableStatement(s)) {
           for (const d of s.declarationList.declarations) {
-            if (ts.isIdentifier(d.name)) {
-              preGuardDecls.set(d.name.text, d)
-            }
+            for (const id of boundNames(d.name)) preGuardDecls.add(id.text)
           }
+        } else if ((ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s) || ts.isEnumDeclaration(s)) && s.name) {
+          preGuardDecls.add(s.name.text)
+          continue
         }
+        // A `var` inside a block (`if (...) { var x = 1 }`, `for (var i ...)`) belongs to the whole function too.
+        forEachDescendant(s, (n) => {
+          if (ts.isVariableDeclarationList(n) && (n.flags & ts.NodeFlags.BlockScoped) === 0) {
+            for (const d of n.declarations) for (const id of boundNames(d.name)) preGuardDecls.add(id.text)
+          }
+        }, /* stopAtFunctions */ true)
       }
 
       for (const s of tailStmts) {
@@ -1057,14 +1069,14 @@ export function compileModule(
         if (ts.isVariableStatement(s)) {
           const isLet = (s.declarationList.flags & ts.NodeFlags.Let) !== 0
           for (const d of s.declarationList.declarations) {
-            if (ts.isIdentifier(d.name)) {
+            for (const id of boundNames(d.name)) {
               if (isLet) {
                 let reassigned = false
                 forEachDescendant(fn, (n) => {
-                  if (ts.isIdentifier(n) && n.text === d.name.text && isAssigned(n)) reassigned = true
+                  if (ts.isIdentifier(n) && n.text === id.text && isAssigned(n)) reassigned = true
                 })
                 if (reassigned) {
-                  fail(d.name, `${name} has a pre-guard "let ${d.name.text}" that is reassigned: pre-guard variables cannot be reassigned with early returns`)
+                  fail(id, `${name} has a pre-guard "let ${id.text}" that is reassigned: pre-guard variables cannot be reassigned with early returns`)
                 }
               }
             }
@@ -1097,15 +1109,28 @@ export function compileModule(
         return false
       }
 
+      const capture = (n: ts.Identifier) => {
+        if (propsParamName && (n.text === propsParamName || (destructure && destructure.props.has(n.text)))) {
+          capturedLocals.add(propsParamName)
+        }
+        if (preGuardDecls.has(n.text) && !isShadowedInTail(n, n.text)) {
+          capturedLocals.add(n.text)
+        }
+      }
       for (const s of tailStmts) {
         forEachDescendant(s, (n) => {
           if (!ts.isIdentifier(n) || !isReference(n)) return
-          if (propsParamName && (n.text === propsParamName || (destructure && destructure.props.has(n.text)))) {
-            capturedLocals.add(propsParamName)
+          // A JSX variable is not a value at runtime: the tail gets its own copy of the JSX (seeThrough) and the
+          // declaration leaves the JS. So pass in the names that JSX reads instead (a module-level one reads only
+          // module-level names). freeNames also lists the JSX variables it goes through: those are skipped the same way.
+          const jsx = bindingOf(n)
+          if (jsx) {
+            if (jsx.scope === body) {
+              for (const f of freeNames(jsx, new Set())) if (!bindingOf(f.at)) capture(f.at)
+            }
+            return
           }
-          if (preGuardDecls.has(n.text) && !isShadowedInTail(n, n.text)) {
-            capturedLocals.add(n.text)
-          }
+          capture(n)
         })
       }
 
