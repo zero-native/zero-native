@@ -1196,11 +1196,29 @@ await Os.openUrl("https://example.com/help")
 
 ## 34. An app outside this repo (P.3)
 zero-native isn't published yet, so an app points at a local copy. The first real one worked with no change to the runtime.
-Layout, in the app's repo:
+
+**Start with `zn new`.** From this repo (after `bun install`):
+```bash
+bun run tools/zn.ts new ../my-app --name my-app --id com.example.myapp
+cd ../my-app
+bun install
+bun run ios        # the booted simulator
+bun run android    # a phone or emulator on adb
+```
+It copies `templates/app`: two screens (a counter and a second screen opened by `nav.push` or the link
+`my-app://app/about`), an Android host and an iOS host, and `tools/ios.ts`. `--name` is the bundle's app name (keep it the
+same as the OTA app name) and the link scheme; `--id` is the Android application id and the iOS bundle id. The app names
+this checkout in `package.json`, `android/gradle.properties`, `ios/CMakeLists.txt` and `tools/ios.ts`: by a relative path
+(`../zero-native`) when the two folders share a parent, else by its full path. Move one of them, and change all four.
+CI makes an app this way on every push and builds it for Android and the iOS simulator (`.github/workflows/new-app.yml`).
+
+What it makes, and how to do the same by hand. Layout, in the app's repo:
 ```
 app/src/main.ts      the app's JS entry, with routes and screens
-plugins/<name>/      the app's own plugins: src/index.ts, android/
+plugins/<name>/      the app's own plugins: src/index.ts, android/, ios/
 android/             settings.gradle.kts, build.gradle.kts, app/ (the host)
+ios/                 CMakeLists.txt (an Xcode project made by CMake), App/ (the host)
+tools/ios.ts         build, install and start on the simulator
 ```
 **Android.** Use a composite build, in `android/settings.gradle.kts`:
 ```kotlin
@@ -1217,15 +1235,17 @@ project(":plugin-mine").projectDir = file("../plugins/mine/android")
 The app and each plugin then ask for `implementation("dev.zeronative:runtime")`. Copy the wrapper, `gradle.properties` and the
 plugin versions from this repo's `android/`: **do** keep them equal to the framework's.
 
-**JS.** Link the packages once on each computer, then depend on them:
-```bash
-bun link --cwd <zero-native>/packages/core
-bun link --cwd <zero-native>/packages/ui
-```
+**JS.** Depend on the packages by their folder (what `zn new` writes; `bun install` makes a link to the folder):
 ```json
-"dependencies": { "@zero-native/core": "link:@zero-native/core", "@zero-native/ui": "link:@zero-native/ui" },
-"scripts": { "app:js": "bun run <zero-native>/tools/zn-build.ts app --name myapp --assets android/app/src/main/assets" }
+"dependencies": { "@zero-native/core": "link:../zero-native/packages/core", "@zero-native/ui": "link:../zero-native/packages/ui" },
+"scripts": {
+  "app:js": "bun run ../zero-native/tools/zn-build.ts app --name myapp --assets android/app/src/main/assets",
+  "app:js:ios": "bun run ../zero-native/tools/zn-build.ts app --name myapp --assets ios/bundle"
+}
 ```
+Or link them once on each computer (`bun link --cwd <zero-native>/packages/core`, the same for `ui`) and depend on
+`"link:@zero-native/core"`. **Know:** a global link points at the checkout that ran `bun link` last, which may not be the
+one your Gradle and CMake builds use.
 `--name` becomes the bundle's app name; keep it the same as the OTA `app` name. **[check]** `bun run tools/zn-dev.ts <appDir>` should give
 live reload, but it isn't tried from an outside app yet, and the host needs the sample's cleartext rule for `127.0.0.1`.
 
@@ -1234,6 +1254,20 @@ live reload, but it isn't tried from an outside app yet, and the host needs the 
   `ZnOta.configure` is optional: with no call, updates are off and the APK's bundle runs.
 - The Activity is a `ComponentActivity`, `singleTop`, calling `ZnNav.handleExtraActivity`, then `ZnActivity.attach(this)`.
 - Keep `noCompress += listOf("hbc", "zn.ui")`, and gitignore `src/main/assets`.
+
+**iOS.** `ios/CMakeLists.txt` is this repo's `ios/CMakeLists.txt` with zero-native's folder as `ZN_DIR` (a cache value:
+`-DZN_DIR=<path>` for another one). It builds zero-native's core, host and Swift runtime into the app's own target, with
+Hermes from zero-native's `ios/third_party/hermes` (`bun run tools/fetch-hermes-apple.ts` there; the app's `tools/ios.ts`
+runs it when Hermes is missing). The bundle comes from `ios/bundle` (`bun run app:js:ios`, gitignored), with the app's
+`app/assets` files kept in their folders. The zero-native plugins with an iOS side are listed in `APP_ZN_PLUGINS`; the
+app's own plugins' Swift is `plugins/*/ios/*.swift`.
+- The app delegate registers plugins (`ZnPlugins.register(...)`) and, if you want updates, calls `ZnOta.configure`.
+- The scene delegate calls `ZnApp.shared.start` with the link that opened the app and the scene's restoration activity,
+  then sets the window's root to `ZnApp.shared.makeRootViewController()`. Start from `ios/Sample/ZnSampleApp.swift`,
+  without its test hooks.
+- `Info.plist` names the scene delegate (`$(PRODUCT_MODULE_NAME).SceneDelegate`) and the link scheme.
+- **Know:** App Store builds need more than the template has: privacy manifests (`ios/ZnRuntime/ZnRuntime_Privacy.bundle`
+  copied into the app), an app icon, release Hermes and signing. A simulator build needs none of it.
 
 **Plugins an app owns.** The same as `docs/plugins.md`: no list to join, no change in this repo. The compiler reads the plugin's
 `nativeModule` call, so the bundle's needs include it. A plugin's `<queries>` reach the app through the manifest merge.

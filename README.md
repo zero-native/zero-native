@@ -79,6 +79,9 @@ bun run test
 `sample:js` builds the sample app's JS (on a fresh clone it also creates `test-kit/offers-data.json` from the example,
 which the type check needs). `bun run test` runs the tests and the type check, as CI does.
 
+To start your own app outside this repo: `bun run tools/zn.ts new ../my-app`, then follow its README
+([docs/guide-notes.md](docs/guide-notes.md) §34).
+
 ### Android
 
 From `android/`:
