@@ -63,6 +63,14 @@ final class ZnRootController: UIViewController {
         view.addSubview(popups)
     }
 
+    private var appeared = false
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !appeared else { return }
+        appeared = true
+        print("zn t=\(ZnDebug.ms()) app: first frame\(ZnDebug.sinceStart())")  // cold start timing
+    }
+
     /// The window's safe area (this view always fills the window), for JS's insets().
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()

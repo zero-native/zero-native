@@ -54,10 +54,17 @@ side in one script, so read the notes.
 On a slow Android 9 phone (Infinix Hot 8), the 500-row transaction list scrolls smoothly from the first fling when the
 app comes from Google Play (the runtime ships a baseline profile).
 
-**iOS (2026-11-19):** the sample app built for a device (Release, arm64, release Hermes, no Firebase or Lottie,
-stripped as an App Store build would be) is **7.2 MB installed, 2.8 MB zipped**: the app binary (runtime, plugins, C++
-core) 2.8 MB, Hermes 2.9 MB, the sample's JS bytecode 1.3 MB. No App Store download size or cold start has been
-measured on an iPhone yet.
+**iOS (2026-11-19), the sample app on an iPhone 11 (iOS, Release, arm64, release Hermes):**
+
+| What | zero-native | Notes |
+|---|---|---|
+| App Store size | 4.9 MB download, 13.4 MB installed | Xcode's App Thinning Size Report, with Firebase linked |
+| Without Firebase or Lottie | 7.2 MB installed, 2.8 MB zipped | every binary stripped by hand: app 2.8 MB, Hermes 2.9 MB, JS bytecode 1.3 MB. Xcode leaves 1.3 MB of symbols in Hermes |
+| Cold start, first frame | 148 ms (Firebase off), 156 ms (on) | median of 10 cold launches, timed from the kernel's process start |
+| Cold start, first screens up | 165 ms (off), 178 ms (on) | the screens the JS put up; the OTA check fails fast because the sample's server is localhost |
+
+The first launch after an install takes about 200-600 ms more (iOS sets the app up once); it is left out of the
+medians. The sample is small, so a full app starts later.
 
 ## Quick start
 
@@ -119,6 +126,17 @@ Firebase are optional:
 `bun run tools/fetch-lottie-apple.ts`, `bun run tools/fetch-firebase-apple.ts`, and your own
 `ios/Sample/GoogleService-Info.plist` (never committed); without them those plugins answer "unavailable". More in
 [docs/milestones-ios.md](docs/milestones-ios.md).
+
+To build the sample for your own iPhone, sign it with your Apple team (`-DZN_TEAM`) and use release Hermes:
+
+```bash
+bun run tools/fetch-hermes-apple.ts release
+cmake -G Xcode -S ios -B ios/build/device -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DZN_TEAM=<your team id> -DZN_HERMES_DIR=$PWD/ios/third_party/hermes/release/destroot
+xcodebuild -project ios/build/device/zn_ios.xcodeproj -target ZnSample -sdk iphoneos -configuration Release -allowProvisioningUpdates build
+xcrun devicectl device install app --device <device id> ios/build/device/Release-iphoneos/ZnSample.app
+```
+
+The console prints `app: first frame … ms after the process started` and `nav: first screens up …` on each launch.
 
 ## Read next
 

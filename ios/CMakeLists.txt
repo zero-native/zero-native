@@ -103,10 +103,21 @@ set_target_properties(ZnSample PROPERTIES
   XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/ZnRuntime/Host/ZnRuntime-Bridging-Header.h"
   XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
   XCODE_ATTRIBUTE_SWIFT_ACTIVE_COMPILATION_CONDITIONS "$<$<CONFIG:Debug>:DEBUG>"
-  XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-"
-  XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED NO
   XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1"
   XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@executable_path/Frameworks"
   XCODE_EMBED_FRAMEWORKS "${hermes_xcf}"
   XCODE_EMBED_FRAMEWORKS_CODE_SIGN_ON_COPY YES
 )
+# Signing. Simulator (and CI) builds: ad hoc, no team. An iPhone build: -DZN_TEAM=<Apple team id>, Xcode's automatic
+# signing with that team's development profile for dev.zeronative.sample (the iPhone must be in it).
+set(ZN_TEAM "" CACHE STRING "Apple team id for iPhone builds; empty: ad hoc (simulator)")
+if(ZN_TEAM STREQUAL "")
+  set_target_properties(ZnSample PROPERTIES
+    XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-"
+    XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED NO)
+else()
+  set_target_properties(ZnSample PROPERTIES
+    XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${ZN_TEAM}"
+    XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
+    XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development")
+endif()

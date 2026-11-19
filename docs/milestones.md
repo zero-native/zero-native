@@ -149,6 +149,19 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-19: iPhone cold start and App Store size (Claude, Mac)
+- The sample, Release with release Hermes, on an iPhone 11. Each launch was cold (`devicectl … --terminate-existing`);
+  10 launches per build, the first one after the install left out (200-600 ms more while iOS sets the app up).
+  Medians: first frame 148 ms with Firebase off, 156 ms with it on; first screens up 165 ms and 178 ms.
+- Xcode's App Thinning Size Report, with Firebase linked: 4.9 MB download, 13.4 MB installed. The embedded Hermes
+  framework keeps 1.3 MB of local symbols (about 0.2 MB of the download). Stripping them is possible, but Hermes
+  comes without a dSYM, so its crash frames would lose their names. Left as it is.
+- The runtime logs `app: first frame N ms after the process started` (ZnRootController.viewDidAppear) and adds the
+  same time to `nav: first screens up`. The time comes from the kernel's process start (sysctl), so it includes
+  the time before `main`.
+- `ios/CMakeLists.txt`: `-DZN_TEAM=<team id>` signs the sample for an iPhone, like the template's `-DAPP_TEAM`.
+  Without it the build is ad hoc as before (simulator, CI). The README has the numbers and the commands.
+
 ### 2026-11-19: CI: lint and release builds (Claude, Mac)
 - `.github/workflows/ci.yml`: the android job also runs `:runtime:lintDebug :sample:lintDebug` (errors fail it; the
   HTML reports are kept when it fails). A new android-release job, beside it, builds `:sample:assembleRelease` (R8,

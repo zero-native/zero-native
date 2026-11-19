@@ -566,7 +566,7 @@ final class ZnApp {
         case NavKind.started:
             firstScreensUp = true  // JS handled START: the splash may go (ZnSplash)
             ZnOta.screensUp()  // a downloaded bundle's healthy clock starts
-            print("zn t=\(ZnDebug.ms()) nav: first screens up")
+            print("zn t=\(ZnDebug.ms()) nav: first screens up\(ZnDebug.sinceStart())")
         default:
             break  // BACK_ANSWERED, …: not needed by the spike
         }

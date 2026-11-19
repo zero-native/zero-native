@@ -51,6 +51,23 @@ enum ZnDebug {
     }
     private static let start = CACurrentMediaTime()
 
+    /// Milliseconds since this process started (the tap that launched it), from the kernel's start time: cold start
+    /// timing in the log (first frame, first screens). nil if the system won't say.
+    static func msSinceProcessStart() -> Double? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return nil }
+        let t = info.kp_proc.p_un.__p_starttime
+        let ago = Date().timeIntervalSince1970 * 1000 - (Double(t.tv_sec) * 1000 + Double(t.tv_usec) / 1000)
+        return ago >= 0 ? ago : nil
+    }
+
+    /// "<n> ms after the process started", or "" (for cold start lines).
+    static func sinceStart() -> String {
+        msSinceProcessStart().map { String(format: " %.0f ms after the process started", $0) } ?? ""
+    }
+
     static func componentName(_ type: Int) -> String {
         names[type] ?? "C\(type)"
     }
