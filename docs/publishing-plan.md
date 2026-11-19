@@ -311,8 +311,12 @@ published; a test tag on a fork for SwiftPM.
 - **zn-updates server:** stays "run it from the repo" for 0.1. A container image on GHCR later if people ask.
 
 ## 9. Open choices
+**Chosen 2026-11-19:** the Maven group is `io.github.p2pdops` for now (§3.2: free, and given at once to the GitHub
+account that signs up). Because the group is a person's, the artifact ids carry the project's name:
+`io.github.p2pdops:zeronative-runtime`, `io.github.p2pdops:zeronative-plugin-<name>`. A move to a domain later changes
+every app's Gradle lines, so it should happen before 1.0 if at all.
+
 Before 0.1.0 the maintainers still choose:
-- **The Maven group** (§3.2): `dev.zeronative` can't be proven, so a domain we own, or `io.github.<login>`.
 - **Firebase and Lottie on iOS** (§2.3): in the main Swift package, or in a second one so apps without them don't
   download them.
 - **Signing a re-hosted Hermes** (§2.3), if Apple's rule asks for it, and with which Apple team.
