@@ -149,6 +149,19 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-19: CI: lint and release builds (Claude, Mac)
+- `.github/workflows/ci.yml`: the android job also runs `:runtime:lintDebug :sample:lintDebug` (errors fail it; the
+  HTML reports are kept when it fails). A new android-release job, beside it, builds `:sample:assembleRelease` (R8,
+  resource shrinking, lintVitalRelease). The sample's release is signed with the debug key on purpose
+  (`android/sample/build.gradle.kts`); the Android Gradle plugin makes that key on the runner, so CI needs no keystore.
+  It compiles the C++ core for the four CPU types the runtime's release ships, then packs arm64 only.
+- The ios job also builds the sample for an iPhone: Release, `iphoneos`, arm64, release Hermes
+  (`fetch-hermes-apple.ts release`, `-DZN_HERMES_DIR=.../hermes/release/destroot`) in `ios/build/device`, not signed.
+  Debug and release Hermes are now cached apart (new cache keys, so one fresh download each).
+- Checked on the Mac (Xcode 26.3): the iPhone step exactly as CI runs it, from an empty build folder, in 1.5 min; the app
+  embeds the release `hermesvm` (same UUID as the release slice). The workflow parses with `Bun.YAML`.
+  Not checked: the Android steps (no Android SDK on this Mac). They run first on GitHub.
+
 ### 2026-11-19: CI on GitHub Actions (Claude, Mac)
 - `.github/workflows/ci.yml`, on every push to main and every pull request, no secrets: js (Ubuntu: `bun run
   sample:js`, `bun run test`), ios (macOS 15, newest Xcode 26: the C++ core tests, the OTA rule tests, the iOS sample

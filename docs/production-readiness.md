@@ -40,9 +40,13 @@ for prod 10M+ user apps, including iOS"). Tick items off here as they land, with
 - [fact] Since 2026-11-19, GitHub Actions (`.github/workflows/ci.yml`) runs on every push to main and every pull
   request: the JS tests and type check; on macOS the C++ core tests, the OTA rule tests and the iOS sample build; on
   Linux the Android sample's debug build and every module's unit tests. No secrets needed. First green run: 44476660766.
+- [fact] Since 2026-11-19 (later the same day), also: Android lint (`:runtime:lintDebug :sample:lintDebug`), the
+  sample's R8 release build (`:sample:assembleRelease`, signed with the debug key as its build file says, so no
+  keystore), and the iOS sample's Release build for an iPhone (release Hermes, not signed). The iOS one was run on the
+  Mac exactly as CI runs it; the Android ones first run on GitHub.
 - To do:
   - [x] On every push: JS, Kotlin and C++ tests, builds (2026-11-19).
-  - [ ] Lint and release builds in CI (Android lint, the R8 release build, the iOS Release build).
+  - [x] Lint and release builds in CI (Android lint, the R8 release build, the iOS Release build) (2026-11-19).
   - [ ] Budgets that fail the build: APK size, bundle size, cold start (`startup-and-performance.md`).
   - [ ] Nightly: the OTA test matrix (`ota-test-matrix.md`) on a device farm.
 
