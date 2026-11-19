@@ -1,36 +1,36 @@
 {
-  "name": "@zero-native/example-sample",
+  "name": "@zeronative/example-sample",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "bun run build.ts"
   },
   "dependencies": {
-    "@zero-native/core": "workspace:*",
-    "@zero-native/android-ad-id": "workspace:*",
-    "@zero-native/app-updates": "workspace:*",
-    "@zero-native/firebase-analytics": "workspace:*",
-    "@zero-native/android-play-auth": "workspace:*",
-    "@zero-native/device-info": "workspace:*",
-    "@zero-native/device-test": "workspace:*",
-    "@zero-native/document-scanner": "workspace:*",
-    "@zero-native/firebase-crashlytics": "workspace:*",
-    "@zero-native/firebase-app": "workspace:*",
-    "@zero-native/image-viewer": "workspace:*",
-    "@zero-native/location": "workspace:*",
-    "@zero-native/lottie": "workspace:*",
-    "@zero-native/media": "workspace:*",
-    "@zero-native/scanner": "workspace:*",
-    "@zero-native/webview": "workspace:*",
-    "@zero-native/pdf": "workspace:*",
-    "@zero-native/markdown": "workspace:*",
-    "@zero-native/firebase-perf": "workspace:*",
-    "@zero-native/notifications": "workspace:*",
-    "@zero-native/firebase-messaging": "workspace:*",
-    "@zero-native/firebase-remote-config": "workspace:*",
-    "@zero-native/ui": "workspace:*"
+    "@zeronative/core": "workspace:*",
+    "@zeronative/android-ad-id": "workspace:*",
+    "@zeronative/app-updates": "workspace:*",
+    "@zeronative/firebase-analytics": "workspace:*",
+    "@zeronative/android-play-auth": "workspace:*",
+    "@zeronative/device-info": "workspace:*",
+    "@zeronative/device-test": "workspace:*",
+    "@zeronative/document-scanner": "workspace:*",
+    "@zeronative/firebase-crashlytics": "workspace:*",
+    "@zeronative/firebase-app": "workspace:*",
+    "@zeronative/image-viewer": "workspace:*",
+    "@zeronative/location": "workspace:*",
+    "@zeronative/lottie": "workspace:*",
+    "@zeronative/media": "workspace:*",
+    "@zeronative/scanner": "workspace:*",
+    "@zeronative/webview": "workspace:*",
+    "@zeronative/pdf": "workspace:*",
+    "@zeronative/markdown": "workspace:*",
+    "@zeronative/firebase-perf": "workspace:*",
+    "@zeronative/notifications": "workspace:*",
+    "@zeronative/firebase-messaging": "workspace:*",
+    "@zeronative/firebase-remote-config": "workspace:*",
+    "@zeronative/ui": "workspace:*"
   },
   "devDependencies": {
-    "@zero-native/compiler": "workspace:*"
+    "@zeronative/compiler": "workspace:*"
   }
 }

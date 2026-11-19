@@ -1,6 +1,6 @@
 // flexWrap on a Row (registry 24): props written for native ZnWrap.kt, and the build errors.
 import { describe, expect, test } from "bun:test"
-import type { NodeSpec } from "@zero-native/template"
+import type { NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(body: string) {
@@ -9,8 +9,8 @@ function compile(body: string) {
     reserveTemplate: () => templates.push(null as unknown as NodeSpec) - 1,
     defineTemplate: (id: number, s: NodeSpec) => void (templates[id] = s),
   }
-  const src = `import { Row, Column, View, Text, Box } from "@zero-native/ui"
-import { signal } from "@zero-native/core"
+  const src = `import { Row, Column, View, Text, Box } from "@zeronative/ui"
+import { signal } from "@zeronative/core"
 const g = signal(4)
 export function F() { return ${body} }`
   const out = compileModule(src, "test.tsx", ctx)

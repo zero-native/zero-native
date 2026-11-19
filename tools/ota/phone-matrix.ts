@@ -237,17 +237,17 @@ const KINDS: Record<string, Patch[]> = {
   good: [],
   "throw-start": [{ file: "main.ts", old: "installRuntime()\n", new: 'installRuntime()\nif (Date.now() > 0) throw new Error("OTA test: this bundle fails at start on purpose")\n' }],
   "crash-home": [
-    { file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zero-native/core"\n', new: 'import { createStorage, nav, setTimeout, signal, Splash } from "@zero-native/core"\nimport { Device } from "@zero-native/device-test"\n' },
+    { file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zeronative/core"\n', new: 'import { createStorage, nav, setTimeout, signal, Splash } from "@zeronative/core"\nimport { Device } from "@zeronative/device-test"\n' },
     HOME_START("  setTimeout(() => void Device.crash(), 1500) // OTA test: crash before the healthy mark\n"),
   ],
   "throw-second": [
-    { file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zero-native/core"\n', new: 'import { createStorage, nav, signal, Splash, storage } from "@zero-native/core"\n' },
+    { file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zeronative/core"\n', new: 'import { createStorage, nav, signal, Splash, storage } from "@zeronative/core"\n' },
     HOME_START('  const launch = (storage.getNumber("zn-test.launch") ?? 0) + 1\n  storage.set("zn-test.launch", launch)\n  if (launch === 2) throw new Error("OTA test: the home screen throws on the second launch")\n'),
   ],
   // Needs Device v99; the app has a lower one (v6 on 2026-11-10): an older app offered a bundle for newer native code.
   // The build takes the highest version it finds, so one more line is enough; the plugin's own files stay as they are.
   // (v6 here went stale once Device itself reached v6.)
-  "needs-module": [{ file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zero-native/core"\n', new: 'import { createStorage, nativeModule, nav, signal, Splash } from "@zero-native/core"\nconst newerDevice = nativeModule("Device", { version: 99 })\n' }],
+  "needs-module": [{ file: "HomeScreen.tsx", old: 'import { createStorage, nav, signal, Splash } from "@zeronative/core"\n', new: 'import { createStorage, nativeModule, nav, signal, Splash } from "@zeronative/core"\nconst newerDevice = nativeModule("Device", { version: 99 })\n' }],
 }
 
 /** Puts the sample's sources back from the backup; [stopped]: left by a run that was killed (say so). */

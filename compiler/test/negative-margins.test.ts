@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string) {
@@ -15,7 +15,7 @@ function compile(src: string) {
 describe("H3: Negative margins", () => {
   test("compiles negative margins into template", () => {
     const { templates } = compile(`
-      import { Box } from "@zero-native/ui"
+      import { Box } from "@zeronative/ui"
       export function Screen() {
         return (
           <Box style={{ marginTop: -16, marginStart: -8, marginBottom: -10 }} />
@@ -32,7 +32,7 @@ describe("H3: Negative margins", () => {
   test("negative padding still fails build", () => {
     expect(() =>
       compile(`
-        import { Box } from "@zero-native/ui"
+        import { Box } from "@zeronative/ui"
         export function Screen() {
           return <Box style={{ paddingTop: -10 }} />
         }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { Component, Prop, type NodeSpec, writeTemplateFile } from "@zero-native/template"
+import { Component, Prop, type NodeSpec, writeTemplateFile } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string, statics: Record<string, unknown> = {}) {
@@ -34,7 +34,7 @@ describe("templates", () => {
     expect(root.props).toMatchObject({ padding: 16, borderRadius: 12, backgroundColor: "#FFFFFF", gap: 8 })
     expect(root.children[0].props).toMatchObject({ fontSize: 18, text: "Hello  world" })
     expect(code).not.toContain("<Column")
-    expect(code).toContain('import * as __zn from "@zero-native/core"')
+    expect(code).toContain('import * as __zn from "@zeronative/core"')
   })
 
   test("runtime expressions become slots; text mixes literals and expressions", () => {
@@ -547,7 +547,7 @@ describe("errors point at the source", () => {
 describe("end to end: compiled code runs on the view runtime", () => {
   test("mounts, reacts and removes", async () => {
     const { code, templates } = compile(`
-      import { signal } from "@zero-native/core"
+      import { signal } from "@zeronative/core"
       function Row1(props) { return <Text>{props.label}</Text> }
       export const state = { items: signal([{ id: 1, n: "a" }, { id: 2, n: "b" }]), show: signal(true) }
       export function Screen() {
@@ -565,7 +565,7 @@ describe("end to end: compiled code runs on the view runtime", () => {
 
     const { installFakeHost } = await import("../../packages/core/test/fake-host")
     const host = installFakeHost()
-    const core = await import("@zero-native/core")
+    const core = await import("@zeronative/core")
     core.installRuntime()
     const mod = await import(file)
     core.renderRoot(0x80000001, mod.Screen, {})
@@ -602,7 +602,7 @@ describe("end to end: compiled code runs on the view runtime", () => {
     writeFileSync(file, code)
     const { installFakeHost } = await import("../../packages/core/test/fake-host")
     const host = installFakeHost()
-    const core = await import("@zero-native/core")
+    const core = await import("@zeronative/core")
     core.installRuntime()
     const mod = await import(file)
     core.renderRoot(0x80000003, mod.Screen, {})
@@ -620,7 +620,7 @@ describe("end to end: compiled code runs on the view runtime", () => {
 describe("source map (zn dev error lines)", () => {
   test("copied code maps to its TSX line and column; generated code to its JSX", () => {
     const src = [
-      `import { Column, Pressable, Text } from "@zero-native/ui"`, // 0
+      `import { Column, Pressable, Text } from "@zeronative/ui"`, // 0
       `export function Screen() {`, // 1
       `  const n = signal(0)`, // 2
       `  return (`, // 3

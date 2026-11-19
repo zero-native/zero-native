@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { dirname, join } from "node:path"
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { buildApp } from "../src/build-app"
 import { decodeSourceMap, encodeSourceMap, lookup } from "../src/sourcemap"
@@ -62,6 +62,34 @@ describe("buildApp output is the same for the same source (docs/ota.md §3.1)", 
       const b = await buildApp(make(join(root, "b", "fw", "plug"), join(root, "b", "z", "y", "app")))
       expect(b.js).toBe(a.js)
       expect(a.js).toContain("// plug/src/index.ts") // named by its package, not by a path from the app
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("a package installed from npm gives the same bytes as the same package linked from a checkout (2026-11-19)", async () => {
+    // The real path: on a Mac the temp folder is behind a symlink (/var → /private/var), which hides the case.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "zn-installed-")))
+    try {
+      const make = (appDir: string, installed: boolean) => {
+        const pkgDir = installed ? join(appDir, "node_modules", "plug") : join(root, "checkout", "plug")
+        mkdirSync(join(pkgDir, "src"), { recursive: true })
+        writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "plug", main: "src/index.ts" }))
+        writeFileSync(join(pkgDir, "src", "index.ts"), `export const hello = () => "hi"
+`)
+        mkdirSync(join(appDir, "src"), { recursive: true })
+        mkdirSync(join(appDir, "node_modules"), { recursive: true })
+        writeFileSync(join(appDir, "package.json"), JSON.stringify({ name: "app" }))
+        writeFileSync(join(appDir, "src", "main.ts"), `import { hello } from "plug"
+;(globalThis as any).x = hello()
+`)
+        if (!installed) symlinkSync(pkgDir, join(appDir, "node_modules", "plug"), "junction")
+        return join(appDir, "src", "main.ts")
+      }
+      const linked = await buildApp(make(join(root, "linked"), false))
+      const installed = await buildApp(make(join(root, "installed"), true))
+      expect(installed.js).toBe(linked.js)
+      expect(installed.js).toContain("// plug/src/index.ts")
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

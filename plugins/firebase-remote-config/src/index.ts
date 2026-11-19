@@ -9,7 +9,7 @@
 // Reads (`getValue`, `getString`, ...) need no call: each answer of setDefaults / fetch / activate / getAll brings all
 // values to JS. Before the first answer they give the defaults JS set. Each call answers and never rejects. With no
 // Firebase in the app every value is its default, and `available` is false.
-import { nativeModule, type CallOptions } from "@zero-native/core"
+import { nativeModule, type CallOptions } from "@zeronative/core"
 
 /** Where a value came from: the console ("remote"), `setDefaults` ("default"), or nowhere ("static": "", 0, false). */
 export type ValueSource = "remote" | "default" | "static"

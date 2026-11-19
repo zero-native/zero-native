@@ -1,4 +1,4 @@
-import { Column, Text } from "@zero-native/ui"
+import { Column, Text } from "@zeronative/ui"
 
 export function BScreen(props: { on: boolean }) {
   return (

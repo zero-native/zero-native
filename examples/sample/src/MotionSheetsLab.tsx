@@ -8,8 +8,8 @@
 //   e) Drawer: a menu that opens from the left edge with a horizontal pan; a dim backdrop follows it
 // The underline, the backdrop, the bar, the list follow and the drawer run on the UI thread. JS only hears page changes
 // and taps.
-import { Box, Carousel, Column, List, Pressable, Row, Sheet, Stack, Text, TextField } from "@zero-native/ui"
-import { derive, env, nav, self, signal, useElementMotion, useMotion, usePan } from "@zero-native/core"
+import { Box, Carousel, Column, List, Pressable, Row, Sheet, Stack, Text, TextField } from "@zeronative/ui"
+import { derive, env, nav, self, signal, useElementMotion, useMotion, usePan } from "@zeronative/core"
 import { c } from "./tokens"
 
 /** Blocks the JS thread for [ms]. Everything here must keep moving anyway. */

@@ -2,8 +2,8 @@
 // changes target values (or mounts / removes elements), never per-frame values.
 // Opens with a 6-second demo loop (for frame measurements), then the buttons drive it.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/animation
-import { Box, Column, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import { nav, signal } from "@zero-native/core"
+import { Box, Column, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import { nav, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 function DemoButton(props: { label: string; onPress: () => void }) {

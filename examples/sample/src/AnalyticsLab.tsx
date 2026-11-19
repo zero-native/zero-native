@@ -1,8 +1,8 @@
 // A dev screen for the Analytics plugin. The phone test (tools/plugin-phone/analytics.ts) reads the log lines
 // "analytics-lab ...", so keep their wording. Analytics starts on: "Collection off" is the user's opt-out.
-import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
-import { nav, scheme, signal } from "@zero-native/core"
-import { Analytics } from "@zero-native/firebase-analytics"
+import { Column, Pressable, Scroll, Text } from "@zeronative/ui"
+import { nav, scheme, signal } from "@zeronative/core"
+import { Analytics } from "@zeronative/firebase-analytics"
 import { c } from "./tokens"
 
 function AnalyticsLabButton(props: { label: string; onPress: () => void }) {

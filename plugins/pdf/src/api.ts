@@ -1,6 +1,6 @@
 // The pdf plugin's JS side, without the components (PdfView.tsx). Native side: android/.../PdfModule.kt.
 // No side effects: nativeModule() only creates a handle.
-import { nativeModule, signal, type CallOptions } from "@zero-native/core"
+import { nativeModule, signal, type CallOptions } from "@zeronative/core"
 
 /**
  * Why there is no PDF. network: no answer. http: the server said no (`httpStatus`). too_big: over `maxBytes`. not_pdf: the

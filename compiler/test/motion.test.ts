@@ -2,7 +2,7 @@
 // Motion module requirement.
 import { describe, expect, test } from "bun:test"
 import ts from "typescript"
-import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
+import { type NodeSpec, writeTemplateFile } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 import { compileDerives, compileFormula } from "../src/motion"
 import { nativeModuleUses } from "../src/modules"
@@ -159,8 +159,8 @@ describe("derive → postfix tokens", () => {
 })
 
 describe("compileDerives rewrites calls in place", () => {
-  test("only when derive comes from @zero-native/core; lines kept", () => {
-    const src = `import { derive, interpolate } from "@zero-native/core"
+  test("only when derive comes from @zeronative/core; lines kept", () => {
+    const src = `import { derive, interpolate } from "@zeronative/core"
 const w = derive(() =>
   interpolate(pan.x, [0, 1], [0, 2]))
 const n = 1`
@@ -172,13 +172,13 @@ const n = 1`
   })
 
   test("errors name the file and line", () => {
-    const src = `import { derive } from "@zero-native/core"
+    const src = `import { derive } from "@zeronative/core"
 const w = derive(() => f(x))`
     expect(() => compileDerives(src, "c.ts")).toThrow(/c\.ts:2:11: derive: can't call f/)
   })
 
   test("an import alias works", () => {
-    const out = compileDerives(`import { derive as d } from "@zero-native/core"\nd(() => a * 2)`, "d.ts")
+    const out = compileDerives(`import { derive as d } from "@zeronative/core"\nd(() => a * 2)`, "d.ts")
     expect(out).toContain('d.__f(["$0",2,"*"], [a], [], false)')
   })
 })
@@ -186,8 +186,8 @@ const w = derive(() => f(x))`
 describe("bindings and gestures in templates", () => {
   test("a motion value in a transform, opacity and gesture are slots; 3D keys exist", () => {
     const { templates, code } = compile(`
-      import { Box } from "@zero-native/ui"
-      import { usePan } from "@zero-native/core"
+      import { Box } from "@zeronative/ui"
+      import { usePan } from "@zeronative/core"
       export function Card() {
         const pan = usePan({ axis: "x" })
         return <Box gesture={pan} style={{ opacity: pan.progress, transform: [{ translateX: pan.x }, { rotateY: "30deg" }], blurRadius: 4 }} />
@@ -206,7 +206,7 @@ describe("bindings and gestures in templates", () => {
 
   test("flip and stretch presets write 8 numbers and need registry 24; old presets stay 4", () => {
     const { templates } = compile(`
-      import { Box, Column } from "@zero-native/ui"
+      import { Box, Column } from "@zeronative/ui"
       export function A() {
         return <Column><Box enter="flip-x" exit="stretch-y" /><Box enter="fade" /></Column>
       }
@@ -216,15 +216,15 @@ describe("bindings and gestures in templates", () => {
     expect(flip.exit).toBe("1,0,0,1,0,0,1,0|t160e2")
     expect(fade.enter).toBe("0,0,0,1|t220e1")
     expect(writeTemplateFile(templates).registry).toBe(24)
-    const old = compile(`import { Box } from "@zero-native/ui"
+    const old = compile(`import { Box } from "@zeronative/ui"
 export function B() { return <Box enter="fade" /> }`)
     expect(writeTemplateFile(old.templates).registry).toBeLessThan(24)
   })
 
   test("List motion, reorderable and onReorder; sharedTag is a slot", () => {
     const { templates, code } = compile(`
-      import { Image, List, Text } from "@zero-native/ui"
-      import { useElementMotion } from "@zero-native/core"
+      import { Image, List, Text } from "@zeronative/ui"
+      import { useElementMotion } from "@zeronative/core"
       export function A(p) {
         const m = useElementMotion()
         return <List data={p.rows} key={(r) => r.id} motion={m} reorderable onReorder={(a, b) => p.move(a, b)}
@@ -241,8 +241,8 @@ export function B() { return <Box enter="fade" /> }`)
 
   test("an Svg part's trim and fill take motion values as slots", () => {
     const { templates } = compile(`
-      import { Svg, Path } from "@zero-native/ui"
-      import { useMotion } from "@zero-native/core"
+      import { Svg, Path } from "@zeronative/ui"
+      import { useMotion } from "@zeronative/core"
       export function Ring() {
         const p = useMotion(0)
         return <Svg viewBox="0 0 24 24" size={24}><Path d="M2 12h20" stroke="#000" trimEnd={p} fill={p.mapColor([0, 1], ["#000000", "#ffffff"])} /></Svg>
@@ -256,9 +256,9 @@ export function B() { return <Box enter="fade" /> }`)
 
 describe("the Motion module requirement", () => {
   test("an app file importing a motion API needs Motion 1", () => {
-    expect(nativeModuleUses(`import { usePan, signal } from "@zero-native/core"`, "C:/app/src/Card.tsx")).toEqual([{ name: "Motion", version: 1, core: true }])
-    expect(nativeModuleUses(`import { signal } from "@zero-native/core"`, "C:/app/src/Card.tsx")).toEqual([])
-    expect(nativeModuleUses(`import * as zn from "@zero-native/core"`, "C:/app/src/x.ts")).toEqual([{ name: "Motion", version: 1, core: true }])
+    expect(nativeModuleUses(`import { usePan, signal } from "@zeronative/core"`, "C:/app/src/Card.tsx")).toEqual([{ name: "Motion", version: 1, core: true }])
+    expect(nativeModuleUses(`import { signal } from "@zeronative/core"`, "C:/app/src/Card.tsx")).toEqual([])
+    expect(nativeModuleUses(`import * as zn from "@zeronative/core"`, "C:/app/src/x.ts")).toEqual([{ name: "Motion", version: 1, core: true }])
   })
 
   test("core's own Motion calls don't count", () => {

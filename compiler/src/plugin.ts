@@ -6,14 +6,14 @@ import type { BunPlugin } from "bun"
 import { dirname, join, resolve } from "node:path"
 import { existsSync, readFileSync } from "node:fs"
 import ts from "typescript"
-import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
+import { type NodeSpec, writeTemplateFile } from "@zeronative/template"
 import { compileModule, type ComponentRoots, type OnceTrap, type PropUse } from "./compile"
 import type { LineMap } from "./sourcemap"
 import { readRoutes, type RouteEntry } from "./routes"
 import { BOTH_OSES, CORE_PACKAGE, nativeModuleUses, packageOf, platformsOf, stableFileKey, type ModuleOs } from "./modules"
 import { compileDerives } from "./motion"
 import { fontFamilyProblem, type FontTable } from "./fonts"
-import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
+import { HOST_API_VERSION } from "@zeronative/core/src/host-api"
 
 /** One route in the manifest: the route entry with its screen's template id (-1 for a native screen). */
 export type ManifestRoute = RouteEntry & { screen: number }
@@ -27,7 +27,7 @@ export interface ZnManifest {
 
 /**
  * What an app must have to run this bundle (docs/ota.md §3.2): the lowest registry version that has everything the
- * templates use, the host API of the bundled `@zero-native/core`, and every native module called with the highest
+ * templates use, the host API of the bundled `@zeronative/core`, and every native module called with the highest
  * version asked for. The Hermes bytecode format is added after hermesc (tools/hermesc.ts).
  */
 export interface BundleRequires {

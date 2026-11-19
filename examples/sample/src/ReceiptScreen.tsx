@@ -1,8 +1,8 @@
 // Shown after a payment (route "/receipt/:ztc", opened as a modal). The real result comes with flows (step 2.8).
 // Full-bleed: the route has `safeArea: { top: false }`, so the green header runs behind the status bar and pads its
 // own content with insets().top.
-import { Column, Pressable, Text } from "@zero-native/ui"
-import { insets, nav } from "@zero-native/core"
+import { Column, Pressable, Text } from "@zeronative/ui"
+import { insets, nav } from "@zeronative/core"
 import { c } from "./tokens"
 
 export function ReceiptScreen(props: { ztc: string; amount?: string; via?: string }) {

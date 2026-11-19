@@ -1,20 +1,40 @@
 {
-  "name": "@zero-native/firebase-messaging",
+  "name": "@zeronative/firebase-messaging",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: push messages from Firebase Cloud Messaging",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/firebase-messaging"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/firebase-messaging#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "dependencies": {
-    "@zero-native/notifications": "workspace:*"
+    "@zeronative/notifications": "workspace:*"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*"
+    "@zeronative/core": "workspace:*"
   },
   "zeroNative": {
-    "platforms": ["android", "ios"],
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.firebase.messaging.PushPlugin"
     }

@@ -1,7 +1,7 @@
 // A dev screen for the media plugin. The phone test (tools/plugin-phone/media.ts) reads these lines and the log lines "media-lab ...".
-import { Box, Column, Image, Pressable, Scroll, Text } from "@zero-native/ui"
-import { FormData, signal } from "@zero-native/core"
-import { Media, type MediaFile, type MediaResult } from "@zero-native/media"
+import { Box, Column, Image, Pressable, Scroll, Text } from "@zeronative/ui"
+import { FormData, signal } from "@zeronative/core"
+import { Media, type MediaFile, type MediaResult } from "@zeronative/media"
 import { c } from "./tokens"
 
 function MediaLabButton(props: { label: string; onPress: () => void }) {

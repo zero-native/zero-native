@@ -233,7 +233,7 @@ function constNumber(e: ts.Expression): number | null {
 function coreNames(sf: ts.SourceFile): Record<string, string> {
   const out: Record<string, string> = {}
   for (const st of sf.statements) {
-    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== "@zero-native/core") continue
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== "@zeronative/core") continue
     const named = st.importClause?.namedBindings
     if (!named || !ts.isNamedImports(named)) continue
     for (const el of named.elements) {

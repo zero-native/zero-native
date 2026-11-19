@@ -9,10 +9,10 @@
 // Wire format, both ways: u32 length (big endian), then u8 type and the body. Same list as ZnDev.kt.
 import { createHash } from "node:crypto"
 import { watch } from "node:fs"
-import { mkdirSync, readdirSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import type { Socket } from "bun"
-import { buildApp, type AppBuild } from "../compiler/src"
+import { buildApp, type AppBuild } from "@zeronative/compiler"
 import { hermesc } from "./hermesc"
 
 const PORT = 8082
@@ -23,8 +23,11 @@ const HELLO = 10
 const ERROR = 11
 const RELOAD = 12
 
-const root = resolve(import.meta.dir, "..")
-const appDir = resolve(process.argv[2] ?? join(root, "examples/sample"))
+// In a zero-native checkout, the framework's own sources are watched too. Installed from npm (@zeronative/cli), only
+// the app's: the packages in node_modules don't change while you work.
+const checkout = existsSync(join(import.meta.dir, "../plugins"))
+const root = checkout ? resolve(import.meta.dir, "..") : resolve(process.argv[2] ?? ".")
+const appDir = resolve(process.argv[2] ?? (checkout ? join(root, "examples/sample") : "."))
 const entry = join(appDir, "src/main.ts")
 const asset = "main.zn.ui"
 const tmpDir = join(appDir, "build")
@@ -204,7 +207,8 @@ const onChange = (dir: string) => (_event: string, file: string | null) => {
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => void rebuild(changed), 30)
 }
-const pluginSources = readdirSync(join(root, "plugins")).map((name) => join(root, "plugins", name, "src"))
-for (const dir of [join(appDir, "src"), join(root, "packages/core/src"), join(root, "packages/ui/src"), ...pluginSources]) {
+const pluginSources = checkout ? readdirSync(join(root, "plugins")).map((name) => join(root, "plugins", name, "src")) : []
+const framework = checkout ? [join(root, "packages/core/src"), join(root, "packages/ui/src"), ...pluginSources] : []
+for (const dir of [join(appDir, "src"), ...framework]) {
   watch(dir, { recursive: true }, onChange(dir))
 }

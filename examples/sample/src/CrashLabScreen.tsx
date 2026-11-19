@@ -1,8 +1,8 @@
 // Crash lab (step 3.9): forces each kind of failure, to check on the phone that the app keeps working and that every
 // error is reported. Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/crash
-import { Box, Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { launches, nav, onAppState, onCleanup, onError, signal } from "@zero-native/core"
-import { Device } from "@zero-native/device-test"
+import { Box, Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { launches, nav, onAppState, onCleanup, onError, signal } from "@zeronative/core"
+import { Device } from "@zeronative/device-test"
 import { c } from "./tokens"
 
 // Module level: folded into the templates at build time.

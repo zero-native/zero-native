@@ -127,7 +127,9 @@ export function requiresGroups(r: Requires, from?: Record<string, string>): Need
   const byTitle = new Map<string, NeedsGroup["items"]>(titles.map((t) => [t, []]))
   for (const m of all) {
     const pkg = from[m.name] ?? ""
-    const title = pkg === "@zero-native/core" ? "Core" : pkg.startsWith("@zero-native/") ? "zero-native plugins" : "App's own"
+    // Bundles built before 2026-11-19 name the packages @zero-native/*, the scope before the rename.
+    const scoped = /^@zero-?native\//.test(pkg)
+    const title = scoped && pkg.endsWith("/core") ? "Core" : scoped ? "zero-native plugins" : "App's own"
     byTitle.get(title)!.push(pkg ? { label: m.label, from: pkg } : { label: m.label })
   }
   for (const t of titles) if (byTitle.get(t)!.length > 0) groups.push({ title: t, items: byTitle.get(t)! })

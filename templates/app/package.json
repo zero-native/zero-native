@@ -11,8 +11,8 @@
     "typecheck": "tsc -p app"
   },
   "dependencies": {
-    "@zero-native/core": "link:__ZN_DIR__/packages/core",
-    "@zero-native/ui": "link:__ZN_DIR__/packages/ui"
+    "@zeronative/core": "link:__ZN_DIR__/packages/core",
+    "@zeronative/ui": "link:__ZN_DIR__/packages/ui"
   },
   "devDependencies": {
     "typescript": "5.9.3"

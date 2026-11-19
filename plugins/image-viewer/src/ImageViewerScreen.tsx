@@ -5,7 +5,7 @@
 // and the overlay (close button, counter) is TSX, so apps can restyle it. Each photo is drawn by the native view
 // "imageviewer.page" (ViewerPage.kt): loading (web, asset, file, data:, headers), EXIF, the sharp part when zoomed.
 // The flight from the thumbnail, the drag down and Back all move motion values natively; JS hears only the ends.
-import { Column, List, NativeView, Pressable, Row, Stack, Text } from "@zero-native/ui"
+import { Column, List, NativeView, Pressable, Row, Stack, Text } from "@zeronative/ui"
 import {
   derive,
   Dimensions,
@@ -20,7 +20,7 @@ import {
   usePan,
   useZoom,
   type MotionSource,
-} from "@zero-native/core"
+} from "@zeronative/core"
 import { finishViewer, viewerFor, type ViewerRect } from "./open"
 
 /** The screen's props: the key of the viewer ImageViewer.open made (its options live in JS, not in the route). */

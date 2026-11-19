@@ -1,8 +1,8 @@
 // A dev screen for the Performance plugin. The phone test (tools/plugin-phone/perf.ts) reads the log lines
 // "perf-lab ..." and Firebase's own "FirebasePerformance" lines, so keep their wording.
-import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
-import { fetch, nav, scheme, signal } from "@zero-native/core"
-import { Perf } from "@zero-native/firebase-perf"
+import { Column, Pressable, Scroll, Text } from "@zeronative/ui"
+import { fetch, nav, scheme, signal } from "@zeronative/core"
+import { Perf } from "@zeronative/firebase-perf"
 import { c } from "./tokens"
 
 function PerfLabButton(props: { label: string; onPress: () => void }) {

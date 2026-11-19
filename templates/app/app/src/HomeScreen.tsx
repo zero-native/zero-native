@@ -1,6 +1,6 @@
 // The start screen (route "/"): a counter, and a button to the second screen.
-import { Pressable, Text, View } from "@zero-native/ui"
-import { nav, signal } from "@zero-native/core"
+import { Pressable, Text, View } from "@zeronative/ui"
+import { nav, signal } from "@zeronative/core"
 import { s } from "./theme"
 
 export function HomeScreen() {

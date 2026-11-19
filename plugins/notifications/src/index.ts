@@ -16,7 +16,7 @@
 // On a tap ("Turn on notifications"): `Notifications.requestPermission()` (Android 13+ asks; older: on).
 // A tap on a notification opens its `link` through the app's normal link path (`onLink` in startApp).
 // Each call answers with a value and never rejects.
-import { defineTask, nativeModule, Permissions, Platform, type CallOptions, type PermissionState } from "@zero-native/core"
+import { defineTask, nativeModule, Permissions, Platform, type CallOptions, type PermissionState } from "@zeronative/core"
 
 /** Core task names the native side runs (PushEvents.kt, NotificationRules.kt). */
 export const MESSAGE_TASK = "push.message"

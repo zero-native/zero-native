@@ -1,4 +1,4 @@
-# SQL plugin proposal (`@zero-native/sqlite`, no code yet)
+# SQL plugin proposal (`@zeronative/sqlite`, no code yet)
 
 **Status (2026-11-04): proposal, agreed in direction. Nothing is built.** Pavan's idea. Build it in parallel or later.
 **It does not block the ZeroBill pilot**: the pilot (login, scan, UPI) needs no database. Labels used below:
@@ -122,7 +122,7 @@ So a ZeroBill-like app (minSdk 24, many Android 8–10 phones) **can rely on non
 
 ## 2. The JS API
 
-Package `@zero-native/sqlite`, native module `Sqlite` version 1. Names follow **expo-sqlite**, the most used RN
+Package `@zeronative/sqlite`, native module `Sqlite` version 1. Names follow **expo-sqlite**, the most used RN
 SQLite library (2.63 M downloads in the week to 2026-11-03, against 680 K for op-sqlite and 130 K for WatermelonDB
 [checked: https://api.npmjs.org/downloads/point/last-week/expo-sqlite and the same URL for
 `@op-engineering/op-sqlite`, `@nozbe/watermelondb`]), **without the `Async` suffix**, because in zn every native call
@@ -132,7 +132,7 @@ is async and no other API has the suffix (`SecureStore.get`, `Updates.check`). P
 ### 2.1 Open a database
 
 ```ts
-import { openDatabase, sql } from "@zero-native/sqlite"
+import { openDatabase, sql } from "@zeronative/sqlite"
 import { migrations } from "./db/migrations"
 
 const db = await openDatabase("zerobill", {
@@ -500,7 +500,7 @@ drizzle(callback, batchCallback?, config?)
 Its session reads `all` / `values` rows as **arrays in column order** and maps them by its own field list; `get`
 reads one row array [checked: `drizzle-orm/src/sqlite-proxy/session.ts`]. That is exactly `getValues`.
 
-**The adapter** (a small file, `@zero-native/sqlite/drizzle`, [reasoned] sketch):
+**The adapter** (a small file, `@zeronative/sqlite/drizzle`, [reasoned] sketch):
 
 ```ts
 import { drizzle } from "drizzle-orm/sqlite-proxy"
@@ -560,13 +560,13 @@ fields `changes`, `lastInsertRowId`. `transaction` and `batch` from op-sqlite an
 transaction name means "not exclusive", which ours is not). `getValues` from Drizzle's `values` method. `watch` is
 ours (Pavan's word; no library shares one name for it). **Why not `execute` / `query`:** a ported expo screen then
 changes only by dropping `Async`, and `execute` in op-sqlite is both read and write, which hides whether a call
-changes data. A thin `@zero-native/sqlite/expo` file with the exact `...Async` names is cheap if a big port needs it.
+changes data. A thin `@zeronative/sqlite/expo` file with the exact `...Async` names is cheap if a big port needs it.
 
 ---
 
 ## 6. Core or official opt-in plugin
 
-**Official opt-in plugin: `plugins/sqlite/` (`@zero-native/sqlite`, module `Sqlite` v1).**
+**Official opt-in plugin: `plugins/sqlite/` (`@zeronative/sqlite`, module `Sqlite` v1).**
 - **Why:** many apps need no SQL. A plugin costs nothing for them: no dex, no module, no start-up work. It follows D5
   (official plugins live in `plugins/<name>/`) and the pattern of `pdf` and `location`, which are also built on
   Android's own APIs with no new library [checked: `docs/plugins.md` §7, `plugins/pdf/README.md`].
@@ -678,7 +678,7 @@ the plugin's `README.md` part and a guide note (`docs/guide-notes.md`, new secti
 | DB.7 | **Benchmark, emulator** (`Medium_Phone` AVD, release build; emulator times are only for comparing the three, Pavan's phone notes say emulator numbers don't stand in for real timings). Then the same run on the Lava for real numbers | See below |
 | DB.8 | Old phones: run the DB.2–DB.5 device tests on an **API 24** emulator image (SQLite 3.9), plus the §1.3 word warnings | All pass on API 24; each warned word has a test |
 | DB.9 | Docs: guide note "SQL database" (do / don't / why), ARCHITECTURE §13.1 (a third row), `docs/plugins.md` §7 row, second-opinions entries for the choices made while building | Docs match the code |
-| DB.10 (later, optional) | Drizzle adapter `@zero-native/sqlite/drizzle`, `liveQuery` | Drizzle's select / insert / batch on Hermes in the sample; `begin` refused with the message; **bundle size measured** with and without Drizzle |
+| DB.10 (later, optional) | Drizzle adapter `@zeronative/sqlite/drizzle`, `liveQuery` | Drizzle's select / insert / batch on Hermes in the sample; `begin` refused with the message; **bundle size measured** with and without Drizzle |
 | DB.11 (later, v1.1) | `<List>` native data source on this plugin (`docs/lists.md` §6) | Only if an app needs lists beyond a few thousand rows |
 
 **DB.7 benchmark.** A receipt-like row: id, store id, store name, amount in paise, status, time, UPI ref, item count,

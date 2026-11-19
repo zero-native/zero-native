@@ -3,12 +3,12 @@
 // makes no network call. Native side: android/.../AppUpdatesPlugin.kt and ios/AppUpdatesPlugin.swift. README: how an
 // app wires it, the rules, and how to test with Play.
 //
-//   import { AppUpdates, storeAnswer, createAppUpdateEngine, playUpdates } from "@zero-native/app-updates"
+//   import { AppUpdates, storeAnswer, createAppUpdateEngine, playUpdates } from "@zeronative/app-updates"
 //   const answer = await storeAnswer()
 //   if (answer?.update?.critical === 2) await AppUpdates.start({ flexible: false })
 //
 // Nothing here rejects: a failure answers "no update" / false / null, because an update check must never stop the app.
-import { nativeModule, Updates, type CallOptions, type StoreStatus, type UpdateStatus } from "@zero-native/core"
+import { nativeModule, Updates, type CallOptions, type StoreStatus, type UpdateStatus } from "@zeronative/core"
 import type { AppUpdateEngine, PlayUpdates, PlayUpdateState, StoreCheck, StoreSource, StoreUpdate } from "./rules"
 
 export * from "./rules"

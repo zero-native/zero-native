@@ -1,8 +1,8 @@
 // A dev screen for milestone 3 steps 3.2 and 3.3: text fields (controlled and not), the keyboard, children passed to
 // a component, a JSX prop, a fragment, and text spans. Open it with zn://sample/dev/input.
-import { Column, Pressable, Row, Scroll, Text, TextField } from "@zero-native/ui"
-import type { Children } from "@zero-native/ui"
-import { computed, Keyboard, nav, signal } from "@zero-native/core"
+import { Column, Pressable, Row, Scroll, Text, TextField } from "@zeronative/ui"
+import type { Children } from "@zeronative/ui"
+import { computed, Keyboard, nav, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 /** A card with a title row (a JSX prop) and any content (its children). */

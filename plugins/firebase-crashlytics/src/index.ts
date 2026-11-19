@@ -11,7 +11,7 @@
 //
 // Each call answers with a value and never rejects. With no Firebase in the app (no google-services.json) every call
 // does nothing, and `status()` says `available: false`.
-import { nativeModule, type CallOptions } from "@zero-native/core"
+import { nativeModule, type CallOptions } from "@zeronative/core"
 
 export interface CrashlyticsStatus {
   /** False: Firebase isn't set up in this app (no google-services.json), or the plugin is missing. */

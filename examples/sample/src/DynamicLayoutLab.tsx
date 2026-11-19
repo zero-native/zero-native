@@ -1,6 +1,6 @@
 // Dynamic Layout Lab: testing dynamic slot-driven layout properties at runtime.
-import { Column, Pressable, Row, Scroll, Stack, Text, View } from "@zero-native/ui"
-import { nav, signal } from "@zero-native/core"
+import { Column, Pressable, Row, Scroll, Stack, Text, View } from "@zeronative/ui"
+import { nav, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 function DataCard(props: { loading: boolean; error: boolean; data: { items: number[] } | null }) {

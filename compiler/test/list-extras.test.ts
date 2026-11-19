@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string) {
@@ -15,7 +15,7 @@ function compile(src: string) {
 describe("H3: List Header, Footer, and Empty Component", () => {
   test("ListHeaderComponent, ListFooterComponent, ListEmptyComponent compile into list call", () => {
     const { code, templates } = compile(`
-      import { List, Text } from "@zero-native/ui"
+      import { List, Text } from "@zeronative/ui"
       export function Screen(props: { items: string[] }) {
         return (
           <List
@@ -39,7 +39,7 @@ describe("H3: List Header, Footer, and Empty Component", () => {
 
   test("List components passed as identifiers", () => {
     const { code } = compile(`
-      import { List, Text } from "@zero-native/ui"
+      import { List, Text } from "@zeronative/ui"
       function MyHeader() { return <Text>Header</Text> }
       function MyEmpty() { return <Text>Empty</Text> }
       export function Screen(props: { items: string[] }) {
@@ -60,7 +60,7 @@ describe("H3: List Header, Footer, and Empty Component", () => {
 
   test("controller and ref bind list controller", () => {
     const res1 = compile(`
-      import { List, Text } from "@zero-native/ui"
+      import { List, Text } from "@zeronative/ui"
       export function Screen(props: { items: string[]; ctrl: any }) {
         return (
           <List
@@ -76,7 +76,7 @@ describe("H3: List Header, Footer, and Empty Component", () => {
     expect(res1.templates[0].props.scrollCommand).toEqual({ $slot: "s0", default: null } as any)
 
     const res2 = compile(`
-      import { List, Text } from "@zero-native/ui"
+      import { List, Text } from "@zeronative/ui"
       export function Screen(props: { items: string[]; listRef: any }) {
         return (
           <List
@@ -95,7 +95,7 @@ describe("H3: List Header, Footer, and Empty Component", () => {
   test("ref and controller together fails", () => {
     expect(() =>
       compile(`
-        import { List, Text } from "@zero-native/ui"
+        import { List, Text } from "@zeronative/ui"
         export function Screen(props: { items: string[]; ctrl: any; listRef: any }) {
           return (
             <List

@@ -1,6 +1,6 @@
 // The scanner plugin's JS side, without the component. Native side: android/.../ScannerModule.kt. No side effects:
 // nativeModule() only creates a handle.
-import { nativeModule } from "@zero-native/core"
+import { nativeModule } from "@zeronative/core"
 
 export interface ScannerModule {
   /** True if the phone has a camera. */

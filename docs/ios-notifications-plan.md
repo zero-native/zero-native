@@ -1,13 +1,13 @@
 # Notifications and push on iOS: plan (Phase 3, 2026-11-11)
 
-Pavan's asks (2026-11-11): `@zero-native/notifications` matches notifee on iOS too, with notifee's shape: the shared
-options, plus an `android: {...}` and an `ios: {...}` block; `@zero-native/firebase-messaging` on iOS (APNs token →
+Pavan's asks (2026-11-11): `@zeronative/notifications` matches notifee on iOS too, with notifee's shape: the shared
+options, plus an `android: {...}` and an `ios: {...}` block; `@zeronative/firebase-messaging` on iOS (APNs token →
 FCM token, topics, messages). ZeroBill must show its pushes on iOS while the app is behind or closed, as the Flutter app
 does today: plan a server change for it (an iOS alert block), reviewed and deployed by Pavan.
 
 ## 1. What iOS gets
 
-### 1.1 `@zero-native/notifications` (module `Notifications`, UNUserNotificationCenter)
+### 1.1 `@zeronative/notifications` (module `Notifications`, UNUserNotificationCenter)
 
 | Call | iOS |
 |---|---|
@@ -31,7 +31,7 @@ fields keep working (ZeroBill uses them), marked deprecated; the TS turns `andro
 reads today, so **Android's Kotlin doesn't change**. `channelId` stops being required at the top (Android still needs
 one: from `android.channelId` or the flat field).
 
-### 1.2 `@zero-native/firebase-messaging` (module `FirebaseMessaging`, FirebaseMessaging SDK)
+### 1.2 `@zeronative/firebase-messaging` (module `FirebaseMessaging`, FirebaseMessaging SDK)
 
 `status`, `getToken` (APNs registration first, then FCM's token), `deleteToken`, `subscribe` / `unsubscribe`,
 `setAutoInitEnabled` / `isAutoInitEnabled`, `getInitialNotification` and `onNotificationOpenedApp` (a tap on a

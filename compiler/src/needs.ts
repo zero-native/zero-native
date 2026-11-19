@@ -5,7 +5,7 @@
 // Canvas (registry 24): new commands and paint keys go inside `commands` (registry 23). A 23 app skips each one it
 // doesn't know (a warning in logcat), so a chart would draw without its clip, image or shadow.
 import ts from "typescript"
-import { CANVAS_24_SINCE } from "@zero-native/template"
+import { CANVAS_24_SINCE } from "@zeronative/template"
 
 /** draw.<name>() calls added in registry 24. */
 const CANVAS_24_COMMANDS: ReadonlySet<string> = new Set(["image", "paragraph", "clipRoundRect", "clipPath"])
@@ -13,10 +13,10 @@ const CANVAS_24_COMMANDS: ReadonlySet<string> = new Set(["image", "paragraph", "
 const CANVAS_24_KEYS: ReadonlySet<string> = new Set([
   "sweepGradient", "blendMode", "shadow", "blur", "trimStart", "trimEnd", "trimOffset",
 ])
-/** The canvas API names a file imports from @zero-native/core when it builds commands. */
+/** The canvas API names a file imports from @zeronative/core when it builds commands. */
 const CANVAS_NAMES: ReadonlySet<string> = new Set(["draw", "smoothPath", "CanvasPaint", "CanvasCommand", "CanvasPathOptions"])
-/** A file of @zero-native/core itself (its own canvas.ts names every key). */
-const CORE_SRC = /[\\/](?:packages|@zero-native)[\\/]core[\\/]src[\\/]/
+/** A file of @zeronative/core itself (its own canvas.ts names every key). */
+const CORE_SRC = /[\\/](?:packages|@zeronative)[\\/]core[\\/]src[\\/]/
 
 /**
  * The registry version [source] needs for what the template file can't see, or 0. Over-counts on purpose: a paint
@@ -24,14 +24,14 @@ const CORE_SRC = /[\\/](?:packages|@zero-native)[\\/]core[\\/]src[\\/]/
  * the bundle needs the newer app; missing one would make a 23 app draw it wrong).
  */
 export function sourceRegistryNeed(source: string, fileName: string): number {
-  if (CORE_SRC.test(fileName) || !source.includes("@zero-native/core")) return 0
+  if (CORE_SRC.test(fileName) || !source.includes("@zeronative/core")) return 0
   if (!/\bdraw\b|smoothPath|Canvas(?:Paint|Command|PathOptions)/.test(source)) return 0 // quick skip
   const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind)
   let canvas = false
   let drawName: string | null = null
   for (const st of sf.statements) {
-    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== "@zero-native/core") continue
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== "@zeronative/core") continue
     const named = st.importClause?.namedBindings
     if (named && ts.isNamespaceImport(named)) canvas = true
     if (named && ts.isNamedImports(named)) {

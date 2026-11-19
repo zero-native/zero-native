@@ -1,6 +1,6 @@
 // <OtpInput> (registry 18, guide notes §62): react-native-otp-entry's props compile to one node.
 import { describe, expect, test } from "bun:test"
-import type { NodeSpec } from "@zero-native/template"
+import type { NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(jsx: string) {
@@ -9,7 +9,7 @@ function compile(jsx: string) {
     reserveTemplate: () => specs.push(null as unknown as NodeSpec) - 1,
     defineTemplate: (id: number, s: NodeSpec) => void (specs[id] = s),
   }
-  const { code } = compileModule(`import { createRef } from "@zero-native/core"\nconst r = createRef()\nfunction A(p) { return ${jsx} }`, "a.tsx", ctx)
+  const { code } = compileModule(`import { createRef } from "@zeronative/core"\nconst r = createRef()\nfunction A(p) { return ${jsx} }`, "a.tsx", ctx)
   return { props: specs[0]!.props as Record<string, unknown>, code }
 }
 const err = (jsx: string) => {

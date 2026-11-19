@@ -1096,8 +1096,8 @@ export interface ListRef {
   scrollToOffset(options: ListScrollToOffsetOptions): void
 }
 
-// listController() is a runtime function, so it lives in @zero-native/core: import { listController } from
-// "@zero-native/core". The compiler removes every @zero-native/ui import, so a value from here would not exist at
+// listController() is a runtime function, so it lives in @zeronative/core: import { listController } from
+// "@zeronative/core". The compiler removes every @zeronative/ui import, so a value from here would not exist at
 // runtime (B2 in the 2026-11-08 review: the RN props lab threw ReferenceError). Only the types stay here.
 
 /**

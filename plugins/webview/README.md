@@ -1,4 +1,4 @@
-# @zero-native/webview
+# @zeronative/webview
 
 A web page inside a screen: cookies, file upload, messages both ways, and which links leave the app.
 
@@ -6,7 +6,7 @@ A page is outside input. So this plugin refuses by default: only hosts you list 
 
 ## Add it
 
-1. `package.json`: add `"@zero-native/webview": "workspace:*"`.
+1. `package.json`: add `"@zeronative/webview": "workspace:*"`.
 2. `android/settings.gradle.kts`: include `:plugin-webview` and set its `projectDir` (`docs/guide-notes.md` §30).
 3. The app's `build.gradle.kts`: `implementation(project(":plugin-webview"))`.
 4. `Application.onCreate`, first thing: `ZnPlugins.register(this, WebViewPlugin())`.
@@ -16,8 +16,8 @@ The host needs the `INTERNET` permission and `ZnActivity.attach(this)` in `onCre
 ## Use it
 
 ```tsx
-import { Column } from "@zero-native/ui"
-import { WebView, webViewController } from "@zero-native/webview"
+import { Column } from "@zeronative/ui"
+import { WebView, webViewController } from "@zeronative/webview"
 
 export function HelpScreen() {
   const web = webViewController()

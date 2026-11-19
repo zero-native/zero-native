@@ -4,17 +4,17 @@ import { describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { NodeSpec } from "@zero-native/template"
+import type { NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 import { znBuild } from "../src/plugin"
 
 /** Builds an app whose route "home" shows [screen] (a component in screens.tsx). */
 async function build(screens: string, screen = "S") {
   const dir = mkdtempSync(join(tmpdir(), "zn-once-"))
-  writeFileSync(join(dir, "screens.tsx"), `import { Column, Row, Text, Pressable } from "@zero-native/ui"\n${screens}`)
+  writeFileSync(join(dir, "screens.tsx"), `import { Column, Row, Text, Pressable } from "@zeronative/ui"\n${screens}`)
   writeFileSync(
     join(dir, "routes.ts"),
-    `import { defineRoutes } from "@zero-native/core"
+    `import { defineRoutes } from "@zeronative/core"
 import * as s from "./screens"
 import { ${screen} } from "./screens"
 export const keep = s
@@ -78,7 +78,7 @@ export function S() { return <Column><Row1 /></Column> }`)
 describe("T2: early return on a value that can change", () => {
   test("top-level guard in a child: compiles to branch component (H2)", async () => {
     await build(`
-import { signal } from "@zero-native/core"
+import { signal } from "@zeronative/core"
 const loading = signal(true)
 function Body() { if (loading()) return <Text>wait</Text>; return <Text>done</Text> }
 export function S() { return <Column><Body /></Column> }`)
@@ -91,7 +91,7 @@ export function S() { return <Column><Body /></Column> }`)
   })
   test("early return in a refused shape (e.g. inside loop): build error", async () => {
     const msg = await fails(`
-import { signal } from "@zero-native/core"
+import { signal } from "@zeronative/core"
 const loading = signal(true)
 function Body() {
   while (true) { if (loading()) return <Text>wait</Text>; break }
@@ -125,7 +125,7 @@ const amt = () => 9; export function S() { return <Column><Sheet amount={amt()} 
   })
   test("from a signal, also in a screen: build error", async () => {
     const msg = await fails(`
-import { signal } from "@zero-native/core"
+import { signal } from "@zeronative/core"
 const total = signal(0)
 export function S() {
   const shown = total() * 2
@@ -144,7 +144,7 @@ const amt = () => 9; export function S() { return <Column><Sheet amount={amt()} 
   })
   test("fine: props in a screen, computed, a handler, a factory, JSX in a const", async () => {
     await build(`
-import { computed } from "@zero-native/core"
+import { computed } from "@zeronative/core"
 const makeController = () => ({ id: 1 })
 function Sheet(p: { amount: number; onPay: (n: number) => void }) {
   const controller = makeController()
@@ -176,7 +176,7 @@ function Sheet(p: { amount: number }) {
   })
   test("a row (.map, List renderItem): fine, a row mounts again when its item changes", async () => {
     await build(`${sheet}
-import { signal } from "@zero-native/core"
+import { signal } from "@zeronative/core"
 const bills = signal([{ id: 1, amount: 9 }])
 export function S() {
   return <Column>{bills().map((b) => <Sheet key={b.id} amount={b.amount} />)}</Column>
@@ -184,7 +184,7 @@ export function S() {
   })
   test("passed down from a parent whose prop reads a signal: build error", async () => {
     const msg = await fails(`${sheet}
-import { signal } from "@zero-native/core"
+import { signal } from "@zeronative/core"
 const total = signal(9)
 function Card(p: { amount: number }) { return <Column><Sheet amount={p.amount} /></Column> }
 export function S() { return <Column><Card amount={total()} /></Column> }`)
@@ -213,7 +213,7 @@ describe("B1: a child that returns null", () => {
     writeFileSync(file, code)
     const { installFakeHost } = await import("../../packages/core/test/fake-host")
     const host = installFakeHost()
-    const core = await import("@zero-native/core")
+    const core = await import("@zeronative/core")
     core.installRuntime()
     const mod = await import(file)
     core.renderRoot(0x80000201, mod.Screen, {})
@@ -227,7 +227,7 @@ describe("B1: a child that returns null", () => {
 describe("restorableSignal and persistedSignal are signals", () => {
   test("a start value from a signal, read live in the JSX: fine", async () => {
     await build(`
-import { persistedSignal, restorableSignal } from "@zero-native/core"
+import { persistedSignal, restorableSignal } from "@zeronative/core"
 const profile = { user: () => ({ name: "Ravi", city: "Pune" }) }
 export function S() {
   const user = profile.user()

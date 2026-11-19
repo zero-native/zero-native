@@ -1,16 +1,36 @@
 {
-  "name": "@zero-native/media",
+  "name": "@zeronative/media",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: pick photos and files, take photos, compress and edit",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/media"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/media#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*"
+    "@zeronative/core": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.media.MediaPlugin"
     }

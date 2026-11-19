@@ -1,4 +1,4 @@
-# @zero-native/location
+# @zeronative/location
 
 The phone's location on Android, from Android's own `LocationManager` and `Geocoder`. Play services is used for one thing
 only: Google's "Turn on location" dialog.
@@ -31,8 +31,8 @@ It never asks for background location, and no foreground service.
 
 ## Use it
 ```ts
-import { Location } from "@zero-native/location"
-import { onAppState, Os } from "@zero-native/core"
+import { Location } from "@zeronative/location"
+import { onAppState, Os } from "@zeronative/core"
 
 // On a tap ("Use my location"):
 const { permission } = await Location.requestPermission()   // shows Android's dialog only if it can

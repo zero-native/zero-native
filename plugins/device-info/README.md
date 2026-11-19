@@ -1,11 +1,11 @@
-# @zero-native/device-info
+# @zeronative/device-info
 
 [react-native-device-info](https://github.com/react-native-device-info/react-native-device-info) for zero-native apps,
 on Android: the same names, the same values, the same "don't know" answers. Code that used it should need only the
 import changed:
 
 ```ts
-import DeviceInfo from "@zero-native/device-info"   // or: import { getVersion, getUniqueIdSync } from "@zero-native/device-info"
+import DeviceInfo from "@zeronative/device-info"   // or: import { getVersion, getUniqueIdSync } from "@zeronative/device-info"
 
 const BASE_URL = DeviceInfo.getBundleId() === "com.example.app" ? "https://api.example.com" : "https://dev.example.com"
 const deviceId = DeviceInfo.getUniqueIdSync()

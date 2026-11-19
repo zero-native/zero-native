@@ -1,4 +1,4 @@
-# @zero-native/firebase-remote-config
+# @zeronative/firebase-remote-config
 
 Firebase Remote Config in zero-native apps, on Android, with RN Firebase's `remoteConfig()` API: values you change in
 the Firebase console without a new build (feature switches, limits, texts), with defaults in the app.
@@ -10,7 +10,7 @@ the Firebase console without a new build (feature switches, limits, texts), with
 - With no `google-services.json` every value is its default and `available` is false.
 
 ## Add it
-1. Firebase as for [`@zero-native/firebase-app`](../firebase-app/README.md).
+1. Firebase as for [`@zeronative/firebase-app`](../firebase-app/README.md).
 2. In `settings.gradle.kts`: `:plugin-firebase-remote-config` → `../plugins/firebase-remote-config/android`.
 3. In the app's `build.gradle.kts`: `implementation(project(":plugin-firebase-remote-config"))`.
 4. In `Application.onCreate`, with the other plugins: `ZnPlugins.register(this, RemoteConfigPlugin())`.
@@ -19,7 +19,7 @@ Permissions: none of its own (Firebase adds `INTERNET`).
 
 ## Use it
 ```ts
-import { RemoteConfig } from "@zero-native/firebase-remote-config"
+import { RemoteConfig } from "@zeronative/firebase-remote-config"
 
 await RemoteConfig.setDefaults({ checkout_v2: false, max_cashback: 50 })   // also loads last session's values
 void RemoteConfig.fetchAndActivate()                                       // new values for next time, or now

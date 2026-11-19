@@ -6,9 +6,9 @@
 //   d) Counter: an animated ₹ amount (v.to, and a timeline) as native number text (format)
 //   e) Coach: a tip placed with measure(), a pulsing ring around the thing it points at
 // The sizes, the glides, the presets, the counters and the pulse run natively. JS only says "now it is open".
-import { Box, Column, List, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import type { Children } from "@zero-native/ui"
-import { nav, signal, useElementMotion, useMotion, usePan, useTimeline } from "@zero-native/core"
+import { Box, Column, List, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import type { Children } from "@zeronative/ui"
+import { nav, signal, useElementMotion, useMotion, usePan, useTimeline } from "@zeronative/core"
 import { c } from "./tokens"
 import { formatIndian } from "./money"
 

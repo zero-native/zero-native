@@ -1,8 +1,8 @@
 // A dev screen for step P.2: permissions, and opening another app for a result (only the mock UPI app, test-kit/). The
 // phone test reads these lines, and the log lines "launch-test ...", so keep their wording.
-import { Column, Image, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { launches, nav, Os, Permissions, signal, type LaunchRecord, type NativeError } from "@zero-native/core"
-import { Device } from "@zero-native/device-test"
+import { Column, Image, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { launches, nav, Os, Permissions, signal, type LaunchRecord, type NativeError } from "@zeronative/core"
+import { Device } from "@zeronative/device-test"
 import { c } from "./tokens"
 
 const KEY = "mock-upi"

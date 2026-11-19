@@ -1,5 +1,5 @@
 // The lottie plugin's JS side. Native side: android/.../LottiePlugin.kt. No side effects: nativeModule() only creates a handle.
-// `import LottieView from "@zero-native/lottie"` works as in lottie-react-native (the default export), and so does the named import.
+// `import LottieView from "@zeronative/lottie"` works as in lottie-react-native (the default export), and so does the named import.
 import { LottieView } from "./LottieView"
 
 export { LottieView }

@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
+import { type NodeSpec, writeTemplateFile } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 import { svgReexports } from "../src/plugin"
 import { compileSvgFile, compileSvgTree, parseSvgColor } from "../src/svg"
@@ -516,7 +516,7 @@ describe("inline <Svg>", () => {
     expect(e(`{list().map((d) => <Circle r={1} />)}`)).toContain("array known at build time")
     expect(e(`<Svg />`)).toContain("a nested <Svg>")
     expect(e(`hello`)).toContain("text inside <Svg>")
-    expect(tsxErr(`import { Path } from "@zero-native/ui"\nexport function F() { return <Column><Path d="M0 0" /></Column> }`))
+    expect(tsxErr(`import { Path } from "@zeronative/ui"\nexport function F() { return <Column><Path d="M0 0" /></Column> }`))
       .toContain("<Path> is an SVG element: it only works inside <Svg>")
     expect(e(`<Circle r={1} />`)).toBe("no error")
   })

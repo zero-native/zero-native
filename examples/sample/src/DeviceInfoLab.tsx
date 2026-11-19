@@ -1,10 +1,10 @@
-// A dev screen for @zero-native/device-info (react-native-device-info's API). The first line is read at module level,
+// A dev screen for @zeronative/device-info (react-native-device-info's API). The first line is read at module level,
 // before any screen: that is what the sync constants are for (`const BASE_URL = ...`). Each action logs one
 // "device-info-lab ..." line.
-import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
-import { signal } from "@zero-native/core"
-import DeviceInfo from "@zero-native/device-info"
-import { AdId } from "@zero-native/android-ad-id"
+import { Column, Pressable, Scroll, Text } from "@zeronative/ui"
+import { signal } from "@zeronative/core"
+import DeviceInfo from "@zeronative/device-info"
+import { AdId } from "@zeronative/android-ad-id"
 import { c } from "./tokens"
 
 const AT_MODULE_LOAD = `${DeviceInfo.getBundleId()} ${DeviceInfo.getVersion()} (${DeviceInfo.getBuildNumber()})`
@@ -76,7 +76,7 @@ export function DeviceInfoLabScreen() {
         <Text testID="device-info-changing" fontSize={13} color={c.muted}>
           {changing()}
         </Text>
-        {/* @zero-native/android-ad-id (2026-11-07): logs "device-info-lab ad id ..." */}
+        {/* @zeronative/android-ad-id (2026-11-07): logs "device-info-lab ad id ..." */}
         <Pressable
           onPress={() =>
             void AdId.get().then((a) => {

@@ -12,9 +12,9 @@
 // /dev/net-loop: a fetch every 3 s to a public HTTPS host and the local server, each on its own (a stuck one doesn't
 // stop the next), logged as "net-loop". For network changes while it runs: mobile data / Wi-Fi off and on, Doze.
 // tools/repro/http-stall.ts drives both.
-import { Carousel, Column, Image, List, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { FetchError, nav, signal, type Signal } from "@zero-native/core"
-import { Device } from "@zero-native/device-test"
+import { Carousel, Column, Image, List, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { FetchError, nav, signal, type Signal } from "@zeronative/core"
+import { Device } from "@zeronative/device-test"
 import { c } from "./tokens"
 
 const L = "http://localhost:8788"

@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { NodeSpec } from "@zero-native/template"
+import type { NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 import { fontFamilyProblem, readFontInfo, scanFonts, splitFontName } from "../src/fonts"
 import { znBuild } from "../src/plugin"
@@ -151,7 +151,7 @@ describe("fontFamily names", () => {
 describe("fontFamily in templates", () => {
   test("style, prop and spans; each name is reported with its place", () => {
     const { templates, fonts } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function F() {
         return (
           <Text style={{ fontFamily: "Inter", fontWeight: "600" }}>
@@ -168,20 +168,20 @@ describe("fontFamily in templates", () => {
   })
   test("on a TextField", () => {
     const { templates } = compile(`
-      import { TextField } from "@zero-native/ui"
+      import { TextField } from "@zeronative/ui"
       export function F() { return <TextField style={{ fontFamily: "Inter" }} /> }`)
     expect((templates[0].props as Record<string, unknown>).fontFamily).toBe("Inter")
   })
   test("from a signal: a build error", () => {
     expect(() => compile(`
-      import { Text } from "@zero-native/ui"
-      import { signal } from "@zero-native/core"
+      import { Text } from "@zeronative/ui"
+      import { signal } from "@zeronative/core"
       export function F() { const f = signal("Inter"); return <Text style={{ fontFamily: f() }}>x</Text> }`))
       .toThrow('"fontFamily" must be known at build time')
   })
   test("not a string: a build error", () => {
     expect(() => compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function F() { return <Text style={{ fontFamily: 3 }}>x</Text> }`)).toThrow("fontFamily needs a font name")
   })
 })
@@ -190,7 +190,7 @@ describe("the app build checks names", () => {
   const build = async (body: string, fonts?: Record<string, { file: string; weight: number; italic: boolean }[]>) => {
     const dir = mkdtempSync(join(tmpdir(), "zn-fontbuild-"))
     const file = join(dir, "screen.tsx")
-    writeFileSync(file, `import { Text } from "@zero-native/ui"\nexport function S() { return ${body} }\n`)
+    writeFileSync(file, `import { Text } from "@zeronative/ui"\nexport function S() { return ${body} }\n`)
     const zn = znBuild({ fonts })
     const out = await Bun.build({ entrypoints: [file], plugins: [zn.plugin], packages: "external", target: "browser" })
     return zn.outputs(await out.outputs[0]!.text())

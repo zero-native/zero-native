@@ -10,8 +10,8 @@
 // - S5: an Alert or a share sheet shown over the sheet goes with it when JS closes the sheet; one shown in the same
 //   tap that closes the sheet stays.
 // Log lines start with "SLAB" (the console).
-import { Column, Modal, Pressable, Scroll, Sheet, Text, TextField } from "@zero-native/ui"
-import { Alert, nav, Os, signal } from "@zero-native/core"
+import { Column, Modal, Pressable, Scroll, Sheet, Text, TextField } from "@zeronative/ui"
+import { Alert, nav, Os, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 const card = { padding: 14, borderRadius: 12, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }

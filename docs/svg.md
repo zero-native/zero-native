@@ -117,7 +117,7 @@ import Check from "./icons/check-rounded.svg"
 
 ### 4.2 Inline `<Svg>` (react-native-svg names)
 ```tsx
-import { Svg, Defs, RadialGradient, Stop, Path, Circle, G } from "@zero-native/ui"
+import { Svg, Defs, RadialGradient, Stop, Path, Circle, G } from "@zeronative/ui"
 
 <Svg width={120} height={120} viewBox="0 0 200 200">
   <Defs>

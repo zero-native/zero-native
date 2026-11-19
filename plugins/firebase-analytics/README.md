@@ -1,4 +1,4 @@
-# @zero-native/firebase-analytics
+# @zeronative/firebase-analytics
 
 Google Analytics for Firebase in zero-native apps, on Android, with RN Firebase's `analytics()` API.
 
@@ -13,7 +13,7 @@ Google Analytics for Firebase in zero-native apps, on Android, with RN Firebase'
   that says why. Firebase itself would drop it with only a logcat line.
 
 ## Add it
-1. Firebase as for [`@zero-native/firebase-app`](../firebase-app/README.md): `google-services.json`,
+1. Firebase as for [`@zeronative/firebase-app`](../firebase-app/README.md): `google-services.json`,
    `:plugin-firebase-app` in `settings.gradle.kts`, and its `firebase.gradle.kts` at the end of the app's
    `build.gradle.kts`.
 2. In `settings.gradle.kts`: `:plugin-firebase-analytics` → `../plugins/firebase-analytics/android`.
@@ -43,7 +43,7 @@ Only the manifest can stop the first start's events (`first_open`, `session_star
 
 ## Use it
 ```ts
-import { Analytics } from "@zero-native/firebase-analytics"
+import { Analytics } from "@zeronative/firebase-analytics"
 
 // The user said yes:
 await Analytics.setAnalyticsCollectionEnabled(true)

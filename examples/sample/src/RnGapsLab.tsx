@@ -1,8 +1,8 @@
 // RN gaps pack (2026-11-09, registry 24): custom fonts first. Each case shows its expected look in its label, so a
 // screenshot is the check. The fonts are in ../assets/fonts (OFL fonts: Inconsolata Regular / Medium / SemiBold,
 // Space Mono, Lato Black; see ../FONTS-LICENSE.md).
-import { Column, Pressable, Row, Scroll, Text, TextField, View } from "@zero-native/ui"
-import { signal } from "@zero-native/core"
+import { Column, Pressable, Row, Scroll, Text, TextField, View } from "@zeronative/ui"
+import { signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 function Title(props: { text: string }) {

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { sourceRegistryNeed } from "../src/needs"
 
-const app = (body: string, imports = "draw") => `import { ${imports} } from "@zero-native/core"\n${body}`
+const app = (body: string, imports = "draw") => `import { ${imports} } from "@zeronative/core"\n${body}`
 
 test("registry 23 canvas use needs nothing extra", () => {
   expect(sourceRegistryNeed(app(`const c = [draw.rect(0, 0, 10, 10, { color: "#f00" }), draw.clipRect(0, 0, 5, 5)]`), "a.tsx")).toBe(0)
@@ -26,7 +26,7 @@ test("each registry 24 canvas command or paint key needs 24", () => {
 
 test("a renamed or namespace import still counts", () => {
   expect(sourceRegistryNeed(app(`d.image("x", 0, 0, 1, 1)`, "draw as d"), "a.ts")).toBe(24)
-  expect(sourceRegistryNeed(`import * as zn from "@zero-native/core"\nzn.draw.paragraph("x", 0, 0, 9)`, "a.ts")).toBe(24)
+  expect(sourceRegistryNeed(`import * as zn from "@zeronative/core"\nzn.draw.paragraph("x", 0, 0, 9)`, "a.ts")).toBe(24)
 })
 
 test("files that don't use the canvas API, and core itself, need nothing", () => {

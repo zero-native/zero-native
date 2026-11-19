@@ -1,10 +1,10 @@
-# @zero-native/android-ad-id
+# @zeronative/android-ad-id
 
 The Google advertising id, for ad attribution. An opt-in plugin: only apps that add it get Google's library and the
 `AD_ID` permission.
 
 ```ts
-import { AdId } from "@zero-native/android-ad-id"
+import { AdId } from "@zeronative/android-ad-id"
 
 const { id, limitAdTracking } = await AdId.get()
 if (id !== null) attribution.setAdId(id, { limitAdTracking })
@@ -40,7 +40,7 @@ if (id !== null) attribution.setAdId(id, { limitAdTracking })
 1. In `settings.gradle.kts`: `:plugin-android-ad-id` → `../plugins/android-ad-id/android`.
 2. In the app's `build.gradle.kts`: `implementation(project(":plugin-android-ad-id"))`.
 3. In `Application.onCreate`, with the other plugins: `ZnPlugins.register(this, AdIdPlugin())`.
-4. In the app's `package.json`: `"@zero-native/android-ad-id": "workspace:*"`.
+4. In the app's `package.json`: `"@zeronative/android-ad-id": "workspace:*"`.
 
 **Permission:** Google's library (`play-services-ads-identifier` 18.0.0, the same one Firebase Analytics brings) adds
 `com.google.android.gms.permission.AD_ID` to the app's manifest. Make sure the app's own manifest doesn't remove it

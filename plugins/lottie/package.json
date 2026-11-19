@@ -1,17 +1,38 @@
 {
-  "name": "@zero-native/lottie",
+  "name": "@zeronative/lottie",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: Lottie animations, with lottie-react-native's names",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/lottie"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/lottie#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*",
-    "@zero-native/ui": "workspace:*"
+    "@zeronative/core": "workspace:*",
+    "@zeronative/ui": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.lottie.LottiePlugin"
     }

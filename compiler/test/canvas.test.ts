@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string) {
@@ -15,7 +15,7 @@ function compile(src: string) {
 describe("H4: Canvas compilation", () => {
   test("compiles <Canvas commands={cmds()}> into Canvas component template with slot", () => {
     const { code, templates } = compile(`
-      import { Canvas } from "@zero-native/ui"
+      import { Canvas } from "@zeronative/ui"
       export function Screen(props: { cmds: () => any[] }) {
         return (
           <Canvas

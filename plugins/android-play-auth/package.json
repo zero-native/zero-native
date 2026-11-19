@@ -1,16 +1,37 @@
 {
-  "name": "@zero-native/android-play-auth",
+  "name": "@zeronative/android-play-auth",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: phone number hint and SMS code reading for a login (Android)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/android-play-auth"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/android-play-auth#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*"
+    "@zeronative/core": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.android.playauth.AuthPlugin"
     }

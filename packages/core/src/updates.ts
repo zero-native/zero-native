@@ -44,7 +44,7 @@ export interface UpdateStatus {
   /**
    * The store update answer that came with the last check (the same call as OTA, docs/zn-updates-server.md), for this
    * APK; null before the first one (or an older server). `update` null = nothing to do. What to do with it (Play's
-   * in-app update, an App Store link, your own screen) is the app's call: `@zero-native/app-updates` does Play's.
+   * in-app update, an App Store link, your own screen) is the app's call: `@zeronative/app-updates` does Play's.
    * A new answer comes with a `status` event (`onStatus`) after each check: compare `at`. Missing on apps built
    * before 2026-11-10.
    */

@@ -3,8 +3,8 @@
 //
 // What runs where: the finger, the fling to a corner, the magnet, the pinch and the trailing dots all run on the UI
 // thread. JS only hears three events (start, end, finalize). So the card keeps moving while JS is busy.
-import { Box, Column, Pressable, Row, Stack, Text, TextField } from "@zero-native/ui"
-import { derive, env, follow, Gesture, nav, parent, self, signal, usePan, usePinch, type GestureEvent } from "@zero-native/core"
+import { Box, Column, Pressable, Row, Stack, Text, TextField } from "@zeronative/ui"
+import { derive, env, follow, Gesture, nav, parent, self, signal, usePan, usePinch, type GestureEvent } from "@zeronative/core"
 import { c } from "./tokens"
 
 const CARD_W = 160

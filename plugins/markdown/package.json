@@ -1,14 +1,31 @@
 {
-  "name": "@zero-native/markdown",
+  "name": "@zeronative/markdown",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: Markdown drawn as native text",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/markdown"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/markdown#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*",
-    "@zero-native/ui": "workspace:*"
+    "@zeronative/core": "workspace:*",
+    "@zeronative/ui": "workspace:*"
   }
 }

@@ -1,8 +1,8 @@
 // A dev screen for the image viewer plugin. Log lines "image-viewer-lab ..." are for checks from adb logcat.
-import { Column, Image, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { nav, onNavResult, signal, useElementMotion, type ElementMotion } from "@zero-native/core"
-import { ImageViewer, type ImageViewerResult } from "@zero-native/image-viewer"
-import { Media } from "@zero-native/media"
+import { Column, Image, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { nav, onNavResult, signal, useElementMotion, type ElementMotion } from "@zeronative/core"
+import { ImageViewer, type ImageViewerResult } from "@zeronative/image-viewer"
+import { Media } from "@zeronative/media"
 import { c } from "./tokens"
 
 // Store-photo sized pictures (picsum.photos, free test photos). The big one is 5000 x 3333 (picsum answers 400 above 5000 px): zoom shows the sharp parts.

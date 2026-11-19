@@ -1,6 +1,6 @@
 // <List numColumns> / <FlatList numColumns> grids (registry 24): props for native, and the build errors.
 import { describe, expect, test } from "bun:test"
-import type { NodeSpec } from "@zero-native/template"
+import type { NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(attrs: string) {
@@ -9,8 +9,8 @@ function compile(attrs: string) {
     reserveTemplate: () => templates.push(null as unknown as NodeSpec) - 1,
     defineTemplate: (id: number, s: NodeSpec) => void (templates[id] = s),
   }
-  const src = `import { List, FlatList, Text } from "@zero-native/ui"
-import { signal } from "@zero-native/core"
+  const src = `import { List, FlatList, Text } from "@zeronative/ui"
+import { signal } from "@zeronative/core"
 const items = signal([{ id: "a" }])
 const n = signal(2)
 export function F() { return <FlatList data={items()} renderItem={({ item }) => <Text>{item.id}</Text>} ${attrs} /> }`

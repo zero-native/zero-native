@@ -3,9 +3,9 @@
 // Kill test: open the scanner, then `adb shell am kill dev.zeronative.sample`, then finish the scan. The app starts again and
 // the result arrives at onResult below ("restored ..."). "Don't keep activities" (Settings, or `settings put global
 // always_finish_activities 1` plus a reboot: adb alone doesn't reach the running system) only rebuilds the screens; put it back after.
-import { Box, Column, Image, Pressable, Scroll, Text } from "@zero-native/ui"
-import { signal } from "@zero-native/core"
-import { DocumentScanner, type ScanDocumentResponse, type ScannerStatus } from "@zero-native/document-scanner"
+import { Box, Column, Image, Pressable, Scroll, Text } from "@zeronative/ui"
+import { signal } from "@zeronative/core"
+import { DocumentScanner, type ScanDocumentResponse, type ScannerStatus } from "@zeronative/document-scanner"
 import { c } from "./tokens"
 
 function DocScanLabButton(props: { label: string; onPress: () => void }) {

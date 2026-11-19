@@ -1,4 +1,4 @@
-# @zero-native/pdf
+# @zeronative/pdf
 
 Show a PDF: download it once, keep it on the phone, show one page on a card, or every page with scroll and zoom.
 
@@ -6,7 +6,7 @@ Drawing is Android's own `PdfRenderer`. No PDF library, no new Maven dependency.
 
 ## Add it
 
-1. `package.json`: add `"@zero-native/pdf": "workspace:*"`.
+1. `package.json`: add `"@zeronative/pdf": "workspace:*"`.
 2. `android/settings.gradle.kts`: include `:plugin-pdf` and set its `projectDir` to `../plugins/pdf/android` (`docs/guide-notes.md` §30).
 3. The app's `build.gradle.kts`: `implementation(project(":plugin-pdf"))`.
 4. `Application.onCreate`, first thing: `ZnPlugins.register(this, PdfPlugin())`.
@@ -16,8 +16,8 @@ The host needs the `INTERNET` permission for downloads. Nothing else: no storage
 ## Use it
 
 ```tsx
-import { Box, Column, Pressable, Text } from "@zero-native/ui"
-import { PdfPreview, PdfView, pdfFile } from "@zero-native/pdf"
+import { Box, Column, Pressable, Text } from "@zeronative/ui"
+import { PdfPreview, PdfView, pdfFile } from "@zeronative/pdf"
 
 // A card: one page, as wide as the box, from the top, cut at the box's bottom. No touch: the tap goes to the Pressable.
 export function ReceiptCard(p: { url: string; token: string; receiptId: string; onOpen: () => void }) {

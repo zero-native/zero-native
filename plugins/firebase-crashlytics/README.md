@@ -1,4 +1,4 @@
-# @zero-native/firebase-crashlytics
+# @zeronative/firebase-crashlytics
 
 Firebase Crashlytics for zero-native apps, on Android. Most apps need no JS at all. By itself it sends:
 
@@ -21,7 +21,7 @@ Native crashes (in Hermes or C++) need one more Gradle line: [Native crashes](#n
    id("com.google.gms.google-services") version "4.5.0" apply false
    id("com.google.firebase.crashlytics") version "3.0.8" apply false
    ```
-3. In `settings.gradle.kts`, the base plugin [`@zero-native/firebase-app`](../firebase-app/README.md) (it holds the
+3. In `settings.gradle.kts`, the base plugin [`@zeronative/firebase-app`](../firebase-app/README.md) (it holds the
    Firebase version) and this one: `:plugin-firebase-app` and `:plugin-firebase-crashlytics`.
 4. In the app's `build.gradle.kts`:
    ```kotlin
@@ -45,7 +45,7 @@ lines (`docs/guide-notes.md`, "Finding the TSX line of a release crash").
 
 ## Use it
 ```ts
-import { Crashlytics } from "@zero-native/firebase-crashlytics"
+import { Crashlytics } from "@zeronative/firebase-crashlytics"
 
 // After login: your own id (a customer code). On logout: "".
 Crashlytics.setUserId(customer.code)
@@ -117,7 +117,7 @@ check (Android's exit record), just not in Crashlytics.
 ## Size
 | Dependency | Version | Why |
 |---|---|---|
-| `com.google.firebase:firebase-bom` | 35.1.0 | Firebase versions (from `@zero-native/firebase-app`) |
+| `com.google.firebase:firebase-bom` | 35.1.0 | Firebase versions (from `@zeronative/firebase-app`) |
 | `com.google.firebase:firebase-crashlytics` | from the BoM (21.0.x) | Reports, keys, logs |
 | `com.google.firebase:firebase-crashlytics-ndk` | from the BoM, **opt-in** | Native crashes |
 

@@ -1,7 +1,7 @@
 // A dev screen for <Canvas> (registry 23, docs/components.md §14). Each tile says what you should see.
 // Tiles draw their own background (c.white), so they look the same in light and dark mode.
-import { Box, Canvas, Column, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import { draw, type CanvasCommand, onCleanup, setInterval, signal, smoothPath, useMotion, usePan } from "@zero-native/core"
+import { Box, Canvas, Column, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import { draw, type CanvasCommand, onCleanup, setInterval, signal, smoothPath, useMotion, usePan } from "@zeronative/core"
 import { c } from "./tokens"
 
 // Lab colours (the tokens have no chart colours).

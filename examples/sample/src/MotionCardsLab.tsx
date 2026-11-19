@@ -3,8 +3,8 @@
 //   a) swipe cards: a stack of three, the top one is dragged in 2D, tilts, shows LIKE / NOPE, flies out
 //   b) a story viewer: progress bars driven by timelines, tap left / right, hold to pause, drag down to close
 // The finger, the tilt, the labels, the card under the top one and the bars all run on the UI thread.
-import { Column, Pressable, Row, Stack, Text } from "@zero-native/ui"
-import { derive, Gesture, interpolate, nav, signal, useElementMotion, useLongPress, usePan, useTap, useTimeline, type GestureEvent } from "@zero-native/core"
+import { Column, Pressable, Row, Stack, Text } from "@zeronative/ui"
+import { derive, Gesture, interpolate, nav, signal, useElementMotion, useLongPress, usePan, useTap, useTimeline, type GestureEvent } from "@zeronative/core"
 import { c } from "./tokens"
 
 const DANGER = "#E23744"

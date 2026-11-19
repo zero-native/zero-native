@@ -1,7 +1,7 @@
 // RN-compat fixes from docs/rn-compat-sweep.md (2026-11-05): React Native code that used to compile and then do the
 // wrong thing now builds right or fails with a hint.
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule, transformOriginOf } from "../src/compile"
 
 function compile(src: string, statics: Record<string, unknown> = {}) {
@@ -137,7 +137,7 @@ describe("P0.9: a transform whose order would matter", () => {
 
 // ---- P1: React Native names ----------------------------------------------------------------------------------------
 
-const UI = `import { View, FlatList, TouchableOpacity, TouchableHighlight, TouchableWithoutFeedback, ActivityIndicator } from "@zero-native/ui"\n`
+const UI = `import { View, FlatList, TouchableOpacity, TouchableHighlight, TouchableWithoutFeedback, ActivityIndicator } from "@zeronative/ui"\n`
 const props = (src: string, statics: Record<string, unknown> = {}) => compile(UI + src, statics).templates[0]!
 
 describe("P1.1, P1.6, P1.12: RN style keys", () => {
@@ -198,16 +198,16 @@ describe("P1.13: <View>", () => {
     // On a zn element it stays an error, with a hint.
     expect(err(`function A() { return <Column style={{ flexDirection: "row" }} /> }`)).toMatch(/pick the element instead, <Row> or <Column>/)
   })
-  test("only when imported from @zero-native/ui, and never over the app's own View", () => {
+  test("only when imported from @zeronative/ui, and never over the app's own View", () => {
     // Not imported: a call to a component named View (the bundle then fails if there is none).
     expect(compile(`function A() { return <View /> }`).code).toContain("View(")
     const own = compile(UI + `function View() { return <Row /> }\nfunction A() { return <Column><View /></Column> }`)
     expect(own.templates.some((t) => t?.type === "Column" && t.children[0]?.type === "Anchor")).toBe(true)
   })
-  test("an RN component @zero-native/ui doesn't have fails the build, as a root or a child", () => {
-    const missing = `import { SafeAreaView, KeyboardAvoidingView, ScrollView, Text } from "@zero-native/ui"\n`
+  test("an RN component @zeronative/ui doesn't have fails the build, as a root or a child", () => {
+    const missing = `import { SafeAreaView, KeyboardAvoidingView, ScrollView, Text } from "@zeronative/ui"\n`
     expect(err(missing + `function A() { return <SafeAreaView><Text>a</Text></SafeAreaView> }`))
-      .toMatch(/<SafeAreaView> is not in @zero-native\/ui: delete it and set the route option `safeArea`/)
+      .toMatch(/<SafeAreaView> is not in @zeronative\/ui: delete it and set the route option `safeArea`/)
     expect(err(missing + `function A() { return <Column><KeyboardAvoidingView /></Column> }`)).toMatch(/<KeyboardAvoidingView> is not in/)
     expect(err(missing + `function A() { return <ScrollView /> }`)).toMatch(/use <Scroll>/)
     // The app's own component of that name is fine.

@@ -1,7 +1,7 @@
 // A Lottie animation, with lottie-react-native's names. The component only passes things on: playing, the "remove
 // animations" setting and the file rules are in Kotlin (LottieView.kt).
-import { onCleanup } from "@zero-native/core"
-import { NativeView } from "@zero-native/ui"
+import { onCleanup } from "@zeronative/core"
+import { NativeView } from "@zeronative/ui"
 import { lottieController, lottieProps, onLottieEvent, setRef, type LottieViewController, type LottieViewProps } from "./api"
 
 /**

@@ -1,6 +1,6 @@
 // The sample's amount-entry screen, written as plain TSX and compiled by the zero-native compiler.
-import { Column, Pressable, Row, Text, Box, Icon, Image, Sheet } from "@zero-native/ui"
-import { computed, nav, restorableSignal, signal, useBack } from "@zero-native/core"
+import { Column, Pressable, Row, Text, Box, Icon, Image, Sheet } from "@zeronative/ui"
+import { computed, nav, restorableSignal, signal, useBack } from "@zeronative/core"
 import { c } from "./tokens"
 import { backspace as backspaceIcon } from "./icons"
 import { applyKey, backspace, financials, formatIndian, rupees, toPaise, type Session } from "./money"

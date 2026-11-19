@@ -1,7 +1,7 @@
 // RN gaps pack (registry 24): <FlatList numColumns> grids. Logs "grid-lab ..." lines (range, end reached) so a phone
 // check can read them; keep their wording.
-import { Column, FlatList, Pressable, Row, Text } from "@zero-native/ui"
-import { listController, signal } from "@zero-native/core"
+import { Column, FlatList, Pressable, Row, Text } from "@zeronative/ui"
+import { listController, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 interface Store {

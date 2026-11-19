@@ -1,7 +1,7 @@
 // A dev screen for the pdf plugin. The phone test (tools/plugin-phone/pdf.ts) reads these lines and the log lines "pdf-lab ...".
-import { restorableSignal, signal } from "@zero-native/core"
-import { Pdf, PdfPreview, PdfView, type PdfAnswer } from "@zero-native/pdf"
-import { Box, Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
+import { restorableSignal, signal } from "@zeronative/core"
+import { Pdf, PdfPreview, PdfView, type PdfAnswer } from "@zeronative/pdf"
+import { Box, Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
 import { c } from "./tokens"
 
 const SERVER = "http://localhost:8793" // tools/plugin-phone/pdf-server.ts, through adb reverse

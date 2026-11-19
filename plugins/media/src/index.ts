@@ -12,7 +12,7 @@
 //     if (result.status === "ok") photo.set(result.files[0].handle)
 //     ack()                                                             // after you acted on it; until then it comes again
 //   })
-import { launches, nativeModule, Permissions, type LaunchRecord } from "@zero-native/core"
+import { launches, nativeModule, Permissions, type LaunchRecord } from "@zeronative/core"
 
 /** A file of ours. Pixels and bytes never enter JS. */
 export interface MediaFile {

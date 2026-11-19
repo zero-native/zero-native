@@ -1,7 +1,7 @@
 // compiler/src/tag-props.ts is generated from the element types in packages/ui (RN-compat sweep P0.8).
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
-import { Component, Prop } from "@zero-native/template"
+import { Component, Prop } from "@zeronative/template"
 import { TAG_PROPS_PATH, tagPropsFile } from "../../tools/gen-tag-props"
 import { BASE_PROPS, STYLE_KEYS, TAG_PROPS } from "../src/tag-props"
 

@@ -6,7 +6,7 @@ components and props added after them: `<NativeView>` (§9), `<Tabs>` (§10), pu
 3.7-3.8; it is longer now.)* The main components (`Column`, `Row`, `Text`, `Image`, `List`, ...) are in
 `packages/ui/src/index.ts` and the guide notes.
 
-`StyleSheet` (`create`, `absoluteFill`) is exported from `@zero-native/ui`, as in RN. The compiler folds it at build
+`StyleSheet` (`create`, `absoluteFill`) is exported from `@zeronative/ui`, as in RN. The compiler folds it at build
 time. `StyleSheet.flatten` and `hairlineWidth` do not exist.
 
 ---
@@ -188,7 +188,7 @@ A global native toast module designed for transient non-critical feedback.
 
 ### Signature
 ```ts
-import { toast } from "@zero-native/core"
+import { toast } from "@zeronative/core"
 
 toast(message: string, options?: { duration?: "short" | "long" }): void
 ```
@@ -419,15 +419,15 @@ Native apps use `@shopify/react-native-skia` for, without adding an 8-15 MB Skia
 - `<Canvas>` takes no children: it only draws. It takes a `gesture` like any element (`gesture={pan}`, registry 24).
 - `CanvasCommand` and the other types (`CanvasPaint`, `CanvasNum`, `CanvasLinearGradient`, `CanvasRadialGradient`,
   `CanvasSweepGradient`, `CanvasTextOptions`, `CanvasParagraphOptions`, `CanvasImageOptions`, `CanvasPathOptions`)
-  come from `@zero-native/core`.
+  come from `@zeronative/core`.
 - **A string:** it is sent to native as it is (a literal `commands='[...]'` or an expression), so its colours must be
   ARGB numbers. Prefer a list: core's `canvasJson` turns a list's colour strings into numbers and checks it.
 
 ### Example
 `draw` is an object of helpers. Each helper returns one command; you put them in a list:
 ```tsx
-import { Canvas } from "@zero-native/ui"
-import { draw } from "@zero-native/core"
+import { Canvas } from "@zeronative/ui"
+import { draw } from "@zeronative/core"
 
 const chart = () => [
   draw.rect(0, 0, 300, 180, { color: "#0B111A" }),

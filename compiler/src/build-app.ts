@@ -50,7 +50,7 @@ export async function buildApp(entry: string): Promise<AppBuild> {
   // Bun also names each module in a comment line (`// packages/core/src/log.ts`), relative to the working folder: the
   // same source built from another folder gave other bytes, so `ota keep-map` (run in the app's folder) didn't match
   // the APK's bundle (step 4.8). They are named relative to the entry's folder instead; one line stays one line.
-  // A file outside the app's own package (core, a plugin) is named by its package instead ("@zero-native/lottie/src/
+  // A file outside the app's own package (core, a plugin) is named by its package instead ("@zeronative/lottie/src/
   // index.tsx", modules.ts stableFileKey): the path from the app to the framework differs per machine, and Hermes keeps
   // a hash of the whole source (comments too) in main.hbc's header, so a Mac and Windows built other bytes (2026-11-10).
   const entryDir = dirname(resolve(entry))
@@ -58,7 +58,9 @@ export async function buildApp(entry: string): Promise<AppBuild> {
   const inApp = (file: string) => {
     if (appRoot === null) return true
     const r = relative(appRoot, file)
-    return !r.startsWith("..") && !isAbsolute(r)
+    // A package installed in the app's node_modules (from npm) is named by its package too, so it gives the same bytes
+    // as the same package linked from a checkout (2026-11-19).
+    return !r.startsWith("..") && !isAbsolute(r) && !r.split(/[\\/]/).includes("node_modules")
   }
   const bundled = (await js.text())
     .replace(/\n\/\/# debugId=[0-9A-Fa-f]+\s*$/, "\n")

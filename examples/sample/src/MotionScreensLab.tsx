@@ -6,8 +6,8 @@
 //   b) Reorder: long press a row, drag it, drop it (the list scrolls at its edges)
 //   c) Drop zones: drag a chip onto "Keep" or "Archive"
 // The flight, the drag and the zone check run on the UI thread. JS only hears the drop.
-import { Column, Image, List, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import { insets, nav, signal, usePan, useElementMotion, type ElementMotion } from "@zero-native/core"
+import { Column, Image, List, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import { insets, nav, signal, usePan, useElementMotion, type ElementMotion } from "@zeronative/core"
 import { c } from "./tokens"
 
 /** Blocks the JS thread for [ms]. Everything here must keep moving anyway. */

@@ -9,8 +9,8 @@
 // (Android lays out in whole pixels).
 //
 // Where the doc leaves a case open, the expectation follows android/runtime (the reference renderer) and says so.
-import { Box, Column, Row, Scroll, Stack, StyleSheet, Text } from "@zero-native/ui"
-import { signal } from "@zero-native/core"
+import { Box, Column, Row, Scroll, Stack, StyleSheet, Text } from "@zeronative/ui"
+import { signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 type Frame = [x: number, y: number, w: number, h: number]

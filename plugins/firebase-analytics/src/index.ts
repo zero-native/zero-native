@@ -11,7 +11,7 @@
 // running bundle. Each call answers and never rejects. A bad name (Analytics' rules: letters, digits and _, 40
 // characters, no `firebase_` / `google_` / `ga_` start) answers false with a console warning, and nothing is sent.
 // With no Firebase in the app every call does nothing, and `status()` says `available: false`.
-import { nativeModule, type CallOptions } from "@zero-native/core"
+import { nativeModule, type CallOptions } from "@zeronative/core"
 
 /** What a parameter can be. Booleans are sent as 1 or 0 (Analytics has none); strings are cut to 100 characters. */
 export type ParamValue = string | number | boolean | null | undefined

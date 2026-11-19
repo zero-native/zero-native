@@ -1,10 +1,10 @@
 // A dev screen for the Crashlytics plugin. The phone test (tools/plugin-phone/crashlytics.ts) reads the log lines
 // "crashlytics-lab ...", so keep their wording. Each button makes one kind of report; the console shows it after the
 // next start (non-fatals and crashes are sent when the app starts again).
-import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
-import { nav, scheme, signal } from "@zero-native/core"
-import { Crashlytics } from "@zero-native/firebase-crashlytics"
-import { Firebase, Installations } from "@zero-native/firebase-app"
+import { Column, Pressable, Scroll, Text } from "@zeronative/ui"
+import { nav, scheme, signal } from "@zeronative/core"
+import { Crashlytics } from "@zeronative/firebase-crashlytics"
+import { Firebase, Installations } from "@zeronative/firebase-app"
 import { c } from "./tokens"
 
 function CrashlyticsLabButton(props: { label: string; onPress: () => void }) {

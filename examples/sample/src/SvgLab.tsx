@@ -4,8 +4,8 @@
 import {
   Box, Circle, ClipPath, Column, Defs, G, LinearGradient, List, Path, Pressable, RadialGradient, Rect, Row, Scroll, Stack,
   Stop, Svg, Text,
-} from "@zero-native/ui"
-import { nav, signal } from "@zero-native/core"
+} from "@zeronative/ui"
+import { nav, signal } from "@zeronative/core"
 import { c } from "./tokens"
 import { Bell, Done, Heart, HeartFilled, Home, Offer, Person, Receipt, Scan, Search, Wallet } from "./svg/icons"
 import Badge from "./svg/badge.svg"

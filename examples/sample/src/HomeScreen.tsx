@@ -1,7 +1,7 @@
 // The sample's start screen (route "/"): 10,000 merchants in a virtualized <List> with two row kinds (an area header
 // every 100 rows, merchant rows). "New payment arrives" inserts a row at the top: the visible rows must not move.
-import { Box, Column, List, Pressable, Row, Text } from "@zero-native/ui"
-import { createStorage, nav, signal, Splash } from "@zero-native/core"
+import { Box, Column, List, Pressable, Row, Text } from "@zeronative/ui"
+import { createStorage, nav, signal, Splash } from "@zeronative/core"
 import { c } from "./tokens"
 import { generatedMerchant, type Merchant } from "./merchants"
 

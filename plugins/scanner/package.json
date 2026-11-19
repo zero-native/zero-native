@@ -1,17 +1,38 @@
 {
-  "name": "@zero-native/scanner",
+  "name": "@zeronative/scanner",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: QR code and barcode scanner",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/scanner"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/scanner#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*",
-    "@zero-native/ui": "workspace:*"
+    "@zeronative/core": "workspace:*",
+    "@zeronative/ui": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.scanner.ScannerPlugin"
     }

@@ -1,5 +1,5 @@
 {
-  "name": "@zero-native/device-test",
+  "name": "@zeronative/device-test",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,9 +8,12 @@
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*"
+    "@zeronative/core": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.devicetest.DeviceTestPlugin"
     }

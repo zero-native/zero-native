@@ -1,4 +1,4 @@
-# @zero-native/firebase-perf
+# @zeronative/firebase-perf
 
 Firebase Performance Monitoring in zero-native apps, on Android, with RN Firebase's `perf()` API. Most apps need no
 JS. By itself it sends:
@@ -14,7 +14,7 @@ No Gradle plugin is needed (Firebase's `firebase-perf` Gradle plugin only rewrit
 OkHttp; zero-native's fetch already goes through the interceptor).
 
 ## Add it
-1. Firebase as for [`@zero-native/firebase-app`](../firebase-app/README.md).
+1. Firebase as for [`@zeronative/firebase-app`](../firebase-app/README.md).
 2. In `settings.gradle.kts`: `:plugin-firebase-perf` → `../plugins/firebase-perf/android`.
 3. In the app's `build.gradle.kts`: `implementation(project(":plugin-firebase-perf"))`.
 4. In `Application.onCreate`, with the other plugins, **before the first fetch**:
@@ -38,7 +38,7 @@ testing: `<meta-data android:name="firebase_performance_logcat_enabled" android:
 
 ## Use it
 ```ts
-import { Perf } from "@zero-native/firebase-perf"
+import { Perf } from "@zeronative/firebase-perf"
 
 await Perf.trace("receipt_render", async (t) => {
   await t.putAttribute("kind", "pdf")

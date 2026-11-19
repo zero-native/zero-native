@@ -1,5 +1,5 @@
 {
-  "name": "@zero-native/updates-server",
+  "name": "@zeronative/updates-server",
   "private": true,
   "type": "module",
   "description": "zn-updates: the OTA + store update server and its dashboard (docs/zn-updates-server.md)",

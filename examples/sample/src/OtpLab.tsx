@@ -1,7 +1,7 @@
 // A dev screen for <OtpInput> (registry 18, guide notes §62). The first one copies the RN customer app's Verify screen
 // prop for prop (AuthVerifyScreen.tsx), so the two can be put side by side. Each action logs one "otp-lab ..." line.
-import { Column, OtpInput, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { createRef, signal, type OtpInputHandle } from "@zero-native/core"
+import { Column, OtpInput, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { createRef, signal, type OtpInputHandle } from "@zeronative/core"
 import { c } from "./tokens"
 
 function OtpButton(props: { label: string; onPress: () => void }) {

@@ -1,7 +1,7 @@
 // A dev screen for the scanner plugin. The phone test (tools/plugin-phone/scanner.ts) reads these lines and the log lines "scanner-lab ...".
-import { Box, Column, Pressable, Scroll, Text } from "@zero-native/ui"
-import { nav, onNavResult, Permissions, signal } from "@zero-native/core"
-import { QrScanner, Scanner, type ScanResult } from "@zero-native/scanner"
+import { Box, Column, Pressable, Scroll, Text } from "@zeronative/ui"
+import { nav, onNavResult, Permissions, signal } from "@zeronative/core"
+import { QrScanner, Scanner, type ScanResult } from "@zeronative/scanner"
 import { c } from "./tokens"
 
 function ScannerLabButton(props: { label: string; onPress: () => void }) {

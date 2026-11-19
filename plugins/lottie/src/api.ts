@@ -1,6 +1,6 @@
 // The lottie plugin's JS side, without the component (LottieView.tsx). Native side: android/.../LottieView.kt.
 // Names follow lottie-react-native 7.x, so ported code keeps its props. No side effects: nativeModule() only creates a handle.
-import { nativeModule, parseColor, signal, type MotionSource, type Signal } from "@zero-native/core"
+import { nativeModule, parseColor, signal, type MotionSource, type Signal } from "@zeronative/core"
 
 /**
  * Where the animation is: `"asset:lottie/x.json"` or `"asset:lottie/x.lottie"`, a file in the app's `assets/` folder (it

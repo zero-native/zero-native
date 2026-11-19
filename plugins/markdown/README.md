@@ -1,4 +1,4 @@
-# @zero-native/markdown
+# @zeronative/markdown
 
 Server Markdown (offer details, notifications, help text) drawn as native text. Each paragraph, heading or list item
 is **one native `<Text>` with spans** (bold, italic, links...); the blocks sit in a `<Column>`. No WebView, no HTML.
@@ -8,14 +8,14 @@ change it. It needs registry 16 (runtime text spans, zero-native `e794635` or ne
 
 ## Add it
 
-`package.json`: add `"@zero-native/markdown": "workspace:*"`. That's all.
+`package.json`: add `"@zeronative/markdown": "workspace:*"`. That's all.
 
 ## Use it
 
 ```tsx
-import { Linking } from "@zero-native/core"
-import { Markdown, MarkdownText } from "@zero-native/markdown"
-import { Column, Text } from "@zero-native/ui"
+import { Linking } from "@zeronative/core"
+import { Markdown, MarkdownText } from "@zeronative/markdown"
+import { Column, Text } from "@zeronative/ui"
 
 // Offer detail: "About this offer".
 export function AboutOffer(p: { details: string }) {

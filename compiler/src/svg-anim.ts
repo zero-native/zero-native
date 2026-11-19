@@ -14,7 +14,7 @@
 // part's dashOffset) and `d` (a morph between paths with the same commands). SMIL begin chains ("a.end-0.1s") are
 // flattened into one repeating cycle. Everything else fails the build with a hint: moving along a path, filters,
 // click triggers, CSS selectors beyond class / id / tag.
-import { Prop } from "@zero-native/template"
+import { Prop } from "@zeronative/template"
 import type { Matrix, PathCmd } from "./svg-data"
 import { arcToCubics, ellipsePath, IDENTITY, multiply, parsePathData, parseTransform, polyPath, rectPath, similarityScale, transformPath } from "./svg-path"
 import type { SvgAttr, SvgNode } from "./svg-xml"

@@ -2,8 +2,8 @@
 // server (tools/fetch-test-server.ts, through adb reverse) and a few public HTTPS hosts, and shows pass / fail.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/fetch
 // Each result is also logged: adb logcat -s zn-js | findstr fetch-check
-import { Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { FetchError, FormData, nav, signal, type Signal } from "@zero-native/core"
+import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { FetchError, FormData, nav, signal, type Signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 const L = "http://localhost:8788"

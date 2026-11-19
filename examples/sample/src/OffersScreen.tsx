@@ -1,8 +1,8 @@
 // An offers feed shaped like ZeroBill's RN HomeOffersTab (milestone 2 step 2.4): section headers, a banner rail,
 // one product rail per merchant, message cards. One <List> with 4 row kinds; rails are <Scroll horizontal> with
 // .map inside a row, so scrolling a rail never involves JS. Data: test-kit/offers-data.json (via offers.ts).
-import { Box, Carousel, Column, Icon, Image, List, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import { nav, signal, useImpressions } from "@zero-native/core"
+import { Box, Carousel, Column, Icon, Image, List, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import { nav, signal, useImpressions } from "@zeronative/core"
 import { c } from "./tokens"
 import { chevronRight, shoppingBag, tag } from "./icons"
 import { buildOffersFeed, offerImage, offerTitle, type FeedItem, type Offer } from "./offers"

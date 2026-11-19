@@ -1,8 +1,8 @@
 // Every screen we check on the phone, in one list (route /dev, button "Dev screens" on the home screen). Add a row here
 // whenever a new dev screen is added to routes.ts.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev
-import { Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { nav } from "@zero-native/core"
+import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { nav } from "@zeronative/core"
 import { c } from "./tokens"
 
 function Entry(props: { title: string; detail: string; step: string; onOpen: () => void }) {

@@ -14,7 +14,7 @@
 //
 // Each call answers with a value and never rejects. Nothing here shows a dialog except requestPermission and turnOn.
 // Nothing here logs a coordinate or an address. Keep it that way in your app too.
-import { detached, launches, nativeModule, onCleanup, Permissions, Platform, type CallOptions, type LaunchRecord, type PermissionState } from "@zero-native/core"
+import { detached, launches, nativeModule, onCleanup, Permissions, Platform, type CallOptions, type LaunchRecord, type PermissionState } from "@zeronative/core"
 
 export type Accuracy =
   /** Waits for a fix within 25 m, until the timeout. Uses the GPS. */

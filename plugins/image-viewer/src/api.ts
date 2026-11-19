@@ -2,7 +2,7 @@
 // route, with zero-native's gestures; each photo is the native view "imageviewer.page" (ViewerPage.kt). An app whose
 // route still says `native: "imageviewer.full"` gets the old Compose screen until it is removed. No side effects at
 // import: nativeModule() only creates a handle.
-import { nativeModule, nav, type ElementMotion } from "@zero-native/core"
+import { nativeModule, nav, type ElementMotion } from "@zeronative/core"
 import { openTsx, type ViewerOptions, type ViewerRect } from "./open"
 
 export type { ViewerRect } from "./open"
@@ -220,7 +220,7 @@ function show(route: string, params: Record<string, unknown>, held: string | und
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e)
     const hint = why.includes("unknown route")
-      ? `. Add to routes.ts: ${route}: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false } (ImageViewerScreen from "@zero-native/image-viewer/screen")`
+      ? `. Add to routes.ts: ${route}: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false } (ImageViewerScreen from "@zeronative/image-viewer/screen")`
       : ""
     throw new Error(`ImageViewer.open: ${why}${hint}`)
   }

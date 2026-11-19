@@ -149,6 +149,36 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-19: npm packages ready to publish, and the rename to @zeronative (Claude, Mac)
+- **Rename:** every `@zero-native/*` is now `@zeronative/*` (the npm org Pavan made; `@zero-native` is someone
+  else's). Code, package names, the template app and the living docs; the dated logs (this file, milestones-ios,
+  second-opinions, experiments/) keep the old name as it was then. The dashboard still groups bundles built before
+  the rename, which name `@zero-native/*` packages (`server/web/util.ts`).
+- **Package fields** (docs/publishing-plan.md §2.1, §10 step 2): the 20 plugins, core, template, ui and compiler have
+  `description`, `license`, `repository`, `files` (src without tests, README, LICENSE, NOTICE) and `publishConfig`, and
+  aren't `private` any more. The compiler gets `typescript` as a dependency (it runs it). Short READMEs for core, ui,
+  template, compiler and the CLI.
+- **`@zeronative/cli`** is `tools/package.json`: `bin zn`, the build, dev and zn-updates files, `hermes-compiler`
+  pinned to 260318099.0.5. The files didn't move, so every script and workflow path still works. `zn.ts` runs its
+  tools from its own folder; `zn new`, `zn ota` and `zn server` say they need a checkout. `hermesc.ts` finds
+  `hermes-compiler` from its own folder (the app's node_modules when installed). `zn dev` watches only the app when
+  installed from npm.
+- **`tools/pack.ts`** packs all 25 with `bun pm pack` (workspace ranges become the exact version), adds LICENSE and
+  NOTICE for the pack, and checks each tarball; dependencies first, the order a release must publish in. CI's js job
+  runs it.
+- **The test:** an app outside the repo with only the 25 tarballs (core, ui, Lottie, Firebase messaging, the CLI).
+  `zn builtin` built it (offline: serial 0), type checks passed, and `zn dev` started. Two bugs it found:
+  - From npm, every plugin counted as Android only: the compiler took a plugin's OSes from its `android/` and `ios/`
+    folders, which the npm package doesn't have. An iOS phone would then have taken a bundle without checking it has
+    the module. Every plugin with native code now writes `zeroNative.platforms`; `plugins/platforms.test.ts` keeps it
+    equal to the folders.
+  - The same app gave other bytes from npm than from a checkout: a package in the app's `node_modules` was named by
+    its path in Bun's comments, and Hermes hashes them. It is named by its package now, like a linked one
+    (`compiler/src/build-app.ts`, a test in build-app.test.ts). After the fix, both builds gave the same SHA-256.
+- **ZeroBill** renamed too (its own commit). Its templates are byte for byte build 8's and it needs the same modules;
+  only the package names in the JS changed, so its next OTA patch is somewhat bigger than usual. Each computer that
+  builds it runs `bun link` again in the zero-native packages it uses.
+
 ### 2026-11-19: iPhone cold start and App Store size (Claude, Mac)
 - The sample, Release with release Hermes, on an iPhone 11. Each launch was cold (`devicectl … --terminate-existing`);
   10 launches per build, the first one after the install left out (200-600 ms more while iOS sets the app up).

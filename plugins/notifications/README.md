@@ -1,4 +1,4 @@
-# @zero-native/notifications
+# @zeronative/notifications
 
 Notifications the app shows itself, on Android and iOS, with no Firebase and no push service in it. A notifee-like API:
 channels and channel groups, `show` with big text, a big picture, a large icon, inbox lines, a progress bar, buttons
@@ -7,14 +7,14 @@ and a check before showing. A tap opens the notification's `link` through the ap
 swipe away runs a task.
 
 It also holds **`PushEvents`**: the path every push service's messages and tokens take to JS (below). FCM is
-`@zero-native/firebase-messaging`, which adds this plugin by itself.
+`@zeronative/firebase-messaging`, which adds this plugin by itself.
 
 Each call answers with a value and never rejects. Nothing asks for a permission by itself.
 
 ## Add it
 1. In the app's `settings.gradle.kts`: `include(":plugin-notifications")` with its `projectDir`
    (`plugins/notifications/android`), and in `build.gradle.kts`: `implementation(project(":plugin-notifications"))`.
-   With `@zero-native/firebase-messaging` this comes with it: skip steps 1 and 2.
+   With `@zeronative/firebase-messaging` this comes with it: skip steps 1 and 2.
 2. In `Application.onCreate`, with the other plugins: `ZnPlugins.register(this, NotificationsPlugin())`. Listing it
    next to `PushPlugin()` is fine: the second one does nothing.
 3. The app's Activity needs `ZnActivity.attach(this)` (`docs/guide-notes.md` §31): taps come from its events.
@@ -26,7 +26,7 @@ Each call answers with a value and never rejects. Nothing asks for a permission 
    ```
    **Deprecated:** the old keys `dev.zeronative.push.small_icon` and `dev.zeronative.push.color` (from before the
    split, 2026-11-09) still work; the new key wins when both are there. Move to the new ones.
-5. JS: import from `@zero-native/notifications`. Importing `Notifications` from `@zero-native/firebase-messaging` still works, but
+5. JS: import from `@zeronative/notifications`. Importing `Notifications` from `@zeronative/firebase-messaging` still works, but
    then the app's bundle also needs the "FirebaseMessaging" module (the OTA check refuses it on an app without push).
 
 The plugin's manifest adds `POST_NOTIFICATIONS` (Android 13+) and three receivers (none exported):
@@ -38,7 +38,7 @@ the runtime's `INTERNET` permission.
 ## Use it
 ```ts
 // main.ts, at the top level: these run with no screen, so they must exist before any screen.
-import { Notifications } from "@zero-native/notifications"
+import { Notifications } from "@zeronative/notifications"
 
 Notifications.onDismiss(({ id, data }) => track("dismissed", id))
 Notifications.onPress(({ id, data }) => openFromNotification(id, data))   // a tap with no link, app running
@@ -95,7 +95,7 @@ ignores the other. The flat Android fields (`channelId`, `bigText`, ... at the t
 ## Push services (`PushEvents`)
 A push service gets its messages and tokens its own way, then hands them to `PushEvents` (Kotlin,
 `dev.zeronative.plugins.notifications.PushEvents`). JS hears every service the same way: `PushEvents.onMessage` (the JS
-task `push.message`) and `PushEvents.onTokenRefresh` (`push.token`). `Push.onMessage` in `@zero-native/firebase-messaging` is the same
+task `push.message`) and `PushEvents.onTokenRefresh` (`push.token`). `Push.onMessage` in `@zeronative/firebase-messaging` is the same
 task. What a service plugin does:
 - **A message:** `PushEvents.message(PushMessage(provider = "onesignal", messageId, from, sentAt, priority, data = ...,
   notification = PushMessage.Notice(title, body)))`. It waits until JS answers (15 s at most), so call it from the
@@ -110,7 +110,7 @@ task. What a service plugin does:
 
 **iOS:** the notifications plugin owns `UNUserNotificationCenter` (one delegate, `ZnNotificationCenter`). A push
 service's notifications (not the app's own) go to `ZnNotificationCenter.shared.remote`, which the push plugin sets (FCM:
-`@zero-native/firebase-messaging`). Messages and tokens run the same JS tasks through `ZnTasks.shared.run`.
+`@zeronative/firebase-messaging`). Messages and tokens run the same JS tasks through `ZnTasks.shared.run`.
 
 ## iOS
 Add `NotificationsPlugin()` to `ZnPlugins.register(...)` in the app delegate (`FirebaseMessagingPlugin()` adds it by
@@ -177,5 +177,5 @@ the permission dialog comes from `requestPermission`.
 |---|---|---|
 | `androidx.core` | the app's | `NotificationCompat`, already in every app |
 
-No other dependency. Not measured on its own yet; it is the bigger part of what `@zero-native/firebase-messaging` added before the
+No other dependency. Not measured on its own yet; it is the bigger part of what `@zeronative/firebase-messaging` added before the
 split (about 54 KB with FCM, 2026-11-04).

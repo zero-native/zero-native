@@ -1,4 +1,4 @@
-# @zero-native/image-viewer
+# @zeronative/image-viewer
 
 A full-screen photo viewer, opened with one call. For store photos, offer pictures and receipt photos.
 
@@ -21,7 +21,7 @@ Since registry 24 (ImageViewer module 3) the screen is TSX (`ImageViewerScreen`)
 
 ## Add it
 
-1. `package.json`: add `"@zero-native/image-viewer": "workspace:*"`.
+1. `package.json`: add `"@zeronative/image-viewer": "workspace:*"`.
 2. `android/settings.gradle.kts`: include `:plugin-image-viewer` and set its `projectDir` to `../plugins/image-viewer/android`
    (`docs/guide-notes.md` §30).
 3. The app's `build.gradle.kts`: `implementation(project(":plugin-image-viewer"))`.
@@ -29,7 +29,7 @@ Since registry 24 (ImageViewer module 3) the screen is TSX (`ImageViewerScreen`)
 5. `routes.ts`: one route for the screen. `open` uses the name `imageViewer` unless you give another.
 
 ```ts
-import { ImageViewerScreen } from "@zero-native/image-viewer/screen"
+import { ImageViewerScreen } from "@zeronative/image-viewer/screen"
 
 imageViewer: { path: "/image-viewer", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
 ```
@@ -44,8 +44,8 @@ Before registry 24 (or to keep the old Compose screen for now):
 ## Use it
 
 ```tsx
-import { Image, Pressable, Row } from "@zero-native/ui"
-import { ImageViewer } from "@zero-native/image-viewer"
+import { Image, Pressable, Row } from "@zeronative/ui"
+import { ImageViewer } from "@zeronative/image-viewer"
 
 function Thumb(p: { photos: string[]; i: number }) {
   const box = useElementMotion() // its place on screen: the picture flies from here and back
@@ -61,7 +61,7 @@ export function StorePhotos(p: { photos: string[] }) {
 }
 ```
 
-(`useElementMotion` comes from `@zero-native/core`.)
+(`useElementMotion` comes from `@zeronative/core`.)
 
 `open` gives `{ index }` (the picture on screen) when the user closes the viewer, and null when the app closed it
 (`nav.back()`, `nav.reset()`). Most apps ignore the answer.
@@ -100,7 +100,7 @@ double tap on a thumbnail opens one screen.
 |---|---|
 | `https://...` | And `http://` where the app allows cleartext. Can have `headers` |
 | `asset:<path>` | A picture in the bundle, the same as `<Image>` |
-| `zn://file/<name>` | A file a plugin made, like a photo from `@zero-native/media` |
+| `zn://file/<name>` | A file a plugin made, like a photo from `@zeronative/media` |
 | `content://...` | From a picker or another app. Read through Android's `ContentResolver`, so Android's own rules decide: a link the app has no right to read shows the error |
 | `file://...` | **Only inside the app's own folders**: `cacheDir`, `filesDir`, and the app's external files and cache folders. The path is resolved first (`../` and links followed), then checked. Any other path shows the error |
 | `data:image/...;base64,...` | Up to **5 MB** once decoded, and 20 MB of `data:` pictures in all. A bad or bigger one shows the error |

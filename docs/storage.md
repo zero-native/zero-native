@@ -15,7 +15,7 @@ Step 3.5 (**built 2026-10-30**, checked on the Lava, release build). Three place
 
 ## 1. API
 ```ts
-import { storage, createStorage, persistedSignal, SecureStore } from "@zero-native/core"
+import { storage, createStorage, persistedSignal, SecureStore } from "@zeronative/core"
 
 storage.set("lastStoreId", "42")
 if (!storage.getBoolean("onboarded")) nav.replace("welcome")

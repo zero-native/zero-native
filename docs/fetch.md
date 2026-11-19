@@ -25,7 +25,7 @@ const data = await res.json()
 - Globals: `fetch`, `Headers`, `Request`, `Response`, `FormData`, `TextEncoder`, `TextDecoder`, and
   `AbortSignal.timeout / any / abort`.
 - **Everything is configurable:** `timeout` and `maxBodySize` per request, or for the whole app with
-  `setFetchDefaults({ timeout: 20_000, maxBodySize: 5e6 })` (from `@zero-native/core`, call once at startup). Tying a
+  `setFetchDefaults({ timeout: 20_000, maxBodySize: 5e6 })` (from `@zeronative/core`, call once at startup). Tying a
   request to its screen is per request: `signal: useAbortSignal()`. Native settings (pinning, interceptors):
   `ZnFetch.configure` (§5).
 - `Response`: `status`, `statusText`, `ok`, `url` (after redirects), `redirected`, `headers`, `type`, `bodyUsed`,
@@ -37,7 +37,7 @@ const data = await res.json()
 - `method` is upper-cased for the web's six methods **and PATCH** (the web leaves `"patch"` as is, which servers
   reject).
 - Types: the global `fetch` is typed by TypeScript's DOM lib; `timeout` and `maxBodySize` are added to its
-  `RequestInit`. For `FormData` files (`{ uri }`), import `FormData` from `@zero-native/core` to get the right type.
+  `RequestInit`. For `FormData` files (`{ uri }`), import `FormData` from `@zeronative/core` to get the right type.
 - Accepted but ignored (no meaning in an app): `mode`, `credentials`, `cache`, `referrer`, `referrerPolicy`,
   `integrity`, `keepalive`, `priority`.
 

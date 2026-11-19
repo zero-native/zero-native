@@ -11,217 +11,218 @@
       },
     },
     "compiler": {
-      "name": "@zero-native/compiler",
+      "name": "@zeronative/compiler",
       "version": "0.0.0",
       "dependencies": {
-        "@zero-native/core": "workspace:*",
-        "@zero-native/template": "workspace:*",
+        "@zeronative/core": "workspace:*",
+        "@zeronative/template": "workspace:*",
+        "typescript": "5.9.3",
       },
     },
     "examples/sample": {
-      "name": "@zero-native/example-sample",
+      "name": "@zeronative/example-sample",
       "dependencies": {
-        "@zero-native/android-ad-id": "workspace:*",
-        "@zero-native/android-play-auth": "workspace:*",
-        "@zero-native/app-updates": "workspace:*",
-        "@zero-native/core": "workspace:*",
-        "@zero-native/device-info": "workspace:*",
-        "@zero-native/device-test": "workspace:*",
-        "@zero-native/document-scanner": "workspace:*",
-        "@zero-native/firebase-analytics": "workspace:*",
-        "@zero-native/firebase-app": "workspace:*",
-        "@zero-native/firebase-crashlytics": "workspace:*",
-        "@zero-native/firebase-messaging": "workspace:*",
-        "@zero-native/firebase-perf": "workspace:*",
-        "@zero-native/firebase-remote-config": "workspace:*",
-        "@zero-native/image-viewer": "workspace:*",
-        "@zero-native/location": "workspace:*",
-        "@zero-native/lottie": "workspace:*",
-        "@zero-native/markdown": "workspace:*",
-        "@zero-native/media": "workspace:*",
-        "@zero-native/notifications": "workspace:*",
-        "@zero-native/pdf": "workspace:*",
-        "@zero-native/scanner": "workspace:*",
-        "@zero-native/ui": "workspace:*",
-        "@zero-native/webview": "workspace:*",
+        "@zeronative/android-ad-id": "workspace:*",
+        "@zeronative/android-play-auth": "workspace:*",
+        "@zeronative/app-updates": "workspace:*",
+        "@zeronative/core": "workspace:*",
+        "@zeronative/device-info": "workspace:*",
+        "@zeronative/device-test": "workspace:*",
+        "@zeronative/document-scanner": "workspace:*",
+        "@zeronative/firebase-analytics": "workspace:*",
+        "@zeronative/firebase-app": "workspace:*",
+        "@zeronative/firebase-crashlytics": "workspace:*",
+        "@zeronative/firebase-messaging": "workspace:*",
+        "@zeronative/firebase-perf": "workspace:*",
+        "@zeronative/firebase-remote-config": "workspace:*",
+        "@zeronative/image-viewer": "workspace:*",
+        "@zeronative/location": "workspace:*",
+        "@zeronative/lottie": "workspace:*",
+        "@zeronative/markdown": "workspace:*",
+        "@zeronative/media": "workspace:*",
+        "@zeronative/notifications": "workspace:*",
+        "@zeronative/pdf": "workspace:*",
+        "@zeronative/scanner": "workspace:*",
+        "@zeronative/ui": "workspace:*",
+        "@zeronative/webview": "workspace:*",
       },
       "devDependencies": {
-        "@zero-native/compiler": "workspace:*",
+        "@zeronative/compiler": "workspace:*",
       },
     },
     "packages/core": {
-      "name": "@zero-native/core",
+      "name": "@zeronative/core",
       "version": "0.0.0",
     },
     "packages/template": {
-      "name": "@zero-native/template",
+      "name": "@zeronative/template",
       "version": "0.0.0",
       "dependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "packages/ui": {
-      "name": "@zero-native/ui",
+      "name": "@zeronative/ui",
       "version": "0.0.0",
     },
     "plugins/android-ad-id": {
-      "name": "@zero-native/android-ad-id",
+      "name": "@zeronative/android-ad-id",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/android-play-auth": {
-      "name": "@zero-native/android-play-auth",
+      "name": "@zeronative/android-play-auth",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/app-updates": {
-      "name": "@zero-native/app-updates",
+      "name": "@zeronative/app-updates",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/device-info": {
-      "name": "@zero-native/device-info",
+      "name": "@zeronative/device-info",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/device-test": {
-      "name": "@zero-native/device-test",
+      "name": "@zeronative/device-test",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/document-scanner": {
-      "name": "@zero-native/document-scanner",
+      "name": "@zeronative/document-scanner",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/firebase-analytics": {
-      "name": "@zero-native/firebase-analytics",
+      "name": "@zeronative/firebase-analytics",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/firebase-app": {
-      "name": "@zero-native/firebase-app",
+      "name": "@zeronative/firebase-app",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/firebase-crashlytics": {
-      "name": "@zero-native/firebase-crashlytics",
+      "name": "@zeronative/firebase-crashlytics",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/firebase-messaging": {
-      "name": "@zero-native/firebase-messaging",
+      "name": "@zeronative/firebase-messaging",
       "version": "0.0.0",
       "dependencies": {
-        "@zero-native/notifications": "workspace:*",
+        "@zeronative/notifications": "workspace:*",
       },
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/firebase-perf": {
-      "name": "@zero-native/firebase-perf",
+      "name": "@zeronative/firebase-perf",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/firebase-remote-config": {
-      "name": "@zero-native/firebase-remote-config",
+      "name": "@zeronative/firebase-remote-config",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/image-viewer": {
-      "name": "@zero-native/image-viewer",
+      "name": "@zeronative/image-viewer",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
-        "@zero-native/ui": "workspace:*",
+        "@zeronative/core": "workspace:*",
+        "@zeronative/ui": "workspace:*",
       },
     },
     "plugins/location": {
-      "name": "@zero-native/location",
+      "name": "@zeronative/location",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/lottie": {
-      "name": "@zero-native/lottie",
+      "name": "@zeronative/lottie",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
-        "@zero-native/ui": "workspace:*",
+        "@zeronative/core": "workspace:*",
+        "@zeronative/ui": "workspace:*",
       },
     },
     "plugins/markdown": {
-      "name": "@zero-native/markdown",
+      "name": "@zeronative/markdown",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
-        "@zero-native/ui": "workspace:*",
+        "@zeronative/core": "workspace:*",
+        "@zeronative/ui": "workspace:*",
       },
     },
     "plugins/media": {
-      "name": "@zero-native/media",
+      "name": "@zeronative/media",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/notifications": {
-      "name": "@zero-native/notifications",
+      "name": "@zeronative/notifications",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
+        "@zeronative/core": "workspace:*",
       },
     },
     "plugins/pdf": {
-      "name": "@zero-native/pdf",
+      "name": "@zeronative/pdf",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
-        "@zero-native/ui": "workspace:*",
+        "@zeronative/core": "workspace:*",
+        "@zeronative/ui": "workspace:*",
       },
     },
     "plugins/scanner": {
-      "name": "@zero-native/scanner",
+      "name": "@zeronative/scanner",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
-        "@zero-native/ui": "workspace:*",
+        "@zeronative/core": "workspace:*",
+        "@zeronative/ui": "workspace:*",
       },
     },
     "plugins/webview": {
-      "name": "@zero-native/webview",
+      "name": "@zeronative/webview",
       "version": "0.0.0",
       "peerDependencies": {
-        "@zero-native/core": "workspace:*",
-        "@zero-native/ui": "workspace:*",
+        "@zeronative/core": "workspace:*",
+        "@zeronative/ui": "workspace:*",
       },
     },
     "server": {
-      "name": "@zero-native/updates-server",
+      "name": "@zeronative/updates-server",
       "dependencies": {
         "@electric-sql/pglite": "0.3.14",
         "@google-cloud/storage": "7.17.3",
@@ -233,6 +234,18 @@
         "@types/bun": "1.3.2",
         "@types/react": "19.2.2",
         "@types/react-dom": "19.2.2",
+      },
+    },
+    "tools": {
+      "name": "@zeronative/cli",
+      "version": "0.0.0",
+      "bin": {
+        "zn": "zn.ts",
+      },
+      "dependencies": {
+        "@zeronative/compiler": "workspace:*",
+        "fflate": "0.8.2",
+        "hermes-compiler": "260318099.0.5",
       },
     },
   },
@@ -263,59 +276,61 @@
 
     "@types/tough-cookie": ["@types/tough-cookie@4.0.5", "", {}, "sha512-/Ad8+nIOV7Rl++6f1BdKxFSMgmoqEoYbHRpPcx3JEfv8VRsQe9Z4mCXeJBzxs7mbHY/XOZZuXlRNfhpVPbs6ZA=="],
 
-    "@zero-native/android-ad-id": ["@zero-native/android-ad-id@workspace:plugins/android-ad-id"],
+    "@zeronative/android-ad-id": ["@zeronative/android-ad-id@workspace:plugins/android-ad-id"],
 
-    "@zero-native/android-play-auth": ["@zero-native/android-play-auth@workspace:plugins/android-play-auth"],
+    "@zeronative/android-play-auth": ["@zeronative/android-play-auth@workspace:plugins/android-play-auth"],
 
-    "@zero-native/app-updates": ["@zero-native/app-updates@workspace:plugins/app-updates"],
+    "@zeronative/app-updates": ["@zeronative/app-updates@workspace:plugins/app-updates"],
 
-    "@zero-native/compiler": ["@zero-native/compiler@workspace:compiler"],
+    "@zeronative/cli": ["@zeronative/cli@workspace:tools"],
 
-    "@zero-native/core": ["@zero-native/core@workspace:packages/core"],
+    "@zeronative/compiler": ["@zeronative/compiler@workspace:compiler"],
 
-    "@zero-native/device-info": ["@zero-native/device-info@workspace:plugins/device-info"],
+    "@zeronative/core": ["@zeronative/core@workspace:packages/core"],
 
-    "@zero-native/device-test": ["@zero-native/device-test@workspace:plugins/device-test"],
+    "@zeronative/device-info": ["@zeronative/device-info@workspace:plugins/device-info"],
 
-    "@zero-native/document-scanner": ["@zero-native/document-scanner@workspace:plugins/document-scanner"],
+    "@zeronative/device-test": ["@zeronative/device-test@workspace:plugins/device-test"],
 
-    "@zero-native/example-sample": ["@zero-native/example-sample@workspace:examples/sample"],
+    "@zeronative/document-scanner": ["@zeronative/document-scanner@workspace:plugins/document-scanner"],
 
-    "@zero-native/firebase-analytics": ["@zero-native/firebase-analytics@workspace:plugins/firebase-analytics"],
+    "@zeronative/example-sample": ["@zeronative/example-sample@workspace:examples/sample"],
 
-    "@zero-native/firebase-app": ["@zero-native/firebase-app@workspace:plugins/firebase-app"],
+    "@zeronative/firebase-analytics": ["@zeronative/firebase-analytics@workspace:plugins/firebase-analytics"],
 
-    "@zero-native/firebase-crashlytics": ["@zero-native/firebase-crashlytics@workspace:plugins/firebase-crashlytics"],
+    "@zeronative/firebase-app": ["@zeronative/firebase-app@workspace:plugins/firebase-app"],
 
-    "@zero-native/firebase-messaging": ["@zero-native/firebase-messaging@workspace:plugins/firebase-messaging"],
+    "@zeronative/firebase-crashlytics": ["@zeronative/firebase-crashlytics@workspace:plugins/firebase-crashlytics"],
 
-    "@zero-native/firebase-perf": ["@zero-native/firebase-perf@workspace:plugins/firebase-perf"],
+    "@zeronative/firebase-messaging": ["@zeronative/firebase-messaging@workspace:plugins/firebase-messaging"],
 
-    "@zero-native/firebase-remote-config": ["@zero-native/firebase-remote-config@workspace:plugins/firebase-remote-config"],
+    "@zeronative/firebase-perf": ["@zeronative/firebase-perf@workspace:plugins/firebase-perf"],
 
-    "@zero-native/image-viewer": ["@zero-native/image-viewer@workspace:plugins/image-viewer"],
+    "@zeronative/firebase-remote-config": ["@zeronative/firebase-remote-config@workspace:plugins/firebase-remote-config"],
 
-    "@zero-native/location": ["@zero-native/location@workspace:plugins/location"],
+    "@zeronative/image-viewer": ["@zeronative/image-viewer@workspace:plugins/image-viewer"],
 
-    "@zero-native/lottie": ["@zero-native/lottie@workspace:plugins/lottie"],
+    "@zeronative/location": ["@zeronative/location@workspace:plugins/location"],
 
-    "@zero-native/markdown": ["@zero-native/markdown@workspace:plugins/markdown"],
+    "@zeronative/lottie": ["@zeronative/lottie@workspace:plugins/lottie"],
 
-    "@zero-native/media": ["@zero-native/media@workspace:plugins/media"],
+    "@zeronative/markdown": ["@zeronative/markdown@workspace:plugins/markdown"],
 
-    "@zero-native/notifications": ["@zero-native/notifications@workspace:plugins/notifications"],
+    "@zeronative/media": ["@zeronative/media@workspace:plugins/media"],
 
-    "@zero-native/pdf": ["@zero-native/pdf@workspace:plugins/pdf"],
+    "@zeronative/notifications": ["@zeronative/notifications@workspace:plugins/notifications"],
 
-    "@zero-native/scanner": ["@zero-native/scanner@workspace:plugins/scanner"],
+    "@zeronative/pdf": ["@zeronative/pdf@workspace:plugins/pdf"],
 
-    "@zero-native/template": ["@zero-native/template@workspace:packages/template"],
+    "@zeronative/scanner": ["@zeronative/scanner@workspace:plugins/scanner"],
 
-    "@zero-native/ui": ["@zero-native/ui@workspace:packages/ui"],
+    "@zeronative/template": ["@zeronative/template@workspace:packages/template"],
 
-    "@zero-native/updates-server": ["@zero-native/updates-server@workspace:server"],
+    "@zeronative/ui": ["@zeronative/ui@workspace:packages/ui"],
 
-    "@zero-native/webview": ["@zero-native/webview@workspace:plugins/webview"],
+    "@zeronative/updates-server": ["@zeronative/updates-server@workspace:server"],
+
+    "@zeronative/webview": ["@zeronative/webview@workspace:plugins/webview"],
 
     "abort-controller": ["abort-controller@3.0.0", "", { "dependencies": { "event-target-shim": "^5.0.0" } }, "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg=="],
 

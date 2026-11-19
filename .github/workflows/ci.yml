@@ -35,6 +35,9 @@ jobs:
       # Builds the sample's JS (and, on a fresh clone, test-kit/offers-data.json from the example the type check needs).
       - run: bun run sample:js
       - run: bun run test
+      # The 25 npm packages, packed as `npm publish` would send them (nothing is uploaded): no workspace ranges left,
+      # no test files, LICENSE and NOTICE in each (docs/publishing-plan.md §2.1).
+      - run: bun run tools/pack.ts --out "$RUNNER_TEMP/npm"
 
   ios:
     runs-on: macos-15

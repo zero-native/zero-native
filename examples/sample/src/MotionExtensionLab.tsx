@@ -7,9 +7,9 @@
 //   4. Native view: a view from the plugin draws a bar from a motion value (`level`), no JS per frame
 //   5. useFrame: a frame counter in JS. Press "Keep JS busy": the number drops, the dot and the bar do not stop.
 //   6. Manual start: a drag that starts only while "Unlock" is on (manualActivation, Gesture.activate / Gesture.fail)
-import { Box, Column, NativeView, Pressable, Row, Scroll, Stack, Switch, Text } from "@zero-native/ui"
-import { derive, Gesture, nav, signal, useFrame, useMotion, usePan, useTilt, type PanGesture } from "@zero-native/core"
-import { orbit, wobble } from "@zero-native/device-test"
+import { Box, Column, NativeView, Pressable, Row, Scroll, Stack, Switch, Text } from "@zeronative/ui"
+import { derive, Gesture, nav, signal, useFrame, useMotion, usePan, useTilt, type PanGesture } from "@zeronative/core"
+import { orbit, wobble } from "@zeronative/device-test"
 import { c } from "./tokens"
 
 /** Blocks the JS thread for [ms]. The plugin's values must keep moving anyway. */

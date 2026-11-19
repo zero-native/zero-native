@@ -1,21 +1,42 @@
 {
-  "name": "@zero-native/image-viewer",
+  "name": "@zeronative/image-viewer",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: a full-screen photo viewer with zoom",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/image-viewer"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/image-viewer#readme",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./screen": "./src/screen.ts"
   },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*",
-    "@zero-native/ui": "workspace:*"
+    "@zeronative/core": "workspace:*",
+    "@zeronative/ui": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.imageviewer.ImageViewerPlugin"
     }

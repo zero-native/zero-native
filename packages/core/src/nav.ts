@@ -39,7 +39,7 @@ import { effect, getOwner, onCleanup, runWithOwner, signal, untrack, type Owner,
 import { allocInstanceId, renderRoot, type View } from "./view"
 
 /** Apps register their routes for typed navigation (in routes.ts):
- *    declare module "@zero-native/core" { interface Register { routes: typeof routes } } */
+ *    declare module "@zeronative/core" { interface Register { routes: typeof routes } } */
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Register {}
 export type Routes = Register extends { routes: infer R } ? R : Record<string, AnyRouteDef>

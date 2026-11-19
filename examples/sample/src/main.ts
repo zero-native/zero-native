@@ -1,6 +1,6 @@
 // Sample app entry: starts the runtime and the app's routes. Native opens the first screen ("/", or a deep link's
 // route on top of it) and tells JS which ones; JS renders them (packages/core/src/nav.ts).
-import { defineTask, installRuntime, onNavResult, Os, startApp } from "@zero-native/core"
+import { defineTask, installRuntime, onNavResult, Os, startApp } from "@zeronative/core"
 import { routes } from "./routes"
 import { installPushLab } from "./PushLab"
 import { AppOverlay, AppTop } from "./AppLayers"

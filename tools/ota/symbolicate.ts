@@ -4,7 +4,7 @@
 // What it reads, from any of: logcat, ZnJsError.details, Crashlytics (ZnJsError.asThrowable), the update server's
 // telemetry. Hermes frames look like `at HomeScreen (main.js:2051:22)`; bundles built before step 4.8 have the build
 // folder's full path instead of `main.js`; Crashlytics frames have no column: `at zn.js.HomeScreen(main.js:2051)`.
-import { decodeSourceMap, type DecodedMap, lookup } from "../../compiler/src/sourcemap"
+import { decodeSourceMap, type DecodedMap, lookup } from "@zeronative/compiler/src/sourcemap"
 
 /** The bundle a report names: `<app>_<serial>@<sha>` (ZnJsError.bundleLabel), or null. */
 export function bundleIn(text: string): { id: string; sha: string } | null {

@@ -1,14 +1,14 @@
 // The Google advertising id, for ad attribution (2026-11-07). Native side: android/.../AdIdPlugin.kt. README: Play's
 // rules for using it.
 //
-//   import { AdId } from "@zero-native/android-ad-id"
+//   import { AdId } from "@zeronative/android-ad-id"
 //   const { id, limitAdTracking } = await AdId.get()
 //   if (id !== null && !limitAdTracking) attribution.setAdId(id)
 //
 // Never rejects. `id` is null when the phone has no Play services, Play services fails, or the user deleted the id
 // (Android 12+ gives all zeros then). `limitAdTracking` true: the user turned off ads personalisation. The id can still
 // be there then (Android 11 and older): don't use it for personalised ads or ad profiles.
-import { nativeModule, type CallOptions } from "@zero-native/core"
+import { nativeModule, type CallOptions } from "@zeronative/core"
 
 export interface AdIdInfo {
   /** The advertising id, or null when there is none to use. */

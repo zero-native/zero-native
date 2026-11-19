@@ -1,17 +1,38 @@
 {
-  "name": "@zero-native/webview",
+  "name": "@zeronative/webview",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: a web page inside a screen",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/webview"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/webview#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*",
-    "@zero-native/ui": "workspace:*"
+    "@zeronative/core": "workspace:*",
+    "@zeronative/ui": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.webview.WebViewPlugin"
     }

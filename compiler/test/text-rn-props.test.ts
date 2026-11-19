@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string) {
@@ -15,7 +15,7 @@ function compile(src: string) {
 describe("H3: Text selectable and auto-fit font", () => {
   test("compiles static selectable and adjustsFontSizeToFit props", () => {
     const { templates } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Screen() {
         return (
           <Text
@@ -39,7 +39,7 @@ describe("H3: Text selectable and auto-fit font", () => {
 
   test("compiles dynamic selectable boolean slot", () => {
     const { code, templates } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Screen(props: { canSelect: () => boolean }) {
         return (
           <Text selectable={props.canSelect()}>

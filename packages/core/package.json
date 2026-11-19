@@ -1,9 +1,26 @@
 {
-  "name": "@zero-native/core",
+  "name": "@zeronative/core",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native's JS runtime: signals, navigation, storage, fetch and the native calls",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/packages/core#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   }

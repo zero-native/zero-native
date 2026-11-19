@@ -1,0 +1,43 @@
+{
+  "name": "@zeronative/cli",
+  "version": "0.0.0",
+  "description": "The zn command: build a zero-native app's JS bundle, live reload, and OTA releases (runs on Bun)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "tools"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/tools#readme",
+  "type": "module",
+  "bin": {
+    "zn": "zn.ts"
+  },
+  "files": [
+    "zn.ts",
+    "zn-build.ts",
+    "zn-dev.ts",
+    "hermesc.ts",
+    "bundle-info.ts",
+    "updates/cli.ts",
+    "updates/client.ts",
+    "ota/core.ts",
+    "ota/decide.ts",
+    "ota/signing.ts",
+    "ota/store.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "bun": ">=1.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@zeronative/compiler": "workspace:*",
+    "fflate": "0.8.2",
+    "hermes-compiler": "260318099.0.5"
+  }
+}

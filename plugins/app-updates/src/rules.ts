@@ -13,7 +13,7 @@
 // The check runs 1 s after start and 1 s after every return to the app, or (autoCheck false) after each of native's
 // update checks, which bring the store answer.
 //
-// No import from @zero-native/core here: the file runs in plain bun tests.
+// No import from @zeronative/core here: the file runs in plain bun tests.
 
 /** One update rule from the server, for this phone. */
 export interface StoreUpdate {

@@ -64,7 +64,7 @@ keeping every lesson that applies.
     visibly changed later is listed in `Added` in `registry.ts` with its version. So a bundle that doesn't use a
     new component still runs on older apps. The same number is in the `.zn.ui` header.
   - `bytecode`: read from `main.hbc`'s header (must match the app exactly).
-  - `hostApi`: `HOST_API_VERSION` of the bundled `@zero-native/core` (`packages/core/src/host-api.ts`; a test keeps
+  - `hostApi`: `HOST_API_VERSION` of the bundled `@zeronative/core` (`packages/core/src/host-api.ts`; a test keeps
     it equal to the C++ number).
   - `modules`: every `nativeModule("X", { version })` / `callNative("X", ..., { __v })` in the bundled code, with
     the highest version asked for, read from the source at build time. The name must be a string literal (else a
@@ -73,7 +73,7 @@ keeping every lesson that applies.
     absent when there are none. A module's OS comes from the package of the file that calls it: a plugin's
     `zeroNative.platforms`, else its `android/` and `ios/` folders; core and the app's own files count for both.
   - Next to `requires`, not in it: `moduleFrom` (2026-11-11), each needed module → the package whose files call it
-    (`@zero-native/core`, `@zero-native/firebase-messaging`, the app's own `@acme/upi`...; core wins when core calls
+    (`@zeronative/core`, `@zeronative/firebase-messaging`, the app's own `@acme/upi`...; core wins when core calls
     it too). Not signed and ignored by phones; the release copies it into the manifest, and the dashboard groups a
     bundle's needs by it (framework, core, zero-native plugins, the app's own). Module names follow their plugin
     (docs/plugins.md, "Module names").
@@ -204,7 +204,7 @@ seq, decision, the phone's outcomes). `GET /health`.
   `current` is written last (atomically). The new bundle runs from the **next cold start**. Up to 4 older bundles are
   kept besides the running and the current one. `state.json` holds the install id, the seq per channel and the
   outcomes not yet sent (downloaded, switched, started, zip_sha, ...), which go with the next check.
-- **JS API** (`@zero-native/core`): built in 4.5: `Updates.status()` (enabled, phase, progress, running, next,
+- **JS API** (`@zeronative/core`): built in 4.5: `Updates.status()` (enabled, phase, progress, running, next,
   pendingRestart, held, last check / result / error), `Updates.check()`, `Updates.onStatus()`. Built in 4.6:
   `Updates.applyNow()`, `Updates.holdApply()` (returns the release function); 4.7: `Updates.markHealthy()`, and
   status gets healthy, lastGood, blocked, otaOff. Native never applies while held. Module `Updates` is version 3
@@ -316,7 +316,7 @@ Only a **downloaded** bundle is ever judged; the APK's own bundle always runs. W
   needed because the APK's own bundle is `<app>_0` in every APK. It is in `ZnJsError.bundleLabel`, in the message of
   `ZnJsError.asThrowable()`, and `ZnBundles.watchRunning { }` gives it at start and on every switch (an update applied
   in place, a rollback): an app sets it as a Crashlytics custom key, so native crashes name the bundle too.
-  **Update 2026-11-04:** the `@zero-native/firebase-crashlytics` plugin does this for you: it sets the key `zn_bundle`
+  **Update 2026-11-04:** the `@zeronative/firebase-crashlytics` plugin does this for you: it sets the key `zn_bundle`
   (and `zn_bundle_id`) at start and on every switch. Without the plugin, do it yourself as above.
 - **Release stacks have positions:** hermesc's default is `-g1` (same bytes as no flag): frames read
   `at HomeScreen (main.js:2051:22)`. `-g0` would save ~16% of the bytecode but lose them: not used.

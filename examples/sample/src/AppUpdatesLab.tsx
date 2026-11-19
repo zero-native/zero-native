@@ -1,11 +1,11 @@
-// A dev screen for @zero-native/app-updates. "Check store" runs an update check (`Updates.check()`: the sample's OTA
+// A dev screen for @zeronative/app-updates. "Check store" runs an update check (`Updates.check()`: the sample's OTA
 // server answers OTA and the store question in one call) and shows the store answer that came with it; the other buttons call
 // Play directly. Play's in-app updates only answer for an app installed from Play (README: internal app sharing), so a
 // sideloaded sample shows "available false". Each action logs one "app-updates-lab ..." line.
-import { Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { onCleanup, Platform, signal, Updates } from "@zero-native/core"
-import DeviceInfo from "@zero-native/device-info"
-import { AppUpdates, storeAnswer } from "@zero-native/app-updates"
+import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { onCleanup, Platform, signal, Updates } from "@zeronative/core"
+import DeviceInfo from "@zeronative/device-info"
+import { AppUpdates, storeAnswer } from "@zeronative/app-updates"
 import { c } from "./tokens"
 
 function UpdatesButton(p: { label: string; onPress: () => void }) {

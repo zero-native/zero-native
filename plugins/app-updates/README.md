@@ -1,4 +1,4 @@
-# @zero-native/app-updates
+# @zeronative/app-updates
 
 Store updates for zero-native apps: **Google Play's in-app updates** on Android, **the App Store** on iOS. The
 zn-updates server's store rules say who must or should update. The answer comes with native's OTA check, the same
@@ -71,8 +71,8 @@ iOS host: `ZnPlugins.register(..., AppUpdatesPlugin())`.
 **2. JS (once, after `startApp`).**
 
 ```ts
-import { appState, nav, onAppState, Platform } from "@zero-native/core"
-import { AppUpdates, checkAfterUpdateChecks, createAppUpdateEngine, nativeStoreSource, playUpdates } from "@zero-native/app-updates"
+import { appState, nav, onAppState, Platform } from "@zeronative/core"
+import { AppUpdates, checkAfterUpdateChecks, createAppUpdateEngine, nativeStoreSource, playUpdates } from "@zeronative/app-updates"
 
 const os = Platform.OS === "ios" ? "ios" : "android"
 const engine = createAppUpdateEngine({

@@ -1,6 +1,6 @@
 // The camera inside a screen. It fills its parent, so put it in a Box with a size: a style can't come through a prop, as
 // layout is fixed at build time.
-import { NativeView } from "@zero-native/ui"
+import { NativeView } from "@zeronative/ui"
 import { handleScannerEvent, type QrScannerProps } from "./module"
 
 export function QrScanner(props: QrScannerProps) {

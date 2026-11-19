@@ -7,7 +7,7 @@ import androidx.compose.ui.focus.FocusRequester
 
 /**
  * The built-in `Keyboard` module (JS: `Keyboard.dismiss()` and a `<TextField ref>`'s focus / blur / clear, from
- * `@zero-native/core`). Registered by [ZnRuntime.start]. [ZnNavHost] gives it the window's focus manager: clearing
+ * `@zeronative/core`). Registered by [ZnRuntime.start]. [ZnNavHost] gives it the window's focus manager: clearing
  * focus closes the keyboard and blurs the field. v2: fields with a `ref` (RN basics pack).
  */
 internal object ZnKeyboard : ZnModuleBase("Keyboard", version = 2) {

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { NodeSpec } from "@zero-native/template"
+import type { NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 import { znBuild } from "../src/plugin"
 

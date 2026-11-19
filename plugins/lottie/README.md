@@ -1,4 +1,4 @@
-# @zero-native/lottie
+# @zeronative/lottie
 
 Lottie animations (`.json` and `.lottie` files from After Effects or LottieFiles), with lottie-react-native's names, so
 ported code keeps its props: `<LottieView source autoPlay loop speed progress onAnimationFinish />`.
@@ -8,7 +8,7 @@ the APK. Nothing is downloaded from Play, and nothing comes from the network.
 
 ## Add it
 
-1. `package.json`: add `"@zero-native/lottie": "workspace:*"`.
+1. `package.json`: add `"@zeronative/lottie": "workspace:*"`.
 2. `android/settings.gradle.kts`: include `:plugin-lottie` and set its `projectDir` to `../plugins/lottie/android`
    (`docs/guide-notes.md` §30).
 3. The app's `build.gradle.kts`: `implementation(project(":plugin-lottie"))`.
@@ -23,8 +23,8 @@ bundle, so an OTA update can change or add them, like `asset:` images.
 ## Use it
 
 ```tsx
-import LottieView from "@zero-native/lottie"
-import { View } from "@zero-native/ui"
+import LottieView from "@zeronative/lottie"
+import { View } from "@zeronative/ui"
 
 // RN: <LottieView source={require("./receipt_loading.lottie")} autoPlay loop style={{ width: 140, height: 140 }} />
 export function Waiting() {
@@ -44,8 +44,8 @@ Two changes from RN code, both on purpose:
 ### Play, pause and reset from code: `ref`, as in RN
 
 ```tsx
-import LottieView from "@zero-native/lottie"
-import { useRef } from "@zero-native/core"
+import LottieView from "@zeronative/lottie"
+import { useRef } from "@zeronative/core"
 
 const anim = useRef<LottieView | null>(null)
 // ...

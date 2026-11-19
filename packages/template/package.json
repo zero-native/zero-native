@@ -1,13 +1,31 @@
 {
-  "name": "@zero-native/template",
+  "name": "@zeronative/template",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native's component registry: the templates the compiler writes and the runtime reads",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "packages/template"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/packages/template#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "registry.lock.json",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "dependencies": {
-    "@zero-native/core": "workspace:*"
+    "@zeronative/core": "workspace:*"
   }
 }

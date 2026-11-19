@@ -1,7 +1,7 @@
-// A dev screen for @zero-native/markdown. Log lines start with "md-lab" (a phone test can read them).
-import { signal } from "@zero-native/core"
-import { Markdown, MarkdownText } from "@zero-native/markdown"
-import { Column, Pressable, Row, Scroll, Text, type Children } from "@zero-native/ui"
+// A dev screen for @zeronative/markdown. Log lines start with "md-lab" (a phone test can read them).
+import { signal } from "@zeronative/core"
+import { Markdown, MarkdownText } from "@zeronative/markdown"
+import { Column, Pressable, Row, Scroll, Text, type Children } from "@zeronative/ui"
 import { c } from "./tokens"
 
 // Close to a ZeroBill offer's `details` from the server (OfferDetailScreen "About this offer").

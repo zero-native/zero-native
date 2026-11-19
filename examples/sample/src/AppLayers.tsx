@@ -1,8 +1,8 @@
 // startApp's app layers (main.ts): an offline strip above every screen (`top`) and one "No internet" sheet over all of
 // them (`overlay`), the way the RN app does it. The strip follows NetInfo; the lab screen can also fake "offline".
 // The phone test reads the log lines "layers ...", so keep their wording.
-import { Column, Pressable, Row, Scroll, Sheet, Text } from "@zero-native/ui"
-import { nav, NetInfo, scheme, signal } from "@zero-native/core"
+import { Column, Pressable, Row, Scroll, Sheet, Text } from "@zeronative/ui"
+import { nav, NetInfo, scheme, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 const RED = "#D92D20"

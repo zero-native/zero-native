@@ -1,9 +1,9 @@
 // A dev screen for the location plugin. The phone test (tools/plugin-phone/location.ts) reads these lines and the log lines
 // "location-lab ...", so keep their wording. Coordinates and addresses show on screen, and only there: they never go in a
 // log line, only the provider, accuracy and age.
-import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
-import { nav, onAppState, Os, Permissions, scheme, signal } from "@zero-native/core"
-import { Location, type Accuracy, type Position, type PositionResult } from "@zero-native/location"
+import { Column, Pressable, Scroll, Text } from "@zeronative/ui"
+import { nav, onAppState, Os, Permissions, scheme, signal } from "@zeronative/core"
+import { Location, type Accuracy, type Position, type PositionResult } from "@zeronative/location"
 import { c } from "./tokens"
 
 function LocationLabButton(props: { label: string; onPress: () => void }) {

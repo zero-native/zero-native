@@ -1,6 +1,6 @@
 // A dev screen for the RN basics pack: React Native's small everyday APIs, with their RN names. Each button logs one
 // "rn-lab ..." line; the phone check reads those lines, so keep their wording.
-import { Box, Column, Pressable, Row, Scroll, Stack, Text, TextField } from "@zero-native/ui"
+import { Box, Column, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import {
   Alert,
   AppState,
@@ -21,7 +21,7 @@ import {
   useWindowDimensions,
   Vibration,
   type TextFieldHandle,
-} from "@zero-native/core"
+} from "@zeronative/core"
 import { c } from "./tokens"
 
 function RnButton(props: { label: string; onPress: () => void }) {

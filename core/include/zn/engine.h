@@ -121,7 +121,7 @@ std::unique_ptr<Engine> createHermesEngine(HostApi& host);
 // app's capabilities for OTA bundles (docs/ota.md §3.2).
 uint32_t hermesBytecodeVersion();
 
-// The JS ↔ native contract that a bundle's `@zero-native/core` relies on: the `__zn_*` host functions, app event
+// The JS ↔ native contract that a bundle's `@zeronative/core` relies on: the `__zn_*` host functions, app event
 // numbers, the batch and value formats. Raise kHostApiVersion when any of them gains something (packages/core/src/
 // host-api.ts must say the same number); raise kHostApiOldest only when something is removed or changes meaning,
 // which makes every bundle built before it refuse to run on this app (docs/ota.md §3.2).

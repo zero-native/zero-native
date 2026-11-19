@@ -1,9 +1,9 @@
 // A dev screen for the lottie plugin, written the way ported React Native code is: the default import, `ref` (a useRef
 // object and a callback), RN's prop names. The files are in ../assets/lottie (made by ../make-lottie.ts). A phone test
 // reads the lines on screen and the log lines "lottie-lab ...".
-import { signal, usePan, useRef } from "@zero-native/core"
-import LottieView, { Lottie } from "@zero-native/lottie"
-import { Column, Pressable, Row, Scroll, Stack, Text, View } from "@zero-native/ui"
+import { signal, usePan, useRef } from "@zeronative/core"
+import LottieView, { Lottie } from "@zeronative/lottie"
+import { Column, Pressable, Row, Scroll, Stack, Text, View } from "@zeronative/ui"
 import { c } from "./tokens"
 
 function LottieLabButton(props: { label: string; onPress: () => void }) {

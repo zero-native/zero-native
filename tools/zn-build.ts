@@ -15,7 +15,7 @@
 import { basename, join, resolve } from "node:path"
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import { parseArgs } from "node:util"
-import { buildApp } from "../compiler/src"
+import { buildApp } from "@zeronative/compiler"
 import { bytecodeVersion, hermesc } from "./hermesc"
 import { writeBundleInfo } from "./bundle-info"
 

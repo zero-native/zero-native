@@ -57,8 +57,8 @@ async function demo() {
   })
   const requires = { registry: 24, bytecode: 99, hostApi: 9, modules: { Device: 6, Fetch: 1, FirebaseMessaging: 1, ShopPay: 1 }, os: { android: { AndroidAdId: 1 } } }
   // Where each module comes from: the dashboard groups the needs by it (core, zero-native plugins, the app's own)
-  const moduleFrom = { Device: "@zero-native/core", Fetch: "@zero-native/core", FirebaseMessaging: "@zero-native/firebase-messaging",
-    ShopPay: "@demo/shop-pay", AndroidAdId: "@zero-native/android-ad-id" }
+  const moduleFrom = { Device: "@zeronative/core", Fetch: "@zeronative/core", FirebaseMessaging: "@zeronative/firebase-messaging",
+    ShopPay: "@demo/shop-pay", AndroidAdId: "@zeronative/android-ad-id" }
   const build = async (code: string) => {
     const dir = mkdtempSync(join(tmpdir(), "znu-demo-"))
     writeFileSync(join(dir, "main.hbc"), code.repeat(2000))

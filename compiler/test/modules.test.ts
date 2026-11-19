@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { nativeModuleUses, platformsOf, stableFileKey } from "../src/modules"
 import { buildApp } from "../src/build-app"
-import { HOST_API_VERSION } from "@zero-native/core/src/host-api"
+import { HOST_API_VERSION } from "@zeronative/core/src/host-api"
 
 describe("native modules a bundle needs (docs/ota.md §3.2)", () => {
   test("nativeModule and callNative with literal names and versions", () => {
@@ -40,7 +40,7 @@ describe("native modules a bundle needs (docs/ota.md §3.2)", () => {
     const app = await buildApp(join(import.meta.dir, "fixtures/order/main.ts"))
     expect(app.requires.registry).toBe(8)
     expect(app.requires.hostApi).toBe(HOST_API_VERSION)
-    // The fixture pulls in @zero-native/core's storage and keyboard code (via the compiler's runtime import).
+    // The fixture pulls in @zeronative/core's storage and keyboard code (via the compiler's runtime import).
     expect(app.requires.modules.Keyboard).toBe(2) // v2: focus / blur / clear of a TextField ref
     // B4 (2026-11-08): core's own WebSocket and Splash calls are soft, so an older APK still takes this bundle.
     expect(app.requires.modules.WebSocket).toBeUndefined()
@@ -50,7 +50,7 @@ describe("native modules a bundle needs (docs/ota.md §3.2)", () => {
   test("soft core modules count only when the app calls them itself (B4)", () => {
     const call = `callNative("WebSocket", "connect", { id, url })`
     expect(nativeModuleUses(call, "C:\\work\\zero-native\\packages\\core\\src\\websocket.ts")).toEqual([])
-    expect(nativeModuleUses(call, "/app/node_modules/@zero-native/core/src/websocket.ts")).toEqual([])
+    expect(nativeModuleUses(call, "/app/node_modules/@zeronative/core/src/websocket.ts")).toEqual([])
     expect(nativeModuleUses(call, "/app/src/chat.ts")).toEqual([{ name: "WebSocket", version: 1 }])
     // Any other core module still counts.
     expect(nativeModuleUses(`callNative("Toast", "show", {})`, "/x/packages/core/src/toast.ts")).toEqual([{ name: "Toast", version: 1 }])
@@ -71,11 +71,11 @@ describe("per-OS needs (docs/ota-requires-per-os.md)", () => {
     expect(app.moduleFrom.AdId).toBe("per-os-droid")
     expect(app.moduleFrom.Haptics).toBe("per-os-apple")
     expect(app.moduleFrom.Share).toBe("per-os-both")
-    expect(app.moduleFrom.Pay).toBe("@zero-native/compiler") // the app's own call: the nearest package.json (here the compiler's)
+    expect(app.moduleFrom.Pay).toBe("@zeronative/compiler") // the app's own call: the nearest package.json (here the compiler's)
     // Core's own modules say core; every needed module has an entry
     const needed = [...Object.keys(app.requires.modules), ...Object.values(app.requires.os ?? {}).flatMap((m) => Object.keys(m))]
     expect(Object.keys(app.moduleFrom).sort()).toEqual(needed.sort())
-    expect(Object.entries(app.moduleFrom).filter(([, p]) => p === "@zero-native/core").length).toBeGreaterThan(0)
+    expect(Object.entries(app.moduleFrom).filter(([, p]) => p === "@zeronative/core").length).toBeGreaterThan(0)
   })
 
   test("a plugin's platforms: zeroNative.platforms, else its folders; anything else is both", () => {
@@ -116,11 +116,11 @@ describe("stableFileKey: template ids don't depend on where the folders are", ()
       for (const [m, p] of Object.entries(machines)) {
         mkdirSync(join(p.plugin, "src"), { recursive: true })
         mkdirSync(join(p.app, "app", "src"), { recursive: true })
-        writeFileSync(join(p.plugin, "package.json"), JSON.stringify({ name: "@zero-native/lottie" }))
+        writeFileSync(join(p.plugin, "package.json"), JSON.stringify({ name: "@zeronative/lottie" }))
         writeFileSync(join(p.app, "package.json"), JSON.stringify({ name: "shop" }))
         keys[m] = [join(p.app, "app", "src", "Home.tsx"), join(p.plugin, "src", "index.tsx")].map(stableFileKey).sort()
       }
-      expect(keys.a).toEqual(["@zero-native/lottie/src/index.tsx", "shop/app/src/Home.tsx"])
+      expect(keys.a).toEqual(["@zeronative/lottie/src/index.tsx", "shop/app/src/Home.tsx"])
       expect(keys.b).toEqual(keys.a)
     } finally {
       rmSync(root, { recursive: true, force: true })

@@ -1,7 +1,7 @@
 // A dev screen for RN props pack 2: React Native props, styles and components, with their RN names. Each check logs
 // one "rn-props ..." line; the phone check (tools/plugin-phone/rnprops.ts) reads those lines, so keep their wording.
-import { Box, Carousel, Column, FlatList, Icon, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField, TouchableOpacity } from "@zero-native/ui"
-import { Alert, createStorage, listController, signal } from "@zero-native/core"
+import { Box, Carousel, Column, FlatList, Icon, Image, List, Modal, NavigationBar, Polygon, Pressable, Row, Scroll, Sheet, Shimmer, Stack, StatusBar, StyleSheet, Svg, Text, TextField, TouchableOpacity } from "@zeronative/ui"
+import { Alert, createStorage, listController, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 /** Bold parts from data, as a server's "**₹400** cashback" turned into parts (ask R21). */

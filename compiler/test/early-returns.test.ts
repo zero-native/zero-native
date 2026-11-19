@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import ts from "typescript"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 /**
@@ -42,7 +42,7 @@ const err = (src: string, statics: Record<string, unknown> = {}) => {
 describe("H2: Early returns in components", () => {
   test("simple early return compiles to nested branch and generated tail component", () => {
     const { code, roots, templates } = compile(`
-      import { Text, Column } from "@zero-native/ui"
+      import { Text, Column } from "@zeronative/ui"
       export function Card(props: { loading: () => boolean, title: string }) {
         if (props.loading()) return <Text>Loading...</Text>
         const total = 42
@@ -71,7 +71,7 @@ describe("H2: Early returns in components", () => {
     }
     const { code } = compileModule(
       `
-      import { Text, Column } from "@zero-native/ui"
+      import { Text, Column } from "@zeronative/ui"
       export function Card(props: { loading: () => boolean }) {
         if (props.loading()) return <Text>Loading...</Text>
         return <Column><Text>Done</Text></Column>
@@ -88,7 +88,7 @@ describe("H2: Early returns in components", () => {
 
   test("two consecutive guards become nested ternary in source order", () => {
     const { code, roots } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Card(props: { loading: () => boolean, error: () => boolean }) {
         if (props.loading()) return <Text>Loading</Text>
         if (props.error()) return <Text>Error</Text>
@@ -102,8 +102,8 @@ describe("H2: Early returns in components", () => {
 
   test("pre-guard signal, plain value and function are passed to tail", () => {
     const { code } = compile(`
-      import { signal } from "@zero-native/core"
-      import { Text } from "@zero-native/ui"
+      import { signal } from "@zeronative/core"
+      import { Text } from "@zeronative/ui"
       export function Card(props: { id: string }) {
         const s = signal(0)
         const base = 100
@@ -123,8 +123,8 @@ describe("H2: Early returns in components", () => {
   test("the undeclared-name check sees a name nothing declares", () => {
     expect(undeclared(`function f() { return zz }`)).toEqual(["Cannot find name 'zz'."])
     expect(undeclared(compile(`
-      import { signal } from "@zero-native/core"
-      import { Text } from "@zero-native/ui"
+      import { signal } from "@zeronative/core"
+      import { Text } from "@zeronative/ui"
       export function Card(props: { id: string }) {
         const s = signal(0)
         if (props.id === "0") return <Text>Zero</Text>
@@ -137,7 +137,7 @@ describe("H2: Early returns in components", () => {
   // ReferenceError when the guard turned false (a blank screen in release).
   test("pre-guard destructured consts are passed to the tail", () => {
     const { code } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       declare function useStore(): { data: () => { name: string }, loading: () => boolean }
       export function Card() {
         const { data, loading } = useStore()
@@ -152,7 +152,7 @@ describe("H2: Early returns in components", () => {
 
   test("pre-guard array, nested, renamed and rest patterns are passed to the tail", () => {
     const { code } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       declare function rows(): [string, { inner: string, other: string }, ...string[]]
       export function Card(props: { ready: () => boolean }) {
         const [first, { inner, other: renamed }, ...rest] = rows()
@@ -167,7 +167,7 @@ describe("H2: Early returns in components", () => {
 
   test("pre-guard function and class declarations are passed to the tail", () => {
     const { code } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Card(props: { id: string, loading: () => boolean }) {
         function fmt(x: string) { var local = "#"; return local + x }
         class Money { constructor(public v: string) {} }
@@ -184,7 +184,7 @@ describe("H2: Early returns in components", () => {
 
   test("a pre-guard var inside a block is passed to the tail", () => {
     const { code } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Card(props: { id: string, loading: () => boolean }) {
         if (props.id === "x") { var extra = "!" }
         if (props.loading()) return <Text>Loading</Text>
@@ -197,7 +197,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: pre-guard destructured let that is reassigned", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       declare function pair(): [number, number]
       export function Bad(props: { id: string }) {
         let [a, b] = pair()
@@ -210,7 +210,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: tail assigns to a pre-guard destructured name", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       declare function useStore(): { count: number }
       export function Bad(props: { id: string }) {
         let { count } = useStore()
@@ -224,7 +224,7 @@ describe("H2: Early returns in components", () => {
   // A name the tail declares again is its own, not the pre-guard one: no refusal (these built before the fix above).
   test("a handler's own let with a pre-guard name may be assigned", () => {
     const { code } = compile(`
-      import { Text, Pressable } from "@zero-native/ui"
+      import { Text, Pressable } from "@zeronative/ui"
       declare function useStore(): { data: number, loading: () => boolean }
       export function Card(props: { id: string }) {
         const { data, loading } = useStore()
@@ -237,7 +237,7 @@ describe("H2: Early returns in components", () => {
 
   test("a loop variable in the tail may reuse a pre-guard var name", () => {
     const { code } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Card(props: { n: number, ready: () => boolean }) {
         let total = 0
         for (var i = 0; i < props.n; i++) total
@@ -254,7 +254,7 @@ describe("H2: Early returns in components", () => {
   // the JS), and the names its JSX reads were not passed at all.
   test("a pre-guard JSX variable is not passed to the tail, the names it reads are", () => {
     const { code } = compile(`
-      import { Text, Column } from "@zero-native/ui"
+      import { Text, Column } from "@zeronative/ui"
       export function Card(p: { id: string, loading: () => boolean }) {
         const title = "T" + p.id
         const header = <Text>{title}</Text>
@@ -271,7 +271,7 @@ describe("H2: Early returns in components", () => {
 
   test("a pre-guard JSX variable that holds another one passes the props and names of both", () => {
     const { code } = compile(`
-      import { Text, Column, Pressable } from "@zero-native/ui"
+      import { Text, Column, Pressable } from "@zeronative/ui"
       declare function pay(id: string): void
       export function Card(p: { id: string, loading: () => boolean }) {
         const title = "T"
@@ -290,7 +290,7 @@ describe("H2: Early returns in components", () => {
 
   test("a module-level JSX variable used in the tail is not passed", () => {
     const { code } = compile(`
-      import { Text, Column } from "@zero-native/ui"
+      import { Text, Column } from "@zeronative/ui"
       const label = "L"
       const badge = <Text>{label}</Text>
       export function Card(p: { loading: () => boolean }) {
@@ -304,7 +304,7 @@ describe("H2: Early returns in components", () => {
 
   test("guard in a screen passes checkScreenRoots (exactly 1 template in roots)", () => {
     const { roots } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Screen(props: { id: string, ready: () => boolean }) {
         if (!props.ready()) return <Text>Waiting...</Text>
         return <Text>Ready: {props.id}</Text>
@@ -316,7 +316,7 @@ describe("H2: Early returns in components", () => {
 
   test("guard works with destructured props", () => {
     const { code, roots } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Card({ id, loading }: { id: string, loading: () => boolean }) {
         if (loading()) return <Text>Loading...</Text>
         return <Text>ID: {id}</Text>
@@ -330,7 +330,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: return inside loop", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Bad(props: { items: string[] }) {
         for (const item of props.items) {
           if (item === "stop") return <Text>Stopped</Text>
@@ -342,7 +342,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: return inside try block", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Bad() {
         try {
           return <Text>A</Text>
@@ -355,7 +355,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: return inside switch statement", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Bad(props: { status: string }) {
         switch (props.status) {
           case "a": return <Text>A</Text>
@@ -367,7 +367,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: nested early return in non-top-level block", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Bad(props: { a: boolean, b: boolean }) {
         if (props.a) {
           if (props.b) return <Text>B</Text>
@@ -379,7 +379,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: generator component", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function* Bad() {
         if (true) return <Text>A</Text>
         return <Text>B</Text>
@@ -389,7 +389,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: pre-guard let that is reassigned", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Bad(props: { id: string }) {
         let x = 1
         x = 2
@@ -401,7 +401,7 @@ describe("H2: Early returns in components", () => {
 
   test("refused: tail assigns to pre-guard variable", () => {
     expect(err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Bad(props: { id: string }) {
         let count = 0
         if (props.id === "0") return <Text>Zero</Text>
@@ -413,7 +413,7 @@ describe("H2: Early returns in components", () => {
 
   test("three guards with else-if chain", () => {
     const { code, roots } = compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Card(props: { a: () => boolean, b: () => boolean, c: () => boolean }) {
         if (props.a()) {
           return <Text>A</Text>
@@ -432,8 +432,8 @@ describe("H2: Early returns in components", () => {
 
   test("tail with once-trap is still caught", () => {
     const { roots } = compile(`
-      import { signal } from "@zero-native/core"
-      import { Text } from "@zero-native/ui"
+      import { signal } from "@zeronative/core"
+      import { Text } from "@zeronative/ui"
       const store = { amount: signal(10) }
       export function Card(props: { ready: () => boolean }) {
         if (!props.ready()) return <Text>Waiting...</Text>
@@ -447,7 +447,7 @@ describe("H2: Early returns in components", () => {
 
   test("error positions point at user line", () => {
     const message = err(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function Card(props: { x: number }) {
         let count = 0
         if (props.x === 0) return <Text>Zero</Text>

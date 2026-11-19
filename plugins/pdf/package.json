@@ -1,17 +1,38 @@
 {
-  "name": "@zero-native/pdf",
+  "name": "@zeronative/pdf",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: show PDFs",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/pdf"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/pdf#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*",
-    "@zero-native/ui": "workspace:*"
+    "@zeronative/core": "workspace:*",
+    "@zeronative/ui": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.pdf.PdfPlugin"
     }

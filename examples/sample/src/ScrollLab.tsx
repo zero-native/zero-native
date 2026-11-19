@@ -4,9 +4,9 @@
 //   b) a pager made of a horizontal List (pagingEnabled), with the page number from onMomentumScrollEnd
 //   c) a vertical Scroll that stops on section starts (snapToOffsets) with an event log and scrollTo buttons
 // The fling and the snap run natively; JS only hears the events it has handlers for.
-import { Column, List, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { Dimensions, nav, signal } from "@zero-native/core"
-import type { ScrollEvent, ScrollRef } from "@zero-native/ui"
+import { Column, List, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { Dimensions, nav, signal } from "@zeronative/core"
+import type { ScrollEvent, ScrollRef } from "@zeronative/ui"
 import { c } from "./tokens"
 
 const CARD_W = 240

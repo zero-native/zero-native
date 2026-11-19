@@ -1,5 +1,5 @@
 // The push plugin's JS side: Firebase Cloud Messaging. Native side: android/.../PushPlugin.kt. Notifications the app
-// shows itself are @zero-native/notifications (re-exported here, so old imports keep working).
+// shows itself are @zeronative/notifications (re-exported here, so old imports keep working).
 //
 // At the top of main.ts (a message can start the app with no screen, so these must be there before any screen):
 //
@@ -18,12 +18,12 @@
 // On a tap ("Turn on notifications"): `Push.requestPermission()` (the same as `Notifications.requestPermission()`).
 // Each call answers with a value and never rejects. With no Firebase (no google-services.json) Push says
 // `available: false`; Notifications still work.
-import { nativeModule, type CallOptions, type PermissionState } from "@zero-native/core"
-import { Notifications, PushEvents, type IosPermissionOptions, type PushMessage } from "@zero-native/notifications"
+import { nativeModule, type CallOptions, type PermissionState } from "@zeronative/core"
+import { Notifications, PushEvents, type IosPermissionOptions, type PushMessage } from "@zeronative/notifications"
 
-// Moved to @zero-native/notifications (2026-11-09): Notifications, PushEvents, their types and task names. Import them
-// from there in new code; this keeps old imports from "@zero-native/firebase-messaging" working.
-export * from "@zero-native/notifications"
+// Moved to @zeronative/notifications (2026-11-09): Notifications, PushEvents, their types and task names. Import them
+// from there in new code; this keeps old imports from "@zeronative/firebase-messaging" working.
+export * from "@zeronative/notifications"
 
 /** A tap on a notification FCM showed itself (a message with a `notification` block, app behind or closed). */
 export interface OpenedMessage {

@@ -13,7 +13,7 @@
 //     if (r.tag === orderId && r.status === "success") upload(r.pdf!.uri)
 //     ack()                                                              // after you acted on it; until then it comes again
 //   })
-import { createStorage, launches, nativeModule, type LaunchRecord } from "@zero-native/core"
+import { createStorage, launches, nativeModule, type LaunchRecord } from "@zeronative/core"
 
 /** One scanned page, a JPEG of ours. Pixels never enter JS. */
 export interface ScannedPage {

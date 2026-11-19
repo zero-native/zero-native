@@ -1,7 +1,7 @@
 // A dev screen for the webview plugin. The phone test (tools/plugin-phone/webview.ts) reads these lines and the log lines "webview-lab ...".
-import { nav, signal } from "@zero-native/core"
-import { Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { WebView, WebViewNative, webViewController } from "@zero-native/webview"
+import { nav, signal } from "@zeronative/core"
+import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { WebView, WebViewNative, webViewController } from "@zeronative/webview"
 import { c } from "./tokens"
 
 const SERVER = "http://localhost:8790" // tools/plugin-phone/webview-server.ts, through adb reverse

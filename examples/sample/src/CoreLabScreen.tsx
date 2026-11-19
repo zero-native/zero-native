@@ -1,8 +1,8 @@
 // A dev screen for the core parts plugins stand on: native screens and views, zn://file, background tasks, secure screens,
 // dark mode. The phone test reads these lines, and the log lines "core-lab ...", so keep their wording.
-import { Box, Column, Image, NativeView, Pressable, Scroll, Text } from "@zero-native/ui"
-import { colorScheme, nav, onLowMemory, Os, scheme, signal } from "@zero-native/core"
-import { Device } from "@zero-native/device-test"
+import { Box, Column, Image, NativeView, Pressable, Scroll, Text } from "@zeronative/ui"
+import { colorScheme, nav, onLowMemory, Os, scheme, signal } from "@zeronative/core"
+import { Device } from "@zeronative/device-test"
 import { c } from "./tokens"
 
 function CoreButton(props: { label: string; onPress: () => void }) {

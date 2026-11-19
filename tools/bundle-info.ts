@@ -22,7 +22,7 @@ export interface BundleRequires {
   registry: number
   /** Hermes bytecode format (must match exactly). */
   bytecode: number
-  /** Host API of the bundled `@zero-native/core`. */
+  /** Host API of the bundled `@zeronative/core`. */
   hostApi: number
   /** Native module name → lowest version needed, on both OSes. */
   modules: Record<string, number>
@@ -58,7 +58,7 @@ export interface BundleInfo {
    */
   serialTaken?: boolean
   /**
-   * Each needed module → the package it comes from ("@zero-native/core", "@zero-native/firebase-messaging", the app's
+   * Each needed module → the package it comes from ("@zeronative/core", "@zeronative/firebase-messaging", the app's
    * own plugin...), from the compiler. Only for the dashboard (core / zero-native plugins / the app's own): not signed,
    * not in `requires`, ignored by phones. Absent in bundles built before 2026-11-11.
    */

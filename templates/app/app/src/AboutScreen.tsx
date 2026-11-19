@@ -1,6 +1,6 @@
 // The second screen (route "about"). Its params come from nav.push("about", { from }) or from a link's query.
-import { Pressable, Text, View } from "@zero-native/ui"
-import { nav } from "@zero-native/core"
+import { Pressable, Text, View } from "@zeronative/ui"
+import { nav } from "@zeronative/core"
 import { s } from "./theme"
 
 export function AboutScreen(props: { from?: string }) {

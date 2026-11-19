@@ -1,4 +1,4 @@
-# @zero-native/document-scanner
+# @zeronative/document-scanner
 
 Google ML Kit's document scanner: the camera finds the page edges, the user crops, rotates and adds pages, and the app gets
 JPEG pages and / or one PDF, as short handles. Bytes never enter JS. Names follow `react-native-document-scanner-plugin`
@@ -18,7 +18,7 @@ implementation(project(":plugin-document-scanner"))
 ZnPlugins.register(this, DocumentScannerPlugin())   // dev.zeronative.plugins.documentscanner.DocumentScannerPlugin
 ```
 ```json
-"dependencies": { "@zero-native/document-scanner": "workspace:*" }
+"dependencies": { "@zeronative/document-scanner": "workspace:*" }
 ```
 
 Your Activity needs `ZnActivity.attach(this)` in `onCreate`, as every app with a launch does. No permission: the camera runs in
@@ -31,7 +31,7 @@ Play downloads it the first time an app on the phone needs it, and every app on 
 exception to our rule "bundle, don't download from Play" (Pavan, 2026-11-05; `docs/second-opinions.md` entry 139). So:
 
 - A phone with no Play services, a too-old one, or one that can't download (no space, no network) can't scan. **Do** always
-  give the user another way: type the numbers, or pick a photo with `@zero-native/media`.
+  give the user another way: type the numbers, or pick a photo with `@zeronative/media`.
 - **Do** check `getStatus()` before you show the scan button, and start `download()` early (for example when the screen
   before opens), so the module is there when the user taps.
 - Nothing here throws for a Play services problem. Each one is a status with a `reason`.
@@ -124,7 +124,7 @@ What happens underneath, step by step:
 
 **ML Kit has to be started before its Activity is rebuilt.** After a kill, Android starts a new process and first rebuilds ML
 Kit's invisible helper Activity (`GmsDocumentScanningDelegateActivity`), whose constructor needs ML Kit started. An app with
-`@zero-native/scanner` has ML Kit's start-up provider removed (for a fast app start), so this crashed ("MlKitContext has not
+`@zeronative/scanner` has ML Kit's start-up provider removed (for a fast app start), so this crashed ("MlKitContext has not
 been initialized") and the scan came back `lost` (found on the emulator, 2026-11-05). So the plugin keeps a marker file while the
 scanner is open. At app start, in `register`, it only checks whether that file exists, and starts ML Kit right then only if it
 does (12 ms in debug, 21 ms in release on the emulator). In a normal run ML Kit is started off the main thread before the
@@ -147,6 +147,6 @@ first status check or scan. **Do** register the plugin in `Application.onCreate`
 
 Measured in the sample's R8 release on 2026-11-05 (apkanalyzer, classes kept by R8): about 135 KB of uncompressed dex. That is
 ML Kit's client (`mlkit_vision_document_scanner` 115 KB, `vision.documentscanner` 12 KB) and the plugin (11 KB). The sample
-already had ML Kit's common code and Play's ModuleInstall classes (from `@zero-native/scanner`), so an app without the scanner
+already had ML Kit's common code and Play's ModuleInstall classes (from `@zeronative/scanner`), so an app without the scanner
 plugin pays a bit more. The compressed download size isn't measured. No R8 rule is needed: the release build scanned, restored a
 scan after a kill, and showed its pages on the emulator.

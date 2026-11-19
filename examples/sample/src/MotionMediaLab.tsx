@@ -5,8 +5,8 @@
 //   c) parallax: offer cards in a Carousel whose picture and text move at other speeds than the card, and a stacked deck
 //      of cards (the ones behind get smaller and sit lower) that both follow the Carousel's page number
 // The pinch, the drag, the zoom springs, the crosshair and the parallax run on the UI thread.
-import { Carousel, Column, Image, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import { clamp, computed, derive, nav, self, signal, useElementMotion, usePan, useZoom } from "@zero-native/core"
+import { Carousel, Column, Image, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import { clamp, computed, derive, nav, self, signal, useElementMotion, usePan, useZoom } from "@zeronative/core"
 import { c } from "./tokens"
 import { formatIndian } from "./money"
 

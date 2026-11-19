@@ -18,11 +18,10 @@ How to read the marks (`[check]` as in `README.md` of this folder; `[fact]` is t
   name `zero-native`, and both `zero-native.dev` and `zeronative.dev` point at its site (§3). So **`dev.zeronative`
   can't be proven for Maven Central** by us, and the unscoped npm name is gone.
 - **What we can use:** the GitHub org `zero-native` (ours). The npm scope `@zero-native` is taken by someone else, so
-  **Pavan made the npm org `zeronative` on 2026-11-19**: the packages will be `@zeronative/core`, `@zeronative/ui` and
-  so on. Where this file says `@zero-native/<name>` for a published package, read `@zeronative/<name>`; the code
-  still imports `@zero-native/*` until the rename (a decision for when we publish, §9).
+  **Pavan made the npm org `zeronative` on 2026-11-19**, and the code was renamed to `@zeronative/*` the same day
+  (§10 step 2): `@zeronative/core`, `@zeronative/ui` and so on.
 - **Publish three things with one version number**, from one git tag:
-  - 25 npm packages: core, template, ui, compiler, 20 plugins and a new `@zero-native/cli`;
+  - 25 npm packages: core, template, ui, compiler, 20 plugins and a new `@zeronative/cli`;
   - 20 Android libraries (AARs) on Maven Central: the runtime and 19 plugins;
   - one Swift package (SwiftPM). Hermes comes in it as a prebuilt XCFramework that we host.
 - **No CocoaPods.** CocoaPods trunk stops taking new pods on 2026-12-02 (§5.4).
@@ -35,23 +34,32 @@ How to read the marks (`[check]` as in `README.md` of this folder; `[fact]` is t
 [fact] read from every `package.json` on 2026-11-19. All are `"private": true`. The packages under `packages/` and `plugins/` are version `0.0.0`; the root, `server/`
 and `examples/sample/` have no version at all. None has
 `files`, `license`, `repository` or `publishConfig`. Each one's `main` is its TypeScript source (`src/index.ts`).
-Only `@zero-native/image-viewer` has `exports` (`.` and `./screen`).
+Only `@zeronative/image-viewer` has `exports` (`.` and `./screen`).
 
 | Package | Folder | Publish? | Notes |
 |---|---|---|---|
-| `@zero-native/core` | `packages/core` | yes | The compiler imports `@zero-native/core/src/host-api`, so `exports` must allow that path (or the compiler imports it another way). |
-| `@zero-native/template` | `packages/template` | yes | The registry. Needed by the compiler. |
-| `@zero-native/ui` | `packages/ui` | yes | |
-| `@zero-native/compiler` | `compiler` | yes | Uses Bun APIs (`BunPlugin`, `Bun.*`), so it runs on Bun only. |
-| `@zero-native/<plugin>` | `plugins/*` | 20 of 21 | Not `device-test` (it tests the sample). `markdown` is JS only. Each keeps its `zeroNative` field: the compiler reads it (`compiler/src/modules.ts`). |
-| `@zero-native/cli` (new) | from `tools/` | yes | `bin: { "zn": ... }`. Today `zn` is the root package's bin (`tools/zn.ts`), set up with `bun link`. |
-| `@zero-native/updates-server` | `server` | no | A server, not a library. A container image later, if people ask (§8). |
-| `@zero-native/example-sample` | `examples/sample` | no | |
+| `@zeronative/core` | `packages/core` | yes | The compiler imports `@zeronative/core/src/host-api`, so `exports` must allow that path (or the compiler imports it another way). |
+| `@zeronative/template` | `packages/template` | yes | The registry. Needed by the compiler. |
+| `@zeronative/ui` | `packages/ui` | yes | |
+| `@zeronative/compiler` | `compiler` | yes | Uses Bun APIs (`BunPlugin`, `Bun.*`), so it runs on Bun only. |
+| `@zeronative/<plugin>` | `plugins/*` | 20 of 21 | Not `device-test` (it tests the sample). `markdown` is JS only. Each keeps its `zeroNative` field: the compiler reads it (`compiler/src/modules.ts`). |
+| `@zeronative/cli` (new) | from `tools/` | yes | `bin: { "zn": ... }`. Today `zn` is the root package's bin (`tools/zn.ts`), set up with `bun link`. |
+| `@zeronative/updates-server` | `server` | no | A server, not a library. A container image later, if people ask (§8). |
+| `@zeronative/example-sample` | `examples/sample` | no | |
+
+**Done 2026-11-19 (§10 step 2):** every package above marked "yes" has `license`, `repository`, `files`,
+`publishConfig` and a README, and isn't `private`. The CLI is `tools/package.json` (the files stay where they are; its
+`files` list says which are published). `bun run tools/pack.ts` packs all 25 the way `npm publish` would send them and
+checks each one; CI runs it. Installed from those tarballs into an app outside the repo, `zn builtin` built the app,
+and the bundle was byte for byte the one the same app built from a checkout. Two things that test found, both fixed:
+plugins now write `zeroNative.platforms` (the npm package has no `ios/` folder to look at), and a package in the app's
+`node_modules` is named by its package in the bundle's comments, as a linked one is. `zn new`, `zn ota` and `zn server`
+still need a checkout. Versions stay `0.0.0` until the release script (step 5).
 
 What the CLI package must hold [fact, from `tools/zn.ts` and `tools/zn-build.ts`]:
 - `tools/zn.ts`, `zn-build.ts`, `zn-dev.ts`, `hermesc.ts`, `bundle-info.ts`, `tools/updates/` and `tools/ota/`. Today
   they find each other and the compiler by paths inside the repo (`import.meta.dir`, `../compiler/src`). In a package
-  they must import `@zero-native/compiler` instead.
+  they must import `@zeronative/compiler` instead.
 - `hermes-compiler` as a dependency, pinned **exactly** to `260318099.0.5`. [fact] npm has that version, and its
   `latest-v1` tag is already `260318099.0.8`. A range would let a newer `hermesc` in, and bytecode must match the
   Hermes in the app (`core/third_party/jsi/README.md`).
@@ -204,7 +212,7 @@ is `zn`; the docs must never tell people to run `npx zero-native`, which runs th
 ## 4. Accounts and who owns them
 | Account | What for | Owner |
 |---|---|---|
-| npm org `zero-native` | publishing `@zero-native/*` | Pavan as owner, plus one more human owner so a lost phone (2FA) doesn't lock the project |
+| npm org `zero-native` | publishing `@zeronative/*` | Pavan as owner, plus one more human owner so a lost phone (2FA) doesn't lock the project |
 | Sonatype Central Portal | the Maven namespace and its publishing token | Pavan. Add a second publisher to the namespace later |
 | GPG key | signing Maven files | a key for the project (not a personal everyday key), its public half on `keys.openpgp.org` and `keyserver.ubuntu.com` |
 | GitHub org `zero-native` | the repo, Releases (the Hermes zip), Actions | Pavan (already) |
@@ -284,11 +292,11 @@ manifest, keeps only the iOS slices, zips it, prints the checksum and uploads th
 published; a test tag on a fork for SwiftPM.
 
 ## 8. What changes for app authors once published
-- **README, Quick start:** a new app comes from `bunx @zero-native/cli new my-app` (or `bun create zero-native`, which
+- **README, Quick start:** a new app comes from `bunx @zeronative/cli new my-app` (or `bun create zero-native`, which
   needs the free name `create-zero-native`). The "Status" line says the packages are on npm, Maven Central and
   SwiftPM, at version 0.x. Building from this repo moves to a "Work on the framework" part.
 - **`guide-notes.md` §34:** the composite build and `bun link` become the way to work on the framework, not the way to
-  use it. An app's `package.json` gets `"@zero-native/core": "0.1.0"` and a dev dependency on `@zero-native/cli`, so
+  use it. An app's `package.json` gets `"@zeronative/core": "0.1.0"` and a dev dependency on `@zeronative/cli`, so
   `zn` comes from `node_modules/.bin`. No `bun link` per computer: this also fixes the weak part of
   `second-opinions.md` entry 17 (CI needs no setup).
 - **Android app:** `implementation("<group>:runtime:0.1.0")` and `implementation("<group>:plugin-scanner:0.1.0")`,
@@ -299,7 +307,7 @@ published; a test tag on a fork for SwiftPM.
   Xcode project from a template instead. Making that template is part of the work (§10, step 6).
 - **`zn new` does not exist yet** [fact: not in `tools/zn.ts`]. It would write: `app/src/main.ts` with one screen, the
   Android host (Gradle files with the pinned AGP, Kotlin and wrapper versions, `firebase.gradle.kts` copied), the iOS
-  host, `zn-updates.json`, and a `package.json` with every `@zero-native/*` version equal to the CLI's own.
+  host, `zn-updates.json`, and a `package.json` with every `@zeronative/*` version equal to the CLI's own.
 - **zn-updates server:** stays "run it from the repo" for 0.1. A container image on GHCR later if people ask.
 
 ## 9. Decisions only Pavan can make
@@ -309,9 +317,8 @@ Each with a recommended answer.
    `.dev` domains, though its project is now "Native SDK". **Recommended:** keep it. Use only the scoped npm names, the
    GitHub org and the `zn` command, and never the unscoped name. Trademarks were not searched [check]; ask a lawyer
    if Vercel objects.
-2. **Is the npm scope `@zero-native` yours?** It exists with no public packages. Look at npmjs.com → your account →
-   Organizations. **Recommended:** if it is yours, use it and add a second owner. If not, ask npm support whether it
-   is claimed by the other project; if it is, use `@zeronative` (free today).
+2. ~~Is the npm scope `@zero-native` yours?~~ **Decided 2026-11-19:** it isn't; Pavan made the npm org `zeronative`,
+   and the code uses `@zeronative/*`. Still to do: a second owner on the org.
 3. **The Maven group.** `dev.zeronative` is out of reach. **Recommended:** buy a domain (for example `zeronative.io`
    or `zero-native.org`, if a registrar says it is free), use group `io.zeronative` (or `org.zero-native`), and keep
    the Kotlin packages `dev.zeronative.*` for now. Fallback with no money and no wait: `io.github.<your login>`, but it
@@ -337,7 +344,7 @@ Days are focused working days, one engineer with AI, **target** (not measured).
 | # | Step | Days | Done when |
 |---|---|---|---|
 | 1 | Pavan: decisions 1–4 (§9); make or confirm the npm org, the Central account and namespace, the GPG key | 0.5 (plus DNS wait) | the namespace shows "verified" in the Central Portal |
-| 2 | npm: package fields (`version`, `files`, `license`, `repository`, `exports`, `publishConfig`), the core deep import, `@zero-native/cli` out of `tools/` | 2–3 | `npm pack` of each, installed in a new app outside the repo, builds a bundle with `zn builtin` |
+| 2 ✓ | npm: package fields (`version`, `files`, `license`, `repository`, `exports`, `publishConfig`), the core deep import, `@zeronative/cli` out of `tools/` | 2–3 | `npm pack` of each, installed in a new app outside the repo, builds a bundle with `zn builtin` |
 | 3 | Maven: one shared publishing setup for the runtime and 19 plugins, POM data, signing | 2–3 | an outside app builds from `mavenLocal()` with no `includeBuild` (needs a machine with the Android SDK; this Mac has none) |
 | 4 | SwiftPM: `public` API, plugin targets with `import ZnRuntime`, `ZnCore` with MMKV, Hermes headers, the Hermes zip release, `Package.swift`; the sample builds from it | 5–8 | the sample from the package runs on the simulator with the same screens as the CMake build |
 | 5 | The version check script, `release.yml`, `hermes-release.yml`, the dry run (§7) | 2 | a fork's test tag goes green end to end |

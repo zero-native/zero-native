@@ -164,7 +164,7 @@ export const routes = defineRoutes({
   amount:  { path: "/pay/:merchantId", screen: AmountScreen, deepLink: true },
   receipt: { path: "/receipt/:ztc", screen: ReceiptScreen, transition: "modal", safeArea: { top: false }, statusBar: "light" },
 })
-declare module "@zero-native/core" { interface Register { routes: typeof routes } }   // typed nav.push
+declare module "@zeronative/core" { interface Register { routes: typeof routes } }   // typed nav.push
 ```
 - One `"/"` route: where the app starts. Order in the file = route number at runtime; don't reorder routes in an app
   that has OTA bundles in the field (planned rule, milestone 3).
@@ -468,7 +468,7 @@ function Card(props: { header: Children; children?: Children }) {
 <Card header={<Text>Who</Text>}><TextField ... /><TextField ... /></Card>
 ```
 - **Do:** pass content into layout components (cards, sections, screen frames) as children or JSX props, and show it
-  with `{props.children}` / `{props.header}`. Type them as `Children` from `@zero-native/ui`.
+  with `{props.children}` / `{props.header}`. Type them as `Children` from `@zeronative/ui`.
 - **Do:** return `<>...</>` when a component is just a few siblings; they join the parent's layout (its gap, its
   alignment) with no extra box.
 - **Do:** style part of a sentence with nested `<Text>`: `Pay <Text fontWeight="bold">₹400</Text> now`. It is one
@@ -501,7 +501,7 @@ function Card(props: { header: Children; children?: Children }) {
   `sms-otp` on an OTP field, `email`, `name`, `password`. **Why:** it is the Android autofill hint, so the keyboard or
   the phone's autofill service can offer the saved number or the code from the SMS. `textContentType` (iOS) is
   accepted and ignored, as in RN. **Know:** what is offered is up to the phone (its keyboard and autofill service), not
-  the app; the field always works by typing. For OTP login, SMS Retriever (`@zero-native/android-play-auth`) fills the code with no
+  the app; the field always works by typing. For OTP login, SMS Retriever (`@zeronative/android-play-auth`) fills the code with no
   tap at all; `sms-otp` is the fallback for SMSes without the app's hash. Credit card hints are not offered.
   **Know:** a field with a hint and `autoFocus` focuses after the screen has slid in (about 300 ms later), so autofill
   sees it in its place (second-opinions 145).
@@ -963,7 +963,7 @@ bun run ota serve                                    the reference update server
 - **Why:** an update must never be the reason a user can't take a photo or receive an OTP.
 
 ### Finding the TSX line of a release crash (step 4.8, docs/ota.md §3.7)
-- **Do:** wire Crashlytics once in your `Application` (since 2026-11-04 `@zero-native/firebase-crashlytics` does all of this by
+- **Do:** wire Crashlytics once in your `Application` (since 2026-11-04 `@zeronative/firebase-crashlytics` does all of this by
   itself, §46; the lines below are for an app without the plugin):
   ```kotlin
   ZnRuntime.onJsError = { e ->
@@ -1000,7 +1000,7 @@ bun run ota serve                                    the reference update server
 
 ## 29. Knowing when the user comes back (H.7)
 ```tsx
-import { appState, onAppState } from "@zero-native/core"
+import { appState, onAppState } from "@zeronative/core"
 
 onAppState((state) => {
   if (state === "active") checkPaymentStatus()
@@ -1022,7 +1022,7 @@ A plugin adds a native feature: a TS API plus an Android library, in one package
 smallest full plugin. Native views and native screens are built too (§35, `docs/plugins.md`).
 ```
 plugins/my-plugin/
-  package.json     name, "main": "src/index.ts", peerDependencies on @zero-native/core
+  package.json     name, "main": "src/index.ts", peerDependencies on @zeronative/core
   src/index.ts     nativeModule<MyModule>("My", { version: 1 })
   test/            JS tests with core's fake host
   android/         a Gradle library that depends on project(":runtime")
@@ -1142,7 +1142,7 @@ if (camera === "blocked") Os.openSettings()
 ```
 - Each permission must be in a manifest (a plugin's own counts). If not, the call fails with `not_declared`.
 - **Do:** list what you use in the app's `AndroidManifest.xml`. A plugin's manifest already brings its own (the scanner
-  brings the camera, `@zero-native/location` both location lines), so with a plugin you add nothing.
+  brings the camera, `@zeronative/location` both location lines), so with a plugin you add nothing.
   ```xml
   <uses-permission android:name="android.permission.CAMERA" />                <!-- "camera" -->
   <uses-permission android:name="android.permission.READ_CONTACTS" />         <!-- "contacts" -->
@@ -1163,7 +1163,7 @@ if (camera === "blocked") Os.openSettings()
 - **Know:** closing the dialog with no answer stays `denied`, not `blocked`. `status` shows `denied` for a permission never asked for.
 - **`location`** asks for precise and approximate together, and is `granted` if the user gave either. `"location.precise"`
   in the answer says if precise was given too. **Why:** Android 12+ ignores a request for precise alone, and the user
-  may pick "approximate". For fixes, prefer `@zero-native/location` (§45): it answers `{ permission, precise }`.
+  may pick "approximate". For fixes, prefer `@zeronative/location` (§45): it answers `{ permission, precise }`.
   (Changed 2026-11-04; before, `location` asked for precise only.)
 - Errors: `busy` (a request is open), `no_activity`, `not_declared`.
 
@@ -1237,15 +1237,16 @@ plugin versions from this repo's `android/`: **do** keep them equal to the frame
 
 **JS.** Depend on the packages by their folder (what `zn new` writes; `bun install` makes a link to the folder):
 ```json
-"dependencies": { "@zero-native/core": "link:../zero-native/packages/core", "@zero-native/ui": "link:../zero-native/packages/ui" },
+"dependencies": { "@zeronative/core": "link:../zero-native/packages/core", "@zeronative/ui": "link:../zero-native/packages/ui" },
 "scripts": {
   "app:js": "bun run ../zero-native/tools/zn-build.ts app --name myapp --assets android/app/src/main/assets",
   "app:js:ios": "bun run ../zero-native/tools/zn-build.ts app --name myapp --assets ios/bundle"
 }
 ```
 Or link them once on each computer (`bun link --cwd <zero-native>/packages/core`, the same for `ui`) and depend on
-`"link:@zero-native/core"`. **Know:** a global link points at the checkout that ran `bun link` last, which may not be the
-one your Gradle and CMake builds use.
+`"link:@zeronative/core"`. **Know:** a global link points at the checkout that ran `bun link` last, which may not be the
+one your Gradle and CMake builds use. The scope was `@zero-native` until 2026-11-19: after pulling the rename, run
+`bun link` again in each package the app uses, and change the app's imports and `link:` names to `@zeronative`.
 `--name` becomes the bundle's app name; keep it the same as the OTA `app` name. **[check]** `bun run tools/zn-dev.ts <appDir>` should give
 live reload, but it isn't tried from an outside app yet, and the host needs the sample's cleartext rule for `127.0.0.1`.
 
@@ -1394,21 +1395,21 @@ All are opt-in. An app adds one Gradle line and one `register` call, and pays no
 
 | Plugin | What | Adds to the APK |
 |---|---|---|
-| `@zero-native/scanner` | QR and barcodes: full screen `scanner.full`, view `QrScanner` | CameraX, bundled ML Kit: the biggest, about 5 MB of native code on arm64 |
-| `@zero-native/media` | Pick and take photos, pick files, compress, rotate, crop by numbers | Almost nothing |
-| `@zero-native/android-play-auth` | Phone number hint, OTP auto-read | Play services auth |
-| `@zero-native/webview` | A web page in a screen, with a list of allowed hosts | `androidx.webkit` |
-| `@zero-native/pdf` | Download and cache a PDF, a card preview, a viewer with zoom (§44) | Nothing: Android's own PdfRenderer, about 15 KB |
-| `@zero-native/location` | The phone's position, "Turn on location" dialog, address from coordinates (§45) | About 50 KB (Android's own LocationManager; Play services only for the dialog) |
-| `@zero-native/firebase-app` | The base every Firebase plugin stands on: one Firebase version, one Gradle file, `Firebase.app()`, Installations (§49) | No size of its own is measured; the Firebase plugins below show their sizes on top of it |
-| `@zero-native/firebase-crashlytics` | Kotlin crashes, JS errors as non-fatals, OTA outcomes, bundle and route keys (§46) | About 232 KB; native (C++) crashes are +1.30 MB more, opt-in |
-| `@zero-native/firebase-analytics` | Google Analytics for Firebase, a `screen_view` per route; on from the first start (§50) | About 0.44 MB |
-| `@zero-native/notifications` | Notifications the app shows itself (buttons, progress, schedules), taps that open a route; `PushEvents` for any push service. No Firebase (§52, §53, §81) | Not measured on its own (most of push's 54 KB before the split) |
-| `@zero-native/firebase-messaging` | FCM messages as a JS task, the OTA check push; adds `@zero-native/notifications` (§48, §51, §81) | About 54 KB on top of Crashlytics, with notifications (2026-11-04) |
-| `@zero-native/firebase-remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
-| `@zero-native/firebase-perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
-| `@zero-native/lottie` | Lottie animations (`.json`, `.lottie`) with lottie-react-native's names and `ref` methods (§57) | About 85 KB (lottie-compose, bundled) |
-| `@zero-native/document-scanner` | Google ML Kit's document scanner: pages as JPEG and / or a PDF, results that survive a kill (§60) | About 135 KB of code; the scanner itself is a Play services download, not in the APK |
+| `@zeronative/scanner` | QR and barcodes: full screen `scanner.full`, view `QrScanner` | CameraX, bundled ML Kit: the biggest, about 5 MB of native code on arm64 |
+| `@zeronative/media` | Pick and take photos, pick files, compress, rotate, crop by numbers | Almost nothing |
+| `@zeronative/android-play-auth` | Phone number hint, OTP auto-read | Play services auth |
+| `@zeronative/webview` | A web page in a screen, with a list of allowed hosts | `androidx.webkit` |
+| `@zeronative/pdf` | Download and cache a PDF, a card preview, a viewer with zoom (§44) | Nothing: Android's own PdfRenderer, about 15 KB |
+| `@zeronative/location` | The phone's position, "Turn on location" dialog, address from coordinates (§45) | About 50 KB (Android's own LocationManager; Play services only for the dialog) |
+| `@zeronative/firebase-app` | The base every Firebase plugin stands on: one Firebase version, one Gradle file, `Firebase.app()`, Installations (§49) | No size of its own is measured; the Firebase plugins below show their sizes on top of it |
+| `@zeronative/firebase-crashlytics` | Kotlin crashes, JS errors as non-fatals, OTA outcomes, bundle and route keys (§46) | About 232 KB; native (C++) crashes are +1.30 MB more, opt-in |
+| `@zeronative/firebase-analytics` | Google Analytics for Firebase, a `screen_view` per route; on from the first start (§50) | About 0.44 MB |
+| `@zeronative/notifications` | Notifications the app shows itself (buttons, progress, schedules), taps that open a route; `PushEvents` for any push service. No Firebase (§52, §53, §81) | Not measured on its own (most of push's 54 KB before the split) |
+| `@zeronative/firebase-messaging` | FCM messages as a JS task, the OTA check push; adds `@zeronative/notifications` (§48, §51, §81) | About 54 KB on top of Crashlytics, with notifications (2026-11-04) |
+| `@zeronative/firebase-remote-config` | Firebase Remote Config with RN Firebase's API (§54) | About 0.06 MB (with push v2) |
+| `@zeronative/firebase-perf` | Firebase Performance: app start, every `fetch` and every screen traced by themselves (§55) | About 0.14 MB |
+| `@zeronative/lottie` | Lottie animations (`.json`, `.lottie`) with lottie-react-native's names and `ref` methods (§57) | About 85 KB (lottie-compose, bundled) |
+| `@zeronative/document-scanner` | Google ML Kit's document scanner: pages as JPEG and / or a PDF, results that survive a kill (§60) | About 135 KB of code; the scanner itself is a Play services download, not in the APK |
 
 **Scanner.**
 - **Do** give the route `safeArea: "none"`. The camera runs under the status bar.
@@ -1449,7 +1450,7 @@ steps the user should be able to go back through.
 
 ## 39. React Native's small APIs, with their RN names (RN basics pack)
 
-Import them from `@zero-native/core` (not `react-native`, `@react-native-clipboard/clipboard` or
+Import them from `@zeronative/core` (not `react-native`, `@react-native-clipboard/clipboard` or
 `@react-native-community/netinfo`). The rest of the line stays as it was. The table with each one's status is in
 [rn-compatibility.md](rn-compatibility.md).
 
@@ -1544,8 +1545,8 @@ framework has no stock bar, so it looks like your app (badges, a raised Scan but
 home: { path: "/", screen: HomeScreen, tabs: ["pay", "stores", "offers", "rewards"], deepLink: true },
 ```
 ```tsx
-import { useTabs, type TabsHandle } from "@zero-native/core"
-import { Column, Tabs } from "@zero-native/ui"
+import { useTabs, type TabsHandle } from "@zeronative/core"
+import { Column, Tabs } from "@zeronative/ui"
 
 type HomeTab = "pay" | "stores" | "offers" | "rewards"
 
@@ -1630,7 +1631,7 @@ async function refresh() {
 ```
 React Native's shape works too, so a ported screen keeps its code:
 ```tsx
-import { RefreshControl } from "@zero-native/ui"
+import { RefreshControl } from "@zeronative/ui"
 <List ... refreshControl={<RefreshControl refreshing={refreshing()} onRefresh={onRefresh} colors={[PRIMARY]} tintColor={PRIMARY} />} />
 ```
 The compiler turns it into the props above: `colors[0]` (or `tintColor` when there is no `colors`) becomes
@@ -1877,7 +1878,7 @@ change: 14).
 - A pinned row stays mounted wherever the list is, so it never shows as a placeholder.
 - **Know:** only on `List`, not on `Scroll`.
 
-## 44. PDFs (`@zero-native/pdf`)
+## 44. PDFs (`@zeronative/pdf`)
 
 `Pdf.download` puts a PDF in the cache folder and gives a `zn://file` handle. `<PdfPreview>` shows one page on a card;
 `<PdfView>` shows every page with scroll and zoom. Drawing is Android's own PdfRenderer. The README has the API and limits.
@@ -1903,7 +1904,7 @@ change: 14).
 - **Know:** a PDF that crashes pdfium kills the app, and no code can catch that. **Do** show PDFs only from servers you trust.
 - **Know:** a password PDF is `reason: "password"`. There is no way to type the password.
 
-## 45. Location (`@zero-native/location`)
+## 45. Location (`@zeronative/location`)
 
 The phone's location from Android's own `LocationManager`; Play services only for Google's "Turn on location" dialog. API
 and limits: `plugins/location/README.md`.
@@ -1935,7 +1936,7 @@ and limits: `plugins/location/README.md`.
   its answers by rounded coordinates.
 - **Don't** log coordinates or addresses. The plugin never does.
 
-## 46. Crashlytics (`@zero-native/firebase-crashlytics`)
+## 46. Crashlytics (`@zeronative/firebase-crashlytics`)
 
 Firebase Crashlytics: Kotlin crashes, every JS error as a non-fatal, OTA outcomes, and keys for the bundle and the top
 route, with no JS code. API, Gradle lines and size: `plugins/firebase-crashlytics/README.md`.
@@ -2029,7 +2030,7 @@ sample's bundle is byte for byte the same. Code: [compile.ts:229](../compiler/sr
 - **Know:** a compiler pass that makes one template per call-site size ("G3") was planned and dropped (second-opinions
   100). If free-number sizes keep coming up, the fix that fits the design is runtime `width` / `height` in native.
 
-## 48. Push and notifications (`@zero-native/firebase-messaging`)
+## 48. Push and notifications (`@zeronative/firebase-messaging`)
 
 FCM messages as a JS task, and notifications the app shows itself (channels, pictures, groups, taps that open a route).
 API and rules: `plugins/firebase-messaging/README.md`.
@@ -2054,7 +2055,7 @@ API and rules: `plugins/firebase-messaging/README.md`.
   2026-11-09 `dev.zeronative.push.small_icon`, and FCM's
   `default_notification_icon`). **Why:** Android draws the app icon as a white square in the status bar.
 
-## 49. Firebase base (`@zero-native/firebase-app`)
+## 49. Firebase base (`@zeronative/firebase-app`)
 
 Every Firebase plugin stands on it (RN Firebase's `app` module, `plugins/firebase-app/README.md`): the one Firebase
 version, one Gradle file for the app, `Firebase.app()` and Installations.
@@ -2068,7 +2069,7 @@ version, one Gradle file for the app, `Firebase.app()` and Installations.
   `Firebase.setDataCollectionDefault(true)`. **Why:** Firebase starts before JS, so JS alone is too late for the first
   launch.
 
-## 50. Analytics (`@zero-native/firebase-analytics`)
+## 50. Analytics (`@zeronative/firebase-analytics`)
 
 Google Analytics for Firebase with RN Firebase's API. On from the first start, as in RN Firebase; a `screen_view`
 per route by itself. API, Gradle lines and size: `plugins/firebase-analytics/README.md`.
@@ -2095,7 +2096,7 @@ per route by itself. API, Gradle lines and size: `plugins/firebase-analytics/REA
 - **Know:** booleans in parameters are sent as 1 or 0. Events reach the console about an hour later; DebugView shows
   them at once with `adb shell setprop debug.firebase.analytics.app <package>`.
 
-## 51. Push: taps on FCM's notifications, auto-init, the OTA check push (`@zero-native/firebase-messaging`, native version 2)
+## 51. Push: taps on FCM's notifications, auto-init, the OTA check push (`@zeronative/firebase-messaging`, native version 2)
 
 RN Firebase's `messaging()` calls the push plugin had not covered in §48. API: `plugins/firebase-messaging/README.md`.
 
@@ -2112,7 +2113,7 @@ RN Firebase's `messaging()` calls the push plugin had not covered in §48. API: 
 - **Do** turn FCM's auto-init off (`firebase_messaging_auto_init_enabled=false` in the manifest) if a token must wait
   for consent, then call `Push.setAutoInitEnabled(true)` or `getToken()`. Firebase keeps it across starts.
 
-## 52. Notifications part 1: buttons, progress, lists (`@zero-native/firebase-messaging`, Notifications native version 2)
+## 52. Notifications part 1: buttons, progress, lists (`@zeronative/firebase-messaging`, Notifications native version 2)
 
 notifee-like options on `Notifications.show`, a button task, channel groups and lists. API: `plugins/firebase-messaging/README.md`.
 
@@ -2131,7 +2132,7 @@ notifee-like options on `Notifications.show`, a button task, channel groups and 
   they turned it off. Open the settings with core's `Os.openSettings()`.
 - **Know:** Android shows 3 buttons and 6 inbox lines at most; the plugin drops the rest.
 
-## 53. Notifications part 2: scheduled notifications (`@zero-native/firebase-messaging`, Notifications native version 2)
+## 53. Notifications part 2: scheduled notifications (`@zeronative/firebase-messaging`, Notifications native version 2)
 
 `Notifications.schedule(options, { at, repeat?, exact? })` shows a notification later with no JS. API and the boot
 receiver lines: `plugins/firebase-messaging/README.md`.
@@ -2147,7 +2148,7 @@ receiver lines: `plugins/firebase-messaging/README.md`.
 - **Do** use the same id to move a reminder: scheduling an id again replaces it.
 - **Know:** a scheduled notification's options are saved on the phone until it shows. Put no private data in them.
 
-## 54. Remote Config (`@zero-native/firebase-remote-config`)
+## 54. Remote Config (`@zeronative/firebase-remote-config`)
 
 Firebase Remote Config with RN Firebase's API; reads need no call. API: `plugins/firebase-remote-config/README.md`.
 
@@ -2160,7 +2161,7 @@ Firebase Remote Config with RN Firebase's API; reads need no call. API: `plugins
 - **Know:** `onConfigUpdated` keeps a connection open while you listen; updates arrive in seconds to a minute or two.
   Call `activate()` in the handler when the new values may be used at once.
 
-## 55. Performance (`@zero-native/firebase-perf`)
+## 55. Performance (`@zeronative/firebase-perf`)
 
 Firebase Performance Monitoring: the app start, every `fetch` and every screen traced by themselves; custom traces from
 JS. API: `plugins/firebase-perf/README.md`.
@@ -2188,7 +2189,7 @@ JS. API: `plugins/firebase-perf/README.md`.
 Since 2026-11-05 a lot of RN code builds as written (RN-compat sweep, second-opinions 115–119). The full list, row by
 row: [rn-compatibility.md](rn-compatibility.md). The lab screen `zn://sample/dev/rn-names` uses them all.
 
-- **Know:** these RN names work. From `@zero-native/ui`: `View` (a `Column`, or a `Row` when its style has
+- **Know:** these RN names work. From `@zeronative/ui`: `View` (a `Column`, or a `Row` when its style has
   `flexDirection: "row"` known at build time), `FlatList` (`renderItem={({ item, index }) => ...}`, `keyExtractor`),
   `TouchableOpacity`, `TouchableHighlight`, `TouchableWithoutFeedback`, `ActivityIndicator`, `StyleSheet.flatten`,
   `StyleSheet.hairlineWidth`. Props: `Image source={{ uri }} resizeMode`, `Switch trackColor={{ false, true }}`,
@@ -2196,7 +2197,7 @@ row: [rn-compatibility.md](rn-compatibility.md). The lab screen `zn://sample/dev
   `aria-hidden`, `importantForAccessibility`. Styles: `marginLeft` / `Right`, `paddingLeft` / `Right`, `left`,
   `right`, `flexGrow`, `flexShrink` 0 / 1, `flexBasis` 0 / `"auto"`, `rowGap`, `columnGap`, `width: "auto"`,
   `aspectRatio: "16/9"`, `textAlign: "left" / "right"`, the 148 CSS colour names and `hsl()`. From
-  `@zero-native/core`: `useFocusEffect`, `useCallback`, `useRef`, `useNavigation`, `useRoute`, `AsyncStorage`,
+  `@zeronative/core`: `useFocusEffect`, `useCallback`, `useRef`, `useNavigation`, `useRoute`, `AsyncStorage`,
   `BackHandler`, `Appearance`, `useColorScheme`; `setImmediate` is a global.
 - **Do** use zn's own names in new code (`Column`, `List row`, `Pressable`, `marginStart`, `nav.push`). **Why:** they
   say what zn does; the RN names are there so ported code builds without a rewrite.
@@ -2231,18 +2232,18 @@ row: [rn-compatibility.md](rn-compatibility.md). The lab screen `zn://sample/dev
   - A `transform` list whose RN order would draw differently from zn's (zn always moves, then rotates, then
     scales): for example a `scale` before a `translateX`, or a key twice.
   - A prop the element's type doesn't have (`<Image horizontal>`, `<Text value>`), checked from the types in
-    `@zero-native/ui` (`bun run gen:tag-props` after changing them, see adding-components.md).
+    `@zeronative/ui` (`bun run gen:tag-props` after changing them, see adding-components.md).
   - `flexDirection` on anything but `View`; a runtime `flexDirection`; `textAlign: "justify"`.
-  - A tag imported from `@zero-native/ui` that zn doesn't have (`SafeAreaView`, `ScrollView`, `TextInput`, ...),
+  - A tag imported from `@zeronative/ui` that zn doesn't have (`SafeAreaView`, `ScrollView`, `TextInput`, ...),
     with what to use. Before, the import was removed and the screen crashed at run time.
 - **Still build errors on purpose:** `SafeAreaView`, `KeyboardAvoidingView` (route options do it: `safeArea`,
   `keyboard`), `numColumns`, `ListEmptyComponent`, `require("./img.png")`.
 
-## 57. Lottie animations (`@zero-native/lottie`)
+## 57. Lottie animations (`@zeronative/lottie`)
 
 `<LottieView>` keeps lottie-react-native's names: `source`, `autoPlay`, `loop`, `speed`, `progress`, `resizeMode`,
 `colorFilters`, `onAnimationFinish`, `onAnimationFailure`, `onAnimationLoaded`, and `ref` with `play`, `pause`,
-`resume`, `reset`. `import LottieView from "@zero-native/lottie"` works as in RN. Drawing is Airbnb's lottie-compose,
+`resume`, `reset`. `import LottieView from "@zeronative/lottie"` works as in RN. Drawing is Airbnb's lottie-compose,
 inside the APK. The README has the API, the limits and the size (+85 KB). Code:
 [LottieView.kt](../plugins/lottie/android/src/main/java/dev/zeronative/plugins/lottie/LottieView.kt),
 [LottieRules.kt](../plugins/lottie/android/src/main/java/dev/zeronative/plugins/lottie/LottieRules.kt),
@@ -2276,7 +2277,7 @@ inside the APK. The README has the API, the limits and the size (+85 KB). Code:
 - **Know:** not supported: `imageAssetsFolder`, `textFiltersAndroid`, `duration`, `onAnimationLoop`, `onLayout`,
   `containerStyle`. Images inside the file (base64, or inside a `.lottie`) work.
 
-## 58. Markdown from the server (`@zero-native/markdown`)
+## 58. Markdown from the server (`@zeronative/markdown`)
 
 JS only, opt-in: add the package, nothing native ([README](../plugins/markdown/README.md), second-opinions 133–135).
 Built on the runtime text spans of registry 16 (§18). Lab: `zn://sample/dev/markdown`.
@@ -2317,7 +2318,7 @@ Built on the runtime text spans of registry 16 (§18). Lab: `zn://sample/dev/mar
   (looks only, no custom components). Note: the RN view's default link ignored `onLinkPress` and always called
   `Linking.openURL`; here a link does only what `onLinkPress` does.
 
-## 59. Full-screen photos (`@zero-native/image-viewer`)
+## 59. Full-screen photos (`@zeronative/image-viewer`)
 
 ```ts
 imageViewer: { path: "/image-viewer", native: "imageviewer.full", safeArea: "none", transition: "fade" },  // routes.ts
@@ -2349,7 +2350,7 @@ imageViewer: { path: "/image-viewer", native: "imageviewer.full", safeArea: "non
 - **Know (RN):** react-native-image-viewing's `visible` / `onRequestClose` become the promise. `HeaderComponent`,
   `FooterComponent` and `onLongPress` have no twin: the screen is native, so it takes no JSX.
 
-## 60. Document scanner (`@zero-native/document-scanner`)
+## 60. Document scanner (`@zeronative/document-scanner`)
 
 Google ML Kit's document scanner: the camera finds the page, the user crops, rotates and adds pages, and the app gets JPEG
 pages and / or one PDF as `zn://file` handles plus `file://` uris. Names follow `react-native-document-scanner-plugin`
@@ -2367,7 +2368,7 @@ DocumentScanner.onResult((r, ack) => { if (r.tag === orderId) use(r); ack() })  
 "bundle, don't download from Play" (second-opinions 139).
 - **Do** call `getStatus()` before you show the scan button, and `download()` early when it says `not_downloaded`. **Why:** the
   first scan on a phone otherwise waits for Play's download, or answers `unavailable` / `not_downloaded`.
-- **Do** always keep another way in: typing the numbers, or picking a photo with `@zero-native/media`. **Why:** a phone with no
+- **Do** always keep another way in: typing the numbers, or picking a photo with `@zeronative/media`. **Why:** a phone with no
   Play services, an old one, a full one or one with no network can't get the scanner. Every such case is a status
   (`unavailable` or `failed`) with a `reason`, never a throw.
 - **Do** show progress from `onStatus` while `status` is `downloading`. **Know:** only a download this app started in this run
@@ -2397,7 +2398,7 @@ DocumentScanner.onResult((r, ack) => { if (r.tag === orderId) use(r); ack() })  
 - **Know:** no camera permission is needed: the camera runs in Play services. The scanner's look and words are Google's.
 - **Plugin authors, know:** an ML Kit (or Play) flow that runs one of the library's own Activities in your app's process can crash
   after a kill. Android rebuilds that Activity in the new process before any of your code runs except `Application.onCreate`.
-  Here ML Kit's helper Activity needs ML Kit started, and `@zero-native/scanner` removes ML Kit's start-up provider. **Do**
+  Here ML Kit's helper Activity needs ML Kit started, and `@zeronative/scanner` removes ML Kit's start-up provider. **Do**
   what this plugin does: a marker file while the flow is open, and in `register` start the library only if the file exists.
   **Why:** a check of one file costs almost nothing at every start, while starting ML Kit at every start would slow every app.
   **Do** test the kill path with `am kill` while the other screen is open; "Don't keep activities" alone keeps the process, so
@@ -2505,9 +2506,9 @@ const r = await Auth.listenForOtp(); if (r.code) otp.current?.setValue(r.code)  
   error. `style` on `<OtpInput>` is too: use `theme.containerStyle`, as RN. `textProps` isn't supported.
 - **Know:** with autoFocus the keyboard opens after the screen has slid in (§19), so the "Auto-fill code" offer works.
 
-## 63. Device info (`@zero-native/device-info`) and native constants
+## 63. Device info (`@zeronative/device-info`) and native constants
 ```ts
-import DeviceInfo from "@zero-native/device-info"
+import DeviceInfo from "@zeronative/device-info"
 const BASE_URL = DeviceInfo.getBundleId() === "com.example.app" ? PROD_URL : DEV_URL   // module level: fine
 const level = await DeviceInfo.getBatteryLevel()
 ```
@@ -2585,7 +2586,7 @@ ZnSplash.holdUntilReady(this)            // MainActivity.onCreate, after setCont
     (ZeroBill: its 400 ms slow-network mark), and show your own screen past that.
   - Logs: `splash: held until the app said ready, N ms after the first screens`, or `... hit its maxMs`.
 
-## 67. The advertising id (`@zero-native/android-ad-id`, for ad attribution)
+## 67. The advertising id (`@zeronative/android-ad-id`, for ad attribution)
 ```ts
 const { id, limitAdTracking } = await AdId.get()   // never rejects; id null when there is none
 ```
@@ -2637,8 +2638,8 @@ function Home() {
 ## 71. `<Canvas>` primitive: runtime drawing without Skia (registry 23)
 Corrected 2026-11-08 after review: the first text showed `draw()` as a function and claimed "zero recompositions".
 ```tsx
-import { draw } from "@zero-native/core"
-import { Canvas } from "@zero-native/ui"
+import { draw } from "@zeronative/core"
+import { Canvas } from "@zeronative/ui"
 
 <Canvas
   style={{ width: 200, height: 100 }}
@@ -2678,7 +2679,7 @@ import { Canvas } from "@zero-native/ui"
 
 ## 73. List extras and scroll commands (registry 23)
 ```tsx
-import { listController } from "@zero-native/core"   // core, not ui: ui imports are removed at build time
+import { listController } from "@zeronative/core"   // core, not ui: ui imports are removed at build time
 const feed = listController()
 
 <List data={rows()} key={(r) => r.id} row={(r) => <TxnRow t={r} />}
@@ -2799,7 +2800,7 @@ Reference: `docs/motion.md` §6, `plugins/image-viewer/README.md`.
 - **Do** add the viewer route as `screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light",
   restore: false, transition: "none"`. **Why:** see-through keeps the screen below drawn while the photo flies and the
   backdrop fades; `restore: false` because its photos live in JS memory and are gone after a kill. Import the screen from
-  `@zero-native/image-viewer/screen`, not the package root: only an app that shows the TSX viewer should need Motion
+  `@zeronative/image-viewer/screen`, not the package root: only an app that shows the TSX viewer should need Motion
   and registry 24 (docs/ota-requires-per-os.md §5).
 - **Do** pass `from: box` (a `useElementMotion()` bound on the thumbnail) to `ImageViewer.open`. **Why:** the photo
   then flies from the thumbnail and back into it. Without it the viewer fades in and out.
@@ -2830,14 +2831,14 @@ Reference: `docs/components.md` §15, `docs/rn-compatibility.md` ScrollView.
   onboarding page). **Why:** it is read while drawing, with no JS per frame. While a value drives it, `autoPlay` and
   `play()` do nothing.
 
-## 81. Notifications without FCM (`@zero-native/notifications`, split from push 2026-11-09)
+## 81. Notifications without FCM (`@zeronative/notifications`, split from push 2026-11-09)
 ```ts
-import { Notifications, PushEvents } from "@zero-native/notifications"   // no Firebase in the app
-import { Push } from "@zero-native/firebase-messaging"                                 // only if the app uses FCM
+import { Notifications, PushEvents } from "@zeronative/notifications"   // no Firebase in the app
+import { Push } from "@zeronative/firebase-messaging"                                 // only if the app uses FCM
 ```
-- **Do** import `Notifications` from `@zero-native/notifications` in new code. **Why:** a bundle that imports
-  `@zero-native/firebase-messaging` needs the "Push" module, so an app without push refuses it at start and in the OTA check
-  ("native modules missing"). Old imports from `@zero-native/firebase-messaging` keep working in apps that have push.
+- **Do** import `Notifications` from `@zeronative/notifications` in new code. **Why:** a bundle that imports
+  `@zeronative/firebase-messaging` needs the "Push" module, so an app without push refuses it at start and in the OTA check
+  ("native modules missing"). Old imports from `@zeronative/firebase-messaging` keep working in apps that have push.
 - **Do** list `NotificationsPlugin()` in an app with no push. With push, `PushPlugin()` adds it; listing both is fine.
 - **Do** listen with `PushEvents.onMessage` / `onTokenRefresh` when the app may change push service.
   `Push.onMessage` is the same task, so both hear FCM. `m.provider` says which service sent it (`"fcm"`).
@@ -2937,7 +2938,7 @@ my-app/assets/fonts/Poppins-Bold.ttf
   rail of small grids, use `<List horizontal>` with a `Row`-of-columns item.
 - **Don't** put other style keys in `columnWrapperStyle` (background, border): style the items. Build error.
 
-## 87. Store updates (`@zero-native/app-updates`, 2026-11-09; one call since 2026-11-10)
+## 87. Store updates (`@zeronative/app-updates`, 2026-11-09; one call since 2026-11-10)
 ```ts
 const engine = createAppUpdateEngine({
   source: nativeStoreSource, autoCheck: false,   // the store answer comes with native's OTA check (one call)
@@ -2975,7 +2976,7 @@ onAppState((s) => s === "active" && engine.onActive())
   with the engine in JS. **Why:** from JS it came 3-4 s after the app opened, when the user had started using it. It
   needs the launch gate on (`launchDecisionMs > 0`) and one store plugin per app (`ZnOta.setStoreLauncher`).
 
-## 88. OTA pushes: a new bundle downloads in the background (`@zero-native/firebase-messaging`, 2026-11-09)
+## 88. OTA pushes: a new bundle downloads in the background (`@zeronative/firebase-messaging`, 2026-11-09)
 The OTA server sends `{ zn_ota: "check", zn_ota_delay_ms: "<n>" }` to the topic `zn-ota-<app>-<channel>` when a bundle
 is published. The phone joins that topic by itself and runs the normal OTA check in a WorkManager job, after a random
 wait, online only. The bundle runs from the next cold start (README, "OTA pushes").

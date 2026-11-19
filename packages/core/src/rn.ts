@@ -1,5 +1,5 @@
 // React Native and React Navigation names over zero-native's own APIs (RN-compat sweep P1.14–P1.17, guide notes §56).
-// Each is a thin wrapper, so RN code and LLM-written code work with only the import changed to "@zero-native/core".
+// Each is a thin wrapper, so RN code and LLM-written code work with only the import changed to "@zeronative/core".
 // The zn names stay the main ones; the guide says where a wrapper differs from RN.
 //
 // Left out on purpose:

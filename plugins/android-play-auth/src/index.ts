@@ -9,7 +9,7 @@
 //
 // Both answer with a value and never reject, so a Play services failure can't leave a screen waiting. Nothing here logs
 // a phone number or an OTP. Keep it that way in your app too.
-import { createStorage, detached, launches, nativeModule, type CallOptions, type LaunchRecord } from "@zero-native/core"
+import { createStorage, detached, launches, nativeModule, type CallOptions, type LaunchRecord } from "@zeronative/core"
 
 /** Why there is no number. All of them mean the same to the user: type it by hand. */
 export type HintReason =

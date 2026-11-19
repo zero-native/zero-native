@@ -7,7 +7,7 @@
 //
 // Each call answers with a value and never rejects. With no Firebase in the app (no google-services.json) `app()` says
 // `available: false` and Installations answers null.
-import { nativeModule, type CallOptions } from "@zero-native/core"
+import { nativeModule, type CallOptions } from "@zeronative/core"
 
 export interface FirebaseAppInfo {
   /** False: Firebase isn't set up in this app (no google-services.json), or this plugin is missing. */

@@ -14,16 +14,19 @@ test("needs list one-OS modules after the others, marked with the OS (docs/ota-r
 
 test("needs in groups: framework, core, zero-native plugins, the app's own (moduleFrom); one row without it", () => {
   const r = { registry: 22, bytecode: 99, hostApi: 9, modules: { Fetch: 1, FirebaseMessaging: 1, Upi: 1 }, os: { android: { AndroidAdId: 1 } } }
-  const from = { Fetch: "@zero-native/core", FirebaseMessaging: "@zero-native/firebase-messaging", Upi: "@acme/upi", AndroidAdId: "@zero-native/android-ad-id" }
+  const from = { Fetch: "@zeronative/core", FirebaseMessaging: "@zeronative/firebase-messaging", Upi: "@acme/upi", AndroidAdId: "@zeronative/android-ad-id" }
   expect(requiresGroups(r, from)).toEqual([
     { title: "Framework", items: [{ label: "Registry v22" }, { label: "Bytecode 99" }, { label: "Host API v9" }] },
-    { title: "Core", items: [{ label: "Fetch v1", from: "@zero-native/core" }] },
+    { title: "Core", items: [{ label: "Fetch v1", from: "@zeronative/core" }] },
     { title: "zero-native plugins", items: [
-      { label: "AndroidAdId v1 (Android only)", from: "@zero-native/android-ad-id" },
-      { label: "FirebaseMessaging v1", from: "@zero-native/firebase-messaging" },
+      { label: "AndroidAdId v1 (Android only)", from: "@zeronative/android-ad-id" },
+      { label: "FirebaseMessaging v1", from: "@zeronative/firebase-messaging" },
     ] },
     { title: "App's own", items: [{ label: "Upi v1", from: "@acme/upi" }] },
   ])
+  // A bundle from before the scope's rename (@zero-native/*, until 2026-11-19) groups the same way
+  const old = Object.fromEntries(Object.entries(from).map(([k, v]) => [k, v.replace("@zeronative/", "@zero-native/")]))
+  expect(requiresGroups(r, old).map((g) => [g.title, g.items.length])).toEqual([["Framework", 3], ["Core", 1], ["zero-native plugins", 2], ["App's own", 1]])
   // A bundle from before moduleFrom: the modules in one row, the OS marks kept
   expect(requiresGroups(r).map((g) => g.title)).toEqual(["Framework", "Modules"])
   expect(requiresGroups(r)[1]!.items.map((x) => x.label)).toEqual(["AndroidAdId v1 (Android only)", "Fetch v1", "FirebaseMessaging v1", "Upi v1"])

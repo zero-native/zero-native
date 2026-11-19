@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec, writeTemplateFile } from "@zero-native/template"
+import { type NodeSpec, writeTemplateFile } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string, statics: Record<string, unknown> = {}) {

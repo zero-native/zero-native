@@ -1,7 +1,7 @@
 // The TSX viewer's open / close (registry 24; ImageViewer module 3). ImageViewer.open keeps the viewer's options here
 // in JS, under a key, and pushes the app's route with only that key: no size limit, nothing saved by Android (the
 // route has restore: false). The screen (ImageViewerScreen.tsx) reads them with viewerFor and answers with finishViewer.
-import { nav, onCleanup } from "@zero-native/core"
+import { nav, onCleanup } from "@zeronative/core"
 
 /** A box in the window (dp): the thumbnail the photo flies from and back to. */
 export interface ViewerRect {

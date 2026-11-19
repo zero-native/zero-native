@@ -14,8 +14,8 @@ import {
   Spinner,
   Switch,
   Text,
-} from "@zero-native/ui"
-import { nav, signal, toast } from "@zero-native/core"
+} from "@zeronative/ui"
+import { nav, signal, toast } from "@zeronative/core"
 import { c } from "./tokens"
 
 const cardStyle = {

@@ -11,8 +11,8 @@
 //
 // Pull to refresh (guide notes §41) on every tab: Pay and Rewards use the flat props (refreshing, onRefresh), Stores
 // (a List) and Offers (a Scroll) use React Native's refreshControl={<RefreshControl />}, as ZeroBill's tabs do.
-import { Box, Column, Icon, List, Pressable, RefreshControl, Row, Scroll, Stack, Tabs, Text, TextField } from "@zero-native/ui"
-import { Keyboard, nav, signal, useTabs, type Signal, type TabsHandle } from "@zero-native/core"
+import { Box, Column, Icon, List, Pressable, RefreshControl, Row, Scroll, Stack, Tabs, Text, TextField } from "@zeronative/ui"
+import { Keyboard, nav, signal, useTabs, type Signal, type TabsHandle } from "@zeronative/core"
 import { c } from "./tokens"
 import { gift, qrScan, receipt, shoppingBag, tag } from "./icons"
 

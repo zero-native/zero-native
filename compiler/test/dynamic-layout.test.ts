@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 const isSlot = (v: unknown): boolean => typeof v === "object" && v !== null && "$slot" in (v as Record<string, unknown>)
@@ -26,7 +26,7 @@ const err = (src: string, statics: Record<string, unknown> = {}) => {
 describe("H1: Dynamic Layout Values", () => {
   test("dynamic dimensions compile to slot expressions", () => {
     const { code, templates } = compile(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function Box(props: { w: () => number, h: () => number }) {
         return <View style={{ width: props.w(), height: props.h(), minWidth: 50, maxWidth: props.w() * 2, minHeight: 10, maxHeight: 100 }} />
       }
@@ -43,7 +43,7 @@ describe("H1: Dynamic Layout Values", () => {
 
   test("dynamic flex and flexGrow compile to flex slot", () => {
     const { code, templates } = compile(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function FlexBox(props: { f: () => number }) {
         return (
           <Row>
@@ -60,7 +60,7 @@ describe("H1: Dynamic Layout Values", () => {
 
   test("dynamic margins and padding shorthands compile to slots", () => {
     const { code, templates } = compile(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function Spaced(props: { m: () => number, p: () => number }) {
         return <View style={{ margin: props.m(), marginHorizontal: props.m() * 2, padding: props.p(), paddingVertical: props.p() + 4 }} />
       }
@@ -90,7 +90,7 @@ describe("H1: Dynamic Layout Values", () => {
 
   test("dynamic radii, typography, aspectRatio, and display compile to slots", () => {
     const { code, templates } = compile(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function StyledText(props: { r: () => number, size: () => number, show: () => boolean, ratio: () => number }) {
         return (
           <View style={{ borderRadius: props.r(), aspectRatio: props.ratio(), display: props.show() ? "flex" : "none" }}>
@@ -115,7 +115,7 @@ describe("H1: Dynamic Layout Values", () => {
 
   test("dynamic offsets on Stack children compile to slots", () => {
     const { code, templates } = compile(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function StackItem(props: { t: () => number, s: () => number }) {
         return (
           <Stack>
@@ -132,35 +132,35 @@ describe("H1: Dynamic Layout Values", () => {
 
   test("structural properties fail at build time with helpful error message", () => {
     expect(err(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function Bad(props: { d: () => string }) {
         return <View style={{ flexDirection: props.d() }} />
       }
     `)).toMatch(/flexDirection must be known at build time/)
 
     expect(err(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function Bad(props: { a: () => string }) {
         return <View style={{ alignItems: props.a() }} />
       }
     `)).toMatch(/"alignItems" must be known at build time/)
 
     expect(err(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function Bad(props: { j: () => string }) {
         return <View style={{ justifyContent: props.j() }} />
       }
     `)).toMatch(/"justifyContent" must be known at build time/)
 
     expect(err(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function Bad(props: { w: () => string }) {
         return <View style={{ flexWrap: props.w() }} />
       }
     `)).toMatch(/"flexWrap" must be known at build time/)
 
     expect(err(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function Bad(props: { p: () => string }) {
         return <View style={{ position: props.p() }} />
       }
@@ -169,7 +169,7 @@ describe("H1: Dynamic Layout Values", () => {
 
   test("static layout properties continue to produce static prop values without slots", () => {
     const { templates } = compile(`
-      import { View } from "@zero-native/ui"
+      import { View } from "@zeronative/ui"
       export function StaticBox() {
         return <View style={{ width: 100, height: 200, margin: 16, padding: 8, gap: 12, borderRadius: 8, fontSize: 14 }} />
       }

@@ -1,4 +1,4 @@
-# @zero-native/device-test
+# @zeronative/device-test
 
 A test plugin, used by the sample app. It is never shipped in a real app. It is also the smallest full plugin, so copy it
 when you start a new one (guide: [docs/guide-notes.md](../../docs/guide-notes.md) §30).
@@ -18,7 +18,7 @@ It adds the `Device` native module, version 4:
 
 ## How it is added to an app
 
-1. `package.json`: `"@zero-native/device-test": "workspace:*"`.
+1. `package.json`: `"@zeronative/device-test": "workspace:*"`.
 2. `android/settings.gradle.kts`:
    ```kotlin
    include(":plugin-device-test")

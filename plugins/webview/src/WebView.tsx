@@ -1,6 +1,6 @@
 // A web page inside a screen. The component only passes things on: the rules are in Kotlin (WebViewRules.kt).
-import { onCleanup } from "@zero-native/core"
-import { NativeView } from "@zero-native/ui"
+import { onCleanup } from "@zeronative/core"
+import { NativeView } from "@zeronative/ui"
 import { detachController, onWebViewEvent, viewProps, webViewController, type WebViewHandlers, type WebViewOptions } from "./api"
 
 export type WebViewProps = WebViewOptions & WebViewHandlers

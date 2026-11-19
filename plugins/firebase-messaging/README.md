@@ -1,18 +1,18 @@
-# @zero-native/firebase-messaging
+# @zeronative/firebase-messaging
 
 Push messages from Firebase Cloud Messaging, on Android and iOS. **`Push`**: the FCM token, topics, and every data message, as
 a JS task. The task runs when the app is in front, behind, or closed (FCM starts the app). One path for all three, so
 nothing "only works while open".
 
-> **`Notifications` moved** to [`@zero-native/notifications`](../notifications/README.md) (2026-11-09), which has no
+> **`Notifications` moved** to [`@zeronative/notifications`](../notifications/README.md) (2026-11-09), which has no
 > Firebase in it. This plugin adds it by itself (`PushPlugin()` registers `NotificationsPlugin()`), and this package
-> re-exports it, so `import { Notifications } from "@zero-native/firebase-messaging"` keeps working. New code imports it from
-> `@zero-native/notifications`. Messages reach JS through that plugin's `PushEvents`, the path any push service can use.
+> re-exports it, so `import { Notifications } from "@zeronative/firebase-messaging"` keeps working. New code imports it from
+> `@zeronative/notifications`. Messages reach JS through that plugin's `PushEvents`, the path any push service can use.
 
 Each call answers with a value and never rejects. Nothing asks for a permission by itself.
 
 ## Add it
-1. Firebase as for `@zero-native/firebase-crashlytics` (README there): `google-services.json`, `:plugin-firebase-app` in
+1. Firebase as for `@zeronative/firebase-crashlytics` (README there): `google-services.json`, `:plugin-firebase-app` in
    `settings.gradle.kts`, and `apply(from = "../../plugins/firebase-app/firebase.gradle.kts")`, which applies the
    google-services Gradle plugin only when the json is there. Without it the app builds, `Push.status()` says `available: false`,
    and `Notifications` still work.
@@ -32,13 +32,13 @@ Each call answers with a value and never rejects. Nothing asks for a permission 
    The old keys `dev.zeronative.push.small_icon` / `.color` still work (deprecated: see the notifications README).
 
 The plugin's manifest adds only the FCM service (not exported). Firebase adds `INTERNET`, `WAKE_LOCK` and FCM's receive
-permission; `POST_NOTIFICATIONS` and the notification receivers come from `@zero-native/notifications`.
+permission; `POST_NOTIFICATIONS` and the notification receivers come from `@zeronative/notifications`.
 
 ## Use it
 ```ts
 // main.ts, at the top level: a message can start the app with no screen, so these must exist before any screen.
-import { Notifications } from "@zero-native/notifications"
-import { Push } from "@zero-native/firebase-messaging"
+import { Notifications } from "@zeronative/notifications"
+import { Push } from "@zeronative/firebase-messaging"
 
 Push.onMessage(async (m, signal) => {          // 15 s; signal aborts at the limit
   if (m.data.type !== "offer") return
@@ -102,7 +102,7 @@ The plugin's Swift (`ios/FirebaseMessagingPlugin.swift`) gets the APNs token, ha
 calls. Plan and reasons: `docs/ios-notifications-plan.md`.
 
 **Add it:**
-1. Firebase as for `@zero-native/firebase-crashlytics` on iOS (GoogleService-Info.plist, the SDK from
+1. Firebase as for `@zeronative/firebase-crashlytics` on iOS (GoogleService-Info.plist, the SDK from
    `bun run tools/fetch-firebase-apple.ts`), plus the `FirebaseMessaging` xcframeworks and their privacy bundles.
 2. `FirebaseMessagingPlugin()` in `ZnPlugins.register(...)`. It adds `NotificationsPlugin()` itself.
 3. Info.plist: `FirebaseAppDelegateProxyEnabled` = NO and `UIBackgroundModes` = [`remote-notification`]. The
@@ -196,12 +196,12 @@ that turned off WorkManager's start-up initializer must set it up itself, or the
 ## Size
 | Dependency | Version | Why |
 |---|---|---|
-| `com.google.firebase:firebase-bom` | 35.1.0 | Firebase versions (from `@zero-native/firebase-app`) |
+| `com.google.firebase:firebase-bom` | 35.1.0 | Firebase versions (from `@zeronative/firebase-app`) |
 | `com.google.firebase:firebase-messaging` | from the BoM (26.0.x) | FCM |
-| `@zero-native/notifications` | this repo | Notifications and `PushEvents` (no Firebase) |
+| `@zeronative/notifications` | this repo | Notifications and `PushEvents` (no Firebase) |
 | `androidx.work:work-runtime-ktx` | 2.12.0 | The OTA check job after an OTA push (added 2026-11-09, size not measured) |
 
 Measured on the sample's R8 release APK (arm64), 2026-11-04, before the split (push and notifications together):
-**about 54 KB** on top of `@zero-native/firebase-crashlytics`
+**about 54 KB** on top of `@zeronative/firebase-crashlytics`
 (classes.dex +50 KB compressed). The two share Firebase's core (firebase-common, installations, transport). An app with
 push and no Crashlytics also pays for that core: not measured on its own.

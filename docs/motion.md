@@ -235,7 +235,7 @@ glides back. Not with `stickyHeaderIndices`. A row's own `onLongPress` competes 
 ## 13. Versions and OTA
 
 Everything here needs registry 24 and the `Motion` module (version 1): an app file that imports a motion API from
-`@zero-native/core` makes the bundle require `Motion 1`, so an older APK refuses it and keeps its own bundle. Flip and
+`@zeronative/core` makes the bundle require `Motion 1`, so an older APK refuses it and keeps its own bundle. Flip and
 stretch presets raise the bundle's registry need through the `transition.depth` format. Plugin sources and drivers
 are gated by their plugin's module version.
 

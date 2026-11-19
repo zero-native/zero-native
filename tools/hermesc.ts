@@ -3,11 +3,18 @@
 import { basename, dirname, join, resolve } from "node:path"
 import { existsSync } from "node:fs"
 
-const root = join(import.meta.dir, "..")
+// From this file's folder: the repo's node_modules in a checkout, the app's when @zeronative/cli is installed.
+const hermesDir = (() => {
+  try {
+    return dirname(Bun.resolveSync("hermes-compiler/package.json", import.meta.dir))
+  } catch {
+    return join(import.meta.dir, "../node_modules/hermes-compiler")
+  }
+})()
 const platformDir =
   process.platform === "win32" ? "win64-bin" : process.platform === "darwin" ? "osx-bin" : "linux64-bin"
 const exe = process.platform === "win32" ? "hermesc.exe" : "hermesc"
-const hermescPath = join(root, "node_modules/hermes-compiler/hermesc", platformDir, exe)
+const hermescPath = join(hermesDir, "hermesc", platformDir, exe)
 
 /**
  * Compiles one JS file to optimised Hermes bytecode. Throws with hermesc's output on failure.
@@ -20,7 +27,7 @@ const hermescPath = join(root, "node_modules/hermes-compiler/hermesc", platformD
  */
 export async function hermesc(input: string, output: string, extraFlags: string[] = []): Promise<void> {
   if (!existsSync(hermescPath)) {
-    throw new Error(`hermesc not found at ${hermescPath}. Run \`bun install\` at the repo root.`)
+    throw new Error(`hermesc not found at ${hermescPath}. Run \`bun install\` (it comes with the \`hermes-compiler\` package).`)
   }
   // -Xes6-block-scoping: without it this hermesc treats `let` / `const` like `var`, so closures created in a loop
   // all see the last value (found 2026-10-29: every console level logged as "error"). Hidden flag; see

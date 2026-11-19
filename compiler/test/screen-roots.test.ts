@@ -9,10 +9,10 @@ import { znBuild } from "../src/plugin"
 /** Builds an app whose route "home" shows [screen] (a component in screens.tsx), plus any [extraRoutes]. */
 async function build(screens: string, screen = "S", extraRoutes = "") {
   const dir = mkdtempSync(join(tmpdir(), "zn-roots-"))
-  writeFileSync(join(dir, "screens.tsx"), `import { Column, Row, Text } from "@zero-native/ui"\n${screens}`)
+  writeFileSync(join(dir, "screens.tsx"), `import { Column, Row, Text } from "@zeronative/ui"\n${screens}`)
   writeFileSync(
     join(dir, "routes.ts"),
-    `import { defineRoutes } from "@zero-native/core"
+    `import { defineRoutes } from "@zeronative/core"
 import * as s from "./screens"
 import { ${screen} } from "./screens"
 export const keep = s
@@ -51,7 +51,7 @@ export function S(p: { cond: boolean }) {
     // The original: an empty screen while there's no draft, then a 0 ms timer goes to login.
     // It has multiple statements in the guard block, so early returns refuse it.
     expect(await fails(`
-import { nav, signal } from "@zero-native/core"
+import { nav, signal } from "@zeronative/core"
 const draftOf = (): { phone: string } | null => null
 export function VerifyScreen() {
   const draft = draftOf()
@@ -69,7 +69,7 @@ export function VerifyScreen() {
 }`, "VerifyScreen")).toContain("VerifyScreen has an unsupported early return shape")
     // The rewrite: the screen keeps its main content; only the piece that needs the draft is in a branch.
     await build(`
-import { nav, signal } from "@zero-native/core"
+import { nav, signal } from "@zeronative/core"
 const draftOf = (): { phone: string } | null => null
 export function VerifyScreen() {
   const draft = draftOf()

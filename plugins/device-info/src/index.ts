@@ -1,7 +1,7 @@
 // react-native-device-info for zero-native: the same names, the same values. Native side: android/.../DeviceInfoPlugin.kt
 // and ios/DeviceInfoPlugin.swift (react-native-device-info's iOS answers). README: which calls differ.
 //
-//   import DeviceInfo from "@zero-native/device-info"
+//   import DeviceInfo from "@zeronative/device-info"
 //   const BASE_URL = DeviceInfo.getBundleId() === "com.example.app" ? PROD : DEV   // sync, also at module level
 //   const id = DeviceInfo.getUniqueIdSync()
 //   const level = await DeviceInfo.getBatteryLevel()
@@ -10,7 +10,7 @@
 // plain and `Sync` getters answer at once. Values that change (battery, disk, network) are calls and answer a Promise.
 // Nothing rejects: a value the phone doesn't give answers what react-native-device-info answers then ("unknown", -1,
 // false, []).
-import { nativeConstants, nativeModule, type CallOptions } from "@zero-native/core"
+import { nativeConstants, nativeModule, type CallOptions } from "@zeronative/core"
 
 export type DeviceType = "Handset" | "Tablet" | "Tv" | "Desktop" | "GamingConsole" | "Headset" | "unknown"
 export type BatteryState = "unknown" | "unplugged" | "charging" | "full"

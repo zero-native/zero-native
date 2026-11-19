@@ -1,2 +1,2 @@
-import { nativeModule } from "@zero-native/core"
+import { nativeModule } from "@zeronative/core"
 export const haptic = nativeModule<object>("Haptics", { version: 2 })

@@ -65,7 +65,7 @@ export function tagPropsFile(): string {
     `export const BASE_PROPS: ReadonlySet<string> = new Set([${list(base)}])`,
     "",
     "/**",
-    " * Each element's props and events, as its type in @zero-native/ui says: `base` = it has every BASE_PROPS prop too,",
+    " * Each element's props and events, as its type in @zeronative/ui says: `base` = it has every BASE_PROPS prop too,",
     " * `own` = the rest. An element not listed isn't checked.",
     " */",
     "export const TAG_PROPS: Readonly<Record<string, { base: boolean; own: ReadonlySet<string> }>> = {",

@@ -2,8 +2,8 @@
 // lab 2). It is an example, not framework code.
 //   a) slide to pay   b) loan amount slider   c) range slider with two thumbs   d) a circular dial
 // The thumbs, fills and colours move on the UI thread. JS reads a value only to show a number.
-import { Column, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import { computed, derive, nav, parent, signal, usePan, type GestureEvent } from "@zero-native/core"
+import { Column, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import { computed, derive, nav, parent, signal, usePan, type GestureEvent } from "@zeronative/core"
 import { c } from "./tokens"
 import { formatIndian } from "./money"
 

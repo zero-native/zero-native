@@ -1,8 +1,8 @@
-# @zero-native/firebase-app
+# @zeronative/firebase-app
 
 The base of every zero-native Firebase plugin, like RN Firebase's `app` module. It holds:
 
-- **The one Firebase version** (the Firebase BoM, 35.1.0). `@zero-native/firebase-crashlytics`, `@zero-native/firebase-messaging` and the
+- **The one Firebase version** (the Firebase BoM, 35.1.0). `@zeronative/firebase-crashlytics`, `@zeronative/firebase-messaging` and the
   next Firebase plugins depend on this Gradle project and take their versions from it. To move Firebase, change one
   line here.
 - **One Gradle file for the app** (`firebase.gradle.kts`): Firebase on when `google-services.json` is there, off
@@ -15,7 +15,7 @@ The base of every zero-native Firebase plugin, like RN Firebase's `app` module. 
 2. In the root `build.gradle.kts`:
    ```kotlin
    id("com.google.gms.google-services") version "4.5.0" apply false
-   id("com.google.firebase.crashlytics") version "3.0.8" apply false   // only if you use @zero-native/firebase-crashlytics
+   id("com.google.firebase.crashlytics") version "3.0.8" apply false   // only if you use @zeronative/firebase-crashlytics
    ```
 3. In `settings.gradle.kts`:
    ```kotlin
@@ -44,7 +44,7 @@ Permissions: none of its own (Firebase's libraries add `INTERNET` and `ACCESS_NE
 
 ## Use it
 ```ts
-import { Firebase, installations } from "@zero-native/firebase-app"
+import { Firebase, installations } from "@zeronative/firebase-app"
 
 const app = await Firebase.app()          // { available: true, name: "[DEFAULT]", projectId, appId, ... }
 await Firebase.setDataCollectionDefault(false)

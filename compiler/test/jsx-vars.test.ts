@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { NodeSpec } from "@zero-native/template"
+import type { NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string, statics: Record<string, unknown> = {}) {
@@ -276,7 +276,7 @@ describe("JSX in variables: errors with hints", () => {
 describe("JSX in variables: compiled code runs on the view runtime", () => {
   test("copies, a ternary root and a conditional JSX prop react like React", async () => {
     const { code, templates, components } = compile(`
-      import { signal } from "@zero-native/core"
+      import { signal } from "@zeronative/core"
       export const state = { big: signal(false), show: signal(true) }
       function Tile(props) { return <Column>{props.icon}</Column> }
       export function Head() {
@@ -301,7 +301,7 @@ describe("JSX in variables: compiled code runs on the view runtime", () => {
 
     const { installFakeHost } = await import("../../packages/core/test/fake-host")
     const host = installFakeHost()
-    const core = await import("@zero-native/core")
+    const core = await import("@zeronative/core")
     core.installRuntime()
     const mod = await import(file)
     core.renderRoot(0x80000002, mod.Screen, {})

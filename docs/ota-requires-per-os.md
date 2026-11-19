@@ -29,7 +29,7 @@ Nobody writes the three lists by hand. The build works them out from the package
 
 | Where the `nativeModule("X")` / `callNative("X", …)` call is | X counts for |
 |---|---|
-| `@zero-native/core`, or the app's own sources | both |
+| `@zeronative/core`, or the app's own sources | both |
 | a plugin package (`zeroNative` in its package.json) | the plugin's platforms (below) |
 
 A plugin's platforms: `zeroNative.platforms` in its package.json when written (`["android"]`, `["ios"]` or
@@ -81,10 +81,10 @@ Android).
 ## 5. Motion: image-viewer's TSX screen as its own import
 
 Motion counts only for files that import its API (compiler modules.ts `GATED_CORE_MODULES`). ZeroBill imports
-`ImageViewer` from `@zero-native/image-viewer`, whose index also exports `ImageViewerScreen` (TSX, `useZoom`), so the
+`ImageViewer` from `@zeronative/image-viewer`, whose index also exports `ImageViewerScreen` (TSX, `useZoom`), so the
 screen's file is loaded and the bundle needs Motion 1 and registry 24.
 
-Now: `@zero-native/image-viewer` exports the API only; the screen is `@zero-native/image-viewer/screen`. Apps with the
+Now: `@zeronative/image-viewer` exports the API only; the screen is `@zeronative/image-viewer/screen`. Apps with the
 TSX viewer route (the sample) import it from there; ZeroBill (native viewer route `imageviewer.full`) drops Motion and
 registry 24 from its needs. No Motion work on iOS for ZeroBill (it is Phase 4, a big one).
 
@@ -100,7 +100,7 @@ registry 24 from its needs. No Motion work on iOS for ZeroBill (it is Phase 4, a
 | iOS runtime | the same in ZnOtaRules.swift / ZnOta.swift, `os: "ios"` |
 | signature fixture | a case with OS parts, checked by the TS, Kotlin and Swift tests |
 | plugins | `platforms` for notifications, firebase-messaging, android-ad-id; image-viewer `./screen` |
-| sample | routes import the screen from `@zero-native/image-viewer/screen` |
+| sample | routes import the screen from `@zeronative/image-viewer/screen` |
 
 ## 7. After this
 

@@ -1,5 +1,5 @@
 // Each plugin's native modules are named after the plugin (Pavan, 2026-11-11): the name starts with the package's first
-// word, so "Push" can't hide in @zero-native/firebase-messaging ("FirebaseMessaging") and two plugins can't both take
+// word, so "Push" can't hide in @zeronative/firebase-messaging ("FirebaseMessaging") and two plugins can't both take
 // a short name like "Auth" or "Analytics". The bundle's needs list shows these names (docs/plugins.md, "Module names").
 // The JS, Kotlin and Swift sides must also agree: a module the native side registers under another name is "missing".
 import { expect, test } from "bun:test"

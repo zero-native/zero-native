@@ -4,8 +4,8 @@
 // weight, style, decoration, background), box colours and all spacing change at runtime: every gap is per-edge
 // padding on one node (a runtime prop), never `gap` or margin (build time). Default numbers are chosen for reading
 // (second-opinions 142, render.ts DEFAULT_SPACING).
-import { computed } from "@zero-native/core"
-import { Box, Column, Row, Stack, Text } from "@zero-native/ui"
+import { computed } from "@zeronative/core"
+import { Box, Column, Row, Stack, Text } from "@zeronative/ui"
 import type { ParseOptions } from "./parse"
 import { DEFAULT_COLORS, inlineSpans, markdownRows, spacingOf, type DrawSpan, type MarkdownColors, type MarkdownSpacing, type MarkdownStyles, type SpanStyle } from "./render"
 

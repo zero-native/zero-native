@@ -1,17 +1,36 @@
 {
-  "name": "@zero-native/android-ad-id",
+  "name": "@zeronative/android-ad-id",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: the Google advertising id (Android)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/android-ad-id"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/android-ad-id#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*"
+    "@zeronative/core": "workspace:*"
   },
   "zeroNative": {
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.android.adid.AdIdPlugin"
     }

@@ -1,16 +1,37 @@
 {
-  "name": "@zero-native/device-info",
+  "name": "@zeronative/device-info",
   "version": "0.0.0",
-  "private": true,
+  "description": "zero-native plugin: device and app information, like react-native-device-info",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zero-native/zero-native.git",
+    "directory": "plugins/device-info"
+  },
+  "homepage": "https://github.com/zero-native/zero-native/tree/main/plugins/device-info#readme",
   "type": "module",
   "main": "src/index.ts",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
-    "@zero-native/core": "workspace:*"
+    "@zeronative/core": "workspace:*"
   },
   "zeroNative": {
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "plugin": "dev.zeronative.plugins.deviceinfo.DeviceInfoPlugin"
     }

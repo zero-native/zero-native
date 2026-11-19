@@ -3,7 +3,7 @@ import { readRoutes } from "../src/routes"
 
 const read = (body: string) =>
   readRoutes(
-    `import { defineRoutes } from "@zero-native/core"
+    `import { defineRoutes } from "@zeronative/core"
 import { HomeScreen } from "./HomeScreen"
 import { AmountScreen as Amount } from "./AmountScreen"
 import { ReceiptScreen } from "./ReceiptScreen"

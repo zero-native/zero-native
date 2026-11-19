@@ -1,7 +1,7 @@
 // A chat on <List inverted> (registry 19): newest message first in data, drawn at the bottom. The phone check reads the
 // log lines "chat-lab ...", so keep their wording.
-import { Column, List, Pressable, Row, Text } from "@zero-native/ui"
-import { scheme, signal } from "@zero-native/core"
+import { Column, List, Pressable, Row, Text } from "@zeronative/ui"
+import { scheme, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 interface Message {

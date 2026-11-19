@@ -1,7 +1,7 @@
 // OTA updates (step 4.5): what runs now, what runs next, the last check, and a button to check now.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/updates
-import { Column, Pressable, Row, Text } from "@zero-native/ui"
-import { nav, signal, Updates, type UpdateStatus } from "@zero-native/core"
+import { Column, Pressable, Row, Text } from "@zeronative/ui"
+import { nav, signal, Updates, type UpdateStatus } from "@zeronative/core"
 import { c } from "./tokens"
 
 const card = { padding: 14, borderRadius: 12, backgroundColor: c.white, borderWidth: 1, borderColor: c.border, gap: 4 }

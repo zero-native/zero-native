@@ -7,8 +7,8 @@
 //
 // TODO (not built yet, so not in this lab): a pull-to-refresh distance value. `m.pull` exists (0 to 1 at the refresh
 // line) on a List with onRefresh, but no lab here shows it yet. The collapsing header (c) uses the List's `motion` prop.
-import { Column, List, Pressable, Row, Scroll, Stack, Text } from "@zero-native/ui"
-import { derive, interpolate, nav, self, signal, useElementMotion, usePan } from "@zero-native/core"
+import { Column, List, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
+import { derive, interpolate, nav, self, signal, useElementMotion, usePan } from "@zeronative/core"
 import { c } from "./tokens"
 
 const DANGER = "#E23744"

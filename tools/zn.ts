@@ -2,7 +2,10 @@
 // `zn`: one command for the zero-native tools, from any folder on this computer (2026-11-10).
 // Each command runs the tool from this checkout, in the folder you are in.
 //
-// Set up once (from the zero-native root):  bun link  then  bun link zero-native -g
+// Two ways to have it:
+//   - from npm: `@zeronative/cli` as a dev dependency of the app (this folder is the package; `zn new`, `zn ota` and
+//     `zn server` need a zero-native checkout and say so);
+//   - from a checkout, once per computer (from the zero-native root):  bun link  then  bun link zero-native -g
 // Then from an app folder:
 //   zn new <dir> [--name N] [--id ID]   start a new app outside this repo, from templates/app (tools/zn-new.ts)
 //   zn dev [appDir]            live reload to the phone (tools/zn-dev.ts); appDir defaults to this folder
@@ -16,8 +19,18 @@
 import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
-const root = resolve(import.meta.dir, "..")
-const tool = (path: string) => join(root, path)
+// The CLI's own files sit next to this one (tools/ in a checkout, the package's folder from npm). The checkout's root
+// is one up, and only a checkout has templates/app (zn new), tools/ota/cli.ts and server/.
+const here = import.meta.dir
+const root = resolve(here, "..")
+const checkout = existsSync(join(root, "templates/app")) && existsSync(join(root, "server/src/local.ts"))
+const tool = (path: string) => join(here, path)
+const repoTool = (path: string, what: string) => {
+  if (checkout) return join(root, path)
+  console.error(`zn: ${what} needs a zero-native checkout (git clone https://github.com/zero-native/zero-native), then
+run it from there: bun run tools/zn.ts ...`)
+  process.exit(1)
+}
 
 // The zn-updates commands, so `zn release` works without `updates` in front (tools/updates/cli.ts, the `case` list).
 const UPDATES = new Set([
@@ -28,12 +41,12 @@ const UPDATES = new Set([
 const [cmd, ...rest] = process.argv.slice(2)
 
 function run(script: string, args: string[]): never {
-  const p = Bun.spawnSync(["bun", "run", tool(script), ...args], { cwd: process.cwd(), stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+  const p = Bun.spawnSync(["bun", "run", script, ...args], { cwd: process.cwd(), stdin: "inherit", stdout: "inherit", stderr: "inherit" })
   process.exit(p.exitCode ?? 1)
 }
 
 function help(): never {
-  console.log(`zn: zero-native tools (from ${root})
+  console.log(`zn: zero-native tools (from ${checkout ? root : here})
 
   zn new <dir> [--name N] [--id ID]
                              start a new app outside this repo (iOS and Android hosts, two screens)
@@ -49,26 +62,26 @@ function help(): never {
 
 switch (cmd) {
   case "new":
-    run("tools/zn-new.ts", rest)
+    run(repoTool("tools/zn-new.ts", "zn new"), rest)
   case "dev": {
     // zn-dev.ts defaults to the sample app; from an app folder, the app is this folder (or its app/ folder, as in ZeroBill).
     const cwd = process.cwd()
-    const here = existsSync(join(cwd, "src/main.ts")) ? [cwd] : existsSync(join(cwd, "app/src/main.ts")) ? [join(cwd, "app")] : []
-    run("tools/zn-dev.ts", rest.length ? rest : here)
+    const appHere = existsSync(join(cwd, "src/main.ts")) ? [cwd] : existsSync(join(cwd, "app/src/main.ts")) ? [join(cwd, "app")] : []
+    run(tool("zn-dev.ts"), rest.length ? rest : appHere)
   }
   case "build":
-    run("tools/zn-build.ts", rest)
+    run(tool("zn-build.ts"), rest)
   case "updates":
-    run("tools/updates/cli.ts", rest)
+    run(tool("updates/cli.ts"), rest)
   case "ota":
-    run("tools/ota/cli.ts", rest)
+    run(repoTool("tools/ota/cli.ts", "zn ota"), rest)
   case "server":
-    run("server/src/local.ts", rest)
+    run(repoTool("server/src/local.ts", "zn server"), rest)
   case "where":
-    console.log(root)
+    console.log(checkout ? root : here)
     process.exit(0)
   default:
-    if (cmd && UPDATES.has(cmd)) run("tools/updates/cli.ts", [cmd, ...rest])
+    if (cmd && UPDATES.has(cmd)) run(tool("updates/cli.ts"), [cmd, ...rest])
     if (cmd && cmd !== "help" && cmd !== "--help" && cmd !== "-h") console.error(`zn: unknown command "${cmd}"\n`)
     help()
 }

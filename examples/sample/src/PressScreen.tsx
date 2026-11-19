@@ -1,7 +1,7 @@
 // A dev screen for Pressable's press feedback (step 3.6): every option side by side, to try by hand.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/press
-import { Box, Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { nav, signal } from "@zero-native/core"
+import { Box, Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { nav, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 function Label(props: { text: string }) {

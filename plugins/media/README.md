@@ -1,4 +1,4 @@
-# @zero-native/media
+# @zeronative/media
 
 Pick photos and files, take a photo with the camera app, compress and edit, and hand the result to JS as a short handle. Bytes never
 enter JS.

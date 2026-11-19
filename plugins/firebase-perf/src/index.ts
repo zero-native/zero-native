@@ -13,7 +13,7 @@
 //
 // Each call answers and never rejects. A bad name (Firebase's rules) answers with a console warning and is left out.
 // With no Firebase every call does nothing, and `status()` says `available: false`.
-import { nativeModule, type CallOptions } from "@zero-native/core"
+import { nativeModule, type CallOptions } from "@zeronative/core"
 
 export interface PerfStatus {
   available: boolean

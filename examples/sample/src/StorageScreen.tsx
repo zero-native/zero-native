@@ -2,10 +2,10 @@
 // opens; results are also logged (adb logcat -s zn-js | findstr storage-check).
 // Kill test: open it, note "visits", kill the app (adb shell am kill / swipe away), open it again: visits + 1.
 // Open with: adb shell am start -a android.intent.action.VIEW -d zn://sample/dev/storage
-import { Column, Pressable, Row, Scroll, Text } from "@zero-native/ui"
-import { createStorage, nav, now, persistedSignal, SecureStore, signal, storage, type Signal } from "@zero-native/core"
+import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { createStorage, nav, now, persistedSignal, SecureStore, signal, storage, type Signal } from "@zeronative/core"
 import { c } from "./tokens"
-import { Device } from "@zero-native/device-test"
+import { Device } from "@zeronative/device-test"
 
 const FAIL = "#B91C1C"
 

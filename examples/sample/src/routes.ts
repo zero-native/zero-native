@@ -1,6 +1,6 @@
 // The sample's routes (ARCHITECTURE.md §11). The compiler reads this at build time: the order here is the route
 // order in the manifest, and "/" is where the app starts.
-import { defineRoutes } from "@zero-native/core"
+import { defineRoutes } from "@zeronative/core"
 import { HomeScreen } from "./HomeScreen"
 import { AmountScreen } from "./AmountScreen"
 import { ReceiptScreen } from "./ReceiptScreen"
@@ -45,7 +45,7 @@ import { AppUpdatesLabScreen } from "./AppUpdatesLab"
 import { MarkdownLabScreen } from "./MarkdownLab"
 import { DocScanLabScreen } from "./DocScanLab"
 import { ImageViewerLabScreen } from "./ImageViewerLab"
-import { ImageViewerScreen } from "@zero-native/image-viewer/screen"
+import { ImageViewerScreen } from "@zeronative/image-viewer/screen"
 import { LayerLabScreen } from "./AppLayers"
 import { ChatListLabScreen } from "./ChatListLab"
 import { DynamicLayoutLabScreen } from "./DynamicLayoutLab"
@@ -142,7 +142,7 @@ export const routes = defineRoutes({
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
-declare module "@zero-native/core" {
+declare module "@zeronative/core" {
   interface Register {
     routes: typeof routes
   }

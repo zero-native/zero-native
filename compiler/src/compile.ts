@@ -33,7 +33,7 @@ import {
   LIST_EXTRAS_SINCE,
   slot as slotRef,
   templateIds,
-} from "@zero-native/template"
+} from "@zeronative/template"
 import { declaredIn, fold, NOT_STATIC, type FoldScope } from "./fold"
 import { NATIVE_NAME } from "./routes"
 import { assemble, type LineMap, markCopied } from "./sourcemap"
@@ -110,7 +110,7 @@ export interface OnceTrap {
 const RUNTIME = "__zn"
 /** What a nested <Text> span can change (ZnTemplate.kt parseSpans; core text-spans.ts for spans at runtime). */
 const SPAN_STYLE_KEYS = ["color", "fontSize", "fontWeight", "fontStyle", "fontFamily", "textDecorationLine", "letterSpacing", "backgroundColor"]
-const UI_MODULE = "@zero-native/ui"
+const UI_MODULE = "@zeronative/ui"
 type JsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment
 
 
@@ -160,7 +160,7 @@ const NOT_NEGATIVE_KEYS = new Set([...PADDING_KEYS, "borderWidth", "borderTopWid
 const PRESS_EVENTS = new Set(["onPress", "onPressIn", "onPressOut", "onLongPress", "onPressRepeat"])
 // ---- React Native names (RN-compat sweep P1, 2026-11-05) ----------------------------------------------------------
 // Each is a rename at build time: no new APK, and nothing changes for code that uses the zn names.
-/** RN component names. Only when imported from @zero-native/ui, so an app's own `View` component is never taken. */
+/** RN component names. Only when imported from @zeronative/ui, so an app's own `View` component is never taken. */
 const RN_TAGS: Record<string, string> = {
   View: "Column", // or Row, from a build-time flexDirection (viewTag)
   FlatList: "List",
@@ -201,7 +201,7 @@ const RN_ROLES: Record<string, string> = {
   button: "button", header: "header", heading: "header", image: "image", img: "image", link: "link", text: "text",
   switch: "switch", checkbox: "checkbox", none: "none", presentation: "none",
 }
-/** What to use for RN components that @zero-native/ui doesn't have, in the build error. */
+/** What to use for RN components that @zeronative/ui doesn't have, in the build error. */
 const RN_MISSING_TAGS: Record<string, string> = {
   SafeAreaView: "delete it and set the route option `safeArea` (for a coloured header, use insets().top)",
   KeyboardAvoidingView: 'delete it: the route option `keyboard: "resize"` (the default) keeps fields above the keyboard',
@@ -362,7 +362,7 @@ export function compileModule(
           // and the import is removed, so it would throw ReferenceError when it runs (2026-11-08, B2).
           const name = (e.propertyName ?? e.name).text
           if (!clause!.isTypeOnly && !e.isTypeOnly && /^[a-z]/.test(name)) {
-            fail(e, `"${name}" is not part of @zero-native/ui at runtime. Import it from "@zero-native/core"`)
+            fail(e, `"${name}" is not part of @zeronative/ui at runtime. Import it from "@zeronative/core"`)
           }
           uiImports.add(e.name.text)
         }
@@ -641,15 +641,15 @@ export function compileModule(
   const isRnTag = (tag: string) => tag in RN_TAGS && uiImports.has(tag) && !userComponents.has(tag)
   const isIntrinsic = (tag: string) => (tag in Component && tag !== "Anchor" && !userComponents.has(tag)) || isRnTag(tag)
   const isSvgFile = (tag: string) => svgImports.has(tag)
-  /** An SVG element name (Path, Circle, ...) imported from @zero-native/ui: only valid inside <Svg>. */
+  /** An SVG element name (Path, Circle, ...) imported from @zeronative/ui: only valid inside <Svg>. */
   const isSvgChild = (tag: string) => tag in SVG_TAGS && !(tag in Component) && uiImports.has(tag) && !userComponents.has(tag)
   /**
-   * A tag imported from @zero-native/ui that zn doesn't have (`<SafeAreaView>`): the import is removed, so it would
+   * A tag imported from @zeronative/ui that zn doesn't have (`<SafeAreaView>`): the import is removed, so it would
    * be a call of a missing function, a crash at run time. A build error instead (RN-compat sweep, guide notes §56).
    */
   const notInUiCheck = (node: ts.Node, tag: string) => {
     if (!uiImports.has(tag) || userComponents.has(tag) || isIntrinsic(tag) || isSvgChild(tag) || tag === "RefreshControl") return
-    fail(node, `<${tag}> is not in @zero-native/ui: ${RN_MISSING_TAGS[tag] ?? "see docs/rn-compatibility.md for what to use"}`)
+    fail(node, `<${tag}> is not in @zeronative/ui: ${RN_MISSING_TAGS[tag] ?? "see docs/rn-compatibility.md for what to use"}`)
   }
 
   // An imported SVG is a build-time name: only `<Name ... />` is allowed (docs/svg.md §4.1).
@@ -1317,7 +1317,7 @@ export function compileModule(
   })
 
   const pieces: Parameters<typeof assemble>[1] = []
-  if (replaced.length > 0) pieces.push({ generatedAt: 0, text: `import * as ${RUNTIME} from "@zero-native/core";\n` })
+  if (replaced.length > 0) pieces.push({ generatedAt: 0, text: `import * as ${RUNTIME} from "@zeronative/core";\n` })
   let at = 0
   for (const e of [...edits].sort((a, b) => a.start - b.start)) {
     pieces.push({ copyFrom: at, text: source.slice(at, e.start) })
@@ -2187,7 +2187,7 @@ export function compileModule(
 
   /**
    * RN-compat sweep P0.8: a prop the element doesn't take (`<Image horizontal>`, `<Text value>`) fails the build;
-   * before, it was accepted and did nothing. The list per element is its type in @zero-native/ui (tag-props.ts,
+   * before, it was accepted and did nothing. The list per element is its type in @zeronative/ui (tag-props.ts,
    * generated). Props with their own, clearer check (hitSlop, pull to refresh) are left to it.
    */
   function tagPropCheck(tag: string, name: string, at: ts.Node) {
@@ -4024,7 +4024,7 @@ function writeSvgTypes(path: string, svg: CompiledSvg) {
   const base = path.slice(path.replace(/\\/g, "/").lastIndexOf("/") + 1)
   const text =
     `// Made by the zero-native build from ${base}: its part names, for \`parts\` (docs/svg.md §16). Don't edit or commit.\n` +
-    `import type { SvgFile } from "@zero-native/ui"\n` +
+    `import type { SvgFile } from "@zeronative/ui"\n` +
     `declare const svg: SvgFile<${names.length > 0 ? names.map((n) => JSON.stringify(n)).join(" | ") : "never"}>\n` +
     `export default svg\n`
   if (svgTypes.get(file) === text) return

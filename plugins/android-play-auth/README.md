@@ -1,4 +1,4 @@
-# @zero-native/android-play-auth
+# @zeronative/android-play-auth
 
 Two helps for a phone number login, on Android:
 - **Phone number hint:** Google's sheet that lists the phone's numbers, so the user taps one instead of typing.
@@ -22,7 +22,7 @@ The app's Activity needs `ZnActivity.attach(this)` (`docs/guide-notes.md` §31).
 
 ## Use it
 ```ts
-import { Auth } from "@zero-native/android-play-auth"
+import { Auth } from "@zeronative/android-play-auth"
 
 // One id for one login attempt. It must come back after a kill.
 const draft = restorableSignal("draft", `login-${Date.now()}`)

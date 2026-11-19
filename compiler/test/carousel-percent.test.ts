@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string) {
@@ -15,7 +15,7 @@ function compile(src: string) {
 describe("H3: Carousel percent widths", () => {
   test("compiles itemWidth as percent into itemWidthPercent", () => {
     const { templates } = compile(`
-      import { Box, Carousel } from "@zero-native/ui"
+      import { Box, Carousel } from "@zeronative/ui"
       export function Screen() {
         return (
           <Carousel itemWidth="80%">
@@ -30,7 +30,7 @@ describe("H3: Carousel percent widths", () => {
 
   test("compiles pageWidth as percent into itemWidthPercent", () => {
     const { templates } = compile(`
-      import { Box, Carousel } from "@zero-native/ui"
+      import { Box, Carousel } from "@zeronative/ui"
       export function Screen() {
         return (
           <Carousel pageWidth="75%">
@@ -45,7 +45,7 @@ describe("H3: Carousel percent widths", () => {
 
   test("compiles numeric itemWidth into itemWidth unchanged", () => {
     const { templates } = compile(`
-      import { Box, Carousel } from "@zero-native/ui"
+      import { Box, Carousel } from "@zeronative/ui"
       export function Screen() {
         return (
           <Carousel itemWidth={320}>
@@ -60,7 +60,7 @@ describe("H3: Carousel percent widths", () => {
   test("refuses percent > 100%", () => {
     expect(() =>
       compile(`
-        import { Box, Carousel } from "@zero-native/ui"
+        import { Box, Carousel } from "@zeronative/ui"
         export function Screen() {
           return (
             <Carousel itemWidth="120%">

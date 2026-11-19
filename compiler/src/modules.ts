@@ -13,7 +13,7 @@ export interface ModuleUse {
   core?: true
 }
 
-/** `@zero-native/core`'s calls.ts implements nativeModule() with a variable name; it is the only file allowed to. */
+/** `@zeronative/core`'s calls.ts implements nativeModule() with a variable name; it is the only file allowed to. */
 const CALLS_IMPL = /[\\/]core[\\/]src[\\/]calls\.ts$/
 
 /**
@@ -27,7 +27,7 @@ export const SOFT_CORE_MODULES: ReadonlySet<string> = new Set(["Splash", "WebSoc
 
 /**
  * Core modules a bundle needs only when the app uses their API (registry 24 motion: docs/gestures-and-motion-v1.md §5).
- * Core's own calls don't count; an app file that imports one of these names from @zero-native/core does, so an older
+ * Core's own calls don't count; an app file that imports one of these names from @zeronative/core does, so an older
  * APK without the module refuses that bundle, and keeps running bundles that don't use it.
  */
 export const GATED_CORE_MODULES: Readonly<Record<string, { version: number; names: ReadonlySet<string> }>> = {
@@ -37,11 +37,11 @@ export const GATED_CORE_MODULES: Readonly<Record<string, { version: number; name
       "useLongPress", "useFling", "Gesture"]),
   },
 }
-/** A file of @zero-native/core itself: the repo's packages/core/src, or the package as an app installs it. */
-const CORE_SRC = /[\\/](?:packages|@zero-native)[\\/]core[\\/]src[\\/]/
+/** A file of @zeronative/core itself: the repo's packages/core/src, or the package as an app installs it. */
+const CORE_SRC = /[\\/](?:packages|@zeronative)[\\/]core[\\/]src[\\/]/
 
 export function nativeModuleUses(source: string, fileName: string): ModuleUse[] {
-  const gated = !CORE_SRC.test(fileName) && source.includes("@zero-native/core")
+  const gated = !CORE_SRC.test(fileName) && source.includes("@zeronative/core")
   if (!gated && !source.includes("nativeModule") && !source.includes("callNative")) return [] // quick skip (`nativeModule<T>(` too)
   const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind)
@@ -49,10 +49,10 @@ export function nativeModuleUses(source: string, fileName: string): ModuleUse[] 
   // An app file importing a gated core API (GATED_CORE_MODULES) needs that module.
   if (gated) {
     for (const st of sf.statements) {
-      if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== "@zero-native/core") continue
+      if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== "@zeronative/core") continue
       const named = st.importClause?.namedBindings
       const names = named && ts.isNamedImports(named) ? named.elements.map((e) => (e.propertyName ?? e.name).text) : []
-      // `import * as zn from "@zero-native/core"` can reach anything: it counts for every gated module.
+      // `import * as zn from "@zeronative/core"` can reach anything: it counts for every gated module.
       const star = !!named && ts.isNamespaceImport(named)
       for (const [module, g] of Object.entries(GATED_CORE_MODULES)) {
         if (star || names.some((n) => g.names.has(n))) uses.push({ name: module, version: g.version, core: true })
@@ -109,7 +109,7 @@ const packagePlatforms = new Map<string, ReadonlySet<ModuleOs>>()
 
 /**
  * The OSes a module call in [fileName] counts for (docs/ota-requires-per-os.md §2): the platforms of the plugin package
- * the file is in; both for @zero-native/core, the app's own files and anything that isn't a plugin. A plugin's platforms:
+ * the file is in; both for @zeronative/core, the app's own files and anything that isn't a plugin. A plugin's platforms:
  * `zeroNative.platforms` when written, else its folders (`android/` or a `zeroNative.android` entry; `ios/`).
  */
 export function platformsOf(fileName: string): ReadonlySet<ModuleOs> {
@@ -153,8 +153,8 @@ function pluginPlatforms(dir: string, pkgPath: string): ReadonlySet<ModuleOs> {
   return found.size > 0 ? found : BOTH_OSES // a plugin with no native side yet: not one OS's
 }
 
-/** What `packageOf` answers for @zero-native/core's own files (and gated core modules). */
-export const CORE_PACKAGE = "@zero-native/core"
+/** What `packageOf` answers for @zeronative/core's own files (and gated core modules). */
+export const CORE_PACKAGE = "@zeronative/core"
 
 /** Folder → the name of the package it is in (memo for packageOf). */
 const packageNames = new Map<string, string>()
@@ -199,7 +199,7 @@ const packageRoots = new Map<string, { root: string; name: string } | null>()
 
 /**
  * A name for [fileName] that is the same on every machine: "<package name>/<path inside the package>", with "/"
- * separators ("@zero-native/lottie/src/index.tsx", "my-app/app/src/main.ts"). Template ids are
+ * separators ("@zeronative/lottie/src/index.tsx", "my-app/app/src/main.ts"). Template ids are
  * sorted by it, so the same code builds the same bytes on Windows and on a Mac (the absolute path put a linked
  * plugin before the app on one and after it on the other, 2026-11-10). A file with no package.json above it keeps
  * its own path.

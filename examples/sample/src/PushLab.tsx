@@ -1,10 +1,10 @@
 // A dev screen for the push plugin. The phone test (tools/plugin-phone/push.ts) reads the log lines "push-lab ...", so
 // keep their wording. The token shows on screen (copy it for a test push from the console) and only its first 8
 // characters go in a log line. Message data is never logged as a whole: only the lab's own keys.
-import { Column, Pressable, Scroll, Text } from "@zero-native/ui"
-import { Clipboard, nav, Permissions, scheme, signal } from "@zero-native/core"
-import { Notifications } from "@zero-native/notifications"
-import { Push } from "@zero-native/firebase-messaging"
+import { Column, Pressable, Scroll, Text } from "@zeronative/ui"
+import { Clipboard, nav, Permissions, scheme, signal } from "@zeronative/core"
+import { Notifications } from "@zeronative/notifications"
+import { Push } from "@zeronative/firebase-messaging"
 import { c } from "./tokens"
 
 const PICTURE = "https://picsum.photos/id/1080/800/400"

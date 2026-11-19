@@ -1,7 +1,7 @@
 // Compiler fixes from the 2026-11-08 review of Gemini's batches 1 and 2
 // (docs/cross-communication/2026-11-08-opus-review-of-gemini-batches.md). One test per finding, named by its number.
 import { describe, expect, test } from "bun:test"
-import { type NodeSpec } from "@zero-native/template"
+import { type NodeSpec } from "@zeronative/template"
 import { compileModule } from "../src/compile"
 
 function compile(src: string) {
@@ -29,15 +29,15 @@ function find(spec: NodeSpec, tag: string): NodeSpec | undefined {
 describe("review fixes 2026-11-08", () => {
   test("B2: a runtime function imported from ui is a build error", () => {
     expect(() => compile(`
-      import { List, listController, Text } from "@zero-native/ui"
+      import { List, listController, Text } from "@zeronative/ui"
       export function S() { const c = listController(); return <Text>x</Text> }
-    `)).toThrow(/"listController" is not part of @zero-native\/ui at runtime\. Import it from "@zero-native\/core"/)
+    `)).toThrow(/"listController" is not part of @zeronative\/ui at runtime\. Import it from "@zeronative\/core"/)
   })
 
   test("B2: types and components from ui still compile", () => {
     expect(() => compile(`
-      import { Text, type ListRef } from "@zero-native/ui"
-      import type { ViewStyle } from "@zero-native/ui"
+      import { Text, type ListRef } from "@zeronative/ui"
+      import type { ViewStyle } from "@zeronative/ui"
       export function S() { return <Text>x</Text> }
     `)).not.toThrow()
   })
@@ -68,7 +68,7 @@ describe("review fixes 2026-11-08", () => {
 
   test("M6: a flex row Touchable in a Row doesn't fill the Row's height", () => {
     const { templates } = compile(`
-      import { Column, Row, Text, TouchableOpacity } from "@zero-native/ui"
+      import { Column, Row, Text, TouchableOpacity } from "@zeronative/ui"
       export function Bar() {
         return (
           <Row>
@@ -85,7 +85,7 @@ describe("review fixes 2026-11-08", () => {
 
   test("M6: in a Column, flex sets the height, so the inner Row fills it", () => {
     const { templates } = compile(`
-      import { Column, Row, Text, TouchableOpacity } from "@zero-native/ui"
+      import { Column, Row, Text, TouchableOpacity } from "@zeronative/ui"
       export function Bar() {
         return (
           <Column style={{ height: 200 }}>
@@ -101,7 +101,7 @@ describe("review fixes 2026-11-08", () => {
 
   test("H1 minor: flexShrink / flexBasis from a variable is a build error again", () => {
     const src = (k: string) => `
-      import { Box } from "@zero-native/ui"
+      import { Box } from "@zeronative/ui"
       export function A(p: { v: number }) { return <Box style={{ ${k}: p.v }} /> }`
     expect(() => compile(src("flexShrink"))).toThrow(/flexShrink must be known at build time/)
     expect(() => compile(src("flexBasis"))).toThrow(/flexBasis must be known at build time/)
@@ -109,7 +109,7 @@ describe("review fixes 2026-11-08", () => {
 
   test("Canvas takes no children", () => {
     expect(() => compile(`
-      import { Canvas, Text } from "@zero-native/ui"
+      import { Canvas, Text } from "@zeronative/ui"
       export function C() { return <Canvas style={{ width: 10, height: 10 }} commands={[]}><Text>x</Text></Canvas> }
     `)).toThrow(/<Canvas> takes no children/)
   })
@@ -118,7 +118,7 @@ describe("review fixes 2026-11-08", () => {
 describe("review fixes 2026-11-08: List header forms", () => {
   const header = (h: string) => {
     const { code } = compile(`
-      import { List, Text } from "@zero-native/ui"
+      import { List, Text } from "@zeronative/ui"
       export function S(p: { items: string[]; on: boolean; header: any }) {
         return <List data={p.items} key={(i) => i} row={(i) => <Text>{i}</Text>} ListHeaderComponent={${h}} />
       }`)
@@ -140,14 +140,14 @@ describe("review fixes 2026-11-08: List header forms", () => {
 describe("review fixes 2026-11-08: small compiler crashes", () => {
   test("<Carousel itemWidth> with no value is a build error, not a crash", () => {
     expect(() => compile(`
-      import { Carousel, Text } from "@zero-native/ui"
+      import { Carousel, Text } from "@zeronative/ui"
       export function C() { return <Carousel itemWidth><Text>a</Text></Carousel> }
     `)).toThrow(/itemWidth needs a value/)
   })
 
   test("a helper function after the last return, with guards, gets a clear message", () => {
     expect(() => compile(`
-      import { Text } from "@zero-native/ui"
+      import { Text } from "@zeronative/ui"
       export function C(p: { on: boolean }) {
         if (!p.on) return <Text>off</Text>
         return <Text>{label()}</Text>
@@ -159,16 +159,16 @@ describe("review fixes 2026-11-08: small compiler crashes", () => {
 
 describe("review fixes 2026-11-08: B5, the registry an older app checks", () => {
   test("a negative margin needs registry 23", async () => {
-    const { el, writeTemplateFile } = await import("@zero-native/template")
+    const { el, writeTemplateFile } = await import("@zeronative/template")
     expect(writeTemplateFile([el("Column", { marginHorizontal: -16 })]).registry).toBe(23)
     expect(writeTemplateFile([el("Column", { style: { marginTop: -4 } })]).registry).toBe(23)
     expect(writeTemplateFile([el("Column", { marginTop: 4 })]).registry).toBeLessThan(23)
   })
 
   test("a List with only a header needs registry 23", async () => {
-    const { writeTemplateFile } = await import("@zero-native/template")
+    const { writeTemplateFile } = await import("@zeronative/template")
     const { templates } = compile(`
-      import { List, Text } from "@zero-native/ui"
+      import { List, Text } from "@zeronative/ui"
       export function S(p: { items: string[] }) {
         return <List data={p.items} key={(i) => i} row={(i) => <Text>{i}</Text>} ListHeaderComponent={<Text>H</Text>} />
       }`)
@@ -177,9 +177,9 @@ describe("review fixes 2026-11-08: B5, the registry an older app checks", () => 
 })
 
 test("B5 control: the same List without a header stays below 23", async () => {
-  const { writeTemplateFile } = await import("@zero-native/template")
+  const { writeTemplateFile } = await import("@zeronative/template")
   const { templates } = compile(`
-    import { List, Text } from "@zero-native/ui"
+    import { List, Text } from "@zeronative/ui"
     export function S(p: { items: string[] }) {
       return <List data={p.items} key={(i) => i} row={(i) => <Text>{i}</Text>} />
     }`)

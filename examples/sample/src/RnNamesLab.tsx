@@ -11,8 +11,8 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
-} from "@zero-native/ui"
-import { AsyncStorage, BackHandler, effect, signal, useNavigation, useRef } from "@zero-native/core"
+} from "@zeronative/ui"
+import { AsyncStorage, BackHandler, effect, signal, useNavigation, useRef } from "@zeronative/core"
 import { c } from "./tokens"
 
 const ROWS = [

@@ -1,4 +1,4 @@
-// @zero-native/core: the JS side of the runtime.
+// @zeronative/core: the JS side of the runtime.
 import { installConsole } from "./log"
 import { installEvents } from "./events"
 import { installTimers } from "./timers"

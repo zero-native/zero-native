@@ -1,4 +1,4 @@
-# @zero-native/scanner
+# @zeronative/scanner
 
 Scan QR codes and barcodes with the camera: a full screen (`scanner.full`) and a view inside your own screen (`scanner.qr`).
 Reads codes on the phone, with no network and no Play services download.
@@ -46,7 +46,7 @@ Params, all optional (`ScannerParams`):
 ## The view
 
 ```tsx
-import { QrScanner } from "@zero-native/scanner"
+import { QrScanner } from "@zeronative/scanner"
 
 const torch = signal(false)
 const again = signal(0)

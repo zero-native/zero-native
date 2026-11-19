@@ -299,7 +299,7 @@ screen before healthy → roll back at once.
   reaches the server (§7).
 - **Same protocol** as today's phones (protocol 1), so the phone side needs only additions (§11, §23).
 - **Shares code with the CLI:** `decide()`, signing texts, the release rules and the manifest types live in one package,
-  `@zero-native/updates-core` (pure TypeScript, no I/O), used by the server, the CLI, mode-B servers, and tests.
+  `@zeronative/updates-core` (pure TypeScript, no I/O), used by the server, the CLI, mode-B servers, and tests.
 
 ---
 
@@ -665,7 +665,7 @@ per channel), any store build's built-in bundle. Everything else may go after 90
 | Mode | `/v1/check` answered by | Files served by | Who runs what |
 |---|---|---|---|
 | **A. Hosted** (default) | zn-updates | its storage via CDN | One image |
-| **B. Your own server** | the app's backend, with `@zero-native/updates-core` `decide()` over the signed snapshot | the app's own bucket/CDN, or zn-updates' | Image for publishing + the app's backend for phones |
+| **B. Your own server** | the app's backend, with `@zeronative/updates-core` `decide()` over the signed snapshot | the app's own bucket/CDN, or zn-updates' | Image for publishing + the app's backend for phones |
 | **C. Static** (phase 3) | nobody: the phone reads the signed snapshot from a static host and decides itself | any static host | Image only for publishing, or even just the CLI + a bucket |
 
 ### 16.1 The release snapshot
@@ -684,7 +684,7 @@ per channel), any store build's built-in bundle. Everything else may go after 90
   zn-updates. Phones never trust this key; they still check the developer's signatures inside.
 - `GET /v1/snapshot/<app>/<channel>` with ETag; mode-B servers poll every 30 s, or get a webhook
   (`POST <your url>` with `{app, channel, seq}`) on change.
-- A mode-B server: `import { decide } from "@zero-native/updates-core"`; keep the snapshot in memory; on each check call
+- A mode-B server: `import { decide } from "@zeronative/updates-core"`; keep the snapshot in memory; on each check call
   `decide(snapshot, request)`; rewrite file URLs to its own CDN if it mirrors files (`zn update:mirror` copies them, or
   it proxies); send outcomes to `POST /v1/outcomes` in batches every minute.
 
@@ -917,7 +917,7 @@ A small web app served by the image (React + Vite, built into the image), like `
 ## 26. Phases, tasks, estimates (my work; Pavan's checks extra)
 
 ### Phase 1: OTA on for the production release (≈ 2–2.5 weeks)
-1. `@zero-native/updates-core`: move `decide`, signing, rules, types out of `tools/ota` (no behaviour change). 1 day
+1. `@zeronative/updates-core`: move `decide`, signing, rules, types out of `tools/ota` (no behaviour change). 1 day
 2. Server skeleton: Hono app, config, Postgres schema + migrations, storage drivers `fs` + `gcs`, health. 2 days
 3. Admin API: apps, keys, channels, reserve, files missing / upload URLs, ready, releases, rollout, stable, store builds,
    state, tokens, audit. 2–3 days

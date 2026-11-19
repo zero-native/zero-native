@@ -1,6 +1,6 @@
 // The webview plugin's JS side, without the component (WebView.tsx). Native side: android/.../WebViewModule.kt.
 // No side effects: nativeModule() only creates a handle.
-import { nativeModule } from "@zero-native/core"
+import { nativeModule } from "@zeronative/core"
 
 /** Why a command did nothing. no_view: the view isn't on screen. no_page: the page hasn't sent a message yet, or left. */
 export interface SentAnswer {

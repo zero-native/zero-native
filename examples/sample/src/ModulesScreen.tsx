@@ -1,9 +1,9 @@
 // A dev screen for native module foundations (milestone 2 step 2.6): a call, a cancellable slow call, an error code,
 // and a native event stream that stops when this screen closes.
-import { Column, Pressable, Row, Text } from "@zero-native/ui"
-import { flowStore, nav, NativeError, signal } from "@zero-native/core"
+import { Column, Pressable, Row, Text } from "@zeronative/ui"
+import { flowStore, nav, NativeError, signal } from "@zeronative/core"
 import { c } from "./tokens"
-import { Device } from "@zero-native/device-test"
+import { Device } from "@zeronative/device-test"
 
 function Button(props: { label: string; onPress: () => void }) {
   return (

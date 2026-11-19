@@ -1,2 +1,2 @@
-import { nativeModule } from "@zero-native/core"
+import { nativeModule } from "@zeronative/core"
 export const adId = nativeModule<object>("AdId", { version: 2 })

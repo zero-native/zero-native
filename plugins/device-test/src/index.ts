@@ -1,6 +1,6 @@
 // The test plugin's native module, declared once in TypeScript (docs/native-modules.md). Native side:
 // android/.../DeviceModule.kt. No side effects: nativeModule() only creates a handle.
-import { nativeModule, nativeMotion, type CallOptions, type MotionSource, type MotionTiming } from "@zero-native/core"
+import { nativeModule, nativeMotion, type CallOptions, type MotionSource, type MotionTiming } from "@zeronative/core"
 
 /** launched false: the other app didn't open. */
 export interface LaunchStarted {
