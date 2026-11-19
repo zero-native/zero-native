@@ -363,7 +363,9 @@ internal fun UpdateScreenHost() {
             // phone's icon shape, any other drawable in the 288 dp box): the screen carries on.
             val icon = remember(look.icon) { look.icon?.let { runCatching { context.getDrawable(it) }.getOrNull() } ?: launch.icon }
             if (icon != null) {
-                val box = if (icon is AdaptiveIconDrawable) ICON_BOX else ICON_BOX_PLAIN
+                // AdaptiveIconDrawable is Android 8+ (API 26); minSdk is 24, where the class isn't there and checking
+                // for it could throw (CI's lint found it, 2026-11-19). Android 7 has no adaptive icons anyway.
+                val box = if (Build.VERSION.SDK_INT >= 26 && icon is AdaptiveIconDrawable) ICON_BOX else ICON_BOX_PLAIN
                 AndroidView(
                     factory = { ctx -> ImageView(ctx).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setImageDrawable(icon) } },
                     modifier = Modifier.align(Alignment.Center).size(box),

@@ -367,3 +367,13 @@ Each entry says:
   sample lab `zn://sample/dev/sheet-leave`: "Replace with a screen that opens a sheet", "Reset to a screen that opens
   a sheet", "Back: the screen below opens a sheet" (push another lab screen first), and "Close the payment sheet under
   this one" (from the sheet or the Modal over it). The new sheet must stay; the upper one must stay.
+
+## A25. The update screen's icon check used an Android 8 class on Android 7 (found by CI lint)
+- **Status:** fixed on the Mac 2026-11-19, not run on a phone. CI's first lint run (GitHub Actions) failed with
+  NewApi: `ZnOtaGate.kt` checked `icon is AdaptiveIconDrawable` (API 26) with minSdk 24.
+- **Risk:** on Android 7 (API 24–25) that check can throw (the class isn't there) when the OTA update screen draws at
+  launch.
+- **Fix:** `Build.VERSION.SDK_INT >= 26 && icon is AdaptiveIconDrawable`; Android 7 uses the plain icon box (it has no
+  adaptive icons). CI builds and lints it.
+- **Check on Android (Windows):** an Android 7 emulator (API 24) with a high-priority update waiting: the update screen
+  shows its icon, no crash.
