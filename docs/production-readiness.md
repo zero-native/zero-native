@@ -46,8 +46,9 @@ for prod 10M+ user apps, including iOS"). Tick items off here as they land, with
   Mac exactly as CI runs it; the Android ones first run on GitHub.
 - To do:
   - [x] On every push: JS, Kotlin and C++ tests, builds (2026-11-19).
-  - [ ] Lint and release builds in CI (Android lint, the R8 release build, the iOS Release build): in ci.yml since
-    2026-11-19; tick when the first run with them is green.
+  - [x] Lint and release builds in CI (Android lint, the R8 release build, the iOS Release build), and an app made by
+    `zn new` built for both (new-app.yml): green from runs 44485269919 / 44485269757 (2026-11-19). Lint's first run
+    found an Android 8 class used on Android 7 (A25, fixed).
   - [ ] Budgets that fail the build: APK size, bundle size, cold start (`startup-and-performance.md`).
   - [ ] Nightly: the OTA test matrix (`ota-test-matrix.md`) on a device farm.
 
