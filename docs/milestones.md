@@ -149,6 +149,18 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-19: CI on GitHub Actions (Claude, Mac)
+- `.github/workflows/ci.yml`, on every push to main and every pull request, no secrets: js (Ubuntu: `bun run
+  sample:js`, `bun run test`), ios (macOS 15, newest Xcode 26: the C++ core tests, the OTA rule tests, the iOS sample
+  for the simulator; Hermes from its pinned script, cached), android (Ubuntu, JDK 21: `:sample:assembleDebug` and every
+  module's `testDebugUnitTest`; the Android Gradle plugin installs SDK 37.0, NDK 30.0.16248370 and CMake itself).
+  Green from run 44476660766; about 2-4 min per job.
+- Found on the way: five JS tests failed only in a full run (one test file's leftovers: unanswered Motion calls, app
+  event handlers, the nav's top screen); tests-only resets fix them, and the suite passes in 10 shuffled file orders.
+  `android/gradlew` wasn't executable in git. The SDK package is `platforms;android-37.0`.
+- CMake: Windows' SDK held CMake 4.1.2 in a folder named 3.22.1 (an old React Native patch), so every Android build so
+  far used 4.1.2. Pavan's call: the runtime's build file now asks for 4.1.2 (`cmake;4.1.2`); CI installs it.
+
 ### 2026-11-19: iOS: a TextField inside a Pressable takes the tap (Claude, Mac)
 - Bug: a TextField inside a Pressable (a dialog Modal whose dim is a Pressable, a tappable row with a search field)
   could never be focused on iOS: the Pressable's touch layer is over its content and gave way only to a smaller

@@ -36,10 +36,13 @@ for prod 10M+ user apps, including iOS"). Tick items off here as they land, with
     predictive back).
   - [ ] **Phone settings:** big font and display size, small screens, foldables.
 
-### A3. No CI. Blocks: 10k beta
-- [fact] There is no `.github` folder. All tests run by hand.
+### A3. CI. Blocks: 10k beta
+- [fact] Since 2026-11-19, GitHub Actions (`.github/workflows/ci.yml`) runs on every push to main and every pull
+  request: the JS tests and type check; on macOS the C++ core tests, the OTA rule tests and the iOS sample build; on
+  Linux the Android sample's debug build and every module's unit tests. No secrets needed. First green run: 44476660766.
 - To do:
-  - [ ] On every push: JS, Kotlin and C++ tests, lint, a release build.
+  - [x] On every push: JS, Kotlin and C++ tests, builds (2026-11-19).
+  - [ ] Lint and release builds in CI (Android lint, the R8 release build, the iOS Release build).
   - [ ] Budgets that fail the build: APK size, bundle size, cold start (`startup-and-performance.md`).
   - [ ] Nightly: the OTA test matrix (`ota-test-matrix.md`) on a device farm.
 
