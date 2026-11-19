@@ -52,11 +52,17 @@ side in one script, so read the notes.
 | Tap to screen update | not measured | p50 0.97 ms, p95 2.08 ms | v0 renderer experiment, release |
 
 On a slow Android 9 phone (Infinix Hot 8), the 500-row transaction list scrolls smoothly from the first fling when the
-app comes from Google Play (the runtime ships a baseline profile). No iOS size or speed numbers have been measured yet.
+app comes from Google Play (the runtime ships a baseline profile).
+
+**iOS (2026-11-19):** the sample app built for a device (Release, arm64, release Hermes, no Firebase or Lottie,
+stripped as an App Store build would be) is **7.2 MB installed, 2.8 MB zipped**: the app binary (runtime, plugins, C++
+core) 2.8 MB, Hermes 2.9 MB, the sample's JS bytecode 1.3 MB. No App Store download size or cold start has been
+measured on an iPhone yet.
 
 ## Quick start
 
-You need [Bun](https://bun.sh), Android Studio (for its JDK and the Android SDK), and Xcode for iOS.
+You need [Bun](https://bun.sh). For Android: Android Studio (its JDK and the Android SDK). For iOS: a Mac with Xcode 26
+and CMake (`brew install cmake`).
 
 ```bash
 bun install
@@ -67,17 +73,48 @@ bun run sample:js
 ```
 
 ```bash
-bun test
+bun run test
 ```
 
-`sample:js` builds the sample app's JS (on a fresh clone it also creates `test-kit/offers-data.json` from the example, which the type check needs). Then, from `android/`:
+`sample:js` builds the sample app's JS (on a fresh clone it also creates `test-kit/offers-data.json` from the example,
+which the type check needs). `bun run test` runs the tests and the type check, as CI does.
+
+### Android
+
+From `android/`:
 
 ```bash
 ./gradlew :sample:installDebug
 ```
 
 While you work on screens, `bun run dev` sends saved changes to the debug build on the phone in under a second.
-Release builds (`:sample:installRelease`) are for measuring. For the iOS sample see
+Release builds (`:sample:installRelease`) are for measuring.
+
+### iOS (simulator)
+
+Once, download Hermes for Apple platforms (pinned by version and checksum):
+
+```bash
+bun run tools/fetch-hermes-apple.ts
+```
+
+Start a simulator:
+
+```bash
+open -a Simulator
+```
+
+Then build the sample, install it on the booted simulator and start it with its console attached:
+
+```bash
+bun run tools/ios-sample.ts
+```
+
+The first build takes about a minute. `--link zn://sample/dev/rn-props` starts on a screen by its link; the other
+options (another simulator, slow animations, touch logging) are listed at the top of `tools/ios-sample.ts`. Lottie and
+Firebase are optional:
+`bun run tools/fetch-lottie-apple.ts`, `bun run tools/fetch-firebase-apple.ts`, and your own
+`ios/Sample/GoogleService-Info.plist` (never committed); without them those plugins answer "unavailable". More in
 [docs/milestones-ios.md](docs/milestones-ios.md).
 
 ## Read next
