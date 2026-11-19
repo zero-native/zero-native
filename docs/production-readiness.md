@@ -150,7 +150,7 @@ The C++ core, Hermes and the template format are shared. **The iOS host doesn't 
 - [ ] **API stability:** semver for the public API, a deprecation policy, migration notes per release. Host API and
   registry versions already exist (`adding-components.md`), which is a good base.
 - [ ] **Open source:** last, as planned (a step-by-step history replay that also hunts missed bugs).
-- [ ] **Publishing** to npm, Maven Central and SwiftPM: the plan and Pavan's decisions are in `publishing-plan.md`.
+- [ ] **Publishing** to npm, Maven Central and SwiftPM: the plan and the open choices are in `publishing-plan.md`.
 
 ---
 

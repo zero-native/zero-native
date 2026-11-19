@@ -1,6 +1,6 @@
 # Publishing plan: npm, Maven Central and SwiftPM
 
-Written 2026-11-19, as a decision document for Pavan. **Nothing has been published, no account was made and no name was
+Written 2026-11-19. **Nothing has been published, no account was made and no name was
 reserved.** Today an app builds zero-native from a checkout: a Gradle composite build, `bun link`, and CMake pointing at
 the repo (`guide-notes.md` §34, `second-opinions.md` entry 17). This file says what to publish, under which names,
 how to sign it, and in what order.
@@ -8,7 +8,7 @@ how to sign it, and in what order.
 How to read the marks (`[check]` as in `README.md` of this folder; `[fact]` is this file's own):
 - **[fact]** checked on 2026-11-19, with how it was checked.
 - **[check]** believed, not confirmed.
-- **Recommended** is a proposal. The decisions are Pavan's (§9).
+- **Recommended** is a proposal; what is still open is in §9.
 
 ---
 
@@ -18,7 +18,7 @@ How to read the marks (`[check]` as in `README.md` of this folder; `[fact]` is t
   name `zero-native`, and both `zero-native.dev` and `zeronative.dev` point at its site (§3). So **`dev.zeronative`
   can't be proven for Maven Central** by us, and the unscoped npm name is gone.
 - **What we can use:** the GitHub org `zero-native` (ours). The npm scope `@zero-native` is taken by someone else, so
-  **Pavan made the npm org `zeronative` on 2026-11-19**, and the code was renamed to `@zeronative/*` the same day
+  **the npm org `zeronative` was made on 2026-11-19**, and the code was renamed to `@zeronative/*` the same day
   (§10 step 2): `@zeronative/core`, `@zeronative/ui` and so on.
 - **Publish three things with one version number**, from one git tag:
   - 25 npm packages: core, template, ui, compiler, 20 plugins and a new `@zeronative/cli`;
@@ -132,7 +132,7 @@ The work this needs [fact: what is missing today]:
 - Firebase and Lottie: today the app links Google's and Airbnb's XCFrameworks, and the plugins check
   `canImport(FirebaseCore)`. In SwiftPM a target only sees its declared dependencies. So the Firebase plugins must
   depend on `firebase-ios-sdk`, and Lottie on `lottie-spm`. Then every app resolves (downloads) Firebase, even one that
-  uses none of it. Recommended: put the Firebase and Lottie plugins in a second, small package repo (§9, decision 8).
+  uses none of it. Recommended: put the Firebase and Lottie plugins in a second, small package repo (§9).
   [check] SwiftPM "traits" (optional dependencies, Swift 6.1+) might avoid the second repo; check what Xcode 26 shows
   for them.
 
@@ -148,7 +148,7 @@ The work this needs [fact: what is missing today]:
   `9bb1a77d7f8c01d50e6dd9810e4e0f3e571076cfe76d463b98881efd2d39d81b`. It is a local test only: a zip made on another
   machine or day can differ, so the release workflow makes the zip once and the checksum goes in with it.
 - `codesign -dv` says Meta's framework "is not signed at all". [check] whether Apple's rule for SDKs on its privacy
-  list also wants a signature from us on a re-hosted Hermes. If yes, signing needs an Apple Developer team (decision 5).
+  list also wants a signature from us on a re-hosted Hermes. If yes, signing needs an Apple Developer team (§9).
 - One binary target means one Hermes flavor. Ship release Hermes. Framework developers keep the debug one through the
   CMake build, as today.
 
@@ -182,7 +182,7 @@ form. If in doubt, tag without `v`.
 | `@zero-native/core`, `/ui`, `/compiler`, `/cli`, `/create` | Free (404), but they can only be published by the scope's owner. |
 | `@zeronative`, `@zn-dev` scopes | Not found (free). |
 
-So: if Pavan made the npm org `zero-native`, we are fine. If not, we need another scope (decision 2). Our CLI's bin
+So the packages use the scope `@zeronative` (§1), whose npm org is ours. Our CLI's bin
 is `zn`; the docs must never tell people to run `npx zero-native`, which runs the other project's CLI.
 
 ### 3.2 Maven Central [fact: DNS, RDAP, the Central docs]
@@ -209,18 +209,18 @@ is `zn`; the docs must never tell people to run `npx zero-native`, which runs th
 - The org `zero-native` exists (made 2026-11-18) with one public repo, `zero-native/zero-native`. It is ours.
 - SwiftPM names come from the git URL, so there is no name to reserve. The package can be called `ZeroNative`.
 
-## 4. Accounts and who owns them
-| Account | What for | Owner |
-|---|---|---|
-| npm org `zero-native` | publishing `@zeronative/*` | Pavan as owner, plus one more human owner so a lost phone (2FA) doesn't lock the project |
-| Sonatype Central Portal | the Maven namespace and its publishing token | Pavan. Add a second publisher to the namespace later |
-| GPG key | signing Maven files | a key for the project (not a personal everyday key), its public half on `keys.openpgp.org` and `keyserver.ubuntu.com` |
-| GitHub org `zero-native` | the repo, Releases (the Hermes zip), Actions | Pavan (already) |
-| Apple Developer team | only if the Hermes XCFramework must be signed (§2.3) | Pavan decides which team (decision 5) |
-| Domain for the Maven group | DNS proof | whoever owns the project's domain (decision 3) |
+## 4. Accounts
+| Account | What for |
+|---|---|
+| npm org `zeronative` | publishing `@zeronative/*`; at least two human owners, so one lost phone (2FA) can't lock the project |
+| Sonatype Central Portal | the Maven namespace and its publishing token |
+| GPG key | signing Maven files: a key for the project, its public half on `keys.openpgp.org` and `keyserver.ubuntu.com` |
+| GitHub org `zero-native` | the repo, Releases (the Hermes zip), Actions |
+| Apple Developer team | only if the Hermes XCFramework must be signed (§2.3) |
+| Domain for the Maven group | DNS proof (§3.2) |
 
-Secrets go in a GitHub **environment** named `release`, with Pavan as its required reviewer. CI on pull requests never
-sees them.
+Secrets go in a GitHub **environment** named `release`, with a maintainer as its required reviewer. CI on pull
+requests never sees them.
 
 ## 5. Signing and integrity
 
@@ -310,40 +310,22 @@ published; a test tag on a fork for SwiftPM.
   host, `zn-updates.json`, and a `package.json` with every `@zeronative/*` version equal to the CLI's own.
 - **zn-updates server:** stays "run it from the repo" for 0.1. A container image on GHCR later if people ask.
 
-## 9. Decisions only Pavan can make
-Each with a recommended answer.
+## 9. Open choices
+Before 0.1.0 the maintainers still choose:
+- **The Maven group** (§3.2): `dev.zeronative` can't be proven, so a domain we own, or `io.github.<login>`.
+- **Firebase and Lottie on iOS** (§2.3): in the main Swift package, or in a second one so apps without them don't
+  download them.
+- **Signing a re-hosted Hermes** (§2.3), if Apple's rule asks for it, and with which Apple team.
 
-1. **Keep the name "zero-native"?** Vercel Labs used it first (May 2026), still holds npm `zero-native` and both
-   `.dev` domains, though its project is now "Native SDK". **Recommended:** keep it. Use only the scoped npm names, the
-   GitHub org and the `zn` command, and never the unscoped name. Trademarks were not searched [check]; ask a lawyer
-   if Vercel objects.
-2. ~~Is the npm scope `@zero-native` yours?~~ **Decided 2026-11-19:** it isn't; Pavan made the npm org `zeronative`,
-   and the code uses `@zeronative/*`. Still to do: a second owner on the org.
-3. **The Maven group.** `dev.zeronative` is out of reach. **Recommended:** buy a domain (for example `zeronative.io`
-   or `zero-native.org`, if a registrar says it is free), use group `io.zeronative` (or `org.zero-native`), and keep
-   the Kotlin packages `dev.zeronative.*` for now. Fallback with no money and no wait: `io.github.<your login>`, but it
-   ties the project to one person.
-4. **Who holds the keys:** the npm org owners, the Central account, the GPG key. **Recommended:** you, plus one more
-   trusted human for npm and the GPG key's backup, stored offline.
-5. **Apple Developer team, if the Hermes zip must be signed.** **Recommended:** a team for the project, not the
-   ZeroBill team, so the framework doesn't depend on one company's account. Only needed if [check] in §2.3 says so.
-6. **One version for all, starting at 0.1.0.** **Recommended:** yes.
-7. **SwiftPM only, no CocoaPods.** **Recommended:** yes (trunk is read-only from 2026-12-02).
-8. **Firebase and Lottie plugins on iOS: same package or a second repo?** **Recommended:** a second repo,
-   `zero-native/zero-native-firebase-swift` (with Lottie), so apps without Firebase don't download it.
-9. **Bun only.** The CLI and compiler use Bun APIs. **Recommended:** yes for 0.x; say so on the README's first screen.
-10. **Who approves a release.** **Recommended:** you push the tag, and the `release` environment waits for your
-    approval. Maven deployments are published by hand for the first three releases.
-11. **When.** **Recommended:** move the first outside app to the published 0.1.0 first, as the proof, then announce.
-    `production-readiness.md` E said "open source last"; the repo is already public, so publishing is the next step of
-    that line, not a new promise of stability.
+The rest of this plan assumes one version for everything from 0.1.0 (§6), SwiftPM only (§5.4), Bun only for 0.x, and
+a release that a maintainer approves (§7).
 
 ## 10. The ordered plan
 Days are focused working days, one engineer with AI, **target** (not measured).
 
 | # | Step | Days | Done when |
 |---|---|---|---|
-| 1 | Pavan: decisions 1–4 (§9); make or confirm the npm org, the Central account and namespace, the GPG key | 0.5 (plus DNS wait) | the namespace shows "verified" in the Central Portal |
+| 1 | The open choices (§9); make or confirm the npm org, the Central account and namespace, the GPG key | 0.5 (plus DNS wait) | the namespace shows "verified" in the Central Portal |
 | 2 ✓ | npm: package fields (`version`, `files`, `license`, `repository`, `exports`, `publishConfig`), the core deep import, `@zeronative/cli` out of `tools/` | 2–3 | `npm pack` of each, installed in a new app outside the repo, builds a bundle with `zn builtin` |
 | 3 | Maven: one shared publishing setup for the runtime and 19 plugins, POM data, signing | 2–3 | an outside app builds from `mavenLocal()` with no `includeBuild` (needs a machine with the Android SDK; this Mac has none) |
 | 4 | SwiftPM: `public` API, plugin targets with `import ZnRuntime`, `ZnCore` with MMKV, Hermes headers, the Hermes zip release, `Package.swift`; the sample builds from it | 5–8 | the sample from the package runs on the simulator with the same screens as the CMake build |
