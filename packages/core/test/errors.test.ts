@@ -1,10 +1,12 @@
 import { beforeEach, expect, test } from "bun:test"
 import { installFakeHost, type FakeHost } from "./fake-host"
 import { installRejectionTracking, onError, reportError, type ErrorInfo } from "../src/errors"
+import { resetNavForTests } from "../src/nav"
 
 let host: FakeHost
 beforeEach(() => {
   host = installFakeHost()
+  resetNavForTests()  // no screen on top: another file's startApp may have left one (errors carry the top screen)
 })
 
 test("onError hears every reported error; an error in a handler is only logged; off() stops it", () => {

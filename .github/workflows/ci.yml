@@ -75,6 +75,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools  # its default also asks for "tools", which the SDK no longer has (the first run failed)
       # The versions android/runtime and android/sample ask for (compileSdk, ndkVersion, cmake version).
       - run: sdkmanager "platforms;android-37" "ndk;30.0.16248370" "cmake;3.22.1"
       - uses: oven-sh/setup-bun@v2
