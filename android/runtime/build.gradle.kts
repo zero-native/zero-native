@@ -60,7 +60,9 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
+            // What every Android build so far really used (2026-11-19: Windows' SDK had CMake 4.1.2 in a folder named
+            // 3.22.1); CI and new machines get the same. SDK Manager package: cmake;4.1.2.
+            version = "4.1.2"
         }
     }
 
