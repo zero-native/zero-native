@@ -206,18 +206,17 @@ final class ZnTouchControl: UIView {
             // An inner Pressable takes the touch; in our slop, any Pressable under the finger does.
             if f.contains(p) && (inSlop || f.width * f.height < area) { return nil }
         }
+        // A TextField inside the Pressable (a dialog's note field in a tappable dim, a search field in a tappable row):
+        // the field takes the touch, as on Android, where the innermost one gets it. It never could (2026-11-19).
+        for box in ZnFieldFocus.boxes(at: p, in: window)
+        where box.controller === screen && (inSlop || box.frame.width * box.frame.height < area) {
+            return nil
+        }
         return hit
     }
 
     /// The view controller hosting this control's screen (the nearest one up the responder chain).
-    var screenController: UIViewController? {
-        var r: UIResponder? = self
-        while let next = r?.next {
-            if let vc = next as? UIViewController { return vc }
-            r = next
-        }
-        return nil
-    }
+    var screenController: UIViewController? { znNearestController(self) }
 
     static let live = NSHashTable<ZnTouchControl>.weakObjects()
     override func didMoveToWindow() {
@@ -286,4 +285,14 @@ extension EnvironmentValues {
     /// them, so a smaller button on a hidden tab swallowed taps on the shown one (ZeroBill: Offers' card after visiting
     /// Rewards, 2026-11-09).
     @Entry var znInHiddenTab = false
+}
+
+/// The nearest view controller up [view]'s responder chain (its screen's, or its Sheet's or Modal's).
+@MainActor func znNearestController(_ view: UIView) -> UIViewController? {
+    var r: UIResponder? = view
+    while let next = r?.next {
+        if let vc = next as? UIViewController { return vc }
+        r = next
+    }
+    return nil
 }

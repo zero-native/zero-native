@@ -149,6 +149,15 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-19: iOS: a TextField inside a Pressable takes the tap (Claude, Mac)
+- Bug: a TextField inside a Pressable (a dialog Modal whose dim is a Pressable, a tappable row with a search field)
+  could never be focused on iOS: the Pressable's touch layer is over its content and gave way only to a smaller
+  Pressable. Seen in RnPropsLab's dialog Modal (note field), on main before the finding-20 change too.
+- Fix (ZnPress.swift, ZnTextField.swift; native only): the touch layer also gives way to a field's box under the finger
+  (ZnFieldFocus keeps them) when it is smaller and on the same screen or layer, as Android, where the innermost one
+  gets the touch. Checked on the simulator: the note field focuses and takes text; a tap on the dim still reaches the
+  dim Pressable; the dialog's buttons work. Android not run from the Mac (Compose gives the child the touch first).
+
 ### 2026-11-18: iOS: Sheets and Modals in their own layer box; closing one closes it alone (Claude, Mac; review finding 20)
 - Bug (finding 20): Sheets and Modals were UIKit presentations, and a dismiss also closed everything presented over the
   closing one. Closing a payment sheet took down the sheet or Modal opened over it, while JS still thought it open (so

@@ -60,6 +60,16 @@ enum ZnFieldFocus {
         boxes = boxes.filter { $0.value.view != nil }
         boxes[key] = WeakView(v)
     }
+    /// The boxes of the fields in [window] under [point] (window coordinates), with the view controller each is in: a
+    /// Pressable around a field leaves the touch to it (ZnTouchControl.hitTest).
+    static func boxes(at point: CGPoint, in window: UIWindow) -> [(frame: CGRect, controller: UIViewController?)] {
+        boxes.values.compactMap { w in
+            guard let v = w.view, v.window === window, !v.isHidden else { return nil }
+            let f = v.convert(v.bounds, to: window)
+            return f.contains(point) ? (f, znNearestController(v)) : nil
+        }
+    }
+
     static func focus(_ inst: ZnInstance, _ node: Int) {
         guard let v = views[key(inst, node)]?.view, !v.isFirstResponder else { return }
         v.becomeFirstResponder()
