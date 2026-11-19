@@ -6,9 +6,14 @@
 // failure. The app's Info.plist needs NSCameraUsageDescription.
 import AVFoundation
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct ScannerPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct ScannerPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.module(ScannerModule())
         r.screen("scanner.full") { scope in ScannerScreen(scope) }
         r.view("scanner.qr") { scope in ScannerView(scope) }

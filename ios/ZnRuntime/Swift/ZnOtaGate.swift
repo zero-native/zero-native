@@ -14,13 +14,18 @@
 import UIKit
 
 /// How the update screen looks: the launch screen (ZnSplash's copy of it) with a title, a line and a progress bar.
-struct ZnUpdateScreen {
-    var title = "Updating for a better experience"
-    var message = "This takes only a few seconds"
+public struct ZnUpdateScreen {
+    public var title = "Updating for a better experience"
+    public var message = "This takes only a few seconds"
     /// The progress bar (the app's brand colour). nil: the tint colour.
-    var accent: UIColor? = nil
+    public var accent: UIColor? = nil
     /// The text colour. nil: the label colour.
-    var textColor: UIColor? = nil
+    public var textColor: UIColor? = nil
+
+    public init(title: String = "Updating for a better experience", message: String = "This takes only a few seconds",
+                accent: UIColor? = nil, textColor: UIColor? = nil) {
+        self.title = title; self.message = message; self.accent = accent; self.textColor = textColor
+    }
 }
 
 @MainActor

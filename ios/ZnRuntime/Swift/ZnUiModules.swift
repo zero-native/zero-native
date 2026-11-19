@@ -359,14 +359,14 @@ final class ZnPermissions: ZnModuleBase, @unchecked Sendable {
 /// - [capMs] is the longest it waits: the app shows then even if JS isn't done (the error screen must show).
 /// - A push or replace made while it is held comes in with no slide (ZnNavController), so the first screen the user
 ///   sees is the final one.
-enum ZnSplash {
+public enum ZnSplash {
     /// Main thread: the cover is up. A screen pushed now comes in with no slide.
     private(set) static var holding = false
     /// JS's holds still open: id to maxMs. The longest maxMs counts from the first screens being up.
     private static var appHolds: [Int: Double] = [:]
     private static var appMaxMs: Double = 0
 
-    @MainActor static func holdUntilReady(_ window: UIWindow, capMs: Double = 1000) {
+    @MainActor public static func holdUntilReady(_ window: UIWindow, capMs: Double = 1000) {
         guard !holding, !ZnApp.shared.firstScreensUp else { return }  // screens already built: nothing to hold
         let cover = launchCover(window.bounds)
         window.addSubview(cover)

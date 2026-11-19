@@ -10,6 +10,10 @@
 // - Linked without Analytics' IDFA part (no tracking prompt): no advertising id is collected.
 // - No OTA yet: zn_bundle is "built-in".
 import Foundation
+#if SWIFT_PACKAGE
+import ZnRuntime
+import ZnPluginFirebaseApp
+#endif
 #if canImport(FirebaseAnalytics)
 import FirebaseAnalytics
 #endif
@@ -92,12 +96,18 @@ enum AnalyticsRules {
 }
 
 /// Add it with `ZnPlugins.register(..., AnalyticsPlugin())`. `screenName` renames a route or leaves it out (nil).
-struct AnalyticsPlugin: ZnPlugin {
-    var screenViews = true
-    var screenName: (String) -> String? = { $0 }
-    var bundleParam = true
+public struct AnalyticsPlugin: ZnPlugin {
+    public init(screenViews: Bool = true, screenName: @escaping (String) -> String? = { $0 }, bundleParam: Bool = true) {
+        self.screenViews = screenViews
+        self.screenName = screenName
+        self.bundleParam = bundleParam
+    }
 
-    func register(_ r: ZnPluginRegistry) {
+    public var screenViews = true
+    public var screenName: (String) -> String? = { $0 }
+    public var bundleParam = true
+
+    public func register(_ r: ZnPluginRegistry) {
         r.requireHostApi(8)
         let on = ZnFirebase.start()
         let module = AnalyticsModule(on: on)

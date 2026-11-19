@@ -1,0 +1,6 @@
+// The ZnHost module of the Swift package (Package.swift): what Swift sees of the Objective-C++ host. Only ZNHost.h;
+// the bridging header next to it is the CMake builds' way to the same file.
+module ZnHost {
+  header "ZNHost.h"
+  export *
+}

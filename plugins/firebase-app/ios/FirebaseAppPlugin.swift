@@ -8,19 +8,22 @@
 // iOS difference: Android's google-services plugin starts Firebase by itself; here the first Firebase plugin to register
 // calls `FirebaseApp.configure()` (ZnFirebase.start), before the app's JS runs.
 import Foundation
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 #if canImport(FirebaseCore)
 import FirebaseCore
 import FirebaseInstallations
 #endif
 
 /// Firebase's state for every zero-native Firebase plugin.
-enum ZnFirebase {
+public enum ZnFirebase {
     /// The app has its GoogleService-Info.plist.
     static var hasConfig: Bool { Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil }
 
     /// Starts Firebase once, if it can. True when Firebase is running. Main thread (plugins register there).
     @MainActor @discardableResult
-    static func start() -> Bool {
+    public static func start() -> Bool {
         #if canImport(FirebaseCore)
         if FirebaseApp.app() != nil { return true }
         guard hasConfig else {
@@ -46,8 +49,10 @@ enum ZnFirebase {
 }
 
 /// Add it with `ZnPlugins.register(FirebaseAppPlugin(), ...)` when JS uses `Firebase.app()` or `installations()`.
-struct FirebaseAppPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct FirebaseAppPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.requireHostApi(8)
         ZnFirebase.start()
         r.module(FirebaseModule())

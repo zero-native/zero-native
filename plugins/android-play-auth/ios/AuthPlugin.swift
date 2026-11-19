@@ -8,9 +8,14 @@
 // and a phone field marked as a phone number gets the user's own number from AutoFill. The module still exists, so a
 // bundle that needs "AndroidPlayAuth" v1 runs here.
 import Foundation
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct AuthPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct AuthPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.module(AuthModule())
     }
 }

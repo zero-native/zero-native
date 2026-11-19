@@ -4,6 +4,7 @@ zero-native is under the Apache License 2.0 (see `LICENSE`). It includes or is b
 each under its own license.
 
 - **JSI headers from React Native (Meta Platforms, Inc. and affiliates)** (`core/third_party/jsi`): MIT License. See `core/third_party/jsi/README.md` for the version.
+- **Hermes headers (Meta Platforms, Inc. and affiliates)** (`core/third_party/hermes`): MIT License. See `core/third_party/hermes/README.md` for the version.
 - **libjsi.so from `com.facebook.react:react-android` (Meta Platforms, Inc. and affiliates)** (`android/runtime/src/main/jniLibs`): MIT License.
 - **MMKV (Tencent)** (`core/third_party/mmkv`): BSD 3-Clause, with parts under other licenses: `core/third_party/mmkv/LICENSE.TXT`.
 - **svg-loaders** (`compiler/test/fixtures/animated-svg/svg-loaders`): see `compiler/test/fixtures/animated-svg/svg-loaders/LICENSE.md`.

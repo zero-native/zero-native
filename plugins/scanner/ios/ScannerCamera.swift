@@ -17,6 +17,9 @@
 // checked without a camera.
 import AVFoundation
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
 enum ScannerRules {
     static let warmupMs = 500.0

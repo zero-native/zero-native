@@ -11,11 +11,16 @@
 import Foundation
 import UIKit
 import UserNotifications
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct NotificationsPlugin: ZnPlugin {
+public struct NotificationsPlugin: ZnPlugin {
+    public init() {}
+
     @MainActor private static var registered = false
 
-    func register(_ r: ZnPluginRegistry) {
+    public func register(_ r: ZnPluginRegistry) {
         // Once: the messaging plugin adds it too (as on Android), for apps that list only that one
         guard !Self.registered else { return }
         Self.registered = true
@@ -85,17 +90,17 @@ enum NotificationRules {
 }
 
 /// The one UNUserNotificationCenter delegate (docs/ios-notifications-plan.md §1.3).
-final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
-    static let shared = ZnNotificationCenter()
+public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    public static let shared = ZnNotificationCenter()
 
     /// A push's own notifications (not shown by this plugin): the messaging plugin's.
-    protocol Remote: AnyObject {
+    public protocol Remote: AnyObject {
         /// What iOS shows while the app is in front. Called on the main thread.
         func willPresent(_ notification: UNNotification) -> UNNotificationPresentationOptions
         /// A tap (or a button) on one.
         func didReceive(_ response: UNNotificationResponse)
     }
-    weak var remote: Remote?
+    public weak var remote: Remote?
 
     private let lock = NSLock()
     /// A tap on the app's own notification (no link) that came before JS had loaded: `getInitialNotification`, once.
@@ -111,9 +116,9 @@ final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDelegate, @u
 
     func takeInitial() -> [String: Any]? { lock.withLock { defer { initial = nil }; return initial } }
 
-    static func isOwn(_ n: UNNotification) -> Bool { n.request.content.userInfo[NotificationRules.keyId] is String }
+    public static func isOwn(_ n: UNNotification) -> Bool { n.request.content.userInfo[NotificationRules.keyId] is String }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+    public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
         guard Self.isOwn(notification) else {
             DispatchQueue.main.async { done(self.remote?.willPresent(notification) ?? []) }
@@ -128,7 +133,7 @@ final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDelegate, @u
         done(o)
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+    public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler done: @escaping () -> Void) {
         let n = response.notification
         guard Self.isOwn(n) else {
@@ -168,7 +173,7 @@ final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDelegate, @u
         }
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, openSettingsFor notification: UNNotification?) {
+    public func userNotificationCenter(_ center: UNUserNotificationCenter, openSettingsFor notification: UNNotification?) {
         // providesAppNotificationSettings: the app opens; the app shows its own settings when it wants (no event yet)
     }
 }

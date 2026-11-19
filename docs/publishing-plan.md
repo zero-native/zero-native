@@ -136,6 +136,16 @@ The work this needs [fact: what is missing today]:
   [check] SwiftPM "traits" (optional dependencies, Swift 6.1+) might avoid the second repo; check what Xcode 26 shows
   for them.
 
+**Done 2026-11-19 (§10 step 4, without the Hermes zip):** `Package.swift` at the repo root has the targets above
+(`ZnMMKV`, `ZnCore`, `ZnHost`, `ZnRuntime` with the privacy manifest, `hermesvm`, one `ZnPlugin<Name>` per plugin; the
+notification service extension is not in it yet). The runtime and plugins have a `public` API (the plugin contract,
+`ZnApp.start`, OTA setup, the helpers plugins use), and each file imports what it needs under `#if SWIFT_PACKAGE` (an
+app's files: `#if canImport(ZnRuntime)`), so the CMake builds, ZeroBill's included, don't change. The 8 Hermes headers
+the core needs are in `core/third_party/hermes`. `ios/SamplePackage` builds the sample from the package; on the
+simulator its screens matched the CMake build's, and CI builds it. Firebase and Lottie build without their SDKs (§9).
+Still to do: the Hermes zip on a GitHub Release (until then `Package.swift` uses a local Hermes, so an app outside the
+repo can't use the package yet), and the notification service target.
+
 **Hermes as a binary target** [fact, run on this Mac, 2026-11-19]:
 - Meta publishes `hermes-ios` on Maven Central as a `.tar.gz`. SwiftPM needs a `.zip` at an HTTPS URL, with its SHA-256
   in `Package.swift`.
@@ -332,7 +342,7 @@ Days are focused working days, one engineer with AI, **target** (not measured).
 | 1 | The open choices (§9); make or confirm the npm org, the Central account and namespace, the GPG key | 0.5 (plus DNS wait) | the namespace shows "verified" in the Central Portal |
 | 2 ✓ | npm: package fields (`version`, `files`, `license`, `repository`, `exports`, `publishConfig`), the core deep import, `@zeronative/cli` out of `tools/` | 2–3 | `npm pack` of each, installed in a new app outside the repo, builds a bundle with `zn builtin` |
 | 3 | Maven: one shared publishing setup for the runtime and 19 plugins, POM data, signing | 2–3 | an outside app builds from `mavenLocal()` with no `includeBuild` (needs a machine with the Android SDK; this Mac has none) |
-| 4 | SwiftPM: `public` API, plugin targets with `import ZnRuntime`, `ZnCore` with MMKV, Hermes headers, the Hermes zip release, `Package.swift`; the sample builds from it | 5–8 | the sample from the package runs on the simulator with the same screens as the CMake build |
+| 4 (most) | SwiftPM: `public` API, plugin targets with `import ZnRuntime`, `ZnCore` with MMKV, Hermes headers, the Hermes zip release, `Package.swift`; the sample builds from it | 5–8 | the sample from the package runs on the simulator with the same screens as the CMake build |
 | 5 | The version check script, `release.yml`, `hermes-release.yml`, the dry run (§7) | 2 | a fork's test tag goes green end to end |
 | 6 | `zn new`, the iOS app template, README and `guide-notes.md` §34 rewritten | 2–4 | `zn new demo` gives an app that runs on both OSes |
 | 7 | Release 0.1.0; move the first outside app to it | 1–2 | that app's Android and iOS builds use only published artifacts |

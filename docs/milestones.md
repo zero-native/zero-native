@@ -149,6 +149,30 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-19: iOS as a Swift package (Claude, Mac)
+- **`Package.swift`** at the repo root (docs/publishing-plan.md §2.3, §10 step 4): `ZnMMKV` (MMKV's C++ core with
+  `FORCE_POSIX`), `ZnCore` (the C++ core and Hermes adapter), `ZnHost` (the Objective-C++ host; a small
+  `module.modulemap` so Swift sees only `ZNHost.h`), `ZnRuntime` (the Swift runtime and the privacy manifest),
+  `hermesvm` (binary target) and one `ZnPlugin<Name>` per plugin. Plugin targets that use another plugin's types depend
+  on it (Analytics, Crashlytics and Messaging on FirebaseApp; Messaging on Notifications). Swift 5 mode, as CMake.
+- **A public API** for the runtime and plugins: what plugins and an app use, found by compiling each plugin and the
+  sample's own Swift as separate modules until nothing was missing. The plugin contract (`ZnPlugin`,
+  `ZnPluginRegistry`, `ZnModuleBase` as `open`, `ZnCall`, the screen and view scopes), `ZnApp.start` / `restart`,
+  `ZnOta.Config` and its report and update screen, `ZnBundles.builtInURL`, `ZnTasks`, `ZnHandles`, `ZnLaunch`. Each
+  plugin is a public struct with a public `init` that keeps its options' names and defaults.
+- **Imports:** package files add `import ZnHost` / `import ZnRuntime` under `#if SWIFT_PACKAGE`; the sample's files
+  under `#if canImport(ZnRuntime)` (an app target isn't a package). The CMake builds don't change: the sample and
+  ZeroBill's iOS app built as before.
+- **Hermes headers:** the 8 the core includes are in `core/third_party/hermes` (MIT), because Meta's XCFramework has
+  none and an app that adds the package has no `ios/third_party`.
+- **`ios/SamplePackage`:** an Xcode project (synchronized folder on `ios/Sample`, a local package reference, a build
+  phase that copies the JS bundle) that builds the sample from the package. On the simulator it registered all 14
+  plugins and its first screen, the PDF lab and the WebView lab matched the CMake build's screenshots. A device Release
+  build (unsigned) built too. CI's ios job builds it.
+- **Not done:** the Hermes zip on a GitHub Release (until then `Package.swift` takes the local release Hermes, so an
+  outside app can't use the package yet); the notification service extension target; Firebase and Lottie with their
+  SDKs (they build without them and say so, as the CMake build without the downloads does; publishing plan §9).
+
 ### 2026-11-19: npm packages ready to publish, and the rename to @zeronative (Claude, Mac)
 - **Rename:** every `@zero-native/*` is now `@zeronative/*` (the npm org Pavan made; `@zero-native` is someone
   else's). Code, package names, the template app and the living docs; the dated logs (this file, milestones-ios,

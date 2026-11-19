@@ -26,10 +26,13 @@
 // - Not yet (plan steps 5, 7): applying an update while the app runs (applyNow answers "not_started"), the launch
 //   gate, rollback in place: a rollback makes the good bundle current and it runs from the next start.
 import UIKit
+#if SWIFT_PACKAGE
+import ZnHost
+#endif
 
 // MARK: - Bundles: what runs (ZnBundles.kt)
 
-enum ZnBundles {
+public enum ZnBundles {
     /// The bundle this process runs. [dir] nil: the built-in bundle (the app's resources).
     struct Running: CustomStringConvertible {
         let info: ZnBundleRules.Info?
@@ -43,7 +46,7 @@ enum ZnBundles {
     }
 
     /// The app's own bundle folder (set by ZnApp.start).
-    nonisolated(unsafe) private(set) static var builtInURL: URL = Bundle.main.resourceURL ?? Bundle.main.bundleURL
+    nonisolated(unsafe) public private(set) static var builtInURL: URL = Bundle.main.resourceURL ?? Bundle.main.bundleURL
     nonisolated(unsafe) private static var builtInRead = false
     nonisolated(unsafe) private static var builtInInfo: ZnBundleRules.Info?
     nonisolated(unsafe) private(set) static var running: Running?
@@ -188,7 +191,7 @@ enum ZnBundles {
 
     /// Where `asset:<path>` loads from: the running bundle's copy when it lists one, else the app's own (an update
     /// ships only the images it changed or added).
-    static func assetURL(_ path: String) -> URL {
+    public static func assetURL(_ path: String) -> URL {
         if let r = running, let dir = r.dir, r.info?.files[path] != nil { return dir.appendingPathComponent(path) }
         return builtInURL.appendingPathComponent(path)
     }
@@ -499,60 +502,60 @@ private func znWriteCrashMark() {
 
 /// One outcome of the update client: [kind] as sent to the server (docs/ota.md §3.7). [serious]: a safety net acted or
 /// a signed file didn't check out.
-struct ZnOtaReport: CustomStringConvertible {
-    let kind: String
-    let bundle: String?
-    let detail: String?
-    let serious: Bool
-    let stack: String?
-    var description: String { "\(kind)\(bundle.map { " \($0)" } ?? "")\(detail.map { ": \($0)" } ?? "")" }
+public struct ZnOtaReport: CustomStringConvertible {
+    public let kind: String
+    public let bundle: String?
+    public let detail: String?
+    public let serious: Bool
+    public let stack: String?
+    public var description: String { "\(kind)\(bundle.map { " \($0)" } ?? "")\(detail.map { ": \($0)" } ?? "")" }
 }
 
-final class ZnOta: @unchecked Sendable {
-    struct Config {
+public final class ZnOta: @unchecked Sendable {
+    public struct Config {
         /// The update server's base URL.
-        var server: String
+        public var server: String
         /// "production", "staging", ...
-        var channel: String
+        public var channel: String
         /// Trusted public keys, base64 SPKI DER: the main key first, the offline backup key second.
-        var publicKeys: [String]
+        public var publicKeys: [String]
         /// Least time between two automatic checks (on returns). 0: a check on every return (at most one per minCheckGapMs).
-        var checkIntervalMs: Double = 5 * 60_000
+        public var checkIntervalMs: Double = 5 * 60_000
         /// Two automatic checks are never closer than this. 0: no floor.
-        var minCheckGapMs: Double = 5_000
+        public var minCheckGapMs: Double = 5_000
         /// Wait after the app comes on screen before the first check, so startup is never slowed.
-        var firstCheckDelayMs: Double = 3_000
+        public var firstCheckDelayMs: Double = 3_000
         /// Wait before the check on a return from the background (Android: Config.returnCheckDelayMs, Pavan 2026-11-10:
         /// a 3 s wait made a store update screen come ~4 s after the return).
-        var returnCheckDelayMs: Double = 1_000
+        public var returnCheckDelayMs: Double = 1_000
         /// A downloaded bundle is healthy once its first screens were up this long in the foreground. 0: only when JS
         /// calls `Updates.markHealthy()`.
-        var healthyAfterMs: Double = 4_000
+        public var healthyAfterMs: Double = 4_000
         /// A downloaded bundle whose first screens aren't up this long after the app came on screen is rolled back.
-        var firstScreenTimeoutMs: Double = 10_000
+        public var firstScreenTimeoutMs: Double = 10_000
         /// Hears every outcome on the main thread (an app's crash reporter).
-        var onReport: ((ZnOtaReport) -> Void)? = nil
+        public var onReport: ((ZnOtaReport) -> Void)? = nil
         /// Runs on a JS error's text before it is stored or sent, after the built-in masks.
-        var redact: ((String) -> String)? = nil
+        public var redact: ((String) -> String)? = nil
         /// A release build may use an `http://` server only with this on (a test against a server on this Mac).
-        var allowHttpInRelease = false
+        public var allowHttpInRelease = false
         /// The launch gate (ZnOtaGate): at a cold start the check runs at once and the launch screen waits for its
         /// answer at most this long from the tap. 0: no gate (the first check comes firstCheckDelayMs later).
-        var launchDecisionMs: Double = 800
+        public var launchDecisionMs: Double = 800
         /// A priority high update may hold the start this long from the tap (the update screen), critical this long.
-        var launchCapMs: Double = 4_000
-        var launchCapCriticalMs: Double = 5_800
+        public var launchCapMs: Double = 4_000
+        public var launchCapCriticalMs: Double = 5_800
         /// How the update screen looks.
-        var updateScreen = ZnUpdateScreen()
+        public var updateScreen = ZnUpdateScreen()
 
-        init(server: String, channel: String, publicKeys: [String]) {
+        public init(server: String, channel: String, publicKeys: [String]) {
             self.server = server
             self.channel = channel
             self.publicKeys = publicKeys
         }
     }
 
-    static let shared = ZnOta()
+    public static let shared = ZnOta()
     nonisolated(unsafe) private(set) static var config: Config?
     static var isConfigured: Bool { config != nil }
 
@@ -614,7 +617,7 @@ final class ZnOta: @unchecked Sendable {
     var isHeld: Bool { fieldsLock.withLock { !holds.isEmpty } }
 
     /// Turns the client on. Call once, before ZnApp.start, after the app's plugins are registered.
-    static func configure(_ c: Config) {
+    public static func configure(_ c: Config) {
         precondition(!c.publicKeys.isEmpty, "ZnOta needs at least one public key")
         precondition(c.server.hasPrefix("https://") || c.server.hasPrefix("http://"), "ZnOta server must be an http(s) URL")
         precondition(c.channel.range(of: "^[a-z][a-z0-9-]{0,31}$", options: .regularExpression) != nil,
@@ -642,7 +645,7 @@ final class ZnOta: @unchecked Sendable {
     }
 
     /// The OTA app id (the built-in bundle's) and the channel, or nil while OTA is off (the push plugin's topic).
-    static func appAndChannel() -> (app: String, channel: String)? {
+    public static func appAndChannel() -> (app: String, channel: String)? {
         guard let c = config, let app = ZnBundles.builtIn?.app else { return nil }
         return (app, c.channel)
     }
@@ -726,7 +729,7 @@ final class ZnOta: @unchecked Sendable {
     }
 
     /// Runs a check now (on the client's queue); [done] gets the result there.
-    func check(_ done: @escaping ([String: Any]) -> Void) {
+    public func check(_ done: @escaping ([String: Any]) -> Void) {
         worker.async { [self] in done(runCheck()) }
     }
 
@@ -1292,7 +1295,7 @@ final class ZnOta: @unchecked Sendable {
 
     enum Swap { case apply, rollBack, fallback }
 
-    @MainActor static func window() -> UIWindow? {
+    @MainActor public static func window() -> UIWindow? {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         return windows.first { $0.isKeyWindow } ?? windows.first
     }
@@ -1331,7 +1334,7 @@ final class ZnOta: @unchecked Sendable {
     /// cover. Refused while JS holds updates or a launch is open. If the new code throws while starting, it is blocked
     /// and the bundle that ran comes back the same way (outcome apply_failed). [done] on the main thread:
     /// `{ applied: true, bundle }` or `{ applied: false, reason: off|held|busy|not_started|nothing|failed, error? }`.
-    func applyNow(_ done: @escaping ([String: Any]) -> Void) {
+    public func applyNow(_ done: @escaping ([String: Any]) -> Void) {
         DispatchQueue.main.async { [self] in
             func no(_ reason: String, _ error: String? = nil) {
                 var r: [String: Any] = ["applied": false, "reason": reason]

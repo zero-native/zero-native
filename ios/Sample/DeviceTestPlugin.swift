@@ -2,6 +2,9 @@
 // the core check (CoreLabScreen.tsx), and the Device module's parts iOS can do: info, slowEcho, fail, and the two
 // launches of the Launch lab (LaunchScreen.tsx). The rest (Kotlin storage, tasks, motion sources) answers "unavailable".
 import UIKit
+#if canImport(ZnRuntime)
+import ZnRuntime
+#endif
 
 struct DeviceTestPlugin: ZnPlugin {
     func register(_ r: ZnPluginRegistry) {

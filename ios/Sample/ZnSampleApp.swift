@@ -13,6 +13,22 @@
 //   ZN_TOUCH_LOG     1: log each touch that begins, with the view it hits (debug)
 import UIKit
 import notify
+#if canImport(ZnRuntime)  // an app on the Swift package; the CMake build compiles everything into the app
+import ZnRuntime
+import ZnPluginAndroidPlayAuth
+import ZnPluginAppUpdates
+import ZnPluginDeviceInfo
+import ZnPluginDocumentScanner
+import ZnPluginFirebaseAnalytics
+import ZnPluginFirebaseApp
+import ZnPluginFirebaseCrashlytics
+import ZnPluginImageViewer
+import ZnPluginLocation
+import ZnPluginLottie
+import ZnPluginPdf
+import ZnPluginScanner
+import ZnPluginWebView
+#endif
 
 @main
 final class ZnAppDelegate: UIResponder, UIApplicationDelegate {

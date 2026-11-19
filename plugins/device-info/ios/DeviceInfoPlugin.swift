@@ -13,9 +13,14 @@ import AVFoundation
 import CoreLocation
 import LocalAuthentication
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct DeviceInfoPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct DeviceInfoPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.module(DeviceInfoModule())
     }
 }

@@ -1,0 +1,356 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		22F007A383AD4CD2CB380379 /* ZnRuntime */ = {isa = PBXBuildFile; productRef = 121F0A9BD41A614A4DD5EDF9 /* ZnRuntime */; };
+		E8C2B4CFA9160087EE381242 /* ZnPluginScanner */ = {isa = PBXBuildFile; productRef = 2FF55B8D7DAF826B35F17EB0 /* ZnPluginScanner */; };
+		5633EF4A64085AE347701D49 /* ZnPluginAndroidPlayAuth */ = {isa = PBXBuildFile; productRef = 33F66D8D54A2A6A74B7998D6 /* ZnPluginAndroidPlayAuth */; };
+		CB61F203113D08C54731DEE9 /* ZnPluginDeviceInfo */ = {isa = PBXBuildFile; productRef = 8664D34A34790B6E05680E50 /* ZnPluginDeviceInfo */; };
+		78055EF4DDF6B42CB1DA3F6F /* ZnPluginLocation */ = {isa = PBXBuildFile; productRef = B58C681B3D1BA1103142A5CF /* ZnPluginLocation */; };
+		BCED505BA97EB8A7F521DE7B /* ZnPluginFirebaseApp */ = {isa = PBXBuildFile; productRef = 80D527E99F2720F5581D0C0C /* ZnPluginFirebaseApp */; };
+		2CC68E32F5342749A1F4A751 /* ZnPluginFirebaseCrashlytics */ = {isa = PBXBuildFile; productRef = 07E8EE2ED2CBE95383A8533F /* ZnPluginFirebaseCrashlytics */; };
+		DE794E15EF050CB0A38EE230 /* ZnPluginFirebaseAnalytics */ = {isa = PBXBuildFile; productRef = 48F95682163F7E54BC685444 /* ZnPluginFirebaseAnalytics */; };
+		E94AE95912DA67B5ED61D6AE /* ZnPluginLottie */ = {isa = PBXBuildFile; productRef = 644E984CC911D9B99542F5B5 /* ZnPluginLottie */; };
+		8DB167A6FA4F138F50CF81E8 /* ZnPluginPdf */ = {isa = PBXBuildFile; productRef = A57C6B8567469A736CDF95B6 /* ZnPluginPdf */; };
+		BCDEC83AE7C3EB7B78A45BDB /* ZnPluginWebView */ = {isa = PBXBuildFile; productRef = 1D2D7CFE0CE4A4DF676BA783 /* ZnPluginWebView */; };
+		761A4319D730105D4F31176E /* ZnPluginImageViewer */ = {isa = PBXBuildFile; productRef = D0B4CABABDE2166B542BA200 /* ZnPluginImageViewer */; };
+		4A47FD3F35876D6E535E824F /* ZnPluginDocumentScanner */ = {isa = PBXBuildFile; productRef = D6139B3697A04C9F4FB2650B /* ZnPluginDocumentScanner */; };
+		265E9ED2B234B0CB6A57ADD8 /* ZnPluginAppUpdates */ = {isa = PBXBuildFile; productRef = 486F9D4581B59A48874ECA84 /* ZnPluginAppUpdates */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZnSamplePackage.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D517B2729E14EEE23A5CFABB /* Exceptions for "Sample" folder in "ZnSamplePackage" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 42AEFBAE01D2DFD981F7DA7D /* ZnSamplePackage */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		63AD9D34F3503826E5F649AE /* Sample */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D517B2729E14EEE23A5CFABB /* Exceptions for "Sample" folder in "ZnSamplePackage" target */,
+			);
+			name = Sample;
+			path = ../Sample;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8F51EF3B9040A527832BEBBA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				22F007A383AD4CD2CB380379 /* ZnRuntime */,
+				E8C2B4CFA9160087EE381242 /* ZnPluginScanner */,
+				5633EF4A64085AE347701D49 /* ZnPluginAndroidPlayAuth */,
+				CB61F203113D08C54731DEE9 /* ZnPluginDeviceInfo */,
+				78055EF4DDF6B42CB1DA3F6F /* ZnPluginLocation */,
+				BCED505BA97EB8A7F521DE7B /* ZnPluginFirebaseApp */,
+				2CC68E32F5342749A1F4A751 /* ZnPluginFirebaseCrashlytics */,
+				DE794E15EF050CB0A38EE230 /* ZnPluginFirebaseAnalytics */,
+				E94AE95912DA67B5ED61D6AE /* ZnPluginLottie */,
+				8DB167A6FA4F138F50CF81E8 /* ZnPluginPdf */,
+				BCDEC83AE7C3EB7B78A45BDB /* ZnPluginWebView */,
+				761A4319D730105D4F31176E /* ZnPluginImageViewer */,
+				4A47FD3F35876D6E535E824F /* ZnPluginDocumentScanner */,
+				265E9ED2B234B0CB6A57ADD8 /* ZnPluginAppUpdates */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		FAD58DE7366495DB4650CFEF = {
+			isa = PBXGroup;
+			children = (
+				63AD9D34F3503826E5F649AE /* Sample */,
+				86024CAD1E83101D97359D73 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		86024CAD1E83101D97359D73 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		42AEFBAE01D2DFD981F7DA7D /* ZnSamplePackage */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 42E7EF3662A4459C9C98F897 /* Build configuration list for PBXNativeTarget "ZnSamplePackage" */;
+			buildPhases = (
+				25D902C24283AB8CFBAC54DF /* Sources */,
+				8F51EF3B9040A527832BEBBA /* Frameworks */,
+				9B207167E5381C47682C6B4F /* Resources */,
+				77CBC257E66302866CF61917 /* Copy the JS bundle */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				63AD9D34F3503826E5F649AE /* Sample */,
+			);
+			name = ZnSamplePackage;
+			packageProductDependencies = (
+				121F0A9BD41A614A4DD5EDF9 /* ZnRuntime */,
+				2FF55B8D7DAF826B35F17EB0 /* ZnPluginScanner */,
+				33F66D8D54A2A6A74B7998D6 /* ZnPluginAndroidPlayAuth */,
+				8664D34A34790B6E05680E50 /* ZnPluginDeviceInfo */,
+				B58C681B3D1BA1103142A5CF /* ZnPluginLocation */,
+				80D527E99F2720F5581D0C0C /* ZnPluginFirebaseApp */,
+				07E8EE2ED2CBE95383A8533F /* ZnPluginFirebaseCrashlytics */,
+				48F95682163F7E54BC685444 /* ZnPluginFirebaseAnalytics */,
+				644E984CC911D9B99542F5B5 /* ZnPluginLottie */,
+				A57C6B8567469A736CDF95B6 /* ZnPluginPdf */,
+				1D2D7CFE0CE4A4DF676BA783 /* ZnPluginWebView */,
+				D0B4CABABDE2166B542BA200 /* ZnPluginImageViewer */,
+				D6139B3697A04C9F4FB2650B /* ZnPluginDocumentScanner */,
+				486F9D4581B59A48874ECA84 /* ZnPluginAppUpdates */,
+			);
+			productName = ZnSamplePackage;
+			productReference = D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		46F86FAA6BBF9AC94A7E4595 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+			};
+			buildConfigurationList = 1746C6E2409525C3FFBB01D7 /* Build configuration list for PBXProject "ZnSamplePackage" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = FAD58DE7366495DB4650CFEF;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A46A1BCE0B67C45BEC8F435B /* XCLocalSwiftPackageReference "../.." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 86024CAD1E83101D97359D73 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				42AEFBAE01D2DFD981F7DA7D /* ZnSamplePackage */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9B207167E5381C47682C6B4F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		77CBC257E66302866CF61917 /* Copy the JS bundle */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy the JS bundle";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The JS bundle the sample runs (bun run sample:js writes it): the four files and the asset folders, into the app.\nset -e\nsrc=\"$SRCROOT/../../android/sample/src/main/assets\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nfor f in main.hbc main.zn.ui main.zn.ui.json zn-bundle.json; do\n  [ -f \"$src/$f\" ] || { echo \"error: no $src/$f. Run: bun run sample:js\"; exit 1; }\n  cp \"$src/$f\" \"$dst/$f\"\ndone\nfor d in images lottie; do\n  if [ -d \"$src/$d\" ]; then rm -rf \"$dst/$d\"; cp -R \"$src/$d\" \"$dst/$d\"; fi\ndone\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		25D902C24283AB8CFBAC54DF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2D53B50AE2273FABAAF8B8FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		D4B2141B77146EF47E948847 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		FA7C752E798F561D7D156D98 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ../Sample/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zeronative.sample;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		22F75101C717335ACF4089A0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ../Sample/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zeronative.sample;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1746C6E2409525C3FFBB01D7 /* Build configuration list for PBXProject "ZnSamplePackage" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2D53B50AE2273FABAAF8B8FA /* Debug */,
+				D4B2141B77146EF47E948847 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		42E7EF3662A4459C9C98F897 /* Build configuration list for PBXNativeTarget "ZnSamplePackage" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FA7C752E798F561D7D156D98 /* Debug */,
+				22F75101C717335ACF4089A0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A46A1BCE0B67C45BEC8F435B /* XCLocalSwiftPackageReference "../.." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		121F0A9BD41A614A4DD5EDF9 /* ZnRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnRuntime;
+		};
+		2FF55B8D7DAF826B35F17EB0 /* ZnPluginScanner */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginScanner;
+		};
+		33F66D8D54A2A6A74B7998D6 /* ZnPluginAndroidPlayAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginAndroidPlayAuth;
+		};
+		8664D34A34790B6E05680E50 /* ZnPluginDeviceInfo */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginDeviceInfo;
+		};
+		B58C681B3D1BA1103142A5CF /* ZnPluginLocation */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginLocation;
+		};
+		80D527E99F2720F5581D0C0C /* ZnPluginFirebaseApp */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginFirebaseApp;
+		};
+		07E8EE2ED2CBE95383A8533F /* ZnPluginFirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginFirebaseCrashlytics;
+		};
+		48F95682163F7E54BC685444 /* ZnPluginFirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginFirebaseAnalytics;
+		};
+		644E984CC911D9B99542F5B5 /* ZnPluginLottie */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginLottie;
+		};
+		A57C6B8567469A736CDF95B6 /* ZnPluginPdf */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginPdf;
+		};
+		1D2D7CFE0CE4A4DF676BA783 /* ZnPluginWebView */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginWebView;
+		};
+		D0B4CABABDE2166B542BA200 /* ZnPluginImageViewer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginImageViewer;
+		};
+		D6139B3697A04C9F4FB2650B /* ZnPluginDocumentScanner */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginDocumentScanner;
+		};
+		486F9D4581B59A48874ECA84 /* ZnPluginAppUpdates */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginAppUpdates;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+}

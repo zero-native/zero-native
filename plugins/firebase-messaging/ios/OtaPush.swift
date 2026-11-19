@@ -16,6 +16,9 @@
 import BackgroundTasks
 import Foundation
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 #if canImport(FirebaseMessaging)
 @preconcurrency import FirebaseMessaging
 #endif

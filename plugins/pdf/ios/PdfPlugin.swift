@@ -10,9 +10,14 @@
 import CommonCrypto
 import PDFKit
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct PdfPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct PdfPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         let views = PdfViews()
         r.module(PdfModule(views))
         r.view("pdf.view") { scope in ZnPdfViewer(scope, views) }

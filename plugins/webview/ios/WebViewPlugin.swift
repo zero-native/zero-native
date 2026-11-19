@@ -15,11 +15,18 @@
 // - backInPage: the in-page back swipe (WKWebView's own gesture) and controller.back(); iOS has no Back button.
 import UIKit
 import WebKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct WebViewPlugin: ZnPlugin {
-    var inspect = false
+public struct WebViewPlugin: ZnPlugin {
+    public init(inspect: Bool = false) {
+        self.inspect = inspect
+    }
 
-    func register(_ r: ZnPluginRegistry) {
+    public var inspect = false
+
+    public func register(_ r: ZnPluginRegistry) {
         let pages = WebViewPages(inspect: inspect)
         r.module(WebViewModule(pages))
         r.view("webview.page") { scope in ZnWebPage(scope, pages) }

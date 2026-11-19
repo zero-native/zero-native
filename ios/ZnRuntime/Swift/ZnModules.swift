@@ -10,19 +10,22 @@
 // - `constants()`: values JS reads synchronously (`nativeConstants(name)`), set once before the main script.
 // The JS thread and the main thread never wait for a module.
 import Foundation
+#if SWIFT_PACKAGE
+import ZnHost
+#endif
 
 /// A wrong or missing argument: JS gets NativeError("invalid_args", ...).
-struct ZnInvalidArgs: Error, CustomStringConvertible {
-    let description: String
-    init(_ message: String) { description = message }
+public struct ZnInvalidArgs: Error, CustomStringConvertible {
+    public let description: String
+    public init(_ message: String) { description = message }
 }
 
 /// One call from JS to a native module. Finish it exactly once with `resolve` / `resolveBytes` / `reject`, from any
 /// thread. `isCancelled` turns true if JS gives up; long work should check it, or stop in `onCancel`.
-final class ZnCall: @unchecked Sendable {
-    let args: [String: Any]
+public final class ZnCall: @unchecked Sendable {
+    public let args: [String: Any]
     /// Binary input from JS (`callNative(..., { bytes })`), or nil.
-    let bytes: Data?
+    public let bytes: Data?
     private let id: UInt32
     /// The runtime that made the call (ZNHost.runtimeGeneration): its answer is dropped once that runtime was replaced.
     private let generation: UInt64
@@ -38,27 +41,27 @@ final class ZnCall: @unchecked Sendable {
         generation = ZNHost.shared.runtimeGeneration
     }
 
-    var isCancelled: Bool { lock.withLock { cancelled } }
+    public var isCancelled: Bool { lock.withLock { cancelled } }
 
     /// `value`: nil, Bool, a number, String, [Any] or [String: Any] (anything JSONSerialization takes).
-    func resolve(_ value: Any? = nil) {
+    public func resolve(_ value: Any? = nil) {
         guard let json = ZnModules.json(value) else { return reject("failed", "\(what): the answer is not JSON") }
         finish { ZNHost.shared.answerCall(self.id, generation: self.generation, ok: true, valueJson: json, code: nil, message: nil) }
     }
 
     /// Answers with binary data: JS gets `{ value, bytes }`, `bytes` a Uint8Array (no base64).
-    func resolveBytes(_ value: Any?, _ data: Data) {
+    public func resolveBytes(_ value: Any?, _ data: Data) {
         guard let json = ZnModules.json(value) else { return reject("failed", "\(what): the answer is not JSON") }
         finish { ZNHost.shared.answerCall(self.id, generation: self.generation, valueJson: json, bytes: data) }
     }
 
     /// `code`: "invalid_args", "failed", "unavailable", or the module's own; JS gets NativeError(code, message).
-    func reject(_ code: String, _ message: String) {
+    public func reject(_ code: String, _ message: String) {
         finish { ZNHost.shared.answerCall(self.id, generation: self.generation, ok: false, valueJson: nil, code: code, message: message) }
     }
 
     /// Runs `block` (once, on any thread) if JS cancels this call; at once if it already did.
-    func onCancel(_ block: @escaping () -> Void) {
+    public func onCancel(_ block: @escaping () -> Void) {
         let now: Bool = lock.withLock {
             if !cancelled { hooks.append(block) }
             return cancelled
@@ -93,34 +96,34 @@ final class ZnCall: @unchecked Sendable {
     private func wrong(_ name: String, _ type: String, _ v: Any) -> ZnInvalidArgs { ZnInvalidArgs("\"\(name)\" must be \(type), got \(v)") }
     private static func isBool(_ v: Any) -> Bool { (v as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } ?? false }
 
-    func stringOrNil(_ name: String) throws -> String? {
+    public func stringOrNil(_ name: String) throws -> String? {
         guard let v = arg(name) else { return nil }
         guard let s = v as? String else { throw wrong(name, "a string", v) }
         return s
     }
-    func boolOrNil(_ name: String) throws -> Bool? {
+    public func boolOrNil(_ name: String) throws -> Bool? {
         guard let v = arg(name) else { return nil }
         guard Self.isBool(v), let b = v as? Bool else { throw wrong(name, "a boolean", v) }
         return b
     }
-    func doubleOrNil(_ name: String) throws -> Double? {
+    public func doubleOrNil(_ name: String) throws -> Double? {
         guard let v = arg(name) else { return nil }
         guard !Self.isBool(v), let n = v as? NSNumber else { throw wrong(name, "a number", v) }
         return n.doubleValue
     }
-    func intOrNil(_ name: String) throws -> Int? {
+    public func intOrNil(_ name: String) throws -> Int? {
         guard let d = try doubleOrNil(name) else { return nil }
         guard d == d.rounded(), abs(d) <= 9_007_199_254_740_991 else { throw wrong(name, "a whole number", d) }
         return Int(d)
     }
-    func string(_ name: String) throws -> String { try stringOrNil(name) ?? { throw ZnInvalidArgs("\"\(name)\" is missing") }() }
-    func bool(_ name: String) throws -> Bool { try boolOrNil(name) ?? { throw ZnInvalidArgs("\"\(name)\" is missing") }() }
-    func double(_ name: String) throws -> Double { try doubleOrNil(name) ?? { throw ZnInvalidArgs("\"\(name)\" is missing") }() }
-    func int(_ name: String) throws -> Int { try intOrNil(name) ?? { throw ZnInvalidArgs("\"\(name)\" is missing") }() }
+    public func string(_ name: String) throws -> String { try stringOrNil(name) ?? { throw ZnInvalidArgs("\"\(name)\" is missing") }() }
+    public func bool(_ name: String) throws -> Bool { try boolOrNil(name) ?? { throw ZnInvalidArgs("\"\(name)\" is missing") }() }
+    public func double(_ name: String) throws -> Double { try doubleOrNil(name) ?? { throw ZnInvalidArgs("\"\(name)\" is missing") }() }
+    public func int(_ name: String) throws -> Int { try intOrNil(name) ?? { throw ZnInvalidArgs("\"\(name)\" is missing") }() }
 }
 
 /// A native module JS can call. Most modules extend `ZnModuleBase`.
-protocol ZnModule: AnyObject {
+public protocol ZnModule: AnyObject {
     var name: String { get }
     /// Raised when the module gains methods or changes behaviour; JS declares the lowest version it needs (`__v`).
     var version: Int { get }
@@ -141,37 +144,37 @@ protocol ZnModule: AnyObject {
 ///             function("open", onMain: true) { call in ... }
 ///         }
 ///     }
-class ZnModuleBase: ZnModule, @unchecked Sendable {
-    let name: String
-    let version: Int
+open class ZnModuleBase: ZnModule, @unchecked Sendable {
+    public let name: String
+    public let version: Int
     private var fns: [String: (onMain: Bool, body: (ZnCall) throws -> Void)] = [:]
 
-    init(_ name: String, version: Int = 1) {
+    public init(_ name: String, version: Int = 1) {
         self.name = name
         self.version = version
     }
 
-    func function(_ method: String, onMain: Bool = false, _ body: @escaping (ZnCall) throws -> Void) {
+    public func function(_ method: String, onMain: Bool = false, _ body: @escaping (ZnCall) throws -> Void) {
         fns[method] = (onMain, body)
     }
 
-    func runsOnMain(_ method: String) -> Bool { fns[method]?.onMain ?? false }
+    open func runsOnMain(_ method: String) -> Bool { fns[method]?.onMain ?? false }
 
-    func call(_ method: String, _ call: ZnCall) throws {
+    open func call(_ method: String, _ call: ZnCall) throws {
         guard let fn = fns[method] else { return call.reject("unavailable", "\(name) has no method \"\(method)\"") }
         try fn.body(call)
     }
 
-    func onListenerCount(_ event: String, _ count: Int) {}
-    func constants() -> [String: Any]? { nil }
+    open func onListenerCount(_ event: String, _ count: Int) {}
+    open func constants() -> [String: Any]? { nil }
 
     /// Sends `event` to JS listeners. `latestOnly`: while JS is busy, only the newest value is delivered.
-    func emit(_ event: String, _ payload: Any? = nil, latestOnly: Bool = false) {
+    public func emit(_ event: String, _ payload: Any? = nil, latestOnly: Bool = false) {
         ZnModules.emit(name, event, payload, latestOnly: latestOnly)
     }
 }
 
-enum ZnModules {
+public enum ZnModules {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var modules: [String: ZnModule] = [:]
     nonisolated(unsafe) private static var active: [UInt32: ZnCall] = [:]
@@ -224,7 +227,7 @@ enum ZnModules {
         return all.isEmpty ? nil : json(all)
     }
 
-    static func json(_ value: Any?) -> String? {
+    public static func json(_ value: Any?) -> String? {
         guard let value, !(value is NSNull) else { return "null" }
         guard JSONSerialization.isValidJSONObject([value]),
               let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) else { return nil }

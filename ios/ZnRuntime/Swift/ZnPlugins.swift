@@ -14,18 +14,21 @@
 // didMoveToWindow), not a lifecycle owner. Activity events (new intents, front / back) are ZnSystemEvents' (app state).
 import SwiftUI
 import UIKit
+#if SWIFT_PACKAGE
+@_exported import ZnHost  // plugins that use ZNHost get it from ZnRuntime
+#endif
 
-protocol ZnPlugin {
+public protocol ZnPlugin {
     /// Called once, on the main thread, before the app starts. Only declare things here: no I/O, no slow work.
     @MainActor func register(_ r: ZnPluginRegistry)
 }
 
 /// What a plugin's screen gets.
 @MainActor
-final class ZnScreenScope {
-    let entry: UInt32
+public final class ZnScreenScope {
+    public let entry: UInt32
     /// The route's params.
-    let params: [String: Any]
+    public let params: [String: Any]
     private var answered = false
 
     init(entry: UInt32, params: [String: Any]) {
@@ -35,14 +38,14 @@ final class ZnScreenScope {
 
     /// Closes the screen with [value] (a JSON object): `nav.pushForResult` or `onNavResult` gets it. Only the first answer
     /// counts (a double scan is dropped).
-    func finish(_ value: [String: Any]) {
+    public func finish(_ value: [String: Any]) {
         guard !answered else { return }
         answered = true
         ZnApp.shared.answer(entry: entry, value: ZnModules.json(value) ?? "null")
     }
 
     /// Closes the screen with no answer: the same as Back.
-    func cancel() {
+    public func cancel() {
         guard !answered else { return }
         answered = true
         ZnApp.shared.systemBack()
@@ -51,11 +54,11 @@ final class ZnScreenScope {
 
 /// What a plugin's view gets.
 @MainActor
-final class ZnViewScope {
-    let id: String
+public final class ZnViewScope {
+    public let id: String
     /// The `props` JS gave. `onProps` runs after each change.
-    private(set) var props: [String: Any]
-    var onProps: (([String: Any]) -> Void)?
+    public private(set) var props: [String: Any]
+    public var onProps: (([String: Any]) -> Void)?
     fileprivate let send: (String) -> Void
 
     init(id: String, props: [String: Any], send: @escaping (String) -> Void) {
@@ -70,24 +73,24 @@ final class ZnViewScope {
     }
 
     /// Sends JS `{ name, data }`: `<NativeView onEvent>` hears it. [data]: anything JSON can hold.
-    func emit(_ name: String, _ data: Any? = nil) {
+    public func emit(_ name: String, _ data: Any? = nil) {
         if let json = ZnModules.json(["name": name, "data": data ?? NSNull()]) { send(json) }
     }
 }
 
-typealias ZnScreenContent = @MainActor (ZnScreenScope) -> UIViewController
-typealias ZnViewContent = @MainActor (ZnViewScope) -> UIView
+public typealias ZnScreenContent = @MainActor (ZnScreenScope) -> UIViewController
+public typealias ZnViewContent = @MainActor (ZnViewScope) -> UIView
 
 /// What a plugin adds, in register. Anything wrong throws, and ZnPlugins.register handles it.
 @MainActor
-final class ZnPluginRegistry {
+public final class ZnPluginRegistry {
     fileprivate var modules: [ZnModule] = []
     fileprivate var screens: [String: ZnScreenContent] = [:]
     fileprivate var views: [String: ZnViewContent] = [:]
     fileprivate var failure: String?
 
     /// Adds a native module. Its name must be free: a plugin can't replace a built-in module or another plugin's.
-    func module(_ m: ZnModule) {
+    public func module(_ m: ZnModule) {
         if ZnModules.has(m.name) || modules.contains(where: { $0.name == m.name }) {
             failure = failure ?? "the native module name \"\(m.name)\" is already taken"
         }
@@ -95,31 +98,31 @@ final class ZnPluginRegistry {
     }
 
     /// Adds a native screen, which a route opens with `native: "<plugin>.<name>"`.
-    func screen(_ name: String, _ content: @escaping ZnScreenContent) {
+    public func screen(_ name: String, _ content: @escaping ZnScreenContent) {
         if ZnPlugins.screens[name] != nil || screens[name] != nil { failure = failure ?? "the native screen name \"\(name)\" is already taken" }
         screens[name] = content
     }
 
     /// Adds a view, which a screen shows with `<NativeView name="<plugin>.<name>" />`.
-    func view(_ name: String, _ content: @escaping ZnViewContent) {
+    public func view(_ name: String, _ content: @escaping ZnViewContent) {
         if ZnPlugins.views[name] != nil || views[name] != nil { failure = failure ?? "the native view name \"\(name)\" is already taken" }
         views[name] = content
     }
 
     /// This plugin needs at least this host API.
-    func requireHostApi(_ version: Int) {
+    public func requireHostApi(_ version: Int) {
         if version > ZnPlugins.hostApi { failure = failure ?? "it needs host API v\(version); this app has v\(ZnPlugins.hostApi)" }
     }
 }
 
 @MainActor
-enum ZnPlugins {
+public enum ZnPlugins {
     /// The host API of this runtime (kHostApiVersion in core/include/zn/engine.h).
-    static let hostApi = 9
+    public static let hostApi = 9
     fileprivate(set) static var screens: [String: ZnScreenContent] = [:]
     fileprivate(set) static var views: [String: ZnViewContent] = [:]
 
-    static func register(_ plugins: ZnPlugin...) {
+    public static func register(_ plugins: ZnPlugin...) {
         for plugin in plugins {
             let r = ZnPluginRegistry()
             plugin.register(r)
@@ -234,7 +237,7 @@ struct ZnNativeViewNode: UIViewRepresentable {
 /// "launch.record.<key>"). On iOS: native screens' answers, `ack`, and launches a plugin starts itself (`start` and
 /// `finish`: the document scanner's camera; ZnLaunch.kt's start and onResult). Opening another app for a result (UPI)
 /// comes back by URL, not here.
-final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
+public final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
     static let store = "zn.launch"
     static let record = "launch.record."
     static let current = "launch.current"
@@ -283,7 +286,7 @@ final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
 
     /// Starts a launch of [key] with [id]: its "waiting" record is on disk before anything opens. Refused with "busy"
     /// while another launch is open, and "unacked" while this key has an answer JS hasn't acked (ZnLaunch.kt's rules).
-    @MainActor static func start(_ key: String, id: String) -> (launched: Bool, reason: String?) {
+    @MainActor public static func start(_ key: String, id: String) -> (launched: Bool, reason: String?) {
         if let open = ZNStorage.string(store, key: current), read(open)?["status"] as? String == "waiting" { return (false, "busy") }
         if read(key) != nil { return (false, "unacked") }
         write(key, ["key": key, "id": id, "status": "waiting"])
@@ -294,7 +297,7 @@ final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
 
     /// The launch's answer: on disk, then JS's `launches.onResult` hears it. Only the open launch with this id; the first
     /// answer wins. [resultCode]: -1 OK, 0 cancelled (Android's codes, which JS reads).
-    @MainActor static func finish(_ key: String, id: String, resultCode: Int, data: String? = nil, extras: [String: Any] = [:]) {
+    @MainActor public static func finish(_ key: String, id: String, resultCode: Int, data: String? = nil, extras: [String: Any] = [:]) {
         guard let rec = read(key), rec["id"] as? String == id, rec["status"] as? String == "waiting" else { return }
         let done: [String: Any] = ["key": key, "id": id, "status": "result", "resultCode": resultCode, "data": data ?? NSNull(), "extras": extras]
         write(key, done)
@@ -311,7 +314,7 @@ final class ZnLaunch: ZnModuleBase, @unchecked Sendable {
     /// user comes back the launch ends with resultCode -1 and `data` = the link the other app opened to come back, if it
     /// did, else resultCode 0 and no data (`extras.returned` true either way). Either way JS asks its server what
     /// happened; a kill in between is "lost" at the next start. [done]: (launched, reason): "busy", "unacked", "no_app".
-    @MainActor static func open(_ key: String, id: String, url: URL, done: @escaping (Bool, String?) -> Void) {
+    @MainActor public static func open(_ key: String, id: String, url: URL, done: @escaping (Bool, String?) -> Void) {
         let started = start(key, id: id)
         guard started.launched else { return done(false, started.reason) }
         watch()

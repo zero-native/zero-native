@@ -11,6 +11,10 @@
 // process (iOS has no Kotlin; Crashlytics catches both). Release builds need their dSYMs uploaded for native stacks
 // (ios/third_party/firebase/FirebaseCrashlytics/upload-symbols); JS stacks don't need them.
 import Foundation
+#if SWIFT_PACKAGE
+import ZnRuntime
+import ZnPluginFirebaseApp
+#endif
 #if canImport(FirebaseCrashlytics)
 import FirebaseCrashlytics
 #endif
@@ -49,11 +53,16 @@ enum CrashlyticsRules {
 
 /// Add it with `ZnPlugins.register(..., CrashlyticsPlugin())`, as early as the other plugins.
 /// `redact`: runs on every text that goes to Crashlytics from JS (as on Android).
-struct CrashlyticsPlugin: ZnPlugin {
-    var jsErrors = true
-    var redact: ((String) -> String)? = nil
+public struct CrashlyticsPlugin: ZnPlugin {
+    public init(jsErrors: Bool = true, redact: ((String) -> String)? = nil) {
+        self.jsErrors = jsErrors
+        self.redact = redact
+    }
 
-    func register(_ r: ZnPluginRegistry) {
+    public var jsErrors = true
+    public var redact: ((String) -> String)? = nil
+
+    public func register(_ r: ZnPluginRegistry) {
         r.requireHostApi(8)
         let on = ZnFirebase.start()
         let module = CrashlyticsModule(on: on, redact: redact)

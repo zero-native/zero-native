@@ -6,7 +6,7 @@ import QuartzCore
 import os
 
 @MainActor
-enum ZnDebug {
+public enum ZnDebug {
     static let enabled: Bool = {
         #if DEBUG
         return ProcessInfo.processInfo.environment["ZN_COUNT_BODIES"] == "1"
@@ -46,7 +46,7 @@ enum ZnDebug {
     }
 
     /// Milliseconds since the app started, for timing lines in the log.
-    static func ms() -> String {
+    public static func ms() -> String {
         String(format: "%.0f", (CACurrentMediaTime() - start) * 1000)
     }
     private static let start = CACurrentMediaTime()

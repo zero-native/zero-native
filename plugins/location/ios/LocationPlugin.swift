@@ -16,9 +16,14 @@
 import Contacts
 import CoreLocation
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct LocationPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct LocationPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.module(LocationModule())
     }
 }

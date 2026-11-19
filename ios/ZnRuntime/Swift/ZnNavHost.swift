@@ -89,7 +89,7 @@ struct ZnNavSwiftUI: View {
 
 extension ZnApp {
     /// The window's root: the back stack (UIKit), or the SwiftUI comparison variant.
-    func makeRootViewController() -> UIViewController {
+    public func makeRootViewController() -> UIViewController {
         switch ZnImpl.nav {
         case .uiKit: return ZnRootController(app: self)  // the back stack with startApp's layers (ZnLayers.swift)
         case .swiftUI: return UIHostingController(rootView: ZnRootView(app: self))

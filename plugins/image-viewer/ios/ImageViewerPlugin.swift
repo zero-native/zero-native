@@ -18,9 +18,14 @@
 //   v3 JS calls, so the module answers v3 bundles.
 import ImageIO
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct ImageViewerPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct ImageViewerPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.module(ImageViewerModule())
         r.screen("imageviewer.full") { scope in ImageViewerScreen(scope) }
     }

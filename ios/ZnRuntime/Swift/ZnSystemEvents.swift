@@ -3,6 +3,9 @@
 // "background", LOW_MEMORY (15), KEYBOARD (18) `{ visible, height }` once per show or hide (not per frame), when the
 // keyboard starts to move, as Android sends it.
 import UIKit
+#if SWIFT_PACKAGE
+import ZnHost
+#endif
 
 @MainActor
 final class ZnSystemEvents {

@@ -84,6 +84,12 @@ jobs:
             -DZN_HERMES_DIR="$GITHUB_WORKSPACE/ios/third_party/hermes/release/destroot"
           xcodebuild -project ios/build/device/zn_ios.xcodeproj -target ZnSample -sdk iphoneos \
             -configuration Release ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build -quiet
+      # The same sample from the Swift package (Package.swift; ios/SamplePackage): what an app that adds the package
+      # builds. Hermes is the local release one fetched above, until the Hermes zip is on a GitHub Release.
+      - name: Build the sample from the Swift package (simulator)
+        run: |
+          xcodebuild -project ios/SamplePackage/ZnSamplePackage.xcodeproj -scheme ZnSamplePackage \
+            -destination 'generic/platform=iOS Simulator' ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build -quiet
 
   android:
     runs-on: ubuntu-latest

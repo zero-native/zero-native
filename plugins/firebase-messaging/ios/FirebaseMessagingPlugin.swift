@@ -36,6 +36,11 @@
 import Foundation
 import UIKit
 import UserNotifications
+#if SWIFT_PACKAGE
+import ZnRuntime
+import ZnPluginFirebaseApp
+import ZnPluginNotifications
+#endif
 #if canImport(FirebaseMessaging)
 import FirebaseMessaging
 #endif
@@ -126,11 +131,16 @@ enum PushRules {
 /// shows its own (with its tap rules), as on Android.
 /// `otaCheck`: a `zn_ota=check` message runs core's OTA check natively, and the app joins the OTA server's topic
 /// `zn-ota-<app>-<channel>` (OtaPush.swift; Android: PushPlugin(otaCheck)). False: the kept topic is left.
-struct FirebaseMessagingPlugin: ZnPlugin {
-    var foreground: UNNotificationPresentationOptions = []
-    var otaCheck = true
+public struct FirebaseMessagingPlugin: ZnPlugin {
+    public init(foreground: UNNotificationPresentationOptions = [], otaCheck: Bool = true) {
+        self.foreground = foreground
+        self.otaCheck = otaCheck
+    }
 
-    func register(_ r: ZnPluginRegistry) {
+    public var foreground: UNNotificationPresentationOptions = []
+    public var otaCheck = true
+
+    public func register(_ r: ZnPluginRegistry) {
         r.requireHostApi(8)
         NotificationsPlugin().register(r)  // does nothing when the app listed it already
         let on = ZnFirebase.start()
@@ -145,9 +155,9 @@ struct FirebaseMessagingPlugin: ZnPlugin {
     }
 
     // The app delegate's calls (the file's header).
-    @MainActor static func apnsToken(_ token: Data) { FirebaseMessagingModule.shared.apnsToken(token) }
-    @MainActor static func apnsFailed(_ error: Error) { FirebaseMessagingModule.shared.apnsFailed(error) }
-    @MainActor static func remoteNotification(_ info: [AnyHashable: Any], _ done: @escaping (UIBackgroundFetchResult) -> Void) {
+    @MainActor public static func apnsToken(_ token: Data) { FirebaseMessagingModule.shared.apnsToken(token) }
+    @MainActor public static func apnsFailed(_ error: Error) { FirebaseMessagingModule.shared.apnsFailed(error) }
+    @MainActor public static func remoteNotification(_ info: [AnyHashable: Any], _ done: @escaping (UIBackgroundFetchResult) -> Void) {
         FirebaseMessagingModule.shared.remoteNotification(info, done)
     }
 }

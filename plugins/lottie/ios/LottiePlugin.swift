@@ -11,12 +11,17 @@
 //   mergePaths, opacityToLayers and safeMode are Android-only (accepted, not used).
 // - Without lottie-ios in the build, the view stays empty and sends failure "failed"; preload answers failed.
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 #if canImport(Lottie)
 import Lottie
 #endif
 
-struct LottiePlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct LottiePlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.module(LottieModule())
         r.view("lottie.view") { scope in ZnLottieView(scope) }
     }

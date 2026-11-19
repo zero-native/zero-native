@@ -4,6 +4,9 @@
 import Foundation
 import Observation
 import SwiftUI
+#if SWIFT_PACKAGE
+import ZnHost
+#endif
 
 /// A route from main.zn.ui.json (routes.ts): what native needs to show its screens.
 struct ZnRoute {
@@ -106,8 +109,8 @@ enum ZnAppEvent {
 
 @MainActor
 @Observable
-final class ZnApp {
-    static let shared = ZnApp()
+public final class ZnApp {
+    public static let shared = ZnApp()
 
     /// Back-stack entries (screen root instance ids), bottom first. The top one is drawn.
     private(set) var stack: [UInt32] = [] { didSet { topRouteMaybeChanged() } }
@@ -144,7 +147,7 @@ final class ZnApp {
 
     /// For the scene's `stateRestorationActivity(for:)`: the back stack (route names, params, restorableSignal values)
     /// up to the first `restore: false` route; nil when only the start screen with no values is open.
-    func restorationActivity() -> NSUserActivity? { savedStack(values: true) }
+    public func restorationActivity() -> NSUserActivity? { savedStack(values: true) }
 
     /// The screens to open again, as `restorationActivity`; [values] false leaves their restorableSignal values out
     /// (an update applied in place: new code starts its state fresh, as on Android).
@@ -195,7 +198,7 @@ final class ZnApp {
 
     /// A link while the app runs (the scene's openURLContexts, a universal link): JS pushes its route, or its
     /// onUnmatchedLink hears it (OPEN, as ZnNav.kt). A launch waiting for its app to come back hears it too.
-    func openLink(_ url: URL) {
+    public func openLink(_ url: URL) {
         ZnLaunch.noteLink(url)
         guard jsStarted else { return earlyLinks.append(url) }
         sendOpen(url, atStart: false)
@@ -231,7 +234,7 @@ final class ZnApp {
     }
 
     /// The top screen's route name.
-    var topRoute: String? { stack.last.flatMap { entryRoutes[$0]?.name } }
+    public var topRoute: String? { stack.last.flatMap { entryRoutes[$0]?.name } }
 
     private func topRouteMaybeChanged() {
         let now = topRoute
@@ -268,13 +271,13 @@ final class ZnApp {
 
     /// Starts the app from a bundle folder (main.hbc, main.zn.ui, main.zn.ui.json) on route `routeName`.
     /// The bundle folder (main.hbc, main.zn.ui, assets such as images/): `asset:` sources resolve against it.
-    @ObservationIgnored private(set) var bundleURL: URL?
+    @ObservationIgnored public private(set) var bundleURL: URL?
 
     /// [routeName] nil: the app's start route (path "/"), with [link]'s screen on top when a link started the app (as
     /// Android's ZnNav). A route name (the sample's ZN_ROUTE, debug) opens that route alone.
     /// [restoring]: the scene's `stateRestorationActivity` (restorationActivity's): iOS gives it back only after it ended
     /// the app itself, never after the user closed it, as Android's saved state. It wins over [link], not over [routeName].
-    func start(bundle builtIn: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil,
+    public func start(bundle builtIn: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil,
                reusing: Bool = false) {
         // The bundle to run: a downloaded one when OTA is on and it passes every check, else the app's own (ZnOta.swift).
         // [reusing]: a restart (ZnOta's swap): [builtIn] is the folder to run, already chosen.
@@ -412,7 +415,7 @@ final class ZnApp {
     /// as `restorationActivity`) open again by route and params, their JS state fresh. The window gets a new root
     /// controller; [window]'s cover (the caller's) hides the swap. [done] runs on the main thread after main.hbc ran:
     /// true, or false with the error (the caller may restart again on another bundle).
-    func restart(bundle: URL, in window: UIWindow?, done: @escaping (Bool, String) -> Void) {
+    public func restart(bundle: URL, in window: UIWindow?, done: @escaping (Bool, String) -> Void) {
         let saved = savedStack(values: false)
         restarting = true
         ZnPopups.shared.closeAll(why: "the runtime is replaced")  // no slide over the OTA cover; the new root has its own box

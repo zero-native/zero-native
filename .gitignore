@@ -72,3 +72,6 @@ ios/third_party/lottie/
 
 # Claude Code local state (worktrees of its agents)
 .claude/
+
+# Swift package (Package.swift): Xcode's working files
+.swiftpm/

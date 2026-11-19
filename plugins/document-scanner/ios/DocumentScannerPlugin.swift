@@ -22,9 +22,14 @@ import AVFoundation
 import PDFKit
 import UIKit
 import VisionKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct DocumentScannerPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct DocumentScannerPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.module(DocScanModule())
     }
 }

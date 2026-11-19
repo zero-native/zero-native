@@ -4,19 +4,19 @@
 // the air) can't make a plugin read a path of its choice.
 import Foundation
 
-enum ZnHandles {
+public enum ZnHandles {
     private static let fileKind = "file"
 
     /// Where plugins write files that JS will name (a downloaded PDF, a scanned page). It stays after a kill; iOS may clear
     /// Caches when the phone is short of space, so a plugin must handle a handle whose file is gone.
-    static var fileDir: URL {
+    public static var fileDir: URL {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("zn-files", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
     /// `zn://file/<name>` for a file in `fileDir`, or nil (a mistake in the plugin: any other file gets no handle).
-    static func file(_ url: URL) -> String? {
+    public static func file(_ url: URL) -> String? {
         let name = url.lastPathComponent
         guard url.deletingLastPathComponent().standardizedFileURL.path == fileDir.standardizedFileURL.path,
               fileName(name) != nil else {
@@ -27,7 +27,7 @@ enum ZnHandles {
     }
 
     /// The file of a `zn://file/<name>` handle, if it is one and the file is there.
-    static func fileOf(_ handle: String) -> URL? {
+    public static func fileOf(_ handle: String) -> URL? {
         guard let (kind, path) = parse(handle), kind == fileKind, let name = fileName(path) else { return nil }
         let url = fileDir.appendingPathComponent(name)
         var dir: ObjCBool = false

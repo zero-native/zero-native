@@ -4,10 +4,13 @@ import Foundation
 import Network
 import Security
 import UIKit
+#if SWIFT_PACKAGE
+import ZnHost
+#endif
 
 /// The app's frontmost view controller, to present system sheets from. Main thread.
 @MainActor
-func znTopController() -> UIViewController? {
+public func znTopController() -> UIViewController? {
     let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
     var top = scenes.flatMap(\.windows).first(where: \.isKeyWindow)?.rootViewController
     while let presented = top?.presentedViewController { top = presented }
@@ -23,7 +26,7 @@ func znIosVersion() -> String {
 // MARK: - Os (ZnOs.kt)
 
 /// Small things about the phone. `info` keeps Android's keys (android "" and sdk 0 here) and adds `ios`, the iOS version.
-final class ZnOs: ZnModuleBase, @unchecked Sendable {
+public final class ZnOs: ZnModuleBase, @unchecked Sendable {
     /// Any app's link opens, as in RN's Linking.openURL (Pavan's call, 2026-11-08; second-opinions 185, as ZnOs.kt). Refused:
     /// text with no valid scheme (RFC 3986), and `intent:`, `file:`, `javascript:` (Android's three; on iOS they open
     /// nothing useful, and a file: link must not leave from an OTA bundle).
@@ -35,7 +38,7 @@ final class ZnOs: ZnModuleBase, @unchecked Sendable {
     }
 
     /// The device model ("iPhone17,3"); on the simulator, the model it simulates.
-    static var model: String {
+    public static var model: String {
         if let sim = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return sim }
         var u = utsname()
         uname(&u)
@@ -301,10 +304,10 @@ final class ZnUpdatesOff: ZnModuleBase, @unchecked Sendable {
 /// limit, one answer per task. iOS starts JS when the window opens, so a task that comes while JS isn't running waits;
 /// one run with `keep: true` is also saved, so it runs at the app's next start if this process ends first
 /// (docs/ios-notifications-plan.md §3). It doesn't keep the process alive: the plugin's own background time does.
-final class ZnTasks: ZnModuleBase, @unchecked Sendable {
-    enum Outcome: String { case done, failed, noTask = "no_task", timedOut = "timed_out" }
+public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
+    public enum Outcome: String { case done, failed, noTask = "no_task", timedOut = "timed_out" }
 
-    static let shared = ZnTasks()
+    public static let shared = ZnTasks()
     private static let appEventTask: UInt16 = 13  // ZnAppEvent.TASK on Android
     private static let keptKey = "zn.tasks.kept"
     private static let maxKept = 50
@@ -325,7 +328,7 @@ final class ZnTasks: ZnModuleBase, @unchecked Sendable {
     private var nextId = 0
 
     /// Main thread: JS has loaded and gets tasks (and events) now.
-    var isLoaded: Bool { loaded }
+    public var isLoaded: Bool { loaded }
 
     private init() {
         super.init("Tasks", version: 1)
@@ -345,7 +348,7 @@ final class ZnTasks: ZnModuleBase, @unchecked Sendable {
     /// Runs task [name] with [data] (a JSON value). [onDone] is called once, on the main thread. The [timeoutMs] limit
     /// starts when JS gets the task: then JS's `signal` is aborted and the outcome is timedOut. [keep]: saved until JS has
     /// run it, also across app starts (events a user made: a dismiss, a button). Any thread.
-    func run(_ name: String, _ data: Any? = nil, timeoutMs: Int = 30_000, keep: Bool = false, onDone: @escaping (Outcome) -> Void = { _ in }) {
+    public func run(_ name: String, _ data: Any? = nil, timeoutMs: Int = 30_000, keep: Bool = false, onDone: @escaping (Outcome) -> Void = { _ in }) {
         DispatchQueue.main.async {
             let keptId = keep ? self.saveKept(name, data, timeoutMs) : nil
             self.enqueue(Task(name: name, data: data, timeoutMs: timeoutMs, keptId: keptId, onDone: onDone))

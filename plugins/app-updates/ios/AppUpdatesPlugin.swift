@@ -10,9 +10,14 @@
 //   { opened: false } without an id.
 // The module still exists, so a bundle that needs "AppUpdates" v1 runs here.
 import UIKit
+#if SWIFT_PACKAGE
+import ZnRuntime
+#endif
 
-struct AppUpdatesPlugin: ZnPlugin {
-    func register(_ r: ZnPluginRegistry) {
+public struct AppUpdatesPlugin: ZnPlugin {
+    public init() {}
+
+    public func register(_ r: ZnPluginRegistry) {
         r.module(AppUpdatesModule())
     }
 }
