@@ -17,8 +17,10 @@ How to read the marks (`[check]` as in `README.md` of this folder; `[fact]` is t
   started a desktop toolkit under that name on 2026-05-08 and later renamed it "Native SDK". It still holds the npm
   name `zero-native`, and both `zero-native.dev` and `zeronative.dev` point at its site (§3). So **`dev.zeronative`
   can't be proven for Maven Central** by us, and the unscoped npm name is gone.
-- **What we can use:** the GitHub org `zero-native` (ours), and the npm scope `@zero-native`. The scope exists, but
-  we couldn't see who owns it (§3.1).
+- **What we can use:** the GitHub org `zero-native` (ours). The npm scope `@zero-native` is taken by someone else, so
+  **Pavan made the npm org `zeronative` on 2026-11-19**: the packages will be `@zeronative/core`, `@zeronative/ui` and
+  so on. Where this file says `@zero-native/<name>` for a published package, read `@zeronative/<name>`; the code
+  still imports `@zero-native/*` until the rename (a decision for when we publish, §9).
 - **Publish three things with one version number**, from one git tag:
   - 25 npm packages: core, template, ui, compiler, 20 plugins and a new `@zero-native/cli`;
   - 20 Android libraries (AARs) on Maven Central: the runtime and 19 plugins;
