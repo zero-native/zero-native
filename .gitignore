@@ -69,3 +69,6 @@ core/build-apple/
 **/GoogleService-Info.plist
 ios/third_party/firebase/
 ios/third_party/lottie/
+
+# Claude Code local state (worktrees of its agents)
+.claude/

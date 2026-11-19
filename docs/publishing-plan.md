@@ -5,7 +5,7 @@ reserved.** Today an app builds zero-native from a checkout: a Gradle composite 
 the repo (`guide-notes.md` §34, `second-opinions.md` entry 17). This file says what to publish, under which names,
 how to sign it, and in what order.
 
-How to read the marks (as in `README.md` of this folder):
+How to read the marks (`[check]` as in `README.md` of this folder; `[fact]` is this file's own):
 - **[fact]** checked on 2026-11-19, with how it was checked.
 - **[check]** believed, not confirmed.
 - **Recommended** is a proposal. The decisions are Pavan's (§9).
@@ -30,7 +30,8 @@ How to read the marks (as in `README.md` of this folder):
 ## 2. What gets published
 
 ### 2.1 npm (JS, the compiler and the CLI)
-[fact] read from every `package.json` on 2026-11-19. All are `"private": true` and version `0.0.0`. None has
+[fact] read from every `package.json` on 2026-11-19. All are `"private": true`. The packages under `packages/` and `plugins/` are version `0.0.0`; the root, `server/`
+and `examples/sample/` have no version at all. None has
 `files`, `license`, `repository` or `publishConfig`. Each one's `main` is its TypeScript source (`src/index.ts`).
 Only `@zero-native/image-viewer` has `exports` (`.` and `./screen`).
 

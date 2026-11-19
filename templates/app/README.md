@@ -37,8 +37,8 @@ bun run android
 ```
 
 It builds the JS into `android/app/src/main/assets` and installs the debug build. You can also open `android/` in
-Android Studio, after `bun run app:js`. While you work on screens, `bun run dev` sends saved changes to the debug
-build on the phone.
+Android Studio, after `bun run app:js`. `bun run dev` (live reload to the debug build) is
+not tried from an app made by `zn new` yet.
 
 ## Layout
 

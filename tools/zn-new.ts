@@ -35,7 +35,8 @@ export interface NewApp {
 }
 
 const NAME = /^[a-z][a-z0-9-]{0,63}$/
-const ID = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/
+// Letters and digits only: Android ids forbid "-", and iOS bundle ids forbid "_".
+const ID = /^[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)+$/
 
 /** "my-app" → "MyApp": the Xcode project, target and Swift module. */
 export function className(name: string): string {
@@ -66,7 +67,7 @@ export function newApp(dirArg: string, opts: NewAppOptions = {}): NewApp {
   const name = opts.name ?? basename(dir).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^[^a-z]+|-+$/g, "")
   if (!NAME.test(name)) throw new Error(`app name "${name}": use a-z, 0-9 and -, starting with a letter (--name)`)
   const id = opts.id ?? `com.example.${name.replace(/-/g, "")}`
-  if (!ID.test(id)) throw new Error(`id "${id}": use parts of a-z, A-Z, 0-9 and _, each starting with a letter, joined by dots (--id)`)
+  if (!ID.test(id)) throw new Error(`id "${id}": use parts of a-z, A-Z and 0-9, each starting with a letter, joined by dots (--id; no "_", which iOS forbids, and no "-", which Android forbids)`)
   if (existsSync(dir) && readdirSync(dir).length > 0) throw new Error(`${dir} is not empty`)
   // The closest folder that exists, as a real path: is the app inside zero-native?
   let probe = dir
