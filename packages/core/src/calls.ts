@@ -271,6 +271,11 @@ export function resetNativeConstantsForTests(): void {
   constants = null
 }
 
+/** Tests only: forget the calls still waiting (another test file's, whose fake host never answered them). */
+export function resetCallsForTests(): void {
+  pending.clear()
+}
+
 /** Number of calls still waiting for native (for tests and leak checks). */
 export function pendingCallCount(): number {
   return pending.size

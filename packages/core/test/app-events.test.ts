@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { installFakeHost } from "./fake-host"
 import { AppEvent } from "../src/app-events"
 import { callNative, installCalls } from "../src/calls"
-import { installEvents } from "../src/events"
+import { installEvents, resetEventsForTests } from "../src/events"
 import { resetNavForTests, startApp } from "../src/nav"
 import { defineRoutes } from "../src/routes"
 import { view } from "../src/view"
@@ -24,6 +24,7 @@ test("Kotlin's ZnAppEvent uses the same numbers", () => {
 
 test("native calls still settle after startApp (step 3.9 gave RETRY the call-answer number and broke them)", async () => {
   const host = installFakeHost()
+  resetEventsForTests()  // only this test's handlers: other files' startApp left theirs (a false "already has a handler")
   installEvents()
   installCalls()
   resetNavForTests()

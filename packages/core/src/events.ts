@@ -34,6 +34,11 @@ function dispatch(instance: number, eventId: number, payload: NativeValue): void
   }
 }
 
+/** Tests only: forget every handler (another test file's startApp left its own). */
+export function resetEventsForTests(): void {
+  handlers.clear()
+}
+
 export function installEvents(): void {
   globalThis.__zn_onEvent = dispatch
 }

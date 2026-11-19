@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test"
 import { installFakeHost, type FakeHost } from "./fake-host"
 import { installEvents } from "../src/events"
-import { callNative, installCalls, nativeModule, NativeError, pendingCallCount, type CallOptions } from "../src/calls"
+import { callNative, installCalls, nativeModule, NativeError, pendingCallCount, resetCallsForTests, type CallOptions } from "../src/calls"
 import { createRoot } from "../src/signals"
 
 let host: FakeHost
@@ -20,6 +20,7 @@ beforeEach(() => {
   host = installFakeHost()
   installEvents()
   installCalls()
+  resetCallsForTests()  // the counts below are this file's: motion.test.ts leaves Motion calls nobody answered
 })
 
 test("a typed module call resolves; the version it needs travels with the args", async () => {
