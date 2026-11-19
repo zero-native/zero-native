@@ -1,0 +1,80 @@
+# `zn new` makes an app that builds (tools/zn-new.ts, templates/app): an app is made outside the checkout, as someone
+# outside would, and built for Android and the iOS simulator. The setup steps are the same as ci.yml's.
+name: New app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: new-app-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then echo "No Xcode 26 on this runner"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # Meta's prebuilt Hermes, pinned by version and SHA-256 in the script.
+      - uses: actions/cache@v4
+        with:
+          path: ios/third_party/hermes
+          key: hermes-apple-${{ hashFiles('tools/fetch-hermes-apple.ts') }}
+      - run: bun run tools/fetch-hermes-apple.ts
+      - name: Make an app with zn new
+        run: bun run tools/zn.ts new "$RUNNER_TEMP/ci-app" --id dev.zeronative.ciapp
+      - run: bun install
+        working-directory: ${{ runner.temp }}/ci-app
+      - name: Type check the app
+        working-directory: ${{ runner.temp }}/ci-app
+        run: bun run typecheck
+      # The JS, then the simulator build, unsigned (CI is set)
+      - name: Build the app (simulator)
+        working-directory: ${{ runner.temp }}/ci-app
+        run: bun run ios --build-only
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools  # its default also asks for "tools", which the SDK no longer has
+      # The platform (SDK 37), NDK and CMake that the runtime and the app ask for are installed by the Android Gradle
+      # plugin itself (setup-android accepted the licenses), as in ci.yml.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Make an app with zn new
+        run: bun run tools/zn.ts new "$RUNNER_TEMP/ci-app" --id dev.zeronative.ciapp
+      - run: bun install
+        working-directory: ${{ runner.temp }}/ci-app
+      # main.hbc, the templates and zn-bundle.json go into android/app/src/main/assets
+      - run: bun run app:js
+        working-directory: ${{ runner.temp }}/ci-app
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the app
+        working-directory: ${{ runner.temp }}/ci-app/android
+        run: ./gradlew :app:assembleDebug --stacktrace
