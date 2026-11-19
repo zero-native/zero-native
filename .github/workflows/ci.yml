@@ -77,8 +77,11 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools  # its default also asks for "tools", which the SDK no longer has (the first run failed)
-      # The versions android/runtime and android/sample ask for (compileSdk, ndkVersion, cmake version).
-      - run: sdkmanager "platforms;android-37" "ndk;30.0.16248370" "cmake;3.22.1"
+      # The platform, NDK and CMake that android/runtime and android/sample ask for (compileSdk 37, ndkVersion, cmake
+      # version) are installed by the Android Gradle plugin itself (setup-android accepted the licenses): it knows their
+      # package names ("platforms;android-37" isn't one; the second run failed on it). Shown here in case they move.
+      - name: SDK packages for API 37 (for the log)
+        run: sdkmanager --list --channel=3 2>/dev/null | grep -E "platforms;android-37|ndk;30\.|cmake;3\.22" | sort -u || true
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
