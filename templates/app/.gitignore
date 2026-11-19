@@ -1,0 +1,28 @@
+node_modules/
+.DS_Store
+
+# Written by the JS build (bun run app:js, app:js:ios)
+app/build/
+android/app/src/main/assets/
+ios/bundle/
+# Part names the zero-native build writes next to each .svg
+*.d.svg.ts
+
+# The Android host
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+.cxx/
+
+# The iOS host
+ios/build/
+
+# Firebase config files and keys: never in git
+google-services.json
+GoogleService-Info.plist
+*.jks
+*.keystore
+.env
+.env.*

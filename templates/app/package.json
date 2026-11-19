@@ -1,0 +1,20 @@
+{
+  "name": "__APP_NAME__",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "app:js": "bun run __ZN_DIR__/tools/zn-build.ts app --name __APP_NAME__ --assets android/app/src/main/assets",
+    "app:js:ios": "bun run __ZN_DIR__/tools/zn-build.ts app --name __APP_NAME__ --assets ios/bundle",
+    "android": "bun run app:js && cd android && ./gradlew :app:installDebug",
+    "ios": "bun run tools/ios.ts",
+    "dev": "bun run __ZN_DIR__/tools/zn-dev.ts app",
+    "typecheck": "tsc -p app"
+  },
+  "dependencies": {
+    "@zero-native/core": "link:__ZN_DIR__/packages/core",
+    "@zero-native/ui": "link:__ZN_DIR__/packages/ui"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

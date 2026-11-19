@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- fetch and remote images -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name=".MainApplication"
+        android:supportsRtl="true"
+        android:allowBackup="false"
+        android:label="__APP_TITLE__"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <!-- singleTop, not singleTask: singleTask would close another app opened for a result when the user taps
+                 the icon. A link can then make a second MainActivity: ZnNav.handleExtraActivity forwards it. -->
+            <!-- adjustResize: the keyboard's height reaches the app as an inset; each route decides (keyboard option). -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Links __APP_NAME__://app/<path>, matched against the routes with deepLink: true (app/src/routes.ts). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="__APP_NAME__" android:host="app" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

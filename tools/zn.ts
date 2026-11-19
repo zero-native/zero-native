@@ -4,6 +4,7 @@
 //
 // Set up once (from the zero-native root):  bun link  then  bun link zero-native -g
 // Then from an app folder:
+//   zn new <dir> [--name N] [--id ID]   start a new app outside this repo, from templates/app (tools/zn-new.ts)
 //   zn dev [appDir]            live reload to the phone (tools/zn-dev.ts); appDir defaults to this folder
 //   zn build <appDir> ...      build the app's JS bundle (tools/zn-build.ts)
 //   zn release | builtin | store-build | dashboard | status | ...
@@ -34,6 +35,8 @@ function run(script: string, args: string[]): never {
 function help(): never {
   console.log(`zn: zero-native tools (from ${root})
 
+  zn new <dir> [--name N] [--id ID]
+                             start a new app outside this repo (iOS and Android hosts, two screens)
   zn dev [appDir]            live reload to the phone; appDir defaults to this folder
   zn build <appDir> ...      build the app's JS bundle
   zn release, zn builtin, zn store-build, zn dashboard, zn status, ...
@@ -45,6 +48,8 @@ function help(): never {
 }
 
 switch (cmd) {
+  case "new":
+    run("tools/zn-new.ts", rest)
   case "dev": {
     // zn-dev.ts defaults to the sample app; from an app folder, the app is this folder (or its app/ folder, as in ZeroBill).
     const cwd = process.cwd()
