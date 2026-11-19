@@ -1,12 +1,14 @@
 # zero-native (`zn`): architecture
 
-**Status:** v1 target design. Written by Claude (Opus) with Pavan, 2026-10-27, after two review rounds with Gemini 4 Argon.
-**v0 experiments and spikes done (2026-10-27 to 10-29):** all passed on the Lava Blaze 2 5G. Lessons are folded in
-below (marked "v0 lesson"); the full list is in `docs/v0-findings.md`.
-**Updated 2026-10-29:** styling, lists, startup, safe areas, controlled components, native resource handles.
-**Updated 2026-10-31:** "Where things stand" below; "as built" notes where the build differs from the first plan
-(§4, §6, §8.1, §15, §16, §17, §21); decision log to 2026-10-31; plugins proposal (`docs/plugins.md`).
-**Detailed spec files live in `docs/`** (start with `docs/README.md`). This file stays the summary and the decision log.
+- **Status:** v1 target design. Written by Claude (Opus) with Pavan, 2026-10-27, after two review rounds with Gemini 4
+  Argon.
+- **v0 experiments and spikes done (2026-10-27 to 10-29):** all passed on the Lava Blaze 2 5G. Lessons are folded in
+  below (marked "v0 lesson"); the full list is in `docs/v0-findings.md`.
+- **Updated 2026-10-29:** styling, lists, startup, safe areas, controlled components, native resource handles.
+- **Updated 2026-10-31:** "Where things stand" below; "as built" notes where the build differs from the first plan
+  (§4, §6, §8.1, §15, §16, §17, §21); decision log to 2026-10-31; plugins proposal (`docs/plugins.md`).
+- **Detailed spec files live in `docs/`** (start with `docs/README.md`). This file stays the summary and the decision
+  log.
 
 **Where things stand (2026-10-31, Android only).** Milestones 1–4 are built and checked on a real low-end phone
 (Lava Blaze 2 5G, Android 14): compiler and templates, signals, the batch, the Compose renderer and component set,
@@ -14,22 +16,26 @@ navigation (deep links, back, safe areas, restore after process death, `restorab
 native modules (calls, events, cancellation, binary data), `fetch`, storage (MMKV) and SecureStore, FlowStore, text
 input, animation, resilience (error screens, time limits), the `zn dev` hot reload, and OTA (signed bundles,
 compatibility check, store + CLI + reference server, apply in place, safety nets, crash traces mapped to TSX; 38 / 38
-phone test cases). Release cold start of the sample app: ~180 ms median. The plugin base and its plumbing are built (P.1, P.2, 2026-11-02): permissions, "open another app for a
-result" that survives a kill, `Os`, `detached`, `zn://app-icon` handles. An app outside this repo builds and runs with its own plugin (P.3).
-**Updated 2026-11-04:** the plugins are built (P.1 to P.6: `auth`, `scanner`, `media`, `webview`, then `pdf`, `location`
-and the Firebase plugins `firebase-app`, `crashlytics`, `push`, `analytics`, `remote-config`, `perf`; `docs/plugins.md`),
-and so are `<NativeView>`, native screens and background JS tasks. Also built since: bottom tabs, pull to refresh, SVG,
-RN-style handlers and props (registry 15, host API 8).
-**Not built:** iOS (no host yet) and the flow engine (parked, §12). Progress log: `docs/milestones.md`.
-Judgment calls waiting for a second opinion: `docs/second-opinions.md`.
-**This file replaces `intro.md` and `intro2.md` as the source of truth.** Those two files are Gemini's first brainstorm;
-section 22 lists what we kept, changed and dropped from them, and why.
+phone test cases). Release cold start of the sample app: ~180 ms median. The plugin base and its plumbing are built
+(P.1, P.2, 2026-11-02): permissions, "open another app for a result" that survives a kill, `Os`, `detached`,
+`zn://app-icon` handles. An app outside this repo builds and runs with its own plugin (P.3).
+
+- **Updated 2026-11-04:** the plugins are built (P.1 to P.6: `auth`, `scanner`, `media`, `webview`, then `pdf`,
+  `location` and the Firebase plugins `firebase-app`, `crashlytics`, `push`, `analytics`, `remote-config`, `perf`;
+  `docs/plugins.md`), and so are `<NativeView>`, native screens and background JS tasks. Also built since: bottom tabs,
+  pull to refresh, SVG, RN-style handlers and props (registry 15, host API 8).
+- **Not built (as of 2026-11-04):** iOS (no host yet) and the flow engine (parked, §12). iOS has been built since; see
+  the README's status and `docs/milestones-ios.md`. Progress log: `docs/milestones.md`. Judgment calls waiting for a
+  second opinion: `docs/second-opinions.md`.
+- **This file replaces `intro.md` and `intro2.md` as the source of truth.** Those two files are Gemini's first
+  brainstorm; section 22 lists what we kept, changed and dropped from them, and why.
 
 How to read this file:
 - **Decided** means locked. Change it only with a new measurement or a written reason in section 24 (decision log).
 - **Target** means a number we aim for. It is not measured yet.
 - **[check]** means a fact we believe but must confirm while building.
-- The experiments that test this design are in `GEMINI_BRIEF.md`. Experiments may take shortcuts; each shortcut is
+- The experiments that test this design are in `experiments/` (results: `experiments/RESULTS.md`). Experiments may
+  take shortcuts; each shortcut is
   labelled there. The final framework takes none of them.
 
 ---
@@ -474,7 +480,7 @@ as tasks.
 
 **Built (milestone 3 step 3.3):** `<TextField>` on Compose's state-based `BasicTextField` (`ZnTextField.kt`; IME
 composition, paste and emoji are Compose's own handling). Controlled fields work as in React Native: native numbers
-each change ("ntext"), JS answers every change with what `value` says now ("nvalue", `textInput()` in
+each change ("n\u0001text"), JS answers every change with what `value` says now ("n\u0001value", `textInput()` in
 `packages/core/src/view.ts`), and native ignores an answer to an older change or one that arrives while a newer
 change is still unsent. So fast typing never jumps back, and a rejected or reformatted change comes back correctly
 (Lava: typing "123456789" fast into a field limited to 7 digits and formatted as rupees gave "12,34,567" in 3 of 3
@@ -532,7 +538,7 @@ Gesture-driven values (drag offsets, swipe-to-pay) update on the UI thread every
 Reference: `docs/motion.md`; plan and decisions: `docs/gestures-and-motion-v1.md`.
 
 - **Motion values are native objects** (the `Motion` module): JS makes them, binds them to element slots as references
-  (`" m<id>"`), and sends commands (spring, tween, decay, sequence). Native runs them on the Compose frame clock
+  (`"\u0000m<id>"`), and sends commands (spring, tween, decay, sequence). Native runs them on the Compose frame clock
   and reads them in `graphicsLayer {}` / draw blocks, so a drag recomposes nothing.
 - **Maths is `derive(() => ...)`**, compiled at build time to a postfix formula (≤ 64 ops, stack ≤ 16) that native
   evaluates each frame without allocating. This replaced the first idea of a `'main thread'` directive: an ordinary
@@ -754,6 +760,7 @@ Each flow declares `expiresAfter` (sliding by default: refreshed on every save).
 | Implementation | two-slot mmap file in the C++ core, no dependencies | MMKV (Android + iOS) called **synchronously** from JS through JSI host functions (no Promises; reads are a memory lookup); swappable |
 
 Secrets (tokens, keys) go in **SecureStore** (Android Keystore-backed / iOS Keychain), never in FlowStore or Storage.
+
 **Built (step 3.5):** Storage and SecureStore, `docs/storage.md`. Storage is MMKV built from source into `libzn.so`;
 a store damaged by a kill or power loss opens empty (measured: MMKV's "recover" mode returns garbage).
 
@@ -767,6 +774,7 @@ slot:   seq u64 | length u32 | crc32 u32 | payload (JSON, UTF-8)
 **Write:** copy the payload into the slot that is **not** current → write `length` and `crc32` → then write the new
 `seq` (current + 1) as one aligned 8-byte store with a release barrier. The other slot still holds the previous good
 state the whole time.
+
 **Read:** check both slots; use the valid one (crc matches) with the higher `seq`.
 
 **Durability (honest version):**
