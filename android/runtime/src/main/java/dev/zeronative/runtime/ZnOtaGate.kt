@@ -2,6 +2,7 @@ package dev.zeronative.runtime
 
 import android.content.Context
 import android.content.res.Configuration
+import android.annotation.SuppressLint
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.ColorDrawable
@@ -360,7 +361,10 @@ internal fun UpdateScreenHost() {
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
         ) {
             // The icon exactly where Android's launch screen drew it (the centre; an adaptive icon in 160 dp with the
-            // phone's icon shape, any other drawable in the 288 dp box): the screen carries on.
+            // phone's icon shape, any other drawable in the 288 dp box): the screen carries on. Read once from the
+            // context on purpose: the screen shows for a moment at launch, so a configuration change while it is up
+            // doesn't need a fresh drawable (lint's LocalContextGetResourceValueCall, 2026-11-19).
+            @SuppressLint("LocalContextGetResourceValueCall")
             val icon = remember(look.icon) { look.icon?.let { runCatching { context.getDrawable(it) }.getOrNull() } ?: launch.icon }
             if (icon != null) {
                 // AdaptiveIconDrawable is Android 8+ (API 26); minSdk is 24, where the class isn't there and checking
