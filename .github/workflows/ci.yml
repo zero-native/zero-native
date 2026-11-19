@@ -1,0 +1,89 @@
+# Checks every push to main and every pull request (docs/production-readiness.md A3).
+# - js: the JS, compiler, plugin, tools and server tests, and the type check (`bun run test`).
+# - ios: the C++ core tests on the Mac, the OTA rule tests, and the iOS sample built for the simulator.
+# - android: the sample's debug build and every module's unit tests.
+# Nothing here needs a secret: Firebase, Lottie and the apps' Firebase config files are optional, and the builds run
+# without them (the Firebase plugins answer "unavailable").
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # Builds the sample's JS (and, on a fresh clone, test-kit/offers-data.json from the example the type check needs).
+      - run: bun run sample:js
+      - run: bun run test
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then echo "No Xcode 26 on this runner"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run sample:js
+      # Meta's prebuilt Hermes, pinned by version and SHA-256 in the script.
+      - uses: actions/cache@v4
+        with:
+          path: ios/third_party/hermes
+          key: hermes-apple-${{ hashFiles('tools/fetch-hermes-apple.ts') }}
+      - run: bun run tools/fetch-hermes-apple.ts
+      - name: C++ core tests (Mac)
+        run: bun run tools/run-core-tests-apple.ts
+      - name: OTA rule tests
+        run: bun run ios:ota-test
+      - name: Build the iOS sample (simulator)
+        run: |
+          cmake -G Xcode -S ios -B ios/build/sim -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator
+          xcodebuild -project ios/build/sim/zn_ios.xcodeproj -target ZnSample -sdk iphonesimulator \
+            -configuration Debug ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build -quiet
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      # The versions android/runtime and android/sample ask for (compileSdk, ndkVersion, cmake version).
+      - run: sdkmanager "platforms;android-37" "ndk;30.0.16248370" "cmake;3.22.1"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # The sample's main.hbc, templates and assets go into android/sample/src/main/assets.
+      - run: bun run sample:js
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the sample and run the unit tests
+        working-directory: android
+        run: ./gradlew :sample:assembleDebug testDebugUnitTest --stacktrace
