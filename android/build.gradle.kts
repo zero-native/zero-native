@@ -51,7 +51,8 @@ subprojects {
             // Signed only when the release key is given (the release job's secrets, as ORG_GRADLE_PROJECT_ variables:
             // signingInMemoryKey, signingInMemoryKeyPassword; and mavenCentralUsername / mavenCentralPassword for
             // the upload). publishToMavenLocal needs none of them.
-            if (p.providers.gradleProperty("signingInMemoryKey").isPresent) signAllPublications()
+            // Not blank, not just present: a workflow passes a missing secret (a fork, a dry run) as "".
+            if (!p.providers.gradleProperty("signingInMemoryKey").orNull.isNullOrBlank()) signAllPublications()
             // A version that comes from a BoM in another module (Firebase's, through plugin-firebase-app) would be
             // missing from the POM. Write the versions the build really used. Gradle apps read the .module file,
             // which keeps the BoM.
