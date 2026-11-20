@@ -7,7 +7,8 @@
 // With Firebase off (no SDK or no GoogleService-Info.plist) the module still answers: every call does nothing, and
 // `status` says available false.
 //
-// iOS differences: no OTA yet, so the bundle key is "built-in". `crash("native")` and `crash("kotlin")` both crash the
+// iOS differences: the bundle key is always "built-in", even when an OTA bundle runs (iOS has OTA now; reading the
+// running bundle here is still to do, docs/guides/platform-differences.md). `crash("native")` and `crash("kotlin")` both crash the
 // process (iOS has no Kotlin; Crashlytics catches both). Release builds need their dSYMs uploaded for native stacks
 // (ios/third_party/firebase/FirebaseCrashlytics/upload-symbols); JS stacks don't need them.
 import Foundation

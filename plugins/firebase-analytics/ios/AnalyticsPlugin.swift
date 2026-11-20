@@ -8,7 +8,8 @@
 //   them off with FirebaseAutomaticScreenReportingEnabled = NO in its Info.plist (the sample does); this plugin sends
 //   the route names instead, as on Android.
 // - Linked without Analytics' IDFA part (no tracking prompt): no advertising id is collected.
-// - No OTA yet: zn_bundle is "built-in".
+// - zn_bundle is always "built-in", even when an OTA bundle runs (iOS has OTA now; reading the running bundle here is
+//   still to do, docs/guides/platform-differences.md).
 import Foundation
 #if SWIFT_PACKAGE
 import ZnRuntime

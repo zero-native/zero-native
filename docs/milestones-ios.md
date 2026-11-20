@@ -190,7 +190,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 13 | Carousel | partial | `itemWidthPercent` (r23) | S |
 | 14 | Sheet | partial | onDetentChange; sheet colour and corner radius fixed. animateIn done | S + S |
 | 15 | Fragment | done | | |
-| 16 | TextField | partial | autoComplete → `textContentType`, autoCapitalize / autoCorrect, editable and placeholder / colour at runtime, placeholderColor, selectionColor | S × 4 |
+| 16 | TextField | partial | (autoComplete → `textContentType`: done 2026-11-11) autoCapitalize / autoCorrect, editable and placeholder / colour at runtime, placeholderColor, selectionColor | S × 4 |
 | 17 | NativeView | done | | |
 | 18 | Svg | done | filters other than a drop shadow (iOS difference) | |
 | 19 | SvgPart | done | | |
@@ -236,7 +236,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 ### TextField
 | Prop | iOS | Size |
 |---|---|---|
-| autoComplete → `textContentType` (OtpInput already uses `.oneTimeCode`) | missing | S |
+| autoComplete → `textContentType` (OtpInput already uses `.oneTimeCode`) | done 2026-11-11 (ZnTextField.swift) | S |
 | autoCapitalize, autoCorrect | missing | S |
 | editable (also at runtime), placeholder / colour at runtime | missing | S |
 | placeholderColor, selectionColor | missing | S |
@@ -247,7 +247,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | List header / footer / empty, `scrollCommand` (r23) | missing | M |
 | `numColumns` / `columnWrapper` (r24) | missing | M |
 | Row `flexWrap` / `alignContent` / `crossGap` (r24; LayoutLab 30–37) | done (2026-11-09) | |
-| Scroll onRefresh / refreshing | missing | S |
+| Scroll onRefresh / refreshing | done (ZnScrollRefresh, ZnRenderer.swift) | S |
 | Carousel `itemWidthPercent` (r23) | missing | S |
 | Text `selectable`, `adjustsFontSizeToFit`, `minimumFontScale` (r23) | missing | S |
 
@@ -282,7 +282,7 @@ manifest must not claim what it can't draw.
 | Storage (JS) | done | C++ core + MMKV. |
 | Storage native API (`ZnStorage` for app / plugin code) | partial | Strings, remove, flush only. S. |
 | WebSocket (r23) | missing | URLSessionWebSocketTask. M. |
-| Updates (3) | partial | `ZnUpdatesOff`: Android's "OTA not configured" answers (status off, check NONE / OFF, applyNow off, hold, markHealthy). Real OTA: Phase 4a. |
+| Updates (3) | done | Real OTA (ZnOta.swift, Phase 4a); `ZnUpdatesOff` answers only while OTA isn't configured. Full bundles only, no patches. |
 | Tasks (1) | partial | `ZnTasks`: `done` answers; nothing starts a task on iOS yet (§8). |
 
 ---
@@ -322,7 +322,7 @@ manifest must not claim what it can't draw.
 | Plugin (folder) | Module | iOS | Note |
 |---|---|---|---|
 | android-play-auth | Auth | done (answers "unavailable") | No phone hint or SMS reading on iOS; OtpInput's `.oneTimeCode` fills the code. Server keeps the Android SMS format. |
-| app-updates (new, from Windows) | AppUpdates | todo | Store updates: Play in-app updates on Android; iOS `isUpdateAvailable` → `{ available: false }`, `openStore()` by appStoreId, start / complete "unavailable". Its Swift is written without a Mac: build and fix it here. Replaces ZeroBill's InAppUpdate. |
+| app-updates (new, from Windows) | AppUpdates | done (builds in both samples) | Store updates: Play in-app updates on Android; iOS `isUpdateAvailable` → `{ available: false }`, `openStore()` by appStoreId, start / complete "unavailable". Its Swift is written without a Mac: build and fix it here. Replaces ZeroBill's InAppUpdate. |
 | android-ad-id | AdId | n/a (no iOS side) | Android-only by meaning. Its JS answers `{ id: null }` when the module is missing, so nothing to build. |
 | device-info | DeviceInfo | done | react-native-device-info's iOS answers (A13). |
 | device-test | Device | done | `ios/Sample/DeviceTestPlugin.swift` (info, slowEcho, fail, mock UPI launches). |
