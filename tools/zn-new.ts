@@ -43,9 +43,12 @@ export interface NewApp {
   ios: IosHost
 }
 
-/** Keeps the `<!-- ios:<host> -->` blocks of [host] (without the markers) and drops the other host's. */
+/**
+ * Keeps the `<!-- ios:<host> -->` blocks of [host] (without the markers) and drops the other host's. Line ends may be
+ * "\n" or "\r\n" (a Windows checkout with git's autocrlf).
+ */
 export function keepIosBlocks(text: string, host: IosHost): string {
-  return text.replace(/<!-- ios:(cmake|packages) -->\n([\s\S]*?)<!-- \/ios:\1 -->\n/g, (_m, h: string, body: string) => (h === host ? body : ""))
+  return text.replace(/<!-- ios:(cmake|packages) -->\r?\n([\s\S]*?)<!-- \/ios:\1 -->\r?\n/g, (_m, h: string, body: string) => (h === host ? body : ""))
 }
 
 const NAME = /^[a-z][a-z0-9-]{0,63}$/

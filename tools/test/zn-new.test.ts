@@ -93,6 +93,10 @@ test("keepIosBlocks keeps one host's blocks without their markers", () => {
   const t = "a\n<!-- ios:cmake -->\nC\n<!-- /ios:cmake -->\n<!-- ios:packages -->\nP\n<!-- /ios:packages -->\nb\n"
   expect(keepIosBlocks(t, "cmake")).toBe("a\nC\nb\n")
   expect(keepIosBlocks(t, "packages")).toBe("a\nP\nb\n")
+  // A Windows checkout (git's autocrlf) has "\r\n"
+  const crlf = t.replaceAll("\n", "\r\n")
+  expect(keepIosBlocks(crlf, "cmake")).toBe("a\r\nC\r\nb\r\n")
+  expect(keepIosBlocks(crlf, "packages")).toBe("a\r\nP\r\nb\r\n")
 })
 
 test("an unknown --ios is refused", () => {
