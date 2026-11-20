@@ -112,7 +112,7 @@ Parked by Pavan until building is done (2026-11-04). Details are in the shared n
 ### B6. Authors coming from React Native. Blocks: before many app screens are written
 - [fact] 2026-11-05: the first RN-style app (the ZeroBill pilot) hit a blank screen from an early `return`. Fixed in
   50f3bb2: the build now fails for it (guide §4).
-- [ ] `docs/coming-from-react-native.md` and a sweep of 15–20 common RN screen shapes. In progress since 2026-11-05.
+- [ ] `docs/guides/coming-from-react-native.md` and a sweep of 15–20 common RN screen shapes. In progress since 2026-11-05.
 - [ ] Turn each "compiles but wrong" row of that page into a build error or a runtime warning (Pavan decides each).
 
 ## C. Feature gaps for general apps (ZeroBill's pilot doesn't need them)

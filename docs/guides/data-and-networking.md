@@ -147,8 +147,10 @@ type PendingPayment =
 async function startPayment(orderId: string) {
   // 1. Check for an existing in-flight payment first — never overwrite it!
   const existing = flowStore.read<PendingPayment>(KEY)
-  if (existing.status === "ok" && existing.value.step === "in-upi") {
-    openStatusAndVerify(existing.value.paymentId)
+  if (existing.status === "ok") {
+    // "paying" here means this run is already starting a payment (a second tap while /pay is in flight):
+    // ignore the tap. resumePendingPaymentOnStart() has already cleared any "paying" left from an earlier run.
+    if (existing.value.step === "in-upi") openStatusAndVerify(existing.value.paymentId)
     return
   }
   if (existing.status === "broken") {
@@ -163,11 +165,22 @@ async function startPayment(orderId: string) {
     return
   }
 
-  const { paymentId, upiLink } = await api.pay(orderId)
+  // Your backend's /pay must be idempotent per orderId: a retry after a restart gets the same payment, not a new one.
+  let paid: { paymentId: string; upiLink: string }
+  try {
+    paid = await api.pay(orderId)
+  } catch {
+    // The UPI app never opened, so no money moved: clear the record so the user can tap again.
+    flowStore.remove(KEY)
+    showError("Could not start the payment")
+    return
+  }
+  const { paymentId, upiLink } = paid
 
   // 3. Write "in-upi" BEFORE launching the UPI app. Keep the record small (< 32 KB) so it fits in reserved space.
   //    Never launch the UPI app if write() returns false.
   if (!flowStore.write(KEY, { orderId, paymentId, step: "in-upi" })) {
+    flowStore.remove(KEY) // the UPI app never opened: no money moved
     showError("Could not start the payment")
     return
   }
