@@ -1,6 +1,9 @@
 // The app's iOS shell. A UIKit app: the window's root is the back stack (ZnNavController); SwiftUI draws inside each
 // screen. The bundle (main.hbc, main.zn.ui, ...) is in the app's resources (bun run app:js:ios).
 import UIKit
+#if canImport(ZnRuntime)  // the Swift package host (zn new --ios packages); the CMake host compiles zero-native in
+import ZnRuntime
+#endif
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {

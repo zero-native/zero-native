@@ -49,6 +49,40 @@ jobs:
         working-directory: ${{ runner.temp }}/ci-app
         run: bun run ios --build-only
 
+  # The same, with the iOS host on zero-native's Swift package (zn new --ios packages): a plain Xcode project.
+  ios-packages:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then echo "No Xcode 26 on this runner"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # The Swift package takes the release Hermes from the checkout (Package.swift), until the Hermes zip is released.
+      - uses: actions/cache@v4
+        with:
+          path: ios/third_party/hermes/release
+          key: hermes-apple-release-${{ hashFiles('tools/fetch-hermes-apple.ts') }}
+      - run: bun run tools/fetch-hermes-apple.ts release
+      - name: Make an app with zn new --ios packages
+        run: bun run tools/zn.ts new "$RUNNER_TEMP/ci-app" --id dev.zeronative.ciapp --ios packages
+      - run: bun install
+        working-directory: ${{ runner.temp }}/ci-app
+      - name: Type check the app
+        working-directory: ${{ runner.temp }}/ci-app
+        run: bun run typecheck
+      # The JS, then the simulator build from the Xcode project, unsigned (CI is set)
+      - name: Build the app (simulator)
+        working-directory: ${{ runner.temp }}/ci-app
+        run: bun run ios --build-only
+
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 45

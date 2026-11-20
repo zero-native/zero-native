@@ -4,8 +4,14 @@ A [zero-native](https://github.com/zero-native/zero-native) app, made by `zn new
 They are drawn by Jetpack Compose on Android and SwiftUI / UIKit on iOS.
 
 zero-native isn't published yet, so this app builds against a local checkout: `__ZN_DIR__` (from this folder).
+<!-- ios:cmake -->
 It is named in four places: `package.json`, `android/gradle.properties`, `ios/CMakeLists.txt` and
 `tools/ios.ts`. If you move the app or zero-native, change all four.
+<!-- /ios:cmake -->
+<!-- ios:packages -->
+It is named in four places: `package.json`, `android/gradle.properties`, the Swift package reference in
+`ios/__APP_CLASS__.xcodeproj` and `tools/ios.ts`. If you move the app or zero-native, change all four.
+<!-- /ios:packages -->
 
 ## Set up
 
@@ -17,7 +23,12 @@ bun install
 
 ## iOS (simulator)
 
+<!-- ios:cmake -->
 You need a Mac with Xcode 26 and CMake (`brew install cmake`). Start a simulator (`open -a Simulator`), then:
+<!-- /ios:cmake -->
+<!-- ios:packages -->
+You need a Mac with Xcode 26. Start a simulator (`open -a Simulator`), then:
+<!-- /ios:packages -->
 
 ```bash
 bun run ios
@@ -27,6 +38,11 @@ It builds the JS, builds the app, installs it on the booted simulator and starts
 first build takes about a minute. The first run also downloads Hermes into zero-native
 (`tools/fetch-hermes-apple.ts`). `bun run ios --link __APP_NAME__://app/about?from=link` opens the second screen by
 its link.
+<!-- ios:packages -->
+
+The iOS host is a plain Xcode project on zero-native's Swift package: you can also open `ios/__APP_CLASS__.xcodeproj` in
+Xcode, after `bun run app:js:ios`, and press Run. Its build phase "Copy the JS bundle" puts `ios/bundle` into the app.
+<!-- /ios:packages -->
 
 ## Android
 
@@ -48,7 +64,12 @@ app/src/routes.ts    the screens and their paths ("/" is the first one)
 app/src/*.tsx        the screens
 app/assets/          the app's images, for `asset:images/x.png` (make the folder when you need it)
 android/             the Android host: settings.gradle.kts (zero-native as a composite build), app/
+<!-- ios:cmake -->
 ios/                 the iOS host: CMakeLists.txt (an Xcode project made by CMake), App/
+<!-- /ios:cmake -->
+<!-- ios:packages -->
+ios/                 the iOS host: __APP_CLASS__.xcodeproj (on zero-native's Swift package), App/
+<!-- /ios:packages -->
 tools/ios.ts         build and run on the simulator
 ```
 
@@ -56,8 +77,17 @@ tools/ios.ts         build and run on the simulator
 
 ## Next
 
+<!-- ios:cmake -->
 - Plugins (camera, location, ...): `docs/guides/plugins.md` (reference: `docs/plugins.md`) in zero-native. An official plugin goes in four places:
   `package.json`, `android/settings.gradle.kts` and `android/app/build.gradle.kts`, and `APP_ZN_PLUGINS` in
   `ios/CMakeLists.txt`. Then register it in `MainApplication.kt` and `ios/App/AppDelegate.swift`.
+<!-- /ios:cmake -->
+<!-- ios:packages -->
+- Plugins (camera, location, ...): `docs/guides/plugins.md` (reference: `docs/plugins.md`) in zero-native. An official plugin goes in four places:
+  `package.json`, `android/settings.gradle.kts` and `android/app/build.gradle.kts`, and in Xcode the plugin's
+  `ZnPlugin<Name>` product on the app target (Firebase and Lottie are separate packages: `ios/packages/firebase`,
+  `ios/packages/lottie` in zero-native). Then register it in `MainApplication.kt` and `ios/App/AppDelegate.swift`
+  (with `import ZnPlugin<Name>`).
+<!-- /ios:packages -->
 - OTA updates: `docs/guides/ota-updates.md` (reference: `docs/ota.md`). They are off until the host calls `ZnOta.configure`.
 - Guides & reference: `docs/guides/getting-started.md`, `docs/guides/core-concepts.md`, and `docs/guides/components.md`.

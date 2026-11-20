@@ -350,11 +350,13 @@ copies name `https://github.com/zero-native/zero-native.git`, so a fork's copies
   as its own comment says.
 - **iOS app:** adds the package URL in Xcode, picks `ZnRuntime` and the plugin products, and copies the JS bundle in
   a build phase. For the Firebase or Lottie plugins it also adds `zero-native-firebase` and / or `zero-native-lottie`
-  (§2.3), at exactly the same version as zero-native. Today apps make their Xcode project with CMake from the zn sources. `zn new` would write a normal
-  Xcode project from a template instead. Making that template is part of the work (§10, step 6).
-- **`zn new` does not exist yet** [fact: not in `tools/zn.ts`]. It would write: `app/src/main.ts` with one screen, the
-  Android host (Gradle files with the pinned AGP, Kotlin and wrapper versions, `firebase.gradle.kts` copied), the iOS
-  host, `zn-updates.json`, and a `package.json` with every `@zeronative/*` version equal to the CLI's own.
+  (§2.3), at exactly the same version as zero-native.
+- **`zn new`** (since 2026-11-19) makes an app from a checkout: `app/src` with two screens, the Android host (Gradle,
+  zero-native as a composite build) and an iOS host. Since 2026-11-20 the iOS host is either CMake (default) or, with
+  `--ios packages`, a plain Xcode project on the Swift package (`templates/app-ios-packages`: the app target, a local
+  package reference to the checkout, a build phase that copies the JS bundle). At publishing, the packages host's
+  local reference becomes the package url at the CLI's version, and `package.json` gets `@zeronative/*` at that
+  version instead of `link:`; `firebase.gradle.kts` and `zn-updates.json` are still to add.
 - **zn-updates server:** stays "run it from the repo" for 0.1. A container image on GHCR later if people ask.
 
 ## 9. Open choices
@@ -381,7 +383,7 @@ Days are focused working days, one engineer with AI, **target** (not measured).
 | 3 | Maven: one shared publishing setup for the runtime and 19 plugins, POM data, signing | 2–3 | an outside app builds from `mavenLocal()` with no `includeBuild` (needs a machine with the Android SDK; this Mac has none) |
 | 4 (most) | SwiftPM: `public` API, plugin targets with `import ZnRuntime`, `ZnCore` with MMKV, Hermes headers, the Hermes zip release, `Package.swift`; the sample builds from it | 5–8 | the sample from the package runs on the simulator with the same screens as the CMake build |
 | 5 | The version check script, `release.yml`, `hermes-release.yml`, the dry run (§7) | 2 | a fork's test tag goes green end to end |
-| 6 | `zn new`, the iOS app template, README and `guide-notes.md` §34 rewritten | 2–4 | `zn new demo` gives an app that runs on both OSes |
+| 6 (iOS host done) | `zn new`, the iOS app template, README and `guide-notes.md` §34 rewritten | 2–4 | `zn new demo` gives an app that runs on both OSes |
 | 7 | Release 0.1.0; move the first outside app to it | 1–2 | that app's Android and iOS builds use only published artifacts |
 
 Total: **about 15 to 22 days.** Steps 2, 3 and 4 can run in parallel once step 1 is done. Step 4 is the riskiest.

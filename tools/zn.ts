@@ -7,7 +7,7 @@
 //     `zn server` need a zero-native checkout and say so);
 //   - from a checkout, once per computer (from the zero-native root):  bun link  then  bun link zero-native -g
 // Then from an app folder:
-//   zn new <dir> [--name N] [--id ID]   start a new app outside this repo, from templates/app (tools/zn-new.ts)
+//   zn new <dir> [--name N] [--id ID] [--ios cmake|packages]   a new app outside this repo, from templates/app (tools/zn-new.ts)
 //   zn dev [appDir]            live reload to the phone (tools/zn-dev.ts); appDir defaults to this folder
 //   zn build <appDir> ...      build the app's JS bundle (tools/zn-build.ts)
 //   zn release | builtin | store-build | dashboard | status | ...
@@ -48,7 +48,7 @@ function run(script: string, args: string[]): never {
 function help(): never {
   console.log(`zn: zero-native tools (from ${checkout ? root : here})
 
-  zn new <dir> [--name N] [--id ID]
+  zn new <dir> [--name N] [--id ID] [--ios cmake|packages]
                              start a new app outside this repo (iOS and Android hosts, two screens)
   zn dev [appDir]            live reload to the phone; appDir defaults to this folder
   zn build <appDir> ...      build the app's JS bundle

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
-import { className, newApp, title, znPaths } from "../zn-new"
+import { className, keepIosBlocks, newApp, title, znPaths } from "../zn-new"
 
 const root = resolve(import.meta.dir, "../..")
 
@@ -52,4 +52,46 @@ test("the app names zero-native by a relative path when they share a parent, els
   expect(znPaths("/home/me/code/my-app", "/home/me/code/zero-native")).toEqual({ znDir: "../zero-native", znDirSub: "../../zero-native" })
   expect(znPaths("/home/runner/work/_temp/ci-app", "/home/runner/work/zn/zn")).toEqual({ znDir: "../../zn/zn", znDirSub: "../../../zn/zn" })
   expect(znPaths("/tmp/T/my-app", "/opt/zero-native")).toEqual({ znDir: "/opt/zero-native", znDirSub: "/opt/zero-native" })
+})
+
+test("--ios packages: a plain Xcode project on the Swift package, no CMake, every name filled", () => {
+  const dir = join(mkdtempSync(join(tmpdir(), "zn-new-")), "pkg-app")
+  const app = newApp(dir, { id: "com.example.pkgapp", ios: "packages" })
+  expect(app.ios).toBe("packages")
+  const all = files(app.dir).map((f) => relative(app.dir, f))
+  expect(all).toContain("ios/PkgApp.xcodeproj/project.pbxproj")
+  expect(all).toContain("ios/App/AppDelegate.swift")
+  expect(all).not.toContain("ios/CMakeLists.txt")
+  for (const f of files(app.dir)) {
+    if (f.endsWith(".jar")) continue
+    const text = readFileSync(f, "utf8")
+    expect({ file: relative(app.dir, f), left: text.match(/__[A-Z_]+__|<!-- \/?ios:/g) }).toEqual({ file: relative(app.dir, f), left: null })
+  }
+  const pbx = readFileSync(join(app.dir, "ios/PkgApp.xcodeproj/project.pbxproj"), "utf8")
+  expect(pbx).toContain("XCLocalSwiftPackageReference")
+  expect(pbx).toContain("productName = ZnRuntime;")
+  expect(pbx).toContain("PRODUCT_BUNDLE_IDENTIFIER = com.example.pkgapp;")
+  expect(readFileSync(join(app.dir, "tools/ios.ts"), "utf8")).toContain("xcodebuild")
+  const readme = readFileSync(join(app.dir, "README.md"), "utf8")
+  expect(readme).toContain("ios/PkgApp.xcodeproj")
+  expect(readme).not.toContain("CMakeLists.txt")
+})
+
+test("the default iOS host is still CMake, and its README has no packages text", () => {
+  const app = newApp(join(mkdtempSync(join(tmpdir(), "zn-new-")), "cm-app"))
+  expect(app.ios).toBe("cmake")
+  expect(files(app.dir).map((f) => relative(app.dir, f))).toContain("ios/CMakeLists.txt")
+  const readme = readFileSync(join(app.dir, "README.md"), "utf8")
+  expect(readme).toContain("ios/CMakeLists.txt")
+  expect(readme).not.toContain(".xcodeproj")
+})
+
+test("keepIosBlocks keeps one host's blocks without their markers", () => {
+  const t = "a\n<!-- ios:cmake -->\nC\n<!-- /ios:cmake -->\n<!-- ios:packages -->\nP\n<!-- /ios:packages -->\nb\n"
+  expect(keepIosBlocks(t, "cmake")).toBe("a\nC\nb\n")
+  expect(keepIosBlocks(t, "packages")).toBe("a\nP\nb\n")
+})
+
+test("an unknown --ios is refused", () => {
+  expect(() => newApp(join(mkdtempSync(join(tmpdir(), "zn-new-")), "x-app"), { ios: "spm" as never })).toThrow(/cmake or packages/)
 })

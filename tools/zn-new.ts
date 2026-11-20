@@ -6,6 +6,8 @@
 // --name: the app's name: the JS bundle's app name (keep it the same as the OTA app name), the package name and the
 //         link scheme (my-app://app/about). a-z, 0-9 and -, starting with a letter. Default: the folder's name.
 // --id:   the Android application id and the iOS bundle id. Default: com.example.<name without dashes>.
+// --ios:  the iOS host. `cmake` (default): an Xcode project made by CMake that compiles zero-native's sources in.
+//         `packages`: a plain Xcode project on zero-native's Swift package (Package.swift; templates/app-ios-packages).
 //
 // The app points at this zero-native checkout (package.json, android/gradle.properties, ios/CMakeLists.txt,
 // tools/ios.ts), so it works before the packages are published. The path is relative when the two folders share a
@@ -17,13 +19,19 @@ import { parseArgs } from "node:util"
 // Real paths: macOS's temp folder (/var/...) is a link to /private/var/..., and CMake and Gradle read the real one.
 const root = realpathSync(resolve(import.meta.dir, ".."))
 const template = join(root, "templates/app")
+/** The Swift package iOS host: replaces templates/app's ios/CMakeLists.txt and tools/ios.ts. */
+const packagesTemplate = join(root, "templates/app-ios-packages")
 
 /** Files copied as they are (no names filled in). */
 const BINARY = /\.(jar|png|jpg|jpeg|webp|gif|ttf|otf|zip)$/i
 
+export type IosHost = "cmake" | "packages"
+
 export interface NewAppOptions {
   name?: string
   id?: string
+  /** The iOS host (default "cmake"). */
+  ios?: IosHost
 }
 
 export interface NewApp {
@@ -32,6 +40,12 @@ export interface NewApp {
   id: string
   /** The zero-native folder, as the app's files name it: relative to the app's folder, or absolute. */
   znDir: string
+  ios: IosHost
+}
+
+/** Keeps the `<!-- ios:<host> -->` blocks of [host] (without the markers) and drops the other host's. */
+export function keepIosBlocks(text: string, host: IosHost): string {
+  return text.replace(/<!-- ios:(cmake|packages) -->\n([\s\S]*?)<!-- \/ios:\1 -->\n/g, (_m, h: string, body: string) => (h === host ? body : ""))
 }
 
 const NAME = /^[a-z][a-z0-9-]{0,63}$/
@@ -68,6 +82,8 @@ export function newApp(dirArg: string, opts: NewAppOptions = {}): NewApp {
   if (!NAME.test(name)) throw new Error(`app name "${name}": use a-z, 0-9 and -, starting with a letter (--name)`)
   const id = opts.id ?? `com.example.${name.replace(/-/g, "")}`
   if (!ID.test(id)) throw new Error(`id "${id}": use parts of a-z, A-Z and 0-9, each starting with a letter, joined by dots (--id; no "_", which iOS forbids, and no "-", which Android forbids)`)
+  const ios: IosHost = opts.ios ?? "cmake"
+  if (ios !== "cmake" && ios !== "packages") throw new Error(`--ios "${ios}": use cmake or packages`)
   if (existsSync(dir) && readdirSync(dir).length > 0) throw new Error(`${dir} is not empty`)
   // The closest folder that exists, as a real path: is the app inside zero-native?
   let probe = dir
@@ -91,9 +107,12 @@ export function newApp(dirArg: string, opts: NewAppOptions = {}): NewApp {
   }
   const fill = (s: string) => s.replace(/__(APP_NAME|APP_TITLE|APP_CLASS|APP_ID|APP_PACKAGE_DIR|ZN_DIR_SUB|ZN_DIR)__/g, (t) => tokens[t]!)
 
+  // The packages host has its own Xcode project and tools/ios.ts; the CMake ones are left out.
+  const cmakeOnly = new Set([join(template, "ios/CMakeLists.txt"), join(template, "tools/ios.ts")])
   const copy = (from: string, to: string) => {
     for (const entry of readdirSync(from)) {
       const src = join(from, entry)
+      if (ios === "packages" && cmakeOnly.has(src)) continue
       const dst = join(to, fill(entry))
       const st = statSync(src)
       if (st.isDirectory()) {
@@ -102,26 +121,27 @@ export function newApp(dirArg: string, opts: NewAppOptions = {}): NewApp {
       }
       mkdirSync(dirname(dst), { recursive: true })
       if (BINARY.test(entry)) copyFileSync(src, dst)
-      else writeFileSync(dst, fill(readFileSync(src, "utf8")))
+      else writeFileSync(dst, keepIosBlocks(fill(readFileSync(src, "utf8")), ios))
       chmodSync(dst, st.mode & 0o777) // gradlew stays executable
     }
   }
   copy(template, dir)
-  return { dir, name, id, znDir }
+  if (ios === "packages") copy(packagesTemplate, dir)
+  return { dir, name, id, znDir, ios }
 }
 
 if (import.meta.main) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { name: { type: "string" }, id: { type: "string" }, help: { type: "boolean", short: "h" } },
+    options: { name: { type: "string" }, id: { type: "string" }, ios: { type: "string" }, help: { type: "boolean", short: "h" } },
   })
   if (values.help || positionals.length !== 1) {
-    console.log("usage: zn new <dir> [--name <app name>] [--id <application / bundle id>]")
+    console.log("usage: zn new <dir> [--name <app name>] [--id <application / bundle id>] [--ios cmake|packages]")
     process.exit(values.help ? 0 : 1)
   }
   let app: NewApp
   try {
-    app = newApp(positionals[0]!, { name: values.name, id: values.id })
+    app = newApp(positionals[0]!, { name: values.name, id: values.id, ios: values.ios as IosHost | undefined })
   } catch (e) {
     console.error(`zn new: ${(e as Error).message}`)
     process.exit(1)
@@ -133,7 +153,7 @@ if (import.meta.main) {
 Next:
   cd ${shown}
   bun install
-  bun run ios        iOS simulator (needs Xcode 26 and CMake)
+  bun run ios        iOS simulator (needs Xcode 26${app.ios === "cmake" ? " and CMake" : "; the host is ios/" + className(app.name) + ".xcodeproj"})
   bun run android    a phone or emulator on adb (needs the Android SDK)
 
 More in ${shown}/README.md.`)

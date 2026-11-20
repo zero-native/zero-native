@@ -149,6 +149,18 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: zn new --ios packages, an app on the Swift package (Claude, Mac, M3)
+- **`zn new <dir> --ios packages`**: the iOS host is a plain Xcode project on zero-native's Swift package instead of
+  CMake (still the default). `templates/app-ios-packages` holds it: `ios/<App>.xcodeproj` (the app target, a synced
+  `App/` folder, a local package reference to the checkout and the `ZnRuntime` product, a build phase that copies
+  `ios/bundle` into the app) and `tools/ios.ts` (`xcodebuild` on the project; fetches the release Hermes the package
+  reads). `App/AppDelegate.swift` is shared: `#if canImport(ZnRuntime) import ZnRuntime`.
+- One README for both hosts: text that differs sits in `<!-- ios:cmake -->` / `<!-- ios:packages -->` blocks, and
+  `zn new` keeps the chosen host's (`keepIosBlocks`).
+- Tried: a new app with `--ios packages` type checks, builds, and on the simulator drew its first screen (first frame
+  352 ms after the process started) and opened the second screen by its link (`pkg-app://app/about?from=link`).
+  `tools/test/zn-new.test.ts` covers both hosts. CI's new-app workflow has a third job, `ios-packages`.
+
 ### 2026-11-20: the notification service extension and Crashlytics dSYMs on the Swift packages (Claude, Mac, M2)
 - **`ZnNotificationService`** is now a product of the main package (`plugins/firebase-messaging/ios-service`; it needs
   neither the runtime nor Firebase). The class is `open`, so an app's extension is one file:
