@@ -416,7 +416,8 @@ done. Until then the versions stay `0.0.0`.
 6. Hermes zip released, `Package.swift` on its url ([releasing.md](releasing.md)). **Done 2026-11-20**
    (`hermes-260318099.0.5`).
 7. One app outside the repo builds on both OSes from published-style artifacts (npm pack + `mavenLocal()` + the
-   Swift packages).
+   Swift packages). **Android done 2026-11-20** (Windows: the pack tarballs with `file:` paths and the packed `zn`,
+   only the `publishToMavenLocal` folder, debug and release built, ran on the Lava). iOS half not yet.
 8. iOS parity gaps fixed or listed in [guides/platform-differences.md](guides/platform-differences.md).
 9. `release.yml` dry-run on a fork.
 10. Pavan puts the signing key and Central token in the GitHub `release` environment secrets.

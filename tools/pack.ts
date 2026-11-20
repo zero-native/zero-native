@@ -8,7 +8,7 @@
 // version, so the packages only work with each other at one version (§6). After packing, each tarball is checked:
 // no `workspace:` left, no test files, and its `main` / `bin` files are in it.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { basename, join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 const root = resolve(import.meta.dir, "..")
@@ -83,8 +83,12 @@ if (import.meta.main) {
       for (const f of added) rmSync(join(dir, f), { force: true })
     }
     const tgz = join(out, `${p.name.replace(/^@/, "").replace("/", "-")}-${p.version}.tgz`)
-    const list = Bun.spawnSync(["tar", "-tzf", tgz]).stdout.toString().trim().split("\n").map((f) => f.replace(/^package\//, ""))
-    const packed = JSON.parse(Bun.spawnSync(["tar", "-xzOf", tgz, "package/package.json"]).stdout.toString())
+    // tar is run in [out] with the bare file name: GNU tar (Git Bash on Windows) reads "C:/..." as host:path. Windows'
+    // bsdtar ends lines with "\r\n".
+    const tarName = basename(tgz)
+    const list = Bun.spawnSync(["tar", "-tzf", tarName], { cwd: out }).stdout.toString().trim().split(/\r?\n/)
+      .map((f) => f.replace(/^package\//, ""))
+    const packed = JSON.parse(Bun.spawnSync(["tar", "-xzOf", tarName, "package/package.json"], { cwd: out }).stdout.toString())
     const problems = packProblems(packed, list)
     const kb = (Bun.file(tgz).size / 1024).toFixed(0)
     console.log(`${problems.length ? "✗" : "✓"} ${p.name}@${p.version}: ${list.length} files, ${kb} KB`)
