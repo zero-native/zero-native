@@ -42,10 +42,8 @@ if (!existsSync(join(zn, "Package.swift"))) {
   console.error(`No zero-native at ${zn}. Change the path in tools/ios.ts, package.json, android/gradle.properties and the Xcode project's package.`)
   process.exit(1)
 }
-// The Swift package takes Hermes from the checkout's release download (pinned by version and checksum), once.
-if (!existsSync(join(zn, "ios/third_party/hermes/release/destroot/Library/Frameworks/universal/hermesvm.xcframework/Info.plist"))) {
-  must(["bun", "run", join(zn, "tools/fetch-hermes-apple.ts"), "release"])
-}
+// Hermes: the Swift package downloads its zip from zero-native's GitHub Release (Package.swift), or uses the
+// checkout's own copy when one was fetched (bun run tools/fetch-hermes-apple.ts release).
 must(["bun", "run", "app:js:ios"])
 
 // On a CI machine (CI is set) the app isn't signed at all, as zero-native's own CI builds its sample.

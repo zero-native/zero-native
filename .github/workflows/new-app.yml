@@ -65,12 +65,8 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      # The Swift package takes the release Hermes from the checkout (Package.swift), until the Hermes zip is released.
-      - uses: actions/cache@v4
-        with:
-          path: ios/third_party/hermes/release
-          key: hermes-apple-release-${{ hashFiles('tools/fetch-hermes-apple.ts') }}
-      - run: bun run tools/fetch-hermes-apple.ts release
+      # No Hermes fetched into the checkout: the Swift package downloads the zip from the hermes-<version> release,
+      # as an app outside the repo does (Package.swift).
       - name: Make an app with zn new --ios packages
         run: bun run tools/zn.ts new "$RUNNER_TEMP/ci-app" --id dev.zeronative.ciapp --ios packages
       - run: bun install

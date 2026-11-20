@@ -149,6 +149,17 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: Hermes released for the Swift package (Claude, Mac, M1)
+- Pavan's go. `hermes-release.yml` ran from main at 7ef77d2: zip made, tag absent, the package sample built against
+  the zip (simulator and iPhone), draft uploaded, downloaded back and checked, published. Release
+  `hermes-260318099.0.5`: `hermesvm.xcframework.zip`, 5.2 MB, SwiftPM checksum `a74d23bf…d6a7`; downloading it again
+  gave the same checksum.
+- `Package.swift` names that url and checksum. Checked in a fresh clone with no Hermes fetched: a `zn new --ios
+  packages` app beside it resolved Hermes from the release (the downloaded XCFramework has our two iOS slices and the
+  license, not Meta's seven), built, and ran on the simulator (first frame 552 ms after the process started).
+- The packages-mode `tools/ios.ts` no longer fetches Hermes into the checkout, and CI's new-app `ios-packages` job no
+  longer does either: both now get it from the release, as an app outside the repo does. Release gate item 6 is done.
+
 ### 2026-11-20: Maven publishing set up, checked with a local folder (Claude, Windows; publishing-plan §10 step 3)
 - `android/build.gradle.kts`: the runtime and the 19 official plugins publish as `io.github.zero-native:<project>`
   (com.vanniktech.maven.publish.base 0.37.0). Release variant only (all four CPU types), with sources and an empty

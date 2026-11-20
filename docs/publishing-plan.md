@@ -177,8 +177,10 @@ app's files: `#if canImport(ZnRuntime)`), so the CMake builds, ZeroBill's includ
 the core needs are in `core/third_party/hermes`. `ios/SamplePackage` builds the sample from the package; on the
 simulator its screens matched the CMake build's, and CI builds it. Firebase and Lottie are packages of their own
 (above).
-Still to do: the Hermes zip on a GitHub Release (the workflow exists; until it runs, `Package.swift` uses a local Hermes,
-so an app outside the repo can't use the package yet).
+**Hermes released 2026-11-20:** `hermes-260318099.0.5` (made by `hermes-release.yml` at 7ef77d2, SwiftPM checksum
+`a74d23bf…d6a7`). `Package.swift` uses its url when the checkout has no local Hermes. Checked: a fresh clone with no
+Hermes, and a `zn new --ios packages` app beside it, downloaded the zip (two iOS slices and the license) and built
+and ran on the simulator.
 
 **Hermes as a binary target** [fact, run on this Mac, 2026-11-19]:
 - Meta publishes `hermes-ios` on Maven Central as a `.tar.gz`. SwiftPM needs a `.zip` at an HTTPS URL, with its SHA-256
@@ -197,7 +199,8 @@ so an app outside the repo can't use the package yet).
   CMake build, as today.
 
 **Done 2026-11-20:** `tools/make-hermes-zip.ts` and `.github/workflows/hermes-release.yml` (run by hand), documented in
-[releasing.md](releasing.md). The zip built the package sample for the simulator and an iPhone. It isn't released yet.
+[releasing.md](releasing.md). The zip built the package sample for the simulator and an iPhone. Released the same day
+(above).
 
 **Hermes ships on its own release.** The checksum must be in `Package.swift` in the tagged commit. So the Hermes zip
 can't be built by the same tag that points at it. Make it a separate GitHub Release, `hermes-260318099.0.5`, built
@@ -410,7 +413,8 @@ done. Until then the versions stay `0.0.0`.
 3. Docs re-checked, no dead links.
 4. npm pack check passes (`bun run tools/pack.ts`). **Done** (CI runs it).
 5. Maven local check: an app outside the repo builds from `mavenLocal()`. **Done 2026-11-20** (Windows, §2.2).
-6. Hermes zip released, `Package.swift` on its url ([releasing.md](releasing.md)).
+6. Hermes zip released, `Package.swift` on its url ([releasing.md](releasing.md)). **Done 2026-11-20**
+   (`hermes-260318099.0.5`).
 7. One app outside the repo builds on both OSes from published-style artifacts (npm pack + `mavenLocal()` + the
    Swift packages).
 8. iOS parity gaps fixed or listed in [guides/platform-differences.md](guides/platform-differences.md).

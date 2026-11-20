@@ -6,7 +6,7 @@
 // - ZN_HERMES_ZIP=<zip inside this repo>: that zip (the release workflow builds the sample against its new zip with it);
 // - a fetched local copy (bun run tools/fetch-hermes-apple.ts release): what working on the framework uses;
 // - the zip on this repo's GitHub Release hermes-<version> (.github/workflows/hermes-release.yml): what apps get. The
-//   url and checksum come from that run's summary (docs/releasing.md); zeros mean it hasn't run yet.
+//   url and checksum come from that run's summary (docs/releasing.md); this one from 2026-11-20, made at 7ef77d2.
 // SwiftPM caches this file's result: after fetching or removing Hermes, reset the package caches (docs/releasing.md).
 import Foundation
 import PackageDescription
@@ -22,7 +22,7 @@ if let zip = ProcessInfo.processInfo.environment["ZN_HERMES_ZIP"], !zip.isEmpty 
   hermes = .binaryTarget(
     name: "hermesvm",
     url: "https://github.com/zero-native/zero-native/releases/download/hermes-260318099.0.5/hermesvm.xcframework.zip",
-    checksum: "0000000000000000000000000000000000000000000000000000000000000000")
+    checksum: "a74d23bfdfc6ad60fd8408069ebaf774f26ad4644ebf0ee7be5422154c0fd6a7")
 }
 
 /// Each plugin's iOS code (plugins/<folder>/ios) is the target and product ZnPlugin<Name>. [uses]: plugins whose types
