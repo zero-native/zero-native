@@ -148,7 +148,7 @@ conversion, which the CMake build leaves out. The main package doesn't have thes
 targets of the same name.
 - **At release** (§7), `tools/make-plugin-packages.ts` copies each with the symlinks resolved, for its own repo
   (`zero-native-firebase`, `zero-native-lottie`), with the dependency on the main package changed from the path to its
-  url and the release version; each repo is tagged with the same version. The repos and that job don't exist yet.
+  url and the release version; each repo is tagged with the same version. The repos exist (empty); that job doesn't yet.
 - **Lottie** comes from `lottie-spm` as a dynamic `Lottie.framework` that Xcode embeds; the CMake builds link
   `Lottie-Static`. The app gets the same Lottie, packed differently.
 - **Not checked yet:** the Crashlytics dSYM upload for an app on the package (Firebase's own run script, documented by
@@ -243,7 +243,7 @@ is `zn`; the docs must never tell people to run `npx zero-native`, which runs th
 - The org `zero-native` exists (made 2026-11-18) with one public repo, `zero-native/zero-native`. It is ours.
 - SwiftPM names come from the git URL, so there is no name to reserve. The main package is `ZeroNative`; the plugin
   packages are `ZeroNativeFirebase` and `ZeroNativeLottie`, in the repos `zero-native-firebase` and
-  `zero-native-lottie` (not made yet).
+  `zero-native-lottie` (made 2026-11-20, empty until the first release).
 
 ## 4. Accounts
 | Account | What for |

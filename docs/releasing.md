@@ -90,7 +90,7 @@ It writes `build/plugin-packages/firebase/` and `build/plugin-packages/lottie/`:
 symlinks), `Package.swift` depending on `https://github.com/zero-native/zero-native.git` at exactly that version, the
 package's `README.release.md` as `README.md`, `LICENSE` and `NOTICE`. Each folder is committed to its repo
 (`zero-native-firebase`, `zero-native-lottie`) and tagged with the same version, after the main repo's tag exists. The
-repos, and the job that does this in `release.yml`, don't exist yet (publishing-plan §7).
+repos exist and stay empty until then; the job that fills them in `release.yml` doesn't exist yet (publishing-plan §7).
 
 The packages ask for Firebase and Lottie **from** a version, up to the next major, not exactly: an app that adds
 Firebase or Lottie itself at a newer version must still resolve. The lowest versions are the ones the CMake build pins.
