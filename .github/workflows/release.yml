@@ -1,0 +1,199 @@
+# A zero-native release (docs/publishing-plan.md §7, docs/releasing.md "A zero-native release").
+#
+# - A pushed tag v<x.y.z> releases that version: npm, Maven Central, the Swift package plugin repos, a GitHub Release.
+#   The jobs that publish wait for approval in the `release` environment.
+# - Run by hand (Actions → Release → Run workflow), it is always a DRY RUN of the same jobs on the current versions:
+#   `npm publish --dry-run`, `publishToMavenLocal`, the plugin package copies made and checked but not pushed, no
+#   GitHub Release. It uses no secrets.
+#
+# Before tagging: `bun run tools/check-release.ts --set <x.y.z>`, commit, push, then tag v<x.y.z> on that commit.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DRY_RUN: ${{ github.event_name != 'push' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # The tag's version, or (a dry run) the version the packages have now
+      - id: v
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then v="${GITHUB_REF_NAME#v}"; else v=$(bun -e 'console.log(require("./packages/core/package.json").version)'); fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Version: $v (dry run: $DRY_RUN)"
+      - name: The packages, Hermes and Package.swift are ready for this version
+        run: bun run tools/check-release.ts --version "${{ steps.v.outputs.version }}"
+      - run: bun run sample:js
+      - run: bun run test
+      - name: The generated registry is up to date
+        run: |
+          bun run gen:registry
+          git diff --exit-code
+
+  npm:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ github.event_name == 'push' && 'release' || 'dry-run' }}
+    permissions:
+      contents: read
+      id-token: write  # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      # In dependency order; versions npm already has are skipped (tools/publish-npm.ts).
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "$DRY_RUN" = true ]; then bun run tools/publish-npm.ts --dry-run; else bun run tools/publish-npm.ts --provenance; fi
+
+  # The Android setup is the Windows session's (android/build.gradle.kts, publishing-plan §2.2); it confirms these steps.
+  maven:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ github.event_name == 'push' && 'release' || 'dry-run' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+      # All four CPU types (never -PznArm64Only). Signing turns on only when the key is given.
+      - name: Publish to Maven (Central, or mavenLocal in a dry run)
+        working-directory: android
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ github.event_name == 'push' && secrets.SIGNING_KEY || '' }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ github.event_name == 'push' && secrets.SIGNING_KEY_PASSWORD || '' }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ github.event_name == 'push' && secrets.CENTRAL_USERNAME || '' }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ github.event_name == 'push' && secrets.CENTRAL_PASSWORD || '' }}
+        run: |
+          if [ "$DRY_RUN" = true ]; then
+            ./gradlew publishToMavenLocal --stacktrace
+            n=$(ls -d ~/.m2/repository/io/github/zero-native/*/ | wc -l)
+            echo "$n artifacts in mavenLocal"
+            [ "$n" -eq 20 ] || { echo "::error::expected 20 artifacts (runtime and 19 plugins), got $n"; exit 1; }
+          else
+            ./gradlew publishToMavenCentral --stacktrace
+          fi
+
+  ios:
+    needs: check
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then echo "No Xcode 26 on this runner"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run sample:js
+      # No Hermes fetched: the Swift package takes the released zip, as apps do. Nothing is uploaded for the main repo:
+      # its tag is its SwiftPM release.
+      - name: Build the sample from the Swift packages (simulator and iPhone)
+        run: |
+          for dest in 'generic/platform=iOS Simulator' 'generic/platform=iOS'; do
+            xcodebuild -project ios/SamplePackage/ZnSamplePackage.xcodeproj -scheme ZnSamplePackage -destination "$dest" \
+              -configuration Release -onlyUsePackageVersionsFromResolvedFile CODE_SIGNING_ALLOWED=NO build -quiet
+          done
+
+  # The Firebase and Lottie Swift packages, each in its own repo (tools/make-plugin-packages.ts): committed and tagged
+  # with the same version, after the main tag exists (it does: this run is that tag's).
+  plugin-packages:
+    needs: [check, ios]
+    runs-on: macos-15
+    timeout-minutes: 30
+    environment: ${{ github.event_name == 'push' && 'release' || 'dry-run' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Make the copies
+        run: bun run tools/make-plugin-packages.ts --version "${{ needs.check.outputs.version }}"
+      - name: Each copy is a valid package
+        run: |
+          for d in build/plugin-packages/*/; do (cd "$d" && swift package dump-package > /dev/null && echo "ok: $d"); done
+      - name: Commit and tag each repo
+        if: github.event_name == 'push'
+        env:
+          TOKEN: ${{ secrets.PLUGIN_REPOS_TOKEN }}
+          V: ${{ needs.check.outputs.version }}
+        run: |
+          git config --global user.name "zero-native release"
+          git config --global user.email "zero-native-release@users.noreply.github.com"
+          for d in build/plugin-packages/*/; do
+            name=$(basename "$d")
+            repo="https://x-access-token:${TOKEN}@github.com/zero-native/zero-native-${name}.git"
+            work="$RUNNER_TEMP/repo-$name"
+            git clone --quiet "$repo" "$work" 2>/dev/null || { mkdir -p "$work" && git -C "$work" init --quiet -b main && git -C "$work" remote add origin "$repo"; }
+            find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp -R "$d". "$work/"
+            git -C "$work" add -A
+            git -C "$work" commit --quiet -m "zero-native-${name} ${V}" || echo "no change in ${name}"
+            git -C "$work" tag "v${V}"
+            git -C "$work" push --quiet origin HEAD:main "v${V}"
+            echo "pushed zero-native-${name} v${V}"
+          done
+
+  github-release:
+    needs: [check, npm, maven, plugin-packages]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run sample:js
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.check.outputs.version }}
+        run: |
+          bun run tools/release-notes.ts --version "$V" > notes.md
+          gh release create "v$V" --verify-tag --title "zero-native $V" --notes-file notes.md --latest

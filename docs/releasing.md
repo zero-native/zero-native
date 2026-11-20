@@ -1,8 +1,53 @@
 # Releasing
 
-How zero-native's published pieces are made. The plan behind them, and what isn't built yet, is
-[publishing-plan.md](publishing-plan.md). The npm, Maven and SwiftPM release itself (one tag, `release.yml`) doesn't
-exist yet (§7 there).
+How zero-native's published pieces are made. The plan behind them is [publishing-plan.md](publishing-plan.md).
+
+## A zero-native release
+
+`.github/workflows/release.yml` makes one version of everything from one tag, `v<x.y.z>`: the npm packages, the Android
+libraries on Maven Central, the Swift package plugin repos (`zero-native-firebase`, `zero-native-lottie`) and a
+GitHub Release with the contract numbers. The main repo's Swift package needs no upload: its tag is its release.
+Nothing is published until every item of the release gate (publishing-plan §11) is done.
+
+**Once: the `release` environment.** In GitHub, Settings → Environments → `release`: Pavan as required reviewer, and
+these secrets (only Pavan pastes them; they never go in a file or a chat):
+
+| Secret | What |
+|---|---|
+| `NPM_TOKEN` | an npm automation token for the `zeronative` org (the first publish of each package needs one) |
+| `SIGNING_KEY` | the release GPG key's private half, ASCII-armored (`gpg --export-secret-keys --armor <key id>`) |
+| `SIGNING_KEY_PASSWORD` | its passphrase |
+| `CENTRAL_USERNAME`, `CENTRAL_PASSWORD` | the Maven Central user token pair |
+| `PLUGIN_REPOS_TOKEN` | a fine-grained GitHub token with "Contents: read and write" on `zero-native-firebase` and `zero-native-lottie` |
+
+**A dry run first.** Actions → Release → Run workflow. Run by hand, the workflow is always a dry run of the same jobs
+on the current versions: the checks and tests, `npm publish --dry-run` of all 25 packages, `publishToMavenLocal` (it
+counts 20 artifacts), the Swift package sample built for the simulator and an iPhone, and the plugin package copies
+made and checked. Nothing is uploaded, pushed or tagged, and no secret is used.
+
+**The release:**
+
+1. Every package at the new version, then commit and push:
+
+   ```bash
+   bun run tools/check-release.ts --set 0.1.0
+   ```
+
+2. Check it's ready (the workflow checks again):
+
+   ```bash
+   bun run tools/check-release.ts --version 0.1.0
+   ```
+
+3. Tag that commit and push the tag:
+
+   ```bash
+   git tag v0.1.0 && git push origin v0.1.0
+   ```
+
+4. The workflow runs; the publishing jobs wait for Pavan's approval. npm publishes in dependency order and skips
+   versions it already has, so a failed run can run again. The Maven deployment waits in the Central Portal until it
+   is published there by hand (the first releases).
 
 ## Hermes for the Swift package
 
@@ -90,7 +135,7 @@ It writes `build/plugin-packages/firebase/` and `build/plugin-packages/lottie/`:
 symlinks), `Package.swift` depending on `https://github.com/zero-native/zero-native.git` at exactly that version, the
 package's `README.release.md` as `README.md`, `LICENSE` and `NOTICE`. Each folder is committed to its repo
 (`zero-native-firebase`, `zero-native-lottie`) and tagged with the same version, after the main repo's tag exists. The
-repos exist and stay empty until then; the job that fills them in `release.yml` doesn't exist yet (publishing-plan §7).
+repos exist and stay empty until then; `release.yml`'s `plugin-packages` job fills them.
 
 The packages ask for Firebase and Lottie **from** a version, up to the next major, not exactly: an app that adds
 Firebase or Lottie itself at a newer version must still resolve. The lowest versions are the ones the CMake build pins.
