@@ -383,7 +383,24 @@ Days are focused working days, one engineer with AI, **target** (not measured).
 
 Total: **about 15 to 22 days.** Steps 2, 3 and 4 can run in parallel once step 1 is done. Step 4 is the riskiest.
 
-## 11. What was checked, and how
+## 11. Release gate for 0.1.0
+Agreed 2026-11-20 by the Mac and Windows sessions and approved by Pavan. Nothing is published until every item is
+done. Until then the versions stay `0.0.0`.
+
+1. CI green for Android, iOS and JS.
+2. Core tests pass on a real Android phone.
+3. Docs re-checked, no dead links.
+4. npm pack check passes (`bun run tools/pack.ts`).
+5. Maven local check: an app outside the repo builds from `mavenLocal()`.
+6. Hermes zip released, `Package.swift` on its url ([releasing.md](releasing.md)).
+7. One app outside the repo builds on both OSes from published-style artifacts (npm pack + `mavenLocal()` + the
+   Swift packages).
+8. iOS parity gaps fixed or listed in [guides/platform-differences.md](guides/platform-differences.md).
+9. `release.yml` dry-run on a fork.
+10. Pavan puts the signing key and Central token in the GitHub `release` environment secrets.
+11. Pavan decides the version and gives the go for the first real publish.
+
+## 12. What was checked, and how
 - npm: `npm view` and `registry.npmjs.org` for each name; `/-/org/<scope>/package` for scopes (a made-up scope gives
   404 "Scope not found"; `@zero-native` gives 200 `{}`).
 - Domains: `dig` for name servers; RDAP at `pubapi.registry.google` for `.dev` dates and registrar; `curl -I` for
