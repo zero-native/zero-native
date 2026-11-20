@@ -92,8 +92,9 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
-      # All four CPU types (never -PznArm64Only). Signing turns on when the key variable exists at all (an empty value
-      # counts), so the dry run passes none of the four.
+      # All four CPU types (never -PznArm64Only). The dry run passes none of the four signing and Central variables
+      # (an empty key keeps signing off). publishToMavenCentral uploads a deployment that waits in the Central Portal
+      # for a person to press Publish (never publishAndReleaseToMavenCentral).
       - name: Publish to mavenLocal (dry run, not signed)
         if: github.event_name != 'push'
         working-directory: android
@@ -110,7 +111,12 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.CENTRAL_PASSWORD }}
-        run: ./gradlew publishToMavenCentral --stacktrace
+        run: |
+          # An empty secret would mean unsigned files that Central rejects only at the portal: stop here instead.
+          for v in signingInMemoryKey signingInMemoryKeyPassword mavenCentralUsername mavenCentralPassword; do
+            n="ORG_GRADLE_PROJECT_$v"; [ -n "${!n}" ] || { echo "::error::the secret for $v is empty"; exit 1; }
+          done
+          ./gradlew publishToMavenCentral --stacktrace
 
   ios:
     needs: check

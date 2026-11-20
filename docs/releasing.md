@@ -15,10 +15,13 @@ these secrets (only Pavan pastes them; they never go in a file or a chat):
 | Secret | What |
 |---|---|
 | `NPM_TOKEN` | an npm automation token for the `zeronative` org (the first publish of each package needs one) |
-| `SIGNING_KEY` | the release GPG key's private half, ASCII-armored (`gpg --export-secret-keys --armor <key id>`) |
+| `SIGNING_KEY` | the release GPG key's private half, ASCII-armored: the whole block, `BEGIN`/`END` lines included (`gpg --export-secret-keys --armor 07D1C917F7C60A8D`) |
 | `SIGNING_KEY_PASSWORD` | its passphrase |
-| `CENTRAL_USERNAME`, `CENTRAL_PASSWORD` | the Maven Central user token pair |
+| `CENTRAL_USERNAME`, `CENTRAL_PASSWORD` | the Maven Central **user token** pair (Central Portal → View Account → Generate User Token), not the login |
 | `PLUGIN_REPOS_TOKEN` | a fine-grained GitHub token with "Contents: read and write" on `zero-native-firebase` and `zero-native-lottie` |
+
+The release key `07D1C917F7C60A8D` is a primary key that signs (`[SC]`), so no key id is needed. A signing *subkey*
+would also need `ORG_GRADLE_PROJECT_signingInMemoryKeyId`.
 
 **A dry run first.** Actions → Release → Run workflow. Run by hand, the workflow is always a dry run of the same jobs
 on the current versions: the checks and tests, `npm publish --dry-run` of all 25 packages, `publishToMavenLocal` (it
