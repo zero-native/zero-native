@@ -425,7 +425,8 @@ done. Until then the versions stay `0.0.0`.
    only the `publishToMavenLocal` folder, debug and release built, ran on the Lava). **iOS done 2026-11-20** (Mac:
    the same tarballs and packed `zn`; zero-native added in Xcode as a remote package from GitHub `main` (4fed1e4),
    Hermes from its release; Location answered, both screens drew on the simulator).
-8. iOS parity gaps fixed or listed in [guides/platform-differences.md](guides/platform-differences.md).
+8. iOS parity gaps fixed or listed in [guides/platform-differences.md](guides/platform-differences.md). **Listed
+   2026-11-20** (§3 there, from a code sweep on the Mac; written in by Windows).
 9. `release.yml` dry-run. Written 2026-11-20; run by hand it is a dry run that uploads nothing and uses no secrets,
    so it can run on this repo instead of a fork (Pavan to confirm). Not run yet: it has to be on `main` first.
 10. Pavan puts the signing key and Central token in the GitHub `release` environment secrets.
