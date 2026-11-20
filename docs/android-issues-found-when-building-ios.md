@@ -367,6 +367,11 @@ Each entry says:
   sample lab `zn://sample/dev/sheet-leave`: "Replace with a screen that opens a sheet", "Reset to a screen that opens
   a sheet", "Back: the screen below opens a sheet" (push another lab screen first), and "Close the payment sheet under
   this one" (from the sheet or the Modal over it). The new sheet must stay; the upper one must stay.
+- **Measured on the Lava (Windows, 2026-11-20, debug sample, screen recording at 20 frames a second, 2 rounds each):**
+  the new screen's sheet starts sliding in while the old one is still fully drawn. The old sheet then fades out and is
+  gone about 250 ms (replace), 270 ms (reset) and 200 ms (back) after the new sheet first shows; from the tap that is
+  about 450, 520 and 200 ms. So it is the 300 ms Dialog exit, as expected. To the eye it reads as a short cross-fade,
+  not a stuck sheet. In all six rounds the new sheet stayed open. Not checked: whether the fading old sheet takes a tap.
 
 ## A25. The update screen's icon check used an Android 8 class on Android 7 (found by CI lint)
 - **Status:** fixed on the Mac 2026-11-19, not run on a phone. CI's first lint run (GitHub Actions) failed with

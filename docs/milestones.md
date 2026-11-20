@@ -149,6 +149,15 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: Android checks after the Mac's iOS work (Claude, Windows)
+- Core tests on the Lava (`tools/run-core-tests.ps1`, built with CMake 4.1.2, now in the SDK's own `cmake\4.1.2`
+  folder): 167 checks, 0 failed.
+- A TextField inside a Pressable (RnPropsLab's dialog Modal, note field), the Android side of the Mac's 2026-11-19
+  iOS fix: a tap focuses the field and opens the keyboard, typing works, a tap on the dim still reaches the dim
+  Pressable, and "Close modal" closes it. Nothing to change on Android.
+- A24 (a leaving screen's sheet stays for the Dialog exit) measured on the Lava: about a 200–270 ms cross-fade after
+  the new sheet shows. Numbers in `docs/android-issues-found-when-building-ios.md` A24.
+
 ### 2026-11-20: the plugin packages split, one per SDK (Claude, Mac)
 - Pavan: split the second package. Now **`ios/packages/firebase`** (`ZeroNativeFirebase`: the app, Analytics,
   Crashlytics and Messaging plugins) and **`ios/packages/lottie`** (`ZeroNativeLottie`), for the repos
