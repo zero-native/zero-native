@@ -56,8 +56,8 @@ tools/ios.ts         build and run on the simulator
 
 ## Next
 
-- Plugins (camera, location, ...): `docs/plugins.md` in zero-native. An official plugin goes in four places:
+- Plugins (camera, location, ...): `docs/guides/plugins.md` (reference: `docs/plugins.md`) in zero-native. An official plugin goes in four places:
   `package.json`, `android/settings.gradle.kts` and `android/app/build.gradle.kts`, and `APP_ZN_PLUGINS` in
   `ios/CMakeLists.txt`. Then register it in `MainApplication.kt` and `ios/App/AppDelegate.swift`.
-- OTA updates: `docs/ota.md`. They are off until the host calls `ZnOta.configure`.
-- How each feature works: `docs/guide-notes.md`. An app outside the repo: its §34.
+- OTA updates: `docs/guides/ota-updates.md` (reference: `docs/ota.md`). They are off until the host calls `ZnOta.configure`.
+- Guides & reference: `docs/guides/getting-started.md`, `docs/guides/core-concepts.md`, and `docs/guides/components.md`.

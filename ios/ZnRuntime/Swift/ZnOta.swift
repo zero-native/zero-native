@@ -1,5 +1,5 @@
 // The update client on iOS (android/runtime ZnOta.kt, ZnBundles.kt, ZnOtaHealth.kt; docs/ota.md §3.5–3.6;
-// docs/ios-ota-plan-2026-11-10.md). The rules are ZnOtaRules.swift (tested on the Mac: `bun run ios:ota-test`); this
+// docs/ota.md, docs/milestones-ios.md). The rules are ZnOtaRules.swift (tested on the Mac: `bun run ios:ota-test`); this
 // file is the iOS side: files, network, timers, the app's life.
 //
 // Apps turn it on before ZnApp.start, after registering their plugins:

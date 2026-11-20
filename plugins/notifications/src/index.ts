@@ -1,6 +1,6 @@
 // The notifications plugin's JS side. Native side: android/.../NotificationsPlugin.kt (NotificationCompat; no Firebase) and
 // ios/NotificationsPlugin.swift (UNUserNotificationCenter). Options as notifee's: shared fields, then `android: {...}` and
-// `ios: {...}` (docs/ios-notifications-plan.md). Android-only calls answer harmlessly on iOS, and iOS-only ones on Android.
+// `ios: {...}` (docs/milestones-ios.md Phase 3). Android-only calls answer harmlessly on iOS, and iOS-only ones on Android.
 //
 // At start (safe every time):
 //

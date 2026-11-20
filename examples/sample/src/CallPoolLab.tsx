@@ -1,4 +1,4 @@
-// A dev screen for the "all HTTP calls stuck" report (ZeroBill, 2026-11-09; docs/http-stall-investigation.md).
+// A dev screen for the "all HTTP calls stuck" report (ZeroBill, 2026-11-09; docs/second-opinions.md #221).
 //
 // /dev/call-pool: native module calls share one pool of 2 threads (ZnModules `io`). Device.slowEcho blocks one pool
 // thread for `ms`, like a Play call that waits (ZB's InAppUpdate.isUpdateAvailable). Before 2026-11-09 fetch ran on

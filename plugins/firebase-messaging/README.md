@@ -99,7 +99,7 @@ RN Firebase's names for ported code: `messaging().getToken()`, `onTokenRefresh`,
 
 ## iOS
 The plugin's Swift (`ios/FirebaseMessagingPlugin.swift`) gets the APNs token, hands it to FCM, and answers the same
-calls. Plan and reasons: `docs/ios-notifications-plan.md`.
+calls. Details: `docs/milestones-ios.md` (Phase 3).
 
 **Add it:**
 1. Firebase as for `@zeronative/firebase-crashlytics` on iOS (GoogleService-Info.plist, the SDK from

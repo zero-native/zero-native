@@ -1,5 +1,5 @@
 // OTA's rules on iOS: what a bundle is, whether this app can run it, what is signed, what the safety nets remember.
-// A Swift copy of Android's rules (docs/ios-ota-plan-2026-11-10.md, decision 1), kept the same by the same tests:
+// A Swift copy of Android's rules (docs/ota.md), kept the same by the same tests:
 // android/runtime ZnBundles.kt (Info, Requires, checkBundle, parseInfo), ZnCapabilities.kt, ZnOtaSignature.kt,
 // ZnOtaStore.kt, ZnOtaHealth.kt (State, Rules) and ZnOtaInstall.kt (Manifest, Pointer, bundleSha256, writeAtomic).
 // Foundation and CryptoKit only (no UIKit): ios/tests/ota runs these rules on the Mac (`bun run ios:ota-test`).

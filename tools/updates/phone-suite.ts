@@ -1,5 +1,5 @@
 // OTA end to end on a real Android phone, over adb, for any zn app that uses the zn-updates server
-// (docs/zn-updates-phone-suite.md). It also works with a release-type build (not debuggable): it never uses
+// (docs/ota-test-matrix.md). It also works with a release-type build (not debuggable): it never uses
 // `run-as` or a debug helper. It only uses what any phone owner can see: the app's log lines (tags zn-ota, zn, zn-push),
 // `pidof`, `am start` / `am kill`, and the server's admin API (which bundle each phone runs, and its events).
 //

@@ -3,7 +3,7 @@
 //
 // Nothing is trusted unless it was signed: the pointer, the manifest, then the zip's SHA, then every file's SHA and
 // the bundle's own SHA. Patches (Android's ZnBsPatch) are not on iOS yet: the check says it reads none, so the server
-// sends full zips (docs/ios-ota-plan-2026-11-10.md, decision 2).
+// sends full zips (docs/ota.md, docs/ota-patches.md).
 import Compression
 import Foundation
 

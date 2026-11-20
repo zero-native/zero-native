@@ -1,5 +1,5 @@
 // A notification service extension for the pushes iOS shows itself (an `apns` alert with "mutable-content": 1):
-// docs/ios-notifications-plan.md §2. iOS runs it before it shows the push, for about 30 s:
+// docs/milestones-ios.md Phase 3. iOS runs it before it shows the push, for about 30 s:
 // - title, subtitle and body lose their HTML tags (servers often send Android's HTML; iOS shows text only), the same rule
 //   as the notifications plugin's NotificationRules.plain;
 // - the push's picture is downloaded and attached: FCM's `fcm_options.image` (the server's `apns.fcmOptions.imageUrl`),

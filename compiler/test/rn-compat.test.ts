@@ -1,4 +1,4 @@
-// RN-compat fixes from docs/rn-compat-sweep.md (2026-11-05): React Native code that used to compile and then do the
+// RN-compat fixes (docs/rn-compatibility.md, 2026-11-05): React Native code that used to compile and then do the
 // wrong thing now builds right or fails with a hint.
 import { describe, expect, test } from "bun:test"
 import { type NodeSpec } from "@zeronative/template"

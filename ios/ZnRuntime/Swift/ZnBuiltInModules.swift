@@ -303,7 +303,7 @@ final class ZnUpdatesOff: ZnModuleBase, @unchecked Sendable {
 /// events, the messaging plugin's messages and tokens). As Android's ZnBackground: a queue until JS has loaded, a time
 /// limit, one answer per task. iOS starts JS when the window opens, so a task that comes while JS isn't running waits;
 /// one run with `keep: true` is also saved, so it runs at the app's next start if this process ends first
-/// (docs/ios-notifications-plan.md §3). It doesn't keep the process alive: the plugin's own background time does.
+/// (docs/milestones-ios.md Phase 3). It doesn't keep the process alive: the plugin's own background time does.
 public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
     public enum Outcome: String { case done, failed, noTask = "no_task", timedOut = "timed_out" }
 

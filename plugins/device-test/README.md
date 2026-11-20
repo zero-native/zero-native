@@ -1,9 +1,9 @@
 # @zeronative/device-test
 
 A test plugin, used by the sample app. It is never shipped in a real app. It is also the smallest full plugin, so copy it
-when you start a new one (guide: [docs/guide-notes.md](../../docs/guide-notes.md) §30).
+when you start a new one (guide: [docs/plugins.md](../../docs/plugins.md)).
 
-It adds the `Device` native module, version 4:
+It adds the `Device` native module, version 6:
 
 | Function | What it shows or tests |
 |---|---|

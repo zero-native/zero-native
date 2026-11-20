@@ -5,7 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The call pool's watch (docs/http-stall-investigation.md, fix 4): which calls get logged, and when. */
+/** The call pool's watch (docs/second-opinions.md #221): which calls get logged, and when. */
 class ZnSlowCallsTest {
     private var now = 1_000L
     private val slow = ZnSlowCalls(limitMs = 5_000) { now }

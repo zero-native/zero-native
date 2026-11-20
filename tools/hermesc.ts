@@ -31,7 +31,7 @@ export async function hermesc(input: string, output: string, extraFlags: string[
   }
   // -Xes6-block-scoping: without it this hermesc treats `let` / `const` like `var`, so closures created in a loop
   // all see the last value (found 2026-10-29: every console level logged as "error"). Hidden flag; see
-  // docs/v0-findings.md §P.
+  // experiments/RESULTS.md (Hermes block scoping).
   // -emit-async-break-check: lets the runtime stop JS that runs past its time limit (an endless loop; step 3.9).
   const flags = ["-O", "-Xes6-block-scoping", "-emit-async-break-check", ...extraFlags]
   const proc = Bun.spawn([hermescPath, ...flags, "-emit-binary", "-out", resolve(output), basename(input)], {

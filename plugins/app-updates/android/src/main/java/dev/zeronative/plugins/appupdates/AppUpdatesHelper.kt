@@ -180,7 +180,7 @@ internal class AppUpdatesHelper(
      * Asks Play without waiting on any thread. [answer] runs once: with Play's answer, with "no update" on an error, or
      * with "no update" after [PLAY_WAIT_MS] if Play hasn't answered (a late answer is then ignored).
      * Never `Tasks.await` here: on zero-native's shared call pool (2 threads) a Play answer that doesn't come holds a
-     * thread for good, and two of them stop every fetch in the app (docs/http-stall-investigation.md, F2).
+     * thread for good, and two of them stop every fetch in the app (docs/second-opinions.md #221).
      */
     fun availability(answer: (PlayAvailability) -> Unit) {
         val none = PlayAvailability(false, 0, false, false, null)

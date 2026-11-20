@@ -84,7 +84,7 @@ class DeviceModule(private val context: Context) : ZnModuleBase("Device", versio
             main.post { throw IllegalStateException("Device.crash: a crash on purpose (debug test of the OTA watchdog)") }
         }
 
-        // v3: debug builds only, for testing a second Activity (docs/hardening-plan.md H.1): opens the mock UPI app
+        // v3: debug builds only, for testing a second Activity (docs/milestones.md, hardening H.1): opens the mock UPI app
         // (test-kit/) for a result, so it sits on top of our task. Never a real UPI app: the package is fixed.
         // v4: through ZnLaunch, under the key "mock-upi", with the id JS gives.
         function("openMockUpi", onMain = true) { call ->

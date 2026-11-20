@@ -1,7 +1,7 @@
 // The messaging plugin's iOS side (plugins/firebase-messaging, as android/.../PushPlugin.kt, PushModule.kt,
 // ZnMessagingService.kt and Opens.kt): FCM's token and topics, messages as the JS task "push.message", new tokens as
 // "push.token", and taps on the notifications iOS showed from a push (`opened`, `getInitialNotification`).
-// docs/ios-notifications-plan.md §1.2, §2.
+// docs/milestones-ios.md Phase 3.
 //
 // The app turns off Firebase's app delegate proxy (Info.plist FirebaseAppDelegateProxyEnabled = NO) and forwards three
 // app delegate calls itself, so nothing is swizzled:

@@ -163,7 +163,7 @@ object ZnModules {
     /**
      * Fetch.send has a thread of its own: it only builds the request and hands it to OkHttp (it never waits), so one is
      * enough. On [io], two calls of another module that never returned (a Play call with no time limit) stopped every
-     * fetch in the app until a new process (docs/http-stall-investigation.md). WebSocket already uses its own thread.
+     * fetch in the app until a new process (docs/second-opinions.md #221). WebSocket already uses its own thread.
      */
     private val fetchThread = Executors.newSingleThreadExecutor { r -> Thread(r, "zn-fetch").apply { isDaemon = true } }
     /** A call that holds an [io] thread longer than this is logged (once), with how many calls wait behind it. */

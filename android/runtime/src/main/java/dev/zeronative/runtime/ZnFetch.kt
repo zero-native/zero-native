@@ -174,7 +174,7 @@ object ZnFetch : ZnModuleBase("Fetch") {
     /**
      * Images wait in a queue of their own, not in fetch's: a screen of pictures from the API host (ZeroBill's merchant
      * icons) took all 10 of fetch's slots for that host, and an API call (a payment verify too) waited for one, 2 s in
-     * the sample's image lab (docs/http-stall-investigation.md §6). One for the whole process: kept across network changes.
+     * the sample's image lab (docs/second-opinions.md #225). One for the whole process: kept across network changes.
      */
     private val imageDispatcher = Dispatcher().apply { maxRequestsPerHost = IMAGE_MAX_PER_HOST }
 

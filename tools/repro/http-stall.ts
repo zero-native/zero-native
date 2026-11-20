@@ -1,4 +1,4 @@
-// Reproduction for "every HTTP call stuck until the app is swiped away" (docs/http-stall-investigation.md).
+// Reproduction for "every HTTP call stuck until the app is swiped away" (docs/second-opinions.md #221).
 // Runs the sample app's lab screens (examples/sample/src/CallPoolLab.tsx) and prints what they log.
 //
 //   bun run tools/repro/http-stall.ts pool [--serial emulator-5554]

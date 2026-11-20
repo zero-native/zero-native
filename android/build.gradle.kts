@@ -1,4 +1,4 @@
-// Versions pinned to what v0 verified on the Lava Blaze 2 5G (docs/v0-findings.md §A).
+// Versions pinned to what v0 verified on the Lava Blaze 2 5G (experiments/RESULTS.md).
 plugins {
     id("com.android.application") version "9.2.1" apply false
     id("com.android.library") version "9.2.1" apply false

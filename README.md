@@ -1,162 +1,133 @@
 # zero-native (`zn`)
 
-A mobile framework built in 2026 from first principles. You write screens in TypeScript and TSX. They are drawn by
-native **Jetpack Compose** on Android and **SwiftUI / UIKit** on iOS. Logic runs on **Hermes**, without React or React
-Native at runtime. **Over-the-air updates** are part of the design, not an add-on.
+A mobile app framework built from first principles for **speed, small binary size, and safe over-the-air updates**.
 
-It was built for, and is proven in, the ZeroBill app: a payments and cashback app used mostly on low-end Android
-phones in India. Why it exists is in [story.md](story.md).
+You write screens in **TypeScript and TSX**. The compiler turns each screen into a **binary UI template** (drawn natively before JavaScript even starts) and **Hermes bytecode**. On Android, screens are rendered by **Jetpack Compose**; on iOS, by **SwiftUI and UIKit**. There is **no React, no virtual DOM, and no Yoga** at runtime.
 
-## What you get
+Proven in production in the ZeroBill payments app (Google Play; iOS submitted for App Store review as of 2026-11-18). Read the origin story in [story.md](story.md).
 
-- **TSX that compiles to native screens.** The compiler turns each screen into a binary template (drawn before JS
-  starts) and Hermes bytecode. Signals update only the text or prop that changed. No virtual DOM, no diffing.
-- **React Native names where they make sense.** `View`, `Text`, `Pressable`, `FlatList`, `style`, `onPress`, `Modal`,
-  `StatusBar`, `Linking`, `fetch`. What is the same, renamed, different or missing is listed in
-  [docs/rn-compatibility.md](docs/rn-compatibility.md). An unsupported style key is a build error, not a silent no-op.
-- **OTA updates you can trust.** A bundle says what native code it needs (registry version, Hermes bytecode format,
-  host API, native modules and their versions, per OS), and a phone only takes a bundle it can run. Bundles and
-  channel pointers are signed (ECDSA P-256, with a backup key). Rollback, kill switch, staged rollout, bsdiff patches,
-  a launch gate for critical updates, and updates started by a silent push. See [docs/ota.md](docs/ota.md).
-- **A self-hosted update server.** `zn-updates`: Bun, Postgres, file or Google Cloud Storage, and a web dashboard.
-  Pointers are signed in your browser, so the server never holds the private key. See
-  [docs/zn-updates-server.md](docs/zn-updates-server.md).
-- **Flows that survive the app being killed.** A multi-step flow, such as a payment that leaves for a UPI app, is
-  saved and resumes where it was, without running an unsafe step twice.
-- **Plugins** with native modules, native views and native screens: scanner, document scanner, location, media,
-  WebView, PDF, image viewer, Lottie, Markdown, notifications, device info, app updates, and Firebase (Crashlytics,
-  Analytics, messaging, Remote Config, Performance). See [docs/plugins.md](docs/plugins.md).
-- **Motion and gestures** that run on the UI thread: motion values, gestures, layout animation and shared elements.
-  See [docs/motion.md](docs/motion.md).
+---
 
-## Status (2026-11-18)
+## Why zero-native?
 
-- **Android:** in production. The ZeroBill app has run on zero-native on Google Play since 2026-11-10.
-- **iOS:** the runtime matches Android for everything the ZeroBill app uses, including OTA updates and push. The
-  ZeroBill iOS app was in App Store review when this was written.
-- **Pre-1.0.** APIs can still change. Packages are not on npm, Maven Central or SwiftPM yet: you build from this
-  repository. [docs/production-readiness.md](docs/production-readiness.md) lists what is left.
+- **Compiled templates + fine-grained signals.** Components run once. Reactive expressions compile into integer slot IDs that update only the exact leaf text or style that changed — no tree diffing, no re-renders.
+- **Native UI all the way down.** Compose on Android, SwiftUI + UIKit on iOS. Native text input, scrolling, sheets, safe areas, back gestures, and haptics come from the OS itself.
+- **Familiar React Native names.** `View`, `Text`, `Pressable`, `FlatList`, `Modal`, `StatusBar`, `StyleSheet`, `Linking`, `fetch` — with loud build-time errors whenever a prop or style key isn't supported.
+- **Contract-based OTA updates.** Every bundle declares the exact native capabilities it needs (`requires.registry`, `requires.hostApi`, `requires.bytecode`, and per-OS plugin versions). Phones refuse incompatible bundles automatically. Signed with ECDSA P-256, with bsdiff patches (Android), staged rollouts, automatic crash rollback, a launch gate for critical updates, and a self-hosted dashboard (`zn-updates`) where channel pointers are signed in your browser.
+- **Crash-safe flows.** `FlowStore` (memory-mapped two-slot storage) and `restorableSignal` keep multi-step journeys (like payments that jump to another app) safe when the OS kills your app in the background.
+- **UI-thread motion & gestures.** Declarative `animate` / `enter` / `exit` transitions plus UI-thread motion values, gestures, shared elements, and compile-time `derive()` formulas (no JS on the UI thread).
+- **20 official plugins.** QR/barcode scanner, document scanner, PDF, WebView, image viewer, Lottie, Markdown, location, media, local notifications, device info, store updates, and Firebase (Crashlytics, Analytics, Messaging, Remote Config, Performance).
 
-## Numbers we measured
+---
 
-On a Lava Blaze 2 5G (Android 14, MediaTek Dimensity 6020, 4 GB) unless noted. The two apps were not measured side by
-side in one script, so read the notes.
+## Measured performance
 
-| What | React Native | zero-native | Notes |
-|---|---|---|---|
-| Play download | 14.88 MB | 6.42 MB | zn: the v0 shell (Compose, Hermes, ML Kit, Firebase, no screens). RN with its packaging fixed is about 13.0 MB |
-| Cold start of the full app | 1,147 ms | 501-510 ms | `am start` TotalTime, release builds, measured on different days; zn's first frame is at about 345 ms |
-| JS in the app | 4.38 MB bundle | 1.63 MB bytecode + 0.19 MB templates | the same app |
-| Native libraries | 27, 25.8 MB raw | 9-15, 10-12 MB raw | arm64 part of the APK |
-| OTA update size | ~5 MB full, ~100 KB patch | ~824 KB full, 3-93 KB patch | zn patches measured on six real app changes |
-| Tap to screen update | not measured | p50 0.97 ms, p95 2.08 ms | v0 renderer experiment, release |
+### Android — Lava Blaze 2 5G (Android 14, MediaTek Dimensity 6020, 4 GB RAM)
 
-On a slow Android 9 phone (Infinix Hot 8), the 500-row transaction list scrolls smoothly from the first fling when the
-app comes from Google Play (the runtime ships a baseline profile).
+*The two apps were not measured side by side in one script; read the notes column for context.*
 
-**iOS (2026-11-19), the sample app on an iPhone 11 (iOS, Release, arm64, release Hermes):**
+| Metric | React Native | zero-native | Notes |
+|---|---:|---:|---|
+| Google Play download | 14.88 MB | **6.42 MB** | zn: v0 shell (Compose, Hermes, ML Kit, Firebase, no screens). Optimized RN is ~13.0 MB |
+| Cold start (full app) | 1,147 ms | **501–510 ms** | `am start` TotalTime, release builds, measured on different days; zn first frame at ~345 ms |
+| JS shipped in app | 4.38 MB bundle | **1.63 MB** bytecode + **0.19 MB** templates | Same production app |
+| Native `.so` libraries | 27 (25.8 MB raw) | **9–15** (10–12 MB raw) | `arm64-v8a` slice of APK |
+| OTA update size | ~5 MB full, ~100 KB patch | **~824 KB** full, **3–93 KB** patch | Android; zn patches measured across six real app changes on one app |
+| Tap → screen update | — | **p50 0.97 ms**, p95 2.08 ms | v0 renderer experiment, release build |
 
-| What | zero-native | Notes |
-|---|---|---|
-| App Store size | 4.9 MB download, 13.4 MB installed | Xcode's App Thinning Size Report, with Firebase linked |
-| Without Firebase or Lottie | 7.2 MB installed, 2.8 MB zipped | every binary stripped by hand: app 2.8 MB, Hermes 2.9 MB, JS bytecode 1.3 MB. Xcode leaves 1.3 MB of symbols in Hermes |
-| Cold start, first frame | 148 ms (Firebase off), 156 ms (on) | median of 10 cold launches, timed from the kernel's process start |
-| Cold start, first screens up | 165 ms (off), 178 ms (on) | the screens the JS put up; the OTA check fails fast because the sample's server is localhost |
+### iOS — iPhone 11 (Release, arm64, release Hermes, sample app)
 
-The first launch after an install takes about 200-600 ms more (iOS sets the app up once); it is left out of the
-medians. The sample is small, so a full app starts later.
+| Metric | zero-native | Notes |
+|---|---:|---|
+| App Store size | **4.9 MB** download (13.4 MB installed) | Xcode App Thinning report, with Firebase linked |
+| Core size (no Firebase/Lottie) | **2.8 MB** zipped (7.2 MB installed) | Stripped binaries: app 2.8 MB, Hermes 2.9 MB, bytecode 1.3 MB |
+| Cold start (first frame) | **148–156 ms** | Median of 10 cold launches from kernel process start (Firebase off / on) |
+| Cold start (first screens up) | **165–178 ms** | Includes JS boot and initial screen mount |
+
+---
+
+## Status
+
+- **Pre-1.0.** APIs may still evolve before `1.0.0`.
+- **Android:** Production-ready and live on Google Play.
+- **iOS:** Matches Android for core screens, navigation, push, full-bundle OTA updates, and 14 of 20 plugins. Some newer Android features (`zn dev`, UI-thread gestures/motion, `<Canvas>`, `WebSocket`, bsdiff patches, custom fonts, and runtime layout slots) are still being ported — see [Platform Differences & Parity](docs/guides/platform-differences.md).
+- **Packages:** `@zeronative/*` packages are being prepared for `0.1.0` on npm, Maven Central, and SwiftPM. Today, apps build directly against a local checkout of this repository.
+
+---
 
 ## Quick start
 
-You need [Bun](https://bun.sh). For Android: Android Studio (its JDK and the Android SDK). For iOS: a Mac with Xcode 26
-and CMake (`brew install cmake`).
+**Prerequisites:** [Bun](https://bun.sh) (1.3+). For Android: Android Studio (JDK 21 + Android SDK). For iOS: macOS with Xcode 26 and CMake (`brew install cmake`).
 
 ```bash
+# 1. Clone and install dependencies
+git clone https://github.com/zero-native/zero-native.git
+cd zero-native
 bun install
-```
 
-```bash
+# 2. Build the sample app's JS bundle and run tests
 bun run sample:js
-```
-
-```bash
 bun run test
 ```
 
-`sample:js` builds the sample app's JS (on a fresh clone it also creates `test-kit/offers-data.json` from the example,
-which the type check needs). `bun run test` runs the tests and the type check, as CI does.
-
-To start your own app outside this repo: `bun run tools/zn.ts new ../my-app`, then follow its README
-([docs/guide-notes.md](docs/guide-notes.md) §34).
-
-### Android
-
-From `android/`:
-
+### Run the sample on Android
 ```bash
+cd android
 ./gradlew :sample:installDebug
 ```
-
-While you work on screens, `bun run dev` sends saved changes to the debug build on the phone in under a second.
-Release builds (`:sample:installRelease`) are for measuring.
-
-### iOS (simulator)
-
-Once, download Hermes for Apple platforms (pinned by version and checksum):
-
+In another terminal from the repo root, start live reload (pushes saved edits to the phone in under a second):
 ```bash
+bun run dev
+```
+
+### Run the sample on iOS (Simulator)
+```bash
+# One-time: download Hermes for Apple platforms
 bun run tools/fetch-hermes-apple.ts
-```
 
-Start a simulator:
-
-```bash
+# Boot a simulator, then build and launch the sample
 open -a Simulator
-```
-
-Then build the sample, install it on the booted simulator and start it with its console attached:
-
-```bash
 bun run tools/ios-sample.ts
 ```
 
-The first build takes about a minute. `--link zn://sample/dev/rn-props` starts on a screen by its link; the other
-options (another simulator, slow animations, touch logging) are listed at the top of `tools/ios-sample.ts`. Lottie and
-Firebase are optional:
-`bun run tools/fetch-lottie-apple.ts`, `bun run tools/fetch-firebase-apple.ts`, and your own
-`ios/Sample/GoogleService-Info.plist` (never committed); without them those plugins answer "unavailable". More in
-[docs/milestones-ios.md](docs/milestones-ios.md).
-
-To build the sample for your own iPhone, sign it with your Apple team (`-DZN_TEAM`) and use release Hermes:
-
+### Create your own app
 ```bash
-bun run tools/fetch-hermes-apple.ts release
-cmake -G Xcode -S ios -B ios/build/device -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DZN_TEAM=<your team id> -DZN_HERMES_DIR=$PWD/ios/third_party/hermes/release/destroot
-xcodebuild -project ios/build/device/zn_ios.xcodeproj -target ZnSample -sdk iphoneos -configuration Release -allowProvisioningUpdates build
-xcrun devicectl device install app --device <device id> ios/build/device/Release-iphoneos/ZnSample.app
+bun run tools/zn.ts new ../my-app
+cd ../my-app
+bun install
+bun run android   # or: bun run ios
 ```
 
-The console prints `app: first frame … ms after the process started` and `nav: first screens up …` on each launch.
+For full setup instructions (including physical iPhones and `zn` CLI commands), see **[Getting Started](docs/guides/getting-started.md)**.
 
-## Read next
+---
 
-| | |
+## Documentation
+
+| Guide | What you'll learn |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | the spec and the decision log |
-| [docs/README.md](docs/README.md) | all docs, in reading order |
-| [docs/guide-notes.md](docs/guide-notes.md) | how to use each feature: do, don't, why |
-| [docs/rn-compatibility.md](docs/rn-compatibility.md) | coming from React Native |
-| [docs/milestones.md](docs/milestones.md) | how it was built, step by step, with every measurement |
-| [docs/second-opinions.md](docs/second-opinions.md) | the judgment calls, written up for review |
-| [experiments/](experiments/) | the four v0 experiments that started it |
+| **[Docs Home](docs/README.md)** | Full documentation index (guides, deep reference, and project history) |
+| **[Getting Started](docs/guides/getting-started.md)** | Install, create an app, run on Android & iOS, live reload |
+| **[Core Concepts](docs/guides/core-concepts.md)** | Signals, once-run components, JSX rules, control flow, events |
+| **[Styling & Layout](docs/guides/styling-and-layout.md)** | `style` props, fixed modifier order, flex rules, safe areas, dark mode |
+| **[Components](docs/guides/components.md)** | `View`, `Text`, `Pressable`, `TextField`, `OtpInput`, `List`, `Sheet`, `Svg`, `Canvas`, and more |
+| **[Navigation](docs/guides/navigation.md)** | Typed routes, stack actions, tabs, deep links, back handling, process restoration |
+| **[Data & Networking](docs/guides/data-and-networking.md)** | `fetch`, `WebSocket`, `storage` (MMKV), `SecureStore`, crash-safe `FlowStore` |
+| **[Motion & Gestures](docs/guides/motion-and-gestures.md)** | `animate`, `enter`/`exit`, UI-thread motion values, `derive()`, gestures, shared elements |
+| **[OTA Updates](docs/guides/ota-updates.md)** | Contract-based bundles, ECDSA signing, rollouts, rollback, `zn-updates` server |
+| **[Plugins](docs/guides/plugins.md)** | 20 official plugins + writing custom native modules, views, and screens |
+| **[Coming from React Native](docs/guides/coming-from-react-native.md)** | What matches, what's renamed, and the four mental shifts |
+| **[Coming from Flutter](docs/guides/coming-from-flutter.md)** | Mapping widgets, state, lists, navigation, and native OTA |
+| **[Platform Differences](docs/guides/platform-differences.md)** | Honest Android vs. iOS parity matrix and behavior differences |
+| **[Architecture](ARCHITECTURE.md)** | How the compiler, binary templates, C++ core, and native renderers fit together |
+| **[Contributing](docs/guides/contributing.md)** | Working on the framework, tests, and OTA-safe registry rules |
 
-## How it was made
+---
 
-zero-native was built by one engineer working with AI models, in about three weeks. The idea came from a question to
-**Gemini 4 Argon**. **Gemini 3.8 Flash** ran the first experiments and later parity batches. **Claude Opus 5.5** wrote
-the spec and most of the code, on Windows for Android and on a Mac for iOS. **Claude Fable** reviewed the design. Each
-commit names the models that worked on it. The full story is in [story.md](story.md).
+## How it was built
+
+zero-native was built by Pavan collaborating with AI models (**Gemini 4 Argon**, **Gemini 3.8 Flash**, **Claude Opus 5.5**, and **Claude Fable**). The origin story and early experiments live in [story.md](story.md) and [experiments/](experiments/).
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Apache License 2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

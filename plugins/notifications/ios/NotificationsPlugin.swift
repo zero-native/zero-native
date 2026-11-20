@@ -1,6 +1,6 @@
 // The notifications plugin's iOS side (plugins/notifications; Android: NotificationsModule.kt and the files next to it).
 // Notifications the app shows itself, with UNUserNotificationCenter: `show`, `schedule`, buttons (with a typed reply),
-// groups (thread ids), pictures (attachments), taps, swipes, the badge and categories. docs/ios-notifications-plan.md.
+// groups (thread ids), pictures (attachments), taps, swipes, the badge and categories. docs/milestones-ios.md.
 //
 // One delegate for every notification (ZnNotificationCenter): a tap on the app's own goes to its `link` or `onPress`; a
 // swipe runs `onDismiss`; a button runs `onAction` (or opens its `link`). A push's own notification (one iOS showed from
@@ -89,7 +89,7 @@ enum NotificationRules {
     }
 }
 
-/// The one UNUserNotificationCenter delegate (docs/ios-notifications-plan.md §1.3).
+/// The one UNUserNotificationCenter delegate (docs/milestones-ios.md Phase 3).
 public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     public static let shared = ZnNotificationCenter()
 
