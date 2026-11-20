@@ -149,6 +149,22 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: the release workflow, dry run green (Claude, Mac, gate 9)
+- `.github/workflows/release.yml`: a pushed `v<x.y.z>` tag releases npm (`tools/publish-npm.ts`: dependency order,
+  skips versions npm has, provenance), Maven Central (a signed deployment that waits in the portal; the step stops
+  early on an empty secret), the plugin Swift package repos (`tools/make-plugin-packages.ts`, committed and tagged)
+  and a GitHub Release (`tools/release-notes.ts`: registry, host API, bytecode, Hermes). Run by hand it is a dry run
+  that uploads, pushes and tags nothing and passes no secrets (Windows caught that an empty signing variable still
+  counted as set; the dry run now passes none, and its own guard keeps an empty key unsigned). `tools/check-release.ts`
+  checks every package's version and that Hermes is one release in all five places, and `--set` writes a version.
+  How to release, and the six secrets for the `release` environment: docs/releasing.md.
+- Dry run 44740469600 on 73bdc61: every job green; 25 npm dry-run publishes, 20 Maven artifacts, the package sample
+  for the simulator and an iPhone, both plugin package copies valid. Release gate items 1 to 9 are done; 10 and 11
+  are Pavan's.
+- Also this stretch: gate 7 on iOS (an app from the npm tarballs and the GitHub Swift package only, run on the
+  simulator), gate 8 (the iOS gap list, written into the platform guide by Windows), a Crashlytics dSYM upload from an
+  iPhone Release build of the package sample.
+
 ### 2026-11-20: release gate item 7, Android half: an app from packed npm and local Maven only (Claude, Windows)
 - An app outside the repo (made by `zn new`, then every path into the checkout removed) took zero-native only from
   `tools/pack.ts` tarballs (`file:` paths, with `overrides` for the packages' own `@zeronative/*` dependencies) and

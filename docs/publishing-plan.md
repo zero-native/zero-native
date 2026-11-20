@@ -403,7 +403,7 @@ Days are focused working days, one engineer with AI, **target** (not measured).
 | 2 ✓ | npm: package fields (`version`, `files`, `license`, `repository`, `exports`, `publishConfig`), the core deep import, `@zeronative/cli` out of `tools/` | 2–3 | `npm pack` of each, installed in a new app outside the repo, builds a bundle with `zn builtin` |
 | 3 ✓ | Maven: one shared publishing setup for the runtime and 19 plugins, POM data, signing | 2–3 | an outside app builds from `mavenLocal()` with no `includeBuild` (needs a machine with the Android SDK; this Mac has none) |
 | 4 (most) | SwiftPM: `public` API, plugin targets with `import ZnRuntime`, `ZnCore` with MMKV, Hermes headers, the Hermes zip release, `Package.swift`; the sample builds from it | 5–8 | the sample from the package runs on the simulator with the same screens as the CMake build |
-| 5 (written) | The version check script, `release.yml`, `hermes-release.yml`, the dry run (§7) | 2 | a fork's test tag goes green end to end |
+| 5 ✓ | The version check script, `release.yml`, `hermes-release.yml`, the dry run (§7) | 2 | a fork's test tag goes green end to end |
 | 6 (iOS host done) | `zn new`, the iOS app template, README and `guide-notes.md` §34 rewritten | 2–4 | `zn new demo` gives an app that runs on both OSes |
 | 7 | Release 0.1.0; move the first outside app to it | 1–2 | that app's Android and iOS builds use only published artifacts |
 
@@ -427,8 +427,10 @@ done. Until then the versions stay `0.0.0`.
    Hermes from its release; Location answered, both screens drew on the simulator).
 8. iOS parity gaps fixed or listed in [guides/platform-differences.md](guides/platform-differences.md). **Listed
    2026-11-20** (§3 there, from a code sweep on the Mac; written in by Windows).
-9. `release.yml` dry-run. Written 2026-11-20; run by hand it is a dry run that uploads nothing and uses no secrets,
-   so it can run on this repo instead of a fork (Pavan to confirm). Not run yet: it has to be on `main` first.
+9. `release.yml` dry-run. **Done 2026-11-20** (run 44740469600 on 73bdc61, by hand, so a dry run on this repo with no
+   secrets): the checks and tests passed ("ready to release 0.0.0: 25 packages ... Hermes 260318099.0.5 everywhere"),
+   `npm publish --dry-run` for all 25, "20 artifacts in mavenLocal", the package sample built for the simulator and
+   an iPhone from the released Hermes, both plugin package copies valid; the GitHub Release skipped.
 10. Pavan puts the signing key and Central token in the GitHub `release` environment secrets.
 11. Pavan decides the version and gives the go for the first real publish.
 
