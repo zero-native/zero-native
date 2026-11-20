@@ -31,6 +31,8 @@ function must(cmd: string[], quietFilter?: RegExp) {
     for (const line of out.split("\n")) if (quietFilter.test(line)) console.log(line)
   }
   if (p.exitCode !== 0) {
+    // The filter keeps a good build short; a failed one shows its end, where xcodebuild says why.
+    if (quietFilter) console.error((p.stdout.toString() + p.stderr.toString()).trim().split("\n").slice(-40).join("\n"))
     console.error(`failed: ${cmd.join(" ")}`)
     process.exit(1)
   }

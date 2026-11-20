@@ -149,6 +149,19 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: a fresh clone couldn't resolve the Swift package (Claude, Mac)
+- CI's new `ios-packages` job (zn new --ios packages) failed at "Could not resolve package dependencies". Reproduced in
+  a fresh clone laid out as on the runner: `public headers ("include") directory path for 'ZnMMKV' is invalid`.
+  MMKV's own CMake file copies its 5 public headers into `Core/include/MMKV` when CMake configures, and that folder is
+  in MMKV's `.gitignore`. SwiftPM runs no CMake, so in a fresh clone the folder doesn't exist. It hid on this Mac and in
+  CI's main ios job because a CMake build had run first there; an app adding the package from GitHub, and the Hermes
+  release workflow (it builds the package sample without CMake), would have failed the same way.
+- Fix: `core/third_party/mmkv/spm-include/MMKV/` holds copies of the 5 headers (MMKV's `Core/` stays as upstream), and
+  the `ZnMMKV` target reads them (`path: core/third_party/mmkv`, `sources: ["Core"]`). `tools/test/swift-package.test.ts`
+  fails while a copy differs from MMKV's. The fresh-clone build passed after the fix.
+- `tools/ios.ts` (both `zn new` hosts) now prints the end of a failed xcodebuild, where it says why; the CI log had
+  only "Could not resolve package dependencies:".
+
 ### 2026-11-20: zn new --ios packages, an app on the Swift package (Claude, Mac, M3)
 - **`zn new <dir> --ios packages`**: the iOS host is a plain Xcode project on zero-native's Swift package instead of
   CMake (still the default). `templates/app-ios-packages` holds it: `ios/<App>.xcodeproj` (the app target, a synced

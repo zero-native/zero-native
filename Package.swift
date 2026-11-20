@@ -46,16 +46,19 @@ let swift5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 var targets: [Target] = [
   hermes,
   // MMKV's C++ core (BSD-3), as core/CMakeLists.txt builds it: FORCE_POSIX, so Apple uses the same C++ API as Android.
+  // Its public headers are spm-include/MMKV (copies; MMKV's CMake makes Core/include at configure time, not in git).
   .target(
     name: "ZnMMKV",
-    path: "core/third_party/mmkv/Core",
+    path: "core/third_party/mmkv",
     exclude: [
-      "CMakeLists.txt", "crc32/CMakeLists.txt", "cbridge", "fakeinclude",
-      "MMKV_Android.cpp", "MMKVLog_Android.cpp", "InterProcessLock_Android.cpp", "InterProcessLock_Win32.cpp",
-      "MemoryFile_Android.cpp", "MemoryFile_Linux.cpp", "MemoryFile_Win32.cpp", "ThreadLock_Win32.cpp",
+      "Core/CMakeLists.txt", "Core/crc32/CMakeLists.txt", "Core/cbridge", "Core/fakeinclude",
+      "Core/MMKV_Android.cpp", "Core/MMKVLog_Android.cpp", "Core/InterProcessLock_Android.cpp",
+      "Core/InterProcessLock_Win32.cpp", "Core/MemoryFile_Android.cpp", "Core/MemoryFile_Linux.cpp",
+      "Core/MemoryFile_Win32.cpp", "Core/ThreadLock_Win32.cpp",
     ],
-    publicHeadersPath: "include",
-    cxxSettings: [.define("FORCE_POSIX"), .headerSearchPath(".")],
+    sources: ["Core"],
+    publicHeadersPath: "spm-include",
+    cxxSettings: [.define("FORCE_POSIX"), .headerSearchPath("Core")],
     linkerSettings: [.linkedLibrary("z")]),
   // The shared C++ core (ARCHITECTURE.md §4) and its Hermes adapter.
   .target(
