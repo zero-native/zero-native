@@ -149,6 +149,37 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: Firebase and Lottie as a second Swift package (Claude, Mac)
+- **`ios/ExtrasPackage`** (package `ZeroNativeExtras`): `ZnPluginFirebaseApp`, `…Analytics`, `…Crashlytics`,
+  `…Messaging` and `ZnPluginLottie`. `Sources/<target>` are relative symlinks to `plugins/<name>/ios`, so the code stays
+  where the CMake builds (ZeroBill's too) compile it. It depends on the main package by path, on `firebase-ios-sdk` from
+  13.1.1 and `lottie-spm` from 4.6.1: the CMake build's pins as the lowest versions, so an app that adds a newer
+  Firebase itself still resolves (13.2.0 is out). Analytics is `FirebaseAnalyticsCore`: the plain product brings the
+  IDFA module and Google's on-device ad conversion, which the CMake build leaves out.
+- **The main package** no longer has those five targets (SwiftPM refuses two targets of one name across packages).
+- **In a package build a missing SDK is a build error** (`#if SWIFT_PACKAGE && !canImport(...)` → `#error`), not a
+  plugin that quietly does nothing. The CMake builds may still leave an SDK out.
+- **`tools/make-extras-package.ts`** makes the copy for the second package's own repo at release: real files, the main
+  package by url at exactly the release's version (named `zero-native`, as SwiftPM names a url package), its own header
+  and `README.release.md`. `swift package dump-package` accepts it. Tested by `tools/test/make-extras-package.test.ts`
+  (also: the lowest Firebase and Lottie versions equal the CMake pins).
+- **The package sample** links all five plus `ZnPluginNotifications`, so every build of it compiles Messaging, the
+  target that uses both packages. Built with the real SDKs: two more runtime members became `public`
+  (`addTopRouteListener`, `addJsErrorListener`). On the simulator, Crashlytics 13.1.1 started from the sample's
+  `GoogleService-Info.plist`, all 14 plugins registered, and the Lottie lab drew its animations. The app embeds
+  FirebaseAnalytics and GoogleAppMeasurement but no IdentitySupport or ad-conversion framework, and links neither
+  AdSupport nor AppTrackingTransparency. The CMake sample and ZeroBill's iOS app still build.
+- **CI** keeps SwiftPM's checkouts between runs and builds only with the versions in the sample's committed
+  `Package.resolved` (`-onlyUsePackageVersionsFromResolvedFile`), as the Hermes release workflow now does too.
+- **Review:** three independent reviews, each finding checked by an agent trying to refute it; seven were real and are
+  fixed (above: the exact pins, Messaging never compiled, the quiet no-op, the release copy's header and README,
+  `Package.resolved`, Lottie's dynamic framework written down).
+- **On this Mac**, SwiftPM's own download of Lottie's binary from GitHub stalled every time (curl got it in seconds).
+  Putting the zip in SwiftPM's cache (`~/Library/Caches/org.swift.swiftpm/artifacts/<url with _>`; SwiftPM still checks
+  its checksum) got past it. GitHub's runners don't need this.
+- **Not done:** the second package's own repo (name to choose) and the release job; the Crashlytics dSYM upload and
+  the notification service extension for an app on the packages.
+
 ### 2026-11-20: the Hermes release workflow, and the Maven group (Claude, Mac)
 - **Maven group `io.github.zero-native`**, verified on the Central Portal for the GitHub org: Pavan added it by hand and
   a temporary public repo in the org, named after the Portal's key, proved it (Sonatype documents this only for

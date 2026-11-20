@@ -220,15 +220,15 @@ public final class ZnApp {
 
     /// JS threw and nothing caught it, hung, or didn't start: kind ("screen", "handler", "async", "hang", "start", ...),
     /// where, and the details with the JS stack. Main thread.
-    typealias JsErrorListener = (_ kind: String, _ whereText: String, _ details: String) -> Void
+    public typealias JsErrorListener = (_ kind: String, _ whereText: String, _ details: String) -> Void
     @ObservationIgnored private var jsErrorListeners: [JsErrorListener] = []
     @ObservationIgnored private var routeListeners: [(String?) -> Void] = []
     @ObservationIgnored private var lastTopRoute: String??
 
-    func addJsErrorListener(_ listener: @escaping JsErrorListener) { jsErrorListeners.append(listener) }
+    public func addJsErrorListener(_ listener: @escaping JsErrorListener) { jsErrorListeners.append(listener) }
 
     /// The top screen's route name, now and after each change (nil before the first screen). Main thread.
-    func addTopRouteListener(_ listener: @escaping (String?) -> Void) {
+    public func addTopRouteListener(_ listener: @escaping (String?) -> Void) {
         routeListeners.append(listener)
         listener(topRoute)
     }

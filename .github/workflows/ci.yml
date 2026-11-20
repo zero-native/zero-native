@@ -84,12 +84,18 @@ jobs:
             -DZN_HERMES_DIR="$GITHUB_WORKSPACE/ios/third_party/hermes/release/destroot"
           xcodebuild -project ios/build/device/zn_ios.xcodeproj -target ZnSample -sdk iphoneos \
             -configuration Release ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build -quiet
-      # The same sample from the Swift package (Package.swift; ios/SamplePackage): what an app that adds the package
-      # builds. Hermes is the local release one fetched above, until the Hermes zip is on a GitHub Release.
+      # The same sample from the Swift packages (Package.swift and ios/ExtrasPackage; ios/SamplePackage): what an app
+      # that adds them builds. Hermes is the local release one fetched above. Firebase and Lottie come from their own
+      # packages (big to clone), kept between runs.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/spm
+          key: spm-${{ hashFiles('ios/ExtrasPackage/Package.swift', 'ios/SamplePackage/**/Package.resolved') }}
       - name: Build the sample from the Swift package (simulator)
         run: |
           xcodebuild -project ios/SamplePackage/ZnSamplePackage.xcodeproj -scheme ZnSamplePackage \
-            -destination 'generic/platform=iOS Simulator' ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build -quiet
+            -destination 'generic/platform=iOS Simulator' -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" \
+            -onlyUsePackageVersionsFromResolvedFile ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build -quiet
 
   android:
     runs-on: ubuntu-latest

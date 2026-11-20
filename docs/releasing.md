@@ -74,3 +74,26 @@ Reset Package Caches; on the command line, `-clonedSourcePackagesDirPath` with a
 
 **Open:** Meta's framework isn't code-signed, and neither is this zip. Whether Apple wants a signature on a re-hosted
 SDK from its privacy list is not checked yet (publishing-plan §9).
+
+## The second Swift package (Firebase and Lottie)
+
+`ios/ExtrasPackage` holds the plugins that need Google's or Airbnb's SDKs. Here its targets are symlinks to
+`plugins/<name>/ios` and it depends on the main package by path. Apps can't use it from this repo: SwiftPM wants a
+package at the root of its own repo. So each zero-native release also makes a copy for its own repo:
+
+```bash
+bun run tools/make-extras-package.ts --version 0.1.0
+```
+
+It writes `build/extras-package/`: the Swift files themselves (not symlinks), `Package.swift` depending on
+`https://github.com/zero-native/zero-native.git` at exactly that version, the README, `LICENSE` and `NOTICE`. That
+folder is committed to the second repo and tagged with the same version, after the main repo's tag exists. The repo's
+name, and the job that does this in `release.yml`, are not decided or written yet (publishing-plan §7).
+
+The package asks for Firebase and Lottie **from** a version, up to the next major, not exactly: an app that adds
+Firebase or Lottie itself at a newer version must still resolve. The lowest versions are the ones the CMake build pins.
+When upgrading, raise them in `ios/ExtrasPackage/Package.swift` and in `tools/fetch-firebase-apple.ts` /
+`tools/fetch-lottie-apple.ts` together (a test checks they match), then let Xcode update the sample's
+`Package.resolved` (CI builds only with the versions in it).
+
+The copy's README is `ios/ExtrasPackage/README.release.md`; the release puts it in as `README.md`.

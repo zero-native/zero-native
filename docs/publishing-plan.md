@@ -132,9 +132,22 @@ The work this needs [fact: what is missing today]:
 - Firebase and Lottie: today the app links Google's and Airbnb's XCFrameworks, and the plugins check
   `canImport(FirebaseCore)`. In SwiftPM a target only sees its declared dependencies. So the Firebase plugins must
   depend on `firebase-ios-sdk`, and Lottie on `lottie-spm`. Then every app resolves (downloads) Firebase, even one that
-  uses none of it. Recommended: put the Firebase and Lottie plugins in a second, small package repo (§9).
-  [check] SwiftPM "traits" (optional dependencies, Swift 6.1+) might avoid the second repo; check what Xcode 26 shows
-  for them.
+  uses none of it. **Chosen 2026-11-20: a second package** (§9).
+
+**The second package** (`ios/ExtrasPackage`, 2026-11-20): the Firebase app, Analytics, Crashlytics and Messaging
+plugins and Lottie, as `ZnPlugin<Name>` targets. Their code stays in `plugins/<name>/ios`, where the CMake builds compile
+it: `ios/ExtrasPackage/Sources/<target>` are relative symlinks to those folders (SwiftPM follows them; tried). It
+depends on the main package by path, on `firebase-ios-sdk` from 13.1.1 and `lottie-spm` from 4.6.1 (the CMake build's
+pins as the lowest versions, so an app can add a newer Firebase or Lottie itself). Analytics uses `FirebaseAnalyticsCore`: Firebase's plain `FirebaseAnalytics` product brings the IDFA module and
+Google's on-device ad conversion, which the CMake build leaves out. The main package no longer has these five targets:
+two packages can't have targets of the same name.
+- **At release** (§7), a job copies `ios/ExtrasPackage` with the symlinks resolved into its own repo, changes the
+  dependency on the main package from the path to its url and the release version, and tags that repo with the same
+  version. The repo's name is still to choose (it holds Lottie too, so not only "firebase").
+- **Lottie** comes from `lottie-spm` as a dynamic `Lottie.framework` that Xcode embeds; the CMake builds link
+  `Lottie-Static`. The app gets the same Lottie, packed differently.
+- **Not checked yet:** the Crashlytics dSYM upload for an app on the package (Firebase's own run script, documented by
+  Google), and the notification service extension (`plugins/firebase-messaging/ios-service`).
 
 **Done 2026-11-19 (§10 step 4, without the Hermes zip):** `Package.swift` at the repo root has the targets above
 (`ZnMMKV`, `ZnCore`, `ZnHost`, `ZnRuntime` with the privacy manifest, `hermesvm`, one `ZnPlugin<Name>` per plugin; the
@@ -142,7 +155,8 @@ notification service extension is not in it yet). The runtime and plugins have a
 `ZnApp.start`, OTA setup, the helpers plugins use), and each file imports what it needs under `#if SWIFT_PACKAGE` (an
 app's files: `#if canImport(ZnRuntime)`), so the CMake builds, ZeroBill's included, don't change. The 8 Hermes headers
 the core needs are in `core/third_party/hermes`. `ios/SamplePackage` builds the sample from the package; on the
-simulator its screens matched the CMake build's, and CI builds it. Firebase and Lottie build without their SDKs (§9).
+simulator its screens matched the CMake build's, and CI builds it. Firebase and Lottie are in the second package
+(above).
 Still to do: the Hermes zip on a GitHub Release (the workflow exists; until it runs, `Package.swift` uses a local Hermes,
 so an app outside the repo can't use the package yet), and the notification service target.
 

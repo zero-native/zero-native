@@ -69,10 +69,10 @@ jobs:
           mv ios/third_party/hermes/release/destroot/Library/Frameworks/universal/hermesvm.xcframework "$RUNNER_TEMP/"
           xcodebuild -project ios/SamplePackage/ZnSamplePackage.xcodeproj -scheme ZnSamplePackage \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/dd" ARCHS=arm64 \
-            CODE_SIGNING_ALLOWED=NO build -quiet
+            -onlyUsePackageVersionsFromResolvedFile CODE_SIGNING_ALLOWED=NO build -quiet
           xcodebuild -project ios/SamplePackage/ZnSamplePackage.xcodeproj -scheme ZnSamplePackage \
             -destination 'generic/platform=iOS' -configuration Release -derivedDataPath "$RUNNER_TEMP/dd" \
-            CODE_SIGNING_ALLOWED=NO build -quiet
+            -onlyUsePackageVersionsFromResolvedFile CODE_SIGNING_ALLOWED=NO build -quiet
           test -f "$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/ZnSamplePackage.app/Frameworks/hermesvm.framework/PrivacyInfo.xcprivacy"
       - name: Create a draft release
         env:

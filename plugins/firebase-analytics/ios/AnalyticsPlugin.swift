@@ -14,6 +14,11 @@ import Foundation
 import ZnRuntime
 import ZnPluginFirebaseApp
 #endif
+// In the Swift package the SDK is a declared dependency (ios/ExtrasPackage/Package.swift): without it, stop the build
+// instead of building a plugin that quietly does nothing. The CMake builds may leave the SDK out on purpose.
+#if SWIFT_PACKAGE && !(canImport(FirebaseAnalytics))
+#error("ZnPluginFirebaseAnalytics needs FirebaseAnalytics: check ios/ExtrasPackage/Package.swift")
+#endif
 #if canImport(FirebaseAnalytics)
 import FirebaseAnalytics
 #endif

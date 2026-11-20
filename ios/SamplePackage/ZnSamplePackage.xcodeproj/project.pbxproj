@@ -21,6 +21,8 @@
 		761A4319D730105D4F31176E /* ZnPluginImageViewer */ = {isa = PBXBuildFile; productRef = D0B4CABABDE2166B542BA200 /* ZnPluginImageViewer */; };
 		4A47FD3F35876D6E535E824F /* ZnPluginDocumentScanner */ = {isa = PBXBuildFile; productRef = D6139B3697A04C9F4FB2650B /* ZnPluginDocumentScanner */; };
 		265E9ED2B234B0CB6A57ADD8 /* ZnPluginAppUpdates */ = {isa = PBXBuildFile; productRef = 486F9D4581B59A48874ECA84 /* ZnPluginAppUpdates */; };
+		77DB807BC8605D14B4676E0D /* ZnPluginFirebaseMessaging */ = {isa = PBXBuildFile; productRef = 3EC87E6101D2958D79F5FB50 /* ZnPluginFirebaseMessaging */; };
+		0B86521F4C65D2F73F81DD14 /* ZnPluginNotifications */ = {isa = PBXBuildFile; productRef = E22048D599624A8B4231C3AF /* ZnPluginNotifications */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -68,6 +70,8 @@
 				761A4319D730105D4F31176E /* ZnPluginImageViewer */,
 				4A47FD3F35876D6E535E824F /* ZnPluginDocumentScanner */,
 				265E9ED2B234B0CB6A57ADD8 /* ZnPluginAppUpdates */,
+				0B86521F4C65D2F73F81DD14 /* ZnPluginNotifications */,
+				77DB807BC8605D14B4676E0D /* ZnPluginFirebaseMessaging */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +129,8 @@
 				D0B4CABABDE2166B542BA200 /* ZnPluginImageViewer */,
 				D6139B3697A04C9F4FB2650B /* ZnPluginDocumentScanner */,
 				486F9D4581B59A48874ECA84 /* ZnPluginAppUpdates */,
+				E22048D599624A8B4231C3AF /* ZnPluginNotifications */,
+				3EC87E6101D2958D79F5FB50 /* ZnPluginFirebaseMessaging */,
 			);
 			productName = ZnSamplePackage;
 			productReference = D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */;
@@ -151,6 +157,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A46A1BCE0B67C45BEC8F435B /* XCLocalSwiftPackageReference "../.." */,
+				E1027EEE3B723C853B141545 /* XCLocalSwiftPackageReference "../ExtrasPackage" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 86024CAD1E83101D97359D73 /* Products */;
@@ -291,6 +298,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../..;
 		};
+		E1027EEE3B723C853B141545 /* XCLocalSwiftPackageReference "../ExtrasPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../ExtrasPackage;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -349,6 +360,14 @@
 		486F9D4581B59A48874ECA84 /* ZnPluginAppUpdates */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ZnPluginAppUpdates;
+		};
+		3EC87E6101D2958D79F5FB50 /* ZnPluginFirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginFirebaseMessaging;
+		};
+		E22048D599624A8B4231C3AF /* ZnPluginNotifications */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginNotifications;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

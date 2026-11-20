@@ -75,3 +75,5 @@ ios/third_party/lottie/
 
 # Swift package (Package.swift): Xcode's working files
 .swiftpm/
+.build/
+ios/ExtrasPackage/Package.resolved

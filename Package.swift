@@ -26,19 +26,14 @@ if let zip = ProcessInfo.processInfo.environment["ZN_HERMES_ZIP"], !zip.isEmpty 
 }
 
 /// Each plugin's iOS code (plugins/<folder>/ios) is the target and product ZnPlugin<Name>. [uses]: plugins whose types
-/// it uses (ZnFirebase, the notification center).
+/// it uses. The plugins that need Firebase or Lottie are in the second package, ios/ExtrasPackage (docs/releasing.md).
 let plugins: [(name: String, folder: String, uses: [String])] = [
   ("AndroidPlayAuth", "android-play-auth", []),
   ("AppUpdates", "app-updates", []),
   ("DeviceInfo", "device-info", []),
   ("DocumentScanner", "document-scanner", []),
-  ("FirebaseApp", "firebase-app", []),
-  ("FirebaseAnalytics", "firebase-analytics", ["FirebaseApp"]),
-  ("FirebaseCrashlytics", "firebase-crashlytics", ["FirebaseApp"]),
-  ("FirebaseMessaging", "firebase-messaging", ["FirebaseApp", "Notifications"]),
   ("ImageViewer", "image-viewer", []),
   ("Location", "location", []),
-  ("Lottie", "lottie", []),
   ("Notifications", "notifications", []),
   ("Pdf", "pdf", []),
   ("Scanner", "scanner", []),
