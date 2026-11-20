@@ -23,7 +23,8 @@ test("zn new fills every name in templates/app", () => {
     expect({ file: rel(app.dir, f), left: readFileSync(f, "utf8").match(/__[A-Z_]+__/g) }).toEqual({ file: rel(app.dir, f), left: null })
   }
   expect(all.map((f) => rel(app.dir, f))).toContain("android/app/src/main/java/com/example/myapp/MainActivity.kt")
-  expect(statSync(join(app.dir, "android/gradlew")).mode & 0o111).not.toBe(0)
+  // gradlew stays executable (NTFS has no exec bit, so not on Windows)
+  if (process.platform !== "win32") expect(statSync(join(app.dir, "android/gradlew")).mode & 0o111).not.toBe(0)
   expect(readFileSync(join(app.dir, "ios/CMakeLists.txt"), "utf8")).toContain("add_executable(MyApp MACOSX_BUNDLE")
 })
 
