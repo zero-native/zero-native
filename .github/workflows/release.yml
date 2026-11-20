@@ -92,23 +92,25 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
-      # All four CPU types (never -PznArm64Only). Signing turns on only when the key is given.
-      - name: Publish to Maven (Central, or mavenLocal in a dry run)
+      # All four CPU types (never -PznArm64Only). Signing turns on when the key variable exists at all (an empty value
+      # counts), so the dry run passes none of the four.
+      - name: Publish to mavenLocal (dry run, not signed)
+        if: github.event_name != 'push'
+        working-directory: android
+        run: |
+          ./gradlew publishToMavenLocal --stacktrace
+          n=$(ls -d ~/.m2/repository/io/github/zero-native/*/ | wc -l)
+          echo "$n artifacts in mavenLocal"
+          [ "$n" -eq 20 ] || { echo "::error::expected 20 artifacts (runtime and 19 plugins), got $n"; exit 1; }
+      - name: Publish to Maven Central (signed; the deployment waits in the Central Portal)
+        if: github.event_name == 'push'
         working-directory: android
         env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ github.event_name == 'push' && secrets.SIGNING_KEY || '' }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ github.event_name == 'push' && secrets.SIGNING_KEY_PASSWORD || '' }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ github.event_name == 'push' && secrets.CENTRAL_USERNAME || '' }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ github.event_name == 'push' && secrets.CENTRAL_PASSWORD || '' }}
-        run: |
-          if [ "$DRY_RUN" = true ]; then
-            ./gradlew publishToMavenLocal --stacktrace
-            n=$(ls -d ~/.m2/repository/io/github/zero-native/*/ | wc -l)
-            echo "$n artifacts in mavenLocal"
-            [ "$n" -eq 20 ] || { echo "::error::expected 20 artifacts (runtime and 19 plugins), got $n"; exit 1; }
-          else
-            ./gradlew publishToMavenCentral --stacktrace
-          fi
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.CENTRAL_PASSWORD }}
+        run: ./gradlew publishToMavenCentral --stacktrace
 
   ios:
     needs: check
