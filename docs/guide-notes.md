@@ -1225,14 +1225,14 @@ tools/ios.ts         build, install and start on the simulator
 val zeroNativeDir = providers.gradleProperty("zeroNativeDir").getOrElse("../../zero-native")
 includeBuild("$zeroNativeDir/android") {
     dependencySubstitution {
-        substitute(module("dev.zeronative:runtime")).using(project(":runtime"))
+        substitute(module("io.github.zero-native:runtime")).using(project(":runtime"))
     }
 }
 include(":app")
 include(":plugin-mine")
 project(":plugin-mine").projectDir = file("../plugins/mine/android")
 ```
-The app and each plugin then ask for `implementation("dev.zeronative:runtime")`. Copy the wrapper, `gradle.properties` and the
+The app and each plugin then ask for `implementation("io.github.zero-native:runtime")`. Copy the wrapper, `gradle.properties` and the
 plugin versions from this repo's `android/`: **do** keep them equal to the framework's.
 
 **JS.** Depend on the packages by their folder (what `zn new` writes; `bun install` makes a link to the folder):

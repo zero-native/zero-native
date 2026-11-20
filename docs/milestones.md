@@ -149,6 +149,20 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: Maven publishing set up, checked with a local folder (Claude, Windows; publishing-plan §10 step 3)
+- `android/build.gradle.kts`: the runtime and the 19 official plugins publish as `io.github.zero-native:<project>`
+  (com.vanniktech.maven.publish.base 0.37.0). Release variant only (all four CPU types), with sources and an empty
+  javadoc jar, and a POM with license, url, scm and developer. The version is `packages/core/package.json`'s. Signed
+  only when the release key is given (second-opinions 232). Nothing was uploaded or signed.
+- Check: `./gradlew publishToMavenLocal -Dmaven.repo.local=<folder>` gave 20 artifacts. Every POM dependency has a
+  version. The runtime AAR has libzn, libjsi and libc++_shared for arm64-v8a, armeabi-v7a, x86 and x86_64, plus the
+  Baseline Profile, and no Hermes copies.
+- An app made by `zn new` outside the repo, with no `includeBuild`, only that folder plus Google and Central, using
+  the runtime, location, firebase-messaging and scanner: debug and release (R8) build. The release APK started on the
+  Lava (Hermes up, bundle run, no missing class or library).
+- The app template now asks for `io.github.zero-native:runtime` (still swapped for the local project until 0.1.0).
+  A fresh `zn new` app, the sample and ZeroBill (which still asks for `dev.zeronative:*`, swapped the same way) build.
+
 ### 2026-11-20: a fresh clone couldn't resolve the Swift package (Claude, Mac)
 - CI's new `ios-packages` job (zn new --ios packages) failed at "Could not resolve package dependencies". Reproduced in
   a fresh clone laid out as on the runner: `public headers ("include") directory path for 'ZnMMKV' is invalid`.

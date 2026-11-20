@@ -1,6 +1,6 @@
 // The Android host. zero-native isn't published yet, so it comes from a local folder as a composite build
-// (zeroNativeDir in gradle.properties). When it is published, only the includeBuild block goes away: the app already
-// asks for "dev.zeronative:runtime".
+// (zeroNativeDir in gradle.properties). When it is published, the includeBuild block goes away and the app gives a
+// version: it already asks for "io.github.zero-native:runtime" (Maven Central's name, docs/publishing-plan.md §2.2).
 pluginManagement {
     repositories {
         google()
@@ -21,9 +21,9 @@ rootProject.name = "__APP_NAME__"
 val zeroNativeDir = providers.gradleProperty("zeroNativeDir").get()
 includeBuild("$zeroNativeDir/android") {
     dependencySubstitution {
-        substitute(module("dev.zeronative:runtime")).using(project(":runtime"))
+        substitute(module("io.github.zero-native:runtime")).using(project(":runtime"))
         // An official plugin the app uses, e.g. location (also in app/build.gradle.kts and package.json):
-        // substitute(module("dev.zeronative:plugin-location")).using(project(":plugin-location"))
+        // substitute(module("io.github.zero-native:plugin-location")).using(project(":plugin-location"))
     }
 }
 

@@ -15,7 +15,7 @@
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
     // Asks this app's own dependencies, so it also works when zero-native comes in as an included build (there
-    // `:plugin-firebase-crashlytics` lives in zero-native's build, and the app asks for "dev.zeronative:plugin-firebase-crashlytics").
+    // `:plugin-firebase-crashlytics` lives in zero-native's build, and the app asks for "io.github.zero-native:plugin-firebase-crashlytics").
     // Without the Gradle plugin, the Crashlytics SDK stops the app at start (no build id).
     val usesCrashlytics = configurations.any { c -> c.dependencies.any { it.name == "plugin-firebase-crashlytics" } }
     if (usesCrashlytics) {

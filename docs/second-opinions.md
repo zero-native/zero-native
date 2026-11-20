@@ -3775,3 +3775,19 @@ change, and what evidence would make you change it?"
 - **Risk if wrong:** a layer whose screen entry is wrong would be closed with another screen, or kept; the key comes
   from `znScreenEntry` (the instance's root), as `<StatusBar>` already uses it.
 - **Change:** revert the six files to go back to presentations.
+
+## 232. Maven publishing: one block in android/build.gradle.kts, the version from packages/core (publishing, 2026-11-20; Opus, Windows)
+- **Chose:** the runtime and the 19 official plugins get their Maven setup from one `subprojects` block in
+  `android/build.gradle.kts` (`com.vanniktech.maven.publish.base` 0.37.0), not from a convention plugin that each
+  build file applies. The version is read from `packages/core/package.json`, not kept in `gradle.properties`.
+  The POM names `p2pdops` as the developer (id, name, GitHub url; no email).
+- **Why:** none of the 20 build files changes, and `device-test` and the sample stay out by name. The plugin is tested
+  with AGP 9.2.1 and Gradle 9.6. One version file means the release's version check has no Gradle file to change, and
+  the app template's `gradle.properties` stays equal to the framework's (tools/test/zn-new.test.ts checks that).
+- **Also:** `versionMapping` from `releaseRuntimeClasspath` writes real versions into the POMs. Without it, a
+  Firebase plugin's POM had `firebase-messaging` with no version (the BoM comes from `plugin-firebase-app`). Gradle
+  apps read the `.module` file, which keeps the BoM. Only the release variant is published, with a sources jar and an
+  empty javadoc jar.
+- **Risk if wrong:** a `subprojects` block doesn't work with Gradle's "isolated projects" mode, if we turn that on
+  later. The POM versions are the ones this build resolved; an app with a newer Firebase BoM still wins in Gradle.
+- **Change:** move the block into a `build-logic` convention plugin applied by each published project.

@@ -60,8 +60,8 @@ android {
 }
 
 dependencies {
-    implementation("dev.zeronative:runtime")
-    // An official plugin (also in settings.gradle.kts and package.json): implementation("dev.zeronative:plugin-location")
+    implementation("io.github.zero-native:runtime")
+    // An official plugin (also in settings.gradle.kts and package.json): implementation("io.github.zero-native:plugin-location")
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
