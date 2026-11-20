@@ -92,7 +92,13 @@ for p in plugins {
   let deps: [Target.Dependency] = ["ZnRuntime"] + p.uses.map { .target(name: "ZnPlugin\($0)") }
   targets.append(.target(name: "ZnPlugin\(p.name)", dependencies: deps, path: "plugins/\(p.folder)/ios", swiftSettings: swift5))
 }
-var products: [Product] = [.library(name: "ZnRuntime", targets: ["ZnRuntime"])]
+// The notification service extension's code (plugins/firebase-messaging/ios-service): an app's push extension links it.
+// It needs neither the runtime nor Firebase, so it is here, for any app that shows pushes with pictures.
+targets.append(.target(name: "ZnNotificationService", path: "plugins/firebase-messaging/ios-service", swiftSettings: swift5))
+var products: [Product] = [
+  .library(name: "ZnRuntime", targets: ["ZnRuntime"]),
+  .library(name: "ZnNotificationService", targets: ["ZnNotificationService"]),
+]
 for p in plugins { products.append(.library(name: "ZnPlugin\(p.name)", targets: ["ZnPlugin\(p.name)"])) }
 
 let package = Package(

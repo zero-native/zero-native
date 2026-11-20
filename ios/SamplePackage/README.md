@@ -24,3 +24,7 @@ fetching or removing Hermes, reset the package caches (Xcode: File → Packages 
 Lottie plugins come from their own packages, `ios/packages/firebase` and `ios/packages/lottie`, with the real SDKs (the
 first build downloads them).
 Firebase starts only with `ios/Sample/GoogleService-Info.plist` (not in git).
+
+`NotificationService/` is the sample's notification service extension, from the package: one file that subclasses
+zero-native's `ZnNotificationService`, embedded in the app. It builds and is embedded; it has not been seen running
+on a real push yet (the simulator showed nothing on `simctl push`).

@@ -149,6 +149,20 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: the notification service extension and Crashlytics dSYMs on the Swift packages (Claude, Mac, M2)
+- **`ZnNotificationService`** is now a product of the main package (`plugins/firebase-messaging/ios-service`; it needs
+  neither the runtime nor Firebase). The class is `open`, so an app's extension is one file:
+  `final class NotificationService: ZnNotificationService {}`, principal class `$(PRODUCT_MODULE_NAME).NotificationService`.
+  The CMake builds (ZeroBill's extension) compile the same file as before.
+- **`ios/SamplePackage/NotificationService`**: the sample's extension target, linked to the product and embedded in the
+  app (`PlugIns/ZnSampleNotificationService.appex`, zero-native's code linked in). A `simctl push` with
+  `mutable-content` showed nothing from it on the simulator (the sample may not be allowed to show notifications
+  there); seeing it run needs an iPhone and a real push.
+- **Crashlytics dSYMs** for an app on the packages: Firebase's own `Crashlytics/run` script in the package checkout
+  (found at `SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run`), with its input files and the two build
+  settings, written in `ios/packages/firebase/README.release.md`. Not tried with a real upload.
+- Also: the release gate for 0.1.0 is publishing-plan §11 (dfc5f38).
+
 ### 2026-11-20: Android checks after the Mac's iOS work (Claude, Windows)
 - Core tests on the Lava (`tools/run-core-tests.ps1`, built with CMake 4.1.2, now in the SDK's own `cmake\4.1.2`
   folder): 167 checks, 0 failed.

@@ -151,19 +151,22 @@ targets of the same name.
   url and the release version; each repo is tagged with the same version. The repos exist (empty); that job doesn't yet.
 - **Lottie** comes from `lottie-spm` as a dynamic `Lottie.framework` that Xcode embeds; the CMake builds link
   `Lottie-Static`. The app gets the same Lottie, packed differently.
-- **Not checked yet:** the Crashlytics dSYM upload for an app on the package (Firebase's own run script, documented by
-  Google), and the notification service extension (`plugins/firebase-messaging/ios-service`).
+- **The notification service extension** (`plugins/firebase-messaging/ios-service`) is the main package's product
+  `ZnNotificationService` (it needs no Firebase): an app's extension subclasses it in one line.
+  `ios/SamplePackage/NotificationService` builds and embeds one; not yet seen running on a real push.
+- **Crashlytics dSYMs:** an app on the package adds Firebase's own `Crashlytics/run` script (in the package checkout)
+  as a build phase; the steps are in `ios/packages/firebase/README.release.md`. Not tried with an upload yet.
 
 **Done 2026-11-19 (§10 step 4, without the Hermes zip):** `Package.swift` at the repo root has the targets above
-(`ZnMMKV`, `ZnCore`, `ZnHost`, `ZnRuntime` with the privacy manifest, `hermesvm`, one `ZnPlugin<Name>` per plugin; the
-notification service extension is not in it yet). The runtime and plugins have a `public` API (the plugin contract,
+(`ZnMMKV`, `ZnCore`, `ZnHost`, `ZnRuntime` with the privacy manifest, `hermesvm`, one `ZnPlugin<Name>` per plugin, and since 2026-11-20
+`ZnNotificationService`, the notification service extension's code). The runtime and plugins have a `public` API (the plugin contract,
 `ZnApp.start`, OTA setup, the helpers plugins use), and each file imports what it needs under `#if SWIFT_PACKAGE` (an
 app's files: `#if canImport(ZnRuntime)`), so the CMake builds, ZeroBill's included, don't change. The 8 Hermes headers
 the core needs are in `core/third_party/hermes`. `ios/SamplePackage` builds the sample from the package; on the
 simulator its screens matched the CMake build's, and CI builds it. Firebase and Lottie are packages of their own
 (above).
 Still to do: the Hermes zip on a GitHub Release (the workflow exists; until it runs, `Package.swift` uses a local Hermes,
-so an app outside the repo can't use the package yet), and the notification service target.
+so an app outside the repo can't use the package yet).
 
 **Hermes as a binary target** [fact, run on this Mac, 2026-11-19]:
 - Meta publishes `hermes-ios` on Maven Central as a `.tar.gz`. SwiftPM needs a `.zip` at an HTTPS URL, with its SHA-256

@@ -11,9 +11,13 @@
 //   `shown: true` (iOS showed it), so the app can save it and count it as received and shown.
 // If the time runs out, iOS shows what is there by then (the text cleaned, no picture).
 //
-// The app adds a second target, an app extension with only this file (it uses no zero-native runtime), with
-// NSExtensionPointIdentifier `com.apple.usernotifications.service` and NSExtensionPrincipalClass
-// `$(PRODUCT_MODULE_NAME).ZnNotificationService`, embedded in the app (ZeroBill: ios/CMakeLists.txt).
+// The app adds a second target, an app extension (it uses no zero-native runtime and no Firebase), with
+// NSExtensionPointIdentifier `com.apple.usernotifications.service`, embedded in the app. Two ways:
+// - CMake (ZeroBill: ios/CMakeLists.txt): the extension compiles this file; NSExtensionPrincipalClass
+//   `$(PRODUCT_MODULE_NAME).ZnNotificationService`.
+// - The Swift package: the extension links the product `ZnNotificationService` and has one file,
+//   `import ZnNotificationService` + `final class NotificationService: ZnNotificationService {}`; NSExtensionPrincipalClass
+//   `$(PRODUCT_MODULE_NAME).NotificationService` (ios/SamplePackage/NotificationService). Hence `open`.
 import Foundation
 import UserNotifications
 
@@ -82,13 +86,13 @@ enum ZnServiceRules {
     }
 }
 
-class ZnNotificationService: UNNotificationServiceExtension {
+open class ZnNotificationService: UNNotificationServiceExtension {
     private let lock = NSLock()
     private var handler: ((UNNotificationContent) -> Void)?
     private var content: UNMutableNotificationContent?
     private var download: URLSessionDownloadTask?
 
-    override func didReceive(_ request: UNNotificationRequest, withContentHandler handler: @escaping (UNNotificationContent) -> Void) {
+    open override func didReceive(_ request: UNNotificationRequest, withContentHandler handler: @escaping (UNNotificationContent) -> Void) {
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else { return handler(request.content) }
         lock.withLock { self.handler = handler; self.content = content }
         content.title = ZnServiceRules.plain(content.title)
@@ -121,7 +125,7 @@ class ZnNotificationService: UNNotificationServiceExtension {
         task.resume()
     }
 
-    override func serviceExtensionTimeWillExpire() {
+    open override func serviceExtensionTimeWillExpire() {
         lock.withLock { download }?.cancel()
         finish()
     }

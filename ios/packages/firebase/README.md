@@ -14,3 +14,7 @@ where the CMake builds compile the same code. Here it depends on the main packag
 in its own repo, `zero-native-firebase`, made at each release by `tools/make-plugin-packages.ts`, with
 `README.release.md` as its README (`docs/releasing.md`). Firebase starts only when the app has its
 `GoogleService-Info.plist`, as in the CMake build.
+
+For apps: `README.release.md` also covers the Crashlytics dSYM upload (Firebase's `Crashlytics/run` script, found at
+`SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run` in a package build) and the notification service extension
+(the main package's `ZnNotificationService` product; `ios/SamplePackage/NotificationService` uses it).

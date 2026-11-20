@@ -23,10 +23,37 @@
 		265E9ED2B234B0CB6A57ADD8 /* ZnPluginAppUpdates */ = {isa = PBXBuildFile; productRef = 486F9D4581B59A48874ECA84 /* ZnPluginAppUpdates */; };
 		77DB807BC8605D14B4676E0D /* ZnPluginFirebaseMessaging */ = {isa = PBXBuildFile; productRef = 3EC87E6101D2958D79F5FB50 /* ZnPluginFirebaseMessaging */; };
 		0B86521F4C65D2F73F81DD14 /* ZnPluginNotifications */ = {isa = PBXBuildFile; productRef = E22048D599624A8B4231C3AF /* ZnPluginNotifications */; };
+		EFEE6249ECBC24B1B96173F8 /* ZnNotificationService */ = {isa = PBXBuildFile; productRef = 35C6B933CB95299BF3564A48 /* ZnNotificationService */; };
+		07904977F5C32D003FF16800 /* ZnSampleNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7B76D1A3EEAF6860F8F9E0E3 /* ZnSampleNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		30C07DED144F01A7BAD37394 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2B66177A24555090FCBAFBBF;
+			remoteInfo = ZnSampleNotificationService;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CFB8E671BCA9377F008B04CE /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				07904977F5C32D003FF16800 /* ZnSampleNotificationService.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZnSamplePackage.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7B76D1A3EEAF6860F8F9E0E3 /* ZnSampleNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ZnSampleNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -36,6 +63,13 @@
 				Info.plist,
 			);
 			target = 42AEFBAE01D2DFD981F7DA7D /* ZnSamplePackage */;
+		};
+		622F7163206AC59CFEBCBFDA /* Exceptions for "NotificationService" folder in "ZnSampleNotificationService" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2B66177A24555090FCBAFBBF /* ZnSampleNotificationService */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -47,6 +81,14 @@
 			);
 			name = Sample;
 			path = ../Sample;
+			sourceTree = "<group>";
+		};
+		E3E33D1CA597378311EC973A /* NotificationService */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				622F7163206AC59CFEBCBFDA /* Exceptions for "NotificationService" folder in "ZnSampleNotificationService" target */,
+			);
+			path = NotificationService;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +117,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		00CA4225F10571325F901EE1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EFEE6249ECBC24B1B96173F8 /* ZnNotificationService */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -82,6 +132,7 @@
 			isa = PBXGroup;
 			children = (
 				63AD9D34F3503826E5F649AE /* Sample */,
+				E3E33D1CA597378311EC973A /* NotificationService */,
 				86024CAD1E83101D97359D73 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +141,7 @@
 			isa = PBXGroup;
 			children = (
 				D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */,
+				7B76D1A3EEAF6860F8F9E0E3 /* ZnSampleNotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -105,10 +157,12 @@
 				8F51EF3B9040A527832BEBBA /* Frameworks */,
 				9B207167E5381C47682C6B4F /* Resources */,
 				77CBC257E66302866CF61917 /* Copy the JS bundle */,
+				CFB8E671BCA9377F008B04CE /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				40BB02CDC75C59B4F49505C3 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				63AD9D34F3503826E5F649AE /* Sample */,
@@ -135,6 +189,29 @@
 			productName = ZnSamplePackage;
 			productReference = D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */;
 			productType = "com.apple.product-type.application";
+		};
+		2B66177A24555090FCBAFBBF /* ZnSampleNotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A775DC61CA71F34A2EFB5162 /* Build configuration list for PBXNativeTarget "ZnSampleNotificationService" */;
+			buildPhases = (
+				EF3ADBB4504FFAB6C17C4A75 /* Sources */,
+				00CA4225F10571325F901EE1 /* Frameworks */,
+				EEF2A02B8B9E044FC86B01F9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E3E33D1CA597378311EC973A /* NotificationService */,
+			);
+			name = ZnSampleNotificationService;
+			packageProductDependencies = (
+				35C6B933CB95299BF3564A48 /* ZnNotificationService */,
+			);
+			productName = ZnSampleNotificationService;
+			productReference = 7B76D1A3EEAF6860F8F9E0E3 /* ZnSampleNotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -166,12 +243,20 @@
 			projectRoot = "";
 			targets = (
 				42AEFBAE01D2DFD981F7DA7D /* ZnSamplePackage */,
+				2B66177A24555090FCBAFBBF /* ZnSampleNotificationService */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		9B207167E5381C47682C6B4F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EEF2A02B8B9E044FC86B01F9 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -206,7 +291,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EF3ADBB4504FFAB6C17C4A75 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		40BB02CDC75C59B4F49505C3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2B66177A24555090FCBAFBBF /* ZnSampleNotificationService */;
+			targetProxy = 30C07DED144F01A7BAD37394 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		2D53B50AE2273FABAAF8B8FA /* Debug */ = {
@@ -271,6 +371,38 @@
 			};
 			name = Release;
 		};
+		8056401B23177D3FB71C7FB6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = NotificationService/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zeronative.sample.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		84500F0D8DF0A7DBD9A60DFD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = NotificationService/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zeronative.sample.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -288,6 +420,15 @@
 			buildConfigurations = (
 				FA7C752E798F561D7D156D98 /* Debug */,
 				22F75101C717335ACF4089A0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A775DC61CA71F34A2EFB5162 /* Build configuration list for PBXNativeTarget "ZnSampleNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8056401B23177D3FB71C7FB6 /* Debug */,
+				84500F0D8DF0A7DBD9A60DFD /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -373,6 +514,10 @@
 		E22048D599624A8B4231C3AF /* ZnPluginNotifications */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ZnPluginNotifications;
+		};
+		35C6B933CB95299BF3564A48 /* ZnNotificationService */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnNotificationService;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
