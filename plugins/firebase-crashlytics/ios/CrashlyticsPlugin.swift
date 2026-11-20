@@ -15,10 +15,10 @@ import Foundation
 import ZnRuntime
 import ZnPluginFirebaseApp
 #endif
-// In the Swift package the SDK is a declared dependency (ios/ExtrasPackage/Package.swift): without it, stop the build
+// In the Swift package the SDK is a declared dependency (ios/packages/firebase/Package.swift): without it, stop the build
 // instead of building a plugin that quietly does nothing. The CMake builds may leave the SDK out on purpose.
 #if SWIFT_PACKAGE && !(canImport(FirebaseCrashlytics))
-#error("ZnPluginFirebaseCrashlytics needs FirebaseCrashlytics: check ios/ExtrasPackage/Package.swift")
+#error("ZnPluginFirebaseCrashlytics needs FirebaseCrashlytics: check ios/packages/firebase/Package.swift")
 #endif
 #if canImport(FirebaseCrashlytics)
 import FirebaseCrashlytics

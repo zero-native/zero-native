@@ -39,7 +39,7 @@ While building from a local `zero-native` checkout, wire a plugin in four places
 
 1. **JS (`package.json`):** Add `"@zeronative/<name>": "link:../zero-native/plugins/<name>"` and run `bun install`.
 2. **Android (`android/settings.gradle.kts` + `android/app/build.gradle.kts`):** In a `zn new` app, add a `dependencySubstitution` entry in `settings.gradle.kts` mapping `dev.zeronative:plugin-<name>` to `:plugin-<name>`, then add `implementation("dev.zeronative:plugin-<name>")` in `app/build.gradle.kts`.
-3. **iOS (`ios/CMakeLists.txt`):** Add the plugin folder name to `APP_ZN_PLUGINS` (or select `ZnPlugin<Name>` when using SwiftPM).
+3. **iOS (`ios/CMakeLists.txt`):** Add the plugin folder name to `APP_ZN_PLUGINS` (or, when using SwiftPM, select the `ZnPlugin<Name>` product: from the zero-native package, except the Firebase plugins and Lottie, which come from the `zero-native-firebase` and `zero-native-lottie` packages at the same version; in a local checkout, `ios/packages/firebase` and `ios/packages/lottie`. See `docs/releasing.md`).
 4. **Register at startup:** Register the plugin in Android `MainApplication.kt` and iOS `AppDelegate.swift` (`ZnPlugins.register(...)`).
 
 ---

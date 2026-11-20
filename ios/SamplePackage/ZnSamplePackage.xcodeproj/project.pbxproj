@@ -157,7 +157,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A46A1BCE0B67C45BEC8F435B /* XCLocalSwiftPackageReference "../.." */,
-				E1027EEE3B723C853B141545 /* XCLocalSwiftPackageReference "../ExtrasPackage" */,
+				B41E5920EC01C13A31E00D4B /* XCLocalSwiftPackageReference "../packages/firebase" */,
+				2490E7629F3E83F3744739E5 /* XCLocalSwiftPackageReference "../packages/lottie" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 86024CAD1E83101D97359D73 /* Products */;
@@ -298,9 +299,13 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../..;
 		};
-		E1027EEE3B723C853B141545 /* XCLocalSwiftPackageReference "../ExtrasPackage" */ = {
+		B41E5920EC01C13A31E00D4B /* XCLocalSwiftPackageReference "../packages/firebase" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../ExtrasPackage;
+			relativePath = ../packages/firebase;
+		};
+		2490E7629F3E83F3744739E5 /* XCLocalSwiftPackageReference "../packages/lottie" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/lottie;
 		};
 /* End XCLocalSwiftPackageReference section */
 

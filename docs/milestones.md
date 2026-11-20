@@ -149,6 +149,22 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: the plugin packages split, one per SDK (Claude, Mac)
+- Pavan: split the second package. Now **`ios/packages/firebase`** (`ZeroNativeFirebase`: the app, Analytics,
+  Crashlytics and Messaging plugins) and **`ios/packages/lottie`** (`ZeroNativeLottie`), for the repos
+  `zero-native-firebase` and `zero-native-lottie`. An app that uses Lottie and not Firebase never downloads Firebase,
+  and the other way round. The four Firebase plugins stay together: adding any of them downloads all of
+  `firebase-ios-sdk`, so splitting them would save nothing. `ios/ExtrasPackage` and `tools/make-extras-package.ts` are
+  gone (the entry below is their history).
+- **`tools/make-plugin-packages.ts`** makes both release copies (header named from each package's own, real files,
+  the main package by url and exact version). Tested by `tools/test/make-plugin-packages.test.ts`; both copies parse.
+- The package sample uses both packages. Rebuilt from a clean build folder: Crashlytics 13.1.1 started, the Lottie lab
+  drew, the same four frameworks are embedded. CI on the commit before the split built the packages with the real SDKs
+  on GitHub's runners.
+- **Review:** two independent reviews (correctness, docs), each finding checked by an agent trying to refute it; ten
+  were real and are fixed. They were mostly the plan still describing one package (§1, §2.3, §3.3, §4, §7, §8, §10) and
+  the plugins guide. §7 now has a `plugin-packages` release job that needs a token for the two repos.
+
 ### 2026-11-20: Firebase and Lottie as a second Swift package (Claude, Mac)
 - **`ios/ExtrasPackage`** (package `ZeroNativeExtras`): `ZnPluginFirebaseApp`, `…Analytics`, `…Crashlytics`,
   `…Messaging` and `ZnPluginLottie`. `Sources/<target>` are relative symlinks to `plugins/<name>/ios`, so the code stays

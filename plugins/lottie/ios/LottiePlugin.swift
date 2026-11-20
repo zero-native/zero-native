@@ -14,10 +14,10 @@ import UIKit
 #if SWIFT_PACKAGE
 import ZnRuntime
 #endif
-// In the Swift package the SDK is a declared dependency (ios/ExtrasPackage/Package.swift): without it, stop the build
+// In the Swift package the SDK is a declared dependency (ios/packages/lottie/Package.swift): without it, stop the build
 // instead of building a plugin that quietly does nothing. The CMake builds may leave the SDK out on purpose.
 #if SWIFT_PACKAGE && !(canImport(Lottie))
-#error("ZnPluginLottie needs Lottie: check ios/ExtrasPackage/Package.swift")
+#error("ZnPluginLottie needs Lottie: check ios/packages/lottie/Package.swift")
 #endif
 #if canImport(Lottie)
 import Lottie

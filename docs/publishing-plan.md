@@ -23,9 +23,10 @@ How to read the marks (`[check]` as in `README.md` of this folder; `[fact]` is t
 - **Publish three things with one version number**, from one git tag:
   - 25 npm packages: core, template, ui, compiler, 20 plugins and a new `@zeronative/cli`;
   - 20 Android libraries (AARs) on Maven Central: the runtime and 19 plugins;
-  - one Swift package (SwiftPM). Hermes comes in it as a prebuilt XCFramework that we host.
+  - Swift packages (SwiftPM): the main one, with Hermes as a prebuilt XCFramework that we host, and one per outside SDK
+    (Firebase, Lottie), each in its own repo.
 - **No CocoaPods.** CocoaPods trunk stops taking new pods on 2026-12-02 (§5.4).
-- **Effort:** about 3 to 4 weeks of focused work. The iOS package is the biggest part, because the iOS runtime has no
+- **Effort:** about 3 to 4 weeks of focused work. The main iOS package is the biggest part, because the iOS runtime has no
   `public` API today (§5.2).
 
 ## 2. What gets published
@@ -113,7 +114,7 @@ signatures, and uploads to the Central Portal. [check] that its current version 
 app's own module**. So plugins don't `import` anything, and **the runtime has no `public` declaration at all**
 (0 found).
 
-Recommended: **one Swift package**, `ZeroNative`:
+Recommended: **a main Swift package**, `ZeroNative`, plus one package per outside SDK (below):
 
 | Target | Kind | From |
 |---|---|---|
@@ -132,18 +133,22 @@ The work this needs [fact: what is missing today]:
 - Firebase and Lottie: today the app links Google's and Airbnb's XCFrameworks, and the plugins check
   `canImport(FirebaseCore)`. In SwiftPM a target only sees its declared dependencies. So the Firebase plugins must
   depend on `firebase-ios-sdk`, and Lottie on `lottie-spm`. Then every app resolves (downloads) Firebase, even one that
-  uses none of it. **Chosen 2026-11-20: a second package** (§9).
+  uses none of it. **Chosen 2026-11-20: packages of their own, one per SDK** (below, §9).
 
-**The second package** (`ios/ExtrasPackage`, 2026-11-20): the Firebase app, Analytics, Crashlytics and Messaging
-plugins and Lottie, as `ZnPlugin<Name>` targets. Their code stays in `plugins/<name>/ios`, where the CMake builds compile
-it: `ios/ExtrasPackage/Sources/<target>` are relative symlinks to those folders (SwiftPM follows them; tried). It
-depends on the main package by path, on `firebase-ios-sdk` from 13.1.1 and `lottie-spm` from 4.6.1 (the CMake build's
-pins as the lowest versions, so an app can add a newer Firebase or Lottie itself). Analytics uses `FirebaseAnalyticsCore`: Firebase's plain `FirebaseAnalytics` product brings the IDFA module and
-Google's on-device ad conversion, which the CMake build leaves out. The main package no longer has these five targets:
-two packages can't have targets of the same name.
-- **At release** (§7), a job copies `ios/ExtrasPackage` with the symlinks resolved into its own repo, changes the
-  dependency on the main package from the path to its url and the release version, and tags that repo with the same
-  version. The repo's name is still to choose (it holds Lottie too, so not only "firebase").
+**Two plugin packages** (`ios/packages/firebase` and `ios/packages/lottie`, 2026-11-20): one per outside SDK, so an app
+that uses Lottie and not Firebase never downloads Firebase, and the other way round. Firebase is one package on Google's
+side (adding any of its products downloads all of `firebase-ios-sdk`; only the products used are built into the app),
+so the four Firebase plugins (app, Analytics, Crashlytics, Messaging) stay
+together: splitting them would save no download. Their code stays in `plugins/<name>/ios`, where the CMake builds
+compile it: each package's `Sources/<target>` are relative symlinks to those folders (SwiftPM follows them; tried). Each
+depends on the main package by path; Firebase on `firebase-ios-sdk` from 13.1.1, Lottie on `lottie-spm` from 4.6.1
+(the CMake build's pins as the lowest versions, so an app can add a newer Firebase or Lottie itself). Analytics uses
+`FirebaseAnalyticsCore`: Firebase's plain `FirebaseAnalytics` product brings the IDFA module and Google's on-device ad
+conversion, which the CMake build leaves out. The main package doesn't have these five targets: two packages can't have
+targets of the same name.
+- **At release** (§7), `tools/make-plugin-packages.ts` copies each with the symlinks resolved, for its own repo
+  (`zero-native-firebase`, `zero-native-lottie`), with the dependency on the main package changed from the path to its
+  url and the release version; each repo is tagged with the same version. The repos and that job don't exist yet.
 - **Lottie** comes from `lottie-spm` as a dynamic `Lottie.framework` that Xcode embeds; the CMake builds link
   `Lottie-Static`. The app gets the same Lottie, packed differently.
 - **Not checked yet:** the Crashlytics dSYM upload for an app on the package (Firebase's own run script, documented by
@@ -155,7 +160,7 @@ notification service extension is not in it yet). The runtime and plugins have a
 `ZnApp.start`, OTA setup, the helpers plugins use), and each file imports what it needs under `#if SWIFT_PACKAGE` (an
 app's files: `#if canImport(ZnRuntime)`), so the CMake builds, ZeroBill's included, don't change. The 8 Hermes headers
 the core needs are in `core/third_party/hermes`. `ios/SamplePackage` builds the sample from the package; on the
-simulator its screens matched the CMake build's, and CI builds it. Firebase and Lottie are in the second package
+simulator its screens matched the CMake build's, and CI builds it. Firebase and Lottie are packages of their own
 (above).
 Still to do: the Hermes zip on a GitHub Release (the workflow exists; until it runs, `Package.swift` uses a local Hermes,
 so an app outside the repo can't use the package yet), and the notification service target.
@@ -236,7 +241,9 @@ is `zn`; the docs must never tell people to run `npx zero-native`, which runs th
 
 ### 3.3 GitHub and SwiftPM [fact]
 - The org `zero-native` exists (made 2026-11-18) with one public repo, `zero-native/zero-native`. It is ours.
-- SwiftPM names come from the git URL, so there is no name to reserve. The package can be called `ZeroNative`.
+- SwiftPM names come from the git URL, so there is no name to reserve. The main package is `ZeroNative`; the plugin
+  packages are `ZeroNativeFirebase` and `ZeroNativeLottie`, in the repos `zero-native-firebase` and
+  `zero-native-lottie` (not made yet).
 
 ## 4. Accounts
 | Account | What for |
@@ -245,6 +252,7 @@ is `zn`; the docs must never tell people to run `npx zero-native`, which runs th
 | Sonatype Central Portal | the Maven namespace and its publishing token |
 | GPG key | signing Maven files: a key for the project, its public half on `keys.openpgp.org` and `keyserver.ubuntu.com` |
 | GitHub org `zero-native` | the repo, Releases (the Hermes zip), Actions |
+| Repos `zero-native-firebase`, `zero-native-lottie` | the plugin Swift packages; `release.yml` pushes and tags them with a token or deploy keys in the `release` environment |
 | Apple Developer team | only if the Hermes XCFramework must be signed (§2.3) |
 | Domain for the Maven group | DNS proof (§3.2) |
 
@@ -308,9 +316,14 @@ A new `.github/workflows/release.yml`, run on a pushed tag `v*`. The existing CI
 3. **maven** (Linux, environment `release`): JDK 21, the Android SDK as in `ci.yml`, then
    `./gradlew publishToMavenCentral` for the runtime and the 19 plugins, release variant, all four CPU types. The
    deployment waits in the portal until it is published (by hand at first).
-4. **ios** (macOS, Xcode 26): build the Swift package for the simulator and a device (`xcodebuild` on the package's
-   products), and build the sample from the package. Nothing is uploaded: the tag itself is the SwiftPM release.
-5. **github-release**: notes with the four contract numbers, links to the npm packages and Maven artifacts.
+4. **ios** (macOS, Xcode 26): build the Swift packages for the simulator and a device (`xcodebuild` on the packages'
+   products), and build the sample from them. Nothing is uploaded for the main repo: its tag is its SwiftPM release.
+5. **plugin-packages** (macOS, environment `release`, after the main tag exists):
+   `bun run tools/make-plugin-packages.ts --version <version>`, build each copy in `build/plugin-packages/<name>`
+   against the tagged main repo, then commit it to `zero-native-<name>` (`zero-native-firebase`, `zero-native-lottie`)
+   and tag it with the same version. Needs a token or deploy keys that can push to those two repos (§4).
+6. **github-release**: notes with the four contract numbers, links to the npm packages, Maven artifacts and the Swift
+   packages.
 
 Separate, by hand: `hermes-release.yml` (`workflow_dispatch`, macOS). It fetches Meta's Hermes, adds the privacy
 manifest, keeps only the iOS slices, zips it, prints the checksum and uploads the zip to a GitHub Release named
@@ -318,7 +331,8 @@ manifest, keeps only the iOS slices, zips it, prints the checksum and uploads th
 
 **Dry run before 0.1.0:** `npm publish --dry-run` (and `npm pack` installed into an app outside the repo);
 `./gradlew publishToMavenLocal` used by an app through `mavenLocal()`; a Central deployment that is dropped instead of
-published; a test tag on a fork for SwiftPM.
+published; a test tag on a fork for SwiftPM, with forks of `zero-native-firebase` and `zero-native-lottie` too (the
+copies name `https://github.com/zero-native/zero-native.git`, so a fork's copies need that url changed by hand).
 
 ## 8. What changes for app authors once published
 - **README, Quick start:** a new app comes from `bunx @zeronative/cli new my-app` (or `bun create zero-native`, which
@@ -332,7 +346,8 @@ published; a test tag on a fork for SwiftPM.
   with `mavenCentral()` (already in every app's repositories). The first outside app deletes its `includeBuild` block,
   as its own comment says.
 - **iOS app:** adds the package URL in Xcode, picks `ZnRuntime` and the plugin products, and copies the JS bundle in
-  a build phase. Today apps make their Xcode project with CMake from the zn sources. `zn new` would write a normal
+  a build phase. For the Firebase or Lottie plugins it also adds `zero-native-firebase` and / or `zero-native-lottie`
+  (§2.3), at exactly the same version as zero-native. Today apps make their Xcode project with CMake from the zn sources. `zn new` would write a normal
   Xcode project from a template instead. Making that template is part of the work (§10, step 6).
 - **`zn new` does not exist yet** [fact: not in `tools/zn.ts`]. It would write: `app/src/main.ts` with one screen, the
   Android host (Gradle files with the pinned AGP, Kotlin and wrapper versions, `firebase.gradle.kts` copied), the iOS
@@ -344,8 +359,8 @@ published; a test tag on a fork for SwiftPM.
 org (§3.2). The artifact ids stay as §2.2 has them: `io.github.zero-native:runtime` and
 `io.github.zero-native:plugin-<name>`. The Kotlin packages stay `dev.zeronative.*`.
 
-**Chosen 2026-11-20:** Firebase and Lottie for iOS go in a **second Swift package**, so apps without them never
-download Google's or Airbnb's SDKs (§2.3).
+**Chosen 2026-11-20:** the iOS plugins that need an outside SDK are **Swift packages of their own, one per SDK**
+(`zero-native-firebase`, `zero-native-lottie`), so an app downloads only the SDKs it uses (§2.3).
 
 Before 0.1.0 the maintainers still choose:
 - **Signing a re-hosted Hermes** (§2.3), if Apple's rule asks for it, and with which Apple team.
@@ -358,7 +373,7 @@ Days are focused working days, one engineer with AI, **target** (not measured).
 
 | # | Step | Days | Done when |
 |---|---|---|---|
-| 1 | The open choices (§9); make or confirm the npm org, the Central account and namespace, the GPG key | 0.5 (plus DNS wait) | the namespace shows "verified" in the Central Portal |
+| 1 | The open choices (§9); make or confirm the npm org, the Central account and namespace, the GPG key; create `zero-native-firebase` and `zero-native-lottie`, and a token or deploy keys for them in the `release` environment | 0.5 (plus DNS wait) | the namespace shows "verified" in the Central Portal |
 | 2 ✓ | npm: package fields (`version`, `files`, `license`, `repository`, `exports`, `publishConfig`), the core deep import, `@zeronative/cli` out of `tools/` | 2–3 | `npm pack` of each, installed in a new app outside the repo, builds a bundle with `zn builtin` |
 | 3 | Maven: one shared publishing setup for the runtime and 19 plugins, POM data, signing | 2–3 | an outside app builds from `mavenLocal()` with no `includeBuild` (needs a machine with the Android SDK; this Mac has none) |
 | 4 (most) | SwiftPM: `public` API, plugin targets with `import ZnRuntime`, `ZnCore` with MMKV, Hermes headers, the Hermes zip release, `Package.swift`; the sample builds from it | 5–8 | the sample from the package runs on the simulator with the same screens as the CMake build |
