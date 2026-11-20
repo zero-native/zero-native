@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test"
 import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, relative, resolve } from "node:path"
+import { join, relative, resolve, sep } from "node:path"
 import { className, keepIosBlocks, newApp, title, znPaths } from "../zn-new"
 
 const root = resolve(import.meta.dir, "../..")
+
+/** [f] relative to [dir], with "/" on every OS (Windows' relative() gives "\\"). */
+const rel = (dir: string, f: string) => relative(dir, f).split(sep).join("/")
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((e) => (statSync(join(dir, e)).isDirectory() ? files(join(dir, e)) : [join(dir, e)]))
@@ -17,9 +20,9 @@ test("zn new fills every name in templates/app", () => {
   const all = files(app.dir)
   for (const f of all) {
     if (f.endsWith(".jar")) continue
-    expect({ file: relative(app.dir, f), left: readFileSync(f, "utf8").match(/__[A-Z_]+__/g) }).toEqual({ file: relative(app.dir, f), left: null })
+    expect({ file: rel(app.dir, f), left: readFileSync(f, "utf8").match(/__[A-Z_]+__/g) }).toEqual({ file: rel(app.dir, f), left: null })
   }
-  expect(all.map((f) => relative(app.dir, f))).toContain("android/app/src/main/java/com/example/myapp/MainActivity.kt")
+  expect(all.map((f) => rel(app.dir, f))).toContain("android/app/src/main/java/com/example/myapp/MainActivity.kt")
   expect(statSync(join(app.dir, "android/gradlew")).mode & 0o111).not.toBe(0)
   expect(readFileSync(join(app.dir, "ios/CMakeLists.txt"), "utf8")).toContain("add_executable(MyApp MACOSX_BUNDLE")
 })
@@ -58,14 +61,14 @@ test("--ios packages: a plain Xcode project on the Swift package, no CMake, ever
   const dir = join(mkdtempSync(join(tmpdir(), "zn-new-")), "pkg-app")
   const app = newApp(dir, { id: "com.example.pkgapp", ios: "packages" })
   expect(app.ios).toBe("packages")
-  const all = files(app.dir).map((f) => relative(app.dir, f))
+  const all = files(app.dir).map((f) => rel(app.dir, f))
   expect(all).toContain("ios/PkgApp.xcodeproj/project.pbxproj")
   expect(all).toContain("ios/App/AppDelegate.swift")
   expect(all).not.toContain("ios/CMakeLists.txt")
   for (const f of files(app.dir)) {
     if (f.endsWith(".jar")) continue
     const text = readFileSync(f, "utf8")
-    expect({ file: relative(app.dir, f), left: text.match(/__[A-Z_]+__|<!-- \/?ios:/g) }).toEqual({ file: relative(app.dir, f), left: null })
+    expect({ file: rel(app.dir, f), left: text.match(/__[A-Z_]+__|<!-- \/?ios:/g) }).toEqual({ file: rel(app.dir, f), left: null })
   }
   const pbx = readFileSync(join(app.dir, "ios/PkgApp.xcodeproj/project.pbxproj"), "utf8")
   expect(pbx).toContain("XCLocalSwiftPackageReference")
@@ -80,7 +83,7 @@ test("--ios packages: a plain Xcode project on the Swift package, no CMake, ever
 test("the default iOS host is still CMake, and its README has no packages text", () => {
   const app = newApp(join(mkdtempSync(join(tmpdir(), "zn-new-")), "cm-app"))
   expect(app.ios).toBe("cmake")
-  expect(files(app.dir).map((f) => relative(app.dir, f))).toContain("ios/CMakeLists.txt")
+  expect(files(app.dir).map((f) => rel(app.dir, f))).toContain("ios/CMakeLists.txt")
   const readme = readFileSync(join(app.dir, "README.md"), "utf8")
   expect(readme).toContain("ios/CMakeLists.txt")
   expect(readme).not.toContain(".xcodeproj")

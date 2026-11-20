@@ -74,8 +74,9 @@ needs `files` (`src`, `README.md`, `LICENSE`, `NOTICE`), `license: "Apache-2.0"`
 [fact] read from `android/settings.gradle.kts` and each `build.gradle.kts`.
 
 - **Group:** see §3.2. The code uses `dev.zeronative` for Kotlin packages and Android namespaces.
-- **Artifact ids** are already chosen: Gradle uses the project name. The first outside app already asks for
-  `dev.zeronative:runtime` and `dev.zeronative:plugin-<name>` and maps them to projects (`guide-notes.md` §34).
+- **Artifact ids** are the Gradle project names: `io.github.zero-native:runtime` and
+  `io.github.zero-native:plugin-<name>`. The app template asks for those and, from a checkout, maps them to the
+  projects (`guide-notes.md` §34). ZeroBill still asks for `dev.zeronative:*`, which its build maps the same way.
 - **What to publish:** `runtime`, plus `plugin-<name>` for the 19 plugins with an `android/` folder, except
   `device-test`.
 - **What a runtime AAR holds:**
@@ -105,8 +106,19 @@ Maven Central's rules [fact, central.sonatype.org/publish/requirements, read 202
 - a POM with `name`, `description`, `url`, a license, a developer and `scm`;
 - no `-SNAPSHOT` versions.
 
-Recommended tool: the `com.vanniktech.maven.publish` Gradle plugin. It writes the POM, the extra jars and the
-signatures, and uploads to the Central Portal. [check] that its current version works with AGP 9.2.
+Tool: the `com.vanniktech.maven.publish` Gradle plugin (`.base`, 0.37.0). It writes the POM, the extra jars and the
+signatures, and uploads to the Central Portal. [fact, Windows, 2026-11-20] 0.37.0 is tested by its authors with AGP
+9.2.1 / Gradle 9.6, and worked here with Gradle 9.4.1.
+
+**Done 2026-11-20 (§10 step 3, Windows):** one publishing block in `android/build.gradle.kts` for `:runtime` and the
+19 `:plugin-*` (not `device-test` or the sample): release variant only (4 ABIs), a sources jar and an empty javadoc jar,
+a POM with the Apache-2.0 license, the project url, scm and a developer, and every dependency's version written
+(`versionMapping` from `releaseRuntimeClasspath`: without it the Firebase plugins' POMs had version-less Firebase
+dependencies, whose BoM comes from `plugin-firebase-app`). The version comes from `packages/core/package.json`.
+`publishToMavenLocal` wrote 20 artifacts (the runtime AAR with `libzn`, `libjsi` and `libc++_shared` for 4 ABIs and
+the baseline profile, no Hermes or fbjni copies), and a `zn new` app outside the repo built debug and release (R8) from
+only that folder, `google()` and `mavenCentral()`. Signing turns on only when the release key is given
+(`ORG_GRADLE_PROJECT_signingInMemoryKey`); nothing is uploaded.
 
 ### 2.3 SwiftPM (iOS)
 [fact] read from `ios/CMakeLists.txt` and the code. Today CMake makes one Xcode project. It compiles the C++ core
@@ -306,7 +318,8 @@ after that. Firebase stopped publishing to CocoaPods in October 2026. SwiftPM on
     package's version. It stays as it is.
 - **Hermes is pinned in three places**, all exact: `hermes-compiler` (npm, in the CLI), `hermes-android` (the runtime's
   POM) and the Hermes zip (`Package.swift`). The release check fails if they differ.
-- **Before each release, a script checks:** every `package.json` and `gradle.properties` has the tag's version; the
+- **Before each release, a script checks:** every `package.json` has the tag's version (Gradle reads the Android
+  version from `packages/core/package.json`, so there is no Gradle file to change); the
   internal `workspace:*` dependencies became that exact version (Bun's publish does this; `npm publish` does not, so
   the script rewrites them); `bun run gen:registry` changes nothing; the host API test passes.
 
@@ -380,7 +393,7 @@ Days are focused working days, one engineer with AI, **target** (not measured).
 |---|---|---|---|
 | 1 | The open choices (§9); make or confirm the npm org, the Central account and namespace, the GPG key; create `zero-native-firebase` and `zero-native-lottie`, and a token or deploy keys for them in the `release` environment | 0.5 (plus DNS wait) | the namespace shows "verified" in the Central Portal |
 | 2 ✓ | npm: package fields (`version`, `files`, `license`, `repository`, `exports`, `publishConfig`), the core deep import, `@zeronative/cli` out of `tools/` | 2–3 | `npm pack` of each, installed in a new app outside the repo, builds a bundle with `zn builtin` |
-| 3 | Maven: one shared publishing setup for the runtime and 19 plugins, POM data, signing | 2–3 | an outside app builds from `mavenLocal()` with no `includeBuild` (needs a machine with the Android SDK; this Mac has none) |
+| 3 ✓ | Maven: one shared publishing setup for the runtime and 19 plugins, POM data, signing | 2–3 | an outside app builds from `mavenLocal()` with no `includeBuild` (needs a machine with the Android SDK; this Mac has none) |
 | 4 (most) | SwiftPM: `public` API, plugin targets with `import ZnRuntime`, `ZnCore` with MMKV, Hermes headers, the Hermes zip release, `Package.swift`; the sample builds from it | 5–8 | the sample from the package runs on the simulator with the same screens as the CMake build |
 | 5 | The version check script, `release.yml`, `hermes-release.yml`, the dry run (§7) | 2 | a fork's test tag goes green end to end |
 | 6 (iOS host done) | `zn new`, the iOS app template, README and `guide-notes.md` §34 rewritten | 2–4 | `zn new demo` gives an app that runs on both OSes |
@@ -393,10 +406,10 @@ Agreed 2026-11-20 by the Mac and Windows sessions and approved by Pavan. Nothing
 done. Until then the versions stay `0.0.0`.
 
 1. CI green for Android, iOS and JS.
-2. Core tests pass on a real Android phone.
+2. Core tests pass on a real Android phone. **Done 2026-11-20** (Lava: 167 checks, 0 failed).
 3. Docs re-checked, no dead links.
-4. npm pack check passes (`bun run tools/pack.ts`).
-5. Maven local check: an app outside the repo builds from `mavenLocal()`.
+4. npm pack check passes (`bun run tools/pack.ts`). **Done** (CI runs it).
+5. Maven local check: an app outside the repo builds from `mavenLocal()`. **Done 2026-11-20** (Windows, §2.2).
 6. Hermes zip released, `Package.swift` on its url ([releasing.md](releasing.md)).
 7. One app outside the repo builds on both OSes from published-style artifacts (npm pack + `mavenLocal()` + the
    Swift packages).
