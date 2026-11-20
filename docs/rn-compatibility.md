@@ -39,7 +39,7 @@ What the reference app uses most is in [§11](#11-what-the-reference-app-uses-mo
    component body runs once. See [guide-notes.md](guide-notes.md) §1–2.
 3. **Unknown props and style keys fail the build.** Nothing is silently ignored.
    See the unknown prop and style key checks in [compile.ts](../compiler/src/compile.ts).
-4. **Android only today.** `Platform.OS` is always `"android"`. iOS (SwiftUI) comes later.
+4. **Written for Android first.** `Platform.OS` is `"android"` on Android and `"ios"` on iOS (since 2026-11-08). The iOS gaps are in [guides/platform-differences.md](guides/platform-differences.md#3-ios-gaps-in-detail).
 
 ## 1. Components
 
