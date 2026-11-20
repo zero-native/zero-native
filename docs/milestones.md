@@ -149,6 +149,20 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: release gate item 7, Android half: an app from packed npm and local Maven only (Claude, Windows)
+- An app outside the repo (made by `zn new`, then every path into the checkout removed) took zero-native only from
+  `tools/pack.ts` tarballs (`file:` paths, with `overrides` for the packages' own `@zeronative/*` dependencies) and
+  from `publishToMavenLocal`'s folder: core, ui, location, and `@zeronative/cli` as a dev dependency. `node_modules`
+  held copies, no links.
+- The packed `zn` built the bundle (`zn build app ...`); `tsc` passed. `:app:assembleDebug` and `:app:assembleRelease`
+  (R8) built, with `io.github.zero-native:runtime` and `plugin-location` as Maven modules. The release APK ran on
+  the Lava: first screen, a tap on a button that reads `Location.status()` from the plugin ("denied", location on;
+  the app never asked), and the second screen. No JS error or missing class.
+- Not covered: `zn new` itself from the npm CLI (it needs a checkout until release, publishing-plan §8), and the
+  Firebase plugins' setup script (`firebase.gradle.kts`, still applied by path).
+- Found: `tools/pack.ts` on Windows. From Git Bash, GNU `tar` reads `C:/...` as a remote host, so the JSON read fails;
+  from PowerShell, Windows' `tar` prints `\r\n`, so every file check fails. The tarballs themselves were right.
+
 ### 2026-11-20: Hermes released for the Swift package (Claude, Mac, M1)
 - Pavan's go. `hermes-release.yml` ran from main at 7ef77d2: zip made, tag absent, the package sample built against
   the zip (simulator and iPhone), draft uploaded, downloaded back and checked, published. Release
