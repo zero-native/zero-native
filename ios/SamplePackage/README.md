@@ -17,6 +17,8 @@ bun run tools/fetch-hermes-apple.ts release
 xcodebuild -project ios/SamplePackage/ZnSamplePackage.xcodeproj -scheme ZnSamplePackage -destination 'generic/platform=iOS Simulator' build
 ```
 
-Or open `ZnSamplePackage.xcodeproj` in Xcode. Hermes is the local release one until the Hermes zip is on a GitHub
-Release (`docs/publishing-plan.md` §2.3). The Firebase and Lottie plugins build without their SDKs and say so at start
-(the package doesn't depend on Google's or Airbnb's packages yet: §9).
+Or open `ZnSamplePackage.xcodeproj` in Xcode. With Hermes fetched, the package uses that local copy; without it, the
+zip on the `hermes-<version>` release ([docs/releasing.md](../../docs/releasing.md)). SwiftPM remembers which: after
+fetching or removing Hermes, reset the package caches (Xcode: File → Packages → Reset Package Caches). The Firebase and
+Lottie plugins build without their SDKs and say so at start (they move to a second package: `docs/publishing-plan.md`
+§2.3).

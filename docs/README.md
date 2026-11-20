@@ -30,7 +30,7 @@ Detailed technical specifications, exhaustive prop/API tables, and runbooks:
 - **App Author Reference:** [guide-notes.md](guide-notes.md), [components.md](components.md), [styling-and-layout.md](styling-and-layout.md), [rn-compatibility.md](rn-compatibility.md), [platform-differences.md](platform-differences.md), [svg.md](svg.md), [lists.md](lists.md), [fetch.md](fetch.md), [storage.md](storage.md), [motion.md](motion.md), [gestures-and-motion-v1.md](gestures-and-motion-v1.md)
 - **Plugins & Native Internals:** [plugins.md](plugins.md), [native-modules.md](native-modules.md), [adding-components.md](adding-components.md), [startup-and-performance.md](startup-and-performance.md), [android-issues-found-when-building-ios.md](android-issues-found-when-building-ios.md)
 - **OTA & Update Server:** [ota.md](ota.md), [ota-patches.md](ota-patches.md), [ota-requires-per-os.md](ota-requires-per-os.md), [ota-test-matrix.md](ota-test-matrix.md), [zn-updates-server.md](zn-updates-server.md), [zn-updates-deploy.md](zn-updates-deploy.md)
-- **Road to 1.0:** [production-readiness.md](production-readiness.md), [publishing-plan.md](publishing-plan.md)
+- **Road to 1.0:** [production-readiness.md](production-readiness.md), [publishing-plan.md](publishing-plan.md), [releasing.md](releasing.md)
 
 ---
 

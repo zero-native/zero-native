@@ -149,6 +149,25 @@ forwards them to the Android machine. Work on the `ios` branch.
 
 ## Log
 
+### 2026-11-20: the Hermes release workflow, and the Maven group (Claude, Mac)
+- **Maven group `io.github.zero-native`**, verified on the Central Portal for the GitHub org: Pavan added it by hand and
+  a temporary public repo in the org, named after the Portal's key, proved it (Sonatype documents this only for
+  personal accounts). Artifact ids stay `runtime` and `plugin-<name>` (docs/publishing-plan.md §9).
+- **`tools/make-hermes-zip.ts`:** the zip for the Swift package's `hermesvm` target, from the pinned, checked release
+  Hermes: only the iOS device and simulator slices (5.2 MB), the privacy manifest in each, Hermes's license. It checks
+  the slices and prints SwiftPM's checksum.
+- **`.github/workflows/hermes-release.yml`** (run by hand, from main only): makes the zip, stops if the tag exists,
+  builds the package sample against the zip for the simulator and an iPhone, uploads it to a draft release
+  `hermes-<version>`, downloads it back and checks the checksum, then publishes. A failed check deletes the draft.
+  Documented in the new docs/releasing.md (when, the upgrade list, the steps, what never to do). Not run yet.
+- **`Package.swift`:** `ZN_HERMES_ZIP=<zip>` builds against a zip (the workflow uses it); else the fetched copy; else
+  the release. Tried: the sample built against the zip for the simulator and an iPhone with the fetched copy hidden.
+- **Review:** three independent reviews (GitHub Actions, SwiftPM, the doc), each finding checked by a fourth agent
+  trying to refute it. Seven were real and all are fixed: the release was public before its zip was checked (now a
+  draft first), no guard for the branch or a leftover tag, nothing built against the zip before release, SwiftPM's
+  manifest cache, and two gaps in the doc's upgrade list (`libjsi.so`, `bun.lock`).
+- **Decided:** Firebase and Lottie for iOS go in a second Swift package (design next).
+
 ### 2026-11-19: iOS as a Swift package (Claude, Mac)
 - **`Package.swift`** at the repo root (docs/publishing-plan.md §2.3, §10 step 4): `ZnMMKV` (MMKV's C++ core with
   `FORCE_POSIX`), `ZnCore` (the C++ core and Hermes adapter), `ZnHost` (the Objective-C++ host; a small

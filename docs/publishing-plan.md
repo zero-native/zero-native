@@ -143,8 +143,8 @@ notification service extension is not in it yet). The runtime and plugins have a
 app's files: `#if canImport(ZnRuntime)`), so the CMake builds, ZeroBill's included, don't change. The 8 Hermes headers
 the core needs are in `core/third_party/hermes`. `ios/SamplePackage` builds the sample from the package; on the
 simulator its screens matched the CMake build's, and CI builds it. Firebase and Lottie build without their SDKs (§9).
-Still to do: the Hermes zip on a GitHub Release (until then `Package.swift` uses a local Hermes, so an app outside the
-repo can't use the package yet), and the notification service target.
+Still to do: the Hermes zip on a GitHub Release (the workflow exists; until it runs, `Package.swift` uses a local Hermes,
+so an app outside the repo can't use the package yet), and the notification service target.
 
 **Hermes as a binary target** [fact, run on this Mac, 2026-11-19]:
 - Meta publishes `hermes-ios` on Maven Central as a `.tar.gz`. SwiftPM needs a `.zip` at an HTTPS URL, with its SHA-256
@@ -161,6 +161,9 @@ repo can't use the package yet), and the notification service target.
   list also wants a signature from us on a re-hosted Hermes. If yes, signing needs an Apple Developer team (§9).
 - One binary target means one Hermes flavor. Ship release Hermes. Framework developers keep the debug one through the
   CMake build, as today.
+
+**Done 2026-11-20:** `tools/make-hermes-zip.ts` and `.github/workflows/hermes-release.yml` (run by hand), documented in
+[releasing.md](releasing.md). The zip built the package sample for the simulator and an iPhone. It isn't released yet.
 
 **Hermes ships on its own release.** The checksum must be in `Package.swift` in the tagged commit. So the Hermes zip
 can't be built by the same tag that points at it. Make it a separate GitHub Release, `hermes-260318099.0.5`, built
@@ -207,7 +210,9 @@ is `zn`; the docs must never tell people to run `npx zero-native`, which runs th
   - `io.github.<GitHub login>`: given at once when you sign up to the Central Portal with that GitHub account. It is a
     person's, not the org's.
   - `io.github.zero-native`: the Central docs say only the login you signed up with is automatic, not an org name.
-    [check] whether Central Support verifies an org with a temporary repo in the org.
+    [fact, 2026-11-20] Added by hand in the Portal, it was verified the way the docs describe for a personal account:
+    a temporary, empty public repository in the `zero-native` org, named after the Portal's verification key. It is
+    **verified** and is the group (§9).
   - A domain we own. DNS showed no name servers for `zero-native.org`, `zeronative.io`, `zero-native.io`,
     `zeronative.app` and `znative.dev`, so they may be free. **Not checked with a registrar.** `zeronative.com` and
     `zeronative.org` have name servers (taken).
@@ -321,14 +326,14 @@ published; a test tag on a fork for SwiftPM.
 - **zn-updates server:** stays "run it from the repo" for 0.1. A container image on GHCR later if people ask.
 
 ## 9. Open choices
-**Chosen 2026-11-19:** the Maven group is `io.github.p2pdops` for now (§3.2: free, and given at once to the GitHub
-account that signs up). Because the group is a person's, the artifact ids carry the project's name:
-`io.github.p2pdops:zeronative-runtime`, `io.github.p2pdops:zeronative-plugin-<name>`. A move to a domain later changes
-every app's Gradle lines, so it should happen before 1.0 if at all.
+**Chosen 2026-11-20:** the Maven group is **`io.github.zero-native`**, verified on the Central Portal for the GitHub
+org (§3.2). The artifact ids stay as §2.2 has them: `io.github.zero-native:runtime` and
+`io.github.zero-native:plugin-<name>`. The Kotlin packages stay `dev.zeronative.*`.
+
+**Chosen 2026-11-20:** Firebase and Lottie for iOS go in a **second Swift package**, so apps without them never
+download Google's or Airbnb's SDKs (§2.3).
 
 Before 0.1.0 the maintainers still choose:
-- **Firebase and Lottie on iOS** (§2.3): in the main Swift package, or in a second one so apps without them don't
-  download them.
 - **Signing a re-hosted Hermes** (§2.3), if Apple's rule asks for it, and with which Apple team.
 
 The rest of this plan assumes one version for everything from 0.1.0 (§6), SwiftPM only (§5.4), Bun only for 0.x, and

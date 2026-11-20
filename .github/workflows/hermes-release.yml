@@ -1,0 +1,125 @@
+# The Hermes zip for the Swift package (docs/releasing.md, "Hermes for the Swift package"). Run by hand from main, once
+# per Hermes version: Actions → Hermes release → Run workflow. It makes the zip (tools/make-hermes-zip.ts), builds the
+# package sample against it, puts it on a draft GitHub Release named hermes-<version>, downloads it back and checks the
+# checksum, and only then publishes the release. The summary has the url and checksum for Package.swift. It never
+# replaces a release or reuses a tag: apps that resolved the package hold its checksum.
+name: Hermes release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hermes-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Only from main
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Run Hermes release from main (got $GITHUB_REF)."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then echo "No Xcode 26 on this runner"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Make the zip
+        id: zip
+        run: |
+          bun run tools/make-hermes-zip.ts | tee zip.log
+          grep -E '^(version|checksum)=' zip.log >> "$GITHUB_OUTPUT"
+      # A published release always has its tag, so no tag means no release. ls-remote: 0 = the tag exists, 2 = it
+      # doesn't, anything else = it couldn't ask (stop rather than guess).
+      - name: Stop if the tag exists
+        env:
+          TAG: hermes-${{ steps.zip.outputs.version }}
+        run: |
+          set +e
+          git ls-remote --exit-code --tags origin "refs/tags/$TAG"
+          rc=$?
+          set -e
+          if [ $rc -eq 0 ]; then
+            echo "::error::$TAG exists. A release is never replaced: apps hold its checksum. Upgrading Hermes makes a new one."
+            exit 1
+          elif [ $rc -ne 2 ]; then
+            echo "::error::Could not check for $TAG (git ls-remote exit $rc)."
+            exit 1
+          fi
+      # What an app gets from this zip: the package sample, for the simulator and an iPhone (unsigned), with the
+      # zip as Hermes (ZN_HERMES_ZIP in Package.swift) and the fetched copy out of the way.
+      - name: Build the package sample against the zip
+        env:
+          ZN_HERMES_ZIP: build/hermes-zip/hermesvm.xcframework.zip
+        run: |
+          bun install --frozen-lockfile
+          bun run sample:js
+          mv ios/third_party/hermes/release/destroot/Library/Frameworks/universal/hermesvm.xcframework "$RUNNER_TEMP/"
+          xcodebuild -project ios/SamplePackage/ZnSamplePackage.xcodeproj -scheme ZnSamplePackage \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/dd" ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO build -quiet
+          xcodebuild -project ios/SamplePackage/ZnSamplePackage.xcodeproj -scheme ZnSamplePackage \
+            -destination 'generic/platform=iOS' -configuration Release -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO build -quiet
+          test -f "$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/ZnSamplePackage.app/Frameworks/hermesvm.framework/PrivacyInfo.xcprivacy"
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: hermes-${{ steps.zip.outputs.version }}
+          VERSION: ${{ steps.zip.outputs.version }}
+          CHECKSUM: ${{ steps.zip.outputs.checksum }}
+        run: |
+          cat > notes.md <<EOF
+          Meta's Hermes ${VERSION} (release build) for zero-native's Swift package: the iOS device and simulator slices of
+          \`hermesvm.xcframework\`, with zero-native's privacy manifest in each and Hermes's MIT license. Made from Maven
+          Central's \`com.facebook.hermes:hermes-ios:${VERSION}\` (checked against its pinned SHA-256) by
+          \`tools/make-hermes-zip.ts\` at ${GITHUB_SHA}.
+
+          SwiftPM checksum: \`${CHECKSUM}\`
+          EOF
+          gh release create "$TAG" build/hermes-zip/hermesvm.xcframework.zip --draft \
+            --target "$GITHUB_SHA" --title "Hermes ${VERSION} for the Swift package" --notes-file notes.md
+          {
+            echo "### Hermes ${VERSION}"
+            echo
+            echo "Release \`$TAG\` (draft until the check below passes). For \`Package.swift\`:"
+            echo
+            echo '```swift'
+            echo "url: \"https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/hermesvm.xcframework.zip\","
+            echo "checksum: \"$CHECKSUM\")"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      # The draft's zip, downloaded back, must have the same checksum. Then publish it; on a mismatch, delete the
+      # draft (a draft has no tag yet), so a re-run starts clean.
+      - name: Check the uploaded zip, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: hermes-${{ steps.zip.outputs.version }}
+          CHECKSUM: ${{ steps.zip.outputs.checksum }}
+        run: |
+          mkdir -p check
+          for i in 1 2 3 4 5; do
+            gh release download "$TAG" -p hermesvm.xcframework.zip -D check --clobber && break
+            sleep 5
+          done
+          got=$(swift package compute-checksum check/hermesvm.xcframework.zip)
+          if [ "$got" != "$CHECKSUM" ]; then
+            echo "::error::the uploaded zip has checksum $got, expected $CHECKSUM. The draft is deleted."
+            gh release delete "$TAG" --yes
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false --latest=false
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Checked and published." >> "$GITHUB_STEP_SUMMARY"
