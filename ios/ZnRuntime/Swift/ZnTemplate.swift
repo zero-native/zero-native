@@ -596,8 +596,8 @@ final class ZnTemplate {
         #endif
     }
 
-    // Registry 23 (Android's dynamic layout values, display, Text and List extras): iOS reads the templates but doesn't
-    // draw these yet. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
+    // Props Android draws and iOS doesn't yet (registry 23 and 24: dynamic layout values, display, Text and List extras,
+    // Canvas): iOS reads the templates but doesn't draw these. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
     // once per prop, so a screen that looks wrong on iOS points at the reason.
     #if DEBUG
     private static let slotsNotDrawn: Set<Int> = {
@@ -619,7 +619,7 @@ final class ZnTemplate {
     private static func reportNotDrawn(_ raw: RawTemplate) {
         func say(_ what: String) {
             guard reported.insert(what).inserted else { return }
-            print("zn: iOS doesn't draw \(what) yet (registry 23); it is left as the template has it")
+            print("zn: iOS doesn't draw \(what) yet; it is left as the template has it (docs/guides/platform-differences.md; prop numbers: packages/template/src/registry.ts)")
         }
         for s in raw.slots where slotsNotDrawn.contains(s.prop) { say("a runtime value for prop \(s.prop)") }
         for p in raw.props { for k in p.keys where propsNotDrawn.contains(k) { say("prop \(k)") } }
