@@ -167,7 +167,9 @@ targets of the same name.
   `ZnNotificationService` (it needs no Firebase): an app's extension subclasses it in one line.
   `ios/SamplePackage/NotificationService` builds and embeds one; not yet seen running on a real push.
 - **Crashlytics dSYMs:** an app on the package adds Firebase's own `Crashlytics/run` script (in the package checkout)
-  as a build phase; the steps are in `ios/packages/firebase/README.release.md`. Not tried with an upload yet.
+  as a build phase; the steps are in `ios/packages/firebase/README.release.md`. Tried 2026-11-20: the package sample has
+  that phase (Release only, skipped without a `GoogleService-Info.plist`); an iPhone Release build ran it ("Validation
+  succeeded"), and `upload-symbols` answered "Successfully uploaded Crashlytics symbols" for the build's dSYM.
 
 **Done 2026-11-19 (§10 step 4, without the Hermes zip):** `Package.swift` at the repo root has the targets above
 (`ZnMMKV`, `ZnCore`, `ZnHost`, `ZnRuntime` with the privacy manifest, `hermesvm`, one `ZnPlugin<Name>` per plugin, and since 2026-11-20

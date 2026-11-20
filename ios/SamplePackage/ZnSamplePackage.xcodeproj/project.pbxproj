@@ -158,6 +158,7 @@
 				9B207167E5381C47682C6B4F /* Resources */,
 				77CBC257E66302866CF61917 /* Copy the JS bundle */,
 				CFB8E671BCA9377F008B04CE /* Embed Foundation Extensions */,
+				26711ABE8FA7BADC7F273B38 /* Upload dSYMs to Crashlytics */,
 			);
 			buildRules = (
 			);
@@ -280,6 +281,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# The JS bundle the sample runs (bun run sample:js writes it): the four files and the asset folders, into the app.\nset -e\nsrc=\"$SRCROOT/../../android/sample/src/main/assets\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nfor f in main.hbc main.zn.ui main.zn.ui.json zn-bundle.json; do\n  [ -f \"$src/$f\" ] || { echo \"error: no $src/$f. Run: bun run sample:js\"; exit 1; }\n  cp \"$src/$f\" \"$dst/$f\"\ndone\nfor d in images lottie; do\n  if [ -d \"$src/$d\" ]; then rm -rf \"$dst/$d\"; cp -R \"$src/$d\" \"$dst/$d\"; fi\ndone\n";
+		};
+		26711ABE8FA7BADC7F273B38 /* Upload dSYMs to Crashlytics */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+			);
+			name = "Upload dSYMs to Crashlytics";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Crashlytics: upload this build's dSYM (Firebase's own script, in the package checkout; ios/packages/firebase/README.release.md).\n# Skipped in Debug builds, and when the app has no GoogleService-Info.plist (CI, or a checkout without one).\nif [ \"$CONFIGURATION\" != \"Release\" ]; then echo \"Crashlytics dSYM upload: skipped ($CONFIGURATION)\"; exit 0; fi\nif [ ! -f \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/GoogleService-Info.plist\" ]; then echo \"Crashlytics dSYM upload: skipped (no GoogleService-Info.plist)\"; exit 0; fi\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

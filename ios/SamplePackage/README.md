@@ -28,3 +28,7 @@ Firebase starts only with `ios/Sample/GoogleService-Info.plist` (not in git).
 `NotificationService/` is the sample's notification service extension, from the package: one file that subclasses
 zero-native's `ZnNotificationService`, embedded in the app. It builds and is embedded; it has not been seen running
 on a real push yet (the simulator showed nothing on `simctl push`).
+
+A Release build uploads its dSYM to Crashlytics ("Upload dSYMs to Crashlytics", Firebase's own `Crashlytics/run`
+script from the package checkout); it skips itself in Debug builds and when there is no
+`ios/Sample/GoogleService-Info.plist`, as on CI.
