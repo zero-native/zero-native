@@ -74,5 +74,18 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Push (plugins/firebase-messaging): the app delegate forwards the APNs calls itself, so nothing is swizzled. -->
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+		<string>fetch</string>
+	</array>
+	<!-- A push's OTA check that must wait (plugins/firebase-messaging/ios/OtaPush.swift). -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.zeronative.ota-check</string>
+	</array>
 </dict>
 </plist>

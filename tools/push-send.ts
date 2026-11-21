@@ -4,13 +4,13 @@
 //   bun run tools/push-send.ts --topic zn-sample-lab --data lab=show --notification "Title|Body"
 //
 // Options: --token or --topic (one of them), --data k=v,k=v (all strings), --notification "title|body",
-// --priority high|normal (default high), --project <id> (default: project_id of android/sample/google-services.json),
+// --priority high|normal (default high), --project <id> (default: the sample's, from android/sample/google-services.json or ios/Sample/GoogleService-Info.plist),
 // --image <https url> (a picture: Android's notification image, and on iOS FCM's image with "mutable-content": 1, so the
 // notification service extension downloads and attaches it).
 // The access token comes from `gcloud auth print-access-token` (your account needs FCM rights on the project). Nothing
 // here prints a token: only the FCM message name, or FCM's error.
 import { spawnSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 function arg(name: string): string | undefined {
@@ -25,10 +25,17 @@ if (!token === !topic) {
   process.exit(2)
 }
 
-const project =
-  arg("project") ??
-  (JSON.parse(readFileSync(join(import.meta.dir, "..", "android", "sample", "google-services.json"), "utf8")) as { project_info: { project_id: string } })
-    .project_info.project_id
+/** The sample's Firebase project: android/sample/google-services.json, else ios/Sample/GoogleService-Info.plist (a Mac). */
+function sampleProject(): string {
+  const root = join(import.meta.dir, "..")
+  const android = join(root, "android", "sample", "google-services.json")
+  if (existsSync(android)) return (JSON.parse(readFileSync(android, "utf8")) as { project_info: { project_id: string } }).project_info.project_id
+  const plist = readFileSync(join(root, "ios", "Sample", "GoogleService-Info.plist"), "utf8")
+  const id = /<key>PROJECT_ID<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1]
+  if (!id) throw new Error("no PROJECT_ID in ios/Sample/GoogleService-Info.plist: pass --project <id>")
+  return id
+}
+const project = arg("project") ?? sampleProject()
 
 const data: Record<string, string> = {}
 for (const pair of (arg("data") ?? "").split(",").filter(Boolean)) {

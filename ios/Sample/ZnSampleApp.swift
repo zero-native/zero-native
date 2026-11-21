@@ -22,9 +22,11 @@ import ZnPluginDocumentScanner
 import ZnPluginFirebaseAnalytics
 import ZnPluginFirebaseApp
 import ZnPluginFirebaseCrashlytics
+import ZnPluginFirebaseMessaging
 import ZnPluginImageViewer
 import ZnPluginLocation
 import ZnPluginLottie
+import ZnPluginNotifications
 import ZnPluginPdf
 import ZnPluginScanner
 import ZnPluginWebView
@@ -40,7 +42,7 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let env = ProcessInfo.processInfo.environment
         // Plugins first, before the bundle runs (docs/plugins.md).
-        ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin(), AppUpdatesPlugin())
+        ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin(), AppUpdatesPlugin(), NotificationsPlugin(), FirebaseMessagingPlugin())
         _ = env
         // OTA updates from the update server on this computer (`bun run updates:server`, or `bun run ota serve`; the
         // simulator reaches it at localhost), staging channel, signed with the sample's key (the private key stays in
@@ -75,6 +77,19 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    // Push (plugins/firebase-messaging): Info.plist turns Firebase's app delegate proxy off, so these three are forwarded.
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        FirebaseMessagingPlugin.apnsToken(token)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        FirebaseMessagingPlugin.apnsFailed(error)
+    }
+
+    func application(_ application: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any],
+                     fetchCompletionHandler done: @escaping (UIBackgroundFetchResult) -> Void) {
+        FirebaseMessagingPlugin.remoteNotification(info, done)
+    }
 }
 
 // Named in Info.plist (UISceneConfigurations), so a scene session the system kept from an earlier build uses it too.
