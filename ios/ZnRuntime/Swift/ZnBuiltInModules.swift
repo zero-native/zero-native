@@ -303,7 +303,9 @@ final class ZnUpdatesOff: ZnModuleBase, @unchecked Sendable {
 /// events, the messaging plugin's messages and tokens). As Android's ZnBackground: a queue until JS has loaded, a time
 /// limit, one answer per task. iOS starts JS when the window opens, so a task that comes while JS isn't running waits;
 /// one run with `keep: true` is also saved, so it runs at the app's next start if this process ends first
-/// (docs/milestones-ios.md Phase 3). It doesn't keep the process alive: the plugin's own background time does.
+/// (docs/milestones-ios.md Phase 3). `answerByMs` is Android's time limit (from run(), queued or not), for a plugin
+/// that must answer iOS in time (a background push's fetchCompletionHandler). It doesn't keep the process alive: the
+/// plugin's own background time does.
 public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
     public enum Outcome: String { case done, failed, noTask = "no_task", timedOut = "timed_out" }
 
@@ -317,8 +319,10 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
         let data: Any?
         let timeoutMs: Int
         let keptId: String?
-        let onDone: (Outcome) -> Void
+        /// nil once answered early: its answer-by time passed while it waited for JS, and it is kept for JS.
+        var onDone: ((Outcome) -> Void)?
         var timeout: DispatchWorkItem?
+        var answerBy: DispatchSourceTimer?
     }
 
     // All main thread.
@@ -347,19 +351,53 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
 
     /// Runs task [name] with [data] (a JSON value). [onDone] is called once, on the main thread. The [timeoutMs] limit
     /// starts when JS gets the task: then JS's `signal` is aborted and the outcome is timedOut. [keep]: saved until JS has
-    /// run it, also across app starts (events a user made: a dismiss, a button). Any thread.
-    public func run(_ name: String, _ data: Any? = nil, timeoutMs: Int = 30_000, keep: Bool = false, onDone: @escaping (Outcome) -> Void = { _ in }) {
+    /// run it, also across app starts (events a user made: a dismiss, a button).
+    /// [answerByMs]: [onDone] comes at the latest this long after this call, also while the task waits for JS (JS
+    /// doesn't run in a background launch): timedOut, and JS's `signal` is aborted if it was running it. A kept task
+    /// still runs once JS is up (this process or the next start); one not kept is dropped, as on Android. Any thread.
+    public func run(_ name: String, _ data: Any? = nil, timeoutMs: Int = 30_000, keep: Bool = false, answerByMs: Int? = nil,
+                    onDone: @escaping (Outcome) -> Void = { _ in }) {
+        let answerAt = answerByMs.map { DispatchTime.now() + .milliseconds(max(0, $0)) }  // from now, not from the main thread's turn
         DispatchQueue.main.async {
             let keptId = keep ? self.saveKept(name, data, timeoutMs) : nil
-            self.enqueue(Task(name: name, data: data, timeoutMs: timeoutMs, keptId: keptId, onDone: onDone))
+            let id = self.enqueue(Task(name: name, data: data, timeoutMs: timeoutMs, keptId: keptId, onDone: onDone))
+            if let answerAt, let ms = answerByMs { self.answerBy(id, at: answerAt, ms: ms) }
         }
     }
 
-    private func enqueue(_ task: Task) {
+    @discardableResult private func enqueue(_ task: Task) -> String {
         nextId += 1
         let id = "\(nextId)"
         tasks[id] = task
         if loaded { send(id) } else { queued.append(id) }
+        return id
+    }
+
+    /// Main thread: task [id] must be answered at [at] ([ms] after run, for the log).
+    private func answerBy(_ id: String, at: DispatchTime, ms: Int) {
+        guard tasks[id] != nil else { return }  // answered already (JS was quick, or it couldn't be sent)
+        tasks[id]?.answerBy = ZnDeadline.main(at: at) { [weak self] in self?.answerByPassed(id, ms) }  // on time (not asyncAfter)
+    }
+
+    private func answerByPassed(_ id: String, _ ms: Int) {
+        guard var task = tasks[id] else { return }
+        let waiting = queued.contains(id)
+        switch ZnTaskRules.answerBy(queued: waiting, kept: task.keptId != nil) {
+        case .abort:
+            ZNHost.shared.dispatchEvent(0, event: Self.appEventTask, string: ZnModules.json(["id": id, "abort": true]) ?? "{}")
+            finish(id, .timedOut)
+        case .drop:
+            print("zn: task \(task.name): JS didn't get it within \(ms) ms")
+            finish(id, .timedOut)
+        case .answerAndKeep:
+            // Answered now (the plugin answers iOS); the saved copy stays, so JS still runs it
+            print("zn: task \(task.name): \(Outcome.timedOut.rawValue) (JS didn't get it within \(ms) ms; kept, it runs when JS is up)")
+            let done = task.onDone
+            task.onDone = nil
+            task.answerBy = nil
+            tasks[id] = task
+            done?(.timedOut)
+        }
     }
 
     /// ZnApp: main.hbc has run (startApp installed the task listener). Queued tasks go now.
@@ -400,9 +438,13 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
         guard let task = tasks.removeValue(forKey: id) else { return }  // timed out already, or a late answer
         queued.removeAll { $0 == id }
         task.timeout?.cancel()
+        task.answerBy?.cancel()
         if let kept = task.keptId { dropKept(kept) }
+        guard let onDone = task.onDone else {
+            return print("zn: task \(task.name): \(outcome.rawValue) (answered earlier, at its answer-by time)")
+        }
         print("zn: task \(task.name): \(outcome.rawValue)")
-        task.onDone(outcome)
+        onDone(outcome)
     }
 
     // MARK: Kept tasks (UserDefaults: a list of { id, name, json, timeoutMs })

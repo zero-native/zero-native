@@ -25,6 +25,7 @@ Some suites read built files: `routes` reads the sample's `main.zn.ui.json`, so 
 | `net` | fetch's progress throttle, the multipart body writer (streamed file parts, escaping, cancel, a 100 MB file's memory) and the network key (`ZnNetRules.swift`) | `ZnFetchTest.kt` (ProgressThrottler), OkHttp's `MultipartBody` |
 | `ota` | OTA rules and the zip install (`ZnOtaRules.swift`, `ZnOtaInstall.swift`) | `ZnOtaHealthTest`, `ZnBundlesTest`, `ZnOtaStoreTest`, `ZnOtaSignatureTest`, `ZnOtaInstallTest` |
 | `routes` | route reading and deep link matching (`ZnRoutes.swift`) | `ZnRoutesTest.kt`, `ZnNavHost.kt` |
+| `push` | a background push's once-only answer and a task's answer-by time (`ZnTaskRules.swift`), the Crashlytics plugin's bundle keys and reasons (`plugins/firebase-crashlytics/ios/CrashlyticsRules.swift`) | `ZnBackground.kt`, `CrashlyticsRulesTest.kt` |
 
 ## Adding a suite
 

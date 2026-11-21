@@ -1,0 +1,3 @@
+# Foundation only.
+ios/ZnRuntime/Swift/ZnTaskRules.swift
+plugins/firebase-crashlytics/ios/CrashlyticsRules.swift
