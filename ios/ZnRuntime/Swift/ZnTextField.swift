@@ -7,6 +7,12 @@
 // distance from the end, so "₹1,234" → typing in the middle doesn't throw the cursor to the end; marked text (an IME
 // composing) is never replaced. SwiftUI variant: TextField(text:). It has no cursor or marked-text API before iOS 18,
 // so a value from JS puts the cursor at the end.
+//
+// As ZnTextField.kt: the placeholder in placeholderColor (#9CA3AF when not written) with the field's font;
+// selectionColor tints the cursor, the selection handles and the highlight (not written: the app's tint, iOS's own);
+// autoCapitalize and autoCorrect as Android's KeyboardOptions (ZnFieldRules). iOS differences: the highlight is
+// UIKit's lighter shade of the tint (Android: the colour at 30%); without selectionColor the cursor is the app's tint,
+// not the text colour; spell checking follows autoCorrect (Android has no separate switch).
 import SwiftUI
 import UIKit
 
@@ -40,6 +46,45 @@ struct ZnFieldLook: Equatable {
     var editable: Bool
     var color: Color
     var placeholder: String
+}
+
+/// Android's placeholder colour when the app sets none (ZnTemplate.kt placeholderColor's default).
+let znPlaceholderDefault = UIColor(red: 0x9C / 255, green: 0xA3 / 255, blue: 0xAF / 255, alpha: 1)
+
+/// The field's placeholder colour.
+func znPlaceholderColor(_ s: ZnNodeSpec) -> UIColor { s.placeholderColor.map(UIColor.init) ?? znPlaceholderDefault }
+
+extension UITextAutocapitalizationType {
+    init(_ a: ZnAutocap) {
+        switch a {
+        case .none: self = .none
+        case .sentences: self = .sentences
+        case .words: self = .words
+        case .characters: self = .allCharacters
+        }
+    }
+}
+
+/// autoCapitalize, autoCorrect and selectionColor on a UITextField or UITextView, each only when it changes (setting
+/// one while focused reloads the keyboard, and only then).
+@MainActor
+private func znApplyInputTraits(_ v: UIView, _ s: ZnNodeSpec) {
+    let cap = UITextAutocapitalizationType(ZnFieldRules.autocap(s.autoCapitalize, secure: s.secure, keyboardType: s.keyboardType))
+    let correct: UITextAutocorrectionType = ZnFieldRules.autocorrect(s.autoCorrect, secure: s.secure) ? .default : .no
+    let spell: UITextSpellCheckingType = correct == .no ? .no : .default
+    var changed = false
+    if let f = v as? UITextField {
+        if f.autocapitalizationType != cap { f.autocapitalizationType = cap; changed = true }
+        if f.autocorrectionType != correct { f.autocorrectionType = correct; changed = true }
+        if f.spellCheckingType != spell { f.spellCheckingType = spell; changed = true }
+    } else if let t = v as? UITextView {
+        if t.autocapitalizationType != cap { t.autocapitalizationType = cap; changed = true }
+        if t.autocorrectionType != correct { t.autocorrectionType = correct; changed = true }
+        if t.spellCheckingType != spell { t.spellCheckingType = spell; changed = true }
+    }
+    if changed && v.isFirstResponder { v.reloadInputViews() }
+    // Not written: left alone, so the field keeps the tint of the views around it (the app's). It is static.
+    if let tint = s.selectionColor.map(UIColor.init), v.tintColor != tint { v.tintColor = tint }
 }
 
 /// editable: a slot's null counts as editable, as on Android (`!= false`).
@@ -259,14 +304,23 @@ struct ZnUIKitField: UIViewRepresentable {
         if !look.editable && f.isFirstResponder {
             DispatchQueue.main.async { if !c.editable && f.isFirstResponder { f.resignFirstResponder() } }
         }
-        // Only on a change: setting them again relays the field out (an empty placeholder is nil).
+        let font = UIFont.systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
+        f.font = font
+        // Only on a change: setting it again relays the field out (an empty placeholder is nil). In placeholderColor
+        // and the field's font, as Android draws it with the field's text style.
         let placeholder = look.placeholder.isEmpty ? nil : look.placeholder
-        if f.placeholder != placeholder { f.placeholder = placeholder }
-        f.font = .systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
+        let pColor = znPlaceholderColor(s)
+        if c.placeholder?.0 != placeholder || c.placeholder?.1 != pColor || c.placeholder?.2 != font {
+            c.placeholder = (placeholder, pColor, font)
+            f.attributedPlaceholder = placeholder.map {
+                NSAttributedString(string: $0, attributes: [.foregroundColor: pColor, .font: font])
+            }
+        }
         let color = UIColor(look.color)
         if f.textColor != color { f.textColor = color }
         f.isSecureTextEntry = s.secure
         f.keyboardType = znKeyboard(s.keyboardType)
+        znApplyInputTraits(f, s)
         // The keyboard's autofill (the user's own phone number, email, an SMS code). Only when it changes: setting it
         // while focused reloads the keyboard's suggestions.
         let hint = znContentType(s.autoComplete)
@@ -298,6 +352,8 @@ struct ZnUIKitField: UIViewRepresentable {
         var s: ZnNodeSpec?
         var state: ZnFieldState?
         var editable = true
+        /// The placeholder last set: text, colour, font.
+        var placeholder: (String?, UIColor, UIFont)?
 
         @objc func changed(_ f: UITextField) {
             guard let s, let state, s.onChangeText != 0 else { return }
@@ -353,16 +409,26 @@ struct ZnSwiftUIField: View {
     @State private var text = ""
 
     var body: some View {
+        let prompt = Text(look.placeholder).foregroundStyle(Color(znPlaceholderColor(s)))
         let field = Group {
             if s.secure {
-                SecureField(look.placeholder, text: binding)
+                SecureField(text: binding, prompt: prompt) { EmptyView() }
             } else {
-                TextField(look.placeholder, text: binding)
+                TextField(text: binding, prompt: prompt) { EmptyView() }
             }
+        }
+        let cap: TextInputAutocapitalization = switch ZnFieldRules.autocap(s.autoCapitalize, secure: s.secure, keyboardType: s.keyboardType) {
+        case .none: .never
+        case .sentences: .sentences
+        case .words: .words
+        case .characters: .characters
         }
         field
             .font(.system(size: s.fontSize, weight: znWeight(s.fontWeight)))
             .foregroundStyle(look.color)
+            .tint(s.selectionColor)
+            .textInputAutocapitalization(cap)
+            .autocorrectionDisabled(!ZnFieldRules.autocorrect(s.autoCorrect, secure: s.secure))
             .disabled(!look.editable)
             .keyboardType(znKeyboard(s.keyboardType))
             .textContentType(znContentType(s.autoComplete))
@@ -409,7 +475,6 @@ struct ZnUIKitTextView: UIViewRepresentable {
         v.textContainer.lineFragmentPadding = 0
         v.isScrollEnabled = false  // grows with its text
         let placeholder = UILabel()
-        placeholder.textColor = UIColor(red: 0.61, green: 0.64, blue: 0.69, alpha: 1)  // as Android's default
         placeholder.numberOfLines = 0
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(placeholder)
@@ -453,11 +518,13 @@ struct ZnUIKitTextView: UIViewRepresentable {
         let color = UIColor(look.color)
         if v.textColor != color { v.textColor = color }
         v.keyboardType = znKeyboard(s.keyboardType)
+        znApplyInputTraits(v, s)
         let hint = znContentType(s.autoComplete)
         if v.textContentType != hint { v.textContentType = hint }
         v.returnKeyType = znReturnKey(s.returnKeyType) ?? .default
         if c.placeholder?.text != look.placeholder { c.placeholder?.text = look.placeholder }
         c.placeholder?.font = font
+        c.placeholder?.textColor = znPlaceholderColor(s)
         defer { c.placeholder?.isHidden = !v.text.isEmpty }
 
         guard raw != c.lastRaw else { return }

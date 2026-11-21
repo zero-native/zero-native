@@ -7,8 +7,14 @@
 // fontSize, lineHeight and letterSpacing may come from slots (registry 23): read here, so a change redraws this Text alone.
 // A top-level onPress / onLongPress (registry 23) makes the text a button, as Android's clickable Text: no press
 // feedback, the touch area the text inside its padding, nothing under pointerEvents "none".
+// selectable (registry 23, or its slot): a long press shows iOS's Copy / Share menu for the whole text (SwiftUI's
+// textSelection, as React Native on iOS). A Text with onPress / onLongPress keeps its own taps (no menu).
+// adjustsFontSizeToFit with numberOfLines (registry 23): the text shrinks to fit its box in those lines, down to
+// minimumFontScale (0.5 when not written, kept within 0.01...1), then ends in "…", as Android's TextAutoSize.
 // iOS differences: includeFontPadding is Android-only (ignored). lineHeight adds the difference to the font's own
-// line height as line spacing (RN on iOS places the extra space differently: above each line).
+// line height as line spacing (RN on iOS places the extra space differently: above each line). selectable copies the
+// whole text: SwiftUI's Text can't select a range on iOS (Android shows handles for a range). Auto-fit shrinks
+// smoothly, not in Android's 0.5 sp steps.
 import SwiftUI
 import UIKit
 
@@ -53,13 +59,18 @@ struct ZnTextView: View {
         let size = max(s.fontSizeNow(inst), 0)
         let font = UIFont.systemFont(ofSize: size, weight: znUIWeight(s.fontWeight))
         let extra = s.lineHeightNow(inst).map { max($0 - font.lineHeight, 0) } ?? 0
+        let selectable = s.selectableSlot >= 0 ? inst.slot(s.selectableSlot).value == .bool(true) : s.selectable
+        // Auto-fit only with numberOfLines, as Android (without a line limit there is nothing to fit to).
+        let minScale = znTextMinScale(autoFit: s.adjustsFontSizeToFit, maxLines: s.maxLines, minimumFontScale: s.minimumFontScale)
         Text(attributed(value, spans: spans, color: color, size: size, kern: s.letterSpacingNow(inst)))
             .multilineTextAlignment(s.textAlign == Registry.TextAlign.center ? .center
                                     : s.textAlign == Registry.TextAlign.end ? .trailing : .leading)
             .lineLimit(s.maxLines)
+            .minimumScaleFactor(minScale)
             .truncationMode(.tail)
             .lineSpacing(extra)
-            .modifier(ZnTextPress(ctx: ctx, s: s, inst: inst))
+            .modifier(ZnTextSelect(on: selectable && s.onPress == 0 && s.onLongPress == 0))
+            .modifier(ZnTextPress(ctx: ctx, s: s, inst: inst, selectable: selectable))
     }
 
     private func pattern(_ style: Int) -> Text.LineStyle.Pattern {
@@ -104,6 +115,15 @@ struct ZnTextView: View {
     }
 }
 
+/// selectable: iOS's long-press Copy / Share menu. A branch, not a value: the two TextSelectability types differ.
+struct ZnTextSelect: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on { content.textSelection(.enabled) } else { content }
+    }
+}
+
 /// A span link's tap: zn-span:<index> sends onSpanPress with the index; [fired] runs after it.
 @MainActor
 func znSpanLinks(_ ctx: ZnContext, _ s: ZnNodeSpec, _ inst: ZnInstance, fired: @escaping () -> Void = {}) -> OpenURLAction {
@@ -129,11 +149,13 @@ struct ZnTextPress: ViewModifier {
     let ctx: ZnContext
     let s: ZnNodeSpec
     let inst: ZnInstance
+    /// A selectable Text takes touches (its long press shows the Copy menu).
+    var selectable = false
 
     func body(content: Content) -> some View {
         // Which branch never changes for a node: its events are in the template.
         if s.onPress == 0 && s.onLongPress == 0 {
-            content.environment(\.openURL, znSpanLinks(ctx, s, inst)).allowsHitTesting(s.onSpanPress != 0)
+            content.environment(\.openURL, znSpanLinks(ctx, s, inst)).allowsHitTesting(s.onSpanPress != 0 || selectable)
         } else if s.onSpanPress != 0 {
             content.modifier(ZnTextLinkPress(ctx: ctx, s: s, inst: inst))
         } else {

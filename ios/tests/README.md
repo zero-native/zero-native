@@ -26,6 +26,7 @@ Some suites read built files: `routes` reads the sample's `main.zn.ui.json`, so 
 | `ota` | OTA rules and the zip install (`ZnOtaRules.swift`, `ZnOtaInstall.swift`) | `ZnOtaHealthTest`, `ZnBundlesTest`, `ZnOtaStoreTest`, `ZnOtaSignatureTest`, `ZnOtaInstallTest` |
 | `routes` | route reading and deep link matching (`ZnRoutes.swift`) | `ZnRoutesTest.kt`, `ZnNavHost.kt` |
 | `push` | a background push's once-only answer and a task's answer-by time (`ZnTaskRules.swift`), the Crashlytics plugin's bundle keys and reasons (`plugins/firebase-crashlytics/ios/CrashlyticsRules.swift`) | `ZnBackground.kt`, `CrashlyticsRulesTest.kt` |
+| `uirules` | Carousel page width, Text auto-fit scale, TextField capitalization and autocorrect (`ZnUIRules.swift`) | `ZnRenderer.kt`, `ZnTextField.kt` |
 
 ## Adding a suite
 

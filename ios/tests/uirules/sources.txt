@@ -1,0 +1,3 @@
+# Foundation only: the small UI rules (no SwiftUI or UIKit).
+ios/ZnRuntime/Swift/Registry.swift
+ios/ZnRuntime/Swift/ZnUIRules.swift
