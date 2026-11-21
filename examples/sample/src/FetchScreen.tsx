@@ -303,6 +303,17 @@ function checksFor(port: number, dir?: string): Array<[string, Check]> {
       // iOS: the staged body file (Caches/zn-fetch-upload) is removed when the task ends.
       return `${e.name} after ${Date.now() - t0} ms; ${up.text()}`
     }],
+    ["FormData timeout covers writing the body", async () => {
+      needDir()
+      const form = new FormData()
+      form.append("video", { uri: file("zn-lab-200mb.bin"), name: "video.mp4", type: "video/mp4" })
+      const t0 = Date.now()
+      // iOS writes the body to a file before sending it; the timeout counts that too (Android's callTimeout).
+      const e = await rejects(fetch(`${L}/upload`, { method: "POST", body: form as any, timeout: 50 }))
+      const ms = Date.now() - t0
+      must(ms < 3000, `timed out only after ${ms} ms`)
+      return `${expectCode(e, "timeout").slice(0, 7)} after ${ms} ms`
+    }],
     ["FormData content:// part", async () => {
       const form = new FormData()
       form.append("f", { uri: "content://media/external/images/media/1", name: "a.jpg", type: "image/jpeg" })
