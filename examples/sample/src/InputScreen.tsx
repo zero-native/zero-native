@@ -47,6 +47,10 @@ export function InputScreen() {
   const note = signal("")
   const focused = signal("none")
   const submitted = signal("")
+  const locked = signal(false)
+  const lockedText = signal("")
+  const warn = signal(false)
+  const lookText = signal("")
   const amountNumber = computed(() => Number(amount().replace(/,/g, "") || "0"))
   const canPay = computed(() => amountNumber() > 0 && phone().length === 10)
 
@@ -132,6 +136,37 @@ export function InputScreen() {
             style={{ ...field, minHeight: 64 }}
           />
           <Hint text="Amount is formatted as you type." />
+        </Card>
+
+        {/* editable={false} (fixed and from a signal), and colour / placeholder from a signal. */}
+        <Card header={<Text fontSize={14} fontWeight={600} color={c.ink}>Read only</Text>}>
+          <TextField testID="ro-fixed" value="UPI ID: ravi@okbank" editable={false} style={field} />
+          <TextField testID="ro-multi" value={"A read-only note\nover two lines"} multiline editable={false} style={{ ...field, minHeight: 56 }} />
+          <TextField
+            testID="ro-locked"
+            value={lockedText()}
+            onChangeText={(t) => lockedText.set(t)}
+            editable={!locked()}
+            onFocus={() => focused.set("locked")}
+            onBlur={() => focused.set("none")}
+            placeholder="Type, then lock me"
+            style={field}
+          />
+          <TextField
+            testID="ro-look"
+            value={lookText()}
+            onChangeText={(t) => lookText.set(t)}
+            placeholder={warn() ? "Required: enter a reference" : "Reference (optional)"}
+            style={{ ...field, color: warn() ? "#DC2626" : c.ink }}
+          />
+          <Row style={{ gap: 8 }}>
+            <Pressable onPress={() => locked.set(!locked())} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: c.pillBg }}>
+              <Text fontSize={13} fontWeight={600} color={c.ink}>{locked() ? "Unlock field" : "Lock field"}</Text>
+            </Pressable>
+            <Pressable onPress={() => warn.set(!warn())} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: c.pillBg }}>
+              <Text fontSize={13} fontWeight={600} color={c.ink}>{warn() ? "Clear warning" : "Warn"}</Text>
+            </Pressable>
+          </Row>
         </Card>
 
         <Text fontSize={14} color={c.ink}>
