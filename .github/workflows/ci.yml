@@ -1,7 +1,7 @@
 # Checks every push to main and every pull request (docs/production-readiness.md A3).
 # - js: the JS, compiler, plugin, tools and server tests, and the type check (`bun run test`).
-# - ios: the C++ core tests on the Mac, the OTA rule tests, the iOS sample built for the simulator (Debug), and the
-#   iOS sample built for an iPhone (Release, release Hermes, not signed).
+# - ios: the C++ core tests on the Mac, the iOS unit tests on the Mac (ios/tests), the iOS sample built for the
+#   simulator (Debug), and the iOS sample built for an iPhone (Release, release Hermes, not signed).
 # - android: the sample's debug build, every module's unit tests, and lint for the runtime and the sample.
 # - android-release: the sample's release build (R8 and resource shrinking, lintVital). Signed with the debug key, as
 #   android/sample/build.gradle.kts says; the Android Gradle plugin makes that key on the runner, so no keystore secret.
@@ -69,8 +69,10 @@ jobs:
       - run: bun run tools/fetch-hermes-apple.ts release
       - name: C++ core tests (Mac)
         run: bun run tools/run-core-tests-apple.ts
-      - name: OTA rule tests
-        run: bun run ios:ota-test
+      # Every ios/tests/<suite> (OTA rules, routes, layout values), built with swiftc and run on the Mac
+      # (ios/tests/README.md). The routes suite reads the sample's built routes from the sample:js step above.
+      - name: iOS unit tests (Mac)
+        run: bun run tools/ios-unit-test.ts
       - name: Build the iOS sample (simulator)
         run: |
           cmake -G Xcode -S ios -B ios/build/sim -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator
