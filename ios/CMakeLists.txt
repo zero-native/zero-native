@@ -119,5 +119,7 @@ else()
   set_target_properties(ZnSample PROPERTIES
     XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${ZN_TEAM}"
     XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
-    XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development")
+    XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development"
+    # Push (aps-environment): without it iOS gives the app no APNs token and FCM can't reach it.
+    XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/Sample/ZnSample.entitlements")
 endif()

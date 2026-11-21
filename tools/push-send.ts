@@ -4,7 +4,9 @@
 //   bun run tools/push-send.ts --topic zn-sample-lab --data lab=show --notification "Title|Body"
 //
 // Options: --token or --topic (one of them), --data k=v,k=v (all strings), --notification "title|body",
-// --priority high|normal (default high), --project <id> (default: project_id of android/sample/google-services.json).
+// --priority high|normal (default high), --project <id> (default: project_id of android/sample/google-services.json),
+// --image <https url> (a picture: Android's notification image, and on iOS FCM's image with "mutable-content": 1, so the
+// notification service extension downloads and attaches it).
 // The access token comes from `gcloud auth print-access-token` (your account needs FCM rights on the project). Nothing
 // here prints a token: only the FCM message name, or FCM's error.
 import { spawnSync } from "node:child_process"
@@ -39,6 +41,11 @@ for (const pair of (arg("data") ?? "").split(",").filter(Boolean)) {
 }
 const [title, body] = (arg("notification") ?? "").split("|")
 const priority = arg("priority") === "normal" ? "NORMAL" : "HIGH"
+const image = arg("image")
+if (image && !/^https:\/\//.test(image)) {
+  console.error("--image must be an https url")
+  process.exit(2)
+}
 
 const gcloud = spawnSync("gcloud", ["auth", "print-access-token"], { encoding: "utf8", shell: true })
 const access = gcloud.stdout.trim()
@@ -50,8 +57,9 @@ if (gcloud.status !== 0 || !access) {
 const message = {
   ...(token ? { token } : { topic }),
   data,
-  ...(title ? { notification: { title, ...(body ? { body } : {}) } } : {}),
+  ...(title ? { notification: { title, ...(body ? { body } : {}), ...(image ? { image } : {}) } } : {}),
   android: { priority },
+  ...(image ? { apns: { payload: { aps: { "mutable-content": 1 } }, fcm_options: { image } } } : {}),
 }
 const res = await fetch(`https://fcm.googleapis.com/v1/projects/${project}/messages:send`, {
   method: "POST",
