@@ -309,7 +309,7 @@ manifest must not claim what it can't draw.
 | OTA (rules, pool, manifest, download / verify / install, health, Updates, apply behind a cover) | partial | L (5 d) | Phase 4a: steps 1–5 and the fault matrix done on the simulator (2026-11-10); ZeroBill (6) and the phone check left. |
 | Background tasks (`defineTask`, TASK event) | missing | L | BGTaskScheduler, push-triggered runs. Phase 3 needs part of it. |
 | zn dev (live reload, dev error overlay) | missing | L | Simulator reaches the Mac on localhost. |
-| Secure screens (route `secure`) | missing | M | Decide: blank the app-switcher snapshot, screenshot layer trick. |
+| Secure screens (route `secure`) | done (simulator) | M | ZnSecure.swift (2026-11-21): while a secure screen is drawn (exit and cover animations included) the window root's content sits in a password field's canvas, so screenshots, recordings and mirroring show it blank; Sheets, Modals, layers and toasts too, not Alerts. App switcher: a plain cover in the screen's background. iOS can't refuse a screenshot as FLAG_SECURE does. Checked on the simulator with the render server's capture (drawHierarchy); still to check on a phone: side-button screenshot, Control Center recording, AirPlay / QuickTime. |
 | Impressions | missing | M | |
 | Accessibility semantics, autofill | missing | §6 | |
 | RTL layout | not checked | S | |
@@ -443,7 +443,7 @@ Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A
 3. **TestFlight**: now or later.
 4. **Push payloads**: alert payloads for anything the user must see (iOS silent pushes are not guaranteed). Server
    decision, before Phase 3 ends.
-5. **Secure screens**: what "secure" means on iOS (Phase 5).
+5. ~~Secure screens~~: built 2026-11-21 (ZnSecure.swift): captures show the screen blank, the app switcher a plain cover; a phone check is still open.
 6. **StatusBar / NavigationBar elements**: build, or document as route-option only.
 
 ---

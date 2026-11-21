@@ -154,6 +154,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         let vcs = stack.map { entry in
             screens[entry] ?? (app.route(of: entry)?.native).map { name in
                 let vc = app.nativeScreen(name, entry: entry, params: app.nativeParams[entry] ?? nil)
+                markIfSecure(vc, entry)
                 screens[entry] = vc
                 return vc
             } ?? {
@@ -161,6 +162,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
                 vc.lightStatusBar = app.route(of: entry)?.lightStatusBar ?? false
                 vc.entry = entry
                 vc.view.backgroundColor = .white
+                markIfSecure(vc, entry)
                 screens[entry] = vc
                 return vc
             }()
@@ -173,6 +175,11 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     private func entry(of vc: UIViewController) -> UInt32? { screens.first { $0.value === vc }?.key }
+
+    /// A `secure: true` screen counts itself drawn while its view is in the window (ZnSecure), native screens included.
+    private func markIfSecure(_ vc: UIViewController, _ entry: UInt32) {
+        if app.route(of: entry)?.secure == true { vc.view.addSubview(ZnDrawnMarker()) }
+    }
 
     // A swipe that finished: native popped; JS is told (FORCED_BACK).
     override var childForStatusBarStyle: UIViewController? { topViewController }

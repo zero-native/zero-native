@@ -1304,7 +1304,8 @@ public final class ZnOta: @unchecked Sendable {
     /// screens are up (screensUp) or coverTimeout.
     @MainActor private func cover() {
         guard coverView == nil, let window = Self.window() else { return }
-        let v = window.snapshotView(afterScreenUpdates: false) ?? UIView(frame: window.bounds)
+        // Over a secure screen, its plain background: a picture of it would sit outside ZnSecure's container.
+        let v = (ZnSecure.shared.on ? nil : window.snapshotView(afterScreenUpdates: false)) ?? UIView(frame: window.bounds)
         if v.backgroundColor == nil && v.subviews.isEmpty { v.backgroundColor = .systemBackground }
         v.frame = window.bounds
         v.autoresizingMask = [.flexibleWidth, .flexibleHeight]

@@ -40,6 +40,16 @@ public final class ZnApp {
 
     func route(of entry: UInt32) -> ZnRoute? { entryRoutes[entry] }
 
+    /// The bundle has a `secure: true` route: the window root then holds its content in ZnSecure's container.
+    var hasSecureRoute: Bool { routes.contains(where: \.secure) }
+
+    /// The top screen's root background (slot or template), for ZnSecure's app switcher cover; nil when it has none.
+    var topBackground: UIColor? {
+        guard let entry = stack.last, let root = store.find(entry), let node = ctx?.templates[safe: root.templateId]?.nodes.first,
+              let color = node.backgroundSlot >= 0 ? znColor(root.slot(node.backgroundSlot).value) : node.background else { return nil }
+        return UIColor(color)
+    }
+
     // MARK: Restore after the system ends the app (ZnNav.kt saveState / restart)
 
     static let restorationType = "dev.zeronative.zn.stack"

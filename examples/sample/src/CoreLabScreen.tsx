@@ -1,7 +1,7 @@
 // A dev screen for the core parts plugins stand on: native screens and views, zn://file, background tasks, secure screens,
 // dark mode. The phone test reads these lines, and the log lines "core-lab ...", so keep their wording.
-import { Box, Column, Image, NativeView, Pressable, Scroll, Text } from "@zeronative/ui"
-import { colorScheme, nav, onLowMemory, Os, scheme, signal } from "@zeronative/core"
+import { Box, Column, Image, NativeView, Pressable, Scroll, Sheet, Text } from "@zeronative/ui"
+import { colorScheme, nav, onLowMemory, Os, scheme, signal, toast } from "@zeronative/core"
 import { Device } from "@zeronative/device-test"
 import { c } from "./tokens"
 
@@ -71,10 +71,21 @@ export function CoreLabScreen() {
   )
 }
 
+// Screenshots, recordings and the app switcher must not show it, nor its Sheet or toast; a normal screen pushed over
+// it shows again once the push has ended. The log lines "secure-lab ...".
 export function SecureLabScreen() {
+  const sheet = signal(false)
   return (
-    <Column alignItems="center" justifyContent="center" style={{ flex: 1, backgroundColor: "#FFEEDD" }}>
+    <Column alignItems="center" justifyContent="center" style={{ flex: 1, gap: 12, backgroundColor: "#FFEEDD" }}>
       <Text fontSize={16}>secure screen</Text>
+      <CoreButton label="Open sheet" onPress={() => sheet.set(true)} />
+      <CoreButton label="Show toast" onPress={() => toast("secure toast")} />
+      <CoreButton label="Push normal screen" onPress={() => nav.push("coreLab")} />
+      <CoreButton label="Back" onPress={() => nav.back()} />
+      <Sheet visible={sheet()} onDismiss={() => sheet.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+        <Text fontSize={16}>secure sheet</Text>
+        <CoreButton label="Close sheet" onPress={() => { console.info("secure-lab sheet closed"); sheet.set(false) }} />
+      </Sheet>
     </Column>
   )
 }

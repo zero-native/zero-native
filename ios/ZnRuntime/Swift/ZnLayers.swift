@@ -8,6 +8,8 @@
 // - `overlay`: over the whole window, under toasts and alerts. Where it draws nothing tappable, touches go through to
 //   the screens.
 // Sheets and Modals (the screens' and the layers') sit above both, in ZnPopups' box (ZnPopups.swift).
+// When the bundle has a `secure: true` route, all of it sits in ZnSecure's container (ZnSecure.swift), which leaves it
+// out of screenshots and recordings while a secure screen is drawn.
 import SwiftUI
 import UIKit
 
@@ -20,6 +22,8 @@ final class ZnRootController: UIViewController {
     private let overlayBox = ZnPassThroughView()
     /// Sheets and Modals, over everything else here (ZnPopups).
     private let popups = ZnPopupBox()
+    /// What holds the screens, the layers and the popups: the root's view, or ZnSecure's container's content.
+    private var stage: UIView!
     /// The top layer's content height, and its height now (status bar area included; animated).
     private var content: CGFloat = 0
     private var height: CGFloat = 0
@@ -41,8 +45,22 @@ final class ZnRootController: UIViewController {
         super.viewDidLoad()
         ZnPopups.shared.install(root: self, box: popups)  // before any screen exists, so before any Sheet can open
         view.backgroundColor = .white
+        stage = view
+        if app.hasSecureRoute {
+            let secure = ZnSecureContainer()
+            secure.frame = view.bounds
+            secure.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            view.addSubview(secure)
+            secure.layoutIfNeeded()
+            stage = secure.content
+            ZnSecure.shared.install(secure)
+            // Recording or mirroring starts or stops (used only when the field has no canvas on this iOS).
+            registerForTraitChanges([UITraitSceneCaptureState.self]) { (_: ZnRootController, _: UITraitCollection) in
+                ZnSecure.shared.captureChanged()
+            }
+        }
         addChild(nav)
-        view.addSubview(nav.view)
+        stage.addSubview(nav.view)
         nav.didMove(toParent: self)
 
         // Its own top padding (the status bar), so its safe area never depends on its changing frame.
@@ -50,7 +68,7 @@ final class ZnRootController: UIViewController {
         top.view.backgroundColor = .clear
         top.view.clipsToBounds = true
         addChild(top)
-        view.addSubview(top.view)
+        stage.addSubview(top.view)
         top.didMove(toParent: self)
 
         overlay.view.backgroundColor = .clear
@@ -58,9 +76,9 @@ final class ZnRootController: UIViewController {
         addChild(overlay)
         overlayBox.hosting = overlay.view
         overlayBox.addSubview(overlay.view)
-        view.addSubview(overlayBox)
+        stage.addSubview(overlayBox)
         overlay.didMove(toParent: self)
-        view.addSubview(popups)
+        stage.addSubview(popups)
     }
 
     private var appeared = false
@@ -91,6 +109,7 @@ final class ZnRootController: UIViewController {
     }
 
     private func place() {
+        // The secure container's content is always the root's size (it may not be laid out yet).
         let b = view.bounds
         let down = max(height - inset, 0)
         nav.additionalSafeAreaInsets.top = min(down, inset)
