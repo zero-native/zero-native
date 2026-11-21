@@ -16,14 +16,74 @@
 // text but never answers a close; /ws-eof answers pings, and on a close frame drops the TCP connection without a close
 // frame back; /ws-slowpong?ms=3000 answers each ping that late (and echoes, and answers a close); /ws-slow101?ms=20000
 // sends the 101 that late; /ws-slowclose?ms=3000 answers a close that late.
+//
+// Uploads (the fetch lab's FormData and progress cases): /count answers only the body's length; /upload reads a
+// multipart body and answers each part's headers and size, and for a file part whether byte i is i % 251, the pattern
+// of the lab files. `--files <folder>` first makes those files there (zn-lab-3mb.bin, zn-lab-200mb.bin); on the iOS
+// simulator any Mac folder works (--files /tmp/zn-lab, and the lab's { dir: "/tmp/zn-lab" }).
+// /conn answers the client's port: two calls on one pooled connection get the same port.
 import { createHash } from "node:crypto"
+import { closeSync, existsSync, mkdirSync, openSync, statSync, writeSync } from "node:fs"
 import { createServer } from "node:net"
+import { join } from "node:path"
 import { gzipSync, type ServerWebSocket } from "bun"
 import { tabsAnswer } from "./plugin-phone/tabs-server"
 
 // Other ports for a second server next to one already running: ZN_TEST_HTTP_PORT=8798 (raw: the next port).
 const HTTP_PORT = Number(process.env.ZN_TEST_HTTP_PORT ?? 8788)
 const RAW_PORT = HTTP_PORT + 1
+
+/** The lab files: byte i is i % 251 (ios/tests/net makes the same). Written in 1 MB pieces; kept when the size is right. */
+const LAB_FILES: Array<[string, number]> = [["zn-lab-3mb.bin", 3 * 1024 * 1024 + 17], ["zn-lab-200mb.bin", 200_000_000]]
+const filesAt = process.argv.indexOf("--files")
+if (filesAt !== -1) {
+  const dir = process.argv[filesAt + 1]
+  if (!dir) throw new Error("--files needs a folder")
+  mkdirSync(dir, { recursive: true })
+  for (const [name, size] of LAB_FILES) {
+    const path = join(dir, name)
+    if (existsSync(path) && statSync(path).size === size) continue
+    const fd = openSync(path, "w")
+    const piece = Buffer.alloc(1 << 20)
+    for (let at = 0; at < size; at += piece.length) {
+      const n = Math.min(piece.length, size - at)
+      for (let i = 0; i < n; i++) piece[i] = (at + i) % 251
+      writeSync(fd, piece, 0, n)
+    }
+    closeSync(fd)
+    console.log(`wrote ${path} (${size} bytes)`)
+  }
+}
+
+/** A multipart body's parts: each one's header lines, its size, and the lab pattern check for a file part. */
+function multipartParts(body: Buffer, contentType: string) {
+  const boundary = /boundary=([^;]+)/.exec(contentType)?.[1]?.replace(/^"|"$/g, "")
+  if (!boundary) return null
+  const dash = Buffer.from(`--${boundary}`)
+  const parts: Array<{ headers: string[]; size: number; text?: string; pattern?: boolean }> = []
+  let at = body.indexOf(dash)
+  while (at !== -1) {
+    const after = at + dash.length
+    if (body.subarray(after, after + 2).toString() === "--") break
+    const headEnd = body.indexOf("\r\n\r\n", after)
+    if (headEnd === -1) break
+    const headers = body.subarray(after + 2, headEnd).toString("utf8").split("\r\n")
+    const next = body.indexOf(dash, headEnd + 4)
+    if (next === -1) break
+    const data = body.subarray(headEnd + 4, next - 2) // without the CRLF before the next boundary
+    const part: (typeof parts)[number] = { headers, size: data.length }
+    if (headers.some((h) => /filename=/i.test(h))) {
+      let ok = true
+      for (let i = 0; i < data.length && ok; i++) ok = data[i] === i % 251
+      part.pattern = ok
+    } else if (data.length <= 200) {
+      part.text = data.toString("utf8")
+    }
+    parts.push(part)
+    at = next
+  }
+  return parts
+}
 
 // A 64 x 64 blue and white checker (PNG).
 const LAB_PNG =
@@ -49,6 +109,7 @@ const json = (data: unknown, init: ResponseInit = {}) =>
 
 Bun.serve<WsData, never>({
   port: HTTP_PORT,
+  maxRequestBodySize: 1024 * 1024 * 1024, // the lab's 200 MB upload (default 128 MB)
   async fetch(req, server) {
     const url = new URL(req.url)
     const path = url.pathname
@@ -76,6 +137,18 @@ Bun.serve<WsData, never>({
         bodyFirstBytes: [...body.slice(0, 8)],
       })
     }
+    if (path === "/count") {
+      let length = 0
+      if (req.body) for await (const chunk of req.body) length += chunk.length
+      return json({ method: req.method, contentType: req.headers.get("content-type"), length })
+    }
+    if (path === "/upload") {
+      const body = Buffer.from(await req.arrayBuffer())
+      const parts = multipartParts(body, req.headers.get("content-type") ?? "")
+      console.log(`upload: ${body.length} bytes, ${parts?.length ?? "no"} parts`)
+      return json({ length: body.length, contentLength: req.headers.get("content-length"), parts })
+    }
+    if (path === "/conn") return json({ port: server.requestIP(req)?.port ?? null })
     if (path === "/slow") {
       await Bun.sleep(Number(url.searchParams.get("ms") ?? 3000))
       return json({ slept: true })
