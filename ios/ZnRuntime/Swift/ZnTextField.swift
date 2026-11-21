@@ -411,10 +411,11 @@ struct ZnSwiftUIField: View {
     var body: some View {
         let prompt = Text(look.placeholder).foregroundStyle(Color(znPlaceholderColor(s)))
         let field = Group {
+            // The placeholder is the label too (VoiceOver reads it), the prompt its coloured look.
             if s.secure {
-                SecureField(text: binding, prompt: prompt) { EmptyView() }
+                SecureField(look.placeholder, text: binding, prompt: prompt)
             } else {
-                TextField(text: binding, prompt: prompt) { EmptyView() }
+                TextField(look.placeholder, text: binding, prompt: prompt)
             }
         }
         let cap: TextInputAutocapitalization = switch ZnFieldRules.autocap(s.autoCapitalize, secure: s.secure, keyboardType: s.keyboardType) {
