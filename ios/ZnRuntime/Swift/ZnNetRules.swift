@@ -1,10 +1,13 @@
-// The plain rules of fetch on iOS (ZnFetch.swift), Foundation only so the Mac tests build them (ios/tests/net):
+// The plain rules of fetch on iOS (ZnFetch.swift), with no UIKit so the Mac tests build them (ios/tests/net):
 // - ZnProgressThrottle: Android's ProgressThrottler (ZnFetch.kt), at most one progress event per 100 ms plus a last one.
 // - ZnMultipart: a multipart/form-data body written to a file, laid out as OkHttp's MultipartBody (what Android sends):
 //   file parts are copied from disk in small pieces, so a 200 MB video never enters memory; URLSession then uploads
 //   the file (uploadTask fromFile) and knows its length.
-// - znNetworkKey: what counts as "another network" for the connection flush (Android: another default Network).
+// - znNetworkKey / znFlushReason: what counts as "another network" for the connection flush (Android: another default
+//   Network), and when it flushes.
+// Foundation and Network only.
 import Foundation
+import Network
 
 /// At most one event per `minInterval`, then `finish` sends the final count once (unless it was the last one sent).
 /// Not thread-safe: one per request, used on fetch's delegate queue only.
@@ -104,17 +107,24 @@ enum ZnMultipart {
                 // A file from the document picker needs this; for our own files it does nothing.
                 let scoped = file.startAccessingSecurityScopedResource()
                 defer { if scoped { file.stopAccessingSecurityScopedResource() } }
-                let input: FileHandle
-                let size: Int64
-                do {
-                    let attrs = try fm.attributesOfItem(atPath: file.path)
-                    guard attrs[.type] as? FileAttributeType != .typeDirectory else { throw CocoaError(.fileReadNoPermission) }
-                    size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
-                    input = try FileHandle(forReadingFrom: file)
-                } catch {
-                    throw ZnMultipartError.invalid("form part \"\(name)\": can't read \(file.path) (\(error.localizedDescription))")
+                // open(2), not FileHandle(forReadingFrom:): that one refuses a folder as "doesn't exist".
+                let fd = open(file.path, O_RDONLY)
+                guard fd >= 0 else {
+                    throw ZnMultipartError.invalid("form part \"\(name)\": can't read \(file.path) (\(String(cString: strerror(errno))))")
                 }
+                let input = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
                 defer { try? input.close() }
+                // The size of what was opened (a symlink's target; no gap between looking and opening).
+                var st = stat()
+                guard fstat(input.fileDescriptor, &st) == 0 else {
+                    throw ZnMultipartError.io("form part \"\(name)\": can't read the size of \(file.path) (\(String(cString: strerror(errno))))")
+                }
+                switch st.st_mode & S_IFMT {
+                case S_IFREG: break
+                case S_IFDIR: throw ZnMultipartError.invalid("form part \"\(name)\": \(file.path) is a folder, not a file")
+                default: throw ZnMultipartError.invalid("form part \"\(name)\": \(file.path) is not a plain file")
+                }
+                let size = Int64(st.st_size)
                 var head = dash + "Content-Disposition: form-data; name=\(quoted(name)); filename=\(quoted(filename))\r\n"
                 if let type, isMediaType(type) { head += "Content-Type: \(type)\r\n" }
                 head += "Content-Length: \(size)\r\n\r\n"
@@ -195,10 +205,49 @@ enum ZnMultipart {
     }
 }
 
-/// The network fetch's connections belong to: the first interface of a working path (its type and name) and its
-/// gateways (another Wi-Fi keeps the name en0 but gets another router), or "offline". A change of key means the
-/// pooled connections may be dead (ZnFetch.freshSession).
-func znNetworkKey(satisfied: Bool, interfaces: [String], gateways: [String]) -> String {
+/// The network fetch's connections belong to, from a path: its first interface that is not a tunnel (a VPN's utun is
+/// "other"; under a VPN, Wi-Fi to cellular is still a change) and its IPv4 gateways (another Wi-Fi keeps the name en0
+/// but gets another router), or its IPv6 gateways when it has no IPv4 one (an IPv6 router advertisement arriving on
+/// the same Wi-Fi is not a change); "offline" when the path doesn't work.
+func znNetworkKey(_ p: NWPath) -> String {
+    func kind(_ t: NWInterface.InterfaceType) -> String {
+        switch t {
+        case .wifi: return "wifi"
+        case .cellular: return "cellular"
+        case .wiredEthernet: return "ethernet"
+        case .loopback: return "loopback"
+        case .other: return "other"
+        @unknown default: return "other"
+        }
+    }
+    var v4: [String] = [], v6: [String] = []
+    for g in p.gateways {
+        guard case .hostPort(let host, _) = g else { continue }
+        switch host {
+        case .ipv4(let a): v4.append("\(a)")
+        case .ipv6(let a): v6.append("\(a)")
+        default: break
+        }
+    }
+    return znNetworkKey(satisfied: p.status == .satisfied, interfaces: p.availableInterfaces.map { (kind($0.type), $0.name) },
+                        ipv4Gateways: v4, ipv6Gateways: v6)
+}
+
+/// znNetworkKey's rule on plain values (the Mac tests). A change of key means the pooled connections may be dead.
+func znNetworkKey(satisfied: Bool, interfaces: [(type: String, name: String)], ipv4Gateways: [String],
+                  ipv6Gateways: [String]) -> String {
     guard satisfied else { return "offline" }
-    return "\(interfaces.first ?? "none")|\(gateways.sorted().joined(separator: ","))"
+    let first = interfaces.first { $0.type != "other" && $0.type != "loopback" } ?? interfaces.first
+    let gateways = ipv4Gateways.isEmpty ? ipv6Gateways : ipv4Gateways
+    return "\(first.map { "\($0.type)-\($0.name)" } ?? "none")|\(gateways.sorted().joined(separator: ","))"
+}
+
+/// Whether going from network key `before` to `after` flushes the pool, and why; as Android's default-network
+/// callback (ZnFetch.kt watchNetwork): no flush for the first path, a flush when the network is lost or another one
+/// takes over, and none when a network comes back after "offline" (the loss already flushed).
+func znFlushReason(before: String?, after: String) -> String? {
+    guard let before, before != after else { return nil }
+    if after == "offline" { return "the network was lost" }
+    if before == "offline" { return nil }
+    return "the default network changed"
 }

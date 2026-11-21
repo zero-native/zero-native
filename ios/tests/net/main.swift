@@ -2,6 +2,7 @@
 // throttle cases are android/runtime's ZnFetchTest.kt (ProgressThrottler); the multipart layout is OkHttp's
 // MultipartBody (what Android sends). Argument: a scratch folder.
 import Foundation
+import Network
 
 var failures = 0
 var count = 0
@@ -195,7 +196,21 @@ do {
     print("FAIL a folder: no error")
 } catch let e as ZnMultipartError {
     count += 1
-    if case .invalid = e {} else { failures += 1; print("FAIL a folder: \(e)") }
+    if e != .invalid("form part \"f\": \(work.path) is a folder, not a file") { failures += 1; print("FAIL a folder: \(e)") }
+}
+// A symlink to the file: the target's bytes and size (the size was once the link's own, so the part always failed).
+do {
+    let link = work.appendingPathComponent("link.jpg")
+    try? FileManager.default.removeItem(at: link)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: photo)
+    _ = try ZnMultipart.write(parts: [["f", link.absoluteString, "l.jpg", "image/jpeg"]], boundary: boundary, to: bodyURL)
+    let text = String(decoding: try Data(contentsOf: bodyURL).prefix(300), as: UTF8.self)
+    check("symlink: target's length", text.contains("Content-Length: \(threeMB)\r\n"), true)
+    check("symlink: target's bytes", try Data(contentsOf: bodyURL).count > threeMB, true)
+    try? FileManager.default.removeItem(at: link)
+} catch {
+    failures += 1
+    print("FAIL symlink: \(error)")
 }
 checkThrows("no name", .invalid("a form part has no name")) {
     _ = try ZnMultipart.write(parts: [[42, "x"]], boundary: boundary, to: bodyURL)
@@ -253,15 +268,50 @@ do {
 
 // MARK: Network key (what a "network change" is)
 
-check("offline", znNetworkKey(satisfied: false, interfaces: ["wifi-en0"], gateways: ["192.168.1.1:0"]), "offline")
-let wifiA = znNetworkKey(satisfied: true, interfaces: ["wifi-en0", "cellular-pdp_ip0"], gateways: ["192.168.1.1:0"])
-check("first interface counts", wifiA, "wifi-en0|192.168.1.1:0")
-check("gateway order doesn't matter",
-      znNetworkKey(satisfied: true, interfaces: ["wifi-en0"], gateways: ["b", "a"]),
-      znNetworkKey(satisfied: true, interfaces: ["wifi-en0"], gateways: ["a", "b"]))
-check("to cellular is a change", znNetworkKey(satisfied: true, interfaces: ["cellular-pdp_ip0"], gateways: []) != wifiA, true)
-check("another Wi-Fi is a change", znNetworkKey(satisfied: true, interfaces: ["wifi-en0"], gateways: ["10.0.0.1:0"]) != wifiA, true)
-check("same path: no change", znNetworkKey(satisfied: true, interfaces: ["wifi-en0", "cellular-pdp_ip0"], gateways: ["192.168.1.1:0"]), wifiA)
+func key(_ ifs: [(String, String)], v4: [String] = [], v6: [String] = [], up: Bool = true) -> String {
+    znNetworkKey(satisfied: up, interfaces: ifs.map { (type: $0.0, name: $0.1) }, ipv4Gateways: v4, ipv6Gateways: v6)
+}
+let wifiA = key([("wifi", "en0"), ("cellular", "pdp_ip0")], v4: ["192.168.1.1"])
+check("offline", key([("wifi", "en0")], v4: ["192.168.1.1"], up: false), "offline")
+check("first interface counts", wifiA, "wifi-en0|192.168.1.1")
+check("gateway order doesn't matter", key([("wifi", "en0")], v4: ["b", "a"]), key([("wifi", "en0")], v4: ["a", "b"]))
+check("to cellular is a change", key([("cellular", "pdp_ip0")]) != wifiA, true)
+check("another Wi-Fi is a change", key([("wifi", "en0")], v4: ["10.0.0.1"]) != wifiA, true)
+check("same path: no change", key([("wifi", "en0"), ("cellular", "pdp_ip0")], v4: ["192.168.1.1"]), wifiA)
+check("an IPv6 gateway arriving later: no change", key([("wifi", "en0")], v4: ["192.168.1.1"], v6: ["fe80::1%en0"]), wifiA)
+check("IPv6-only network: its gateway counts", key([("wifi", "en0")], v6: ["fe80::1%en0"]), "wifi-en0|fe80::1%en0")
+let vpnWifi = key([("other", "utun3"), ("wifi", "en0")], v4: ["10.8.0.1"])
+check("under a VPN: the real interface", vpnWifi, "wifi-en0|10.8.0.1")
+check("under a VPN, Wi-Fi to cellular is a change", key([("other", "utun3"), ("cellular", "pdp_ip0")], v4: ["10.8.0.1"]) != vpnWifi, true)
+check("only a tunnel: it counts", key([("other", "utun3")]), "other-utun3|")
+
+// When the pool is flushed, as Android's default-network callback: a walk through a day's networks.
+var flushes: [String] = []
+var last: String? = nil
+for k in [wifiA, wifiA, "offline", wifiA, "cellular-pdp_ip0|", "cellular-pdp_ip0|", wifiA, "offline", "offline"] {
+    if let why = znFlushReason(before: last, after: k) { flushes.append(why) }
+    last = k
+}
+check("flushes: first path none, lost once, back none, two changes, lost again", flushes,
+      ["the network was lost", "the default network changed", "the default network changed", "the network was lost"])
+check("first path: no flush", znFlushReason(before: nil, after: "offline"), nil)
+
+// A real path (this Mac's): how NWPath values come out as a key.
+do {
+    let monitor = NWPathMonitor()
+    let got = DispatchSemaphore(value: 0)
+    var real = ""
+    monitor.pathUpdateHandler = { p in
+        if real.isEmpty { real = znNetworkKey(p); got.signal() }
+    }
+    monitor.start(queue: DispatchQueue(label: "net-test-path"))
+    let answered = got.wait(timeout: .now() + 5) == .success
+    monitor.cancel()
+    check("real path: answered", answered, true)
+    let shape = real == "offline" || real.range(of: "^(wifi|ethernet|cellular|other|loopback)-[A-Za-z0-9_]+\\|", options: .regularExpression) != nil
+    check("real path: key shape", shape, true)
+    print("this Mac's network key: \(real)")
+}
 
 try? FileManager.default.removeItem(at: work)
 print(failures == 0 ? "net: all \(count) checks passed" : "net: \(failures) of \(count) checks failed")

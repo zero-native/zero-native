@@ -1,2 +1,2 @@
-# Foundation only.
+# Foundation and Network only (no UIKit).
 ios/ZnRuntime/Swift/ZnNetRules.swift

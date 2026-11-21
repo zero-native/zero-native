@@ -41,7 +41,8 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         let where_: String
         let redirect: String
         let maxBody: Int
-        let t0 = Date()
+        /// When the call began (before a form body was written): the logged ms count from here.
+        let t0: Date
         var body = Data()
         var redirects = 0
         var response: HTTPURLResponse?
@@ -57,8 +58,8 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         var downTotal: Int64 = -1
         /// The form body's file (removed when the task ends).
         var upload: URL?
-        init(call: ZnCall, where_: String, redirect: String, maxBody: Int) {
-            self.call = call; self.where_ = where_; self.redirect = redirect; self.maxBody = maxBody
+        init(call: ZnCall, where_: String, redirect: String, maxBody: Int, t0: Date) {
+            self.call = call; self.where_ = where_; self.redirect = redirect; self.maxBody = maxBody; self.t0 = t0
         }
     }
 
@@ -87,7 +88,9 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
 
     /// Whether the phone has a network now: tells "offline" from "dns" / "connect" failures.
     private let path = NWPathMonitor()
-    private var online = true
+    /// Written on the path queue, read on the delegate queue: under sessionLock.
+    private var onlineNow = true
+    private var online: Bool { sessionLock.withLock { onlineNow } }
     /// The network the pooled connections belong to (znNetworkKey); the path queue only.
     private var pathKey: String?
     /// Where form bodies are written before they are uploaded.
@@ -136,13 +139,12 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
     // MARK: Network changes
 
     private func pathChanged(_ p: NWPath) {
-        online = p.status == .satisfied
-        let key = znNetworkKey(satisfied: p.status == .satisfied,
-                               interfaces: p.availableInterfaces.map { "\($0.type)-\($0.name)" },
-                               gateways: p.gateways.map { "\($0)" })
-        defer { pathKey = key }
-        guard let before = pathKey, before != key else { return }
-        freshSession(key == "offline" ? "the network was lost" : "the default network changed")
+        sessionLock.withLock { onlineNow = p.status == .satisfied }
+        let key = znNetworkKey(p)
+        let before = pathKey
+        pathKey = key
+        if before != key { debugLog("network: \(before ?? "(first)") → \(key)") }
+        if let why = znFlushReason(before: before, after: key) { freshSession(why) }
     }
 
     /// New calls get a new session (an empty connection pool); the old one ends when its calls have answered. Pooled
@@ -156,12 +158,12 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         }
         // Always logged, as Android's Log.i (ZnDebug.log is main-actor only; this runs on the path queue).
         Self.log.notice("fetch: \(why, privacy: .public): new calls use new connections")
-        debugLog("\(why): new calls use new connections")
     }
 
     // MARK: One request
 
     private func send(_ call: ZnCall) throws {
+        let t0 = Date()
         let a = call.args
         let method = (a["method"] as? String ?? "GET").uppercased()
         let raw = a["url"] as? String ?? ""
@@ -179,6 +181,9 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         let reqId = (a["reqId"] as? NSNumber)?.intValue
         let trackUp = reqId != nil && (a["uploadProgress"] as? Bool ?? false)
         let trackDown = reqId != nil && (a["downloadProgress"] as? Bool ?? false)
+        // `timeout` covers writing a form body too (as OkHttp's callTimeout covers writing it).
+        let deadline = timeoutMs > 0 ? t0.addingTimeInterval(timeoutMs / 1000) : nil
+        let timeoutMessage = "Network request failed (timeout): \(where_): no complete answer within \(Int(timeoutMs)) ms"
 
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -202,9 +207,14 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
             let file = Self.uploadDir.appendingPathComponent(UUID().uuidString + ".multipart")
             do {
                 try FileManager.default.createDirectory(at: Self.uploadDir, withIntermediateDirectories: true)
-                upTotal = try ZnMultipart.write(parts: form, boundary: boundary, to: file, isCancelled: { call.isCancelled })
+                upTotal = try ZnMultipart.write(parts: form, boundary: boundary, to: file,
+                                                isCancelled: { call.isCancelled || deadline.map { Date() >= $0 } == true })
             } catch let e as ZnMultipartError {
-                if e == .cancelled { return }
+                if e == .cancelled {
+                    if call.isCancelled { return }
+                    debugLog("\(where_) → failed (timeout) in \(Int(Date().timeIntervalSince(t0) * 1000)) ms (writing the form body)")
+                    return call.reject("timeout", "\(timeoutMessage) (still writing the form body)")
+                }
                 if case .invalid = e { return call.reject("invalid_request", "\(where_): \(e.message)") }
                 return call.reject("failed", "\(where_): \(e.message)")
             } catch {
@@ -219,7 +229,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
             upTotal = 0
         }
 
-        let state = Task(call: call, where_: where_, redirect: redirect, maxBody: maxBody)
+        let state = Task(call: call, where_: where_, redirect: redirect, maxBody: maxBody, t0: t0)
         state.upload = upload
         // No body (a GET): no upload events, as Android.
         if trackUp, let reqId, upTotal >= 0 {
@@ -236,26 +246,26 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         // Made and queued under the lock: freshSession then can't end this task's session before it starts.
         let task: URLSessionTask = sessionLock.withLock {
             let task = upload.map { current.uploadTask(with: request, fromFile: $0) } ?? current.dataTask(with: request)
-            queue.addOperation { self.start(task, state, timeoutMs) }
+            queue.addOperation { self.start(task, state, deadline, timeoutMessage) }
             return task
         }
         call.onCancel { task.cancel() }
     }
 
-    /// Delegate queue: the task is ours from here, with its whole-call timer.
-    private func start(_ task: URLSessionTask, _ state: Task, _ timeoutMs: Double) {
-        let where_ = state.where_
+    /// Delegate queue: the task is ours from here, with its whole-call timer (what is left of `timeout` after the form
+    /// body was written).
+    private func start(_ task: URLSessionTask, _ state: Task, _ deadline: Date?, _ timeoutMessage: String) {
         tasks[ObjectIdentifier(task)] = state
-        if timeoutMs > 0 {
+        if let deadline {
             let timer = DispatchWorkItem { [weak self] in
                 self?.queue.addOperation {
                     guard state.ours == nil, self?.tasks[ObjectIdentifier(task)] != nil else { return }
-                    state.ours = ("timeout", "Network request failed (timeout): \(where_): no complete answer within \(Int(timeoutMs)) ms")
+                    state.ours = ("timeout", timeoutMessage)
                     task.cancel()
                 }
             }
             state.timer = timer
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeoutMs / 1000, execute: timer)
+            DispatchQueue.global().asyncAfter(deadline: .now() + max(0, deadline.timeIntervalSinceNow), execute: timer)
         }
         task.resume()
     }
