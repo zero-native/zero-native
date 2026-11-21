@@ -331,6 +331,10 @@ final class ZnMotion {
 
     /// Only these tracks start again (one SvgPart's `replay`, or a tap for timings that wait for one).
     func start(keys: [Int: ZnTiming], rests: [Int: [Double]]) {
+        if znAnimationsOff() {  // their resting values, as start(_:rests:paused:)
+            for k in keys.keys { tracks[k] = nil; values[k] = nil }
+            return
+        }
         for (k, t) in keys { if let r = rests[k] { restart(k, t, rest: r) } }
         for k in keys.keys { values[k] = tracks[k].map { $0.timing.value(at: 0, $0.points) } }
         run()
@@ -339,6 +343,11 @@ final class ZnMotion {
     /// A value that follows JS: from where it is now to [to], with [timing]'s tween or spring (on the frame clock, for
     /// drawings that read values themselves, such as an Svg's parts). A new target mid-way starts from where it is.
     func follow(_ key: Int, from: [Double], to: [Double], timing: ZnTiming) {
+        if znAnimationsOff() {  // there at once (its resting value is [to]), as Compose with animations off
+            tracks[key] = nil
+            values[key] = nil
+            return
+        }
         let now = values[key] ?? from
         tracks[key] = Track(timing: timing, points: [now, to], rest: to, playTime: -Double(timing.delayMs))
         values[key] = now
@@ -438,10 +447,7 @@ final class ZnTransition {
     var turns: Bool { rotateX != 0 || rotateY != 0 }
 
     static func parse(_ s: String) -> ZnTransition? {
-        guard let bar = s.firstIndex(of: "|") else { return nil }
-        let parts = s[..<bar].split(separator: ",", omittingEmptySubsequences: false)
-        let v = parts.compactMap { Double($0) }
-        guard v.count == parts.count, v.count == 4 || v.count == 8,
+        guard let bar = s.firstIndex(of: "|"), let v = znTransitionValues(s[..<bar]),
               let t = ZnTiming.parse(String(s[s.index(after: bar)...])) else { return nil }
         return ZnTransition(v, t)
     }
@@ -456,6 +462,7 @@ struct ZnEnterExit: ViewModifier {
     let inst: ZnInstance
     @State private var inP: Double = 0
     @State private var outP: Double = 0
+    @Environment(\.displayScale) private var displayScale
 
     private func inV(_ from: Double?, _ rest: Double) -> Double { from.map { $0 + (rest - $0) * inP } ?? rest }
     private func outV(_ to: Double?, _ rest: Double) -> Double { to.map { rest + ($0 - rest) * outP } ?? rest }
@@ -472,17 +479,25 @@ struct ZnEnterExit: ViewModifier {
             .scaleEffect(x: max(sx, 1e-4), y: max(sy, 1e-4), anchor: s.origin)
             .modifier(ZnDepthEffect(rotateX: turns ? inV(enter?.rotateX, 0) + outV(exit?.rotateX, 0) : 0,
                                     rotateY: turns ? inV(enter?.rotateY, 0) + outV(exit?.rotateY, 0) : 0,
-                                    cameraDistance: s.cameraDistance, origin: s.origin))
+                                    cameraDistance: s.cameraDistance, origin: s.origin, scale: displayScale))
             .offset(x: inV(enter?.translateX, 0) + outV(exit?.translateX, 0), y: inV(enter?.translateY, 0) + outV(exit?.translateY, 0))
             .opacity(inV(enter?.opacity, 1) * outV(exit?.opacity, 1))
             .allowsHitTesting(!exiting)
             .onAppear {
                 if exit != nil { inst.hasExit = true }
-                if let enter, inP == 0 { withAnimation(enter.timing.animation) { inP = 1 } }
+                guard let enter, inP == 0 else { return }
+                // Animations off (Reduce Motion): there at once, as Android.
+                if znAnimationsOff() { inP = 1 } else { withAnimation(enter.timing.animation) { inP = 1 } }
             }
             .onChange(of: exiting, initial: true) { _, leaving in
                 guard leaving, let exit else { return }
                 let id = inst.id
+                // Animations off: gone at once, without waiting on a zero-length animation's completion.
+                if znAnimationsOff() {
+                    outP = 1
+                    ZnApp.shared.store.finishExit(id)
+                    return
+                }
                 withAnimation(exit.timing.animation, completionCriteria: .logicallyComplete) { outP = 1 } completion: {
                     ZnApp.shared.store.finishExit(id)
                 }

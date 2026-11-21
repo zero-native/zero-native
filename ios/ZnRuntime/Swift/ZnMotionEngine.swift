@@ -361,10 +361,12 @@ final class ZnRun {
                     index = 0
                     continue
                 }
+                // A delay is wall time (engine.now), as Android's delay(): a frame's time is the display's next
+                // vsync, up to a frame ahead, so comparing against it would end delays a frame early.
                 let d = order[index].0.delayMs
-                phase = d > 0 && !engine.animationsOff() ? .wait(now + Int64(d) * 1_000_000) : .ready
+                phase = d > 0 && !engine.animationsOff() ? .wait(engine.now() + Int64(d) * 1_000_000) : .ready
             case .wait(let until):
-                guard canMove, now >= until else { return }
+                guard canMove, engine.now() >= until else { return }
                 phase = .ready
             case .ready:
                 let (s, over) = order[index]
@@ -591,9 +593,11 @@ final class ZnMotionEngine {
         for h in disposeHooks { h(id) }
     }
 
-    /// The JS that made these is gone (a reload, an OTA applied in place).
+    /// The JS that made these is gone (a reload, an OTA applied in place). Its watches go too, the window values'
+    /// included: the new JS starts its window values at 0 and watches them again, so it must get their value now.
     func reset() {
         for id in Array(sources.keys) where id > Self.envLast { dispose(id) }
+        watched = [:]
         refs = [:]
         texts = [:]
         elements = [:]
@@ -695,10 +699,11 @@ final class ZnMotionEngine {
 
     // MARK: Values to JS
 
-    /// JS reads [id]: send it each time it changes (once per frame at most, newest only), starting with its value now.
+    /// JS reads [id]: send it each time it changes (once per frame at most, newest only), starting with its value now
+    /// (also when it was already watched: a new reader always gets the value now).
     func watch(_ id: Int, _ on: Bool) {
         guard on else { watched[id] = nil; return }
-        guard watched[id] == nil, let s = sources[id] else { return }
+        guard let s = sources[id] else { return }
         watched[id] = (s, .nan)
         markDirty()
     }

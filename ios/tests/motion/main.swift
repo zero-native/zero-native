@@ -1,8 +1,9 @@
-// iOS's motion engine on the Mac (ZnMotionMath.swift, ZnFormula.swift, ZnMotionEngine.swift): tools/ios-unit-test.ts
+// iOS's motion engine on the Mac (ZnMotionMath.swift, ZnFormula.swift, ZnMotionEngine.swift, ZnDepth.swift): tools/ios-unit-test.ts
 // builds this with them (sources.txt). The maths and formula cases are android/runtime's ZnMotionTest.kt, with the
 // same numbers; the command, watch and follow cases drive the engine with a fake frame clock, as Android's
 // coroutines would run them (ZnMotion.kt: animate, runSteps, watch, sendEvent, frames, ZnFollowSource).
 import Foundation
+import QuartzCore
 
 /// ZnModules.swift's error (it needs the host, so it isn't built here).
 struct ZnInvalidArgs: Error, CustomStringConvertible {
@@ -207,11 +208,77 @@ near("decay glides v0 / -friction", dc.target, 1000 / 1.9992, 0.5)
 near("decay speed after 1 s", dc.velocity(1_000_000_000), 1000 * exp(-1.9992), 0.05)
 check("decay too slow to move", ZnDecayCurve(from: 3, v0: 0.05, multiplier: 0.476).durationNs, 0)
 
+// MARK: - A 3D turn and enter / exit's values (ZnDepth.swift)
+
+/// Android's turn, worked out on its own: HWUI's Sk3DView (y up, z away from the viewer, camera 72 × distance px
+/// away) turns a point about -y by rotateY, then about x by rotateX (rotateX then rotateY, preConcatenated), then
+/// projects it. [p]: from the origin, y down, in px.
+func androidTurn(_ p: CGPoint, rx: Double, ry: Double, distance: Double) -> CGPoint {
+    let ax = rx * .pi / 180, ay = ry * .pi / 180
+    var (x, y, z) = (Double(p.x), -Double(p.y), 0.0)
+    (x, z) = (x * cos(ay), x * sin(ay) + z * cos(ay))  // Rotate({0, -1, 0}, ry), z = 0
+    (y, z) = (y * cos(ax) - z * sin(ax), y * sin(ax) + z * cos(ax))  // Rotate({1, 0, 0}, rx)
+    let d = 72 * distance
+    let k = d / (d + z)
+    return CGPoint(x: x * k, y: -y * k)
+}
+
+/// Where [m] draws [p] (Core Animation's row vectors, z = 0).
+func project(_ m: CATransform3D, _ p: CGPoint) -> CGPoint {
+    let x = p.x * m.m11 + p.y * m.m21 + m.m41, y = p.x * m.m12 + p.y * m.m22 + m.m42
+    let w = p.x * m.m14 + p.y * m.m24 + m.m44
+    return CGPoint(x: x / w, y: y / w)
+}
+
+func nearPoint(_ name: String, _ got: CGPoint, _ want: CGPoint, line: Int = #line) {
+    near(name + " x", Float(got.x), Float(want.x), 1e-3, line: line)
+    near(name + " y", Float(got.y), Float(want.y), 1e-3, line: line)
+}
+
+let box = CGSize(width: 200, height: 100)
+// 1 px a point, so the points here are Android's px; the origin is the centre.
+func turned(_ rx: CGFloat, _ ry: CGFloat, _ p: CGPoint, distance: CGFloat = 8) -> CGPoint {
+    project(znDepthMatrix(size: box, rotateX: rx, rotateY: ry, cameraDistance: distance, originX: 0.5, originY: 0.5,
+                          scale: 1), p)
+}
+// A positive rotateX takes the top edge away (drawn narrower than the bottom), a positive rotateY the right edge.
+let topW = turned(30, 0, CGPoint(x: 200, y: 0)).x - turned(30, 0, CGPoint(x: 0, y: 0)).x
+let bottomW = turned(30, 0, CGPoint(x: 200, y: 100)).x - turned(30, 0, CGPoint(x: 0, y: 100)).x
+truth("rotateX: the top edge is farther", topW < bottomW)
+let leftH = turned(0, 30, CGPoint(x: 0, y: 100)).y - turned(0, 30, CGPoint(x: 0, y: 0)).y
+let rightH = turned(0, 30, CGPoint(x: 200, y: 100)).y - turned(0, 30, CGPoint(x: 200, y: 0)).y
+truth("rotateY: the right edge is farther", rightH < leftH)
+nearPoint("no turn", turned(0, 0, CGPoint(x: 37, y: 81)), CGPoint(x: 37, y: 81))
+// Every corner as Android draws it, one turn and both (where the order matters), and a nearer camera.
+for (rx, ry, dist) in [(30.0, 0.0, 8.0), (0, -50, 8), (35, 50, 8), (-70, 20, 8), (40, -60, 3)] {
+    for c in [CGPoint(x: 0, y: 0), CGPoint(x: 200, y: 0), CGPoint(x: 0, y: 100), CGPoint(x: 200, y: 100)] {
+        let a = androidTurn(CGPoint(x: c.x - 100, y: c.y - 50), rx: rx, ry: ry, distance: dist)
+        nearPoint("turn \(rx),\(ry) at \(c)", turned(rx, ry, c, distance: dist), CGPoint(x: a.x + 100, y: a.y + 50))
+    }
+}
+// The camera is 72 × distance px away: at 3x, that many px is a third as many points.
+let at3 = project(znDepthMatrix(size: CGSize(width: 200.0 / 3, height: 100.0 / 3), rotateX: 35, rotateY: 50,
+                                cameraDistance: 8, originX: 0.5, originY: 0.5, scale: 3), CGPoint(x: 0, y: 0))
+let px = androidTurn(CGPoint(x: -100, y: -50), rx: 35, ry: 50, distance: 8)
+nearPoint("in points at 3x", CGPoint(x: at3.x * 3, y: at3.y * 3), CGPoint(x: px.x + 100, y: px.y + 50))
+// About the origin: the top-left origin stays put.
+let corner = znDepthMatrix(size: box, rotateX: 45, rotateY: 45, cameraDistance: 8, originX: 0, originY: 0, scale: 1)
+nearPoint("the origin stays", project(corner, .zero), .zero)
+
+check("enter: 4 values", znTransitionValues("0,0,24,0.9"), [0, 0, 24, 0.9])
+check("enter: 8 values", znTransitionValues("0,0,0,1,90,0,1,1"), [0, 0, 0, 1, 90, 0, 1, 1])
+check("enter: 5 values", znTransitionValues("0,0,0,1,90"), nil)
+check("enter: an empty part", znTransitionValues("0,,0,1"), nil)
+check("enter: nothing", znTransitionValues(""), nil)
+check("enter: not a number", znTransitionValues("0,0,x,1"), nil)
+
 // MARK: - The engine with a fake frame clock
 
 final class FakeClock: ZnMotionClock {
     var frame: ((Double) -> Bool)?
     var t: Int64 = 1_000_000_000
+    /// How far ahead of now a frame's time is (CADisplayLink's targetTimestamp: the next vsync).
+    var lead: Int64 = 0
     func add(_ owner: AnyObject, _ f: @escaping (Double) -> Bool) { frame = f }
     func remove(_ owner: AnyObject) { frame = nil }
     /// Runs [n] frames of [ns] each (60 Hz by default); stops early when the engine needs no more.
@@ -221,7 +288,7 @@ final class FakeClock: ZnMotionClock {
             guard let f = frame else { break }
             t += ns
             ran += 1
-            if !f(Double(t) / 1e9) { frame = nil }
+            if !f(Double(t + lead) / 1e9) { frame = nil }
         }
         return ran
     }
@@ -330,6 +397,16 @@ clock.run(2)
 truth("moving after the delay", v4.value > 0)
 clock.run(20)
 check("delay then tween", result, true)
+// A frame's time is a frame ahead of now (the next vsync): the delay is still wall time, as Android's delay().
+let v4b = try! e.putValue(106, 0)
+clock.lead = 16_666_667
+e.animate(v4b, steps: steps(#"[{"to":10,"t":{"t":100,"e":3},"delay":200}]"#)) { _ in }
+clock.run(11)  // 183 ms: its frame says 200 ms
+check("a frame ahead doesn't end the delay early", v4b.value, 0)
+clock.run(1)
+truth("moving after the delay", v4b.value > 0)
+clock.run(20)
+clock.lead = 0
 
 // Decay: slows down; stops at hi.
 let v5 = try! e.putValue(105, 0)
@@ -492,6 +569,23 @@ truth("reset drops values", e.find(130) == nil && e.find(941) == nil)
 truth("window values stay", e.env(ZnMotionEngine.envWidth) != nil && e.find(1) != nil)
 clock.run(5)
 truth("nothing left to tick", !clock.running)
+
+// A reset drops the window values' watches too: the new JS watches them again and gets their value now.
+e.env(ZnMotionEngine.envWidth)!.set(390)
+e.watch(ZnMotionEngine.envWidth, true)
+clock.run(1)
+_ = deliver()
+e.reset()
+e.watch(ZnMotionEngine.envWidth, true)
+clock.run(1)
+check("a watch after reset sends the window value now", deliver().first?.1 as? [String: Double], ["1": 390])
+// Watched again without a change: sent again (a new reader).
+e.watch(ZnMotionEngine.envWidth, true)
+clock.run(1)
+check("a second watch sends it again", deliver().first?.1 as? [String: Double], ["1": 390])
+e.reset()
+clock.run(5)
+truth("nothing left to tick after the second reset", !clock.running)
 
 print(failures == 0 ? "ios motion: \(count) checks passed" : "ios motion: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)
