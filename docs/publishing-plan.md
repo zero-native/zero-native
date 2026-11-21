@@ -431,7 +431,7 @@ done. Until then the versions stay `0.0.0`.
    secrets): the checks and tests passed ("ready to release 0.0.0: 25 packages ... Hermes 260318099.0.5 everywhere"),
    `npm publish --dry-run` for all 25, "20 artifacts in mavenLocal", the package sample built for the simulator and
    an iPhone from the released Hermes, both plugin package copies valid; the GitHub Release skipped.
-10. Pavan puts the signing key and Central token in the GitHub `release` environment secrets.
+10. **Done (2026-11-21).** Pavan put the six secrets in the GitHub `release` environment (NPM_TOKEN, SIGNING_KEY, SIGNING_KEY_PASSWORD, CENTRAL_USERNAME, CENTRAL_PASSWORD, PLUGIN_REPOS_TOKEN).
 11. Pavan decides the version and gives the go for the first real publish.
 
 ## 12. What was checked, and how
