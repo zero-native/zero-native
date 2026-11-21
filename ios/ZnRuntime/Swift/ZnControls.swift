@@ -37,6 +37,9 @@ private struct ZnToggleTap: ViewModifier {
             .accessibilityElement()
             .accessibilityAddTraits(trait)
             .accessibilityValue(on ? "1" : "0")
+            // accessibilityLabel (also from a slot), hint and testID (ZnAccessibility.swift).
+            .znFieldA11y(s, label: s.accessibilityLabelNow(inst))
+            .environment(\.isEnabled, !disabled)  // VoiceOver reads a disabled one as "dimmed"
     }
 }
 

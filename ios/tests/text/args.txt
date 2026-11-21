@@ -1,0 +1,4 @@
+# The sample's app fonts (examples/sample/FONTS-LICENSE.md), read as the app reads them.
+examples/sample/assets/fonts/Inconsolata-Regular.ttf
+examples/sample/assets/fonts/Inconsolata-SemiBold.ttf
+examples/sample/assets/fonts/lato-black.ttf

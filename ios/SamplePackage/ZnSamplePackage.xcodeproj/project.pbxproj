@@ -280,7 +280,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The JS bundle the sample runs (bun run sample:js writes it): the four files and the asset folders, into the app.\nset -e\nsrc=\"$SRCROOT/../../android/sample/src/main/assets\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nfor f in main.hbc main.zn.ui main.zn.ui.json zn-bundle.json; do\n  [ -f \"$src/$f\" ] || { echo \"error: no $src/$f. Run: bun run sample:js\"; exit 1; }\n  cp \"$src/$f\" \"$dst/$f\"\ndone\nfor d in images lottie; do\n  if [ -d \"$src/$d\" ]; then rm -rf \"$dst/$d\"; cp -R \"$src/$d\" \"$dst/$d\"; fi\ndone\n";
+			shellScript = "# The JS bundle the sample runs (bun run sample:js writes it): the four files and the asset folders, into the app.\nset -e\nsrc=\"$SRCROOT/../../android/sample/src/main/assets\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nfor f in main.hbc main.zn.ui main.zn.ui.json zn-bundle.json; do\n  [ -f \"$src/$f\" ] || { echo \"error: no $src/$f. Run: bun run sample:js\"; exit 1; }\n  cp \"$src/$f\" \"$dst/$f\"\ndone\nfor d in images lottie fonts; do\n  if [ -d \"$src/$d\" ]; then rm -rf \"$dst/$d\"; cp -R \"$src/$d\" \"$dst/$d\"; fi\ndone\n";
 		};
 		26711ABE8FA7BADC7F273B38 /* Upload dSYMs to Crashlytics */ = {
 			isa = PBXShellScriptBuildPhase;

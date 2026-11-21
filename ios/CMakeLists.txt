@@ -45,8 +45,8 @@ foreach(f IN LISTS bundle_files)
   endif()
 endforeach()
 
-# The bundle's assets (images for `asset:` sources), kept in their folders inside the app.
-file(GLOB_RECURSE asset_files CONFIGURE_DEPENDS "${bundle_dir}/images/*" "${bundle_dir}/lottie/*")
+# The bundle's assets (images for `asset:` sources, Lottie files, app fonts), kept in their folders inside the app.
+file(GLOB_RECURSE asset_files CONFIGURE_DEPENDS "${bundle_dir}/images/*" "${bundle_dir}/lottie/*" "${bundle_dir}/fonts/*")
 foreach(f IN LISTS asset_files)
   file(RELATIVE_PATH rel "${bundle_dir}" "${f}")
   get_filename_component(dir "${rel}" DIRECTORY)

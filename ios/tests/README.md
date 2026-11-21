@@ -27,6 +27,7 @@ Some suites read built files: `routes` reads the sample's `main.zn.ui.json`, so 
 | `motion` | motion maths, `derive()` formulas and the motion engine's commands, watch and follow, on a fake frame clock; the 3D turn's matrix against HWUI's order and enter / exit's values; what a bound slot reads (references, motion colours, `self` / `parent` sizes, motion text, blur, corner precedence) (`ZnMotionMath.swift`, `ZnFormula.swift`, `ZnMotionEngine.swift`, `ZnDepth.swift`, `ZnMotionBindRules.swift`) | `ZnMotionTest.kt`, `ZnMotion.kt` |
 | `routes` | route reading and deep link matching (`ZnRoutes.swift`) | `ZnRoutesTest.kt`, `ZnNavHost.kt` |
 | `push` | a background push's once-only answer and a task's answer-by time (`ZnTaskRules.swift`), the Crashlytics plugin's bundle keys and reasons (`plugins/firebase-crashlytics/ios/CrashlyticsRules.swift`) | `ZnBackground.kt`, `CrashlyticsRulesTest.kt` |
+| `text` | the text scale with maxFontScale, the font table, the font file check, the face a weight and style pick (CSS), the phone's font names, and the sample's font files loaded with their weights (`ZnFontRules.swift`) | `ZnTemplate.kt` fontScaleCap, `ZnFontsTest.kt`, Compose's font matching |
 | `uirules` | Carousel page width, Text auto-fit scale, TextField capitalization and autocorrect (`ZnUIRules.swift`) | `ZnRenderer.kt`, `ZnTextField.kt` |
 
 ## Adding a suite

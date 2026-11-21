@@ -5,6 +5,8 @@
 // static in the template or JSON in a slot when they change at runtime. A span with onPress is a link; a tap sends
 // onSpanPress with its index.
 // fontSize, lineHeight and letterSpacing may come from slots (registry 23): read here, so a change redraws this Text alone.
+// The sizes follow Dynamic Type, capped by maxFontScale, and fontFamily picks the font, also per span (registry 24,
+// ZnTextStyle.swift). A motion value shown as text (`v.format(...)`) is formatted from its value each frame.
 // A top-level onPress / onLongPress (registry 23) makes the text a button, as Android's clickable Text: no press
 // feedback, the touch area the text inside its padding, nothing under pointerEvents "none".
 // selectable (registry 23, or its slot): a long press shows iOS's Copy / Share menu for the whole text (SwiftUI's
@@ -28,6 +30,8 @@ struct ZnSpan: Equatable {
     var letterSpacing: CGFloat?
     var background: Color?
     var pressable = false
+    /// The span's own fontFamily (an app font, a system name); nil: the parent's.
+    var fontFamily: String?
 
     static func parse(_ json: String) -> [ZnSpan]? {
         guard let data = json.data(using: .utf8),
@@ -40,7 +44,7 @@ struct ZnSpan: Equatable {
                           italic: num("fontStyle").map { Int($0) == Registry.FontStyle.italic },
                           decorationLine: num("textDecorationLine").map { Int($0) },
                           letterSpacing: num("letterSpacing").map { CGFloat($0) }, background: argb("backgroundColor"),
-                          pressable: num("p") == 1)
+                          pressable: num("p") == 1, fontFamily: (o["fontFamily"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
     }
 }
@@ -49,20 +53,24 @@ struct ZnTextView: View {
     let ctx: ZnContext
     let s: ZnNodeSpec
     let inst: ZnInstance
+    /// The phone's text size (Dynamic Type): read here, so a change in Settings redraws the text at once.
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let _ = ZnDebug.hit(name: "TextLeaf", inst: inst, node: s.index)
-        let raw = s.textSlot >= 0 ? znDisplay(inst.slot(s.textSlot).value) : (s.text ?? "")
+        let raw = s.textSlot >= 0 ? znTextShown(inst.slot(s.textSlot).value) : (s.text ?? "")
         let value = s.textTransform > 0 ? znTransformText(raw, s.textTransform) : raw
         let color = s.colorSlot >= 0 ? (znColor(inst.slot(s.colorSlot).value) ?? .black) : (s.color ?? .black)
         let spans = s.spansSlot >= 0 ? inst.slot(s.spansSlot).value.string.flatMap(ZnSpan.parse) : s.spans
-        let size = max(s.fontSizeNow(inst), 0)
-        let font = UIFont.systemFont(ofSize: size, weight: znUIWeight(s.fontWeight))
-        let extra = s.lineHeightNow(inst).map { max($0 - font.lineHeight, 0) } ?? 0
+        // Sizes scaled by the phone's text size and capped by maxFontScale (Android: sp × fontScaleCap), spans too.
+        let k = s.textScale(typeSize)
+        let size = max(s.fontSizeNow(inst), 0) * k
+        let font = znUIFont(s.fontFamily, size: size, weight: s.fontWeight, italic: s.italic)
+        let extra = s.lineHeightNow(inst).map { max($0 * k - font.lineHeight, 0) } ?? 0
         let selectable = s.selectableSlot >= 0 ? inst.slot(s.selectableSlot).value == .bool(true) : s.selectable
         // Auto-fit only with numberOfLines, as Android (without a line limit there is nothing to fit to).
         let minScale = znTextMinScale(autoFit: s.adjustsFontSizeToFit, maxLines: s.maxLines, minimumFontScale: s.minimumFontScale)
-        Text(attributed(value, spans: spans, color: color, size: size, kern: s.letterSpacingNow(inst)))
+        Text(attributed(value, spans: spans, color: color, size: size, kern: s.letterSpacingNow(inst).map { $0 * k }, k: k))
             .multilineTextAlignment(s.textAlign == Registry.TextAlign.center ? .center
                                     : s.textAlign == Registry.TextAlign.end ? .trailing : .leading)
             .lineLimit(s.maxLines)
@@ -81,13 +89,13 @@ struct ZnTextView: View {
         }
     }
 
-    /// The text with the node's style, then each span's on its piece.
-    private func attributed(_ text: String, spans: [ZnSpan]?, color: Color, size: CGFloat, kern: CGFloat?) -> AttributedString {
-        func style(_ a: inout AttributedString, size: CGFloat, weight: Int?, italic: Bool, line: Int, kern: CGFloat?,
-                   color: Color, background: Color?) {
-            var f = Font.system(size: size, weight: znWeight(weight))
-            if italic { f = f.italic() }
-            a.font = f
+    /// The text with the node's style, then each span's on its piece. [size] and [kern] are scaled already; a span's
+    /// own size and spacing are scaled by [k] here.
+    private func attributed(_ text: String, spans: [ZnSpan]?, color: Color, size: CGFloat, kern: CGFloat?,
+                            k: CGFloat) -> AttributedString {
+        func style(_ a: inout AttributedString, family: String?, size: CGFloat, weight: Int?, italic: Bool, line: Int,
+                   kern: CGFloat?, color: Color, background: Color?) {
+            a.font = znFont(family, size: size, weight: weight, italic: italic)
             a.foregroundColor = color
             if let kern { a.kern = kern }
             if let background { a.backgroundColor = background }
@@ -97,7 +105,7 @@ struct ZnTextView: View {
         }
         guard let spans else {
             var a = AttributedString(text)
-            style(&a, size: size, weight: s.fontWeight, italic: s.italic, line: s.decorationLine,
+            style(&a, family: s.fontFamily, size: size, weight: s.fontWeight, italic: s.italic, line: s.decorationLine,
                   kern: kern, color: color, background: nil)
             return a
         }
@@ -105,14 +113,24 @@ struct ZnTextView: View {
         for (i, piece) in text.split(separator: "\u{1F}", omittingEmptySubsequences: false).enumerated() {
             let sp = i < spans.count ? spans[i] : ZnSpan()
             var a = AttributedString(String(piece))
-            style(&a, size: sp.fontSize ?? size, weight: sp.fontWeight ?? s.fontWeight, italic: sp.italic ?? s.italic,
-                  line: sp.decorationLine ?? s.decorationLine, kern: sp.letterSpacing ?? kern,
+            style(&a, family: sp.fontFamily ?? s.fontFamily, size: sp.fontSize.map { max($0, 0) * k } ?? size,
+                  weight: sp.fontWeight ?? s.fontWeight, italic: sp.italic ?? s.italic,
+                  line: sp.decorationLine ?? s.decorationLine, kern: sp.letterSpacing.map { $0 * k } ?? kern,
                   color: sp.color ?? color, background: sp.background)
             if sp.pressable { a.link = URL(string: "zn-span:\(i)") }
             out += a
         }
         return out
     }
+}
+
+/// A Text slot's string as shown. A motion value shown as text (`v.format(...)`, "\u{0}f<id>|<format>") is its number
+/// now, formatted (ZnMotionEngine.text): only this Text reads the value, so only it draws again as the value moves. A
+/// disposed value keeps its last number (a leaving screen's counter); one not made yet shows nothing, never the
+/// control characters.
+@MainActor func znTextShown(_ v: ZnValue) -> String {
+    if case .string(let raw) = v, raw.hasPrefix(ZnMotionEngine.textPrefix) { return ZnMotionEngine.shared.text(raw) ?? "" }
+    return znDisplay(v)
 }
 
 /// selectable: iOS's long-press Copy / Share menu. A branch, not a value: the two TextSelectability types differ.

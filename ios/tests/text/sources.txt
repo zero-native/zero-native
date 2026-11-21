@@ -1,0 +1,2 @@
+# Foundation and CoreGraphics only: text scale and font rules (no SwiftUI or UIKit).
+ios/ZnRuntime/Swift/ZnFontRules.swift

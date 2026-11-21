@@ -108,6 +108,7 @@ struct ZnPressable<Label: View>: View {
             }
             .buttonStyle(ZnPressStyle(scale: s.pressScale, opacity: s.pressOpacity))
             .disabled(disabled)
+            .modifier(ZnPressA11y(ctx: ctx, s: s, inst: inst, disabled: disabled))
         case .uiKit:
             label()
                 .overlay { ZnPressFeedback(s: s, state: state, shape: s.shapeNow(inst)) }
@@ -118,6 +119,8 @@ struct ZnPressable<Label: View>: View {
                 // direction, as SwiftUI's leading / trailing).
                 .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled, off: selfOff)
                     .padding(s.hitSlop.map { EdgeInsets(top: -$0.top, leading: -$0.start, bottom: -$0.bottom, trailing: -$0.end) } ?? EdgeInsets()))
+                // VoiceOver: one element, a button by default (ZnAccessibility.swift). The touch view isn't one.
+                .modifier(ZnPressA11y(ctx: ctx, s: s, inst: inst, disabled: disabled))
         }
     }
 }

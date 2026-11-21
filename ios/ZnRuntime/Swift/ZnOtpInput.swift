@@ -96,6 +96,7 @@ struct ZnOtpInputView: View {
     let s: ZnNodeSpec
     let inst: ZnInstance
     @State private var state = ZnOtpState()
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let max = min(Swift.max(s.maxLength ?? 6, 1), 12)
@@ -104,7 +105,9 @@ struct ZnOtpInputView: View {
         let invalid = s.invalidSlot >= 0 ? inst.slot(s.invalidSlot).value == .bool(true) : s.invalid
         let placeholder = s.placeholderSlot >= 0 ? (inst.slot(s.placeholderSlot).value.string ?? "") : (s.placeholder ?? "")
         let color = s.color ?? .black
-        let size: CGFloat = s.props[Registry.Prop.fontSize] != nil ? s.fontSize : 28
+        // The digits follow the phone's text size (capped by maxFontScale), as Android's 28 sp default does.
+        let size: CGFloat = (s.props[Registry.Prop.fontSize] != nil ? Swift.max(s.fontSize, 0) : 28) * s.textScale(typeSize)
+        let font = znFont(s.fontFamily, size: size, weight: s.fontWeight, italic: s.italic)
         let chars = Array(state.code)
         let setValue = s.valueSlot >= 0 ? inst.slot(s.valueSlot).value : .null
         HStack(spacing: s.gap) {
@@ -121,10 +124,10 @@ struct ZnOtpInputView: View {
                         if focusedInput && !theme.hideStick {
                             ZnOtpStick(theme: theme)
                         } else if let ch {
-                            Text(s.secure ? "•" : String(ch)).font(.system(size: size, weight: znWeight(s.fontWeight))).foregroundStyle(color)
+                            Text(s.secure ? "•" : String(ch)).font(font).foregroundStyle(color)
                         } else if !placeholder.isEmpty {
                             let p = placeholder.count == 1 ? placeholder : (i < placeholder.count ? String(Array(placeholder)[i]) : "")
-                            Text(p).font(.system(size: size, weight: znWeight(s.fontWeight)))
+                            Text(p).font(font)
                                 .foregroundStyle(theme.placeholderColor ?? color.opacity(0.5))
                         }
                     }
@@ -135,7 +138,8 @@ struct ZnOtpInputView: View {
                    : s.justify == Registry.JustifyContent.flexEnd ? .trailing : .leading)
             .accessibilityHidden(true)
         // The hidden field covers the boxes (an overlay: as a sibling it would make the input as tall as it can be).
-        .overlay { ZnOtpField(ctx: ctx, s: s, inst: inst, state: state, max: max, disabled: disabled) }
+        .overlay { ZnOtpField(ctx: ctx, s: s, inst: inst, state: state, max: max, disabled: disabled,
+                              label: s.accessibilityLabelNow(inst)) }
         .environment(\.layoutDirection, .leftToRight)
         .onChange(of: setValue) { _, v in
             // ref.setValue(code): "n\u{1}code" through the value slot (core otp-input.ts). Ignored while disabled.
@@ -168,6 +172,8 @@ struct ZnOtpField: UIViewRepresentable {
     let state: ZnOtpState
     let max: Int
     let disabled: Bool
+    /// accessibilityLabel now (also from a slot, ZnOtpInput.kt reads it the same way).
+    let label: String?
 
     /// The code changed (typing, paste, autofill, setValue): JS hears onChangeText, and onFilled when it is full.
     @MainActor static func set(_ state: ZnOtpState, _ code: String, ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance, max: Int,
@@ -257,8 +263,11 @@ struct ZnOtpField: UIViewRepresentable {
         context.coordinator.parent = self
         if f.text != state.code { f.text = state.code }
         let unit = s.otpType == Registry.OtpType.numeric ? "digits" : "characters"
-        f.accessibilityLabel = s.accessibilityLabel
+        f.accessibilityLabel = label
+        if let hint = s.accessibilityHint { f.accessibilityHint = hint }
+        if let id = s.testID { f.accessibilityIdentifier = id }
         f.accessibilityValue = "\(state.code.count) of \(max) \(unit)"
+        znFieldTouch(f, off: context.environment.znTouchOff)
         if disabled && f.isFirstResponder { f.resignFirstResponder() }
     }
 }

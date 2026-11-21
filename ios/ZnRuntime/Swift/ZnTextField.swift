@@ -46,6 +46,21 @@ struct ZnFieldLook: Equatable {
     var editable: Bool
     var color: Color
     var placeholder: String
+    /// accessibilityLabel (also from a slot); nil: VoiceOver reads the placeholder, as before.
+    var label: String? = nil
+}
+
+/// The field's font: fontFamily, fontWeight and italic, its size scaled by the phone's text size and capped by
+/// maxFontScale (ZnTextField.kt: effectiveTextStyle). UIKit doesn't scale it again (adjustsFontForContentSizeCategory
+/// stays off).
+@MainActor func znFieldFont(_ s: ZnNodeSpec, _ typeSize: DynamicTypeSize) -> UIFont {
+    znUIFont(s.fontFamily, size: max(s.fontSize, 0) * s.textScale(typeSize), weight: s.fontWeight, italic: s.italic)
+}
+
+/// pointerEvents "none" around the field (or a "box-only" parent): the native view takes no taps either (SwiftUI's
+/// allowsHitTesting is set too; this keeps UIKit's own hit testing out as well).
+@MainActor func znFieldTouch(_ v: UIView, off: Bool) {
+    if v.isUserInteractionEnabled == off { v.isUserInteractionEnabled = !off }
 }
 
 /// Android's placeholder colour when the app sets none (ZnTemplate.kt placeholderColor's default).
@@ -92,7 +107,7 @@ private func znApplyInputTraits(_ v: UIView, _ s: ZnNodeSpec) {
     let editable = s.editableSlot >= 0 ? inst.slot(s.editableSlot).value != .bool(false) : s.editable
     let color = s.colorSlot >= 0 ? (znColor(inst.slot(s.colorSlot).value) ?? .black) : (s.color ?? .black)
     let placeholder = s.placeholderSlot >= 0 ? znDisplay(inst.slot(s.placeholderSlot).value) : (s.placeholder ?? "")
-    return ZnFieldLook(editable: editable, color: color, placeholder: placeholder)
+    return ZnFieldLook(editable: editable, color: color, placeholder: placeholder, label: s.accessibilityLabelNow(inst))
 }
 
 /// A tap anywhere in a field's box (its padding, the rest of a minHeight) focuses the field, as on Android, where
@@ -304,8 +319,10 @@ struct ZnUIKitField: UIViewRepresentable {
         if !look.editable && f.isFirstResponder {
             DispatchQueue.main.async { if !c.editable && f.isFirstResponder { f.resignFirstResponder() } }
         }
-        let font = UIFont.systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
-        f.font = font
+        let font = znFieldFont(s, context.environment.dynamicTypeSize)
+        if f.font != font { f.font = font }
+        znFieldTouch(f, off: context.environment.znTouchOff)
+        znApplyA11y(f, s, label: look.label)
         // Only on a change: setting it again relays the field out (an empty placeholder is nil). In placeholderColor
         // and the field's font, as Android draws it with the field's text style.
         let placeholder = look.placeholder.isEmpty ? nil : look.placeholder
@@ -407,6 +424,7 @@ struct ZnSwiftUIField: View {
     let raw: ZnValue
     let look: ZnFieldLook
     @State private var text = ""
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let prompt = Text(look.placeholder).foregroundStyle(Color(znPlaceholderColor(s)))
@@ -425,8 +443,9 @@ struct ZnSwiftUIField: View {
         case .characters: .characters
         }
         field
-            .font(.system(size: s.fontSize, weight: znWeight(s.fontWeight)))
+            .font(znFont(s.fontFamily, size: max(s.fontSize, 0) * s.textScale(typeSize), weight: s.fontWeight, italic: s.italic))
             .foregroundStyle(look.color)
+            .znFieldA11y(s, label: look.label)
             .tint(s.selectionColor)
             .textInputAutocapitalization(cap)
             .autocorrectionDisabled(!ZnFieldRules.autocorrect(s.autoCorrect, secure: s.secure))
@@ -504,8 +523,10 @@ struct ZnUIKitTextView: UIViewRepresentable {
         c.focusChanged = { [ctx, inst, s] focused in if s.ref != 0 { ctx.send(inst.id, s.ref, .bool(focused)) } }
         c.s = s
         c.state = state
-        let font = UIFont.systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
-        v.font = font
+        let font = znFieldFont(s, context.environment.dynamicTypeSize)
+        if v.font != font { v.font = font }
+        znFieldTouch(v, off: context.environment.znTouchOff)
+        znApplyA11y(v, s, label: look.label)
         // editable={false}: the text can still be selected and copied (the nearest to Compose's readOnly), not edited.
         // Turning it off while focused resigns (after this update, as the one-line field), so the keyboard closes and
         // onBlur goes: a UITextView that isn't editable can stay first responder. Only on that change: one that is
@@ -638,13 +659,17 @@ func znKeyboard(_ k: Int) -> UIKeyboardType {
     }
 }
 
+/// fontWeight as UIKit's, the same steps as znWeight (SwiftUI's), so a field and a Text draw one weight alike.
 func znUIWeight(_ w: Int?) -> UIFont.Weight {
     switch w ?? 400 {
+    case ..<150: return .ultraLight
+    case ..<250: return .thin
     case ..<350: return .light
     case ..<450: return .regular
     case ..<550: return .medium
     case ..<650: return .semibold
     case ..<750: return .bold
-    default: return .heavy
+    case ..<850: return .heavy
+    default: return .black
     }
 }

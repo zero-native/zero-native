@@ -205,6 +205,7 @@ public final class ZnApp {
             let file = try TemplateReader.read(try Data(contentsOf: bundle.appendingPathComponent("main.zn.ui")))
             let templates = file.templates.map(ZnTemplate.init)
             routes = try Self.readRoutes(bundle.appendingPathComponent("main.zn.ui.json"))
+            ZnFontTable.install(manifestAt: bundle.appendingPathComponent("main.zn.ui.json"))  // this bundle's fonts (a restart too)
             ctx = ZnContext(templates: templates, store: store) { [host] instance, event, payload in
                 switch payload {
                 case .none: host.dispatchEvent(instance, event: UInt16(event))
