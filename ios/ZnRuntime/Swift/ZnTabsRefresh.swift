@@ -13,6 +13,12 @@
 // 40 pt disc in that colour (with a soft shadow, as Android's) under the spinner, so a white spinner shows on a white
 // screen; not written, iOS's plain spinner stays (Android's disc is white by default: each platform's look). The disc
 // follows UIKit's spinner, which grows in place while pulled (Android's disc slides down with the pull).
+// iOS limits: `refreshing` from JS alone scrolls the spinner into view only when the scroll is at its top (Android's
+// shows over the content anywhere), and comes up in UIKit's grey until the first pull (iOS 18's spinner takes the tint
+// only from a pull). On a <Scroll>, SwiftUI's ScrollView takes the control out each time it updates its scroll view;
+// it is put back (onLeft) but a pull under way when that happens is lost, so on a Scroll whose screen updates during
+// the pull (scroll events that change the screen, an onRefresh that changes it at once) pulling is unreliable. The fix
+// is in ZnScroll.swift (a UIKit scroll view, or SwiftUI's .refreshable). A <List> and a tab's scroll are not affected.
 import SwiftUI
 import UIKit
 
@@ -153,11 +159,14 @@ final class ZnRefresh: NSObject {
             pending = nil
             if !control.isRefreshing {
                 // Set by JS alone with the scroll at its top: scroll the spinner into view, as Android's indicator
-                // shows itself (beginRefreshing alone leaves it above the top edge).
+                // shows itself (beginRefreshing alone leaves it above the top edge). Scrolled down, the spinner stays
+                // above what shows (Android's shows over the content wherever it is scrolled). A control attached in
+                // this update (no onRefresh) has no height before a layout: laid out first, 60 pt if still none.
                 if let sv = scroll, sv.refreshControl === control, !sv.isDragging,
                    sv.contentOffset.y <= -sv.adjustedContentInset.top + 0.5 {
-                    sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top - control.frame.height),
-                                        animated: true)
+                    if control.frame.height <= 0 { sv.layoutIfNeeded() }
+                    let h = control.frame.height > 0 ? control.frame.height : 60
+                    sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top - h), animated: true)
                 }
                 control.beginRefreshing()
             }
