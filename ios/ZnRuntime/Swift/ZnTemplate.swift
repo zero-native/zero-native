@@ -882,7 +882,7 @@ final class ZnTemplate {
         #endif
     }
 
-    // Props Android draws and iOS doesn't yet (registry 23 and 24: Text and List extras, Canvas): iOS reads the templates but doesn't draw these. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
+    // Props Android draws and iOS doesn't yet (registry 23 and 24: Text and List extras): iOS reads the templates but doesn't draw these. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
     // once per prop, so a screen that looks wrong on iOS points at the reason.
     #if DEBUG
     private static let slotsNotDrawn: Set<Int> = {
@@ -891,7 +891,7 @@ final class ZnTemplate {
     }()
     private static let propsNotDrawn: Set<Int> = {
         typealias P = Registry.Prop
-        let all: Set<Int> = [P.scrollCommand, P.commands]
+        let all: Set<Int> = [P.scrollCommand]
         return all
     }()
     nonisolated(unsafe) private static var reported: Set<String> = []
@@ -903,7 +903,6 @@ final class ZnTemplate {
         }
         for s in raw.slots where slotsNotDrawn.contains(s.prop) { say("a runtime value for prop \(s.prop)") }
         for p in raw.props { for k in p.keys where propsNotDrawn.contains(k) { say("prop \(k)") } }
-        if raw.component.contains(Registry.Component.canvas) { say("Canvas") }
     }
     #endif
 }
