@@ -25,6 +25,7 @@
     "gen:tag-props": "bun run tools/gen-tag-props.ts",
     "test": "bun test packages plugins compiler tools server && bun run test:types",
     "test:types": "tsc -p packages/core/test/tsconfig.types.json && tsc -p examples/sample",
+    "ios:unit-test": "bun run tools/ios-unit-test.ts",
     "ios:ota-test": "bun run tools/ios-ota-test.ts",
     "ios:routes-test": "bun run tools/ios-routes-test.ts"
   },

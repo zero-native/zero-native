@@ -1,0 +1,3 @@
+# Foundation, CryptoKit and Compression only (no UIKit).
+ios/ZnRuntime/Swift/ZnOtaRules.swift
+ios/ZnRuntime/Swift/ZnOtaInstall.swift

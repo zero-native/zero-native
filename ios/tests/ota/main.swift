@@ -1,7 +1,7 @@
-// iOS OTA rules on the Mac (tools/ios-ota-test.ts builds this with ZnOtaRules.swift and ZnOtaInstall.swift). The same
-// cases as Android's JVM tests, so the two copies of the rules can't drift apart silently:
+// iOS OTA rules on the Mac (tools/ios-unit-test.ts builds this with ZnOtaRules.swift and ZnOtaInstall.swift, from
+// sources.txt). The same cases as Android's JVM tests, so the two copies of the rules can't drift apart silently:
 // ZnOtaHealthTest, ZnBundlesTest, ZnOtaStoreTest, ZnOtaSignatureTest, ZnOtaInstallTest.
-// Arguments: <ota-signature-fixture.json> <folder from make-fixture.ts>
+// Arguments (args.txt): <ota-signature-fixture.json> <folder from setup.ts>
 import Foundation
 
 var failures = 0

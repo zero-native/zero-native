@@ -1,6 +1,6 @@
-// iOS routes on the Mac (tools/ios-routes-test.ts builds this with ZnRoutes.swift). The deep link cases are
-// ZnRoutesTest.kt's, so the two copies of the matching can't drift apart silently; the see-through cases follow
-// ZnNavHost.kt's ZnSeeThroughStrategy. Argument: the sample's built main.zn.ui.json.
+// iOS routes on the Mac (tools/ios-unit-test.ts builds this with ZnRoutes.swift, from sources.txt). The deep link cases
+// are ZnRoutesTest.kt's, so the two copies of the matching can't drift apart silently; the see-through cases follow
+// ZnNavHost.kt's ZnSeeThroughStrategy. Argument (args.txt): the sample's built main.zn.ui.json.
 import Foundation
 
 var failures = 0

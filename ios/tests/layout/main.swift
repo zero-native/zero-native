@@ -1,6 +1,6 @@
-// iOS's readers for layout values from a slot (ZnDynamicValues.swift), on the Mac: tools/ios-layout-test.ts builds this
-// with Registry.swift and Readers.swift. The cases follow android/runtime's ZnRenderer.kt (resolveSizePx, finiteNum,
-// the dynamic shape's corner order, displayNone) and ZnTouch.kt (pointerEventsOf).
+// iOS's readers for layout values from a slot (ZnDynamicValues.swift), on the Mac: tools/ios-unit-test.ts builds this
+// with Registry.swift and Readers.swift (sources.txt). The cases follow android/runtime's ZnRenderer.kt (resolveSizePx,
+// finiteNum, the dynamic shape's corner order, displayNone) and ZnTouch.kt (pointerEventsOf).
 import CoreGraphics
 import Foundation
 

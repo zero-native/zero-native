@@ -1,7 +1,7 @@
 // Makes the zip the iOS OTA tests unzip (ios/tests/ota/main.swift): a bundle folder zipped exactly as the release CLI
 // zips one (tools/ota/core.ts zipFolder: fflate, sorted names, deflate level 9), with its zn-bundle.json and the
-// manifest fields the install checks. Run by tools/ios-ota-test.ts into a scratch folder:
-//   bun run ios/tests/ota/make-fixture.ts <out dir>
+// manifest fields the install checks. tools/ios-unit-test.ts runs it into a scratch folder before the suite:
+//   bun run ios/tests/ota/setup.ts <out dir>
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { bundleSha256 } from "../../../tools/bundle-info"
@@ -9,7 +9,7 @@ import { zipFolder } from "../../../tools/ota/core"
 import { sha256Hex } from "../../../tools/ota/signing"
 
 const out = process.argv[2]
-if (!out) throw new Error("usage: make-fixture.ts <out dir>")
+if (!out) throw new Error("usage: setup.ts <out dir>")
 const dir = join(out, "bundle")
 mkdirSync(join(dir, "images"), { recursive: true })
 

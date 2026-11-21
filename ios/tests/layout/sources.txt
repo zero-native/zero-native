@@ -1,0 +1,4 @@
+# Foundation and CoreGraphics only (no SwiftUI or UIKit).
+ios/ZnRuntime/Swift/Registry.swift
+ios/ZnRuntime/Swift/Readers.swift
+ios/ZnRuntime/Swift/ZnDynamicValues.swift

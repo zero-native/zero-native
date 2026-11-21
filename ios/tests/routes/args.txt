@@ -1,0 +1,2 @@
+# The sample's built routes: run bun run sample:js first.
+android/sample/src/main/assets/main.zn.ui.json
