@@ -112,6 +112,9 @@ struct ZnNodeView: View {
     var body: some View {
         let s = t.nodes[n]
         let _ = ZnDebug.hit(s, inst)
+        #if DEBUG
+        let _ = ZnMotionPerf.hit("node")
+        #endif
         // display: "none" (written, or from a slot): no room and nothing drawn, for the parents that don't leave it out
         // themselves (a Scroll's content, pages, list rows, a screen's root), as Android lays it out 0 x 0.
         if s.displayNoneNow(inst) {
@@ -151,6 +154,8 @@ struct ZnNodeView: View {
     @ViewBuilder
     private func styled(_ s: ZnNodeSpec) -> some View {
         content(s)
+            // What a child's formula reads as `parent` (its content box), written only once one wants it.
+            .modifier(ZnSizeWriter(box: s.feedsChildSite ? inst.contentBox(s.index) : nil))
             .modifier(ZnPointerEventsKids(s: s, inst: inst))
             // A List's and a Carousel's padding is inside their scroll (content padding), not around them.
             .padding(s.type == Registry.Component.list || s.type == Registry.Component.carousel ? EdgeInsets()
@@ -376,7 +381,12 @@ struct ZnSizeFrame: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        let width = s.widthNow(inst), height = s.heightNow(inst)
+        #if DEBUG
+        let _ = ZnMotionPerf.hit("Size")
+        #endif
+        // A width / height that follows a motion value lays this node out again each frame (ZnMotionBindings.swift).
+        let width = znBoundSize(s.widthSlot, inst) { s.widthNow(inst) }
+        let height = znBoundSize(s.heightSlot, inst) { s.heightNow(inst) }
         let minWidth = s.minWidthNow(inst), maxWidth = s.maxWidthNow(inst)
         let minHeight = s.minHeightNow(inst), maxHeight = s.maxHeightNow(inst)
         let aspect = s.aspectRatioNow(inst)
@@ -550,8 +560,11 @@ struct ZnPaintLayers: ViewModifier {
     @Environment(\.znTouchOff) private var touchOff
 
     func body(content: Content) -> some View {
-        // Corners from slots are read here: a change redraws this node's paint alone.
-        let shape = s.shapeNow(inst)
+        #if DEBUG
+        let _ = ZnMotionPerf.hit("Paint")
+        #endif
+        // Corners from slots are read here (motion values too): a change redraws this node's paint alone.
+        let shape = znShapeNow(s, inst)
         // Images and shimmers clip to their rounded shape by default, as in RN (and Android). One whose corners come
         // from a slot always clips (to a square when they are 0), so the branch never swaps and the picture never reloads.
         let picture = s.type == Registry.Component.image || s.type == Registry.Component.shimmer
@@ -610,21 +623,29 @@ struct ZnPaintPlaying: ViewModifier {
     }
 }
 
-/// Opacity and transforms (scale, scaleX, scaleY, rotate about transformOrigin, then translate), each value from
-/// its motion, its slot, or the template. A value with a timing that follows a slot animates to each new value
-/// (SwiftUI animation scoped to that modifier). The same order as Compose's graphicsLayer: scale, rotate, translate.
+/// Opacity and transforms (scale, scaleX, scaleY, rotate about transformOrigin, 3D turns, then translate; blur under
+/// them), each value from its motion, its slot (a number, or a motion value read here: ZnMotionBindings.swift), or the
+/// template. A value with a timing that follows a slot animates to each new value (SwiftUI animation scoped to that
+/// modifier); one that follows a motion value doesn't, it already moves smoothly (Android's animatedFloat). The same
+/// order as Compose's graphicsLayer: scale, rotate, the 3D turn, translate.
 struct ZnLayer: ViewModifier {
     typealias P = Registry.Prop
     let s: ZnNodeSpec
     let inst: ZnInstance
     let motion: ZnMotion?
+    /// The node's sizes for a bound formula that reads `self` / `parent` (made when one does).
+    @State private var site: ZnSite?
+    @Environment(\.displayScale) private var displayScale
 
     static let animatable = [P.opacity, P.scale, P.scaleX, P.scaleY, P.rotate, P.translateX, P.translateY, P.backgroundColor]
 
-    /// Each animatable prop's resting value now (slot or template), for motions that start from or play towards it.
+    /// Each animatable prop's resting value now (slot, a motion value, or template), for motions that start from or
+    /// play towards it.
     @MainActor static func rests(_ s: ZnNodeSpec, _ inst: ZnInstance) -> [Int: [Double]] {
-        func n(_ slot: Int, _ v: CGFloat) -> [Double] { [slot >= 0 ? inst.slot(slot).value.number ?? Double(v) : Double(v)] }
-        let bg = s.backgroundSlot >= 0 ? znColorVector(inst.slot(s.backgroundSlot).value) : znColorVector(s.props[P.backgroundColor])
+        func n(_ slot: Int, _ v: CGFloat) -> [Double] { [Double(inst.layerNumber(slot, v))] }
+        let bgValue = s.backgroundSlot >= 0 ? inst.slot(s.backgroundSlot).value : nil
+        let bg = bgValue.flatMap { znBoundColor($0) }.flatMap { znColorVector(.color($0)) }
+            ?? (bgValue.map(znColorVector) ?? znColorVector(s.props[P.backgroundColor]))
         return [
             P.opacity: n(s.opacitySlot, CGFloat(s.opacity)), P.scale: n(s.scaleSlot, s.scaleBase),
             P.scaleX: n(s.scaleXSlot, s.scaleXOnly), P.scaleY: n(s.scaleYSlot, s.scaleYOnly),
@@ -635,32 +656,51 @@ struct ZnLayer: ViewModifier {
 
     private func value(_ prop: Int, _ slot: Int, _ fixed: CGFloat) -> CGFloat {
         if let m = motion?.values[prop]?.first { return CGFloat(m) }
-        return slot >= 0 ? inst.slot(slot).value.number.map { CGFloat($0) } ?? fixed : fixed
+        return inst.layerNumber(slot, fixed, site: site)
     }
 
-    /// The animation for a value that follows its slot; nil: it changes at once.
-    private func follow(_ prop: Int) -> Animation? {
-        guard let t = s.animate?.timing(prop), !t.selfPlaying else { return nil }
+    /// The animation for a value that follows its slot; nil: it changes at once (no timing, or a motion value).
+    private func follow(_ prop: Int, _ slot: Int) -> Animation? {
+        guard let t = s.animate?.timing(prop), !t.selfPlaying, !inst.followsMotion(slot) else { return nil }
         return t.animation
     }
 
     func body(content: Content) -> some View {
         let _ = ZnDebug.hit(name: "Layer", inst: inst, node: s.index)
+        #if DEBUG
+        let _ = ZnMotionPerf.hit("Layer")
+        #endif
         let opacity = value(P.opacity, s.opacitySlot, CGFloat(s.opacity))
-        if !s.hasTransform {
-            content.opacity(opacity)
+        // Only a node whose layer has slots can follow a formula reading `self` / `parent` (fixed per node).
+        let fed = Group {
+            if s.hasLayerSlots {
+                content.modifier(ZnSiteFeed(s: s, inst: inst, on: znSiteUsed(s, inst), site: $site))
+            } else {
+                content
+            }
+        }
+        if !s.layerTransforms {
+            fed.animation(follow(P.opacity, s.opacitySlot)) { $0.opacity(opacity) }
         } else {
             // A scale of exactly 0 is a singular transform: kept just above it (nothing shows either way).
             let sc: (CGFloat) -> CGFloat = { abs($0) < 1e-4 ? 1e-4 : $0 }
             let o = s.origin
-            content
-                .animation(follow(P.scale)) { $0.scaleEffect(sc(value(P.scale, s.scaleSlot, s.scaleBase)), anchor: o) }
-                .animation(follow(P.scaleX)) { $0.scaleEffect(x: sc(value(P.scaleX, s.scaleXSlot, s.scaleXOnly)), y: 1, anchor: o) }
-                .animation(follow(P.scaleY)) { $0.scaleEffect(x: 1, y: sc(value(P.scaleY, s.scaleYSlot, s.scaleYOnly)), anchor: o) }
-                .animation(follow(P.rotate)) { $0.rotationEffect(.degrees(value(P.rotate, s.rotateSlot, s.rotate)), anchor: o) }
-                .animation(follow(P.translateX)) { $0.offset(x: value(P.translateX, s.translateXSlot, s.translateX)) }
-                .animation(follow(P.translateY)) { $0.offset(y: value(P.translateY, s.translateYSlot, s.translateY)) }
-                .animation(follow(P.opacity)) { $0.opacity(opacity) }
+            let depth = s.hasDepth
+            fed
+                .modifier(ZnBlurIf(on: s.blurs, radius: s.blurs ? max(0, value(P.blurRadius, s.blurRadiusSlot, s.blurRadius)) : 0,
+                                   scale: displayScale))
+                .animation(follow(P.scale, s.scaleSlot)) { $0.scaleEffect(sc(value(P.scale, s.scaleSlot, s.scaleBase)), anchor: o) }
+                .animation(follow(P.scaleX, s.scaleXSlot)) { $0.scaleEffect(x: sc(value(P.scaleX, s.scaleXSlot, s.scaleXOnly)), y: 1, anchor: o) }
+                .animation(follow(P.scaleY, s.scaleYSlot)) { $0.scaleEffect(x: 1, y: sc(value(P.scaleY, s.scaleYSlot, s.scaleYOnly)), anchor: o) }
+                .animation(follow(P.rotate, s.rotateSlot)) { $0.rotationEffect(.degrees(value(P.rotate, s.rotateSlot, s.rotate)), anchor: o) }
+                .modifier(ZnDepthIf(on: depth,
+                                    rotateX: depth ? value(P.rotateX, s.rotateXSlot, s.rotateX) : 0,
+                                    rotateY: depth ? value(P.rotateY, s.rotateYSlot, s.rotateY) : 0,
+                                    camera: depth ? value(P.cameraDistance, s.cameraDistanceSlot, s.cameraDistance) : 8,
+                                    origin: o, scale: displayScale))
+                .animation(follow(P.translateX, s.translateXSlot)) { $0.offset(x: value(P.translateX, s.translateXSlot, s.translateX)) }
+                .animation(follow(P.translateY, s.translateYSlot)) { $0.offset(y: value(P.translateY, s.translateYSlot, s.translateY)) }
+                .animation(follow(P.opacity, s.opacitySlot)) { $0.opacity(opacity) }
         }
     }
 }
@@ -738,8 +778,13 @@ struct ZnBackground: View {
 
     var body: some View {
         let _ = ZnDebug.hit(name: "Background", inst: inst, node: s.index)
+        #if DEBUG
+        let _ = ZnMotionPerf.hit("Background")
+        #endif
         let played = motion?.values[Registry.Prop.backgroundColor].flatMap(znColorFromVector)
-        let color = played ?? (s.backgroundSlot >= 0 ? znColor(inst.slot(s.backgroundSlot).value) : s.background)
+        // A motion colour (mapColor, a colour formula) is read here frame by frame, never through `animate`'s timing.
+        let color = played ?? inst.motionColor(s.backgroundSlot)
+            ?? (s.backgroundSlot >= 0 ? znColor(inst.slot(s.backgroundSlot).value) : s.background)
         let follow = s.animate?.timing(Registry.Prop.backgroundColor).flatMap { $0.selfPlaying ? nil : $0.animation }
         if color != nil || s.gradient != nil {
             ZStack {
@@ -825,7 +870,8 @@ struct ZnMissing: View {
 func znDisplay(_ v: ZnValue) -> String {
     switch v {
     case .null: return ""
-    case .string(let s): return s
+    // A motion value as text (`v.format(...)`): formatted from its value now, never its raw control characters.
+    case .string(let s): return znShownString(s)
     case .bool(let b): return b ? "true" : "false"
     case .number(let n): return n == n.rounded() && abs(n) < 1e15 ? String(Int64(n)) : String(n)
     default: return ""

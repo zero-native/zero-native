@@ -62,6 +62,7 @@ import { MotionScreensDetailScreen, MotionScreensLabScreen } from "./MotionScree
 import { MotionExtensionLabScreen } from "./MotionExtensionLab"
 import { WebSocketLabScreen } from "./WebSocketLab"
 import { MotionEngineLabScreen } from "./MotionEngineLab"
+import { MotionBindingsLabScreen } from "./MotionBindingsLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -137,6 +138,7 @@ export const routes = defineRoutes({
   motionScreensDetail: { path: "/dev/motion/screens/detail", screen: MotionScreensDetailScreen, safeArea: { top: false }, statusBar: "light", transition: "fade" },
   motionExtensionLab: { path: "/dev/motion/extension", screen: MotionExtensionLabScreen, deepLink: true },
   motionEngineLab: { path: "/dev/motion/engine", screen: MotionEngineLabScreen, deepLink: true },
+  motionBindingsLab: { path: "/dev/motion/bindings", screen: MotionBindingsLabScreen, deepLink: true },
   imageViewer: { path: "/dev/image-viewer/full", native: "imageviewer.full", safeArea: "none", transition: "fade" },
   // The TSX viewer (registry 24): see-through, so the lab stays drawn under it while the photo flies and fades.
   photoViewer: { path: "/dev/image-viewer/tsx", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },

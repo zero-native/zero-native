@@ -165,14 +165,10 @@ final class ZnMotionModule: ZnModuleBase, @unchecked Sendable {
 
 extension ZnInstance {
     /// A layer number now: a slot holding a motion reference reads its source (so SwiftUI redraws the reader when it
-    /// moves), else the slot's number, else [fixed].
+    /// moves), else the slot's finite number, else [fixed] (ZnMotionBindRules.swift).
     func layerNumber(_ slot: Int, _ fixed: CGFloat, site: ZnSite? = nil) -> CGFloat {
         guard slot >= 0 else { return fixed }
-        let v = self.slot(slot).value
-        if let s = v.string, s.hasPrefix(ZnMotionEngine.refPrefix) {
-            return ZnMotionEngine.shared.ref(s).map { CGFloat($0.read(site)) } ?? fixed
-        }
-        return v.number.map { CGFloat($0) } ?? fixed
+        return znBoundNumber(self.slot(slot).value, fixed, site: site)
     }
 
     /// A colour slot that follows a motion colour (mapColor, a colour formula), now; nil when it doesn't.
