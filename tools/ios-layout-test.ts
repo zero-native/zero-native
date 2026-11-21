@@ -3,5 +3,5 @@
 //   bun run tools/ios-layout-test.ts
 import { join } from "node:path"
 
-const r = Bun.spawnSync(["bun", "run", join(import.meta.dir, "ios-unit-test.ts"), "layout"], { stdout: "inherit", stderr: "inherit" })
+const r = Bun.spawnSync([process.execPath, "run", join(import.meta.dir, "ios-unit-test.ts"), "layout"], { stdout: "inherit", stderr: "inherit" })
 process.exit(r.exitCode ?? 1)

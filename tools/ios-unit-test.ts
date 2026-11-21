@@ -24,13 +24,13 @@ export function iosSuites(): string[] {
 }
 
 // The files a suite's args.txt names that aren't there (a built sample, say), with the file's # lines as the hint.
-// An argument with $WORK in it is in the scratch folder, so it isn't checked.
+// An argument with $WORK in it is in the scratch folder, and one starting with - is a flag, so neither is checked.
 export function iosSuiteMissing(suite: string): { missing: string[]; hint: string } {
   const file = join(testsDir, suite, "args.txt")
   if (!existsSync(file)) return { missing: [], hint: "" }
   const text = readFileSync(file, "utf8").split("\n").map((l) => l.trim())
   const hint = text.filter((l) => l.startsWith("#")).map((l) => l.replace(/^#\s?/, "")).join(" ")
-  const missing = lines(file).filter((a) => !a.includes("$WORK") && !existsSync(join(root, a)))
+  const missing = lines(file).filter((a) => !a.includes("$WORK") && !a.startsWith("-") && !existsSync(join(root, a)))
   return { missing, hint }
 }
 
@@ -45,6 +45,11 @@ function runSuite(suite: string): boolean {
   const dir = join(testsDir, suite)
   const sources = lines(join(dir, "sources.txt"))
   for (const s of sources) {
+    // Swift only: C, C++ and Objective-C++ (ZNHost.mm, core/) are tested in core/tests (tools/run-core-tests-apple.ts).
+    if (!s.endsWith(".swift")) {
+      console.error(`${suite}: sources.txt names ${s}; a suite builds only Swift files (C and C++ go in core/tests)`)
+      return false
+    }
     if (!existsSync(join(root, s))) {
       console.error(`${suite}: sources.txt names ${s}, which isn't there`)
       return false
@@ -60,7 +65,7 @@ function runSuite(suite: string): boolean {
   try {
     if (existsSync(join(dir, "setup.ts"))) {
       mkdirSync(join(work, "setup"))
-      if (!run(["bun", "run", join(dir, "setup.ts"), join(work, "setup")])) {
+      if (!run([process.execPath, "run", join(dir, "setup.ts"), join(work, "setup")])) {
         console.error(`${suite}: setup.ts failed`)
         return false
       }
@@ -72,7 +77,7 @@ function runSuite(suite: string): boolean {
     }
     const argsFile = join(dir, "args.txt")
     const args = existsSync(argsFile)
-      ? lines(argsFile).map((a) => (a.includes("$WORK") ? a.replaceAll("$WORK", work) : join(root, a)))
+      ? lines(argsFile).map((a) => (a.startsWith("-") ? a : a.includes("$WORK") ? a.replaceAll("$WORK", work) : join(root, a)))
       : []
     return run([exe, ...args])
   } finally {

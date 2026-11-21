@@ -14,7 +14,7 @@ test("ios/tests has the suites the runner finds", () => {
 
 for (const suite of iosSuites()) {
   test.skipIf(!swift || iosSuiteMissing(suite).missing.length > 0)(`iOS unit suite ios/tests/${suite} passes on the Mac`, () => {
-    const r = Bun.spawnSync(["bun", "run", join(root, "tools/ios-unit-test.ts"), suite], { cwd: root, stdout: "pipe", stderr: "pipe" })
+    const r = Bun.spawnSync([process.execPath, "run", join(root, "tools/ios-unit-test.ts"), suite], { cwd: root, stdout: "pipe", stderr: "pipe" })
     const out = r.stdout.toString() + r.stderr.toString()
     expect({ exit: r.exitCode, out: out.includes("1 suite(s) passed") ? "passed" : out }).toEqual({ exit: 0, out: "passed" })
   }, 180_000)

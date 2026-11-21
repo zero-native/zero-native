@@ -31,12 +31,15 @@ Some suites read built files: `routes` reads the sample's `main.zn.ui.json`, so 
 2. `sources.txt`: the Swift files to build with it, one per line, from the repo root. Blank lines and lines starting
    with `#` are skipped. Don't list `main.swift`; the runner adds it. The files must build without UIKit, SwiftUI or
    Hermes; if one needs them, move the plain part into its own file (as `ZnRoutes.swift` and `ZnDynamicValues.swift`
-   are).
+   are). Only `.swift` files: the runner refuses anything else. C, C++ and Objective-C++ (`core/`, `ZNHost.mm`, the
+   storage and runtime headers) are tested in `core/tests/core_tests.cpp` instead, with
+   `bun run tools/run-core-tests-apple.ts`.
 3. `main.swift`: the checks. Print each failure with its line, print a last line with the count, and exit 0 when
    everything passed and 1 when anything failed (copy the `check` / `test` helpers from `layout` or `routes`).
 4. Optional `args.txt`: the program's arguments, one per line. A path is from the repo root and must exist before the
    build (the runner says which is missing, with the file's `#` lines as the hint). `$WORK` is the suite's scratch
-   folder, made fresh for each run and removed after.
+   folder, made fresh for each run and removed after. A line starting with `-` is passed as it is (a flag such as
+   `--seed=3`); any other value has to be a path.
 5. Optional `setup.ts`: run first as `bun run setup.ts $WORK/setup` to make fixtures there (see `ota/setup.ts`).
 6. Run `bun run tools/ios-unit-test.ts <suite>`, then break one check on purpose and see it fail.
 

@@ -62,13 +62,13 @@ android/sample/google-services.json
 **/google-services.json
 
 # Hermes for Apple platforms (bun run tools/fetch-hermes-apple.ts)
-ios/third_party/hermes/
+ios/third_party/hermes
 core/build-apple/
 
 # iOS Firebase config (project keys): each developer adds their own, never committed
 **/GoogleService-Info.plist
-ios/third_party/firebase/
-ios/third_party/lottie/
+ios/third_party/firebase
+ios/third_party/lottie
 
 # Claude Code local state (worktrees of its agents)
 .claude/
