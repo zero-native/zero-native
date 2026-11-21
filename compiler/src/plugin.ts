@@ -53,6 +53,8 @@ export interface ZnBuild {
   outputs(js: string): { templates: Uint8Array; manifest: ZnManifest; js: string; requires: BundleRequires; moduleFrom: Record<string, string> }
   /** After Bun.build: per .tsx file (absolute path), compiler output position → TSX position. */
   maps: Map<string, LineMap>
+  /** After Bun.build: the compiler's warnings (compile.ts CompileOutput.warnings), by file path. */
+  warnings(): string[]
 }
 
 /** Template id placeholder in generated code: fixed width, so filling it in (padded with spaces) moves no column. */
@@ -74,6 +76,8 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
   /** File → its components' uses with props that can change (compile.ts propUses), for the props traps. */
   const propUses = new Map<string, PropUse[]>()
   const maps = new Map<string, LineMap>()
+  /** File → the compiler's warnings for it. */
+  const warnings = new Map<string, string[]>()
   let routes: { file: string; entries: RouteEntry[] } | null = null
   let compiling = "" // the file being compiled; compileModule is synchronous, so no two files interleave
   let seqInFile = 0
@@ -141,6 +145,7 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
         for (const [name, r] of Object.entries(out.roots)) roots.set(name, r)
         propUses.set(path, out.propUses)
         maps.set(path, out.map)
+        warnings.set(path, out.warnings)
         // derive(() => ...) → formula data (compiler motion.ts); line count kept, so the map stays right per line.
         return { contents: compileDerives(out.code, path), loader: "ts" }
       })
@@ -166,6 +171,7 @@ export function znBuild(options: { fonts?: FontTable } = {}): ZnBuild {
   return {
     plugin,
     maps,
+    warnings: () => [...warnings.keys()].sort().flatMap((f) => warnings.get(f)!),
     outputs(js: string) {
       // Final ids: by file (its package name and path inside the package, the same on every machine; modules.ts
       // stableFileKey), then by order in the file.

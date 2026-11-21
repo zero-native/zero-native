@@ -18,6 +18,8 @@ export interface AppBuild {
   requires: BundleRequires
   /** Each needed module → the package it comes from (zn-bundle.json `moduleFrom`, for the dashboard; not signed). */
   moduleFrom: Record<string, string>
+  /** The compiler's warnings (`file:line:col: message`); already printed to stderr. They don't fail the build. */
+  warnings: string[]
   /** Maps a position in `js` (0-based line and column) back to the TSX / TS file. */
   original(line: number, col: number): { file: string; line: number; col: number } | null
   /**
@@ -70,6 +72,8 @@ export async function buildApp(entry: string): Promise<AppBuild> {
       return `${indent}// ${inApp(file) ? relative(entryDir, file).replaceAll("\\", "/") : stableFileKey(file)}`
     })
   const { templates, manifest, js: filledJs, requires, moduleFrom } = zn.outputs(bundled)
+  const warnings = zn.warnings()
+  for (const w of warnings) console.warn(`zero-native warning: ${w}`)
   const bundleMap: DecodedMap | null = mapFile ? decodeSourceMap(JSON.parse(await mapFile.text())) : null
 
   const original = (line: number, col: number) => {
@@ -90,6 +94,7 @@ export async function buildApp(entry: string): Promise<AppBuild> {
     js: filledJs,
     requires,
     moduleFrom,
+    warnings,
     original,
     sourceMap(file, relativeTo) {
       const sources: string[] = []

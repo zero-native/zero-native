@@ -76,6 +76,11 @@ export interface CompileOutput {
   propUses: PropUse[]
   /** Output position → TSX position (for `zn dev` error screens). */
   map: LineMap
+  /**
+   * Build warnings, `file:line:col: message`: code that builds and runs but doesn't do what it says. The build goes on;
+   * the app build prints them (build-app.ts). Mistakes that would go wrong on a phone are errors (fail), not these.
+   */
+  warnings: string[]
 }
 
 /** What one component returns (CompileOutput.roots). */
@@ -286,6 +291,11 @@ export function compileModule(
   const fail = (node: ts.Node, message: string): never => {
     const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
     throw new Error(`${fileName}:${line + 1}:${character + 1}: ${message}`)
+  }
+  const warnings: string[] = []
+  const warn = (node: ts.Node, message: string) => {
+    const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+    warnings.push(`${fileName}:${line + 1}:${character + 1}: ${message}`)
   }
 
   const substituteReplacements = (start: number, end: number): string => {
@@ -1328,7 +1338,7 @@ export function compileModule(
   // Each component's template id, readable at runtime without running it (a <List> row's type, in any file).
   for (const [name, id] of Object.entries(components)) pieces.push({ generatedAt: source.length, text: `\n${name}.__zt = ${ref(id)};` })
   const { code, map } = assemble(source, pieces)
-  return { code, components, roots: rootsOf, propUses, map }
+  return { code, components, roots: rootsOf, propUses, map, warnings }
 
   // ---- JSX variables --------------------------------------------------------------------------------------------
 
@@ -3013,6 +3023,18 @@ export function compileModule(
       body = rowFn.body
     }
     if (!body) fail(rowFn, "row must return its JSX directly: row={(item) => <Row/>}")
+    // Pavan's decision 7 (2026-11-21): in a reorderable List a long press on a row picks it up (Android's ZnReorder
+    // takes the touch; iOS does the same), so an onLongPress in the row never runs. A warning: the app still works.
+    // Not when pinned rows are set: then the list doesn't reorder (ZnRenderer.kt, reorder needs no sticky rows).
+    const pinned = typeof props.stickyHeaderIndices === "string" && props.stickyHeaderIndices !== ""
+    if (props.reorderable === true && !pinned) { // reorderable is known at build time (setProp)
+      forEachDescendant(rowFn.body, (n) => {
+        if (ts.isJsxAttribute(n) && n.name.getText(sf) === "onLongPress") {
+          warn(n, "onLongPress in a row of <List reorderable> never runs: a long press on a row starts the drag " +
+            "(Android and iOS). Use onPress or a button for the action, or turn reorderable off")
+        }
+      })
+    }
 
     const branches = (e: ts.Expression): { code: string; type: string } => {
       const u = seeThrough(e)
