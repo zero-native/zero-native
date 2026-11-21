@@ -58,6 +58,7 @@ export function RnPropsLabScreen() {
   const overOff = signal(false)
   const tinted = signal(false)
   const wide = signal(false)
+  const jsRefreshing = signal(false)
   const dialog = signal(false)
   const page = signal(false)
   const shimmerOn = signal(false)
@@ -355,6 +356,39 @@ export function RnPropsLabScreen() {
             Very Long Heading Auto Fit To One Line
           </Text>
         </Box>
+        {/* Fits once shrunk (about 0.8): the whole amount shows on one line, no "…". */}
+        <Box testID="autofit-fits" style={{ width: 180, padding: 8, backgroundColor: "#DCFCE7", borderRadius: 8 }}>
+          <Text adjustsFontSizeToFit numberOfLines={1} fontSize={36} fontWeight={700} color="#166534">
+            ₹12,34,567.00
+          </Text>
+        </Box>
+        {/* In a Row next to a dot, with no flex (ZeroBill's amount rows): it shrinks inside the 220 wide Row, not past it. */}
+        <Row testID="autofit-row" style={{ width: 220, padding: 8, gap: 8, alignItems: "center", backgroundColor: "#E0E7FF", borderRadius: 8 }}>
+          <Box style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: c.primary }} />
+          <Text adjustsFontSizeToFit numberOfLines={1} fontSize={20} fontWeight={700} color="#3730A3">
+            Ravi Kirana Stores owes ₹14,500
+          </Text>
+        </Row>
+        {/* Centred: shrinks and stays in the middle of the box. */}
+        <Box testID="autofit-center" style={{ width: 200, padding: 8, backgroundColor: "#FCE7F3", borderRadius: 8 }}>
+          <Text adjustsFontSizeToFit numberOfLines={1} fontSize={24} fontWeight={700} color="#9D174D" style={{ textAlign: "center" }}>
+            Centred auto-fit page title
+          </Text>
+        </Box>
+
+        {/* A Scroll with `refreshing` and no onRefresh: it can't be pulled; the button shows the spinner for 3 s. */}
+        <PropsTitle text="Refreshing from JS, no onRefresh" />
+        <HoldTile label={jsRefreshing() ? "Refreshing…" : "Show refreshing"} onPress={() => {
+          say("js refreshing on")
+          jsRefreshing.set(true)
+          setTimeout(() => { jsRefreshing.set(false); say("js refreshing off") }, 3000)
+        }} />
+        <Scroll testID="js-refresh-scroll" refreshing={jsRefreshing()} refreshColor="#FFFFFF" refreshBackground={c.primary}
+          style={{ height: 120, backgroundColor: c.white, borderRadius: 8 }}>
+          {["Row one", "Row two", "Row three", "Row four", "Row five", "Row six"].map((t) => (
+            <Text key={t} fontSize={13} color={c.ink} style={{ padding: 10 }}>{t}</Text>
+          ))}
+        </Scroll>
 
         <PropsTitle text="Negative Margins (RN parity)" />
         <Column style={{ backgroundColor: c.white, borderRadius: 8, padding: 12 }}>
