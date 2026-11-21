@@ -892,8 +892,7 @@ final class ZnTemplate {
     }()
     private static let propsNotDrawn: Set<Int> = {
         typealias P = Registry.Prop
-        let all: Set<Int> = [P.scrollCommand, P.selectable, P.adjustsFontSizeToFit, P.minimumFontScale, P.itemWidthPercent,
-                P.commands]
+        let all: Set<Int> = [P.scrollCommand, P.commands]
         return all
     }()
     nonisolated(unsafe) private static var reported: Set<String> = []
