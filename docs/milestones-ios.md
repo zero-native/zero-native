@@ -164,6 +164,10 @@ Updates module, apply in place behind a cover. Same protocol as Android (`docs/o
 `docs/motion.md` §14 is the porting guide. Motion values, timings, formulas, bindings; gestures, element values,
 shared elements, reorder, drop zones, tilt; v1.1: `useZoom`, snapping and scroll events, `keyboardDismissMode`,
 width / height from a value, the transparent route; then the TSX image viewer replaces the Swift one.
+The compiler half of the OTA gate is done (2026-11-21): an app file that imports `useElementMotion`, `useFrame`,
+`useTilt`, `nativeMotion`, `interpolateColor`, `self` or `parent` now needs Motion 1 too (`GATED_CORE_MODULES`, a test
+fails when core exports a new motion name nobody classed). The compiler also warns when a row of `<List reorderable>`
+has `onLongPress` (it never runs: the long press starts the drag; Pavan's decision 7).
 
 ### Phase 5: the rest [zn] — **waits**
 Background tasks, accessibility + font scaling, secure screens, impressions, Canvas, registry 23 / 24 drawing, media /
@@ -280,7 +284,7 @@ manifest must not claim what it can't draw.
 | Launches (1) | done | ack, `result`; `ZnLaunch.start / finish / open`. |
 | Platform (iOS only) | done | Tells JS it runs on iOS before any code runs (A9). |
 | Storage (JS) | done | C++ core + MMKV. |
-| Storage native API (`ZnStorage` for app / plugin code) | partial | Strings, remove, flush only. S. |
+| Storage native API (`ZnStorage` for app / plugin code) | done | `ZNStorage` (ZNHost.mm): string, number, boolean, bytes, `storedType`, has, remove, keys, clear, flush, in JS's format; Swift `ZnStorage.store(id)` (ZnStorage.swift). Mac test `zn_znstorage_tests` (run-core-tests-apple). |
 | WebSocket (1) | done | `ZnWebSocket.swift` on URLSessionWebSocketTask; lab `/dev/websocket` 28 / 28 (iOS simulator; not run on Android yet); differences in docs/fetch.md §8. |
 | Updates (3) | done | Real OTA (ZnOta.swift, Phase 4a); `ZnUpdatesOff` answers only while OTA isn't configured. Full bundles only, no patches. |
 | Tasks (1) | partial | `ZnTasks`: `done` answers; nothing starts a task on iOS yet (§8). |
