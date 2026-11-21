@@ -22,6 +22,7 @@ Some suites read built files: `routes` reads the sample's `main.zn.ui.json`, so 
 | Suite | Checks | Android's side |
 |---|---|---|
 | `layout` | layout values from a slot (`ZnDynamicValues.swift`) | `ZnRenderer.kt`, `ZnTouch.kt` |
+| `list` | `<List>`'s item order (header, empty, rows, footer), grid lines, the visible range, splices and scroll command targets (`ZnListLogic.swift`, `ZnScrollCommand.swift`) | `ZnRenderer.kt` (`ZnLazyList`) |
 | `net` | fetch's progress throttle, the multipart body writer (streamed file parts, escaping, cancel, a 100 MB file's memory) and the network key (`ZnNetRules.swift`) | `ZnFetchTest.kt` (ProgressThrottler), OkHttp's `MultipartBody` |
 | `ota` | OTA rules and the zip install (`ZnOtaRules.swift`, `ZnOtaInstall.swift`) | `ZnOtaHealthTest`, `ZnBundlesTest`, `ZnOtaStoreTest`, `ZnOtaSignatureTest`, `ZnOtaInstallTest` |
 | `motion` | motion maths, `derive()` formulas and the motion engine's commands, watch and follow, on a fake frame clock; the 3D turn's matrix against HWUI's order and enter / exit's values; what a bound slot reads (references, motion colours, `self` / `parent` sizes, motion text, blur, corner precedence) (`ZnMotionMath.swift`, `ZnFormula.swift`, `ZnMotionEngine.swift`, `ZnDepth.swift`, `ZnMotionBindRules.swift`) | `ZnMotionTest.kt`, `ZnMotion.kt` |

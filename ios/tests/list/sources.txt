@@ -1,0 +1,3 @@
+# Foundation only: <List>'s item order, grid lines, visible range, splices and scroll targets.
+ios/ZnRuntime/Swift/ZnListLogic.swift
+ios/ZnRuntime/Swift/ZnScrollCommand.swift
