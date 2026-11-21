@@ -21,11 +21,26 @@ const channels = () =>
 /**
  * The lab's tasks, named in main.ts so they exist on a start with no screen. A data message with `lab: "show"` shows a
  * notification from its own `title`, `body`, `link` and `group` keys: how a server-sent "custom notification" works.
+ * `lab: "slow"` takes `ms` (default 20000) to answer, or stops when the task's signal aborts: a slow JS, to see iOS's
+ * background push answered in time anyway (tools/push-send.ts --sim <simulator> --background --data lab=slow,ms=40000).
+ * `ageMs` is how long ago the message came (a data-only push that waited for the next start on iOS comes late).
  */
 export function installPushLab() {
-  Push.onMessage(async (m) => {
+  Push.onMessage(async (m, signal) => {
     const d = m.data
-    console.info(`push-lab message lab=${d.lab ?? "-"} inFront=${m.inFront} priority=${m.priority} deleted=${m.deleted ?? false} notification=${m.notification != null}`)
+    console.info(`push-lab message lab=${d.lab ?? "-"} inFront=${m.inFront} priority=${m.priority} deleted=${m.deleted ?? false} notification=${m.notification != null} ageMs=${Date.now() - m.sentAt}`)
+    if (d.lab === "slow") {
+      const ms = Number(d.ms ?? "20000")
+      const finished = await new Promise<boolean>((resolve) => {
+        const t = setTimeout(() => resolve(true), ms)
+        signal.addEventListener("abort", () => {
+          clearTimeout(t)
+          resolve(false)
+        })
+      })
+      console.info(`push-lab slow ${finished ? "finished" : "aborted"} (asked ${ms} ms)`)
+      return
+    }
     if (d.lab !== "show") return
     await channels()
     const r = await Notifications.show({

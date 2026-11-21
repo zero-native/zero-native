@@ -73,6 +73,23 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
                 ZnApp.shared.restart(bundle: ZnBundles.builtInURL, in: ZnOta.window()) { print("zn-sample: restart → \($0) \($1)") }
             }
         }
+        // `... notifyutil -s dev.zeronative.sample.push.data 40000 && ... notifyutil -p dev.zeronative.sample.push.data`
+        // hands the app delegate's push call a data-only push (PushLab's lab=slow, ms = the state), as a background wake
+        // does: simctl push's background pushes don't reach the app delegate on the iOS 26 simulator.
+        var pushToken: Int32 = 0
+        notify_register_dispatch("dev.zeronative.sample.push.data", &pushToken, .main) { t in
+            var ms: UInt64 = 0
+            notify_get_state(t, &ms)
+            let info: [AnyHashable: Any] = ["aps": ["content-available": 1], "gcm.message_id": "hook-\(Int(Date().timeIntervalSince1970 * 1000))",
+                                            "lab": "slow", "ms": "\(ms)"]
+            var calls = 0
+            MainActor.assumeIsolated {
+                FirebaseMessagingPlugin.remoteNotification(info) { r in
+                    calls += 1
+                    print("zn-sample: fetchCompletionHandler(\(r.rawValue)) call \(calls)")
+                }
+            }
+        }
         #endif
         return true
     }

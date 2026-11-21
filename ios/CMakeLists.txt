@@ -77,7 +77,9 @@ target_link_libraries(ZnSample PRIVATE zn_core "-framework QuartzCore")
 set(firebase_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/firebase")
 file(GLOB firebase_marker "${firebase_dir}/.version-*")
 if(firebase_marker)
-  file(GLOB firebase_xcfs "${firebase_dir}/FirebaseAnalytics/*.xcframework" "${firebase_dir}/FirebaseCrashlytics/*.xcframework")
+  # Messaging: its own framework only (its GoogleDataTransport is Crashlytics' copy)
+  file(GLOB firebase_xcfs "${firebase_dir}/FirebaseAnalytics/*.xcframework" "${firebase_dir}/FirebaseCrashlytics/*.xcframework"
+    "${firebase_dir}/FirebaseMessaging/FirebaseMessaging.xcframework")
   list(FILTER firebase_xcfs EXCLUDE REGEX "GoogleAppMeasurementIdentitySupport|GoogleAdsOnDeviceConversion")
   target_link_libraries(ZnSample PRIVATE ${firebase_xcfs} "-ObjC" "-lc++" "-lsqlite3" "-lz")
   message(STATUS "Firebase: linked from ${firebase_dir}")
@@ -114,7 +116,10 @@ set(ZN_TEAM "" CACHE STRING "Apple team id for iPhone builds; empty: ad hoc (sim
 if(ZN_TEAM STREQUAL "")
   set_target_properties(ZnSample PROPERTIES
     XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-"
-    XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED NO)
+    XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED NO
+    # The simulator reads them from the build too: with aps-environment it gives the app an APNs token (simctl push's
+    # background pushes still don't reach the app delegate on the iOS 26 simulator)
+    XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/Sample/ZnSample.entitlements")
 else()
   set_target_properties(ZnSample PROPERTIES
     XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${ZN_TEAM}"
