@@ -102,6 +102,14 @@ func znGridRows(line: Int, cols: Int, rows: Int) -> Range<Int> {
     return from..<min(from + c, max(rows, 0))
 }
 
+/// The rows of the grid line that starts at row [from] (its first row's index now, nil: gone): up to [cols] rows. A
+/// line is drawn from its first row's key, so rows added or removed above it move it, never change what it draws.
+func znGridRows(from: Int?, cols: Int, rows: Int) -> Range<Int> {
+    let n = max(rows, 0)
+    guard let from, from >= 0, from < n else { return n..<n }
+    return from..<min(from + max(cols, 1), n)
+}
+
 /// <List numColumns> now: from its slot (a number, else the template's), 1...12 (Android's gridColumns); always 1 when
 /// horizontal.
 func znGridColumns(slot: Double?, fixed: Int, horizontal: Bool) -> Int {

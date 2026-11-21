@@ -24,7 +24,9 @@ struct ZnListRow: Equatable {
 /// A <List>'s rows. Observable: a row redraws when its instance arrives.
 @Observable
 final class ZnListState {
-    var rows: [ZnListRow] = []
+    var rows: [ZnListRow] = [] { didSet { indexOf = nil } }
+    /// Row key → its index in [rows], built when first asked after a change.
+    @ObservationIgnored private var indexOf: [String: Int]?
     /// Row key → the instance that draws it.
     var bound: [String: UInt32] = [:]
     /// The instances of ListHeaderComponent / ListFooterComponent / ListEmptyComponent (registry 23), or nil. Kept out
@@ -60,6 +62,20 @@ final class ZnListState {
         case "__zn_empty": if empty == row { empty = nil }
         default: if bound[key] == row { bound[key] = nil }
         }
+    }
+
+    /// The row with [key] now (its index and type), or nil when it is gone. Reads [rows], so a view that asks redraws
+    /// when the rows change. A cell keeps its key while rows are added or removed around it (UIKit doesn't ask again
+    /// for an item that only moved), so it finds where its row is now by the key, never by a remembered index.
+    func row(_ key: String) -> (index: Int, row: ZnListRow)? {
+        let rows = self.rows
+        if indexOf == nil {
+            var map = [String: Int](minimumCapacity: rows.count)
+            for (i, r) in rows.enumerated() { map[r.key] = i }
+            indexOf = map
+        }
+        guard let i = indexOf?[key], let r = rows[safe: i], r.key == key else { return nil }
+        return (i, r)
     }
 
     /// The extra's instance for [part], or nil (rows have none).
@@ -156,8 +172,9 @@ func znRowAlignment(_ alignItems: Int) -> Alignment {
     }
 }
 
-/// One row: its instance if JS mounted one, else a placeholder of its template. Full width in a column; its own width
-/// in a sideways list, placed in the list's height by alignItems.
+/// One row: its instance if JS mounted one, else a placeholder of its template (the row's type now, read by its key, so
+/// a new type under the same key redraws the cell). Full width in a column; its own width in a sideways list, placed
+/// in the list's height by alignItems.
 struct ZnListRowView: View {
     let ctx: ZnContext
     let list: ZnListState
@@ -167,7 +184,7 @@ struct ZnListRowView: View {
 
     var body: some View {
         let mounted = list.bound[row.key].flatMap { ctx.store.find($0) }
-        let templateId = mounted?.templateId ?? row.type
+        let templateId = mounted?.templateId ?? list.row(row.key)?.row.type ?? row.type
         if let t = ctx.templates[safe: templateId] {
             let inst = mounted ?? ctx.store.placeholder(templateId: templateId, template: t)
             if horizontal {
@@ -218,8 +235,9 @@ let znEndReachedRows = 5
 
 @MainActor
 final class ZnVisibleRows {
-    /// Items on screen: part * 1_000_000_000 + item.
-    var shown = Set<Int>()
+    /// Items on screen, by their ids ("__zn_header", a row key, a grid line key): an index would go stale when rows
+    /// are added or removed above an item that stays drawn.
+    var shown = Set<String>()
     /// onEndReached was sent while the list had this many rows.
     var endSentAt = -1
     /// The props this variant doesn't draw were named once.
@@ -269,38 +287,50 @@ struct ZnLazyList: View {
     private func items(_ rows: [ZnListRow], _ lineKeys: [String]) -> some View {
         if header != nil {
             ZnListExtraView(ctx: ctx, list: list, part: .header, horizontal: s.horizontal, alignItems: s.alignItems)
-                .id("__zn_header").modifier(seen(.header, 0))
+                .id("__zn_header").modifier(seen("__zn_header"))
         }
         if rows.isEmpty, empty != nil {
             ZnListExtraView(ctx: ctx, list: list, part: .empty, horizontal: s.horizontal, alignItems: s.alignItems)
-                .id("__zn_empty").modifier(seen(.empty, 0))
+                .id("__zn_empty").modifier(seen("__zn_empty"))
         }
         // Identified by key (a grid line by its line key), so a new numColumns builds new lines rather than keeping
         // the old ones at the same places (seen 2026-11-21: lines of 2 left in a 3-column grid).
         if cols > 1 {
             ForEach(Array(lineKeys.enumerated()), id: \.element) { g, key in
-                ZnGridLineView(ctx: ctx, list: list, line: g, cols: cols, wrapper: s.columnWrapper)
-                    .id(key).modifier(seen(.rows, g))
+                ZnGridLineView(ctx: ctx, list: list, first: rows[safe: g * cols]?.key ?? "", cols: cols, wrapper: s.columnWrapper)
+                    .id(key).modifier(seen(key))
             }
         } else {
-            ForEach(Array(rows.enumerated()), id: \.element.key) { i, row in
+            ForEach(rows, id: \.key) { row in
                 ZnListRowView(ctx: ctx, list: list, row: row, horizontal: s.horizontal, alignItems: s.alignItems)
-                    .id(row.key).modifier(seen(.rows, i))
+                    .id(row.key).modifier(seen(row.key))
             }
         }
         if footer != nil {
             ZnListExtraView(ctx: ctx, list: list, part: .footer, horizontal: s.horizontal, alignItems: s.alignItems)
-                .id("__zn_footer").modifier(seen(.footer, 0))
+                .id("__zn_footer").modifier(seen("__zn_footer"))
         }
     }
 
-    private func seen(_ part: ZnListPart, _ item: Int) -> ZnSeen {
-        let code = part.rawValue * 1_000_000_000 + item
-        return ZnSeen(appear: { visible.shown.insert(code); report() }, disappear: { visible.shown.remove(code); report() })
+    private func seen(_ id: String) -> ZnSeen {
+        ZnSeen(appear: { visible.shown.insert(id); report() }, disappear: { visible.shown.remove(id); report() })
+    }
+
+    /// An id on screen → its part and item now (nil: gone from the list).
+    private func item(_ id: String) -> (part: ZnListPart, item: Int)? {
+        switch id {
+        case "__zn_header": return (.header, 0)
+        case "__zn_empty": return (.empty, 0)
+        case "__zn_footer": return (.footer, 0)
+        default:
+            let line = id.hasPrefix("__zn_g:")
+            guard let r = list.row(line ? String(id.dropFirst(7)) : id)?.index else { return nil }
+            return (.rows, line ? r / max(cols, 1) : r)
+        }
     }
 
     private func report() {
-        let items = visible.shown.map { (part: ZnListPart(rawValue: $0 / 1_000_000_000) ?? .rows, item: $0 % 1_000_000_000) }
+        let items = visible.shown.compactMap(item)
         guard !items.isEmpty else { return }
         let n = list.rows.count
         let (a, b) = znVisibleRange(items, rows: n, cols: cols, pinned: [])
@@ -451,6 +481,7 @@ struct ZnCollectionList: UIViewRepresentable {
             let inset = s.horizontal ? UIEdgeInsets(top: 0, left: padding.leading, bottom: 0, right: padding.trailing)
                 : UIEdgeInsets(top: padding.top, left: 0, bottom: padding.bottom, right: 0)
             if cv.contentInset != inset { cv.contentInset = inset }
+            layout?.padTop = s.horizontal ? 0 : padding.top
             layout?.invalidateLayout()
         }
         c.gap = s.gap
@@ -589,9 +620,11 @@ struct ZnCollectionList: UIViewRepresentable {
                         ZnHostedEnvView(box: box) { ZnListExtraView(ctx: ctx, list: list, part: part, horizontal: horizontal, alignItems: align) }
                     }.margins(.all, 0)
                 } else if grid {
-                    let (line, wrapper) = (ip.item, s.columnWrapper)
+                    // The line's first row key, not its index: UIKit keeps this cell when rows are added or removed
+                    // above it, so an index would draw the wrong rows.
+                    let (first, wrapper) = (rows[safe: ip.item * cols]?.key ?? "", s.columnWrapper)
                     cell.contentConfiguration = UIHostingConfiguration {
-                        ZnHostedEnvView(box: box) { ZnGridLineView(ctx: ctx, list: list, line: line, cols: cols, wrapper: wrapper) }
+                        ZnHostedEnvView(box: box) { ZnGridLineView(ctx: ctx, list: list, first: first, cols: cols, wrapper: wrapper) }
                     }.margins(.all, 0)
                 } else if let row = rows[safe: ip.item] {
                     cell.contentConfiguration = UIHostingConfiguration {
@@ -690,8 +723,11 @@ struct ZnCollectionList: UIViewRepresentable {
         private func target(_ cmd: ZnScrollCommand, _ cv: UICollectionView) -> CGFloat? {
             let start = horizontal ? cv.adjustedContentInset.left : cv.adjustedContentInset.top
             if let v = cmd.axisOffset(horizontal: horizontal) { return clamp(cv, -start + max(0, v)) }
-            guard let flat = znScrollTarget(cmd, shape), let it = shape.item(flat),
-                  let a = cv.collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: it.item, section: it.part.rawValue))
+            // A pinned row's own place, not where it is pinned now (ZnStickyLayout.unpinned).
+            guard let flat = znScrollTarget(cmd, shape), let it = shape.item(flat) else { return nil }
+            let ip = IndexPath(item: it.item, section: it.part.rawValue)
+            guard let a = (cv.collectionViewLayout as? ZnStickyLayout)?.unpinned(ip)
+                    ?? cv.collectionViewLayout.layoutAttributesForItem(at: ip)
             else { return nil }
             let viewOffset = cmd.action == .index ? cmd.second : 0
             return clamp(cv, main(a.frame.origin) - start - viewOffset)
@@ -708,6 +744,8 @@ struct ZnCollectionList: UIViewRepresentable {
             guard let first = target(cmd, cv) else { return }
             print("zn t=\(ZnDebug.ms()) list: command \(cmd.action) \(cmd.param) seq \(cmd.seq) → offset \(first)\(cmd.animated ? " (animated)" : "")")
             if cmd.animated {
+                // Already there: no animation runs, so none ends to clear [settling].
+                guard abs(first - main(cv.contentOffset)) > 0.5 else { settling = nil; return }
                 settling = (cmd, 3)
                 cv.setContentOffset(offset(cv, first), animated: true)
                 return
@@ -745,12 +783,23 @@ struct ZnCollectionList: UIViewRepresentable {
 /// rows on screen; the others are where the list puts them. Rows are the list's rows section (ZnListPart.rows).
 final class ZnStickyLayout: UICollectionViewCompositionalLayout {
     var sticky: [Int] = []
+    /// The list's padding before the content (part of the scroll view's inset): a row pins at the visible top, above
+    /// it, as Compose pins a stickyHeader at -beforeContentPadding.
+    var padTop: CGFloat = 0
     private let rowsPart = ZnListPart.rows.rawValue
 
     private func rowCount() -> Int? {
         guard let cv = collectionView, cv.numberOfSections > rowsPart else { return nil }
         return cv.numberOfItems(inSection: rowsPart)
     }
+
+    /// Item [ip]'s frame as the list lays it out, never pinned (a scroll command goes to a sticky row's own place).
+    func unpinned(_ ip: IndexPath) -> UICollectionViewLayoutAttributes? {
+        ip.section == rowsPart ? plain(ip.item) : super.layoutAttributesForItem(at: ip)
+    }
+
+    /// The top a row pins at: the visible top.
+    private func pinTop(_ cv: UICollectionView) -> CGFloat { cv.contentOffset.y + cv.adjustedContentInset.top - padTop }
 
     /// Row [i]'s frame as the list lays it out, before pinning.
     private func plain(_ i: Int) -> UICollectionViewLayoutAttributes? {
@@ -779,7 +828,7 @@ final class ZnStickyLayout: UICollectionViewCompositionalLayout {
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
         let base = super.layoutAttributesForElements(in: rect)
         guard !sticky.isEmpty, let cv = collectionView, let count = rowCount() else { return base }
-        let top = cv.contentOffset.y + cv.adjustedContentInset.top
+        let top = pinTop(cv)
         var attrs = (base ?? []).map { $0.copy() as! UICollectionViewLayoutAttributes }
         let isRow = { (a: UICollectionViewLayoutAttributes) in a.representedElementCategory == .cell && a.indexPath.section == self.rowsPart }
         if let p = pinnedIndex(top: top, count: count), !attrs.contains(where: { isRow($0) && $0.indexPath.item == p }), let a = plain(p) {
@@ -793,7 +842,7 @@ final class ZnStickyLayout: UICollectionViewCompositionalLayout {
         guard ip.section == rowsPart else { return super.layoutAttributesForItem(at: ip) }
         guard let a = plain(ip.item) else { return nil }
         if let cv = collectionView, sticky.contains(ip.item), let count = rowCount() {
-            pin(a, top: cv.contentOffset.y + cv.adjustedContentInset.top, count: count)
+            pin(a, top: pinTop(cv), count: count)
         }
         return a
     }

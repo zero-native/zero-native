@@ -29,6 +29,14 @@ check("lines one column", znGridLines(rows: 7, cols: 1), 7)
 check("last line short", znGridRows(line: 39, cols: 3, rows: 119), 117..<119)
 check("first line", znGridRows(line: 0, cols: 3, rows: 119), 0..<3)
 check("line past the end", znGridRows(line: 50, cols: 3, rows: 119), 119..<119)
+// A line drawn from its first row's key (a cell UIKit keeps while rows are added above it): rows a...f in 2 columns,
+// x, y added at the top. The cell of line "__zn_g:a" finds a at 2 and draws a, b, not x, y.
+let before = ["a", "b", "c", "d", "e", "f"], after = ["x", "y"] + before
+check("prepend keeps the line's rows", znGridRows(from: after.firstIndex(of: "a"), cols: 2, rows: after.count), 2..<4)
+check("prepend splice is one insert", znChangedRanges(znLineKeys(before, cols: 2), znLineKeys(after, cols: 2)).map { [$0.removed, $0.inserted] }, [0..<0, 0..<1])
+check("removed first line keeps the others", znGridRows(from: Array(before.dropFirst(2)).firstIndex(of: "e"), cols: 2, rows: 4), 2..<4)
+check("short last line by key", znGridRows(from: 118, cols: 3, rows: 119), 118..<119)
+check("gone first row draws nothing", znGridRows(from: nil, cols: 2, rows: 6), 6..<6)
 // numColumns: the slot wins, 1...12, always 1 sideways.
 check("cols from slot", znGridColumns(slot: 3, fixed: 2, horizontal: false), 3)
 check("cols slot clamped", znGridColumns(slot: 40, fixed: 2, horizontal: false), 12)

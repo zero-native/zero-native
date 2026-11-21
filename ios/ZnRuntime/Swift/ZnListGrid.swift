@@ -5,17 +5,18 @@
 // copies take no taps and are hidden from VoiceOver. Used by both list variants (ZnList.swift).
 import SwiftUI
 
-/// Grid line [line] of [list]: its rows are read here (live), so rows added after a short last line fill it.
+/// The grid line that starts with row [first] (its key: a cell keeps it while rows are added or removed above it, and
+/// UIKit doesn't ask for that cell again). Its rows are read here (live), so rows added after a short last line fill it.
 struct ZnGridLineView: View {
     let ctx: ZnContext
     let list: ZnListState
-    let line: Int
+    let first: String
     let cols: Int
     let wrapper: ZnColumnWrapper
 
     var body: some View {
         let rows = list.rows
-        let range = znGridRows(line: line, cols: cols, rows: rows.count)
+        let range = znGridRows(from: list.row(first)?.index, cols: cols, rows: rows.count)
         let missing = range.isEmpty ? 0 : cols - range.count
         ZnFlexLayout(vertical: false, justify: wrapper.justify, alignItems: wrapper.align, gap: wrapper.gap,
                      definiteWidth: true, definiteHeight: false) {
