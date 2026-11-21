@@ -101,8 +101,7 @@ test("reading a value asks native to send it, then follows native's values", () 
   const v = useMotion(3)
   expect(v()).toBe(3)
   expect(motionCalls().at(-1)).toMatchObject({ method: "watch", args: { id: v.__znMotion, on: true } })
-  // Gesture or values events come through one listener (listen() starts with the first gesture).
-  usePan({ axis: "x" })
+  // Values come through one listener, started by the first read (no gesture needed).
   moduleEvent("values", { [v.__znMotion]: 42 })
   expect(v()).toBe(42)
 })

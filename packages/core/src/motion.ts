@@ -197,6 +197,9 @@ function makeSource(e: Entry): MotionSource {
   const read = (() => {
     if (!e.watched && !e.disposed) {
       e.watched = true
+      // The values come through the one listener; before 2026-11-21 it started only with the first gesture, so a
+      // value read in a screen with no gesture never changed in JS.
+      listen()
       send("watch", { id: e.id, on: true })
     }
     return e.mirror()
