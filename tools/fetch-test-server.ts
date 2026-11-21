@@ -10,8 +10,12 @@
 //
 // WebSocket (sample screen /dev/websocket): ws://localhost:8788/ws echoes text. Query flags: `proto` picks the first
 // offered subprotocol, `headers` first sends the handshake's headers as JSON, `close=4001` closes at once with that
-// code ("bye"), `binary` sends one binary frame, `size=N` sends N "x" (`char=é` another character). On port 8789,
-// /ws-silent does the handshake, then never answers anything (no pong, no close).
+// code ("bye"), `binary` sends one binary frame, `size=N` sends N "x" (`char=é` another character), `burst=N` sends
+// "0" to "N-1" first (before `close`). On port 8789, our own small WebSocket server for what a normal one won't do:
+// /ws-silent does the handshake, then never answers anything (no pong, no close); /ws-noclose answers pings and echoes
+// text but never answers a close; /ws-eof answers pings, and on a close frame drops the TCP connection without a close
+// frame back; /ws-slowpong?ms=3000 answers each ping that late (and echoes, and answers a close); /ws-slow101?ms=20000
+// sends the 101 that late; /ws-slowclose?ms=3000 answers a close that late.
 import { createHash } from "node:crypto"
 import { createServer } from "node:net"
 import { gzipSync, type ServerWebSocket } from "bun"
@@ -151,6 +155,7 @@ Bun.serve<WsData, never>({
       wsOpen++
       const q = ws.data.query
       if (q.has("headers")) ws.send(JSON.stringify(ws.data.headers))
+      for (let i = 0; i < Number(q.get("burst") ?? 0); i++) ws.send(String(i))
       if (q.has("close")) ws.close(Number(q.get("close")), "bye")
       if (q.has("binary")) ws.sendBinary(new Uint8Array([1, 2, 3]))
       if (q.has("size")) ws.send((q.get("char") ?? "x").repeat(Number(q.get("size"))))
@@ -175,26 +180,83 @@ Bun.serve<WsData, never>({
 
 const received: Record<string, number> = {} // "POST /drop" → how many times the full request arrived
 
+/** One WebSocket frame from the client (always masked): its opcode and payload, and how many bytes it took. */
+function readFrame(buf: Buffer): { op: number; payload: Buffer; used: number } | null {
+  if (buf.length < 2) return null
+  let len = buf[1]! & 0x7f
+  let at = 2
+  if (len === 126) {
+    if (buf.length < 4) return null
+    len = buf.readUInt16BE(2)
+    at = 4
+  } else if (len === 127) {
+    if (buf.length < 10) return null
+    len = Number(buf.readBigUInt64BE(2))
+    at = 10
+  }
+  const masked = (buf[1]! & 0x80) !== 0
+  const mask = masked ? buf.subarray(at, at + 4) : null
+  if (masked) at += 4
+  if (buf.length < at + len) return null
+  const payload = Buffer.from(buf.subarray(at, at + len))
+  if (mask) for (let i = 0; i < payload.length; i++) payload[i]! ^= mask[i % 4]!
+  return { op: buf[0]! & 0x0f, payload, used: at + len }
+}
+
+/** A frame from the server (never masked). */
+function frame(op: number, payload: Buffer): Buffer {
+  const n = payload.length
+  const head = n < 126 ? Buffer.from([0x80 | op, n]) : Buffer.from([0x80 | op, 126, n >> 8, n & 0xff])
+  return Buffer.concat([head, payload])
+}
+
 createServer((socket) => {
   let data = Buffer.alloc(0)
-  let silent = false // a /ws-silent socket after its handshake: everything it gets is ignored
+  // A raw WebSocket after its handshake: "silent" ignores everything; the others read frames (see the top).
+  let ws: { mode: string; ms: number } | null = null
   socket.on("data", (chunk) => {
-    if (silent) return
+    if (ws?.mode === "silent") return
     data = Buffer.concat([data, chunk])
+    if (ws) {
+      for (let f = readFrame(data); f; f = readFrame(data)) {
+        data = data.subarray(f.used)
+        const { op, payload } = f
+        if (op === 0x9) {
+          const pong = frame(0xa, payload)
+          if (ws.mode === "slowpong") setTimeout(() => socket.writable && socket.write(pong), ws.ms)
+          else socket.write(pong)
+        } else if (op === 0x1) {
+          socket.write(frame(0x1, payload))
+        } else if (op === 0x8) {
+          console.log(`raw ws (${ws.mode}): got a close ${payload.length >= 2 ? payload.readUInt16BE(0) : "(no code)"}`)
+          const answer = frame(0x8, payload.subarray(0, 2))
+          if (ws.mode === "eof") socket.destroy()
+          else if (ws.mode === "slowpong") socket.end(answer)
+          else if (ws.mode === "slowclose") setTimeout(() => socket.writable && socket.end(answer), ws.ms)
+          // noclose: no answer, the connection stays open
+        }
+      }
+      return
+    }
     const end = data.indexOf("\r\n\r\n")
     if (end === -1) return
     const head = data.subarray(0, end).toString("latin1")
-    const [method, path] = head.split(" ")
+    const [method, target] = head.split(" ")
+    const url = new URL(target ?? "/", "http://raw")
+    const path = url.pathname
     const length = Number(/content-length: *(\d+)/i.exec(head)?.[1] ?? 0)
     if (data.length < end + 4 + length) return // wait for the whole body
     const key = `${method} ${path}`
     data = Buffer.alloc(0)
-    if (path === "/ws-silent") {
-      // A WebSocket handshake, then nothing: no pong, no close answer. The client's pings must find it dead.
-      const key = /sec-websocket-key: *(\S+)/i.exec(head)?.[1] ?? ""
-      const accept = createHash("sha1").update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64")
-      socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
-      silent = true
+    const rawWs = /^\/ws-(silent|noclose|eof|slowpong|slowclose|slow101)$/.exec(path)?.[1]
+    if (rawWs) {
+      const wsKey = /sec-websocket-key: *(\S+)/i.exec(head)?.[1] ?? ""
+      const accept = createHash("sha1").update(wsKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64")
+      const answer = `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`
+      const ms = Number(url.searchParams.get("ms") ?? (rawWs === "slow101" ? 20000 : 3000))
+      if (rawWs === "slow101") setTimeout(() => socket.writable && socket.write(answer), ms)
+      else socket.write(answer)
+      ws = { mode: rawWs === "slow101" ? "noclose" : rawWs, ms }
     } else if (path === "/warm") {
       // A normal answer that keeps the connection open, so the client pools it and sends the next request on it.
       socket.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nok")
@@ -217,6 +279,7 @@ createServer((socket) => {
     }
   })
   socket.on("error", () => {})
+  socket.on("close", () => ws && console.log(`raw ws (${ws.mode}): connection closed`))
 }).listen(RAW_PORT)
 
 console.log(`fetch test server: http://localhost:${HTTP_PORT} and raw http://localhost:${RAW_PORT}`)

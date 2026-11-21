@@ -1,10 +1,11 @@
 // A dev screen for WebSocket (docs/fetch.md §8): runs every case we promise against the local test server
 // (tools/fetch-test-server.ts: ws://localhost:8788/ws, raw :8789) and one public wss echo, and shows pass / fail.
 // Open with: bun run tools/ios-sample.ts --route wsLab (iOS), or zn://sample/dev/websocket (Android, after
-// adb reverse tcp:8788 tcp:8788 and tcp:8789). Params: { port } for a server on another port, { run: true } to start
-// at once. Each result is also logged: ws-check PASS / FAIL.
+// adb reverse tcp:8788 tcp:8788 and tcp:8789). Params: { port } for a server on another port (raw: port + 1),
+// { run: true } to start at once, { only: "text" } for just the cases whose name has that text, { hold: "echo" } or
+// { hold: "slowpong" } to open that held socket at once. Each result is also logged: ws-check PASS / FAIL.
 import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
-import { nav, signal, type Signal } from "@zeronative/core"
+import { nav, Platform, signal, type Signal } from "@zeronative/core"
 import { c } from "./tokens"
 
 const FAIL = "#B91C1C"
@@ -188,6 +189,85 @@ function checksFor(port: number): Array<[string, Check]> {
       must(got.every((m, i) => m.data === `socket ${i}`), JSON.stringify(got.map((m) => m.data)))
       return "10 opened, echoed their own message, closed"
     }],
+    ["messages right before the server's close all arrive", async () => {
+      const t = track(`${W}?burst=50&close=4001`)
+      const close = await next(t, "close")
+      const got = t.events.filter((e) => e.type === "message").map((e) => e.data)
+      must(got.length === 50 && got.every((d, i) => d === String(i)), `got ${got.length}: ${got.slice(0, 5).join(",")}…`)
+      must(order(t) === `open → ${Array(50).fill("message").join(" → ")} → close 4001`, order(t).slice(0, 80))
+      must(close.wasClean === true, `wasClean ${close.wasClean}`)
+      return "open → 50 messages in order → close 4001"
+    }],
+    ["200 quick sends echo in order", async () => {
+      const t = track(W)
+      await next(t, "open")
+      for (let i = 0; i < 200; i++) t.ws.send(`n${i}`)
+      await next(t, "message", 8000, 199)
+      t.ws.close()
+      const got = t.events.filter((e) => e.type === "message").map((e) => e.data)
+      must(got.every((d, i) => d === `n${i}`), `out of order near ${got.findIndex((d, i) => d !== `n${i}`)}`)
+      return "n0 … n199 in order"
+    }],
+    ["80 sockets to one host", async () => {
+      const all = Array.from({ length: 80 }, () => track(W))
+      await Promise.all(all.map((t) => next(t, "open", 8000)))
+      all.forEach((t, i) => t.ws.send(`socket ${i}`))
+      const got = await Promise.all(all.map((t) => next(t, "message")))
+      all.forEach((t) => t.ws.close())
+      await Promise.all(all.map((t) => next(t, "close")))
+      must(got.every((m, i) => m.data === `socket ${i}`), "a socket got another's echo")
+      return "80 opened at once, echoed, closed"
+    }],
+    // Our close on iOS: URLSession sends the close frame and ends the connection at once, without waiting for the
+    // server's answer, so these three end at once with our code. Android (OkHttp) waits for the answer, up to 60 s.
+    ["our close, server answers 3 s late: iOS at once, Android after 3 s", async () => {
+      const t = track(`${RAW}/ws-slowclose?ms=3000`)
+      await next(t, "open")
+      const t0 = Date.now()
+      t.ws.close(1000, "done")
+      const close = await next(t, "close", 8000)
+      const ms = Date.now() - t0
+      must(order(t) === "open → close 1000" && close.wasClean === true, `${order(t)} wasClean ${close.wasClean}`)
+      must(Platform.OS === "ios" ? ms < 1000 : ms >= 2900, `after ${ms} ms`)
+      return `${order(t)} after ${ms} ms, clean`
+    }],
+    ["our close, then the server drops TCP (no close frame)", async () => {
+      const t = track(`${RAW}/ws-eof`)
+      await next(t, "open")
+      t.ws.close(4002, "done")
+      if (Platform.OS !== "ios") return errorThenClose(t, 1006, false)
+      const close = await next(t, "close")
+      must(order(t) === "open → close 4002" && close.wasClean === true, `${order(t)} wasClean ${close.wasClean}`)
+      return `${order(t)}, clean (iOS doesn't wait for the answer)`
+    }],
+    ["our close never answered: iOS at once, Android error, close 1006 after 60 s", async () => {
+      const t = track(`${RAW}/ws-noclose`)
+      await next(t, "open")
+      const t0 = Date.now()
+      t.ws.close(1000, "done")
+      if (Platform.OS === "ios") {
+        const close = await next(t, "close")
+        must(order(t) === "open → close 1000" && close.wasClean === true, `${order(t)} wasClean ${close.wasClean}`)
+        return `${order(t)} after ${Date.now() - t0} ms`
+      }
+      const r = await errorThenClose(t, 1006, false, 75_000)
+      const s = Math.round((Date.now() - t0) / 1000)
+      must(s >= 58, `after ${s} s`)
+      return `after ${s} s: ${r}`
+    }],
+    ["no 101 for 20 s: iOS gives up at 15 s, Android waits", async () => {
+      const t = track(`${RAW}/ws-slow101?ms=20000`)
+      const t0 = Date.now()
+      if (Platform.OS === "ios") {
+        const r = await errorThenClose(t, 1006, false, 25_000)
+        const s = Math.round((Date.now() - t0) / 1000)
+        must(s >= 14 && s <= 17, `after ${s} s`)
+        return `after ${s} s: ${r}`
+      }
+      await next(t, "open", 25_000)
+      t.ws.close()
+      return `open after ${Math.round((Date.now() - t0) / 1000)} s`
+    }],
     ["unknown host: error, close 1006", async () => errorThenClose(track("wss://no-such-host.invalid/"), 1006, false)],
     ["connection refused: error, close 1006", async () => errorThenClose(track("ws://localhost:1/"), 1006, false)],
     ["handshake 404: error, close 1006", async () => errorThenClose(track(`ws://localhost:${port}/nope`), 1006, false)],
@@ -236,8 +316,8 @@ interface Case {
   color: Signal<string>
 }
 
-/** One socket held open, for the background test (home button, back after a while) and for a JS reload. */
-function heldSocket(port: number) {
+/** One socket held open to `url`, for the background test (home button, back after a while) and for a JS reload. */
+function heldSocket(url: string, label: string) {
   const state = signal("not open")
   let ws: WebSocket | null = null
   let n = 0
@@ -251,9 +331,9 @@ function heldSocket(port: number) {
     const s = (msg: string) => {
       const line = `${Math.round((Date.now() - t0) / 1000)} s: ${msg}`
       state.set(line)
-      console.log(`ws-held ${line}`)
+      console.log(`ws-held ${label} ${line}`)
     }
-    ws = new WebSocket(`ws://localhost:${port}/ws`)
+    ws = new WebSocket(url)
     ws.onopen = () => {
       s("open")
       timer = setInterval(() => ws?.send(`tick ${++n}`), 5000)
@@ -269,12 +349,17 @@ function heldSocket(port: number) {
   return { state, toggle }
 }
 
-export function WebSocketLabScreen(props: { port?: number; run?: boolean }) {
+export function WebSocketLabScreen(props: { port?: number; run?: boolean; only?: string; hold?: "echo" | "slowpong" }) {
   const port = Number(props.port ?? 8788)
-  const checks = checksFor(port)
+  const checks = checksFor(port).filter(([name]) => !props.only || name.includes(props.only))
   const cases: Case[] = checks.map(([name]) => ({ name, state: signal("—"), color: signal<string>(c.muted) }))
   const summary = signal(`Start the test server first (tools/fetch-test-server.ts, port ${port}), then Run all.`)
-  const held = heldSocket(port)
+  // The second one waits 3 s for each pong: suspended in that window (home button, or `kill -STOP` on the
+  // simulator's app process), the socket must still be fine on return.
+  const held = [
+    { key: "echo", title: "Hold one socket open (tap to open / close)", ...heldSocket(`ws://localhost:${port}/ws`, "echo") },
+    { key: "slowpong", title: "Hold one socket, pongs 3 s late (tap to open / close)", ...heldSocket(`ws://localhost:${port + 1}/ws-slowpong`, "slowpong") },
+  ]
   let running = false
 
   const runAll = async () => {
@@ -302,6 +387,7 @@ export function WebSocketLabScreen(props: { port?: number; run?: boolean }) {
     console.log(`ws-check done: ${summary()}`)
   }
   if (props.run) setTimeout(() => void runAll(), 300)
+  if (props.hold) setTimeout(() => held.find((h) => h.key === props.hold)?.toggle(), 300)
 
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
@@ -325,14 +411,16 @@ export function WebSocketLabScreen(props: { port?: number; run?: boolean }) {
       </Text>
       <Scroll style={{ flex: 1 }}>
         <Column style={{ paddingHorizontal: 20, paddingBottom: 24, gap: 10 }}>
-          <Pressable onPress={held.toggle} style={{ gap: 2, padding: 12, borderRadius: 10, backgroundColor: c.white }}>
-            <Text fontSize={14} fontWeight={600} color={c.ink}>
-              Hold one socket open (tap to open / close)
-            </Text>
-            <Text fontSize={12} color={c.muted}>
-              {held.state()}
-            </Text>
-          </Pressable>
+          {held.map((h) => (
+            <Pressable key={h.title} onPress={h.toggle} style={{ gap: 2, padding: 12, borderRadius: 10, backgroundColor: c.white }}>
+              <Text fontSize={14} fontWeight={600} color={c.ink}>
+                {h.title}
+              </Text>
+              <Text fontSize={12} color={c.muted}>
+                {h.state()}
+              </Text>
+            </Pressable>
+          ))}
           {cases.map((k) => (
             <Column key={k.name} style={{ gap: 2, padding: 12, borderRadius: 10, backgroundColor: c.white }}>
               <Text fontSize={14} fontWeight={600} color={c.ink}>

@@ -235,7 +235,21 @@ queue. Differences:
 - No proxy, pins or interceptors (iOS fetch has none either).
 - Pings are our own 10 s timer (`sendPing`); no pong by the next ping gives the same `error` + `close` 1006. The
   timer does not run while iOS suspends the app; it runs again on return (seen on the simulator: a socket held open
-  through 50 s in the background still worked on return).
+  through 50 s in the background still worked on return). A ping that was waiting for its pong when the app was
+  suspended is not counted as lost on return: a fresh ping gets the full 10 s (fixed 2026-11-21; seen with the lab's
+  slow-pong socket and the app process stopped for 20 s right after a ping: before, `error` + `close` 1006 at once).
+- **In the background the app answers nothing.** Android keeps answering the server's pings while the app is in the
+  background; a suspended iOS app does not, so a server with its own ping timeout (Socket.IO about 20–25 s, AWS API
+  Gateway and others) may close a socket the app leaves open in the background, and JS gets that `close` on return.
+  Close sockets when the app goes to the background (as the battery note above says) and open them again on return.
+- **Our own close doesn't wait for the server's answer.** `close()` sends the close frame, and URLSession then ends
+  the connection at once (`URLSessionWebSocketTask` has no other way to close), so `close` comes at once with our
+  code and reason and `wasClean: true`, also when the server would never answer or drops the connection. The server
+  does get our close frame (code and reason). Android waits for the answer: up to 60 s, then `error` + `close` 1006;
+  a server that drops the connection instead gives `error` + `close` 1006 at once.
+- **Connect limit:** the 15 s also covers TLS and waiting for the server's 101 (URLRequest's `timeoutInterval`: 15 s
+  with nothing coming). Seen: a server that sends its 101 after 20 s gives `error` + `close` 1006 "The request timed
+  out." at 15 s. Android's 15 s covers only the TCP connect and then waits for the 101 without a limit.
 - **Native memory is capped at 4 MB per message** (`maximumMessageSize`; OkHttp has no cap). A message between 1 and
   4 MB gets our check (`error`, then we close with 1009); past 4 MB URLSession refuses it and closes with 1009 itself;
   JS sees the same `error` → `close` 1009.
@@ -243,5 +257,13 @@ queue. Differences:
   allowed to IP addresses, names with no dot and `.local` names, else only with `NSAllowsArbitraryLoads` or an
   `NSExceptionDomains` entry with `NSExceptionAllowsInsecureHTTPLoads`. Refused: `error` + `close` 1006 that names ATS
   (Android: the cleartext policy).
-- A handshake that gets no 101 says so like OkHttp: `Expected HTTP 101 response but was '404 Not Found'`.
-Checks: sample screen `/dev/websocket` (route `wsLab`, 21 cases) against `tools/fetch-test-server.ts`.
+  As in ATS, `NSAllowsArbitraryLoads` counts only when none of `NSAllowsLocalNetworking`,
+  `NSAllowsArbitraryLoadsInWebContent` and `NSAllowsArbitraryLoadsForMedia` is set.
+- A handshake that gets no 101 says so like OkHttp: `Expected HTTP 101 response but was '404 Not Found'`. iOS does
+  not give the server's reason phrase, so the name comes from a fixed English list (only the code when it isn't there).
+- Many sockets to one host: no limit (80 at once seen; URLSession doesn't count WebSocket tasks against
+  `httpMaximumConnectionsPerHost`, and ours is set high anyway). Android has none either.
+Checks: sample screen `/dev/websocket` (route `wsLab`, 28 cases) against `tools/fetch-test-server.ts`: 28 / 28 on the
+iOS simulator (2026-11-21). The cases where the platforms differ (our close, no 101 for 20 s) check each platform's
+own behaviour. **The lab has not been run on Android yet** (needs `adb reverse` for both ports); its unknown-host case
+is `wss://` and its cleartext case matches `CLEARTEXT` there.
