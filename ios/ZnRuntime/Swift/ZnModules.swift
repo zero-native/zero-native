@@ -198,7 +198,7 @@ public enum ZnModules {
     /// chosen (ZnBundles.choose checks a bundle's needs against every module), and from install().
     @MainActor static func registerBuiltIns() {
         for m: ZnModule in [ZnPlatformFacts(), ZnOs(), ZnNetInfo(), ZnSecureStore(), ZnClipboard(), ZnFetch.shared, ZnWebSocket.shared,
-                             ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash.Module(), ZnLaunch(), ZnUpdatesOff(), ZnTasks.shared, ZnMotionNone()] where !has(m.name) {
+                             ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash.Module(), ZnLaunch(), ZnUpdatesOff(), ZnTasks.shared, znMotionModuleForThisBuild()] where !has(m.name) {
             register(m)
         }
     }
@@ -244,6 +244,7 @@ public enum ZnModules {
         }
         calls.forEach { $0.cancel() }
         ZnWebSocket.shared.reset()  // its sockets belong to the old JS (Android: ZnWebSocket.reset)
+        ZnMotionEngine.shared.reset()  // its motion values too (Android: ZnMotion.reset)
         for key in heard {
             let parts = key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             if parts.count == 2 { mods[parts[0]]?.onListenerCount(parts[1], 0) }
@@ -288,6 +289,17 @@ public enum ZnModules {
             }
         }
         if m.runsOnMain(method) { DispatchQueue.main.async(execute: run) } else { work.async(execute: run) }
+    }
+
+    /// Sends a module event whose payload [build] makes on the JS thread, when JS gets to it (Android's
+    /// dispatchLatest): nil sends nothing. The caller keeps one delivery outstanding and lets [build] take the newest
+    /// values (motion's "values" merges every value that changed; emit(latestOnly:) replaces a whole payload). In order
+    /// with emit's other events.
+    static func emitLatest(_ module: String, _ event: String, _ build: @escaping () -> Any?) {
+        ZNHost.shared.dispatchEvent(0, event: 8, stringFrom: {
+            guard let payload = build() else { return nil }
+            return json(["module": module, "event": event, "payload": payload])
+        })
     }
 
     /// Sends a module event to JS (any thread), app event 8.

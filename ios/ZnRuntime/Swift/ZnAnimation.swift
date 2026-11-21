@@ -10,63 +10,18 @@
 // - A value that plays by itself (`from` or `keyframes`): ZnMotion, on a frame clock (one CADisplayLink for the app),
 //   when the element appears, again on each new `replay`, and (with `from`) when the resting value changes. Time
 //   runs only while not `paused`. A finite run stays where its last play ended.
-// Differences: Android shows the resting value when the phone's animations are off (developer options); iOS has no
-// such setting and always plays. Colours interpolate in sRGB (Compose: its own colour space).
+// Animations off: Android jumps to the end (and shows a self-playing value at rest) when the phone's animations are
+// off (developer options, "Remove animations"); iOS does the same when Reduce Motion is on (znAnimationsOff, the one
+// place that reads it). Colours interpolate in sRGB (Compose: its own colour space).
 import QuartzCore
 import SwiftUI
+import UIKit
 
-/// An easing curve, 0…1 → 0…1.
-typealias ZnEase = (Double) -> Double
+/// The phone's animations are off: Reduce Motion, iOS's nearest to Android's "Remove animations" (Pavan,
+/// 2026-11-21). Values jump to where they end; self-playing values show their resting value.
+func znAnimationsOff() -> Bool { UIAccessibility.isReduceMotionEnabled }
 
-/// A CSS cubic-bezier: x(u) solved for u by Newton steps, then bisection if they stall.
-struct ZnCubicBezier {
-    let x1: Double, y1: Double, x2: Double, y2: Double
-
-    private func bez(_ u: Double, _ a: Double, _ b: Double) -> Double {
-        let v = 1 - u
-        return 3 * v * v * u * a + 3 * v * u * u * b + u * u * u
-    }
-
-    func callAsFunction(_ t: Double) -> Double {
-        if t <= 0 { return 0 }
-        if t >= 1 { return 1 }
-        var u = t
-        for _ in 0..<8 {
-            let x = bez(u, x1, x2) - t
-            if abs(x) < 1e-6 { return bez(u, y1, y2) }
-            let v = 1 - u
-            let d = 3 * v * v * x1 + 6 * v * u * (x2 - x1) + 3 * u * u * (1 - x2)
-            if abs(d) < 1e-6 { break }
-            u -= x / d
-        }
-        var lo = 0.0, hi = 1.0
-        u = t
-        for _ in 0..<30 {
-            let x = bez(u, x1, x2)
-            if abs(x - t) < 1e-6 { break }
-            if x < t { lo = u } else { hi = u }
-            u = (lo + hi) / 2
-        }
-        return bez(u, y1, y2)
-    }
-}
-
-/// An easing by the compiler's id (`EASINGS` in compile.ts), with Compose's curves: 0 standard (FastOutSlowIn),
-/// 1 ease-out (LinearOutSlowIn), 2 ease-in (FastOutLinearIn), 3 linear, 4 the given bezier, 5 a step (holds, then
-/// jumps at the very end).
-func znEasing(_ id: Int, _ bezier: [Double]?) -> ZnEase {
-    switch id {
-    case 1: let c = ZnCubicBezier(x1: 0, y1: 0, x2: 0.2, y2: 1); return { c($0) }
-    case 2: let c = ZnCubicBezier(x1: 0.4, y1: 0, x2: 1, y2: 1); return { c($0) }
-    case 3: return { $0 }
-    case 4 where bezier?.count == 4:
-        let b = bezier!
-        let c = ZnCubicBezier(x1: b[0], y1: b[1], x2: b[2], y2: b[3])
-        return { c($0) }
-    case 5: return { $0 < 1 ? 0 : 1 }
-    default: let c = ZnCubicBezier(x1: 0.4, y1: 0, x2: 0.2, y2: 1); return { c($0) }  // 4 without a bezier too
-    }
-}
+// ZnEase, ZnCubicBezier and znEasing are in ZnMotionMath.swift (motion values use them too).
 
 /// One `animate` timing (ZnTiming in ZnAnimation.kt).
 final class ZnTiming {
@@ -161,6 +116,7 @@ final class ZnTiming {
 
     /// The SwiftUI animation for a value that follows JS: the same tween or spring, after the delay.
     var animation: Animation {
+        if znAnimationsOff() { return .linear(duration: 0) }
         let base: Animation
         if ms < 0 {
             // Compose's spring(dampingRatio, stiffness), mass 1.
@@ -319,6 +275,9 @@ final class ZnFrameClock {
         players[ObjectIdentifier(owner)] = frame
         if link == nil {
             let l = CADisplayLink(target: target, selector: #selector(Target.tick(_:)))
+            // Up to 120 Hz on ProMotion phones (with CADisableMinimumFrameDurationOnPhone in the app's Info.plist),
+            // as Android follows the display's rate.
+            l.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
             l.add(to: .main, forMode: .common)
             link = l
         }
@@ -364,6 +323,7 @@ final class ZnMotion {
     func start(_ timings: [Int: ZnTiming], rests: [Int: [Double]], paused: Bool) {
         self.paused = paused
         tracks = [:]
+        if znAnimationsOff() { values = [:]; return }  // the resting values, as Android with animations off
         for (prop, t) in timings { if let r = rests[prop] { restart(prop, t, rest: r) } }
         values = tracks.mapValues { $0.timing.value(at: 0, $0.points) }
         run()
