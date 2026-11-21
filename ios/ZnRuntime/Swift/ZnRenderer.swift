@@ -195,9 +195,8 @@ struct ZnNodeView: View {
         case Registry.Component.stack:
             stack(s)
         case Registry.Component.scroll:
-            // ZnScroll.swift. Its content, padding and refreshing are read here, in this body, as they always were.
-            ZnScrollView(ctx: ctx, s: s, inst: inst, outer: outer, padding: s.paddingInsets(inst),
-                         refreshing: s.hasRefresh && !s.horizontal && s.refreshingNow(inst)) {
+            // ZnScroll.swift. Its content and padding are read here, in this body; refreshing by its probe.
+            ZnScrollView(ctx: ctx, s: s, inst: inst, outer: outer, padding: s.paddingInsets(inst)) {
                 // A child's `parent` in a vertical Scroll is the content inside the padding, all of it (Android: the
                 // children's parent is the scrolling Column, laid out at its full height). A horizontal one is a
                 // LazyRow on Android, so there it is the viewport (styled).

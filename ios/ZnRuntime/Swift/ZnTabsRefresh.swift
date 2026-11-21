@@ -15,10 +15,13 @@
 // follows UIKit's spinner, which grows in place while pulled (Android's disc slides down with the pull).
 // iOS limits: `refreshing` from JS alone scrolls the spinner into view only when the scroll is at its top (Android's
 // shows over the content anywhere), and comes up in UIKit's grey until the first pull (iOS 18's spinner takes the tint
-// only from a pull). On a <Scroll>, SwiftUI's ScrollView takes the control out each time it updates its scroll view;
-// it is put back (onLeft) but a pull under way when that happens is lost, so on a Scroll whose screen updates during
-// the pull (scroll events that change the screen, an onRefresh that changes it at once) pulling is unreliable. The fix
-// is in ZnScroll.swift (a UIKit scroll view, or SwiftUI's .refreshable). A <List> and a tab's scroll are not affected.
+// only from a pull).
+// On a <Scroll> the control is a subview of SwiftUI's scroll view, not its `refreshControl`: SwiftUI's ScrollView owns
+// that property. Its update (UIScrollView._updateRefreshControl, from SwiftUI's render) sets it from .refreshable,
+// nil for us, so it took ours out (twice as each Scroll starts, in the stack traces of 2026-11-21) and a pull under
+// way when it ran was lost; putting it back after the fact can't save that pull. A subview is UIKit's older way to add
+// one and works the same (the pull, the spinner, its inset); SwiftUI never touches it. A <List> (UIKit's own
+// collection view) uses `refreshControl`.
 import SwiftUI
 import UIKit
 
@@ -70,7 +73,7 @@ final class ZnRefreshControl: UIRefreshControl {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    /// It left its scroll view (SwiftUI's ScrollView clears refreshControl when it updates the scroll view).
+    /// It left its scroll view (for a `refreshControl`, also when the scroll view's owner cleared it).
     var onLeft: () -> Void = {}
 
     override func didMoveToSuperview() {
@@ -121,17 +124,32 @@ final class ZnRefresh: NSObject {
     private weak var scroll: UIScrollView?
     /// The control belongs in the scroll view now (it can be pulled, or JS shows it).
     private var wanted = false
+    /// A subview of the scroll view, not its refreshControl (a <Scroll>: see the header).
+    private let asSubview: Bool
 
-    override init() {
+    init(asSubview: Bool = false) {
+        self.asSubview = asSubview
         super.init()
         control.addTarget(self, action: #selector(pulled), for: .valueChanged)
-        // Taken out by SwiftUI (a Scroll's own updates, with no update of ours after it): put it back, or the Scroll
-        // could no longer be pulled (seen 2026-11-21 in the scroll lab).
+        // Taken out with no update of ours after it: put it back, or the scroll could no longer be pulled.
         control.onLeft = { [weak self] in
             DispatchQueue.main.async {
-                guard let self, self.wanted, let sv = self.scroll, sv.refreshControl == nil else { return }
-                sv.refreshControl = self.control
+                guard let self, self.wanted, let sv = self.scroll, !self.isIn(sv) else { return }
+                self.put(in: sv, true)
             }
+        }
+    }
+
+    private func isIn(_ sv: UIScrollView) -> Bool {
+        asSubview ? control.superview === sv : sv.refreshControl === control
+    }
+
+    private func put(in sv: UIScrollView, _ on: Bool) {
+        if asSubview {
+            // Under the content, as UIKit puts a refreshControl.
+            if on { sv.insertSubview(control, at: 0) } else { control.removeFromSuperview() }
+        } else {
+            sv.refreshControl = on ? control : nil
         }
     }
 
@@ -143,13 +161,9 @@ final class ZnRefresh: NSObject {
 
     /// [background]: refreshBackground (nil: not written, no disc).
     func update(refreshing r: Bool, tint: UIColor, canPull: Bool, background: UIColor? = nil) {
-        // No onRefresh: the control shows only when JS says so (attached only then, so it can't be pulled). Checked on
-        // each update too (SwiftUI's ScrollView clears refreshControl when it updates its scroll view).
+        // No onRefresh: the control shows only when JS says so (attached only then, so it can't be pulled).
         wanted = canPull || r
-        if let sv = scroll {
-            if wanted && sv.refreshControl !== control { sv.refreshControl = control }
-            if !wanted && sv.refreshControl === control { sv.refreshControl = nil }
-        }
+        if let sv = scroll, wanted != isIn(sv) { put(in: sv, wanted) }
         // The spinner's tint and the disc.
         control.tintColor = tint
         if control.discColor != background { control.discColor = background }
@@ -162,7 +176,7 @@ final class ZnRefresh: NSObject {
                 // shows itself (beginRefreshing alone leaves it above the top edge). Scrolled down, the spinner stays
                 // above what shows (Android's shows over the content wherever it is scrolled). A control attached in
                 // this update (no onRefresh) has no height before a layout: laid out first, 60 pt if still none.
-                if let sv = scroll, sv.refreshControl === control, !sv.isDragging,
+                if let sv = scroll, isIn(sv), !sv.isDragging,
                    sv.contentOffset.y <= -sv.adjustedContentInset.top + 0.5 {
                     if control.frame.height <= 0 { sv.layoutIfNeeded() }
                     let h = control.frame.height > 0 ? control.frame.height : 60
@@ -196,36 +210,5 @@ extension ZnNodeSpec {
 
     @MainActor func refreshingNow(_ inst: ZnInstance) -> Bool {
         refreshingSlot >= 0 ? inst.slot(refreshingSlot).value == .bool(true) : refreshing
-    }
-}
-
-/// For a <Scroll>: finds the scroll view around it (SwiftUI's) and gives it the refresh control.
-struct ZnScrollRefresh: UIViewRepresentable {
-    let ctx: ZnContext
-    let s: ZnNodeSpec
-    let inst: ZnInstance
-    let refreshing: Bool
-
-    func makeCoordinator() -> ZnRefresh { ZnRefresh() }
-
-    func makeUIView(context: Context) -> UIView {
-        let v = UIView()
-        v.isUserInteractionEnabled = false
-        return v
-    }
-
-    func updateUIView(_ v: UIView, context: Context) {
-        let r = context.coordinator
-        let (ctx, s, inst) = (ctx, s, inst)
-        r.onRefresh = s.onRefresh != 0 ? { ctx.send(inst.id, s.onRefresh, .none) } : nil
-        let refreshing = refreshing
-        // The scroll view is an ancestor once this view is in the window.
-        DispatchQueue.main.async {
-            var p = v.superview
-            while let sv = p, !(sv is UIScrollView) { p = sv.superview }
-            if let sv = p as? UIScrollView { r.attach(to: sv) }
-            r.update(refreshing: refreshing, tint: UIColor(s.refreshColor), canPull: s.onRefresh != 0,
-                     background: s.refreshBackground.map(UIColor.init))
-        }
     }
 }
