@@ -33,8 +33,11 @@ export const SOFT_CORE_MODULES: ReadonlySet<string> = new Set(["Splash", "WebSoc
 export const GATED_CORE_MODULES: Readonly<Record<string, { version: number; names: ReadonlySet<string> }>> = {
   Motion: {
     version: 1,
+    // Every motion.ts export that sends to native or only works inside a motion formula. clamp and interpolate are
+    // plain maths (they run in JS), so they don't count.
     names: new Set(["useMotion", "useTimeline", "follow", "derive", "env", "usePan", "usePinch", "useZoom", "useRotate", "useTap",
-      "useLongPress", "useFling", "Gesture"]),
+      "useLongPress", "useFling", "Gesture", "useElementMotion", "useFrame", "useTilt", "nativeMotion", "interpolateColor", "self",
+      "parent"]),
   },
 }
 /** A file of @zeronative/core itself: the repo's packages/core/src, or the package as an app installs it. */

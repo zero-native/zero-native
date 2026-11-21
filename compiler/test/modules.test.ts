@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { nativeModuleUses, platformsOf, stableFileKey } from "../src/modules"
+import { GATED_CORE_MODULES, nativeModuleUses, platformsOf, stableFileKey } from "../src/modules"
 import { buildApp } from "../src/build-app"
 import { HOST_API_VERSION } from "@zeronative/core/src/host-api"
 
@@ -136,5 +136,47 @@ describe("stableFileKey: template ids don't depend on where the folders are", ()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe("gated core modules (motion-ota-gate)", () => {
+  const motion = [{ name: "Motion", version: 1, core: true }]
+  test("every motion API that needs the engine gates the bundle", () => {
+    for (const n of ["useElementMotion", "useFrame", "useTilt", "nativeMotion", "interpolateColor", "self", "parent"]) {
+      expect(nativeModuleUses(`import { ${n} } from "@zeronative/core"`, "/app/src/Screen.tsx")).toEqual(motion)
+    }
+  })
+
+  test("an aliased import counts by its exported name", () => {
+    expect(nativeModuleUses(`import { self as me } from "@zeronative/core"`, "/app/src/Box.tsx")).toEqual(motion)
+    expect(nativeModuleUses(`import { signal as self } from "@zeronative/core"`, "/app/src/Box.tsx")).toEqual([])
+  })
+
+  test("plain maths from motion.ts doesn't gate", () => {
+    expect(nativeModuleUses(`import { clamp, interpolate } from "@zeronative/core"`, "/app/src/x.ts")).toEqual([])
+  })
+
+  test("a local variable named self doesn't gate (only the core import does)", () => {
+    expect(nativeModuleUses(`import { signal } from "@zeronative/core"\nconst self = 1`, "/app/src/x.ts")).toEqual([])
+  })
+
+  test("several gated names in one file need Motion once", () => {
+    expect(nativeModuleUses(`import { useFrame, useTilt, parent } from "@zeronative/core"`, "/app/src/x.tsx")).toEqual(motion)
+  })
+
+  test("every name in the gate is a real export of @zeronative/core", async () => {
+    const core = await import("@zeronative/core")
+    for (const n of GATED_CORE_MODULES.Motion!.names) expect(n in core).toBe(true)
+  })
+
+  test("a new motion export must be gated or named here as plain JS", () => {
+    // The value names core's index.ts re-exports from ./motion; a new one fails this until someone decides.
+    const index = readFileSync(join(import.meta.dir, "../../packages/core/src/index.ts"), "utf8")
+    const block = /export \{([^}]*)\} from "\.\/motion"/.exec(index)![1]!
+    const values = block.split(",").map((s) => s.trim()).filter((s) => s && !s.startsWith("type "))
+    // clamp/interpolate: maths; viewPropsJson: JSON for <NativeView>; __deriveFormula: reached as derive.__f.
+    const plain = new Set(["clamp", "interpolate", "viewPropsJson", "__deriveFormula"])
+    expect(values.length).toBeGreaterThan(10)
+    for (const n of values) expect(`${n}: ${GATED_CORE_MODULES.Motion!.names.has(n) || plain.has(n)}`).toBe(`${n}: true`)
   })
 })
