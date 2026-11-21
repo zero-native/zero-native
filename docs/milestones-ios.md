@@ -176,10 +176,10 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | # | Component | iOS | Left | Size |
 |---|---|---|---|---|
 | 1 | Column | done | | |
-| 2 | Row | done | flexWrap / alignContent / crossGap done 2026-11-09 (ZnWrapLayout.swift); a runtime rowGap / gap (slot) is not applied yet (§6 layout values from slots) | |
+| 2 | Row | done | flexWrap / alignContent / crossGap done 2026-11-09 (ZnWrapLayout.swift); gap / rowGap from a slot done 2026-11-21 | |
 | 3 | Stack | done | | |
 | 4 | Box | done | | |
-| 5 | Text | partial | Dynamic Type + maxFontScale, accessibility, `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` (r23), `fontFamily` (r24) | §6 |
+| 5 | Text | partial | Dynamic Type + maxFontScale, accessibility, `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` (r23), `fontFamily` (r24). Top-level onPress / onLongPress and fontSize / lineHeight / letterSpacing from slots done 2026-11-21 | §6 |
 | 6 | Image | done | asset, http, file, `zn://file` handles, fallback, tint, events. `zn://app-icon` is n/a (no installed-apps icons on iOS). The picture is centred in its box for contain and cover (2026-11-09; it sat at the top left) | |
 | 7 | Pressable | partial | accessibility. Press feedback, runtime `disabled` and hitSlop (2026-11-12) done | §6 |
 | 8 | Spacer | done | | |
@@ -190,7 +190,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 13 | Carousel | partial | `itemWidthPercent` (r23) | S |
 | 14 | Sheet | partial | onDetentChange; sheet colour and corner radius fixed. animateIn done | S + S |
 | 15 | Fragment | done | | |
-| 16 | TextField | partial | (autoComplete → `textContentType`: done 2026-11-11) autoCapitalize / autoCorrect, editable and placeholder / colour at runtime, placeholderColor, selectionColor | S × 4 |
+| 16 | TextField | partial | (autoComplete → `textContentType`: done 2026-11-11; editable, placeholder / colour at runtime: done 2026-11-21) autoCapitalize / autoCorrect, placeholderColor, selectionColor | S × 3 |
 | 17 | NativeView | done | | |
 | 18 | Svg | done | filters other than a drop shadow (iOS difference) | |
 | 19 | SvgPart | done | | |
@@ -218,10 +218,10 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | accessibilityLabel / Hint / Role / Hidden | missing | L | The UIKit press view must become the VoiceOver element. Check with VoiceOver on a device. |
 | Font scaling + maxFontScale | missing | M | Fixed point sizes today, while WINDOW tells JS the real fontScale. |
 | testID | missing | S | `accessibilityIdentifier`. |
-| pointerEvents | missing | M | `allowsHitTesting` + the press view's hit test. |
+| pointerEvents | done (2026-11-21) | M | none / box-none / box-only / auto, written or from a slot, and the absolute-layer default (ZnRenderer.swift ZnPointerEventsNone / ZnPointerEventsKids / znStopsTaps, ZnPress.swift znTouchOff). A background no longer stops taps by itself, as on Android. Check: RnPropsLab pe1–pe4, PressScreen. |
 | impressionKey | missing | §8 | |
-| Layout values from slots (width, height, min / max, flex, aspectRatio, gap, insets, radii, font sizes) (r23) | missing | L | Padding and margin slots work. Check: DynamicLayoutLab. ZeroBill hit it 2026-11-10 (the store sheet's app icon took its size from a prop and drew huge; ZeroBill now writes fixed numbers). |
-| `display: "none"` (r23) | missing | M | |
+| Layout values from slots (width, height, min / max, flex, aspectRatio, gap, insets, radii, font sizes) (r23) | done (2026-11-21) | L | ZnTemplate.swift "now" readers, ZnDynamicValues.swift (Mac test: tools/ios-layout-test.ts). A size is read in its own ZnSizeFrame, an absolute child's insets in its own ZnChildTraits, so an animated value lays out that node alone. Check: DynamicLayoutLab sections 1–5 and 7. |
+| `display: "none"` (r23) | done (2026-11-21) | M | Written or from a slot; Column / Row / Stack / wrap leave it out (no gap), other parents draw nothing. |
 | Negative margins | not checked | S | Needs a LayoutLab case. |
 | `fontFamily` with app fonts (r24) | missing | M | Register bundle fonts, pick the face by weight / italic. |
 | includeFontPadding | n/a | | Android only. |
@@ -238,7 +238,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 |---|---|---|
 | autoComplete → `textContentType` (OtpInput already uses `.oneTimeCode`) | done 2026-11-11 (ZnTextField.swift) | S |
 | autoCapitalize, autoCorrect | missing | S |
-| editable (also at runtime), placeholder / colour at runtime | missing | S |
+| editable (also at runtime), placeholder / colour at runtime | done (2026-11-21; a read-only one-line field takes no focus on iOS) | S |
 | placeholderColor, selectionColor | missing | S |
 
 ### List, Scroll, Carousel, Text
