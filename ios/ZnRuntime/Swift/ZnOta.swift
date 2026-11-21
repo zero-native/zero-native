@@ -51,6 +51,31 @@ public enum ZnBundles {
     nonisolated(unsafe) private static var builtInInfo: ZnBundleRules.Info?
     nonisolated(unsafe) private(set) static var running: Running?
     private static let lock = NSLock()
+    nonisolated(unsafe) private static var watchers: [(String) -> Void] = []
+
+    /// The running bundle as reports name it (`sample_12@1a2b3c4d5e6f`), once it is chosen; the built-in bundle has
+    /// one too (its zn-bundle.json). nil before ZnApp.start, or with no zn-bundle.json in the app.
+    public static var runningLabel: String? { running?.label }
+    /// The running bundle is the app's own (true before one is chosen).
+    public static var runningIsBuiltIn: Bool { running?.builtIn ?? true }
+
+    /// Calls [f] on the main thread with the running bundle's label: once it is chosen (soon after, if it already is),
+    /// and again every time it changes while the app runs (an update applied in place, a rollback). For a crash
+    /// reporter's key (Android: ZnBundles.watchRunning). Any thread; plugins call it in register, before ZnApp.start.
+    public static func watchRunning(_ f: @escaping (String) -> Void) {
+        let label = lock.withLock { () -> String? in
+            watchers.append(f)
+            return running?.label
+        }
+        if let label { DispatchQueue.main.async { f(label) } }
+    }
+
+    /// Tells the watchers what runs now (never under the lock).
+    private static func tellWatchers(_ r: Running) {
+        guard let label = r.label else { return }
+        let list = lock.withLock { watchers }
+        if !list.isEmpty { DispatchQueue.main.async { list.forEach { $0(label) } } }
+    }
 
     /// The app's own bundle info (its zn-bundle.json), or nil: OTA bundles are then off.
     static var builtIn: ZnBundleRules.Info? {
@@ -107,6 +132,7 @@ public enum ZnBundles {
             }
         }
         running = pick
+        tellWatchers(pick)
         print("zn-ota: bundle: running \(pick) (\(pick.label ?? "no label")), chosen in \(String(format: "%.2f", (CACurrentMediaTime() - t0) * 1000)) ms")
         if ZnOta.isConfigured { ZnOtaHealth.onChosen(pick) }
         return pick
@@ -153,7 +179,10 @@ public enum ZnBundles {
     }
 
     /// What runs now, after a swap (ZnOta.swap).
-    static func switchTo(_ r: Running) { running = r }
+    static func switchTo(_ r: Running) {
+        running = r
+        tellWatchers(r)
+    }
 
     /// What the next start would run (`current` now, with every check), never [exclude]. Client queue or main thread.
     static func candidate(exclude: String? = nil) -> Running {
@@ -557,6 +586,21 @@ public final class ZnOta: @unchecked Sendable {
 
     public static let shared = ZnOta()
     nonisolated(unsafe) private(set) static var config: Config?
+    private static let listenersLock = NSLock()
+    nonisolated(unsafe) private static var reportListeners: [(id: Int, f: (ZnOtaReport) -> Void)] = []
+    nonisolated(unsafe) private static var nextListener = 0
+
+    /// Like Config.onReport, but any number of them, so a plugin (plugins/firebase-crashlytics) and the app can both
+    /// listen. Called after onReport, on the main thread. Can be added before configure. Returns a function that
+    /// removes it. Any thread.
+    @discardableResult public static func addReportListener(_ f: @escaping (ZnOtaReport) -> Void) -> () -> Void {
+        let id = listenersLock.withLock { () -> Int in
+            nextListener += 1
+            reportListeners.append((nextListener, f))
+            return nextListener
+        }
+        return { listenersLock.withLock { reportListeners.removeAll { $0.id == id } } }
+    }
     static var isConfigured: Bool { config != nil }
 
     private static let keep = 4
@@ -1123,7 +1167,14 @@ public final class ZnOta: @unchecked Sendable {
         st.outcomes.append(o)
         let report = ZnOtaReport(kind: kind, bundle: bundle, detail: detail, serious: Self.serious.contains(kind), stack: stack)
         print("zn-ota: report: \(report)")
-        if let hook = Self.config?.onReport { DispatchQueue.main.async { hook(report) } }
+        let hook = Self.config?.onReport
+        let listeners = Self.listenersLock.withLock { Self.reportListeners.map(\.f) }
+        if hook != nil || !listeners.isEmpty {
+            DispatchQueue.main.async {
+                hook?(report)
+                listeners.forEach { $0(report) }
+            }
+        }
     }
 
     /// Client queue: an outcome (none if [kind] is nil); [running]: now what runs; [error]: shown as lastError.
