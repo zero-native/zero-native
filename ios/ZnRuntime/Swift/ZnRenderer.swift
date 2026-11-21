@@ -9,6 +9,13 @@
 // The fixed modifier order (docs/styling-and-layout.md §4: margin → size → opacity → background → border → clip →
 // press feedback → padding) reads inside-out in SwiftUI: content.padding → size frame → clip → border → background
 // → opacity → press feedback → margin.
+//
+// Seams: each later part of a node has its own modifier in its own file, already in its place in the chain (most are
+// pass-throughs until their work lands), so that work changes its file and not this one. Outermost first:
+// ZnChildTraits, display: "none", ZnPointerEventsNone (ZnPointerEvents.swift), margin, ZnImpressionProbe
+// (ZnImpressions.swift), ZnSharedProbe (ZnShared.swift); then in styled: ZnA11y (ZnAccessibility.swift) over the paint,
+// ZnAnimateLayout (ZnLayoutMotion.swift) over the size frame; inside ZnPaintLayers, before ZnLayer: ZnElementProbe
+// (ZnElementMotion.swift) and ZnGestureModifier (ZnGestureHub.swift). Scroll and Canvas: ZnScroll.swift, ZnCanvas.swift.
 import SwiftUI
 import UIKit
 
@@ -119,10 +126,15 @@ struct ZnNodeView: View {
         if s.isPressable {
             ZnPressable(ctx: ctx, s: s, inst: inst) { inner(s) }
                 .modifier(ZnOnLayout(ctx: ctx, s: s, inst: inst))
+                .modifier(ZnSharedProbe(s: s, inst: inst))
+                .modifier(ZnImpressionProbe(ctx: ctx, s: s, inst: inst))
                 .padding(s.marginInsets(inst))
                 .modifier(ZnPointerEventsNone(s: s, inst: inst))
         } else {
-            inner(s).modifier(ZnOnLayout(ctx: ctx, s: s, inst: inst)).padding(s.marginInsets(inst))
+            inner(s).modifier(ZnOnLayout(ctx: ctx, s: s, inst: inst))
+                .modifier(ZnSharedProbe(s: s, inst: inst))
+                .modifier(ZnImpressionProbe(ctx: ctx, s: s, inst: inst))
+                .padding(s.marginInsets(inst))
                 .modifier(ZnPointerEventsNone(s: s, inst: inst))
         }
     }
@@ -145,8 +157,10 @@ struct ZnNodeView: View {
                      : s.type == Registry.Component.scroll ? s.borderInsets(inst) : s.contentInsets(inst))
             .modifier(ZnLayoutSpace(s: s, inst: inst))
             .modifier(ZnSizeFrame(s: s, inst: inst, outer: outer, alignment: contentAlignment(s)))
+            .modifier(ZnAnimateLayout(s: s, inst: inst))
             .modifier(ZnFieldBoxTap(s: s, inst: inst))
             .modifier(ZnPaint(s: s, inst: inst))
+            .modifier(ZnA11y(s: s, inst: inst))
     }
 
     private func contentAlignment(_ s: ZnNodeSpec) -> Alignment {
@@ -175,24 +189,10 @@ struct ZnNodeView: View {
         case Registry.Component.stack:
             stack(s)
         case Registry.Component.scroll:
-            // The padding scrolls with the content (Android: the scroll's content padding), so nothing is clipped at
-            // the edges and the last item can scroll clear of a floating button.
-            // A vertical Scroll with no height that doesn't fill (no flex, no stretch) is as tall as its content, up to
-            // what it is offered (its maxHeight, the space left): Compose's verticalScroll Column. A SwiftUI ScrollView
-            // takes all it is offered, so ZeroBill's checkout offers sheet (`maxHeight: 400`, one or two rows) was
-            // 400 tall with an empty band (2026-11-09).
-            let hug = s.props[Registry.Prop.horizontal]?.bool != true && !s.hasHeight && !outer.fillHeight
-            ZnScrollHugLayout(hug: hug) {
-            ScrollView(s.props[Registry.Prop.horizontal]?.bool == true ? .horizontal : .vertical) {
-                flex(s, vertical: s.props[Registry.Prop.horizontal]?.bool != true)
-                    .padding(s.paddingInsets(inst))
-                    .background {
-                        // Pull to refresh (ZnTabsRefresh.swift): finds this scroll view from inside it.
-                        if s.hasRefresh && s.props[Registry.Prop.horizontal]?.bool != true {
-                            ZnScrollRefresh(ctx: ctx, s: s, inst: inst, refreshing: s.refreshingNow(inst))
-                        }
-                    }
-            }
+            // ZnScroll.swift. Its content, padding and refreshing are read here, in this body, as they always were.
+            ZnScrollView(ctx: ctx, s: s, inst: inst, outer: outer, padding: s.paddingInsets(inst),
+                         refreshing: s.hasRefresh && !s.horizontal && s.refreshingNow(inst)) {
+                flex(s, vertical: !s.horizontal)
             }
         case Registry.Component.text:
             ZnTextView(ctx: ctx, s: s, inst: inst)
@@ -233,6 +233,8 @@ struct ZnNodeView: View {
             ZnBarElement(s: s, inst: inst, navigation: s.type == Registry.Component.navigationBar)
         case Registry.Component.anchor:
             EmptyView()  // anchors are expanded by the parent
+        case Registry.Component.canvas:
+            ZnCanvasView(ctx: ctx, s: s, inst: inst)
         default:
             ZnMissing(type: s.type)
         }
@@ -455,27 +457,6 @@ struct ZnMinMaxLayout: Layout {
     }
 }
 
-/// A vertical Scroll that hugs its content (see the scroll case in content()): a ScrollView's ideal height (asked with no
-/// height) is its content's, so the Scroll takes that, up to the height it is offered. Without hug it is the ScrollView
-/// as it is.
-struct ZnScrollHugLayout: Layout {
-    var hug: Bool
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let child = subviews.first else { return .zero }
-        guard hug else { return child.sizeThatFits(proposal) }
-        let ideal = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
-        var h = ideal.height
-        if let p = proposal.height, p.isFinite { h = min(h, p) }
-        let w = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? ideal.width
-        return CGSize(width: w, height: h)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
-    }
-}
-
 struct ZnMinMaxFrame: ViewModifier {
     let layout: ZnMinMaxLayout
 
@@ -594,63 +575,10 @@ struct ZnPaintLayers: ViewModifier {
                 // here, so a Pressable under it gets none, as a React Native view (ZnTouch.kt znBlockTouches).
                 if znStopsTaps(s, inst, touchOff: touchOff) { Color.clear.contentShape(shape) }
             }
+            // Inside the layer: a gesture's touch area and the element's box move, scale and turn with the node.
+            .modifier(ZnGestureModifier(s: s, inst: inst))
+            .modifier(ZnElementProbe(s: s, inst: inst))
             .modifier(ZnLayer(s: s, inst: inst, motion: motion))
-    }
-}
-
-/// Does [s] stop taps on its own box (ZnNode in ZnRenderer.kt)? pointerEvents "auto" or "box-only" written, or not
-/// written on an absolute layer (ZnNodeSpec.absoluteLayer); never inside pointerEvents "none".
-@MainActor func znStopsTaps(_ s: ZnNodeSpec, _ inst: ZnInstance, touchOff: Bool) -> Bool {
-    if touchOff { return false }
-    let pe = s.pointerEventsNow(inst)
-    return pe == Registry.PointerEvents.auto || pe == Registry.PointerEvents.boxOnly ||
-        (pe == znPointerEventsUnset && s.absoluteLayer)
-}
-
-/// pointerEvents "none" on a node (written, or from a slot): neither it nor anything inside takes a tap, so it goes to
-/// what is under it. Pressables inside hide their touch views (znTouchOff), as Android's LocalTouchOff.
-struct ZnPointerEventsNone: ViewModifier {
-    let s: ZnNodeSpec
-    let inst: ZnInstance
-    @Environment(\.znTouchOff) private var touchOff
-
-    func body(content: Content) -> some View {
-        if s.pointerEvents == znPointerEventsUnset && s.pointerEventsSlot < 0 {
-            content  // the usual case: nothing written, no slot (never changes at runtime)
-        } else {
-            let none = s.pointerEventsNow(inst) == Registry.PointerEvents.none
-            content.allowsHitTesting(!none).environment(\.znTouchOff, touchOff || none)
-        }
-    }
-}
-
-/// pointerEvents "box-only": the node takes taps, its children don't (Android passes LocalTouchOff to them).
-struct ZnPointerEventsKids: ViewModifier {
-    let s: ZnNodeSpec
-    let inst: ZnInstance
-    @Environment(\.znTouchOff) private var touchOff
-
-    func body(content: Content) -> some View {
-        if s.pointerEvents == znPointerEventsUnset && s.pointerEventsSlot < 0 {
-            content
-        } else {
-            let boxOnly = s.pointerEventsNow(inst) == Registry.PointerEvents.boxOnly
-            content.allowsHitTesting(!boxOnly).environment(\.znTouchOff, touchOff || boxOnly)
-        }
-    }
-}
-
-/// What a child tells its parent's layout, set by the child itself (outermost, so the parent's Layout sees it): its
-/// "%" size and, in a Stack, its absolute insets. Read here, a slot's change (an animated `start`) re-places the child
-/// without running the parent's body again.
-struct ZnChildTraits: ViewModifier {
-    let s: ZnNodeSpec
-    let inst: ZnInstance
-
-    func body(content: Content) -> some View {
-        content
-            .layoutValue(key: ZnPercentKey.self, value: s.percentNow(inst))
-            .layoutValue(key: ZnAbsoluteKey.self, value: s.absolute ? ZnAbsolute(s, inst) : nil)
     }
 }
 
