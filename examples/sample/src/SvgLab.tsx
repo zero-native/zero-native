@@ -35,6 +35,7 @@ import StarMorph from "./svg/r13/star-morph.svg"
 import TapHeart from "./svg/r13/tap-heart.svg"
 import CssBars from "./svg/r13/css-bars.svg"
 import TwoShadows from "./svg/r13/two-shadows.svg"
+import ShadowSkew from "./svg/r13/shadow-skew.svg"
 
 const like = "#E11D48"
 const RING_COLORS = ["#3D26ED", "#15803D", "#E11D48", "#F59E0B"]
@@ -390,7 +391,7 @@ export function SvgLabScreen() {
             </Row>
           </Section>
 
-          <Section title="Effects" note="Shadow and text, pattern with a fade, route markers, blend, two stacked shadows">
+          <Section title="Effects" note="Shadow and text, pattern with a fade, route markers, blend, two stacked shadows (straight down, then pushed right)">
             <Row style={{ justifyContent: "space-between" }}>
               <IconTile label="Shadow"><CoinShadow size={40} /></IconTile>
               <IconTile label="Pattern"><StripesFade size={40} /></IconTile>
@@ -402,6 +403,14 @@ export function SvgLabScreen() {
               <IconTile label="2 shadows"><TwoShadows size={40} /></IconTile>
               <Column style={{ width: 120, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
                 <TwoShadows size={96} />
+              </Column>
+            </Row>
+            {/* The same stack pushed right (dx) under an L shape, with a dot whose own shadow falls left: both stacked
+                shadows keep the notch and fall right and down; the dot's green shadow is on its left. */}
+            <Row style={{ justifyContent: "space-between" }}>
+              <IconTile label="Skewed"><ShadowSkew size={40} /></IconTile>
+              <Column style={{ width: 120, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
+                <ShadowSkew size={96} />
               </Column>
             </Row>
           </Section>

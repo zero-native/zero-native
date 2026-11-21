@@ -516,8 +516,11 @@ final class ZnSvgDrawing {
         cg.saveGState()
         cg.concatenate(ctm.inverted())  // device pixels
         let shift = area.maxX - shown.minX + 8  // the image, moved this far left, is all outside what shows
+        // The shift back, in base space (the device's x axis there, whatever base's scale, flip or turn).
+        let lin = CGAffineTransform(a: f.base.a, b: f.base.b, c: f.base.c, d: f.base.d, tx: 0, ty: 0)
+        let back = CGSize(width: shift, height: 0).applying(lin.inverted())
         for k in shadows {
-            cg.setShadow(offset: CGSize(width: k.offset.width + shift / abs(f.base.a), height: k.offset.height),
+            cg.setShadow(offset: CGSize(width: k.offset.width + back.width, height: k.offset.height + back.height),
                          blur: k.blur, color: k.color)
             cg.draw(image, in: area.offsetBy(dx: -shift, dy: 0))
         }
@@ -536,7 +539,8 @@ final class ZnSvgDrawing {
         img.concatenate(ctm)
         var gf = f
         gf.cg = img
-        gf.base = f.base.concatenating(CGAffineTransform(translationX: -device.minX, y: -device.minY))
+        // A bitmap context's base space is its own pixels (y up): a filter inside the group casts its shadow there.
+        gf.base = .identity
         drawRange(&gf, l, at + 1, g.end, s, parts: parts)
         return img.makeImage()
     }

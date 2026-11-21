@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Two stacked drop shadows pushed sideways (dx) under a lopsided shape, with a child that has its own shadow: the
+       shadows fall right and down, the shape's notch shows in both, and the dot's own green shadow falls to its left.
+       A flip or a sideways slip in how iOS casts the stack (its group image) shows here; two-shadows.svg can't show it. -->
+  <defs>
+    <filter id="skewStack" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="0.5"/>
+      <feOffset dx="2" dy="1" result="tight"/>
+      <feFlood flood-color="#0F172A" flood-opacity="0.6"/>
+      <feComposite in2="tight" operator="in" result="tightShadow"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.5"/>
+      <feOffset dx="6" dy="5" result="wide"/>
+      <feFlood flood-color="#E11D48" flood-opacity="0.45"/>
+      <feComposite in2="wide" operator="in" result="wideShadow"/>
+      <feMerge>
+        <feMergeNode in="tightShadow"/>
+        <feMergeNode in="wideShadow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="dotShadow" x="-100%" y="-100%" width="300%" height="300%">
+      <feDropShadow dx="-3" dy="0" stdDeviation="0.6" flood-color="#16A34A" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <g filter="url(#skewStack)">
+    <path d="M6 6 H30 V18 H20 V36 H6 Z" fill="#FFFFFF"/>
+    <circle cx="13" cy="13" r="3.5" fill="#4F46E5" filter="url(#dotShadow)"/>
+  </g>
+</svg>
