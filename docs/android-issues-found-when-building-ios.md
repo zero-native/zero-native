@@ -43,7 +43,15 @@ Each entry says:
 | A27 | 2026-11-21 | Layout (Android) | A "%" width from a signal inside a Row is a fraction of the room left, not of the Row | open, not run on Android |
 | A28 | 2026-11-21 | Navigation (Android) | A transparent route with a transition other than "none" may animate the screen below it too | open, possible, not run |
 | A29 | 2026-11-21 | Sheet (Android) | A Sheet's backgroundColor may be painted twice (the card and the sheet's own content box) | open, possible, minor |
-| A30 | 2026-11-21 | Compiler (shared) | The Motion OTA gate's name list misses some motion APIs, so a bundle using only them doesn't declare Motion | being fixed on the Mac (iOS round 1) |
+| A30 | 2026-11-21 | Compiler (shared) | The Motion OTA gate's name list misses some motion APIs, so a bundle using only them doesn't declare Motion | fixed in the compiler (0c522b5 on the Mac), not run on Android |
+| A31 | 2026-11-21 | Lists (Android) | A reorderable List row's `onLongPress` probably fires as the drag starts (Pavan: the long press only drags) | open, not run on Android |
+| A32 | 2026-11-21 | TextField (Android) | An explicit `autoCapitalize="sentences"` gives no capitals on a field with a keyboardType or a secure field | open, not run on Android |
+| A33 | 2026-11-21 | Motion (Android) | After a dev reload or in-place OTA, window values (env.width …) stay 0 in JS: `reset()` keeps the old watch jobs | open, not run on Android |
+| A34 | 2026-11-21 | Motion (Android) | `v.sequence([], { repeat: "forever" })` spins on the main thread (ANR) | open, not run on Android |
+| A35 | 2026-11-21 | Motion (shared JS) | A motion value read in JS on a screen with no gesture never got native's values (fixed in core motion.ts) | fixed in shared JS on the Mac, not run on Android |
+| A36 | 2026-11-21 | fetch (Android) | A missing / unreadable FormData file part fails as `connection_lost` mid-upload, not `invalid_request` before sending | open, not run on Android |
+| A37 | 2026-11-21 | Background tasks (Android) | A kept task JS is still running may be aborted by a limit counted from `run()`, dropping its saved copy | open, possible |
+| A38 | 2026-11-21 | Svg (Android) | Check the stacked drop-shadow fixture (shadow-skew.svg), especially the fallback path | open, check only |
 
 ---
 
@@ -441,7 +449,10 @@ Each entry says:
 - **Check on Android (Windows):** Layout Inspector or "Debug GPU overdraw" on a Sheet with a backgroundColor.
 
 ## A30. The Motion OTA gate's name list misses some motion APIs (from iOS work, shared compiler)
-- **Status:** being fixed on the Mac in iOS round 1 (not pushed yet), not run on Android.
+- **Status:** fixed in the compiler on the Mac (iOS round 1: `GATED_CORE_MODULES` plus compiler/test/modules.test.ts,
+  with a test that every motion export of core is gated or named as plain JS); not run on Android. Two sample files now
+  newly need Motion: `examples/sample/src/ImageViewerLab.tsx` and `plugins/device-test/src/index.ts`. On iOS this
+  changes nothing yet: the iOS stub registers Motion version 1 until the real engine's gate step.
 - **Problem:** `compiler/src/modules.ts` `GATED_CORE_MODULES` lists the motion names that make a bundle declare the
   `Motion` module, but leaves out `useElementMotion`, `useTilt`, `useFrame`, `nativeMotion`, `interpolateColor`,
   `self` and `parent`. A bundle that uses only those doesn't declare Motion, so a phone without Motion would accept it
@@ -452,4 +463,81 @@ Each entry says:
   host has.
 - **Check on Android (Windows):** after it lands, build the sample and ZeroBill bundles and run the OTA upload check
   (`bun run updates` dry run): the Motion requirement should be the same version as before.
+
+## A31. A reorderable List row's `onLongPress` probably fires as the drag starts (from iOS work)
+- **Status:** open, not run on Android. Found on the Mac 2026-11-21 (iOS round 1, reading the code).
+- **Problem:** `ZnPress.kt` (~98-102) starts its own `delay(longPressTimeoutMillis)` and then sends `onLongPress`.
+  `ZnReorder.kt` `modifier()` (~200-218) watches the touch at the Initial pass and takes nothing until the same
+  timeout. So both happen: the row lifts for the drag and the row's `onLongPress` (a menu, say) fires too.
+- **Pavan's decision (2026-11-21):** in a `<List reorderable>` the long press only drags; a row's `onLongPress` is
+  ignored. The compiler now prints a build warning for this case (compiler/test/build-warnings.test.ts).
+- **Fix:** in a reorderable list, `ZnPress` doesn't send `onLongPress` for a press inside a row (e.g. the list provides
+  "reorder on" through a CompositionLocal and `longPressOn()` answers false); drop the row's accessibility long-click
+  action too. Update docs/motion.md §11 ("compete" → "the long press only drags").
+- **Check on Android (Windows):** a `<List reorderable>` whose row has `<Pressable onLongPress={() => log("long")}>`;
+  long-press a row. Today: does "long" print as the row lifts? After the fix: the row lifts and nothing prints; with
+  `reorderable={false}`, "long" prints.
+
+## A32. An explicit `autoCapitalize="sentences"` gives no capitals with a keyboardType or a secure field (from iOS work)
+- **Status:** open, not run on Android. Found on the Mac 2026-11-21 (iOS round 1).
+- **Problem:** `ZnTextField.kt` ~147-152 maps `autoCapitalize`; an explicit `"sentences"` falls into the `else` branch
+  and gives `None` on a field that has a `keyboardType` or is secure. iOS (and RN) capitalise sentences there.
+- **Fix:** map `"sentences"` to `KeyboardCapitalization.Sentences` whatever the keyboard type; keep the default
+  (not written) as today.
+- **Check on Android (Windows):** `<TextField autoCapitalize="sentences" keyboardType="email-address">`: the keyboard
+  should start in capitals.
+
+## A33. Window values stay 0 in JS after a dev reload or an in-place OTA (from iOS work, Motion)
+- **Status:** open, not run on Android. Found on the Mac 2026-11-21 (iOS round 1, motion engine review).
+- **Problem:** `ZnMotion.kt` `reset()` (~547) disposes only ids above `ENV_LAST`, so the `watching` jobs for the window
+  ids 1-15 survive a reload. Then `watch()` (~748-755) returns early on `watching.containsKey(id)` and never sends the
+  current value. The new JS starts its env entries at 0 (core motion.ts `envSource`), so `env.width` and the other
+  window values read 0 in JS until the window changes.
+- **Fix:** in `reset()`, cancel and clear every `watching` job; and a `watch(on)` for an id already watched sends its
+  value now. iOS does both.
+- **Check on Android (Windows):** a screen that reads `env.width` in JS (`v()` or `derive`), then a dev reload: it reads 0
+  until a resize or rotation.
+
+## A34. `v.sequence([], { repeat: "forever" })` spins on the main thread (from iOS work, Motion)
+- **Status:** open, not run on Android. Found on the Mac 2026-11-21.
+- **Problem:** `ZnMotion.kt` ~680: `while (plays < 0 || play < plays)` with no steps; `runSteps` returns true without
+  suspending, so the coroutine never yields and the main thread freezes.
+- **Fix:** an empty sequence finishes at once with `finished: true` (iOS does this).
+- **Check on Android (Windows):** call `v.sequence([], { repeat: "forever" })` from any screen: today the app hangs (ANR).
+
+## A35. A motion value read in JS on a screen with no gesture never got native's values (from iOS work, shared JS)
+- **Status:** fixed in shared JS on the Mac 2026-11-21 (`packages/core/src/motion.ts` `listen`: a source's first read
+  calls `listen()`); not run on Android.
+- **Problem:** before the fix, a value read in JS (`v()`, `derive`, `map`, `follow`) on a screen with no gesture never
+  subscribed to native, so its JS copy stayed at its first value. Android has the same bug on builds before the fix.
+- **Check on Android (Windows):** cold-start `zn://sample/dev/motion/engine` with `{"run":true}` before opening any
+  gesture screen: on a build with the fix the "derive" and "map" checks pass (before it they stay at 0).
+
+## A36. A missing FormData file part fails mid-upload as `connection_lost` (from iOS work, fetch)
+- **Status:** open, not run on Android. Found on the Mac 2026-11-21 (iOS round 1).
+- **Problem:** `ZnFetch.kt` `multipart` (~583-595) and `UriBody` (~637-650): a missing or unreadable `file://` /
+  `content://` part isn't refused before sending. `contentLength()` swallows the error (-1, so the body goes chunked),
+  then `writeTo` throws `FileNotFoundException` during the call, which `errorCode`'s else branch reports as
+  `connection_lost` (or `offline`). iOS rejects `invalid_request` with the path before sending. Also, `UriBody` reads
+  the length once and opens the stream again in `writeTo`: if the file changes in between, the declared length and the
+  bytes differ (low priority).
+- **Fix:** in `multipart()`, open each URI once (`openAssetFileDescriptor`, or `openInputStream` and close it) and
+  reject `invalid_request` with the URI when that fails.
+- **Check on Android (Windows):** `/dev/fetch` with `{"only":"missing file"}` (plus the lab's `port`/`dir` params): see
+  which code "FormData missing file" prints. After the fix, make that lab case expect `invalid_request` on both.
+
+## A37. A kept background task JS is still running may be aborted by its answer-by limit (from iOS work)
+- **Status:** open, possible, not run on Android. Found on the Mac 2026-11-21 (iOS round 1, push and background review).
+- **Problem:** on iOS a kept task that JS was already running got aborted at the caller's answer-by limit, which deleted
+  its saved copy (fixed on iOS: the caller is answered in time, JS goes on to the task's own limit). On Android, check
+  `ZnBackground.kt`'s time-limit path: can a task kept across process death be aborted by a limit counted from `run()`
+  while JS is still running it? If so, its saved copy is lost the same way.
+- **Check on Android (Windows):** a kept task that reaches JS late, with a handler longer than the time left: is the
+  saved copy dropped before JS finishes?
+
+## A38. Stacked SVG drop shadows: check the fixture on Android (from iOS work)
+- **Status:** check only. Added 2026-11-21 with iOS's drop-shadow fallback.
+- **Check on Android (Windows):** svgLab's `shadow-skew.svg` should show the dot's green shadow on its left and both
+  stacked shadows to the right and below. Android 12+ runs the real filter (RenderEffect); also look at the fallback
+  path (a pattern tile, or Android before 12).
 
