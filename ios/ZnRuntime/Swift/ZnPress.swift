@@ -295,10 +295,7 @@ extension EnvironmentValues {
     /// them, so a smaller button on a hidden tab swallowed taps on the shown one (ZeroBill: Offers' card after visiting
     /// Rewards, 2026-11-09).
     @Entry var znInHiddenTab = false
-    /// Inside an element with pointerEvents "none", or the children of "box-only" (Android's LocalTouchOff): nothing
-    /// here takes a tap. SwiftUI's allowsHitTesting(false) is set too; this hides the UIKit touch views (Pressables, a
-    /// tappable Text) from ZnTouchControl's inner-Pressable check, and TextField boxes from it.
-    @Entry var znTouchOff = false
+    // znTouchOff, znEntry and znGestureDepth: ZnEnv.swift.
 }
 
 /// The nearest view controller up [view]'s responder chain (its screen's, or its Sheet's or Modal's).

@@ -54,12 +54,6 @@ struct ZnListView: View {
     }
 }
 
-/// "1,30" → the sorted, distinct row indices (bad entries dropped), as Android's parseSticky.
-func znParseSticky(_ text: String?) -> [Int] {
-    guard let text else { return [] }
-    return Array(Set(text.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }.filter { $0 >= 0 })).sorted()
-}
-
 /// One row: its instance if JS mounted one, else a placeholder of its template.
 struct ZnListRowView: View {
     let ctx: ZnContext
@@ -153,7 +147,7 @@ struct ZnCollectionList: UIViewRepresentable {
         cv.dataSource = context.coordinator
         cv.delegate = context.coordinator
         // inverted (RN): row 0 at the bottom, growing upwards (a chat). The list is flipped and each cell flipped back.
-        if s.props[Registry.Prop.inverted]?.bool == true { cv.transform = CGAffineTransform(scaleX: 1, y: -1) }
+        if s.inverted { cv.transform = CGAffineTransform(scaleX: 1, y: -1) }
         return cv
     }
 

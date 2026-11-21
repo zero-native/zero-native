@@ -1,5 +1,7 @@
 // Templates prepared once for drawing (ARCHITECTURE.md §9.1): typed fields per node instead of prop lookups while
-// drawing. Port of the parts of android/runtime's ZnTemplate.kt (ZnNodeSpec) that the i.1b spike draws.
+// drawing. Port of android/runtime's ZnTemplate.kt (ZnNodeSpec). Some fields are read here before iOS draws them
+// (registry 23 and 24: accessibility, fonts, List and Scroll extras, gestures and motion), so the work that draws
+// each one doesn't need this file. Reading a field draws nothing; docs/guides/platform-differences.md lists the gaps.
 import SwiftUI
 
 struct ZnEdges: Equatable {
@@ -121,6 +123,23 @@ final class ZnNodeSpec {
     let enter: ZnTransition?
     let exit: ZnTransition?
 
+    // Gestures and motion (registry 24), read but not drawn yet (ZnTemplate.kt): 3D turns in degrees, the camera
+    // distance (default 8), blur, each also from a slot; the gesture this node handles and the useElementMotion() it
+    // fills (slots holding their ids); animateLayout's timing; a shared element's tag.
+    let rotateX: CGFloat, rotateY: CGFloat, cameraDistance: CGFloat, blurRadius: CGFloat
+    let rotateXSlot: Int, rotateYSlot: Int, cameraDistanceSlot: Int, blurRadiusSlot: Int
+    let gestureSlot: Int
+    let motionSlot: Int
+    let animateLayout: ZnTiming?
+    let sharedTag: String?
+    let sharedTagSlot: Int
+    /// Something of registry 24's layer is used (3D turns, camera, blur). Android also counts an enter / exit that
+    /// turns; iOS's ZnTransition doesn't read those yet.
+    let hasDepth: Bool
+    /// A child here has a gesture or transform / opacity slots, or this node has anchor children: it tells them its
+    /// size (a gesture's or formula's parent size). Set by ZnTemplate, which sees the children.
+    fileprivate(set) var feedsChildSite = false
+
     // Text
     let text: String?
     let color: Color?
@@ -142,6 +161,16 @@ final class ZnNodeSpec {
     let spansSlot: Int
     /// Registry 16: a span with onPress was tapped; the payload is its index.
     let onSpanPress: Int
+    /// RN fontFamily (registry 24): an app font's family or a system name; nil = the system font.
+    let fontFamily: String?
+    /// The largest text size scale this text follows (allowFontScaling={false} is 1); nil: no cap.
+    let maxFontScale: CGFloat?
+    /// RN selectable (registry 23), and its slot.
+    let selectable: Bool
+    let selectableSlot: Int
+    /// RN adjustsFontSizeToFit / minimumFontScale (registry 23): shrink to fit numberOfLines, down to that scale.
+    let adjustsFontSizeToFit: Bool
+    let minimumFontScale: CGFloat?
 
     // Icon: "minX minY width height|path data"
     let icon: ZnIconData?
@@ -165,6 +194,41 @@ final class ZnNodeSpec {
     /// RN stickyHeaderIndices (registry 15): "0,20", or a slot with that text.
     let stickyHeaderIndices: String?
     let stickySlot: Int
+    /// A List or Scroll that scrolls sideways (registry 10); a List's inverted (registry 19): row 0 at the bottom.
+    let horizontal: Bool
+    let inverted: Bool
+    /// <List numColumns> (registry 24): rows of this many items (1...12, 1 = a plain list), also from a slot; and
+    /// columnWrapperStyle, how each grid row places them.
+    let numColumns: Int
+    let numColumnsSlot: Int
+    let columnWrapper: ZnColumnWrapper
+    /// <List ref> / <Scroll ref>: the slot core writes scroll commands into (ZnScrollCommand).
+    let scrollCommandSlot: Int
+    /// <List> rows animate when added, removed or moved: "fade" or "move" (registry 24).
+    let itemAnimation: String?
+    /// <List reorderable> (registry 24): long press and drag a row; onReorder(from, to) on the drop.
+    let reorderable: Bool
+    let onReorder: Int
+    /// An impression key (useImpressions): static, or from its slot.
+    let impressionKey: String?
+    let impressionKeySlot: Int
+    var hasImpression: Bool { impressionKey != nil || impressionKeySlot >= 0 }
+
+    // Scroll extras (registry 24, ZnScrollExtras.kt)
+    /// Snap rules (core scrollSnap), static or from a slot.
+    let snap: String?
+    let snapSlot: Int
+    /// The scroll events JS has handlers for, "t16;s;b;e;mb;me"; and the event they go to.
+    let scrollEvents: String?
+    let onScrollEvent: Int
+    /// RN keyboardDismissMode: "on-drag", "interactive" or nil ("none").
+    let keyboardDismissMode: String?
+    /// The pull-to-refresh spinner's disc colour (Android's default: white); nil when not written.
+    let refreshBackground: Color?
+
+    // Canvas (registry 24): its draw commands, static or from a slot.
+    let commands: String?
+    let commandsSlot: Int
 
     // Svg and SvgPart (docs/svg.md §7): the draw data (parsed on first draw, ZnSvgDraw.swift) and a part's values.
     let svg: String?
@@ -198,8 +262,16 @@ final class ZnNodeSpec {
     let placeholderSlot: Int
     /// Registry.AutoComplete, -1 when not written.
     let autoComplete: Int
-    let accessibilityLabel: String?
     let onFilled: Int
+
+    // Accessibility (registry 15): label (also from a slot), hint, role (Registry.AccessibilityRole, -1 when not
+    // written), hidden; and RN testID.
+    let accessibilityLabel: String?
+    let accessibilityLabelSlot: Int
+    let accessibilityHint: String?
+    let accessibilityRole: Int
+    let accessibilityHidden: Bool
+    let testID: String?
 
     // Tabs and pull to refresh
     let selected: Int
@@ -227,6 +299,8 @@ final class ZnNodeSpec {
     let dotColor: Color
     let activeDotColor: Color
     let itemWidth: CGFloat?
+    /// A page's width as a percent (1-100) of the Carousel's width inside its padding (registry 23).
+    let itemWidthPercent: CGFloat?
     let onPageChange: Int
     /// RN onLayout (registry 15): { layout: { x, y, width, height } } when the box inside the margin changes.
     let onLayout: Int
@@ -254,6 +328,8 @@ final class ZnNodeSpec {
     let detents: [String]
     let dismissible: Bool
     let onDismiss: Int
+    /// A drag settled the Sheet at another detent: "content", "half" or "full".
+    let onDetentChange: Int
     /// Sheet `animateIn={false}` (registry 21): opens already at rest. `animateIn={expr}` (registry 22): read when the
     /// sheet opens, not on every change.
     let animateIn: Bool
@@ -270,6 +346,12 @@ final class ZnNodeSpec {
     /// `editable={false}`: the field shows its text but takes no typing (ZnTemplate.kt editable); and its slot.
     let editable: Bool
     let editableSlot: Int
+    /// Registry.AutoCapitalize (-1: not written); autoCorrect is on unless written false.
+    let autoCapitalize: Int
+    let autoCorrect: Bool
+    /// The placeholder's colour and the cursor / selection colour; nil when not written.
+    let placeholderColor: Color?
+    let selectionColor: Color?
     /// -1: not written (single-line: Done; multi-line: Return makes a new line).
     let returnKeyType: Int
     /// `<TextField ref>`: the ref event (focus changes go to it as a boolean; Keyboard.focus / blur / clear name it).
@@ -394,6 +476,17 @@ final class ZnNodeSpec {
         paused = p[P.paused]?.bool ?? false
         enter = p[P.enter]?.string.flatMap(ZnTransition.parse)
         exit = p[P.exit]?.string.flatMap(ZnTransition.parse)
+        rotateX = num(P.rotateX) ?? 0; rotateY = num(P.rotateY) ?? 0
+        cameraDistance = num(P.cameraDistance) ?? 8; blurRadius = num(P.blurRadius) ?? 0
+        rotateXSlot = slotFor(P.rotateX); rotateYSlot = slotFor(P.rotateY)
+        cameraDistanceSlot = slotFor(P.cameraDistance); blurRadiusSlot = slotFor(P.blurRadius)
+        gestureSlot = slotFor(P.gesture)
+        motionSlot = slotFor(P.motion)
+        animateLayout = p[P.animateLayout]?.string.flatMap(ZnTiming.parse)
+        sharedTag = p[P.sharedTag]?.string
+        sharedTagSlot = slotFor(P.sharedTag)
+        hasDepth = rotateX != 0 || rotateY != 0 || blurRadius != 0 || rotateXSlot >= 0 || rotateYSlot >= 0 ||
+            cameraDistanceSlot >= 0 || blurRadiusSlot >= 0
 
         text = p[P.text]?.string
         color = znColor(p[P.color])
@@ -410,6 +503,12 @@ final class ZnNodeSpec {
         spans = p[P.spans]?.string.flatMap(ZnSpan.parse)
         spansSlot = slotFor(P.spans)
         onSpanPress = eventFor(Registry.Event.onSpanPress)
+        fontFamily = p[P.fontFamily]?.string
+        maxFontScale = num(P.maxFontScale)
+        selectable = p[P.selectable]?.bool ?? false
+        selectableSlot = slotFor(P.selectable)
+        adjustsFontSizeToFit = p[P.adjustsFontSizeToFit]?.bool ?? false
+        minimumFontScale = num(P.minimumFontScale)
 
         icon = p[P.icon]?.string.flatMap(ZnIconData.parse)
         src = p[P.src]?.string
@@ -428,6 +527,26 @@ final class ZnNodeSpec {
         onEndReached = eventFor(Registry.Event.onEndReached)
         stickyHeaderIndices = p[P.stickyHeaderIndices]?.string
         stickySlot = slotFor(P.stickyHeaderIndices)
+        horizontal = p[P.horizontal]?.bool ?? false
+        inverted = p[P.inverted]?.bool ?? false
+        // Clamped as a number first: Int() of NaN or a huge value would trap.
+        numColumns = num(P.numColumns).flatMap { $0.isFinite ? Int(min(max($0, 1), 12)) : nil } ?? 1
+        numColumnsSlot = slotFor(P.numColumns)
+        columnWrapper = ZnColumnWrapper.parse(p[P.columnWrapper]?.string)
+        scrollCommandSlot = slotFor(P.scrollCommand)
+        itemAnimation = p[P.itemAnimation]?.string
+        reorderable = p[P.reorderable]?.bool ?? false
+        onReorder = eventFor(Registry.Event.onReorder)
+        impressionKey = p[P.impressionKey]?.string
+        impressionKeySlot = slotFor(P.impressionKey)
+        snap = p[P.snap]?.string
+        snapSlot = slotFor(P.snap)
+        scrollEvents = p[P.scrollEvents]?.string
+        onScrollEvent = eventFor(Registry.Event.onScrollEvent)
+        keyboardDismissMode = p[P.keyboardDismissMode]?.string
+        refreshBackground = znColor(p[P.refreshBackground])
+        commands = p[P.commands]?.string
+        commandsSlot = slotFor(P.commands)
         func argb(_ id: Int) -> UInt32? {
             switch p[id] {
             case .color(let c): return c
@@ -471,8 +590,13 @@ final class ZnNodeSpec {
         invalidSlot = slotFor(P.invalid)
         placeholderSlot = slotFor(P.placeholder)
         autoComplete = en(P.autoComplete)
-        accessibilityLabel = p[P.accessibilityLabel]?.string
         onFilled = eventFor(Registry.Event.onFilled)
+        accessibilityLabel = p[P.accessibilityLabel]?.string
+        accessibilityLabelSlot = slotFor(P.accessibilityLabel)
+        accessibilityHint = p[P.accessibilityHint]?.string
+        accessibilityRole = en(P.accessibilityRole)
+        accessibilityHidden = p[P.accessibilityHidden]?.bool ?? false
+        testID = p[P.testID]?.string
         trackColor = znColor(p[P.trackColor]); activeTrackColor = znColor(p[P.activeTrackColor])
         thumbColor = znColor(p[P.thumbColor]); activeColor = znColor(p[P.activeColor])
         self.size = num(P.size)
@@ -487,6 +611,7 @@ final class ZnNodeSpec {
         dotColor = znColor(p[P.dotColor]) ?? Color(.sRGB, red: 0xD1 / 255, green: 0xD5 / 255, blue: 0xDB / 255)
         activeDotColor = znColor(p[P.activeDotColor]) ?? Color(.sRGB, red: 0x04 / 255, green: 0x78 / 255, blue: 0x57 / 255)
         itemWidth = num(P.itemWidth)
+        itemWidthPercent = num(P.itemWidthPercent)
         onPageChange = eventFor(Registry.Event.onPageChange)
         onLayout = eventFor(Registry.Event.onLayout)
         parent = index == 0 ? -1 : raw.parent[index]
@@ -509,6 +634,7 @@ final class ZnNodeSpec {
         animateIn = p[P.animateIn]?.bool ?? true
         animateInSlot = slotFor(P.animateIn)
         onDismiss = raw.events.first { $0.node == index && $0.kind == Registry.Event.onDismiss }?.eventId ?? 0
+        onDetentChange = eventFor(Registry.Event.onDetentChange)
 
         valueSlot = slotFor(P.value)
         placeholder = p[P.placeholder]?.string
@@ -519,6 +645,10 @@ final class ZnNodeSpec {
         multiline = p[P.multiline]?.bool ?? false
         editable = p[P.editable]?.bool ?? true
         editableSlot = slotFor(P.editable)
+        autoCapitalize = en(P.autoCapitalize)
+        autoCorrect = p[P.autoCorrect]?.bool ?? true
+        placeholderColor = znColor(p[P.placeholderColor])
+        selectionColor = znColor(p[P.selectionColor])
         returnKeyType = en(P.returnKeyType)
         ref = eventFor(Registry.Event.ref)
         onChangeText = eventFor(Registry.Event.onChangeText); onFocus = eventFor(Registry.Event.onFocus)
@@ -555,6 +685,12 @@ final class ZnNodeSpec {
     }
 
     var isPressable: Bool { type == Registry.Component.pressable }
+
+    /// A transform value comes from a slot (Android's hasTransformSlots, 3D turns, camera and blur included).
+    var hasTransformSlots: Bool {
+        [scaleSlot, scaleXSlot, scaleYSlot, translateXSlot, translateYSlot, rotateSlot,
+         rotateXSlot, rotateYSlot, cameraDistanceSlot, blurRadiusSlot].contains { $0 >= 0 }
+    }
 
     /// Percent width / height as fractions now (a slot's "50%" too), for the parent layout (ZnPercentKey).
     @MainActor func percentNow(_ inst: ZnInstance) -> ZnPercent {
@@ -717,6 +853,10 @@ final class ZnTemplate {
         for i in 1..<max(raw.component.count, 1) { children[raw.parent[i]].append(i) }
         nodes = (0..<raw.component.count).map { ZnNodeSpec(raw: raw, index: $0, children: children[$0]) }
         for n in nodes where n.onLayout != 0 && n.parent >= 0 { nodes[n.parent].namesSpace = true }
+        for n in nodes where n.parent >= 0 && (n.type == Registry.Component.anchor || n.gestureSlot >= 0 || n.opacitySlot >= 0 ||
+                                               n.hasTransformSlots) {
+            nodes[n.parent].feedsChildSite = true
+        }
         #if DEBUG
         Self.reportNotDrawn(raw)
         #endif

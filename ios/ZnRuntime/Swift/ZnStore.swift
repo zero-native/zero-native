@@ -36,6 +36,9 @@ final class ZnInstance {
     var hasExit = false
     /// JS removed it and its `exit` is playing; it stays in its parent until ZnStore.finishExit.
     let exiting = ZnFlag()
+    /// The last scroll command run per command slot (ZnScrollCommand.seq), so a <Scroll> that comes back on screen
+    /// doesn't run its last command again (Android's inst.scrollSeqs).
+    var scrollSeqs: [Int: Int] = [:]
 
     /// The state of the <List> at node [node] (created on first use).
     func list(_ node: Int) -> ZnListState {
