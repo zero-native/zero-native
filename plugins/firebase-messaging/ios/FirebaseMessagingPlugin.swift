@@ -28,9 +28,11 @@
 //   isn't known per push: `Notifications.getNotificationSettings` says what the user allows.
 //   While the app is in front, `push.message` runs (with `notification` set) and iOS shows nothing (`foreground`), so
 //   the app shows its own, as on Android.
-// - Data-only messages reach the app only while it runs, or as a background wake that iOS throttles and never gives
-//   after the user closed the app. JS doesn't start for a background launch yet (§3), so such a task waits for the next
-//   start and then times out.
+// - Data-only messages (content-available) reach the app only while it runs, or as a background wake that iOS rations
+//   and never gives after the user closed the app. iOS's fetchCompletionHandler is answered once, within 25 s, even when
+//   JS is slow or not running (ZnTasks' answerByMs, and a cap here): a handler never called makes iOS end the app and
+//   wake it less. JS doesn't start for a background launch yet (§3): the message is kept and `push.message` runs at the
+//   next start (or when the app opens), with its `sentAt`, so JS can tell it is late.
 // - `zn_ota=check` messages run core's OTA check natively (OtaPush.swift), as Android's OTA check job, within iOS's
 //   limits for background pushes.
 import Foundation
@@ -58,6 +60,10 @@ enum PushRules {
     static let provider = "fcm"
     /// The task's time (Android: PushEvents.MESSAGE_TIMEOUT_MS). iOS gives a background wake about 30 s.
     static let messageTimeoutMs = 15_000
+    /// iOS's fetchCompletionHandler is answered by then (as OTA pushes, OtaPushRules.answerByMs), JS done or not.
+    static let answerByMs = 25_000
+    /// The plugin's own cap on that answer, should nothing else answer (a path with no task).
+    static let answerCapMs = 27_000
     /// The APNs token comes back in a moment; with no network or no push entitlement it never does.
     static let apnsWaitMs = 10_000
     static let otaKey = "zn_ota", otaCheck = "check"
@@ -420,9 +426,10 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         }
     }
 
-    /// Runs `push.message` for a push (once per message id); [done] after the task.
+    /// Runs `push.message` for a push (once per message id); [done] after the task, or at [answerAt] (CACurrentMediaTime
+    /// seconds: FCM's own call here can take a second). [keep]: saved until JS has run it, also across starts.
     private func deliver(_ info: [AnyHashable: Any], inFront: Bool, notification: (title: String?, body: String?)?,
-                         done: @escaping (Bool) -> Void = { _ in }) {
+                         keep: Bool = false, answerAt: CFTimeInterval? = nil, done: @escaping (Bool) -> Void = { _ in }) {
         #if canImport(FirebaseMessaging)
         if on { Messaging.messaging().appDidReceiveMessage(info) }  // FCM's delivery analytics
         #endif
@@ -433,16 +440,30 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
             return DispatchQueue.main.async { OtaPush.message(data, id: PushRules.messageId(info), done: done) }
         }
         let message = PushRules.message(info, inFront: inFront, notification: notification, now: Self.now)
-        ZnTasks.shared.run(PushRules.messageTask, message, timeoutMs: PushRules.messageTimeoutMs) { outcome in
+        ZnTasks.shared.run(PushRules.messageTask, message, timeoutMs: PushRules.messageTimeoutMs, keep: keep,
+                           answerByMs: answerAt.map { max(0, Int(($0 - CACurrentMediaTime()) * 1000)) }) { outcome in
             if case .done = outcome { done(true) } else { done(false) }
         }
     }
 
-    /// A push the app delegate got: a data message (content-available), or one iOS also shows.
+    /// A push the app delegate got: a data message (content-available), or one iOS also shows. iOS's [done] is called
+    /// once, within PushRules.answerByMs (called twice it crashes; never called, iOS ends the app and wakes it less).
     @MainActor func remoteNotification(_ info: [AnyHashable: Any], _ done: @escaping (UIBackgroundFetchResult) -> Void) {
         let inFront = UIApplication.shared.applicationState == .active
-        deliver(info, inFront: inFront, notification: PushRules.alert(info)) { ran in
-            DispatchQueue.main.async { done(ran ? .newData : .noData) }
+        let t0 = CACurrentMediaTime()
+        print("zn-push: a push for the app (\(inFront ? "in front" : "behind"), JS \(ZnTasks.shared.isLoaded ? "up" : "not up yet"))")
+        let answer = ZnOnce<(UIBackgroundFetchResult, String)> { r in
+            let (result, why) = r
+            print("zn-push: answered iOS (\(result == .newData ? "new data" : "no data"), \(why)) after \(Int((CACurrentMediaTime() - t0) * 1000)) ms")
+            done(result)
+        }
+        ZnDeadline.main(at: .now() + .milliseconds(PushRules.answerCapMs)) { answer((.noData, "no answer in time")) }
+        // JS isn't running (a background launch, or not yet up) or the app is behind: kept, so a process iOS ends
+        // before JS runs it doesn't lose it
+        let keep = !inFront || !ZnTasks.shared.isLoaded
+        deliver(info, inFront: inFront, notification: PushRules.alert(info), keep: keep,
+                answerAt: t0 + Double(PushRules.answerByMs) / 1000) { ran in
+            DispatchQueue.main.async { answer(ran ? (.newData, "JS ran it") : (.noData, ZnTasks.shared.isLoaded ? "not run" : "JS isn't up")) }
         }
     }
 

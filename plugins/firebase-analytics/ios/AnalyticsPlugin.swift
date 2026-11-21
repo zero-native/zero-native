@@ -1,6 +1,7 @@
 // The Analytics plugin's iOS side (plugins/firebase-analytics, as android/.../AnalyticsPlugin.kt and AnalyticsRules.kt): RN
 // Firebase's `analytics()` calls, Google Analytics' limits checked before Firebase sees a call (a bad name answers its
-// reason, "" when sent), a `screen_view` for each top route, and `zn_bundle` on every event.
+// reason, "" when sent), a `screen_view` for each top route, and `zn_bundle` on every event (the running bundle's label,
+// `sample_12@1a2b3c4d5e6f`, changed when an update is applied in place).
 // With Firebase off the module still answers (status available false; calls do nothing).
 //
 // iOS differences:
@@ -8,8 +9,6 @@
 //   them off with FirebaseAutomaticScreenReportingEnabled = NO in its Info.plist (the sample does); this plugin sends
 //   the route names instead, as on Android.
 // - Linked without Analytics' IDFA part (no tracking prompt): no advertising id is collected.
-// - zn_bundle is always "built-in", even when an OTA bundle runs (iOS has OTA now; reading the running bundle here is
-//   still to do, docs/guides/platform-differences.md).
 import Foundation
 #if SWIFT_PACKAGE
 import ZnRuntime
@@ -120,7 +119,7 @@ public struct AnalyticsPlugin: ZnPlugin {
         r.module(module)
         #if canImport(FirebaseAnalytics)
         guard on else { return }
-        if bundleParam { module.setBundle("built-in") }
+        if bundleParam { ZnBundles.watchRunning { module.setBundle($0) } }
         if screenViews {
             let rename = screenName
             ZnApp.shared.addTopRouteListener { route in

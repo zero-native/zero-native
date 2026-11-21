@@ -3,14 +3,18 @@
 // - native crashes (Crashlytics' own handlers: Swift, Objective-C and C++ crashes, signals),
 // - every JS error as a non-fatal, with its JS frames as the stack (issues group by JS function, like Android) and the
 //   full JS stack with columns as a log line,
-// - keys on every report: the bundle, host API, the top route; each screen change as a log line.
+// - keys on every report: the running bundle (also after an update applied in place, with a "bundle:" log line), host
+//   API, the top route; each screen change as a log line,
+// - OTA outcomes as log lines, and serious ones (a rollback, a blocked bundle) as non-fatals named after their kind.
 // With Firebase off (no SDK or no GoogleService-Info.plist) the module still answers: every call does nothing, and
 // `status` says available false.
 //
-// iOS differences: the bundle key is always "built-in", even when an OTA bundle runs (iOS has OTA now; reading the
-// running bundle here is still to do, docs/guides/platform-differences.md). `crash("native")` and `crash("kotlin")` both crash the
-// process (iOS has no Kotlin; Crashlytics catches both). Release builds need their dSYMs uploaded for native stacks
-// (ios/third_party/firebase/FirebaseCrashlytics/upload-symbols); JS stacks don't need them.
+// The rules with no iOS in them are CrashlyticsRules.swift (tested on the Mac: ios/tests/push).
+//
+// iOS differences: `crash("native")` and `crash("kotlin")` both crash the process (iOS has no Kotlin; Crashlytics
+// catches both). Release builds need their dSYMs uploaded for native stacks
+// (ios/third_party/firebase/FirebaseCrashlytics/upload-symbols); JS stacks don't need them. A background launch that
+// never starts JS chooses no bundle, so its reports say only zn_built_in (true).
 import Foundation
 #if SWIFT_PACKAGE
 import ZnRuntime
@@ -24,38 +28,6 @@ import ZnPluginFirebaseApp
 #if canImport(FirebaseCrashlytics)
 import FirebaseCrashlytics
 #endif
-
-/// The plugin's choices with no iOS in them (CrashlyticsRules.kt).
-enum CrashlyticsRules {
-    static let keyBundle = "zn_bundle", keyBundleId = "zn_bundle_id", keyBuiltIn = "zn_built_in", keyHostApi = "zn_host_api"
-    static let keyRoute = "zn_route", keyJsKind = "zn_js_kind"
-    /** JS errors sent per process (an error in a loop would send hundreds). */
-    static let maxJsErrors = 30
-    static let maxLogChars = 4_000
-    static let maxKeyChars = 1_024
-
-    /// A recorded error's text: Hermes' stack starts with "Error: message" already.
-    static func details(_ name: String?, _ message: String, _ stack: String?) -> String {
-        let s = stack ?? ""
-        if !s.isEmpty && s.contains(message) { return s }
-        let head = (name ?? "").isEmpty ? message : "\(name!): \(message)"
-        return s.isEmpty ? head : "\(head)\n\(s)"
-    }
-
-    static func routeLog(_ from: String?, _ to: String?) -> String { "nav: \(from ?? "-") -> \(to ?? "-")" }
-
-    /// Hermes frames, `at fn (file:line:col)` or `at file:line:col`, as (function, file, line). Native frames are left out.
-    static func frames(_ details: String) -> [(String, String, Int)] {
-        let re = try! NSRegularExpression(pattern: #"^\s*at (?:(.+?) \()?([^\s()]+):(\d+):\d+\)?\s*$"#)
-        return details.split(separator: "\n").compactMap { line in
-            let s = String(line)
-            guard let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) else { return nil }
-            func g(_ i: Int) -> String? { Range(m.range(at: i), in: s).map { String(s[$0]) } }
-            let file = (g(2) ?? "").split(separator: "/").last.map(String.init) ?? ""
-            return ((g(1) ?? "").isEmpty ? "<anonymous>" : g(1)!, file, Int(g(3) ?? "") ?? 0)
-        }
-    }
-}
 
 /// Add it with `ZnPlugins.register(..., CrashlyticsPlugin())`, as early as the other plugins.
 /// `redact`: runs on every text that goes to Crashlytics from JS (as on Android).
@@ -77,9 +49,24 @@ public struct CrashlyticsPlugin: ZnPlugin {
         guard on else { return }
         let c = Crashlytics.crashlytics()
         c.setCustomValue(ZnPlugins.hostApi, forKey: CrashlyticsRules.keyHostApi)
-        c.setCustomValue("built-in", forKey: CrashlyticsRules.keyBundle)
-        c.setCustomValue("built-in", forKey: CrashlyticsRules.keyBundleId)
+        // Until a bundle is chosen (a background launch may never choose one): the app's own
         c.setCustomValue(true, forKey: CrashlyticsRules.keyBuiltIn)
+        ZnBundles.watchRunning { label in
+            c.setCustomValue(label, forKey: CrashlyticsRules.keyBundle)
+            c.setCustomValue(CrashlyticsRules.bundleId(label), forKey: CrashlyticsRules.keyBundleId)
+            c.setCustomValue(ZnBundles.runningIsBuiltIn, forKey: CrashlyticsRules.keyBuiltIn)
+            c.log("bundle: \(label)")
+            print("zn-crashlytics: bundle \(label) (\(ZnBundles.runningIsBuiltIn ? "built-in" : "downloaded"))")
+        }
+        ZnOta.addReportListener { r in
+            c.log(CrashlyticsRules.otaLog(r.kind, r.bundle, r.detail))
+            guard r.serious else { return }
+            // One frame named after the kind, so Crashlytics makes one issue per kind (Android's ZnOtaEventException)
+            let model = ExceptionModel(name: CrashlyticsRules.otaName, reason: CrashlyticsRules.otaReason(r.kind, r.bundle, r.detail))
+            model.stackTrace = [StackFrame(symbol: r.kind, file: "ota", line: 0)]
+            c.record(exceptionModel: model)
+            print("zn-crashlytics: OTA \(r.kind) recorded")
+        }
         let app = ZnApp.shared
         if jsErrors {
             var used = 0, dropped = 0
@@ -177,7 +164,7 @@ final class CrashlyticsModule: ZnModuleBase, @unchecked Sendable {
         c.setCustomValue(kind, forKey: CrashlyticsRules.keyJsKind)
         c.log(String(details.prefix(CrashlyticsRules.maxLogChars)))  // the full JS stack, with columns
         let first = details.split(separator: "\n").first.map(String.init) ?? details
-        let model = ExceptionModel(name: "JS error", reason: "[built-in] \(kind) in \(whereText): \(first)")
+        let model = ExceptionModel(name: "JS error", reason: CrashlyticsRules.jsReason(ZnBundles.runningLabel, kind, whereText, first))
         model.stackTrace = CrashlyticsRules.frames(details).map { fn, file, line in
             StackFrame(symbol: fn, file: file, line: line)
         }

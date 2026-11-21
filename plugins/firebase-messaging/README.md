@@ -133,8 +133,13 @@ calls. Details: `docs/milestones-ios.md` (Phase 3).
 - While the app is in front the same push runs `onMessage` (`inFront: true`, `notification` set) and iOS shows nothing,
   so the app shows its own with `Notifications.show`, as on Android. `FirebaseMessagingPlugin(foreground: [.banner])`
   makes iOS show it too.
-- Data-only messages reach iOS only while the app runs, or as a throttled background wake (`content-available`), never
-  after the user closed the app. JS doesn't start for a background launch yet, so don't rely on them.
+- Data-only messages reach iOS only while the app runs, or as a background wake (`content-available`: send it with
+  `apns-push-type: background` and `apns-priority: 5`, `tools/push-send.ts --background`). iOS rations those (a few an
+  hour), holds them in Low Power Mode, and never wakes an app the user closed. The plugin answers iOS's
+  `fetchCompletionHandler` once, within 25 s, even when JS is slow or not running (a handler never called makes iOS end
+  the app and wake it less). JS doesn't start for a background launch yet: such a message is kept and `onMessage` runs
+  at the next start (or when the app opens), late; compare `sentAt` with `Date.now()` before acting on old data. For
+  anything that must arrive, send an alert push (above).
 - `getToken` waits up to 10 s for the APNs token: `not_now` without it (no network; a simulator build without the push
   entitlement). A message reaching both the app delegate and the notification center runs `onMessage` once.
 - `zn_ota=check` messages run the OTA check natively: "OTA pushes" below, "On iOS".
@@ -143,6 +148,10 @@ calls. Details: `docs/milestones-ios.md` (Phase 3).
 Checked on the iOS Simulator (2026-11-11) with `xcrun simctl push`: a push in front (onMessage, the app's own
 notification, no second one from iOS), behind and closed (iOS shows it; a tap reaches `onNotificationOpenedApp` /
 `getInitialNotification`). `simctl push` skips service extensions; the extension's code was run on its own on the Mac.
+Data-only pushes on the simulator (2026-11-21, the sample's debug hook `notifyutil -p dev.zeronative.sample.push.data`,
+since the iOS 26 simulator doesn't hand simctl's background pushes to the app delegate): with JS 45 s late iOS was
+answered once at 25 s and `onMessage` ran when JS came up; with a JS handler slower than the task's 15 s it was
+aborted and iOS answered at 15 s; with the process ended before JS ran, the message ran at the next start.
 Then on an iPhone 11 through FCM (2026-11-11, a signed debug build, the server's planned `apns` shape): in front
 (`onMessage`, the app's own notification), closed (iOS showed it with the HTML gone and the picture attached; a tap
 started the app and opened its action).
