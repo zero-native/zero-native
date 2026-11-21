@@ -5,9 +5,12 @@
 // motion paths, animated gradient stops). Drawn into a SwiftUI Canvas's CGContext (ZnSvgView.swift).
 //
 // iOS differences:
-// - Filters: iOS draws the group under the plain drop shadows the compiler found in its filter (one shadow, from the
-//   first; the others are skipped), as Android does where it can't run the filter (before Android 12). Other filter
-//   primitives (a blur on its own, colour matrices, blends inside a filter) aren't run.
+// - Filters: iOS draws the group over the plain drop shadows the compiler found in its filter, every one of them,
+//   bottom first, as Android does where it can't run the filter (before Android 12, a pattern tile, a region over 4096
+//   px). Other filter primitives (a blur on its own, colour matrices, blends inside a filter) aren't run. With two
+//   or more shadows the group is drawn once into an image the size of what shows, and each shadow is cast from it; in
+//   a pattern tile, or when that image would be too big, each shadow is drawn with a copy of the group (exact where
+//   the group is opaque, a little darker where it isn't).
 // - Gradients that repeat or reflect (spreadMethod) repeat 10 times each way from their line, which covers any
 //   shape they paint in practice. A focal radial gradient that repeats is drawn padded.
 // - Non-scaling strokes are their width in points along the shape's scale; Android also redraws them on screen when
@@ -106,13 +109,17 @@ final class ZnSvgDrawing {
 
     /// Per draw: the box, currentColor and the parts.
     private struct Frame {
-        let cg: CGContext
+        var cg: CGContext
         let current: UInt32
         let parts: [Int: ZnSvgPartNow]
         /// Points per viewBox unit (both axes as one number).
         var unit: CGFloat
         var bounds: CGRect
         var gradientColors: [Int: [UInt32]]
+        /// The context's CTM before the drawing's own transforms: base space (where shadows are) to device pixels.
+        var base: CGAffineTransform = .identity
+        /// Drawing a pattern's tiles (up to 4000 of them): no filter images there, as on Android.
+        var inPattern = false
     }
 
     /// Inherited down the groups: part paints, stroke width / dash offset, how much parts scale, and the trim.
@@ -140,6 +147,7 @@ final class ZnSvgDrawing {
         }
         let tx = (w - d.vw * sx) * CGFloat(align % 3) / 2 - d.vx * sx
         let ty = (h - d.vh * sy) * CGFloat(align / 3) / 2 - d.vy * sy
+        let base = cg.ctm
         cg.saveGState()
         defer { cg.restoreGState() }
         if (9...17).contains(d.aspect) { cg.clip(to: CGRect(x: 0, y: 0, width: w, height: h)) }
@@ -147,7 +155,8 @@ final class ZnSvgDrawing {
         cg.translateBy(x: tx, y: ty)
         cg.scaleBy(x: sx, y: sy)
         let bounds = CGRect(x: -tx / sx, y: -ty / sy, width: w / sx, height: h / sy)
-        var f = Frame(cg: cg, current: current, parts: parts, unit: sqrt(sx * sy), bounds: bounds, gradientColors: [:])
+        var f = Frame(cg: cg, current: current, parts: parts, unit: sqrt(sx * sy), bounds: bounds, gradientColors: [:],
+                      base: base)
         // Animated gradient stops: a part's fill recolours its stop.
         let links = d.stopLinks
         var k = 0
@@ -418,8 +427,9 @@ final class ZnSvgDrawing {
         let i0 = Int(floor((area.minX - t[0]) / t[2])), i1 = Int(ceil((area.maxX - t[0]) / t[2]))
         let j0 = Int(floor((area.minY - t[1]) / t[3])), j1 = Int(ceil((area.maxY - t[1]) / t[3]))
         guard (i1 - i0) * (j1 - j0) <= 4000 else { return }
-        let keep = f.unit
+        let keep = f.unit, keepIn = f.inPattern
         f.unit = shapePx * sqrt(abs(m.a * m.d - m.b * m.c))
+        f.inPattern = true
         for i in i0..<max(i1, i0 + 1) {
             for j in j0..<max(j1, j0 + 1) {
                 cg.saveGState()
@@ -431,6 +441,7 @@ final class ZnSvgDrawing {
             }
         }
         f.unit = keep
+        f.inPattern = keepIn
     }
 
     // MARK: Effects
@@ -445,18 +456,89 @@ final class ZnSvgDrawing {
         if g.mask >= 0, let image = maskImage(&f, data.masks[g.mask]) {
             cg.clip(to: f.bounds, mask: image)
         }
-        if g.filter >= 0, let shadow = data.filters[g.filter].shadows.first {
-            // The filter's drop shadow under the group (shadows are in points, outside the transforms).
-            let u = f.unit * s.scale
-            cg.setShadow(offset: CGSize(width: shadow.dx * u, height: shadow.dy * u), blur: shadow.std * u * 2,
-                         color: znCGColor(shadow.color))
+        let shadows = g.filter >= 0 ? data.filters[g.filter].shadows : []
+        if shadows.count == 1 {
+            // One drop shadow: set on the layer that holds the group, the cheap way.
+            let k = shadowNow(f, shadows[0])
+            cg.setShadow(offset: k.offset, blur: k.blur, color: k.color)
             cg.beginTransparencyLayer(in: f.bounds, auxiliaryInfo: nil)
             cg.setShadow(offset: .zero, blur: 0, color: nil)
             drawRange(&f, l, at + 1, g.end, s, parts: parts)
             cg.endTransparencyLayer()
+        } else if shadows.count > 1 {
+            drawShadows(&f, l, at, g, s, parts: parts, shadows.map { shadowNow(f, $0) })
         } else {
             drawRange(&f, l, at + 1, g.end, s, parts: parts)
         }
+    }
+
+    private struct ShadowNow {
+        /// In base space (CGContext.setShadow's, unaffected by the CTM).
+        let offset: CGSize
+        let blur: CGFloat
+        let color: CGColor
+    }
+
+    /// A filter shadow's offset and blur in base space: its dx / dy and stdDeviation are in the group's units, so the
+    /// group's transforms now (scale, a part's turn) apply to them, as Android's filter does.
+    private func shadowNow(_ f: Frame, _ sh: (dx: CGFloat, dy: CGFloat, std: CGFloat, color: UInt32)) -> ShadowNow {
+        let m = f.cg.ctm.concatenating(f.base.inverted())  // user space to base space
+        let o = CGSize(width: sh.dx, height: sh.dy).applying(CGAffineTransform(a: m.a, b: m.b, c: m.c, d: m.d, tx: 0, ty: 0))
+        let u = sqrt(abs(m.a * m.d - m.b * m.c))
+        return ShadowNow(offset: o, blur: sh.std * u * 2, color: znCGColor(sh.color))
+    }
+
+    /// Two or more drop shadows (Figma's stacked ones), bottom first, then the group once (ZnSvgEffects.kt's fallback).
+    /// The group is drawn into an image of the device pixels that show (plus room for the shadows), and each shadow is
+    /// cast by that image drawn just left of what shows, its offset moved back by as much: only the shadow lands.
+    private func drawShadows(_ f: inout Frame, _ l: Int, _ at: Int, _ g: SvgGroup, _ s: State, parts: Bool, _ shadows: [ShadowNow]) {
+        let cg = f.cg
+        let ctm = cg.ctm
+        let pxPerBase = sqrt(abs(f.base.a * f.base.d - f.base.b * f.base.c))
+        let room = shadows.map { (abs($0.offset.width) + abs($0.offset.height) + $0.blur * 1.5) * pxPerBase }.max() ?? 0
+        let shown = cg.boundingBoxOfClipPath.applying(ctm).integral
+        let area = shown.insetBy(dx: -ceil(room), dy: -ceil(room))
+        let w = Int(area.width), h = Int(area.height)
+        guard !f.inPattern, pxPerBase > 0, w > 0, h > 0, w * h <= 4_000_000,
+              let image = groupImage(&f, l, at, g, s, parts: parts, device: area, ctm: ctm) else {
+            // In a pattern tile or too big: each shadow with its own copy of the group.
+            for k in shadows {
+                cg.saveGState()
+                cg.setShadow(offset: k.offset, blur: k.blur, color: k.color)
+                cg.beginTransparencyLayer(in: f.bounds, auxiliaryInfo: nil)
+                cg.setShadow(offset: .zero, blur: 0, color: nil)
+                drawRange(&f, l, at + 1, g.end, s, parts: parts)
+                cg.endTransparencyLayer()
+                cg.restoreGState()
+            }
+            return
+        }
+        cg.saveGState()
+        cg.concatenate(ctm.inverted())  // device pixels
+        let shift = area.maxX - shown.minX + 8  // the image, moved this far left, is all outside what shows
+        for k in shadows {
+            cg.setShadow(offset: CGSize(width: k.offset.width + shift / abs(f.base.a), height: k.offset.height),
+                         blur: k.blur, color: k.color)
+            cg.draw(image, in: area.offsetBy(dx: -shift, dy: 0))
+        }
+        cg.restoreGState()
+        drawRange(&f, l, at + 1, g.end, s, parts: parts)
+    }
+
+    /// The group's content drawn into an image of [device] (pixels of the context, with the CTM [ctm] it has now).
+    private func groupImage(_ f: inout Frame, _ l: Int, _ at: Int, _ g: SvgGroup, _ s: State, parts: Bool,
+                            device: CGRect, ctm: CGAffineTransform) -> CGImage? {
+        let w = Int(device.width), h = Int(device.height)
+        guard let img = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        img.translateBy(x: -device.minX, y: -device.minY)
+        img.concatenate(ctm)
+        var gf = f
+        gf.cg = img
+        gf.base = f.base.concatenating(CGAffineTransform(translationX: -device.minX, y: -device.minY))
+        drawRange(&gf, l, at + 1, g.end, s, parts: parts)
+        return img.makeImage()
     }
 
     /// The mask's content over the layer's box as a grey image: brightness (over black, so its alpha counts too) or

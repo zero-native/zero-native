@@ -48,7 +48,7 @@ struct SvgMask {
 }
 
 /// A filter: region x0 y0 x1 y1 (viewBox), its primitives, and the plain drop shadows the compiler found in it
-/// (dx dy std, colour), which iOS draws instead of running the filter.
+/// (dx dy std, colour; bottom first), which iOS draws, every one, instead of running the filter.
 struct SvgFilter {
     let region: [CGFloat]
     let prims: [SvgFilterPrim]
