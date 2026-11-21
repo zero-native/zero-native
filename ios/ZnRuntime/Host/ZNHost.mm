@@ -8,6 +8,7 @@
 #include <bit>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -338,12 +339,60 @@ static zn::Storage& nativeStorage() {
   return storage;
 }
 
+/// One zn::Storage is not thread-safe (storage.h: its map of open stores), and module methods run on the "zn-call"
+/// queue, several at once: every nativeStorage() call holds this, as Android's g_storageMutex. Each takes microseconds.
+static std::mutex& storageMutex() {
+  static std::mutex m;
+  return m;
+}
+
 static_assert(std::endian::native == std::endian::little, "storage numbers are stored little-endian");
 
 /// [s] as UTF-8, all of it (UTF8String stops at a NUL, and is NULL for a lone surrogate: JS would keep both).
 static std::string utf8Of(NSString* s) {
   NSData* d = [s dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
   return d ? std::string(static_cast<const char*>(d.bytes), d.length) : std::string();
+}
+
+/// [n] bytes of UTF-8 as text; a byte that isn't part of a valid sequence becomes U+FFFD (as Kotlin's
+/// String(bytes, UTF_8) on Android), so text JS saved with a lone surrogate (Hermes writes it as 3 bytes) still reads.
+static NSString* textOf(const uint8_t* b, size_t n) {
+  NSString* s = [[NSString alloc] initWithBytes:b length:n encoding:NSUTF8StringEncoding];
+  if (s) return s;
+  std::vector<unichar> out;
+  out.reserve(n);
+  size_t i = 0;
+  while (i < n) {
+    const uint8_t c = b[i];
+    uint32_t cp = 0;
+    size_t len = 0;
+    uint8_t lo = 0x80, hi = 0xBF;  // the allowed range of the second byte (Unicode table 3-7)
+    if (c < 0x80) { cp = c; len = 1; }
+    else if (c >= 0xC2 && c <= 0xDF) { cp = c & 0x1F; len = 2; }
+    else if (c >= 0xE0 && c <= 0xEF) { cp = c & 0x0F; len = 3; if (c == 0xE0) lo = 0xA0; if (c == 0xED) hi = 0x9F; }
+    else if (c >= 0xF0 && c <= 0xF4) { cp = c & 0x07; len = 4; if (c == 0xF0) lo = 0x90; if (c == 0xF4) hi = 0x8F; }
+    size_t used = 1;
+    bool ok = len > 0;
+    for (size_t k = 1; ok && k < len; k++) {
+      const uint8_t lowest = k == 1 ? lo : 0x80, highest = k == 1 ? hi : 0xBF;
+      if (i + k >= n || b[i + k] < lowest || b[i + k] > highest) { ok = false; break; }
+      cp = (cp << 6) | (b[i + k] & 0x3F);
+      used = k + 1;
+    }
+    if (!ok) {
+      out.push_back(0xFFFD);  // one per maximal bad part (as Java and Swift decode)
+      i += used;
+      continue;
+    }
+    if (cp >= 0x10000) {
+      out.push_back(static_cast<unichar>(0xD800 + ((cp - 0x10000) >> 10)));
+      out.push_back(static_cast<unichar>(0xDC00 + ((cp - 0x10000) & 0x3FF)));
+    } else {
+      out.push_back(static_cast<unichar>(cp));
+    }
+    i += len;
+  }
+  return [NSString stringWithCharacters:out.data() length:out.size()];
 }
 
 /// The store id and key as zn::Storage takes them, or false (logged) if JS would refuse them too (hermes_engine.cpp).
@@ -368,6 +417,7 @@ static BOOL put(NSString* store, NSString* key, zn::StoredType type, const void*
   std::vector<uint8_t> tagged(1 + size);
   tagged[0] = static_cast<uint8_t>(type);
   if (size) memcpy(tagged.data() + 1, payload, size);
+  std::lock_guard<std::mutex> lock(storageMutex());
   return nativeStorage().set(id, k, tagged);
 }
 
@@ -375,6 +425,7 @@ static BOOL put(NSString* store, NSString* key, zn::StoredType type, const void*
 static std::optional<std::vector<uint8_t>> blobOf(NSString* store, NSString* key) {
   std::string id, k;
   if (!storeArgs(store, key, id, k)) return std::nullopt;
+  std::lock_guard<std::mutex> lock(storageMutex());
   return nativeStorage().get(id, k);
 }
 
@@ -411,7 +462,7 @@ static ZNStoredType typeOf(const std::vector<uint8_t>& blob) {
 + (NSString*)string:(NSString*)store key:(NSString*)key {
   auto blob = blobOf(store, key);
   if (!blob || typeOf(*blob) != ZNStoredTypeString) return nil;
-  return [[NSString alloc] initWithBytes:blob->data() + 1 length:blob->size() - 1 encoding:NSUTF8StringEncoding];
+  return textOf(blob->data() + 1, blob->size() - 1);
 }
 
 + (NSNumber*)number:(NSString*)store key:(NSString*)key {
@@ -441,30 +492,43 @@ static ZNStoredType typeOf(const std::vector<uint8_t>& blob) {
 
 + (BOOL)has:(NSString*)store key:(NSString*)key {
   std::string id, k;
-  return storeArgs(store, key, id, k) && nativeStorage().has(id, k);
+  if (!storeArgs(store, key, id, k)) return NO;
+  std::lock_guard<std::mutex> lock(storageMutex());
+  return nativeStorage().has(id, k);
 }
 
 + (BOOL)remove:(NSString*)store key:(NSString*)key {
   std::string id, k;
-  return storeArgs(store, key, id, k) && nativeStorage().remove(id, k);
+  if (!storeArgs(store, key, id, k)) return NO;
+  std::lock_guard<std::mutex> lock(storageMutex());
+  return nativeStorage().remove(id, k);
 }
 
 + (NSArray<NSString*>*)keys:(NSString*)store {
   std::string id, k;
   if (!storeArgs(store, @"-", id, k)) return @[];
-  NSMutableArray<NSString*>* out = [NSMutableArray array];
-  for (const std::string& key : nativeStorage().keys(id)) [out addObject:toNS(key)];
+  std::vector<std::string> keys;
+  {
+    std::lock_guard<std::mutex> lock(storageMutex());
+    keys = nativeStorage().keys(id);
+  }
+  NSMutableArray<NSString*>* out = [NSMutableArray arrayWithCapacity:keys.size()];
+  for (const std::string& key : keys) [out addObject:textOf(reinterpret_cast<const uint8_t*>(key.data()), key.size())];
   return out;
 }
 
 + (void)clear:(NSString*)store {
   std::string id, k;
-  if (storeArgs(store, @"-", id, k)) nativeStorage().clear(id);
+  if (!storeArgs(store, @"-", id, k)) return;
+  std::lock_guard<std::mutex> lock(storageMutex());
+  nativeStorage().clear(id);
 }
 
 + (void)flush:(NSString*)store {
   std::string id, k;
-  if (storeArgs(store, @"-", id, k)) nativeStorage().flush(id);
+  if (!storeArgs(store, @"-", id, k)) return;
+  std::lock_guard<std::mutex> lock(storageMutex());
+  nativeStorage().flush(id);
 }
 
 @end

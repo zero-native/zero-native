@@ -87,7 +87,8 @@ typedef NS_ENUM(uint8_t, ZNStoredType) {
 /// instance per store per process, with its own lock). So JS reads what Swift saves, with its type, and the other way.
 /// A getter of another type answers nil, never a wrong value (Android's throws). A store id is 1-64 characters from
 /// A-Z a-z 0-9 . _ - and a key isn't empty: otherwise set answers NO, getters nil, keys none (and it is logged).
-/// Swift: ZnStorage.store(id) (ZnStorage.swift). Main thread only.
+/// A key that isn't valid UTF-8 (JS can save a lone surrogate) reads with U+FFFD, as on Android. Any thread: calls are
+/// serialized (each takes microseconds, so the main thread is fine). Swift: ZnStorage.store(id) (ZnStorage.swift).
 @interface ZNStorage : NSObject
 + (BOOL)set:(NSString*)store key:(NSString*)key string:(NSString*)value;
 /// JS numbers are doubles: an integer is exact up to 2^53.

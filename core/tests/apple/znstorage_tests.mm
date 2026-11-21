@@ -6,6 +6,7 @@
 #import <Foundation/Foundation.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -161,6 +162,59 @@ void testBadArguments() {
   CHECK(![NSFileManager.defaultManager fileExistsAtPath:[@(storageDir().c_str()) stringByAppendingPathComponent:@"../x"]]);
 }
 
+void testNotUtf8(zn::Storage& js) {
+  std::printf("text that isn't valid UTF-8 (JS can save a lone surrogate): U+FFFD for each bad part, as on Android\n");
+  NSString* st = @"zn.native-utf8";
+  [ZNStorage clear:st];
+  // Hermes writes a lone surrogate (U+D800) as ED A0 80: three bad parts, as Java's and Swift's decoders count them.
+  CHECK(js.set("zn.native-utf8", std::string("k\xED\xA0\x80", 4), blob({1, 'v'})));
+  NSArray<NSString*>* keys = [ZNStorage keys:st];
+  CHECK(keys.count == 1 && [keys.firstObject isEqualToString:@"k\uFFFD\uFFFD\uFFFD"]);
+  CHECK(js.set("zn.native-utf8", "lone", blob({1, 'a', 0xED, 0xA0, 0x80, 'b'})));
+  CHECK([[ZNStorage string:st key:@"lone"] isEqualToString:@"a\uFFFD\uFFFD\uFFFDb"]);
+  // A good 4-byte character next to a bad byte stays; a cut-off sequence is one bad part.
+  CHECK(js.set("zn.native-utf8", "mixed", blob({1, 0xF0, 0x9F, 0x98, 0x80, 0xFF, 'x', 0xE2, 0x82})));
+  CHECK([[ZNStorage string:st key:@"mixed"] isEqualToString:@"\U0001F600\uFFFDx\uFFFD"]);
+  CHECK(js.set("zn.native-utf8", "overlong", blob({1, 0xC0, 0xAF, 0xE0, 0x80, 0xAF})));  // never valid
+  CHECK([[ZNStorage string:st key:@"overlong"] isEqualToString:@"\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD"]);
+  // Saving a lone surrogate from native code doesn't crash and saves a string.
+  const unichar lone = 0xD800;
+  CHECK([ZNStorage set:st key:@"fromNative" string:[NSString stringWithCharacters:&lone length:1]]);
+  CHECK([ZNStorage storedType:st key:@"fromNative"] == ZNStoredTypeString);
+  [ZNStorage clear:st];
+}
+
+void testAnyThread() {
+  std::printf("calls from many threads at once, first opens of stores among them, are serialized (no race)\n");
+  // Each thread opens stores of its own for the first time while the others use a shared one: the map of open stores
+  // is written then. A smoke test only: with the lock taken out it still passed (6 runs, 2026-11-21); the lock is there
+  // because storage.h says one Storage isn't thread-safe, as Android's g_storageMutex.
+  const size_t threads = 16, stores = 16, each = 40;
+  std::atomic<int> failures{0};
+  std::atomic<int>* wrongp = &failures;  // a block copies what it captures; an atomic can't be copied
+  dispatch_apply(threads, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(size_t t) {
+    std::atomic<int>& wrong = *wrongp;
+    NSString* shared = @"zn.native-thread-shared";
+    for (size_t s = 0; s < stores; s++) {
+      NSString* own = [NSString stringWithFormat:@"zn.native-thread-%zu-%zu", t, s];
+      for (size_t i = 0; i < each; i++) {
+        NSString* key = [NSString stringWithFormat:@"%zu.%zu.%zu", t, s, i];
+        if (![ZNStorage set:own key:key number:static_cast<double>(i)]) wrong++;
+        if (![ZNStorage set:shared key:key boolean:(i & 1) != 0]) wrong++;
+        if ([[ZNStorage number:own key:key] doubleValue] != static_cast<double>(i)) wrong++;
+        if ([[ZNStorage boolean:shared key:key] boolValue] != ((i & 1) != 0)) wrong++;
+      }
+      if ([ZNStorage keys:own].count != each) wrong++;
+    }
+  });
+  CHECK(failures.load() == 0);
+  CHECK([ZNStorage keys:@"zn.native-thread-shared"].count == threads * stores * each);
+  for (size_t t = 0; t < threads; t++) {
+    for (size_t s = 0; s < stores; s++) [ZNStorage clear:[NSString stringWithFormat:@"zn.native-thread-%zu-%zu", t, s]];
+  }
+  [ZNStorage clear:@"zn.native-thread-shared"];
+}
+
 }  // namespace
 
 int main() {
@@ -188,6 +242,8 @@ int main() {
     testNumbers(js);
     testKeysHasRemoveClear(js);
     testBadArguments();
+    testNotUtf8(js);
+    testAnyThread();
 
     std::printf("the Swift convenience (ZnStorage.store) on the same stores\n");
     const int swiftFailed = zn_storage_swift_check();

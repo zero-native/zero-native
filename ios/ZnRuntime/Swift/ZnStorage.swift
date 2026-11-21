@@ -6,7 +6,7 @@
 //   s.set("onboarded", true)             // JS: storage.getBoolean("onboarded") == true
 //   let n = ZnStorage.store("cart").number("count") ?? 0
 //
-// Main thread only, as ZNStorage.
+// Any thread, as ZNStorage (calls are serialized).
 import Foundation
 #if SWIFT_PACKAGE
 import ZnHost
