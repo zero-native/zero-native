@@ -3735,3 +3735,13 @@ Gemini built them (step note in `docs/cross-communication/`). Review found and f
   (`ZnNav.navDisplayBack`); before, the screen froze where the finger let go (~150 ms, waiting for JS) and then
   jumped. Checked on the Lava (Android 14, gestures): preview on Dev, none on the guarded amount screen, Discard /
   Keep, sheet first, tabs, exit from the last screen; Pavan checked the feel ("just like in ios now").
+
+### 2026-11-21 · iOS push on a real iPhone (Mac)
+- **The iOS sample had no push at all:** no `aps-environment` entitlement (so no APNs token), the notifications and
+  messaging plugins not registered, the APNs app delegate calls not forwarded, and no `UIBackgroundModes`. All added
+  (`ios/Sample/ZnSample.entitlements`, `ZnSampleApp.swift`, `Info.plist`; the CMake iPhone build signs with the
+  entitlement too).
+- **Seen working (iPhone 11, the package sample):** APNs token, FCM token, topic subscribe, and a real FCM push with a
+  picture shown with the picture attached by the notification service extension (`ZnNotificationService`).
+- `tools/push-send.ts --image <https url>` (FCM's image plus `mutable-content` for iOS); the project comes from the iOS
+  plist when there is no Android `google-services.json`.

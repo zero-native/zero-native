@@ -165,7 +165,7 @@ targets of the same name.
   `Lottie-Static`. The app gets the same Lottie, packed differently.
 - **The notification service extension** (`plugins/firebase-messaging/ios-service`) is the main package's product
   `ZnNotificationService` (it needs no Firebase): an app's extension subclasses it in one line.
-  `ios/SamplePackage/NotificationService` builds and embeds one; not yet seen running on a real push.
+  `ios/SamplePackage/NotificationService` builds and embeds one; seen attaching a push's picture on an iPhone (2026-11-21).
 - **Crashlytics dSYMs:** an app on the package adds Firebase's own `Crashlytics/run` script (in the package checkout)
   as a build phase; the steps are in `ios/packages/firebase/README.release.md`. Tried 2026-11-20: the package sample has
   that phase (Release only, skipped without a `GoogleService-Info.plist`); an iPhone Release build ran it ("Validation

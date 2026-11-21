@@ -26,8 +26,14 @@ first build downloads them).
 Firebase starts only with `ios/Sample/GoogleService-Info.plist` (not in git).
 
 `NotificationService/` is the sample's notification service extension, from the package: one file that subclasses
-zero-native's `ZnNotificationService`, embedded in the app. It builds and is embedded; it has not been seen running
-on a real push yet (the simulator showed nothing on `simctl push`).
+zero-native's `ZnNotificationService`, embedded in the app. Seen working on an iPhone 11 on 2026-11-21: a real FCM push with
+a picture (`bun run tools/push-send.ts --topic zn-sample-lab --notification "Title|Body" --image <https url>`) showed
+with the picture attached. The simulator shows nothing on `simctl push`.
+
+Push needs the app's entitlement (`ios/Sample/ZnSample.entitlements`, `aps-environment`), the two plugins registered
+(`NotificationsPlugin`, `FirebaseMessagingPlugin`), the three APNs calls forwarded by the app delegate, and the
+Info.plist keys (`FirebaseAppDelegateProxyEnabled` off, `UIBackgroundModes` remote-notification): see
+`ios/Sample/ZnSampleApp.swift` and `ios/Sample/Info.plist`. The Firebase project needs an APNs key for the app.
 
 A Release build uploads its dSYM to Crashlytics ("Upload dSYMs to Crashlytics", Firebase's own `Crashlytics/run`
 script from the package checkout); it skips itself in Debug builds and when there is no
