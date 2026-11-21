@@ -333,9 +333,9 @@ manifest must not claim what it can't draw.
 | device-test | Device | done | `ios/Sample/DeviceTestPlugin.swift` (info, slowEcho, fail, mock UPI launches). |
 | document-scanner | DocumentScanner | done (fake scan) | VisionKit; pages and PDF as `zn://file`. |
 | firebase-app | Firebase | done | SDK by `fetch-firebase-apple.ts`; plist outside git. |
-| firebase-analytics | Analytics | done | Console events not checked by Pavan yet. |
-| firebase-crashlytics | Crashlytics | done | dSYM upload per build; a processed crash seen in the console. |
-| firebase-messaging | Push | done | Phase 3 (i.18, i.19): token, topics, messages, taps, swipes, buttons, the service extension. |
+| firebase-analytics | Analytics | done | Console events not checked by Pavan yet. `zn_bundle` is the running bundle's label (ZnBundles.watchRunning, also after an update applied in place), 2026-11-21. |
+| firebase-crashlytics | Crashlytics | done | dSYM upload per build; a processed crash seen in the console. Bundle keys from the running bundle, OTA outcomes as log lines and serious ones as non-fatals (ZnOta.addReportListener), JS error reasons `[label] kind in where` (2026-11-21; on the simulator the log showed the downloaded bundle's label at a cold start and a serious OTA outcome recorded; an in-place apply and the console not checked yet). |
+| firebase-messaging | Push | done | Phase 3 (i.18, i.19): token, topics, messages, taps, swipes, buttons, the service extension. Data-only pushes (2026-11-21): iOS's fetchCompletionHandler answered once within 25 s (ZnTasks `answerByMs` + ZnOnce), the message kept for the next start when JS isn't up; checked on the simulator with the sample's debug hook (simctl push's background pushes don't reach the app delegate on the iOS 26 simulator). JS starting for a background launch is still to do. |
 | firebase-perf | Perf | missing | Needs batch listeners. Not used by ZeroBill. |
 | firebase-remote-config | RemoteConfig | missing | Not used by ZeroBill. |
 | image-viewer | ImageViewer 3 | done (Swift screen, simulator; 2026-11-10 as Android: no page skip, no paging while zoomed, Android's bar) | Swift viewer (paging zoom, swipe to close) for routes with `native: "imageviewer.full"`; module 3 adds `release`. The TSX viewer (view `imageviewer.page`, useZoom) waits for motion: on iOS its thumbnail tap does nothing yet. |
