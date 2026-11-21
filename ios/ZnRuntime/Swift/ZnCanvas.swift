@@ -8,8 +8,9 @@
 //   Log.w; the good commands still draw.
 // - Images (draw.image): loaded per list, the same forms as <Image> (znImageURL: asset:, zn://file, http(s), file),
 //   decoded at about the drawn size in pixels with ImageIO. One load per src and size; a picture the last list had at
-//   the same size is used at once, so a list that changes every 500 ms doesn't blink. Nothing is drawn while loading
-//   or after an error (a warning). Loads stop when the list changes or the canvas leaves.
+//   the same size is used at once, so a list that changes every 500 ms doesn't blink, and a load still under way goes
+//   on for the next list. Nothing is drawn while loading or after an error (one warning; not tried again while the
+//   lists keep that picture). Loads stop when no list uses them any more or the canvas leaves.
 // - Motion values in commands (gesture-driven charts, CanvasLab tiles 9-11) are not read on iOS yet: a warning, and
 //   0 or black (canvas-motion-values).
 import SwiftUI
@@ -40,7 +41,10 @@ final class ZnCanvasModel {
     private var lastReported: String?
     /// Pictures by "src|WxH": this list's, kept for the next one.
     private var kept: [String: CGImage] = [:]
-    private var tasks: [Task<Void, Never>] = []
+    /// Loads under way by key, with the image ops of the newest list waiting for each.
+    private var loading: [String: Loading] = [:]
+    /// Keys that failed: not tried again while the lists keep them (a 404 in a chart that changes every 500 ms).
+    private var failed = Set<String>()
     /// The list the loads were started for.
     private weak var loadsFor: ZnCanvasCommands?
     weak var view: ZnCanvasSurface.View?
@@ -68,61 +72,77 @@ final class ZnCanvasModel {
         print("zn: <Canvas> commands:\n\(text)")
     }
 
-    /// Starts the loads for [c]'s images, once per list.
+    /// Starts the loads for [c]'s images, once per list. A load the last list started for the same key goes on and
+    /// fills this list's ops (Android starts it again), so a picture slower than the list's changes still shows.
     func startLoads(_ c: ZnCanvasCommands) {
         guard shown, loadsFor !== c else { return }
-        for t in tasks { t.cancel() }
-        tasks = []
         loadsFor = c
         var used = Set<String>()
-        var pending: [String: Waiting] = [:]
+        var waiting: [String: [ZnCanvasOp.Image]] = [:]
+        var order: [String] = []
         for case let op as ZnCanvasOp.Image in c.ops {
             let key = op.key
             used.insert(key)
             if let have = kept[key] {
                 op.image = have
+            } else if waiting[key] == nil {
+                waiting[key] = [op]
+                order.append(key)
+            } else {
+                waiting[key]?.append(op)  // the same picture twice in one list: one load
+            }
+        }
+        // Loads this list doesn't use stop; only this list's pictures (and failures) stay.
+        for (key, l) in loading where !used.contains(key) {
+            l.task?.cancel()
+            loading[key] = nil
+        }
+        kept = kept.filter { used.contains($0.key) }
+        failed = failed.filter { used.contains($0) }
+        for key in order {
+            guard let ops = waiting[key], let first = ops.first, !failed.contains(key) else { continue }
+            if let l = loading[key] {
+                l.ops = ops
                 continue
             }
-            // The same picture twice in one list: one load.
-            if let w = pending[key] {
-                w.ops.append(op)
+            guard let url = znImageURL(first.src) else {
+                failed.insert(key)
+                print("zn: <Canvas> image \(first.src) can't load on iOS (asset:, zn://file, http(s) and file URLs can)")
                 continue
             }
-            let waiting = Waiting(op)
-            pending[key] = waiting
-            guard let url = znImageURL(op.src) else {
-                print("zn: <Canvas> image \(op.src) can't load on iOS (asset:, zn://file, http(s) and file URLs can)")
-                continue
-            }
-            let src = op.src, w = op.decodeW, h = op.decodeH
-            tasks.append(Task { [weak self] in
+            let l = Loading(ops)
+            loading[key] = l
+            let src = first.src, w = first.decodeW, h = first.decodeH
+            l.task = Task { [weak self] in
                 do {
                     let image = try await ZnCanvasModel.load(url, w, h)
-                    guard !Task.isCancelled, let self, self.loadsFor === c else { return }
+                    guard !Task.isCancelled, let self, self.loading[key] === l else { return }
+                    self.loading[key] = nil
                     self.kept[key] = image
-                    for o in waiting.ops { o.image = image }
+                    for o in l.ops { o.image = image }
                     self.view?.setNeedsDisplay()
-                } catch is CancellationError {
                 } catch {
-                    if !Task.isCancelled { print("zn: <Canvas> image failed: \(src) — \(error.localizedDescription)") }
+                    guard !Task.isCancelled, let self, self.loading[key] === l else { return }
+                    self.loading[key] = nil
+                    self.failed.insert(key)
+                    print("zn: <Canvas> image failed: \(src) — \(error.localizedDescription)")
                 }
-            })
+            }
         }
-        // Only this list's pictures stay.
-        kept = kept.filter { used.contains($0.key) }
     }
 
-    /// The image ops waiting for one load.
-    private final class Waiting {
+    /// A load under way and the image ops waiting for it.
+    private final class Loading {
         var ops: [ZnCanvasOp.Image]
-        init(_ op: ZnCanvasOp.Image) { ops = [op] }
+        var task: Task<Void, Never>?
+        init(_ ops: [ZnCanvasOp.Image]) { self.ops = ops }
     }
 
     /// The canvas left the screen: its loads stop (they start again when it comes back).
     func leave() {
         shown = false
-        for t in tasks { t.cancel() }
-        tasks = []
+        for l in loading.values { l.task?.cancel() }
+        loading = [:]
         loadsFor = nil
     }
 
