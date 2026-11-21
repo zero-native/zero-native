@@ -1,6 +1,10 @@
 // <Sheet> on iOS, both ways (i.1c). Contract, as android/runtime's ZnSheet.kt: `visible` is a JS slot and native never
 // writes it; a drag-down (or a tap outside) sends onDismiss, and JS decides: visible false → the sheet goes, true →
-// it stays. Detents "content" (its content's height), "half", "full"; the first is where it opens.
+// it stays. Detents "content" (its content's height), "half", "full"; the first is where it opens. A drag that comes
+// to rest on another detent sends onDetentChange with its name (not on open, close, or a spring back to the same one).
+// The sheet card is the Sheet's backgroundColor (white when not written) with its borderRadius on the top corners
+// (iOS's 10 pt when not written; Android's default is 24 dp). The content inside paints the same style again, as on
+// Android.
 //
 // UIKit variant: our own sheet in a layer over the full screen (ZnSheetLayer, as Android's), not
 // UISheetPresentationController, whose dismiss blocks every touch for ~0.3 s (2026-11-12). The layer sits in ZnPopups'
@@ -25,6 +29,8 @@ struct ZnSheetHost: View {
                     if !shown, s.onDismiss != 0 { ctx.send(inst.id, s.onDismiss, .none) }
                 })) {
                     ZnSheetSwiftUIBody(ctx: ctx, t: t, inst: inst, s: s)
+                        .presentationBackground(s.background ?? .white)
+                        .presentationCornerRadius(s.radius > 0 ? s.radius : nil)
                 }
         case .uiKit:
             ZnSheetPresenter(ctx: ctx, t: t, inst: inst, s: s, visible: visible)
@@ -76,20 +82,32 @@ struct ZnSheetSwiftUIBody: View {
     let inst: ZnInstance
     let s: ZnNodeSpec
     @State private var height: CGFloat = 300
+    /// The detent it rests on, by name ("content", "half", "full").
+    @State private var detent: String?
 
     var body: some View {
+        let first = s.detents.first ?? "content"
         ZnSheetContent(ctx: ctx, t: t, inst: inst, s: s)
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-            .presentationDetents(Set(s.detents.map { d -> PresentationDetent in
-                switch d {
-                case "half": return .medium
-                case "full": return .large
-                default: return .height(height)
-                }
-            }))
+            .presentationDetents(Set(s.detents.map(presentation)), selection: Binding(
+                get: { presentation(detent ?? first) },
+                set: { d in
+                    let name = d == .medium ? "half" : d == .large ? "full" : "content"
+                    guard name != (detent ?? first) else { return }
+                    detent = name
+                    if s.onDetentChange != 0 { ctx.send(inst.id, s.onDetentChange, .string(name)) }
+                }))
             .presentationDragIndicator(.visible)
             .interactiveDismissDisabled(!s.dismissible)
+    }
+
+    private func presentation(_ d: String) -> PresentationDetent {
+        switch d {
+        case "half": return .medium
+        case "full": return .large
+        default: return .height(height)
+        }
     }
 }
 
@@ -108,12 +126,15 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
     func updateUIViewController(_ host: UIViewController, context: Context) {
         let c = context.coordinator
         c.onAttempt = { [ctx, inst, s] in if s.onDismiss != 0 { ctx.send(inst.id, s.onDismiss, .none) } }
+        c.onDetent = { [ctx, inst, s] d in if s.onDetentChange != 0 { ctx.send(inst.id, s.onDetentChange, .string(d)) } }
         if visible, c.sheet == nil {
-            let layer = ZnSheetLayer(detents: s.detents, dismissible: s.dismissible)
+            let layer = ZnSheetLayer(detents: s.detents, dismissible: s.dismissible,
+                                     background: s.background.map(UIColor.init), radius: s.radius)
             layer.content = UIHostingController(rootView: ZnSheetContent(ctx: ctx, t: t, inst: inst, s: s) { [weak layer] h in
                 layer?.contentHeight(h)
             })
             layer.onAttempt = { [weak c] in c?.onAttempt() }
+            layer.onDetentChange = { [weak c] d in c?.onDetent(d) }
             c.sheet = layer
             // animateIn={false}: already at rest, no slide-up or dimming fade (a sheet that is part of a restored
             // screen). Read now, when it opens; later opens read it again.
@@ -139,6 +160,7 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
         // screen's place. The layer goes with it (review finding 4). A screen that left the stack closed its layers
         // at the nav step already (ZnApp): then this finds nothing to close. No onDismiss: the node is gone.
         coordinator.onAttempt = {}
+        coordinator.onDetent = { _ in }
         guard let sheet = coordinator.sheet else { return }
         coordinator.sheet = nil
         ZnPopups.shared.close(sheet, animated: Self.leavesAnimated, why: "its node left the screen")
@@ -152,6 +174,7 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
     @MainActor final class Coordinator {
         var sheet: ZnSheetLayer?
         var onAttempt: () -> Void = {}
+        var onDetent: (String) -> Void = { _ in }
     }
 }
 
@@ -165,7 +188,8 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
 /// - A drag-down, a fling or a tap outside sends onDismiss and slides the sheet down, taking no touches; if JS keeps
 ///   `visible` true, it comes back up after `keepOpen` (Android's KEEP_OPEN_MS). Not dismissible: it springs back.
 /// - JS closes it: it leaves the screen at once and a picture of it slides down, taking no touches.
-/// - Looks as UIKit's sheet did on iOS 18: dim black 12%, corners 10 pt, a 36 x 5 grabber 5 pt from the top.
+/// - Looks as UIKit's sheet did on iOS 18: dim black 12%, corners 10 pt, a 36 x 5 grabber 5 pt from the top. The
+///   Sheet's backgroundColor and borderRadius, when written, colour the card and round its top corners.
 final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
     static let dimAlpha: CGFloat = 0.12
     static let keepOpen = 0.4
@@ -177,6 +201,10 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
     var content: UIHostingController<ZnSheetContent>!
     /// Sends onDismiss (the user asked to close).
     var onAttempt: () -> Void = {}
+    /// Sends onDetentChange: a drag came to rest on another detent.
+    var onDetentChange: (String) -> Void = { _ in }
+    private let background: UIColor?
+    private let radius: CGFloat
     var atRestOnOpen = false
     private(set) var closed = false
     /// shown() came before the view had its size: the first real layout slides it up.
@@ -198,9 +226,11 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
     private var holdList = false
     private let dim = UIView(), card = UIView(), grabber = UIView()
 
-    init(detents: [String], dismissible: Bool) {
+    init(detents: [String], dismissible: Bool, background: UIColor? = nil, radius: CGFloat = 0) {
         self.detents = detents.isEmpty ? ["content"] : detents
         self.dismissible = dismissible
+        self.background = background
+        self.radius = radius
         detent = self.detents[0]
         super.init(nibName: nil, bundle: nil)
     }
@@ -215,8 +245,8 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         dim.alpha = 0
         dim.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapOutside)))
         view.addSubview(dim)
-        card.backgroundColor = .white
-        card.layer.cornerRadius = 10
+        card.backgroundColor = background ?? .white
+        card.layer.cornerRadius = radius > 0 ? radius : 10
         card.layer.cornerCurve = .continuous
         card.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         card.clipsToBounds = true
@@ -439,8 +469,14 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         let target = v < -Self.fling ? (named.last { $0.1 < top - 1 } ?? named[0])
             : v > Self.fling ? (named.first { $0.1 > top + 1 } ?? named[named.count - 1])
             : named.min { abs($0.1 - top) < abs($1.1 - top) }!
+        // As Android's settle(): only a new detent counts (a spring back to the same one sends nothing).
+        let changed = target.0 != detent
         detent = target.0
         animate(to: target.1, velocity: v)
+        if changed {
+            print("zn t=\(ZnDebug.ms()) sheet: rests on \(target.0) → onDetentChange")
+            onDetentChange(target.0)
+        }
     }
 
     // MARK: Keyboard
