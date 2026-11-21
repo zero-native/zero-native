@@ -60,6 +60,7 @@ import { MotionLayoutLabScreen } from "./MotionLayoutLab"
 import { MotionSheetsLabScreen } from "./MotionSheetsLab"
 import { MotionScreensDetailScreen, MotionScreensLabScreen } from "./MotionScreensLab"
 import { MotionExtensionLabScreen } from "./MotionExtensionLab"
+import { WebSocketLabScreen } from "./WebSocketLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -141,6 +142,8 @@ export const routes = defineRoutes({
   sheetLeaveLab: { path: "/dev/sheet-leave", screen: SheetLeaveLabScreen, deepLink: true },
   // The secure lab's native screen: `secure: true` on a plugin's screen. Last, as above.
   secureNative: { path: "/dev/core/secure-native", native: "device.fake-screen", secure: true },
+  // WebSocket checks (docs/fetch.md §8). Last, after the secure native screen, so the numbers of the routes before it do not move.
+  wsLab: { path: "/dev/websocket", screen: WebSocketLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

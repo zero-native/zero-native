@@ -7,12 +7,19 @@
 // Port 8788: normal HTTP (Bun.serve). Port 8789: a raw TCP server for broken answers no normal server sends: a body
 // cut short, and a pooled connection closed after the request arrived (OkHttp would normally send it again: this
 // proves a POST is never sent twice).
+//
+// WebSocket (sample screen /dev/websocket): ws://localhost:8788/ws echoes text. Query flags: `proto` picks the first
+// offered subprotocol, `headers` first sends the handshake's headers as JSON, `close=4001` closes at once with that
+// code ("bye"), `binary` sends one binary frame, `size=N` sends N "x" (`char=é` another character). On port 8789,
+// /ws-silent does the handshake, then never answers anything (no pong, no close).
+import { createHash } from "node:crypto"
 import { createServer } from "node:net"
-import { gzipSync } from "bun"
+import { gzipSync, type ServerWebSocket } from "bun"
 import { tabsAnswer } from "./plugin-phone/tabs-server"
 
-const HTTP_PORT = 8788
-const RAW_PORT = 8789
+// Other ports for a second server next to one already running: ZN_TEST_HTTP_PORT=8798 (raw: the next port).
+const HTTP_PORT = Number(process.env.ZN_TEST_HTTP_PORT ?? 8788)
+const RAW_PORT = HTTP_PORT + 1
 
 // A 64 x 64 blue and white checker (PNG).
 const LAB_PNG =
@@ -24,14 +31,36 @@ let imageMaxOpen = 0
 let imageLog: string[] = []
 let imageT0 = performance.now()
 
+// What the WebSocket server saw: each socket's close (code, reason) and pings, newest last.
+interface WsData {
+  query: URLSearchParams
+  headers: Record<string, string>
+  pings: number
+}
+let wsLog: string[] = []
+let wsOpen = 0
+
 const json = (data: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(data), { ...init, headers: { "content-type": "application/json", ...init.headers } })
 
-Bun.serve({
+Bun.serve<WsData, never>({
   port: HTTP_PORT,
-  async fetch(req) {
+  async fetch(req, server) {
     const url = new URL(req.url)
     const path = url.pathname
+    if (path === "/ws") {
+      const offered = (req.headers.get("sec-websocket-protocol") ?? "").split(",").map((p) => p.trim()).filter(Boolean)
+      const headers: Record<string, string> = {}
+      if (url.searchParams.has("proto") && offered.length > 0) headers["Sec-WebSocket-Protocol"] = offered[0]!
+      const data: WsData = { query: url.searchParams, headers: Object.fromEntries(req.headers), pings: 0 }
+      if (server.upgrade(req, { headers, data })) return undefined
+      return new Response("expected a WebSocket upgrade", { status: 400 })
+    }
+    if (path === "/ws-log") return json({ log: wsLog, open: wsOpen })
+    if (path === "/ws-log-reset") {
+      wsLog = []
+      return json({ reset: true })
+    }
     if (path === "/json") return json({ ok: true, hindi: "नमस्ते", emoji: "😀", amount: 1250 })
     if (path === "/echo") {
       const body = new Uint8Array(await req.arrayBuffer())
@@ -117,6 +146,29 @@ Bun.serve({
     }
     return new Response("not found", { status: 404 })
   },
+  websocket: {
+    open(ws: ServerWebSocket<WsData>) {
+      wsOpen++
+      const q = ws.data.query
+      if (q.has("headers")) ws.send(JSON.stringify(ws.data.headers))
+      if (q.has("close")) ws.close(Number(q.get("close")), "bye")
+      if (q.has("binary")) ws.sendBinary(new Uint8Array([1, 2, 3]))
+      if (q.has("size")) ws.send((q.get("char") ?? "x").repeat(Number(q.get("size"))))
+    },
+    message(ws: ServerWebSocket<WsData>, message) {
+      if (message === "pings?") return void ws.send(String(ws.data.pings))
+      ws.send(message)
+    },
+    ping(ws: ServerWebSocket<WsData>) {
+      ws.data.pings++
+    },
+    close(ws: ServerWebSocket<WsData>, code, reason) {
+      wsOpen--
+      wsLog.push(`close ${code} ${reason}`)
+      console.log(`ws: closed ${code} "${reason}" after ${ws.data.pings} pings (${wsOpen} open)`)
+    },
+    maxPayloadLength: 16 * 1024 * 1024,
+  },
 })
 
 // ---- Raw TCP ---------------------------------------------------------------------------------------------------------
@@ -125,7 +177,9 @@ const received: Record<string, number> = {} // "POST /drop" → how many times t
 
 createServer((socket) => {
   let data = Buffer.alloc(0)
+  let silent = false // a /ws-silent socket after its handshake: everything it gets is ignored
   socket.on("data", (chunk) => {
+    if (silent) return
     data = Buffer.concat([data, chunk])
     const end = data.indexOf("\r\n\r\n")
     if (end === -1) return
@@ -135,7 +189,13 @@ createServer((socket) => {
     if (data.length < end + 4 + length) return // wait for the whole body
     const key = `${method} ${path}`
     data = Buffer.alloc(0)
-    if (path === "/warm") {
+    if (path === "/ws-silent") {
+      // A WebSocket handshake, then nothing: no pong, no close answer. The client's pings must find it dead.
+      const key = /sec-websocket-key: *(\S+)/i.exec(head)?.[1] ?? ""
+      const accept = createHash("sha1").update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64")
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
+      silent = true
+    } else if (path === "/warm") {
       // A normal answer that keeps the connection open, so the client pools it and sends the next request on it.
       socket.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nok")
     } else if (path === "/drop") {

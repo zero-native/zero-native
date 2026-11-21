@@ -46,6 +46,7 @@ export function DevScreen() {
           <Entry title="Native modules" step="2.6–2.7" detail="Calls, cancel, error codes, native events, FlowStore visit counter" onOpen={() => nav.push("modules")} />
           <Entry title="Text input" step="3.2–3.3" detail="TextField: formatting, phone, PIN, multiline, keyboard, spans" onOpen={() => nav.push("input")} />
           <Entry title="fetch checks" step="3.4" detail="27 network cases; needs tools/fetch-test-server.ts + adb reverse" onOpen={() => nav.push("fetch")} />
+          <Entry title="WebSocket checks" step="r23" detail="Echo, close codes, protocols, limits, binary, pings; needs tools/fetch-test-server.ts" onOpen={() => nav.push("wsLab")} />
           <Entry title="Storage checks" step="3.5" detail="MMKV storage, Kotlin access, concurrent writes, SecureStore, kill test" onOpen={() => nav.push("storage")} />
           <Entry title="Press feedback" step="3.6" detail="Ripple colours / opacity / borderless, highlight, press opacity and scale" onOpen={() => nav.push("press")} />
           <Entry title="Animation" step="3.6" detail="animate, enter / exit, swap, list rows (6 s demo loop on open)" onOpen={() => nav.push("animation")} />

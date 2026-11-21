@@ -281,7 +281,7 @@ manifest must not claim what it can't draw.
 | Platform (iOS only) | done | Tells JS it runs on iOS before any code runs (A9). |
 | Storage (JS) | done | C++ core + MMKV. |
 | Storage native API (`ZnStorage` for app / plugin code) | partial | Strings, remove, flush only. S. |
-| WebSocket (r23) | missing | URLSessionWebSocketTask. M. |
+| WebSocket (1) | done | `ZnWebSocket.swift` on URLSessionWebSocketTask; lab `/dev/websocket` 21 / 21; differences in docs/fetch.md §8. |
 | Updates (3) | done | Real OTA (ZnOta.swift, Phase 4a); `ZnUpdatesOff` answers only while OTA isn't configured. Full bundles only, no patches. |
 | Tasks (1) | partial | `ZnTasks`: `done` answers; nothing starts a task on iOS yet (§8). |
 

@@ -228,3 +228,20 @@ How it is built: `connect`, `send` and `close` run on the main thread only to ke
 is handed to one `zn-websocket` worker thread, which builds the client the first time (never on the main thread). Each
 listener callback first checks that its socket is still the live one, so events of a socket dropped by a JS reset are
 ignored. Socket ids start at a random number in each JS runtime. A JS reset cancels all sockets (no close handshake).
+
+**iOS** (`ios/ZnRuntime/Swift/ZnWebSocket.swift`, on `URLSessionWebSocketTask`): the same calls, events, limits and
+order. Its own URLSession (cookies and cache off, like fetch), with one serial `zn-websocket` queue as the delegate
+queue. Differences:
+- No proxy, pins or interceptors (iOS fetch has none either).
+- Pings are our own 10 s timer (`sendPing`); no pong by the next ping gives the same `error` + `close` 1006. The
+  timer does not run while iOS suspends the app; it runs again on return (seen on the simulator: a socket held open
+  through 50 s in the background still worked on return).
+- **Native memory is capped at 4 MB per message** (`maximumMessageSize`; OkHttp has no cap). A message between 1 and
+  4 MB gets our check (`error`, then we close with 1009); past 4 MB URLSession refuses it and closes with 1009 itself;
+  JS sees the same `error` → `close` 1009.
+- `ws://` follows the app's App Transport Security rules, checked by us (ATS itself does not check WebSocket tasks):
+  allowed to IP addresses, names with no dot and `.local` names, else only with `NSAllowsArbitraryLoads` or an
+  `NSExceptionDomains` entry with `NSExceptionAllowsInsecureHTTPLoads`. Refused: `error` + `close` 1006 that names ATS
+  (Android: the cleartext policy).
+- A handshake that gets no 101 says so like OkHttp: `Expected HTTP 101 response but was '404 Not Found'`.
+Checks: sample screen `/dev/websocket` (route `wsLab`, 21 cases) against `tools/fetch-test-server.ts`.
