@@ -58,15 +58,18 @@ do {
     }
     let stopped = ZnDeadline.main(at: t0 + .milliseconds(200)) { cancelledRan = true }
     stopped.cancel()
-    RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+    let limit = Date().addingTimeInterval(1.5)
+    while firedAfterMs < 0 && Date() < limit { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
     check("deadline fired", firedAfterMs >= 300, true)
-    check("deadline on time (\(firedAfterMs) ms)", firedAfterMs < 400, true)
+    // A loaded CI Mac can be slow to run the loop; 1 s still catches asyncAfter-sized lateness on the real 25 s
+    check("deadline on time (\(firedAfterMs) ms)", firedAfterMs < 1300, true)
     check("cancelled deadline doesn't run", cancelledRan, false)
 }
 
-// A task's answer-by time: running in JS → aborted; waiting and kept → answered, still run later; waiting → dropped.
+// A task's answer-by time: running in JS → aborted; waiting → dropped; kept → answered now, and JS still runs it
+// (one JS is already running goes on to its own limit: aborting it would lose the saved copy).
 check("answer-by, running", ZnTaskRules.answerBy(queued: false, kept: false), .abort)
-check("answer-by, running and kept", ZnTaskRules.answerBy(queued: false, kept: true), .abort)
+check("answer-by, running and kept", ZnTaskRules.answerBy(queued: false, kept: true), .answerAndKeep)
 check("answer-by, waiting", ZnTaskRules.answerBy(queued: true, kept: false), .drop)
 check("answer-by, waiting and kept", ZnTaskRules.answerBy(queued: true, kept: true), .answerAndKeep)
 

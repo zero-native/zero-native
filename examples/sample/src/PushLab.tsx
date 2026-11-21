@@ -32,11 +32,16 @@ export function installPushLab() {
     if (d.lab === "slow") {
       const ms = Number(d.ms ?? "20000")
       const finished = await new Promise<boolean>((resolve) => {
+        if (signal.aborted) return resolve(false)
         const t = setTimeout(() => resolve(true), ms)
-        signal.addEventListener("abort", () => {
-          clearTimeout(t)
-          resolve(false)
-        })
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t)
+            resolve(false)
+          },
+          { once: true },
+        )
       })
       console.info(`push-lab slow ${finished ? "finished" : "aborted"} (asked ${ms} ms)`)
       return

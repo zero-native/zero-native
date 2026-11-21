@@ -452,12 +452,16 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         let inFront = UIApplication.shared.applicationState == .active
         let t0 = CACurrentMediaTime()
         print("zn-push: a push for the app (\(inFront ? "in front" : "behind"), JS \(ZnTasks.shared.isLoaded ? "up" : "not up yet"))")
+        // The cap, should nothing below answer: cancelled once iOS is answered, so it doesn't hold [done] for 27 s
+        var cap: DispatchSourceTimer?
         let answer = ZnOnce<(UIBackgroundFetchResult, String)> { r in
             let (result, why) = r
             print("zn-push: answered iOS (\(result == .newData ? "new data" : "no data"), \(why)) after \(Int((CACurrentMediaTime() - t0) * 1000)) ms")
+            cap?.cancel()
+            cap = nil
             done(result)
         }
-        ZnDeadline.main(at: .now() + .milliseconds(PushRules.answerCapMs)) { answer((.noData, "no answer in time")) }
+        cap = ZnDeadline.main(at: .now() + .milliseconds(PushRules.answerCapMs)) { answer((.noData, "no answer in time")) }
         // JS isn't running (a background launch, or not yet up) or the app is behind: kept, so a process iOS ends
         // before JS runs it doesn't lose it
         let keep = !inFront || !ZnTasks.shared.isLoaded

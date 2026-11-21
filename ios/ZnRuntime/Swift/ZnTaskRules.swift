@@ -40,16 +40,17 @@ public enum ZnDeadline {
 enum ZnTaskRules {
     /// What happens when a task's answer-by time passes (ZnTasks.run's answerByMs).
     enum AnswerBy: Equatable {
-        /// JS is running it: its signal is aborted and the outcome is timedOut (as at its own time limit).
+        /// JS is running it and it isn't kept: its signal is aborted and the outcome is timedOut (as at its own limit).
         case abort
         /// It waits for JS and isn't kept: answered timedOut and dropped (Android drops a queued task at its limit).
         case drop
-        /// It waits for JS and is kept: answered timedOut now, and JS still runs it (in this process or the next).
+        /// It is kept: answered timedOut now, and JS still runs it (in this process or the next). One JS is running
+        /// already goes on until it ends or its own time limit passes (aborting it would lose the saved copy).
         case answerAndKeep
     }
 
     static func answerBy(queued: Bool, kept: Bool) -> AnswerBy {
-        if !queued { return .abort }
-        return kept ? .answerAndKeep : .drop
+        if kept { return .answerAndKeep }
+        return queued ? .drop : .abort
     }
 }

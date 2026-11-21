@@ -184,11 +184,13 @@ enum OtaPushRules {
                 endBg()
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(OtaPushRules.answerByMs) / 1000) { answer(false) }
+        // On time (a plain asyncAfter this long can run seconds late, past the plugin's 27 s cap)
+        let answerBy = ZnDeadline.main(at: .now() + .milliseconds(Int(OtaPushRules.answerByMs))) { answer(false) }
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(delay) / 1000) {
             ZnOta.shared.check { r in
                 DispatchQueue.main.async {
                     log(r)
+                    answerBy.cancel()
                     answer(true)
                     endBg()
                 }

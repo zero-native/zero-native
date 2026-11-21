@@ -353,8 +353,9 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
     /// starts when JS gets the task: then JS's `signal` is aborted and the outcome is timedOut. [keep]: saved until JS has
     /// run it, also across app starts (events a user made: a dismiss, a button).
     /// [answerByMs]: [onDone] comes at the latest this long after this call, also while the task waits for JS (JS
-    /// doesn't run in a background launch): timedOut, and JS's `signal` is aborted if it was running it. A kept task
-    /// still runs once JS is up (this process or the next start); one not kept is dropped, as on Android. Any thread.
+    /// doesn't run in a background launch): timedOut. One not kept is then aborted if JS was running it, or dropped
+    /// if it waited, as on Android. A kept task still runs once JS is up (this process or the next start), and one JS
+    /// is already running goes on to its own [timeoutMs]. Any thread.
     public func run(_ name: String, _ data: Any? = nil, timeoutMs: Int = 30_000, keep: Bool = false, answerByMs: Int? = nil,
                     onDone: @escaping (Outcome) -> Void = { _ in }) {
         let answerAt = answerByMs.map { DispatchTime.now() + .milliseconds(max(0, $0)) }  // from now, not from the main thread's turn
@@ -390,8 +391,11 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
             print("zn: task \(task.name): JS didn't get it within \(ms) ms")
             finish(id, .timedOut)
         case .answerAndKeep:
-            // Answered now (the plugin answers iOS); the saved copy stays, so JS still runs it
-            print("zn: task \(task.name): \(Outcome.timedOut.rawValue) (JS didn't get it within \(ms) ms; kept, it runs when JS is up)")
+            // Answered now (the plugin answers iOS); the saved copy stays, so JS still runs it (or goes on running it,
+            // until it ends or its own time limit passes)
+            let why = waiting ? "JS didn't get it within \(ms) ms; kept, it runs when JS is up"
+                : "JS still running it after \(ms) ms; kept, it goes on until its own limit"
+            print("zn: task \(task.name): \(Outcome.timedOut.rawValue) (\(why))")
             let done = task.onDone
             task.onDone = nil
             task.answerBy = nil
