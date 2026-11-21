@@ -108,6 +108,23 @@ export function PressScreen() {
             <Text fontSize={15} color={c.primary} onPress={tapped("inner text")}>Inner text</Text>
             <Text fontSize={13} color={c.muted}>(the rest of the card is the Pressable)</Text>
           </Pressable>
+          <Label text="A tappable Text with a link span inside a Pressable: the text and the link win" />
+          <Pressable testID="links-in-press" onPress={tapped("card around links")} style={card}>
+            <Text testID="text-links-in-press" fontSize={15} color={c.ink} onPress={tapped("inner text with links")}>
+              Inner text, and its{" "}
+              <Text style={{ color: c.primary, textDecorationLine: "underline" }} onPress={tapped("inner link")}>
+                link
+              </Text>
+            </Text>
+            <Text fontSize={13} color={c.muted}>(the rest of the card is the Pressable)</Text>
+          </Pressable>
+          <Label text="The same Text with onLongPress too: hold, slide off, then tap" />
+          <Text testID="text-links-long" fontSize={15} color={c.ink} onPress={tapped("held text with links")} onLongPress={() => { console.info("press long: text with links"); last.set("Long-pressed: text with links") }} style={{ paddingVertical: 6 }}>
+            Hold or tap here, or the{" "}
+            <Text style={{ color: c.primary, textDecorationLine: "underline" }} onPress={tapped("held link")}>
+              link
+            </Text>
+          </Text>
           <Label text={'pointerEvents="none" around a tappable Text: taps reach the card under it'} />
           <Stack style={{ height: 56 }}>
             <Pressable testID="pe-under" onPress={tapped("card under")} style={[StyleSheet.absoluteFill, { backgroundColor: "#E5E7EB", borderRadius: 12 }]} />

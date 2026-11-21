@@ -49,6 +49,7 @@ export function InputScreen() {
   const submitted = signal("")
   const locked = signal(false)
   const lockedText = signal("")
+  const lockedNote = signal("")
   const warn = signal(false)
   const lookText = signal("")
   const amountNumber = computed(() => Number(amount().replace(/,/g, "") || "0"))
@@ -151,6 +152,17 @@ export function InputScreen() {
             onBlur={() => focused.set("none")}
             placeholder="Type, then lock me"
             style={field}
+          />
+          <TextField
+            testID="ro-locked-multi"
+            value={lockedNote()}
+            onChangeText={(t) => lockedNote.set(t)}
+            multiline
+            editable={!locked()}
+            onFocus={() => focused.set("locked note")}
+            onBlur={() => focused.set("none")}
+            placeholder="A note: type, then lock me"
+            style={{ ...field, minHeight: 56 }}
           />
           <TextField
             testID="ro-look"

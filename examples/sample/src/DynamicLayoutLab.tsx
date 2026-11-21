@@ -1,5 +1,5 @@
 // Dynamic Layout Lab: testing dynamic slot-driven layout properties at runtime.
-import { Box, Column, Pressable, Row, Scroll, Stack, Text, View } from "@zeronative/ui"
+import { Box, Carousel, Column, Pressable, Row, Scroll, Stack, Text, View } from "@zeronative/ui"
 import { nav, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
@@ -316,6 +316,15 @@ export function DynamicLayoutLabScreen() {
             <Column testID="dl7-ratio" style={{ aspectRatio: wideAll() ? 2 : 1, maxHeight: 160, backgroundColor: "#DBEAFE", borderRadius: 8, justifyContent: "center", alignItems: "center" }}>
               <Text fontSize={11} color="#1E3A8A">aspectRatio {wideAll() ? "2" : "1"}</Text>
             </Column>
+            {/* aspectRatio with a max on the side that is given: maxWidth caps the stretched width first, so the
+                height is half of the cap (120 x 60, then 200 x 100), not half of the card. */}
+            <Column testID="dl7-ratio-maxw" style={{ maxWidth: wideAll() ? 200 : 120, aspectRatio: 2, backgroundColor: "#FDE68A", borderRadius: 8, justifyContent: "center", alignItems: "center" }}>
+              <Text fontSize={11} color="#78350F">maxWidth {wideAll() ? "200" : "120"}, ratio 2</Text>
+            </Column>
+            {/* A set width with aspectRatio and maxHeight: the derived height stops at the max (120 x 60, then 120 x 80). */}
+            <Column testID="dl7-ratio-w" style={{ width: 120, aspectRatio: wideAll() ? 1 : 2, maxHeight: 80, backgroundColor: "#FBCFE8", borderRadius: 8, justifyContent: "center", alignItems: "center" }}>
+              <Text fontSize={11} color="#831843">width 120, ratio {wideAll() ? "1" : "2"}</Text>
+            </Column>
             {/* Row gap. */}
             <Row testID="dl7-gap" style={{ gap: wideAll() ? 24 : 4 }}>
               {[1, 2, 3, 4].map((i) => (
@@ -379,6 +388,24 @@ export function DynamicLayoutLabScreen() {
                 </Text>
               </Pressable>
             </Row>
+          </Column>
+
+          {/* Section 8: a Carousel of plain pages (a background and a Text, nothing tappable) that moves on its own
+              every 2 s. A touch on a page pauses it for 3 s: the page has no Pressable to take the touch. */}
+          <Column style={{ padding: 14, backgroundColor: c.white, borderRadius: 12, borderWidth: 1, borderColor: c.border, gap: 10 }}>
+            <Text fontSize={15} fontWeight={700} color={c.ink}>
+              8. Carousel of Plain Pages
+            </Text>
+            <Text fontSize={12} color={c.muted}>
+              Moves every 2 s; touching a page pauses it for 3 s.
+            </Text>
+            <Carousel testID="dl8-carousel" autoAdvance={2000} dots onPageChange={(i) => console.info(`dl8: page ${i}`)} style={{ gap: 8 }}>
+              {["#FEE2E2", "#DCFCE7", "#DBEAFE"].map((bg, i) => (
+                <Column key={bg} style={{ height: 80, backgroundColor: bg, borderRadius: 10, justifyContent: "center", alignItems: "center" }}>
+                  <Text fontSize={14} color={c.ink}>Page {i + 1}</Text>
+                </Column>
+              ))}
+            </Carousel>
           </Column>
 
           {/* Section 6: Early Returns Component (H2) */}
