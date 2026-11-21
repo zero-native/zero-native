@@ -679,13 +679,28 @@ struct ZnLayer: ViewModifier {
                 content
             }
         }
+        // A scale of exactly 0 is a singular transform: kept just above it (nothing shows either way).
+        let sc: (CGFloat) -> CGFloat = { abs($0) < 1e-4 ? 1e-4 : $0 }
+        let o = s.origin
+        let depth = s.hasDepth
         if !s.layerTransforms {
             fed.animation(follow(P.opacity, s.opacitySlot)) { $0.opacity(opacity) }
+        } else if s.animate == nil {
+            // Nothing animates through SwiftUI here: one effect for every transform, the cheapest to move per frame.
+            let scale = value(P.scale, s.scaleSlot, s.scaleBase)
+            fed
+                .modifier(ZnBlurIf(on: s.blurs, radius: s.blurs ? max(0, value(P.blurRadius, s.blurRadiusSlot, s.blurRadius)) : 0,
+                                   scale: displayScale))
+                .modifier(ZnLayerEffect(scaleX: sc(scale * value(P.scaleX, s.scaleXSlot, s.scaleXOnly)),
+                                        scaleY: sc(scale * value(P.scaleY, s.scaleYSlot, s.scaleYOnly)),
+                                        rotate: value(P.rotate, s.rotateSlot, s.rotate),
+                                        rotateX: depth ? value(P.rotateX, s.rotateXSlot, s.rotateX) : 0,
+                                        rotateY: depth ? value(P.rotateY, s.rotateYSlot, s.rotateY) : 0,
+                                        camera: depth ? max(value(P.cameraDistance, s.cameraDistanceSlot, s.cameraDistance), 0.1) : 8,
+                                        translateX: value(P.translateX, s.translateXSlot, s.translateX),
+                                        translateY: value(P.translateY, s.translateYSlot, s.translateY), origin: o, scale: displayScale))
+                .opacity(opacity)
         } else {
-            // A scale of exactly 0 is a singular transform: kept just above it (nothing shows either way).
-            let sc: (CGFloat) -> CGFloat = { abs($0) < 1e-4 ? 1e-4 : $0 }
-            let o = s.origin
-            let depth = s.hasDepth
             fed
                 .modifier(ZnBlurIf(on: s.blurs, radius: s.blurs ? max(0, value(P.blurRadius, s.blurRadiusSlot, s.blurRadius)) : 0,
                                    scale: displayScale))

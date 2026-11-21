@@ -157,6 +157,27 @@ struct ZnSiteFeed: ViewModifier {
 
 // MARK: - 3D turns and blur
 
+/// A layer's scale, rotate, 3D turn and translation as one projection (znLayerMatrix), for a node with no `animate`:
+/// one effect to update per frame instead of a chain of them, which is what a moving value costs.
+struct ZnLayerEffect: GeometryEffect {
+    var scaleX: CGFloat, scaleY: CGFloat, rotate: CGFloat
+    var rotateX: CGFloat, rotateY: CGFloat, camera: CGFloat
+    var translateX: CGFloat, translateY: CGFloat
+    var origin: UnitPoint
+    var scale: CGFloat
+
+    var animatableData: EmptyAnimatableData {
+        get { EmptyAnimatableData() }
+        set {}
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(znLayerMatrix(size: size, scaleX: scaleX, scaleY: scaleY, rotate: rotate, rotateX: rotateX,
+                                          rotateY: rotateY, cameraDistance: camera, translateX: translateX,
+                                          translateY: translateY, originX: origin.x, originY: origin.y, scale: scale))
+    }
+}
+
 /// rotateX / rotateY about the transform origin with the camera distance (ZnDepthEffect), only on a node that uses
 /// them (hasDepth: written, from a slot, or an enter / exit that turns), so other nodes get no extra modifier.
 struct ZnDepthIf: ViewModifier {
@@ -191,7 +212,7 @@ struct ZnBlurIf: ViewModifier {
 
 #if DEBUG
 /// ZN_MOTION_PERF=1 (a Debug build): once a second while bound values move, logs the frames, the main thread's busy
-/// time per frame (the engine's tick, SwiftUI's update of the bound modifiers, layout and the Core Animation commit)
+/// CPU time per frame (the engine's tick, SwiftUI's update of the bound modifiers, layout and the Core Animation commit)
 /// and the bodies that ran per frame, so the cost of N bound boxes can be read on a device or the simulator:
 /// "motion-perf: 120 frames/s, main thread 1.40 ms/frame, per frame: 30.0 Layer, 0.0 Background, 0.0 node".
 @MainActor
@@ -216,7 +237,8 @@ enum ZnMotionPerf {
         guard observer == nil else { return }
         let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue,
                                                    true, Int.max) { _, activity in
-            let t = CACurrentMediaTime()
+            // The main thread's own CPU time, so other processes on a busy Mac don't count.
+            let t = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e9
             if activity == .afterWaiting { awake = t } else if awake > 0 { busy += t - awake; awake = 0 }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)

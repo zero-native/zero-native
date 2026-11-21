@@ -563,6 +563,63 @@ check("a missing id", e.ref("\u{0}m555") == nil, true)
 check("a text of a missing id", e.text("\u{0}f556"), "")
 check("not a text", e.text("plain"), nil)
 
+// MARK: - Bindings: what a slot that may follow a motion value reads (ZnMotionBindRules.swift)
+
+let bv = try! e.putValue(140, 30)
+let bref = ZnValue.string("\u{0}m140")
+check("a reference reads its value", znBoundNumber(bref, 1, site: nil), 30)
+bv.value = 45
+check("and follows it", znBoundNumber(bref, 1, site: nil), 45)
+check("a number is itself", znBoundNumber(.number(0.5), 1, site: nil), 0.5)
+check("NaN is the fixed value", znBoundNumber(.number(.nan), 1, site: nil), 1)
+check("null is the fixed value", znBoundNumber(.null, 1, site: nil), 1)
+check("a reference not made yet is the fixed value", znBoundNumber(.string("\u{0}m149"), 1, site: nil), 1)
+check("a plain string is the fixed value", znBoundNumber(.string("12"), 1, site: nil), 1)
+truth("a reference is one, made or not", znIsMotionRef(bref) && znIsMotionRef(.string("\u{0}m149")) && !znIsMotionRef(.number(1)))
+check("a corner or size: a reference", znBoundNumberOrNil(bref), 45)
+check("a corner or size: NaN is not written", znBoundNumberOrNil(.number(.infinity)), nil)
+check("a corner or size: null is not written", znBoundNumberOrNil(.null), nil)
+// A motion colour: mapColor's ARGB; a number source isn't a colour.
+try! e.put(141, ZnColorMapSource(id: 141, bv, [0, 90], [0xFF00_0000, 0xFFFF_FFFF]))
+check("a motion colour", znBoundColor(.string("\u{0}m141")), 0xFF7F_7F7F)
+check("a number source is no colour", znBoundColor(bref), nil)
+// self / parent sizes come from the site the node feeds (ZnMotionTest.selfAndParentSizesComeFromTheSite).
+try! e.put(142, ZnFormulaSource(id: 142, f(#"["$0","pw","*","sw","/"]"#, [.src(bv)])))
+let fill = ZnValue.string("\u{0}m142")
+truth("a formula reading parent / self wants the site", znSiteUsed([.number(1), fill]))
+truth("a plain value doesn't", !znSiteUsed([bref, .null]))
+check("no site yet: sizes are 0 (x / 0 = 0)", znBoundNumber(fill, 1, site: nil), 0)
+let fed = ZnSite()
+fed.update(40, 12, 360, 20)
+check("p × parent.width / self.width", znBoundNumber(fill, 1, site: fed), 45 * 360 / 40)
+fed.update(40, 12, 180, 20)
+check("a parent resize", znBoundNumber(fill, 1, site: fed), 45 * 180 / 40)
+// A Text's string: a motion value as text, never its control characters.
+check("a motion text", znShownString("\u{0}f140|{\"p\":\"₹\"}"), "₹45")
+check("a motion text not made yet", znShownString("\u{0}f148|{}"), "")
+check("plain text", znShownString("Pay ₹45"), "Pay ₹45")
+// Blur: Skia's radius to sigma, in points.
+check("no blur", znBlurSigma(0, scale: 3), 0)
+check("blur 12 at 3x", Float(znBlurSigma(12, scale: 3)), Float(0.57735 * 12 + 0.5 / 3))
+// One matrix for the whole layer: scale and rotate about the origin, the 3D turn, then the translation (HWUI).
+func layer(_ p: CGPoint, sx: CGFloat = 1, sy: CGFloat = 1, rot: CGFloat = 0, rx: CGFloat = 0, ry: CGFloat = 0,
+           tx: CGFloat = 0, ty: CGFloat = 0, ox: CGFloat = 0.5, oy: CGFloat = 0.5) -> CGPoint {
+    project(znLayerMatrix(size: box, scaleX: sx, scaleY: sy, rotate: rot, rotateX: rx, rotateY: ry, cameraDistance: 8,
+                          translateX: tx, translateY: ty, originX: ox, originY: oy, scale: 1), p)
+}
+nearPoint("identity", layer(CGPoint(x: 37, y: 81)), CGPoint(x: 37, y: 81))
+nearPoint("translate", layer(CGPoint(x: 0, y: 0), tx: 10, ty: -5), CGPoint(x: 10, y: -5))
+nearPoint("scaleX about the left edge", layer(CGPoint(x: 200, y: 0), sx: 0.5, ox: 0, oy: 0), CGPoint(x: 100, y: 0))
+nearPoint("scale about the centre", layer(CGPoint(x: 0, y: 0), sx: 2, sy: 2), CGPoint(x: -100, y: -50))
+// rotate 90 clockwise about the centre (100, 50): the top-left corner (-100, -50 from it) goes to (50, -100) from it.
+nearPoint("rotate 90 clockwise", layer(CGPoint(x: 0, y: 0), rot: 90), CGPoint(x: 150, y: -50))
+nearPoint("scale, then rotate, then translate", layer(CGPoint(x: 200, y: 50), sx: 2, rot: 90, tx: 7),
+          CGPoint(x: 107, y: 250))
+// With a turn: the same as the turn alone, then the translation.
+let turnedCorner = turned(35, 50, CGPoint(x: 200, y: 0))
+nearPoint("a turn, then the translation", layer(CGPoint(x: 200, y: 0), rx: 35, ry: 50, tx: 3, ty: 4),
+          CGPoint(x: turnedCorner.x + 3, y: turnedCorner.y + 4))
+
 // Reset: everything JS made goes; window values stay.
 e.reset()
 truth("reset drops values", e.find(130) == nil && e.find(941) == nil)

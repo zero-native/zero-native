@@ -8,9 +8,9 @@
 //   f) Width: a box whose width follows the timeline (it and its neighbours lay out again each frame)
 //   g) Text: the timeline as native number text (format), never raw control characters
 // With n (--params '{"n":30}') it shows only n boxes, each with translateX, rotate and opacity bound, to measure the
-// cost per frame (iOS: ZN_MOTION_PERF=1 logs it). Open with: bun run tools/ios-sample.ts --route motionBindingsLab
-// (iOS: start it with SIMCTL_CHILD_ZN_MOTION_ENGINE=1 while the engine is behind that flag), or
-// zn://sample/dev/motion/bindings (Android).
+// cost per frame (iOS: ZN_MOTION_PERF=1 logs it; "still": true shows them without moving, for the baseline).
+// Open with: bun run tools/ios-sample.ts --route motionBindingsLab (iOS: start it with SIMCTL_CHILD_ZN_MOTION_ENGINE=1
+// while the engine is behind that flag), or zn://sample/dev/motion/bindings (Android).
 import { Column, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
 import { derive, nav, parent, self, useTimeline } from "@zeronative/core"
 import { c } from "./tokens"
@@ -29,9 +29,9 @@ function MbSection(props: { title: string; note: string; children?: unknown }) {
   )
 }
 
-export function MotionBindingsLabScreen(props: { n?: number; ms?: number }) {
+export function MotionBindingsLabScreen(props: { n?: number; ms?: number; still?: boolean }) {
   const t = useTimeline({ duration: props.ms ?? 2000, easing: "linear", repeat: "forever", yoyo: true })
-  setTimeout(() => void t.play(), 300)
+  if (!props.still) setTimeout(() => void t.play(), 300)
   const n = props.n ?? 0
   const boxes = Array.from({ length: n }, (_, i) => i)
   const fill = derive(() => (t() * parent.width) / self.width)

@@ -1,5 +1,9 @@
-# Foundation, Observation and QuartzCore only: the motion maths, formulas, the engine and the 3D turn's matrix.
+# Foundation, Observation and QuartzCore only: the motion maths, formulas, the engine, the 3D turn's matrix and what a
+# bound slot reads (ZnValue comes from Readers.swift, which needs Registry.swift).
 ios/ZnRuntime/Swift/ZnMotionMath.swift
 ios/ZnRuntime/Swift/ZnFormula.swift
 ios/ZnRuntime/Swift/ZnMotionEngine.swift
 ios/ZnRuntime/Swift/ZnDepth.swift
+ios/ZnRuntime/Swift/Registry.swift
+ios/ZnRuntime/Swift/Readers.swift
+ios/ZnRuntime/Swift/ZnMotionBindRules.swift
