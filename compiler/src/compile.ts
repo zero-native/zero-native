@@ -3023,19 +3023,13 @@ export function compileModule(
       body = rowFn.body
     }
     if (!body) fail(rowFn, "row must return its JSX directly: row={(item) => <Row/>}")
-    // Pavan's decision 7 (2026-11-21): in a reorderable List a long press on a row picks it up (Android's ZnReorder
-    // takes the touch; iOS does the same), so an onLongPress in the row never runs. A warning: the app still works.
-    // Not when pinned rows are set: then the list doesn't reorder (ZnRenderer.kt, reorder needs no sticky rows).
+    // Pavan's decision 7 (2026-11-21): in a reorderable List a long press on a row picks it up, so a row's onLongPress
+    // isn't an action to rely on: iOS's reorder (W4-C) drops it; Android (ZnPress.kt and ZnReorder.kt) still runs it as
+    // the drag starts (reported for docs/android-issues-found-when-building-ios.md). A warning: the app still works.
+    // reorderable is always known here (setProp refuses a runtime value). Not with pinned rows: then the list doesn't
+    // reorder (ZnRenderer.kt, reorder needs no sticky rows).
     const pinned = typeof props.stickyHeaderIndices === "string" && props.stickyHeaderIndices !== ""
-    if (props.reorderable === true && !pinned) { // reorderable is known at build time (setProp)
-      forEachDescendant(rowFn.body, (n) => {
-        if (ts.isJsxAttribute(n) && n.name.getText(sf) === "onLongPress") {
-          warn(n, "onLongPress in a row of <List reorderable> never runs: a long press on a row starts the drag " +
-            "(Android and iOS). Use onPress or a button for the action, or turn reorderable off")
-        }
-      })
-    }
-
+    if (props.reorderable === true && !pinned) warnRowLongPress(rowFn.body)
     const branches = (e: ts.Expression): { code: string; type: string } => {
       const u = seeThrough(e)
       if (ts.isConditionalExpression(u)) {
@@ -4021,6 +4015,35 @@ export function compileModule(
     if (thunks.length === 0) return `{ ${parts.join(", ")} }`
     const names = thunks.map((_, i) => `__zp${depth}_${i}`)
     return `((${names.join(", ")}) => ({ ${parts.join(", ")} }))(${thunks.join(", ")})`
+  }
+
+  /**
+   * The reorderable List warning (decision 7): every onLongPress in a row's JSX, and in the components of this file the
+   * row uses (each once). A <List> inside the row has rows of its own, so the walk stops there. Components from other
+   * files aren't read (each file compiles alone).
+   */
+  function warnRowLongPress(row: ts.Node) {
+    const seen = new Set<string>()
+    const at = sf.getLineAndCharacterOfPosition(row.getStart(sf))
+    const message = (chain: string[]) => "onLongPress in a row of <List reorderable>" +
+      (chain.length ? ` (in ${chain.map((c) => `<${c}>`).join(" > ")}, the row at ${at.line + 1}:${at.character + 1})` : "") +
+      ": a long press on a row starts the drag, so don't use the row's onLongPress for an action (iOS drops it; " +
+      "Android may still run it as the drag starts). Use onPress or a button, or turn reorderable off"
+    const walk = (n: ts.Node, chain: string[]) => {
+      if (ts.isJsxAttribute(n) && n.name.getText(sf) === "onLongPress") warn(n, message(chain))
+      if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) {
+        const t = (ts.isJsxElement(n) ? n.openingElement : n).tagName
+        const tag = ts.isIdentifier(t) ? t.text : ""
+        if (tag === "List" && !userComponents.has(tag)) return
+        const own = candidates.find((c) => c.name === tag)
+        if (own?.fn.body && !seen.has(tag)) {
+          seen.add(tag)
+          walk(own.fn.body, [...chain, tag])
+        }
+      }
+      ts.forEachChild(n, (c) => walk(c, chain))
+    }
+    walk(row, [])
   }
 
   function tagName(node: ts.JsxElement | ts.JsxSelfClosingElement): string {

@@ -26,8 +26,8 @@ describe("<List reorderable> row with onLongPress (Pavan's decision 7)", () => {
   test("onLongPress on the row warns, with where it is", () => {
     const w = warnings(list("reorderable", "(r) => <Pressable onLongPress={() => p.menu(r)}><Text>{r.t}</Text></Pressable>"))
     expect(w).toHaveLength(1)
-    expect(w[0]).toStartWith("test.tsx:5:28: onLongPress in a row of <List reorderable> never runs")
-    expect(w[0]).toContain("starts the drag")
+    expect(w[0]).toStartWith("test.tsx:5:28: onLongPress in a row of <List reorderable>: a long press on a row starts the drag")
+    expect(w[0]).toContain("iOS drops it; Android may still run it")
   })
 
   test("onLongPress inside the row, and on Text, warns once each", () => {
@@ -47,6 +47,39 @@ describe("<List reorderable> row with onLongPress (Pavan's decision 7)", () => {
     expect(warnings(list("reorderable={false}", row))).toEqual([])
     expect(warnings(list("reorderable={EDIT}", row).replace("export function", "const EDIT = false\nexport function"))).toEqual([])
     expect(warnings(list("reorderable stickyHeaderIndices={[0]}", row))).toEqual([])
+  })
+
+  test("a row that is a component of this file: its onLongPress warns, saying which component and row", () => {
+    const src = `
+import { List, Pressable, Row, Text } from "@zeronative/ui"
+function Label(p) { return <Text onLongPress={() => p.m()}>{p.t}</Text> }
+function TaskRow({ task }) {
+  return <Row><Pressable onLongPress={() => task.menu()}><Label t={task.t} m={task.m} /></Pressable><Label t="2" /></Row>
+}
+export function A(p) {
+  return <List data={p.rows} key={(r) => r.id} reorderable row={(r) => <TaskRow task={r} />} />
+}`
+    const w = warnings(src)
+    expect(w).toHaveLength(2) // Label is read once though the row uses it twice
+    expect(w[0]).toStartWith("test.tsx:5:26: onLongPress in a row of <List reorderable> (in <TaskRow>, the row at 8:72):")
+    expect(w[1]).toStartWith("test.tsx:3:34: onLongPress in a row of <List reorderable> (in <TaskRow> > <Label>, the row at 8:72):")
+    // The same component as the row of a plain List: no warning.
+    expect(warnings(src.replace(" reorderable ", " "))).toEqual([])
+  })
+
+  test("a <List> inside a reorderable row has its own rows: not checked as the outer row", () => {
+    const src = `
+import { List, Pressable, Row, Text } from "@zeronative/ui"
+export function A(p) {
+  return <List data={p.rows} key={(r) => r.id} reorderable
+    row={(r) => <Row><List data={r.kids} key={(k) => k.id} row={(k) => <Text onLongPress={() => p.m(k)}>x</Text>} /></Row>} />
+}`
+    expect(warnings(src)).toEqual([])
+  })
+
+  test("reorderable from a value known only at runtime is a build error already, so the check always knows", () => {
+    expect(() => warnings(list("reorderable={p.editing}", "(r) => <Text onLongPress={() => p.m(r)}>x</Text>")))
+      .toThrow('"reorderable" must be known at build time')
   })
 
   test("onPress in a reorderable row is fine", () => {

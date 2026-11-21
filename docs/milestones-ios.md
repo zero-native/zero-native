@@ -167,7 +167,8 @@ width / height from a value, the transparent route; then the TSX image viewer re
 The compiler half of the OTA gate is done (2026-11-21): an app file that imports `useElementMotion`, `useFrame`,
 `useTilt`, `nativeMotion`, `interpolateColor`, `self` or `parent` now needs Motion 1 too (`GATED_CORE_MODULES`, a test
 fails when core exports a new motion name nobody classed). The compiler also warns when a row of `<List reorderable>`
-has `onLongPress` (it never runs: the long press starts the drag; Pavan's decision 7).
+has `onLongPress`, in its JSX or a component of the same file it uses (the long press starts the drag, so iOS drops
+the row's long press, Pavan's decision 7; Android may still run it, reported as an Android issue).
 
 ### Phase 5: the rest [zn] — **waits**
 Background tasks, accessibility + font scaling, secure screens, impressions, Canvas, registry 23 / 24 drawing, media /
