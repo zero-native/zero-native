@@ -47,6 +47,15 @@ function GridStoreCard(props: { s: Store; index: number; onPress: () => void }) 
   )
 }
 
+/** New stores for the top of the grid ("New 1", "New 2", ...): the lines below must keep their own stores. */
+let newCount = 0
+function makeNew(count: number): Store[] {
+  return Array.from({ length: count }, () => {
+    newCount += 1
+    return { id: `n${newCount}`, name: `New ${newCount}`, cashback: 50 }
+  })
+}
+
 export function GridLabScreen() {
   const stores = signal<Store[]>(makeStores(0, 41)) // 41: the last row is short in 2 and 3 columns
   const cols = signal(2)
@@ -74,6 +83,8 @@ export function GridLabScreen() {
         <GridButton label={cols() === 2 ? "3 columns" : "2 columns"} onPress={() => cols.set(cols() === 2 ? 3 : 2)} />
         <GridButton label="Scroll to 30" onPress={() => list.scrollToIndex({ index: 30, animated: true })} />
         <GridButton label="Empty" onPress={() => stores.set([])} />
+        <GridButton label="Add 2 on top" onPress={() => stores.set([...makeNew(2), ...stores()])} />
+        <GridButton label="Remove top 2" onPress={() => stores.set(stores().slice(2))} />
         <GridButton label="Reset" onPress={() => stores.set(makeStores(0, 41))} />
         <GridButton label={half() ? "flex: 1 items" : "48% + space-between"} onPress={() => half.set(!half())} />
       </Row>

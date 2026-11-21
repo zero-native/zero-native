@@ -78,6 +78,7 @@ export function RnPropsLabScreen() {
   const barHidden = signal(false)
   const stickyAt = signal<number[]>([0, 20])
   const listCtrl = listController()
+  const stickyCtrl = listController()
   const listItems = signal<Array<{ id: string; title: string }>>(
     Array.from({ length: 30 }, (_, i) => ({ id: String(i + 1), title: `Item ${i + 1}` })),
   )
@@ -245,10 +246,18 @@ export function RnPropsLabScreen() {
 
         <PropsTitle text="Sticky list rows" />
         <HoldTile label={stickyAt().length === 2 ? "Sticky: 0 and 20" : "Sticky: 0 only"} onPress={() => stickyAt.set(stickyAt().length === 2 ? [0] : [0, 20])} />
+        {/* paddingTop 16: a pinned row sits at the list's top edge, not 16 below it (Compose pins at the viewport top).
+            The jumps go to a sticky row's own place, also to the one pinned now. */}
+        <Row gap={8}>
+          <HoldTile label="Jump to Earlier" onPress={() => stickyCtrl.scrollToIndex({ index: 20, animated: false })} />
+          <HoldTile label="Jump to Today" onPress={() => stickyCtrl.scrollToIndex({ index: 0, animated: true })} />
+        </Row>
         <List
           testID="sticky-list"
           data={STICKY_ROWS}
           key={(r) => r.id}
+          controller={stickyCtrl}
+          contentContainerStyle={{ paddingTop: 16 }}
           stickyHeaderIndices={stickyAt()}
           row={(r) =>
             r.header ? (
