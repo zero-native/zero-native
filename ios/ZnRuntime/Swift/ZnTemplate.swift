@@ -134,7 +134,8 @@ final class ZnNodeSpec {
     let sharedTag: String?
     let sharedTagSlot: Int
     /// Something of registry 24's layer is used (3D turns, camera, blur). Android also counts an enter / exit that
-    /// turns; iOS's ZnTransition doesn't read those yet.
+    /// turns. iOS's ZnTransition.parse takes 4 values only, so an 8-value enter / exit (the flip and stretch presets)
+    /// is dropped whole for now; motion-depth-props reads it and adds the turns here.
     let hasDepth: Bool
     /// A child here has a gesture or transform / opacity slots, or this node has anchor children: it tells them its
     /// size (a gesture's or formula's parent size). Set by ZnTemplate, which sees the children.
@@ -272,6 +273,12 @@ final class ZnNodeSpec {
     let accessibilityRole: Int
     let accessibilityHidden: Bool
     let testID: String?
+    /// One of the accessibility props is set, or it is an image / svg / icon / shimmer (decorative without a label):
+    /// ZnA11y has work to do. Without it ZnA11y passes the content through.
+    let hasA11y: Bool
+    /// A Pressable, Switch, Checkbox, TextField, OtpInput or a Text with onPress is under this node in the same
+    /// template, so a Pressable here keeps them separately focusable. Set by ZnTemplate, which sees the children.
+    fileprivate(set) var hasInteractiveDescendant = false
 
     // Tabs and pull to refresh
     let selected: Int
@@ -349,7 +356,8 @@ final class ZnNodeSpec {
     /// Registry.AutoCapitalize (-1: not written); autoCorrect is on unless written false.
     let autoCapitalize: Int
     let autoCorrect: Bool
-    /// The placeholder's colour and the cursor / selection colour; nil when not written.
+    /// The placeholder's colour and the cursor / selection colour; nil when not written. Android's defaults: the
+    /// placeholder #9CA3AF, the selection the theme's (Android's selectionColor is null when not written).
     let placeholderColor: Color?
     let selectionColor: Color?
     /// -1: not written (single-line: Done; multi-line: Return makes a new line).
@@ -597,6 +605,9 @@ final class ZnNodeSpec {
         accessibilityRole = en(P.accessibilityRole)
         accessibilityHidden = p[P.accessibilityHidden]?.bool ?? false
         testID = p[P.testID]?.string
+        hasA11y = accessibilityLabel != nil || accessibilityLabelSlot >= 0 || accessibilityHint != nil ||
+            accessibilityRole >= 0 || accessibilityHidden ||
+            [Registry.Component.image, Registry.Component.svg, Registry.Component.icon, Registry.Component.shimmer].contains(type)
         trackColor = znColor(p[P.trackColor]); activeTrackColor = znColor(p[P.activeTrackColor])
         thumbColor = znColor(p[P.thumbColor]); activeColor = znColor(p[P.activeColor])
         self.size = num(P.size)
@@ -856,6 +867,16 @@ final class ZnTemplate {
         for n in nodes where n.parent >= 0 && (n.type == Registry.Component.anchor || n.gestureSlot >= 0 || n.opacitySlot >= 0 ||
                                                n.hasTransformSlots) {
             nodes[n.parent].feedsChildSite = true
+        }
+        // Mark every ancestor of an interactive node, stopping at one already marked (its ancestors are too).
+        typealias C = Registry.Component
+        let interactive: Set<Int> = [C.pressable, C.switch, C.checkbox, C.textField, C.otpInput]
+        for n in nodes where interactive.contains(n.type) || (n.type == C.text && n.onPress != 0) {
+            var up = n.parent
+            while up >= 0 && !nodes[up].hasInteractiveDescendant {
+                nodes[up].hasInteractiveDescendant = true
+                up = nodes[up].parent
+            }
         }
         #if DEBUG
         Self.reportNotDrawn(raw)

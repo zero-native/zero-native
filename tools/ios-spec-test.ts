@@ -1,8 +1,8 @@
 // Runs iOS's parsers for template values read before they are drawn (grid row style, pinned rows, scroll commands) on
-// the Mac: builds ios/tests/spec/main.swift with ZnListLogic.swift and ZnScrollCommand.swift (Foundation only) and
-// runs it.
+// the Mac: builds ios/tests/spec/main.swift with the runtime files named in ios/tests/spec/sources.txt (Foundation
+// only) and runs it.
 //   bun run tools/ios-spec-test.ts
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -16,9 +16,9 @@ const run = (cmd: string[]) => {
   }
 }
 try {
-  const swift = "ios/ZnRuntime/Swift"
-  run(["xcrun", "swiftc", "-O", "-o", join(work, "spec-tests"), `${swift}/ZnListLogic.swift`, `${swift}/ZnScrollCommand.swift`,
-    "ios/tests/spec/main.swift"])
+  const sources = readFileSync(join(root, "ios/tests/spec/sources.txt"), "utf8").split("\n").map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#")).map((f) => `ios/ZnRuntime/Swift/${f}`)
+  run(["xcrun", "swiftc", "-O", "-o", join(work, "spec-tests"), ...sources, "ios/tests/spec/main.swift"])
   run([join(work, "spec-tests")])
 } finally {
   rmSync(work, { recursive: true, force: true })

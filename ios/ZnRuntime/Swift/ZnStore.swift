@@ -22,6 +22,15 @@ final class ZnFlag {
     var on = false
 }
 
+/// A node's drawn size, for formulas and gestures that read self / parent sizes (Android's ZnSite). `wanted`: a child
+/// reads it as its parent size, so this node writes its size too.
+@Observable
+final class ZnSizeBox {
+    var w: Double = 0
+    var h: Double = 0
+    var wanted = false
+}
+
 /// One mounted template. Not observable itself: its cells and child lists are.
 @MainActor
 final class ZnInstance {
@@ -32,6 +41,7 @@ final class ZnInstance {
     private var cells: [Int: SlotCell] = [:]
     private var anchors: [Int: ChildList] = [:]
     private var lists: [Int: ZnListState] = [:]
+    private var sizeBoxes: [Int: ZnSizeBox] = [:]
     /// Its root has an `exit` transition (set when drawn): a REMOVE then plays it before the instance goes.
     var hasExit = false
     /// JS removed it and its `exit` is playing; it stays in its parent until ZnStore.finishExit.
@@ -49,6 +59,14 @@ final class ZnInstance {
     }
 
     func listOrNil(_ node: Int) -> ZnListState? { lists[node] }
+
+    /// The size box of node [node] (created on first use; nothing writes one yet).
+    func sizeBox(_ node: Int) -> ZnSizeBox {
+        if let b = sizeBoxes[node] { return b }
+        let b = ZnSizeBox()
+        sizeBoxes[node] = b
+        return b
+    }
 
     init(id: UInt32, templateId: Int, parent: UInt32, anchor: Int) {
         self.id = id
