@@ -35,6 +35,15 @@ Each entry says:
 | A19 | 2026-11-11 | Repo (Android) | `android/gradlew` is mode 100644 in git: on the Mac `./gradlew` says "permission denied" (`bash ./gradlew` works). Fix: `git update-index --chmod=+x android/gradlew` | open |
 | A20 | 2026-11-11 | Plugins (shared + Android) | Native module names didn't say their plugin (`Push` in firebase-messaging, `Auth` in android-play-auth): Pavan found the dashboard's needs list confusing. Renamed to `FirebaseMessaging`, `FirebaseAnalytics`, `FirebaseCrashlytics`, `FirebasePerf`, `FirebaseRemoteConfig`, `FirebaseApp`, `FirebaseInstallations`, `AndroidAdId`, `AndroidPlayAuth` (docs/plugins.md, "Module names"); Kotlin `ZnModuleBase(...)` names changed on the Mac, not compiled there | checked on Android 2026-11-10: unit tests, ZeroBill staging on the Lava, and three production AABs (168–170) built for Pavan's Play test |
 | A21 | 2026-11-11 | ZeroBill JS (shared) | ZeroBill now listens to `Push.onNotificationOpenedApp` and `Push.getInitialNotification` (for pushes iOS shows itself). They run on Android too: a tap on a notification FCM showed itself (a message with a `notification` block) now opens the push's `action`. Today's server sends `notification: {}`, so Android shows ZeroBill's own and this path isn't hit. Also: the server change for iOS (an `apns` block) is written for Pavan; Android ignores `apns` | checked on the Lava 2026-11-10 (ZeroBill dev build at 8a6156e, pushes sent with tools/push-send.ts): a data-only push (ZeroBill shows it) and a push with a `notification` block (FCM shows it), each tapped with the app behind and after the app died: one notification, one `[Push] tap`, one open in all 4 |
+| A22 | 2026-11-10 | Push (Android) | Pushes the phone showed itself: iOS reports shown, swipe and buttons; Android doesn't | open, a gap |
+| A23 | 2026-11-16 | Scanner (shared) | The scanner's default button said "Allow camera" (App Review 5.1.1(iv)) | changed on both |
+| A24 | 2026-11-18 | Sheet / Modal (Android) | A leaving screen's Sheet / Modal stays for the exit transition on Android | open, a difference |
+| A25 | 2026-11-19 | Updates (Android) | The update screen's icon check used an Android 8 class on Android 7 | fixed on the Mac, not run on a phone |
+| A26 | 2026-11-21 | Layout (Android) | A child's flex from a signal is read from the parent's instance | open, not run on Android |
+| A27 | 2026-11-21 | Layout (Android) | A "%" width from a signal inside a Row is a fraction of the room left, not of the Row | open, not run on Android |
+| A28 | 2026-11-21 | Navigation (Android) | A transparent route with a transition other than "none" may animate the screen below it too | open, possible, not run |
+| A29 | 2026-11-21 | Sheet (Android) | A Sheet's backgroundColor may be painted twice (the card and the sheet's own content box) | open, possible, minor |
+| A30 | 2026-11-21 | Compiler (shared) | The Motion OTA gate's name list misses some motion APIs, so a bundle using only them doesn't declare Motion | being fixed on the Mac (iOS round 1) |
 
 ---
 
@@ -408,3 +417,39 @@ Each entry says:
   in a Row; a Column's offered width is already the full width.
 - **Check on Android (Windows):** DynamicLayoutLab section 3 ("Cycle Width %") with a fixed-width sibling before the
   bar in the same Row: 33 % and 50 % of the Row's width, as on iOS.
+
+## A28. A transparent route with a transition other than "none" may animate the screen below it too (from iOS work)
+- **Status:** open, possible, not run on Android. Seen in the code on the Mac 2026-11-21 while mapping iOS's
+  `transparent: true`.
+- **Problem:** `ZnSeeThroughStrategy` (`ZnNavHost.kt` ~371) puts the screen below a transparent one in the same scene.
+  When the transparent route has a transition other than `"none"`, the screen below appears in both the old and the new
+  scene, so it may slide or fade along with the transparent screen instead of staying still. The code's own comment
+  (`ZnNavHost.kt` ~333) expects transparent routes to use `"none"` and animate their own content.
+- **Why it matters:** an app that gives a transparent route a `fade` or `slide` gets a moving background on Android.
+  iOS will keep the screen below still.
+- **Fix:** either keep the screen below out of the animation, or document that transparent routes should use
+  `transition: "none"` (and maybe warn in the compiler).
+- **Check on Android (Windows):** add `transition: "fade"` to the sample's `photoViewer` route (or any transparent
+  route) and open it: does the screen below move or fade?
+
+## A29. A Sheet's backgroundColor may be painted twice (from iOS work)
+- **Status:** open, possible, minor (overdraw only). Seen in the code on the Mac 2026-11-21.
+- **Problem:** `ZnSheet.kt` paints `s.background` on the card (~377), and the sheet node's own style (which carries the
+  same `backgroundColor`) is applied again to the inner content box. Nothing looks wrong; it is one extra full-size
+  paint while the sheet is open or dragged.
+- **Fix:** don't apply `backgroundColor` to the inner box when the card already paints it.
+- **Check on Android (Windows):** Layout Inspector or "Debug GPU overdraw" on a Sheet with a backgroundColor.
+
+## A30. The Motion OTA gate's name list misses some motion APIs (from iOS work, shared compiler)
+- **Status:** being fixed on the Mac in iOS round 1 (not pushed yet), not run on Android.
+- **Problem:** `compiler/src/modules.ts` `GATED_CORE_MODULES` lists the motion names that make a bundle declare the
+  `Motion` module, but leaves out `useElementMotion`, `useTilt`, `useFrame`, `nativeMotion`, `interpolateColor`,
+  `self` and `parent`. A bundle that uses only those doesn't declare Motion, so a phone without Motion would accept it
+  as an OTA update and then fail at runtime.
+- **Why it matters:** on Android every host has Motion, so nothing breaks there today; it matters for iOS builds with
+  the Motion stub, and for any future host that lacks a module.
+- **Fix:** add the names (with compiler tests). Android sees bundles that now also declare Motion, which every Android
+  host has.
+- **Check on Android (Windows):** after it lands, build the sample and ZeroBill bundles and run the OTA upload check
+  (`bun run updates` dry run): the Motion requirement should be the same version as before.
+
