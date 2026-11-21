@@ -275,7 +275,7 @@ manifest must not claim what it can't draw.
 | Module (version) | iOS | Note |
 |---|---|---|
 | Keyboard (2) | done | |
-| Fetch (1) | done | URLSession; fetch checks 40 / 40 (iOS simulator, 2026-11-21); parallel answers fixed; upload / download progress, `FormData` files streamed from disk (200 MB checked), network-change session flush (docs/fetch.md §9). |
+| Fetch (1) | done | URLSession; fetch checks 41 / 41 (iOS simulator, 2026-11-21); parallel answers fixed; upload / download progress, `FormData` files streamed from disk (200 MB checked), network-change session flush (docs/fetch.md §9). |
 | SecureStore (1) | done | Keychain; an earlier install's items cleared on a new install. |
 | Toast (1), Alert (1), Clipboard (1), Vibration (1) | done | |
 | Permissions (1) | done | camera, microphone, contacts, notifications, location (+ precise). |

@@ -282,25 +282,32 @@ the Mac (`bun run tools/ios-unit-test.ts net`, Android's ProgressThrottler cases
   never enters memory (checked: the sample's peak footprint stayed at 48 MB through a 200 MB upload). URLSession then
   knows the length, so `Content-Length` is sent and upload progress has a `total`. The file is removed when the call
   ends (also on an abort), and files left by a killed run are removed at the next start.
+  - `timeout` counts writing that file too (as OkHttp's call timeout counts writing the body): a call whose time runs
+    out while the body is written rejects `timeout`, and the upload gets what is left.
   - The cost: free disk space as big as the body. A full disk rejects with `failed` ("not enough free space").
   - The layout is OkHttp's (what Android sends): each part has `Content-Length`; `"`, CR and LF in a name or file name
     are sent as `%22`, `%0D`, `%0A` (a file name can't add headers); a `type` that is not a valid media type is left out.
   - Only `file://` URIs. `content://` is an Android ContentProvider URI with no meaning on iOS: it rejects
     `invalid_request` ("content:// is an Android content URI; on iOS pass the file:// uri the plugin gave"). iOS plugins
-    hand out `file://` URIs. A file that can't be read (missing, a folder) rejects `invalid_request` with its path.
+    hand out `file://` URIs. A file that can't be read (missing, a folder) rejects `invalid_request` with its path. A
+    symlink is followed. (Android sends a missing file without a length and fails during the call instead.)
   - A security-scoped file URL (from the document picker) is opened with its scope, so it can be passed as it is.
-- **Network change:** an `NWPathMonitor` keys the network by the first interface of a working path and its gateways
-  (another Wi-Fi keeps `en0` but gets another router). When the key changes (Wi-Fi ↔ cellular, another Wi-Fi, lost),
+- **Network change:** an `NWPathMonitor` keys the network by the first interface of a working path that is not a
+  tunnel (a VPN's `utun` is skipped, so Wi-Fi ↔ cellular under a VPN is still a change) and its IPv4 gateways (another
+  Wi-Fi keeps `en0` but gets another router), or its IPv6 gateways when it has none (an IPv6 router advertisement
+  arriving later on the same Wi-Fi is not a change). As Android's default-network callback: a lost network flushes,
+  another network flushes, and a network coming back after none doesn't (the loss already flushed). Then
   new calls get a new URLSession, so no pooled connection of the old network is used; calls already running finish on
   the old session, which then ends (`finishTasksAndInvalidate`). Logged: `fetch: the default network changed: new calls
-  use new connections`. Debug builds have `Fetch.debugFreshSession` for the lab (a simulator can't change networks).
+  use new connections`; debug builds also print each key change (`zn fetch network: <old> → <new>`). Debug builds have `Fetch.debugFreshSession` for the lab (a simulator can't change networks).
 - **Not on iOS:** no HTTP/2 ping (URLSession has no setting; Android pings every 10 s), so a connection that dies
   silently without a network change is found only by the call's timeout. No `configure` / interceptors / pins.
   Pictures (`ZnImage.swift`) use `URLSession.shared`, which the network-change flush doesn't replace.
 
-Checks: `/dev/fetch` (route `fetch`, 40 cases, params `port`, `dir`, `run`, `only`) against
-`tools/fetch-test-server.ts --files <folder>`: **40 / 40 on the iOS simulator** (2026-11-21), among them upload and
+Checks: `/dev/fetch` (route `fetch`, 41 cases, params `port`, `dir`, `run`, `only`) against
+`tools/fetch-test-server.ts --files <folder>`: **41 / 41 on the iOS simulator** (2026-11-21), among them upload and
 download progress, a 3 MB and a 200 MB streamed file part checked byte for byte by the server, an abort during the
-200 MB upload, the escaped file name, `content://` and a missing file, and the network-change case (4 calls running
+200 MB upload, a 50 ms timeout that runs out while the 200 MB body is written, the escaped file name, `content://` and a missing file, and the network-change case (4 calls running
 across a flush all finish, the 4 calls after it each use a new connection). Not checked yet: a real Wi-Fi ↔ cellular
-switch on an iPhone, the new cases on Android.
+switch on an iPhone, the new cases on Android. The Mac suite (`bun run tools/ios-unit-test.ts net`) also keys this
+Mac's real path and walks the flush rule through lost / back / changed networks.
