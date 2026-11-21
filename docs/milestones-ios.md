@@ -187,7 +187,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 10 | Anchor | done | | |
 | 11 | List | partial | impressions; header / footer / empty, `scrollCommand` (r23); `numColumns` / `columnWrapper` (r24). Window, sticky, inverted, pull to refresh done | |
 | 12 | Scroll | partial | pull to refresh on Scroll | S |
-| 13 | Carousel | partial | `itemWidthPercent` (r23) | S |
+| 13 | Carousel | partial | `itemWidthPercent` (r23). autoAdvance pauses after a touch on plain pages too (2026-11-21; DynamicLayoutLab section 8) | S |
 | 14 | Sheet | partial | onDetentChange; sheet colour and corner radius fixed. animateIn done | S + S |
 | 15 | Fragment | done | | |
 | 16 | TextField | partial | (autoComplete → `textContentType`: done 2026-11-11; editable, placeholder / colour at runtime: done 2026-11-21) autoCapitalize / autoCorrect, placeholderColor, selectionColor | S × 3 |
@@ -220,7 +220,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | testID | missing | S | `accessibilityIdentifier`. |
 | pointerEvents | done (2026-11-21) | M | none / box-none / box-only / auto, written or from a slot, and the absolute-layer default (ZnRenderer.swift ZnPointerEventsNone / ZnPointerEventsKids / znStopsTaps, ZnPress.swift znTouchOff). A background no longer stops taps by itself, as on Android. Check: RnPropsLab pe1–pe4, PressScreen. |
 | impressionKey | missing | §8 | |
-| Layout values from slots (width, height, min / max, flex, aspectRatio, gap, insets, radii, font sizes) (r23) | done (2026-11-21) | L | ZnTemplate.swift "now" readers, ZnDynamicValues.swift (Mac test: tools/ios-layout-test.ts). A size is read in its own ZnSizeFrame, an absolute child's insets in its own ZnChildTraits, so an animated value lays out that node alone. Check: DynamicLayoutLab sections 1–5 and 7. |
+| Layout values from slots (width, height, min / max, flex, aspectRatio, gap, insets, radii, font sizes) (r23) | done (2026-11-21) | L | ZnTemplate.swift "now" readers, ZnDynamicValues.swift (Mac test: tools/ios-layout-test.ts). A size is read in its own ZnSizeFrame, an absolute child's insets in its own ZnChildTraits, so an animated value lays out that node alone. aspectRatio keeps both sides inside their min / max, the given side first, as Android's dynamicSize (2026-11-21 review). While section 2's width animates, only the label's Text body runs, once per change (ZnDebug counts). Check: DynamicLayoutLab sections 1–5 and 7. |
 | `display: "none"` (r23) | done (2026-11-21) | M | Written or from a slot; Column / Row / Stack / wrap leave it out (no gap), other parents draw nothing. |
 | Negative margins | not checked | S | Needs a LayoutLab case. |
 | `fontFamily` with app fonts (r24) | missing | M | Register bundle fonts, pick the face by weight / italic. |

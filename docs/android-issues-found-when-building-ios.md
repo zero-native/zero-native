@@ -382,3 +382,29 @@ Each entry says:
   adaptive icons). CI builds and lints it.
 - **Check on Android (Windows):** an Android 7 emulator (API 24) with a high-priority update waiting: the update screen
   shows its icon, no crash.
+
+## A26. A child's flex from a signal is read from the parent's instance (from iOS work, layout values from slots)
+- **Status:** open. Found on the Mac 2026-11-21 in a review of the iOS layout-from-slots work; not run on Android.
+- **Problem:** `ZnRenderer.kt` reads a child's flex slot with the parent's `inst`: Row (`ZnRow`, the `childFlex` line,
+  about line 230), Column (`ZnColumn`, about line 577) and the wrap row (about line 1674) all do
+  `inst.finiteNum(child.flexSlot)`. When the child is a mounted component (its root node lives in another instance,
+  `ref.instance`), that reads the slot with the same number in the parent's instance: the wrong value, or nothing.
+- **Why it matters:** `<Row><MyCard style={{ flex: grow() ? 3 : 1 }} /></Row>` where the flex is decided inside the
+  component gets a wrong or fixed weight on Android. iOS reads it from the child's own instance (`znSlotFlexes`, `r.inst`),
+  so the two platforms differ.
+- **Fix:** read `ref.instance.finiteNum(child.flexSlot)` in the three places (and anywhere else a child's slot is read
+  with the parent's `inst`).
+- **Check on Android (Windows):** a component whose root has `flex` from a signal, inside a Row and a Column, toggled
+  at runtime: the weights change as on iOS (DynamicLayoutLab section 7's flex row is a plain Box, so it doesn't cover
+  this; add a component case).
+
+## A27. A "%" width from a signal inside a Row is a fraction of the room left, not of the Row (from iOS work)
+- **Status:** open, a difference. Found on the Mac 2026-11-21 in the same review; not run on Android.
+- **Problem:** a static `width: "50%"` in a Row uses the Row's own width (`znPercentOfRow`, the 2026-11-09 fix), but a
+  "%" that comes from a slot goes through `dynamicSize` → `resolveSizePx(value, constraints.maxWidth, …)`. In a Compose
+  Row `constraints.maxWidth` is what is left after the children before it, so the same "50%" gives a smaller box when it
+  changes at runtime. iOS (`ZnPercentKey`) and RN use the Row's full width in both cases.
+- **Fix:** give the slot path the Row's width too (the saved `rowWidth`, as `znPercentOfRow` does) when the child sits
+  in a Row; a Column's offered width is already the full width.
+- **Check on Android (Windows):** DynamicLayoutLab section 3 ("Cycle Width %") with a fixed-width sibling before the
+  bar in the same Row: 33 % and 50 % of the Row's width, as on iOS.
