@@ -133,9 +133,8 @@ final class ZnNodeSpec {
     let animateLayout: ZnTiming?
     let sharedTag: String?
     let sharedTagSlot: Int
-    /// Something of registry 24's layer is used (3D turns, camera, blur). Android also counts an enter / exit that
-    /// turns. iOS's ZnTransition.parse takes 4 values only, so an 8-value enter / exit (the flip and stretch presets)
-    /// is dropped whole for now; motion-depth-props reads it and adds the turns here.
+    /// Something of registry 24's layer is used (3D turns, camera, blur), an enter / exit that turns included
+    /// (the flip presets), as Android.
     let hasDepth: Bool
     /// A child here has a gesture or transform / opacity slots, or this node has anchor children: it tells them its
     /// size (a gesture's or formula's parent size). Set by ZnTemplate, which sees the children.
@@ -494,7 +493,7 @@ final class ZnNodeSpec {
         sharedTag = p[P.sharedTag]?.string
         sharedTagSlot = slotFor(P.sharedTag)
         hasDepth = rotateX != 0 || rotateY != 0 || blurRadius != 0 || rotateXSlot >= 0 || rotateYSlot >= 0 ||
-            cameraDistanceSlot >= 0 || blurRadiusSlot >= 0
+            cameraDistanceSlot >= 0 || blurRadiusSlot >= 0 || enter?.turns == true || exit?.turns == true
 
         text = p[P.text]?.string
         color = znColor(p[P.color])

@@ -458,20 +458,31 @@ final class ZnMotion {
 
 // MARK: - Enter / exit
 
-/// `enter` / `exit`: the state the element enters from or leaves to ("opacity,translateX,translateY,scale|timing").
+/// `enter` / `exit`: the state the element enters from or leaves to ("opacity,translateX,translateY,scale|timing";
+/// registry 24 adds ",rotateX,rotateY,scaleX,scaleY" for the flip and stretch presets).
 final class ZnTransition {
     let opacity: Double, translateX: Double, translateY: Double, scale: Double
+    /// Degrees of 3D turn, and a stretch on one axis (0, 0, 1, 1 in the 4-value form).
+    let rotateX: Double, rotateY: Double, scaleX: Double, scaleY: Double
     let timing: ZnTiming
 
     init(_ v: [Double], _ timing: ZnTiming) {
         opacity = v[0]; translateX = v[1]; translateY = v[2]; scale = v[3]
+        let deep = v.count == 8
+        rotateX = deep ? v[4] : 0; rotateY = deep ? v[5] : 0
+        scaleX = deep ? v[6] : 1; scaleY = deep ? v[7] : 1
         self.timing = timing
     }
 
+    /// It turns in 3D (ZnNodeSpec.hasDepth counts it).
+    var turns: Bool { rotateX != 0 || rotateY != 0 }
+
     static func parse(_ s: String) -> ZnTransition? {
         guard let bar = s.firstIndex(of: "|") else { return nil }
-        let v = s[..<bar].split(separator: ",").compactMap { Double($0) }
-        guard v.count == 4, let t = ZnTiming.parse(String(s[s.index(after: bar)...])) else { return nil }
+        let parts = s[..<bar].split(separator: ",", omittingEmptySubsequences: false)
+        let v = parts.compactMap { Double($0) }
+        guard v.count == parts.count, v.count == 4 || v.count == 8,
+              let t = ZnTiming.parse(String(s[s.index(after: bar)...])) else { return nil }
         return ZnTransition(v, t)
     }
 }
@@ -493,8 +504,15 @@ struct ZnEnterExit: ViewModifier {
         let enter = s.enter
         let exit = s.index == 0 ? s.exit : nil
         let exiting = exit != nil && inst.exiting.on
+        // Android multiplies scale and the one-axis stretch into one scaleX / scaleY, and turns in 3D on the same layer.
+        let sx = inV(enter?.scale, 1) * outV(exit?.scale, 1) * inV(enter?.scaleX, 1) * outV(exit?.scaleX, 1)
+        let sy = inV(enter?.scale, 1) * outV(exit?.scale, 1) * inV(enter?.scaleY, 1) * outV(exit?.scaleY, 1)
+        let turns = enter?.turns == true || exit?.turns == true
         content
-            .scaleEffect(max(inV(enter?.scale, 1) * outV(exit?.scale, 1), 1e-4), anchor: s.origin)
+            .scaleEffect(x: max(sx, 1e-4), y: max(sy, 1e-4), anchor: s.origin)
+            .modifier(ZnDepthEffect(rotateX: turns ? inV(enter?.rotateX, 0) + outV(exit?.rotateX, 0) : 0,
+                                    rotateY: turns ? inV(enter?.rotateY, 0) + outV(exit?.rotateY, 0) : 0,
+                                    cameraDistance: s.cameraDistance, origin: s.origin))
             .offset(x: inV(enter?.translateX, 0) + outV(exit?.translateX, 0), y: inV(enter?.translateY, 0) + outV(exit?.translateY, 0))
             .opacity(inV(enter?.opacity, 1) * outV(exit?.opacity, 1))
             .allowsHitTesting(!exiting)
