@@ -167,7 +167,9 @@ function PathTrimTile() {
   )
 }
 
-export function CanvasLabScreen() {
+// from: start at this tile (`--params '{"from": 12}'`), to see a tile on a simulator without scrolling.
+export function CanvasLabScreen(props: { from?: number }) {
+  const show = (n: number) => (props.from ?? 1) <= n
   const candles = signal<Candle[]>(generateInitialCandles(200))
   const progress = signal(65)
   const autoPlay = signal(true)
@@ -350,7 +352,7 @@ export function CanvasLabScreen() {
     draw.roundRect(180, 20, 140, 60, 16, { style: "stroke", strokeWidth: 2, color: c.success }),
   ]
 
-  // Bad commands: each one is wrong on purpose. The app must not crash; the good parts draw; logcat (tag zn) has one
+  // Bad commands: each one is wrong on purpose. The app must not crash; the good parts draw; logcat (tag zn) or the Xcode console has one
   // warning that names the bad indexes. No red dev screen: the rest of the canvas is fine (second-opinions 197).
   const badCommands = (): CanvasCommand[] => [
     draw.rect(0, 0, 340, 80, { color: c.white }),
@@ -428,6 +430,26 @@ export function CanvasLabScreen() {
     draw.path("M 280 80 h 40 v 40 h -40 Z M 290 90 h 20 v 20 h -20 Z", { color: c.ink, fillType: "evenOdd" }),
   ]
 
+  // 16. Shadow and blur under a turn and a scale: they belong to the shape's own space (Skia's shadow layer), so the
+  // card's shadow falls toward its own bottom edge, and the scaled glow is twice as soft.
+  const turnedEffectsCommands = (): CanvasCommand[] => {
+    const card = { color: c.white, shadow: { dx: 0, dy: 8, blur: 8, color: "rgba(15, 23, 42, 0.45)" } }
+    return [
+      draw.rect(0, 0, 340, 130, { color: c.pillBg }),
+      draw.save(),
+      draw.rotate(30, 70, 65),
+      draw.roundRect(40, 35, 60, 60, 10, card),
+      draw.restore(),
+      draw.roundRect(140, 35, 60, 60, 10, card),
+      draw.save(),
+      draw.translate(270, 65),
+      draw.scale(2),
+      draw.circle(0, 0, 12, { color: ACCENT, blur: 6 }),
+      draw.restore(),
+      draw.line(230, 115, 310, 115, { color: UP, strokeWidth: 6, strokeCap: "round", blur: 4 }),
+    ]
+  }
+
   return (
     <Scroll style={{ flex: 1, backgroundColor: c.bg }}>
       <Column gap={16} style={{ padding: 16, paddingBottom: 48 }}>
@@ -438,108 +460,140 @@ export function CanvasLabScreen() {
           2D drawing from a command list, in the draw phase only. A bad command never crashes the app.
         </Text>
 
-        <Tile title="1. Candlestick chart, 200 points" expect="green and red candles that move left every 500 ms, and a dashed middle line.">
-          <Row gap={8}>
-            <Pressable
-              onPress={() => autoPlay.set(!autoPlay())}
-              style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.primary, borderRadius: 6 }}
-            >
-              <Text fontSize={12} fontWeight={600} color={c.white}>
-                {autoPlay() ? "Pause Ticks" : "Resume Ticks"}
+        {show(1) && (
+          <Tile title="1. Candlestick chart, 200 points" expect="green and red candles that move left every 500 ms, and a dashed middle line.">
+            <Row gap={8}>
+              <Pressable
+                onPress={() => autoPlay.set(!autoPlay())}
+                style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.primary, borderRadius: 6 }}
+              >
+                <Text fontSize={12} fontWeight={600} color={c.white}>
+                  {autoPlay() ? "Pause Ticks" : "Resume Ticks"}
+                </Text>
+              </Pressable>
+            </Row>
+            <Box style={{ width: 340, height: 180, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 180 }} commands={candleCommands()} accessibilityLabel="Price chart, last 200 ticks" />
+            </Box>
+          </Tile>
+        )}
+
+        {show(2) && (
+          <Tile title="2. Progress ring" expect="a ring that starts at 12 o'clock and grows clockwise, with the % in the middle.">
+            <Row gap={8} alignItems="center">
+              <Pressable
+                onPress={() => progress.set(Math.max(0, progress() - 10))}
+                style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.pillBg, borderRadius: 6 }}
+              >
+                <Text fontSize={12} fontWeight={600} color={c.ink}>-10%</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => progress.set(Math.min(100, progress() + 10))}
+                style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.pillBg, borderRadius: 6 }}
+              >
+                <Text fontSize={12} fontWeight={600} color={c.ink}>+10%</Text>
+              </Pressable>
+              <Text fontSize={13} color={c.ink}>
+                Progress: {progress()}%
               </Text>
-            </Pressable>
-          </Row>
-          <Box style={{ width: 340, height: 180, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 180 }} commands={candleCommands()} accessibilityLabel="Price chart, last 200 ticks" />
-          </Box>
-        </Tile>
+            </Row>
+            <Box style={{ width: 160, height: 160, alignSelf: "center" }}>
+              <Canvas style={{ width: 160, height: 160 }} commands={ringCommands()} accessibilityLabel={`Progress ${progress()} percent`} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="2. Progress ring" expect="a ring that starts at 12 o'clock and grows clockwise, with the % in the middle.">
-          <Row gap={8} alignItems="center">
-            <Pressable
-              onPress={() => progress.set(Math.max(0, progress() - 10))}
-              style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.pillBg, borderRadius: 6 }}
-            >
-              <Text fontSize={12} fontWeight={600} color={c.ink}>-10%</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => progress.set(Math.min(100, progress() + 10))}
-              style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.pillBg, borderRadius: 6 }}
-            >
-              <Text fontSize={12} fontWeight={600} color={c.ink}>+10%</Text>
-            </Pressable>
-            <Text fontSize={13} color={c.ink}>
-              Progress: {progress()}%
-            </Text>
-          </Row>
-          <Box style={{ width: 160, height: 160, alignSelf: "center" }}>
-            <Canvas style={{ width: 160, height: 160 }} commands={ringCommands()} accessibilityLabel={`Progress ${progress()} percent`} />
-          </Box>
-        </Tile>
+        {show(3) && (
+          <Tile title="3. Dashed wave path" expect="a purple dashed wave through 4 dots.">
+            <Box style={{ width: 340, height: 100, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 100 }} commands={pathCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="3. Dashed wave path" expect="a purple dashed wave through 4 dots.">
-          <Box style={{ width: 340, height: 100, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 100 }} commands={pathCommands()} />
-          </Box>
-        </Tile>
+        {show(4) && (
+          <Tile title="4. Text in rotated groups" expect="a compass with 8 labels around it; N is red and bold.">
+            <Box style={{ width: 180, height: 180, alignSelf: "center" }}>
+              <Canvas style={{ width: 180, height: 180 }} commands={rotatedTextCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="4. Text in rotated groups" expect="a compass with 8 labels around it; N is red and bold.">
-          <Box style={{ width: 180, height: 180, alignSelf: "center" }}>
-            <Canvas style={{ width: 180, height: 180 }} commands={rotatedTextCommands()} />
-          </Box>
-        </Tile>
+        {show(5) && (
+          <Tile title="5. Area chart with a gradient" expect="a blue line; under it a fill that fades from blue at the top to clear at the bottom (same on every phone).">
+            <Box style={{ width: 340, height: 140, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 140 }} commands={areaCommands()} accessibilityLabel="Sales, last 12 months, going up" />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="5. Area chart with a gradient" expect="a blue line; under it a fill that fades from blue at the top to clear at the bottom (same on every phone).">
-          <Box style={{ width: 340, height: 140, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 140 }} commands={areaCommands()} accessibilityLabel="Sales, last 12 months, going up" />
-          </Box>
-        </Tile>
+        {show(6) && (
+          <Tile title="6. clipRect and scale" expect="left: a blue circle with its top and bottom cut flat by the grey box (its round sides show); right: a green rounded square, 80 dp. The grey border of this tile stays in place.">
+            <Box style={{ width: 340, height: 120, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 120 }} commands={clipScaleCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="6. clipRect and scale" expect="left: a blue circle with its top and bottom cut flat by the grey box (its round sides show); right: a green rounded square, 80 dp. The grey border of this tile stays in place.">
-          <Box style={{ width: 340, height: 120, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 120 }} commands={clipScaleCommands()} />
-          </Box>
-        </Tile>
+        {show(7) && (
+          <Tile title="7. oval and roundRect" expect="left: an oval, purple in the middle fading to white; right: a light green rounded box with a green border.">
+            <Box style={{ width: 340, height: 100, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 100 }} commands={shapeCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="7. oval and roundRect" expect="left: an oval, purple in the middle fading to white; right: a light green rounded box with a green border.">
-          <Box style={{ width: 340, height: 100, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 100 }} commands={shapeCommands()} />
-          </Box>
-        </Tile>
+        {show(8) && (
+          <Tile title="8. Bad commands" expect="a green box, a solid blue line (no dash) and a green dot. No crash and no red screen. Logcat (tag zn) or the Xcode console: one warning naming commands 1-4.">
+            <Box style={{ width: 340, height: 80, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 80 }} commands={badCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="8. Bad commands" expect="a green box, a solid blue line (no dash) and a green dot. No crash and no red screen. Logcat (tag zn): one warning naming commands 1-4.">
-          <Box style={{ width: 340, height: 80, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 80 }} commands={badCommands()} />
-          </Box>
-        </Tile>
+        {show(9) && <ChartScrubTile />}
+        {show(10) && <MotionRingTile />}
+        {show(11) && <PathTrimTile />}
 
-        <ChartScrubTile />
-        <MotionRingTile />
-        <PathTrimTile />
+        {show(12) && (
+          <Tile title="12. Images" expect="left: the offer picture filling a rounded box (cut to fit); middle: the whole picture on a grey box; right: a photo from the web in a circle (needs internet). Nothing at the top-left corner: that URL is broken on purpose (a warning in logcat or the Xcode console).">
+            <Box style={{ width: 340, height: 110, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 110 }} commands={imageCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="12. Images" expect="left: the offer picture filling a rounded box (cut to fit); middle: the whole picture on a grey box; right: a photo from the web in a circle (needs internet). Nothing at the top-left corner: that URL is broken on purpose (a warning in logcat).">
-          <Box style={{ width: 340, height: 110, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 110 }} commands={imageCommands()} />
-          </Box>
-        </Tile>
+        {show(13) && (
+          <Tile title="13. Paragraphs" expect="3 lines of wrapped text, the third ending with …; under a line, a green bold centred title and a grey centred time.">
+            <Box style={{ width: 340, height: 150, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 150 }} commands={paragraphCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="13. Paragraphs" expect="3 lines of wrapped text, the third ending with …; under a line, a green bold centred title and a grey centred time.">
-          <Box style={{ width: 340, height: 150, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 150 }} commands={paragraphCommands()} />
-          </Box>
-        </Tile>
+        {show(14) && (
+          <Tile title="14. Scanner frame (clip difference)" expect="coloured stripes, dark everywhere except a bright rounded square in the middle with white corner marks, and white text at the bottom.">
+            <Box style={{ width: 340, height: 220, borderRadius: 8, overflow: "hidden" }}>
+              <Canvas style={{ width: 340, height: 220 }} commands={scannerCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="14. Scanner frame (clip difference)" expect="coloured stripes, dark everywhere except a bright rounded square in the middle with white corner marks, and white text at the bottom.">
-          <Box style={{ width: 340, height: 220, borderRadius: 8, overflow: "hidden" }}>
-            <Canvas style={{ width: 340, height: 220 }} commands={scannerCommands()} />
-          </Box>
-        </Tile>
+        {show(15) && (
+          <Tile title="15. Paint effects" expect="left to right: a ring that fades blue → purple → green from 12 o'clock; a red and a blue circle whose overlap is dark purple (multiply); a white card with a soft shadow (Android 9+); a soft purple glow with a white dot (blur, Android 9+); a black square with a square hole (evenOdd).">
+            <Box style={{ width: 340, height: 130, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 130 }} commands={effectsCommands()} />
+            </Box>
+          </Tile>
+        )}
 
-        <Tile title="15. Paint effects" expect="left to right: a ring that fades blue → purple → green from 12 o'clock; a red and a blue circle whose overlap is dark purple (multiply); a white card with a soft shadow (Android 9+); a soft purple glow with a white dot (blur, Android 9+); a black square with a square hole (evenOdd).">
-          <Box style={{ width: 340, height: 130, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
-            <Canvas style={{ width: 340, height: 130 }} commands={effectsCommands()} />
-          </Box>
-        </Tile>
+        {show(16) && (
+          <Tile title="16. Shadow and blur, turned and scaled" expect="on grey: a white card turned 30° clockwise whose shadow falls toward its own bottom edge (down and to the left), a straight card with its shadow straight down, a soft purple glow (twice as soft, it is scaled 2×) and a soft green line.">
+            <Box style={{ width: 340, height: 130, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+              <Canvas style={{ width: 340, height: 130 }} commands={turnedEffectsCommands()} />
+            </Box>
+          </Tile>
+        )}
       </Column>
     </Scroll>
   )
