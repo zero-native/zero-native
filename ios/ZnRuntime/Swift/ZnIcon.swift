@@ -67,6 +67,7 @@ enum SvgPathParser {
                 cur = p; lastCtrl = nil
             case UInt8(ascii: "z"):
                 path.closeSubpath(); cur = start; lastCtrl = nil
+                while tokens.number() != nil {}  // Z takes no numbers (Compose drops them); a repeated Z would loop
             default:
                 return path
             }
@@ -138,7 +139,7 @@ enum SvgPathParser {
             guard i < b.count else { return nil }
             let c = b[i]
             if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) { i += 1; return c }
-            return current == 0 ? nil : current
+            return current == 0 || current | 0x20 == 122 ? nil : current  // Z never repeats
         }
 
         mutating func flag() -> Bool? {
