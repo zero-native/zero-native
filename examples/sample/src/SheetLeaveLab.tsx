@@ -9,6 +9,9 @@
 //   opening a sheet at once after a pop, replace or reset that left this screen's sheet open (the new one stays).
 // - S5: an Alert or a share sheet shown over the sheet goes with it when JS closes the sheet; one shown in the same
 //   tap that closes the sheet stays.
+// - A styled sheet: backgroundColor and borderRadius colour and round the whole card (the grabber's band too), and
+//   onDetentChange logs "SLAB detent half" / "SLAB detent full" when a drag rests on another detent (nothing for a
+//   spring back to the same one, on open, or on close).
 // Log lines start with "SLAB" (the console).
 import { Column, Modal, Pressable, Scroll, Sheet, Text, TextField } from "@zeronative/ui"
 import { Alert, nav, Os, signal } from "@zeronative/core"
@@ -44,6 +47,8 @@ export function SheetLeaveLabScreen(props: { opens?: boolean; depth?: number }) 
   const removable = signal(props.opens === true)
   const quick = signal(false)
   const modal = signal(false)
+  const styled = signal(false)
+  const detent = signal("half")
   if (props.opens) console.log(`SLAB screen at depth ${depth} opens its sheet at once`)
   const showRemovable = () => removable() || (depth === 0 && openBelow())
   const closeRemovable = () => {
@@ -74,6 +79,7 @@ export function SheetLeaveLabScreen(props: { opens?: boolean; depth?: number }) 
               }, i * 400)
             }
           }} />
+          <SlabTile label="Open the dark sheet (24 pt corners, half / full)" onPress={() => styled.set(true)} />
           <SlabTile label="Push another lab screen" onPress={() => nav.push("sheetLeaveLab", { depth: depth + 1 })} />
           <Pressable onPress={() => nav.back()} style={card}>
             <Text fontSize={15} color={c.ink}>
@@ -140,6 +146,23 @@ export function SheetLeaveLabScreen(props: { opens?: boolean; depth?: number }) 
           }} />
         </Sheet>
       )}
+      <Sheet
+        visible={styled()}
+        detents="half,full"
+        onDismiss={() => { console.log("SLAB onDismiss styled"); styled.set(false); detent.set("half") }}
+        onDetentChange={(d) => { console.log(`SLAB detent ${d}`); detent.set(d) }}
+        style={{ backgroundColor: "#1E1B4B", borderRadius: 24, paddingHorizontal: 20, paddingBottom: 16, gap: 10 }}
+      >
+        <Text fontSize={16} fontWeight={700} color="#FFFFFF">
+          Dark sheet
+        </Text>
+        <Text testID="styled-detent" fontSize={14} color="#C7D2FE">
+          {`Detent: ${detent()}`}
+        </Text>
+        <Text fontSize={13} color="#A5B4FC">
+          Drag up to full, down to half: each rest on a new detent logs it once.
+        </Text>
+      </Sheet>
       {quick() && (
         <Sheet visible onDismiss={() => console.log("SLAB onDismiss quick")} style={{ paddingHorizontal: 20, paddingBottom: 16 }}>
           <Text fontSize={16} fontWeight={700} color={c.ink}>

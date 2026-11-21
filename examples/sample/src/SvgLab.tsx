@@ -34,6 +34,7 @@ import GlowRing from "./svg/r13/glow-ring.svg"
 import StarMorph from "./svg/r13/star-morph.svg"
 import TapHeart from "./svg/r13/tap-heart.svg"
 import CssBars from "./svg/r13/css-bars.svg"
+import TwoShadows from "./svg/r13/two-shadows.svg"
 
 const like = "#E11D48"
 const RING_COLORS = ["#3D26ED", "#15803D", "#E11D48", "#F59E0B"]
@@ -389,12 +390,19 @@ export function SvgLabScreen() {
             </Row>
           </Section>
 
-          <Section title="Effects" note="Shadow and text, pattern with a fade, route markers, blend">
+          <Section title="Effects" note="Shadow and text, pattern with a fade, route markers, blend, two stacked shadows">
             <Row style={{ justifyContent: "space-between" }}>
               <IconTile label="Shadow"><CoinShadow size={40} /></IconTile>
               <IconTile label="Pattern"><StripesFade size={40} /></IconTile>
               <IconTile label="Route"><Route size={40} /></IconTile>
               <IconTile label="Blend"><Blend size={40} /></IconTile>
+            </Row>
+            {/* Two drop shadows merged (as Figma exports a stack): a tight dark one and a wide indigo one, both under the card. */}
+            <Row style={{ justifyContent: "space-between" }}>
+              <IconTile label="2 shadows"><TwoShadows size={40} /></IconTile>
+              <Column style={{ width: 120, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
+                <TwoShadows size={96} />
+              </Column>
             </Row>
           </Section>
 

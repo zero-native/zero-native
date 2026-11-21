@@ -2,7 +2,8 @@
 // not framework code.
 //   a) a card rail that snaps each card to the centre (snapToInterval + snapToAlignment="center")
 //   b) a pager made of a horizontal List (pagingEnabled), with the page number from onMomentumScrollEnd
-//   c) a vertical Scroll that stops on section starts (snapToOffsets) with an event log and scrollTo buttons
+//   c) a vertical Scroll that stops on section starts (snapToOffsets) with an event log and scrollTo buttons, and pull
+//      to refresh with a white spinner on a primary-colour disc (refreshColor + refreshBackground), 3 s long
 // The fling and the snap run natively; JS only hears the events it has handlers for.
 import { Column, List, Pressable, Row, Scroll, Text } from "@zeronative/ui"
 import { Dimensions, nav, signal } from "@zeronative/core"
@@ -35,6 +36,7 @@ export function ScrollLabScreen() {
   const page = signal(0)
   const log = signal<string[]>([])
   const y = signal(0)
+  const refreshing = signal(false)
   const add = (line: string) => log.set([line, ...log()].slice(0, 6))
   const ref: { current: ScrollRef | null } = { current: null }
   const onScroll = (e: ScrollEvent) => y.set(Math.round(e.nativeEvent.contentOffset.y))
@@ -105,6 +107,11 @@ export function ScrollLabScreen() {
         <Text fontSize={13} fontWeight={700} color={c.ink} style={{ flex: 1 }}>
           {`c) Sections; y = ${y()} dp`}
         </Text>
+        <SlButton label="Refresh" onPress={() => {
+          // `refreshing` from JS alone shows the spinner (on its disc) without a pull.
+          refreshing.set(true)
+          setTimeout(() => refreshing.set(false), 3000)
+        }} />
         <SlButton label="Top" onPress={() => ref.current?.scrollTo({ y: 0 })} />
         <SlButton label="Section 3" onPress={() => ref.current?.scrollTo({ y: SECTION_H * 2 })} />
         <SlButton label="End" onPress={() => ref.current?.scrollToEnd()} />
@@ -126,6 +133,14 @@ export function ScrollLabScreen() {
         onScrollEndDrag={(e) => add(`end drag at ${Math.round(e.nativeEvent.contentOffset.y)}`)}
         onMomentumScrollBegin={(e) => add(`momentum begin, speed ${Math.round(e.nativeEvent.velocity?.y ?? 0)} dp/s`)}
         onMomentumScrollEnd={(e) => add(`momentum end at ${Math.round(e.nativeEvent.contentOffset.y)} of ${Math.round(e.nativeEvent.contentSize.height)}`)}
+        refreshing={refreshing()}
+        onRefresh={() => {
+          add("refresh")
+          refreshing.set(true)
+          setTimeout(() => { refreshing.set(false); add("refresh done") }, 3000)
+        }}
+        refreshColor="#FFFFFF"
+        refreshBackground={c.primary}
         style={{ flex: 1, marginHorizontal: 16, marginBottom: 16, borderRadius: 18, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}
       >
         {SECTIONS.map((name, i) => (

@@ -105,6 +105,7 @@ export function InputScreen() {
             }}
             placeholder="₹0"
             keyboardType="number-pad"
+            selectionColor={c.primary}
             onFocus={() => focused.set("amount")}
             style={{ ...field, fontSize: 22, fontWeight: 700 }}
           />
@@ -130,6 +131,7 @@ export function InputScreen() {
             onChangeText={(t) => note.set(t)}
             placeholder="Add a note"
             multiline
+            selectionColor={c.primary}
             returnKeyType="done"
             onSubmitEditing={(t) => submitted.set(t)}
             onFocus={() => focused.set("note")}
@@ -137,6 +139,17 @@ export function InputScreen() {
             style={{ ...field, minHeight: 64 }}
           />
           <Hint text="Amount is formatted as you type." />
+        </Card>
+
+        {/* autoCapitalize / autoCorrect (watch the shift key and the suggestion bar on the software keyboard),
+            placeholderTextColor and selectionColor (the cursor, handles and highlight). Not written: the placeholder is
+            #9CA3AF, as on Android. */}
+        <Card header={<Text fontSize={14} fontWeight={600} color={c.ink}>Keyboard rules and colours</Text>}>
+          <TextField testID="tf-pan" placeholder="PAN: CAPITALS (characters)" autoCapitalize="characters" autoCorrect={false} maxLength={10} style={field} />
+          <TextField testID="tf-none" placeholder="upi id: no capitals, no autocorrect" autoCapitalize="none" autoCorrect={false} style={field} />
+          <TextField testID="tf-default" placeholder="Default: sentences and autocorrect" style={field} />
+          <TextField testID="tf-red" placeholder="Red placeholder, green selection" placeholderTextColor="#DC2626" selectionColor="#16A34A" style={field} />
+          <TextField testID="tf-red-multi" placeholder="Red multiline placeholder, green selection" placeholderTextColor="#DC2626" selectionColor="#16A34A" multiline style={{ ...field, minHeight: 56 }} />
         </Card>
 
         {/* editable={false} (fixed and from a signal), and colour / placeholder from a signal. */}

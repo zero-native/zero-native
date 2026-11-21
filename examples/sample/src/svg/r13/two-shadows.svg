@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Two stacked drop shadows merged under a card, as Figma exports them: a tight dark one and a wide soft one
+       (bottom first). Both must show; iOS used to draw only the first. -->
+  <defs>
+    <filter id="cardShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="0.6"/>
+      <feOffset dy="1" result="tight"/>
+      <feFlood flood-color="#0F172A" flood-opacity="0.5"/>
+      <feComposite in2="tight" operator="in" result="tightShadow"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4"/>
+      <feOffset dy="7" result="wide"/>
+      <feFlood flood-color="#4F46E5" flood-opacity="0.5"/>
+      <feComposite in2="wide" operator="in" result="wideShadow"/>
+      <feMerge>
+        <feMergeNode in="tightShadow"/>
+        <feMergeNode in="wideShadow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#cardShadow)">
+    <rect x="9" y="8" width="30" height="26" rx="6" fill="#FFFFFF"/>
+    <rect x="14" y="14" width="20" height="3" rx="1.5" fill="#4F46E5"/>
+    <rect x="14" y="21" width="13" height="3" rx="1.5" fill="#CBD5E1"/>
+  </g>
+</svg>
