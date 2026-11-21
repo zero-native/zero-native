@@ -355,16 +355,22 @@ struct ZnSizeFrame: ViewModifier {
     let outer: ZnOuter
     let alignment: Alignment
 
-    /// Set sizes in points, with aspectRatio giving the other side from the one that is set (width / height = ratio).
-    private func points(_ width: ZnSize?, _ height: ZnSize?, _ ratio: CGFloat?) -> (CGFloat?, CGFloat?, CGFloat?, CGFloat?) {
-        var w: CGFloat? = if case .points(let v) = width { v } else { nil }
-        var h: CGFloat? = if case .points(let v) = height { v } else { nil }
+    /// Set sizes in points, each kept between its own min and max first (RN, c29a), with aspectRatio giving the other
+    /// side from the one that is set (width / height = ratio), kept between that side's min and max (znRatioSides).
+    private func points(_ width: ZnSize?, _ height: ZnSize?, _ ratio: CGFloat?,
+                        _ minW: CGFloat?, _ maxW: CGFloat?, _ minH: CGFloat?, _ maxH: CGFloat?) -> (CGFloat?, CGFloat?, CGFloat?, CGFloat?) {
+        var w: CGFloat? = if case .points(let v) = width { znClamp(max(v, 0), minW, maxW) } else { nil }
+        var h: CGFloat? = if case .points(let v) = height { znClamp(max(v, 0), minH, maxH) } else { nil }
         let wf: CGFloat? = if case .percent(let f) = width { f } else { nil }
         let hf: CGFloat? = if case .percent(let f) = height { f } else { nil }
         if let r = ratio {
-            if let ww = w, h == nil, hf == nil { h = ww / r } else if let hh = h, w == nil, wf == nil { w = hh * r }
+            if let ww = w, h == nil, hf == nil {
+                h = znRatioSides(given: ww, ratio: r, fromHeight: false, minW: minW, maxW: maxW, minH: minH, maxH: maxH).h
+            } else if let hh = h, w == nil, wf == nil {
+                w = znRatioSides(given: hh, ratio: r, fromHeight: true, minW: minW, maxW: maxW, minH: minH, maxH: maxH).w
+            }
         }
-        return (w.map { max($0, 0) }, h.map { max($0, 0) }, wf, hf)
+        return (w, h, wf, hf)
     }
 
     func body(content: Content) -> some View {
@@ -372,13 +378,13 @@ struct ZnSizeFrame: ViewModifier {
         let minWidth = s.minWidthNow(inst), maxWidth = s.maxWidthNow(inst)
         let minHeight = s.minHeightNow(inst), maxHeight = s.maxHeightNow(inst)
         let aspect = s.aspectRatioNow(inst)
-        let (w, h, wf, hf) = points(width, height, aspect)
-        // A percent fills what its parent offers (the parent takes the fraction: ZnPercentKey).
-        let fillW = (outer.fillWidth && width == nil) || wf != nil
-        let fillH = (outer.fillHeight && height == nil) || hf != nil
         // A fill (stretch, flex) still stops at maxWidth / maxHeight; a min beats a max (RN), and SwiftUI wants min <= max.
         let minW = minWidth.map { max($0, 0) }, minH = minHeight.map { max($0, 0) }
         let maxW = maxWidth.map { max($0, minW ?? 0, 0) }, maxH = maxHeight.map { max($0, minH ?? 0, 0) }
+        let (w, h, wf, hf) = points(width, height, aspect, minW, maxW, minH, maxH)
+        // A percent fills what its parent offers (the parent takes the fraction: ZnPercentKey).
+        let fillW = (outer.fillWidth && width == nil) || wf != nil
+        let fillH = (outer.fillHeight && height == nil) || hf != nil
         // aspectRatio with no side in points gives one side from the other: the width it is offered (set by a stretch,
         // a flex or a "%" width), or a "%" height alone. Its content then fills that size (a Stack's absolute children
         // are placed in it: ZeroBill's scanner window, width "75%" + aspectRatio 1, was 0 tall with its corners on one
@@ -501,20 +507,16 @@ struct ZnRatioLayout: Layout {
     var fromHeight = false
     var minW: CGFloat? = nil, maxW: CGFloat? = nil, minH: CGFloat? = nil, maxH: CGFloat? = nil
 
-    private static func clamp(_ v: CGFloat, _ lo: CGFloat?, _ hi: CGFloat?) -> CGFloat {
-        var r = v
-        if let hi { r = min(r, hi) }
-        if let lo { r = max(r, lo) }
-        return r
-    }
-
-    /// The known side keeps its size; the other is ratio-derived and kept between its min and max (a maxHeight caps a
-    /// wide box's height, as Compose's aspectRatio inside heightIn on Android).
+    /// The known side (what is offered, or the content's width when nothing is) gives the other (znRatioSides: both
+    /// kept between their min and max, as Android's dynamicSize).
     private func size(_ p: ProposedViewSize, _ child: LayoutSubview) -> CGSize {
-        if fromHeight, let h = p.height, h.isFinite { return CGSize(width: Self.clamp(h * ratio, minW, maxW), height: h) }
-        if let w = p.width, w.isFinite { return CGSize(width: w, height: Self.clamp(w / ratio, minH, maxH)) }
-        let fit = child.sizeThatFits(p)
-        return CGSize(width: fit.width, height: Self.clamp(fit.width / ratio, minH, maxH))
+        let given: CGFloat
+        var byHeight = false
+        if fromHeight, let h = p.height, h.isFinite { given = h; byHeight = true }
+        else if let w = p.width, w.isFinite { given = w }
+        else { given = child.sizeThatFits(p).width }
+        let (w, h) = znRatioSides(given: given, ratio: ratio, fromHeight: byHeight, minW: minW, maxW: maxW, minH: minH, maxH: maxH)
+        return CGSize(width: w, height: h)
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

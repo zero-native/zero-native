@@ -64,3 +64,25 @@ func znDisplayNone(_ v: ZnValue) -> Bool {
     default: return false
     }
 }
+
+/// [v] kept between [lo] and [hi]; a min beats a max (RN).
+func znClamp(_ v: CGFloat, _ lo: CGFloat?, _ hi: CGFloat?) -> CGFloat {
+    var r = v
+    if let hi { r = min(r, hi) }
+    if let lo { r = max(r, lo) }
+    return r
+}
+
+/// aspectRatio's two sides from the one that is given (a set width, or the width a stretch or flex offers; the height
+/// when [fromHeight]), as Android's dynamicSize: the given side is kept between its own min and max first, then the
+/// other is the ratio of it (width / height = ratio), kept between its min and max. So `{ maxWidth: 200,
+/// aspectRatio: 2 }` stretched in a 360 pt Column is 200 x 100, and a maxHeight caps a wide box's height.
+func znRatioSides(given: CGFloat, ratio: CGFloat, fromHeight: Bool,
+                  minW: CGFloat?, maxW: CGFloat?, minH: CGFloat?, maxH: CGFloat?) -> (w: CGFloat, h: CGFloat) {
+    if fromHeight {
+        let h = znClamp(given, minH, maxH)
+        return (znClamp(h * ratio, minW, maxW), h)
+    }
+    let w = znClamp(given, minW, maxW)
+    return (w, znClamp(w / ratio, minH, maxH))
+}

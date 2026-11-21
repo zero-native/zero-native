@@ -41,6 +41,9 @@ struct ZnCarouselView: View {
                                 .id(i)
                         }
                     }
+                    // A clear hit shape over the pages: backgrounds and plain Texts take no taps (as on Android), so a
+                    // page with no Pressable left nothing for the touch gesture below, and autoAdvance didn't pause.
+                    .contentShape(Rectangle())
                     .scrollTargetLayout()
                     .padding(.top, pad.top)
                     .padding(.bottom, pad.bottom)

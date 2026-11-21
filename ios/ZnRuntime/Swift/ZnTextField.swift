@@ -79,7 +79,8 @@ enum ZnFieldFocus {
         boxes[key] = WeakView(v)
     }
     /// The boxes of the fields in [window] under [point] (window coordinates), with the view controller each is in: a
-    /// Pressable around a field leaves the touch to it (ZnTouchControl.hitTest).
+    /// Pressable around a field leaves the touch to it (ZnTouchControl.hitTest). A tappable Text with span links puts
+    /// its frame here too ("text:" keys, ZnTextLinkPress), for the same reason.
     static func boxes(at point: CGPoint, in window: UIWindow) -> [(frame: CGRect, controller: UIViewController?)] {
         boxes.values.compactMap { w in
             guard let v = w.view, v.window === window, !v.isHidden else { return nil }
@@ -254,9 +255,13 @@ struct ZnUIKitField: UIViewRepresentable {
         // editable={false}: no focus, no keyboard, no typing (React Native on iOS sets enabled = NO). One that turns
         // read-only while focused closes its keyboard; onBlur then goes as when focus is lost on Android.
         c.editable = look.editable
-        if !look.editable && f.isFirstResponder { f.resignFirstResponder() }
-        // Only on a change: setting them again relays the field out.
-        if f.placeholder != look.placeholder { f.placeholder = look.placeholder.isEmpty ? nil : look.placeholder }
+        // After this update: resigning sends onBlur, and JS's answer must not change state while SwiftUI updates.
+        if !look.editable && f.isFirstResponder {
+            DispatchQueue.main.async { if !c.editable && f.isFirstResponder { f.resignFirstResponder() } }
+        }
+        // Only on a change: setting them again relays the field out (an empty placeholder is nil).
+        let placeholder = look.placeholder.isEmpty ? nil : look.placeholder
+        if f.placeholder != placeholder { f.placeholder = placeholder }
         f.font = .systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
         let color = UIColor(look.color)
         if f.textColor != color { f.textColor = color }
@@ -436,9 +441,15 @@ struct ZnUIKitTextView: UIViewRepresentable {
         let font = UIFont.systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
         v.font = font
         // editable={false}: the text can still be selected and copied (the nearest to Compose's readOnly), not edited.
-        // Turning it off while focused resigns, so the keyboard closes and onBlur goes.
+        // Turning it off while focused resigns (after this update, as the one-line field), so the keyboard closes and
+        // onBlur goes: a UITextView that isn't editable can stay first responder. Only on that change: one that is
+        // read-only already keeps the selection the user is making.
         c.editable = look.editable
+        let turnedOff = v.isEditable && !look.editable
         if v.isEditable != look.editable { v.isEditable = look.editable }
+        if turnedOff && v.isFirstResponder {
+            DispatchQueue.main.async { if !c.editable && v.isFirstResponder { v.resignFirstResponder() } }
+        }
         let color = UIColor(look.color)
         if v.textColor != color { v.textColor = color }
         v.keyboardType = znKeyboard(s.keyboardType)

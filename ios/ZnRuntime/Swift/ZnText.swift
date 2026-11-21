@@ -43,7 +43,6 @@ struct ZnTextView: View {
     let ctx: ZnContext
     let s: ZnNodeSpec
     let inst: ZnInstance
-    @State private var taps = ZnTextTaps()
 
     var body: some View {
         let _ = ZnDebug.hit(name: "TextLeaf", inst: inst, node: s.index)
@@ -60,16 +59,7 @@ struct ZnTextView: View {
             .lineLimit(s.maxLines)
             .truncationMode(.tail)
             .lineSpacing(extra)
-            .environment(\.openURL, OpenURLAction { url in
-                // zn-span:<index>: a span's onPress.
-                guard url.scheme == "zn-span", let i = Int(url.absoluteString.dropFirst("zn-span:".count)) else {
-                    return .systemAction
-                }
-                taps.lastLinkAt = CACurrentMediaTime()
-                if s.onSpanPress != 0 { ctx.send(inst.id, s.onSpanPress, .number(Double(i))) }
-                return .handled
-            })
-            .modifier(ZnTextPress(ctx: ctx, s: s, inst: inst, taps: taps))
+            .modifier(ZnTextPress(ctx: ctx, s: s, inst: inst))
     }
 
     private func pattern(_ style: Int) -> Text.LineStyle.Pattern {
@@ -114,12 +104,17 @@ struct ZnTextView: View {
     }
 }
 
-/// When a Text's last span link fired, so a top-level tap that came with it doesn't also send onPress.
+/// A span link's tap: zn-span:<index> sends onSpanPress with the index; [fired] runs after it.
 @MainActor
-final class ZnTextTaps {
-    var lastLinkAt: CFTimeInterval = 0
-    var longFired = false
-    let press = ZnPressState()
+func znSpanLinks(_ ctx: ZnContext, _ s: ZnNodeSpec, _ inst: ZnInstance, fired: @escaping () -> Void = {}) -> OpenURLAction {
+    OpenURLAction { url in
+        guard url.scheme == "zn-span", let i = Int(url.absoluteString.dropFirst("zn-span:".count)) else {
+            return .systemAction
+        }
+        fired()
+        if s.onSpanPress != 0 { ctx.send(inst.id, s.onSpanPress, .number(Double(i))) }
+        return .handled
+    }
 }
 
 /// A top-level onPress / onLongPress on a Text (ZnRenderer.kt TEXT: clickable / combinedClickable, no indication,
@@ -128,48 +123,91 @@ final class ZnTextTaps {
 /// A Text whose spans are links keeps SwiftUI's taps instead (a touch view over it would take the links' taps): a tap
 /// sends onPress unless a link just fired. A Text with neither takes no taps, so a tap goes through to what is under it,
 /// as on Android.
+/// The press state is made only for a Text with a handler (in ZnTextTouch / ZnTextLinkPress): most Texts have none,
+/// and a @State's first value is built again every time the parent's body runs.
 struct ZnTextPress: ViewModifier {
     let ctx: ZnContext
     let s: ZnNodeSpec
     let inst: ZnInstance
-    let taps: ZnTextTaps
-    @Environment(\.znTouchOff) private var touchOff
 
     func body(content: Content) -> some View {
         // Which branch never changes for a node: its events are in the template.
         if s.onPress == 0 && s.onLongPress == 0 {
-            content.allowsHitTesting(s.onSpanPress != 0)
+            content.environment(\.openURL, znSpanLinks(ctx, s, inst)).allowsHitTesting(s.onSpanPress != 0)
         } else if s.onSpanPress != 0 {
-            content
-                .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+            content.modifier(ZnTextLinkPress(ctx: ctx, s: s, inst: inst))
+        } else {
+            content.modifier(ZnTextTouch(ctx: ctx, s: s, inst: inst))
+        }
+    }
+}
+
+/// onLongPress is there and JS still has a handler (the hasLongPress slot), as ZnTouchTarget's.
+@MainActor
+private func znTextLongPressOn(_ s: ZnNodeSpec, _ inst: ZnInstance) -> Bool {
+    s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false))
+}
+
+/// A tappable Text without links: ZnTouchControl over it, as a Pressable's (no press feedback).
+struct ZnTextTouch: ViewModifier {
+    let ctx: ZnContext
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    @State private var press = ZnPressState()
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: press, disabled: false))
+            .modifier(ZnTextButtonA11y(ctx: ctx, s: s, inst: inst, longPress: znTextLongPressOn(s, inst)))
+    }
+}
+
+/// When the Text's last span link fired, so a tap that came with it doesn't also send onPress, and whether the touch
+/// now down was a long press.
+@MainActor
+final class ZnTextLinkTaps {
+    var lastLinkAt: CFTimeInterval = 0
+    var longFired = false
+}
+
+/// A tappable Text with span links: SwiftUI's tap and long press, so the links keep their taps. Inside a Pressable it
+/// takes its own taps, as Android's innermost clickable: its frame is a box the Pressable's touch view leaves to it
+/// (ZnFieldFocus.boxes, as a TextField's).
+struct ZnTextLinkPress: ViewModifier {
+    let ctx: ZnContext
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    @State private var taps = ZnTextLinkTaps()
+    @Environment(\.znTouchOff) private var touchOff
+
+    func body(content: Content) -> some View {
+        let longPressOn = znTextLongPressOn(s, inst)
+        content
+            .environment(\.openURL, znSpanLinks(ctx, s, inst) { taps.lastLinkAt = CACurrentMediaTime() })
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5)
+                // A new touch: a hold that ended with no tap (the finger moved away) no longer counts.
+                .onChanged { _ in taps.longFired = false }
+                .onEnded { _ in
                     guard !touchOff, longPressOn else { return }
                     taps.longFired = true
                     ctx.send(inst.id, s.onLongPress, .none)
                 })
-                .simultaneousGesture(TapGesture().onEnded {
-                    // After this run of the main loop, so a link's openURL (it fires on the same touch) is seen first.
-                    DispatchQueue.main.async {
-                        defer { taps.longFired = false }
-                        guard !touchOff, !taps.longFired, s.onPress != 0,
-                              CACurrentMediaTime() - taps.lastLinkAt > 0.15 else { return }
-                        ctx.send(inst.id, s.onPress, .none)
-                    }
-                })
-                .modifier(ZnTextButtonA11y(ctx: ctx, s: s, inst: inst, longPress: longPressOn))
-        } else {
-            content
-                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: taps.press, disabled: false))
-                .modifier(ZnTextButtonA11y(ctx: ctx, s: s, inst: inst, longPress: longPressOn))
-        }
-    }
-
-    /// onLongPress is there and JS still has a handler (the hasLongPress slot), as ZnTouchTarget's.
-    private var longPressOn: Bool {
-        s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false))
+            .simultaneousGesture(TapGesture().onEnded {
+                // After this run of the main loop, so a link's openURL (it fires on the same touch) is seen first.
+                DispatchQueue.main.async {
+                    defer { taps.longFired = false }
+                    guard !touchOff, !taps.longFired, s.onPress != 0,
+                          CACurrentMediaTime() - taps.lastLinkAt > 0.15 else { return }
+                    ctx.send(inst.id, s.onPress, .none)
+                }
+            })
+            .background(ZnFieldBoxMarker(key: "text:" + ZnFieldFocus.key(inst, s.index), off: touchOff))
+            .modifier(ZnTextButtonA11y(ctx: ctx, s: s, inst: inst, longPress: longPressOn))
     }
 }
 
-/// A tappable Text reads as a button; VoiceOver's double tap sends onPress, and a "Long press" action onLongPress.
+/// A tappable Text reads as a button; VoiceOver's double tap sends onPress, and a "Long press" action (only on a Text
+/// with onLongPress) sends onLongPress.
 struct ZnTextButtonA11y: ViewModifier {
     let ctx: ZnContext
     let s: ZnNodeSpec
@@ -177,9 +215,14 @@ struct ZnTextButtonA11y: ViewModifier {
     let longPress: Bool
 
     func body(content: Content) -> some View {
-        content
+        let button = content
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { if s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) } }
-            .accessibilityAction(named: Text("Long press")) { if longPress { ctx.send(inst.id, s.onLongPress, .none) } }
+        // On the template's onLongPress, so the branch never changes; [longPress] says JS still has a handler.
+        if s.onLongPress != 0 {
+            button.accessibilityAction(named: Text("Long press")) { if longPress { ctx.send(inst.id, s.onLongPress, .none) } }
+        } else {
+            button
+        }
     }
 }

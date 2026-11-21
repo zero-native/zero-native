@@ -60,5 +60,21 @@ check("display flex", znDisplayNone(.string("flex")), false)
 check("display 0", znDisplayNone(.number(0)), false)
 check("display null", znDisplayNone(.null), false)
 
+// aspectRatio (Android's dynamicSize): the given side keeps to its own min / max first, then the other side does.
+func sides(_ given: CGFloat, _ ratio: CGFloat, fromHeight: Bool = false, minW: CGFloat? = nil, maxW: CGFloat? = nil,
+           minH: CGFloat? = nil, maxH: CGFloat? = nil) -> [CGFloat] {
+    let r = znRatioSides(given: given, ratio: ratio, fromHeight: fromHeight, minW: minW, maxW: maxW, minH: minH, maxH: maxH)
+    return [r.w, r.h]
+}
+check("ratio plain", sides(360, 2), [360, 180])
+check("ratio maxWidth caps the given side", sides(360, 2, maxW: 200), [200, 100])
+check("ratio minWidth raises it", sides(100, 2, minW: 160), [160, 80])
+check("ratio maxHeight caps the derived side", sides(280, 1, maxH: 160), [280, 160])
+check("ratio both", sides(360, 1, maxW: 200, maxH: 120), [200, 120])
+check("ratio from height", sides(100, 2, fromHeight: true, maxH: 60), [120, 60])
+check("ratio from height, maxWidth", sides(100, 2, fromHeight: true, maxW: 150), [150, 100])
+check("clamp min beats max", znClamp(50, 80, 60), 80)
+check("clamp none", znClamp(50, nil, nil), 50)
+
 print(failures == 0 ? "ios layout values: \(count) checks passed" : "ios layout values: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)
