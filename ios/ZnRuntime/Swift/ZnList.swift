@@ -428,7 +428,10 @@ struct ZnCollectionList: UIViewRepresentable {
         c.ctx = ctx; c.inst = inst; c.s = s; c.list = list
         // The environment the cells need (a UIHostingConfiguration cell doesn't inherit it).
         let env = ZnHostedEnv(context.environment)
-        if c.envBox.env != env { c.envBox.env = env }
+        if c.envBox.env != env {
+            c.envBox.env = env
+            print("zn t=\(ZnDebug.ms()) list: cells get entry \(env.entry), hidden tab \(env.inHiddenTab), touch off \(env.touchOff), gesture depth \(env.gestureDepth)")
+        }
         if s.hasRefresh && !s.horizontal {
             let (ctx, inst, s) = (ctx, inst, s)
             let r = c.refresh ?? ZnRefresh()
