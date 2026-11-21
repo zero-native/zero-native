@@ -69,14 +69,15 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
     private let path = NWPathMonitor()
     private var online = true
 
-    private lazy var userAgent: String = {
+    /// The User-Agent of fetch and of the WebSocket handshake. A static let: made once, safely from any thread.
+    static let userAgent: String = {
         let b = Bundle.main
         let ascii = { (s: String) in String(s.unicodeScalars.filter { $0.value >= 0x20 && $0.value <= 0x7e }.map(Character.init)) }
         let name = (b.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "")
             .filter { $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) }
         let version = b.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         let os = znIosVersion()
-        return "\(name.isEmpty ? (b.bundleIdentifier ?? "app") : name)/\(ascii(version)) (iOS \(ascii(os))) zero-native/\(Self.frameworkVersion)"
+        return "\(name.isEmpty ? (b.bundleIdentifier ?? "app") : name)/\(ascii(version)) (iOS \(ascii(os))) zero-native/\(ZnFetch.frameworkVersion)"
     }()
 
     private init() {
@@ -120,7 +121,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
             if lower == "accept" { hasAccept = true }
             request.addValue(flat[i + 1], forHTTPHeaderField: name)
         }
-        if !hasAgent { request.setValue(userAgent, forHTTPHeaderField: "User-Agent") }
+        if !hasAgent { request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent") }
         if !hasAccept { request.setValue("*/*", forHTTPHeaderField: "Accept") }
         if let form = a["form"] as? [[Any]] {
             let boundary = "zn-" + UUID().uuidString

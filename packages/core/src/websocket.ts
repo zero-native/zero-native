@@ -1,6 +1,7 @@
 // The browser WebSocket API for zero-native apps.
-// Built on OkHttp on Android (uses the shared ZnFetch.client so pins and interceptors apply).
-// Native side: android/runtime/.../ZnWebSocket.kt. Differences from browsers: docs/fetch.md §8.
+// Built on OkHttp on Android (uses the shared ZnFetch.client so pins and interceptors apply), on
+// URLSessionWebSocketTask on iOS. Native side: android/runtime/.../ZnWebSocket.kt, ios/ZnRuntime/Swift/ZnWebSocket.swift.
+// Differences from browsers: docs/fetch.md §8.
 import { callNative, NativeError, onNativeEvent } from "./calls"
 import { reportError } from "./errors"
 import { runWithOwner } from "./signals"

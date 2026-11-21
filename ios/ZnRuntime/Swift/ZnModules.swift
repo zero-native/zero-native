@@ -197,7 +197,7 @@ public enum ZnModules {
     /// The built-in modules (an app's own of the same name win). Main thread; again is a no-op. Before the bundle is
     /// chosen (ZnBundles.choose checks a bundle's needs against every module), and from install().
     @MainActor static func registerBuiltIns() {
-        for m: ZnModule in [ZnPlatformFacts(), ZnOs(), ZnNetInfo(), ZnSecureStore(), ZnClipboard(), ZnFetch.shared,
+        for m: ZnModule in [ZnPlatformFacts(), ZnOs(), ZnNetInfo(), ZnSecureStore(), ZnClipboard(), ZnFetch.shared, ZnWebSocket.shared,
                              ZnKeyboard(), ZnVibration(), ZnToast(), ZnAlert(), ZnPermissions(), ZnSplash.Module(), ZnLaunch(), ZnUpdatesOff(), ZnTasks.shared, ZnMotionNone()] where !has(m.name) {
             register(m)
         }
@@ -243,6 +243,7 @@ public enum ZnModules {
             return (Array(active.values), listening.filter { $0.value > 0 }.keys, modules)
         }
         calls.forEach { $0.cancel() }
+        ZnWebSocket.shared.reset()  // its sockets belong to the old JS (Android: ZnWebSocket.reset)
         for key in heard {
             let parts = key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             if parts.count == 2 { mods[parts[0]]?.onListenerCount(parts[1], 0) }
