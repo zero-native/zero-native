@@ -68,8 +68,9 @@ export function InputScreen() {
         </Text>
       </Row>
 
-      {/* Scrolls when the keyboard leaves too little room; the focused field scrolls itself into view. */}
-      <Scroll style={{ flex: 1, paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
+      {/* Scrolls when the keyboard leaves too little room; the focused field scrolls itself into view. Dragging it closes
+          the keyboard (keyboardDismissMode="on-drag"; the field gets onBlur). */}
+      <Scroll keyboardDismissMode="on-drag" style={{ flex: 1, paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
         <Card header={<Text fontSize={14} fontWeight={600} color={c.ink}>Who</Text>}>
           <TextField
             value={name()}

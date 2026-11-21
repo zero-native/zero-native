@@ -4,7 +4,9 @@
 //   b) a pager made of a horizontal List (pagingEnabled), with the page number from onMomentumScrollEnd
 //   c) a vertical Scroll that stops on section starts (snapToOffsets) with an event log and scrollTo buttons, and pull
 //      to refresh with a white spinner on a primary-colour disc (refreshColor + refreshBackground), 3 s long
-// The fling and the snap run natively; JS only hears the events it has handlers for.
+// The fling and the snap run natively; JS only hears the events it has handlers for. Each log line (and each onScroll
+// y) also goes to the console as "scroll-lab ...". With the param run (--params '{"run":true}') it scrolls itself: Section
+// 3, End, Top with no animation, then refreshing from JS, so the commands and onScroll can be checked from the log.
 import { Column, List, Pressable, Row, Scroll, Text } from "@zeronative/ui"
 import { Dimensions, nav, signal } from "@zeronative/core"
 import type { ScrollEvent, ScrollRef } from "@zeronative/ui"
@@ -32,14 +34,32 @@ function SlButton(props: { label: string; onPress: () => void }) {
   )
 }
 
-export function ScrollLabScreen() {
+export function ScrollLabScreen(props: { run?: boolean }) {
   const page = signal(0)
   const log = signal<string[]>([])
   const y = signal(0)
   const refreshing = signal(false)
-  const add = (line: string) => log.set([line, ...log()].slice(0, 6))
+  const add = (line: string) => {
+    console.log(`scroll-lab ${line}`)
+    log.set([line, ...log()].slice(0, 6))
+  }
   const ref: { current: ScrollRef | null } = { current: null }
-  const onScroll = (e: ScrollEvent) => y.set(Math.round(e.nativeEvent.contentOffset.y))
+  const onScroll = (e: ScrollEvent) => {
+    y.set(Math.round(e.nativeEvent.contentOffset.y))
+    console.log(`scroll-lab y=${y()} of ${Math.round(e.nativeEvent.contentSize.height)} in ${Math.round(e.nativeEvent.layoutMeasurement.height)}`)
+  }
+  if (props.run) {
+    const steps: [number, string, () => void][] = [
+      [1000, "run: Section 3", () => ref.current?.scrollTo({ y: SECTION_H * 2 })],
+      [2500, "run: End", () => ref.current?.scrollToEnd()],
+      [4000, "run: Top, no animation", () => ref.current?.scrollTo({ y: 0, animated: false })],
+      [5000, "run: refreshing from JS", () => {
+        refreshing.set(true)
+        setTimeout(() => refreshing.set(false), 3000)
+      }],
+    ]
+    for (const [ms, line, step] of steps) setTimeout(() => { add(line); step() }, ms)
+  }
   // A page is the window's width: "100%" in a horizontal list row is the row's own content width (as in RN).
   const pageW = Dimensions.get("window").width
   return (
