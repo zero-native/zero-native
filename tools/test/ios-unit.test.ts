@@ -9,7 +9,7 @@ const root = join(import.meta.dir, "../..")
 const swift = hasSwiftc()
 
 test("ios/tests has the suites the runner finds", () => {
-  expect(iosSuites()).toEqual(expect.arrayContaining(["layout", "ota", "routes"]))
+  expect(iosSuites()).toEqual(expect.arrayContaining(["layout", "ota", "routes", "spec"]))
 })
 
 for (const suite of iosSuites()) {
