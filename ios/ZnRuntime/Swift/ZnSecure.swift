@@ -8,8 +8,9 @@
 //   (isSecureTextEntry), and iOS then leaves the canvas out of every capture: they show the root's plain background.
 //   Sheets, Modals, the app layers and toasts are inside it too (on Android they share the secure window). Alerts are
 //   presented by UIKit outside it and stay visible in captures.
-// - The app switcher: a plain cover in the screen's background colour from willResignActive to didBecomeActive (also
-//   over Control Center and Notification Center, as banking apps do).
+// - The app switcher: a plain cover in the screen's background colour from willResignActive to didBecomeActive. The
+//   switcher shows the app while it is only inactive, so the cover can't wait for didEnterBackground; it also shows
+//   behind Control Center, Notification Center, Face ID and permission prompts (Android shows the screen there).
 // The container is installed only when the bundle has a secure route (ZnRootController), so other apps keep the plain
 // view tree. If a later iOS changes the text field's insides (no canvas found), it logs once and shows the cover while
 // the screen is recorded or mirrored instead; screenshots then are not blanked.
@@ -45,9 +46,10 @@ final class ZnSecure {
         apply()
     }
 
-    /// Where a toast goes in [window]: inside the protected content when there is one.
+    /// Where a toast goes in [window]: inside the protected content while a secure screen is drawn; else nil (the
+    /// window, over everything, as in apps without a secure route).
     func toastParent(in window: UIWindow) -> UIView? {
-        guard let c = container, c.window === window else { return nil }
+        guard on, let c = container, c.window === window else { return nil }
         return c.content
     }
 
@@ -58,6 +60,7 @@ final class ZnSecure {
         on = drawn > 0
         print("zn t=\(ZnDebug.ms()) secure: \(on ? "on" : "off")\(container == nil ? " (no container)" : "")")
         container?.secure = on
+        probe()
         if !on { uncover(fade: false) } else if resigned || (container?.blanksCapture == false && captured) { coverUp() }
     }
 
@@ -87,6 +90,35 @@ final class ZnSecure {
         guard container?.blanksCapture == false, on, !resigned else { return }
         print("zn t=\(ZnDebug.ms()) secure: capture \(captured ? "started: cover" : "ended")")
         if captured { coverUp() } else { uncover(fade: true) }
+    }
+
+    /// ZN_IOS_SECURE_PROBE=1 (debug): a moment after each change, logs whether a capture of the window comes out blank,
+    /// to check the canvas trick on a new iOS (simctl's screenshots read the simulator's screen, not a capture).
+    private func probe() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["ZN_IOS_SECURE_PROBE"] == "1" else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            guard let window = self.container?.window else { return }
+            let f = UIGraphicsImageRendererFormat()
+            f.scale = 1
+            let img = UIGraphicsImageRenderer(bounds: window.bounds, format: f).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+            }
+            // Distinct colours on a coarse grid: a blank capture has one or two (the root's background).
+            var colours = Set<UInt32>()
+            if let cg = img.cgImage, let data = cg.dataProvider?.data, let p = CFDataGetBytePtr(data) {
+                for y in stride(from: 0, to: cg.height, by: 8) {
+                    for x in stride(from: 0, to: cg.width, by: 8) {
+                        let o = y * cg.bytesPerRow + x * 4
+                        colours.insert(UInt32(p[o]) << 16 | UInt32(p[o + 1]) << 8 | UInt32(p[o + 2]))
+                    }
+                }
+            }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("zn-secure-probe.png")
+            try? img.pngData()?.write(to: url)
+            print("zn secure probe: on=\(self.on) capture colours=\(colours.count) \(colours.count <= 2 ? "blank" : "shows content") \(url.path)")
+        }
+        #endif
     }
 
     private func coverUp() {
@@ -140,6 +172,7 @@ final class ZnSecureContainer: UIView {
     private weak var canvas: UIView?
     /// False when the field's canvas wasn't found (a later iOS): captures are not blanked (ZnSecure's fallback).
     private(set) var blanksCapture = false
+    private var warned = false
 
     init() {
         super.init(frame: .zero)
@@ -165,29 +198,37 @@ final class ZnSecureContainer: UIView {
         }
     }
 
-    /// Puts [content] in the field's canvas (the first subview whose class is a canvas, else its first subview).
+    /// Puts [content] in the field's canvas (its subview whose class is a canvas). None (a later iOS): in the container
+    /// itself, and captures are not blanked, never an unknown subview that might not be protected.
     private func attach() {
         field.layoutIfNeeded()
-        let found = field.subviews.first { NSStringFromClass(type(of: $0)).contains("CanvasView") } ?? field.subviews.first
-        if found !== canvas || content.superview == nil {
-            print("zn secure: the screens are in \(found.map { NSStringFromClass(type(of: $0)) } ?? "the container")\(canvas == nil ? "" : " (the field made a new canvas)")")
-            canvas = found
-            if let found {
-                found.addSubview(content)
-            } else {
-                print("zn secure: the text field has no canvas on this iOS: captures are not blanked, a cover shows while recording")
-                addSubview(content)
-            }
-        }
+        let found = field.subviews.first { NSStringFromClass(type(of: $0)).contains("CanvasView") }
         blanksCapture = found != nil
+        let parent = found ?? self
+        guard content.superview !== parent else { return }
+        if let found {
+            print("zn secure: the screens are in \(NSStringFromClass(type(of: found)))\(canvas == nil ? "" : " (the field made a new canvas)")")
+        } else if !warned {
+            warned = true
+            print("zn secure: the text field has no canvas on this iOS: captures are not blanked, a cover shows while recording")
+        }
+        canvas = found
+        parent.addSubview(content)
         setNeedsLayout()
+    }
+
+    /// VoiceOver and UI tests go from here straight to the screens: the text field and its canvas are not in the
+    /// accessibility tree (else the whole app reads as one text field).
+    override var accessibilityElements: [Any]? {
+        get { [content] }
+        set {}
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         field.frame = bounds
         field.layoutIfNeeded()
-        if let canvas, content.superview !== canvas { attach() }
+        if canvas == nil || content.superview !== canvas { attach() }  // a canvas made late, or a new one
         // The container's own rectangle, wherever the canvas sits in the field.
         if let parent = content.superview { content.frame = convert(bounds, to: parent) }
     }
@@ -199,8 +240,8 @@ final class ZnSecureContainer: UIView {
     }
 }
 
-/// The text field whose canvas holds the content: never focused, no text gestures, no edit menu, not one
-/// VoiceOver element (VoiceOver reads the content inside).
+/// The text field whose canvas holds the content: never focused, no text gestures or interactions, no edit menu, not
+/// in the accessibility tree (ZnSecureContainer.accessibilityElements).
 private final class ZnSecureField: UITextField {
     init() {
         super.init(frame: .zero)
@@ -227,7 +268,9 @@ private final class ZnSecureField: UITextField {
         get { false }
         set {}
     }
-    override func addGestureRecognizer(_ g: UIGestureRecognizer) {}  // UIKit adds them again when the field changes
+    // UIKit adds them again when the field changes (traits, Scribble, drag on iPad): they would see every touch.
+    override func addGestureRecognizer(_ g: UIGestureRecognizer) {}
+    override func addInteraction(_ interaction: UIInteraction) {}
     override func didMoveToWindow() {
         super.didMoveToWindow()
         strip()

@@ -139,6 +139,8 @@ export const routes = defineRoutes({
   photoViewer: { path: "/dev/image-viewer/tsx", screen: ImageViewerScreen, transparent: true, safeArea: "none", statusBar: "light", restore: false, transition: "none" },
   // Sheets that leave the tree while open (zn ca3734d). Last, so the numbers of the routes before it do not move.
   sheetLeaveLab: { path: "/dev/sheet-leave", screen: SheetLeaveLabScreen, deepLink: true },
+  // The secure lab's native screen: `secure: true` on a plugin's screen. Last, as above.
+  secureNative: { path: "/dev/core/secure-native", native: "device.fake-screen", secure: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

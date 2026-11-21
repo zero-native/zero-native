@@ -1,6 +1,6 @@
 // A dev screen for the core parts plugins stand on: native screens and views, zn://file, background tasks, secure screens,
 // dark mode. The phone test reads these lines, and the log lines "core-lab ...", so keep their wording.
-import { Box, Column, Image, NativeView, Pressable, Scroll, Sheet, Text } from "@zeronative/ui"
+import { Box, Column, Image, NativeView, Pressable, Scroll, Sheet, Text, TextField } from "@zeronative/ui"
 import { colorScheme, nav, onLowMemory, Os, scheme, signal, toast } from "@zeronative/core"
 import { Device } from "@zeronative/device-test"
 import { c } from "./tokens"
@@ -75,12 +75,21 @@ export function CoreLabScreen() {
 // it shows again once the push has ended. The log lines "secure-lab ...".
 export function SecureLabScreen() {
   const sheet = signal(false)
+  const note = signal("")
   return (
     <Column alignItems="center" justifyContent="center" style={{ flex: 1, gap: 12, backgroundColor: "#FFEEDD" }}>
       <Text fontSize={16}>secure screen</Text>
+      {/* A plain field: on iOS its keyboard must not offer passwords here (the screens sit in a password field). */}
+      <TextField
+        value={note()}
+        onChangeText={note.set}
+        placeholder="a note"
+        style={{ width: 220, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: "#999999", borderRadius: 6 }}
+      />
       <CoreButton label="Open sheet" onPress={() => sheet.set(true)} />
       <CoreButton label="Show toast" onPress={() => toast("secure toast")} />
       <CoreButton label="Push normal screen" onPress={() => nav.push("coreLab")} />
+      <CoreButton label="Push secure native screen" onPress={() => nav.push("secureNative", { title: "secure" })} />
       <CoreButton label="Back" onPress={() => nav.back()} />
       <Sheet visible={sheet()} onDismiss={() => sheet.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
         <Text fontSize={16}>secure sheet</Text>

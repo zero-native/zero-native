@@ -92,7 +92,9 @@ extension ZnApp {
     public func makeRootViewController() -> UIViewController {
         switch ZnImpl.nav {
         case .uiKit: return ZnRootController(app: self)  // the back stack with startApp's layers (ZnLayers.swift)
-        case .swiftUI: return UIHostingController(rootView: ZnRootView(app: self))
+        case .swiftUI:
+            if hasSecureRoute { print("zn secure: ZN_IOS_NAV=swiftui has no secure container: secure routes are not protected") }
+            return UIHostingController(rootView: ZnRootView(app: self))
         }
     }
 }
@@ -172,13 +174,23 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             setViewControllers(vcs, animated: !viewControllers.isEmpty && !ZnSplash.holding)  // under the splash: no slide
         }
         screens = screens.filter { stack.contains($0.key) }
+        unmarked = unmarked.filter { id in screens.values.contains { ObjectIdentifier($0) == id } }
     }
 
     private func entry(of vc: UIViewController) -> UInt32? { screens.first { $0.value === vc }?.key }
 
     /// A `secure: true` screen counts itself drawn while its view is in the window (ZnSecure), native screens included.
+    /// A native screen's view not loaded yet gets it when it is about to show (willShow), so its viewDidLoad still runs
+    /// then, not when the stack is built.
     private func markIfSecure(_ vc: UIViewController, _ entry: UInt32) {
-        if app.route(of: entry)?.secure == true { vc.view.addSubview(ZnDrawnMarker()) }
+        guard app.route(of: entry)?.secure == true else { return }
+        if let v = vc.viewIfLoaded { mark(v) } else { unmarked.insert(ObjectIdentifier(vc)) }
+    }
+
+    private var unmarked: Set<ObjectIdentifier> = []
+
+    private func mark(_ v: UIView) {
+        if !v.subviews.contains(where: { $0 is ZnDrawnMarker }) { v.addSubview(ZnDrawnMarker()) }
     }
 
     // A swipe that finished: native popped; JS is told (FORCED_BACK).
@@ -196,6 +208,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     func navigationController(_ nav: UINavigationController, willShow vc: UIViewController, animated: Bool) {
+        if unmarked.remove(ObjectIdentifier(vc)) != nil { mark(vc.view) }
         setNeedsStatusBarAppearanceUpdate()  // the new top screen's route says light or dark
     }
 

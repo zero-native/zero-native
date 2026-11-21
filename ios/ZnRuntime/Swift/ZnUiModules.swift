@@ -151,7 +151,7 @@ final class ZnToast: ZnModuleBase, @unchecked Sendable {
         pill.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         pill.addSubview(label)
-        // Inside the secure container when there is one: over a secure screen it is left out of screenshots too.
+        // Inside the secure content while a secure screen is drawn (left out of screenshots too); else on the window.
         (ZnSecure.shared.toastParent(in: window) ?? window).addSubview(pill)
         let bottom = max(window.safeAreaInsets.bottom, ZnSystemEvents.shared.keyboardHeight) + 24
         NSLayoutConstraint.activate([

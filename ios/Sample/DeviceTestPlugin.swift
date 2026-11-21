@@ -58,6 +58,7 @@ private final class FakeScreen: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        print("zn t=\(ZnDebug.ms()) device fake screen: viewDidLoad")  // when (ZnNavController loads it as it shows)
         view.backgroundColor = .white
         let title = UILabel()
         title.text = "fake screen: \(scope.params["title"] as? String ?? "no title")"
