@@ -209,7 +209,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 32 | StatusBar | done (2026-11-09) | barStyle / hidden / backgroundColor per screen, newest wins (ZnSystemBars.swift) | |
 | 33 | NavigationBar | done (2026-11-09) | backgroundColor fills the bottom safe area behind the home indicator; barStyle does nothing (the indicator has no colour of its own) | |
 | 34 | OtpInput | done | | |
-| 35 | Canvas | missing | Core Graphics, as Svg (r23); Canvas v2 waits for motion | L |
+| 35 | Canvas | done (simulator) | Core Graphics in a plain UIView, as Svg (ZnCanvas.swift, ZnCanvasParse.swift, ZnCanvasDraw.swift, ZnPathData.swift; 2026-11-21): every command, paint, clip, blend layer, shadow, blur on solid colours, text, paragraph and image; Android's parse rules and warning texts; Mac suite ios/tests/draw. Not yet: motion values in commands (CanvasLab 9-11 stay still, with a warning), blur on gradient paints (drawn sharp) | L |
 
 **Done 20, partial 7, missing 3** of 30.
 
