@@ -190,7 +190,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 8 | Spacer | done | | |
 | 9 | Icon | done | | |
 | 10 | Anchor | done | | |
-| 11 | List | partial | impressions; header / footer / empty, `scrollCommand` (r23); `numColumns` / `columnWrapper` (r24). Window, sticky, inverted, pull to refresh done | |
+| 11 | List | partial | impressions, item animation, reorder, scroll extras (events, paging, snap). Window, sticky, inverted, pull to refresh (with refreshBackground), header / footer / empty, ref scroll commands (r23), `numColumns` / `columnWrapper` (r24), horizontal and the cells' environment (entry, hidden tab, touch off) done (2026-11-21; GridLab, ChatListLab, RnPropsLab; the SwiftUI variant draws the same, but not scrollToOffset or viewOffset) | |
 | 12 | Scroll | partial | pull to refresh on Scroll | S |
 | 13 | Carousel | partial | `itemWidthPercent` (r23). autoAdvance pauses after a touch on plain pages too (2026-11-21; DynamicLayoutLab section 8) | S |
 | 14 | Sheet | partial | onDetentChange; sheet colour and corner radius fixed. animateIn done | S + S |
@@ -250,8 +250,8 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 ### List, Scroll, Carousel, Text
 | Prop | iOS | Size |
 |---|---|---|
-| List header / footer / empty, `scrollCommand` (r23) | missing | M |
-| `numColumns` / `columnWrapper` (r24) | missing | M |
+| List header / footer / empty, `scrollCommand` (r23) | done (2026-11-21; ZnList.swift, ios/tests/list) | M |
+| `numColumns` / `columnWrapper` (r24) | done (2026-11-21; ZnListGrid.swift, GridLab) | M |
 | Row `flexWrap` / `alignContent` / `crossGap` (r24; LayoutLab 30–37) | done (2026-11-09) | |
 | Scroll onRefresh / refreshing | done (ZnScrollRefresh, ZnRenderer.swift) | S |
 | Carousel `itemWidthPercent` (r23) | missing | S |

@@ -1,6 +1,7 @@
 // RN gaps pack (registry 24): <FlatList numColumns> grids. Logs "grid-lab ..." lines (range, end reached) so a phone
-// check can read them; keep their wording.
-import { Column, FlatList, Pressable, Row, Text } from "@zeronative/ui"
+// check can read them; keep their wording. Pull the grid down: a white spinner on a primary-colour disc (RN's
+// RefreshControl tintColor + progressBackgroundColor) for 1.5 s.
+import { Column, FlatList, Pressable, RefreshControl, Row, Text } from "@zeronative/ui"
 import { listController, signal } from "@zeronative/core"
 import { c } from "./tokens"
 
@@ -52,6 +53,12 @@ export function GridLabScreen() {
   const tapped = signal("tap a card")
   const half = signal(false)
   const list = listController()
+  const refreshing = signal(false)
+  const refresh = () => {
+    console.info("grid-lab refresh")
+    refreshing.set(true)
+    setTimeout(() => refreshing.set(false), 1500)
+  }
   const loadMore = () => {
     const n = stores().length
     console.info(`grid-lab end reached at ${n}`)
@@ -113,6 +120,7 @@ export function GridLabScreen() {
       gap={12}
       ref={list}
       onEndReached={loadMore}
+      refreshControl={<RefreshControl refreshing={refreshing()} onRefresh={refresh} tintColor={c.white} progressBackgroundColor={c.primary} />}
       ListHeaderComponent={header}
       ListFooterComponent={footer}
       ListEmptyComponent={empty}
