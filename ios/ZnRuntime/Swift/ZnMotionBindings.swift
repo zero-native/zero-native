@@ -24,18 +24,18 @@ extension ZnInstance {
 }
 
 extension ZnNodeSpec {
-    /// The layer slots a formula bound on this node may read `self` / `parent` in (Android's siteUsed list, plus the
-    /// camera distance).
-    var layerSlots: [Int] {
-        [opacitySlot, scaleSlot, scaleXSlot, scaleYSlot, rotateSlot, translateXSlot, translateYSlot, rotateXSlot, rotateYSlot,
-         cameraDistanceSlot, blurRadiusSlot]
+    /// A transform, 3D, camera or blur value comes from a slot (hasTransformSlots without making an array: these run
+    /// in ZnLayer's body, each frame a bound value moves).
+    var layerTransformSlots: Bool {
+        scaleSlot >= 0 || scaleXSlot >= 0 || scaleYSlot >= 0 || translateXSlot >= 0 || translateYSlot >= 0 || rotateSlot >= 0 ||
+            rotateXSlot >= 0 || rotateYSlot >= 0 || cameraDistanceSlot >= 0 || blurRadiusSlot >= 0
     }
 
     /// Something in the layer may follow a slot (so may follow a motion value): such a node can need its site.
-    var hasLayerSlots: Bool { opacitySlot >= 0 || hasTransformSlots }
+    var hasLayerSlots: Bool { opacitySlot >= 0 || layerTransformSlots }
 
     /// ZnLayer draws transforms (2D or 3D, blur), not only opacity.
-    var layerTransforms: Bool { hasTransform || hasDepth || hasTransformSlots }
+    var layerTransforms: Bool { hasTransform || hasDepth || layerTransformSlots }
 
     /// blurRadius is written or comes from a slot.
     var blurs: Bool { blurRadius != 0 || blurRadiusSlot >= 0 }
@@ -43,8 +43,10 @@ extension ZnNodeSpec {
 
 /// A layer slot follows a formula that reads `self` / `parent` now (reads the slots, so the caller follows them).
 @MainActor func znSiteUsed(_ s: ZnNodeSpec, _ inst: ZnInstance) -> Bool {
-    guard s.hasLayerSlots else { return false }
-    return znSiteUsed(s.layerSlots.compactMap { $0 >= 0 ? inst.slot($0).value : nil })
+    func uses(_ slot: Int) -> Bool { slot >= 0 && znMotionSource(inst.slot(slot).value)?.usesSite == true }
+    return uses(s.opacitySlot) || uses(s.scaleSlot) || uses(s.scaleXSlot) || uses(s.scaleYSlot) || uses(s.rotateSlot) ||
+        uses(s.translateXSlot) || uses(s.translateYSlot) || uses(s.rotateXSlot) || uses(s.rotateYSlot) ||
+        uses(s.cameraDistanceSlot) || uses(s.blurRadiusSlot)
 }
 
 /// The content box of the node an element is laid out in: its template parent, or for an instance's root the node
