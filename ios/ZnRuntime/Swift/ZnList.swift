@@ -275,15 +275,17 @@ struct ZnLazyList: View {
             ZnListExtraView(ctx: ctx, list: list, part: .empty, horizontal: s.horizontal, alignItems: s.alignItems)
                 .id("__zn_empty").modifier(seen(.empty, 0))
         }
+        // Identified by key (a grid line by its line key), so a new numColumns builds new lines rather than keeping
+        // the old ones at the same places (seen 2026-11-21: lines of 2 left in a 3-column grid).
         if cols > 1 {
-            ForEach(lineKeys.indices, id: \.self) { g in
+            ForEach(Array(lineKeys.enumerated()), id: \.element) { g, key in
                 ZnGridLineView(ctx: ctx, list: list, line: g, cols: cols, wrapper: s.columnWrapper)
-                    .id(lineKeys[g]).modifier(seen(.rows, g))
+                    .id(key).modifier(seen(.rows, g))
             }
         } else {
-            ForEach(rows.indices, id: \.self) { i in
-                ZnListRowView(ctx: ctx, list: list, row: rows[i], horizontal: s.horizontal, alignItems: s.alignItems)
-                    .id(rows[i].key).modifier(seen(.rows, i))
+            ForEach(Array(rows.enumerated()), id: \.element.key) { i, row in
+                ZnListRowView(ctx: ctx, list: list, row: row, horizontal: s.horizontal, alignItems: s.alignItems)
+                    .id(row.key).modifier(seen(.rows, i))
             }
         }
         if footer != nil {
