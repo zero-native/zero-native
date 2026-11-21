@@ -1,7 +1,7 @@
 # `fetch`: design and the problems it must handle
 
 Step 3.4 (**built 2026-10-30**; checked on the Lava, debug and release: 27 / 27 cases on the `/dev/fetch` screen,
-see §6). The web `fetch` API for zero-native apps, built on OkHttp on Android (URLSession on iOS later).
+see §6). The web `fetch` API for zero-native apps, built on OkHttp on Android and URLSession on iOS (§9).
 This file lists the problems React Native and Flutter teams hit with HTTP in production, and what we do about each.
 Sources: our own experience with OkHttp / RN, plus a research pass by agy (Gemini) on 2026-10-30. The GitHub issue
 numbers agy gave were **not checked one by one**, so they are left out; the problems themselves are well known.
@@ -104,6 +104,9 @@ to JS, and a cut-off body is always an error, never half a JSON. Big files need 
   Show progress as "about this far", not as proof of what the server got.
 - Progress ids start at a random number in each JS runtime, so after a dev reload or an OTA restart a late event
   of an old request never reaches a new one.
+- **iOS** counts the same way (URLSession's `didSendBodyData` and the bytes received). URLSession may also send a body
+  again on a new connection, so "can count again from 0" holds there too. A `FormData` body's `total` is its full
+  length on iOS (it is staged in a file first, §9); on Android it is `-1` when a `content://` file's size can't be read.
 
 ### Headers
 | Problem | What we do |
@@ -119,7 +122,7 @@ to JS, and a cut-off body is always an error, never half a JSON. Big files need 
 | Problem | What we do |
 |---|---|
 | All errors look the same ("Network request failed") | `FetchError` (a `TypeError`) with `code`: `offline`, `dns`, `connect`, `timeout`, `tls`, `cleartext_blocked`, `connection_lost`, `insecure_redirect`, `redirect_not_allowed`, `too_many_redirects`, `too_large`, `invalid_request`, `failed`. The message keeps the native reason and `METHOD url` without the query string. |
-| Wi-Fi ↔ mobile switch: pooled connections are dead, the next requests hang until timeout | Kotlin listens for default-network changes: new calls get a new client with an empty pool (`ZnFetch.client` changes; `ZnFetch.derived` for clients with other settings), and the old pool's idle connections are closed. Closing alone wasn't enough: an HTTP/2 connection still in use kept taking new calls (review 2026-11-09). Images use the same client. |
+| Wi-Fi ↔ mobile switch: pooled connections are dead, the next requests hang until timeout | Kotlin listens for default-network changes: new calls get a new client with an empty pool (`ZnFetch.client` changes; `ZnFetch.derived` for clients with other settings), and the old pool's idle connections are closed. Closing alone wasn't enough: an HTTP/2 connection still in use kept taking new calls (review 2026-11-09). Images use the same client. iOS: the same with a new URLSession (§9); images there are not covered. |
 | Mobile carriers drop idle NAT mappings after 30–60 s; reused connections black-hole | Idle connections are kept for 30 s (OkHttp default: 5 min). |
 | A connection in use dies silently (no close, no error; seen in ZeroBill PAY-5, a start in the background from a UPI result): every later call is queued on it and times out, for minutes, with no network change to clear it | An HTTP/2 connection is pinged every 10 s (`pingInterval`); with no answer by the next ping it is dropped with its calls, and the next call opens a new one. A GET is retried by OkHttp; a POST fails as `connection_lost`. Not closed on a timeout: that would also end healthy calls sharing the connection (a payment POST with an unknown result). Since 2026-11-07. |
 | OkHttp queues the 6th request to one host (limit 5) | Limit raised to 10 per host, 64 in total. |
@@ -192,13 +195,13 @@ HTTPS hosts. Lava Blaze 2 5G, Android 14, Wi-Fi, 2026-10-30, debug and release (
 | Streaming bodies (`res.body` reader, server-sent events) | Not needed for APIs. `res.body` is `null` today. |
 | Upload / download progress events | **Done 2026-11-08:** `onUploadProgress` and `onDownloadProgress` in `FetchInit`, throttled to ≥ 100 ms with the final count guaranteed. |
 | Download to a file (big files without JS memory) | Native `download(url, path)`. |
-| `Blob`, `File`, byte parts in `FormData` | Hermes has no `Blob`; files go as `{ uri }`. |
+| `Blob`, `File`, byte parts in `FormData` | Hermes has no `Blob`; files go as `{ uri }` (`content://` or `file://` on Android, `file://` on iOS). |
 | Cookie jar, HTTP cache | Off on purpose; add only if an app needs it. |
 | Happy Eyeballs (`fastFallback`: try IPv6 and IPv4 together) | **Done 2026-10-30:** OkHttp 5.5.1, `fastFallback(true)` set in `ZnFetch`. Not tested on a network with broken IPv6. |
 | Let's Encrypt on Android 7.0 (API 24) | Android 7.0 doesn't trust ISRG Root X1. An app that needs it adds the root through `ZnFetch.configure`. Not needed for ZeroBill (Pavan, 2026-10-30: our servers don't use Let's Encrypt). |
 | Share the OkHttp client with Coil (images): one pool, one config (pinning applies to images too) | One connection pool for API + images; touches image loading, so its own small step. |
 | Network status (`online`, Wi-Fi / mobile, validated) | Small module (milestone 3.7 list). |
-| iOS (URLSession) | With the iOS renderer. |
+| iOS (URLSession) | **Done** with the iOS renderer; progress, streamed `FormData` files and the network-change flush since 2026-11-21 (§9). |
 
 ## 8. `WebSocket` (shares the fetch client)
 The browser `WebSocket` (`packages/core/src/websocket.ts`, native `ZnWebSocket.kt`) is built on the same shared
@@ -267,3 +270,37 @@ Checks: sample screen `/dev/websocket` (route `wsLab`, 28 cases) against `tools/
 iOS simulator (2026-11-21). The cases where the platforms differ (our close, no 101 for 20 s) check each platform's
 own behaviour. **The lab has not been run on Android yet** (needs `adb reverse` for both ports); its unknown-host case
 is `wss://` and its cleartext case matches `CLEARTEXT` there.
+
+## 9. iOS (`ios/ZnRuntime/Swift/ZnFetch.swift`, on URLSession)
+The same call, answer, error codes, limits and events as Android. The plain rules are in `ZnNetRules.swift`, tested on
+the Mac (`bun run tools/ios-unit-test.ts net`, Android's ProgressThrottler cases and OkHttp's multipart layout).
+- **Progress:** as §3 "Progress events": at most one event per 100 ms plus the final count, `total` -1 when unknown
+  (no `Content-Length`, or a gzip / br answer that URLSession unzips: the declared length is of the zipped body, and
+  OkHttp drops it too). An empty body gives one upload event `0 / 0`; a GET none. No events after an abort or an error.
+- **`FormData` files are streamed from disk.** The whole body is first written to a file in
+  `Library/Caches/zn-fetch-upload` (file parts copied 256 KB at a time) and uploaded from that file, so a 200 MB video
+  never enters memory (checked: the sample's peak footprint stayed at 48 MB through a 200 MB upload). URLSession then
+  knows the length, so `Content-Length` is sent and upload progress has a `total`. The file is removed when the call
+  ends (also on an abort), and files left by a killed run are removed at the next start.
+  - The cost: free disk space as big as the body. A full disk rejects with `failed` ("not enough free space").
+  - The layout is OkHttp's (what Android sends): each part has `Content-Length`; `"`, CR and LF in a name or file name
+    are sent as `%22`, `%0D`, `%0A` (a file name can't add headers); a `type` that is not a valid media type is left out.
+  - Only `file://` URIs. `content://` is an Android ContentProvider URI with no meaning on iOS: it rejects
+    `invalid_request` ("content:// is an Android content URI; on iOS pass the file:// uri the plugin gave"). iOS plugins
+    hand out `file://` URIs. A file that can't be read (missing, a folder) rejects `invalid_request` with its path.
+  - A security-scoped file URL (from the document picker) is opened with its scope, so it can be passed as it is.
+- **Network change:** an `NWPathMonitor` keys the network by the first interface of a working path and its gateways
+  (another Wi-Fi keeps `en0` but gets another router). When the key changes (Wi-Fi ↔ cellular, another Wi-Fi, lost),
+  new calls get a new URLSession, so no pooled connection of the old network is used; calls already running finish on
+  the old session, which then ends (`finishTasksAndInvalidate`). Logged: `fetch: the default network changed: new calls
+  use new connections`. Debug builds have `Fetch.debugFreshSession` for the lab (a simulator can't change networks).
+- **Not on iOS:** no HTTP/2 ping (URLSession has no setting; Android pings every 10 s), so a connection that dies
+  silently without a network change is found only by the call's timeout. No `configure` / interceptors / pins.
+  Pictures (`ZnImage.swift`) use `URLSession.shared`, which the network-change flush doesn't replace.
+
+Checks: `/dev/fetch` (route `fetch`, 40 cases, params `port`, `dir`, `run`, `only`) against
+`tools/fetch-test-server.ts --files <folder>`: **40 / 40 on the iOS simulator** (2026-11-21), among them upload and
+download progress, a 3 MB and a 200 MB streamed file part checked byte for byte by the server, an abort during the
+200 MB upload, the escaped file name, `content://` and a missing file, and the network-change case (4 calls running
+across a flush all finish, the 4 calls after it each use a new connection). Not checked yet: a real Wi-Fi ↔ cellular
+switch on an iPhone, the new cases on Android.
