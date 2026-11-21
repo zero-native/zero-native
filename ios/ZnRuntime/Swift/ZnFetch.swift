@@ -1,18 +1,25 @@
 // The native side of the global `fetch` on iOS (docs/fetch.md; JS side: packages/core/src/fetch.ts), on URLSession.
 // Same call and answer as android/runtime's ZnFetch.kt: `Fetch.send` with the request head as JSON and the body as
 // bytes; the answer is the response head plus the whole body as bytes. The same rules, done the URLSession way:
-// - One shared session, made on the first fetch. Cookies and the HTTP cache are off (ARCHITECTURE §14).
+// - One shared session at a time. Cookies and the HTTP cache are off (ARCHITECTURE §14). When the network changes
+//   (Wi-Fi to cellular, another Wi-Fi), new calls get a new session with no pooled connections, as Android's freshPool;
+//   calls already running finish on the old one.
 // - `timeout` limits the whole call (our own timer: URLRequest's timeout is an idle timeout). With `timeout: 0`, a
 //   call still fails after 60 s without a byte either way.
 // - Redirects: followed, but never from HTTPS to HTTP, and `Authorization` is dropped when the host changes (URLSession
 //   would keep it). "error" rejects; "manual" returns the 3xx.
 // - The body is refused past `maxBodySize` (early when Content-Length says so).
 // - Errors get Android's codes (offline, dns, timeout, tls, cleartext_blocked, ...).
+// - onUploadProgress / onDownloadProgress: the events `uploadProgress` / `downloadProgress` {id, loaded, total},
+//   throttled as Android (ZnProgressThrottle in ZnNetRules.swift).
+// - A FormData body is written to a file first (ZnMultipart, file parts copied in small pieces) and uploaded from it,
+//   so a big file never enters memory. content:// parts are refused (an Android URI).
 // Known difference: URLSession joins repeated headers into one (`Set-Cookie: a, b`). Set-Cookie is split again here;
 // other repeated headers stay joined with ", " (which is what the HTTP spec allows for them).
 import Foundation
 import Network
 import UIKit
+import os
 
 final class ZnFetch: ZnModuleBase, @unchecked Sendable {
     static let shared = ZnFetch()
@@ -26,6 +33,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         "trailer", "transfer-encoding", "upgrade",
     ]
     private static let needsBody: Set<String> = ["POST", "PUT", "PATCH", "PROPPATCH", "REPORT"]
+    private static let log = Logger(subsystem: "dev.zeronative", category: "zn")
 
     /// One request in flight. Touched on the session's delegate queue only (serial).
     private final class Task {
@@ -40,6 +48,15 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         /// Set when we end the task ourselves (timeout, too large, redirect rule): the error to give instead.
         var ours: (code: String, message: String)?
         var timer: DispatchWorkItem?
+        /// Progress (only when JS asked, with a reqId). up / down send the events; a total of -1 = unknown.
+        var up: ZnProgressThrottle?
+        var down: ZnProgressThrottle?
+        var upLoaded: Int64 = 0
+        var upTotal: Int64 = 0
+        var upDone = false
+        var downTotal: Int64 = -1
+        /// The form body's file (removed when the task ends).
+        var upload: URL?
         init(call: ZnCall, where_: String, redirect: String, maxBody: Int) {
             self.call = call; self.where_ = where_; self.redirect = redirect; self.maxBody = maxBody
         }
@@ -52,7 +69,10 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         return q
     }()
     private var tasks: [ObjectIdentifier: Task] = [:]  // delegate queue only; by task object (ids are per session)
-    private lazy var session: URLSession = {
+    /// The session new calls use; replaced by freshSession. Read and written under sessionLock only.
+    private var current: URLSession!
+    private let sessionLock = NSLock()
+    private func makeSession() -> URLSession {
         let c = URLSessionConfiguration.default
         c.httpCookieStorage = nil
         c.httpShouldSetCookies = false
@@ -63,11 +83,16 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         c.waitsForConnectivity = false  // offline fails at once, as on Android
         c.timeoutIntervalForResource = 7 * 24 * 3600  // our own timer limits the whole call
         return URLSession(configuration: c, delegate: SessionDelegate(self), delegateQueue: queue)
-    }()
+    }
 
     /// Whether the phone has a network now: tells "offline" from "dns" / "connect" failures.
     private let path = NWPathMonitor()
     private var online = true
+    /// The network the pooled connections belong to (znNetworkKey); the path queue only.
+    private var pathKey: String?
+    /// Where form bodies are written before they are uploaded.
+    private static let uploadDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("zn-fetch-upload", isDirectory: true)
 
     /// The User-Agent of fetch and of the WebSocket handshake. A static let: made once, safely from any thread.
     static let userAgent: String = {
@@ -82,13 +107,56 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
 
     private init() {
         super.init("Fetch")
-        path.pathUpdateHandler = { [weak self] p in self?.online = p.status == .satisfied }
+        // Made here, before any call: calls run on several background threads at once, and a lazy session made there
+        // could be made several times (found 2026-11-08: four fetches started together got four sessions, whose task
+        // ids all began at 1, so their answers overwrote each other and three calls never answered).
+        current = makeSession()
+        path.pathUpdateHandler = { [weak self] p in self?.pathChanged(p) }
         path.start(queue: DispatchQueue(label: "zn-fetch-path"))
         function("send") { [unowned self] call in try self.send(call) }
-        // Made here, once: calls run on several background threads at once, and a lazy property made there could be
-        // made several times (found 2026-11-08: four fetches started together got four sessions, whose task ids all
-        // began at 1, so their answers overwrote each other and three calls never answered).
-        _ = session
+        #if DEBUG
+        // For the fetch lab (/dev/fetch): what a network change does, on a simulator that can't change networks.
+        function("debugFreshSession") { [unowned self] call in
+            self.freshSession("debugFreshSession")
+            call.resolve(true)
+        }
+        #endif
+        // Form bodies left by an earlier run (killed during an upload). Only files from before now: this run's first
+        // upload may already be writing there.
+        let started = Date()
+        DispatchQueue.global(qos: .utility).async {
+            let fm = FileManager.default
+            let files = (try? fm.contentsOfDirectory(at: Self.uploadDir, includingPropertiesForKeys: [.creationDateKey])) ?? []
+            for f in files where ((try? f.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast) < started {
+                try? fm.removeItem(at: f)
+            }
+        }
+    }
+
+    // MARK: Network changes
+
+    private func pathChanged(_ p: NWPath) {
+        online = p.status == .satisfied
+        let key = znNetworkKey(satisfied: p.status == .satisfied,
+                               interfaces: p.availableInterfaces.map { "\($0.type)-\($0.name)" },
+                               gateways: p.gateways.map { "\($0)" })
+        defer { pathKey = key }
+        guard let before = pathKey, before != key else { return }
+        freshSession(key == "offline" ? "the network was lost" : "the default network changed")
+    }
+
+    /// New calls get a new session (an empty connection pool); the old one ends when its calls have answered. Pooled
+    /// HTTP/2 connections of the old network would otherwise take new calls and hang until they time out.
+    func freshSession(_ why: String) {
+        sessionLock.withLock {
+            let old = current!
+            current = makeSession()
+            // After any task made on the old session is started (send makes and queues it under this lock).
+            queue.addOperation { old.finishTasksAndInvalidate() }
+        }
+        // Always logged, as Android's Log.i (ZnDebug.log is main-actor only; this runs on the path queue).
+        Self.log.notice("fetch: \(why, privacy: .public): new calls use new connections")
+        debugLog("\(why): new calls use new connections")
     }
 
     // MARK: One request
@@ -108,6 +176,9 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         let timeoutMs = (a["timeout"] as? NSNumber)?.doubleValue ?? Self.defaultTimeoutMs
         let maxBody = (a["maxBodySize"] as? NSNumber)?.intValue ?? Self.defaultMaxBody
         let redirect = a["redirect"] as? String ?? "follow"
+        let reqId = (a["reqId"] as? NSNumber)?.intValue
+        let trackUp = reqId != nil && (a["uploadProgress"] as? Bool ?? false)
+        let trackDown = reqId != nil && (a["downloadProgress"] as? Bool ?? false)
 
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -123,58 +194,78 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         }
         if !hasAgent { request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent") }
         if !hasAccept { request.setValue("*/*", forHTTPHeaderField: "Accept") }
+        var upload: URL?
+        var upTotal: Int64 = -1
         if let form = a["form"] as? [[Any]] {
             let boundary = "zn-" + UUID().uuidString
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try Self.multipart(form, boundary)
+            let file = Self.uploadDir.appendingPathComponent(UUID().uuidString + ".multipart")
+            do {
+                try FileManager.default.createDirectory(at: Self.uploadDir, withIntermediateDirectories: true)
+                upTotal = try ZnMultipart.write(parts: form, boundary: boundary, to: file, isCancelled: { call.isCancelled })
+            } catch let e as ZnMultipartError {
+                if e == .cancelled { return }
+                if case .invalid = e { return call.reject("invalid_request", "\(where_): \(e.message)") }
+                return call.reject("failed", "\(where_): \(e.message)")
+            } catch {
+                return call.reject("failed", "\(where_): can't write the form body: \(error.localizedDescription)")
+            }
+            upload = file
         } else if let bytes = call.bytes {
             request.httpBody = bytes
+            upTotal = Int64(bytes.count)
         } else if Self.needsBody.contains(method) {
             request.httpBody = Data()
+            upTotal = 0
         }
 
-        let task = session.dataTask(with: request)
         let state = Task(call: call, where_: where_, redirect: redirect, maxBody: maxBody)
-        queue.addOperation {
-            self.tasks[ObjectIdentifier(task)] = state
-            if timeoutMs > 0 {
-                let timer = DispatchWorkItem { [weak self] in
-                    self?.queue.addOperation {
-                        guard state.ours == nil, self?.tasks[ObjectIdentifier(task)] != nil else { return }
-                        state.ours = ("timeout", "Network request failed (timeout): \(where_): no complete answer within \(Int(timeoutMs)) ms")
-                        task.cancel()
-                    }
-                }
-                state.timer = timer
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeoutMs / 1000, execute: timer)
+        state.upload = upload
+        // No body (a GET): no upload events, as Android.
+        if trackUp, let reqId, upTotal >= 0 {
+            state.upTotal = upTotal
+            state.up = ZnProgressThrottle { [weak self] loaded, total in
+                if !call.isCancelled { self?.emit("uploadProgress", ["id": reqId, "loaded": loaded, "total": total]) }
             }
-            task.resume()
+        }
+        if trackDown, let reqId {
+            state.down = ZnProgressThrottle { [weak self] loaded, total in
+                if !call.isCancelled { self?.emit("downloadProgress", ["id": reqId, "loaded": loaded, "total": total]) }
+            }
+        }
+        // Made and queued under the lock: freshSession then can't end this task's session before it starts.
+        let task: URLSessionTask = sessionLock.withLock {
+            let task = upload.map { current.uploadTask(with: request, fromFile: $0) } ?? current.dataTask(with: request)
+            queue.addOperation { self.start(task, state, timeoutMs) }
+            return task
         }
         call.onCancel { task.cancel() }
     }
 
-    /// multipart/form-data from FormData parts: [name, value] or [name, file URL, file name, type].
-    private static func multipart(_ parts: [[Any]], _ boundary: String) throws -> Data {
-        var d = Data()
-        func add(_ s: String) { d.append(Data(s.utf8)) }
-        for p in parts {
-            guard let name = p.first as? String else { throw ZnInvalidArgs("a form part has no name") }
-            add("--\(boundary)\r\n")
-            if p.count == 2 {
-                add("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(p[1] as? String ?? "")\r\n")
-            } else {
-                guard let uri = p[1] as? String, let fileURL = URL(string: uri), fileURL.isFileURL else {
-                    throw ZnInvalidArgs("form part \"\(name)\": only file:// URLs on iOS")
+    /// Delegate queue: the task is ours from here, with its whole-call timer.
+    private func start(_ task: URLSessionTask, _ state: Task, _ timeoutMs: Double) {
+        let where_ = state.where_
+        tasks[ObjectIdentifier(task)] = state
+        if timeoutMs > 0 {
+            let timer = DispatchWorkItem { [weak self] in
+                self?.queue.addOperation {
+                    guard state.ours == nil, self?.tasks[ObjectIdentifier(task)] != nil else { return }
+                    state.ours = ("timeout", "Network request failed (timeout): \(where_): no complete answer within \(Int(timeoutMs)) ms")
+                    task.cancel()
                 }
-                let file = p.count > 2 ? p[2] as? String ?? "file" : "file"
-                let type = p.count > 3 ? p[3] as? String ?? "application/octet-stream" : "application/octet-stream"
-                add("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(file)\"\r\nContent-Type: \(type)\r\n\r\n")
-                d.append(try Data(contentsOf: fileURL))
-                add("\r\n")
             }
+            state.timer = timer
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeoutMs / 1000, execute: timer)
         }
-        add("--\(boundary)--\r\n")
-        return d
+        task.resume()
+    }
+
+    /// The body was sent (an answer came, or the call ended well): the last upload event, once. A body that is
+    /// empty gets no didSendBodyData, so this is its only event (0 / 0), as Android's CountingRequestBody.
+    private func uploadDone(_ t: Task) {
+        guard let up = t.up, !t.upDone else { return }
+        t.upDone = true
+        up.finish(t.upLoaded, t.upTotal)
     }
 
     // MARK: URLSession delegate (delegate queue)
@@ -210,6 +301,11 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard let t = tasks[ObjectIdentifier(dataTask)] else { return completionHandler(.cancel) }
         t.response = response as? HTTPURLResponse
+        uploadDone(t)
+        // URLSession unzips gzip / br itself and then counts the unzipped bytes: the declared length (of the zipped
+        // body) is not the total. OkHttp drops Content-Length when it unzips, so Android says -1 too.
+        let encoding = (t.response?.value(forHTTPHeaderField: "Content-Encoding") ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        t.downTotal = encoding.isEmpty || encoding == "identity" ? response.expectedContentLength : -1
         if response.expectedContentLength > Int64(t.maxBody) {
             t.ours = ("too_large", "\(t.where_): the body is \(response.expectedContentLength) bytes; maxBodySize is \(t.maxBody)")
             return completionHandler(.cancel)
@@ -222,13 +318,24 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         t.body.append(data)
         if t.body.count > t.maxBody {
             t.ours = ("too_large", "\(t.where_): the body is over maxBodySize (\(t.maxBody) bytes)")
-            dataTask.cancel()
+            return dataTask.cancel()
         }
+        t.down?.update(Int64(t.body.count), t.downTotal)
+    }
+
+    func urlSession(_ s: URLSession, task: URLSessionTask, didSendBodyData sent: Int64, totalBytesSent: Int64,
+                    totalBytesExpectedToSend expected: Int64) {
+        guard let t = tasks[ObjectIdentifier(task)], t.ours == nil, let up = t.up else { return }
+        // A body sent again (URLSession retrying on a new connection) counts again from 0, as on Android.
+        t.upTotal = expected == NSURLSessionTransferSizeUnknown ? -1 : expected
+        t.upLoaded = totalBytesSent
+        up.update(totalBytesSent, t.upTotal)
     }
 
     func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let t = tasks.removeValue(forKey: ObjectIdentifier(task)) else { return }
         t.timer?.cancel()
+        if let file = t.upload { try? FileManager.default.removeItem(at: file) }
         let ms = Int(Date().timeIntervalSince(t.t0) * 1000)
         if t.call.isCancelled { return }  // JS aborted; nobody is waiting for this answer
         if let ours = t.ours {
@@ -263,6 +370,8 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
             "redirected": t.redirects > 0,
             "headers": headers,
         ]
+        uploadDone(t)
+        t.down?.finish(Int64(t.body.count), t.downTotal)
         debugLog("\(t.where_) → \(r.statusCode) in \(ms) ms (\(t.body.count) B)")
         t.call.resolveBytes(head, t.body)
     }
@@ -281,6 +390,10 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         }
         func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             fetch.urlSession(s, dataTask: dataTask, didReceive: data)
+        }
+        func urlSession(_ s: URLSession, task: URLSessionTask, didSendBodyData sent: Int64, totalBytesSent: Int64,
+                        totalBytesExpectedToSend expected: Int64) {
+            fetch.urlSession(s, task: task, didSendBodyData: sent, totalBytesSent: totalBytesSent, totalBytesExpectedToSend: expected)
         }
         func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
             fetch.urlSession(s, task: task, didCompleteWithError: error)

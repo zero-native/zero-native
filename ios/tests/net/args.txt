@@ -1,0 +1,2 @@
+# A scratch folder for the test files (a 3 MB and a 100 MB file).
+$WORK
