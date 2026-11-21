@@ -70,14 +70,47 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+/// The type a stored value was saved with (core/include/zn/storage.h StoredType): the same numbers JS and Android use.
+/// None: the key is missing. Unknown: written by something else (an empty value or another tag).
+typedef NS_ENUM(uint8_t, ZNStoredType) {
+  ZNStoredTypeNone = 0,
+  ZNStoredTypeString = 1,
+  ZNStoredTypeNumber = 2,
+  ZNStoredTypeBoolean = 3,
+  ZNStoredTypeBytes = 4,
+  ZNStoredTypeUnknown = 255,
+};
+
 /// App storage from native code (docs/storage.md, ZnStorage.kt): the same stores JS uses through `storage` /
-/// `createStorage(id)`, with the same value format, through its own zn::Storage on the same folder (MMKV keeps one
-/// instance per store per process, with its own lock). Main thread only.
+/// `createStorage(id)`, with the same value format ([type][payload]: a string as UTF-8, a number as a little-endian
+/// float64, a boolean as one byte, bytes as they are), through its own zn::Storage on the same folder (MMKV keeps one
+/// instance per store per process, with its own lock). So JS reads what Swift saves, with its type, and the other way.
+/// A getter of another type answers nil, never a wrong value (Android's throws). A store id is 1-64 characters from
+/// A-Z a-z 0-9 . _ - and a key isn't empty: otherwise set answers NO, getters nil, keys none (and it is logged).
+/// Swift: ZnStorage.store(id) (ZnStorage.swift). Main thread only.
 @interface ZNStorage : NSObject
 + (BOOL)set:(NSString*)store key:(NSString*)key string:(NSString*)value;
+/// JS numbers are doubles: an integer is exact up to 2^53.
++ (BOOL)set:(NSString*)store key:(NSString*)key number:(double)value;
++ (BOOL)set:(NSString*)store key:(NSString*)key boolean:(BOOL)value;
+/// Bytes: JS reads them as an ArrayBuffer (storage.getBytes).
++ (BOOL)set:(NSString*)store key:(NSString*)key data:(NSData*)value;
 /// The string under [key], or nil if missing or not a string.
 + (nullable NSString*)string:(NSString*)store key:(NSString*)key;
+/// The number under [key] (a double), or nil if missing or not a number.
++ (nullable NSNumber*)number:(NSString*)store key:(NSString*)key;
+/// The boolean under [key] (@YES / @NO), or nil if missing or not a boolean.
++ (nullable NSNumber*)boolean:(NSString*)store key:(NSString*)key;
+/// The bytes under [key], or nil if missing or not bytes.
++ (nullable NSData*)data:(NSString*)store key:(NSString*)key;
+/// What [key] holds: None if missing.
++ (ZNStoredType)storedType:(NSString*)store key:(NSString*)key;
++ (BOOL)has:(NSString*)store key:(NSString*)key;
 + (BOOL)remove:(NSString*)store key:(NSString*)key;
+/// Every key in the store, in no set order.
++ (NSArray<NSString*>*)keys:(NSString*)store;
+/// Removes every key in the store.
++ (void)clear:(NSString*)store;
 /// Forces the store to flash (survives a power cut too).
 + (void)flush:(NSString*)store;
 @end

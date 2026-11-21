@@ -5,8 +5,12 @@
 #import <QuartzCore/QuartzCore.h>
 #import <os/log.h>
 
+#include <bit>
+#include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "zn/engine.h"
 
@@ -334,27 +338,133 @@ static zn::Storage& nativeStorage() {
   return storage;
 }
 
+static_assert(std::endian::native == std::endian::little, "storage numbers are stored little-endian");
+
+/// [s] as UTF-8, all of it (UTF8String stops at a NUL, and is NULL for a lone surrogate: JS would keep both).
+static std::string utf8Of(NSString* s) {
+  NSData* d = [s dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
+  return d ? std::string(static_cast<const char*>(d.bytes), d.length) : std::string();
+}
+
+/// The store id and key as zn::Storage takes them, or false (logged) if JS would refuse them too (hermes_engine.cpp).
+static bool storeArgs(NSString* store, NSString* key, std::string& id, std::string& k) {
+  id = utf8Of(store);
+  k = utf8Of(key);
+  if (!zn::Storage::validId(id)) {
+    os_log_error(znLog(), "ZNStorage: store id \"%{public}@\" must be 1-64 characters from A-Z a-z 0-9 . _ -", store);
+    return false;
+  }
+  if (k.empty()) {
+    os_log_error(znLog(), "ZNStorage: a key must be a non-empty string (store \"%{public}@\")", store);
+    return false;
+  }
+  return true;
+}
+
+/// Saves [payload] under its type tag: [type][payload] (storage.h).
+static BOOL put(NSString* store, NSString* key, zn::StoredType type, const void* payload, size_t size) {
+  std::string id, k;
+  if (!storeArgs(store, key, id, k)) return NO;
+  std::vector<uint8_t> tagged(1 + size);
+  tagged[0] = static_cast<uint8_t>(type);
+  if (size) memcpy(tagged.data() + 1, payload, size);
+  return nativeStorage().set(id, k, tagged);
+}
+
+/// The tagged blob under [key], or nullopt if missing (or the arguments are bad).
+static std::optional<std::vector<uint8_t>> blobOf(NSString* store, NSString* key) {
+  std::string id, k;
+  if (!storeArgs(store, key, id, k)) return std::nullopt;
+  return nativeStorage().get(id, k);
+}
+
+/// The type of [blob], checked the way JS reads it (fromStored): a number is 9 bytes, a boolean 2.
+static ZNStoredType typeOf(const std::vector<uint8_t>& blob) {
+  if (blob.empty()) return ZNStoredTypeUnknown;
+  switch (blob[0]) {
+    case static_cast<uint8_t>(zn::StoredType::String): return ZNStoredTypeString;
+    case static_cast<uint8_t>(zn::StoredType::Number): return blob.size() == 9 ? ZNStoredTypeNumber : ZNStoredTypeUnknown;
+    case static_cast<uint8_t>(zn::StoredType::Boolean): return blob.size() == 2 ? ZNStoredTypeBoolean : ZNStoredTypeUnknown;
+    case static_cast<uint8_t>(zn::StoredType::Bytes): return ZNStoredTypeBytes;
+    default: return ZNStoredTypeUnknown;
+  }
+}
+
 + (BOOL)set:(NSString*)store key:(NSString*)key string:(NSString*)value {
-  std::string v = toStd(value);
-  std::vector<uint8_t> tagged;
-  tagged.reserve(v.size() + 1);
-  tagged.push_back(static_cast<uint8_t>(zn::StoredType::String));
-  tagged.insert(tagged.end(), v.begin(), v.end());
-  return nativeStorage().set(toStd(store), toStd(key), tagged);
+  const std::string v = utf8Of(value);
+  return put(store, key, zn::StoredType::String, v.data(), v.size());
+}
+
++ (BOOL)set:(NSString*)store key:(NSString*)key number:(double)value {
+  return put(store, key, zn::StoredType::Number, &value, 8);
+}
+
++ (BOOL)set:(NSString*)store key:(NSString*)key boolean:(BOOL)value {
+  const uint8_t b = value ? 1 : 0;
+  return put(store, key, zn::StoredType::Boolean, &b, 1);
+}
+
++ (BOOL)set:(NSString*)store key:(NSString*)key data:(NSData*)value {
+  return put(store, key, zn::StoredType::Bytes, value.bytes, value.length);
 }
 
 + (NSString*)string:(NSString*)store key:(NSString*)key {
-  auto blob = nativeStorage().get(toStd(store), toStd(key));
-  if (!blob || blob->empty() || (*blob)[0] != static_cast<uint8_t>(zn::StoredType::String)) return nil;
+  auto blob = blobOf(store, key);
+  if (!blob || typeOf(*blob) != ZNStoredTypeString) return nil;
   return [[NSString alloc] initWithBytes:blob->data() + 1 length:blob->size() - 1 encoding:NSUTF8StringEncoding];
 }
 
++ (NSNumber*)number:(NSString*)store key:(NSString*)key {
+  auto blob = blobOf(store, key);
+  if (!blob || typeOf(*blob) != ZNStoredTypeNumber) return nil;
+  double d;
+  memcpy(&d, blob->data() + 1, 8);
+  return [NSNumber numberWithDouble:d];
+}
+
++ (NSNumber*)boolean:(NSString*)store key:(NSString*)key {
+  auto blob = blobOf(store, key);
+  if (!blob || typeOf(*blob) != ZNStoredTypeBoolean) return nil;
+  return (*blob)[1] != 0 ? @YES : @NO;
+}
+
++ (NSData*)data:(NSString*)store key:(NSString*)key {
+  auto blob = blobOf(store, key);
+  if (!blob || typeOf(*blob) != ZNStoredTypeBytes) return nil;
+  return [NSData dataWithBytes:blob->data() + 1 length:blob->size() - 1];
+}
+
++ (ZNStoredType)storedType:(NSString*)store key:(NSString*)key {
+  auto blob = blobOf(store, key);
+  return blob ? typeOf(*blob) : ZNStoredTypeNone;
+}
+
++ (BOOL)has:(NSString*)store key:(NSString*)key {
+  std::string id, k;
+  return storeArgs(store, key, id, k) && nativeStorage().has(id, k);
+}
+
 + (BOOL)remove:(NSString*)store key:(NSString*)key {
-  return nativeStorage().remove(toStd(store), toStd(key));
+  std::string id, k;
+  return storeArgs(store, key, id, k) && nativeStorage().remove(id, k);
+}
+
++ (NSArray<NSString*>*)keys:(NSString*)store {
+  std::string id, k;
+  if (!storeArgs(store, @"-", id, k)) return @[];
+  NSMutableArray<NSString*>* out = [NSMutableArray array];
+  for (const std::string& key : nativeStorage().keys(id)) [out addObject:toNS(key)];
+  return out;
+}
+
++ (void)clear:(NSString*)store {
+  std::string id, k;
+  if (storeArgs(store, @"-", id, k)) nativeStorage().clear(id);
 }
 
 + (void)flush:(NSString*)store {
-  nativeStorage().flush(toStd(store));
+  std::string id, k;
+  if (storeArgs(store, @"-", id, k)) nativeStorage().flush(id);
 }
 
 @end

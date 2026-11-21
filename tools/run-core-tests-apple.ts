@@ -38,6 +38,8 @@ console.log("\n=== Mac: core tests")
 failed += run([join(mac, "zn_core/zn_core_tests")], { ZN_TEST_DIR: testDir }) ? 1 : 0
 console.log("\n=== Mac: engine tests")
 failed += run([join(mac, "zn_engine_tests"), hbc], { ZN_TEST_DIR: testDir }) ? 1 : 0
+console.log("\n=== Mac: ZNStorage (ZNHost.mm) and ZnStorage.swift")
+failed += run([join(mac, "zn_znstorage_tests")], { ZN_TEST_DIR: testDir }) ? 1 : 0
 
 // iOS simulator (arm64; CMake builds each test as a .app bundle).
 if (sim) {
