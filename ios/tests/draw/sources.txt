@@ -1,0 +1,5 @@
+# CoreGraphics, CoreText and ImageIO only: the <Canvas> parser, its path data, trims (ZnPathMeasure) and the drawing.
+ios/ZnRuntime/Swift/ZnPathData.swift
+ios/ZnRuntime/Swift/ZnSvgGeometry.swift
+ios/ZnRuntime/Swift/ZnCanvasParse.swift
+ios/ZnRuntime/Swift/ZnCanvasDraw.swift
