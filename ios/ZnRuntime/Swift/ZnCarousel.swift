@@ -23,14 +23,14 @@ struct ZnCarouselView: View {
     @State private var heights: [Int: CGFloat] = [:]
 
     var body: some View {
-        let refs = znChildRefs(ctx, t, inst, s.children)
+        let refs = znShownRefs(ctx, t, inst, s.children)
         let pad = s.paddingInsets(inst)
-        let fill = s.height != nil || s.flex > 0
+        let fill = s.hasHeight || s.flexNow(inst) > 0
         VStack(spacing: 0) {
             GeometryReader { g in
                 let pageWidth = s.itemWidth ?? max(g.size.width - pad.leading - pad.trailing, 0)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: s.gap) {
+                    HStack(alignment: .top, spacing: s.gapNow(inst)) {
                         ForEach(Array(refs.enumerated()), id: \.element.id) { i, ref in
                             ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node,
                                        outer: ZnOuter(fillWidth: true, fillHeight: fill), definiteWidth: true)

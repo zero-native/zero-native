@@ -7,12 +7,6 @@ struct ZnEdges: Equatable {
     var insets: EdgeInsets { EdgeInsets(top: top, leading: start, bottom: bottom, trailing: end) }
 }
 
-/// A size prop: points, or a fraction of the parent.
-enum ZnSize: Equatable {
-    case points(CGFloat)
-    case percent(CGFloat)
-}
-
 func znColor(_ v: ZnValue?) -> Color? {
     let argb: UInt32
     switch v {
@@ -54,6 +48,35 @@ final class ZnNodeSpec {
     /// position: 'absolute' insets (only inside a Stack), as top / bottom / start / end in RN.
     let posTop: CGFloat?, posBottom: CGFloat?, posStart: CGFloat?, posEnd: CGFloat?
     let zIndex: Double?
+
+    // Layout values from a slot (registry 23), -1 when the value is fixed; read by the "now" readers below. A corner's
+    // slot is its Start / End one, else its Left / Right one (ZnTemplate.kt radiusSlots).
+    let widthSlot: Int, heightSlot: Int, minWidthSlot: Int, maxWidthSlot: Int, minHeightSlot: Int, maxHeightSlot: Int
+    let flexSlot: Int, aspectRatioSlot: Int, gapSlot: Int, crossGapSlot: Int, displaySlot: Int
+    let topSlot: Int, bottomSlot: Int, startSlot: Int, endSlot: Int
+    let borderRadiusSlot: Int
+    let topStartRadiusSlot: Int, topEndRadiusSlot: Int, bottomEndRadiusSlot: Int, bottomStartRadiusSlot: Int
+    let fontSizeSlot: Int, lineHeightSlot: Int, letterSpacingSlot: Int
+    /// Registry.Display, -1 when not written.
+    let display: Int
+    /// RN pointerEvents (registry 15, ZnTouch.kt): Registry.PointerEvents, or znPointerEventsUnset; and its slot.
+    let pointerEvents: Int
+    let pointerEventsSlot: Int
+    /// A layer drawn over its siblings: an absolute Box / Column / Row / Stack with a background or children. Without
+    /// pointerEvents it stops taps, as a React Native view does (ZnTemplate.kt absoluteLayer).
+    let absoluteLayer: Bool
+    /// Set at build time or from a slot: what a parent decides from (a slot counts as set, as on Android, even while
+    /// its value is null or "auto").
+    var hasWidth: Bool { width != nil || widthSlot >= 0 }
+    var hasHeight: Bool { height != nil || heightSlot >= 0 }
+    var hasAspectRatio: Bool { aspectRatio != nil || aspectRatioSlot >= 0 }
+    var hasPosTop: Bool { posTop != nil || topSlot >= 0 }
+    var hasPosBottom: Bool { posBottom != nil || bottomSlot >= 0 }
+    var hasPosStart: Bool { posStart != nil || startSlot >= 0 }
+    var hasPosEnd: Bool { posEnd != nil || endSlot >= 0 }
+    var hasDynamicRadius: Bool {
+        borderRadiusSlot >= 0 || topStartRadiusSlot >= 0 || topEndRadiusSlot >= 0 || bottomEndRadiusSlot >= 0 || bottomStartRadiusSlot >= 0
+    }
 
     // Drawing
     let background: Color?
@@ -244,6 +267,9 @@ final class ZnNodeSpec {
     let maxLength: Int?
     let autoFocus: Bool
     let multiline: Bool
+    /// `editable={false}`: the field shows its text but takes no typing (ZnTemplate.kt editable); and its slot.
+    let editable: Bool
+    let editableSlot: Int
     /// -1: not written (single-line: Done; multi-line: Return makes a new line).
     let returnKeyType: Int
     /// `<TextField ref>`: the ref event (focus changes go to it as a boolean; Keyboard.focus / blur / clear name it).
@@ -321,6 +347,26 @@ final class ZnNodeSpec {
         absolute = en(P.position) == Registry.Position.absolute
         posTop = num(P.top); posBottom = num(P.bottom); posStart = num(P.start); posEnd = num(P.end)
         zIndex = p[P.zIndex]?.number
+        widthSlot = slotFor(P.width); heightSlot = slotFor(P.height)
+        minWidthSlot = slotFor(P.minWidth); maxWidthSlot = slotFor(P.maxWidth)
+        minHeightSlot = slotFor(P.minHeight); maxHeightSlot = slotFor(P.maxHeight)
+        flexSlot = slotFor(P.flex); aspectRatioSlot = slotFor(P.aspectRatio)
+        gapSlot = slotFor(P.gap); crossGapSlot = slotFor(P.crossGap); displaySlot = slotFor(P.display)
+        topSlot = slotFor(P.top); bottomSlot = slotFor(P.bottom); startSlot = slotFor(P.start); endSlot = slotFor(P.end)
+        borderRadiusSlot = slotFor(P.borderRadius)
+        func cornerSlot(_ start: Int, _ left: Int) -> Int { let s = slotFor(start); return s >= 0 ? s : slotFor(left) }
+        topStartRadiusSlot = cornerSlot(P.borderTopStartRadius, P.borderTopLeftRadius)
+        topEndRadiusSlot = cornerSlot(P.borderTopEndRadius, P.borderTopRightRadius)
+        bottomEndRadiusSlot = cornerSlot(P.borderBottomEndRadius, P.borderBottomRightRadius)
+        bottomStartRadiusSlot = cornerSlot(P.borderBottomStartRadius, P.borderBottomLeftRadius)
+        fontSizeSlot = slotFor(P.fontSize); lineHeightSlot = slotFor(P.lineHeight); letterSpacingSlot = slotFor(P.letterSpacing)
+        display = en(P.display)
+        pointerEvents = en(P.pointerEvents)
+        pointerEventsSlot = slotFor(P.pointerEvents)
+        let container = [Registry.Component.box, Registry.Component.column, Registry.Component.row, Registry.Component.stack]
+            .contains(raw.component[index])
+        absoluteLayer = en(P.position) == Registry.Position.absolute && container &&
+            (p[P.backgroundColor] != nil || slotFor(P.backgroundColor) >= 0 || !children.isEmpty)
 
         background = znColor(p[P.backgroundColor])
         radius = num(P.borderRadius) ?? 0
@@ -471,6 +517,8 @@ final class ZnNodeSpec {
         maxLength = num(P.maxLength).map { Int($0) }
         autoFocus = p[P.autoFocus]?.bool ?? false
         multiline = p[P.multiline]?.bool ?? false
+        editable = p[P.editable]?.bool ?? true
+        editableSlot = slotFor(P.editable)
         returnKeyType = en(P.returnKeyType)
         ref = eventFor(Registry.Event.ref)
         onChangeText = eventFor(Registry.Event.onChangeText); onFocus = eventFor(Registry.Event.onFocus)
@@ -508,11 +556,11 @@ final class ZnNodeSpec {
 
     var isPressable: Bool { type == Registry.Component.pressable }
 
-    /// Percent width / height as fractions, for the parent layout (ZnPercentKey).
-    var percent: ZnPercent {
+    /// Percent width / height as fractions now (a slot's "50%" too), for the parent layout (ZnPercentKey).
+    @MainActor func percentNow(_ inst: ZnInstance) -> ZnPercent {
         var p = ZnPercent()
-        if case .percent(let f) = width { p.width = f }
-        if case .percent(let f) = height { p.height = f }
+        if case .percent(let f) = widthNow(inst) { p.width = f }
+        if case .percent(let f) = heightNow(inst) { p.height = f }
         return p
     }
 
@@ -566,6 +614,84 @@ final class ZnNodeSpec {
     }
     @MainActor func marginInsets(_ inst: ZnInstance) -> EdgeInsets { edgeInsets(Self.marginProps, margin, inst) }
 
+    // MARK: Layout values now (registry 23)
+    // A value from a slot, else the template's. Each reads its slot only when it has one, so a fixed node observes
+    // nothing; the view that calls one follows that slot (a change redraws or re-lays out that view alone). A null
+    // value falls back to the template's, as Android's `inst.finiteNum(slot) ?: s.gap`.
+
+    /// A number slot: its finite value, or [fixed] when it isn't a finite number.
+    @MainActor private func numNow(_ slot: Int, _ fixed: CGFloat?, _ inst: ZnInstance) -> CGFloat? {
+        slot >= 0 ? znFinite(inst.slot(slot).value) ?? fixed : fixed
+    }
+    /// A size slot: null keeps the template's; "auto", other text and NaN are not set (resolveSizePx).
+    @MainActor private func sizeNow(_ slot: Int, _ fixed: ZnSize?, _ inst: ZnInstance) -> ZnSize? {
+        guard slot >= 0 else { return fixed }
+        let v = inst.slot(slot).value
+        return v.isNull ? fixed : znSizeValue(v)
+    }
+    /// min / max: a number, null keeps the template's, anything else is not set (resolveDpPx).
+    @MainActor private func boundNow(_ slot: Int, _ fixed: CGFloat?, _ inst: ZnInstance) -> CGFloat? {
+        guard slot >= 0 else { return fixed }
+        let v = inst.slot(slot).value
+        return v.isNull ? fixed : znFinite(v)
+    }
+
+    @MainActor func widthNow(_ inst: ZnInstance) -> ZnSize? { sizeNow(widthSlot, width, inst) }
+    @MainActor func heightNow(_ inst: ZnInstance) -> ZnSize? { sizeNow(heightSlot, height, inst) }
+    @MainActor func minWidthNow(_ inst: ZnInstance) -> CGFloat? { boundNow(minWidthSlot, minWidth, inst) }
+    @MainActor func maxWidthNow(_ inst: ZnInstance) -> CGFloat? { boundNow(maxWidthSlot, maxWidth, inst) }
+    @MainActor func minHeightNow(_ inst: ZnInstance) -> CGFloat? { boundNow(minHeightSlot, minHeight, inst) }
+    @MainActor func maxHeightNow(_ inst: ZnInstance) -> CGFloat? { boundNow(maxHeightSlot, maxHeight, inst) }
+    @MainActor func flexNow(_ inst: ZnInstance) -> CGFloat { numNow(flexSlot, flex, inst) ?? 0 }
+    /// Only a finite ratio above 0 counts.
+    @MainActor func aspectRatioNow(_ inst: ZnInstance) -> CGFloat? {
+        numNow(aspectRatioSlot, aspectRatio, inst).flatMap { $0 > 0 ? $0 : nil }
+    }
+    @MainActor func gapNow(_ inst: ZnInstance) -> CGFloat { numNow(gapSlot, gap, inst) ?? 0 }
+    /// The gap between lines of a wrapping Row; nil: the gap.
+    @MainActor func crossGapNow(_ inst: ZnInstance) -> CGFloat? { numNow(crossGapSlot, crossGap, inst) }
+
+    /// An absolute child's insets. A slot that isn't a finite number is not set (absoluteChild in ZnRenderer.kt).
+    @MainActor func posNow(_ inst: ZnInstance) -> (top: CGFloat?, bottom: CGFloat?, start: CGFloat?, end: CGFloat?) {
+        func at(_ slot: Int, _ fixed: CGFloat?) -> CGFloat? { slot >= 0 ? znFinite(inst.slot(slot).value) : fixed }
+        return (at(topSlot, posTop), at(bottomSlot, posBottom), at(startSlot, posStart), at(endSlot, posEnd))
+    }
+
+    /// The corners now: topStart, topEnd, bottomEnd, bottomStart (dynamicShape in ZnRenderer.kt).
+    @MainActor func cornersNow(_ inst: ZnInstance) -> [CGFloat] {
+        let fixed = [topStart, topEnd, bottomEnd, bottomStart]
+        guard hasDynamicRadius else { return fixed.map { max($0, 0) } }
+        typealias P = Registry.Prop
+        func has(_ a: Int, _ b: Int) -> Bool { props[a] != nil || props[b] != nil }
+        func at(_ slot: Int) -> CGFloat? { slot >= 0 ? znFinite(inst.slot(slot).value) : nil }
+        return znCorners(fixed: fixed,
+                         written: [has(P.borderTopStartRadius, P.borderTopLeftRadius), has(P.borderTopEndRadius, P.borderTopRightRadius),
+                                   has(P.borderBottomEndRadius, P.borderBottomRightRadius),
+                                   has(P.borderBottomStartRadius, P.borderBottomLeftRadius)],
+                         cornerSlots: [at(topStartRadiusSlot), at(topEndRadiusSlot), at(bottomEndRadiusSlot), at(bottomStartRadiusSlot)],
+                         all: at(borderRadiusSlot))
+    }
+    /// The node's shape now (start / end follow the layout direction).
+    @MainActor func shapeNow(_ inst: ZnInstance) -> UnevenRoundedRectangle {
+        guard hasDynamicRadius else { return shape }
+        let c = cornersNow(inst)
+        return UnevenRoundedRectangle(topLeadingRadius: c[0], bottomLeadingRadius: c[3], bottomTrailingRadius: c[2],
+                                      topTrailingRadius: c[1], style: .circular)
+    }
+
+    @MainActor func fontSizeNow(_ inst: ZnInstance) -> CGFloat { numNow(fontSizeSlot, fontSize, inst) ?? fontSize }
+    @MainActor func lineHeightNow(_ inst: ZnInstance) -> CGFloat? { numNow(lineHeightSlot, lineHeight, inst) }
+    @MainActor func letterSpacingNow(_ inst: ZnInstance) -> CGFloat? { numNow(letterSpacingSlot, letterSpacing, inst) }
+
+    /// display: "none" now (written, or from its slot).
+    @MainActor func displayNoneNow(_ inst: ZnInstance) -> Bool {
+        displaySlot >= 0 ? znDisplayNone(inst.slot(displaySlot).value) : display == Registry.Display.none
+    }
+    /// pointerEvents now: the slot's string, or the written value (pointerEventsOf in ZnTouch.kt).
+    @MainActor func pointerEventsNow(_ inst: ZnInstance) -> Int {
+        pointerEventsSlot >= 0 ? znPointerEvents(inst.slot(pointerEventsSlot).value) : pointerEvents
+    }
+
     @MainActor private func edgeInsets(_ group: [Int], _ fixed: ZnEdges?, _ inst: ZnInstance) -> EdgeInsets {
         guard group.contains(where: { edgeSlots[$0] != nil }) else { return fixed?.insets ?? EdgeInsets() }
         func num(_ prop: Int) -> CGFloat? {
@@ -596,21 +722,16 @@ final class ZnTemplate {
         #endif
     }
 
-    // Props Android draws and iOS doesn't yet (registry 23 and 24: dynamic layout values, display, Text and List extras,
-    // Canvas): iOS reads the templates but doesn't draw these. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
+    // Props Android draws and iOS doesn't yet (registry 23 and 24: Text and List extras, Canvas): iOS reads the templates but doesn't draw these. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
     // once per prop, so a screen that looks wrong on iOS points at the reason.
     #if DEBUG
     private static let slotsNotDrawn: Set<Int> = {
         typealias P = Registry.Prop
-        let layout: Set<Int> = [P.width, P.height, P.minWidth, P.maxWidth, P.minHeight, P.maxHeight, P.flex, P.aspectRatio, P.gap,
-                P.borderRadius, P.top, P.bottom, P.start, P.end, P.fontSize, P.lineHeight, P.letterSpacing,
-                P.borderTopLeftRadius, P.borderTopRightRadius, P.borderBottomLeftRadius, P.borderBottomRightRadius,
-                P.borderTopStartRadius, P.borderTopEndRadius, P.borderBottomStartRadius, P.borderBottomEndRadius]
-        return layout.union(propsNotDrawn)
+        return propsNotDrawn
     }()
     private static let propsNotDrawn: Set<Int> = {
         typealias P = Registry.Prop
-        let all: Set<Int> = [P.display, P.scrollCommand, P.selectable, P.adjustsFontSizeToFit, P.minimumFontScale, P.itemWidthPercent,
+        let all: Set<Int> = [P.scrollCommand, P.selectable, P.adjustsFontSizeToFit, P.minimumFontScale, P.itemWidthPercent,
                 P.commands]
         return all
     }()

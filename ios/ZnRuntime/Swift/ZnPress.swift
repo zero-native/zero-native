@@ -29,6 +29,8 @@ final class ZnPressState {
 struct ZnPressFeedback: View {
     let s: ZnNodeSpec
     let state: ZnPressState
+    /// The node's shape now (corners from slots too), so the highlight and the ripple follow it.
+    let shape: UnevenRoundedRectangle
     @State private var origin: CGPoint = .zero
     @State private var grown = false
     @State private var shown = false
@@ -39,7 +41,7 @@ struct ZnPressFeedback: View {
         case Registry.PressFeedback.none:
             EmptyView()
         case Registry.PressFeedback.highlight:
-            s.shape.fill(s.highlightColor).opacity(state.pressed ? 1 : 0).allowsHitTesting(false)
+            shape.fill(s.highlightColor).opacity(state.pressed ? 1 : 0).allowsHitTesting(false)
         default:
             GeometryReader { geo in
                 let size = geo.size
@@ -55,7 +57,7 @@ struct ZnPressFeedback: View {
                     .position(origin)
                     .opacity(shown ? alpha : 0)
             }
-            .modifier(ZnRippleClip(clip: !s.rippleBorderless, shape: s.shape))
+            .modifier(ZnRippleClip(clip: !s.rippleBorderless, shape: shape))
             .allowsHitTesting(false)
             .onChange(of: state.pressed) { _, pressed in
                 if pressed {
@@ -93,6 +95,9 @@ struct ZnPressable<Label: View>: View {
     var body: some View {
         // `disabled` may change at runtime (a slot, e.g. the Pay button's disabled={!active()}).
         let disabled = s.disabledNow(inst)
+        // pointerEvents "none" / "box-none": this Pressable takes no taps itself (its children may: box-none).
+        let pe = s.pointerEventsNow(inst)
+        let selfOff = pe == Registry.PointerEvents.none || pe == Registry.PointerEvents.boxNone
         switch ZnImpl.press {
         case .swiftUI:
             Button {
@@ -105,13 +110,13 @@ struct ZnPressable<Label: View>: View {
             .disabled(disabled)
         case .uiKit:
             label()
-                .overlay { ZnPressFeedback(s: s, state: state) }
+                .overlay { ZnPressFeedback(s: s, state: state, shape: s.shapeNow(inst)) }
                 .scaleEffect(state.pressed ? s.pressScale : 1)
                 .opacity(state.pressed ? s.pressOpacity : 1)
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
                 // hitSlop: the touch view reaches past the Pressable by the slop (start / end follow the layout
                 // direction, as SwiftUI's leading / trailing).
-                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled)
+                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled, off: selfOff)
                     .padding(s.hitSlop.map { EdgeInsets(top: -$0.top, leading: -$0.start, bottom: -$0.bottom, trailing: -$0.end) } ?? EdgeInsets()))
         }
     }
@@ -134,6 +139,8 @@ struct ZnTouchTarget: UIViewRepresentable {
     let inst: ZnInstance
     let state: ZnPressState
     let disabled: Bool
+    /// Takes no taps (pointerEvents "none" / "box-none" on this node): hidden, as under znTouchOff.
+    var off = false
 
     func makeUIView(context: Context) -> ZnTouchControl {
         let c = ZnTouchControl()
@@ -143,8 +150,9 @@ struct ZnTouchTarget: UIViewRepresentable {
 
     func updateUIView(_ c: ZnTouchControl, context: Context) {
         let s = s, inst = inst, ctx = ctx, state = state
-        // On a hidden tab (ZnTabsView): out of every hit test, also the inner-Pressable check of the controls over it.
-        c.isHidden = context.environment.znInHiddenTab
+        // On a hidden tab (ZnTabsView), inside pointerEvents "none" (or a "box-only" parent), or "none" / "box-none"
+        // itself: out of every hit test, also the inner-Pressable check of the controls over it.
+        c.isHidden = context.environment.znInHiddenTab || context.environment.znTouchOff || off
         let slop = s.hitSlop ?? ZnEdges()
         let rtl = context.environment.layoutDirection == .rightToLeft
         c.slop = UIEdgeInsets(top: slop.top, left: rtl ? slop.end : slop.start, bottom: slop.bottom, right: rtl ? slop.start : slop.end)
@@ -161,7 +169,9 @@ struct ZnTouchTarget: UIViewRepresentable {
                 if s.onPressIn != 0 { ctx.send(inst.id, s.onPressIn, .none) }
             case .out: state.pressed = false; if s.onPressOut != 0 { ctx.send(inst.id, s.onPressOut, payload) }
             case .tap:
+                #if DEBUG
                 print("zn t=\(ZnDebug.ms()) tap on \(inst.id).\(s.index)")
+                #endif
                 if s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) }
             case .long: ctx.send(inst.id, s.onLongPress, .none)
             case .repeat: ctx.send(inst.id, s.onPressRepeat, .none)
@@ -285,6 +295,10 @@ extension EnvironmentValues {
     /// them, so a smaller button on a hidden tab swallowed taps on the shown one (ZeroBill: Offers' card after visiting
     /// Rewards, 2026-11-09).
     @Entry var znInHiddenTab = false
+    /// Inside an element with pointerEvents "none", or the children of "box-only" (Android's LocalTouchOff): nothing
+    /// here takes a tap. SwiftUI's allowsHitTesting(false) is set too; this hides the UIKit touch views (Pressables, a
+    /// tappable Text) from ZnTouchControl's inner-Pressable check, and TextField boxes from it.
+    @Entry var znTouchOff = false
 }
 
 /// The nearest view controller up [view]'s responder chain (its screen's, or its Sheet's or Modal's).

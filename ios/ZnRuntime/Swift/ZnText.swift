@@ -4,6 +4,9 @@
 // nested <Text> spans (registry 16): one style per piece, the pieces joined by U+001F (compile.ts `textChildren`),
 // static in the template or JSON in a slot when they change at runtime. A span with onPress is a link; a tap sends
 // onSpanPress with its index.
+// fontSize, lineHeight and letterSpacing may come from slots (registry 23): read here, so a change redraws this Text alone.
+// A top-level onPress / onLongPress (registry 23) makes the text a button, as Android's clickable Text: no press
+// feedback, the touch area the text inside its padding, nothing under pointerEvents "none".
 // iOS differences: includeFontPadding is Android-only (ignored). lineHeight adds the difference to the font's own
 // line height as line spacing (RN on iOS places the extra space differently: above each line).
 import SwiftUI
@@ -40,6 +43,7 @@ struct ZnTextView: View {
     let ctx: ZnContext
     let s: ZnNodeSpec
     let inst: ZnInstance
+    @State private var taps = ZnTextTaps()
 
     var body: some View {
         let _ = ZnDebug.hit(name: "TextLeaf", inst: inst, node: s.index)
@@ -47,9 +51,10 @@ struct ZnTextView: View {
         let value = s.textTransform > 0 ? znTransformText(raw, s.textTransform) : raw
         let color = s.colorSlot >= 0 ? (znColor(inst.slot(s.colorSlot).value) ?? .black) : (s.color ?? .black)
         let spans = s.spansSlot >= 0 ? inst.slot(s.spansSlot).value.string.flatMap(ZnSpan.parse) : s.spans
-        let font = UIFont.systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
-        let extra = s.lineHeight.map { max($0 - font.lineHeight, 0) } ?? 0
-        Text(attributed(value, spans: spans, color: color))
+        let size = max(s.fontSizeNow(inst), 0)
+        let font = UIFont.systemFont(ofSize: size, weight: znUIWeight(s.fontWeight))
+        let extra = s.lineHeightNow(inst).map { max($0 - font.lineHeight, 0) } ?? 0
+        Text(attributed(value, spans: spans, color: color, size: size, kern: s.letterSpacingNow(inst)))
             .multilineTextAlignment(s.textAlign == Registry.TextAlign.center ? .center
                                     : s.textAlign == Registry.TextAlign.end ? .trailing : .leading)
             .lineLimit(s.maxLines)
@@ -60,9 +65,11 @@ struct ZnTextView: View {
                 guard url.scheme == "zn-span", let i = Int(url.absoluteString.dropFirst("zn-span:".count)) else {
                     return .systemAction
                 }
+                taps.lastLinkAt = CACurrentMediaTime()
                 if s.onSpanPress != 0 { ctx.send(inst.id, s.onSpanPress, .number(Double(i))) }
                 return .handled
             })
+            .modifier(ZnTextPress(ctx: ctx, s: s, inst: inst, taps: taps))
     }
 
     private func pattern(_ style: Int) -> Text.LineStyle.Pattern {
@@ -74,7 +81,7 @@ struct ZnTextView: View {
     }
 
     /// The text with the node's style, then each span's on its piece.
-    private func attributed(_ text: String, spans: [ZnSpan]?, color: Color) -> AttributedString {
+    private func attributed(_ text: String, spans: [ZnSpan]?, color: Color, size: CGFloat, kern: CGFloat?) -> AttributedString {
         func style(_ a: inout AttributedString, size: CGFloat, weight: Int?, italic: Bool, line: Int, kern: CGFloat?,
                    color: Color, background: Color?) {
             var f = Font.system(size: size, weight: znWeight(weight))
@@ -89,20 +96,90 @@ struct ZnTextView: View {
         }
         guard let spans else {
             var a = AttributedString(text)
-            style(&a, size: s.fontSize, weight: s.fontWeight, italic: s.italic, line: s.decorationLine,
-                  kern: s.letterSpacing, color: color, background: nil)
+            style(&a, size: size, weight: s.fontWeight, italic: s.italic, line: s.decorationLine,
+                  kern: kern, color: color, background: nil)
             return a
         }
         var out = AttributedString()
         for (i, piece) in text.split(separator: "\u{1F}", omittingEmptySubsequences: false).enumerated() {
             let sp = i < spans.count ? spans[i] : ZnSpan()
             var a = AttributedString(String(piece))
-            style(&a, size: sp.fontSize ?? s.fontSize, weight: sp.fontWeight ?? s.fontWeight, italic: sp.italic ?? s.italic,
-                  line: sp.decorationLine ?? s.decorationLine, kern: sp.letterSpacing ?? s.letterSpacing,
+            style(&a, size: sp.fontSize ?? size, weight: sp.fontWeight ?? s.fontWeight, italic: sp.italic ?? s.italic,
+                  line: sp.decorationLine ?? s.decorationLine, kern: sp.letterSpacing ?? kern,
                   color: sp.color ?? color, background: sp.background)
             if sp.pressable { a.link = URL(string: "zn-span:\(i)") }
             out += a
         }
         return out
+    }
+}
+
+/// When a Text's last span link fired, so a top-level tap that came with it doesn't also send onPress.
+@MainActor
+final class ZnTextTaps {
+    var lastLinkAt: CFTimeInterval = 0
+    var longFired = false
+    let press = ZnPressState()
+}
+
+/// A top-level onPress / onLongPress on a Text (ZnRenderer.kt TEXT: clickable / combinedClickable, no indication,
+/// Role.Button). The UIKit touch view a Pressable uses, over the text: a tap sends onPress, a hold of 0.5 s onLongPress
+/// (then no onPress), a scroll cancels; inside a Pressable the text's own taps win, as Android's innermost clickable.
+/// A Text whose spans are links keeps SwiftUI's taps instead (a touch view over it would take the links' taps): a tap
+/// sends onPress unless a link just fired. A Text with neither takes no taps, so a tap goes through to what is under it,
+/// as on Android.
+struct ZnTextPress: ViewModifier {
+    let ctx: ZnContext
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    let taps: ZnTextTaps
+    @Environment(\.znTouchOff) private var touchOff
+
+    func body(content: Content) -> some View {
+        // Which branch never changes for a node: its events are in the template.
+        if s.onPress == 0 && s.onLongPress == 0 {
+            content.allowsHitTesting(s.onSpanPress != 0)
+        } else if s.onSpanPress != 0 {
+            content
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                    guard !touchOff, longPressOn else { return }
+                    taps.longFired = true
+                    ctx.send(inst.id, s.onLongPress, .none)
+                })
+                .simultaneousGesture(TapGesture().onEnded {
+                    // After this run of the main loop, so a link's openURL (it fires on the same touch) is seen first.
+                    DispatchQueue.main.async {
+                        defer { taps.longFired = false }
+                        guard !touchOff, !taps.longFired, s.onPress != 0,
+                              CACurrentMediaTime() - taps.lastLinkAt > 0.15 else { return }
+                        ctx.send(inst.id, s.onPress, .none)
+                    }
+                })
+                .modifier(ZnTextButtonA11y(ctx: ctx, s: s, inst: inst, longPress: longPressOn))
+        } else {
+            content
+                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: taps.press, disabled: false))
+                .modifier(ZnTextButtonA11y(ctx: ctx, s: s, inst: inst, longPress: longPressOn))
+        }
+    }
+
+    /// onLongPress is there and JS still has a handler (the hasLongPress slot), as ZnTouchTarget's.
+    private var longPressOn: Bool {
+        s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false))
+    }
+}
+
+/// A tappable Text reads as a button; VoiceOver's double tap sends onPress, and a "Long press" action onLongPress.
+struct ZnTextButtonA11y: ViewModifier {
+    let ctx: ZnContext
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    let longPress: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { if s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) } }
+            .accessibilityAction(named: Text("Long press")) { if longPress { ctx.send(inst.id, s.onLongPress, .none) } }
     }
 }

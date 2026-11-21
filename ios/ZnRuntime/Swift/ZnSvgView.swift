@@ -170,8 +170,8 @@ struct ZnSvgView: View {
         let values = now(specs, pl)
         let mirror = s.autoMirror && direction == .rightToLeft
         let data = s.svg
-        let sizedByStack = s.absolute && ((s.posStart != nil && s.posEnd != nil) || (s.posTop != nil && s.posBottom != nil))
-        let unsized = s.width == nil && s.height == nil && s.aspectRatio == nil && !sizedByStack
+        let sizedByStack = s.absolute && ((s.hasPosStart && s.hasPosEnd) || (s.hasPosTop && s.hasPosBottom))
+        let unsized = !s.hasWidth && !s.hasHeight && !s.hasAspectRatio && !sizedByStack
         ZnSvgCanvas(drawing: data.flatMap(ZnSvgCache.get), current: current, mirror: mirror, parts: values,
                     onTap: pl.waiting.isEmpty ? nil : {
             taps += 1
@@ -180,7 +180,7 @@ struct ZnSvgView: View {
             motion.start(keys: started, rests: pl.rests)
         })
         .frame(width: unsized ? 24 : nil, height: unsized ? 24 : nil)
-        .modifier(ZnAspect(ratio: s.aspectRatio))
+        .modifier(ZnAspect(ratio: s.aspectRatioNow(inst)))
         .onAppear {
             motion.start(pl.playing.filter { !pl.waiting.contains($0.key) }, rests: pl.rests, paused: false)
             for (i, keys) in pl.keysOfPart.enumerated() where partPaused[i] { motion.setPaused(true, keys: Set(keys)) }

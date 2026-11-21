@@ -13,10 +13,11 @@ struct ZnAbsolute: Equatable {
     var fixedWidth: Bool  // a set width in points: may be wider than the Stack
     var percentHeight: Bool
 
-    init(_ s: ZnNodeSpec) {
-        top = s.posTop; bottom = s.posBottom; start = s.posStart; end = s.posEnd
-        if case .points = s.width { fixedWidth = true } else { fixedWidth = false }
-        if case .percent = s.height { percentHeight = true } else { percentHeight = false }
+    /// The child's insets and size now (from slots too: an animated `start` moves it, ZnChildTraits).
+    @MainActor init(_ s: ZnNodeSpec, _ inst: ZnInstance) {
+        (top, bottom, start, end) = s.posNow(inst)
+        if case .points = s.widthNow(inst) { fixedWidth = true } else { fixedWidth = false }
+        if case .percent = s.heightNow(inst) { percentHeight = true } else { percentHeight = false }
     }
 }
 

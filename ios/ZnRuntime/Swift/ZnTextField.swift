@@ -24,12 +24,30 @@ struct ZnTextFieldView: View {
 
     var body: some View {
         let raw = s.valueSlot >= 0 ? inst.slot(s.valueSlot).value : (s.props[Registry.Prop.value] ?? .null)
+        // Read here, so a slot's change updates the native field (Observation runs updateUIView again).
+        let look = znFieldLook(s, inst)
         switch ZnImpl.field {
-        case .uiKit where s.multiline: ZnUIKitTextView(ctx: ctx, s: s, inst: inst, state: state, raw: raw)
-        case .uiKit: ZnUIKitField(ctx: ctx, s: s, inst: inst, state: state, raw: raw)
-        case .swiftUI: ZnSwiftUIField(ctx: ctx, s: s, inst: inst, state: state, raw: raw)
+        case .uiKit where s.multiline: ZnUIKitTextView(ctx: ctx, s: s, inst: inst, state: state, raw: raw, look: look)
+        case .uiKit: ZnUIKitField(ctx: ctx, s: s, inst: inst, state: state, raw: raw, look: look)
+        case .swiftUI: ZnSwiftUIField(ctx: ctx, s: s, inst: inst, state: state, raw: raw, look: look)
         }
     }
+}
+
+/// What a field shows that may come from a slot: editable, the text colour and the placeholder (ZnTextField.kt reads
+/// the same three from their slots).
+struct ZnFieldLook: Equatable {
+    var editable: Bool
+    var color: Color
+    var placeholder: String
+}
+
+/// editable: a slot's null counts as editable, as on Android (`!= false`).
+@MainActor func znFieldLook(_ s: ZnNodeSpec, _ inst: ZnInstance) -> ZnFieldLook {
+    let editable = s.editableSlot >= 0 ? inst.slot(s.editableSlot).value != .bool(false) : s.editable
+    let color = s.colorSlot >= 0 ? (znColor(inst.slot(s.colorSlot).value) ?? .black) : (s.color ?? .black)
+    let placeholder = s.placeholderSlot >= 0 ? znDisplay(inst.slot(s.placeholderSlot).value) : (s.placeholder ?? "")
+    return ZnFieldLook(editable: editable, color: color, placeholder: placeholder)
 }
 
 /// A tap anywhere in a field's box (its padding, the rest of a minHeight) focuses the field, as on Android, where
@@ -159,11 +177,13 @@ enum ZnFieldFocus {
 struct ZnFieldBoxTap: ViewModifier {
     let s: ZnNodeSpec
     let inst: ZnInstance
+    @Environment(\.znTouchOff) private var touchOff
 
     func body(content: Content) -> some View {
         if s.type == Registry.Component.textField {
-            content.contentShape(Rectangle()).onTapGesture { ZnFieldFocus.focus(inst, s.index) }
-                .background(ZnFieldBoxMarker(key: ZnFieldFocus.key(inst, s.index)))
+            // Inside pointerEvents "none" the box takes no taps, and a Pressable around it doesn't yield to it.
+            content.contentShape(Rectangle()).onTapGesture { if !touchOff { ZnFieldFocus.focus(inst, s.index) } }
+                .background(ZnFieldBoxMarker(key: ZnFieldFocus.key(inst, s.index), off: touchOff))
         } else {
             content
         }
@@ -173,6 +193,7 @@ struct ZnFieldBoxTap: ViewModifier {
 /// An empty UIView the size of a field's box: where the box is, for scrolling it into view (ZnFieldFocus.reveal).
 struct ZnFieldBoxMarker: UIViewRepresentable {
     let key: String
+    var off = false
 
     func makeUIView(context: Context) -> UIView {
         let v = UIView()
@@ -182,6 +203,7 @@ struct ZnFieldBoxMarker: UIViewRepresentable {
     }
 
     func updateUIView(_ v: UIView, context: Context) {
+        v.isHidden = off  // hidden boxes are left out of ZnFieldFocus.boxes(at:)
         ZnFieldFocus.registerBox(v, key)
     }
 }
@@ -201,6 +223,7 @@ struct ZnUIKitField: UIViewRepresentable {
     let inst: ZnInstance
     let state: ZnFieldState
     let raw: ZnValue
+    let look: ZnFieldLook
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -212,7 +235,7 @@ struct ZnUIKitField: UIViewRepresentable {
         f.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         ZnFieldFocus.register(f, inst, s.index)
         if s.ref != 0 { ZnKeyboard.attach(f, inst.id, s.ref) }
-        if s.autoFocus { DispatchQueue.main.async { f.becomeFirstResponder() } }
+        if s.autoFocus && look.editable { DispatchQueue.main.async { f.becomeFirstResponder() } }
         return f
     }
 
@@ -228,9 +251,15 @@ struct ZnUIKitField: UIViewRepresentable {
         c.focusChanged = { [ctx, inst, s] focused in if s.ref != 0 { ctx.send(inst.id, s.ref, .bool(focused)) } }
         c.s = s
         c.state = state
-        f.placeholder = s.placeholder
+        // editable={false}: no focus, no keyboard, no typing (React Native on iOS sets enabled = NO). One that turns
+        // read-only while focused closes its keyboard; onBlur then goes as when focus is lost on Android.
+        c.editable = look.editable
+        if !look.editable && f.isFirstResponder { f.resignFirstResponder() }
+        // Only on a change: setting them again relays the field out.
+        if f.placeholder != look.placeholder { f.placeholder = look.placeholder.isEmpty ? nil : look.placeholder }
         f.font = .systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
-        f.textColor = s.color.map(UIColor.init) ?? .black
+        let color = UIColor(look.color)
+        if f.textColor != color { f.textColor = color }
         f.isSecureTextEntry = s.secure
         f.keyboardType = znKeyboard(s.keyboardType)
         // The keyboard's autofill (the user's own phone number, email, an SMS code). Only when it changes: setting it
@@ -263,6 +292,7 @@ struct ZnUIKitField: UIViewRepresentable {
         var lastRaw: ZnValue?
         var s: ZnNodeSpec?
         var state: ZnFieldState?
+        var editable = true
 
         @objc func changed(_ f: UITextField) {
             guard let s, let state, s.onChangeText != 0 else { return }
@@ -272,7 +302,10 @@ struct ZnUIKitField: UIViewRepresentable {
             send(s.onChangeText, "\(state.seq)\u{1}\(f.text ?? "")")
         }
 
+        func textFieldShouldBeginEditing(_ f: UITextField) -> Bool { editable }
+
         func textField(_ f: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            guard editable else { return false }  // a paste or autofill that still arrives
             guard let max = s?.maxLength else { return true }
             let current = f.text ?? ""
             if let phone = znNationalPhone(s, current: current, range: range, insert: string) {
@@ -311,19 +344,21 @@ struct ZnSwiftUIField: View {
     let inst: ZnInstance
     let state: ZnFieldState
     let raw: ZnValue
+    let look: ZnFieldLook
     @State private var text = ""
 
     var body: some View {
         let field = Group {
             if s.secure {
-                SecureField(s.placeholder ?? "", text: binding)
+                SecureField(look.placeholder, text: binding)
             } else {
-                TextField(s.placeholder ?? "", text: binding)
+                TextField(look.placeholder, text: binding)
             }
         }
         field
             .font(.system(size: s.fontSize, weight: znWeight(s.fontWeight)))
-            .foregroundStyle(s.color ?? .black)
+            .foregroundStyle(look.color)
+            .disabled(!look.editable)
             .keyboardType(znKeyboard(s.keyboardType))
             .textContentType(znContentType(s.autoComplete))
             .onAppear { text = znFieldValue(raw).1 }
@@ -357,6 +392,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
     let inst: ZnInstance
     let state: ZnFieldState
     let raw: ZnValue
+    let look: ZnFieldLook
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -380,7 +416,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
         context.coordinator.placeholder = placeholder
         ZnFieldFocus.register(v, inst, s.index)
         if s.ref != 0 { ZnKeyboard.attach(v, inst.id, s.ref) }
-        if s.autoFocus { DispatchQueue.main.async { v.becomeFirstResponder() } }
+        if s.autoFocus && look.editable { DispatchQueue.main.async { v.becomeFirstResponder() } }
         return v
     }
 
@@ -399,12 +435,17 @@ struct ZnUIKitTextView: UIViewRepresentable {
         c.state = state
         let font = UIFont.systemFont(ofSize: s.fontSize, weight: znUIWeight(s.fontWeight))
         v.font = font
-        v.textColor = s.color.map(UIColor.init) ?? .black
+        // editable={false}: the text can still be selected and copied (the nearest to Compose's readOnly), not edited.
+        // Turning it off while focused resigns, so the keyboard closes and onBlur goes.
+        c.editable = look.editable
+        if v.isEditable != look.editable { v.isEditable = look.editable }
+        let color = UIColor(look.color)
+        if v.textColor != color { v.textColor = color }
         v.keyboardType = znKeyboard(s.keyboardType)
         let hint = znContentType(s.autoComplete)
         if v.textContentType != hint { v.textContentType = hint }
         v.returnKeyType = znReturnKey(s.returnKeyType) ?? .default
-        c.placeholder?.text = s.placeholder
+        if c.placeholder?.text != look.placeholder { c.placeholder?.text = look.placeholder }
         c.placeholder?.font = font
         defer { c.placeholder?.isHidden = !v.text.isEmpty }
 
@@ -427,6 +468,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
         var lastRaw: ZnValue?
         var s: ZnNodeSpec?
         var state: ZnFieldState?
+        var editable = true
         weak var placeholder: UILabel?
 
         func textViewDidChange(_ v: UITextView) {
@@ -438,6 +480,7 @@ struct ZnUIKitTextView: UIViewRepresentable {
 
         func textView(_ v: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             guard let s else { return true }
+            guard editable else { return false }
             if text == "\n", s.returnKeyType >= 0 {  // Return is the keyboard's action, not a new line
                 if s.onSubmitEditing != 0 { send(s.onSubmitEditing, v.text) }
                 v.resignFirstResponder()

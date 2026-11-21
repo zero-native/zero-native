@@ -74,6 +74,23 @@ func znChildRefs(_ ctx: ZnContext, _ t: ZnTemplate, _ inst: ZnInstance, _ childr
     return out
 }
 
+/// [znChildRefs] without the children that have display: "none" (written, or from a slot), as Android's shownRefs:
+/// a Column / Row / Stack leaves them out, so the gaps around them go too, as in RN. Reading a child's display slot
+/// here makes the parent follow it (display changes are rare).
+@MainActor
+func znShownRefs(_ ctx: ZnContext, _ t: ZnTemplate, _ inst: ZnInstance, _ children: [Int]) -> [ZnChildRef] {
+    znChildRefs(ctx, t, inst, children).filter { !$0.t.nodes[$0.node].displayNoneNow($0.inst) }
+}
+
+/// Each child's flex now, for the children whose flex comes from a slot (by ZnChildRef.id). Read in the parent's body,
+/// so a change lays the parent out again, as Android's weight read in the parent.
+@MainActor
+func znSlotFlexes(_ refs: [ZnChildRef]) -> [String: CGFloat] {
+    var out: [String: CGFloat] = [:]
+    for r in refs where r.t.nodes[r.node].flexSlot >= 0 { out[r.id] = r.t.nodes[r.node].flexNow(r.inst) }
+    return out
+}
+
 struct ZnNodeView: View {
     let ctx: ZnContext
     let t: ZnTemplate
@@ -88,12 +105,25 @@ struct ZnNodeView: View {
     var body: some View {
         let s = t.nodes[n]
         let _ = ZnDebug.hit(s, inst)
+        // display: "none" (written, or from a slot): no room and nothing drawn, for the parents that don't leave it out
+        // themselves (a Scroll's content, pages, list rows, a screen's root), as Android lays it out 0 x 0.
+        if s.displayNoneNow(inst) {
+            EmptyView()
+        } else {
+            node(s).modifier(ZnChildTraits(s: s, inst: inst))
+        }
+    }
+
+    @ViewBuilder
+    private func node(_ s: ZnNodeSpec) -> some View {
         if s.isPressable {
             ZnPressable(ctx: ctx, s: s, inst: inst) { inner(s) }
                 .modifier(ZnOnLayout(ctx: ctx, s: s, inst: inst))
                 .padding(s.marginInsets(inst))
+                .modifier(ZnPointerEventsNone(s: s, inst: inst))
         } else {
             inner(s).modifier(ZnOnLayout(ctx: ctx, s: s, inst: inst)).padding(s.marginInsets(inst))
+                .modifier(ZnPointerEventsNone(s: s, inst: inst))
         }
     }
 
@@ -109,11 +139,12 @@ struct ZnNodeView: View {
     @ViewBuilder
     private func styled(_ s: ZnNodeSpec) -> some View {
         content(s)
+            .modifier(ZnPointerEventsKids(s: s, inst: inst))
             // A List's and a Carousel's padding is inside their scroll (content padding), not around them.
             .padding(s.type == Registry.Component.list || s.type == Registry.Component.carousel ? EdgeInsets()
                      : s.type == Registry.Component.scroll ? s.borderInsets(inst) : s.contentInsets(inst))
             .modifier(ZnLayoutSpace(s: s, inst: inst))
-            .modifier(ZnSizeFrame(s: s, outer: outer, alignment: contentAlignment(s)))
+            .modifier(ZnSizeFrame(s: s, inst: inst, outer: outer, alignment: contentAlignment(s)))
             .modifier(ZnFieldBoxTap(s: s, inst: inst))
             .modifier(ZnPaint(s: s, inst: inst))
     }
@@ -150,7 +181,7 @@ struct ZnNodeView: View {
             // what it is offered (its maxHeight, the space left): Compose's verticalScroll Column. A SwiftUI ScrollView
             // takes all it is offered, so ZeroBill's checkout offers sheet (`maxHeight: 400`, one or two rows) was
             // 400 tall with an empty band (2026-11-09).
-            let hug = s.props[Registry.Prop.horizontal]?.bool != true && s.height == nil && !outer.fillHeight
+            let hug = s.props[Registry.Prop.horizontal]?.bool != true && !s.hasHeight && !outer.fillHeight
             ZnScrollHugLayout(hug: hug) {
             ScrollView(s.props[Registry.Prop.horizontal]?.bool == true ? .horizontal : .vertical) {
                 flex(s, vertical: s.props[Registry.Prop.horizontal]?.bool != true)
@@ -212,26 +243,26 @@ struct ZnNodeView: View {
     private func stack(_ s: ZnNodeSpec) -> some View {
         // A normal child stretches to the Stack's width like a Column's (zn flex rule 4, RN's alignItems: 'stretch').
         let stretchAll = s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch
-        let stretch = definiteWidth || s.width != nil
+        let stretch = definiteWidth || s.hasWidth
         // An aspectRatio box is given both sides (ZnSizeFrame): its Stack fills them, so bottom / end children sit at
         // its bottom and end.
-        let ratio = s.aspectRatio != nil
+        let ratio = s.hasAspectRatio
         let (minW, minH) = innerMin(s)
         return ZnStackLayout(alignItems: s.alignItems, justify: s.justify,
-                             fillWidth: outer.fillWidth || s.width != nil || ratio,
-                             fillHeight: outer.fillHeight || s.height != nil || ratio, minWidth: minW, minHeight: minH) {
-            ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
+                             fillWidth: outer.fillWidth || s.hasWidth || ratio,
+                             fillHeight: outer.fillHeight || s.hasHeight || ratio, minWidth: minW, minHeight: minH) {
+            ForEach(znShownRefs(ctx, t, inst, s.children)) { ref in
                 let child = ref.t.nodes[ref.node]
-                let fillW = child.absolute && child.posStart != nil && child.posEnd != nil
-                let fillH = child.absolute && child.posTop != nil && child.posBottom != nil
+                // An inset from a slot counts as set (its value may come later), as on Android.
+                let fillW = child.absolute && child.hasPosStart && child.hasPosEnd
+                let fillH = child.absolute && child.hasPosTop && child.hasPosBottom
                 // alignSelf stretch stretches even when alignItems doesn't (RN; layout conformance case 27).
-                let stretched = !child.absolute && stretch && child.width == nil && child.type != Registry.Component.spacer &&
+                let stretched = !child.absolute && stretch && !child.hasWidth && child.type != Registry.Component.spacer &&
                     (child.alignSelf == Registry.AlignSelf.stretch || (child.alignSelf == -1 && stretchAll))
+                // The insets and a "%" size are set by the child itself (ZnChildTraits), so moving it re-places it alone.
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node,
                            outer: ZnOuter(fillWidth: stretched || fillW, fillHeight: fillH),
-                           definiteWidth: stretched || child.width != nil || fillW)
-                    .layoutValue(key: ZnAbsoluteKey.self, value: child.absolute ? ZnAbsolute(child) : nil)
-                    .layoutValue(key: ZnPercentKey.self, value: child.percent)
+                           definiteWidth: stretched || child.hasWidth || fillW)
                     .zIndex(child.zIndex ?? 0)
             }
         }
@@ -239,20 +270,22 @@ struct ZnNodeView: View {
 
     /// Column (vertical) or Row: the children with their flex, stretch and alignSelf (ZnRenderer.kt ZnColumn / Row).
     private func flex(_ s: ZnNodeSpec, vertical: Bool) -> some View {
-        let definiteHeight = s.height != nil || outer.fillHeight || s.aspectRatio != nil
-        let refs = znChildRefs(ctx, t, inst, s.children)
+        // An absolute Row pinned top and bottom has a set height too, as in RN (ZnRenderer.kt pinnedH).
+        let definiteHeight = s.hasHeight || outer.fillHeight || s.hasAspectRatio || pinnedHeight(s)
+        let refs = znShownRefs(ctx, t, inst, s.children)
+        let flexes = znSlotFlexes(refs)
         let stretchAll = s.alignItems == -1 || s.alignItems == Registry.AlignItems.stretch
         let (minW, minH) = innerMin(s)
-        return ZnFlexLayout(vertical: vertical, justify: s.justify, alignItems: s.alignItems, gap: s.gap,
-                            definiteWidth: definiteWidth || s.width != nil, definiteHeight: definiteHeight,
+        return ZnFlexLayout(vertical: vertical, justify: s.justify, alignItems: s.alignItems, gap: s.gapNow(inst),
+                            definiteWidth: definiteWidth || s.hasWidth, definiteHeight: definiteHeight,
                             minWidth: minW, minHeight: minH) {
             ForEach(refs) { ref in
                 let child = ref.t.nodes[ref.node]
-                let (outer, childDefinite) = childLayout(s, child, vertical: vertical, stretchAll: stretchAll)
+                let flex = flexes[ref.id] ?? child.flex
+                let (outer, childDefinite) = childLayout(s, child, flex: flex, vertical: vertical, stretchAll: stretchAll)
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node, outer: outer, definiteWidth: childDefinite)
-                    .layoutValue(key: ZnFlexKey.self, value: child.flex)
+                    .layoutValue(key: ZnFlexKey.self, value: flex)
                     .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
-                    .layoutValue(key: ZnPercentKey.self, value: child.percent)
                     .zIndex(child.zIndex ?? 0)  // R23: a row with zIndex draws its tooltip over the rows after it
             }
         }
@@ -263,26 +296,31 @@ struct ZnNodeView: View {
     private func innerMin(_ s: ZnNodeSpec) -> (CGFloat, CGFloat) {
         if s.type == Registry.Component.scroll { return (0, 0) }  // its content scrolls; the min is the viewport's
         let i = s.contentInsets(inst)
-        return (max(0, (s.minWidth ?? 0) - i.leading - i.trailing), max(0, (s.minHeight ?? 0) - i.top - i.bottom))
+        return (max(0, (s.minWidthNow(inst) ?? 0) - i.leading - i.trailing), max(0, (s.minHeightNow(inst) ?? 0) - i.top - i.bottom))
     }
+
+    private func pinnedHeight(_ s: ZnNodeSpec) -> Bool { s.absolute && s.hasPosTop && s.hasPosBottom }
 
     /// A Row with flexWrap "wrap" (registry 24): ZnWrapLayout, ZnRenderer.kt ZnWrapRow. A child stretches to its line's
     /// height only when stretch is written (alignItems or alignSelf) and it has no height; a flex child fills the share
     /// of its line the layout gives it.
     private func wrap(_ s: ZnNodeSpec) -> some View {
-        ZnWrapLayout(justify: s.justify, alignItems: s.alignItems, alignContent: s.alignContent, gap: s.gap,
-                     crossGap: s.crossGap ?? s.gap, definiteWidth: definiteWidth || s.width != nil,
-                     definiteHeight: s.height != nil || outer.fillHeight, minHeight: innerMin(s).1) {
-            ForEach(znChildRefs(ctx, t, inst, s.children)) { ref in
+        let gap = s.gapNow(inst)
+        let refs = znShownRefs(ctx, t, inst, s.children)
+        let flexes = znSlotFlexes(refs)
+        return ZnWrapLayout(justify: s.justify, alignItems: s.alignItems, alignContent: s.alignContent, gap: gap,
+                            crossGap: s.crossGapNow(inst) ?? gap, definiteWidth: definiteWidth || s.hasWidth,
+                            definiteHeight: s.hasHeight || outer.fillHeight, minHeight: innerMin(s).1) {
+            ForEach(refs) { ref in
                 let child = ref.t.nodes[ref.node]
-                let stretch = child.height == nil && (child.alignSelf == Registry.AlignSelf.stretch ||
+                let flex = flexes[ref.id] ?? child.flex
+                let stretch = !child.hasHeight && (child.alignSelf == Registry.AlignSelf.stretch ||
                     (child.alignSelf == -1 && s.alignItems == Registry.AlignItems.stretch))
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node,
-                           outer: ZnOuter(fillWidth: child.flex > 0, fillHeight: stretch),
-                           definiteWidth: child.width != nil || child.flex > 0)
-                    .layoutValue(key: ZnFlexKey.self, value: child.flex)
+                           outer: ZnOuter(fillWidth: flex > 0, fillHeight: stretch),
+                           definiteWidth: child.hasWidth || flex > 0)
+                    .layoutValue(key: ZnFlexKey.self, value: flex)
                     .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
-                    .layoutValue(key: ZnPercentKey.self, value: child.percent)
                     .layoutValue(key: ZnStretchKey.self, value: stretch)
                     .zIndex(child.zIndex ?? 0)
             }
@@ -290,59 +328,69 @@ struct ZnNodeView: View {
     }
 
     /// What a Column / Row tells one child: what to fill, and whether its width is definite.
-    private func childLayout(_ s: ZnNodeSpec, _ child: ZnNodeSpec, vertical: Bool, stretchAll: Bool) -> (ZnOuter, Bool) {
+    /// [flex] is the child's flex now (a slot's value, or the template's). A size from a slot counts as set.
+    private func childLayout(_ s: ZnNodeSpec, _ child: ZnNodeSpec, flex: CGFloat, vertical: Bool, stretchAll: Bool) -> (ZnOuter, Bool) {
         let selfStretch = child.alignSelf == -1 || child.alignSelf == Registry.AlignSelf.stretch
         if vertical {
             // zn flex rule 4: a Column stretches children without a width only when its own width is definite.
             // alignSelf stretch stretches even when alignItems doesn't (RN; layout conformance case 19).
-            let stretched = (definiteWidth || s.width != nil) && child.width == nil && child.type != Registry.Component.spacer &&
+            let stretched = (definiteWidth || s.hasWidth) && !child.hasWidth && child.type != Registry.Component.spacer &&
                 (child.alignSelf == Registry.AlignSelf.stretch || (stretchAll && selfStretch))
-            return (ZnOuter(fillWidth: stretched, fillHeight: child.flex > 0), stretched || child.width != nil)
+            return (ZnOuter(fillWidth: stretched, fillHeight: flex > 0), stretched || child.hasWidth)
         }
-        // A Row stretches children only when it has a fixed height.
+        // A Row stretches children only when it has a fixed height (or is pinned top and bottom in a Stack).
         // With a fixed height: alignItems stretch, or the child's own alignSelf stretch (case 28).
-        let stretched = s.height != nil && child.height == nil &&
+        let stretched = (s.hasHeight || pinnedHeight(s)) && !child.hasHeight &&
             (child.alignSelf == Registry.AlignSelf.stretch || (child.alignSelf == -1 && s.alignItems == Registry.AlignItems.stretch))
-        return (ZnOuter(fillWidth: child.flex > 0, fillHeight: stretched), child.width != nil || child.flex > 0)
+        return (ZnOuter(fillWidth: flex > 0, fillHeight: stretched), child.hasWidth || flex > 0)
     }
 }
 
-/// Size: width / height / min / max, and the fill a parent asked for. Percent sizes fill (spike: not a fraction yet).
+/// Size: width / height / min / max / aspectRatio, and the fill a parent asked for. Values from slots are read here, in
+/// this modifier's own body, so a change (an animated width) lays this node out again without running its view or its
+/// parent's again: SwiftUI's form of Android reading them in the layout phase (dynamicSize in ZnRenderer.kt).
 struct ZnSizeFrame: ViewModifier {
     let s: ZnNodeSpec
+    let inst: ZnInstance
     let outer: ZnOuter
     let alignment: Alignment
 
     /// Set sizes in points, with aspectRatio giving the other side from the one that is set (width / height = ratio).
-    private func points() -> (CGFloat?, CGFloat?, CGFloat?, CGFloat?) {
-        var w: CGFloat? = if case .points(let v) = s.width { v } else { nil }
-        var h: CGFloat? = if case .points(let v) = s.height { v } else { nil }
-        let wf: CGFloat? = if case .percent(let f) = s.width { f } else { nil }
-        let hf: CGFloat? = if case .percent(let f) = s.height { f } else { nil }
-        if let r = s.aspectRatio, r > 0 {
+    private func points(_ width: ZnSize?, _ height: ZnSize?, _ ratio: CGFloat?) -> (CGFloat?, CGFloat?, CGFloat?, CGFloat?) {
+        var w: CGFloat? = if case .points(let v) = width { v } else { nil }
+        var h: CGFloat? = if case .points(let v) = height { v } else { nil }
+        let wf: CGFloat? = if case .percent(let f) = width { f } else { nil }
+        let hf: CGFloat? = if case .percent(let f) = height { f } else { nil }
+        if let r = ratio {
             if let ww = w, h == nil, hf == nil { h = ww / r } else if let hh = h, w == nil, wf == nil { w = hh * r }
         }
-        return (w, h, wf, hf)
+        return (w.map { max($0, 0) }, h.map { max($0, 0) }, wf, hf)
     }
 
     func body(content: Content) -> some View {
-        let (w, h, wf, hf) = points()
+        let width = s.widthNow(inst), height = s.heightNow(inst)
+        let minWidth = s.minWidthNow(inst), maxWidth = s.maxWidthNow(inst)
+        let minHeight = s.minHeightNow(inst), maxHeight = s.maxHeightNow(inst)
+        let aspect = s.aspectRatioNow(inst)
+        let (w, h, wf, hf) = points(width, height, aspect)
         // A percent fills what its parent offers (the parent takes the fraction: ZnPercentKey).
-        let fillW = (outer.fillWidth && s.width == nil) || wf != nil
-        let fillH = (outer.fillHeight && s.height == nil) || hf != nil
+        let fillW = (outer.fillWidth && width == nil) || wf != nil
+        let fillH = (outer.fillHeight && height == nil) || hf != nil
         // A fill (stretch, flex) still stops at maxWidth / maxHeight; a min beats a max (RN), and SwiftUI wants min <= max.
-        let maxW = s.maxWidth.map { max($0, s.minWidth ?? 0) }, maxH = s.maxHeight.map { max($0, s.minHeight ?? 0) }
+        let minW = minWidth.map { max($0, 0) }, minH = minHeight.map { max($0, 0) }
+        let maxW = maxWidth.map { max($0, minW ?? 0, 0) }, maxH = maxHeight.map { max($0, minH ?? 0, 0) }
         // aspectRatio with no side in points gives one side from the other: the width it is offered (set by a stretch,
         // a flex or a "%" width), or a "%" height alone. Its content then fills that size (a Stack's absolute children
         // are placed in it: ZeroBill's scanner window, width "75%" + aspectRatio 1, was 0 tall with its corners on one
         // line, 2026-11-09).
-        let ratio: CGFloat? = w == nil && h == nil && !(wf != nil && hf != nil) ? s.aspectRatio.flatMap { $0 > 0 ? $0 : nil } : nil
-        let bounds = ZnMinMaxLayout(minW: s.minWidth, maxW: maxW, minH: s.minHeight, maxH: maxH,
+        let ratio: CGFloat? = w == nil && h == nil && !(wf != nil && hf != nil) ? aspect : nil
+        let bounds = ZnMinMaxLayout(minW: minW, maxW: maxW, minH: minH, maxH: maxH,
                                     fillW: fillW || ratio != nil, fillH: fillH || ratio != nil, alignment: alignment)
         content
             .frame(width: w, height: h, alignment: alignment)
             .modifier(ZnMinMaxFrame(layout: bounds))
-            .modifier(ZnRatioFrame(ratio: ratio, fromHeight: wf == nil && hf != nil))
+            .modifier(ZnRatioFrame(ratio: ratio, fromHeight: wf == nil && hf != nil,
+                                   minW: minW, maxW: maxW, minH: minH, maxH: maxH))
     }
 }
 
@@ -436,21 +484,37 @@ struct ZnRatioFrame: ViewModifier {
     let ratio: CGFloat?
     /// The height is the given side (a "%" height and no width): the width follows it.
     var fromHeight = false
+    /// The node's min / max: the side given by the ratio stays inside them (Android's dynamicSize clamps it).
+    var minW: CGFloat? = nil, maxW: CGFloat? = nil, minH: CGFloat? = nil, maxH: CGFloat? = nil
 
     func body(content: Content) -> some View {
-        if let ratio, ratio > 0 { ZnRatioLayout(ratio: ratio, fromHeight: fromHeight) { content } } else { content }
+        if let ratio, ratio > 0 {
+            ZnRatioLayout(ratio: ratio, fromHeight: fromHeight, minW: minW, maxW: maxW, minH: minH, maxH: maxH) { content }
+        } else {
+            content
+        }
     }
 }
 
 struct ZnRatioLayout: Layout {
     let ratio: CGFloat
     var fromHeight = false
+    var minW: CGFloat? = nil, maxW: CGFloat? = nil, minH: CGFloat? = nil, maxH: CGFloat? = nil
 
+    private static func clamp(_ v: CGFloat, _ lo: CGFloat?, _ hi: CGFloat?) -> CGFloat {
+        var r = v
+        if let hi { r = min(r, hi) }
+        if let lo { r = max(r, lo) }
+        return r
+    }
+
+    /// The known side keeps its size; the other is ratio-derived and kept between its min and max (a maxHeight caps a
+    /// wide box's height, as Compose's aspectRatio inside heightIn on Android).
     private func size(_ p: ProposedViewSize, _ child: LayoutSubview) -> CGSize {
-        if fromHeight, let h = p.height, h.isFinite { return CGSize(width: h * ratio, height: h) }
-        if let w = p.width, w.isFinite { return CGSize(width: w, height: w / ratio) }
+        if fromHeight, let h = p.height, h.isFinite { return CGSize(width: Self.clamp(h * ratio, minW, maxW), height: h) }
+        if let w = p.width, w.isFinite { return CGSize(width: w, height: Self.clamp(w / ratio, minH, maxH)) }
         let fit = child.sizeThatFits(p)
-        return CGSize(width: fit.width, height: fit.width / ratio)
+        return CGSize(width: fit.width, height: Self.clamp(fit.width / ratio, minH, maxH))
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -500,11 +564,15 @@ struct ZnPaintLayers: ViewModifier {
     let s: ZnNodeSpec
     let inst: ZnInstance
     let motion: ZnMotion?
+    @Environment(\.znTouchOff) private var touchOff
 
     func body(content: Content) -> some View {
-        let shape = s.shape
-        // Images and shimmers clip to their rounded shape by default, as in RN (and Android).
-        let clips = s.clip || (s.rounded && (s.type == Registry.Component.image || s.type == Registry.Component.shimmer))
+        // Corners from slots are read here: a change redraws this node's paint alone.
+        let shape = s.shapeNow(inst)
+        // Images and shimmers clip to their rounded shape by default, as in RN (and Android). One whose corners come
+        // from a slot always clips (to a square when they are 0), so the branch never swaps and the picture never reloads.
+        let picture = s.type == Registry.Component.image || s.type == Registry.Component.shimmer
+        let clips = s.clip || (picture && (s.hasDynamicRadius || s.rounded))
         content
             .modifier(ZnClip(clip: clips, shape: shape))
             .overlay { ZnBorder(s: s, inst: inst, shape: shape) }
@@ -515,8 +583,72 @@ struct ZnPaintLayers: ViewModifier {
                     ZnBackground(s: s, inst: inst, shape: shape, motion: motion)
                     ZnSideBorders(s: s, inst: inst)
                 }
+                // A background takes no taps of its own: a tap goes through to what is under it, as on Android, where
+                // an element without handlers isn't a hit target (before 2026-11-21 any background stopped taps on iOS).
+                .allowsHitTesting(false)
+            }
+            .background {
+                // pointerEvents "auto" / "box-only", or an absolute layer without pointerEvents: the box stops taps
+                // here, so a Pressable under it gets none, as a React Native view (ZnTouch.kt znBlockTouches).
+                if znStopsTaps(s, inst, touchOff: touchOff) { Color.clear.contentShape(shape) }
             }
             .modifier(ZnLayer(s: s, inst: inst, motion: motion))
+    }
+}
+
+/// Does [s] stop taps on its own box (ZnNode in ZnRenderer.kt)? pointerEvents "auto" or "box-only" written, or not
+/// written on an absolute layer (ZnNodeSpec.absoluteLayer); never inside pointerEvents "none".
+@MainActor func znStopsTaps(_ s: ZnNodeSpec, _ inst: ZnInstance, touchOff: Bool) -> Bool {
+    if touchOff { return false }
+    let pe = s.pointerEventsNow(inst)
+    return pe == Registry.PointerEvents.auto || pe == Registry.PointerEvents.boxOnly ||
+        (pe == znPointerEventsUnset && s.absoluteLayer)
+}
+
+/// pointerEvents "none" on a node (written, or from a slot): neither it nor anything inside takes a tap, so it goes to
+/// what is under it. Pressables inside hide their touch views (znTouchOff), as Android's LocalTouchOff.
+struct ZnPointerEventsNone: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    @Environment(\.znTouchOff) private var touchOff
+
+    func body(content: Content) -> some View {
+        if s.pointerEvents == znPointerEventsUnset && s.pointerEventsSlot < 0 {
+            content  // the usual case: nothing written, no slot (never changes at runtime)
+        } else {
+            let none = s.pointerEventsNow(inst) == Registry.PointerEvents.none
+            content.allowsHitTesting(!none).environment(\.znTouchOff, touchOff || none)
+        }
+    }
+}
+
+/// pointerEvents "box-only": the node takes taps, its children don't (Android passes LocalTouchOff to them).
+struct ZnPointerEventsKids: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    @Environment(\.znTouchOff) private var touchOff
+
+    func body(content: Content) -> some View {
+        if s.pointerEvents == znPointerEventsUnset && s.pointerEventsSlot < 0 {
+            content
+        } else {
+            let boxOnly = s.pointerEventsNow(inst) == Registry.PointerEvents.boxOnly
+            content.allowsHitTesting(!boxOnly).environment(\.znTouchOff, touchOff || boxOnly)
+        }
+    }
+}
+
+/// What a child tells its parent's layout, set by the child itself (outermost, so the parent's Layout sees it): its
+/// "%" size and, in a Stack, its absolute insets. Read here, a slot's change (an animated `start`) re-places the child
+/// without running the parent's body again.
+struct ZnChildTraits: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+
+    func body(content: Content) -> some View {
+        content
+            .layoutValue(key: ZnPercentKey.self, value: s.percentNow(inst))
+            .layoutValue(key: ZnAbsoluteKey.self, value: s.absolute ? ZnAbsolute(s, inst) : nil)
     }
 }
 
@@ -737,7 +869,7 @@ struct ZnIconView: View {
     var body: some View {
         let _ = ZnDebug.hit(name: "IconLeaf", inst: inst, node: s.index)
         let color = s.colorSlot >= 0 ? (znColor(inst.slot(s.colorSlot).value) ?? .black) : (s.color ?? .black)
-        let sized = s.width == nil && s.height == nil
+        let sized = !s.hasWidth && !s.hasHeight
         Canvas { g, size in
             guard let icon = s.icon else { return }
             let tr = CGAffineTransform(scaleX: size.width / icon.width, y: size.height / icon.height)
