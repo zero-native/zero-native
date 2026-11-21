@@ -66,6 +66,9 @@ enum ZnPathData {
             case UInt8(ascii: "z"):
                 if !path.isEmpty { path.closeSubpath() }
                 cur = start; lastCtrl = nil
+                // Z takes no numbers: Compose drops any that follow. (Without this the loop below would repeat Z
+                // forever on "Z 5", since a repeated Z reads nothing.)
+                while tokens.number() != nil {}
             default:
                 return (path, false)  // a letter that isn't a path command
             }
@@ -143,7 +146,8 @@ enum ZnPathData {
             guard i < b.count else { return nil }
             let c = b[i]
             if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) { i += 1; return c }
-            return current == 0 ? nil : current
+            // Z never repeats: what follows it here is neither a number nor a letter, so the data stops (bad).
+            return current == 0 || current | 0x20 == 122 ? nil : current
         }
 
         mutating func flag() -> Bool? {

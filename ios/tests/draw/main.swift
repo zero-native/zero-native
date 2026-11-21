@@ -62,6 +62,9 @@ do {  // parsesBasicShapesAndCommands
     check("text", text?.text, "Test")
     check("text size", text?.fontSize, 16)
     check("text weight", text?.fontWeight, 700)
+    // A weight too big for an Int is clamped, not a crash (Kotlin's toInt() saturates).
+    let huge = parse(#"[{"type":"text","text":"a","x":0,"y":10,"options":{"fontWeight":1e30}}, {"type":"text","text":"a","x":0,"y":10,"options":{"fontWeight":-1e30}}]"#)
+    check("huge weight", huge.ops.map { ($0 as? ZnCanvasOp.Text)?.fontWeight }, [1000, 1])
 }
 
 do {  // positionsAreScaledByDensity
@@ -415,6 +418,14 @@ do {
     check("garbage", ZnPathData.parse("M 0 0 L 5 @").ok, false)
     check("short at end", ZnPathData.parse("M 0 0 L 5").ok, true)
     check("empty", ZnPathData.parse("").ok, true)
+    // After Z: numbers are dropped (Compose), anything else stops the data. These looped forever before 2026-11-21.
+    let z = ZnPathData.parse("M0 0 L10 0 L10 10 Z 5 5 M 20 20 L 30 20")
+    check("numbers after Z dropped", z.ok, true)
+    check("path after Z numbers", z.path.currentPoint, CGPoint(x: 30, y: 20))
+    check("number packed after Z", ZnPathData.parse("M0 0 L10 0 Z1").ok, true)
+    check("dot after Z", ZnPathData.parse("M0 0 L10 0 Z .").ok, false)
+    check("hash after Z", ZnPathData.parse("M0 0 L10 0 Z#").ok, false)
+    check("z then relative move", ZnPathData.parse("M 10 10 h 10 z 3 m 1 1").path.currentPoint, CGPoint(x: 11, y: 11))
     let bad = parse(#"[{"type": "path", "d": "M 0 0 X"}]"#)
     check("bad d", bad.errors, ["command 0: \"d\" is not valid path data; skipped"])
 }

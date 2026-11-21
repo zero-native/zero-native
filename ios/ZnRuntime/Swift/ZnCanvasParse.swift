@@ -570,7 +570,8 @@ private struct ZnCanvasParser {
         }
         if let n = jsonNumber(fw) {
             let f = try finite(n, "fontWeight")
-            return min(max(Int(f.rounded(.towardZero)), 1), 1000)
+            // Clamped before Int(...): a huge weight (1e30) would trap. Kotlin's toInt() saturates, then clamps.
+            return Int(min(max(f.rounded(.towardZero), 1), 1000))
         }
         return nil
     }
