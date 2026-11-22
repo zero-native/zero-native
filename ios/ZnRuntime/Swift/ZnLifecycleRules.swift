@@ -3,7 +3,8 @@
 //   always gives the same text and a relayout that changes nothing sends nothing;
 // - the keyboard's height from where its layout guide's top is (motion env);
 // - when START may go: JS can start without a window (ZnApp.prepare: a push, a task) and the window can come first,
-//   or the other way round (Android: the Application starts JS, the Activity opens screens).
+//   or the other way round (Android: the Application starts JS, the Activity opens screens);
+// - whether a tap on a notification is an event or the tap that opened the app (getInitialNotification).
 import CoreGraphics
 import Foundation
 
@@ -29,11 +30,38 @@ enum ZnWindowRules {
             + "\"screenHeight\":\(number(r1(screenHeight)))}"
     }
 
+    /// How much of the window's root a keyboard covers (its frame in the root's coordinates): from its top to the
+    /// root's bottom when it reaches the bottom and overlaps the root, else 0 (hidden, below the window, or floating).
+    static func keyboardCovers(keyboardMinY: CGFloat, keyboardMaxY: CGFloat, keyboardMinX: CGFloat, keyboardMaxX: CGFloat,
+                               rootWidth: CGFloat, rootHeight: CGFloat) -> CGFloat {
+        let values = [keyboardMinY, keyboardMaxY, keyboardMinX, keyboardMaxX, rootWidth, rootHeight]
+        guard values.allSatisfy(\.isFinite), keyboardMinX < rootWidth, keyboardMaxX > 0, keyboardMinY < rootHeight,
+              keyboardMaxY >= rootHeight - 1 else { return 0 }
+        return max(0, rootHeight - keyboardMinY)
+    }
+
     /// How much of the window the keyboard covers (points): from the top of its layout guide to the window's bottom,
     /// 0 when the guide sits at the bottom (hidden, a hardware keyboard).
     static func keyboardHeight(windowHeight: CGFloat, guideTop: CGFloat) -> CGFloat {
         guard windowHeight.isFinite, guideTop.isFinite else { return 0 }
         return max(0, windowHeight - guideTop)
+    }
+}
+
+/// A tap on a notification with no link (plugins: notifications' "pressed", FCM's "opened"): sent to JS as an event,
+/// or kept for getInitialNotification, as Android keeps the tap that started its Activity in the Activity's Intent.
+public enum ZnTapRules {
+    /// How long after the app first is in front with its screens a tap may still be the one that opened it (iOS
+    /// hands that one to the notification delegate around then).
+    static let openingSeconds = 1.0
+
+    /// [uiStarted]: JS has its screens; [asking]: getInitialNotification calls waiting (the tap is their answer);
+    /// [frontFor]: seconds since the app first was in front with its screens, nil before; [answered]: a
+    /// getInitialNotification call had its answer already (a late opening tap then still reaches the app, as an event).
+    public static func isEvent(uiStarted: Bool, asking: Int, frontFor: Double?, answered: Bool) -> Bool {
+        guard uiStarted, asking == 0 else { return false }
+        let mayHaveOpened = frontFor.map { $0 < openingSeconds } ?? true
+        return !mayHaveOpened || answered
     }
 }
 

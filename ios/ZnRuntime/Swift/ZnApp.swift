@@ -42,6 +42,9 @@ public final class ZnApp {
     private var jsStarted: Bool { startGate.uiStarted && startHeld == nil }
     /// prepare ran for this runtime: the bundle is read and its main script is queued or has run.
     @ObservationIgnored private var prepared = false
+    /// prepare ran once in this process. A restart clears `prepared` until its new runtime is up; this stays, so
+    /// nothing starts JS a second way in between (ZnTasks.run's start, a late prepare call).
+    @ObservationIgnored private(set) var everPrepared = false
 
     /// JS has its screens (START went). Before that JS may be running already with none (a background launch: a push,
     /// a task, ZnApp.prepare), so a plugin keeps a tap or an open for the app to ask for (getInitialNotification)
@@ -51,25 +54,45 @@ public final class ZnApp {
     /// prepare ran: JS is starting or running in this process (with or without a window). Main thread.
     public var isPrepared: Bool { prepared }
 
+    /// A tap on a notification (no link) now: true to send it to JS as an event, false to keep it for
+    /// getInitialNotification (ZnTapRules: no screens yet, a getInitialNotification call waiting, or the tap that
+    /// opened the app, which iOS hands over around the first time the app is in front). [asking]: the plugin's
+    /// getInitialNotification calls waiting; [answered]: one had its answer already. Main thread.
+    public func tapIsEvent(asking: Int, answered: Bool) -> Bool {
+        ZnTapRules.isEvent(uiStarted: isUIStarted, asking: asking,
+                           frontFor: firstFrontAt == 0 ? nil : CACurrentMediaTime() - firstFrontAt, answered: answered)
+    }
+
+    /// When the app first was in front with its screens up (CACurrentMediaTime), 0 before. Once per process.
+    @ObservationIgnored private var firstFrontAt: CFTimeInterval = 0
+    /// whenUIStartedInFront calls waiting for the screens and the front.
+    @ObservationIgnored private var frontWaiters: [() -> Void] = []
+
+    private var inFrontWithScreens: Bool { isUIStarted && UIApplication.shared.applicationState == .active }
+
+    /// The screens went up or the app came to the front: notes the first time, and answers whoever waits for it.
+    private func noteFront() {
+        guard inFrontWithScreens else { return }
+        if firstFrontAt == 0 { firstFrontAt = CACurrentMediaTime() }
+        let waiters = frontWaiters
+        frontWaiters = []
+        waiters.forEach { $0() }
+    }
+
     /// Runs [f] once JS has its screens and the app has come to the front (and a moment more: iOS hands a tap that
     /// opened the app to the notification delegate around then), or after [capMs]. For getInitialNotification, which
     /// JS may call from its main script before any window, as Android's waits for its Activity (INITIAL_WAIT_MS).
     /// Main thread.
     public func whenUIStartedInFront(capMs: Int = 10_000, _ f: @escaping () -> Void) {
         let once = ZnOnce<Void> { _ in f() }
-        let t0 = CACurrentMediaTime()
-        func check() {
-            guard !once.done else { return }
-            if Double(capMs) / 1000 <= CACurrentMediaTime() - t0 { once(()); return }
-            if isUIStarted && UIApplication.shared.applicationState == .active {
-                // Long after START (a screen opened later asks): nothing is on its way.
-                if CACurrentMediaTime() - uiStartedAt > 2 { once(()); return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { once(()) }
-                return
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { MainActor.assumeIsolated { check() } }
+        let ready = { [self] in
+            // Long after START (a screen opened later asks): nothing is on its way.
+            if CACurrentMediaTime() - uiStartedAt > 2 { once(()); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { once(()) }
         }
-        check()
+        if inFrontWithScreens { return ready() }
+        frontWaiters.append(ready)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(capMs)) { once(()) }
     }
 
     func route(of entry: UInt32) -> ZnRoute? { entryRoutes[entry] }
@@ -252,8 +275,17 @@ public final class ZnApp {
 
     /// [reusing]: a restart (ZnOta's swap): [builtIn] is the folder to run, already chosen.
     private func prepare(bundle builtIn: URL, reusing: Bool) {
-        guard !prepared else { return }
+        // Once per process, then once per restart (which names its bundle): a second first start would choose the
+        // bundle again and run it over the one a restart is bringing up.
+        guard !prepared, reusing || !everPrepared else { return }
         prepared = true
+        if !everPrepared {
+            everPrepared = true
+            // The first time the app is in front with its screens (getInitialNotification, tapMayHaveOpenedApp).
+            NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { ZnApp.shared.noteFront() }
+            }
+        }
         // The bundle to run: a downloaded one when OTA is on and it passes every check, else the app's own (ZnOta.swift).
         ZnModules.registerBuiltIns()  // a bundle's needs are checked against every module
         let bundle = reusing ? builtIn : (ZnBundles.choose(builtIn: builtIn).dir ?? builtIn)
@@ -341,9 +373,24 @@ public final class ZnApp {
     public func start(bundle builtIn: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil,
                reusing: Bool = false) {
         // [reusing]: a restart (ZnOta's swap): [builtIn] is the folder to run, already chosen.
+        if !reusing, everPrepared, builtIn.standardizedFileURL != ZnBundles.builtInURL.standardizedFileURL {
+            print("zn: app: start names the app's bundle \(builtIn.path), but JS already started from \(ZnBundles.builtInURL.path) (ZnApp.prepare or a task ran first); that one stays")
+        }
         prepare(bundle: builtIn, reusing: reusing)
         if !reusing { ZnOta.beginLaunchGate() }  // the first window: the update check runs now (ZnOtaGate)
-        guard let ctx, failure == nil else { return }  // the bundle couldn't be read: the error screen shows
+        // A second window (iOS connected the scene again while the process lived, or another scene): the screens
+        // JS has stay, and the new window's root draws them; the link it came with reaches JS as a link.
+        if !reusing, !stack.isEmpty || startGate.uiStarted {
+            print("zn: app: a window asks for screens again; keeping the \(stack.count) open")
+            if let link { openLink(link) }
+            return
+        }
+        guard let ctx, failure == nil else {  // the bundle couldn't be read: the error screen shows
+            // JS started with no window on a downloaded bundle that failed: it is blocked; with a window now, the
+            // last good bundle comes in place (ZnOta), as when the window was there first.
+            if !reusing, failure != nil { DispatchQueue.main.async { ZnOta.rollBackPendingInPlace() } }
+            return
+        }
         let templates = ctx.templates
         do {
             // The first screens: (route, params JSON, link, restorableSignal values JSON).
@@ -415,6 +462,7 @@ public final class ZnApp {
         sendInsets()
         print("zn t=\(ZnDebug.ms()) app: START → JS")
         host.dispatchEvent(0, event: UInt16(ZnAppEvent.start), string: payload)
+        noteFront()
         // A start link that matches no route goes to JS's onUnmatchedLink now; links that came while JS was starting
         // follow.
         if let unmatched = startLink {

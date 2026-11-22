@@ -58,10 +58,10 @@ final class ZnSystemEvents {
         // and a hide are 0.
         nc.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { n in
             let end = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue ?? .zero
-            let screen = UIScreen.main.bounds
-            let covered = end.isEmpty || !end.intersects(screen) ? 0 : max(0, screen.maxY - end.minY)
             let duration = (n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
             MainActor.assumeIsolated {
+                // Of the window, not the screen (split view, Stage Manager); a floating iPad keyboard covers nothing.
+                let covered = ZnMotionEnv.keyboardCovers(end)
                 // The screen (keyboard: "resize") shrinks above the keyboard as it moves; the focused field rides up.
                 if covered > 0 { ZnFieldFocus.followKeyboard(duration: duration) }
                 ZnMotionEnv.keyboardTarget(covered)  // motion's env.keyboardTarget (the frames: ZnKeyboardProbe)

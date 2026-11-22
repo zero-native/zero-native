@@ -1,6 +1,6 @@
 // Sample app entry: starts the runtime and the app's routes. Native opens the first screen ("/", or a deep link's
 // route on top of it) and tells JS which ones; JS renders them (packages/core/src/nav.ts).
-import { defineTask, installRuntime, onNavResult, Os, startApp } from "@zeronative/core"
+import { appState, defineTask, installRuntime, onNavResult, Os, startApp } from "@zeronative/core"
 import { routes } from "./routes"
 import { installPushLab } from "./PushLab"
 import { AppOverlay, AppTop } from "./AppLayers"
@@ -34,6 +34,7 @@ defineTask("lab.throw", () => {
 defineTask("lab.wait", async (data: { ms?: number }, signal) => {
   const ms = data?.ms ?? 8000
   const t0 = Date.now()
+  console.info(`core-lab task wait: ${ms} ms, app state ${appState()}`)  // "background" in a launch with no screens
   await new Promise<void>((done) => {
     const t = setTimeout(done, ms)
     signal.addEventListener("abort", () => {

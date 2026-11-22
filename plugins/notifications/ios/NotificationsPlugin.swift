@@ -119,6 +119,8 @@ public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDeleg
 
     /// getInitialNotification calls waiting for the screens (main thread): a tap now is theirs, not an event.
     private var asking = 0
+    /// A getInitialNotification call has had its answer (main thread): a tap after that is an event.
+    private var answered = false
 
     /// getInitialNotification: once JS has its screens and the app is in front, as Android waits for its Activity (JS
     /// may ask from its main script, before the window, and the tap that opened the app comes around then).
@@ -126,6 +128,7 @@ public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDeleg
         asking += 1
         ZnApp.shared.whenUIStartedInFront { [self] in
             asking -= 1
+            answered = true
             done(takeInitial())
         }
     }
@@ -165,7 +168,9 @@ public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDeleg
             case UNNotificationDefaultActionIdentifier:
                 if let link = (info[NotificationRules.keyLink] as? String).flatMap(URL.init(string:)) {
                     ZnApp.shared.openLink(link)
-                } else if ZnApp.shared.isUIStarted && self.asking == 0 {  // screens listen; JS alone (no window yet) doesn't
+                } else if ZnApp.shared.tapIsEvent(asking: self.asking, answered: self.answered) {
+                    // Screens listen; JS alone (no window yet) doesn't. The tap that opened the app is kept for
+                    // getInitialNotification, as Android's launch Intent, unless the app already asked for it.
                     NotificationsModule.shared.emit("pressed", ["id": id, "data": data])
                 } else {
                     self.lock.withLock { self.initial = ["id": id, "data": data] }

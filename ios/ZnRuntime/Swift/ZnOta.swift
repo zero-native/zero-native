@@ -1314,10 +1314,15 @@ public final class ZnOta: @unchecked Sendable {
         rolledBack.insert(id)
         stopTimers()
         let inPlace = !isHeld && !ZnLaunch.isWaiting && Self.window() != nil
-        let later = inPlace ? "" : " from the next start (\(isHeld ? "updates are held" : "the app can't swap now"))"
+        // No window yet (JS started with none: a push, a task): the first window runs the good bundle in place.
+        let atWindow = !inPlace && !isHeld && !ZnLaunch.isWaiting
+        let later = inPlace ? "" : atWindow ? " when the window opens (JS started with none)"
+            : " from the next start (\(isHeld ? "updates are held" : "the app can't swap now"))"
         if inPlace {
             rollingBack = true
             cover()
+        } else if atWindow {
+            pendingInPlace = id
         }
         worker.async { [self] in
             let target = ZnBundles.candidate(exclude: id)
@@ -1333,6 +1338,28 @@ public final class ZnOta: @unchecked Sendable {
             }
         }
         return inPlace
+    }
+
+    /// A rollback that found no window (JS started with none and its downloaded bundle failed): [id] is blocked and
+    /// `current` names the good bundle; the first window runs that in place (ZnApp.start), else the error screen
+    /// would stay for the whole process.
+    private var pendingInPlace: String?
+
+    /// Main thread, from ZnApp.start when JS failed before the window: the rollback that waited for a window, now.
+    @MainActor static func rollBackPendingInPlace() {
+        let s = shared
+        guard let id = s.pendingInPlace, !s.isHeld, !ZnLaunch.isWaiting, window() != nil, !s.applying, !s.rollingBack,
+              !ZnApp.shared.restarting else { return }
+        s.pendingInPlace = nil
+        s.rollingBack = true
+        s.cover()
+        s.worker.async {  // after the rollback's own work on this queue: `current` is final
+            let target = ZnBundles.candidate(exclude: id)
+            DispatchQueue.main.async {
+                print("zn-ota: safety: the window opened; rolling back from \(id) to \(target) now")
+                s.swap(to: target, fallback: nil, why: .rollBack) { r in print("zn-ota: safety: rollback done: \(r)") }
+            }
+        }
     }
 
     // MARK: Apply in place (ZnOta.kt applyNow / swap)

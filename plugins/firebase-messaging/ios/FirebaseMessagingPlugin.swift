@@ -187,6 +187,8 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
     private var initial: [String: Any]?
     /// getInitialNotification calls waiting for the screens (main thread): a tap now is theirs, not an event.
     private var asking = 0
+    /// A getInitialNotification call has had its answer (main thread): a tap after that is an event.
+    private var answered = false
     /// Recent message ids, kept across starts: a push can reach willPresent, the app delegate, the service extension's
     /// note and the notification centre's list.
     private lazy var seen: [String] = UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? []
@@ -220,6 +222,7 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
                 self.asking += 1
                 ZnApp.shared.whenUIStartedInFront {
                     self.asking -= 1
+                    self.answered = true
                     call.resolve(self.lock.withLock { () -> Any? in defer { self.initial = nil }; return self.initial })
                 }
             }
@@ -522,8 +525,9 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         }
         let message = PushRules.opened(info, now: Self.now)
         // Screens, not only JS: JS may run with none yet (a launch with no window, or the tap's own cold start, where
-        // the main script runs before the window's START), and nobody listens to "opened" then.
-        if ZnApp.shared.isUIStarted && asking == 0 {
+        // the main script runs before the window's START), and nobody listens to "opened" then. The tap that opened
+        // the app is kept for getInitialNotification, as Android's launch Intent, unless the app already asked for it.
+        if ZnApp.shared.tapIsEvent(asking: asking, answered: answered) {
             emit("opened", message)
         } else {
             lock.withLock { initial = message }

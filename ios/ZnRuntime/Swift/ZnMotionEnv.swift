@@ -31,6 +31,24 @@ enum ZnMotionEnv {
 
     /// Its height when it stops: the full height while it opens, 0 while it closes.
     static func keyboardTarget(_ h: CGFloat) { set(ZnMotionEngine.envKeyboardTarget, h) }
+
+    /// The window's root view (ZnKeyboardProbe.install), for keyboardCovers.
+    static weak var root: UIView?
+
+    /// How much of the window's root a keyboard frame ([end]: screen coordinates, from a keyboard notification)
+    /// covers: from its top to the root's bottom, as the probe measures each frame, so the target and the frames
+    /// agree in split view and Stage Manager too. 0 for a keyboard that doesn't reach the bottom (a floating or
+    /// undocked iPad keyboard: the layout guide stays at the bottom, followsUndockedKeyboard is off) and for a hide.
+    static func keyboardCovers(_ end: CGRect) -> CGFloat {
+        guard !end.isEmpty else { return 0 }
+        guard let root, let screen = root.window?.windowScene?.screen else {
+            let s = UIScreen.main.bounds
+            return end.intersects(s) ? max(0, s.maxY - end.minY) : 0
+        }
+        let r = root.convert(end, from: screen.coordinateSpace)
+        return ZnWindowRules.keyboardCovers(keyboardMinY: r.minY, keyboardMaxY: r.maxY, keyboardMinX: r.minX,
+                                            keyboardMaxX: r.maxX, rootWidth: root.bounds.width, rootHeight: root.bounds.height)
+    }
 }
 
 /// Follows the keyboard frame by frame: a 1x1 view with no content pinned to the root view's keyboard layout guide.
@@ -48,6 +66,7 @@ final class ZnKeyboardProbe {
 
     func install(in root: UIView) {
         self.root = root
+        ZnMotionEnv.root = root
         probe.isUserInteractionEnabled = false
         probe.alpha = 0
         probe.isAccessibilityElement = false

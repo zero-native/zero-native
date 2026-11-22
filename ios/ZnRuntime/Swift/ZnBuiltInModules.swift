@@ -328,6 +328,9 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
         var answerBy: DispatchSourceTimer?
         /// It keeps the app awake (background time) until it ends.
         var holds = true
+        /// Restored from an earlier process (nobody waits for its answer): it holds background time once JS has it,
+        /// not while it waits for JS that may never start in this process (an app that doesn't call ZnApp.prepare).
+        var holdsWhenSent = false
     }
 
     // All main thread.
@@ -375,7 +378,8 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
             if let answerAt, let ms = answerByMs { self.answerBy(id, at: answerAt, ms: ms) }
             MainActor.assumeIsolated {
                 // An app that doesn't call ZnApp.prepare at launch: a plugin's wake (a push, a button) starts JS here.
-                if !ZnApp.shared.isPrepared {
+                // Once per process: a restart (an update applied in place) brings its own runtime up.
+                if !ZnApp.shared.everPrepared {
                     print("zn: task \(name): JS isn't running; starting it with no window")
                     ZnApp.shared.prepare(bundle: ZnBundles.builtInURL)
                 }
@@ -421,6 +425,11 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
         let open = tasks.keys.sorted { Int($0) ?? 0 < Int($1) ?? 0 }
         if !open.isEmpty { print("zn: tasks: iOS ends the background time; answering \(open.count) open task(s) now") }
         for id in open { expire(id, why: "the background time ended") }
+        // Those still open were answered and are kept: they no longer hold, so a later task's time goes back when it ends.
+        for id in tasks.keys {
+            tasks[id]?.holds = false
+            tasks[id]?.holdsWhenSent = false
+        }
         endBackgroundTime()
     }
 
@@ -488,6 +497,11 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
             self?.finish(id, .timedOut)
         }
         task.timeout = timeout
+        if task.holdsWhenSent {
+            task.holdsWhenSent = false
+            task.holds = true
+            holdBackgroundTime()
+        }
         tasks[id] = task
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(task.timeoutMs), execute: timeout)
         ZNHost.shared.dispatchEvent(0, event: Self.appEventTask, string: json)
@@ -539,7 +553,7 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
             let data = (entry["json"] as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["d"]
                 ?? entry["data"]
             enqueue(Task(name: name, data: data, timeoutMs: entry["timeoutMs"] as? Int ?? 30_000, keptId: id,
-                         onDone: { _ in }, timeout: nil))
+                         onDone: { _ in }, timeout: nil, holds: false, holdsWhenSent: true))
         }
     }
 }

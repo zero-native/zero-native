@@ -51,6 +51,33 @@ check("keyboard shown", ZnWindowRules.keyboardHeight(windowHeight: 874, guideTop
 check("guide below the window", ZnWindowRules.keyboardHeight(windowHeight: 874, guideTop: 900), 0)
 check("not finite", ZnWindowRules.keyboardHeight(windowHeight: 874, guideTop: .nan), 0)
 
+// The keyboard's target from its frame in the root's coordinates (env.keyboardTarget, KEYBOARD).
+check("covers: docked", ZnWindowRules.keyboardCovers(keyboardMinY: 538, keyboardMaxY: 874, keyboardMinX: 0, keyboardMaxX: 402,
+                                                     rootWidth: 402, rootHeight: 874), 336)
+check("covers: hidden below", ZnWindowRules.keyboardCovers(keyboardMinY: 874, keyboardMaxY: 1210, keyboardMinX: 0,
+                                                           keyboardMaxX: 402, rootWidth: 402, rootHeight: 874), 0)
+// iPad split view: the window is the right third; the keyboard spans the screen, so it is wider than the root.
+check("covers: split view", ZnWindowRules.keyboardCovers(keyboardMinY: 700, keyboardMaxY: 1032, keyboardMinX: -868,
+                                                         keyboardMaxX: 507.5, rootWidth: 507.5, rootHeight: 1032), 332)
+// A window shorter than the screen (Stage Manager): measured to the window's bottom, not the screen's.
+check("covers: short window", ZnWindowRules.keyboardCovers(keyboardMinY: 500, keyboardMaxY: 800, keyboardMinX: 0,
+                                                           keyboardMaxX: 600, rootWidth: 600, rootHeight: 800), 300)
+check("covers: floating", ZnWindowRules.keyboardCovers(keyboardMinY: 400, keyboardMaxY: 650, keyboardMinX: 100,
+                                                       keyboardMaxX: 420, rootWidth: 1024, rootHeight: 1366), 0)
+check("covers: beside the window", ZnWindowRules.keyboardCovers(keyboardMinY: 700, keyboardMaxY: 1032, keyboardMinX: 600,
+                                                                keyboardMaxX: 900, rootWidth: 507.5, rootHeight: 1032), 0)
+check("covers: not finite", ZnWindowRules.keyboardCovers(keyboardMinY: .nan, keyboardMaxY: 874, keyboardMinX: 0,
+                                                         keyboardMaxX: 402, rootWidth: 402, rootHeight: 874), 0)
+
+// A tap on a notification: an event, or kept for getInitialNotification.
+check("tap: no screens, kept", ZnTapRules.isEvent(uiStarted: false, asking: 0, frontFor: nil, answered: false), false)
+check("tap: no screens after an answer, kept", ZnTapRules.isEvent(uiStarted: false, asking: 0, frontFor: nil, answered: true), false)
+check("tap: a call waits, its answer", ZnTapRules.isEvent(uiStarted: true, asking: 1, frontFor: 5, answered: false), false)
+check("tap: screens, never in front yet: opened the app", ZnTapRules.isEvent(uiStarted: true, asking: 0, frontFor: nil, answered: false), false)
+check("tap: just came to the front: opened the app", ZnTapRules.isEvent(uiStarted: true, asking: 0, frontFor: 0.4, answered: false), false)
+check("tap: opening, but the app asked already: event", ZnTapRules.isEvent(uiStarted: true, asking: 0, frontFor: 0.4, answered: true), true)
+check("tap: app in use: event", ZnTapRules.isEvent(uiStarted: true, asking: 0, frontFor: 30, answered: false), true)
+
 // START: the main script and the window, in either order; once.
 do {
     var g = ZnStartGate()
