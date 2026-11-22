@@ -7,8 +7,10 @@
 // The fling and the snap run natively; JS only hears the events it has handlers for. Each log line (and each onScroll
 // y) also goes to the console as "scroll-lab ...". With the param run (--params '{"run":true}') it scrolls itself: Section
 // 3, End, Top with no animation, then refreshing from JS, so the commands and onScroll can be checked from the log.
+// Each drag of c) also flips its top padding between 0 and 1, so the Scroll itself updates while it is pulled (a pull
+// must still refresh then).
 import { Column, List, Pressable, Row, Scroll, Text } from "@zeronative/ui"
-import { Dimensions, nav, signal } from "@zeronative/core"
+import { Dimensions, nav, onCleanup, signal } from "@zeronative/core"
 import type { ScrollEvent, ScrollRef } from "@zeronative/ui"
 import { c } from "./tokens"
 
@@ -39,6 +41,10 @@ export function ScrollLabScreen(props: { run?: boolean }) {
   const log = signal<string[]>([])
   const y = signal(0)
   const refreshing = signal(false)
+  const pullPad = signal(0)
+  const timers: ReturnType<typeof setTimeout>[] = []
+  const later = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms))
+  onCleanup(() => timers.forEach((t) => clearTimeout(t)))
   const add = (line: string) => {
     console.log(`scroll-lab ${line}`)
     log.set([line, ...log()].slice(0, 6))
@@ -55,10 +61,10 @@ export function ScrollLabScreen(props: { run?: boolean }) {
       [4000, "run: Top, no animation", () => ref.current?.scrollTo({ y: 0, animated: false })],
       [5000, "run: refreshing from JS", () => {
         refreshing.set(true)
-        setTimeout(() => refreshing.set(false), 3000)
+        later(3000, () => refreshing.set(false))
       }],
     ]
-    for (const [ms, line, step] of steps) setTimeout(() => { add(line); step() }, ms)
+    for (const [ms, line, step] of steps) later(ms, () => { add(line); step() })
   }
   // A page is the window's width: "100%" in a horizontal list row is the row's own content width (as in RN).
   const pageW = Dimensions.get("window").width
@@ -130,7 +136,7 @@ export function ScrollLabScreen(props: { run?: boolean }) {
         <SlButton label="Refresh" onPress={() => {
           // `refreshing` from JS alone shows the spinner (on its disc) without a pull.
           refreshing.set(true)
-          setTimeout(() => refreshing.set(false), 3000)
+          later(3000, () => refreshing.set(false))
         }} />
         <SlButton label="Top" onPress={() => ref.current?.scrollTo({ y: 0 })} />
         <SlButton label="Section 3" onPress={() => ref.current?.scrollTo({ y: SECTION_H * 2 })} />
@@ -149,7 +155,10 @@ export function ScrollLabScreen(props: { run?: boolean }) {
         snapToEnd={false}
         scrollEventThrottle={100}
         onScroll={onScroll}
-        onScrollBeginDrag={(e) => add(`begin drag at ${Math.round(e.nativeEvent.contentOffset.y)}`)}
+        onScrollBeginDrag={(e) => {
+          add(`begin drag at ${Math.round(e.nativeEvent.contentOffset.y)}`)
+          pullPad.set(pullPad() === 0 ? 1 : 0)
+        }}
         onScrollEndDrag={(e) => add(`end drag at ${Math.round(e.nativeEvent.contentOffset.y)}`)}
         onMomentumScrollBegin={(e) => add(`momentum begin, speed ${Math.round(e.nativeEvent.velocity?.y ?? 0)} dp/s`)}
         onMomentumScrollEnd={(e) => add(`momentum end at ${Math.round(e.nativeEvent.contentOffset.y)} of ${Math.round(e.nativeEvent.contentSize.height)}`)}
@@ -157,11 +166,11 @@ export function ScrollLabScreen(props: { run?: boolean }) {
         onRefresh={() => {
           add("refresh")
           refreshing.set(true)
-          setTimeout(() => { refreshing.set(false); add("refresh done") }, 3000)
+          later(3000, () => { refreshing.set(false); add("refresh done") })
         }}
         refreshColor="#FFFFFF"
         refreshBackground={c.primary}
-        style={{ flex: 1, marginHorizontal: 16, marginBottom: 16, borderRadius: 18, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}
+        style={{ flex: 1, paddingTop: pullPad(), marginHorizontal: 16, marginBottom: 16, borderRadius: 18, backgroundColor: c.white, borderWidth: 1, borderColor: c.border }}
       >
         {SECTIONS.map((name, i) => (
           <Column key={name} style={{ height: SECTION_H, padding: 16, gap: 8, borderBottomWidth: 1, borderColor: c.border }}>

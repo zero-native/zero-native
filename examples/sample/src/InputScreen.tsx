@@ -80,6 +80,10 @@ export function InputScreen() {
             autoCapitalize="words"
             returnKeyType="next"
             onFocus={() => focused.set("name")}
+            onBlur={() => {
+              console.log("input-screen blur name")
+              focused.set("none")
+            }}
             style={field}
           />
           <TextField
@@ -92,6 +96,10 @@ export function InputScreen() {
             keyboardType="phone-pad"
             maxLength={10}
             onFocus={() => focused.set("phone")}
+            onBlur={() => {
+              console.log("input-screen blur phone")
+              focused.set("none")
+            }}
             style={field}
           />
         </Card>
