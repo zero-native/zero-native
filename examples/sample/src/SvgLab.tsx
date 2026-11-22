@@ -434,8 +434,9 @@ export function SvgLabScreen() {
               <IconTile label="Gooey 2"><Gooey2 size={40} color={like} /></IconTile>
               {/* A filter in a pattern tile: plain drop shadows only, as on Android. */}
               <IconTile label="In pattern"><FilterInPattern size={40} /></IconTile>
-              <Column style={{ width: 120, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
-                <Gooey1 size={96} color={c.primary} />
+              {/* 72 wide as the tiles, so the four fit a 320 pt phone. */}
+              <Column style={{ width: 72, height: 72, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
+                <Gooey1 size={64} color={c.primary} />
               </Column>
             </Row>
             {/* The same tiles large, to compare edges with an Android 12+ screenshot. */}
