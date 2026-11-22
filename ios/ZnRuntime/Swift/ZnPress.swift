@@ -108,14 +108,12 @@ struct ZnPressable<Label: View>: View {
     let s: ZnNodeSpec
     let inst: ZnInstance
     @ViewBuilder let label: () -> Label
-    @State private var state = ZnPressState()
+    /// Its press state and context, for its node's paint (ZnElementProbe, ZnElementMotion.swift).
+    @State private var link = ZnPressLink()
 
     var body: some View {
         // `disabled` may change at runtime (a slot, e.g. the Pay button's disabled={!active()}).
         let disabled = s.disabledNow(inst)
-        // pointerEvents "none" / "box-none": this Pressable takes no taps itself (its children may: box-none).
-        let pe = s.pointerEventsNow(inst)
-        let selfOff = pe == Registry.PointerEvents.none || pe == Registry.PointerEvents.boxNone
         switch ZnImpl.press {
         case .swiftUI:
             Button {
@@ -128,18 +126,25 @@ struct ZnPressable<Label: View>: View {
             .disabled(disabled)
             .modifier(ZnPressA11y(ctx: ctx, s: s, inst: inst, disabled: disabled))
         case .uiKit:
+            // The feedback, the press look and the touch view are drawn by the node's own paint, inside its layer
+            // (ZnPressInLayer, ZnElementMotion.swift): a Pressable moved, scaled or turned by its transforms takes taps
+            // where it is drawn, as on Android, and its ripple moves with it. They used to sit out here, around the
+            // untransformed box.
+            let _ = link.bind(ctx: ctx, inst: inst, node: s.index)
             label()
-                .overlay { ZnPressFeedback(s: s, state: state, shape: s.shapeNow(inst)).accessibilityHidden(true) }
-                .scaleEffect(state.pressed ? s.pressScale : 1)
-                .opacity(state.pressed ? s.pressOpacity : 1)
-                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
-                // hitSlop: the touch view reaches past the Pressable by the slop (start / end follow the layout
-                // direction, as SwiftUI's leading / trailing).
-                .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: state, disabled: disabled, off: selfOff)
-                    .padding(s.hitSlop.map { EdgeInsets(top: -$0.top, leading: -$0.start, bottom: -$0.bottom, trailing: -$0.end) } ?? EdgeInsets()))
+                .environment(\.znPressLink, link)
                 // VoiceOver: one element, a button by default (ZnAccessibility.swift). The touch view isn't one.
                 .modifier(ZnPressA11y(ctx: ctx, s: s, inst: inst, disabled: disabled))
         }
+    }
+}
+
+extension ZnPressLink {
+    /// Whose link this is now: set in ZnPressable's body, before its node's paint reads it in the same update.
+    func bind(ctx: ZnContext, inst: ZnInstance, node: Int) {
+        self.ctx = ctx
+        self.inst = inst
+        self.node = node
     }
 }
 

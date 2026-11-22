@@ -66,6 +66,7 @@ import { LifecycleLabScreen } from "./LifecycleLab"
 import { GestureLabScreen } from "./GestureLab"
 import { MotionEngineLabScreen } from "./MotionEngineLab"
 import { MotionBindingsLabScreen } from "./MotionBindingsLab"
+import { ElementValuesLabScreen } from "./ElementValuesLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -160,6 +161,9 @@ export const routes = defineRoutes({
   seeThroughSlide: { path: "/dev/core/see-through-slide", screen: SeeThroughLabScreen, transparent: true, transition: "push", safeArea: "none", statusBar: "light", restore: false },
   // Gestures no motion lab covers (iOS's native gestures, W3-A). Last, so the numbers of the routes before it do not move.
   gestureLab: { path: "/dev/motion/gestures", screen: GestureLabScreen, deepLink: true },
+  // useElementMotion values (box, pressed, Scroll / List / Carousel values, follow) and a Pressable drawn away from its
+  // place by its transforms. Last, as above.
+  elementValuesLab: { path: "/dev/motion/element-values", screen: ElementValuesLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
