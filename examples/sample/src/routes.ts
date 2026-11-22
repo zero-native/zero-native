@@ -63,6 +63,7 @@ import { MotionScreensDetailScreen, MotionScreensLabScreen } from "./MotionScree
 import { MotionExtensionLabScreen } from "./MotionExtensionLab"
 import { WebSocketLabScreen } from "./WebSocketLab"
 import { LifecycleLabScreen } from "./LifecycleLab"
+import { GestureLabScreen } from "./GestureLab"
 import { MotionEngineLabScreen } from "./MotionEngineLab"
 import { MotionBindingsLabScreen } from "./MotionBindingsLab"
 
@@ -157,6 +158,8 @@ export const routes = defineRoutes({
   // (it slides in alone over the still screen below; the edge swipe moves it alone). Last, as above.
   seeThroughLab: { path: "/dev/core/see-through", screen: SeeThroughLabScreen, transparent: true, transition: "none", safeArea: "none", restore: false },
   seeThroughSlide: { path: "/dev/core/see-through-slide", screen: SeeThroughLabScreen, transparent: true, transition: "push", safeArea: "none", statusBar: "light", restore: false },
+  // Gestures no motion lab covers (iOS's native gestures, W3-A). Last, so the numbers of the routes before it do not move.
+  gestureLab: { path: "/dev/motion/gestures", screen: GestureLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
