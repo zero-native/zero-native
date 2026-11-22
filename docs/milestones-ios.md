@@ -253,11 +253,11 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | List header / footer / empty, `scrollCommand` (r23) | done (2026-11-21; ZnList.swift, ios/tests/list) | M |
 | `numColumns` / `columnWrapper` (r24) | done (2026-11-21; ZnListGrid.swift, GridLab) | M |
 | Row `flexWrap` / `alignContent` / `crossGap` (r24; LayoutLab 30–37) | done (2026-11-09) | |
-| Scroll onRefresh / refreshing | done (ZnScroll.swift's probe, ZnTabsRefresh.swift; the control is a subview, since SwiftUI's ScrollView clears `refreshControl` when it updates) | S |
-| Scroll onScroll (throttled), onScrollBeginDrag / EndDrag, onMomentumScrollBegin / End (r24) | done (2026-11-21; ZnScrollDriver: contentOffset KVO, a pan target, momentum watched frame by frame; checked with drags and flings on the simulator, ScrollLab) | M |
-| Scroll pagingEnabled, snapToInterval / Alignment, snapToOffsets, snapToStart / End, disableIntervalMomentum, decelerationRate (r24) | done (2026-11-21; Android's ZnSnap.pick through scrollTargetBehavior, a let-go with no speed snaps too; the rate is UIKit's own) | M |
-| Scroll ref scrollTo / scrollToEnd (r24) | done (2026-11-21; once per seq on the instance, waits for the first layout) | S |
-| Scroll keyboardDismissMode (r24) | done (2026-11-21; SwiftUI's scrollDismissesKeyboard, interactive only vertical as Android) | S |
+| Scroll onRefresh / refreshing | done (ZnScroll.swift's probe, ZnTabsRefresh.swift; the control is a subview, since SwiftUI's ScrollView owns `refreshControl` and cleared ours at its first render; a pull while the Scroll itself updates was checked 2026-11-22) | S |
+| Scroll onScroll (throttled), onScrollBeginDrag / EndDrag, onMomentumScrollBegin / End (r24) | done (2026-11-21; ZnScrollDriver: contentOffset KVO, a pan target, momentum begins at the release when UIKit coasts, and a snap scroll always sends begin and end as Android's fling; onScroll at most once a frame; checked with drags and flings on the simulator, ScrollLab) | M |
+| Scroll pagingEnabled, snapToInterval / Alignment, snapToOffsets, snapToStart / End, disableIntervalMomentum, decelerationRate (r24) | done (2026-11-21; Android's ZnSnap.pick through scrollTargetBehavior, a let-go with no speed snaps too, also while refreshing; the rate is UIKit's own, set again at each drag) | M |
+| Scroll ref scrollTo / scrollToEnd (r24) | done (2026-11-21; once per seq on the instance, waits for the scroll view and its first layout) | S |
+| Scroll keyboardDismissMode (r24) | done (2026-11-21; SwiftUI's scrollDismissesKeyboard, interactive only vertical as Android, none never closes it) | S |
 | Carousel `itemWidthPercent` (r23) | missing | S |
 | Text `selectable`, `adjustsFontSizeToFit`, `minimumFontScale` (r23) | missing | S |
 
