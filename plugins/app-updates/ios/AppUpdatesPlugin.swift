@@ -5,7 +5,7 @@
 //   newer than this build's and this iOS can run it. Kept for an hour. Any failure answers `available: false`; it
 //   never rejects. `{ appStoreId }` looks that id up instead of this app's bundle id (a lab, or an app whose bundle
 //   id the store doesn't know yet). The storefront asked is the App Store account's country (StoreKit's Storefront),
-//   else the phone's region.
+//   then the phone's region when that one has no answer.
 // - start `{ flexible }` opens the App Store's own sheet for the app inside the app (SKStoreProductViewController;
 //   its Update button installs). `{ ok }`. The sheet loads first and shows once loaded; when it can't load it opens
 //   the App Store app instead. Not refused while busy (as Android: busy only holds back the re-open). The sheet
@@ -95,7 +95,15 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
 
     /// The App Store's answer for [appStoreId], else for this app's bundle id: kept for an hour, nil on any failure.
     private func lookup(_ appStoreId: String?, _ done: @escaping (AppUpdatesRules.StoreInfo?) -> Void) {
-        storefront { country in self.lookup(appStoreId, country: country, done) }
+        storefront { country in
+            self.lookup(appStoreId, country: country) { info in
+                // StoreKit can name a storefront the app isn't sold in (the simulator says "us" with no account): the
+                // phone's region once more before "no update".
+                let region = AppUpdatesRules.country(storefront: nil, region: Locale.current.region?.identifier)
+                if info == nil, region != country { return self.lookup(appStoreId, country: region, done) }
+                done(info)
+            }
+        }
     }
 
     /// The storefront to ask: the App Store account's country once StoreKit says it (kept), else the phone's region.
@@ -108,6 +116,7 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
             let code = await Storefront.current?.countryCode
             let country = AppUpdatesRules.country(storefront: code, region: region)
             if code != nil { self.lock.withLock { self.storeCountry = country } }
+            print("zn app-updates: storefront \(country) (\(code != nil ? "the App Store account's" : "no App Store account: the phone's region"))")
             once.call(country)
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + 2) { once.call(AppUpdatesRules.country(storefront: nil, region: region)) }
