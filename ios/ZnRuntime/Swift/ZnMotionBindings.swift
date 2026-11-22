@@ -175,27 +175,6 @@ struct ZnSiteFeed: ViewModifier {
 
 // MARK: - 3D turns and blur
 
-/// A layer's scale, rotate, 3D turn and translation as one projection (znLayerMatrix), for a node with no `animate`:
-/// one effect to update per frame instead of a chain of them, which is what a moving value costs.
-struct ZnLayerEffect: GeometryEffect {
-    var scaleX: CGFloat, scaleY: CGFloat, rotate: CGFloat
-    var rotateX: CGFloat, rotateY: CGFloat, camera: CGFloat
-    var translateX: CGFloat, translateY: CGFloat
-    var origin: UnitPoint
-    var scale: CGFloat
-
-    var animatableData: EmptyAnimatableData {
-        get { EmptyAnimatableData() }
-        set {}
-    }
-
-    func effectValue(size: CGSize) -> ProjectionTransform {
-        ProjectionTransform(znLayerMatrix(size: size, scaleX: scaleX, scaleY: scaleY, rotate: rotate, rotateX: rotateX,
-                                          rotateY: rotateY, cameraDistance: camera, translateX: translateX,
-                                          translateY: translateY, originX: origin.x, originY: origin.y, scale: scale))
-    }
-}
-
 /// rotateX / rotateY about the transform origin with the camera distance (ZnDepthEffect), only on a node that uses
 /// them (hasDepth: written, from a slot, or an enter / exit that turns), so other nodes get no extra modifier.
 struct ZnDepthIf: ViewModifier {

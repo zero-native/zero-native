@@ -77,21 +77,3 @@ func znBlurSigma(_ radius: CGFloat, scale: CGFloat) -> CGFloat {
     guard radius > 0, radius.isFinite else { return 0 }
     return 0.57735 * radius + 0.5 / max(1, scale)
 }
-
-/// A layer's whole transform as one matrix, in the order of Android's RenderNode (HWUI's updateMatrix): scale and
-/// rotate about the origin, then the 3D turn about it (ZnDepth.swift), then the translation. Row vectors, as Core
-/// Animation: a point is scaled first. [originX] / [originY]: 0…1 of [size]; degrees; [scale]: pixels per point.
-func znLayerMatrix(size: CGSize, scaleX: CGFloat, scaleY: CGFloat, rotate: CGFloat, rotateX: CGFloat, rotateY: CGFloat,
-                   cameraDistance: CGFloat, translateX: CGFloat, translateY: CGFloat, originX: CGFloat, originY: CGFloat,
-                   scale: CGFloat) -> CATransform3D {
-    let px = size.width * originX, py = size.height * originY
-    var m = CATransform3DMakeTranslation(-px, -py, 0)
-    m = CATransform3DConcat(m, CATransform3DMakeScale(scaleX, scaleY, 1))
-    if rotate != 0 { m = CATransform3DConcat(m, CATransform3DMakeRotation(rotate * .pi / 180, 0, 0, 1)) }
-    m = CATransform3DConcat(m, CATransform3DMakeTranslation(px, py, 0))
-    if rotateX != 0 || rotateY != 0 {
-        m = CATransform3DConcat(m, znDepthMatrix(size: size, rotateX: rotateX, rotateY: rotateY, cameraDistance: cameraDistance,
-                                                 originX: originX, originY: originY, scale: scale))
-    }
-    return CATransform3DConcat(m, CATransform3DMakeTranslation(translateX, translateY, 0))
-}

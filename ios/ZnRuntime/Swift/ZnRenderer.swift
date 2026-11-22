@@ -719,22 +719,23 @@ struct ZnLayerFull: ViewModifier {
         if !s.layerTransforms {
             // Opacity from a slot only: `animate` implies a transform (ZnTemplate), so no timing applies here.
             fed.opacity(opacity)
-        } else if s.animate == nil && s.layerTransformSlots {
-            // Transforms that can follow motion values, nothing animating through SwiftUI: one effect for all of
-            // them, the cheapest to move per frame. Fixed transforms keep the chain below (its touch areas are the
-            // ones checked on platform views).
+        } else if s.animate == nil {
+            // Nothing animates through SwiftUI here: SwiftUI's own effects with no animation scopes, the cheapest to
+            // move per frame. (One custom GeometryEffect for the whole matrix was cheaper still, but a UITextField
+            // under it kept its touch area where it was laid out, 2026-11-22; the built-in effects move it.)
             let scale = value(P.scale, s.scaleSlot, s.scaleBase)
             fed
                 .modifier(ZnBlurIf(on: s.blurs, radius: s.blurs ? max(0, value(P.blurRadius, s.blurRadiusSlot, s.blurRadius)) : 0,
                                    scale: displayScale))
-                .modifier(ZnLayerEffect(scaleX: sc(scale * value(P.scaleX, s.scaleXSlot, s.scaleXOnly)),
-                                        scaleY: sc(scale * value(P.scaleY, s.scaleYSlot, s.scaleYOnly)),
-                                        rotate: value(P.rotate, s.rotateSlot, s.rotate),
-                                        rotateX: depth ? value(P.rotateX, s.rotateXSlot, s.rotateX) : 0,
-                                        rotateY: depth ? value(P.rotateY, s.rotateYSlot, s.rotateY) : 0,
-                                        camera: depth ? max(value(P.cameraDistance, s.cameraDistanceSlot, s.cameraDistance), 0.1) : 8,
-                                        translateX: value(P.translateX, s.translateXSlot, s.translateX),
-                                        translateY: value(P.translateY, s.translateYSlot, s.translateY), origin: o, scale: displayScale))
+                .scaleEffect(x: sc(scale * value(P.scaleX, s.scaleXSlot, s.scaleXOnly)),
+                             y: sc(scale * value(P.scaleY, s.scaleYSlot, s.scaleYOnly)), anchor: o)
+                .rotationEffect(.degrees(value(P.rotate, s.rotateSlot, s.rotate)), anchor: o)
+                .modifier(ZnDepthIf(on: depth,
+                                    rotateX: depth ? value(P.rotateX, s.rotateXSlot, s.rotateX) : 0,
+                                    rotateY: depth ? value(P.rotateY, s.rotateYSlot, s.rotateY) : 0,
+                                    camera: depth ? value(P.cameraDistance, s.cameraDistanceSlot, s.cameraDistance) : 8,
+                                    origin: o, scale: displayScale))
+                .offset(x: value(P.translateX, s.translateXSlot, s.translateX), y: value(P.translateY, s.translateYSlot, s.translateY))
                 .opacity(opacity)
         } else {
             fed

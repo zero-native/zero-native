@@ -611,24 +611,6 @@ check("a negative corner is 0", znCorner(fixed: 6, written: false, slot: -3, all
 // Blur: Skia's radius to sigma, in points.
 check("no blur", znBlurSigma(0, scale: 3), 0)
 check("blur 12 at 3x", Float(znBlurSigma(12, scale: 3)), Float(0.57735 * 12 + 0.5 / 3))
-// One matrix for the whole layer: scale and rotate about the origin, the 3D turn, then the translation (HWUI).
-func layer(_ p: CGPoint, sx: CGFloat = 1, sy: CGFloat = 1, rot: CGFloat = 0, rx: CGFloat = 0, ry: CGFloat = 0,
-           tx: CGFloat = 0, ty: CGFloat = 0, ox: CGFloat = 0.5, oy: CGFloat = 0.5) -> CGPoint {
-    project(znLayerMatrix(size: box, scaleX: sx, scaleY: sy, rotate: rot, rotateX: rx, rotateY: ry, cameraDistance: 8,
-                          translateX: tx, translateY: ty, originX: ox, originY: oy, scale: 1), p)
-}
-nearPoint("identity", layer(CGPoint(x: 37, y: 81)), CGPoint(x: 37, y: 81))
-nearPoint("translate", layer(CGPoint(x: 0, y: 0), tx: 10, ty: -5), CGPoint(x: 10, y: -5))
-nearPoint("scaleX about the left edge", layer(CGPoint(x: 200, y: 0), sx: 0.5, ox: 0, oy: 0), CGPoint(x: 100, y: 0))
-nearPoint("scale about the centre", layer(CGPoint(x: 0, y: 0), sx: 2, sy: 2), CGPoint(x: -100, y: -50))
-// rotate 90 clockwise about the centre (100, 50): the top-left corner (-100, -50 from it) goes to (50, -100) from it.
-nearPoint("rotate 90 clockwise", layer(CGPoint(x: 0, y: 0), rot: 90), CGPoint(x: 150, y: -50))
-nearPoint("scale, then rotate, then translate", layer(CGPoint(x: 200, y: 50), sx: 2, rot: 90, tx: 7),
-          CGPoint(x: 107, y: 250))
-// With a turn: the same as the turn alone, then the translation.
-let turnedCorner = turned(35, 50, CGPoint(x: 200, y: 0))
-nearPoint("a turn, then the translation", layer(CGPoint(x: 200, y: 0), rx: 35, ry: 50, tx: 3, ty: 4),
-          CGPoint(x: turnedCorner.x + 3, y: turnedCorner.y + 4))
 
 // Reset: everything JS made goes; window values stay.
 e.reset()
