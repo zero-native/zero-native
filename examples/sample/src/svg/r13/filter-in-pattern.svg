@@ -1,13 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
   <!-- Registry 13: a filter inside a pattern's tile. Android draws a tile into a bitmap with no filter node, so there
-       the dots get only their plain drop shadow (sharp dots, soft shadows below), and iOS does the same. -->
+       the dots get only their plain drop shadow (sharp dots, soft shadows below), and iOS does the same. The bottom
+       strip: a blurred dot in a mask in the tile, so also no filter there: sharp dots (a browser shows them soft). Its
+       fill is FFFFFE, not white: the compiler makes a mask of plain white shapes a clip, dropping their filter. -->
   <defs>
     <filter id="dotShadow" x="-60%" y="-60%" width="220%" height="220%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="0.8" flood-color="#0F172A" flood-opacity="0.5"/>
     </filter>
+    <filter id="dotBlur" filterUnits="userSpaceOnUse" x="0" y="0" width="12" height="12">
+      <feGaussianBlur stdDeviation="1.2"/>
+    </filter>
+    <mask id="dotMask" maskUnits="userSpaceOnUse" x="0" y="0" width="12" height="12">
+      <circle cx="6" cy="6" r="3.5" fill="#FFFFFE" filter="url(#dotBlur)"/>
+    </mask>
     <pattern id="dots" width="12" height="12" patternUnits="userSpaceOnUse">
       <circle cx="6" cy="5" r="3" fill="#4F46E5" filter="url(#dotShadow)"/>
     </pattern>
+    <pattern id="maskedDots" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="12" height="12" fill="#DB2777" mask="url(#dotMask)"/>
+    </pattern>
   </defs>
-  <rect x="4" y="4" width="40" height="40" rx="8" fill="url(#dots)"/>
+  <rect x="4" y="4" width="40" height="29" rx="8" fill="url(#dots)"/>
+  <rect x="4" y="35" width="40" height="12" rx="4" fill="url(#maskedDots)"/>
 </svg>
