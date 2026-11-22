@@ -13,8 +13,13 @@
 //   the same size is used at once, so a list that changes every 500 ms doesn't blink, and a load still under way goes
 //   on for the next list. Nothing is drawn while loading or after an error (one warning; not tried again while the
 //   lists keep that picture). Loads stop when no list uses them any more or the canvas leaves.
-// - Motion values in commands (gesture-driven charts, CanvasLab tiles 9-11) are not read on iOS yet: a warning, and
-//   0 or black (canvas-motion-values).
+// - Motion values in commands (gesture-driven charts, a ring that springs, a path that draws itself: CanvasLab tiles
+//   9-11) are found once per list and read in draw(_:), inside withObservationTracking: a value the last draw read
+//   that moves (its ZnCell, an @Observable) marks this view for a draw, so it redraws on that frame with no JS, no
+//   SwiftUI update and no new parse, as Android's drawBehind. A canvas with no motion values tracks nothing; one off
+//   screen isn't drawn (it draws once when it shows). A value not made yet when the list was read: read again once
+//   sources arrive (ZnMotionEngine.generation).
+// - ZN_CANVAS_TIMING=1 prints how long moving canvases take to draw, every 120 draws.
 import SwiftUI
 import UIKit
 
@@ -61,12 +66,20 @@ final class ZnCanvasModel {
         didSet { if shown, oldValue == false { startLoads(parsed) } }
     }
 
-    /// The list for [raw], parsed again only when it changed.
+    /// The generation the list was read at, when a motion value in it was missing.
+    private var missedAt = -1
+
+    /// The list for [raw], parsed again only when it changed, or when a motion value it missed may be there now. Runs
+    /// in the SwiftUI body: the generation read makes SwiftUI call it again when sources arrive (only while missing).
     func commands(_ raw: String?, scale: CGFloat) -> ZnCanvasCommands {
-        if raw == self.raw && scale == self.scale { return parsed }
+        let missing = parsed.missed && ZnMotionEngine.shared.generation.n != missedAt
+        if raw == self.raw && scale == self.scale && !missing { return parsed }
         self.raw = raw
         self.scale = scale
-        parsed = znParseCanvasCommands(raw, density: 1, pixels: scale > 0 ? scale : 1)
+        let px = scale > 0 ? scale : 1
+        let s = UIScreen.main.bounds.size
+        parsed = znParseCanvasCommands(raw, density: 1, pixels: px, screen: max(s.width, s.height) * px)
+        missedAt = parsed.missed ? ZnMotionEngine.shared.generation.n : -1
         report(parsed)
         return parsed
     }
@@ -75,6 +88,19 @@ final class ZnCanvasModel {
     /// mistake) is not printed again by this canvas.
     private func report(_ c: ZnCanvasCommands) {
         guard !c.errors.isEmpty else { return }
+        if c.missed {
+            // A motion value made by a module call that reaches the main thread just after the list: no warning if
+            // the list read again by then finds it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak c] in
+                guard let self, let c, self.parsed === c else { return }
+                self.warn(c)
+            }
+            return
+        }
+        warn(c)
+    }
+
+    private func warn(_ c: ZnCanvasCommands) {
         let text = c.errors.joined(separator: "\n")
         guard text != lastReported else { return }
         lastReported = text
@@ -190,11 +216,37 @@ struct ZnCanvasSurface: UIViewRepresentable {
     let minW: CGFloat, minH: CGFloat
 
     final class View: UIView {
-        var commands = ZnCanvasCommands.empty
+        var commands = ZnCanvasCommands.empty {
+            didSet { if commands !== oldValue { tracked += 1 } }
+        }
+        /// Goes up with each new list: a change seen by the tracking of an older one is dropped.
+        private var tracked = 0
 
         override func draw(_ rect: CGRect) {
             guard !commands.ops.isEmpty, let cg = UIGraphicsGetCurrentContext() else { return }
-            znDrawCanvas(cg, commands, size: bounds.size)
+            let c = commands
+            guard c.moving else {
+                znDrawCanvas(cg, c, size: bounds.size)
+                return
+            }
+            // The motion values this draw reads: when one changes, draw again (on the frame it changed).
+            let t0 = ZnCanvasTiming.on ? CFAbsoluteTimeGetCurrent() : 0
+            let seen = tracked
+            withObservationTracking {
+                znDrawCanvas(cg, c, size: bounds.size)
+            } onChange: { [weak self] in
+                // Motion values move on the main thread (in the frame clock's tick): the draw lands on that frame.
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated { self?.moved(seen) }
+                } else {
+                    DispatchQueue.main.async { self?.moved(seen) }
+                }
+            }
+            if ZnCanvasTiming.on { ZnCanvasTiming.add(CFAbsoluteTimeGetCurrent() - t0, bounds.size, contentScaleFactor) }
+        }
+
+        private func moved(_ seen: Int) {
+            if tracked == seen { setNeedsDisplay() }
         }
     }
 
@@ -224,5 +276,27 @@ struct ZnCanvasSurface: UIViewRepresentable {
             if let v, v.isFinite { return max(v, 0) } else { return 0 }
         }
         return CGSize(width: side(proposal.width, fillW, minW), height: side(proposal.height, fillH, minH))
+    }
+}
+
+/// How long moving canvases take to draw (the whole list, blurs included), printed every 120 draws when the app runs
+/// with ZN_CANVAS_TIMING=1 (main thread only). The draw is on the CPU into the view's backing store; Core Animation
+/// sends it to the GPU after.
+enum ZnCanvasTiming {
+    static let on = ProcessInfo.processInfo.environment["ZN_CANVAS_TIMING"] == "1"
+    nonisolated(unsafe) private static var runs = 0
+    nonisolated(unsafe) private static var total: Double = 0
+    nonisolated(unsafe) private static var worst: Double = 0
+    nonisolated(unsafe) private static var pixels = 0
+
+    static func add(_ seconds: Double, _ size: CGSize, _ scale: CGFloat) {
+        runs += 1
+        total += seconds
+        worst = max(worst, seconds)
+        pixels = max(pixels, Int(size.width * scale) * Int(size.height * scale))
+        guard runs == 120 else { return }
+        print(String(format: "zn: moving canvases: 120 draws, %.2f ms each on average, %.2f ms the slowest, up to %d px",
+                     total / 120 * 1000, worst * 1000, pixels))
+        runs = 0; total = 0; worst = 0; pixels = 0
     }
 }

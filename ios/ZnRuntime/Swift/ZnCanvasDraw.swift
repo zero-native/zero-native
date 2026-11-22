@@ -9,7 +9,9 @@
 //   moved through the canvas's transforms first, as Skia's shadow layer is in local space. A blur on a solid colour
 //   is the shape's own shadow with the shape drawn out of sight (Android's BlurMaskFilter NORMAL). Blur radius r is
 //   Skia's: sigma = 0.57735·r + 0.5 px, and a CG shadow blur of 2·sigma looks the same (as the Svg shadows).
-// - Not yet: a blur on a gradient paint draws the shape sharp (canvas-motion-values adds it with Core Image).
+//   A blur on a gradient (linear, radial, sweep) paints the shape into pixels of its own, blurs them with the Svg
+//   filters' vImage blur (ZnSvgFilters.swift) and draws them back: the same sigma, in device pixels.
+// - Numbers and colours that follow motion values are read here, on each draw (ZnCanvasParse.swift ZnCanvasNum).
 import CoreGraphics
 import CoreText
 import Foundation
@@ -277,8 +279,9 @@ private struct ZnCanvasDrawer {
         }
     }
 
-    /// Sets the stroke for [p] (a line always strokes with the paint's width).
-    private func setStroke(_ p: ZnCanvasPaint) {
+    /// Sets the stroke for [p] (a line always strokes with the paint's width) on [cg], this canvas's when left out.
+    private func setStroke(_ p: ZnCanvasPaint, on other: CGContext? = nil) {
+        let cg = other ?? self.cg
         cg.setLineWidth(p.width())
         cg.setLineCap(p.cap)
         cg.setLineJoin(p.join)
@@ -297,6 +300,10 @@ private struct ZnCanvasDrawer {
             // A soft shape: only its blurred copy shows (and a shadow of it under, when it has one).
             if let s = p.shadow { shadowOnly(path, p, stroke: stroke, color: s.color, dx: s.dx, dy: s.dy, radius: s.blur) }
             shadowOnly(path, p, stroke: stroke, color: p.color.value, dx: 0, dy: 0, radius: p.blur)
+        } else if p.blur > 0 {
+            // A soft gradient: the shape drawn into pixels of its own, blurred there and drawn back.
+            if let s = p.shadow { shadowOnly(path, p, stroke: stroke, color: s.color, dx: s.dx, dy: s.dy, radius: s.blur) }
+            if !blurred(path, p, stroke: stroke) { fill(path, p, stroke: stroke) }
         } else if let s = p.shadow {
             let (o, b) = shadowNow(s.dx, s.dy, s.blur)
             cg.setShadow(offset: o, blur: b, color: znCanvasCGColor(s.color))
@@ -314,8 +321,10 @@ private struct ZnCanvasDrawer {
         cg.restoreGState()
     }
 
-    /// Paints [path] with [p]'s colour or gradient (stroke settings already set).
-    private func fill(_ path: CGPath, _ p: ZnCanvasPaint, stroke: Bool) {
+    /// Paints [path] with [p]'s colour or gradient (stroke settings already set) into [cg], this canvas's context when
+    /// left out.
+    private func fill(_ path: CGPath, _ p: ZnCanvasPaint, stroke: Bool, into other: CGContext? = nil) {
+        let cg = other ?? self.cg
         guard p.gradient != nil, let g = p.cgGradient else {
             cg.addPath(path)
             if stroke {
@@ -350,6 +359,49 @@ private struct ZnCanvasDrawer {
             break
         }
         cg.restoreGState()
+    }
+
+    /// Android's BlurMaskFilter on a gradient paint (it blurs what the shader paints): [path] painted at device
+    /// resolution into pixels of its own (its box plus 3 sigma, cut to what can show), blurred there by
+    /// ZnSvgFilterGraph.blur (vImage, on the CPU, as the Svg filters) and drawn back in place, with this paint's
+    /// opacity and blend mode (set on [cg] already) and the canvas's clip. False when it can't be made: the shape then
+    /// draws sharp.
+    private func blurred(_ path: CGPath, _ p: ZnCanvasPaint, stroke: Bool) -> Bool {
+        let m = cg.ctm  // this space to device pixels
+        let u = sqrt(abs(m.a * m.d - m.b * m.c))
+        guard u > 0, u.isFinite else { return false }
+        // Skia's sigma for radius r (BlurMaskFilter's radius, in this space, so a scale makes it softer) in pixels:
+        // 0.57735·r + 0.5, as the solid blur above.
+        let sigma = 0.57735 * p.blur * u + 0.5
+        let reach = stroke ? p.width() : 0
+        let margin = ceil(3 * sigma) + 1
+        let box = path.boundingBox.insetBy(dx: -reach, dy: -reach).applying(m).insetBy(dx: -margin, dy: -margin)
+        // Only what can show: the clip (a view's dirty rect at least), plus what blurs into it.
+        let shown = cg.boundingBoxOfClipPath.applying(m).insetBy(dx: -margin, dy: -margin)
+        let area = box.intersection(shown).integral
+        guard !area.isNull, area.minX.isFinite, area.minY.isFinite, area.width.isFinite, area.height.isFinite else { return false }
+        if area.width < 1 || area.height < 1 { return true }  // nothing of it shows
+        // A big shape is blurred at a lower resolution (the Svg filters' limits), then drawn back scaled up.
+        var k: CGFloat = 1
+        let n = area.width * area.height
+        if n > CGFloat(ZnSvgFilterGraph.maxPixels) { k = sqrt(CGFloat(ZnSvgFilterGraph.maxPixels) / n) }
+        k = min(k, CGFloat(ZnSvgFilterGraph.maxSide) / max(area.width, area.height))
+        let w = Int(ceil(area.width * k)), h = Int(ceil(area.height * k))
+        guard w > 0, h > 0, let off = ZnSvgFilterGraph.canvas(w, h) else { return false }
+        off.interpolationQuality = .default
+        // This space to the image's pixels: device pixels from the area's corner, times k.
+        off.concatenate(m.concatenating(CGAffineTransform(translationX: -area.minX, y: -area.minY))
+            .concatenating(CGAffineTransform(scaleX: k, y: k)))
+        if stroke { setStroke(p, on: off) }
+        fill(path, p, stroke: stroke, into: off)
+        // In place, before makeImage (an image made earlier may share the bytes).
+        guard ZnSvgFilterGraph.blur(off, sx: sigma * k, sy: sigma * k), let image = off.makeImage() else { return false }
+        cg.saveGState()
+        cg.concatenate(m.inverted())  // device pixels, y up as the image
+        cg.interpolationQuality = k < 1 ? .medium : .none
+        cg.draw(image, in: CGRect(x: area.minX, y: area.minY, width: CGFloat(w) / k, height: CGFloat(h) / k))
+        cg.restoreGState()
+        return true
     }
 
     /// A shadow's offset and blur in base space now: given in this space, so the canvas's scale and turn apply.

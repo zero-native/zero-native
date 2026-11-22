@@ -1,5 +1,11 @@
-# CoreGraphics, CoreText and ImageIO only: the <Canvas> parser, its path data, trims (ZnPathMeasure) and the drawing.
+# CoreGraphics, CoreText, ImageIO and Accelerate only: the <Canvas> parser, its path data, trims (ZnPathMeasure) and the
+# drawing; the motion engine (Foundation and Observation) for numbers and colours that follow motion values; the Svg
+# filters' blur for blurred gradients.
 ios/ZnRuntime/Swift/ZnPathData.swift
 ios/ZnRuntime/Swift/ZnSvgGeometry.swift
 ios/ZnRuntime/Swift/ZnCanvasParse.swift
 ios/ZnRuntime/Swift/ZnCanvasDraw.swift
+ios/ZnRuntime/Swift/ZnSvgFilters.swift
+ios/ZnRuntime/Swift/ZnMotionMath.swift
+ios/ZnRuntime/Swift/ZnFormula.swift
+ios/ZnRuntime/Swift/ZnMotionEngine.swift

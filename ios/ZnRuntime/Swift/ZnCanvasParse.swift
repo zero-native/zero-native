@@ -7,8 +7,10 @@
 // - Units: iOS points are dp, so the app parses with density 1. [pixels] is device pixels per unit after density
 //   (the screen scale on iOS, 1 on Android, where units are px): the thinnest stroke is one pixel, and an image is
 //   decoded at about its drawn size in pixels.
-// - A number may follow a motion value ("\u{0}m<id>", core motion.ts). iOS reads none yet (canvas-motion-values):
-//   each one is a warning and draws 0, or black for a colour, as Android does for a motion value that is gone.
+// - A number (or a paint colour) may follow a motion value ("\u{0}m<id>", core motion.ts): its source is found once
+//   here (ZnMotionEngine.ref) and read on each draw, so a moving value redraws this canvas only, with no new parse and
+//   no JS (ZnCanvas.swift). One that is gone is a warning and draws 0, or black for a colour, as on Android.
+// Main thread only (the motion engine is).
 import CoreGraphics
 import Foundation
 
@@ -20,20 +22,40 @@ private let maxListedErrors = 10
 /// What a slot holds for a motion value (core motion.ts).
 private let motionRef = "\u{0}m"
 
-/// A number of a command, already times its scale (density for positions, 1 for angles and fractions).
+/// A number of a command: a constant, already times its scale (density for positions, 1 for angles and fractions), or a
+/// motion value read on each draw and times [scale] (Android's CNum).
 struct ZnCanvasNum: Equatable {
     let const: CGFloat
-    var value: CGFloat { const }
+    let src: ZnSource?
+    let scale: CGFloat
+
+    init(const: CGFloat, src: ZnSource? = nil, scale: CGFloat = 1) {
+        self.const = const; self.src = src; self.scale = scale
+    }
+
+    var value: CGFloat {
+        guard let src else { return const }
+        return CGFloat(src.read(nil)) * scale
+    }
+
     /// The value now, for sizes worked out once (an image's decode size).
-    func initial() -> CGFloat { const }
+    func initial() -> CGFloat { value }
     static func of(_ v: CGFloat) -> ZnCanvasNum { ZnCanvasNum(const: v) }
+
+    static func == (a: ZnCanvasNum, b: ZnCanvasNum) -> Bool { a.const == b.const && a.src === b.src && a.scale == b.scale }
 }
 
-/// A colour: an ARGB number.
+/// A colour: an ARGB number, or a motion colour (v.mapColor, a derive ending in interpolateColor) read on each draw.
 struct ZnCanvasColor: Equatable {
     let argb: UInt32
-    var value: UInt32 { argb }
+    let src: ZnSource?
+
+    init(argb: UInt32, src: ZnSource? = nil) { self.argb = argb; self.src = src }
+
+    var value: UInt32 { src?.readColor(nil) ?? argb }
     static let black = ZnCanvasColor(argb: 0xFF00_0000)
+
+    static func == (a: ZnCanvasColor, b: ZnCanvasColor) -> Bool { a.argb == b.argb && a.src === b.src }
 }
 
 /// A gradient in the paint's units. Stops are 0...1, one per colour, or nil for evenly spread colours.
@@ -333,18 +355,26 @@ final class ZnCanvasCommands {
     let needsLayer: Bool
     /// Points per dp: a path is drawn under scale(density).
     let density: CGFloat
+    /// Some number or colour follows a motion value: the canvas draws again when one moves (ZnCanvas.swift).
+    let moving: Bool
+    /// Some motion value wasn't there when the list was read (not made yet, or disposed with nothing kept): the list
+    /// is read again once more sources arrive (ZnMotionEngine.generation).
+    let missed: Bool
 
-    init(_ ops: [ZnCanvasOp], _ errors: [String], needsLayer: Bool = false, density: CGFloat = 1) {
+    init(_ ops: [ZnCanvasOp], _ errors: [String], needsLayer: Bool = false, density: CGFloat = 1, moving: Bool = false,
+         missed: Bool = false) {
         self.ops = ops; self.errors = errors; self.needsLayer = needsLayer; self.density = density
+        self.moving = moving; self.missed = missed
     }
 
     static let empty = ZnCanvasCommands([], [])
 }
 
-/// Parses the command list once per change. [density] turns dp into units (1 on iOS; paths stay in dp). Never
-/// traps: bad JSON or a list over znMaxCanvasCommands gives nothing to draw and an error; a bad command is dropped
-/// (or made safe) and named.
-func znParseCanvasCommands(_ json: String?, density: CGFloat = 1, pixels: CGFloat = 1) -> ZnCanvasCommands {
+/// Parses the command list once per change. [density] turns dp into units (1 on iOS; paths stay in dp). [screen] is
+/// the screen's longer side in pixels: an image whose size follows a motion value is decoded at it. Never traps: bad
+/// JSON or a list over znMaxCanvasCommands gives nothing to draw and an error; a bad command is dropped (or made safe)
+/// and named.
+func znParseCanvasCommands(_ json: String?, density: CGFloat = 1, pixels: CGFloat = 1, screen: CGFloat = 2048) -> ZnCanvasCommands {
     guard let json, !json.isEmpty, json != "[]", json != "null" else { return .empty }
     let any: Any
     do {
@@ -361,7 +391,7 @@ func znParseCanvasCommands(_ json: String?, density: CGFloat = 1, pixels: CGFloa
     }
     let d = density.isFinite && density > 0 ? density : 1
     let px = pixels.isFinite && pixels > 0 ? pixels : 1
-    var p = ZnCanvasParser(d: d, pixels: px)
+    var p = ZnCanvasParser(d: d, pixels: px, screen: screen.isFinite && screen > 0 ? screen : 2048)
     return p.parse(array)
 }
 
@@ -419,10 +449,14 @@ private struct ZnCanvasParser {
     private var errorCount = 0
     private var index = 0
     private var blends = false
+    let screen: CGFloat
+    private var moving = false
+    private var missed = false
 
-    init(d: CGFloat, pixels: CGFloat) {
+    init(d: CGFloat, pixels: CGFloat, screen: CGFloat) {
         self.d = d
         self.pixels = pixels
+        self.screen = screen
     }
 
     static let zero = ZnCanvasNum.of(0)
@@ -464,7 +498,7 @@ private struct ZnCanvasParser {
             }
         }
         if errorCount > errors.count { errors.append("and \(errorCount - errors.count) more") }
-        return ZnCanvasCommands(ops, errors, needsLayer: blends, density: d)
+        return ZnCanvasCommands(ops, errors, needsLayer: blends, density: d, moving: moving, missed: missed)
     }
 
     private mutating func command(_ o: [String: Any]) throws -> ZnCanvasOp {
@@ -659,10 +693,13 @@ private struct ZnCanvasParser {
             radius = try optNumV(opts, "radius", d)
             opacity = try optNumV(opts, "opacity") ?? Self.one
         }
-        // Decoded at about the drawn size in pixels, never above 4096 a side. (A size that follows a motion value will
-        // decode at the screen's longer side, as on Android, once canvas motion values land.)
-        let dw = Int(min(max(w.initial() * pixels, 1), 4096))
-        let dh = Int(min(max(h.initial() * pixels, 1), 4096))
+        // Decoded at about the drawn size in pixels, never above 4096 a side. A size that follows a motion value (an
+        // image that grows) is decoded at the screen's longer side instead, as on Android: its size when the list was
+        // read may be 1 px, and a decode at that would stay blurry as it grows. The decode never blows a small
+        // picture up (znCanvasDecode).
+        let moves = w.src != nil || h.src != nil
+        let dw = Int(min(max(moves ? screen : w.initial() * pixels, 1), 4096))
+        let dh = Int(min(max(moves ? screen : h.initial() * pixels, 1), 4096))
         return ZnCanvasOp.Image(src, x, y, w, h, fit, radius, opacity, dw, dh)
     }
 
@@ -835,13 +872,22 @@ private struct ZnCanvasParser {
         return out
     }
 
-    /// A colour that may follow a motion colour (not on iOS yet: black, with a warning).
+    /// A colour that may follow a motion colour. A number motion value, or one that is gone, draws black.
     private mutating func colorV(_ o: [String: Any]?, _ key: String, _ fallback: ZnCanvasColor) -> ZnCanvasColor {
         guard let o, given(o, key) else { return fallback }
         let v = o[key]
         if let s = v as? String, s.hasPrefix(motionRef) {
-            error("\(key) follows motion value \(s.dropFirst(motionRef.count)), which is gone; black is used")
-            return .black
+            guard let src = ZnMotionEngine.shared.ref(s) else {
+                missed = true
+                error("\(key) follows motion value \(s.dropFirst(motionRef.count)), which is gone; black is used")
+                return .black
+            }
+            guard src.isColor else {
+                error("\(key) follows a number, not a colour (use v.mapColor(...)); black is used")
+                return .black
+            }
+            moving = true
+            return ZnCanvasColor(argb: 0xFF00_0000, src: src)
         }
         return ZnCanvasColor(argb: colorValue(v, key))
     }
@@ -881,8 +927,13 @@ private struct ZnCanvasParser {
     private mutating func numV(_ o: [String: Any], _ key: String, _ scale: CGFloat = 1) throws -> ZnCanvasNum {
         let v = o[key]
         if let s = v as? String, s.hasPrefix(motionRef) {
-            error("\"\(key)\" follows motion value \(s.dropFirst(motionRef.count)), which is gone; 0 is used")
-            return .of(0)
+            guard let src = ZnMotionEngine.shared.ref(s) else {
+                missed = true
+                error("\"\(key)\" follows motion value \(s.dropFirst(motionRef.count)), which is gone; 0 is used")
+                return ZnCanvasNum(const: 0, scale: scale)
+            }
+            moving = true
+            return ZnCanvasNum(const: 0, src: src, scale: scale)
         }
         guard let n = jsonNumber(v) else {
             throw BadCommand(v == nil ? "\"\(key)\" is missing" : "\"\(key)\" is not a finite number")

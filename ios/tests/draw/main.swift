@@ -1,12 +1,18 @@
 // iOS's <Canvas> parser and drawing (ZnCanvasParse.swift, ZnCanvasDraw.swift, ZnPathData.swift), on the Mac:
 // tools/ios-unit-test.ts builds this with the files in sources.txt. The parse cases are android/runtime's
-// ZnCanvasTest.kt, with the same JSON and answers (motion values: iOS reads none yet, so each one is "gone", as on
-// Android for a value that is gone). The draw cases render small lists into a 100 × 100 bitmap, flipped to UIKit's
-// y-down, and look at pixels.
+// ZnCanvasTest.kt, with the same JSON and answers (motion values are the real engine's, ZnMotionEngine.swift). The draw
+// cases render small lists into a 100 × 100 bitmap, flipped to UIKit's y-down, and look at pixels.
 import CoreGraphics
 import CoreText
 import ImageIO
 import Foundation
+import Observation
+
+/// ZnModules.swift's error (it needs the host, so it isn't built here).
+struct ZnInvalidArgs: Error, CustomStringConvertible {
+    let description: String
+    init(_ message: String) { description = message }
+}
 
 var failures = 0
 var count = 0
@@ -250,22 +256,76 @@ do {  // errorListIsCapped
     check("unknown text", p.errors.first, "command 0: unknown type \"nope\"; skipped")
 }
 
-// ---- Motion values: none on iOS yet, so each is "gone" (Android's words for a value that is gone) ----------------
+// ---- Motion values in commands (ZnCanvasTest.kt C1): sources from the motion engine, read on each draw -----------
+
+let engine = ZnMotionEngine.shared
+
+do {  // numbersFollowMotionValuesAndConstantsStayAsTheyWere
+    let v = try! engine.putValue(5101, 10)
+    defer { engine.dispose(5101) }
+    let p = parse(#"[{"type": "rect", "x": "\u0000m5101", "y": 4, "w": 10, "h": 10}, {"type": "arc", "x": 0, "y": 0, "w": 10, "h": 10, "start": -90, "sweep": "\u0000m5101"}]"#, 2)
+    check("follow errors", p.errors, [])
+    check("follow moving", p.moving, true)
+    check("follow missed", p.missed, false)
+    let rect = p.ops[0] as? ZnCanvasOp.Rect
+    ok("follow x has a source", rect?.x.src != nil)
+    ok("follow y is a constant", rect?.y.src == nil)
+    check("follow x now", rect?.x.value, 20)  // dp × density, read now
+    check("follow y", rect?.y.value, 8)
+    v.value = 30
+    check("follow x moved", rect?.x.value, 60)  // the same op reads the new value: no new parse
+    let arc = p.ops[1] as? ZnCanvasOp.Arc
+    check("follow sweep in degrees", arc?.sweep.value, 30)  // not scaled by density
+    check("follow start", arc?.start.value, -90)
+    check("constant list not moving", parse(#"[{"type": "rect", "x": 1, "y": 4, "w": 10, "h": 10}]"#).moving, false)
+}
 
 do {  // aMotionValueThatIsGoneDrawsAsZeroWithAWarning
     let p = parse(#"[{"type": "circle", "cx": "\u0000m987654", "cy": 5, "r": 5}]"#)
     check("gone count", p.ops.count, 1)
     check("gone value", (p.ops.first as? ZnCanvasOp.Circle)?.cx.value, 0)
     check("gone error", p.errors, ["command 0: \"cx\" follows motion value 987654, which is gone; 0 is used"])
+    check("gone missed", p.missed, true)
+    check("gone not moving", p.moving, false)
 }
 
-do {  // aNumberMotionValueAsAColourIsBlackWithAWarning (here: gone, black)
+do {  // paintOpacityStrokeWidthAndColourFollowMotionValues
+    let v = try! engine.putValue(5102, 0.5)
+    try! engine.put(5103, ZnColorMapSource(id: 5103, v, [0, 1], [0xFFFF_0000, 0xFF00_00FF]))
+    defer { engine.dispose(5102); engine.dispose(5103) }
+    let p = parse("""
+    [{"type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0,
+      "paint": {"style": "stroke", "strokeWidth": "\\u0000m5102", "opacity": "\\u0000m5102", "color": "\\u0000m5103"}}]
+    """, 2)
+    check("paint follow errors", p.errors, [])
+    let paint = (p.ops.first as? ZnCanvasOp.Line)?.paint
+    check("paint alpha", paint?.alpha(), 0.5)
+    check("paint width", paint?.width(), 1)  // 0.5 dp × 2
+    v.value = 0
+    check("paint colour red", paint?.color.value, RED)
+    check("paint width minimum", paint?.width(), 1)  // 0: the 1 px minimum
+    v.value = 3
+    check("paint alpha clamped", paint?.alpha(), 1)
+    check("paint width moved", paint?.width(), 6)
+    v.value = 1
+    check("paint colour blue", paint?.color.value, BLUE)
+}
+
+do {  // aNumberMotionValueAsAColourIsBlackWithAWarning
+    _ = try! engine.putValue(5104, 1)
+    defer { engine.dispose(5104) }
     let p = parse(#"[{"type": "text", "text": "a", "x": 0, "y": 10, "options": {"color": "\u0000m5104"}}]"#)
-    check("motion colour black", (p.ops.first as? ZnCanvasOp.Text)?.color.value, BLACK)
-    check("motion colour errors", p.errors.count, 1)
+    check("number as colour black", (p.ops.first as? ZnCanvasOp.Text)?.color.value, BLACK)
+    check("number as colour errors", p.errors, ["command 0: color follows a number, not a colour (use v.mapColor(...)); black is used"])
+    // One that is gone: black too.
+    let gone = parse(#"[{"type": "text", "text": "a", "x": 0, "y": 10, "options": {"color": "\u0000m987655"}}]"#)
+    check("gone colour black", (gone.ops.first as? ZnCanvasOp.Text)?.color.value, BLACK)
+    check("gone colour errors", gone.errors.count, 1)
 }
 
 do {  // aMotionValueWhereNoneIsAllowedSkipsTheCommand
+    _ = try! engine.putValue(5105, 1)
+    defer { engine.dispose(5105) }
     let p = parse("""
     [
         {"type": "rect", "x": 0, "y": 0, "w": 10, "h": 10, "paint": {"linearGradient": {"x0": "\\u0000m5105", "y0": 0, "x1": 10, "y1": 0, "colors": [\(RED), \(BLUE)]}}},
@@ -277,7 +337,9 @@ do {  // aMotionValueWhereNoneIsAllowedSkipsTheCommand
     check("not allowed errors", p.errors.count, 3)
 }
 
-do {  // pathTrimsParse (trimEnd's motion value is gone here: 0, with a warning)
+do {  // pathTrimsParse
+    let v = try! engine.putValue(5106, 0.25)
+    defer { engine.dispose(5106) }
     let p = parse("""
     [
         {"type": "path", "d": "M0 0 L10 0", "trimEnd": "\\u0000m5106", "trimStart": 0},
@@ -288,11 +350,36 @@ do {  // pathTrimsParse (trimEnd's motion value is gone here: 0, with a warning)
     check("trims ops", p.ops.count, 2)
     let t = p.ops.first as? ZnCanvasOp.PathOp
     check("trimmed", t?.trimmed, true)
-    check("trimEnd gone", t?.trimEnd?.value, 0)
+    check("trimEnd", t?.trimEnd?.value, 0.25)  // a fraction: not scaled by density
     check("trimStart", t?.trimStart?.value, 0)
     ok("no trimOffset", t?.trimOffset == nil)
     check("untrimmed", (p.ops[1] as? ZnCanvasOp.PathOp)?.trimmed, false)
-    check("trims errors", p.errors.count, 2)  // Android: 1 (its motion value exists)
+    check("trims errors", p.errors.count, 1)
+    v.value = 0.75
+    check("trimEnd moved", t?.trimEnd?.value, 0.75)
+}
+
+do {  // a disposed value keeps its last value (a screen's exit draws on), and a new one under the id wins
+    let v = try! engine.putValue(5107, 7)
+    let p = parse(#"[{"type": "circle", "cx": "\u0000m5107", "cy": 5, "r": 5}]"#)
+    engine.dispose(5107)
+    check("disposed keeps its value", (p.ops.first as? ZnCanvasOp.Circle)?.cx.value, 7)
+    let again = parse(#"[{"type": "circle", "cx": "\u0000m5107", "cy": 5, "r": 5}]"#)
+    check("disposed still found", again.errors, [])
+    _ = try! engine.putValue(5107, 9)
+    defer { engine.dispose(5107) }
+    check("new one under the id", (parse(#"[{"type": "circle", "cx": "\u0000m5107", "cy": 5, "r": 5}]"#).ops.first as? ZnCanvasOp.Circle)?.cx.value, 9)
+    _ = v
+}
+
+do {  // a moving image size is decoded at the screen's longer side (Android's rule), a fixed one at its own
+    _ = try! engine.putValue(5108, 40)
+    defer { engine.dispose(5108) }
+    let p = znParseCanvasCommands(#"[{"type": "image", "src": "a", "x": 0, "y": 0, "w": "\u0000m5108", "h": 40}, {"type": "image", "src": "a", "x": 0, "y": 0, "w": 40, "h": 40}]"#,
+                                  density: 1, pixels: 3, screen: 2556)
+    let moving = p.ops[0] as? ZnCanvasOp.Image, fixed = p.ops[1] as? ZnCanvasOp.Image
+    check("moving decode", moving.map { [$0.decodeW, $0.decodeH] }, [2556, 2556])
+    check("fixed decode", fixed.map { [$0.decodeW, $0.decodeH] }, [120, 120])
 }
 
 // ---- New commands (C4-C7) ----------------------------------------------------------------------------------------
@@ -439,8 +526,26 @@ final class Bitmap {
     init(_ json: String, w: Int = 100, h: Int = 100, background: UInt32? = nil, setup: ((ZnCanvasCommands) -> Void)? = nil) {
         self.w = w
         self.h = h
-        ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx = Bitmap.context(w, h, background)
+        let c = znParseCanvasCommands(json)
+        if !c.errors.isEmpty { print("note: \(c.errors)") }
+        setup?(c)
+        znDrawCanvas(ctx, c, size: CGSize(width: w, height: h), base: .identity)
+    }
+
+    /// [c] (parsed already) drawn, at [scale] device pixels per unit (a screen's 3×: base space is still the bitmap's).
+    init(commands c: ZnCanvasCommands, w: Int = 100, h: Int = 100, scale: CGFloat = 1) {
+        self.w = w
+        self.h = h
+        ctx = Bitmap.context(w, h, nil)
+        ctx.scaleBy(x: scale, y: scale)
+        znDrawCanvas(ctx, c, size: CGSize(width: CGFloat(w) / scale, height: CGFloat(h) / scale), base: .identity)
+    }
+
+    /// y down like UIKit's.
+    private static func context(_ w: Int, _ h: Int, _ background: UInt32?) -> CGContext {
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         if let background {
             ctx.setFillColor(CGColor(srgbRed: CGFloat(background >> 16 & 0xFF) / 255, green: CGFloat(background >> 8 & 0xFF) / 255,
                                      blue: CGFloat(background & 0xFF) / 255, alpha: 1))
@@ -448,10 +553,7 @@ final class Bitmap {
         }
         ctx.translateBy(x: 0, y: CGFloat(h))
         ctx.scaleBy(x: 1, y: -1)
-        let c = znParseCanvasCommands(json)
-        if !c.errors.isEmpty { print("note: \(c.errors)") }
-        setup?(c)
-        znDrawCanvas(ctx, c, size: CGSize(width: w, height: h), base: .identity)
+        return ctx
     }
 
     /// (r, g, b, a) at (x, y), y from the top.
@@ -716,6 +818,141 @@ do {  // decode: at most the asked size, covering it, never above the picture's 
     let big = znCanvasDecode(data as Data, 4000, 4000)
     check("decode never upscales", big.map { [$0.width, $0.height] }, [400, 200])
     check("not a picture", znCanvasDecode(Data("nope".utf8), 10, 10) == nil, true)
+}
+
+// ---- Drawing: motion values and blurred gradients ------------------------------------------------------------------
+
+/// What an Observation onChange counts (it may run on any thread; here it runs on this one).
+final class Counter: @unchecked Sendable {
+    var n = 0
+}
+
+do {  // one parsed list drawn twice: the rect moves with its value, nothing is parsed again
+    let v = try! engine.putValue(5201, 10)
+    defer { engine.dispose(5201) }
+    let c = parse(#"[{"type": "rect", "x": "\u0000m5201", "y": 40, "w": 20, "h": 20, "paint": {"color": \#(RED)}}]"#)
+    let a = Bitmap(commands: c)
+    check("moving rect at 10", a.inkColumns().first, 10)
+    v.value = 60
+    let b = Bitmap(commands: c)
+    check("moving rect at 60", b.inkColumns().first, 60)
+    check("moving rect width", b.inkColumns().count, 20)
+}
+
+do {  // ZnCanvas.View's redraw: a draw tracked with Observation hears a value it read, not one it didn't
+    let v = try! engine.putValue(5202, 0)
+    let other = try! engine.putValue(5203, 0)
+    let colour = try! engine.putValue(5204, 0)
+    try! engine.put(5205, ZnColorMapSource(id: 5205, colour, [0, 1], [RED, BLUE]))
+    defer { for id in 5202...5205 { engine.dispose(id) } }
+    let c = parse(#"[{"type": "arc", "x": 10, "y": 10, "w": 80, "h": 80, "start": -90, "sweep": "\u0000m5202", "useCenter": true, "paint": {"color": "\u0000m5205"}}]"#)
+    let heard = Counter()
+    func tracked() -> Bitmap {
+        var out: Bitmap?
+        withObservationTracking { out = Bitmap(commands: c) } onChange: { heard.n += 1 }
+        return out!
+    }
+    let empty = tracked()
+    check("sweep 0 draws nothing", empty.inkRows(), [])
+    other.value = 5
+    check("a value it didn't read: no redraw", heard.n, 0)
+    v.value = 90
+    check("its value moved: one redraw", heard.n, 1)
+    v.value = 180
+    check("once per draw (the next draw tracks again)", heard.n, 1)
+    let half = tracked()
+    ok("half the circle (right side) drawn", half.alpha(70, 50) == 255 && half.alpha(30, 50) == 0, "\(half.alpha(70, 50)) \(half.alpha(30, 50))")
+    ok("red at 0", near(half.at(70, 50), 255, 0, 0), "\(half.at(70, 50))")
+    colour.value = 1
+    check("its colour moved: a redraw", heard.n, 2)
+    let blue = tracked()
+    ok("blue at 1", near(blue.at(70, 50), 0, 0, 255), "\(blue.at(70, 50))")
+    // A list with no motion values reads nothing: nothing to hear.
+    let heardStatic = Counter()
+    withObservationTracking { _ = Bitmap(#"[{"type": "rect", "x": 0, "y": 0, "w": 10, "h": 10}]"#) } onChange: { heardStatic.n += 1 }
+    v.value = 270
+    colour.value = 0
+    check("a static list hears nothing", heardStatic.n, 0)
+}
+
+do {  // a moving path trim draws more as it grows
+    let t = try! engine.putValue(5206, 0.25)
+    defer { engine.dispose(5206) }
+    let c = parse(#"[{"type": "path", "d": "M10 50 L90 50", "trimEnd": "\u0000m5206", "paint": {"style": "stroke", "strokeWidth": 4, "color": \#(BLACK)}}]"#)
+    check("trim a quarter", Bitmap(commands: c).inkColumns().count, 20)
+    t.value = 1
+    check("trim all", Bitmap(commands: c).inkColumns().count, 80)
+}
+
+do {  // blur on gradients (BlurMaskFilter with a shader): soft, the gradient's colours kept, nothing sharp
+    let r = Bitmap(#"[{"type": "circle", "cx": 50, "cy": 50, "r": 20, "paint": {"radialGradient": {"cx": 50, "cy": 50, "r": 20, "colors": [\#(RED), \#(BLUE)]}, "blur": 10}}]"#)
+    let centre = r.at(50, 50), edge = r.alpha(70, 50), out = r.alpha(80, 50)
+    ok("radial blur centre mostly red", centre.a > 150 && centre.r > centre.b, "\(centre)")
+    ok("radial blur edge half", edge > 50 && edge < 200, "\(edge)")
+    ok("radial blur outside soft", out > 3 && out < 100, "\(out)")
+    check("radial blur nothing at the far edge", r.alpha(99, 50), 0)
+    // The same circle sharp has a hard edge: blur is really on.
+    let sharp = Bitmap(#"[{"type": "circle", "cx": 50, "cy": 50, "r": 20, "paint": {"radialGradient": {"cx": 50, "cy": 50, "r": 20, "colors": [\#(RED), \#(BLUE)]}}}]"#)
+    check("sharp outside", sharp.alpha(80, 50), 0)
+    // A sweep ring (stroke) blurred: soft on both sides of the stroke.
+    let s = Bitmap(#"[{"type": "circle", "cx": 50, "cy": 50, "r": 30, "paint": {"style": "stroke", "strokeWidth": 6, "sweepGradient": {"cx": 50, "cy": 50, "colors": [\#(RED), \#(BLUE)], "startAngle": -90}, "blur": 4}}]"#)
+    let inner = s.alpha(50, 26), outer = s.alpha(50, 14), ring = s.alpha(50, 20)
+    ok("sweep blur ring", ring > 120, "\(ring)")
+    ok("sweep blur soft inside", inner > 0 && inner < 120, "\(inner)")
+    ok("sweep blur soft outside", outer > 0 && outer < 120, "\(outer)")
+    ok("sweep blur keeps its colours", s.at(53, 20).r > s.at(53, 20).b && s.at(47, 20).b > s.at(47, 20).r, "\(s.at(53, 20)) \(s.at(47, 20))")
+    check("sweep blur centre clear", s.alpha(50, 50), 0)
+    // Opacity applies to the blurred shape.
+    let half = Bitmap(#"[{"type": "rect", "x": 20, "y": 20, "w": 60, "h": 60, "paint": {"opacity": 0.5, "linearGradient": {"x0": 20, "y0": 0, "x1": 80, "y1": 0, "colors": [\#(RED), \#(BLUE)]}, "blur": 3}}]"#)
+    ok("blur opacity", abs(half.alpha(50, 50) - 128) < 8, "\(half.alpha(50, 50))")
+    // A clip still cuts it.
+    let clipped = Bitmap(#"[{"type": "clipRect", "x": 0, "y": 0, "w": 50, "h": 100}, {"type": "rect", "x": 20, "y": 20, "w": 60, "h": 60, "paint": {"linearGradient": {"x0": 20, "y0": 0, "x1": 80, "y1": 0, "colors": [\#(RED), \#(BLUE)]}, "blur": 3}}]"#)
+    check("blur clipped", clipped.inkColumns().last, 49)
+    ok("blur clipped soft at its own edge", clipped.alpha(20, 50) > 50 && clipped.alpha(20, 50) < 200, "\(clipped.alpha(20, 50))")
+}
+
+do {  // blur radius is in the canvas's space: scale(2) blurs twice as far; a 3× screen the same as 1× in points
+    func spread(_ json: String, scale: CGFloat = 1) -> Int {
+        let b = Bitmap(commands: parse(json), w: Int(100 * scale), h: Int(100 * scale), scale: scale)
+        return Int((CGFloat(b.inkColumns().count) / scale).rounded())
+    }
+    let g = #""linearGradient": {"x0": 0, "y0": 0, "x1": 100, "y1": 0, "colors": [\#(RED), \#(BLUE)]}"#
+    let one = spread(#"[{"type": "rect", "x": 45, "y": 45, "w": 10, "h": 10, "paint": {\#(g), "blur": 4}}]"#)
+    let two = spread(#"[{"type": "scale", "sx": 2}, {"type": "rect", "x": 22.5, "y": 22.5, "w": 5, "h": 5, "paint": {\#(g), "blur": 4}}]"#)
+    let three = spread(#"[{"type": "rect", "x": 45, "y": 45, "w": 10, "h": 10, "paint": {\#(g), "blur": 4}}]"#, scale: 3)
+    ok("scaled blur spreads further", two > one + 4, "\(one) \(two)")
+    ok("3× screen spreads the same in points", abs(three - one) <= 2, "\(one) \(three)")
+    // Same spread as the solid blur (one sigma rule for both).
+    let solid = spread(#"[{"type": "rect", "x": 45, "y": 45, "w": 10, "h": 10, "paint": {"color": \#(RED), "blur": 4}}]"#)
+    ok("gradient blur spreads as the solid one", abs(solid - one) <= 2, "\(solid) \(one)")
+}
+
+do {  // per-frame cost of a moving canvas (tiles 10 and 11 at 3×), on this Mac: printed, with a loose bound
+    let v = try! engine.putValue(5207, 0)
+    defer { engine.dispose(5207) }
+    let ring = parse(#"""
+    [{"type": "circle", "cx": 80, "cy": 80, "r": 60, "paint": {"style": "stroke", "strokeWidth": 14, "color": 4293258476}},
+     {"type": "arc", "x": 20, "y": 20, "w": 120, "h": 120, "start": -90, "sweep": "\u0000m5207", "paint": {"style": "stroke", "strokeWidth": 14, "strokeCap": "round", "color": 4282339839}}]
+    """#)
+    let glow = parse(#"[{"type": "circle", "cx": 80, "cy": 80, "r": "\u0000m5207", "paint": {"radialGradient": {"cx": 80, "cy": 80, "r": 50, "colors": [\#(RED), \#(BLUE)]}, "blur": 8}}]"#)
+    // One 480 × 480 bitmap cleared before each draw, as a view's backing store is.
+    let ctx = CGContext(data: nil, width: 480, height: 480, bitsPerComponent: 8, bytesPerRow: 480 * 4,
+                        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.translateBy(x: 0, y: 480)
+    ctx.scaleBy(x: 3, y: -3)
+    func time(_ c: ZnCanvasCommands, _ n: Int, _ value: (Int) -> Float) -> Double {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        for i in 0..<n {
+            v.value = value(i)
+            ctx.clear(CGRect(x: 0, y: 0, width: 160, height: 160))
+            znDrawCanvas(ctx, c, size: CGSize(width: 160, height: 160), base: .identity)
+        }
+        return (CFAbsoluteTimeGetCurrent() - t0) / Double(n) * 1000
+    }
+    let ringMs = time(ring, 120) { Float($0 * 3) }
+    let glowMs = time(glow, 60) { Float(10 + $0 % 40) }
+    print(String(format: "note: a moving ring at 3× (480 × 480 px): %.2f ms a draw; a moving blurred gradient: %.2f ms", ringMs, glowMs))
+    ok("moving ring under a frame", ringMs < 16, "\(ringMs) ms")
 }
 
 print("\(count - failures)/\(count) passed")
