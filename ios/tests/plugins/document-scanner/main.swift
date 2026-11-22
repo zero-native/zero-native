@@ -116,5 +116,11 @@ do {
     check("corner ys", c.map(\.1), [1800, 1800, 0, 0])
 }
 
+// What the scan had up was closed with no answer (ZnPopups' S5): over only when it isn't presented and isn't coming in
+check("gone", DocScanRules.gone(presented: false, appearing: false), true)
+check("still up", DocScanRules.gone(presented: true, appearing: false), false)
+check("coming in", DocScanRules.gone(presented: false, appearing: true), false)
+check("jpeg quality", DocScanRules.jpegQuality, 0.85)
+
 print(failures == 0 ? "ios document-scanner rules: \(count) checks passed" : "ios document-scanner rules: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)

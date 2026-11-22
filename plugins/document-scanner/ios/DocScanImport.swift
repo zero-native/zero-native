@@ -17,19 +17,23 @@ import Vision
 
 @MainActor final class DocScanImport: NSObject, PHPickerViewControllerDelegate {
     private let mode: DocScanRules.Mode
-    private var done: (([UIImage]?) -> Void)?
+    private var picked: (() -> Void)?
+    private var done: (([DocScanPage]?) -> Void)?
     nonisolated private static let queue = DispatchQueue(label: "zn-docscan-import")
     nonisolated private static let context = CIContext()
 
-    private init(_ mode: DocScanRules.Mode, _ done: @escaping ([UIImage]?) -> Void) {
+    private init(_ mode: DocScanRules.Mode, _ picked: @escaping () -> Void, _ done: @escaping ([DocScanPage]?) -> Void) {
         self.mode = mode
+        self.picked = picked
         self.done = done
     }
 
-    /// Opens the picker over [top]. [done] gets the pages, or nil when the user cancelled or nothing could be read.
-    /// Keep the returned object until then.
-    static func present(from top: UIViewController, options: DocScanRules.Options, done: @escaping ([UIImage]?) -> Void) -> DocScanImport {
-        let me = DocScanImport(options.mode, done)
+    /// The picker, for the plugin to present. [picked] runs when the user has answered it (before the photos are
+    /// read); [done] then gets the pages, or nil when the user cancelled or nothing could be read. Keep the returned
+    /// object until then.
+    static func make(options: DocScanRules.Options, picked: @escaping () -> Void,
+                     done: @escaping ([DocScanPage]?) -> Void) -> (DocScanImport, UIViewController) {
+        let me = DocScanImport(options.mode, picked, done)
         var config = PHPickerConfiguration()
         config.filter = .images
         config.selectionLimit = DocScanRules.pickLimit(options.pageLimit)
@@ -38,14 +42,16 @@ import Vision
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = me
         picker.modalPresentationStyle = .fullScreen  // a swipe down would close it with no answer
-        top.present(picker, animated: true)
-        return me
+        return (me, picker)
     }
 
     nonisolated func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         let providers = results.map(\.itemProvider)
         MainActor.assumeIsolated {
             picker.dismiss(animated: true)
+            let p = picked
+            picked = nil
+            p?()
             guard !providers.isEmpty else { return finish(nil) }
             let mode = self.mode
             Self.queue.async {
@@ -55,7 +61,7 @@ import Vision
         }
     }
 
-    private func finish(_ pages: [UIImage]?) {
+    private func finish(_ pages: [DocScanPage]?) {
         let d = done
         done = nil
         d?(pages)
@@ -63,8 +69,8 @@ import Vision
 
     // MARK: Off the main thread (the import queue)
 
-    nonisolated private static func pages(_ providers: [NSItemProvider], _ mode: DocScanRules.Mode) -> [UIImage] {
-        var out: [UIImage] = []
+    nonisolated private static func pages(_ providers: [NSItemProvider], _ mode: DocScanRules.Mode) -> [DocScanPage] {
+        var out: [DocScanPage] = []
         for (i, p) in providers.enumerated() {
             autoreleasepool {
                 guard let photo = read(p) else { return print("zn docscanner: photo \(i + 1) can't be read; left out") }
@@ -75,11 +81,12 @@ import Vision
         return out
     }
 
-    /// The photo as a picture, its EXIF turn applied, at most maxSide pixels on its long side. Waits for the provider.
+    /// The photo as a picture, its EXIF turn applied, at most maxSide pixels on its long side. Waits for the provider,
+    /// at most DocScanRules.readSeconds (an iCloud photo that never comes is left out).
     nonisolated private static func read(_ provider: NSItemProvider) -> CGImage? {
         guard provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return nil }
         let wait = DispatchSemaphore(value: 0)
-        var picture: CGImage?
+        let box = PictureBox()
         // The file is there only inside the callback: read it at once.
         provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, _ in
             defer { wait.signal() }
@@ -90,10 +97,21 @@ import Vision
                 kCGImageSourceThumbnailMaxPixelSize: DocScanRules.maxSide,
                 kCGImageSourceShouldCacheImmediately: true,
             ]
-            picture = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary)
+            box.set(CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary))
         }
-        wait.wait()
-        return picture
+        if wait.wait(timeout: .now() + DocScanRules.readSeconds) == .timedOut {
+            print("zn docscanner: a photo didn't come in \(Int(DocScanRules.readSeconds)) s")
+            return nil
+        }
+        return box.get()
+    }
+
+    /// The picture a provider's callback reads, under a lock (the callback can come after a timeout).
+    private final class PictureBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var picture: CGImage?
+        func set(_ p: CGImage?) { lock.withLock { picture = p } }
+        func get() -> CGImage? { lock.withLock { picture } }
     }
 
     /// The paper in the photo: Vision's document segmentation (a model; it finds nothing on the simulator), else its
@@ -123,7 +141,7 @@ import Vision
     }
 
     /// One page: the paper straightened when Vision finds it, then the document filter unless the mode is "base".
-    nonisolated private static func page(_ photo: CGImage, _ mode: DocScanRules.Mode) -> UIImage? {
+    nonisolated private static func page(_ photo: CGImage, _ mode: DocScanRules.Mode) -> DocScanPage? {
         var image = CIImage(cgImage: photo)
         if let paper = paper(photo) {
             let w = Double(photo.width), h = Double(photo.height)
@@ -145,8 +163,12 @@ import Vision
         }
         let extent = image.extent.integral
         guard !extent.isEmpty, let out = context.createCGImage(image, from: extent) else { return nil }
-        // Kept as JPEG data, so 100 pages don't wait decoded in memory for the files to be written.
+        // Kept as the page's JPEG (written as it is, encoded once), so 100 pages don't wait decoded in memory for the
+        // files to be written; the picture is read from it only for the PDF.
         let ui = UIImage(cgImage: out)
-        return ui.jpegData(compressionQuality: 0.95).flatMap { UIImage(data: $0) } ?? ui
+        guard let jpeg = ui.jpegData(compressionQuality: DocScanRules.jpegQuality), let small = UIImage(data: jpeg) else {
+            return DocScanPage(image: ui)
+        }
+        return DocScanPage(image: small, jpeg: jpeg)
     }
 }

@@ -20,6 +20,12 @@
 //   filter); with the camera VisionKit's own filter bar lets the user choose.
 // - A kill while the camera is open: the pages were only in memory, so the scan is "lost" (Android can bring ML Kit's
 //   answer back).
+// - What the scan has up (the action sheet, the picker, the camera) can be closed with no answer: ZnPopups closes what
+//   was presented over a Sheet or Modal that closes (its S5 rule), and that calls no handler. A watch (twice a second,
+//   only while it is up), the next scanDocument and the app's return to the front notice it: the scan ends as a cancel
+//   (resultCode 0), so it is never stuck "busy".
+// - getStatus says "unavailable" where there is no document camera (the simulator) even though a galleryImport scan
+//   works there: every iPhone iOS 17 runs on has one.
 // - Debug builds with no camera (the simulator, where VisionKit opens but can't capture): ZN_DOCSCAN_FAKE=<pages> (or "cancel") makes a fake scan of
 //   drawn pages, through the same files, job and launch, so the lab can be checked without a camera.
 import AVFoundation
@@ -47,6 +53,12 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
     private lazy var delegate = CameraDelegate(self)
     // Main thread only: the Photos picker's delegate while it is open.
     private var importer: DocScanImport?
+    // Main thread only: the controller the scan has up (the action sheet, the picker, the camera) until it answers, and
+    // the watch that notices it went away with no answer.
+    private weak var shown: UIViewController?
+    private var uiUp = false
+    private var watch: Timer?
+    private var goneTicks = 0
 
     private static var fake: String? {
         #if DEBUG
@@ -94,6 +106,9 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
             let keep = Set((call.args["keep"] as? [String] ?? []).compactMap { ZnHandles.fileOf($0)?.lastPathComponent })
             self.queue.async { call.resolve(self.trim(age, keep)) }
         }
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.uiGone() == true { self?.dropGone() } }
+        }
     }
 
     private static func read() -> DocScanJob? { DocScanJob.from(ZNStorage.string(store, key: jobKey)) }
@@ -111,6 +126,7 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
         guard let source = DocScanRules.source(gallery: options.gallery, camera: camera) else {
             return call.resolve(["launched": false, "reason": "not_supported", "unavailable": true])
         }
+        if uiGone() { dropGone() }  // closed with no answer: that scan is over
         if open != nil { return call.resolve(["launched": false, "reason": "busy"]) }
         guard let top = znTopController() else { return call.resolve(["launched": false, "reason": "no_activity"]) }
         count += 1
@@ -136,37 +152,80 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
     /// ends the scan as the camera's cancel does (resultCode 0).
     @MainActor private func ask(_ top: UIViewController, _ options: DocScanRules.Options) {
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: "Scan with camera", style: .default) { _ in self.openCamera(top) })
-        sheet.addAction(UIAlertAction(title: "Choose from Photos", style: .default) { _ in self.openPhotos(top, options) })
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in self.answer(images: nil) })
+        sheet.addAction(UIAlertAction(title: "Scan with camera", style: .default) { _ in self.uiAnswered(); self.openCamera(top) })
+        sheet.addAction(UIAlertAction(title: "Choose from Photos", style: .default) { _ in self.uiAnswered(); self.openPhotos(top, options) })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in self.answer(pages: nil) })
         if let pop = sheet.popoverPresentationController {  // iPad: a popover in the middle, no arrow
             pop.sourceView = top.view
             pop.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
             pop.permittedArrowDirections = []
         }
-        top.present(sheet, animated: true)
+        show(sheet, over: top)
     }
 
     @MainActor private func openPhotos(_ top: UIViewController, _ options: DocScanRules.Options) {
-        importer = DocScanImport.present(from: top, options: options) { [weak self] pages in
+        let (me, picker) = DocScanImport.make(options: options, picked: { [weak self] in self?.uiAnswered() }) { [weak self] pages in
             self?.importer = nil
-            self?.answer(images: pages)
+            self?.answer(pages: pages)
         }
+        importer = me
+        show(picker, over: top)
+    }
+
+    // MARK: What the scan has up
+
+    @MainActor private func show(_ vc: UIViewController, over top: UIViewController) {
+        shown = vc
+        uiUp = true
+        goneTicks = 0
+        top.present(vc, animated: true)
+        if watch == nil {
+            watch = Timer.scheduledTimer(withTimeInterval: DocScanRules.watchSeconds, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tick() }
+            }
+        }
+    }
+
+    /// It answered (a button, a pick, the camera's delegate): nothing to watch until the next one is up.
+    @MainActor private func uiAnswered() {
+        uiUp = false
+        shown = nil
+        watch?.invalidate()
+        watch = nil
+    }
+
+    /// The scan's controller is gone (or no longer presented) and it never answered.
+    @MainActor private func uiGone() -> Bool {
+        guard open != nil, uiUp else { return false }
+        guard let s = shown else { return true }
+        return DocScanRules.gone(presented: s.presentingViewController != nil, appearing: s.isBeingPresented)
+    }
+
+    /// Gone on two ticks in a row: an action's handler runs just after the action sheet has gone.
+    @MainActor private func tick() {
+        goneTicks = uiGone() ? goneTicks + 1 : 0
+        if goneTicks >= 2 { dropGone() }
+    }
+
+    @MainActor private func dropGone() {
+        print("zn docscanner: the \(shown.map { "\(type(of: $0))" } ?? "scan's controller") went away with no answer: cancelled")
+        importer = nil
+        answer(pages: nil)
     }
 
     @MainActor private func openCamera(_ top: UIViewController) {
         if let fake = Self.fake {
             print("zn docscanner: no document camera; a fake scan (ZN_DOCSCAN_FAKE=\(fake))")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if fake == "cancel" { return self.answer(images: nil) }
-                self.answer(images: (0..<max(Int(fake) ?? 2, 1)).map(Self.fakePage))
+                if fake == "cancel" { return self.answer(pages: nil) }
+                self.answer(pages: (0..<max(Int(fake) ?? 2, 1)).map { DocScanPage(image: Self.fakePage($0)) })
             }
             return
         }
         let camera = VNDocumentCameraViewController()
         camera.delegate = delegate
         camera.modalPresentationStyle = .fullScreen
-        top.present(camera, animated: true)
+        show(camera, over: top)
     }
 
     /// VisionKit's delegate must be an NSObject: this one forwards to the module.
@@ -175,25 +234,26 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
         init(_ m: DocScanModule) { module = m }
 
         func documentCameraViewController(_ c: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
-            let images = (0..<scan.pageCount).map { scan.imageOfPage(at: $0) }
+            let pages = (0..<scan.pageCount).map { DocScanPage(image: scan.imageOfPage(at: $0)) }
             c.dismiss(animated: true)
-            MainActor.assumeIsolated { module?.answer(images: images) }
+            MainActor.assumeIsolated { module?.answer(pages: pages) }
         }
 
         func documentCameraViewControllerDidCancel(_ c: VNDocumentCameraViewController) {
             c.dismiss(animated: true)
-            MainActor.assumeIsolated { module?.answer(images: nil) }
+            MainActor.assumeIsolated { module?.answer(pages: nil) }
         }
 
         func documentCameraViewController(_ c: VNDocumentCameraViewController, didFailWithError error: Error) {
             print("zn docscanner: the camera failed: \((error as NSError).code)")
             c.dismiss(animated: true)
-            MainActor.assumeIsolated { module?.answer(images: nil, code: 1) }
+            MainActor.assumeIsolated { module?.answer(pages: nil, code: 1) }
         }
     }
 
-    /// The camera's answer: the files are written, the job notes them, then ZnLaunch tells JS. nil images: cancelled.
-    @MainActor fileprivate func answer(images: [UIImage]?, code: Int = 0) {
+    /// The camera's answer: the files are written, the job notes them, then ZnLaunch tells JS. nil pages: cancelled.
+    @MainActor fileprivate func answer(pages images: [DocScanPage]?, code: Int = 0) {
+        uiAnswered()
         guard let (id, options) = open else { return }
         open = nil
         guard var images, !images.isEmpty else { return finish(id, code: code, pages: [], pdf: nil, pdfPages: 0) }
@@ -204,14 +264,17 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
                 if options.jpeg {
                     for (i, img) in images.enumerated() {
                         let name = DocScanRules.pageName(id, i)
-                        guard let data = img.jpegData(compressionQuality: 0.85) else { throw DocScanFailure(code: "write_failed") }
+                        // Pages from Photos are JPEG already (encoded once); the camera's are encoded here.
+                        guard let data = img.jpeg ?? img.image.jpegData(compressionQuality: DocScanRules.jpegQuality) else {
+                            throw DocScanFailure(code: "write_failed")
+                        }
                         try Self.put(data, name)
                         pages.append(name)
                     }
                 }
                 if options.pdf {
                     let doc = PDFDocument()
-                    for (i, img) in images.enumerated() { if let p = PDFPage(image: img) { doc.insert(p, at: i) } }
+                    for (i, img) in images.enumerated() { if let p = PDFPage(image: img.image) { doc.insert(p, at: i) } }
                     guard let data = doc.dataRepresentation() else { throw DocScanFailure(code: "write_failed") }
                     try Self.put(data, DocScanRules.pdfName(id))
                     pdf = DocScanRules.pdfName(id)
@@ -323,3 +386,9 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
 }
 
 struct DocScanFailure: Error { let code: String }
+
+/// A scanned page: its picture, and its JPEG when it was made as one (pages from Photos), so it isn't encoded twice.
+struct DocScanPage {
+    let image: UIImage
+    var jpeg: Data?
+}

@@ -87,6 +87,18 @@ enum DocScanRules {
     /// Core Image's document filter on a page from Photos.
     static func enhance(_ mode: Mode) -> Bool { mode != .base }
 
+    /// The pages' JPEG quality (the camera's and Photos' pages alike).
+    static let jpegQuality = 0.85
+
+    /// A photo's file is waited for at most this long (an iCloud photo that never comes is left out).
+    static let readSeconds = 60.0
+
+    /// How often the scan's controller is looked at while it is up (it can be closed with no answer).
+    static let watchSeconds = 0.5
+
+    /// The scan's controller has gone with no answer: no longer presented, and not on its way in.
+    static func gone(presented: Bool, appearing: Bool) -> Bool { !presented && !appearing }
+
     /// A photo is read at most this big on its long side (memory: one page at a time, never a 48 MP original).
     static let maxSide = 4096
 
