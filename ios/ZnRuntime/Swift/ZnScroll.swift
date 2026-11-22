@@ -67,6 +67,7 @@ extension ZnNodeSpec {
     /// A Scroll that needs its UIScrollView: pull to refresh, snapping, scroll events or a ref.
     var usesScrollProbe: Bool {
         (hasRefresh && !horizontal) || hasSnap || (scrollEvents != nil && onScrollEvent != 0) || scrollCommandSlot >= 0
+            || motionSlot >= 0
     }
 }
 
@@ -104,12 +105,17 @@ private struct ZnScrollProbe: View {
         let refreshing = s.hasRefresh && !s.horizontal && s.refreshingNow(inst)
         let snap = s.snapSlot >= 0 ? inst.slot(s.snapSlot).value.string : s.snap
         let command = s.scrollCommandSlot >= 0 ? inst.slot(s.scrollCommandSlot).value.string : nil
-        ZnScrollProbeView(ctx: ctx, s: s, inst: inst, driver: driver, refreshing: refreshing, snap: snap, command: command)
+        // useElementMotion (motion={m}): the element, and the value m.follow(v) gave it (observed, so a new one runs
+        // this body again).
+        let element = s.elementNow(inst)
+        let follow = element?.follow.source
+        ZnScrollProbeView(ctx: ctx, s: s, inst: inst, driver: driver, refreshing: refreshing, snap: snap, command: command,
+                          element: element, follow: follow)
     }
 }
 
 /// Finds the scroll view around it (SwiftUI's) once it is in the window, and keeps the driver on it.
-private final class ZnScrollProbeUIView: UIView {
+final class ZnScrollProbeUIView: UIView {
     weak var driver: ZnScrollDriver?
 
     /// In a window now: the scroll view is an ancestor (it may not have been at the first update).
@@ -127,6 +133,8 @@ private struct ZnScrollProbeView: UIViewRepresentable {
     let refreshing: Bool
     let snap: String?
     let command: String?
+    let element: ZnElementMotion?
+    let follow: ZnSource?
 
     func makeUIView(context: Context) -> ZnScrollProbeUIView {
         let v = ZnScrollProbeUIView()
@@ -138,16 +146,41 @@ private struct ZnScrollProbeView: UIViewRepresentable {
         let (ctx, s, inst, driver) = (ctx, s, inst, driver)
         v.driver = driver
         driver.configure(ctx: ctx, s: s, inst: inst)
-        let (refreshing, snap, command) = (refreshing, snap, command)
+        let (refreshing, snap, command, element, follow) = (refreshing, snap, command, element, follow)
         // After SwiftUI's update: the scroll view is an ancestor once this view is in the window (didMoveToWindow
         // looks again if it isn't yet).
         DispatchQueue.main.async {
             driver.find(from: v)
             driver.update(refreshing: refreshing, snap: snap, command: command)
+            driver.element(element, follow: follow)
         }
     }
 
     /// The Scroll left: off the scroll view's pan recognizer (which doesn't retain its targets) and its KVO.
+    static func dismantleUIView(_ v: ZnScrollProbeUIView, coordinator: ()) {
+        v.driver?.element(nil, follow: nil)
+        v.driver?.detach()
+        v.driver = nil
+    }
+}
+
+/// A clear view in a SwiftUI scroll's content (a Carousel, the SwiftUI List) that finds its UIScrollView for [driver],
+/// with no Scroll node of its own: only the driver's watch and onScroll are used.
+struct ZnScrollFinder: UIViewRepresentable {
+    let driver: ZnScrollDriver
+
+    func makeUIView(context: Context) -> ZnScrollProbeUIView {
+        let v = ZnScrollProbeUIView()
+        v.isUserInteractionEnabled = false
+        v.isAccessibilityElement = false
+        return v
+    }
+
+    func updateUIView(_ v: ZnScrollProbeUIView, context: Context) {
+        v.driver = driver
+        DispatchQueue.main.async { [weak v] in if let v { driver.find(from: v) } }
+    }
+
     static func dismantleUIView(_ v: ZnScrollProbeUIView, coordinator: ()) {
         v.driver?.detach()
         v.driver = nil
@@ -185,6 +218,19 @@ final class ZnScrollDriver: NSObject, ObservableObject {
 
     // A <Scroll ref> command waiting for the first layout (sent with the MOUNT).
     private var pending: ZnScrollCommand?
+
+    // useElementMotion (motion={m}): scrollY (scrollX sideways) and pull, as cells the element's readers read, so a
+    // binding redraws when they move; m.follow(v) moves the scroll.
+    private var element: ZnElementMotion?
+    private let along = ZnCell(0)
+    private let pull = ZnCell(0)
+    private lazy var follower = ZnFollower { [weak self] v in self?.followTo(v) }
+
+    /// Another reader of this scroll view (a SwiftUI List's or a Carousel's element values, found by ZnScrollFinder):
+    /// told when it is found and at each contentOffset change.
+    var onScroll: ((UIScrollView) -> Void)? {
+        didSet { if let sv { onScroll?(sv) } }
+    }
 
     /// The node this driver serves (each update: the spec is the same for a template; the context and instance too).
     func configure(ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance) {
@@ -231,6 +277,9 @@ final class ZnScrollDriver: NSObject, ObservableObject {
         lastOffset = metrics()?.offset
         refresh?.attach(to: sv)
         applyRate()
+        writeElement()
+        follower.check(force: true)
+        onScroll?(sv)
         // A command that came before the scroll view was found (sent with the MOUNT).
         if let p = pending { run(p) }
     }
@@ -346,6 +395,8 @@ final class ZnScrollDriver: NSObject, ObservableObject {
     /// SwiftUI's layout and UIKit's own move) or per throttle, the last position always sent (Android's
     /// ZnScrollEvents: one per frame). A bounce reads as the edge, so it sends nothing.
     private func scrolled() {
+        writeElement()
+        if let sv { onScroll?(sv) }
         guard let w = wants, w.scroll, let m = metrics() else { return }
         guard m.offset != lastOffset else { return }
         lastOffset = m.offset
@@ -454,6 +505,40 @@ final class ZnScrollDriver: NSObject, ObservableObject {
         if inMomentum, sendEnd, wants?.momentumEnd == true { send("me") }
         inMomentum = false
         released = nil
+    }
+
+    // MARK: Element values
+
+    /// The element this Scroll fills now (nil: none, or it left), and the value it follows. Its readers are this
+    /// Scroll's while it is on screen (ZnProvide); a new element gives the old one back.
+    func element(_ e: ZnElementMotion?, follow: ZnSource?) {
+        if e !== element {
+            print("zn t=\(ZnDebug.ms()) scroll: element \(e.map { "\($0.id)" } ?? "none") (was \(element.map { "\($0.id)" } ?? "none")), scroll view \(sv == nil ? "not found" : "found")")
+            if let old = element { for n in ["scrollX", "scrollY", "pull"] { ZnProvided.release(old.lambda(n), by: self) } }
+            element = e
+            if let e {
+                let (along, pull) = (along, pull)
+                ZnProvided.provide(e.lambda(horizontal ? "scrollX" : "scrollY"), by: self) { along.v }
+                if refresh != nil { ZnProvided.provide(e.lambda("pull"), by: self) { pull.v } }
+            }
+            writeElement()
+        }
+        follower.set(e == nil ? nil : follow)
+    }
+
+    /// The offset from the content's start (no bounce, as Android's scroll state) and the pull, in points.
+    private func writeElement() {
+        guard element != nil, let sv, let m = metrics() else { return }
+        along.write(Float(m.offset))
+        if let refresh { pull.write(refresh.pull(sv)) }
+    }
+
+    /// m.follow(v): v in points from the content's start, kept inside the content (Android's scrollTo).
+    private func followTo(_ v: Float) {
+        guard let sv, let m = metrics() else { return }
+        let to = min(max(Double(v), 0), m.max)
+        guard abs(to - m.offset) > 0.25 else { return }
+        sv.setContentOffset(raw(to, sv), animated: false)
     }
 
     // MARK: Snapping

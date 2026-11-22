@@ -192,9 +192,29 @@ final class ZnRefresh: NSObject {
         }
     }
 
+    // MARK: m.pull (useElementMotion)
+
+    /// The scroll view's top inset when not refreshing (UIKit adds the control's height to it while refreshing).
+    private var restTop: CGFloat = 0
+
+    /// How far the content is pulled down past its top now, in points: 0 when it isn't, or when it can't be pulled (no
+    /// control in the scroll view). While refreshing the content rests the spinner's height down.
+    func pullDistance(_ sv: UIScrollView) -> CGFloat {
+        guard isIn(sv) else { return 0 }
+        if !control.isRefreshing { restTop = sv.adjustedContentInset.top }
+        return max(0, -(sv.contentOffset.y + restTop))
+    }
+
+    /// m.pull: the pull as a share of the line where letting go refreshes, 0 → 1 (up to 1.5 past it), as Android's
+    /// ZnPullMath.progress with its 1.5 cap.
+    func pull(_ sv: UIScrollView) -> Float { Float(ZnElementRules.pull(distance: Double(pullDistance(sv)), line: Self.line)) }
+
+    /// Where UIKit's control starts a refresh (pt pulled), measured on iOS 26 (Android's line is 80 dp).
+    static let line: CGFloat = 100
+
     @objc private func pulled() {
         guard control.isRefreshing else { return }
-        print("zn t=\(ZnDebug.ms()) refresh: pulled → onRefresh")
+        print("zn t=\(ZnDebug.ms()) refresh: pulled → onRefresh\(scroll.map { " at \(Int(pullDistance($0))) pt" } ?? "")")
         assert(!asSubview || scroll?.refreshControl !== control, "ZnRefresh: UIKit made the subview control the refreshControl")
         onRefresh?()
         // JS has 1 s to say `refreshing`; else the spinner goes.

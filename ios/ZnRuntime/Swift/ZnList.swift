@@ -142,17 +142,20 @@ struct ZnListView: View {
         let header = drawn(list.header), footer = drawn(list.footer), empty = drawn(list.empty)
         let command = s.scrollCommandSlot >= 0 ? inst.slot(s.scrollCommandSlot).value.string : nil
         let padding = s.paddingInsets(inst)
+        // useElementMotion (motion={m}): the element and the value m.follow(v) gave it (observed: a new one comes here).
+        let element = s.elementNow(inst)
+        let follow = element?.follow.source
         switch ZnImpl.list {
         case .swiftUI:
             ZnLazyList(ctx: ctx, inst: inst, s: s, list: list, cols: cols, header: header, footer: footer, empty: empty,
-                       command: command, padding: padding)
+                       command: command, padding: padding, element: element, follow: follow)
         case .uiKit:
             let stickyText = s.stickySlot >= 0 ? inst.slot(s.stickySlot).value.string : s.stickyHeaderIndices
             // Pinned rows: not sideways or in a grid (Android draws them only in a plain column).
             let sticky = s.horizontal || cols > 1 ? [] : znParseSticky(stickyText)
             ZnCollectionList(ctx: ctx, inst: inst, s: s, list: list, count: list.rows.count, sticky: sticky,
                              refreshing: s.refreshingNow(inst), cols: cols, header: header, footer: footer, empty: empty,
-                             command: command, padding: padding)
+                             command: command, padding: padding, element: element, follow: follow)
         }
     }
 
@@ -255,7 +258,12 @@ struct ZnLazyList: View {
     let empty: UInt32?
     let command: String?
     let padding: EdgeInsets
+    let element: ZnElementMotion?
+    let follow: ZnSource?
     @State private var visible = ZnVisibleRows()
+    /// useElementMotion: the scroll view (found by a probe in the stack) and the items' places.
+    @StateObject private var scroll = ZnScrollDriver()
+    @State private var values = ZnLazyListElement()
 
     private var shape: ZnListShape {
         ZnListShape(header: header != nil, empty: empty != nil, rows: list.rows.count, footer: footer != nil, cols: cols)
@@ -264,22 +272,32 @@ struct ZnLazyList: View {
     var body: some View {
         let rows = list.rows
         let lineKeys = znLineKeys(rows.map(\.key), cols: cols)
+        let _ = values.bind(horizontal: s.horizontal, padding: padding, total: shape.total,
+                            flat: { [shape] id in item(id).map { shape.flat($0.part, $0.item) } },
+                            id: { [shape] i in shape.item(i).flatMap { itemId($0, lineKeys) } })
         ScrollViewReader { proxy in
+            let _ = values.proxy = proxy
             ScrollView(s.horizontal ? .horizontal : .vertical, showsIndicators: !s.horizontal) {
-                if s.horizontal {
-                    LazyHStack(alignment: znRowAlignment(s.alignItems).vertical, spacing: s.gap) {
-                        items(rows, lineKeys)
+                Group {
+                    if s.horizontal {
+                        LazyHStack(alignment: znRowAlignment(s.alignItems).vertical, spacing: s.gap) {
+                            items(rows, lineKeys)
+                        }
+                    } else {
+                        LazyVStack(spacing: s.gap) {
+                            items(rows, lineKeys)
+                        }
                     }
-                    .padding(padding)
-                } else {
-                    LazyVStack(spacing: s.gap) {
-                        items(rows, lineKeys)
-                    }
-                    .padding(padding)
                 }
+                .coordinateSpace(.named(ZnLazyListElement.space))
+                .background { if element != nil { ZnScrollFinder(driver: scroll) } }
+                .padding(padding)
             }
             .onAppear { tellUnsupported() }
             .onChange(of: command, initial: true) { _, text in run(text, proxy, lineKeys) }
+            .onChange(of: element.map(ObjectIdentifier.init), initial: true) { values.set(element, scroll) }
+            .onChange(of: follow.map(ObjectIdentifier.init), initial: true) { values.follower.set(element == nil ? nil : follow) }
+            .onDisappear { values.set(nil, scroll) }
         }
     }
 
@@ -313,7 +331,10 @@ struct ZnLazyList: View {
     }
 
     private func seen(_ id: String) -> ZnSeen {
-        ZnSeen(appear: { visible.shown.insert(id); report() }, disappear: { visible.shown.remove(id); report() })
+        let values = values
+        return ZnSeen(appear: { visible.shown.insert(id); report() },
+                      disappear: { visible.shown.remove(id); values.frames[id] = nil; report() },
+                      place: element == nil ? nil : { values.placed(id, $0) })
     }
 
     /// An id on screen → its part and item now (nil: gone from the list).
@@ -389,9 +410,101 @@ struct ZnLazyList: View {
 private struct ZnSeen: ViewModifier {
     let appear: () -> Void
     let disappear: () -> Void
+    /// Its frame in the stack, for useElementMotion's index / offset (only on a list with motion={m}).
+    var place: ((CGRect) -> Void)?
 
     func body(content: Content) -> some View {
-        content.onAppear(perform: appear).onDisappear(perform: disappear)
+        if let place {
+            content.onAppear(perform: appear).onDisappear(perform: disappear)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ZnLazyListElement.space)) } action: { place($0) }
+        } else {
+            content.onAppear(perform: appear).onDisappear(perform: disappear)
+        }
+    }
+}
+
+/// The SwiftUI list's useElementMotion values (as the UIKit list's: index, offset, scrollY / scrollX; no pull, it has no
+/// pull to refresh), from its scroll view (ZnScrollDriver, found by ZnScrollFinder) and its items' frames in the stack.
+@MainActor
+final class ZnLazyListElement {
+    static let space = "znLazyList"
+    let follower = ZnFollower()
+    var proxy: ScrollViewProxy?
+    /// The items on screen: their start and size along the list, in the stack (inside the padding).
+    var frames: [String: (start: CGFloat, size: CGFloat)] = [:]
+    private var element: ZnElementMotion?
+    private weak var sv: UIScrollView?
+    private var horizontal = false
+    private var padStart: CGFloat = 0
+    private var total = 0
+    private var flat: (String) -> Int? = { _ in nil }
+    private var idOf: (Int) -> String? = { _ in nil }
+    private let index = ZnCell(0), within = ZnCell(0), along = ZnCell(0)
+
+    /// The list's shape now (each body run).
+    func bind(horizontal: Bool, padding: EdgeInsets, total: Int, flat: @escaping (String) -> Int?, id: @escaping (Int) -> String?) {
+        self.horizontal = horizontal
+        self.total = total
+        padStart = horizontal ? padding.leading : padding.top
+        self.flat = flat
+        idOf = id
+    }
+
+    func set(_ e: ZnElementMotion?, _ driver: ZnScrollDriver) {
+        guard e !== element else { return }
+        if let old = element { for n in ["index", "offset", "scrollX", "scrollY"] { ZnProvided.release(old.lambda(n), by: self) } }
+        element = e
+        if let e {
+            let (index, within, along) = (index, within, along)
+            ZnProvided.provide(e.lambda("index"), by: self) { index.v }
+            ZnProvided.provide(e.lambda("offset"), by: self) { within.v }
+            ZnProvided.provide(e.lambda(horizontal ? "scrollX" : "scrollY"), by: self) { along.v }
+            driver.onScroll = { [weak self] sv in self?.scrolled(sv) }
+            follower.apply = { [weak self] v in self?.followTo(v) }
+        } else {
+            driver.onScroll = nil
+            follower.set(nil)
+        }
+    }
+
+    func placed(_ id: String, _ r: CGRect) {
+        frames[id] = horizontal ? (r.minX, r.width) : (r.minY, r.height)
+        if let sv { scrolled(sv) }
+    }
+
+    private func main(_ p: CGPoint) -> CGFloat { horizontal ? p.x : p.y }
+
+    private func scrolled(_ sv: UIScrollView) {
+        self.sv = sv
+        guard element != nil else { return }
+        let i = sv.adjustedContentInset
+        let start = horizontal ? i.left : i.top, end = horizontal ? i.right : i.bottom
+        let content = horizontal ? sv.contentSize.width : sv.contentSize.height
+        let viewport = horizontal ? sv.bounds.width : sv.bounds.height
+        let at = min(max(main(sv.contentOffset) + start, 0), max(0, content + start + end - viewport))
+        along.write(Float(at))
+        let starts: [(item: Int, start: Double)] = frames.compactMap { id, f in flat(id).map { ($0, Double(f.start)) } }
+        guard let p = ZnElementRules.listPosition(at: Double(at), starts: starts) else { return }
+        index.write(Float(p.item))
+        within.write(Float(p.offset))
+    }
+
+    /// m.follow(v): an item on screen goes exactly there (with its fraction); one that isn't drawn yet is brought to the
+    /// start by ScrollViewReader (no fraction until it is placed).
+    private func followTo(_ v: Float) {
+        guard let (i, f) = ZnElementRules.listFollow(Double(v), total: total), let id = idOf(i) else { return }
+        guard let sv, let place = frames[id] else {
+            proxy?.scrollTo(id, anchor: horizontal ? .leading : .top)
+            return
+        }
+        let inset = sv.adjustedContentInset
+        let start = horizontal ? inset.left : inset.top, end = horizontal ? inset.right : inset.bottom
+        let content = horizontal ? sv.contentSize.width : sv.contentSize.height
+        let viewport = horizontal ? sv.bounds.width : sv.bounds.height
+        let to = min(max(padStart + place.start + CGFloat(f) * place.size - start, -start), max(-start, content + end - viewport))
+        var o = sv.contentOffset
+        if horizontal { o.x = to } else { o.y = to }
+        sv.setContentOffset(o, animated: false)
     }
 }
 
@@ -425,6 +538,8 @@ struct ZnCollectionList: UIViewRepresentable {
     let empty: UInt32?
     let command: String?
     let padding: EdgeInsets
+    let element: ZnElementMotion?
+    let follow: ZnSource?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -500,6 +615,11 @@ struct ZnCollectionList: UIViewRepresentable {
             c.pending = cmd
         }
         c.runPending(cv)
+        c.element(element, follow: follow, cv)
+    }
+
+    static func dismantleUIView(_ cv: ZnListCollectionView, coordinator c: Coordinator) {
+        c.element(nil, follow: nil, cv)
     }
 
     /// The rows and extras: inserts and removals in one batch when they are few, else a reload.
@@ -642,6 +762,88 @@ struct ZnCollectionList: UIViewRepresentable {
             guard let cv = sv as? UICollectionView else { return }
             if ProcessInfo.processInfo.environment["ZN_LIST_TRACE"] == "1" { print("zn t=\(ZnDebug.ms()) list: offset \(cv.contentOffset)") }
             report(cv)
+            writeElement(cv)
+        }
+
+        // MARK: Element values (useElementMotion)
+
+        /// The element this List fills (motion={m}): index, offset, scrollY (scrollX sideways) and pull, as cells its
+        /// readers read; m.follow(v) scrolls to item v.
+        private var element: ZnElementMotion?
+        private let index = ZnCell(0), within = ZnCell(0), along = ZnCell(0), pull = ZnCell(0)
+        private lazy var follower = ZnFollower()
+        private weak var followed: UICollectionView?
+        /// The top inset when not refreshing (UIKit adds the spinner's height while refreshing).
+        private var restTop: CGFloat = 0
+
+        func element(_ e: ZnElementMotion?, follow: ZnSource?, _ cv: UICollectionView) {
+            if e !== element {
+                if let old = element {
+                    for n in ["index", "offset", "scrollX", "scrollY", "pull"] { ZnProvided.release(old.lambda(n), by: self) }
+                }
+                element = e
+                if let e {
+                    let (index, within, along, pull) = (index, within, along, pull)
+                    ZnProvided.provide(e.lambda("index"), by: self) { index.v }
+                    ZnProvided.provide(e.lambda("offset"), by: self) { within.v }
+                    ZnProvided.provide(e.lambda(horizontal ? "scrollX" : "scrollY"), by: self) { along.v }
+                    if refresh != nil { ZnProvided.provide(e.lambda("pull"), by: self) { pull.v } }
+                }
+            }
+            followed = cv
+            follower.apply = { [weak self] v in
+                guard let self, let cv = self.followed else { return }
+                self.followTo(v, cv)
+            }
+            follower.set(e == nil ? nil : follow)
+            writeElement(cv)
+        }
+
+        /// How far the list is scrolled from its start (its padding's start), in points, kept inside the content.
+        private func scrolled(_ cv: UICollectionView) -> CGFloat {
+            let i = cv.adjustedContentInset
+            if refresh?.control.isRefreshing != true { restTop = i.top }
+            let start = horizontal ? i.left : restTop
+            let end = horizontal ? i.right : i.bottom
+            let content = horizontal ? cv.contentSize.width : cv.contentSize.height
+            let viewport = horizontal ? cv.bounds.width : cv.bounds.height
+            return min(max(main(cv.contentOffset) + start, 0), max(0, content + start + end - viewport))
+        }
+
+        /// index: the item (header, empty, row or grid line, footer: Android's lazy items) at the scroll position;
+        /// offset: how far that item is scrolled past (Compose's firstVisibleItemIndex / ScrollOffset). Pinned rows
+        /// are left out (they sit at the top wherever the list is). scrollY: exact, not Android's estimate.
+        func writeElement(_ cv: UICollectionView) {
+            guard element != nil, !cv.bounds.isEmpty else { return }
+            let at = scrolled(cv)
+            along.write(Float(at))
+            if let refresh { pull.write(refresh.pull(cv)) }
+            let rowsPart = ZnListPart.rows.rawValue
+            let items = cv.indexPathsForVisibleItems.filter { !($0.section == rowsPart && sticky.contains($0.item)) }.sorted()
+            let starts: [(item: Int, start: Double)] = items.compactMap { ip in
+                guard let part = ZnListPart(rawValue: ip.section),
+                      let a = cv.collectionViewLayout.layoutAttributesForItem(at: ip) else { return nil }
+                return (shape.flat(part, ip.item), Double(main(a.frame.origin)))
+            }
+            guard let p = ZnElementRules.listPosition(at: Double(at), starts: starts) else { return }
+            index.write(Float(p.item))
+            within.write(Float(p.offset))
+        }
+
+        /// m.follow(v): item floor(v) at the list's start, (v - floor(v)) of its size further (3.5: half way through
+        /// item 3), kept inside the content. Far items may have estimated sizes until they are laid out.
+        private func followTo(_ v: Float, _ cv: UICollectionView) {
+            guard !cv.bounds.isEmpty, let (i, f) = ZnElementRules.listFollow(Double(v), total: shape.total),
+                  let it = shape.item(i) else { return }
+            let frac = CGFloat(f)
+            let ip = IndexPath(item: it.item, section: it.part.rawValue)
+            guard let a = (cv.collectionViewLayout as? ZnStickyLayout)?.unpinned(ip) ?? cv.collectionViewLayout.layoutAttributesForItem(at: ip)
+            else { return }
+            let size = horizontal ? a.frame.width : a.frame.height
+            let start = horizontal ? cv.adjustedContentInset.left : cv.adjustedContentInset.top
+            let to = clamp(cv, main(a.frame.origin) + frac * size - start)
+            guard abs(to - main(cv.contentOffset)) > 0.25 else { return }
+            cv.setContentOffset(offset(cv, to), animated: false)
         }
 
         /// Sends the rows on screen (onRange) and, near the end, onEndReached.

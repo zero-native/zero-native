@@ -11,7 +11,10 @@
 // - `dots`: a 20 × 6 pill for the page shown, 6 × 6 dots for the rest. `autoAdvance` ms: the next page (wrapping),
 //   not while dragging and not for `pauseAfterTouch` ms (3000 by default) after a touch. `onPageChange` (index) when
 //   a new page settles; not for the first.
+// - motion={m} (useElementMotion): m.page is the page as a number (2.5: half way from page 2 to 3), from the scroll view
+//   (ZnScrollDriver's watch, found by ZnScrollFinder); m.follow(v) moves the pages to page v at once, with no animation.
 import SwiftUI
+import UIKit
 
 struct ZnCarouselView: View {
     let ctx: ZnContext
@@ -26,17 +29,23 @@ struct ZnCarouselView: View {
     @State private var heights: [Int: CGFloat] = [:]
     /// The scroll is at its end with pages narrower than the carousel: the last page is the one shown.
     @State private var atEnd = false
+    /// useElementMotion: the scroll view, and the page from it.
+    @StateObject private var scroll = ZnScrollDriver()
+    @State private var values = ZnCarouselElement()
 
     var body: some View {
         let refs = znShownRefs(ctx, t, inst, s.children)
         let pad = s.paddingInsets(inst)
         let fill = s.hasHeight || s.flexNow(inst) > 0
         let shown = atEnd && refs.count > 1 ? refs.count - 1 : (page ?? settled)
+        let element = s.elementNow(inst)
+        let follow = element?.follow.source
         VStack(spacing: 0) {
             GeometryReader { g in
                 let pageWidth = znCarouselPageWidth(width: g.size.width, padding: pad.leading + pad.trailing,
                                                     itemWidth: s.itemWidth, percent: s.itemWidthPercent)
                 let viewW = g.size.width
+                let _ = values.bind(pageWidth: pageWidth, gap: s.gapNow(inst), count: refs.count)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: s.gapNow(inst)) {
                         ForEach(Array(refs.enumerated()), id: \.element.id) { i, ref in
@@ -52,6 +61,7 @@ struct ZnCarouselView: View {
                     // A clear hit shape over the pages: backgrounds and plain Texts take no taps (as on Android), so a
                     // page with no Pressable left nothing for the touch gesture below, and autoAdvance didn't pause.
                     .contentShape(Rectangle())
+                    .background { if element != nil { ZnScrollFinder(driver: scroll) } }
                     // Where the pages' row is in the scroll view: its end at the scroll's end means the last page.
                     .onGeometryChange(for: Bool.self) { p in
                         let f = p.frame(in: .named(Self.space))
@@ -85,6 +95,9 @@ struct ZnCarouselView: View {
                 .animation(.easeOut(duration: 0.2), value: shown)
             }
         }
+        .onChange(of: element.map(ObjectIdentifier.init), initial: true) { values.set(element, scroll) }
+        .onChange(of: follow.map(ObjectIdentifier.init), initial: true) { values.follower.set(element == nil ? nil : follow) }
+        .onDisappear { values.set(nil, scroll) }
         .onChange(of: shown) { _, p in
             guard p != settled else { return }
             settled = p
@@ -104,4 +117,52 @@ struct ZnCarouselView: View {
     }
 
     private static let space = "znCarousel"
+}
+
+/// A Carousel's useElementMotion values: `page` from its scroll view, and m.follow(v) by page.
+@MainActor
+final class ZnCarouselElement {
+    let follower = ZnFollower()
+    private var element: ZnElementMotion?
+    private weak var sv: UIScrollView?
+    private var pageWidth: CGFloat = 0, gap: CGFloat = 0, count = 0
+    private let page = ZnCell(0)
+
+    /// The pages' width, gap and count now (each body run).
+    func bind(pageWidth: CGFloat, gap: CGFloat, count: Int) {
+        self.pageWidth = pageWidth
+        self.gap = gap
+        self.count = count
+    }
+
+    func set(_ e: ZnElementMotion?, _ driver: ZnScrollDriver) {
+        guard e !== element else { return }
+        if let old = element { ZnProvided.release(old.lambda("page"), by: self) }
+        element = e
+        if let e {
+            let page = page
+            ZnProvided.provide(e.lambda("page"), by: self) { page.v }
+            driver.onScroll = { [weak self] sv in self?.scrolled(sv) }
+            follower.apply = { [weak self] v in self?.followTo(v) }
+        } else {
+            driver.onScroll = nil
+            follower.set(nil)
+        }
+    }
+
+    /// The offset from the first page's place (contentMargins are the scroll view's inset).
+    private func scrolled(_ sv: UIScrollView) {
+        self.sv = sv
+        let offset = sv.contentOffset.x + sv.adjustedContentInset.left
+        page.write(Float(ZnElementRules.carouselPage(offset: offset, pageWidth: pageWidth, gap: gap, count: count)))
+    }
+
+    private func followTo(_ v: Float) {
+        guard let sv else { return }
+        let i = sv.adjustedContentInset
+        let maxOffset = sv.contentSize.width + i.left + i.right - sv.bounds.width
+        guard let to = ZnElementRules.carouselFollow(Double(v), pageWidth: pageWidth, gap: gap, count: count, maxOffset: maxOffset),
+              abs(to - (sv.contentOffset.x + i.left)) > 0.25 else { return }
+        sv.setContentOffset(CGPoint(x: to - i.left, y: sv.contentOffset.y), animated: false)
+    }
 }
