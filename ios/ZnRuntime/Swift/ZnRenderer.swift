@@ -13,8 +13,8 @@
 // Seams: each later part of a node has its own modifier in its own file, already in its place in the chain (most are
 // pass-throughs until their work lands), so that work changes its file and not this one. Outermost first:
 // ZnChildTraits, display: "none", ZnPointerEventsNone (ZnPointerEvents.swift), margin, ZnImpressionProbe
-// (ZnImpressions.swift), ZnSharedProbe (ZnShared.swift); then in styled: ZnA11y (ZnAccessibility.swift) over the paint,
-// ZnAnimateLayout (ZnLayoutMotion.swift) over the size frame; inside ZnPaintLayers, before ZnLayer: ZnElementProbe
+// (ZnImpressions.swift), ZnSharedProbe (ZnShared.swift); then in styled: ZnAnimatePlace (ZnLayoutMotion.swift), ZnA11y
+// (ZnAccessibility.swift) over the paint, ZnAnimateLayout (ZnLayoutMotion.swift) over the size frame; inside ZnPaintLayers, before ZnLayer: ZnElementProbe
 // (ZnElementMotion.swift) and ZnGestureModifier (ZnGestureHub.swift). Scroll and Canvas: ZnScroll.swift, ZnCanvas.swift.
 import SwiftUI
 import UIKit
@@ -167,6 +167,7 @@ struct ZnNodeView: View {
             .modifier(ZnFieldBoxTap(s: s, inst: inst))
             .modifier(ZnPaint(s: s, inst: inst))
             .modifier(ZnA11y(s: s, inst: inst))
+            .modifier(ZnAnimatePlace(s: s, inst: inst))
     }
 
     private func contentAlignment(_ s: ZnNodeSpec) -> Alignment {

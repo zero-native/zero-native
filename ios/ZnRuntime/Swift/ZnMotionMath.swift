@@ -6,6 +6,8 @@
 //   resolves on the same frame as on Android), a tween, a decay (Compose's exponential decay), a plugin driver.
 // - znInterpolate / znMixColors (map, mapColor, formula tables), znFriction, ZnNumberFormat (v.format()).
 // - ZnTiltFilter: useTilt's lean from CoreMotion's gravity, turned with the screen and smoothed (ZnTilt.swift).
+// - ZnLayoutAnim: animateLayout's size or offset, a pair of numbers that go to a new target with the speed they have
+//   (ZnLayoutMotion.swift).
 import Foundation
 
 // MARK: - Easing
@@ -409,6 +411,73 @@ struct ZnFollowStepper {
 func znFriction(_ deceleration: Double) -> Float {
     let d = deceleration.isFinite && deceleration > 0.9 && deceleration < 1 ? deceleration : 0.998
     return Float(-1000 * log(d) / 4.2)
+}
+
+// MARK: - Layout motion
+
+/// animateLayout's two numbers (a size, or a place's offset) moving to a target, as Compose's Animatable does: a new
+/// target starts a new curve from where they are, with the speed they have (a spring keeps it, a tween starts at rest).
+/// The first frame of a curve already moves (as ZnRun's). Points; rests within the curve's own end.
+struct ZnLayoutAnim {
+    let spec: ZnTimingSpec
+    private(set) var x: Float
+    private(set) var y: Float
+    private(set) var toX: Float
+    private(set) var toY: Float
+    private var vx: Float = 0
+    private var vy: Float = 0
+    private var curves: (ZnMotionCurve, ZnMotionCurve)?
+    private var started: Int64?
+
+    init(_ spec: ZnTimingSpec, x: Float, y: Float) {
+        self.spec = spec
+        self.x = x; self.y = y; toX = x; toY = y
+    }
+
+    /// Moving now (a frame is wanted).
+    var moving: Bool { curves != nil }
+
+    /// Goes to ([tx], [ty]) from where it is (or from ([fx], [fy]): a place's offset starts where the box was seen).
+    mutating func go(_ tx: Float, _ ty: Float, fromX fx: Float? = nil, fromY fy: Float? = nil) {
+        if let fx { x = fx }
+        if let fy { y = fy }
+        toX = tx; toY = ty
+        if abs(x - tx) < 0.01 && abs(y - ty) < 0.01 && abs(vx) < 0.01 && abs(vy) < 0.01 { return jump(tx, ty) }
+        // A spring's end within a third of a point (Compose's IntSize / IntOffset threshold of a pixel at 3x).
+        let cx: ZnMotionCurve, cy: ZnMotionCurve
+        if spec.ms < 0 && spec.driver == nil {
+            cx = ZnSpringCurve(from: x, to: tx, v0: vx, ratio: spec.ratio, stiffness: spec.stiffness, threshold: 0.3)
+            cy = ZnSpringCurve(from: y, to: ty, v0: vy, ratio: spec.ratio, stiffness: spec.stiffness, threshold: 0.3)
+        } else {
+            cx = spec.curve(from: x, to: tx, velocity: vx)
+            cy = spec.curve(from: y, to: ty, velocity: vy)
+        }
+        curves = (cx, cy)
+        started = nil
+    }
+
+    /// There at once (animations off, the first size).
+    mutating func jump(_ tx: Float, _ ty: Float) {
+        x = tx; y = ty; toX = tx; toY = ty
+        vx = 0; vy = 0
+        curves = nil
+        started = nil
+    }
+
+    /// One frame at [now] (ns). False once it rests at the target.
+    mutating func frame(_ now: Int64) -> Bool {
+        guard let (cx, cy) = curves else { return false }
+        let s0 = started ?? now - 16_666_667  // a 60 Hz frame back
+        started = s0
+        let t = now - s0
+        x = cx.value(t); y = cy.value(t)
+        vx = cx.velocity(t); vy = cy.velocity(t)
+        if t >= max(cx.durationNs, cy.durationNs) {
+            jump(toX, toY)
+            return false
+        }
+        return true
+    }
 }
 
 // MARK: - Tilt

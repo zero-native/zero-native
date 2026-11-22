@@ -749,6 +749,37 @@ MainActor.assumeIsolated {
     e.dispose(703); e.dispose(704); e.dispose(705); e.dispose(701)
 }
 
+// MARK: - animateLayout's motion (ZnLayoutAnim)
+
+var grow = ZnLayoutAnim(ZnTimingSpec(ms: 300, easing: 3, bezier: nil, ratio: 1, stiffness: 0, clamp: false), x: 100, y: 50)
+truth("at rest it doesn't move", !grow.moving && !grow.frame(0))
+grow.go(100, 150)
+truth("a new size moves", grow.moving)
+var at: Int64 = 1_000_000_000
+truth("the first frame already moves", grow.frame(at) && grow.y > 50)
+near("one frame of a 300 ms linear tween", grow.y, 50 + 100 * 16.666667 / 300, 0.01)
+at += 150_000_000
+_ = grow.frame(at)
+near("half way", grow.y, 50 + 100 * (166.666667 / 300), 0.05)
+at += 200_000_000
+truth("it ends at the target", !grow.frame(at) && grow.y == 150 && !grow.moving)
+// A spring that gets a new target keeps its speed (Animatable's animateTo while running).
+var glide = ZnLayoutAnim(.spring, x: 0, y: 0)
+glide.go(0, 0, fromX: 0, fromY: -80)  // an offset: drawn 80 pt above its new place, going to 0
+at = 0
+for _ in 0..<6 { at += 16_666_667; _ = glide.frame(at) }
+let midway = glide.y
+truth("it is on its way down", midway > -80 && midway < 0)
+glide.go(0, 0, fromX: 0, fromY: glide.y - 20)  // it moved again: 20 pt further to go
+at += 16_666_667
+_ = glide.frame(at)
+truth("still moving down at once (speed kept)", glide.y > midway - 20)
+for _ in 0..<200 { at += 16_666_667; if !glide.frame(at) { break } }
+truth("it rests at 0", !glide.moving && glide.y == 0)
+var jumpy = ZnLayoutAnim(.spring, x: 10, y: 10)
+jumpy.go(10, 10)
+truth("going where it is starts nothing", !jumpy.moving)
+
 // MARK: - Tilt (ZnTiltFilter; the phone's sensors can't move on the simulator, so the signs are checked here)
 
 // Flat on a table: CoreMotion's gravity (0, 0, -1): no lean.
