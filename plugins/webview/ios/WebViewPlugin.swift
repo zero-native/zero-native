@@ -9,7 +9,11 @@
 // - Links, form posts, redirects and window.open all pass WKWebView's navigation policy (decide); a main-frame answer
 //   from a host not allowed is cut off too (the last net).
 // - thirdPartyCookies: WebKit always blocks third-party cookies (ITP); the prop can't turn them on.
-// - Upload: iOS's own picker (photos, camera, files); `fileUpload: false` disables file inputs by script. No "upload" event.
+// - Upload: iOS's own picker (photos, camera, files). A script in our own world (the page's scripts can't reach it)
+//   stops file inputs when `fileUpload` is false or the page's host isn't allowed, and sends "upload" with the count
+//   (0: cancelled or stopped), as Android.
+// - Paused / resumed: a screen pushed on top, the app in the background, or another controller presented over the
+//   page (Android's other Activity). Media is suspended while paused.
 // - renderGone: WebKit ended the page's process (crashed false: iOS doesn't say why). debugRenderer: no public way to kill
 //   it, so it answers false.
 // - backInPage: the in-page back swipe (WKWebView's own gesture) and controller.back(); iOS has no Back button.
@@ -30,128 +34,6 @@ public struct WebViewPlugin: ZnPlugin {
         let pages = WebViewPages(inspect: inspect)
         r.module(WebViewModule(pages))
         r.view("webview.page") { scope in ZnWebPage(scope, pages) }
-    }
-}
-
-/// The rules (WebViewRules.kt), apart from WebKit.
-enum WebViewRules {
-    static let maxMessageChars = 64 * 1024
-    static let maxUrlChars = 8 * 1024
-    static let leaveGapMs = 800.0
-    static let never: Set<String> = ["intent", "android-app", "javascript", "file", "content", "data", "blob", "about", "filesystem", "chrome", "view-source"]
-    static let frameOnly: Set<String> = ["about", "data", "blob"]
-
-    struct Url { let scheme: String; let host: String?; let port: Int }
-
-    private static func letter(_ c: Character) -> Bool { c.isASCII && c.isLetter }
-    private static func digit(_ c: Character) -> Bool { ("0"..."9").contains(c) }
-
-    /// Strict on purpose: a backslash, a space or an `@` in the host part is refused.
-    static func parseUrl(_ raw: String) -> Url? {
-        if raw.count > maxUrlChars || raw.unicodeScalars.contains(where: { $0.value <= 0x20 || $0 == "\\" || $0.value == 0x7f }) { return nil }
-        guard let colon = raw.firstIndex(of: ":"), colon != raw.startIndex else { return nil }
-        let scheme = raw[..<colon].lowercased()
-        guard let first = scheme.first, letter(first), scheme.allSatisfy({ letter($0) || digit($0) || "+-.".contains($0) }) else { return nil }
-        let rest = raw[raw.index(after: colon)...]
-        guard rest.hasPrefix("//") else { return Url(scheme: scheme, host: nil, port: -1) }
-        let authority = rest.dropFirst(2).prefix { !"/?#".contains($0) }
-        if authority.contains("@") { return Url(scheme: scheme, host: nil, port: -1) }
-        let hp = authority.lowercased()
-        let portAt = hp.lastIndex(of: ":")
-        let host = portAt.map { String(hp[..<$0]) } ?? hp
-        var port = -1
-        if let at = portAt {
-            let text = hp[hp.index(after: at)...]
-            if !text.isEmpty {
-                guard text.allSatisfy(digit), let p = Int(text), (1...65535).contains(p) else { return nil }
-                port = p
-            }
-        }
-        if host.isEmpty || !host.allSatisfy({ letter($0) || digit($0) || ".-_".contains($0) }) { return Url(scheme: scheme, host: nil, port: -1) }
-        if (scheme == "https" && port == 443) || (scheme == "http" && port == 80) { port = -1 }
-        return Url(scheme: scheme, host: host, port: port)
-    }
-
-    struct HostRule {
-        let scheme: String, host: String, port: Int, wild: Bool
-        func matches(_ u: Url) -> Bool {
-            guard let h = u.host else { return false }
-            return u.scheme == scheme && u.port == port && (wild ? h.hasSuffix(".\(host)") : h == host)
-        }
-    }
-
-    static func hostRule(_ raw: String, localHttp: Bool) -> HostRule? {
-        let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
-        let parts = text.components(separatedBy: "://")
-        let scheme = parts.count > 1 ? parts[0] : "https"
-        let rest = parts.count > 1 ? parts.dropFirst().joined(separator: "://") : text
-        let wild = rest.hasPrefix("*.")
-        let plain = wild ? String(rest.dropFirst(2)) : rest
-        if plain.contains(where: { "/?#*".contains($0) }) { return nil }
-        guard let url = parseUrl("\(scheme)://\(plain)"), let host = url.host else { return nil }
-        switch scheme {
-        case "https": break
-        case "http": if !localHttp || wild || !["localhost", "127.0.0.1"].contains(host) { return nil }
-        default: return nil
-        }
-        if wild && (!host.contains(".") || (host.split(separator: ".").last ?? "").allSatisfy(digit)) { return nil }
-        return HostRule(scheme: scheme, host: host, port: url.port, wild: wild)
-    }
-
-    struct Policy {
-        let hosts: [HostRule]
-        let leaveSchemes: Set<String>
-        let refused: [String]
-        func allowsPage(_ url: String?) -> Bool {
-            guard let url, let u = parseUrl(url) else { return false }
-            return hosts.contains { $0.matches(u) }
-        }
-    }
-
-    static let none = Policy(hosts: [], leaveSchemes: [], refused: [])
-
-    static func policy(_ hosts: [String], _ leaveSchemes: [String], localHttp: Bool) -> Policy {
-        var rules: [HostRule] = [], refused: [String] = []
-        for raw in hosts { if let r = hostRule(raw, localHttp: localHttp) { rules.append(r) } else { refused.append(raw) } }
-        var schemes: [String] = []
-        for raw in leaveSchemes {
-            var s = raw.trimmingCharacters(in: .whitespaces).lowercased()
-            if s.hasSuffix(":") { s.removeLast() }
-            if s.isEmpty || never.contains(s) || !letter(s.first!) || !s.allSatisfy({ letter($0) || digit($0) || "+-.".contains($0) }) {
-                refused.append(raw)
-            } else if !schemes.contains(s) { schemes.append(s) }
-        }
-        return Policy(hosts: rules, leaveSchemes: Set(schemes), refused: refused)
-    }
-
-    enum Action { case stay, leave, refuse }
-
-    static func decide(_ url: String, mainFrame: Bool, _ policy: Policy) -> (Action, String?) {
-        guard let u = parseUrl(url) else { return (.refuse, "bad_url") }
-        let web = u.scheme == "https" || u.scheme == "http"
-        if !mainFrame { return web || frameOnly.contains(u.scheme) ? (.stay, nil) : (.refuse, "frame") }
-        if never.contains(u.scheme) { return (.refuse, "scheme") }
-        if web && policy.allowsPage(url) { return (.stay, nil) }
-        if policy.leaveSchemes.contains(u.scheme) { return (.leave, nil) }
-        return (.refuse, web ? "host" : "scheme")
-    }
-
-    static func pageMayShow(_ url: String?, _ policy: Policy, inline: Bool) -> Bool {
-        guard let url, let u = parseUrl(url) else { return false }
-        if url == "about:blank" { return true }
-        if inline && (u.scheme == "data" || u.scheme == "about") { return true }
-        return policy.allowsPage(url)
-    }
-
-    static func short(_ url: String?) -> String { String((url ?? "").prefix(2048)) }
-    static func hostOf(_ url: String?) -> String { url.flatMap(parseUrl).map { $0.host ?? $0.scheme } ?? "?" }
-
-    static var debug: Bool {
-        #if DEBUG
-        return true
-        #else
-        return false
-        #endif
     }
 }
 
@@ -199,6 +81,8 @@ final class WebViewModule: ZnModuleBase, @unchecked Sendable {
 /// `webview.page`: one WKWebView and everything that hangs on it. Main thread.
 final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private static let bridge = "zeroNative"
+    private static let uploadHandler = "znUpload"
+    private static let uploadWorld = WKContentWorld.world(name: "zn-upload")
     private let scope: ZnViewScope
     private let pages: WebViewPages
     private var web: WKWebView!
@@ -233,6 +117,7 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
     deinit {
         web?.configuration.userContentController.removeScriptMessageHandler(forName: Self.bridge)
+        web?.configuration.userContentController.removeScriptMessageHandler(forName: Self.uploadHandler, contentWorld: Self.uploadWorld)
     }
 
     private func makeWebView() {
@@ -243,6 +128,7 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         c.allowsInlineMediaPlayback = true
         // A weak box: the content controller keeps its handler alive, which would keep this view alive.
         c.userContentController.add(WeakHandler(self), name: Self.bridge)
+        c.userContentController.add(WeakHandler(self), contentWorld: Self.uploadWorld, name: Self.uploadHandler)
         let w = WKWebView(frame: bounds, configuration: c)
         w.navigationDelegate = self
         w.uiDelegate = self
@@ -286,12 +172,11 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         }
     }
 
-    /// `window.ZeroNative` in frames whose origin is allowed (the rules go in as JSON), and file inputs off when asked.
+    /// `window.ZeroNative` in frames whose origin is allowed (the rules go in as JSON), and the upload watch.
     private func setScripts() {
         let ucc = web.configuration.userContentController
         ucc.removeAllUserScripts()
-        let rules = policy.hosts.map { ["s": $0.scheme, "h": $0.host, "p": $0.port, "w": $0.wild] as [String: Any] }
-        let json = (try? JSONSerialization.data(withJSONObject: rules)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        let json = WebViewRules.scriptRules(policy)
         let bridge = """
         (function(){
           if (window.ZeroNative) return;
@@ -317,14 +202,46 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         })();
         """
         ucc.addUserScript(WKUserScript(source: bridge, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        if !fileUpload {
-            let noFiles = """
-            document.addEventListener('click', function(e){
-              var t = e.target; if (t && t.tagName === 'INPUT' && t.type === 'file') { e.preventDefault(); e.stopPropagation(); }
-            }, true);
-            """
-            ucc.addUserScript(WKUserScript(source: noFiles, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        }
+        ucc.addUserScript(WKUserScript(source: Self.uploadScript(json, allowed: fileUpload), injectionTime: .atDocumentStart,
+                                       forMainFrameOnly: false, in: Self.uploadWorld))
+    }
+
+    /// The file picker, watched from our own script world, which the page's scripts can't see or post from: a click on
+    /// a file input opens WebKit's picker (photos, camera, files) only when `fileUpload` is on and the page (the top
+    /// frame, as Android's web.url) is on an allowed host; else the click is stopped and the answer is 0, as Android's
+    /// pickFiles. An opened picker answers once: the number of files (`change`) or 0 (`cancel`).
+    private static func uploadScript(_ rules: String, allowed: Bool) -> String {
+        """
+        (function(){
+          var rules = \(rules), on = \(allowed ? "true" : "false"), open = null;
+          function post(n){ window.webkit.messageHandlers.\(uploadHandler).postMessage(n); }
+          function topOrigin(){
+            if (window === window.top) return location.origin;
+            var a = location.ancestorOrigins; return a && a.length ? a[a.length - 1] : 'null';
+          }
+          function allowedHost(){
+            var m = /^([a-z][a-z0-9+.-]*):\\/\\/([^:\\/]+)(?::(\\d+))?$/i.exec(topOrigin());
+            if (!m) return false;
+            var scheme = m[1].toLowerCase(), host = m[2].toLowerCase(), port = m[3] ? parseInt(m[3], 10) : -1;
+            if ((scheme === 'https' && port === 443) || (scheme === 'http' && port === 80)) port = -1;
+            return rules.some(function(r){ return r.s === scheme && r.p === port && (r.w ? host.endsWith('.' + r.h) : host === r.h); });
+          }
+          function isFile(t){ return t && t.tagName === 'INPUT' && String(t.type).toLowerCase() === 'file'; }
+          window.addEventListener('click', function(e){
+            var t = e.target; if (!isFile(t)) return;
+            if (!on || !allowedHost()) { e.preventDefault(); e.stopImmediatePropagation(); open = null; post(0); return; }
+            open = t;
+          }, true);
+          window.addEventListener('change', function(e){
+            if (!open || e.target !== open) return;
+            open = null; post(e.target.files ? e.target.files.length : 0);
+          }, true);
+          window.addEventListener('cancel', function(e){
+            if (!open || e.target !== open) return;
+            open = null; post(0);
+          }, true);
+        })();
+        """
     }
 
     private func load(url: String?, html: String?, baseUrl: String?, headers: [String: String]) {
@@ -350,18 +267,48 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
     // MARK: Screen and app state
 
+    // In front, as Android's lifecycle ON_RESUME / ON_PAUSE: the page is in the window (a screen pushed on top takes
+    // it out, as does a full-screen presentation), the app is not in the background, and no other controller is
+    // presented over it (a page sheet: the App Store sheet, a picker, Safari; Android's other Activity). zero-native's
+    // own Sheet and Modal are layers, not presentations, and an alert is a dialog: neither pauses, as Android's
+    // Dialogs don't.
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil { pages.add(scope.id, self) }
-        setFront(window != nil && UIApplication.shared.applicationState != .background)
+        updateFront()
     }
 
-    @objc private func appActive() { setFront(window != nil) }
+    /// UIKit dims the tint of the views under a presented sheet and gives it back when the sheet goes: the moment to
+    /// look again.
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        updateFront()
+    }
+
+    @objc private func appActive() { updateFront() }
     @objc private func appInactive() { setFront(false) }
 
+    private func updateFront() {
+        setFront(window != nil && UIApplication.shared.applicationState != .background && !coveredByPresentation())
+    }
+
+    /// Something presented over the window's screens, other than an alert or one on its way out.
+    private func coveredByPresentation() -> Bool {
+        var p = window?.rootViewController?.presentedViewController
+        while let vc = p {
+            if !vc.isBeingDismissed && !(vc is UIAlertController) { return true }
+            p = vc.presentedViewController
+        }
+        return false
+    }
+
+    /// Android's web.onPause / onResume: media pauses and can't start while paused (WebKit already slows a hidden
+    /// page's timers; iOS has no pauseTimers).
     private func setFront(_ front: Bool) {
         guard front != inFront else { return }
         inFront = front
+        web.setAllMediaPlaybackSuspended(!front)
         scope.emit(front ? "resumed" : "paused")
     }
 
@@ -405,6 +352,13 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     // MARK: The bridge
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == Self.uploadHandler {
+            // Only our upload script's world can post here; the count is still kept sane.
+            let n = WebViewRules.uploadCount(message.body)
+            print("zn webview: upload answered with \(n) files")
+            scope.emit("upload", ["count": n])
+            return
+        }
         let o = message.frameInfo.securityOrigin
         let origin = "\(o.protocol)://\(o.host)\(o.port > 0 ? ":\(o.port)" : "")"
         guard policy.allowsPage(origin) else {
