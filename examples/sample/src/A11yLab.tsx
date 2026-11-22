@@ -1,9 +1,10 @@
 // A dev screen for accessibility and testID (registry 15): what TalkBack / VoiceOver read, and the ids UI tests find.
 // Each case says what a screen reader should say. On iOS, check with Accessibility Inspector or a UI test's tree dump;
 // on Android with TalkBack or `uiautomator dump` (testID is the resource id). Actions log one "a11y-lab ..." line.
-import { Box, Canvas, Checkbox, Column, Image, OtpInput, Pressable, Row, Scroll, Switch, Text, TextField } from "@zeronative/ui"
+import { Box, Canvas, Checkbox, Column, Icon, Image, OtpInput, Pressable, Row, Scroll, Switch, Text, TextField } from "@zeronative/ui"
 import { draw, signal } from "@zeronative/core"
 import { c } from "./tokens"
+import { chevronRight } from "./icons"
 
 function A11yCase(props: { title: string; expect: string; children?: unknown }) {
   return (
@@ -31,6 +32,10 @@ export function A11yLabScreen() {
   const checked = signal(true)
   const count = signal(0)
   const text = signal("")
+  const named = signal(true)
+  const rowOn = signal(true)
+  // A font name from data (an OTA bundle's): iOS's own family, its face picked by weight and style.
+  const phoneFont = signal("Avenir Next")
 
   return (
     <Scroll testID="a11y-scroll" style={{ flex: 1, padding: 16, gap: 12 }}>
@@ -62,6 +67,14 @@ export function A11yLabScreen() {
           style={{ padding: 12, borderRadius: 8, backgroundColor: "#E0E7FF" }}
         >
           <Text fontSize={14} color={c.ink}>Tap to count</Text>
+        </Pressable>
+        <Pressable
+          testID="a11y-maybe"
+          accessibilityLabel={named() ? "Named button" : undefined}
+          onPress={() => named.set(!named())}
+          style={{ padding: 12, borderRadius: 8, backgroundColor: "#E0E7FF" }}
+        >
+          <Text fontSize={14} color={c.ink}>Own text (tap: label on / off)</Text>
         </Pressable>
       </A11yCase>
 
@@ -107,25 +120,36 @@ export function A11yLabScreen() {
         <Box testID="a11y-header-box" accessibilityRole="header" accessibilityLabel="Wallet">
           <Text fontSize={14} color={c.ink}>Wallet balance ₹1,250</Text>
         </Box>
+        <Box testID="a11y-role-only" accessibilityRole="header">
+          <Text fontSize={14} color={c.ink}>Balance</Text>
+          <Text fontSize={14} color={c.ink}>₹980</Text>
+        </Box>
       </A11yCase>
 
-      <A11yCase title="6. A row with a Switch inside" expect="The row's text and the Switch are separate elements: the Switch reads its label and on / off.">
+      <A11yCase title="6. A row with a Switch inside" expect={'The row is its own button, read first: "Notifications, button" (a double tap sends onPress); its text is not read again. The Switch is separate: its label and on / off. The labelled box reads "Card settings", then its Switch.'}>
         <Pressable testID="a11y-row" onPress={() => say("row pressed")} style={{ padding: 12, borderRadius: 8, backgroundColor: "#FFFFFF" }}>
           <Row alignItems="center" justifyContent="space-between">
             <Text fontSize={14} color={c.ink}>Notifications</Text>
             <Switch testID="a11y-switch" accessibilityLabel="Notifications" accessibilityHint="Turns offer alerts on or off" value={on()} onValueChange={(v) => on.set(v)} />
           </Row>
         </Pressable>
+        <Box testID="a11y-box-ctl" accessibilityLabel="Card settings" style={{ padding: 12, borderRadius: 8, backgroundColor: "#FFFFFF" }}>
+          <Row alignItems="center" justifyContent="space-between">
+            <Text fontSize={14} color={c.ink}>Card</Text>
+            <Switch testID="a11y-box-switch" accessibilityLabel="Card on" value={rowOn()} onValueChange={(v) => rowOn.set(v)} />
+          </Row>
+        </Box>
         <Row alignItems="center" gap={8}>
           <Checkbox testID="a11y-check" accessibilityLabel="Save this card" value={checked()} onValueChange={(v) => checked.set(v)} />
           <Text fontSize={14} color={c.ink}>Save this card</Text>
         </Row>
       </A11yCase>
 
-      <A11yCase title="7. Pictures" expect='The first image reads "Store front, image"; the second (no label) is skipped; the chart reads "Sales, going up, image".'>
+      <A11yCase title="7. Pictures" expect='The first image reads "Store front, image"; the second (no label, a testID only) is skipped; the icon reads "Next" (not an image); the chart reads "Sales, going up, image".'>
         <Row gap={8} alignItems="center">
           <Image testID="a11y-img-label" src="asset:images/offer-placeholder.png" accessibilityLabel="Store front" style={{ width: 48, height: 48 }} />
-          <Image src="asset:images/offer-placeholder.png" style={{ width: 48, height: 48 }} />
+          <Image testID="a11y-img-deco" src="asset:images/offer-placeholder.png" style={{ width: 48, height: 48 }} />
+          <Icon testID="a11y-icon" accessibilityLabel="Next" icon={chevronRight} color={c.ink} style={{ width: 20, height: 20 }} />
           <Canvas
             testID="a11y-chart"
             accessibilityLabel="Sales, going up"
@@ -145,7 +169,7 @@ export function A11yLabScreen() {
         </Box>
       </A11yCase>
 
-      <A11yCase title="9. Fields" expect='The field reads "Mobile number" with its hint; the code reads "One-time code, 0 of 4 digits".'>
+      <A11yCase title="9. Fields" expect='The field reads "Mobile number" with its hint; the code reads "One-time code, 0 of 4 digits". The last two fields (no height set) grow and shrink with the text size, at once; the code digits grow inside their fixed 44 by 60 boxes, as on Android.'>
         <TextField
           testID="a11y-phone"
           accessibilityLabel="Mobile number"
@@ -157,12 +181,43 @@ export function A11yLabScreen() {
           style={{ height: 44, paddingHorizontal: 12, borderWidth: 1, borderColor: c.border, borderRadius: 8 }}
         />
         <OtpInput testID="a11y-otp" accessibilityLabel="One-time code" numberOfDigits={4} autoFocus={false} />
+        <TextField
+          testID="a11y-name"
+          accessibilityLabel="Name, no height set"
+          placeholder="Name (grows with the text size)"
+          style={{ paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: c.border, borderRadius: 8 }}
+        />
+        <TextField
+          testID="a11y-note"
+          accessibilityLabel="Note, multiline"
+          multiline
+          placeholder="A note (multiline)"
+          style={{ paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: c.border, borderRadius: 8 }}
+        />
       </A11yCase>
 
       <A11yCase title="10. pointerEvents none over a field" expect="Tapping the field does nothing (no keyboard); the box over it takes no taps either.">
         <Box pointerEvents="none" style={{ opacity: 0.5 }}>
           <TextField testID="a11y-field-off" placeholder="Can't focus" style={{ height: 44, paddingHorizontal: 12, borderWidth: 1, borderColor: c.border, borderRadius: 8 }} />
         </Box>
+      </A11yCase>
+
+      <A11yCase title="11. Tappable Text roles and the phone's fonts" expect={'"Privacy policy, link" (no button); "Skip" reads with no role. The Avenir Next lines draw regular, bold and italic faces.'}>
+        <Text testID="a11y-text-link" accessibilityRole="link" fontSize={14} color={c.primary} onPress={() => say("text link pressed")}>
+          Privacy policy
+        </Text>
+        <Text testID="a11y-text-none" accessibilityRole="none" fontSize={14} color={c.ink} onPress={() => say("text none pressed")}>
+          Skip
+        </Text>
+        <Text fontSize={16} color={c.ink}>
+          <Text style={{ fontFamily: phoneFont() }}>Avenir Next 400</Text>
+        </Text>
+        <Text fontSize={16} color={c.ink}>
+          <Text style={{ fontFamily: phoneFont(), fontWeight: 700 }}>Avenir Next 700</Text>
+        </Text>
+        <Text fontSize={16} color={c.ink}>
+          <Text style={{ fontFamily: phoneFont(), fontStyle: "italic" }}>Avenir Next italic</Text>
+        </Text>
       </A11yCase>
     </Scroll>
   )
