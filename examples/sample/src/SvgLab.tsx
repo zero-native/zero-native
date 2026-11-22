@@ -36,6 +36,12 @@ import TapHeart from "./svg/r13/tap-heart.svg"
 import CssBars from "./svg/r13/css-bars.svg"
 import TwoShadows from "./svg/r13/two-shadows.svg"
 import ShadowSkew from "./svg/r13/shadow-skew.svg"
+import FilterBlur from "./svg/r13/filter-blur.svg"
+import FilterMatrix from "./svg/r13/filter-matrix.svg"
+import InnerShadow from "./svg/r13/inner-shadow.svg"
+import FilterBlend from "./svg/r13/filter-blend.svg"
+import Gooey1 from "./svg/loaders/gooey-balls-1.svg"
+import Gooey2 from "./svg/loaders/gooey-balls-2.svg"
 
 const like = "#E11D48"
 const RING_COLORS = ["#3D26ED", "#15803D", "#E11D48", "#F59E0B"]
@@ -411,6 +417,34 @@ export function SvgLabScreen() {
               <IconTile label="Skewed"><ShadowSkew size={40} /></IconTile>
               <Column style={{ width: 120, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
                 <ShadowSkew size={96} />
+              </Column>
+            </Row>
+          </Section>
+
+          <Section title="Filters" note="A blur alone (round, and across only), greyscale, an inner shadow, a tint and a glow; gooey loaders whose balls melt together">
+            <Row style={{ justifyContent: "space-between" }}>
+              <IconTile label="Blur"><FilterBlur size={40} /></IconTile>
+              <IconTile label="Grey"><FilterMatrix size={40} /></IconTile>
+              <IconTile label="Inner"><InnerShadow size={40} /></IconTile>
+              <IconTile label="Blend"><FilterBlend size={40} /></IconTile>
+            </Row>
+            <Row style={{ justifyContent: "space-between" }}>
+              <IconTile label="Gooey"><Gooey1 size={40} color={c.primary} /></IconTile>
+              <IconTile label="Gooey 2"><Gooey2 size={40} color={like} /></IconTile>
+              <Column style={{ width: 120, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
+                <Gooey1 size={96} color={c.primary} />
+              </Column>
+            </Row>
+            {/* The same tiles large, to compare edges with an Android 12+ screenshot. */}
+            <Row style={{ justifyContent: "space-between" }}>
+              <Column style={{ width: 104, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
+                <FilterBlur size={96} />
+              </Column>
+              <Column style={{ width: 104, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
+                <InnerShadow size={96} />
+              </Column>
+              <Column style={{ width: 104, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
+                <FilterBlend size={96} />
               </Column>
             </Row>
           </Section>

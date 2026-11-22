@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: feGaussianBlur on its own. Top: a dot blurred all round (soft on every side). Bottom: a bar
+       blurred across only (stdDeviation="3 0"): its left and right ends are soft, its top and bottom edges sharp. -->
+  <defs>
+    <filter id="soft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+    <filter id="across" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3 0"/>
+    </filter>
+  </defs>
+  <circle cx="24" cy="15" r="8" fill="#3D26ED" filter="url(#soft)"/>
+  <rect x="12" y="31" width="24" height="9" rx="1" fill="#E11D48" filter="url(#across)"/>
+</svg>
