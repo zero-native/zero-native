@@ -43,6 +43,15 @@ func znLayoutSpec(_ t: ZnTiming) -> ZnTimingSpec {
         : ZnTimingSpec(ms: -1, easing: 0, bezier: nil, ratio: Float(t.damping), stiffness: Float(t.stiffness), clamp: false)
 }
 
+/// ZN_LAYOUT_MOTION_LOG=1 (debug): each size measure and placement is printed.
+private let znLayoutLog: Bool = {
+    #if DEBUG
+    return ProcessInfo.processInfo.environment["ZN_LAYOUT_MOTION_LOG"] == "1"
+    #else
+    return false
+    #endif
+}()
+
 /// A frame counter the modifier's body reads: a frame of the animation makes SwiftUI lay the node out again.
 @Observable
 final class ZnLayoutTick {
@@ -95,6 +104,9 @@ private final class ZnGrowBox {
     let step: ZnLayoutStepper
     /// The content's own size from the latest measure (the parent's last measure before it places the node).
     var natural: CGSize?
+    /// The size it last answered: a proposal of that size is the node being placed (the chain above passes its
+    /// placed size down), not a measure, so it must not change [natural] (a Text asked at its old width says so).
+    var answered: CGSize?
     var settled = false
 
     init(_ spec: ZnTimingSpec) { step = ZnLayoutStepper(spec) }
@@ -112,24 +124,36 @@ private struct ZnAnimatedSizeLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let child = subviews.first else { return .zero }
+        // Within a point of it (the answer is kept as a Float, and a frame's answer may reach the chain a frame late).
+        if let a = box.answered, let w = proposal.width, let h = proposal.height, abs(w - a.width) <= 1, abs(h - a.height) <= 1 {
+            return a
+        }
         let n = child.sizeThatFits(proposal)
         box.natural = n
+        let r: CGSize
         if !box.settled {
-            // The first size: no animation (as animateContentSize's first measure).
-            box.settled = true
-            box.step.anim.jump(Float(n.width), Float(n.height))
-            return n
+            r = n  // until it is first placed, its own size (a parent may ask with other proposals first)
+        } else if box.step.anim.moving {
+            r = box.shown
+        } else {
+            // At rest: the content's own size, unless it changed; then the old one until it is placed (placeSubviews
+            // starts the animation from there), so no frame shows the new size first.
+            r = znApart(n, box.target) ? box.target : n
         }
-        if box.step.anim.moving { return box.shown }
-        // At rest: the content's own size, unless it changed; then the old one until it is placed (placeSubviews
-        // starts the animation from there), so no frame shows the new size first.
-        return znApart(n, box.target) ? box.target : n
+        box.answered = r
+        if znLayoutLog { print("zn layout-motion size: asked \(proposal.width.map { "\($0)" } ?? "nil") x \(proposal.height.map { "\($0)" } ?? "nil") own \(n) answer \(r)") }
+        return r
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let child = subviews.first else { return }
         let n = box.natural ?? bounds.size
-        if znApart(n, box.target) {
+        if znLayoutLog { print("zn layout-motion size: placed \(bounds.size) own \(n) target \(box.target)") }
+        if !box.settled {
+            // The first size: no animation (as animateContentSize's first measure).
+            box.settled = true
+            box.step.anim.jump(Float(n.width), Float(n.height))
+        } else if znApart(n, box.target) {
             if MainActor.assumeIsolated({ znAnimationsOff() }) {
                 box.step.anim.jump(Float(n.width), Float(n.height))
             } else {
@@ -162,6 +186,9 @@ private struct ZnAnimatedPlace: ViewModifier {
 private final class ZnPlaceBox {
     let step: ZnLayoutStepper
     var origin: CGPoint?
+    /// When it was first placed. A new node is placed more than once as it comes in (SwiftUI may place it at its
+    /// container's corner first): for a moment it takes each new place at once, as Android's first onPlaced.
+    var firstPlaced: CFTimeInterval = 0
 
     init(_ spec: ZnTimingSpec) { step = ZnLayoutStepper(spec) }
 }
@@ -177,9 +204,11 @@ private struct ZnAnimatedPlaceLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let child = subviews.first else { return }
         let o = bounds.origin
+        let now = CACurrentMediaTime()
+        if box.origin == nil { box.firstPlaced = now }
         if let was = box.origin, abs(was.x - o.x) > 0.5 || abs(was.y - o.y) > 0.5 {
             let a = box.step.anim
-            if MainActor.assumeIsolated({ znAnimationsOff() }) {
+            if now - box.firstPlaced < 0.1 || MainActor.assumeIsolated({ znAnimationsOff() }) {
                 box.step.anim.jump(0, 0)
             } else {
                 // Drawn where it was seen (its old place plus the offset it had), going to its new place.
