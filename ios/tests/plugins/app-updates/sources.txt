@@ -1,0 +1,2 @@
+# Foundation only.
+plugins/app-updates/ios/AppUpdatesRules.swift
