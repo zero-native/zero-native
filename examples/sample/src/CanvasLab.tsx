@@ -1,7 +1,7 @@
 // A dev screen for <Canvas> (registry 23, docs/components.md §14). Each tile says what you should see.
 // Tiles draw their own background (c.white), so they look the same in light and dark mode.
 import { Box, Canvas, Column, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
-import { draw, type CanvasCommand, onCleanup, setInterval, signal, smoothPath, useMotion, usePan } from "@zeronative/core"
+import { draw, type CanvasCommand, clearTimeout, nav, onCleanup, setInterval, setTimeout, signal, smoothPath, useMotion, usePan } from "@zeronative/core"
 import { c } from "./tokens"
 
 // Lab colours (the tokens have no chart colours).
@@ -168,8 +168,19 @@ function PathTrimTile() {
 }
 
 // from: start at this tile (`--params '{"from": 12}'`), to see a tile on a simulator without scrolling.
-export function CanvasLabScreen(props: { from?: number }) {
+// away: after 2 s open the Dev screen over this one, and come back after `away` seconds (`{"away": 4}`): checks that
+// pictures show at once on return while the chart ticked under the other screen, and that a failed one is tried again.
+export function CanvasLabScreen(props: { from?: number; away?: number }) {
   const show = (n: number) => (props.from ?? 1) <= n
+  if (props.away) {
+    const away = props.away
+    const t = setTimeout(() => {
+      console.info("canvas-lab: away")
+      nav.push("dev")
+      setTimeout(() => { console.info("canvas-lab: back"); nav.back() }, away * 1000)
+    }, 2000)
+    onCleanup(() => clearTimeout(t))
+  }
   const candles = signal<Candle[]>(generateInitialCandles(200))
   const progress = signal(65)
   const autoPlay = signal(true)
