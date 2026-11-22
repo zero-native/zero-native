@@ -67,22 +67,42 @@ add_executable(ZnSample MACOSX_BUNDLE
   ${asset_files}
 )
 target_include_directories(ZnSample PRIVATE ZnRuntime/Host)
-target_link_libraries(ZnSample PRIVATE zn_core "-framework QuartzCore")
+# CoreMotion: useTilt's gravity (Swift links it by itself too; said here so every build of the runtime says the same).
+target_link_libraries(ZnSample PRIVATE zn_core "-framework QuartzCore" "-framework CoreMotion")
 
 # Firebase (bun run tools/fetch-firebase-apple.ts; ios/third_party/firebase, not in git): Google's static XCFrameworks,
-# linked when they are there. The plugins' Swift checks `canImport(FirebaseCore)`, so the app builds without them.
-# Firebase starts only when the app has its GoogleService-Info.plist (Sample/, not in git), like Android's
-# google-services.json. Left out: the IDFA part of Analytics (GoogleAppMeasurementIdentitySupport, it would need the
-# tracking prompt) and on-device ad conversion.
+# linked when they are there. The plugins' Swift checks `canImport(FirebaseCore)` (and its own SDK's module), so the app
+# builds without them. Firebase starts only when the app has its GoogleService-Info.plist (Sample/, not in git), like
+# Android's google-services.json. Left out: the IDFA part of Analytics (GoogleAppMeasurementIdentitySupport, it would
+# need the tracking prompt) and on-device ad conversion.
 set(firebase_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/firebase")
 file(GLOB firebase_marker "${firebase_dir}/.version-*")
 if(firebase_marker)
-  # Messaging: its own framework only (its GoogleDataTransport is Crashlytics' copy)
-  file(GLOB firebase_xcfs "${firebase_dir}/FirebaseAnalytics/*.xcframework" "${firebase_dir}/FirebaseCrashlytics/*.xcframework"
-    "${firebase_dir}/FirebaseMessaging/FirebaseMessaging.xcframework")
-  list(FILTER firebase_xcfs EXCLUDE REGEX "GoogleAppMeasurementIdentitySupport|GoogleAdsOnDeviceConversion")
+  # Each part's folder holds every framework it needs, so some are in several (GoogleDataTransport, FirebaseSessions,
+  # FirebaseRemoteConfigInterop, ...): each name is linked once, from the first folder that has it.
+  set(firebase_parts FirebaseAnalytics FirebaseCrashlytics FirebaseMessaging FirebaseRemoteConfig FirebasePerformance)
+  set(firebase_xcfs "")
+  set(firebase_names "")
+  foreach(part IN LISTS firebase_parts)
+    file(GLOB part_xcfs "${firebase_dir}/${part}/*.xcframework")
+    if(NOT part_xcfs)
+      # A download from before this part was added: the plugins that need it build as "unavailable".
+      message(WARNING "Firebase: no ${part} in ${firebase_dir} (an older download). Run: bun run tools/fetch-firebase-apple.ts")
+      continue()
+    endif()
+    list(SORT part_xcfs)
+    foreach(xcf IN LISTS part_xcfs)
+      get_filename_component(name "${xcf}" NAME)
+      if(name MATCHES "GoogleAppMeasurementIdentitySupport|GoogleAdsOnDeviceConversion" OR name IN_LIST firebase_names)
+        continue()
+      endif()
+      list(APPEND firebase_names "${name}")
+      list(APPEND firebase_xcfs "${xcf}")
+    endforeach()
+  endforeach()
   target_link_libraries(ZnSample PRIVATE ${firebase_xcfs} "-ObjC" "-lc++" "-lsqlite3" "-lz")
-  message(STATUS "Firebase: linked from ${firebase_dir}")
+  list(LENGTH firebase_xcfs firebase_count)
+  message(STATUS "Firebase: linked from ${firebase_dir} (${firebase_count} frameworks)")
 else()
   message(STATUS "Firebase: not downloaded (bun run tools/fetch-firebase-apple.ts); the Firebase plugins answer \"unavailable\"")
 endif()

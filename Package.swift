@@ -89,7 +89,9 @@ var targets: [Target] = [
     exclude: ["Host", "ZnRuntime_Privacy.bundle/Info.plist"],
     sources: ["Swift"],
     resources: [.copy("ZnRuntime_Privacy.bundle/PrivacyInfo.xcprivacy")],
-    swiftSettings: swift5),
+    swiftSettings: swift5,
+    // useTilt's gravity. Swift links it by itself when imported; said here as the CMake builds say it.
+    linkerSettings: [.linkedFramework("CoreMotion")]),
 ]
 for p in plugins {
   let deps: [Target.Dependency] = ["ZnRuntime"] + p.uses.map { .target(name: "ZnPlugin\($0)") }

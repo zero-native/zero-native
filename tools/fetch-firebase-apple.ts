@@ -1,6 +1,7 @@
 // Downloads the Firebase Apple SDK (Google's prebuilt XCFrameworks) into ios/third_party/firebase/ (not in git). Only
-// the parts zero-native's Firebase plugins use are kept: Analytics (with FirebaseCore and Installations), Crashlytics and
-// Messaging. ios/CMakeLists.txt links them when this folder is there; without it, the app builds with Firebase off.
+// the parts zero-native's Firebase plugins use are kept: Analytics (with FirebaseCore and Installations), Crashlytics,
+// Messaging, Remote Config and Performance. ios/CMakeLists.txt links them when this folder is there; without it, the app
+// builds with Firebase off.
 //
 //   bun run tools/fetch-firebase-apple.ts
 //
@@ -13,11 +14,13 @@ import { join } from "node:path"
 const VERSION = "13.1.1"
 const SHA256 = "eab04111b6b6ebd2bbd9264b452b2eec5be13703207f32f7cf10d9040e246b70"
 /** The zip's top folders this repo uses. Each holds its own XCFrameworks and every dependency it needs. */
-const PARTS = ["FirebaseAnalytics", "FirebaseCrashlytics", "FirebaseMessaging"]
+const PARTS = ["FirebaseAnalytics", "FirebaseCrashlytics", "FirebaseMessaging", "FirebaseRemoteConfig", "FirebasePerformance"]
 
 const root = join(import.meta.dir, "..")
 const outDir = join(root, "ios/third_party/firebase")
-const marker = join(outDir, `.version-${VERSION}`)
+// The marker names the version and the parts, so a checkout made with fewer parts downloads again (it would build
+// without the new ones).
+const marker = join(outDir, `.version-${VERSION}-${partsTag(PARTS)}`)
 if (existsSync(marker)) {
   console.log(`firebase ${VERSION} already in ${outDir}`)
   process.exit(0)
@@ -44,3 +47,8 @@ for (const name of readdirSync(join(outDir, "Firebase"))) renameSync(join(outDir
 rmSync(join(outDir, "Firebase"), { recursive: true, force: true })
 await Bun.write(marker, "")
 console.log(`firebase ${VERSION} → ${outDir}: ${readdirSync(outDir).filter((n) => !n.startsWith(".")).join(", ")}`)
+
+/** A short tag for a list of parts (any order): the first 8 hex digits of their sorted names' SHA-256. */
+function partsTag(parts: string[]): string {
+  return new Bun.CryptoHasher("sha256").update([...parts].sort().join(",")).digest("hex").slice(0, 8)
+}
