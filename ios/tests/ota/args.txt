@@ -1,3 +1,5 @@
-# The CLI's signature fixture (tools/ota/make-signature-fixture.ts), then the folder setup.ts makes.
+# The CLI's signature fixture (tools/ota/make-signature-fixture.ts), then the folder setup.ts makes, then Android's
+# patch fixtures (tools/ota/make-patch-fixture.ts).
 android/runtime/src/test/resources/ota-signature-fixture.json
 $WORK/setup
+android/runtime/src/test/resources/ota-patch

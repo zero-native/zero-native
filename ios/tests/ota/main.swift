@@ -1,7 +1,11 @@
 // iOS OTA rules on the Mac (tools/ios-unit-test.ts builds this with ZnOtaRules.swift and ZnOtaInstall.swift, from
 // sources.txt). The same cases as Android's JVM tests, so the two copies of the rules can't drift apart silently:
-// ZnOtaHealthTest, ZnBundlesTest, ZnOtaStoreTest, ZnOtaSignatureTest, ZnOtaInstallTest.
-// Arguments (args.txt): <ota-signature-fixture.json> <folder from setup.ts>
+// ZnOtaHealthTest, ZnBundlesTest, ZnOtaStoreTest, ZnOtaSignatureTest, ZnOtaInstallTest (ZnBsPatch.swift too).
+// The patch cases are ZnBsPatchTest, ZnOtaInstallPatchTest and ZnOtaPatchContractTest: Android's fixtures (made by
+// tools/ota/bsdiff.ts), more shapes and a patch zip made by the server's own code (setup.ts).
+// Arguments (args.txt): <ota-signature-fixture.json> <folder from setup.ts> <android ota-patch fixtures>
+import Compression
+import CryptoKit
 import Foundation
 
 var failures = 0
@@ -558,6 +562,489 @@ test("aCrashSurvives25FailedChecks") {
     eq(kept.last, "failed24")
     eq(ZnOtaOutcomeRules.trim(["!crash", "f1", "f2", "f3", "!rollback", "f4"], 4) { $0.hasPrefix("!") }, ["!crash", "f3", "!rollback", "f4"])
     eq(ZnOtaOutcomeRules.trim((0..<25).map { "!s\($0)" }, 20) { $0.hasPrefix("!") }, (5..<25).map { "!s\($0)" })
+}
+
+// MARK: Patches (ZnBsPatchTest.kt): what tools/ota/bsdiff.ts makes, and every cut or changed patch refused
+
+let pfx = URL(fileURLWithPath: args[3])
+func res(_ name: String) -> Data { try! Data(contentsOf: pfx.appendingPathComponent(name)) }
+let patchFixture = try! ZnJSON.object(res("fixture.json"))
+let oldHbc = res("old.hbc")
+let newHbc = res("new.hbc")
+let hbcPatch = res("main.patch")
+func sha(_ d: Data) -> String { ZnOtaFiles.hex(SHA256.hash(data: d)) }
+func fixtureOf(_ key: String) -> [String: Any] { patchFixture[key] as! [String: Any] }
+
+/// A patch made by hand: header, then the (add, copy, seek) triples, then diff and extra bytes.
+func patchOf(_ newSize: Int64, _ controls: [[Int64]], diff: [UInt8] = [], extra: [UInt8] = [], count: Int64? = nil) -> Data {
+    var d = Data("ZNBSDIF1".utf8)
+    func put(_ v: Int64) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+    put(newSize)
+    put(count ?? Int64(controls.count))
+    for c in controls { c.forEach(put) }
+    d.append(contentsOf: diff)
+    d.append(contentsOf: extra)
+    return d
+}
+func long(_ d: Data, _ at: Int) -> Int64 {
+    var v: UInt64 = 0
+    for i in (0..<8).reversed() { v = v << 8 | UInt64(d[d.startIndex + at + i]) }
+    return Int64(bitPattern: v)
+}
+func patchRefused(_ old: Data, _ p: Data, _ size: Int64, _ part: String, line: Int = #line) {
+    do {
+        _ = try ZnBsPatch.apply(old: old, patch: p, expectSize: size)
+        fail("should refuse (\(part))", line: line)
+    } catch let e as ZnOtaError {
+        eq(e.code, "patch", line: line)
+        yes(e.message.contains(part), "\"\(e.message)\" should mention \"\(part)\"", line: line)
+    } catch {
+        fail("threw \(error)", line: line)
+    }
+}
+/// Where a patch's data ends: header, controls, then the sum of add and the sum of copy.
+func dataEnd(_ p: Data) -> Int {
+    let controls = Int(long(p, 16))
+    var end = 24 + controls * 24
+    for c in 0..<controls { end += Int(long(p, 24 + c * 24) + long(p, 32 + c * 24)) }
+    return end
+}
+/// A small fixed-seed random number maker (xorshift64), so a failure happens again on the next run.
+struct Rand {
+    var s: UInt64
+    mutating func next(_ n: Int) -> Int {
+        s ^= s << 13
+        s ^= s >> 7
+        s ^= s << 17
+        return Int(s % UInt64(n))
+    }
+}
+
+test("theFixtureIsWhatTheScriptSays") {
+    eq(sha(oldHbc), fixtureOf("old")["sha256"] as! String)
+    eq(sha(newHbc), fixtureOf("new")["sha256"] as! String)
+    eq(hbcPatch.count, fixtureOf("patch")["size"] as! Int)
+    yes((fixtureOf("patch")["controls"] as! Int) >= 3, "the fixture should have seeks")
+}
+test("aPatchMadeByTheTsCodeMakesTheNewFile") {
+    eq(try ZnBsPatch.apply(old: oldHbc, patch: hbcPatch, expectSize: Int64(newHbc.count)), newHbc)
+}
+test("aPatchFromAnEmptyFileMakesTheNewFile") {
+    let text = fixtureOf("fromEmpty")["text"] as! String
+    let made = try ZnBsPatch.apply(old: Data(), patch: res("from-empty.patch"), expectSize: Int64(Data(text.utf8).count))
+    eq(String(decoding: made, as: UTF8.self), text)
+}
+test("handMadePatchesWork") {
+    // add 3 (old + diff), copy 2 from extra, seek back 3 so the next add reads old from the start again.
+    let p = patchOf(7, [[3, 2, -3], [2, 0, 0]], diff: [1, 1, 1, 0, 0], extra: Array("xy".utf8))
+    eq(String(decoding: try ZnBsPatch.apply(old: Data("abcd".utf8), patch: p, expectSize: 7), as: UTF8.self), "bcdxyab")
+    // Reads outside the old file count as 0: a seek far past the end gives the diff bytes themselves.
+    let q = patchOf(2, [[0, 0, 1000], [2, 0, 0]], diff: Array("hi".utf8))
+    eq(String(decoding: try ZnBsPatch.apply(old: Data("abcd".utf8), patch: q, expectSize: 2), as: UTF8.self), "hi")
+    eq(try ZnBsPatch.apply(old: Data(), patch: patchOf(0, []), expectSize: 0).count, 0)
+    // A read that starts before the old file and runs into it (a negative old position).
+    let r = patchOf(4, [[0, 0, -2], [4, 0, 0]], diff: [65, 65, 1, 1])
+    eq(String(decoding: try ZnBsPatch.apply(old: Data("abcd".utf8), patch: r, expectSize: 4), as: UTF8.self), "AAbc")
+}
+test("aWrongMagicOrSizeIsRefused") {
+    var bad = hbcPatch
+    bad[bad.startIndex] = UInt8(ascii: "X")
+    patchRefused(oldHbc, bad, Int64(newHbc.count), "not a ZNBSDIFF1 patch")
+    patchRefused(oldHbc, hbcPatch.prefix(10), Int64(newHbc.count), "not a ZNBSDIFF1 patch")
+    patchRefused(oldHbc, hbcPatch, Int64(newHbc.count + 1), "expected \(newHbc.count + 1)")
+    patchRefused(oldHbc, patchOf(-1, []), -1, "makes -1 bytes")
+    patchRefused(oldHbc, patchOf(Int64.max, []), Int64.max, "too big")
+}
+test("aCutPatchIsAlwaysRefused") {
+    // Every length shorter than its data, around the header, the controls, and the diff and extra parts.
+    let end = dataEnd(hbcPatch)
+    yes(end <= hbcPatch.count)
+    var rnd = Rand(s: 42)
+    let cuts = Array(0..<600) + Array((end - 600)..<end) + (0..<200).map { _ in rnd.next(end) }
+    for n in cuts {
+        do {
+            _ = try ZnBsPatch.apply(old: oldHbc, patch: hbcPatch.prefix(n), expectSize: Int64(newHbc.count))
+            fail("a patch cut to \(n) bytes should be refused")
+        } catch is ZnOtaError {
+        } catch {
+            fail("threw \(error)")
+        }
+    }
+}
+test("bytesAfterTheExtraPartAreNotRead") {
+    eq(hbcPatch.count, dataEnd(hbcPatch))
+    eq(try ZnBsPatch.apply(old: oldHbc, patch: hbcPatch + Data(count: 8), expectSize: Int64(newHbc.count)), newHbc)
+    eq(try ZnBsPatch.apply(old: oldHbc, patch: hbcPatch + Data(repeating: 7, count: 5), expectSize: Int64(newHbc.count)), newHbc)
+}
+test("badControlsAreRefused") {
+    let s: Int64 = 4
+    patchRefused(oldHbc, patchOf(s, [], count: 1_000_000), s, "bad control count")
+    patchRefused(oldHbc, patchOf(s, [], count: -1), s, "bad control count")
+    patchRefused(oldHbc, patchOf(s, [], count: Int64.max), s, "bad control count")
+    patchRefused(oldHbc, patchOf(s, [[-1, 5, 0]], extra: [UInt8](repeating: 0, count: 5)), s, "bad diff length")
+    patchRefused(oldHbc, patchOf(s, [[Int64.max, 0, 0]]), s, "bad diff length")
+    patchRefused(oldHbc, patchOf(s, [[2, 0, 0], [Int64.max - 1, 0, 0]], diff: [0, 0]), s, "bad diff length")
+    patchRefused(oldHbc, patchOf(s, [[0, -1, 0]]), s, "past the new size")
+    patchRefused(oldHbc, patchOf(s, [[0, Int64.max, 0]]), s, "past the new size")
+    patchRefused(oldHbc, patchOf(s, [[5, 0, 0]], diff: [UInt8](repeating: 0, count: 5)), s, "past the new size")
+    patchRefused(oldHbc, patchOf(s, [[2, 3, 0]], diff: [0, 0], extra: [0, 0, 0]), s, "past the new size")
+    patchRefused(oldHbc, patchOf(s, [[0, 4, 0]], extra: [0, 0, 0]), s, "past the patch")
+    patchRefused(oldHbc, patchOf(s, [[0, 2, 0]]), s, "past the patch")
+    // Ends short of newSize: 2 of 4 bytes.
+    patchRefused(oldHbc, patchOf(s, [[0, 2, 0]], extra: [0, 0]), s, "made 2 of 4 bytes")
+}
+test("aSeekThatOverflowsIsRefused") {
+    patchRefused(oldHbc, patchOf(2, [[0, 0, Int64.max], [0, 0, 1], [2, 0, 0]], diff: [0, 0]), 2, "out of range")
+    patchRefused(oldHbc, patchOf(2, [[0, 0, Int64.min], [0, 0, -1], [2, 0, 0]], diff: [0, 0]), 2, "out of range")
+    // At the edge but not over: still works (old reads count as 0 there).
+    let p = patchOf(2, [[0, 0, Int64.max - 2], [2, 0, 0]], diff: Array("ok".utf8))
+    eq(String(decoding: try ZnBsPatch.apply(old: oldHbc, patch: p, expectSize: 2), as: UTF8.self), "ok")
+    // add itself moves the old position: MAX - 1 + add 2 overflows.
+    patchRefused(oldHbc, patchOf(2, [[0, 0, Int64.max - 1], [2, 0, 0]], diff: [0, 0]), 2, "out of range")
+    // Far negative and then an add: reads count as 0, no overflow.
+    let q = patchOf(2, [[0, 0, Int64.min + 5], [2, 0, 0]], diff: Array("no".utf8))
+    eq(String(decoding: try ZnBsPatch.apply(old: oldHbc, patch: q, expectSize: 2), as: UTF8.self), "no")
+}
+test("aChangedPatchFailsOrMakesAnotherFileNeverACrash") {
+    // Random changes in the header and controls: a ZnOtaError, or a file of the right size (that the SHA check then
+    // refuses). Never a trap (Swift stops the program on an overflow or an index out of range).
+    var rnd = Rand(s: 7)
+    for _ in 0..<3_000 {
+        var p = hbcPatch
+        for _ in 0..<(1 + rnd.next(4)) { p[p.startIndex + rnd.next(24 + 26 * 24)] = UInt8(rnd.next(256)) }
+        do {
+            eq(try ZnBsPatch.apply(old: oldHbc, patch: p, expectSize: Int64(newHbc.count)).count, newHbc.count)
+        } catch is ZnOtaError {
+        }
+    }
+    // Numbers at the edges in every control field.
+    let edges: [Int64] = [0, 1, -1, Int64.max, Int64.min, Int64.max - 1, Int64.min + 1, 1 << 32, -(1 << 32), 12_100, 12_748]
+    for c in 0..<26 {
+        for f in 0..<3 {
+            for v in edges {
+                var p = hbcPatch
+                withUnsafeBytes(of: v.littleEndian) { p.replaceSubrange((24 + c * 24 + f * 8)..<(32 + c * 24 + f * 8), with: $0) }
+                _ = try? ZnBsPatch.apply(old: oldHbc, patch: p, expectSize: Int64(newHbc.count))
+            }
+        }
+    }
+    // One changed diff byte: the patch still applies, but the file differs, so the SHA check catches it.
+    var p = hbcPatch
+    p[24 + 26 * 24 + 5] &+= 1
+    no(sha(try ZnBsPatch.apply(old: oldHbc, patch: p, expectSize: Int64(newHbc.count))) == sha(newHbc))
+}
+
+// The shapes setup.ts made with bsdiff.ts makePatch (same, from and to empty, all new, edits, a 1.6 MB file).
+let patchCases = fx.appendingPathComponent("patches/cases")
+test("everyPatchTheServerMakesGivesTheSameBytes") {
+    let list = try JSONSerialization.jsonObject(with: Data(contentsOf: fx.appendingPathComponent("patches/cases.json"))) as! [[String: Any]]
+    yes(list.count >= 30, "\(list.count) cases")
+    for c in list {
+        let name = c["name"] as! String
+        let dir = patchCases.appendingPathComponent(name)
+        let old = try Data(contentsOf: dir.appendingPathComponent("old"))
+        let patch = try Data(contentsOf: dir.appendingPathComponent("patch"))
+        let t0 = Date()
+        let made = try ZnBsPatch.apply(old: old, patch: patch, expectSize: Int64(c["newSize"] as! Int))
+        if name == "big" { print("  bsdiff: 1.6 MB file made in \(Int(Date().timeIntervalSince(t0) * 1000)) ms") }
+        eq(sha(made), c["newSha"] as! String, name)
+        eq(made, try Data(contentsOf: dir.appendingPathComponent("new")), name)
+    }
+}
+
+// MARK: Building from a patch zip (ZnOtaInstallPatchTest.kt, ZnOtaPatchContractTest.kt)
+
+/// CRC-32 (zip's), for the test zips.
+let crcTable: [UInt32] = (0..<256).map { n in
+    var c = UInt32(n)
+    for _ in 0..<8 { c = c & 1 != 0 ? 0xEDB8_8320 ^ (c >> 1) : c >> 1 }
+    return c
+}
+func crc32(_ d: Data) -> UInt32 { ~d.reduce(~UInt32(0)) { crcTable[Int(($0 ^ UInt32($1)) & 0xff)] ^ ($0 >> 8) } }
+/// Raw deflate (Compression's ZLIB is RFC 1951), or nil when it doesn't get smaller.
+func deflated(_ d: Data) -> Data? {
+    if d.isEmpty { return nil }
+    let cap = d.count + 4096
+    var dst = [UInt8](repeating: 0, count: cap)
+    let n = d.withUnsafeBytes { compression_encode_buffer(&dst, cap, $0.bindMemory(to: UInt8.self).baseAddress!, d.count, nil, COMPRESSION_ZLIB) }
+    return n == 0 || n >= d.count ? nil : Data(dst[0..<n])
+}
+/// A zip as the server's fflate or java.util.zip writes one: each entry deflated, or stored when that is smaller.
+func writeZip(_ entries: [(String, Data)], to url: URL) {
+    var out = Data()
+    var dir = Data()
+    func u16(_ v: Int, _ d: inout Data) { d.append(UInt8(v & 0xff)); d.append(UInt8(v >> 8 & 0xff)) }
+    func u32(_ v: UInt32, _ d: inout Data) { for i in 0..<4 { d.append(UInt8(v >> UInt32(8 * i) & 0xff)) } }
+    for (name, data) in entries {
+        let z = deflated(data)
+        let method = z == nil ? 0 : 8
+        let body = z ?? data
+        let n = Data(name.utf8)
+        let crc = crc32(data)
+        let offset = out.count
+        u32(0x0403_4b50, &out); u16(20, &out); u16(0, &out); u16(method, &out); u16(0, &out); u16(0x21, &out)
+        u32(crc, &out); u32(UInt32(body.count), &out); u32(UInt32(data.count), &out); u16(n.count, &out); u16(0, &out)
+        out.append(n)
+        out.append(body)
+        u32(0x0201_4b50, &dir); u16(20, &dir); u16(20, &dir); u16(0, &dir); u16(method, &dir); u16(0, &dir); u16(0x21, &dir)
+        u32(crc, &dir); u32(UInt32(body.count), &dir); u32(UInt32(data.count), &dir); u16(n.count, &dir)
+        u16(0, &dir); u16(0, &dir); u16(0, &dir); u16(0, &dir); u32(0, &dir); u32(UInt32(offset), &dir)
+        dir.append(n)
+    }
+    let dirOffset = out.count
+    out.append(dir)
+    u32(0x0605_4b50, &out); u16(0, &out); u16(0, &out); u16(entries.count, &out); u16(entries.count, &out)
+    u32(UInt32(dir.count), &out); u32(UInt32(dirOffset), &out); u16(0, &out)
+    try! out.write(to: url)
+}
+
+let proot = root.appendingPathComponent("patch")
+var serialNo = 0
+func nextId() -> Int {
+    serialNo += 1
+    return serialNo
+}
+let preq = try! ZnBundleRules.parseRequires(["registry": 8, "bytecode": 99, "hostApi": 2, "modules": ["Fetch": 1]])
+func listedOf(_ files: [String: Data]) -> [String: (size: Int64, sha: String)] { files.mapValues { (Int64($0.count), sha($0)) } }
+/// The base bundle sample_11 on the phone.
+let baseFiles = ["main.hbc": oldHbc, "main.zn.ui": Data("ui".utf8), "images/a.png": Data("png".utf8)]
+let baseSha = ZnOtaFiles.bundleSha256(listedOf(baseFiles))
+/// The new bundle sample_12: main.hbc patched, main.zn.ui the same, images/b.png new.
+let newFiles = ["main.hbc": newHbc, "main.zn.ui": Data("ui".utf8), "images/b.png": Data("new png".utf8)]
+let newSha = ZnOtaFiles.bundleSha256(listedOf(newFiles))
+let pmanifest = ZnOtaSigned.Manifest(app: "sample", id: "sample_12", serial: 12, bundleSha256: newSha, requires: preq,
+                                     zipSha256: String(repeating: "z", count: 64), zipSize: 1, url: "/x", signature: "sig")
+
+func pinfo(_ files: [String: Data] = newFiles, sha: String = newSha) -> [String: Any] {
+    ["format": 1, "app": "sample", "serial": 12, "id": "sample_12", "sha256": sha,
+     "requires": ["registry": 8, "bytecode": 99, "hostApi": 2, "modules": ["Fetch": 1]],
+     "files": listedOf(files).mapValues { ["size": $0.size, "sha256": $0.sha] as [String: Any] }, "builtAt": "t"]
+}
+func patchJson() -> [String: Any] {
+    ["format": "znbsdiff1",
+     "from": ["id": "sample_11", "sha256": baseSha],
+     "to": ["id": "sample_12", "sha256": newSha],
+     "files": ["main.hbc": ["patch": "p/main.hbc", "base": "main.hbc"],
+               "main.zn.ui": ["copy": "main.zn.ui"],
+               "images/b.png": ["zip": "f/images/b.png"]]]
+}
+func json(_ o: Any) -> Data { try! JSONSerialization.data(withJSONObject: o) }
+/// Changes one file's way in zn-patch.json.
+func setFile(_ p: inout [String: Any], _ name: String, _ spec: [String: Any]?) {
+    var files = p["files"] as! [String: Any]
+    files[name] = spec
+    p["files"] = files
+}
+/// A patch zip as the server makes it; [patch], [info] and [edit] change what goes in.
+func patchZip(patch: (inout [String: Any]) -> Void = { _ in }, info: [String: Any] = pinfo(),
+              edit: (inout [(String, Data)]) -> Void = { _ in }) -> URL {
+    var p = patchJson()
+    patch(&p)
+    var entries: [(String, Data)] = [
+        (ZnOtaInstall.patchFile, json(p)), (ZnBundleRules.infoFile, json(info)),
+        ("p/main.hbc", hbcPatch), ("f/images/b.png", Data("new png".utf8)),
+    ]
+    edit(&entries)
+    try! FileManager.default.createDirectory(at: proot, withIntermediateDirectories: true)
+    let url = proot.appendingPathComponent("p-\(nextId()).zip")
+    writeZip(entries, to: url)
+    return url
+}
+func setEntry(_ e: inout [(String, Data)], _ name: String, _ data: Data?) {
+    e.removeAll { $0.0 == name }
+    if let data { e.append((name, data)) }
+}
+/// The base bundle's files in a folder, opened by name as ZnOta's patchBase does.
+func baseOf(_ files: [String: Data]) -> (String) -> URL? {
+    let dir = proot.appendingPathComponent("base-\(nextId())")
+    for (name, data) in files {
+        let f = dir.appendingPathComponent(name)
+        try! FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try! data.write(to: f)
+    }
+    return { files[$0] != nil ? dir.appendingPathComponent($0) : nil }
+}
+@discardableResult
+func build(_ zip: URL, base: [String: Data] = baseFiles, fromId: String = "sample_11", fromSha: String = baseSha) throws -> URL {
+    let dest = proot.appendingPathComponent("dest-\(nextId())")
+    try ZnOtaInstall.buildFromPatch(patchZip: zip, manifest: pmanifest, fromId: fromId, fromSha256: fromSha, base: baseOf(base), dest: dest)
+    return dest
+}
+func buildRefused(_ zip: URL, _ part: String, base: [String: Data] = baseFiles, fromId: String = "sample_11",
+                  fromSha: String = baseSha, line: Int = #line) {
+    do {
+        try build(zip, base: base, fromId: fromId, fromSha: fromSha)
+        fail("should refuse (\(part))", line: line)
+    } catch let e as ZnOtaError {
+        eq(e.code, "patch", line: line)
+        yes(e.message.contains(part), "\"\(e.message)\" should mention \"\(part)\"", line: line)
+    } catch {
+        fail("threw \(error)", line: line)
+    }
+}
+let pcaps = ZnCapabilities(registry: 8, bytecode: 99, hostApi: 2, hostApiOldest: 1, modules: ["Fetch": 1])
+let pbuiltIn = ZnBundleRules.Info(app: "sample", serial: 0, id: "sample_0", sha256: "x", files: ["main.hbc": 1], requires: preq)
+
+test("aGoodPatchMakesEveryFile") {
+    let dest = try build(patchZip())
+    eq(try Data(contentsOf: dest.appendingPathComponent("main.hbc")), newHbc)
+    eq(ZnOtaFiles.readText(dest.appendingPathComponent("main.zn.ui")), "ui")
+    eq(ZnOtaFiles.readText(dest.appendingPathComponent("images/b.png")), "new png")
+    no(FileManager.default.fileExists(atPath: dest.appendingPathComponent("images/a.png").path), "the old image isn't in the new bundle")
+    let info = try ZnBundleRules.parseInfo(ZnOtaFiles.readText(dest.appendingPathComponent(ZnBundleRules.infoFile))!)
+    eq(info.id, "sample_12")
+    eq(info.sha256, newSha)
+    // The folder passes the same check a downloaded bundle gets at start.
+    guard case .ok = ZnBundleRules.checkBundle("sample_12", builtIn: pbuiltIn, caps: pcaps, folder: { _ in dest }) else {
+        return fail("the built bundle should pass its checks")
+    }
+}
+test("aWrongBaseIsRefused") {
+    // A copied file that differs, a patched file whose old bytes differ, a base file that is missing.
+    buildRefused(patchZip(), "main.zn.ui doesn't match its SHA-256", base: baseFiles.merging(["main.zn.ui": Data("UI".utf8)]) { $1 })
+    var changed = oldHbc
+    changed[0] &+= 1
+    buildRefused(patchZip(), "main.hbc doesn't match its SHA-256", base: baseFiles.merging(["main.hbc": changed]) { $1 })
+    buildRefused(patchZip(), "has no main.hbc", base: baseFiles.filter { $0.key != "main.hbc" })
+    // Another id with the same SHA is the same files (an Android and an iOS store build of the same JS): it builds.
+    try build(patchZip(), fromId: "sample_10")
+    buildRefused(patchZip(), "another SHA-256 than the base sample_11", fromSha: String(repeating: "0", count: 64))
+}
+test("aPatchForAnotherBundleIsRefused") {
+    buildRefused(patchZip(patch: { $0["to"] = ["id": "sample_13", "sha256": newSha] }), "the manifest says sample_12")
+    buildRefused(patchZip(patch: { $0["to"] = ["id": "sample_12", "sha256": String(repeating: "0", count: 64)] }), "the manifest says sample_12")
+    buildRefused(patchZip(patch: { $0["format"] = "bsdiff40" }), "format \"bsdiff40\"")
+    var other = pinfo()
+    other["id"] = "sample_11"
+    other["serial"] = 11
+    buildRefused(patchZip(info: other), "the manifest says sample/sample_12")
+    var needs = pinfo()
+    needs["requires"] = ["registry": 9, "bytecode": 99, "hostApi": 2, "modules": ["Fetch": 1]]
+    buildRefused(patchZip(info: needs), "needs differ")
+}
+test("aWrongShaIsRefused") {
+    // The listed (signed) SHA of a file isn't what the zip holds: same size, other bytes.
+    buildRefused(patchZip(edit: { setEntry(&$0, "f/images/b.png", Data("other p".utf8)) }), "images/b.png doesn't match its SHA-256")
+    // A file list that isn't the signed one: refused before any file is made (iOS; Android finds it at the end).
+    var bad = pinfo()
+    var files = bad["files"] as! [String: Any]
+    files["images/b.png"] = ["size": 7, "sha256": sha(Data("other p".utf8))]
+    bad["files"] = files
+    buildRefused(patchZip(info: bad), "don't match the signed bundle SHA-256")
+    // Every file checks out, but zn-bundle.json's bundle SHA claims another bundle.
+    buildRefused(patchZip(info: pinfo(sha: String(repeating: "0", count: 64))), "don't match the signed bundle SHA-256")
+    // The files of another bundle with their own true SHAs: the bundle SHA no longer matches the manifest.
+    let otherFiles = newFiles.merging(["images/b.png": Data("other png".utf8)]) { $1 }
+    buildRefused(patchZip(info: pinfo(otherFiles, sha: newSha), edit: { setEntry(&$0, "f/images/b.png", Data("other png".utf8)) }),
+                 "don't match the signed bundle SHA-256")
+    // A listed size far bigger than any file (a hostile list): refused before anything is read or made.
+    files["main.hbc"] = ["size": 1 << 40, "sha256": sha(newHbc)]
+    bad["files"] = files
+    buildRefused(patchZip(info: bad), "don't match the signed bundle SHA-256")
+}
+test("znPatchJsonMustCoverExactlyTheListedFiles") {
+    buildRefused(patchZip(patch: { setFile(&$0, "extra.js", ["zip": "f/images/b.png"]) }), "has extra.js")
+    buildRefused(patchZip(patch: { setFile(&$0, "main.zn.ui", nil) }), "doesn't say how to make main.zn.ui")
+    buildRefused(patchZip(patch: { setFile(&$0, "main.zn.ui", ["copy": "main.zn.ui", "zip": "f/images/b.png"]) }), "needs one of copy, patch or zip")
+    buildRefused(patchZip(patch: { setFile(&$0, "main.zn.ui", [:]) }), "needs one of copy, patch or zip")
+    buildRefused(patchZip(patch: { setFile(&$0, "main.zn.ui", ["copy": 5]) }), "bad path")
+    buildRefused(patchZip(patch: { p in
+        var files = p["files"] as! [String: Any]
+        files["main.zn.ui"] = "copy"
+        p["files"] = files
+    }), "main.zn.ui isn't an object")
+    buildRefused(patchZip(edit: { setEntry(&$0, "f/images/b.png", nil) }), "the patch zip has no f/images/b.png")
+    buildRefused(patchZip(edit: { setEntry(&$0, ZnOtaInstall.patchFile, nil) }), "has no zn-patch.json")
+    buildRefused(patchZip(edit: { setEntry(&$0, ZnBundleRules.infoFile, nil) }), "has no zn-bundle.json")
+    buildRefused(patchZip(edit: { setEntry(&$0, ZnOtaInstall.patchFile, Data("{not json".utf8)) }), "bad zn-patch.json")
+    buildRefused(patchZip(patch: { $0["files"] = nil }), "has no files")
+}
+test("pathTricksAreRefused") {
+    for t in ["../main.hbc", "/etc/passwd", "a//b", "..\\x", ""] {
+        buildRefused(patchZip(patch: { setFile(&$0, "main.zn.ui", ["copy": t]) }), "bad path")
+        buildRefused(patchZip(patch: { setFile(&$0, "images/b.png", ["zip": t]) }), "bad path")
+        buildRefused(patchZip(patch: { setFile(&$0, "main.hbc", ["patch": "p/main.hbc", "base": t]) }), "bad path")
+        buildRefused(patchZip(patch: { setFile(&$0, "main.hbc", ["patch": t, "base": "main.hbc"]) }), "bad path")
+    }
+    // A new file outside the bundle folder: zn-bundle.json's own rules refuse it before anything is written.
+    var evil = pinfo()
+    var files = evil["files"] as! [String: Any]
+    files["../evil.so"] = ["size": 1, "sha256": "x"]
+    evil["files"] = files
+    buildRefused(patchZip(info: evil), "bad file path")
+    no(FileManager.default.fileExists(atPath: proot.appendingPathComponent("evil.so").path))
+}
+test("aPatchEntryOverItsLimitIsStopped") {
+    // main.zn.ui is 2 bytes: its patch may unpack to at most 2 × 2 + 1 MiB. Zeros deflate to almost nothing.
+    let toPatch: (inout [String: Any]) -> Void = { setFile(&$0, "main.zn.ui", ["patch": "p/main.zn.ui", "base": "main.zn.ui"]) }
+    let zip = patchZip(patch: toPatch, edit: { setEntry(&$0, "p/main.zn.ui", Data(count: 2 * 2 + (1 << 20) + 1)) })
+    yes(ZnBundleRules.fileSize(zip) < 20_000, "the zip stays small")
+    buildRefused(zip, "bigger than its limit of \(2 * 2 + (1 << 20)) bytes")
+    // Just at the limit it is read, and refused by the patch checks instead.
+    buildRefused(patchZip(patch: toPatch, edit: { setEntry(&$0, "p/main.zn.ui", Data(count: 2 * 2 + (1 << 20))) }), "not a ZNBSDIFF1 patch")
+}
+test("aWholeFileBiggerThanListedIsStoppedEarly") {
+    buildRefused(patchZip(edit: { setEntry(&$0, "f/images/b.png", Data(count: 100_000)) }), "bigger than its listed 7 bytes")
+}
+test("aCutOrChangedPatchEntryIsRefused") {
+    buildRefused(patchZip(edit: { setEntry(&$0, "p/main.hbc", hbcPatch.prefix(hbcPatch.count - 20)) }), "the patch for main.hbc")
+    // A changed diff byte still applies, but makes a file whose SHA is wrong.
+    var changed = hbcPatch
+    changed[24 + 26 * 24 + 5] &+= 1
+    buildRefused(patchZip(edit: { setEntry(&$0, "p/main.hbc", changed) }), "main.hbc doesn't match its SHA-256")
+}
+test("aBadZipOrAnExistingFolderIsRefused") {
+    let notZip = proot.appendingPathComponent("not.zip")
+    try Data("not a zip".utf8).write(to: notZip)
+    buildRefused(notZip, "can't be read")
+    let dest = proot.appendingPathComponent("exists")
+    try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+    do {
+        try ZnOtaInstall.buildFromPatch(patchZip: patchZip(), manifest: pmanifest, fromId: "sample_11", fromSha256: baseSha,
+                                        base: baseOf(baseFiles), dest: dest)
+        fail("should refuse an existing folder")
+    } catch let e as ZnOtaError {
+        eq(e.code, "install")
+    }
+}
+// ZnOtaPatchContractTest: the patch zip server/src/patches.ts buildPatchZip made (setup.ts) builds the new bundle.
+test("thePatchZipTheServerMakesBuildsTheNewBundle") {
+    let c = fx.appendingPathComponent("patches/contract")
+    let m = try ZnOtaSigned.parseManifest(try ZnJSON.object(Data(contentsOf: c.appendingPathComponent("manifest.json"))))
+    let baseInfo = try ZnBundleRules.parseInfo(ZnOtaFiles.readText(c.appendingPathComponent("base/zn-bundle.json"))!)
+    let ways = try ZnJSON.object(Data(contentsOf: c.appendingPathComponent("files.json")))
+    let used = ways.values.compactMap { way in (way as? [String: Any])?.keys.first { key in key != "base" } }
+    eq(Set(used), ["copy", "patch", "zip"], "every way is used")
+    let dest = proot.appendingPathComponent("contract")
+    try ZnOtaInstall.buildFromPatch(patchZip: c.appendingPathComponent("patch.zip"), manifest: m, fromId: baseInfo.id,
+                                    fromSha256: baseInfo.sha256,
+                                    base: { baseInfo.files[$0] != nil ? c.appendingPathComponent("base/\($0)") : nil }, dest: dest)
+    let newInfo = try ZnBundleRules.parseInfo(ZnOtaFiles.readText(c.appendingPathComponent("new/zn-bundle.json"))!)
+    for name in Array(newInfo.files.keys) + [ZnBundleRules.infoFile] {
+        eq(try Data(contentsOf: dest.appendingPathComponent(name)), try Data(contentsOf: c.appendingPathComponent("new/\(name)")), name)
+    }
+    let made = try FileManager.default.subpathsOfDirectory(atPath: dest.path).filter { ZnBundleRules.isFile(dest.appendingPathComponent($0)) }
+    eq(Set(made), Set(Array(newInfo.files.keys) + [ZnBundleRules.infoFile]), "only the new bundle's files")
+    let b = ZnBundleRules.Info(app: "sample", serial: 3, id: "sample_3", sha256: "x", files: ["main.hbc": 1], requires: nil)
+    let ccaps = ZnCapabilities(registry: 8, bytecode: 99, hostApi: 2, hostApiOldest: 1, modules: ["Device": 1])
+    guard case .ok = ZnBundleRules.checkBundle("sample_12", builtIn: b, caps: ccaps, folder: { _ in dest }) else {
+        return fail("the built bundle should pass its checks")
+    }
+    // The same patch zip on a base whose main.hbc lost a byte: refused, never a wrong bundle.
+    var cut = try Data(contentsOf: c.appendingPathComponent("base/main.hbc"))
+    cut.removeLast()
+    let badBase = proot.appendingPathComponent("contract-base")
+    try FileManager.default.createDirectory(at: badBase, withIntermediateDirectories: true)
+    try cut.write(to: badBase.appendingPathComponent("main.hbc"))
+    do {
+        try ZnOtaInstall.buildFromPatch(patchZip: c.appendingPathComponent("patch.zip"), manifest: m, fromId: baseInfo.id,
+                                        fromSha256: baseInfo.sha256, base: { name in
+                                            name == "main.hbc" ? badBase.appendingPathComponent(name) : c.appendingPathComponent("base/\(name)")
+                                        }, dest: proot.appendingPathComponent("contract-bad"))
+        fail("a changed base should be refused")
+    } catch let e as ZnOtaError {
+        eq(e.code, "patch")
+    }
 }
 
 try? FileManager.default.removeItem(at: root)
