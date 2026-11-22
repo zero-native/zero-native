@@ -885,15 +885,9 @@ final class ZnTemplate {
     // Props Android draws and iOS doesn't yet (registry 23 and 24: Text and List extras): iOS reads the templates but doesn't draw these. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
     // once per prop, so a screen that looks wrong on iOS points at the reason.
     #if DEBUG
-    private static let slotsNotDrawn: Set<Int> = {
-        typealias P = Registry.Prop
-        return propsNotDrawn
-    }()
-    private static let propsNotDrawn: Set<Int> = {
-        typealias P = Registry.Prop
-        let all: Set<Int> = [P.scrollCommand]
-        return all
-    }()
+    private static let slotsNotDrawn: Set<Int> = propsNotDrawn
+    // Empty since Scroll and List both run scrollCommand (2026-11-22); kept for the next prop iOS lags on.
+    private static let propsNotDrawn: Set<Int> = []
     nonisolated(unsafe) private static var reported: Set<String> = []
 
     private static func reportNotDrawn(_ raw: RawTemplate) {
