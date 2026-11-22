@@ -7,6 +7,7 @@ import { c } from "./tokens"
 const SERVER = "http://localhost:8790" // tools/plugin-phone/webview-server.ts, through adb reverse
 const BLOCKED = "http://127.0.0.1:8790" // the same server, by a name the app doesn't allow
 const BASE = "https://lab.zero-native.test/" // no such site: the inline page only acts as this address
+const BASE_BARE = "https://lab.zero-native.test" // the same with no "/": WebKit reports it with one (reload must still know the page)
 // "*" and "intent" are here on purpose: the plugin must drop them and say so (refused=2).
 const HOSTS = ["lab.zero-native.test", SERVER, "http://localhost:8791", "*"]
 const LEAVE = ["tel", "mailto", "upi", "intent"]
@@ -26,7 +27,9 @@ if (window.ZeroNative) {
 const UPLOAD = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
 <body style="margin:0;font:16px sans-serif;padding:8px">
 <label style="display:inline-block;padding:10px;background:#ddd">Pick files<input id="f" type="file" multiple accept="image/*" style="display:none"></label>
-<button id="p" style="padding:10px;margin-left:8px">Play tone</button><p id="s">-</p><script>
+<button id="p" style="padding:10px;margin-left:8px">Play tone</button>
+<p><button id="sp">showPicker</button> <span id="ho"></span> <span id="hc"></span></p>
+<p><a href="#frag">#frag</a> <button id="ps">pushState</button></p><p id="s">-</p><script>
 function wav() {
   var rate = 8000, n = rate * 2, b = new ArrayBuffer(44 + n * 2), v = new DataView(b)
   function str(o, t) { for (var i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)) }
@@ -42,6 +45,17 @@ a.addEventListener("playing", function () { tell("media playing") })
 a.addEventListener("pause", function () { tell("media paused") })
 document.getElementById("p").onclick = function () { a.play() }
 document.getElementById("f").onchange = function (e) { tell("page saw " + e.target.files.length + " files") }
+// Ways round the upload script: showPicker() with no click on the input, and inputs in open and closed shadow roots.
+document.getElementById("sp").onclick = function () {
+  try { document.getElementById("f").showPicker(); tell("showPicker called") } catch (e) { tell("showPicker threw " + e.name) }
+}
+;["open", "closed"].forEach(function (mode) {
+  var root = document.getElementById(mode === "open" ? "ho" : "hc").attachShadow({ mode: mode })
+  root.innerHTML = '<label style="display:inline-block;padding:6px;background:#cde">' + mode + ' shadow<input type="file" style="display:none"></label>'
+  root.querySelector("input").onchange = function (e) { tell(mode + " shadow saw " + e.target.files.length + " files") }
+})
+document.getElementById("ps").onclick = function () { history.pushState({}, "", "/moved"); tell("pushed " + location.pathname) }
+window.onhashchange = function () { tell("hash " + location.hash) }
 </script></body>`
 
 function WebViewLabButton(props: { label: string; onPress: () => void }) {
@@ -163,6 +177,9 @@ export function WebViewLabScreen() {
             <WebViewLabButton label="Inline upload" onPress={() => inline(BASE, UPLOAD)} />
             <WebViewLabButton label="Upload, no base" onPress={() => inline(undefined, UPLOAD)} />
             <WebViewLabButton label="Share (covers)" onPress={() => void Os.share({ text: "webview lab" }).then((r) => say(`share closed: ${r}`))} />
+          </Row>
+          <Row gap={8}>
+            <WebViewLabButton label="Upload, bare base" onPress={() => inline(BASE_BARE, UPLOAD)} />
           </Row>
           <Row gap={8}>
             <WebViewLabButton
