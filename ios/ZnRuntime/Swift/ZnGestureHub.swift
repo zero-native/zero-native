@@ -31,6 +31,7 @@ extension ZnGestures {
     /// gesture-zoom.
     @MainActor static func install(_ m: ZnMotionModule) {
         haptic = { k in MainActor.assumeIsolated { ZnHaptics.play(k) } }
+        if ZnGestureHub.log { trace = { print("zn t=\(ZnDebug.ms()) gesture event: \($0)") } }
         m.addFunction("gesture") { c in
             try make(c.args)
             c.resolve()
@@ -146,6 +147,7 @@ final class ZnGestureProbeView: UIView {
             Self.live.add(self)
             host = znNearestController(self)?.view
             if let host { ZnGestureHub.install(on: host) }
+            if ZnGestureHub.log { print("zn t=\(ZnDebug.ms()) gesture: node of gesture \(gesture?.id ?? -1) on screen (hub on \(host.map { "\(type(of: $0))" } ?? "none"))") }
         } else {
             Self.live.remove(self)
             if let g = gesture { ZnGestureHub.hub(of: self)?.probeLost(self, g) }
@@ -233,6 +235,7 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     // MARK: Touches (from the feed)
 
     fileprivate func began(_ touches: Set<UITouch>) {
+        if Self.log { print("zn t=\(ZnDebug.ms()) gesture: \(touches.count) finger(s) down, \(ZnGestureProbeView.live.count) node(s) with gestures") }
         for t in touches {
             let hits = ZnGestureProbeView.live.allObjects.filter { p in
                 p.host === view && p.window === t.window && p.takes && p.contains(t)

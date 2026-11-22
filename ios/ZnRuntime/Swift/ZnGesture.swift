@@ -24,6 +24,8 @@ enum ZnGestures {
     nonisolated(unsafe) static var haptic: (String?) -> Void = { _ in }
     /// The time now in ms, on the touches' time base (UITouch.timestamp: seconds since boot).
     nonisolated(unsafe) static var now: () -> Int64 = { Int64(ProcessInfo.processInfo.systemUptime * 1000) }
+    /// Each event a gesture would send, as a line (ZN_GESTURE_LOG=1 in a Debug build).
+    nonisolated(unsafe) static var trace: ((String) -> Void)?
 
     static let manualNone = 0, manualActivate = 1, manualFail = 2
 
@@ -295,6 +297,7 @@ final class ZnGesture {
     }
 
     func send(_ type: String, _ data: [String: Any] = [:]) {
+        ZnGestures.trace?("\(id) \(type)\(events.contains(type) ? "" : " (not asked for)") \(data)")
         guard events.contains(type) else { return }
         var d = data
         d["g"] = id
