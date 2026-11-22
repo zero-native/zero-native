@@ -105,6 +105,9 @@ export function SecureLabScreen() {
       <CoreButton label="Push secure native screen" onPress={() => nav.push("secureNative", { title: "secure" })} />
       {/* A see-through screen over this one: it stays drawn (and secure), and the app switcher cover keeps its colour. */}
       <CoreButton label="Open see-through screen" onPress={() => nav.push("seeThroughLab", { depth: "1" })} />
+      {/* Over a see-through screen: it closes while the pop still slides (run with --slow 0.1): it must wait until the
+          slide ends, then close (the log line "see-through: ... closes" after "uikit: didShow"). */}
+      <CoreButton label="Back twice" onPress={() => { nav.back(); setTimeout(() => nav.back(), 150) }} />
       <CoreButton label="Back" onPress={() => nav.back()} />
       <Sheet visible={sheet()} onDismiss={() => sheet.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
         <Text fontSize={16}>secure sheet</Text>
@@ -151,7 +154,7 @@ export function SeeThroughLabScreen(props: { depth?: string }) {
               <Switch value={false} disabled onValueChange={() => console.info("see-through-lab disabled switch changed")} />
             </Row>
           </Pressable>
-          <Row gap={10}>
+          <Row style={{ flexWrap: "wrap", gap: 10 }}>
             {/* JS runs past its time limit: this screen shows the error screen, whose Back must work here. */}
             <CoreButton label="Hang" onPress={() => { while (Date.now() > 0) { /* forever */ } }} />
             <CoreButton label="Push opaque" onPress={() => nav.push("secureLab")} />
