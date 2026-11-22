@@ -1,6 +1,7 @@
 // The sample's test plugin on iOS, as plugins/device-test's DeviceTestPlugin.kt: a native screen and a native view for
 // the core check (CoreLabScreen.tsx), and the Device module's parts iOS can do: info, slowEcho, fail, and the two
-// launches of the Launch lab (LaunchScreen.tsx). The rest (Kotlin storage, tasks, motion sources) answers "unavailable".
+// launches of the Launch lab (LaunchScreen.tsx), storage shared with JS (StorageScreen.tsx) and runTask (CoreLabScreen.tsx).
+// The rest (crash, makeFile, motion sources) answers "unavailable".
 import UIKit
 #if canImport(ZnRuntime)
 import ZnRuntime
@@ -24,6 +25,41 @@ private final class DeviceModule: ZnModuleBase, @unchecked Sendable {
             DispatchQueue.global().asyncAfter(deadline: .now() + ms / 1000) { if !call.isCancelled { call.resolve(text) } }
         }
         function("fail") { call in call.reject("no_luck", "this call always fails") }
+        // Storage shared with JS (DeviceModule.kt storageEcho): reads what JS wrote, writes values JS then checks.
+        function("storageEcho") { call in
+            let store = ZnStorage.store()
+            let fromJs = store.string("dev.fromJs")
+            store.set("dev.fromKotlin", "\(fromJs ?? "null") ← Kotlin")  // the key and text the lab checks on both
+            store.set("dev.kotlinNumber", 42.5)
+            store.set("dev.kotlinFlag", true)
+            // A typed getter of another type answers nil on iOS (Android's throws): Android's message, made here.
+            let typeError: String
+            if store.number("dev.fromJs") != nil {
+                typeError = "no error"
+            } else if case .string = store.get("dev.fromJs") {
+                typeError = "ZnStorage: \"dev.fromJs\" in \"\(store.id)\" holds a string, not a number"
+            } else {
+                typeError = "dev.fromJs is missing"
+            }
+            call.resolve(["fromJs": fromJs as Any? ?? NSNull(), "typeError": typeError])
+        }
+        // Like a push handler writing while the app is in use: the module's queue (not JS's thread) writes its own
+        // counter and a key JS writes too, `count` times, while JS does the same (DeviceModule.kt storageHammer).
+        function("storageHammer") { call in
+            let count = (call.args["count"] as? NSNumber)?.intValue ?? 20_000
+            let store = ZnStorage.store()
+            let t0 = CACurrentMediaTime()
+            for i in stride(from: 1, through: count, by: 1) {
+                store.set("dev.hammer.kotlin", i)
+                store.set("dev.hammer.shared", "kotlin \(i):" + String(repeating: "k", count: i % 300) + ":\(i)")
+            }
+            call.resolve(["count": count, "ms": Int((CACurrentMediaTime() - t0) * 1000)])
+        }
+        // v5: runs a background task, as a plugin would (DeviceModule.kt runTask): DONE, FAILED, NO_TASK or TIMED_OUT.
+        function("runTask") { call in
+            let name = try call.string("name"), timeoutMs = (call.args["timeoutMs"] as? NSNumber)?.intValue ?? 5_000
+            ZnTasks.shared.run(name, ["from": "lab"], timeoutMs: timeoutMs) { outcome in call.resolve(Self.kotlinName(outcome)) }
+        }
         // The mock UPI app is an Android test app. On iOS: a web page in Safari stands in for the other app. Come back by
         // switching apps (resultCode 0) or by a link (`xcrun simctl openurl booted "zn://sample/dev/launch?…"`, -1).
         function("openMockUpi", onMain: true) { call in
@@ -41,6 +77,16 @@ private final class DeviceModule: ZnModuleBase, @unchecked Sendable {
                     call.resolve(ok ? ["launched": true] : ["launched": false, "reason": reason ?? "failed"])
                 }
             }
+        }
+    }
+
+    /// Kotlin's ZnBackground.Outcome names, which the lab shows.
+    private static func kotlinName(_ o: ZnTasks.Outcome) -> String {
+        switch o {
+        case .done: "DONE"
+        case .failed: "FAILED"
+        case .noTask: "NO_TASK"
+        case .timedOut: "TIMED_OUT"
         }
     }
 }
