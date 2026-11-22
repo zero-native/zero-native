@@ -297,6 +297,19 @@ final class ZnScrollDriver: NSObject, ObservableObject {
                       viewport: sv.bounds.height, cross: sv.bounds.width)
     }
 
+    /// UIKit's contentOffset along the axis for [offset] in metrics' terms (call metrics() first: it sets restTop).
+    private func raw(_ offset: Double, _ sv: UIScrollView) -> CGPoint {
+        var p = sv.contentOffset
+        if horizontal { p.x = offset - sv.adjustedContentInset.left } else { p.y = offset - restTop }
+        return p
+    }
+
+    /// SwiftUI's scroll targets are UIKit's contentOffset plus the whole adjustedContentInset; metrics' offsets leave
+    /// out what the refresh control adds while refreshing. The difference, along the axis (0 when not refreshing).
+    private func targetShift(_ sv: UIScrollView) -> Double {
+        horizontal ? 0 : sv.adjustedContentInset.top - restTop
+    }
+
     /// The finger's speed along the axis in pt/s, + toward the content's end (Android's fling velocity).
     private func fingerVelocity(_ sv: UIScrollView) -> Double {
         let v = sv.panGestureRecognizer.velocity(in: sv.superview ?? sv)
@@ -313,10 +326,7 @@ final class ZnScrollDriver: NSObject, ObservableObject {
         pending = nil
         guard let target = cmd.scrollTarget(horizontal: horizontal, max: m.max) else { return }
         stopMomentum(send: true)
-        let i = sv.adjustedContentInset
-        var p = sv.contentOffset
-        if horizontal { p.x = target - i.left } else { p.y = target - i.top }
-        sv.setContentOffset(p, animated: cmd.animated)
+        sv.setContentOffset(raw(target, sv), animated: cmd.animated)
     }
 
     private func sized() {
@@ -397,11 +407,7 @@ final class ZnScrollDriver: NSObject, ObservableObject {
         // (Android snaps a let-go with no speed too).
         if snap?.snaps == true, !sv.isDecelerating, let m = metrics() {
             let to = snap!.pick(start: m.offset, projected: m.offset, velocity: 0, viewport: m.viewport, max: m.max)
-            if abs(to - m.offset) > 0.5 {
-                var p = sv.contentOffset
-                if horizontal { p.x = to - sv.adjustedContentInset.left } else { p.y = to - sv.adjustedContentInset.top }
-                sv.setContentOffset(p, animated: true)
-            }
+            if abs(to - m.offset) > 0.5 { sv.setContentOffset(raw(to, sv), animated: true) }
         }
         guard wants?.momentum == true else { released = nil; return }
         // Not coasting at the release, but UIKit started one by now.
@@ -452,22 +458,23 @@ final class ZnScrollDriver: NSObject, ObservableObject {
 
     // MARK: Snapping
 
-    /// From ZnSnapBehavior: SwiftUI's resting point for a released drag ([origin], in the content's coordinates, the
-    /// same as metrics' offsets), moved to Android's snap pick. Only for the user's release: a programmatic scroll or
-    /// a resize keeps its target.
+    /// From ZnSnapBehavior: SwiftUI's resting point for a released drag ([origin], in the content's coordinates:
+    /// metrics' offsets, plus targetShift while refreshing), moved to Android's snap pick. Only for the user's release:
+    /// a programmatic scroll or a resize keeps its target.
     func snapTarget(_ origin: inout CGPoint) {
         guard let snap, snap.snaps, let sv, sv.panGestureRecognizer.state == .ended, let m = metrics() else { return }
-        let projected = horizontal ? origin.x : origin.y
+        let shift = targetShift(sv)
+        let projected = (horizontal ? origin.x : origin.y) - shift
         let to = snap.pick(start: m.offset, projected: projected, velocity: fingerVelocity(sv), viewport: m.viewport,
                            max: m.max)
         #if DEBUG
         if ZnDebug.enabled {
             let raw = horizontal ? sv.contentOffset.x : sv.contentOffset.y
             let inset = horizontal ? sv.adjustedContentInset.left : sv.adjustedContentInset.top
-            print("zn t=\(ZnDebug.ms()) scroll: snap target \(projected) -> \(to), offset \(m.offset) (raw \(raw), inset \(inset))")
+            print("zn t=\(ZnDebug.ms()) scroll: snap target \(projected) -> \(to), offset \(m.offset) (raw \(raw), inset \(inset), shift \(shift))")
         }
         #endif
-        if horizontal { origin.x = to } else { origin.y = to }
+        if horizontal { origin.x = to + shift } else { origin.y = to + shift }
     }
 }
 
