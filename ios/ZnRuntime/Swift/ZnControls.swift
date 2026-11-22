@@ -25,6 +25,7 @@ private struct ZnToggleTap: ViewModifier {
     let on: Bool
     let disabled: Bool
     let trait: AccessibilityTraits
+    @Environment(\.znTouchOff) private var touchOff
 
     func body(content: Content) -> some View {
         content
@@ -34,6 +35,9 @@ private struct ZnToggleTap: ViewModifier {
                 guard !disabled, s.onValueChange != 0 else { return }
                 ctx.send(inst.id, s.onValueChange, .bool(!on))
             }
+            // Its frame, as a field's: a see-through screen takes the tap here (ZnSeeThroughHolder), and a Pressable
+            // around it leaves the tap to it (the innermost one wins, as on Android).
+            .background(ZnFieldBoxMarker(key: "toggle:" + ZnFieldFocus.key(inst, s.index), off: touchOff))
             .accessibilityElement()
             .accessibilityAddTraits(trait)
             .accessibilityValue(on ? "1" : "0")

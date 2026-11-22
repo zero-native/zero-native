@@ -118,4 +118,18 @@ enum ZnRoutes {
         while from > 0 && transparent[from] { from -= 1 }
         return from..<transparent.count
     }
+
+    /// The back stack cut into what ZnNavController draws together (ZnSeeThroughBox): a group starts at the bottom
+    /// entry and at each opaque one, and holds the see-through entries above it. The top group is seeThroughRange's
+    /// when that isn't nil. [transparent] is each entry's route option, bottom first.
+    static func seeThroughGroups(_ transparent: [Bool]) -> [Range<Int>] {
+        var groups: [Range<Int>] = []
+        var start = 0
+        for i in transparent.indices where i > 0 && !transparent[i] {
+            groups.append(start..<i)
+            start = i
+        }
+        if !transparent.isEmpty { groups.append(start..<transparent.count) }
+        return groups
+    }
 }

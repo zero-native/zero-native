@@ -16,10 +16,12 @@ import UIKit
 
 /// One back-stack entry's screen, with its route's safe area: the sides it doesn't keep clear of the system bars are
 /// drawn under them (a full-bleed header pads itself with insets().top), and the screen's root background fills
-/// behind the bars either way (as android/runtime's ZnNavHost does).
+/// behind the bars either way (as android/runtime's ZnNavHost does). A see-through screen (`transparent: true`, in a
+/// ZnSeeThroughBox) has no white of its own: with no root background the screens below show through.
 struct ZnEntryScreen: View {
     let app: ZnApp
     let entry: UInt32
+    var seeThrough = false
 
     var body: some View {
         if let message = app.failedScreens[entry] {
@@ -33,12 +35,14 @@ struct ZnEntryScreen: View {
             // keyboard "resize" (default): SwiftUI lays the screen out above the keyboard (its keyboard safe area),
             // as Android's imePadding; only the part of the keyboard below the bottom safe area is new room taken.
             // "none": the keyboard covers the screen.
+            // The entry: impressions, shared elements and List cells count under it (ZnEnv.swift).
             ZnScreenView(ctx: ctx, root: root)
+                .environment(\.znEntry, entry)
                 .ignoresSafeArea(.container, edges: unsafeEdges(route))
-                .background(ZnBarStrips(entry: entry, base: background ?? .white))
+                .background(ZnBarStrips(entry: entry, base: background ?? (seeThrough ? .clear : .white)))
                 .ignoresSafeArea(.keyboard, edges: route?.resizeForKeyboard == false ? .bottom : [])
         } else {
-            Color.white
+            seeThrough ? Color.clear : Color.white
         }
     }
 
@@ -94,21 +98,33 @@ extension ZnApp {
         case .uiKit: return ZnRootController(app: self)  // the back stack with startApp's layers (ZnLayers.swift)
         case .swiftUI:
             if hasSecureRoute { print("zn secure: ZN_IOS_NAV=swiftui has no secure container: secure routes are not protected") }
+            // NavigationStack takes the screen below out when a push ends: a see-through screen is drawn opaque there.
+            if hasTransparentRoute { print("zn nav: ZN_IOS_NAV=swiftui draws transparent routes opaque (white)") }
             return UIHostingController(rootView: ZnRootView(app: self))
         }
     }
 }
 
+/// The back stack: one ZnSeeThroughBox per opaque entry (ZnSeeThrough.swift), holding that entry's screen and the
+/// see-through screens over it. Without `transparent` routes each box holds one screen.
 @MainActor
 final class ZnNavController: UINavigationController, UINavigationControllerDelegate, UIGestureRecognizerDelegate {
     let app: ZnApp
+    /// Each entry's own controller (a ZnScreenController, or a plugin's native screen).
     private var screens: [UInt32: UIViewController] = [:]
+    /// The boxes, by their first entry.
+    private var boxes: [UInt32: ZnSeeThroughBox] = [:]
+    /// A box UIKit is covering while a push animates: its own change (a see-through screen closed in the same batch)
+    /// waits until the push has ended, so the box slides under as it was.
+    private var pending: [ObjectIdentifier: (ZnSeeThroughBox, [ZnSeeThroughBox.Layer])] = [:]
     private var failureShown = false
     /// Our own back swipe (not UIKit's interactivePopGestureRecognizer: in our screens, where the left edge is mostly
     /// Pressables, it often never began and the drag became a tap, 2026-11-08). It starts within [edge] of the left
     /// edge, moving right, cancels the press under the finger, and drives the pop with the finger (ZnPopAnimator).
     private lazy var backPan = UIPanGestureRecognizer(target: self, action: #selector(backPanned(_:)))
     private var interaction: UIPercentDrivenInteractiveTransition?
+    /// The swipe on a see-through screen moves it alone, inside its box (no UIKit pop).
+    private var dragging: ZnSeeThroughBox?
     private let edge: CGFloat = 30
 
     init(app: ZnApp) {
@@ -153,31 +169,65 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
                                                                                 onRetry: {}, onBack: {}))], animated: false)
             return
         }
-        let vcs = stack.map { entry in
-            screens[entry] ?? (app.route(of: entry)?.native).map { name in
-                let vc = app.nativeScreen(name, entry: entry, params: app.nativeParams[entry] ?? nil)
-                markIfSecure(vc, entry)
-                screens[entry] = vc
-                return vc
-            } ?? {
-                let vc = ZnScreenController(rootView: ZnEntryScreen(app: app, entry: entry))
-                vc.lightStatusBar = app.route(of: entry)?.lightStatusBar ?? false
-                vc.entry = entry
-                vc.view.backgroundColor = .white
-                markIfSecure(vc, entry)
-                screens[entry] = vc
-                return vc
+        let contents = stack.map(screen(for:))
+        let transparent = stack.map { app.route(of: $0)?.transparent == true }
+        let groups = ZnRoutes.seeThroughGroups(transparent)
+        let vcs = groups.map { g in
+            boxes[stack[g.lowerBound]] ?? {
+                let box = ZnSeeThroughBox(key: stack[g.lowerBound])
+                box.prepare = { [weak self] vc in self?.markLoaded(vc) }
+                boxes[box.key] = box
+                return box
             }()
         }
-        if vcs != viewControllers {
-            print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(vcs.count) screens)")
-            setViewControllers(vcs, animated: !viewControllers.isEmpty && !ZnSplash.holding)  // under the splash: no slide
+        let navChanges = vcs != viewControllers
+        let animated = !viewControllers.isEmpty && !ZnSplash.holding  // under the splash: no slide
+        let shownBox = viewControllers.last
+        for (box, g) in zip(vcs, groups) {
+            let layers = g.map { i in
+                box.layers.first { $0.entry == stack[i] && $0.vc === contents[i] }
+                    ?? ZnSeeThroughBox.Layer(entry: stack[i], vc: contents[i], seeThrough: transparent[i] && i > g.lowerBound,
+                                             transition: app.route(of: stack[i])?.transition ?? .push)
+            }
+            if navChanges && animated && box === shownBox && box !== vcs.last {
+                pending[ObjectIdentifier(box)] = (box, layers)  // UIKit covers it now: changed once covered
+            } else {
+                pending[ObjectIdentifier(box)] = nil
+                // A see-through screen opening or closing on the box shown now animates; with a push or pop, at once.
+                box.set(layers, animated: animated && !navChanges && box === vcs.last)
+            }
         }
+        if navChanges {
+            print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(stack.count) screens\(vcs.count == stack.count ? "" : " in \(vcs.count) boxes"))")
+            setViewControllers(vcs, animated: animated)
+        }
+        boxes = boxes.filter { k, _ in vcs.contains { $0.key == k } }
         screens = screens.filter { stack.contains($0.key) }
         unmarked = unmarked.filter { id in screens.values.contains { ObjectIdentifier($0) == id } }
     }
 
-    private func entry(of vc: UIViewController) -> UInt32? { screens.first { $0.value === vc }?.key }
+    /// [entry]'s own controller, made the first time.
+    private func screen(for entry: UInt32) -> UIViewController {
+        if let vc = screens[entry] { return vc }
+        let route = app.route(of: entry)
+        let vc: UIViewController
+        if let name = route?.native {
+            vc = app.nativeScreen(name, entry: entry, params: app.nativeParams[entry] ?? nil)
+        } else {
+            let seeThrough = route?.transparent == true
+            let screen = ZnScreenController(rootView: ZnEntryScreen(app: app, entry: entry, seeThrough: seeThrough))
+            screen.lightStatusBar = route?.lightStatusBar ?? false
+            screen.entry = entry
+            screen.view.backgroundColor = seeThrough ? .clear : .white
+            vc = screen
+        }
+        markIfSecure(vc, entry)
+        screens[entry] = vc
+        return vc
+    }
+
+    /// The entry UIKit's transitions go by: a box's first (opaque) one.
+    private func entry(of vc: UIViewController) -> UInt32? { (vc as? ZnSeeThroughBox)?.key }
 
     /// A `secure: true` screen counts itself drawn while its view is in the window (ZnSecure), native screens included.
     /// A native screen's view not loaded yet gets it when it is about to show (willShow), so its viewDidLoad still runs
@@ -188,6 +238,11 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     private var unmarked: Set<ObjectIdentifier> = []
+
+    /// A box is about to use [vc]'s view (ZnSeeThroughBox.prepare).
+    private func markLoaded(_ vc: UIViewController) {
+        if unmarked.remove(ObjectIdentifier(vc)) != nil { mark(vc.view) }
+    }
 
     private func mark(_ v: UIView) {
         if !v.subviews.contains(where: { $0 is ZnDrawnMarker }) { v.addSubview(ZnDrawnMarker()) }
@@ -208,19 +263,24 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     func navigationController(_ nav: UINavigationController, willShow vc: UIViewController, animated: Bool) {
-        if unmarked.remove(ObjectIdentifier(vc)) != nil { mark(vc.view) }
         setNeedsStatusBarAppearanceUpdate()  // the new top screen's route says light or dark
     }
 
     func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
         print("zn t=\(ZnDebug.ms()) uikit: didShow")
-        let shown = viewControllers.compactMap(entry(of:))
+        // The covered box's own change, now that it is covered.
+        let waiting = pending.values
+        pending = [:]
+        for (box, layers) in waiting where viewControllers.contains(box) { box.set(layers, animated: false) }
+        let shown = viewControllers.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }
         if !shown.isEmpty, shown != app.stack { app.nativeChanged(to: shown) }
     }
 
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        guard g === backPan, viewControllers.count > 1, transitionCoordinator == nil,
-              let top = app.stack.last else { return false }
+        guard g === backPan, transitionCoordinator == nil, dragging == nil, let top = app.stack.last else { return false }
+        // A see-through screen over another in its box moves alone (its box isn't popped).
+        let box = (topViewController as? ZnSeeThroughBox).flatMap { $0.canDragTop && $0.entries.last == top ? $0 : nil }
+        guard viewControllers.count > 1 || box != nil else { return false }
         // The edge swipe pops screens that pushed in from the side; a modal / fade / none screen closes with its
         // own button (as an iOS modal does), not with a sideways swipe.
         guard app.route(of: top)?.transition ?? .push == .push else { return false }
@@ -232,13 +292,15 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             app.systemBack()  // JS decides; the screen moves only if JS pops it
             return false
         }
-        print("zn t=\(ZnDebug.ms()) nav: swipe back, native pop")
+        print("zn t=\(ZnDebug.ms()) nav: swipe back, native pop\(box == nil ? "" : " (see-through)")")
+        dragging = box
         return true
     }
 
     @objc private func backPanned(_ g: UIPanGestureRecognizer) {
         let width = max(view.bounds.width, 1)
         let progress = min(max(g.translation(in: view).x / width, 0), 1)
+        if let box = dragging { return dragSeeThrough(box, g, progress) }
         switch g.state {
         case .began:
             interaction = UIPercentDrivenInteractiveTransition()
@@ -256,6 +318,26 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
                 print("zn t=\(ZnDebug.ms()) nav: swipe back cancelled")
             }
             interaction = nil
+        default:
+            break
+        }
+    }
+
+    /// The back swipe on a see-through screen: it follows the finger over the still screens below; let go past half
+    /// (or flung), it leaves and JS hears FORCED_BACK, as after a pop.
+    private func dragSeeThrough(_ box: ZnSeeThroughBox, _ g: UIPanGestureRecognizer, _ progress: CGFloat) {
+        switch g.state {
+        case .began, .changed:
+            box.drag(progress)
+        case .ended, .cancelled, .failed:
+            dragging = nil
+            let finish = g.state == .ended && (progress > 0.5 || g.velocity(in: view).x > 600)
+            print("zn t=\(ZnDebug.ms()) nav: swipe back \(finish ? "finished" : "cancelled") (see-through)")
+            box.endDrag(finish: finish) { [weak self] in
+                guard let self else { return }
+                let shown = self.viewControllers.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }.dropLast()
+                if !shown.isEmpty { self.app.nativeChanged(to: Array(shown)) }
+            }
         default:
             break
         }

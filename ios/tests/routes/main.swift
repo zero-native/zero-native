@@ -45,7 +45,7 @@ test("sampleOptions") {
     guard let routes = try ZnRoutes.read(Data(contentsOf: URL(fileURLWithPath: args[1]))) else { return fail("no routes") }
     yes(routes.count > 10, "the sample has its routes")
     eq(routes.filter(\.secure).map(\.name), ["secureLab", "secureNative"], "secure routes")
-    eq(routes.filter(\.transparent).map(\.name), ["photoViewer"], "transparent routes")
+    eq(routes.filter(\.transparent).map(\.name), ["photoViewer", "seeThroughLab", "seeThroughSlide"], "transparent routes")
     // The other options of the transparent one still read.
     guard let viewer = routes.first(where: { $0.name == "photoViewer" }) else { return fail("no photoViewer") }
     eq(viewer.transition, .none, "photoViewer transition")
@@ -74,6 +74,21 @@ test("seeThroughRange") {
     eq(ZnRoutes.seeThroughRange([false, true, false]), nil, "opaque over a see-through")
     eq(ZnRoutes.seeThroughRange([true]), nil, "alone")
     eq(ZnRoutes.seeThroughRange([]), nil, "empty")
+}
+
+test("seeThroughGroups") {
+    eq(ZnRoutes.seeThroughGroups([]), [], "empty")
+    eq(ZnRoutes.seeThroughGroups([false]), [0..<1], "one screen")
+    eq(ZnRoutes.seeThroughGroups([false, false, false]), [0..<1, 1..<2, 2..<3], "opaque screens: one each")
+    eq(ZnRoutes.seeThroughGroups([false, false, true]), [0..<1, 1..<3], "a see-through one joins the screen below")
+    eq(ZnRoutes.seeThroughGroups([false, true, true]), [0..<3], "two see-through ones")
+    eq(ZnRoutes.seeThroughGroups([false, true, false, true]), [0..<2, 2..<4], "a push over a see-through one starts a group")
+    eq(ZnRoutes.seeThroughGroups([true, false]), [0..<1, 1..<2], "see-through at the bottom, covered")
+    eq(ZnRoutes.seeThroughGroups([true, true]), [0..<2], "see-through at the bottom too")
+    // The top group is what ZnSeeThroughStrategy draws together, whenever it draws more than one.
+    for t in [[false, true], [false, false, true], [true, true, true], [false, true, false, true, true]] {
+        eq(ZnRoutes.seeThroughGroups(t).last, ZnRoutes.seeThroughRange(t), "top group \(t)")
+    }
 }
 
 // MARK: Deep links (ZnRoutesTest.kt)

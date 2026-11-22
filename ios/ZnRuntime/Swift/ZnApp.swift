@@ -99,12 +99,24 @@ public final class ZnApp {
 
     /// The bundle has a `secure: true` route: the window root then holds its content in ZnSecure's container.
     var hasSecureRoute: Bool { routes.contains(where: \.secure) }
+    /// The bundle has a `transparent: true` route (ZnSeeThrough.swift).
+    var hasTransparentRoute: Bool { routes.contains(where: \.transparent) }
 
     /// The top screen's root background (slot or template), for ZnSecure's app switcher cover; nil when it has none.
+    /// Over a see-through screen (`transparent`) with none, or a see-through colour, the screen below's.
     var topBackground: UIColor? {
-        guard let entry = stack.last, let root = store.find(entry), let node = ctx?.templates[safe: root.templateId]?.nodes.first,
-              let color = node.backgroundSlot >= 0 ? znColor(root.slot(node.backgroundSlot).value) : node.background else { return nil }
-        return UIColor(color)
+        for entry in stack.reversed() {
+            let color = store.find(entry).flatMap { root in
+                ctx?.templates[safe: root.templateId]?.nodes.first.flatMap { node in
+                    node.backgroundSlot >= 0 ? znColor(root.slot(node.backgroundSlot).value) : node.background
+                }
+            }.map(UIColor.init)
+            var alpha: CGFloat = 1
+            if let color { color.getRed(nil, green: nil, blue: nil, alpha: &alpha) }
+            if route(of: entry)?.transparent == true, color == nil || alpha < 1 { continue }
+            return color
+        }
+        return nil
     }
 
     // MARK: Restore after the system ends the app (ZnNav.kt saveState / restart)
