@@ -1,6 +1,6 @@
 // A dev screen for the core parts plugins stand on: native screens and views, zn://file, background tasks, secure screens,
 // dark mode. The phone test reads these lines, and the log lines "core-lab ...", so keep their wording.
-import { Box, Column, Image, NativeView, Pressable, Scroll, Sheet, Text, TextField } from "@zeronative/ui"
+import { Box, Column, Image, NativeView, Pressable, Row, Scroll, Sheet, Switch, Text, TextField } from "@zeronative/ui"
 import { colorScheme, nav, onLowMemory, Os, scheme, signal, toast } from "@zeronative/core"
 import { Device } from "@zeronative/device-test"
 import { c } from "./tokens"
@@ -42,6 +42,11 @@ export function CoreLabScreen() {
     oneShotHidden.set(true)
     void asked.then(() => console.info("core-lab one-shot call answered"))
   }
+  // The see-through lab draws over this screen: the tick must keep going under it, and a tap where it draws nothing
+  // must reach "Tap under" here.
+  const tick = signal(0)
+  const tapsUnder = signal(0)
+  setInterval(() => tick.set(tick() + 1), 500)
 
   return (
     <Scroll style={{ flex: 1, backgroundColor: scheme("#FFFFFF", "#202020") }}>
@@ -52,6 +57,14 @@ export function CoreLabScreen() {
         <Text fontSize={13} color={scheme("#111111", "#EEEEEE")}>
           {`scheme: ${colorScheme()}`}
         </Text>
+        <Row gap={10} alignItems="center">
+          <CoreButton label="Tap under" onPress={() => { tapsUnder.set(tapsUnder() + 1); console.info(`core-lab tap under ${tapsUnder()}`) }} />
+          <Text fontSize={13} color={scheme("#111111", "#EEEEEE")}>
+            {`tick: ${tick()} taps: ${tapsUnder()}`}
+          </Text>
+        </Row>
+        <CoreButton label="Open see-through screen" onPress={() => nav.push("seeThroughLab", { depth: "1" })} />
+        <CoreButton label="Open sliding see-through" onPress={() => nav.push("seeThroughSlide", { depth: "1" })} />
         <CoreButton label="Open native screen" onPress={openScreen} />
         <CoreButton label="Push native screen" onPress={() => nav.push("fakeScreen", { title: "Kill" })} />
         <NativeView name="device.fake-view" props={{ label: label() }} onEvent={(e) => say(`view event: ${e.name} ${e.data.label}`)} style={{ height: 60 }} />
@@ -95,6 +108,47 @@ export function SecureLabScreen() {
         <Text fontSize={16}>secure sheet</Text>
         <CoreButton label="Close sheet" onPress={() => { console.info("secure-lab sheet closed"); sheet.set(false) }} />
       </Sheet>
+    </Column>
+  )
+}
+
+// Registry 24 (route option transparent: true): the screen below stays drawn and keeps updating; where this screen draws
+// nothing (the top half), taps reach it; a screen pushed over it slides over both, and Back brings both back. Routes
+// seeThroughLab (transition "none") and seeThroughSlide ("push": it slides in alone, and the edge swipe moves it alone).
+// The log lines "see-through-lab ...".
+export function SeeThroughLabScreen(props: { depth?: string }) {
+  const depth = Number(props.depth ?? "1")
+  const taps = signal(0)
+  const on = signal(false)
+  const note = signal("")
+  console.info(`see-through-lab open ${depth}`)
+  return (
+    <Column style={{ flex: 1 }}>
+      {/* Nothing drawn: the screen below shows and takes the taps. */}
+      <Box style={{ height: "45%" }} />
+      <Column enter="fade" justifyContent="flex-end" style={{ flex: 1, padding: 16, backgroundColor: "rgba(0,0,0,0.45)" }}>
+        <Column gap={10} style={{ padding: 16, borderRadius: 16, backgroundColor: "#FFFFFF" }}>
+          <Text fontSize={16} fontWeight={600} color="#111111">
+            {`see-through screen ${depth}`}
+          </Text>
+          <Row gap={10} alignItems="center">
+            <CoreButton label="Tap here" onPress={() => { taps.set(taps() + 1); console.info(`see-through-lab tap ${depth}: ${taps()}`) }} />
+            <Text fontSize={13} color="#111111">{`taps: ${taps()}`}</Text>
+            <Switch value={on()} onValueChange={(v) => { on.set(v); console.info(`see-through-lab switch ${v}`) }} />
+          </Row>
+          <TextField
+            value={note()}
+            onChangeText={note.set}
+            placeholder="a note"
+            style={{ paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: "#999999", borderRadius: 6 }}
+          />
+          <Row gap={10}>
+            <CoreButton label="Push opaque" onPress={() => nav.push("secureLab")} />
+            <CoreButton label="Another" onPress={() => nav.push("seeThroughLab", { depth: String(depth + 1) })} />
+            <CoreButton label="Close" onPress={() => nav.back()} />
+          </Row>
+        </Column>
+      </Column>
     </Column>
   )
 }

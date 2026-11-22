@@ -17,7 +17,7 @@ import { PressScreen } from "./PressScreen"
 import { ComponentsScreen } from "./ComponentsScreen"
 import { CrashLabScreen, CrashScreen } from "./CrashLabScreen"
 import { UpdatesScreen } from "./UpdatesScreen"
-import { CoreLabScreen, SecureLabScreen } from "./CoreLabScreen"
+import { CoreLabScreen, SecureLabScreen, SeeThroughLabScreen } from "./CoreLabScreen"
 import { ScannerLabScreen } from "./ScannerLab"
 import { MediaLabScreen } from "./MediaLab"
 import { AuthLabScreen } from "./AuthLab"
@@ -153,6 +153,10 @@ export const routes = defineRoutes({
   wsLab: { path: "/dev/websocket", screen: WebSocketLabScreen, deepLink: true },
   // The app's life: Dimensions on rotation and text size, motion env, app state. Last, so the numbers before it stay.
   lifecycleLab: { path: "/dev/lifecycle", screen: LifecycleLabScreen, deepLink: true },
+  // See-through screens over the core lab (registry 24): transition "none" (the content fades itself in), and "push"
+  // (it slides in alone over the still screen below; the edge swipe moves it alone). Last, as above.
+  seeThroughLab: { path: "/dev/core/see-through", screen: SeeThroughLabScreen, transparent: true, transition: "none", safeArea: "none", restore: false },
+  seeThroughSlide: { path: "/dev/core/see-through-slide", screen: SeeThroughLabScreen, transparent: true, transition: "push", safeArea: "none", statusBar: "light", restore: false },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
