@@ -8,7 +8,7 @@
 //   - from a checkout, once per computer (from the zero-native root):  bun link  then  bun link zero-native -g
 // Then from an app folder:
 //   zn new <dir> [--name N] [--id ID] [--ios cmake|packages]   a new app outside this repo, from templates/app (tools/zn-new.ts)
-//   zn dev [appDir]            live reload to the phone (tools/zn-dev.ts); appDir defaults to this folder
+//   zn dev [appDir]            live reload to the phone or the iOS simulator (tools/zn-dev.ts); appDir defaults to this folder
 //   zn build <appDir> ...      build the app's JS bundle (tools/zn-build.ts)
 //   zn release | builtin | store-build | dashboard | status | ...
 //                              the zn-updates commands (tools/updates/cli.ts), same as `zn updates <command>`
@@ -50,7 +50,7 @@ function help(): never {
 
   zn new <dir> [--name N] [--id ID] [--ios cmake|packages]
                              start a new app outside this repo (iOS and Android hosts, two screens)
-  zn dev [appDir]            live reload to the phone; appDir defaults to this folder
+  zn dev [appDir]            live reload to the phone or the iOS simulator; appDir defaults to this folder
   zn build <appDir> ...      build the app's JS bundle
   zn release, zn builtin, zn store-build, zn dashboard, zn status, ...
                              zn-updates commands (also: zn updates <command>)

@@ -44,6 +44,8 @@ public final class ZnApp {
     @ObservationIgnored private var insetsNow = "{\"top\":0,\"bottom\":0,\"start\":0,\"end\":0}"
     /// When START goes: after the main script ran and the window asked for its screens (ZnLifecycleRules.swift).
     @ObservationIgnored private var startGate = ZnStartGate()
+    /// Node events that came before this runtime's main script ran (a restart's skeletons): sent once it has.
+    @ObservationIgnored private var eventsBeforeScript: [() -> Void] = []
     /// JS got START: it has screens and their listeners (links, insets and taps on notifications go to it now).
     private var jsStarted: Bool { startGate.uiStarted && startHeld == nil }
     /// prepare ran for this runtime: the bundle is read and its main script is queued or has run.
@@ -145,7 +147,10 @@ public final class ZnApp {
     /// `restore: false` ones and those above them (a `zn dev` reload keeps you where you were, as Android's).
     private func savedStack(values withValuesToo: Bool, all: Bool = false) -> NSUserActivity? {
         let keep = all ? stack.filter { entryRoutes[$0] != nil }[...] : stack.prefix { entryRoutes[$0]?.restore ?? false }
-        if keep.isEmpty || (keep.count == 1 && (!withValuesToo || (entryValues[keep[0]] ?? [:]).isEmpty)) { return nil }
+        // One screen and no values: the start screen opens anyway. With [all], one screen that isn't the start
+        // screen (a dev run on ZN_ROUTE) stays, over the start screen, as Android's restart.
+        let onlyStart = !all || entryRoutes[keep.first ?? 0]?.path == "/"
+        if keep.isEmpty || (keep.count == 1 && onlyStart && (!withValuesToo || (entryValues[keep[0]] ?? [:]).isEmpty)) { return nil }
         func json(_ withValues: Bool) -> String? {
             let list: [[String: Any]] = keep.map { e in
                 var o: [String: Any] = ["route": entryRoutes[e]!.name,
@@ -323,6 +328,14 @@ public final class ZnApp {
             routes = manifest.routes
             ZnFontTable.install(manifest: manifest.json)  // this bundle's fonts (a restart too)
             ctx = ZnContext(templates: templates, store: store) { [host] instance, event, payload in
+                // A restart draws the screens' skeletons at once, and the new JS runs a moment later: an event
+                // from a skeleton (a list's first layout) waits for the main script, which defines the handler
+                // (else JS reports "global function not defined: __zn_onEvent").
+                let app = ZnApp.shared
+                if !app.startGate.scriptLoaded {
+                    app.eventsBeforeScript.append { app.ctx?.send(instance, event, payload) }
+                    return
+                }
                 switch payload {
                 case .none: host.dispatchEvent(instance, event: UInt16(event))
                 case .bool(let b): host.dispatchEvent(instance, event: UInt16(event), boolean: b)
@@ -382,6 +395,9 @@ public final class ZnApp {
                 self.windowSent = window
                 host.dispatchEvent(0, event: UInt16(ZnAppEvent.window), string: window)
                 let start = self.startGate.scriptRan()
+                let early = self.eventsBeforeScript
+                self.eventsBeforeScript = []
+                early.forEach { $0() }
                 ZnTasks.shared.jsLoaded()  // tasks that waited for JS (a push, a dismiss, a button)
                 ZnSystemEvents.shared.start()  // the colour scheme now, then app state, memory, keyboard changes
                 if let start { self.startOnceWindowKnown(start) } else { print("zn t=\(ZnDebug.ms()) app: JS is up, no window yet") }
@@ -539,6 +555,7 @@ public final class ZnApp {
         insetsSent = nil
         windowSent = nil  // the new JS hears the window again (Android's generation key)
         startGate.reset()
+        eventsBeforeScript = []
         startHeld = nil
         startLink = nil
         prepared = false

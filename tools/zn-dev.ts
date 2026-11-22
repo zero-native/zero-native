@@ -1,21 +1,25 @@
 // `zn dev` (ARCHITECTURE §17): rebuilds the app when you save a file and sends the new build to the phone, which
-// reloads the screens in place (debug builds only; android/runtime/.../ZnDev.kt). JS errors from the phone come back
-// here, are mapped to the TSX file and line, printed, and shown on the phone's error screen.
+// reloads the screens (debug builds only; android/runtime/.../ZnDev.kt, ios/ZnRuntime/Swift/ZnDev.swift). JS errors
+// from the phone come back here, are mapped to the TSX file and line, printed, and shown on the phone's error screen.
+// One build serves every phone connected at once (Android and the iOS simulator run the same bytecode).
 //
-// Usage (repo root, phone connected with USB debugging):
+// Usage (repo root):
 //   bun run dev                       → the sample app (examples/sample)
 //   bun run tools/zn-dev.ts <appDir>  → another app laid out the same way (src/main.ts)
+// Android: a phone connected with USB debugging (this runs `adb reverse`). iOS simulator: a Debug build connects to
+// this computer's 127.0.0.1 by itself. A real iPhone can't reach it yet.
+// ZN_DEV_PORT (tests): another port than 8082 (the phones only know 8082). ZN_DEV_ADB=0: no `adb reverse`.
 //
-// Wire format, both ways: u32 length (big endian), then u8 type and the body. Same list as ZnDev.kt.
+// Wire format, both ways: u32 length (big endian), then u8 type and the body. Same list as ZnDev.kt and ZnDevWire.swift.
 import { createHash } from "node:crypto"
 import { watch } from "node:fs"
 import { existsSync, mkdirSync, readdirSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import type { Socket } from "bun"
 import { buildApp, type AppBuild } from "@zeronative/compiler"
-import { hermesc } from "./hermesc"
+import { bytecodeVersion, hermesc } from "./hermesc"
 
-const PORT = 8082
+const PORT = Number(process.env.ZN_DEV_PORT ?? 8082)
 const BUILD = 1
 const BUILD_FAILED = 2
 const ERROR_MAPPED = 3
@@ -39,7 +43,7 @@ const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 
 // ---- Builds ---------------------------------------------------------------------------------------------------------
 
-type Current = { ok: true; app: AppBuild; frame: Uint8Array; hash: string } | { ok: false; message: string }
+type Current = { ok: true; app: AppBuild; frame: Uint8Array; hash: string; bytecode: number } | { ok: false; message: string }
 let current: Current | null = null
 let building = false
 let again = false
@@ -62,7 +66,7 @@ async function rebuild(reason: string): Promise<void> {
     const hbc = new Uint8Array(await Bun.file(hbcPath).arrayBuffer())
     const t2 = performance.now()
     const hash = createHash("sha1").update(hbc).digest("hex")
-    current = { ok: true, app, frame: buildFrame(app, hbc, hash), hash }
+    current = { ok: true, app, frame: buildFrame(app, hbc, hash), hash, bytecode: await bytecodeVersion(hbcPath) }
     const sent = broadcast(current.frame)
     console.log(
       `${reason}: built in ${Math.round(t2 - t0)} ms (bundle ${Math.round(t1 - t0)} ms, hermesc ${Math.round(t2 - t1)} ms, ` +
@@ -122,11 +126,35 @@ function mapStack(text: string): string {
 
 // ---- Phones ---------------------------------------------------------------------------------------------------------
 
-type Phone = { name: string; buffer: Uint8Array }
+// [out]: bytes the socket didn't take yet. Bun's write sends what the system takes now and returns how much; the
+// rest must be written again on drain, or a build (MBs) arrives cut and the phone waits for its end forever.
+type Phone = { name: string; buffer: Uint8Array; out: Uint8Array[] }
 const phones = new Set<Socket<Phone>>()
 
+function send(s: Socket<Phone>, f: Uint8Array): void {
+  if (s.data.out.length) {
+    s.data.out.push(f)
+    return
+  }
+  const n = s.write(f)
+  if (n < f.length) s.data.out.push(f.subarray(Math.max(n, 0)))
+}
+
+/** The socket can take more: what is waiting, in order. */
+function drain(s: Socket<Phone>): void {
+  while (s.data.out.length) {
+    const f = s.data.out[0]
+    const n = s.write(f)
+    if (n < f.length) {
+      s.data.out[0] = f.subarray(Math.max(n, 0))
+      return
+    }
+    s.data.out.shift()
+  }
+}
+
 function broadcast(f: Uint8Array): number {
-  for (const s of phones) s.write(f)
+  for (const s of phones) send(s, f)
   return phones.size
 }
 
@@ -134,12 +162,16 @@ function onMessage(s: Socket<Phone>, type: number, body: Uint8Array): void {
   const json = () => JSON.parse(new TextDecoder().decode(body))
   switch (type) {
     case HELLO: {
-      const { device, hash } = json()
+      // os and bytecode: iOS sends them (Android's HELLO has device and hash only).
+      const { device, hash, os, bytecode } = json()
       s.data.name = device
-      console.log(`phone connected: ${device}`)
+      console.log(`phone connected: ${device}${os ? dim(` (${os})`) : ""}`)
+      if (typeof bytecode === "number" && current?.ok && bytecode !== current.bytecode) {
+        console.log(red(`${device} runs Hermes bytecode ${bytecode}, this hermesc writes ${current.bytecode}: its builds won't run there`))
+      }
       if (!current) return // the first build is still running; it will be broadcast
-      if (!current.ok) s.write(frame(BUILD_FAILED, JSON.stringify({ message: current.message })))
-      else if (hash !== current.hash) s.write(current.frame)
+      if (!current.ok) send(s, frame(BUILD_FAILED, JSON.stringify({ message: current.message })))
+      else if (hash !== current.hash) send(s, current.frame)
       return
     }
     case ERROR: {
@@ -147,11 +179,11 @@ function onMessage(s: Socket<Phone>, type: number, body: Uint8Array): void {
       const mapped = mapStack(text)
       console.log(red(`JS error on ${s.data.name}:`) + "\n" + mapped)
       const nl = mapped.indexOf("\n")
-      s.write(frame(ERROR_MAPPED, JSON.stringify({ id, text: nl < 0 ? mapped : mapped.slice(nl + 1) })))
+      send(s, frame(ERROR_MAPPED, JSON.stringify({ id, text: nl < 0 ? mapped : mapped.slice(nl + 1) })))
       return
     }
     case RELOAD:
-      if (current?.ok) s.write(current.frame)
+      if (current?.ok) send(s, current.frame)
       return
     default:
       console.log(dim(`unknown message type ${type} from ${s.data.name}`))
@@ -163,7 +195,7 @@ Bun.listen<Phone>({
   port: PORT,
   socket: {
     open(s) {
-      s.data = { name: "phone", buffer: new Uint8Array(0) }
+      s.data = { name: "phone", buffer: new Uint8Array(0), out: [] }
       phones.add(s)
     },
     data(s, chunk) {
@@ -179,6 +211,7 @@ Bun.listen<Phone>({
       }
       s.data.buffer = merged.slice(at)
     },
+    drain,
     close(s) {
       phones.delete(s)
       console.log(dim(`phone disconnected: ${s.data.name}`))
@@ -188,14 +221,30 @@ Bun.listen<Phone>({
 
 // ---- Start ----------------------------------------------------------------------------------------------------------
 
-// The phone reaches this computer's port through USB.
-const adb = Bun.spawnSync(["adb", "reverse", `tcp:${PORT}`, `tcp:${PORT}`], { stderr: "pipe" })
-if (adb.exitCode !== 0) {
-  console.log(red(`adb reverse failed: ${adb.stderr.toString().trim()}`))
-  console.log("Connect the phone with USB debugging on, then run this again.")
+// An Android phone reaches this computer's port through USB (adb reverse). The iOS simulator shares this computer's
+// network, so it needs nothing: without adb or an Android phone, say so instead of failing.
+function adbReverse(): void {
+  if (process.env.ZN_DEV_ADB === "0") return
+  const iosHint = "iOS simulator: a Debug build connects by itself."
+  if (!Bun.which("adb")) {
+    console.log(dim(`Android: adb isn't on PATH, so no adb reverse (install the Android SDK platform-tools). ${iosHint}`))
+    return
+  }
+  const devices = Bun.spawnSync(["adb", "devices"], { stderr: "pipe" })
+  const attached = devices.stdout.toString().split("\n").slice(1).some((l) => /\tdevice\s*$/.test(l))
+  if (devices.exitCode === 0 && !attached) {
+    console.log(dim(`Android: no phone on adb; connect one with USB debugging on, then run this again. ${iosHint}`))
+    return
+  }
+  const adb = Bun.spawnSync(["adb", "reverse", `tcp:${PORT}`, `tcp:${PORT}`], { stderr: "pipe" })
+  if (adb.exitCode !== 0) {
+    console.log(red(`adb reverse failed: ${adb.stderr.toString().trim()}`))
+    console.log("Connect the phone with USB debugging on, then run this again.")
+  }
 }
+adbReverse()
 
-console.log(`zn dev: ${relative(root, appDir) || "."} on port ${PORT}. Open the app's debug build on the phone.`)
+console.log(`zn dev: ${relative(root, appDir) || "."} on port ${PORT}. Open the app's debug build on the phone or the iOS simulator.`)
 await rebuild("start")
 
 // Rebuild on save: the app's sources and the framework packages and plugins it bundles. Editors often write a file twice.
@@ -207,7 +256,11 @@ const onChange = (dir: string) => (_event: string, file: string | null) => {
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => void rebuild(changed), 30)
 }
-const pluginSources = checkout ? readdirSync(join(root, "plugins")).map((name) => join(root, "plugins", name, "src")) : []
+// Only plugin folders with sources: plugins/ also holds files (module-names.test.ts), and watching a missing folder
+// throws.
+const pluginSources = checkout
+  ? readdirSync(join(root, "plugins")).map((name) => join(root, "plugins", name, "src")).filter((dir) => existsSync(dir))
+  : []
 const framework = checkout ? [join(root, "packages/core/src"), join(root, "packages/ui/src"), ...pluginSources] : []
 for (const dir of [join(appDir, "src"), ...framework]) {
   watch(dir, { recursive: true }, onChange(dir))
