@@ -24,6 +24,7 @@
 		77DB807BC8605D14B4676E0D /* ZnPluginFirebaseMessaging */ = {isa = PBXBuildFile; productRef = 3EC87E6101D2958D79F5FB50 /* ZnPluginFirebaseMessaging */; };
 		E4D05EE67085C6447BBDFE20 /* ZnPluginFirebaseRemoteConfig */ = {isa = PBXBuildFile; productRef = 38463C56B3D38A0563F9D1C3 /* ZnPluginFirebaseRemoteConfig */; };
 		6CE69B91284D97475B356119 /* ZnPluginFirebasePerf */ = {isa = PBXBuildFile; productRef = 8F1AD404EDD0BDC38B26AFC4 /* ZnPluginFirebasePerf */; };
+		A1D2E3F4A5B6C7D8E9F0A1B2 /* ZnPluginMedia */ = {isa = PBXBuildFile; productRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* ZnPluginMedia */; };
 		0B86521F4C65D2F73F81DD14 /* ZnPluginNotifications */ = {isa = PBXBuildFile; productRef = E22048D599624A8B4231C3AF /* ZnPluginNotifications */; };
 		EFEE6249ECBC24B1B96173F8 /* ZnNotificationService */ = {isa = PBXBuildFile; productRef = 35C6B933CB95299BF3564A48 /* ZnNotificationService */; };
 		07904977F5C32D003FF16800 /* ZnSampleNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7B76D1A3EEAF6860F8F9E0E3 /* ZnSampleNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -118,6 +119,7 @@
 				77DB807BC8605D14B4676E0D /* ZnPluginFirebaseMessaging */,
 				E4D05EE67085C6447BBDFE20 /* ZnPluginFirebaseRemoteConfig */,
 				6CE69B91284D97475B356119 /* ZnPluginFirebasePerf */,
+				A1D2E3F4A5B6C7D8E9F0A1B2 /* ZnPluginMedia */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -192,6 +194,7 @@
 				3EC87E6101D2958D79F5FB50 /* ZnPluginFirebaseMessaging */,
 				38463C56B3D38A0563F9D1C3 /* ZnPluginFirebaseRemoteConfig */,
 				8F1AD404EDD0BDC38B26AFC4 /* ZnPluginFirebasePerf */,
+				B2C3D4E5F6A7B8C9D0E1F2A3 /* ZnPluginMedia */,
 			);
 			productName = ZnSamplePackage;
 			productReference = D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */;
@@ -555,6 +558,10 @@
 		8F1AD404EDD0BDC38B26AFC4 /* ZnPluginFirebasePerf */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ZnPluginFirebasePerf;
+		};
+		B2C3D4E5F6A7B8C9D0E1F2A3 /* ZnPluginMedia */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZnPluginMedia;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

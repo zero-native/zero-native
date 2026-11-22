@@ -28,9 +28,12 @@ import ZnPluginFirebaseAnalytics
 import ZnPluginFirebaseApp
 import ZnPluginFirebaseCrashlytics
 import ZnPluginFirebaseMessaging
+import ZnPluginFirebasePerf
+import ZnPluginFirebaseRemoteConfig
 import ZnPluginImageViewer
 import ZnPluginLocation
 import ZnPluginLottie
+import ZnPluginMedia
 import ZnPluginNotifications
 import ZnPluginPdf
 import ZnPluginScanner
@@ -46,8 +49,11 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let env = ProcessInfo.processInfo.environment
-        // Plugins first, before the bundle runs (docs/plugins.md).
-        ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin(), AppUpdatesPlugin(), NotificationsPlugin(), FirebaseMessagingPlugin())
+        // Plugins first, before the bundle runs (docs/plugins.md). PerfPlugin before the other Firebase plugins (it sets
+        // Firebase's own hooks before Firebase starts) and before the first fetch (its network traces watch core's fetch).
+        ZnPlugins.register(PerfPlugin())
+        ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), MediaPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin(), AppUpdatesPlugin(), NotificationsPlugin(), FirebaseMessagingPlugin())
+        ZnPlugins.register(RemoteConfigPlugin())  // its own line, as android/sample's SampleApp.kt
         _ = env
         // OTA updates from the update server on this computer (`bun run updates:server`, or `bun run ota serve`; the
         // simulator reaches it at localhost), staging channel, signed with the sample's key (the private key stays in
