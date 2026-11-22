@@ -96,7 +96,8 @@ add_executable(__APP_CLASS__ MACOSX_BUNDLE
   ${asset_files}
 )
 target_include_directories(__APP_CLASS__ PRIVATE "${ZN_IOS}/ZnRuntime/Host")
-target_link_libraries(__APP_CLASS__ PRIVATE zn_core "-framework QuartzCore")
+# CoreMotion: useTilt's gravity (Swift links it by itself too; said here as in the runtime's other builds).
+target_link_libraries(__APP_CLASS__ PRIVATE zn_core "-framework QuartzCore" "-framework CoreMotion")
 
 set_target_properties(__APP_CLASS__ PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/App/Info.plist"

@@ -636,5 +636,147 @@ e.reset()
 clock.run(5)
 truth("nothing left to tick after the second reset", !clock.running)
 
+// MARK: - The plugin API (ZnMotionApi.swift; Android: ZnMotionApiTest's cases)
+
+MainActor.assumeIsolated {
+    // A plugin's value: made by JS first (nativeMotion sends "value", then calls the plugin), or by the plugin.
+    let js = try! e.putValue(700, 3)
+    let h = ZnMotionApi.value(700)
+    truth("value(id) is the one JS made", h.v === js)
+    h.value = 12
+    check("a plugin's write moves it", js.value, 12)
+    h.value = .nan
+    check("NaN is ignored", js.value, 12)
+    let made = ZnMotionApi.value(701, initial: 5)
+    check("made here with its initial value", made.value, 5)
+    truth("and the engine has it", e.find(701) === made.v)
+    check("a window id is no plugin's", ZnMotionApi.value(3).v === e.find(3), false)
+
+    // onDispose runs once when JS drops it (and the dispose hooks still run).
+    var gone = 0
+    h.onDispose { gone += 1 }
+    e.dispose(700)
+    e.dispose(700)
+    check("onDispose runs once", gone, 1)
+
+    // onFrame: each frame's time until it answers false; a token dropped by the plugin keeps running.
+    var times: [Int64] = []
+    ZnMotionApi.onFrame { t in
+        times.append(t)
+        return times.count < 3
+    }
+    clock.run(5)
+    check("onFrame runs until it answers false", times.count, 3)
+    truth("frame times go up", times == times.sorted() && Set(times).count == 3)
+    var ticks = 0
+    let token = ZnMotionApi.onFrame { _ in ticks += 1; return true }
+    clock.run(2)
+    token.cancel()
+    clock.run(3)
+    check("cancel stops it", ticks, 2)
+    truth("the token says it ended", !token.isActive)
+    clock.run(3)
+    truth("nothing left to tick after the frames end", !clock.running)
+
+    // An orbit as DeviceModule's: a value stepped each frame from a plugin, stopped by onDispose.
+    let orbit = ZnMotionApi.value(702)
+    var start: Int64 = -1
+    let frames = ZnMotionApi.onFrame { now in
+        if start < 0 { start = now }
+        orbit.value = Float(now - start) / 1e6  // ms since it started
+        return true
+    }
+    orbit.onDispose { frames.cancel() }
+    clock.run(3)
+    near("the orbit moved each frame", orbit.value, 33.333, 0.01)
+    e.dispose(702)
+    truth("dropping the value stops its frames", !frames.isActive)
+
+    // aPluginDriverRunsAsAnAnimation: a Swift driver through registerDriver, run by v.to(x, { driver }).
+    struct Half: ZnMotionDriver {
+        let from: Float, to: Float
+        var durationNanos: Int64 { 100_000_000 }
+        func value(_ t: Int64) -> Float { from + (to - from) * Float(t) / 1e8 * 0.5 }  // half way at the end: the end jumps
+        func velocity(_ t: Int64) -> Float { (to - from) * 5 }
+    }
+    var params: [String: Any] = [:]
+    ZnMotionApi.registerDriver("test.half") { from, to, _, p in params = p; return Half(from: from, to: to) }
+    let dv = try! e.putValue(703, 0)
+    var done: Bool?
+    e.animate(dv, steps: steps(#"[{"to":10,"t":{"d":"test.half","p":{"k":7}}}]"#)) { done = $0 }
+    check("the driver gets JS's params", params["k"] as? Int, 7)
+    clock.run(3)
+    near("the driver moves it (3 frames of 100 ms at half speed)", dv.value, 2.5, 0.01)
+    clock.run(10)
+    check("at its end it is at the target", dv.value, 10)
+    check("and the command finished", done, true)
+    count += 1
+    if (try? ZnStep.parse(json(#"{"to":1,"t":{"d":"no.such.driver"}}"#) as! [String: Any])) != nil {
+        failures += 1; print("FAIL an unknown driver must fail the command")
+    }
+
+    // reader: a native view prop that holds a motion reference; anything else is nil.
+    let lv = try! e.putValue(704, 0.25)
+    let read = ZnMotionApi.reader("\u{0}m704")
+    check("reader reads the value", read?(), 0.25)
+    lv.value = 0.75
+    check("reader reads it now", read?(), 0.75)
+    truth("a number is no reader", ZnMotionApi.reader(0.5) == nil)
+    truth("plain text is no reader", ZnMotionApi.reader("m704") == nil)
+    let early = ZnMotionApi.reader("\u{0}m705")
+    check("a value JS hasn't made yet reads 0", early?(), 0)
+    try! e.putValue(705, 4)
+    check("then the value once it comes", early?(), 4)
+
+    // onMotion's watch: called with the value now, then once per frame it changes; follows new props.
+    let watch = ZnMotionPropWatch()
+    var seen: [Float] = []
+    watch.add("level", ["level": "\u{0}m704"]) { seen.append($0) }
+    check("called with the value now", seen, [0.75])
+    lv.value = 0.5
+    lv.value = 0.6
+    clock.run(1)
+    check("once per frame, the newest", seen, [0.75, 0.6])
+    clock.run(2)
+    check("a still value costs no call", seen.count, 2)
+    watch.update(["level": "\u{0}m705"])
+    check("new props: the other value", seen.last, 4)
+    watch.update(["level": 0.3])
+    truth("a plain number: not followed", !watch.follows("level"))
+    lv.value = 0.9
+    clock.run(1)
+    check("and not called", seen.count, 3)
+    e.dispose(703); e.dispose(704); e.dispose(705); e.dispose(701)
+}
+
+// MARK: - Tilt (ZnTiltFilter; the phone's sensors can't move on the simulator, so the signs are checked here)
+
+// Flat on a table: CoreMotion's gravity (0, 0, -1): no lean.
+truth("flat: no lean", ZnTiltFilter.lean(gx: 0, gy: 0, .portrait) == (0, 0))
+// Portrait, right edge down: gravity points along +x: lean right (Android: -values[0] / g = +1).
+check("right edge down: right", ZnTiltFilter.lean(gx: 1, gy: 0, .portrait).x, 1)
+// Upright in front of you (top up): gravity along -y: towards you +1 (Android: values[1] / g = +1).
+check("upright: towards", ZnTiltFilter.lean(gx: 0, gy: -1, .portrait).y, 1)
+// Top tipped away (top edge down): gravity along +y: away -1.
+check("top down: away", ZnTiltFilter.lean(gx: 0, gy: 1, .portrait).y, -1)
+// Landscape, top of the phone on the left (home right): the screen's right edge is the phone's bottom. That edge down
+// means gravity along -y: lean right. The screen's top is the phone's right side: right side up (gravity -x) is towards.
+check("landscapeRight: the phone's bottom down is right", ZnTiltFilter.lean(gx: 0, gy: -1, .landscapeRight).x, 1)
+check("landscapeRight: the phone's right side up is towards", ZnTiltFilter.lean(gx: -1, gy: 0, .landscapeRight).y, 1)
+// Landscape, top on the right: the screen's right edge is the phone's top; its top is the phone's left side.
+check("landscapeLeft: the phone's top down is right", ZnTiltFilter.lean(gx: 0, gy: 1, .landscapeLeft).x, 1)
+check("landscapeLeft: the phone's left side up is towards", ZnTiltFilter.lean(gx: 1, gy: 0, .landscapeLeft).y, 1)
+check("upside down: both turn", "\(ZnTiltFilter.lean(gx: 0.5, gy: -0.25, .upsideDown))", "(x: -0.5, y: -0.25)")
+// The low-pass: 0.2 of the way each reading; NaN readings are skipped; it clamps to -1…1.
+var tf = ZnTiltFilter()
+near("first reading: a fifth", tf.feed(gx: 1, gy: 0, .portrait).x, 0.2, 1e-6)
+near("second: 0.36", tf.feed(gx: 1, gy: 0, .portrait).x, 0.36, 1e-6)
+near("NaN keeps it", tf.feed(gx: .nan, gy: 0, .portrait).x, 0.36, 1e-6)
+for _ in 0..<60 { _ = tf.feed(gx: 3, gy: -3, .portrait) }
+near("clamped to 1", tf.x, 1, 1e-4)
+near("y clamped to 1", tf.y, 1, 1e-4)
+tf.reset()
+check("reset", tf.x, 0)
+
 print(failures == 0 ? "ios motion: \(count) checks passed" : "ios motion: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)

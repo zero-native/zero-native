@@ -7,7 +7,8 @@
 //   answer counts. Its answer is saved in the "zn.launch" store before JS hears of it (ZnLaunch.saveScreenResult), so a
 //   kill between the two loses nothing; JS acks it through the Launches module.
 // - A view is a UIView made for its node. It gets the props JS gave (again on each change, `onProps`) and sends
-//   `emit(name, data)` to `<NativeView onEvent>`.
+//   `emit(name, data)` to `<NativeView onEvent>`. A motion value in its props is read with `motion(name)` or followed
+//   with `onMotion(name)` (ZnMotionApi.swift, Android's ZnViewScope.motion).
 // A plugin is added whole or not at all: one that fails stops a debug build, and a release build skips it (calls to its
 // module then answer "unavailable").
 // iOS differences: a view hears its screen covered or closed through its own window / superview changes (UIKit's
@@ -69,7 +70,23 @@ public final class ZnViewScope {
 
     fileprivate func update(_ p: [String: Any]) {
         props = p
+        motionWatch?.update(p)
         onProps?(p)
+    }
+
+    private var motionWatch: ZnMotionPropWatch?
+
+    /// Prop [name] when JS gave a motion value (registry 24, Android's `motion(name)`): a function that reads it now,
+    /// for a view that reads it while it draws or lays out. Nil when it isn't one.
+    public func motion(_ name: String) -> (() -> Float)? { ZnMotionApi.reader(props[name]) }
+
+    /// Calls [apply] with prop [name]'s motion value now, and again on each frame it changes, while the view lives (a
+    /// UIKit view isn't redrawn by SwiftUI: set a layer's frame, a progress, a label here). Follows new props; a prop
+    /// that isn't a motion value doesn't call it. Main thread; it must not allocate.
+    public func onMotion(_ name: String, _ apply: @escaping @MainActor (Float) -> Void) {
+        let w = motionWatch ?? ZnMotionPropWatch()
+        motionWatch = w
+        w.add(name, props, apply)
     }
 
     /// Sends JS `{ name, data }`: `<NativeView onEvent>` hears it. [data]: anything JSON can hold.

@@ -47,6 +47,8 @@ final class ZnMotionModule: ZnModuleBase, @unchecked Sendable {
         e.emitNow = { event, payload in ZnModules.emit("Motion", event, payload, latestOnly: false) }
         e.disposeHooks.append { ZnGestures.dispose($0) }
         e.resetHooks.append { ZnGestures.reset() }
+        e.disposeHooks.append { id in MainActor.assumeIsolated { ZnTilt.shared.remove(id) } }
+        e.resetHooks.append { MainActor.assumeIsolated { ZnTilt.shared.reset() } }
 
         function("value", onMain: true) { c in
             let v = Float(try c.double("v"))
@@ -128,11 +130,14 @@ final class ZnMotionModule: ZnModuleBase, @unchecked Sendable {
             el.follow.source = try c.intOrNil("src").map { try e.source($0) }
             c.resolve()
         }
-        // {"id", "x", "y", "on"}: useTilt(). The values exist (bindings read 0); the sensor comes with motion-tilt.
+        // {"id", "x", "y", "on"}: useTilt() (ZnTilt.swift): x / y follow how the phone leans while on.
         function("tilt", onMain: true) { c in
+            let id = try c.int("id")
             if try c.boolOrNil("on") ?? true {
-                try e.putValue(try c.int("x"), 0)
-                try e.putValue(try c.int("y"), 0)
+                let x = try e.putValue(try c.int("x"), 0), y = try e.putValue(try c.int("y"), 0)
+                MainActor.assumeIsolated { ZnTilt.shared.add(id, x, y) }
+            } else {
+                MainActor.assumeIsolated { ZnTilt.shared.remove(id) }
             }
             c.resolve()
         }

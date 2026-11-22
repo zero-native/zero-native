@@ -7,6 +7,7 @@
 // - "Reduce Motion" (Settings → Accessibility) does what Android's "Remove animations" does: the view shows where the play
 //   would end, at once, and a play without loop ends with onAnimationFinish(false). iOS has no animator scale, so speed is
 //   the prop's.
+// - progress as a motion value is followed with ZnViewScope.onMotion: the frame is set on each frame the value moves.
 // - renderMode: HARDWARE is Lottie's Core Animation engine, SOFTWARE its main-thread engine, AUTOMATIC lets Lottie pick.
 //   mergePaths, opacityToLayers and safeMode are Android-only (accepted, not used).
 // - Without lottie-ios in the build, the view stays empty and sends failure "failed"; preload answers failed.
@@ -197,6 +198,8 @@ final class ZnLottieView: UIView {
         scope.onProps = { [weak self] p in self?.apply(p) }
         apply(scope.props)
         #if canImport(Lottie)
+        // Registry 24: `progress` as a motion value moves the frame on each frame it changes (no JS); plays wait.
+        scope.onMotion("progress") { [weak self] v in self?.drive(v) }
         NotificationCenter.default.addObserver(self, selector: #selector(motionChanged), name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
         #endif
     }
@@ -314,9 +317,28 @@ final class ZnLottieView: UIView {
             backwards: LottieRules.backwards(speed, from, to), loop: p["loop"] as? Bool ?? true, speed: speed, from: from, to: to)
     }
 
+    /// A motion value's progress: the frame it shows (Android draws `driven()` in place of the player's progress).
+    private func drive(_ p: Float) {
+        guard let v = view, animation != nil, p.isFinite else { return }
+        v.currentProgress = AnimationProgressTime(min(max(p, 0), 1))
+    }
+
     /// Android's play effect: runs on each props change and when the file loads.
     private func run() {
         guard let a = animation, let v = view else { return }
+        // While a motion value drives it, autoPlay and play() do nothing (Android's effect returns at once).
+        if let read = scope.motion("progress") {
+            if running || !driven { playToken += 1 }
+            running = false
+            driven = true
+            v.pause()
+            drive(read())
+            return
+        }
+        if driven {
+            driven = false
+            motionToggled = true  // as Android's effect keyed on `driven`: run the play rules again
+        }
         let same = lastAnimation === a
         let prev = same ? lastTarget : nil
         let wasRunning = running && prev != nil
@@ -370,5 +392,6 @@ final class ZnLottieView: UIView {
     }
 
     private var motionToggled = false
+    private var driven = false
     #endif
 }

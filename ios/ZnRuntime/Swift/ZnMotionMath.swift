@@ -5,6 +5,7 @@
 // - Curves: a spring with a starting speed (Compose's SpringSimulation, and its duration estimate so a promise
 //   resolves on the same frame as on Android), a tween, a decay (Compose's exponential decay), a plugin driver.
 // - znInterpolate / znMixColors (map, mapColor, formula tables), znFriction, ZnNumberFormat (v.format()).
+// - ZnTiltFilter: useTilt's lean from CoreMotion's gravity, turned with the screen and smoothed (ZnTilt.swift).
 import Foundation
 
 // MARK: - Easing
@@ -94,15 +95,18 @@ protocol ZnMotionCurve {
     func velocity(_ ns: Int64) -> Float
 }
 
-/// A plugin's custom curve (Android: ZnMotionApi.Driver). Pure functions of time, called each frame: no allocation.
-protocol ZnMotionDriver {
+/// A plugin's custom curve (Android: ZnMotionApi.Driver), one run of it. Pure functions of time, called each frame:
+/// they must not allocate. Plugins register a factory with ZnMotionApi.registerDriver.
+public protocol ZnMotionDriver {
+    /// How long it runs (ns).
     var durationNanos: Int64 { get }
     func value(_ timeNanos: Int64) -> Float
+    /// Units per second.
     func velocity(_ timeNanos: Int64) -> Float
 }
 
 /// Makes a driver for one `v.to(x, { driver, params })`: where it starts, where it goes, its speed, JS's params.
-typealias ZnMotionDriverFactory = (_ from: Float, _ to: Float, _ velocity: Float, _ params: [String: Any]) -> ZnMotionDriver
+public typealias ZnMotionDriverFactory = (_ from: Float, _ to: Float, _ velocity: Float, _ params: [String: Any]) -> ZnMotionDriver
 
 /// The drivers plugins registered (Android: ZnMotionApi.registerDriver), by "plugin.name". Main thread.
 enum ZnMotionDrivers {
@@ -405,6 +409,52 @@ struct ZnFollowStepper {
 func znFriction(_ deceleration: Double) -> Float {
     let d = deceleration.isFinite && deceleration > 0.9 && deceleration < 1 ? deceleration : 0.998
     return Float(-1000 * log(d) / 4.2)
+}
+
+// MARK: - Tilt
+
+/// useTilt()'s numbers (Android: ZnTilt.onSensorChanged): how the phone leans, x from left -1 to right 1 and y from away
+/// -1 to towards you 1, on the screen's axes, smoothed. CoreMotion's gravity is the pull itself (flat on a table z is
+/// -1); Android's gravity sensor reads the opposite (z +g), so Android's -x/g is iOS's x and its y/g is iOS's -y.
+struct ZnTiltFilter {
+    /// How the screen is turned from the phone's natural portrait: UIInterfaceOrientation's order.
+    enum Turn {
+        case portrait
+        /// The phone turned left, its top on the left (home on the right): Android's ROTATION_90.
+        case landscapeRight
+        case upsideDown
+        /// The phone turned right, its top on the right: Android's ROTATION_270.
+        case landscapeLeft
+    }
+
+    private(set) var x: Float = 0
+    private(set) var y: Float = 0
+
+    /// The lean on the screen's axes, before smoothing: lean x is how much the screen's right edge is down, lean y how
+    /// much its top edge is up (towards you).
+    static func lean(gx: Float, gy: Float, _ turn: Turn) -> (x: Float, y: Float) {
+        switch turn {
+        case .portrait: return (gx, -gy)
+        case .landscapeRight: return (-gy, -gx)
+        case .upsideDown: return (-gx, gy)
+        case .landscapeLeft: return (gy, gx)
+        }
+    }
+
+    /// One reading of gravity (in g, the phone's axes): the smoothed lean after it (a light low-pass, 0.2 of the way
+    /// each reading, as Android: the hand's shake goes, the lean stays).
+    mutating func feed(gx: Float, gy: Float, _ turn: Turn) -> (x: Float, y: Float) {
+        guard gx.isFinite, gy.isFinite else { return (x, y) }
+        let l = Self.lean(gx: gx, gy: gy, turn)
+        x += (min(max(l.x, -1), 1) - x) * 0.2
+        y += (min(max(l.y, -1), 1) - y) * 0.2
+        return (x, y)
+    }
+
+    mutating func reset() {
+        x = 0
+        y = 0
+    }
 }
 
 // MARK: - Interpolation
