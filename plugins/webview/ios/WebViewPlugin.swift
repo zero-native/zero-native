@@ -267,8 +267,8 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
     // MARK: Screen and app state
 
-    // In front, as Android's lifecycle ON_RESUME / ON_PAUSE: the page is in the window (a screen pushed on top takes
-    // it out, as does a full-screen presentation), the app is not in the background, and no other controller is
+    // In front, as Android's lifecycle ON_RESUME / ON_PAUSE: the page is in the window (a full-screen presentation
+    // takes it out), its screen is the top of the stack, the app is not in the background, and no other controller is
     // presented over it (a page sheet: the App Store sheet, a picker, Safari; Android's other Activity). zero-native's
     // own Sheet and Modal are layers, not presentations, and an alert is a dialog: neither pauses, as Android's
     // Dialogs don't.
@@ -290,7 +290,20 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     @objc private func appInactive() { setFront(false) }
 
     private func updateFront() {
-        setFront(window != nil && UIApplication.shared.applicationState != .background && !coveredByPresentation())
+        setFront(window != nil && UIApplication.shared.applicationState != .background && topScreen() && !coveredByPresentation())
+    }
+
+    /// The page's screen is the navigation stack's top one. A push moves the covered screen's view out of the window,
+    /// into UIKit's transition and out again; the stack's top changes at once, so the page pauses once, not three times.
+    private func topScreen() -> Bool {
+        var r: UIResponder? = self
+        while let n = r, !(n is UIViewController) { r = n.next }
+        var vc = r as? UIViewController
+        while let c = vc {
+            if let nav = c.parent as? UINavigationController { return nav.topViewController === c }
+            vc = c.parent
+        }
+        return true
     }
 
     /// Something presented over the window's screens, other than an alert or one on its way out.
@@ -321,6 +334,13 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     }
 
     func reloadPage() -> Bool {
+        // The app's own html, still on screen: WebKit's reload would fetch its baseUrl from the network instead (Android
+        // reloads the html).
+        if inline, web.url?.absoluteString == (scope.props["baseUrl"] as? String ?? "about:blank") || web.url == nil {
+            shown = nil
+            apply(scope.props)
+            return true
+        }
         if web.url == nil, let s = shown, !s.hasPrefix("|") || s.count > 3 {
             shown = nil  // after the page's process ended: load it again from the props
             apply(scope.props)
