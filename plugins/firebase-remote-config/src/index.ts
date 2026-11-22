@@ -1,4 +1,5 @@
-// The Remote Config plugin's JS side (RN Firebase's `remoteConfig()`). Native side: android/.../RemoteConfigPlugin.kt.
+// The Remote Config plugin's JS side (RN Firebase's `remoteConfig()`). Native side: android/.../RemoteConfigPlugin.kt and
+// ios/RemoteConfigPlugin.swift.
 //
 // At start (main.ts or the first screen):
 //

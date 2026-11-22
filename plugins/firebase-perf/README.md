@@ -1,6 +1,6 @@
 # @zeronative/firebase-perf
 
-Firebase Performance Monitoring in zero-native apps, on Android, with RN Firebase's `perf()` API. Most apps need no
+Firebase Performance Monitoring in zero-native apps, on Android and iOS, with RN Firebase's `perf()` API. Most apps need no
 JS. By itself it sends:
 
 - **The app start** (Firebase's own trace).
@@ -35,6 +35,29 @@ see its README.)
 
 Permissions: none of its own (Firebase adds `INTERNET` and `ACCESS_NETWORK_STATE`). To see traces in logcat while
 testing: `<meta-data android:name="firebase_performance_logcat_enabled" android:value="true" />` (the sample does).
+
+## Add it on iOS
+1. Firebase as for [`@zeronative/firebase-app`](../firebase-app/README.md) (`GoogleService-Info.plist` in the app).
+2. The Swift package's `ZnPluginFirebasePerf` product (`zero-native-firebase`, `ios/packages/firebase`), or in a CMake
+   build the Firebase SDK (`bun run tools/fetch-firebase-apple.ts`) and `plugins/firebase-perf/ios`.
+3. Register it **before the other Firebase plugins** (Firebase reads the automatic-traces switch when it starts):
+   ```swift
+   ZnPlugins.register(PerfPlugin(), AnalyticsPlugin(), ...)
+   PerfPlugin(automatic: false)   // no Firebase app start or network traces, only screens and your own
+   PerfPlugin(screens: false)     // no screen_<route> traces
+   ```
+
+iOS differences:
+- **Network traces are Firebase's own** (`automatic: true`, the default): Firebase hooks URLSession, so every request
+  is traced, core's `fetch` and also images and OTA downloads, with the URL without query, fragment, user and
+  password. There is no `url` option, and network traces have no `zn_bundle`. `automatic: false` turns them off
+  together with Firebase's app start trace (one switch in iOS's Firebase, kept on the phone; registered after another
+  Firebase plugin, it applies from the next start).
+- **Frames** are counted with a display link, as Firebase iOS does: `frames_slow` is a frame longer than 1/59 s (so a
+  ProMotion frame that misses 120 Hz isn't slow), `frames_frozen` longer than 700 ms. Firebase's own screen traces
+  (one per view controller: the app has one) come with `automatic`; read the `screen_<route>` ones.
+- **Consent:** `firebase_performance_collection_enabled` = NO in the app's Info.plist, then
+  `setPerformanceCollectionEnabled(true)` after the yes. `-FIRDebugEnabled` as a launch argument logs each trace.
 
 ## Use it
 ```ts

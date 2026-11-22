@@ -1,13 +1,13 @@
 # @zeronative/firebase-remote-config
 
-Firebase Remote Config in zero-native apps, on Android, with RN Firebase's `remoteConfig()` API: values you change in
+Firebase Remote Config in zero-native apps, on Android and iOS, with RN Firebase's `remoteConfig()` API: values you change in
 the Firebase console without a new build (feature switches, limits, texts), with defaults in the app.
 
 - **Reads need no call.** Every answer of `setDefaults`, `fetch`, `activate`, `fetchAndActivate` and
   `ensureInitialized` brings all values to JS, so `getValue("x").asBoolean()` is a plain function call, like RN's.
 - **Each value says where it came from:** `remote` (the console), `default` (`setDefaults`), `static` (nothing).
 - **Live updates:** `onConfigUpdated` hears the console publish changes, while anyone listens.
-- With no `google-services.json` every value is its default and `available` is false.
+- With no `google-services.json` (iOS: `GoogleService-Info.plist`) every value is its default and `available` is false.
 
 ## Add it
 1. Firebase as for [`@zeronative/firebase-app`](../firebase-app/README.md).
@@ -16,6 +16,15 @@ the Firebase console without a new build (feature switches, limits, texts), with
 4. In `Application.onCreate`, with the other plugins: `ZnPlugins.register(this, RemoteConfigPlugin())`.
 
 Permissions: none of its own (Firebase adds `INTERNET`).
+
+## Add it on iOS
+1. Firebase as for [`@zeronative/firebase-app`](../firebase-app/README.md) (`GoogleService-Info.plist` in the app).
+2. The Swift package's `ZnPluginFirebaseRemoteConfig` product (`zero-native-firebase`, `ios/packages/firebase`), or in
+   a CMake build the Firebase SDK (`bun run tools/fetch-firebase-apple.ts`) and `plugins/firebase-remote-config/ios`.
+3. With the other plugins: `ZnPlugins.register(RemoteConfigPlugin(), ...)`.
+
+iOS differences: `reset()` answers false (iOS's Firebase has no reset; JS still forgets the fetched values). Defaults
+go to Firebase as text, so a boolean default reads `"true"` as on Android.
 
 ## Use it
 ```ts

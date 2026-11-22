@@ -1,4 +1,4 @@
-// The Performance plugin's JS side (RN Firebase's `perf()`). Native side: android/.../PerfPlugin.kt.
+// The Performance plugin's JS side (RN Firebase's `perf()`). Native side: android/.../PerfPlugin.kt and ios/PerfPlugin.swift.
 //
 // Most apps need no JS: the app start, every `fetch` and every screen (route) are traced by themselves. JS is for your
 // own steps:

@@ -9,6 +9,8 @@ an app without Firebase never downloads it.
 | `ZnPluginFirebaseAnalytics` | Google Analytics for Firebase (FirebaseAnalyticsCore: no IDFA, no on-device ad conversion) |
 | `ZnPluginFirebaseCrashlytics` | Crashlytics, with JS errors |
 | `ZnPluginFirebaseMessaging` | push messages (FirebaseMessaging; uses `ZnPluginNotifications` from zero-native) |
+| `ZnPluginFirebaseRemoteConfig` | Remote Config (FirebaseRemoteConfig) |
+| `ZnPluginFirebasePerf` | Performance Monitoring (FirebasePerformance: it hooks URLSession for its automatic network traces; register it before the other Firebase plugins) |
 
 **Add it together with zero-native, at the same version.** It depends on `https://github.com/zero-native/zero-native.git`
 at exactly its own version:
