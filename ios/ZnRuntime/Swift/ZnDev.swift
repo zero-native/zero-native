@@ -225,6 +225,35 @@ final class ZnDev {
             waiting = (dir, hash)  // after the reload going on now
             return
         }
+        // The app has just started (the first build comes right after HELLO): its first screens and the module
+        // events they start are on their way, and those still queued would reach the new runtime before its main
+        // script ("global function not defined: __zn_onEvent"). The build goes once the screens have been up 0.5 s
+        // (or 5 s on, when they never come: JS failed).
+        let app = ZnApp.shared
+        let wait = app.firstScreensUp ? 0.5 - (CACurrentMediaTime() - app.screensUpAt) : 5
+        if wait > 0, !settling {
+            settling = true
+            waiting = (dir, hash)
+            let go = ZnOnce<Void> { [self] _ in
+                settling = false
+                guard let (d, h) = waiting else { return }
+                waiting = nil
+                reload(d, h)
+            }
+            app.afterScreensUp(capMs: 5_000) {
+                let left = max(0, 0.5 - (CACurrentMediaTime() - app.screensUpAt))
+                DispatchQueue.main.asyncAfter(deadline: .now() + left) { go(()) }
+            }
+            return
+        }
+        if settling { waiting = (dir, hash); return }
+        reload(dir, hash)
+    }
+
+    /// A build waits for the app's first screens to settle (apply).
+    private var settling = false
+
+    private func reload(_ dir: URL, _ hash: String) {
         reloading = true
         let t0 = CACurrentMediaTime()
         hide()

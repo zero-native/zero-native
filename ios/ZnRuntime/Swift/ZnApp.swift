@@ -647,6 +647,8 @@ public final class ZnApp {
     /// JS sent NAV STARTED: it handled START and built the first screens (ZnSplash waits for it).
     @ObservationIgnored private(set) var firstScreensUp = false
     @ObservationIgnored private var screensUpWaiters: [() -> Void] = []
+    /// When NAV STARTED came for this runtime (CACurrentMediaTime).
+    @ObservationIgnored private(set) var screensUpAt: CFTimeInterval = 0
 
     /// Runs [f] once JS has built the first screens (NAV STARTED; now if it has), or after [capMs] (JS threw first).
     func afterScreensUp(capMs: Int = 2_000, _ f: @escaping () -> Void) {
@@ -751,6 +753,7 @@ public final class ZnApp {
             print("zn t=\(ZnDebug.ms()) nav: screen \(entry) failed: \(failedScreens[entry] ?? "")")
         case NavKind.started:
             firstScreensUp = true  // JS handled START: the splash may go (ZnSplash)
+            screensUpAt = CACurrentMediaTime()
             let waiting = screensUpWaiters
             screensUpWaiters = []
             waiting.forEach { $0() }
