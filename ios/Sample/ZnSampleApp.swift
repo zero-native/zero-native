@@ -15,6 +15,7 @@
 //                    a push or a task (debug)
 //   ZN_BOOT_TASK     a task (e.g. lab.echo) to run at launch, before any window, as Android's DebugWakeProvider (debug)
 //   ZN_ROTATE        1: the app turns with the phone (debug; the sample is portrait only), to check Dimensions
+//   ZN_NO_PREPARE    1: no ZnApp.prepare at launch, as an app that doesn't call it (ZeroBill): a task starts JS (debug)
 import UIKit
 import notify
 #if canImport(ZnRuntime)  // an app on the Swift package; the CMake build compiles everything into the app
@@ -77,6 +78,21 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
                 ZnApp.shared.restart(bundle: ZnBundles.builtInURL, in: ZnOta.window()) { print("zn-sample: restart → \($0) \($1)") }
             }
         }
+        // `... .restart.task`: the same, and a task (lab.echo) right after, while the new runtime isn't up yet, as a
+        // push arriving during an update applied in place: it waits for the new JS (nothing starts JS a second way).
+        notify_register_dispatch("dev.zeronative.sample.restart.task", &token, .main) { _ in
+            MainActor.assumeIsolated {
+                ZnApp.shared.restart(bundle: ZnBundles.builtInURL, in: ZnOta.window()) { print("zn-sample: restart → \($0) \($1)") }
+                ZnTasks.shared.run("lab.echo", ["from": "the restart's gap"], timeoutMs: 5_000) { print("zn-sample: gap task: \($0.rawValue)") }
+            }
+        }
+        // `... .window.again`: the scene opens a new window, as when iOS connects it again while the process lives.
+        notify_register_dispatch("dev.zeronative.sample.window.again", &token, .main) { _ in
+            MainActor.assumeIsolated {
+                guard let scene = ZnOta.window()?.windowScene, let d = scene.delegate as? ZnSceneDelegate else { return }
+                d.openAgain(scene)
+            }
+        }
         // `... notifyutil -s dev.zeronative.sample.push.data 40000 && ... notifyutil -p dev.zeronative.sample.push.data`
         // hands the app delegate's push call a data-only push (PushLab's lab=slow, ms = the state), as a background wake
         // does: simctl push's background pushes don't reach the app delegate on the iOS 26 simulator.
@@ -116,6 +132,9 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         #endif
         // JS starts now, with no window: a launch for a push, a notification's button or a task runs its JS task; the
         // window's screens come with the scene (ZnApp.start). After the plugins and ZnOta.configure.
+        #if DEBUG
+        if env["ZN_NO_PREPARE"] == "1" { print("zn-sample: no ZnApp.prepare (ZN_NO_PREPARE)"); return true }
+        #endif
         ZnApp.shared.prepare(bundle: Bundle.main.resourceURL!)
         return true
     }
@@ -160,12 +179,12 @@ final class ZnSceneDelegate: UIResponder, UIWindowSceneDelegate {
         open(scene, session, options)
     }
 
-    private func open(_ scene: UIWindowScene, _ session: UISceneSession, _ options: UIScene.ConnectionOptions) {
+    private func open(_ scene: UIWindowScene, _ session: UISceneSession, _ options: UIScene.ConnectionOptions?) {
         print("zn-sample: the window opens")
         // The app starts here, where the link that opened it is known (a URL, or a universal link's web page).
         let env = ProcessInfo.processInfo.environment
-        let link = options.urlContexts.first?.url
-            ?? options.userActivities.first { $0.activityType == NSUserActivityTypeBrowsingWeb }?.webpageURL
+        let link = options?.urlContexts.first?.url
+            ?? options?.userActivities.first { $0.activityType == NSUserActivityTypeBrowsingWeb }?.webpageURL
             ?? env["ZN_LINK"].flatMap(URL.init(string:))  // debug: ios-sample.ts --link, a cold start with its console
         // After iOS itself ended the app (never after the user closed it), the screens come back (restorationActivity).
         ZnApp.shared.start(bundle: Bundle.main.resourceURL!, routeName: env["ZN_ROUTE"], params: env["ZN_PARAMS"] ?? "{}", link: link,
@@ -180,6 +199,15 @@ final class ZnSceneDelegate: UIResponder, UIWindowSceneDelegate {
         print("zn: window shown with \(type(of: window.rootViewController!))")
         self.window = window
     }
+
+    #if DEBUG
+    /// The dev.zeronative.sample.window.again hook: a new window on the same scene, as a reconnect.
+    func openAgain(_ scene: UIWindowScene) {
+        window?.isHidden = true
+        window = nil
+        open(scene, scene.session, nil)
+    }
+    #endif
 
     /// Asked as the app goes to the background: what to reopen if iOS ends the app while it is there.
     func stateRestorationActivity(for scene: UIScene) -> NSUserActivity? { ZnApp.shared.restorationActivity() }
