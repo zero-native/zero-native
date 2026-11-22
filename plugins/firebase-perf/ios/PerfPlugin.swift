@@ -69,11 +69,12 @@ public struct PerfPlugin: ZnPlugin {
             return
         }
         #if canImport(FirebasePerformance)
-        ZnBundles.watchRunning { PerfState.bundle = PerfRules.attributeValue($0) }
-        if screens {
-            let traces = ScreenTraces()
-            ZnApp.shared.addTopRouteListener { traces.next($0) }
+        let traces = screens ? ScreenTraces() : nil
+        ZnBundles.watchRunning { label in
+            PerfState.bundle = PerfRules.attributeValue(label)
+            traces?.bundleKnown()  // the first screen can come before the label does
         }
+        if let traces { ZnApp.shared.addTopRouteListener { traces.next($0) } }
         #endif
     }
 }
@@ -117,6 +118,11 @@ private final class ScreenTraces: NSObject {
         t.start()
         current = t
         startLink()
+    }
+
+    /// The running bundle's label came (or changed): the open screen trace gets it too.
+    func bundleKnown() {
+        if let t = current, let b = PerfState.bundle { t.setValue(b, forAttribute: PerfRules.attrBundle) }
     }
 
     private func startLink() {
