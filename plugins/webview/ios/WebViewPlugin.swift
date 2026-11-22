@@ -290,6 +290,7 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         if let co = nav?.transitionCoordinator, co.isInteractive {
             if !waitingSwipe {
                 waitingSwipe = true
+                print("zn webview: a swipe back is under way; paused / resumed waits for its end")
                 let queued = co.animate(alongsideTransition: nil) { [weak self] _ in
                     self?.waitingSwipe = false
                     self?.updateFront()
