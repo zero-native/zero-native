@@ -20,13 +20,14 @@ APK / IPA.
 |---|---|---|
 | `storeAnswer(status?)` | the store answer of native's last update check (`{ update, store }`), or `null` before the first one | same |
 | `nativeStoreSource`, `checkAfterUpdateChecks(engine)` | the engine's source, and "check after each of native's update checks" | same |
-| `AppUpdates.isUpdateAvailable()` | Play's answer: `{ available, versionCode, immediateAllowed, flexibleAllowed, stalenessDays? }` | `{ available: false }` (no Play) |
-| `AppUpdates.start({ flexible })` | Play's sheet: `false` = forced (IMMEDIATE), `true` = optional (FLEXIBLE) | `{ ok: false, unavailable: true }` |
-| `AppUpdates.complete()` | installs a downloaded optional update (Play restarts the app) | `unavailable` |
-| `AppUpdates.setBusy(busy)` | a payment / form is open: nothing opens or installs, the card hides | ignored |
+| `AppUpdates.isUpdateAvailable({ appStoreId? })` | Play's answer: `{ available, versionCode, immediateAllowed, flexibleAllowed, stalenessDays? }` | the App Store's lookup: the same keys plus `storeVersion` and `appStoreId`; `available` = the store's version is newer than this build's and this iOS can run it (kept an hour) |
+| `AppUpdates.start({ flexible, appStoreId? })` | Play's sheet: `false` = forced (IMMEDIATE), `true` = optional (FLEXIBLE) | the App Store's own sheet for the app, inside the app (`SKStoreProductViewController`; the App Store app when it can't load). A forced one opens again on each return to the app |
+| `AppUpdates.complete()` | installs a downloaded optional update (Play restarts the app) | `unavailable`: the App Store installs and ends the app itself |
+| `AppUpdates.setBusy(busy)` | a payment / form is open: nothing opens or installs, the card hides | no forced sheet opens again; kept on disk |
 | `AppUpdates.openStore({ appStoreId? })` | the Play listing (Play Store app, else the web page) | `itms-apps://apps.apple.com/app/id<appStoreId>` |
-| `AppUpdates.onState(handler)` | Play's install state: `accepted`, `declined`, `pending`, `downloading` (bytes), `downloaded`, `failed` (errorCode), `canceled` | never fires |
-| `createAppUpdateEngine(deps)` | the rules below, pure and tested | same, with the app's own screens |
+| `AppUpdates.onState(handler)` | Play's install state: `accepted`, `declined`, `pending`, `downloading` (bytes), `downloaded`, `failed` (errorCode), `canceled` | the sheet closing: `declined` (optional) or `canceled` (forced). iOS never says whether Update was tapped |
+| `appStoreUpdates` | - | the lookup in the shape of the engine's `confirm` |
+| `createAppUpdateEngine(deps)` | the rules below, pure and tested | same, with the app's own screens (and `confirm`) |
 
 Native module `AppUpdates`, version 1. Nothing rejects: a failure answers "no update", `ok: false` or `null`.
 
@@ -43,6 +44,8 @@ The server answers `critical: 2` (forced) or `1` (optional) for this build, or `
   or installed then; the next return checks again.
 - **Play has no update for this phone** (staged rollout, Play is slow to see a new build): ignore, ask again next
   return. The server's rule alone never opens Play.
+- **The App Store doesn't have it yet** (iOS with `confirm: appStoreUpdates`): the same. Apple's CDN can lag a release
+  by hours, and the server's rule may come first.
 - **Downloaded.** A downloaded optional update installs when the user comes back to the app, never while busy. A new
   Activity (after Android killed the app) also installs it, unless the disk says "busy".
 - The check runs 1 s after start and 1 s after every return to the app.
@@ -72,7 +75,7 @@ iOS host: `ZnPlugins.register(..., AppUpdatesPlugin())`.
 
 ```ts
 import { appState, nav, onAppState, Platform } from "@zeronative/core"
-import { AppUpdates, checkAfterUpdateChecks, createAppUpdateEngine, nativeStoreSource, playUpdates } from "@zeronative/app-updates"
+import { AppUpdates, appStoreUpdates, checkAfterUpdateChecks, createAppUpdateEngine, nativeStoreSource, playUpdates } from "@zeronative/app-updates"
 
 const os = Platform.OS === "ios" ? "ios" : "android"
 const engine = createAppUpdateEngine({
@@ -80,6 +83,7 @@ const engine = createAppUpdateEngine({
   source: nativeStoreSource,
   autoCheck: false, // checkAfterUpdateChecks below runs the checks
   play: os === "android" ? playUpdates : undefined,
+  confirm: os === "ios" ? appStoreUpdates : undefined, // iOS: show the screens once the App Store has the version
   prompt: {
     forced: (u, store) => nav.replace("forceUpdate", { appStoreId: store.appStoreId, message: u.message }),
     optional: (u, store) => showUpdateSheet(u, store),
@@ -101,7 +105,9 @@ checkout.subscribe(() => void AppUpdates.setBusy(checkout.isOpen()))
 ```
 
 `prompt` is your own screens: a forced screen (no Back, one "Update" button that calls
-`AppUpdates.openStore({ appStoreId })`) and an optional sheet. Android with `play` never calls `prompt`.
+`AppUpdates.start({ flexible: false, appStoreId })` for the App Store sheet in the app, or
+`AppUpdates.openStore({ appStoreId })` for the App Store app) and an optional sheet. Android with `play` never calls
+`prompt`.
 
 Call `setBusy` again on every return (as ZeroBill does): native keeps it on disk for a new Activity after a kill, and a
 change made while the app had no Activity may not have reached it.
@@ -148,10 +154,19 @@ The sample's "App updates plugin" lab (Dev screen) runs `Updates.check()` and sh
 
 ## iOS notes
 
-Apple has no in-app update API: the server's rule is the truth and the app shows its own screens (`prompt`). The App
-Store id comes from the server's app facts (`store.ios.appStoreId`), answered as `store.appStoreId`. `openStore` opens
-the App Store app directly (`itms-apps://`), not an in-app `SKStoreProductViewController` (kept small).
-**`ios/AppUpdatesPlugin.swift` is not built on a Mac yet** (written on Windows, 2026-11-09).
+Apple has no in-app update API like Play's: the server's rule decides and the app shows its own screens (`prompt`).
+The App Store id comes from the server's app facts (`store.ios.appStoreId`), answered as `store.appStoreId`.
+
+- `isUpdateAvailable` asks Apple's public lookup (`https://itunes.apple.com/lookup?bundleId=<this app>&country=<the
+  phone's region>`, or `id=<appStoreId>` when given). It sends Apple only the bundle id (or id) and the country. It is
+  not a documented API, though widely used; an app not sold in that storefront gets no result (`available: false`).
+  Answers are kept an hour, and Apple's CDN can lag a release by hours.
+- `start` shows the App Store's sheet in the app. It can't be made full screen, so a forced update still needs your own
+  screen behind it. It doesn't load on the simulator (no App Store there); then it opens the App Store app, which the
+  simulator doesn't have either (`ok: false`).
+- `complete` can't exist: the App Store installs the update and ends the app.
+- The rules are in `ios/AppUpdatesRules.swift`, checked on the Mac by `bun run tools/ios-unit-test.ts plugins/app-updates`.
+- The lab: `bun run tools/ios-sample.ts --route appUpdatesLab --params '{"appStoreId":"<a published app's id>"}'`.
 
 ## Size
 
