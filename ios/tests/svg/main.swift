@@ -1,7 +1,9 @@
 // iOS's SVG filter graph (ZnSvgFilters.swift) on the Mac: tools/ios-unit-test.ts builds this with that file alone. The
 // cases follow android/runtime's ZnSvgFilterGraph (ZnSvgEffects.kt): inputs, blur sigma, offsets, flood, colour
-// matrices on unpremultiplied colour, composites with src = in and dst = in2, blends, merge order, the region's pixels
-// and its caps. Pixels are probed in images whose first row is the top, as ZnSvgDraw.swift makes them.
+// matrices on unpremultiplied colour (and values too big for vImage), composites with src = in and dst = in2, blends,
+// merge order, the region's pixels and its caps, and the hook's maths (the region on the device's pixels, the flips,
+// a turn, a mirror, nested filters, the lower resolution, falling back). Pixels are probed in images whose first row is
+// the top, as ZnSvgDraw.swift makes them.
 import CoreGraphics
 import Foundation
 
@@ -195,6 +197,35 @@ if let o = run([prim("b", [-1], [2, 2]), prim("m", [0], gooey), prim("B", [-1, 1
     check("gooey leaves the corners", o.a(0, 0), 0)
 }
 
+// Values the compiler doesn't bound (saturate(50000), a 40000, an offset of 5000) don't fit vImage's whole numbers:
+// worked in floating point, as Android's float matrix, instead of trapping.
+func saturate(_ s: CGFloat) -> [CGFloat] {
+    [0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s, 0, 0,
+     0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s, 0, 0,
+     0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s, 0, 0,
+     0, 0, 0, 1, 0]
+}
+let midGrey = image(4, 4) { fill($0, CGRect(x: 0, y: 0, width: 4, height: 4), 0xFF808080) }
+if let o = run([prim("m", [-1], saturate(50000))], midGrey) {
+    let p = o.at(1, 1)
+    yes("saturate(50000) keeps grey grey", abs(p[0] - 128) <= 1 && abs(p[1] - 128) <= 1 && abs(p[2] - 128) <= 1 && p[3] == 255)
+} else { yes("saturate(50000) runs", false) }
+if let o = run([prim("m", [-1], saturate(50000))], red) { check("saturate(50000) keeps red", o.at(1, 1), [255, 0, 0, 255]) }
+let dimRed = image(4, 4) { fill($0, CGRect(x: 0, y: 0, width: 4, height: 4), 0xFF400000) }
+var huge = identity
+huge[0] = 40000
+if let o = run([prim("m", [-1], huge)], dimRed) { check("a 40000 in the matrix saturates", o.at(1, 1), [255, 0, 0, 255]) }
+var bright = identity
+bright[4] = 5000; bright[9] = 5000; bright[14] = 5000; bright[19] = 5000
+if let o = run([prim("m", [-1], bright)], dot) { check("an offset of 5000 is white", o.at(0, 0), [255, 255, 255, 255]) }
+var dark = identity
+dark[19] = -5000
+if let o = run([prim("m", [-1], dark)], dot) { check("an offset of -5000 is clear", o.a(5, 4), 0) }
+var nan = identity
+nan[0] = .nan
+nan[1] = .infinity
+yes("NaN and infinity in a matrix don't crash", run([prim("m", [-1], nan)], dot) != nil)
+
 // MARK: Composite (src = in, dst = in2)
 
 let left = image(10, 4) { fill($0, CGRect(x: 0, y: 0, width: 6, height: 4), 0xFFFF0000) }   // red x 0…5
@@ -279,6 +310,86 @@ if let o = run([prim("b", [-2], [1, 1]), prim("o", [0], [0, 6]), prim("f", [], c
     near("shadow below the card", Double(o.a(18, 23)), 128, 4)
     check("shadow not above", o.a(18, 5), 0)
 }
+
+// MARK: The hook (ZnSvgDraw.swift drawFiltered): the region's place, the flips and the scale from the CTM
+
+near("scale of a turn by 90° at 3×", Double(ZnSvgFilterGraph.scale(CGAffineTransform(a: 0, b: 3, c: -3, d: 0, tx: 5, ty: 1))), 3, 1e-9)
+near("scale of a skew", Double(ZnSvgFilterGraph.scale(CGAffineTransform(a: 2, b: 0, c: 1, d: 2, tx: 0, ty: 0))), 2, 1e-9)
+near("scale of a mirror", Double(ZnSvgFilterGraph.scale(CGAffineTransform(a: -2, b: 0, c: 0, d: -2, tx: 0, ty: 0))), 2, 1e-9)
+// With no turn, the region's corners land on whole device pixels (y flipped, as a view's context).
+let flipped = CGAffineTransform(a: 3, b: 0, c: 0, d: -3, tx: 0.4, ty: 10.7)
+if let a = ZnSvgFilterGraph.area([0.1, 0.2, 10, 10], ctm: flipped) {
+    let r = a.rect.applying(flipped)
+    yes("snapped region: left on a device pixel", abs(r.minX - r.minX.rounded()) < 1e-6)
+    yes("snapped region: right on a device pixel", abs(r.maxX - r.maxX.rounded()) < 1e-6)
+    yes("snapped region: top on a device pixel", abs(r.minY - r.minY.rounded()) < 1e-6)
+    yes("snapped region: holds the region", a.rect.minX <= 0.1 && a.rect.minY <= 0.2 && a.rect.maxX >= 10 && a.rect.maxY >= 10)
+    check("snapped region: pixel count", Double(a.w), 31)
+} else { yes("snapped region", false) }
+
+/// A view's context as UIKit gives one (y down, [scale] pixels a point), then [extra] (an SVG's or a part's transform).
+func view(_ w: Int, _ h: Int, scale: CGFloat, _ extra: CGAffineTransform = .identity) -> CGContext {
+    let cg = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: ZnSvgFilterGraph.srgb,
+                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    cg.translateBy(x: 0, y: CGFloat(h))
+    cg.scaleBy(x: scale, y: -scale)
+    cg.concatenate(extra)
+    return cg
+}
+/// [draw] through [f] into [cg] as drawFiltered does it; false when it fell back.
+@discardableResult
+func hook(_ cg: CGContext, _ f: SvgFilter, _ draw: (CGContext) -> Void) -> Bool {
+    guard let area = ZnSvgFilterGraph.area(f.region, ctm: cg.userSpaceToDeviceSpaceTransform), area.w > 0,
+          let out = ZnSvgFilterGraph.filtered(f, area, draw: draw) else { return false }
+    ZnSvgFilterGraph.drawBack(cg, out, area)
+    return true
+}
+let through = SvgFilter(region: [0, 0, 20, 20], prims: [prim("M", [-1])], shadows: [])
+let shift3 = SvgFilter(region: [0, 0, 20, 20], prims: [prim("o", [-1], [3, 0])], shadows: [])
+// SourceGraphic only, half a device pixel off the grid: the same pixels as drawn straight (no resampling).
+let straight = view(40, 40, scale: 2, CGAffineTransform(translationX: 0.25, y: 0.25))
+fill(straight, CGRect(x: 3, y: 3, width: 5.3, height: 4), 0xFFFF0000)
+let viaHook = view(40, 40, scale: 2, CGAffineTransform(translationX: 0.25, y: 0.25))
+yes("hook runs", hook(viaHook, through) { fill($0, CGRect(x: 3, y: 3, width: 5.3, height: 4), 0xFFFF0000) })
+let ps = Pixels(straight.makeImage()!), ph = Pixels(viaHook.makeImage()!)
+yes("SourceGraphic through the hook = drawn straight", zip(ps.p, ph.p).allSatisfy { abs(Int($0) - Int($1)) <= 1 })
+yes("SourceGraphic through the hook: not empty", ph.totalAlpha > 0)
+// dx 3 at 2×: a dot at (2, 2) moves 6 px right, stays at the top (the image isn't upside down).
+let moved = view(40, 40, scale: 2)
+hook(moved, shift3) { fill($0, CGRect(x: 2, y: 2, width: 2, height: 2), 0xFFFF0000) }
+let pm = Pixels(moved.makeImage()!)
+check("hook: offset lands right", pm.a(11, 5), 255)
+check("hook: nothing left behind", pm.a(5, 5), 0)
+check("hook: the right way up", pm.a(11, 34), 0)
+// Turned 90° (a part's turn): the offset turns with the group, so dx goes down the view.
+let turned = view(40, 40, scale: 2, CGAffineTransform(translationX: 20, y: 0).rotated(by: .pi / 2))
+hook(turned, shift3) { fill($0, CGRect(x: 2, y: 2, width: 2, height: 2), 0xFFFF0000) }
+let pt = Pixels(turned.makeImage()!)
+check("hook turned: offset goes down", pt.a(34, 12), 255)
+check("hook turned: nothing where it was", pt.a(34, 6), 0)
+// Mirrored (right to left): dx goes left.
+let mirrored = view(40, 40, scale: 2, CGAffineTransform(translationX: 20, y: 0).scaledBy(x: -1, y: 1))
+hook(mirrored, shift3) { fill($0, CGRect(x: 2, y: 2, width: 2, height: 2), 0xFFFF0000) }
+let pr = Pixels(mirrored.makeImage()!)
+check("hook mirrored: offset goes left", pr.a(28, 6), 255)
+check("hook mirrored: nothing where it was", pr.a(34, 6), 0)
+// A filter inside a filtered group (drawn in the first one's image): as one offset.
+let nested = view(40, 40, scale: 2)
+hook(nested, through) { off in hook(off, shift3) { fill($0, CGRect(x: 2, y: 2, width: 2, height: 2), 0xFFFF0000) } }
+yes("nested filters = one", Pixels(nested.makeImage()!).p == pm.p)
+// A region over 4M px: filtered at a lower resolution, drawn back in the same place.
+let large = view(2100, 2100, scale: 1)
+yes("over 4M px runs", hook(large, SvgFilter(region: [0, 0, 2100, 2100], prims: [prim("M", [-1])], shadows: [])) {
+    fill($0, CGRect(x: 1000, y: 1000, width: 100, height: 100), 0xFFFF0000)
+})
+let pl = Pixels(large.makeImage()!)
+yes("over 4M px: same place", pl.a(1050, 1050) == 255 && pl.a(1003, 1003) > 200 && pl.a(995, 1050) == 0 && pl.a(1105, 1050) == 0)
+// The graph failing: nothing comes out, so drawFiltered returns false and the plain shadows are drawn instead.
+let failing = view(40, 40, scale: 2)
+yes("bad graph: the hook falls back", !hook(failing, SvgFilter(region: [0, 0, 20, 20], prims: [prim("o", [5], [1, 1])], shadows: [])) {
+    fill($0, CGRect(x: 2, y: 2, width: 2, height: 2), 0xFFFF0000)
+})
+check("bad graph: nothing drawn", Pixels(failing.makeImage()!).totalAlpha, 0)
 
 // MARK: Bad graphs: nil, so the caller falls back
 

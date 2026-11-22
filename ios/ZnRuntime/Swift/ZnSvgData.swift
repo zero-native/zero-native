@@ -48,7 +48,7 @@ struct SvgMask {
 }
 
 // SvgFilter and SvgFilterPrim (a filter, its primitives and its plain drop shadows) are in ZnSvgFilters.swift, with
-// the Core Image graph that runs them (the Mac unit suite builds that file alone).
+// the graph that runs them (the Mac unit suite builds that file alone).
 
 /// dashes: nil when solid. nonScaling: width is in points, whatever the SVG's size.
 struct SvgStroke {

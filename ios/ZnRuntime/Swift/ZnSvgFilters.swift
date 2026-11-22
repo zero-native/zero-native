@@ -54,24 +54,74 @@ enum ZnSvgFilterGraph {
 
     static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
 
+    /// Pixels per unit of the group's space for a context whose user-to-device transform is [ctm] (the screen's scale,
+    /// the SVG's, parts' scales; a turn, skew or mirror doesn't change it).
+    static func scale(_ ctm: CGAffineTransform) -> CGFloat { sqrt(abs(ctm.a * ctm.d - ctm.b * ctm.c)) }
+
+    /// The region [r] for a context whose user-to-device transform is [ctm]. With no turn or skew, its pixels sit on
+    /// the device's own, so what comes out is drawn back without being resampled (a drop-shadow icon is as sharp as
+    /// one drawn straight); otherwise as Android rounds it.
+    static func area(_ r: [CGFloat], ctm: CGAffineTransform) -> ZnSvgFilterArea? {
+        let px = scale(ctm)
+        var shift = CGPoint.zero
+        if ctm.b == 0, ctm.c == 0, abs(abs(ctm.a) - px) < px * 1e-6, ctm.tx.isFinite, ctm.ty.isFinite {
+            // A pixel's edge u (pixels from the group's origin, u = x · px) is on the device's where u + shift is whole.
+            func frac(_ v: CGFloat) -> CGFloat { v - floor(v) }
+            shift = CGPoint(x: frac(ctm.a < 0 ? -ctm.tx : ctm.tx), y: frac(ctm.d < 0 ? -ctm.ty : ctm.ty))
+        }
+        return area(r, px: px, shift: shift)
+    }
+
     /// The region [r] (x0 y0 x1 y1) at [px] pixels per unit, as Android rounds it (left and top down, right and
-    /// bottom up). w == 0: nothing shows. nil: too big a side, or no scale (the caller falls back).
-    static func area(_ r: [CGFloat], px: CGFloat) -> ZnSvgFilterArea? {
+    /// bottom up), on a grid moved by [shift] pixels. w == 0: nothing shows. nil: too big a side, or no scale (the
+    /// caller falls back).
+    static func area(_ r: [CGFloat], px: CGFloat, shift: CGPoint = .zero) -> ZnSvgFilterArea? {
         guard r.count == 4, px > 0, px.isFinite, r.allSatisfy(\.isFinite) else { return nil }
-        func make(_ s: CGFloat) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
-            let left = floor(r[0] * s), top = floor(r[1] * s)
-            return (left, top, ceil(r[2] * s) - left, ceil(r[3] * s) - top)
+        func make(_ s: CGFloat, _ o: CGPoint) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
+            let left = floor(r[0] * s + o.x), top = floor(r[1] * s + o.y)
+            return (left - o.x, top - o.y, ceil(r[2] * s + o.x) - left, ceil(r[3] * s + o.y) - top)
         }
         var s = px
-        var (left, top, w, h) = make(s)
+        var (left, top, w, h) = make(s, shift)
         if w <= 0 || h <= 0 { return ZnSvgFilterArea(left: 0, top: 0, w: 0, h: 0, px: px) }
         if w > CGFloat(maxSide) || h > CGFloat(maxSide) { return nil }
         if w * h > CGFloat(maxPixels) {
+            // Resampled anyway: no grid to keep to.
             s *= sqrt(CGFloat(maxPixels) / (w * h)) * 0.999
-            (left, top, w, h) = make(s)
+            (left, top, w, h) = make(s, .zero)
             if w <= 0 || h <= 0 { return ZnSvgFilterArea(left: 0, top: 0, w: 0, h: 0, px: s) }
         }
         return ZnSvgFilterArea(left: left, top: top, w: Int(w), h: Int(h), px: s)
+    }
+
+    /// [draw] (the group, in its own y-down space) drawn into an image of [area] and run through [f]: what comes out,
+    /// its first row the region's top, or nil when it can't be made (nothing is drawn anywhere else then).
+    static func filtered(_ f: SvgFilter, _ area: ZnSvgFilterArea, draw: (CGContext) -> Void) -> CGImage? {
+        guard area.w > 0, area.h > 0,
+              let off = CGContext(data: nil, width: area.w, height: area.h, bitsPerComponent: 8, bytesPerRow: area.w * 4,
+                                  space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        // y down as the view's context (UIKit text draws the right way up), the region's top left at the corner.
+        off.translateBy(x: 0, y: CGFloat(area.h))
+        off.scaleBy(x: 1, y: -1)
+        off.scaleBy(x: area.px, y: area.px)
+        off.translateBy(x: -area.left / area.px, y: -area.top / area.px)
+        draw(off)
+        guard let src = off.makeImage() else { return nil }
+        let g0 = ZnSvgFilterTiming.on ? CFAbsoluteTimeGetCurrent() : 0
+        let out = run(f, source: src, px: area.px)
+        if ZnSvgFilterTiming.on { ZnSvgFilterTiming.graph += CFAbsoluteTimeGetCurrent() - g0 }
+        return out
+    }
+
+    /// [image] (from filtered) drawn into [cg] in its place in the group's (y-down) space: flipped back, so its first
+    /// row is the region's top. The group's transforms (a turn, skew, mirror) carry it.
+    static func drawBack(_ cg: CGContext, _ image: CGImage, _ area: ZnSvgFilterArea) {
+        let rect = area.rect
+        cg.saveGState()
+        cg.translateBy(x: 0, y: rect.minY + rect.maxY)
+        cg.scaleBy(x: 1, y: -1)
+        cg.draw(image, in: rect)
+        cg.restoreGState()
     }
 
     /// The blur Android gives standard deviation [sigma] (pixels): it asks for a radius, whose sigma is
@@ -195,15 +245,33 @@ enum ZnSvgFilterGraph {
         let biggest = max(coef.map(abs).max() ?? 0, 1e-6)
         var divisor: Int32 = 4096
         while divisor > 1 && biggest * CGFloat(divisor) > 32767 { divisor /= 2 }
-        let m = coef.map { Int16(($0 * CGFloat(divisor)).rounded()) }
-        let bias = (0..<4).map { c in Int32((v[c * 5 + 4] * 255 * CGFloat(divisor)).rounded()) }
+        // The compiler doesn't bound the values (saturate(50000), a 40000 in a matrix, an offset of 5000). Ones that
+        // don't fit vImage's 16-bit coefficients, or an offset past 2^29 (vImage sums 4 × 255 × 32767 plus it in 32
+        // bits), take the slow way in floating point, as Android's float matrix: exact, never a crash.
+        let fits = v.allSatisfy(\.isFinite) && biggest * CGFloat(divisor) <= 32767
+            && (0..<4).allSatisfy { abs(v[$0 * 5 + 4] * 255 * CGFloat(divisor)) <= 536_870_912 }
         return scratch.withUnsafeMutableBytes { s -> CGImage? in
             var a = vImage_Buffer(data: data, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w * 4)
             var b = vImage_Buffer(data: s.baseAddress, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w * 4)
             let flags = vImage_Flags(kvImageNoFlags)
-            guard vImageUnpremultiplyData_RGBA8888(&a, &a, flags) == kvImageNoError,
-                  vImageMatrixMultiply_ARGB8888(&a, &b, m, divisor, nil, bias, flags) == kvImageNoError,
-                  vImagePremultiplyData_RGBA8888(&b, &a, flags) == kvImageNoError else { return nil }
+            guard vImageUnpremultiplyData_RGBA8888(&a, &a, flags) == kvImageNoError else { return nil }
+            if fits {
+                let m = coef.map { Int16(($0 * CGFloat(divisor)).rounded()) }
+                let bias = (0..<4).map { c in Int32((v[c * 5 + 4] * 255 * CGFloat(divisor)).rounded()) }
+                guard vImageMatrixMultiply_ARGB8888(&a, &b, m, divisor, nil, bias, flags) == kvImageNoError else { return nil }
+            } else {
+                // Not a number counts as 0, an infinity as a billion.
+                let f = v.map { $0.isNaN ? 0 : Double(min(max($0, -1e9), 1e9)) }
+                let from = data.assumingMemoryBound(to: UInt8.self), to = s.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                for k in stride(from: 0, to: w * h * 4, by: 4) {
+                    let x = (0..<4).map { Double(from[k + $0]) / 255 }
+                    for c in 0..<4 {
+                        let o = f[c * 5] * x[0] + f[c * 5 + 1] * x[1] + f[c * 5 + 2] * x[2] + f[c * 5 + 3] * x[3] + f[c * 5 + 4]
+                        to[k + c] = UInt8(min(max(o, 0), 1) * 255 + 0.5)
+                    }
+                }
+            }
+            guard vImagePremultiplyData_RGBA8888(&b, &a, flags) == kvImageNoError else { return nil }
             return cg.makeImage()
         }
     }
@@ -220,6 +288,9 @@ enum ZnSvgFilterGraph {
     /// Blurs [cg]'s pixels (8 bits a channel, 4 channels, premultiplied) in place by [sx] across and [sy] down, with
     /// transparent edges. A side under 2 px: a Gaussian kernel; from 2 px: three box passes of about the same spread
     /// (as SVG's own recipe). Also for the Canvas's blurred gradients. False when vImage fails.
+    /// [sx] and [sy] are the standard deviations in pixels as they are (feGaussianBlur adds Android's half-pixel
+    /// minimum first, androidSigma). It writes cg.data directly: blur before cg.makeImage(), as an image made earlier
+    /// may share those bytes and change with them.
     static func blur(_ cg: CGContext, sx: CGFloat, sy: CGFloat) -> Bool {
         guard let data = cg.data, cg.bitsPerPixel == 32, cg.bitsPerComponent == 8 else { return false }
         let w = cg.width, h = cg.height, rowBytes = cg.bytesPerRow

@@ -477,40 +477,25 @@ final class ZnSvgDrawing {
     /// Group [g] through its whole filter (ZnSvgEffects.kt drawWithEffect): drawn into an image of the filter's region
     /// at the device pixels one unit of the group's space has now (screen scale, the SVG's scale, parts' scales), run
     /// through ZnSvgFilterGraph and drawn back in its place, so a part's turn or skew turns the result with it, as on
-    /// Android. False when it can't run here (a pattern tile, a region over 4096 px a side, Core Image failed): the
-    /// caller draws the plain drop shadows then. Nothing has been drawn into [f] when it returns false.
+    /// Android (the image's place and the flips are ZnSvgFilterGraph's area, filtered and drawBack, checked on the Mac
+    /// in ios/tests/svg). False when it can't run here (a pattern tile, a region over 4096 px a side, the graph
+    /// failed): the caller draws the plain drop shadows then. Nothing has been drawn into [f] when it returns false.
     private func drawFiltered(_ f: inout Frame, _ l: Int, _ at: Int, _ g: SvgGroup, _ s: State, parts: Bool) -> Bool {
         guard !f.inPattern else { return false }
         let filter = data.filters[g.filter]
-        let cg = f.cg
-        let ctm = cg.userSpaceToDeviceSpaceTransform
-        let px = sqrt(abs(ctm.a * ctm.d - ctm.b * ctm.c))
-        guard let area = ZnSvgFilterGraph.area(filter.region, px: px) else { return false }
+        guard let area = ZnSvgFilterGraph.area(filter.region, ctm: f.cg.userSpaceToDeviceSpaceTransform) else { return false }
         if area.w == 0 { return true }  // nothing shows
         let started = ZnSvgFilterTiming.on ? CFAbsoluteTimeGetCurrent() : 0
-        guard let off = CGContext(data: nil, width: area.w, height: area.h, bitsPerComponent: 8, bytesPerRow: area.w * 4,
-                                  space: ZnSvgFilterGraph.srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-        // y down as the view's context (UIKit text draws the right way up), the region's top left at the corner.
-        off.translateBy(x: 0, y: CGFloat(area.h))
-        off.scaleBy(x: 1, y: -1)
-        off.scaleBy(x: area.px, y: area.px)
-        off.translateBy(x: -area.left / area.px, y: -area.top / area.px)
-        let rect = area.rect
-        var mf = f
-        mf.cg = off
-        mf.bounds = rect
-        // A bitmap context's base space is its own pixels (y up): a shadow inside the group is cast there.
-        mf.base = .identity
-        drawRange(&mf, l, at + 1, g.end, s, parts: parts)
-        let g0 = ZnSvgFilterTiming.on ? CFAbsoluteTimeGetCurrent() : 0
-        guard let src = off.makeImage(), let out = ZnSvgFilterGraph.run(filter, source: src, px: area.px) else { return false }
-        if ZnSvgFilterTiming.on { ZnSvgFilterTiming.graph += CFAbsoluteTimeGetCurrent() - g0 }
-        // The image's first row is its top: flipped back into the y-down space.
-        cg.saveGState()
-        cg.translateBy(x: 0, y: rect.minY + rect.maxY)
-        cg.scaleBy(x: 1, y: -1)
-        cg.draw(out, in: rect)
-        cg.restoreGState()
+        let out = ZnSvgFilterGraph.filtered(filter, area) { off in
+            var mf = f
+            mf.cg = off
+            mf.bounds = area.rect
+            // A bitmap context's base space is its own pixels (y up): a shadow inside the group is cast there.
+            mf.base = .identity
+            drawRange(&mf, l, at + 1, g.end, s, parts: parts)
+        }
+        guard let out else { return false }
+        ZnSvgFilterGraph.drawBack(f.cg, out, area)
         if ZnSvgFilterTiming.on { ZnSvgFilterTiming.add(CFAbsoluteTimeGetCurrent() - started, area) }
         return true
     }
@@ -604,6 +589,8 @@ final class ZnSvgDrawing {
         rgba.translateBy(x: -b.minX, y: -b.minY)
         if mask.region >= 0 { clip(rgba, clips[mask.region]) }
         var mf = Frame(cg: rgba, current: f.current, parts: [:], unit: f.unit, bounds: b, gradientColors: f.gradientColors)
+        // A mask in a pattern's tile: its filters stay plain drop shadows too, as Android (the tile has no filter node).
+        mf.inPattern = f.inPattern
         let l = 1 + mask.content
         drawRange(&mf, l, 0, lists[l].ops.count, State(), parts: false)
         guard let src = rgba.data?.assumingMemoryBound(to: UInt8.self),
