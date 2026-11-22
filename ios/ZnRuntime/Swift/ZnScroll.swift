@@ -26,7 +26,8 @@ struct ZnScrollView<Content: View>: View {
     let padding: EdgeInsets
     /// The node's Column (vertical) or Row (horizontal), built by ZnNodeView.
     let content: Content
-    @State private var driver = ZnScrollDriver()
+    /// Made once per Scroll (StateObject's autoclosure), not on each init of this view.
+    @StateObject private var driver = ZnScrollDriver()
 
     init(ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance, outer: ZnOuter, padding: EdgeInsets,
          @ViewBuilder content: () -> Content) {
@@ -52,7 +53,8 @@ struct ZnScrollView<Content: View>: View {
                     // keyboardDismissMode is this scroll's own: scrolls inside it keep SwiftUI's default.
                     .scrollDismissesKeyboard(.automatic)
             }
-            .scrollDismissesKeyboard(keyboard == .onDrag ? .immediately : keyboard == .interactive ? .interactively : .automatic)
+            // "none" or not written: never, as RN and Android (SwiftUI's .automatic depends on where it is).
+            .scrollDismissesKeyboard(keyboard == .onDrag ? .immediately : keyboard == .interactive ? .interactively : .never)
             .modifier(ZnSnapModifier(on: s.hasSnap, driver: driver))
         }
     }
@@ -107,6 +109,16 @@ private struct ZnScrollProbe: View {
 }
 
 /// Finds the scroll view around it (SwiftUI's) once it is in the window, and keeps the driver on it.
+private final class ZnScrollProbeUIView: UIView {
+    weak var driver: ZnScrollDriver?
+
+    /// In a window now: the scroll view is an ancestor (it may not have been at the first update).
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { driver?.find(from: self) }
+    }
+}
+
 private struct ZnScrollProbeView: UIViewRepresentable {
     let ctx: ZnContext
     let s: ZnNodeSpec
@@ -116,30 +128,36 @@ private struct ZnScrollProbeView: UIViewRepresentable {
     let snap: String?
     let command: String?
 
-    func makeUIView(context: Context) -> UIView {
-        let v = UIView()
+    func makeUIView(context: Context) -> ZnScrollProbeUIView {
+        let v = ZnScrollProbeUIView()
         v.isUserInteractionEnabled = false
         return v
     }
 
-    func updateUIView(_ v: UIView, context: Context) {
+    func updateUIView(_ v: ZnScrollProbeUIView, context: Context) {
         let (ctx, s, inst, driver) = (ctx, s, inst, driver)
+        v.driver = driver
         driver.configure(ctx: ctx, s: s, inst: inst)
         let (refreshing, snap, command) = (refreshing, snap, command)
-        // The scroll view is an ancestor once this view is in the window.
+        // After SwiftUI's update: the scroll view is an ancestor once this view is in the window (didMoveToWindow
+        // looks again if it isn't yet).
         DispatchQueue.main.async {
-            var p = v.superview
-            while let sv = p, !(sv is UIScrollView) { p = sv.superview }
-            if let sv = p as? UIScrollView { driver.attach(sv) }
+            driver.find(from: v)
             driver.update(refreshing: refreshing, snap: snap, command: command)
         }
+    }
+
+    /// The Scroll left: off the scroll view's pan recognizer (which doesn't retain its targets) and its KVO.
+    static func dismantleUIView(_ v: ZnScrollProbeUIView, coordinator: ()) {
+        v.driver?.detach()
+        v.driver = nil
     }
 }
 
 /// One <Scroll>'s UIKit side: events, commands, deceleration, snapping and pull to refresh (see the file header).
 /// Offsets are along the scroll's axis, from the content's start (Android's ZnScrollPos): ZnScrollMetrics.
 @MainActor
-final class ZnScrollDriver: NSObject {
+final class ZnScrollDriver: NSObject, ObservableObject {
     private(set) weak var sv: UIScrollView?
     private var watches: [NSKeyValueObservation] = []
     private var horizontal = false
@@ -154,6 +172,8 @@ final class ZnScrollDriver: NSObject {
     private var lastOffset: Double?
     private var lastSentMs: Double = 0
     private var trailing: DispatchWorkItem?
+    /// With no throttle: a send is waiting for the end of this run loop turn (one per turn, as Android's one per frame).
+    private var coalesced = false
 
     // Momentum: watched frame by frame from a drag's release until the scroll rests.
     private var link: CADisplayLink?
@@ -184,6 +204,13 @@ final class ZnScrollDriver: NSObject {
         }
     }
 
+    /// The scroll view around [probe], if it is in one now.
+    func find(from probe: UIView) {
+        var p = probe.superview
+        while let v = p, !(v is UIScrollView) { p = v.superview }
+        if let sv = p as? UIScrollView { attach(sv) }
+    }
+
     /// Watches [sv] (again when SwiftUI made a new scroll view). Idempotent.
     func attach(_ sv: UIScrollView) {
         guard sv !== self.sv else { return }
@@ -203,15 +230,19 @@ final class ZnScrollDriver: NSObject {
         sv.panGestureRecognizer.addTarget(self, action: #selector(pan(_:)))
         lastOffset = metrics()?.offset
         refresh?.attach(to: sv)
+        applyRate()
+        // A command that came before the scroll view was found (sent with the MOUNT).
+        if let p = pending { run(p) }
     }
 
-    private func detach() {
+    func detach() {
         watches.forEach { $0.invalidate() }
         watches = []
         sv?.panGestureRecognizer.removeTarget(self, action: #selector(pan(_:)))
         stopMomentum(send: false)
         trailing?.cancel()
         trailing = nil
+        coalesced = false
         sv = nil
     }
 
@@ -223,18 +254,27 @@ final class ZnScrollDriver: NSObject {
         }
         if hasSnap {
             snap = ZnSnap.parse(text)
-            // RN's decelerationRate, already on UIKit's scale (core scrollSnap); only on a Scroll with snap props, so
-            // others keep whatever UIKit and SwiftUI set.
-            let rate = ZnSnap.decelerationRate(snap)
-            if let sv, abs(sv.decelerationRate.rawValue - rate) > 0.00001 {
-                sv.decelerationRate = UIScrollView.DecelerationRate(rawValue: rate)
-            }
+            applyRate()
         }
         if let command, let slot = spec?.s.scrollCommandSlot, slot >= 0, let inst = spec?.inst,
            let cmd = ZnScrollCommand(command), cmd.isNew(after: inst.scrollSeqs[slot] ?? 0) {
             // On the instance, so a Scroll that comes back on screen doesn't run its last command again (Android).
             inst.scrollSeqs[slot] = cmd.seq
             run(cmd)
+        }
+    }
+
+    /// RN's decelerationRate, already on UIKit's scale (core scrollSnap); only on a Scroll with snap props, so others
+    /// keep whatever UIKit and SwiftUI set. Also at each drag's start: SwiftUI owns the scroll view and could set its
+    /// own rate in an update.
+    private func applyRate() {
+        guard hasSnap, let sv else { return }
+        let rate = ZnSnap.decelerationRate(snap)
+        if abs(sv.decelerationRate.rawValue - rate) > 0.00001 {
+            #if DEBUG
+            if ZnDebug.enabled { print("zn t=\(ZnDebug.ms()) scroll: decelerationRate \(sv.decelerationRate.rawValue) -> \(rate)") }
+            #endif
+            sv.decelerationRate = UIScrollView.DecelerationRate(rawValue: rate)
         }
     }
 
@@ -292,14 +332,23 @@ final class ZnScrollDriver: NSObject {
 
     private func nowMs() -> Double { CACurrentMediaTime() * 1000 }
 
-    /// contentOffset changed: onScroll at most once per frame (UIKit moves it once a frame) or per throttle, the last
-    /// position always sent (Android's ZnScrollEvents). A bounce reads as the edge, so it sends nothing.
+    /// contentOffset changed: onScroll at most once per run loop turn (KVO can fire more than once in one, from
+    /// SwiftUI's layout and UIKit's own move) or per throttle, the last position always sent (Android's
+    /// ZnScrollEvents: one per frame). A bounce reads as the edge, so it sends nothing.
     private func scrolled() {
         guard let w = wants, w.scroll, let m = metrics() else { return }
         guard m.offset != lastOffset else { return }
         lastOffset = m.offset
         let wait = w.wait(nowMs: nowMs(), lastSentMs: lastSentMs)
-        if wait <= 0 {
+        if w.throttleMs <= 0 {
+            guard !coalesced else { return }
+            coalesced = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.coalesced else { return }
+                self.coalesced = false
+                self.sendScroll()
+            }
+        } else if wait <= 0 {
             trailing?.cancel()
             trailing = nil
             sendScroll()
@@ -325,13 +374,17 @@ final class ZnScrollDriver: NSObject {
         case .began:
             // A new drag stops the coast: its momentum ends first, as Android's fling ends when a drag starts.
             stopMomentum(send: true)
+            applyRate()
             if wants?.beginDrag == true { send("b") }
         case .ended, .cancelled, .failed:
             if wants?.endDrag == true { send("e") }
             guard let m = metrics() else { return }
             let velocity = g.state == .ended ? fingerVelocity(sv) : 0
             released = (m, velocity)
-            // UIKit's own pan handler ran first, so a coast has started (or not) by the next turn of the run loop.
+            // UIKit's own pan handler ran first (its target was added before ours), so a coast has started already
+            // when it is going to: momentum begins now, before any onScroll of the coast, as Android's fling. A snap
+            // scroll always has one (Android's ZnScrollFling snaps a let-go with no speed too).
+            if sv.isDecelerating || snap?.snaps == true { beginMomentum() }
             DispatchQueue.main.async { [weak self] in self?.afterRelease() }
         default:
             break
@@ -351,12 +404,13 @@ final class ZnScrollDriver: NSObject {
             }
         }
         guard wants?.momentum == true else { released = nil; return }
-        // Watch frame by frame: momentum begins when the offset moves after the release (a bounce back at an edge
-        // doesn't move it, as Android has none) and ends when it rests.
-        inMomentum = false
+        // Not coasting at the release, but UIKit started one by now.
+        if sv.isDecelerating { beginMomentum() }
+        // Watch frame by frame until it rests. Not coasting yet: momentum begins if the offset moves (a bounce back at
+        // an edge doesn't move it, as Android has none).
         stillFrames = 0
         frames = 0
-        lastTick = r.metrics.offset
+        lastTick = metrics()?.offset ?? r.metrics.offset
         if link == nil {
             let l = CADisplayLink(target: self, selector: #selector(tick))
             l.add(to: .main, forMode: .common)
@@ -364,22 +418,26 @@ final class ZnScrollDriver: NSObject {
         }
     }
 
+    /// onMomentumScrollBegin, once per release: where and how fast it was let go, as Android's.
+    private func beginMomentum() {
+        guard !inMomentum, wants?.momentum == true, let r = released else { return }
+        inMomentum = true
+        if wants?.momentumBegin == true { send("mb", r.metrics, velocity: r.velocity) }
+    }
+
     @objc private func tick() {
-        guard let sv, let m = metrics(), let r = released else { return stopMomentum(send: false) }
+        guard let sv, let m = metrics(), released != nil else { return stopMomentum(send: false) }
         frames += 1
         let moved = abs(m.offset - lastTick) > 0.01
         lastTick = m.offset
         if moved {
             stillFrames = 0
-            if !inMomentum {
-                inMomentum = true
-                // Where and how fast it was let go, as Android's onMomentumScrollBegin.
-                if wants?.momentumBegin == true { send("mb", r.metrics, velocity: r.velocity) }
-            }
+            beginMomentum()
         } else if !sv.isDecelerating {
             stillFrames += 1
-            // At rest: two still frames once it coasted; nothing moved in the first few: it never coasted.
-            if (inMomentum && stillFrames >= 2) || (!inMomentum && frames >= 4) { stopMomentum(send: true) }
+            // At rest: still for two frames (and three since the release, so a snap's move has had time to start);
+            // nothing moved in the first few and it never coasted: no momentum.
+            if (inMomentum && stillFrames >= 2 && frames >= 3) || (!inMomentum && frames >= 4) { stopMomentum(send: true) }
         }
     }
 
@@ -402,6 +460,13 @@ final class ZnScrollDriver: NSObject {
         let projected = horizontal ? origin.x : origin.y
         let to = snap.pick(start: m.offset, projected: projected, velocity: fingerVelocity(sv), viewport: m.viewport,
                            max: m.max)
+        #if DEBUG
+        if ZnDebug.enabled {
+            let raw = horizontal ? sv.contentOffset.x : sv.contentOffset.y
+            let inset = horizontal ? sv.adjustedContentInset.left : sv.adjustedContentInset.top
+            print("zn t=\(ZnDebug.ms()) scroll: snap target \(projected) -> \(to), offset \(m.offset) (raw \(raw), inset \(inset))")
+        }
+        #endif
         if horizontal { origin.x = to } else { origin.y = to }
     }
 }

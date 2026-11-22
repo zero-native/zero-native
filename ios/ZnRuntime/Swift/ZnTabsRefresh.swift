@@ -148,6 +148,8 @@ final class ZnRefresh: NSObject {
         if asSubview {
             // Under the content, as UIKit puts a refreshControl.
             if on { sv.insertSubview(control, at: 0) } else { control.removeFromSuperview() }
+            // A subview only: as the scroll view's refreshControl, SwiftUI's next update would take it out.
+            assert(sv.refreshControl !== control, "ZnRefresh: UIKit made the subview control the refreshControl")
         } else {
             sv.refreshControl = on ? control : nil
         }
@@ -192,6 +194,7 @@ final class ZnRefresh: NSObject {
     @objc private func pulled() {
         guard control.isRefreshing else { return }
         print("zn t=\(ZnDebug.ms()) refresh: pulled → onRefresh")
+        assert(!asSubview || scroll?.refreshControl !== control, "ZnRefresh: UIKit made the subview control the refreshControl")
         onRefresh?()
         // JS has 1 s to say `refreshing`; else the spinner goes.
         let p = DispatchWorkItem { [weak self] in
