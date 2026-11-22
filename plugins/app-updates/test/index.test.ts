@@ -3,7 +3,7 @@ import { installCalls } from "../../../packages/core/src/calls"
 import { installEvents } from "../../../packages/core/src/events"
 import { installFakeHost, type FakeHost } from "../../../packages/core/test/fake-host"
 import type { UpdateStatus } from "../../../packages/core/src/updates"
-import { AppUpdates, checkAfterUpdateChecks, playUpdates, storeAnswer, type AppUpdateEngine, type AppUpdateState } from "../src/index"
+import { AppUpdates, appStoreUpdates, checkAfterUpdateChecks, playUpdates, storeAnswer, type AppUpdateEngine, type AppUpdateState } from "../src/index"
 
 let host: FakeHost
 
@@ -24,9 +24,23 @@ test("isUpdateAvailable gives Play's answer and never rejects", async () => {
   reply(last("isUpdateAvailable").id, { available: true, versionCode: 170, immediateAllowed: true, flexibleAllowed: false, stalenessDays: 3 })
   expect(await a).toEqual({ available: true, versionCode: 170, immediateAllowed: true, flexibleAllowed: false, stalenessDays: 3 })
 
-  const ios = AppUpdates.isUpdateAvailable() // iOS answers only { available: false }
+  const none = AppUpdates.isUpdateAvailable() // no answer from the store (iOS: the lookup failed)
   reply(last("isUpdateAvailable").id, { available: false })
-  expect(await ios).toEqual({ available: false, versionCode: 0, immediateAllowed: false, flexibleAllowed: false })
+  expect(await none).toEqual({ available: false, versionCode: 0, immediateAllowed: false, flexibleAllowed: false })
+  expect(last("isUpdateAvailable").args.appStoreId).toBeUndefined()
+
+  // iOS: the App Store's lookup, with its version and id
+  const ios = AppUpdates.isUpdateAvailable({ appStoreId: "6784262215" })
+  expect(last("isUpdateAvailable").args.appStoreId).toBe("6784262215")
+  const found = { available: true, versionCode: 0, immediateAllowed: true, flexibleAllowed: true, stalenessDays: 3, storeVersion: "1.6.2", appStoreId: "6784262215" }
+  reply(last("isUpdateAvailable").id, found)
+  expect(await ios).toEqual(found)
+  const upToDate = AppUpdates.isUpdateAvailable()
+  reply(last("isUpdateAvailable").id, { available: false, versionCode: 0, storeVersion: "1.6.2", appStoreId: "6784262215" })
+  expect(await upToDate).toEqual({ available: false, versionCode: 0, immediateAllowed: false, flexibleAllowed: false, storeVersion: "1.6.2", appStoreId: "6784262215" })
+  const odd = AppUpdates.isUpdateAvailable() // an id that isn't one is dropped
+  reply(last("isUpdateAvailable").id, { available: false, storeVersion: "", appStoreId: "12/../x" })
+  expect(await odd).toEqual({ available: false, versionCode: 0, immediateAllowed: false, flexibleAllowed: false })
 
   const old = AppUpdates.isUpdateAvailable() // an APK without the plugin
   refuse(last("isUpdateAvailable").id, "unavailable")
@@ -39,10 +53,15 @@ test("start, complete, setBusy and openStore send their args and never reject", 
   reply(last("start").id, { ok: true })
   expect(await s).toEqual({ ok: true })
 
-  const ios = AppUpdates.start({ flexible: false })
-  expect(last("start").args.flexible).toBe(false)
+  const old = AppUpdates.start({ flexible: false }) // an older iOS build answered `unavailable`
+  expect(last("start").args).toEqual({ __v: 1, flexible: false })
   reply(last("start").id, { unavailable: true })
-  expect(await ios).toEqual({ ok: false, unavailable: true })
+  expect(await old).toEqual({ ok: false, unavailable: true })
+
+  const sheet = AppUpdates.start({ flexible: true, appStoreId: "6784262215" }) // iOS: the App Store sheet for that app
+  expect(last("start").args).toEqual({ __v: 1, flexible: true, appStoreId: "6784262215" })
+  reply(last("start").id, { ok: true })
+  expect(await sheet).toEqual({ ok: true })
 
   const c = AppUpdates.complete()
   refuse(last("complete").id, "failed")
@@ -68,6 +87,17 @@ test("playUpdates is the module in the engine's shape", async () => {
   const a = playUpdates.isAvailable()
   reply(last("isUpdateAvailable").id, { available: true, versionCode: 9 })
   expect((await a).available).toBe(true)
+})
+
+test("appStoreUpdates asks the lookup for the server's App Store id", async () => {
+  const a = appStoreUpdates.isAvailable({ appStoreId: "123" })
+  expect(last("isUpdateAvailable").args.appStoreId).toBe("123")
+  reply(last("isUpdateAvailable").id, { available: true, storeVersion: "2.0", appStoreId: "123" })
+  expect((await a).available).toBe(true)
+  const b = appStoreUpdates.isAvailable({})
+  expect(last("isUpdateAvailable").args.appStoreId).toBeUndefined()
+  refuse(last("isUpdateAvailable").id, "unavailable")
+  expect((await b).available).toBe(false)
 })
 
 test("state events reach the handler until it stops", () => {

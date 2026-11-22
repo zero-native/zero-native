@@ -4,6 +4,7 @@
 //
 //   no update in the server's answer      -> nothing (no Play call)
 //   Play has no update for this phone     -> ignore, ask again on the next return (staged rollout, Play is slow to see it)
+//   the App Store doesn't have it yet     -> (iOS, with `confirm`) ignore, ask again on the next return
 //   critical 2 (forced)                   -> Android: Play's IMMEDIATE update (full screen; cancel opens it again)
 //                                            iOS: the app's own full-screen "update" screen, shown on every start / return
 //   critical 1 (optional)                 -> Android: Play's FLEXIBLE sheet. iOS: the app's own sheet.
@@ -55,6 +56,14 @@ export interface PlayUpdates {
   complete(): Promise<unknown>
 }
 
+/**
+ * Asks the store whether it has the update yet before the app's own screens show (iOS: `appStoreUpdates`, the App
+ * Store's lookup). Never rejects.
+ */
+export interface StoreConfirm {
+  isAvailable(store: StoreCheck["store"]): Promise<{ available: boolean }>
+}
+
 /** The app's own update screens (iOS, or Android without Play). */
 export interface UpdatePrompt {
   /** A full-screen screen the user can't close; its button opens the store. Called again on every start / return. */
@@ -81,6 +90,11 @@ export interface AppUpdateDeps {
   play?: PlayUpdates
   /** iOS (or an Android app without Play): the app's own screens. */
   prompt?: UpdatePrompt
+  /**
+   * With `prompt`: the store must have the update before a screen shows (iOS: `appStoreUpdates`). The server's rule
+   * can come before Apple's CDN has the version; then nothing shows and the next return asks again, as with Play.
+   */
+  confirm?: StoreConfirm
   /** The app is busy: a payment, a checkout, a form being sent. Nothing is shown or installed then. */
   isBusy(): boolean
   /** The top screen's route name, or undefined while the app has no screen yet. */
@@ -105,7 +119,7 @@ export interface AppUpdateDeps {
 export const CHECK_DELAY_MS = 1000
 /** An optional update that waits for a hold route to close asks again this often (zn has no "route changed" event). */
 export const WAIT_RECHECK_MS = 2000
-/** Play's availability answer counts as "none" after this (native answers "no update" itself after 10 s). */
+/** Play's (or `confirm`'s) availability answer counts as "none" after this (native answers "no update" itself after 10 s). */
 export const PLAY_ANSWER_LIMIT_MS = 15_000
 
 export type UpdatePhase = "idle" | "downloading" | "downloaded"
@@ -272,6 +286,19 @@ export function createAppUpdateEngine(deps: AppUpdateDeps): AppUpdateEngine {
         if (!prompt) {
           log.log(`${TAG} no Play and no prompt given: nothing to show`)
           return
+        }
+        if (deps.confirm) {
+          const status = await withinLimit(deps.confirm.isAvailable(answer.store), PLAY_ANSWER_LIMIT_MS)
+          if (status === null) {
+            log.warn(`${TAG} the store gave no answer in ${PLAY_ANSWER_LIMIT_MS} ms; asking again on the next return`)
+            return
+          }
+          if (!status.available) {
+            log.log(`${TAG} the store doesn't have ${update.version} for this phone yet. Asking again on the next return.`)
+            return
+          }
+          // The app may have become busy while the store answered
+          if (deps.isBusy()) return
         }
         if (update.critical === 2) {
           log.log(`${TAG} forced update: showing the app's update screen`)

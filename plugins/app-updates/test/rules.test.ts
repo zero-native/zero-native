@@ -305,3 +305,78 @@ test("Play never answers: the check ends after the limit, opens nothing, and the
   await second
   expect(asked).toBe(2)
 })
+
+test("iOS with confirm: the app's screens show only once the App Store has the version", async () => {
+  const shown: string[] = []
+  const asked: (string | undefined)[] = []
+  let has = false
+  const t = setup({
+    answer: { update: forced, store: { appStoreId: "123" } },
+    play: undefined,
+    prompt: {
+      forced: (u) => shown.push(`forced ${u.version}`),
+      optional: (u) => shown.push(`optional ${u.version}`),
+    },
+    confirm: {
+      isAvailable: async (store) => {
+        asked.push(store.appStoreId)
+        return { available: has }
+      },
+    },
+  })
+  await t.engine.check() // the server's rule came before Apple's CDN has the build
+  expect(shown).toEqual([])
+  has = true
+  await t.engine.check()
+  t.state.answer = answer(optional)
+  await t.engine.check()
+  await t.engine.check() // optional: once per session, not asked again
+  expect(shown).toEqual(["forced 170", "optional 170"])
+  expect(asked).toEqual(["123", "123", undefined])
+})
+
+test("iOS with confirm: no store answer in time, or busy meanwhile, shows nothing; the next check asks again", async () => {
+  const shown: string[] = []
+  let answers = 0
+  let busyAfter = false
+  const t = setup({
+    answer: answer(forced),
+    play: undefined,
+    prompt: { forced: () => shown.push("forced"), optional: () => shown.push("optional") },
+    confirm: {
+      isAvailable: () => {
+        answers++
+        if (busyAfter) {
+          t.state.busy = true
+          return Promise.resolve({ available: true })
+        }
+        return new Promise<never>(() => {})
+      },
+    },
+  })
+  const first = t.engine.check()
+  await t.advance(0)
+  await t.advance(PLAY_ANSWER_LIMIT_MS)
+  await first
+  expect(shown).toEqual([])
+  busyAfter = true // a payment opened while the store answered
+  await t.engine.check()
+  expect(shown).toEqual([])
+  expect(answers).toBe(2)
+})
+
+test("confirm is not asked when there is no update, or when Play shows the update", async () => {
+  let asked = 0
+  const confirm = {
+    isAvailable: async () => {
+      asked++
+      return { available: true }
+    },
+  }
+  const none = setup({ answer: answer(null), play: undefined, prompt: { forced: () => {}, optional: () => {} }, confirm })
+  await none.engine.check()
+  const android = setup({ answer: answer(forced), confirm })
+  await android.engine.check()
+  expect(android.calls).toContain("play.immediate")
+  expect(asked).toBe(0)
+})

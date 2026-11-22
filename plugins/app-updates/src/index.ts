@@ -9,28 +9,38 @@
 //
 // Nothing here rejects: a failure answers "no update" / false / null, because an update check must never stop the app.
 import { nativeModule, Updates, type CallOptions, type StoreStatus, type UpdateStatus } from "@zeronative/core"
-import type { AppUpdateEngine, PlayUpdates, PlayUpdateState, StoreCheck, StoreSource, StoreUpdate } from "./rules"
+import type { AppUpdateEngine, PlayUpdates, PlayUpdateState, StoreCheck, StoreConfirm, StoreSource, StoreUpdate } from "./rules"
 
 export * from "./rules"
 
-/** Play's install state: `accepted` / `declined` (the optional sheet's answer), download progress, `downloaded`, ... */
+/**
+ * Play's install state: `accepted` / `declined` (the optional sheet's answer), download progress, `downloaded`, ...
+ * iOS sends only the App Store sheet's close: `declined` (optional) or `canceled` (forced).
+ */
 export type AppUpdateState = PlayUpdateState
 
-/** What Play says about this phone (Android). iOS always answers `available: false`. */
+/**
+ * What the store says about this phone: Play on Android, the App Store's lookup on iOS (the store's version is newer
+ * than this build's and this iOS can run it).
+ */
 export interface PlayAvailability {
-  /** Play offers a newer build to this phone. */
+  /** The store offers a newer build to this phone. */
   available: boolean
-  /** The newest versionCode Play offers (0 when none). */
+  /** The newest versionCode Play offers (0 when none; always 0 on iOS). */
   versionCode: number
-  /** Play allows a forced (IMMEDIATE) update now. */
+  /** A forced update can start now (Play's IMMEDIATE; iOS: whenever there is an update). */
   immediateAllowed: boolean
-  /** Play allows an optional (FLEXIBLE) update now. */
+  /** An optional update can start now (Play's FLEXIBLE; iOS: whenever there is an update). */
   flexibleAllowed: boolean
-  /** Days since Play first offered this update to the phone, when Play knows. */
+  /** Days since Play first offered this update to the phone, when Play knows (iOS: since the version came out). */
   stalenessDays?: number
+  /** iOS: the App Store's version, "1.6.2". */
+  storeVersion?: string
+  /** iOS: the app's App Store id (for `openStore`). */
+  appStoreId?: string
 }
 
-/** The answer of `start` and `complete`. `unavailable`: this OS has no in-app update (iOS). */
+/** The answer of `start` and `complete`. `unavailable`: this OS can't do it (iOS's `complete`). */
 export interface StartResult {
   ok: boolean
   unavailable?: boolean
@@ -39,8 +49,8 @@ export interface StartResult {
 type NoArgs = Record<string, never>
 
 interface AppUpdatesModule {
-  isUpdateAvailable(args: NoArgs, options?: CallOptions): Promise<Partial<PlayAvailability> | null>
-  start(args: { flexible: boolean }, options?: CallOptions): Promise<StartResult | null>
+  isUpdateAvailable(args: { appStoreId?: string }, options?: CallOptions): Promise<Partial<PlayAvailability> | null>
+  start(args: { flexible: boolean; appStoreId?: string }, options?: CallOptions): Promise<StartResult | null>
   complete(args: NoArgs, options?: CallOptions): Promise<StartResult | null>
   setBusy(args: { busy: boolean }, options?: CallOptions): Promise<null>
   openStore(args: { appStoreId?: string }, options?: CallOptions): Promise<{ opened: boolean } | null>
@@ -55,7 +65,8 @@ const unowned: CallOptions = { owned: false }
 const NOT_AVAILABLE: PlayAvailability = { available: false, versionCode: 0, immediateAllowed: false, flexibleAllowed: false }
 
 function availability(v: Partial<PlayAvailability> | null): PlayAvailability {
-  if (!v || typeof v !== "object" || v.available !== true) return { ...NOT_AVAILABLE, versionCode: num(v?.versionCode) }
+  if (!v || typeof v !== "object") return { ...NOT_AVAILABLE }
+  if (v.available !== true) return withStore({ ...NOT_AVAILABLE, versionCode: num(v.versionCode) }, v)
   const out: PlayAvailability = {
     available: true,
     versionCode: num(v.versionCode),
@@ -63,6 +74,13 @@ function availability(v: Partial<PlayAvailability> | null): PlayAvailability {
     flexibleAllowed: v.flexibleAllowed === true,
   }
   if (typeof v.stalenessDays === "number") out.stalenessDays = v.stalenessDays
+  return withStore(out, v)
+}
+
+/** iOS's App Store facts, kept whatever the answer. */
+function withStore(out: PlayAvailability, v: Partial<PlayAvailability>): PlayAvailability {
+  if (typeof v.storeVersion === "string" && v.storeVersion) out.storeVersion = v.storeVersion
+  if (typeof v.appStoreId === "string" && /^\d{1,12}$/.test(v.appStoreId)) out.appStoreId = v.appStoreId
   return out
 }
 
@@ -74,23 +92,33 @@ function result(v: StartResult | null): StartResult {
 }
 
 export const AppUpdates = {
-  /** Asks Play if it offers an update to this phone (Android). iOS: always `available: false`. Never rejects. */
-  isUpdateAvailable: (): Promise<PlayAvailability> =>
-    Native.isUpdateAvailable({}, unowned).then(availability, () => ({ ...NOT_AVAILABLE })),
+  /**
+   * Asks the store if it offers an update to this phone: Play (Android), the App Store's lookup (iOS, kept for an hour;
+   * `appStoreId` asks for that App Store id instead of this app's bundle id; Android ignores it). Never rejects.
+   */
+  isUpdateAvailable: (options: { appStoreId?: string } = {}): Promise<PlayAvailability> =>
+    Native.isUpdateAvailable(options.appStoreId ? { appStoreId: options.appStoreId } : {}, unowned).then(availability, () => ({ ...NOT_AVAILABLE })),
 
   /**
-   * Opens Play's update: `flexible` true = optional (a sheet, then a download in the background), false = forced (full
-   * screen; cancelling opens it again). `ok` = Play was asked; Play itself decides if it shows. iOS: `unavailable`.
+   * Opens the store's update. Android: Play's, `flexible` true = optional (a sheet, then a download in the background),
+   * false = forced (full screen; cancelling opens it again); `ok` = Play was asked, Play itself decides if it shows.
+   * iOS: the App Store's sheet for the app inside the app (its Update button installs; the App Store app when the sheet
+   * can't load); closing it sends a `state`; a forced one opens again each time the app comes back to the front.
+   * `appStoreId` (iOS) names the app when its bundle id isn't in the App Store. Never rejects.
    */
-  start: (options: { flexible: boolean }): Promise<StartResult> =>
-    Native.start({ flexible: options.flexible === true }, unowned).then(result, () => ({ ok: false })),
+  start: (options: { flexible: boolean; appStoreId?: string }): Promise<StartResult> =>
+    Native.start(
+      options.appStoreId ? { flexible: options.flexible === true, appStoreId: options.appStoreId } : { flexible: options.flexible === true },
+      unowned,
+    ).then(result, () => ({ ok: false })),
 
-  /** Installs a downloaded optional update: Play restarts the app. iOS: `unavailable`. Never rejects. */
+  /** Installs a downloaded optional update: Play restarts the app. iOS: `unavailable` (the App Store installs). Never rejects. */
   complete: (): Promise<StartResult> => Native.complete({}, unowned).then(result, () => ({ ok: false })),
 
   /**
    * The app is busy (a payment, a checkout, a form being sent): no forced update re-opens, no downloaded update
-   * installs, and the download card hides. Kept on disk, so a new Activity after Android killed the app also waits.
+   * installs, and the download card hides. Kept on disk, so a new Activity after Android killed the app also waits
+   * (iOS: no forced App Store sheet opens again).
    * Set it back to false when the busy part ends. Never rejects.
    */
   setBusy: (busy: boolean): Promise<null> => Native.setBusy({ busy: busy === true }, unowned).catch(() => null),
@@ -105,7 +133,7 @@ export const AppUpdates = {
       () => false,
     ),
 
-  /** Play's install state (the sheet's answer, download progress, downloaded, failed). Returns the stop function. */
+  /** Play's install state (the sheet's answer, download progress, downloaded, failed; iOS: the sheet's close). Returns the stop function. */
   onState: (handler: (state: AppUpdateState) => void): (() => void) => Native.on("state", handler),
 }
 
@@ -114,6 +142,15 @@ export const playUpdates: PlayUpdates = {
   isAvailable: () => AppUpdates.isUpdateAvailable(),
   start: (options) => AppUpdates.start(options),
   complete: () => AppUpdates.complete(),
+}
+
+/**
+ * The App Store's lookup in the shape `createAppUpdateEngine`'s `confirm` wants (iOS): the app's own update screens
+ * show only once the App Store has the version (Apple's CDN can lag a release by hours), as Play's answer on Android.
+ * The server's `appStoreId`, when it sends one, is the app asked about.
+ */
+export const appStoreUpdates: StoreConfirm = {
+  isAvailable: (store) => AppUpdates.isUpdateAvailable(store?.appStoreId ? { appStoreId: store.appStoreId } : {}),
 }
 
 // ---- The store answer (from the OTA check) -------------------------------------------------------------------------
