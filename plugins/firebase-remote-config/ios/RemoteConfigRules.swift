@@ -24,16 +24,48 @@ enum RemoteConfigRules {
         return out
     }
 
-    /// A number as Android writes it: a whole one as an integer (Kotlin's Long), else as a decimal.
+    /// A number as Android's Firebase keeps it. JSON gives Android a whole number in Long's range as a Long, written as
+    /// JS wrote it (its shortest digits, then zeros: 2^60 is "1152921504606847000"); anything else is a Double, written
+    /// as Java's Double.toString does ("1.5", "1.23456785E7", "1.0E21", "1.0E-5").
     static func number(_ d: Double) -> String {
-        if d.isFinite && d == d.rounded() && abs(d) < 9e15 { return String(Int64(d)) }
-        return "\(d)"
+        guard d.isFinite else { return d.isNaN ? "NaN" : (d < 0 ? "-Infinity" : "Infinity") }
+        if d == 0 { return "0" }
+        let (digits, point) = shortest(abs(d))  // abs(d) is 0.<digits> × 10^point
+        let sign = d < 0 ? "-" : ""
+        if d == d.rounded() && d >= -9.223372036854775808e18 && d < 9.223372036854775808e18 {
+            return sign + digits + String(repeating: "0", count: max(0, point - digits.count))
+        }
+        let a = abs(d)
+        if a >= 1e-3 && a < 1e7 {
+            if point <= 0 { return sign + "0." + String(repeating: "0", count: -point) + digits }
+            if point >= digits.count { return sign + digits + String(repeating: "0", count: point - digits.count) + ".0" }
+            return sign + digits.prefix(point) + "." + digits.dropFirst(point)
+        }
+        let rest = digits.dropFirst()
+        return sign + digits.prefix(1) + "." + (rest.isEmpty ? "0" : rest) + "E\(point - 1)"
     }
 
-    /// Milliseconds from JS to Firebase's whole seconds, never below 0.
+    /// A positive number's shortest digits (Swift's, the same as JS's and Java's) and where the point goes.
+    private static func shortest(_ d: Double) -> (digits: String, point: Int) {
+        var text = "\(d)", exp = 0
+        if let e = text.firstIndex(where: { $0 == "e" || $0 == "E" }) {
+            exp = Int(text[text.index(after: e)...]) ?? 0
+            text = String(text[..<e])
+        }
+        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
+        let whole = String(parts[0]), frac = parts.count > 1 ? String(parts[1]) : ""
+        var digits = whole + frac, point = whole.count + exp
+        while digits.count > 1 && digits.first == "0" { digits.removeFirst(); point -= 1 }
+        while digits.count > 1 && digits.last == "0" { digits.removeLast() }
+        return (digits, point)
+    }
+
+    /// Milliseconds from JS to Firebase's whole seconds, never below 0; past Int64, Int64's largest (as Kotlin's
+    /// toLong()).
     static func seconds(_ ms: Double) -> Int64 {
-        guard ms.isFinite else { return 0 }
-        return max(0, Int64(ms / 1000))
+        let s = ms / 1000
+        if s.isNaN || s <= 0 { return 0 }
+        return s >= 9.223372036854775807e18 ? Int64.max : Int64(s)
     }
 
     /// RemoteConfigSource: 0 remote, 1 default, 2 static (no value at all).
@@ -102,6 +134,7 @@ enum RemoteConfigRules {
     /// When the last fetch was, ms since 1970; -1 for never (iOS's Firebase says 1970 itself then).
     static func fetchMillis(_ t: Date?) -> Int64 {
         guard let t, t.timeIntervalSince1970 > 0 else { return -1 }
-        return Int64((t.timeIntervalSince1970 * 1000).rounded())
+        let ms = (t.timeIntervalSince1970 * 1000).rounded()
+        return ms.isFinite && ms < 9.223372036854775807e18 ? Int64(ms) : Int64.max
     }
 }

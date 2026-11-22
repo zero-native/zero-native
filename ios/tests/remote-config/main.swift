@@ -33,6 +33,19 @@ do {
 }
 check("big whole number", RemoteConfigRules.number(1e15), "1000000000000000")
 check("small decimal", RemoteConfigRules.number(0.1), "0.1")
+// As Android: JSON makes a whole number in Long's range a Long (JS's digits), anything else a Double (Java's text).
+check("whole past 2^53, JS's digits", RemoteConfigRules.number(1152921504606846976), "1152921504606847000")
+check("whole 9e15", RemoteConfigRules.number(9e15), "9000000000000000")
+check("negative whole", RemoteConfigRules.number(-9e15), "-9000000000000000")
+check("past Long", RemoteConfigRules.number(1e21), "1.0E21")
+check("past Long, digits", RemoteConfigRules.number(1.5e19), "1.5E19")
+check("decimal at 1e7", RemoteConfigRules.number(12345678.5), "1.23456785E7")
+check("decimal under 1e7", RemoteConfigRules.number(1234567.5), "1234567.5")
+check("0.001", RemoteConfigRules.number(0.001), "0.001")
+check("under 0.001", RemoteConfigRules.number(0.0001), "1.0E-4")
+check("tiny", RemoteConfigRules.number(-1.5e-7), "-1.5E-7")
+check("negative decimal", RemoteConfigRules.number(-2.25), "-2.25")
+check("minus zero", RemoteConfigRules.number(-0.0), "0")
 
 // Sources, fetch status and seconds by iOS's Firebase numbers (RemoteConfigSource, RemoteConfigFetchStatus).
 check("source remote", RemoteConfigRules.source(0), "remote")
@@ -45,6 +58,10 @@ check("throttled", RemoteConfigRules.fetchStatus(3), "throttled")
 check("12 hours", RemoteConfigRules.seconds(43_200_000), 43_200)
 check("never below 0", RemoteConfigRules.seconds(-5), 0)
 check("NaN", RemoteConfigRules.seconds(.nan), 0)
+check("huge, no crash", RemoteConfigRules.seconds(1e30), Int64.max)
+check("infinity, as Kotlin", RemoteConfigRules.seconds(.infinity), Int64.max)
+check("minus infinity", RemoteConfigRules.seconds(-.infinity), 0)
+check("fetch time far away, no crash", RemoteConfigRules.fetchMillis(Date(timeIntervalSince1970: 1e300)), Int64.max)
 
 // Fetch failures by kind.
 check("no error", RemoteConfigRules.reason(nil), "failed")
