@@ -1,0 +1,9 @@
+# Foundation, Observation and QuartzCore only: the gesture model, its recognizers, the arbiter and one node's touch
+# session, on the motion engine with a fake frame clock (ZnInvalidArgs is in main.swift: ZnModules.swift needs the host).
+ios/ZnRuntime/Swift/ZnMotionMath.swift
+ios/ZnRuntime/Swift/ZnFormula.swift
+ios/ZnRuntime/Swift/ZnMotionEngine.swift
+ios/ZnRuntime/Swift/ZnGestureMath.swift
+ios/ZnRuntime/Swift/ZnVelocityTracker.swift
+ios/ZnRuntime/Swift/ZnGesture.swift
+ios/ZnRuntime/Swift/ZnGestureRecognizers.swift

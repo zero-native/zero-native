@@ -132,6 +132,8 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     /// The swipe on a see-through screen moves it alone, inside its box (no UIKit pop).
     private var dragging: ZnSeeThroughBox?
     private let edge: CGFloat = 30
+    /// backPan's name: the gesture hub (ZnGestureHub.swift) leaves it to claimsBackEdge instead of making it wait.
+    static let backPanName = "zn.backPan"
 
     init(app: ZnApp) {
         self.app = app
@@ -148,6 +150,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         super.viewDidLoad()
         interactivePopGestureRecognizer?.isEnabled = false  // ours instead (backPan)
         backPan.delegate = self
+        backPan.name = Self.backPanName
         backPan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(backPan)
         // Light / dark changes (the phone's setting, or Control Center): JS's colorScheme() follows.
@@ -310,6 +313,14 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         let start = backPan.location(in: view).x - backPan.translation(in: view).x
         let v = backPan.velocity(in: view)
         guard start <= edge, v.x > 0, abs(v.x) > abs(v.y) else { return false }  // from the left edge, moving right
+        // A horizontal zn pan under the finger keeps it (a drawer from the left edge), as Android's
+        // systemGestureExclusion: the whole node when it is short, else a 200 pt band at its centre.
+        let down = backPan.location(in: nil)
+        let at = CGPoint(x: down.x - backPan.translation(in: nil).x, y: down.y - backPan.translation(in: nil).y)
+        if ZnGestureHub.claimsBackEdge(at: at, in: topViewController?.view) {
+            print("zn t=\(ZnDebug.ms()) nav: swipe back left to a gesture under the finger")
+            return false
+        }
         if app.backWanted.contains(top) {
             print("zn t=\(ZnDebug.ms()) nav: swipe on a screen that wants Back → BACK to JS")
             app.systemBack()  // JS decides; the screen moves only if JS pops it

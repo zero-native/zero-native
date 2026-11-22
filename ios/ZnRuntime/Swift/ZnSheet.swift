@@ -262,6 +262,7 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         grabber.layer.cornerRadius = 2.5
         card.addSubview(grabber)
         let pan = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
+        pan.name = "zn.sheetPan"  // (a zn gesture inside makes it wait: ZnGestureHub.swift)
         pan.delegate = self
         card.addGestureRecognizer(pan)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoves(_:)),
