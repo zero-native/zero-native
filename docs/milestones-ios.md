@@ -302,7 +302,7 @@ manifest must not claim what it can't draw.
 
 | Feature | iOS | Size | Note |
 |---|---|---|---|
-| Start: skeleton before JS, constants, DEVICE / WINDOW, insets, START | done | | 2026-11-22 (W2-C): JS may start first with no window (`ZnApp.prepare`, in the sample and the app template); START waits for the window's safe area. WINDOW is measured by the root controller and sent again on rotation, split view and text size changes (sample and template stay portrait only: decision 5; `ZN_ROTATE=1` turns the sample). Lab /dev/lifecycle, Mac suite `lifecycle`. |
+| Start: skeleton before JS, constants, DEVICE / WINDOW, insets, START | done | | 2026-11-22 (W2-C): JS may start first with no window (`ZnApp.prepare`, in the sample and the app template); START waits for the window's safe area. A second window keeps the open screens; a downloaded bundle that fails before any window rolls back in place when the window opens (checked on the simulator with a scratch OTA store and `ZN_SCENE_DELAY_MS`). WINDOW is measured by the root controller and sent again on rotation, split view and text size changes (sample and template stay portrait only: decision 5; `ZN_ROTATE=1` turns the sample). Lab /dev/lifecycle, Mac suite `lifecycle`. |
 | Back stack, transitions, safe areas, keyboard option, route statusBar, BACK / FORCED_BACK / BACK_WANTED (A8), app layers | done | | Back swipe by JS policy. |
 | App state, colour scheme, low memory, insets, keyboard events | done | | ZnSystemEvents.swift. |
 | Keyboard avoidance | done | | |
