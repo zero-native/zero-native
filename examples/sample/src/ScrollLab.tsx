@@ -6,7 +6,7 @@
 //      to refresh with a white spinner on a primary-colour disc (refreshColor + refreshBackground), 3 s long
 // The fling and the snap run natively; JS only hears the events it has handlers for. Each log line (and each onScroll
 // y) also goes to the console as "scroll-lab ...". With the param run (--params '{"run":true}') it scrolls itself: Section
-// 3, End, Top with no animation, then refreshing from JS, so the commands and onScroll can be checked from the log.
+// 2 at once (a command sent before the Scroll is laid out), Section 3, End, Top with no animation, then refreshing from JS, so the commands and onScroll can be checked from the log.
 // Each drag of c) also flips its top padding between 0 and 1, so the Scroll itself updates while it is pulled (a pull
 // must still refresh then).
 import { Column, List, Pressable, Row, Scroll, Text } from "@zeronative/ui"
@@ -56,6 +56,8 @@ export function ScrollLabScreen(props: { run?: boolean }) {
   }
   if (props.run) {
     const steps: [number, string, () => void][] = [
+      // Before the Scroll is laid out (the command rides on the first render): it must still run.
+      [0, "run: Section 2 at the start, no animation", () => ref.current?.scrollTo({ y: SECTION_H, animated: false })],
       [1000, "run: Section 3", () => ref.current?.scrollTo({ y: SECTION_H * 2 })],
       [2500, "run: End", () => ref.current?.scrollToEnd()],
       [4000, "run: Top, no animation", () => ref.current?.scrollTo({ y: 0, animated: false })],
