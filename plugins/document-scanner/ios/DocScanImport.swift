@@ -3,7 +3,8 @@
 // is no document camera (the simulator). PHPicker needs no Photos permission.
 //
 // Each photo, one at a time off the main thread: read at most DocScanRules.maxSide on its long side (its EXIF turn
-// applied), Vision's document segmentation finds the paper, Core Image straightens it (perspective correction), and
+// applied), Vision finds the paper (its document segmentation, else its rectangle finder), Core Image straightens it
+// (perspective correction), and
 // unless `mode` is "base" its document filter evens the light and sharpens the text. A photo where Vision finds no
 // paper stays whole. The pages then go to the camera's own answer (files, job, launch), so JS sees the same result.
 import CoreImage
@@ -95,16 +96,36 @@ import Vision
         return picture
     }
 
+    /// The paper in the photo: Vision's document segmentation (a model; it finds nothing on the simulator), else its
+    /// plain rectangle finder. nil when neither is sure.
+    nonisolated private static func paper(_ photo: CGImage) -> VNRectangleObservation? {
+        let handler = VNImageRequestHandler(cgImage: photo, options: [:])
+        let document = VNDetectDocumentSegmentationRequest()
+        let rectangle = VNDetectRectanglesRequest()
+        rectangle.maximumObservations = 1
+        rectangle.minimumSize = 0.2
+        rectangle.minimumAspectRatio = 0.2
+        rectangle.quadratureTolerance = 30
+        for (name, request) in [("document", document), ("rectangle", rectangle)] as [(String, VNImageBasedRequest)] {
+            do {
+                try handler.perform([request])
+            } catch {
+                print("zn docscanner: Vision's \(name) finder failed (\((error as NSError).code))")
+                continue
+            }
+            if let found = (request.results as? [VNRectangleObservation])?.first, DocScanRules.useCorners(found.confidence) {
+                print("zn docscanner: paper found by Vision's \(name) finder (\(found.confidence))")
+                return found
+            }
+        }
+        print("zn docscanner: no paper found; the whole photo is the page")
+        return nil
+    }
+
     /// One page: the paper straightened when Vision finds it, then the document filter unless the mode is "base".
     nonisolated private static func page(_ photo: CGImage, _ mode: DocScanRules.Mode) -> UIImage? {
         var image = CIImage(cgImage: photo)
-        let request = VNDetectDocumentSegmentationRequest()
-        do {
-            try VNImageRequestHandler(cgImage: photo, options: [:]).perform([request])
-        } catch {
-            print("zn docscanner: no document found (\((error as NSError).code)); the whole photo is the page")
-        }
-        if let paper = request.results?.first, DocScanRules.useCorners(paper.confidence) {
+        if let paper = paper(photo) {
             let w = Double(photo.width), h = Double(photo.height)
             let c = DocScanRules.corners([paper.topLeft, paper.topRight, paper.bottomRight, paper.bottomLeft].map { (Double($0.x), Double($0.y)) },
                                          width: w, height: h).map { CGPoint(x: $0.0, y: $0.1) }
