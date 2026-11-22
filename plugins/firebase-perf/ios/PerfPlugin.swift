@@ -1,7 +1,8 @@
 // The Performance plugin's iOS side (plugins/firebase-perf, as android/.../PerfPlugin.kt): RN Firebase's `perf()` custom
 // traces, and by itself:
-// - Firebase's own automatic traces ([automatic], on by default): the app start, and a network trace for every
-//   URLSession request (core's fetch, images, OTA downloads), its URL without query, fragment, user and password;
+// - Firebase's own app start trace;
+// - Firebase's automatic network traces ([automatic], on by default): one for every URLSession request (core's fetch,
+//   images, OTA downloads, Firebase's own calls), its URL without query, fragment, user and password;
 // - a screen trace per top route, `screen_<route>`, with frames, slow frames and frozen frames ([screens]).
 // Every trace the plugin makes carries `zn_bundle`, the running bundle. With Firebase off (no SDK or no
 // GoogleService-Info.plist) the module still answers: every call does nothing, and `status` says available false.
@@ -11,11 +12,9 @@
 // iOS differences:
 // - Network traces: Android traces each `fetch` itself (an OkHttp interceptor with a `url` choice and `zn_bundle`).
 //   Here Firebase's automatic tracing does it, for every URLSession request, without `zn_bundle`. `automatic: false`
-//   turns it off together with the automatic app start trace (one switch in iOS's Firebase). Firebase reads that
-//   switch when it starts, so register this plugin before the other Firebase plugins; registered later, a change
-//   applies from the next start.
-// - Firebase's own screen traces (per UIViewController: the whole app is one) come with the automatic ones; the
-//   `screen_<route>` traces are the ones to read, as on Android.
+//   turns it off together with Firebase's own screen traces (per UIViewController: the whole app is one); the app
+//   start trace stays. Firebase reads that switch when it starts, so register this plugin before the other Firebase
+//   plugins; registered later, turning it off applies from the next start.
 // - Frames are counted with a CADisplayLink (as Firebase iOS does): slow is under 59 a second, so a ProMotion frame
 //   that misses 120 Hz is not slow.
 import Foundation
@@ -36,7 +35,8 @@ import FirebasePerformance
 #endif
 
 /// Add it with `ZnPlugins.register(PerfPlugin(), ...)`, before the other Firebase plugins (see [automatic]).
-/// `automatic`: Firebase's own app start and network traces (every URLSession request). `screens`: a trace per route.
+/// `automatic`: Firebase's own network traces (every URLSession request) and view controller screen traces.
+/// `screens`: a trace per route.
 public struct PerfPlugin: ZnPlugin {
     public init(automatic: Bool = true, screens: Bool = true) {
         self.automatic = automatic

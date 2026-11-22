@@ -43,19 +43,21 @@ testing: `<meta-data android:name="firebase_performance_logcat_enabled" android:
 3. Register it **before the other Firebase plugins** (Firebase reads the automatic-traces switch when it starts):
    ```swift
    ZnPlugins.register(PerfPlugin(), AnalyticsPlugin(), ...)
-   PerfPlugin(automatic: false)   // no Firebase app start or network traces, only screens and your own
+   PerfPlugin(automatic: false)   // no network traces: the app start, screens and your own
    PerfPlugin(screens: false)     // no screen_<route> traces
    ```
 
 iOS differences:
 - **Network traces are Firebase's own** (`automatic: true`, the default): Firebase hooks URLSession, so every request
   is traced, core's `fetch` and also images and OTA downloads, with the URL without query, fragment, user and
-  password. There is no `url` option, and network traces have no `zn_bundle`. `automatic: false` turns them off
-  together with Firebase's app start trace (one switch in iOS's Firebase, kept on the phone; registered after another
-  Firebase plugin, it applies from the next start).
+  password; Firebase's own calls are traced too. There is no `url` option, and network traces have no `zn_bundle`.
+  `automatic: false` turns them off together with Firebase's view controller screen traces; the app start trace
+  stays (one switch in iOS's Firebase, kept on the phone; registered after another Firebase plugin, turning it off
+  applies from the next start).
 - **Frames** are counted with a display link, as Firebase iOS does: `frames_slow` is a frame longer than 1/59 s (so a
   ProMotion frame that misses 120 Hz isn't slow), `frames_frozen` longer than 700 ms. Firebase's own screen traces
-  (one per view controller: the app has one) come with `automatic`; read the `screen_<route>` ones.
+  (`_st_ZnScreenController`: one view controller for every route) come with `automatic`; read the `screen_<route>`
+  ones.
 - **Consent:** `firebase_performance_collection_enabled` = NO in the app's Info.plist, then
   `setPerformanceCollectionEnabled(true)` after the yes. `-FIRDebugEnabled` as a launch argument logs each trace.
 
