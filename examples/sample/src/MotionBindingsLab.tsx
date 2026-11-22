@@ -13,7 +13,8 @@
 //      where each one is drawn reaches it
 // With n (--params '{"n":30}') it shows only n boxes, each with translateX, rotate and opacity bound, to measure the
 // cost per frame (iOS: ZN_MOTION_PERF=1 logs it; "still": true shows them without moving, for the baseline; "mixed":
-// true also binds blurRadius, rotateY and borderRadius on each box).
+// true also binds blurRadius, rotateY and borderRadius on each box; "playing": true gives each box a scale that plays by
+// itself (animate keyframes) next to its bound values, whose body must not run per frame for them).
 // Open with: bun run tools/ios-sample.ts --route motionBindingsLab (iOS: start it with SIMCTL_CHILD_ZN_MOTION_ENGINE=1
 // while the engine is behind that flag), or zn://sample/dev/motion/bindings (Android).
 import { Column, NativeView, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
@@ -78,7 +79,7 @@ function MbTaps() {
   )
 }
 
-export function MotionBindingsLabScreen(props: { n?: number; ms?: number; still?: boolean; mixed?: boolean }) {
+export function MotionBindingsLabScreen(props: { n?: number; ms?: number; still?: boolean; mixed?: boolean; playing?: boolean }) {
   const t = useTimeline({ duration: props.ms ?? 2000, easing: "linear", repeat: "forever", yoyo: true })
   if (!props.still) setTimeout(() => void t.play(), 300)
   const n = props.n ?? 0
@@ -110,6 +111,23 @@ export function MotionBindingsLabScreen(props: { n?: number; ms?: number; still?
                 opacity: t.map([0, 1], [1, 0.35]),
                 blurRadius: t.map([0, 1], [0, 4]),
                 transform: [{ translateX: t.map([0, 1], [-6, 6]) }, { rotate: t.map([0, 1], [0, 90 + i * 3]) }, { rotateY: t.map([0, 1], [0, 60]) }],
+              }}
+            />
+          ))}
+        </Row>
+      ) : n > 0 && props.playing ? (
+        <Row style={{ flexWrap: "wrap", gap: 10, paddingHorizontal: 20 }}>
+          {boxes.map((i) => (
+            <Column
+              key={`p${i}`}
+              animate={{ scale: { duration: 1100, keyframes: [1, 0.8], repeat: "forever", reverse: true } }}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 8,
+                backgroundColor: i % 2 === 0 ? c.primary : "#E23744",
+                opacity: t.map([0, 1], [1, 0.35]),
+                transform: [{ translateX: t.map([0, 1], [-6, 6]) }, { rotate: t.map([0, 1], [0, 90 + i * 3]) }],
               }}
             />
           ))}

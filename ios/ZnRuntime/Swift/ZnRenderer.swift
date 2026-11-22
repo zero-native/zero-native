@@ -615,6 +615,9 @@ struct ZnPaintPlaying: ViewModifier {
     }
 
     func body(content: Content) -> some View {
+        #if DEBUG
+        let _ = ZnMotionPerf.hit("Playing")
+        #endif
         let rests = ZnLayer.rests(s, inst)
         let paused = s.pausedSlot >= 0 ? inst.slot(s.pausedSlot).value == .bool(true) : s.paused
         let replay = s.replaySlot >= 0 ? inst.slot(s.replaySlot).value : .null
@@ -833,7 +836,10 @@ struct ZnBackground: View {
         #if DEBUG
         let _ = ZnMotionPerf.hit("Background")
         #endif
-        let played = motion?.values[Registry.Prop.backgroundColor].flatMap(znColorFromVector)
+        // Read only when the colour itself plays (motion.values changes each frame of any played prop: a node whose
+        // scale plays would otherwise run this body each frame too).
+        let plays = s.animate?.timing(Registry.Prop.backgroundColor)?.selfPlaying == true
+        let played = plays ? motion?.values[Registry.Prop.backgroundColor].flatMap(znColorFromVector) : nil
         // A motion colour (mapColor, a colour formula) is read here frame by frame, never through `animate`'s timing.
         let color = played ?? inst.motionColor(s.backgroundSlot)
             ?? (s.backgroundSlot >= 0 ? znColor(inst.slot(s.backgroundSlot).value) : s.background)

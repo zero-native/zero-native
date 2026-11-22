@@ -223,7 +223,7 @@ enum ZnMotionPerf {
     private static var observer: CFRunLoopObserver?
     private static let owner = NSObject()
 
-    /// Counts one body run of [name] ("Layer", "Background", "Paint", "node").
+    /// Counts one body run of [name] ("Layer", "Background", "Paint", "Size", "Playing", "node").
     static func hit(_ name: String) {
         guard on else { return }
         start()
@@ -252,7 +252,7 @@ enum ZnMotionPerf {
         let now = CACurrentMediaTime()
         guard now - windowStart >= 1 else { return }
         let n = Double(max(frames, 1))
-        let per = ["Layer", "Background", "Paint", "Size", "node"].map { String(format: "%.1f %@", Double(bodies[$0] ?? 0) / n, $0) }
+        let per = ["Layer", "Background", "Paint", "Size", "Playing", "node"].map { String(format: "%.1f %@", Double(bodies[$0] ?? 0) / n, $0) }
         print(String(format: "motion-perf: %d frames/s, main thread %.2f ms/frame, per frame: %@", Int(Double(frames) / (now - windowStart)),
                      busy * 1000 / n, per.joined(separator: ", ")))
         frames = 0
