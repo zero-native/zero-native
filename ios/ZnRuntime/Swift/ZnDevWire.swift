@@ -1,9 +1,9 @@
 // `zn dev`'s wire format and its build folders, for ZnDev.swift (debug builds only). Foundation only, so the Mac suite
-// (ios/tests/dev) checks it against the frames tools/zn-dev.ts writes.
+// (ios/tests/dev) checks it against the frames tools/zn-dev.ts writes. Not behind `#if DEBUG` (the suite's swiftc has no
+// flags); nothing else uses it, so a Release build's optimizer drops it.
 //
 // Both ways: u32 length (big endian, counting the type byte), then u8 type and the body. The same list as Android's
 // ZnDev.kt and tools/zn-dev.ts.
-#if DEBUG
 import Foundation
 
 enum ZnDevWire {
@@ -106,4 +106,3 @@ enum ZnDevWire {
         return dir
     }
 }
-#endif
