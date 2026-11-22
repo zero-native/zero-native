@@ -81,15 +81,19 @@ struct ZnPressA11y: ViewModifier {
         let longPressOn = s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false))
         let (ctx, s, inst, disabled) = (ctx, s, inst, disabled)
         content
-            // Its children's own state (a TextField, a Switch inside) stays usable: only the element reads dimmed.
+            // Its children's own state (a TextField, a Switch inside) stays usable, as on Android: only the element
+            // reads dimmed.
             .environment(\.isEnabled, true)
             .accessibilityElement(children: s.hasInteractiveDescendant ? .contain : .combine)
             .znWhen(s.hasAccessibilityLabel) { $0.accessibilityLabel(s.accessibilityLabelNow(inst) ?? "") }
             .znWhen(s.accessibilityHint != nil) { $0.accessibilityHint(s.accessibilityHint ?? "") }
-            .accessibilityAddTraits(traits)
             .accessibilityAction {
                 if !disabled && s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) }
             }
+            // SwiftUI makes an element with an action a button, and one of texts static text: another role ("none",
+            // "text", "link", ...) takes both off, then adds its own.
+            .znWhen(role >= 0 && role != Registry.AccessibilityRole.button) { $0.accessibilityRemoveTraits([.isButton, .isStaticText]) }
+            .accessibilityAddTraits(traits)
             .accessibilityActions {
                 // Only while JS has a handler (the hasLongPress slot), as Android's onLongClick.
                 if longPressOn {

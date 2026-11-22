@@ -50,11 +50,8 @@ struct ZnPressFeedback: View {
                     .map { hypot($0.x - origin.x, $0.y - origin.y) }.max() ?? 0
                 let r = s.rippleRadius ?? (s.rippleBorderless ? max(size.width, size.height) / 2 : far)
                 let alpha = s.rippleOpacity ?? (s.rippleColor == nil ? 0.12 : 0.24)
-                Circle()
+                ZnRippleCircle(center: origin, radius: r, scale: grown ? 1 : 0.2, shown: shown ? 1 : 0)
                     .fill(s.rippleColor ?? .black)
-                    .frame(width: r * 2, height: r * 2)
-                    .scaleEffect(grown ? 1 : 0.2)
-                    .position(origin)
                     .opacity(shown ? alpha : 0)
             }
             .modifier(ZnRippleClip(clip: !s.rippleBorderless, shape: shape))
@@ -74,6 +71,27 @@ struct ZnPressFeedback: View {
                 }
             }
         }
+    }
+}
+
+/// The ripple's circle. No path at all while it isn't shown (once its fade has ended): SwiftUI counts a shape's path
+/// in the Pressable's VoiceOver frame, hidden or not, so an idle circle made the element larger than its box.
+private struct ZnRippleCircle: Shape {
+    var center: CGPoint
+    var radius: CGFloat
+    var scale: CGFloat
+    /// 1 while shown, animated to 0 with the fade.
+    var shown: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(scale, shown) }
+        set { scale = newValue.first; shown = newValue.second }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        guard shown > 0 else { return Path() }
+        let r = radius * scale
+        return Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
     }
 }
 
@@ -111,7 +129,7 @@ struct ZnPressable<Label: View>: View {
             .modifier(ZnPressA11y(ctx: ctx, s: s, inst: inst, disabled: disabled))
         case .uiKit:
             label()
-                .overlay { ZnPressFeedback(s: s, state: state, shape: s.shapeNow(inst)) }
+                .overlay { ZnPressFeedback(s: s, state: state, shape: s.shapeNow(inst)).accessibilityHidden(true) }
                 .scaleEffect(state.pressed ? s.pressScale : 1)
                 .opacity(state.pressed ? s.pressOpacity : 1)
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
