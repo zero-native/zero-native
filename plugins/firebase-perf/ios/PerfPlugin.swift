@@ -1,6 +1,8 @@
 // The Performance plugin's iOS side (plugins/firebase-perf, as android/.../PerfPlugin.kt): RN Firebase's `perf()` custom
 // traces, and by itself:
 // - Firebase's own app start trace;
+// - a network trace for every `fetch` (an observer on core's fetch, [network]); [url] decides the URL Firebase sees
+//   (default: no query, no fragment, no user or password) or leaves a request out (nil);
 // - a screen trace per top route, `screen_<route>`, with frames, slow frames and frozen frames ([screens]).
 // Every trace the plugin makes carries `zn_bundle`, the running bundle. With Firebase off (no SDK or no
 // GoogleService-Info.plist) the module still answers: every call does nothing, and `status` says available false.
@@ -8,10 +10,12 @@
 // The rules with no Firebase in them are PerfRules.swift (tested on the Mac: ios/tests/perf).
 //
 // iOS differences:
-// - Network traces: Android traces each `fetch` itself (an OkHttp interceptor, [network] and [url]). Here they need an
-//   observer on core's fetch, which is not built yet: until it is, `network` and `url` change nothing and there are
-//   no network traces. [automatic] (off by default; Android has nothing like it) turns on Firebase's own URLSession
-//   hooks instead: every request (core's fetch, images, OTA downloads, Firebase's own calls), the URL without query,
+// - Network traces: as Android (an OkHttp interceptor there, ZnFetch.addObserver here), an HTTPMetric per `fetch`
+//   with `zn_bundle`, the method, the response code, the payload sizes and the content type. The response size is
+//   the body received (unzipped); Android's is its Content-Length. A method Firebase doesn't know (PROPPATCH, REPORT)
+//   gets no trace. A call that fails with no response stops with no code, which Firebase counts as a network error.
+//   [automatic] (off by default; Android has nothing like it) turns on Firebase's own URLSession hooks as well:
+//   every request (core's fetch again, images, OTA downloads, Firebase's own calls), the URL without query,
 //   fragment, user and password, no `zn_bundle`. It also brings Firebase's view controller screen traces (the whole
 //   app is one). Firebase reads that switch when it starts, so register this plugin before FirebaseAppPlugin and the
 //   other Firebase plugins; registered later, the switch applies from the next start. An app that links the SDK and
@@ -40,8 +44,8 @@ import FirebasePerformance
 
 /// Add it with `ZnPlugins.register(PerfPlugin(), FirebaseAppPlugin(), ...)`: before FirebaseAppPlugin and the other
 /// Firebase plugins (see [automatic]).
-/// `network` / `url`: a trace for every `fetch` and the URL Firebase sees (nil: no query, no fragment), as on Android.
-/// Not built on iOS yet (core's fetch has no observer for plugins): until then there are no network traces.
+/// `network` / `url`: a trace for every `fetch` and the URL Firebase sees (url nil: no query, no fragment; url answers
+/// nil: that request isn't traced), as on Android. Register it before the first fetch.
 /// `screens`: a trace per route.
 /// `automatic`: Firebase's own network traces (every URLSession request) and view controller screen traces. iOS only.
 public struct PerfPlugin: ZnPlugin {
@@ -81,6 +85,7 @@ public struct PerfPlugin: ZnPlugin {
             return
         }
         #if canImport(FirebasePerformance)
+        if network { ZnFetch.addObserver(NetworkTraces.observer(url)) }
         let traces = screens ? ScreenTraces() : nil
         ZnBundles.watchRunning { label in
             PerfState.bundle = PerfRules.attributeValue(label)
@@ -102,6 +107,26 @@ enum PerfState {
 }
 
 #if canImport(FirebasePerformance)
+/// One HTTPMetric per call of core's fetch (Android's NetworkTraces interceptor). The start runs on the calling
+/// thread, the end on fetch's queue; an HTTPMetric takes both.
+private enum NetworkTraces {
+    static func observer(_ url: ((URL) -> String?)?) -> ZnFetchObserver {
+        { start in
+            guard let traced = PerfRules.traceUrl(start.url, url), let m = PerfRules.httpMethod(start.method),
+                  let method = HTTPMethod(rawValue: m), let metric = HTTPMetric(url: traced, httpMethod: method) else { return nil }
+            if let b = PerfState.bundle { metric.setValue(b, forAttribute: PerfRules.attrBundle) }
+            metric.start()
+            return { end in
+                if let n = end.requestBytes { metric.requestPayloadSize = Int(n) }
+                if let status = end.status { metric.responseCode = status }  // none: Firebase counts a network error
+                if let n = end.responseBytes { metric.responsePayloadSize = Int(n) }
+                if let type = end.contentType { metric.responseContentType = type }
+                metric.stop()
+            }
+        }
+    }
+}
+
 /// A trace per top route: from the route coming on top to leaving it, with the frames drawn meanwhile. Main thread.
 private final class ScreenTraces: NSObject {
     private var total: Int64 = 0, slow: Int64 = 0, frozen: Int64 = 0

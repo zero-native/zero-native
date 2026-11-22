@@ -66,4 +66,19 @@ enum PerfRules {
         c.password = nil
         return c.url?.absoluteString ?? url.absoluteString
     }
+
+    /// The methods Firebase's network traces know, in the order of its HTTPMethod (Android's HttpMethod). Another
+    /// (PROPPATCH, REPORT) gets no trace: nil.
+    static let httpMethods = ["GET", "PUT", "POST", "DELETE", "HEAD", "PATCH", "OPTIONS", "TRACE", "CONNECT"]
+
+    static func httpMethod(_ method: String) -> Int? { httpMethods.firstIndex(of: method.uppercased()) }
+
+    /// The URL a network trace gets: the app's `url` (it answers nil: the request isn't traced), else defaultUrl. Only
+    /// http(s) with a host, as Firebase refuses the rest.
+    static func traceUrl(_ url: URL, _ pick: ((URL) -> String?)?) -> URL? {
+        let name = pick.map { $0(url) } ?? defaultUrl(url)
+        guard let name, let out = URL(string: name), let scheme = out.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              out.host?.isEmpty == false else { return nil }
+        return out
+    }
 }

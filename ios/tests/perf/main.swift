@@ -56,5 +56,15 @@ check("query and fragment", PerfRules.defaultUrl(URL(string: "https://api.exampl
 check("user and password", PerfRules.defaultUrl(URL(string: "https://me:secret@api.example.com/a")!), "https://api.example.com/a")
 check("port kept", PerfRules.defaultUrl(URL(string: "http://127.0.0.1:8080/x?y=1")!), "http://127.0.0.1:8080/x")
 
+// Network traces (from core's fetch observer): Firebase's methods in its HTTPMethod order, the URL a trace gets.
+check("GET is Firebase's first method", PerfRules.httpMethod("get"), 0)
+check("CONNECT last", PerfRules.httpMethod("CONNECT"), 8)
+check("PROPPATCH has no trace", PerfRules.httpMethod("PROPPATCH"), nil)
+check("default trace URL", PerfRules.traceUrl(URL(string: "https://a.example/p?t=1#f")!, nil)?.absoluteString, "https://a.example/p")
+check("the app's URL", PerfRules.traceUrl(URL(string: "https://a.example/pay/123?t=1")!, { _ in "https://a.example/pay/:id" })?.absoluteString,
+      "https://a.example/pay/:id")
+check("the app leaves one out", PerfRules.traceUrl(URL(string: "https://a.example/health")!, { _ in nil }), nil)
+check("not http(s): no trace", PerfRules.traceUrl(URL(string: "https://a.example/x")!, { _ in "pay/123" }), nil)
+
 print(failures == 0 ? "ios perf rules: \(count) checks passed" : "ios perf rules: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)

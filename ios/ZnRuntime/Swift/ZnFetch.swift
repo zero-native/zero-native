@@ -14,6 +14,8 @@
 //   throttled as Android (ZnProgressThrottle in ZnNetRules.swift).
 // - A FormData body is written to a file first (ZnMultipart, file parts copied in small pieces) and uploaded from it,
 //   so a big file never enters memory. content:// parts are refused (an Android URI).
+// - Observers (plugins: the Performance plugin's network traces): `ZnFetch.addObserver` hears each call start and end,
+//   as Android's ZnFetch.addInterceptor, but they only watch: they can't change a request or an answer.
 // Known difference: URLSession joins repeated headers into one (`Set-Cookie: a, b`). Set-Cookie is split again here;
 // other repeated headers stay joined with ", " (which is what the HTTP spec allows for them).
 import Foundation
@@ -21,7 +23,29 @@ import Network
 import UIKit
 import os
 
-final class ZnFetch: ZnModuleBase, @unchecked Sendable {
+/// What a fetch observer hears as a call starts: the URL JS asked for (query and all; an observer that passes it on
+/// trims it) and the method.
+public struct ZnFetchStart {
+    public let url: URL
+    public let method: String
+}
+
+/// What a fetch observer hears as the call ends. [status]: the response's code, nil when none came. [requestBytes]: the
+/// body sent (nil: no body). [responseBytes]: the body received, unzipped (nil when no response came). [error]: the
+/// code JS gets (`timeout`, `offline`, ..., `aborted` when JS gave up), nil when the call answered.
+public struct ZnFetchEnd {
+    public let status: Int?
+    public let requestBytes: Int64?
+    public let responseBytes: Int64?
+    public let contentType: String?
+    public let error: String?
+}
+
+/// A fetch observer: called as each call starts (on the calling thread); what it returns is called once as that call
+/// ends (on fetch's own queue). nil: this call isn't watched. Both must be quick: every call waits for them.
+public typealias ZnFetchObserver = (ZnFetchStart) -> ((ZnFetchEnd) -> Void)?
+
+public final class ZnFetch: ZnModuleBase, @unchecked Sendable {
     static let shared = ZnFetch()
     private static let frameworkVersion = "0.1.0"
     private static let defaultTimeoutMs = 30_000.0
@@ -58,6 +82,9 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         var downTotal: Int64 = -1
         /// The form body's file (removed when the task ends).
         var upload: URL?
+        /// The body's size (nil: none), and the observers waiting for the end.
+        var sentBytes: Int64?
+        var ends: [(ZnFetchEnd) -> Void] = []
         init(call: ZnCall, where_: String, redirect: String, maxBody: Int, t0: Date) {
             self.call = call; self.where_ = where_; self.redirect = redirect; self.maxBody = maxBody; self.t0 = t0
         }
@@ -136,6 +163,32 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         }
     }
 
+    // MARK: Observers
+
+    private static let observersLock = NSLock()
+    nonisolated(unsafe) private static var observers: [ZnFetchObserver] = []
+
+    /// Adds an observer (Android's ZnFetch.addInterceptor, watching only). Any thread, any time: it hears the calls that
+    /// start after it was added. Register plugins before the first fetch, as on Android.
+    public static func addObserver(_ observer: @escaping ZnFetchObserver) {
+        observersLock.withLock { observers.append(observer) }
+    }
+
+    /// The ends of the observers that watch this call (none: no observer, or none wants it).
+    private static func observe(_ url: URL, _ method: String) -> [(ZnFetchEnd) -> Void] {
+        let list = observersLock.withLock { observers }
+        if list.isEmpty { return [] }
+        let start = ZnFetchStart(url: url, method: method)
+        return list.compactMap { $0(start) }
+    }
+
+    private static func tell(_ ends: [(ZnFetchEnd) -> Void], status: Int? = nil, sent: Int64? = nil, received: Int64? = nil,
+                             type: String? = nil, error: String?) {
+        if ends.isEmpty { return }
+        let end = ZnFetchEnd(status: status, requestBytes: sent, responseBytes: received, contentType: type, error: error)
+        for e in ends { e(end) }
+    }
+
     // MARK: Network changes
 
     private func pathChanged(_ p: NWPath) {
@@ -199,6 +252,8 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         }
         if !hasAgent { request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent") }
         if !hasAccept { request.setValue("*/*", forHTTPHeaderField: "Accept") }
+        // From here every way out tells the observers once (writing a form body counts, as Android streams it).
+        let ends = Self.observe(url, method)
         var upload: URL?
         var upTotal: Int64 = -1
         if let form = a["form"] as? [[Any]] {
@@ -210,6 +265,9 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
                 upTotal = try ZnMultipart.write(parts: form, boundary: boundary, to: file,
                                                 isCancelled: { call.isCancelled || deadline.map { Date() >= $0 } == true })
             } catch let e as ZnMultipartError {
+                var invalid = false
+                if case .invalid = e { invalid = true }
+                Self.tell(ends, error: e == .cancelled ? (call.isCancelled ? "aborted" : "timeout") : (invalid ? "invalid_request" : "failed"))
                 if e == .cancelled {
                     if call.isCancelled { return }
                     debugLog("\(where_) → failed (timeout) in \(Int(Date().timeIntervalSince(t0) * 1000)) ms (writing the form body)")
@@ -218,6 +276,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
                 if case .invalid = e { return call.reject("invalid_request", "\(where_): \(e.message)") }
                 return call.reject("failed", "\(where_): \(e.message)")
             } catch {
+                Self.tell(ends, error: "failed")
                 return call.reject("failed", "\(where_): can't write the form body: \(error.localizedDescription)")
             }
             upload = file
@@ -231,6 +290,8 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
 
         let state = Task(call: call, where_: where_, redirect: redirect, maxBody: maxBody, t0: t0)
         state.upload = upload
+        state.sentBytes = upTotal >= 0 ? upTotal : nil
+        state.ends = ends
         // No body (a GET): no upload events, as Android.
         if trackUp, let reqId, upTotal >= 0 {
             state.upTotal = upTotal
@@ -346,6 +407,7 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         guard let t = tasks.removeValue(forKey: ObjectIdentifier(task)) else { return }
         t.timer?.cancel()
         if let file = t.upload { try? FileManager.default.removeItem(at: file) }
+        if !t.ends.isEmpty { tellEnd(t, task, error) }
         let ms = Int(Date().timeIntervalSince(t.t0) * 1000)
         if t.call.isCancelled { return }  // JS aborted; nobody is waiting for this answer
         if let ours = t.ours {
@@ -384,6 +446,17 @@ final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         t.down?.finish(Int64(t.body.count), t.downTotal)
         debugLog("\(t.where_) → \(r.statusCode) in \(ms) ms (\(t.body.count) B)")
         t.call.resolveBytes(head, t.body)
+    }
+
+    /// The observers hear how the call ended (before JS does): the code JS gets, or nil when it answered.
+    private func tellEnd(_ t: Task, _ task: URLSessionTask, _ error: Error?) {
+        let manualEnd = t.redirect == "manual" && t.response != nil && (error as NSError?)?.code == NSURLErrorCancelled
+        let code: String? = t.call.isCancelled ? "aborted"
+            : t.ours?.code ?? ((error == nil || manualEnd) ? (t.response == nil ? "connection_lost" : nil)
+                : Self.errorCode(error! as NSError, online: online))
+        let r = t.response
+        Self.tell(t.ends, status: r?.statusCode, sent: t.sentBytes, received: r.map { _ in Int64(t.body.count) },
+                  type: r?.value(forHTTPHeaderField: "Content-Type"), error: code)
     }
 
     /// URLSession's delegate must be an NSObject; it only forwards to the methods above (the session keeps it).
