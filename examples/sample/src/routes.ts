@@ -62,6 +62,7 @@ import { MotionSheetsLabScreen } from "./MotionSheetsLab"
 import { MotionScreensDetailScreen, MotionScreensLabScreen } from "./MotionScreensLab"
 import { MotionExtensionLabScreen } from "./MotionExtensionLab"
 import { WebSocketLabScreen } from "./WebSocketLab"
+import { LifecycleLabScreen } from "./LifecycleLab"
 import { MotionEngineLabScreen } from "./MotionEngineLab"
 import { MotionBindingsLabScreen } from "./MotionBindingsLab"
 
@@ -150,6 +151,8 @@ export const routes = defineRoutes({
   secureNative: { path: "/dev/core/secure-native", native: "device.fake-screen", secure: true },
   // WebSocket checks (docs/fetch.md §8). Last, after the secure native screen, so the numbers of the routes before it do not move.
   wsLab: { path: "/dev/websocket", screen: WebSocketLabScreen, deepLink: true },
+  // The app's life: Dimensions on rotation and text size, motion env, app state. Last, so the numbers before it stay.
+  lifecycleLab: { path: "/dev/lifecycle", screen: LifecycleLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

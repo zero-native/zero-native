@@ -97,14 +97,17 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         // `... notifyutil -s dev.zeronative.sample.task 8000 && ... notifyutil -p dev.zeronative.sample.task` runs the
         // task lab.wait (it ends after ms = the state), as a plugin would: send the app to the background right after
         // and the task still ends (ZnTasks holds background time).
+        // `... .task.nohold` runs it without background time (the control: iOS suspends the app before it ends).
         var taskToken: Int32 = 0
-        notify_register_dispatch("dev.zeronative.sample.task", &taskToken, .main) { t in
-            var ms: UInt64 = 0
-            notify_get_state(t, &ms)
-            let t0 = CACurrentMediaTime()
-            ZnTasks.shared.run("lab.wait", ["ms": ms], timeoutMs: 20_000) { outcome in
-                let state = MainActor.assumeIsolated { UIApplication.shared.applicationState == .background ? "background" : "front" }
-                print("zn-sample: task lab.wait: \(outcome.rawValue) after \(Int((CACurrentMediaTime() - t0) * 1000)) ms (app in \(state))")
+        for (name, holds) in [("dev.zeronative.sample.task", true), ("dev.zeronative.sample.task.nohold", false)] {
+            notify_register_dispatch(name, &taskToken, .main) { t in
+                var ms: UInt64 = 0
+                notify_get_state(t, &ms)
+                let t0 = CACurrentMediaTime()
+                ZnTasks.shared.run("lab.wait", ["ms": ms], timeoutMs: Int(ms) + 5_000, holdsBackgroundTime: holds) { outcome in
+                    let state = MainActor.assumeIsolated { UIApplication.shared.applicationState == .background ? "background" : "front" }
+                    print("zn-sample: task lab.wait: \(outcome.rawValue) after \(Int((CACurrentMediaTime() - t0) * 1000)) ms (app in \(state))")
+                }
             }
         }
         if let name = env["ZN_BOOT_TASK"], !name.isEmpty {

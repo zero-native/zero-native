@@ -42,7 +42,7 @@ defineTask("lab.wait", async (data: { ms?: number }, signal) => {
       done()
     })
   })
-  console.info(`core-lab task wait: ${ms} ms passed (${Date.now() - t0} ms)`)
+  if (!signal.aborted) console.info(`core-lab task wait: ${ms} ms passed (${Date.now() - t0} ms)`)
 })
 // The push lab (PushLab.tsx): a message, a new token or a swipe can start the app with no screen.
 installPushLab()
