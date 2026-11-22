@@ -80,6 +80,7 @@ export function DevScreen() {
           <Entry title="Document scanner plugin" step="docscan" detail="ML Kit scanner: module status, download, pages and PDF, cancel, a kill while it is open" onOpen={() => nav.push("docScanLab")} />
           <Entry title="Image viewer plugin" step="image viewer" detail="Full-screen photos: pinch, pan, double tap, swipe between and to close, sharp zoom, errors" onOpen={() => nav.push("imageViewerLab")} />
           <Entry title="RN gaps lab" step="registry 24" detail="App fonts (fontFamily, weights, spans, TextField), flexWrap chips" onOpen={() => nav.push("rnGapsLab")} />
+          <Entry title="Accessibility lab" step="registry 15" detail="Labels, hints, roles, disabled, long press action, hidden, pictures, fields, testID" onOpen={() => nav.push("a11yLab")} />
           <Entry title="Grid lab" step="registry 24" detail="FlatList numColumns: 2 / 3 columns, columnWrapperStyle, short last row, load more, empty, scroll to index" onOpen={() => nav.push("gridLab")} />
           <Entry title="Dynamic layout lab" step="H.1" detail="Reactive width/height, animated 40..300, % widths, display: none/flex, dynamic radii & fonts" onOpen={() => nav.push("dynamicLayoutLab")} />
           <Entry title="Canvas primitive" step="H.4" detail="200-pt candlestick chart, donut ring, dashed Bezier wave, rotated text (draw-only, no Skia)" onOpen={() => nav.push("canvasLab")} />

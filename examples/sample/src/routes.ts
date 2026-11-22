@@ -31,6 +31,7 @@ import { RnPropsLabScreen } from "./RnPropsLab"
 import { SheetLeaveLabScreen } from "./SheetLeaveLab"
 import { LayoutLabScreen } from "./LayoutLab"
 import { RnGapsLabScreen } from "./RnGapsLab"
+import { A11yLabScreen } from "./A11yLab"
 import { GridLabScreen } from "./GridLab"
 import { RnNamesLabScreen } from "./RnNamesLab"
 import { CrashlyticsLabScreen } from "./CrashlyticsLab"
@@ -106,6 +107,7 @@ export const routes = defineRoutes({
   rnPropsLab: { path: "/dev/rn-props", screen: RnPropsLabScreen, deepLink: true },
   layoutLab: { path: "/dev/layout", screen: LayoutLabScreen, deepLink: true },
   rnGapsLab: { path: "/dev/rn-gaps", screen: RnGapsLabScreen, deepLink: true },
+  a11yLab: { path: "/dev/a11y", screen: A11yLabScreen, deepLink: true },
   gridLab: { path: "/dev/grid", screen: GridLabScreen, deepLink: true },
   rnNamesLab: { path: "/dev/rn-names", screen: RnNamesLabScreen, deepLink: true },
   crashlyticsLab: { path: "/dev/crashlytics", screen: CrashlyticsLabScreen, deepLink: true },
