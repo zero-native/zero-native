@@ -1,4 +1,4 @@
-// The media plugin's JS side. Native side: android/.../MediaModule.kt. No side effects: nativeModule() only creates a handle.
+// The media plugin's JS side. Native side: android/.../MediaModule.kt and ios/MediaPlugin.swift. No side effects: nativeModule() only creates a handle.
 //
 //   const { status, files } = await Media.pickPhotos({ maxSize: 1600, quality: 80 })
 //   if (status === "ok") photo.set(files[0].handle)                     // <Image src={photo()} />

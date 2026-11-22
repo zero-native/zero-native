@@ -107,7 +107,8 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
             let maxSize = try self.maxSize(call), quality = try self.quality(call)
             MainActor.assumeIsolated {
                 let fake = Self.fakeCamera
-                let available = fake || UIImagePickerController.isSourceTypeAvailable(.camera)
+                // Both: the iOS 26 simulator says the camera source is there, with no camera behind it.
+                let available = fake || (UIImagePickerController.isSourceTypeAvailable(.camera) && AVCaptureDevice.default(for: .video) != nil)
                 let authorized = fake || AVCaptureDevice.authorizationStatus(for: .video) == .authorized
                 if case .refuse(let reason) = MediaRules.camera(available: available, authorized: authorized) {
                     return call.resolve(["launched": false, "reason": reason])

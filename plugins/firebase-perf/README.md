@@ -48,17 +48,22 @@ testing: `<meta-data android:name="firebase_performance_logcat_enabled" android:
    ```swift
    ZnPlugins.register(PerfPlugin(), FirebaseAppPlugin(), AnalyticsPlugin(), ...)
    PerfPlugin(screens: false)     // no screen_<route> traces (and no display link)
+   PerfPlugin(url: { u in u.host == "api.example.com" ? "https://\(u.host!)\(u.path)" : nil })   // your URL rule, as Android
    PerfPlugin(automatic: true)    // Firebase's own network and view controller traces, see below
    ```
 
 iOS differences:
-- **No network traces yet.** On Android every `fetch` gets one from the interceptor. iOS needs an observer on core's
-  fetch that is not built yet; until then `network` and `url` are accepted and change nothing.
-  `PerfPlugin(automatic: true)` (iOS only, off by default) turns on Firebase's own hooks instead: every URLSession
-  request is traced, core's `fetch` and also images, OTA downloads and Firebase's own calls, with the URL without
-  query, fragment, user and password, no `url` option and no `zn_bundle`. They also bring Firebase's view controller
-  screen traces (`_st_ZnScreenController`: one view controller for every route; read the `screen_<route>` ones). The
-  switch is kept on the phone: registered after `FirebaseAppPlugin`, a change applies from the next start.
+- **Network traces** come from an observer on core's fetch (`ZnFetch.addObserver`), as Android's interceptor: the same
+  `url` option (default: no query, fragment, user or password; `nil` leaves a request out) and `zn_bundle`. Register
+  the plugin before the first fetch. Two small differences: the response size is the body received (unzipped), where
+  Android sends its `Content-Length`; a method Firebase doesn't know (`PROPPATCH`, `REPORT`) gets no trace. A call that
+  ends with no response (offline, a timeout, an abort) stops with no code, which Firebase counts as a network error.
+  `PerfPlugin(automatic: true)` (iOS only, off by default) turns on Firebase's own hooks as well: every URLSession
+  request is traced, core's `fetch` again (twice then) and also images, OTA downloads and Firebase's own calls, with
+  the URL without query, fragment, user and password, no `url` option and no `zn_bundle`. They also bring Firebase's
+  view controller screen traces (`_st_ZnScreenController`: one view controller for every route; read the
+  `screen_<route>` ones). The switch is kept on the phone: registered after `FirebaseAppPlugin`, a change applies from
+  the next start.
 - **Frames** come from a display link, as in Firebase iOS. It ticks at every screen refresh whether or not anything
   was drawn, so `frames` counts refreshes (a still screen adds about 60 a second; Android counts only drawn frames):
   compare `frames_slow` and `frames_frozen` between screens and bundles, not with Android. `frames_slow` is a frame

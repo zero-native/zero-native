@@ -15,6 +15,32 @@ ZnPlugins.register(this, MediaPlugin())
 
 It needs no storage permission. Your Activity needs `ZnActivity.attach(this)` in `onCreate`, as every app with a launch does.
 
+### On iOS
+
+The Swift package's `ZnPluginMedia` product (or `plugins/media/ios` in a CMake build), then in
+`application(_:didFinishLaunchingWithOptions:)`:
+
+```swift
+ZnPlugins.register(MediaPlugin())
+```
+
+Photos and files need no permission (the Photos picker and the Files picker run outside the app and give only what the
+user picked). `takePhoto` needs `NSCameraUsageDescription` in Info.plist.
+
+What is different on iOS:
+- `pickPhotos` is the Photos picker (`PHPickerViewController`); HEIC photos are read as they are. An iCloud photo is
+  downloaded first, so the promise can take a while.
+- `pickFile` is the Files picker. `types` are matched to iOS's content types (`image/*` is any picture); a type iOS
+  doesn't know matches no file.
+- `takePhoto` is the system camera (`UIImagePickerController`). It needs the camera permission: JS asks for it and tries
+  again, as on Android. iOS asks only once, so a "no" there comes back as `camera_blocked` (Android says
+  `camera_denied` the first time). No camera (the simulator) fails with `no_app`; debug builds can set
+  `ZN_MEDIA_FAKE_CAMERA=1` for a drawn photo instead.
+- **After a kill** the pick is `lost`: the pickers run inside the app, so their answer dies with it. Everything else in
+  that section holds: a half-written file never gets a handle, and `collect` again is safe.
+- A picker that goes away with no answer (a swipe down, or a Sheet that closes under it) ends as `cancelled`.
+- `fileDir` is in Caches, which iOS can clear when the phone is short of space: as on Android, a handle is for now.
+
 ## Use it
 
 ```tsx
