@@ -190,9 +190,6 @@ struct ZnTouchTarget: UIViewRepresentable {
                 if s.onPressIn != 0 { ctx.send(inst.id, s.onPressIn, .none) }
             case .out: state.pressed = false; if s.onPressOut != 0 { ctx.send(inst.id, s.onPressOut, payload) }
             case .tap:
-                #if DEBUG
-                print("zn t=\(ZnDebug.ms()) tap on \(inst.id).\(s.index)")
-                #endif
                 if s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) }
             case .long: ctx.send(inst.id, s.onLongPress, .none)
             case .repeat: ctx.send(inst.id, s.onPressRepeat, .none)

@@ -69,6 +69,19 @@ enum ZnFontRules {
         return order.first.map { ($0, synth) }
     }
 
+    /// A font size as made and kept (ZnFontTable): to a quarter point, so an animated fontSize doesn't make a new font
+    /// every frame. A quarter point can't be seen.
+    static func cacheSize(_ size: CGFloat) -> CGFloat { (max(size, 0) * 4).rounded() / 4 }
+
+    /// An iOS font's weight trait (UIFont.Weight's raw value, -1...1) as the nearest CSS weight (100...900), so an
+    /// installed family's faces are picked as an app family's.
+    static func cssWeight(_ trait: CGFloat) -> Int {
+        // UIFont.Weight ultraLight, thin, light, regular, medium, semibold, bold, heavy, black.
+        let steps: [(CGFloat, Int)] = [(-0.8, 100), (-0.6, 200), (-0.4, 300), (0, 400), (0.23, 500), (0.3, 600),
+                                       (0.4, 700), (0.56, 800), (0.62, 900)]
+        return steps.min { abs($0.0 - trait) < abs($1.0 - trait) }?.1 ?? 400
+    }
+
     /// The phone's own fonts under Android's names (fonts.ts SYSTEM_FONTS), as iOS draws them. Nil: not such a name.
     static func systemFont(_ name: String) -> ZnSystemFont? {
         switch name {

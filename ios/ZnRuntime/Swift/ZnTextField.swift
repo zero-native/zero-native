@@ -320,7 +320,8 @@ struct ZnUIKitField: UIViewRepresentable {
             DispatchQueue.main.async { if !c.editable && f.isFirstResponder { f.resignFirstResponder() } }
         }
         let font = znFieldFont(s, context.environment.dynamicTypeSize)
-        if f.font != font { f.font = font }
+        // A new font (the phone's text size changed): SwiftUI measures the field again (sizeThatFits).
+        if f.font != font { f.font = font; f.invalidateIntrinsicContentSize() }
         znFieldTouch(f, off: context.environment.znTouchOff)
         znApplyA11y(f, s, label: look.label)
         // Only on a change: setting it again relays the field out (an empty placeholder is nil). In placeholderColor
@@ -524,7 +525,8 @@ struct ZnUIKitTextView: UIViewRepresentable {
         c.s = s
         c.state = state
         let font = znFieldFont(s, context.environment.dynamicTypeSize)
-        if v.font != font { v.font = font }
+        // A new font (the phone's text size changed): SwiftUI measures the field again (sizeThatFits).
+        if v.font != font { v.font = font; v.invalidateIntrinsicContentSize() }
         znFieldTouch(v, off: context.environment.znTouchOff)
         znApplyA11y(v, s, label: look.label)
         // editable={false}: the text can still be selected and copied (the nearest to Compose's readOnly), not edited.

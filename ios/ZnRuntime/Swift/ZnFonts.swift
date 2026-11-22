@@ -10,8 +10,9 @@
 //
 // Never crashes on a bad font (OTA-safe): an unknown name, a missing file or a file that isn't a font draws the system
 // font, with one line in the log per name. Android's own names (serif, monospace, sans-serif-medium, ...) draw the
-// phone's matching fonts (ZnFontRules.systemFont); an app file with the same name wins. Any other name an iOS font has
-// (UIFont(name:), as React Native on iOS) draws that font.
+// phone's matching fonts (ZnFontRules.systemFont); an app file with the same name wins. Any other name iOS has a font
+// for draws it, as React Native on iOS: a family name ("Avenir Next") picks its face by fontWeight and fontStyle the
+// same way as an app family; a face name ("AvenirNext-Bold") is that face.
 //
 // iOS differences: a family with no italic face draws its upright face slanted (Compose does the same); one with no
 // bold face draws its nearest face, not a thickened one (Compose thickens it).
@@ -25,8 +26,17 @@ enum ZnFontChoice {
     case system(ZnSystemFont)
     /// An app face, slanted when the family has no italic face and italic was asked for.
     case file(CGFont, synthItalic: Bool)
-    /// A font iOS has under this name.
+    /// A font iOS has under this name (a family or a face name): ZnFontTable.installedFont.
     case installed(String)
+}
+
+/// A made font's cache key: an app face (file) or an installed name, at a size, weight and style.
+private struct ZnMadeFont: Hashable {
+    let file: ObjectIdentifier?
+    let name: String?
+    let size: CGFloat
+    let weight: Int
+    let italic: Bool
 }
 
 @MainActor
@@ -39,12 +49,6 @@ final class ZnFontTable {
         current = ZnFontTable(fonts: manifest?["fonts"] as? [String: Any] ?? [:])
     }
 
-    /// Sets [current] from the main.zn.ui.json at [url]; a file that can't be read means no app fonts.
-    static func install(manifestAt url: URL) {
-        let json = (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
-        install(manifest: json)
-    }
-
     private let faces: [String: [ZnFontFace]]
     /// Each face file read: its font, or nil when it can't be read or isn't a font (logged once).
     private var files: [String: CGFont?] = [:]
@@ -52,7 +56,9 @@ final class ZnFontTable {
     private var families: [String: [(ZnFontFace, CGFont)]] = [:]
     /// Names iOS has a font for (true) or none (false, logged once).
     private var installed: [String: Bool] = [:]
-    private var made: [String: UIFont] = [:]
+    /// An installed family's faces (face names as `file`), empty for a face name.
+    private var installedFaces: [String: [ZnFontFace]] = [:]
+    private var made: [ZnMadeFont: UIFont] = [:]
 
     init(fonts: [String: Any]) { faces = ZnFontRules.parse(fonts) }
 
@@ -73,7 +79,7 @@ final class ZnFontTable {
         }
         if let sys = ZnFontRules.systemFont(family) { return .system(sys) }
         if let ok = installed[family] { return ok ? .installed(family) : .system(ZnSystemFont()) }
-        let ok = UIFont(name: family, size: 12) != nil
+        let ok = !UIFont.fontNames(forFamilyName: family).isEmpty || UIFont(name: family, size: 12) != nil
         installed[family] = ok
         if !ok { print("zn: font \"\(family)\": this bundle has no such font; drawing the system font") }
         return ok ? .installed(family) : .system(ZnSystemFont())
@@ -81,14 +87,60 @@ final class ZnFontTable {
 
     /// An app face at [size] (slanted for a synthesized italic), made once per size.
     func uiFont(_ cg: CGFont, size: CGFloat, synthItalic: Bool) -> UIFont {
-        let key = "\(ObjectIdentifier(cg).hashValue)|\(size)|\(synthItalic)"
+        let size = ZnFontRules.cacheSize(size)
+        let key = ZnMadeFont(file: ObjectIdentifier(cg), name: nil, size: size, weight: 0, italic: synthItalic)
         if let f = made[key] { return f }
-        // A slant of about 11°, as a synthesized italic (CoreText's text space: y up, so x moves right as y grows).
-        var slant = CGAffineTransform(a: 1, b: 0, c: synthItalic ? 0.2 : 0, d: 1, tx: 0, ty: 0)
+        var slant = synthItalic ? ZnFontTable.slant : .identity
         let f = CTFontCreateWithGraphicsFont(cg, size, &slant, nil) as UIFont
+        keep(key, f)
+        return f
+    }
+
+    /// A slant of about 11°, as a synthesized italic (CoreText's text space: y up, so x moves right as y grows).
+    private static let slant = CGAffineTransform(a: 1, b: 0, c: 0.2, d: 1, tx: 0, ty: 0)
+
+    /// The font iOS has under [name] at [size], [weight] and [italic]. A family's face is picked as an app family's
+    /// (ZnFontRules.pick, condensed faces only when it has no other); a face name is that face. Italic with no italic
+    /// face is slanted, as an app font.
+    func installedFont(_ name: String, size: CGFloat, weight: Int, italic: Bool) -> UIFont {
+        let size = ZnFontRules.cacheSize(size)
+        let key = ZnMadeFont(file: nil, name: name, size: size, weight: weight, italic: italic)
+        if let f = made[key] { return f }
+        var font = UIFont.systemFont(ofSize: size)
+        var slanted = false
+        if let (face, synth) = ZnFontRules.pick(faces(installed: name), weight: weight, italic: italic),
+           let f = UIFont(name: face.file, size: size) {
+            font = f
+            slanted = synth
+        } else if let f = UIFont(name: name, size: size) {
+            font = f
+            slanted = italic && !f.fontDescriptor.symbolicTraits.contains(.traitItalic)
+        }
+        if slanted { font = UIFont(descriptor: font.fontDescriptor.withMatrix(ZnFontTable.slant), size: size) }
+        keep(key, font)
+        return font
+    }
+
+    private func faces(installed family: String) -> [ZnFontFace] {
+        if let have = installedFaces[family] { return have }
+        var all: [(ZnFontFace, condensed: Bool)] = []
+        for name in UIFont.fontNames(forFamilyName: family) {
+            guard let f = UIFont(name: name, size: 12) else { continue }
+            let d = f.fontDescriptor
+            let traits = d.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
+            let w = (traits?[.weight] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+            all.append((ZnFontFace(file: name, weight: ZnFontRules.cssWeight(w), italic: d.symbolicTraits.contains(.traitItalic)),
+                        d.symbolicTraits.contains(.traitCondensed)))
+        }
+        let plain = all.filter { !$0.condensed }
+        let out = (plain.isEmpty ? all : plain).map(\.0).sorted { $0.file < $1.file }
+        installedFaces[family] = out
+        return out
+    }
+
+    private func keep(_ key: ZnMadeFont, _ f: UIFont) {
         if made.count > 400 { made.removeAll() }  // sizes from an animation or many Dynamic Type changes
         made[key] = f
-        return f
     }
 
     private func load(_ family: String) -> [(ZnFontFace, CGFont)] {

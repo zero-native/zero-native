@@ -204,8 +204,9 @@ public final class ZnApp {
         do {
             let file = try TemplateReader.read(try Data(contentsOf: bundle.appendingPathComponent("main.zn.ui")))
             let templates = file.templates.map(ZnTemplate.init)
-            routes = try Self.readRoutes(bundle.appendingPathComponent("main.zn.ui.json"))
-            ZnFontTable.install(manifestAt: bundle.appendingPathComponent("main.zn.ui.json"))  // this bundle's fonts (a restart too)
+            let manifest = try Self.readManifest(bundle.appendingPathComponent("main.zn.ui.json"))
+            routes = manifest.routes
+            ZnFontTable.install(manifest: manifest.json)  // this bundle's fonts (a restart too)
             ctx = ZnContext(templates: templates, store: store) { [host] instance, event, payload in
                 switch payload {
                 case .none: host.dispatchEvent(instance, event: UInt16(event))
@@ -551,9 +552,13 @@ public final class ZnApp {
         host.dispatchEvent(0, event: UInt16(ZnAppEvent.back), number: Double(top))
     }
 
-    private static func readRoutes(_ url: URL) throws -> [ZnRoute] {
-        guard let routes = try ZnRoutes.read(Data(contentsOf: url)) else { throw ZnFormatError("main.zn.ui.json has no routes") }
-        return routes
+    /// main.zn.ui.json, parsed once: its routes (ZnRoutes.read) and the whole object (the font table reads "fonts").
+    private static func readManifest(_ url: URL) throws -> (routes: [ZnRoute], json: [String: Any]) {
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        guard let json, let routes = (json["routes"] as? [[String: Any]])?.map(ZnRoute.init(json:)) else {
+            throw ZnFormatError("main.zn.ui.json has no routes")
+        }
+        return (routes, json)
     }
 }
 

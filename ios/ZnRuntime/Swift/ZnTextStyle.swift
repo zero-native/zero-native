@@ -42,8 +42,7 @@ private func znSystemWeight(_ sys: ZnSystemFont, _ weight: Int?) -> Int? { weigh
     case .file(let cg, let synth):
         return table.uiFont(cg, size: size, synthItalic: synth)
     case .installed(let name):
-        if let f = UIFont(name: name, size: size) { return znItalic(f, italic) }
-        return znItalic(UIFont.systemFont(ofSize: size, weight: znUIWeight(weight)), italic)
+        return table.installedFont(name, size: size, weight: weight ?? 400, italic: italic)
     case .system(let sys):
         let w = znUIWeight(znSystemWeight(sys, weight))
         var f = sys.condensed ? UIFont.systemFont(ofSize: size, weight: w, width: .condensed) : UIFont.systemFont(ofSize: size, weight: w)
@@ -69,8 +68,7 @@ private func znItalic(_ f: UIFont, _ italic: Bool) -> UIFont {
     case .file(let cg, let synth):
         return Font(table.uiFont(cg, size: size, synthItalic: synth) as CTFont)
     case .installed(let name):
-        let f = Font.custom(name, fixedSize: size)
-        return italic ? f.italic() : f
+        return Font(table.installedFont(name, size: size, weight: weight ?? 400, italic: italic) as CTFont)
     case .system(let sys):
         let design: Font.Design = switch sys.design {
         case .serif: .serif

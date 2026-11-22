@@ -83,6 +83,24 @@ check("upright wanted, only italic", pick([face(400, true)], 400), "400i")
 check("lato only black", pick([face(900)], 400), "900")
 check("no faces", pick([], 400), "none")
 
+// An installed family's faces: UIFont's weight trait as the nearest CSS weight, then picked as above.
+check("regular trait", ZnFontRules.cssWeight(0), 400)
+check("medium trait", ZnFontRules.cssWeight(0.23), 500)
+check("semibold trait", ZnFontRules.cssWeight(0.3), 600)
+check("bold trait", ZnFontRules.cssWeight(0.4), 700)
+check("heavy trait", ZnFontRules.cssWeight(0.56), 800)
+check("black trait", ZnFontRules.cssWeight(0.62), 900)
+check("light trait", ZnFontRules.cssWeight(-0.4), 300)
+check("ultralight trait", ZnFontRules.cssWeight(-0.8), 100)
+check("between: nearest", ZnFontRules.cssWeight(0.37), 700)
+check("Avenir Next demi bold at 700", pick([face(400), face(500), face(600), face(800)], 700), "800")
+
+// Made fonts are kept per quarter point, so an animated size doesn't make one per frame.
+check("quarter point", ZnFontRules.cacheSize(14.1), 14)
+check("quarter point up", ZnFontRules.cacheSize(14.2), 14.25)
+check("exact stays", ZnFontRules.cacheSize(17.5), 17.5)
+check("no negative size", ZnFontRules.cacheSize(-3), 0)
+
 // The sample's font files load, and their weights read as the build wrote them (fonts.ts reads the OS/2 table).
 let files = Array(CommandLine.arguments.dropFirst())
 check("three font files given", files.count, 3)

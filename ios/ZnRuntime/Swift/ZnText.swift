@@ -55,18 +55,21 @@ struct ZnTextView: View {
     let inst: ZnInstance
     /// The phone's text size (Dynamic Type): read here, so a change in Settings redraws the text at once.
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// A Pressable around it reads this text itself (ZnAccessibility.swift): VoiceOver skips it here.
+    @Environment(\.znA11yMerged) private var merged
 
     var body: some View {
         let _ = ZnDebug.hit(name: "TextLeaf", inst: inst, node: s.index)
-        let raw = s.textSlot >= 0 ? znTextShown(inst.slot(s.textSlot).value) : (s.text ?? "")
-        let value = s.textTransform > 0 ? znTransformText(raw, s.textTransform) : raw
+        let value = znTextNow(s, inst)
         let color = s.colorSlot >= 0 ? (znColor(inst.slot(s.colorSlot).value) ?? .black) : (s.color ?? .black)
         let spans = s.spansSlot >= 0 ? inst.slot(s.spansSlot).value.string.flatMap(ZnSpan.parse) : s.spans
         // Sizes scaled by the phone's text size and capped by maxFontScale (Android: sp × fontScaleCap), spans too.
         let k = s.textScale(typeSize)
         let size = max(s.fontSizeNow(inst), 0) * k
-        let font = znUIFont(s.fontFamily, size: size, weight: s.fontWeight, italic: s.italic)
-        let extra = s.lineHeightNow(inst).map { max($0 * k - font.lineHeight, 0) } ?? 0
+        // The UIKit font only for lineHeight (its natural line height); the text's fonts come from znFont.
+        let extra = s.lineHeightNow(inst).map {
+            max($0 * k - znUIFont(s.fontFamily, size: size, weight: s.fontWeight, italic: s.italic).lineHeight, 0)
+        } ?? 0
         let selectable = s.selectableSlot >= 0 ? inst.slot(s.selectableSlot).value == .bool(true) : s.selectable
         // Auto-fit only with numberOfLines, as Android (without a line limit there is nothing to fit to).
         let minScale = znTextMinScale(autoFit: s.adjustsFontSizeToFit, maxLines: s.maxLines, minimumFontScale: s.minimumFontScale)
@@ -79,6 +82,7 @@ struct ZnTextView: View {
             .lineSpacing(extra)
             .modifier(ZnTextSelect(on: selectable && s.onPress == 0 && s.onLongPress == 0))
             .modifier(ZnTextPress(ctx: ctx, s: s, inst: inst, selectable: selectable))
+            .accessibilityHidden(merged && s.isMergedText)
     }
 
     private func pattern(_ style: Int) -> Text.LineStyle.Pattern {
@@ -247,7 +251,8 @@ struct ZnTextLinkPress: ViewModifier {
 }
 
 /// A tappable Text reads as a button; VoiceOver's double tap sends onPress, and a "Long press" action (only on a Text
-/// with onLongPress) sends onLongPress.
+/// with onLongPress) sends onLongPress. Another accessibilityRole ("link", "none", ...) takes the button off, as a
+/// Pressable's (ZnPressA11y; Android keeps Role.Button): ZnA11y adds the role's own trait.
 struct ZnTextButtonA11y: ViewModifier {
     let ctx: ZnContext
     let s: ZnNodeSpec
@@ -255,9 +260,11 @@ struct ZnTextButtonA11y: ViewModifier {
     let longPress: Bool
 
     func body(content: Content) -> some View {
+        let role = s.accessibilityRole
         let button = content
-            .accessibilityAddTraits(.isButton)
             .accessibilityAction { if s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) } }
+            .accessibilityAddTraits(role < 0 || role == Registry.AccessibilityRole.button ? .isButton : [])
+            .accessibilityRemoveTraits(role < 0 || role == Registry.AccessibilityRole.button ? [] : .isButton)
         // On the template's onLongPress, so the branch never changes; [longPress] says JS still has a handler.
         if s.onLongPress != 0 {
             button.accessibilityAction(named: Text("Long press")) { if longPress { ctx.send(inst.id, s.onLongPress, .none) } }
