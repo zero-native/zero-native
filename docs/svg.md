@@ -735,6 +735,10 @@ On the phone ([ZnSvgEffects.kt](../android/runtime/src/main/java/dev/zeronative/
 - A filter runs as an Android `RenderEffect` on a `RenderNode` (Android 12+, hardware drawing), made again only when
   the SVG's scale changes. **Below Android 12 (Pavan: "your call")**: the group is drawn without its filter, under the
   plain drop shadows the compiler found in it (a `BlurMaskFilter`, Android 9+). A blur alone draws the group sharp.
+- **iOS** ([ZnSvgFilters.swift](../ios/ZnRuntime/Swift/ZnSvgFilters.swift:1)) runs the whole graph as Android 12+ does,
+  on the CPU (vImage and Core Graphics, 8 bits a channel, sRGB), with the same fallbacks (a pattern's tile, a region
+  over 4096 px a side: the plain drop shadows). A region over 4M px is filtered at a lower resolution.
+  `ZN_SVG_FILTER_TIMING=1` prints draw times.
 - Masks and blends use a layer (`saveLayer`) for the group only. A pattern's tile is drawn once into a bitmap at the
   screen's resolution and used as a shader; it is made again only when the scale changes a lot.
 - **Blur in lists** (Pavan: "sure"): the lab's 60-row list has a coin with a drop shadow in every row.
