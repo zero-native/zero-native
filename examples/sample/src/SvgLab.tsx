@@ -40,6 +40,7 @@ import FilterBlur from "./svg/r13/filter-blur.svg"
 import FilterMatrix from "./svg/r13/filter-matrix.svg"
 import InnerShadow from "./svg/r13/inner-shadow.svg"
 import FilterBlend from "./svg/r13/filter-blend.svg"
+import FilterInPattern from "./svg/r13/filter-in-pattern.svg"
 import Gooey1 from "./svg/loaders/gooey-balls-1.svg"
 import Gooey2 from "./svg/loaders/gooey-balls-2.svg"
 
@@ -421,7 +422,7 @@ export function SvgLabScreen() {
             </Row>
           </Section>
 
-          <Section title="Filters" note="A blur alone (round, and across only), greyscale, an inner shadow, a tint and a glow; gooey loaders whose balls melt together">
+          <Section title="Filters" note="A blur alone (round, and across only), greyscale, an inner shadow, a tint and a glow; gooey loaders whose balls melt together; a pattern of dots with plain shadows">
             <Row style={{ justifyContent: "space-between" }}>
               <IconTile label="Blur"><FilterBlur size={40} /></IconTile>
               <IconTile label="Grey"><FilterMatrix size={40} /></IconTile>
@@ -431,6 +432,8 @@ export function SvgLabScreen() {
             <Row style={{ justifyContent: "space-between" }}>
               <IconTile label="Gooey"><Gooey1 size={40} color={c.primary} /></IconTile>
               <IconTile label="Gooey 2"><Gooey2 size={40} color={like} /></IconTile>
+              {/* A filter in a pattern tile: plain drop shadows only, as on Android. */}
+              <IconTile label="In pattern"><FilterInPattern size={40} /></IconTile>
               <Column style={{ width: 120, height: 104, borderRadius: 16, backgroundColor: c.white, alignItems: "center", justifyContent: "center" }}>
                 <Gooey1 size={96} color={c.primary} />
               </Column>

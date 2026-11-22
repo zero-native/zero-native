@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Registry 13: a filter inside a pattern's tile. Android draws a tile into a bitmap with no filter node, so there
+       the dots get only their plain drop shadow (sharp dots, soft shadows below), and iOS does the same. -->
+  <defs>
+    <filter id="dotShadow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="0.8" flood-color="#0F172A" flood-opacity="0.5"/>
+    </filter>
+    <pattern id="dots" width="12" height="12" patternUnits="userSpaceOnUse">
+      <circle cx="6" cy="5" r="3" fill="#4F46E5" filter="url(#dotShadow)"/>
+    </pattern>
+  </defs>
+  <rect x="4" y="4" width="40" height="40" rx="8" fill="url(#dots)"/>
+</svg>
