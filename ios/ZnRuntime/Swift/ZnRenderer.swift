@@ -243,7 +243,7 @@ struct ZnNodeView: View {
         case Registry.Component.anchor:
             EmptyView()  // anchors are expanded by the parent
         case Registry.Component.canvas:
-            ZnCanvasView(ctx: ctx, s: s, inst: inst)
+            ZnCanvasView(ctx: ctx, s: s, inst: inst, outer: outer)
         default:
             ZnMissing(type: s.type)
         }

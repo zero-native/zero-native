@@ -3,7 +3,9 @@
 // - Parsed once per change (ZnCanvasParse.swift), drawn with Core Graphics in a plain UIView's draw(_:)
 //   (ZnCanvasDraw.swift), as <Svg> is: not a SwiftUI Canvas, which once stopped showing frames after an empty first
 //   one (ZnSvgView.swift). A slot write redraws only this node.
-// - No size of its own (Android's Spacer): the style's width and height, or the stretch, size it.
+// - No size of its own (Android's Spacer): an axis is 0 unless a width / height (points or "%"), an aspectRatio, a
+//   stretch or a flex sizes it, or a minWidth / minHeight raises it. (Before 2026-11-21 it took all it was offered, so
+//   a Canvas with only a width filled the rest of a Column.)
 // - Problems in the list: one warning per distinct text in the Xcode console ("zn: <Canvas> commands:"), as Android's
 //   Log.w; the good commands still draw.
 // - Images (draw.image): loaded per list, the same forms as <Image> (znImageURL: asset:, zn://file, http(s), file),
@@ -20,13 +22,20 @@ struct ZnCanvasView: View {
     let ctx: ZnContext
     let s: ZnNodeSpec
     let inst: ZnInstance
+    /// What the parent stretches or flexes this node to fill.
+    let outer: ZnOuter
 
     @State private var model = ZnCanvasModel()
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         let raw = s.commandsSlot >= 0 ? inst.slot(s.commandsSlot).value.string : s.commands
-        ZnCanvasSurface(commands: model.commands(raw, scale: displayScale), model: model)
+        // Axes that fill what they are offered; the others are 0 or the min, as a Spacer with the same modifiers.
+        let fillW = outer.fillWidth || s.hasWidth || s.hasAspectRatio
+        let fillH = outer.fillHeight || s.hasHeight || s.hasAspectRatio
+        ZnCanvasSurface(commands: model.commands(raw, scale: displayScale), model: model,
+                        fillW: fillW, fillH: fillH,
+                        minW: fillW ? 0 : max(s.minWidthNow(inst) ?? 0, 0), minH: fillH ? 0 : max(s.minHeightNow(inst) ?? 0, 0))
             .onAppear { model.shown = true }
             .onDisappear { model.leave() }
     }
@@ -78,6 +87,7 @@ final class ZnCanvasModel {
         guard shown, loadsFor !== c else { return }
         loadsFor = c
         var used = Set<String>()
+        var reused = false
         var waiting: [String: [ZnCanvasOp.Image]] = [:]
         var order: [String] = []
         for case let op as ZnCanvasOp.Image in c.ops {
@@ -85,6 +95,7 @@ final class ZnCanvasModel {
             used.insert(key)
             if let have = kept[key] {
                 op.image = have
+                reused = true
             } else if waiting[key] == nil {
                 waiting[key] = [op]
                 order.append(key)
@@ -99,6 +110,9 @@ final class ZnCanvasModel {
         }
         kept = kept.filter { used.contains($0.key) }
         failed = failed.filter { used.contains($0) }
+        // Pictures set from kept need a draw too: a list that came while hidden drew without them (the loads only
+        // start once it shows again), and nothing else redraws it.
+        if reused { view?.setNeedsDisplay() }
         for key in order {
             guard let ops = waiting[key], let first = ops.first, !failed.contains(key) else { continue }
             if let l = loading[key] {
@@ -138,11 +152,13 @@ final class ZnCanvasModel {
         init(_ ops: [ZnCanvasOp.Image]) { self.ops = ops }
     }
 
-    /// The canvas left the screen: its loads stop (they start again when it comes back).
+    /// The canvas left the screen: its loads stop (they start again when it comes back), and failed pictures are tried
+    /// again then (the network may be back), as a new composition does on Android.
     func leave() {
         shown = false
         for l in loading.values { l.task?.cancel() }
         loading = [:]
+        failed = []
         loadsFor = nil
     }
 
@@ -169,6 +185,9 @@ final class ZnCanvasModel {
 struct ZnCanvasSurface: UIViewRepresentable {
     let commands: ZnCanvasCommands
     let model: ZnCanvasModel
+    /// Axes that take what they are offered (a set size, a stretch, a flex); the others are [minW] / [minH] or 0.
+    let fillW: Bool, fillH: Bool
+    let minW: CGFloat, minH: CGFloat
 
     final class View: UIView {
         var commands = ZnCanvasCommands.empty
@@ -198,9 +217,12 @@ struct ZnCanvasSurface: UIViewRepresentable {
         model.startLoads(commands)
     }
 
-    /// No size of its own: what it is offered, or nothing.
+    /// No size of its own: what it is offered on a filled axis, else the min or nothing.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: View, context: Context) -> CGSize? {
-        func side(_ v: CGFloat?) -> CGFloat { if let v, v.isFinite { return max(v, 0) } else { return 0 } }
-        return CGSize(width: side(proposal.width), height: side(proposal.height))
+        func side(_ v: CGFloat?, _ fill: Bool, _ lo: CGFloat) -> CGFloat {
+            guard fill else { return lo }
+            if let v, v.isFinite { return max(v, 0) } else { return 0 }
+        }
+        return CGSize(width: side(proposal.width, fillW, minW), height: side(proposal.height, fillH, minH))
     }
 }
