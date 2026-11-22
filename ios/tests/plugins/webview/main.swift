@@ -2,6 +2,7 @@
 // WebViewRulesTest.kt that iOS has (iOS has no content:// uploads, LeaveGate or OneAnswer: its gap is a time check in
 // the view, and the upload answer comes from the page script), plus the upload count and the scripts' host JSON.
 import Foundation
+import JavaScriptCore
 
 var failures = 0
 var count = 0
@@ -126,6 +127,85 @@ check("upload nil", WebViewRules.uploadCount(nil), 0)
 check("script rules", WebViewRules.scriptRules(policy),
       #"[{"h":"pay.example.com","p":-1,"s":"https","w":false},{"h":"shop.example","p":-1,"s":"https","w":true},{"h":"port.example","p":8443,"s":"https","w":false}]"#)
 check("script rules none", WebViewRules.scriptRules(WebViewRules.none), "[]")
+
+// The upload script itself, under JavaScriptCore with a tiny stand-in for the page: its host rule (the same as
+// WebViewRules.Policy's, copied into JavaScript), and when it stops a file input and what it answers.
+struct UploadRun { var posted: [Int] = []; var prevented = false }
+func upload(_ origin: String, on: Bool = true, frame ancestors: [String]? = nil, _ steps: String) -> UploadRun {
+    let ctx = JSContext()!
+    var errors: [String] = []
+    ctx.exceptionHandler = { _, e in errors.append(e?.toString() ?? "?") }
+    let anc = ancestors.map { "[" + $0.map { "'\($0)'" }.joined(separator: ",") + "]" } ?? "[]"
+    ctx.evaluateScript("""
+    var window = this, posted = [], listeners = {};
+    window.top = \(ancestors == nil ? "window" : "{}");
+    var location = { origin: '\(origin)', ancestorOrigins: \(anc) };
+    window.addEventListener = function(t, f){ (listeners[t] = listeners[t] || []).push(f); };
+    window.webkit = { messageHandlers: { znUpload: { postMessage: function(n){ posted.push(n); } } } };
+    function input(n, type){ return { tagName: 'INPUT', type: type || 'file', files: { length: n || 0 }, l: {},
+      addEventListener: function(t, f){ (this.l[t] = this.l[t] || []).push(f); } }; }
+    function ev(path, trusted){ return { target: path[path.length - 1], isTrusted: trusted !== false, prevented: false,
+      composedPath: function(){ return path; }, preventDefault: function(){ this.prevented = true; }, stopImmediatePropagation: function(){} }; }
+    function fire(type, e){ (listeners[type] || []).forEach(function(f){ f(e); }); }
+    function fireOn(el, type, e){ (el.l[type] || []).forEach(function(f){ f(e); }); }
+    """)
+    ctx.evaluateScript(WebViewRules.uploadScript(WebViewRules.scriptRules(policy), allowed: on, handler: "znUpload"))
+    ctx.evaluateScript("var prevented = false;\n" + steps)
+    if !errors.isEmpty { print("JS errors: \(errors)") }
+    let posted = (ctx.objectForKeyedSubscript("posted").toArray() ?? []).compactMap { ($0 as? NSNumber)?.intValue }
+    return UploadRun(posted: errors.isEmpty ? posted : [-1], prevented: ctx.objectForKeyedSubscript("prevented").toBool())
+}
+let clickPick = "var i = input(2); var c = ev([i]); fire('click', c); prevented = c.prevented; var e = ev([i]); fire('change', e); fireOn(i, 'change', e);"
+// A stopped click opens no picker, so no change follows
+let clickOnly = "var i = input(2); var c = ev([i]); fire('click', c); prevented = c.prevented;"
+do {
+    let r = upload("https://pay.example.com", clickPick)
+    check("upload allowed opens", r.prevented, false)
+    check("upload allowed answers once", r.posted, [2])
+}
+for origin in ["https://evil.com", "https://shop.example", "https://pay.example.com.evil.com", "https://port.example",
+               "https://pay.example.com:8443", "http://pay.example.com", "null", "file://"] {
+    let r = upload(origin, clickOnly)
+    check("upload refused on \(origin)", r.prevented, true)
+    check("upload refused answers 0 on \(origin)", r.posted, [0])
+}
+for origin in ["https://a.shop.example", "https://a.b.shop.example", "https://port.example:8443", "https://pay.example.com:443", "HTTPS://PAY.EXAMPLE.COM"] {
+    check("upload host \(origin)", upload(origin, clickPick).prevented, false)
+}
+do {
+    let r = upload("https://pay.example.com", on: false, clickOnly)
+    check("upload off stops", r.prevented, true)
+    check("upload off answers 0", r.posted, [0])
+}
+// A frame counts by the top page's origin (ancestorOrigins' last)
+check("upload frame on allowed page", upload("https://evil.com", frame: ["https://x.test", "https://pay.example.com"], clickPick).prevented, false)
+check("upload frame on other page", upload("https://pay.example.com", frame: ["https://evil.com"], clickPick).prevented, true)
+check("upload frame no ancestors", upload("https://pay.example.com", frame: [], clickPick).prevented, true)
+// An input in an open shadow root: the click's target is the host, its composed path starts at the input
+do {
+    let steps = "var i = input(1), host = { tagName: 'DIV' }; var c = ev([i, host]); c.target = host; fire('click', c); prevented = c.prevented;"
+    let r = upload("https://pay.example.com", on: false, steps)
+    check("upload shadow stopped", r.prevented, true)
+    check("upload shadow answers 0", r.posted, [0])
+    // change doesn't leave a shadow root: the clicked input's own listener answers
+    let pick = "var i = input(3), host = { tagName: 'DIV' }; var c = ev([i, host]); c.target = host; fire('click', c); fireOn(i, 'change', ev([i]));"
+    check("upload shadow change", upload("https://pay.example.com", pick).posted, [3])
+}
+// showPicker(): no click, the browser's own change still answers
+check("upload no click", upload("https://pay.example.com", "fire('change', ev([input(2)]));").posted, [2])
+check("upload cancel", upload("https://pay.example.com", "var i = input(0); fire('click', ev([i])); fire('cancel', ev([i]));").posted, [0])
+// A page's own made-up events (isTrusted false) and other inputs don't answer
+check("upload fake change", upload("https://pay.example.com", "fire('change', ev([input(5)], false));").posted, [])
+check("upload fake cancel", upload("https://pay.example.com", "fire('cancel', ev([input(0)], false));").posted, [])
+check("upload text input", upload("https://pay.example.com", "var t = input(0, 'text'); var c = ev([t]); fire('click', c); prevented = c.prevented; fire('change', ev([t]));").posted, [])
+check("upload text input open", upload("https://pay.example.com", on: false, "var t = input(0, 'text'); var c = ev([t]); fire('click', c); prevented = c.prevented;").prevented, false)
+check("upload FILE type", upload("https://pay.example.com", on: false, "var i = input(1, 'FILE'); var c = ev([i]); fire('click', c); prevented = c.prevented;").prevented, true)
+// Native's own check (the open-panel gate)
+check("refuses off", WebViewRules.refusesUploads(fileUpload: false, page: "https://pay.example.com/", policy), true)
+check("refuses other host", WebViewRules.refusesUploads(fileUpload: true, page: "https://evil.com/", policy), true)
+check("refuses blank", WebViewRules.refusesUploads(fileUpload: true, page: "about:blank", policy), true)
+check("refuses nil", WebViewRules.refusesUploads(fileUpload: true, page: nil, policy), true)
+check("allows", WebViewRules.refusesUploads(fileUpload: true, page: "https://pay.example.com/x", policy), false)
 
 print(failures == 0 ? "ios webview rules: \(count) checks passed" : "ios webview rules: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)

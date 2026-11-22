@@ -126,6 +126,55 @@ enum WebViewRules {
         return Int(min(max(d.rounded(.down), 0), Double(maxUploadCount)))
     }
 
+    /// The file picker's watch, run in our own script world (the page's scripts can't see it or post from it). A click
+    /// on a file input opens WebKit's picker (photos, camera, files) only when [allowed] (`fileUpload`) and the page
+    /// (the top frame, as Android's web.url) is on one of [rules]' hosts; else the click is stopped and the answer is 0,
+    /// as Android's pickFiles. A picker answers once: the number of files (`change`) or 0 (`cancel`), only from the
+    /// browser's own events (isTrusted), for any file input (also one a page opened with showPicker()).
+    /// - The input is the event's composed path's first node, so one inside an open shadow root counts too; `change`
+    ///   and `cancel` don't leave a shadow root, so a clicked input is listened to itself as well (each event answers
+    ///   once). A closed shadow root hides its inputs from this script (WebViewPlugin's open-panel gate stops those on
+    ///   iOS 18.4 and later).
+    static func uploadScript(_ rules: String, allowed: Bool, handler: String) -> String {
+        """
+        (function(){
+          var rules = \(rules), on = \(allowed ? "true" : "false");
+          var answered = new WeakSet(), watched = new WeakSet();
+          function post(n){ window.webkit.messageHandlers.\(handler).postMessage(n); }
+          function topOrigin(){
+            if (window === window.top) return location.origin;
+            var a = location.ancestorOrigins; return a && a.length ? a[a.length - 1] : 'null';
+          }
+          function allowedHost(){
+            var m = /^([a-z][a-z0-9+.-]*):\\/\\/([^:\\/]+)(?::(\\d+))?$/i.exec(topOrigin());
+            if (!m) return false;
+            var scheme = m[1].toLowerCase(), host = m[2].toLowerCase(), port = m[3] ? parseInt(m[3], 10) : -1;
+            if ((scheme === 'https' && port === 443) || (scheme === 'http' && port === 80)) port = -1;
+            return rules.some(function(r){ return r.s === scheme && r.p === port && (r.w ? host.endsWith('.' + r.h) : host === r.h); });
+          }
+          function inputOf(e){ var p = e.composedPath ? e.composedPath() : []; return p.length ? p[0] : e.target; }
+          function isFile(t){ return !!t && t.tagName === 'INPUT' && String(t.type).toLowerCase() === 'file'; }
+          function answer(e, n){ if (!e.isTrusted || answered.has(e)) return; answered.add(e); post(n); }
+          function changed(e){ var t = inputOf(e); if (isFile(t)) answer(e, t.files ? t.files.length : 0); }
+          function cancelled(e){ if (isFile(inputOf(e))) answer(e, 0); }
+          window.addEventListener('click', function(e){
+            var t = inputOf(e); if (!isFile(t)) return;
+            if (!on || !allowedHost()) { e.preventDefault(); e.stopImmediatePropagation(); post(0); return; }
+            if (!watched.has(t)) { watched.add(t); t.addEventListener('change', changed, true); t.addEventListener('cancel', cancelled, true); }
+          }, true);
+          window.addEventListener('change', changed, true);
+          window.addEventListener('cancel', cancelled, true);
+        })();
+        """
+    }
+
+    /// Native's own check of the same rule (the open-panel gate on iOS 18.4 and later): uploads are refused when
+    /// `fileUpload` is off or the page on screen isn't on an allowed host.
+    static func refusesUploads(fileUpload: Bool, page: String?, _ policy: Policy) -> Bool { !fileUpload || !policy.allowsPage(page) }
+
+    /// The page script's 0 for a picker that native already answered as refused (it sends 0 itself) comes within this.
+    static let refusedEchoMs = 1000.0
+
     static func short(_ url: String?) -> String { String((url ?? "").prefix(2048)) }
     static func hostOf(_ url: String?) -> String { url.flatMap(parseUrl).map { $0.host ?? $0.scheme } ?? "?" }
 

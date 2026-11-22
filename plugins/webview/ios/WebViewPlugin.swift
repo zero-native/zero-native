@@ -11,9 +11,13 @@
 // - thirdPartyCookies: WebKit always blocks third-party cookies (ITP); the prop can't turn them on.
 // - Upload: iOS's own picker (photos, camera, files). A script in our own world (the page's scripts can't reach it)
 //   stops file inputs when `fileUpload` is false or the page's host isn't allowed, and sends "upload" with the count
-//   (0: cancelled or stopped), as Android.
+//   (0: cancelled or stopped), as Android. On iOS 18.4 and later native stops them too (the open-panel gate below),
+//   so a page can't get round the script (showPicker(), a closed shadow root); before 18.4 the script is the only
+//   check, and a closed shadow root's input or showPicker() with uploads off opens the picker.
 // - Paused / resumed: a screen pushed on top, the app in the background, or another controller presented over the
-//   page (Android's other Activity). Media is suspended while paused.
+//   page (Android's other Activity). Media is suspended while paused. A presentation that leaves the page in the window
+//   is noticed by UIKit's tint dimming, so one that doesn't dim (.overFullScreen, a custom one) doesn't pause it. A
+//   swipe back waits for its end: a cancelled one changes nothing.
 // - renderGone: WebKit ended the page's process (crashed false: iOS doesn't say why). debugRenderer: no public way to kill
 //   it, so it answers false.
 // - backInPage: the in-page back swipe (WKWebView's own gesture) and controller.back(); iOS has no Back button.
@@ -99,6 +103,14 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     private var observers: [NSKeyValueObservation] = []
     private var fileUpload = true
     private var inFront = false
+    private var waitingSwipe = false  // a swipe back is under way: the page's state waits for its end
+    // The app's html is what is on screen (it committed and no other page has since; a #fragment or pushState keeps it).
+    private var inlineNav: WKNavigation?
+    private weak var inlineItem: WKBackForwardListItem?
+    private var inlineShown = false
+    // iOS 18.4 and later: the uiDelegate while uploads are refused, which answers WebKit's open panel with nothing.
+    private lazy var uploadGate = UploadGate(self)
+    private var lastRefusal = -Double.infinity
 
     init(_ scope: ZnViewScope, _ pages: WebViewPages) {
         self.scope = scope
@@ -141,7 +153,7 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         observers = [
             w.observe(\.estimatedProgress) { [weak self] w, _ in self?.scope.emit("progress", Int((w.estimatedProgress * 100).rounded())) },
             w.observe(\.title) { [weak self] w, _ in self?.scope.emit("title", w.title ?? "") },
-            w.observe(\.url) { [weak self] _, _ in self?.emitNav() },
+            w.observe(\.url) { [weak self] _, _ in self?.emitNav(); self?.setUploadGate() },
             w.observe(\.canGoBack) { [weak self] _, _ in self?.emitNav() },
         ]
     }
@@ -161,6 +173,7 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
             web.configuration.defaultWebpagePreferences.allowsContentJavaScript = js
             web.allowsBackForwardNavigationGestures = backInPage
             setScripts()
+            setUploadGate()
             pages.add(scope.id, self)
             scope.emit("ready", ["view": scope.id, "bridge": !policy.hosts.isEmpty, "refused": policy.refused])
         }
@@ -202,46 +215,25 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         })();
         """
         ucc.addUserScript(WKUserScript(source: bridge, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        ucc.addUserScript(WKUserScript(source: Self.uploadScript(json, allowed: fileUpload), injectionTime: .atDocumentStart,
-                                       forMainFrameOnly: false, in: Self.uploadWorld))
+        ucc.addUserScript(WKUserScript(source: WebViewRules.uploadScript(json, allowed: fileUpload, handler: Self.uploadHandler),
+                                       injectionTime: .atDocumentStart, forMainFrameOnly: false, in: Self.uploadWorld))
     }
 
-    /// The file picker, watched from our own script world, which the page's scripts can't see or post from: a click on
-    /// a file input opens WebKit's picker (photos, camera, files) only when `fileUpload` is on and the page (the top
-    /// frame, as Android's web.url) is on an allowed host; else the click is stopped and the answer is 0, as Android's
-    /// pickFiles. An opened picker answers once: the number of files (`change`) or 0 (`cancel`).
-    private static func uploadScript(_ rules: String, allowed: Bool) -> String {
-        """
-        (function(){
-          var rules = \(rules), on = \(allowed ? "true" : "false"), open = null;
-          function post(n){ window.webkit.messageHandlers.\(uploadHandler).postMessage(n); }
-          function topOrigin(){
-            if (window === window.top) return location.origin;
-            var a = location.ancestorOrigins; return a && a.length ? a[a.length - 1] : 'null';
-          }
-          function allowedHost(){
-            var m = /^([a-z][a-z0-9+.-]*):\\/\\/([^:\\/]+)(?::(\\d+))?$/i.exec(topOrigin());
-            if (!m) return false;
-            var scheme = m[1].toLowerCase(), host = m[2].toLowerCase(), port = m[3] ? parseInt(m[3], 10) : -1;
-            if ((scheme === 'https' && port === 443) || (scheme === 'http' && port === 80)) port = -1;
-            return rules.some(function(r){ return r.s === scheme && r.p === port && (r.w ? host.endsWith('.' + r.h) : host === r.h); });
-          }
-          function isFile(t){ return t && t.tagName === 'INPUT' && String(t.type).toLowerCase() === 'file'; }
-          window.addEventListener('click', function(e){
-            var t = e.target; if (!isFile(t)) return;
-            if (!on || !allowedHost()) { e.preventDefault(); e.stopImmediatePropagation(); open = null; post(0); return; }
-            open = t;
-          }, true);
-          window.addEventListener('change', function(e){
-            if (!open || e.target !== open) return;
-            open = null; post(e.target.files ? e.target.files.length : 0);
-          }, true);
-          window.addEventListener('cancel', function(e){
-            if (!open || e.target !== open) return;
-            open = null; post(0);
-          }, true);
-        })();
-        """
+    /// iOS 18.4 and later: while uploads are refused the uiDelegate is the gate, which answers WebKit's open panel with
+    /// no files. WebKit looks once, when the delegate is set, at whether it answers the open panel, and answering it
+    /// replaces Safari's own picker, so the page itself is the delegate while uploads are allowed.
+    private func setUploadGate() {
+        guard #available(iOS 18.4, *) else { return }
+        let refuse = WebViewRules.refusesUploads(fileUpload: fileUpload, page: web.url?.absoluteString, policy)
+        let want: WKUIDelegate = refuse ? uploadGate : self
+        if web.uiDelegate !== want { web.uiDelegate = want }
+    }
+
+    /// The gate answered a picker the script didn't stop (showPicker(), a closed shadow root): 0, as the script would.
+    fileprivate func uploadRefused() {
+        print("zn webview: a file picker refused (uploads off or host not allowed)")
+        lastRefusal = CACurrentMediaTime() * 1000
+        scope.emit("upload", ["count": 0])
     }
 
     private func load(url: String?, html: String?, baseUrl: String?, headers: [String: String]) {
@@ -250,7 +242,8 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         if let html {
             if let b = baseUrl, !policy.allowsPage(b) { return refuseLoad(b) }
             inline = true
-            web.loadHTMLString(html, baseURL: baseUrl.flatMap(URL.init(string:)))
+            inlineShown = false
+            inlineNav = web.loadHTMLString(html, baseURL: baseUrl.flatMap(URL.init(string:)))
         } else if let url {
             guard policy.allowsPage(url), let u = URL(string: url) else { return refuseLoad(url) }
             inline = false
@@ -290,20 +283,37 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     @objc private func appInactive() { setFront(false) }
 
     private func updateFront() {
-        setFront(window != nil && UIApplication.shared.applicationState != .background && topScreen() && !coveredByPresentation())
+        let (top, nav) = topScreen()
+        // A swipe back: the stack's top is already the screen under it, and the user can still let go. Android keeps
+        // the screen under a predictive back STARTED, not RESUMED: so the state waits for the end, and a cancelled
+        // swipe changes nothing.
+        if let co = nav?.transitionCoordinator, co.isInteractive {
+            if !waitingSwipe {
+                waitingSwipe = true
+                let queued = co.animate(alongsideTransition: nil) { [weak self] _ in
+                    self?.waitingSwipe = false
+                    self?.updateFront()
+                }
+                if !queued { waitingSwipe = false } else { return }
+            } else {
+                return
+            }
+        }
+        setFront(window != nil && UIApplication.shared.applicationState != .background && top && !coveredByPresentation())
     }
 
-    /// The page's screen is the navigation stack's top one. A push moves the covered screen's view out of the window,
-    /// into UIKit's transition and out again; the stack's top changes at once, so the page pauses once, not three times.
-    private func topScreen() -> Bool {
+    /// The page's screen is the navigation stack's top one, and that stack. A push moves the covered screen's view out
+    /// of the window, into UIKit's transition and out again; the stack's top changes at once, so the page pauses once,
+    /// not three times.
+    private func topScreen() -> (Bool, UINavigationController?) {
         var r: UIResponder? = self
         while let n = r, !(n is UIViewController) { r = n.next }
         var vc = r as? UIViewController
         while let c = vc {
-            if let nav = c.parent as? UINavigationController { return nav.topViewController === c }
+            if let nav = c.parent as? UINavigationController { return (nav.topViewController === c, nav) }
             vc = c.parent
         }
-        return true
+        return (true, nil)
     }
 
     /// Something presented over the window's screens, other than an alert or one on its way out.
@@ -335,8 +345,8 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
     func reloadPage() -> Bool {
         // The app's own html, still on screen: WebKit's reload would fetch its baseUrl from the network instead (Android
-        // reloads the html).
-        if inline, web.url?.absoluteString == (scope.props["baseUrl"] as? String ?? "about:blank") || web.url == nil {
+        // reloads the html). Known from the navigations, not the URL (WebKit adds a "/", a page adds a #fragment).
+        if inline, inlineShown || web.url == nil {
             shown = nil
             apply(scope.props)
             return true
@@ -375,8 +385,11 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         if message.name == Self.uploadHandler {
             // Only our upload script's world can post here; the count is still kept sane.
             let n = WebViewRules.uploadCount(message.body)
+            // The 0 the page sends for a picker the gate already refused (WebKit fires `cancel`): answered once.
+            if n == 0, CACurrentMediaTime() * 1000 - lastRefusal < WebViewRules.refusedEchoMs { return }
             print("zn webview: upload answered with \(n) files")
             scope.emit("upload", ["count": n])
+            updateFront()  // the picker is going: look again (a picker's close doesn't always give the tint back first)
             return
         }
         let o = message.frameInfo.securityOrigin
@@ -467,6 +480,16 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         scope.emit("loadStart", ["url": WebViewRules.short(webView.url?.absoluteString)])
     }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        let item = webView.backForwardList.currentItem
+        if let n = inlineNav, navigation === n {
+            inlineShown = true
+            inlineItem = item
+        } else {
+            inlineShown = item != nil && item === inlineItem  // back to the app's html, or another page
+        }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         if let item = webView.backForwardList.currentItem, repliedItems.contains(ObjectIdentifier(item)) { replyOpen = true }
         // As on Android: a status only when the page failed.
@@ -497,6 +520,24 @@ final class ZnWebPage: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         print("zn webview: the page's process ended")
         replyOpen = false
         scope.emit("renderGone", ["crashed": false])
+    }
+}
+
+/// The uiDelegate while uploads are refused (iOS 18.4 and later): WebKit's open panel gets no files, so no picker
+/// opens whatever the page does; window.open goes to the page as before.
+private final class UploadGate: NSObject, WKUIDelegate {
+    weak var page: ZnWebPage?
+    init(_ p: ZnWebPage) { page = p }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        page?.webView(webView, createWebViewWith: configuration, for: action, windowFeatures: windowFeatures)
+    }
+
+    @available(iOS 18.4, *)
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {
+        completionHandler(nil)
+        page?.uploadRefused()
     }
 }
 
