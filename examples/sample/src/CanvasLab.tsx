@@ -229,6 +229,8 @@ export function CanvasLabScreen(props: { from?: number }) {
       // Body
       cmds.push(draw.rect(x + 0.2, top, Math.max(candleW - 0.4, 1), Math.max(bot - top, 1), { color, style: "fill" }))
     }
+    // A picture in a list that changes every 500 ms: it must show (and stay) even if it takes longer than one tick.
+    cmds.push(draw.image("https://picsum.photos/id/64/120/120", width - 44, 6, 36, 36, { radius: 18 }))
     return cmds
   }
 
@@ -369,11 +371,13 @@ export function CanvasLabScreen(props: { from?: number }) {
   ]
 
   // 12. Images: an asset with cover and a radius, the same with contain, a photo from the web, and a broken URL.
+  // canvas-test.png is 160 × 80: red left half, blue right half, a yellow square near the top left, a green strip
+  // along the bottom, so a crop, a squash or an upside-down picture shows.
   const imageCommands = (): CanvasCommand[] => [
     draw.rect(0, 0, 340, 110, { color: c.white }),
-    draw.image("asset:images/offer-placeholder.png", 10, 10, 100, 90, { fit: "cover", radius: 12 }),
+    draw.image("asset:images/canvas-test.png", 10, 10, 100, 90, { fit: "cover", radius: 12 }),
     draw.rect(120, 10, 100, 90, { color: c.pillBg }),
-    draw.image("asset:images/offer-placeholder.png", 120, 10, 100, 90, { fit: "contain" }),
+    draw.image("asset:images/canvas-test.png", 120, 10, 100, 90, { fit: "contain" }),
     draw.image("https://picsum.photos/id/292/400/360", 230, 10, 100, 90, { fit: "cover", radius: 45, opacity: 0.9 }),
     // Broken on purpose: draws nothing, with a warning in logcat.
     draw.image("https://zeronative.dev/nonexistent_canvas_404.png", 0, 0, 40, 40),
@@ -461,7 +465,7 @@ export function CanvasLabScreen(props: { from?: number }) {
         </Text>
 
         {show(1) && (
-          <Tile title="1. Candlestick chart, 200 points" expect="green and red candles that move left every 500 ms, and a dashed middle line.">
+          <Tile title="1. Candlestick chart, 200 points" expect="green and red candles that move left every 500 ms, a dashed middle line, and a round photo at the top right that stays put while the candles move (needs internet).">
             <Row gap={8}>
               <Pressable
                 onPress={() => autoPlay.set(!autoPlay())}
@@ -556,7 +560,7 @@ export function CanvasLabScreen(props: { from?: number }) {
         {show(11) && <PathTrimTile />}
 
         {show(12) && (
-          <Tile title="12. Images" expect="left: the offer picture filling a rounded box (cut to fit); middle: the whole picture on a grey box; right: a photo from the web in a circle (needs internet). Nothing at the top-left corner: that URL is broken on purpose (a warning in logcat or the Xcode console).">
+          <Tile title="12. Images" expect="left: the test picture filling a rounded box, cut at its left and right (red | blue, a yellow square at the top just left of the middle, green along the bottom); middle: the whole 2:1 picture across a grey box, grey above and below; right: a photo from the web in a circle (needs internet). Nothing at the top-left corner: that URL is broken on purpose (a warning in logcat or the Xcode console).">
             <Box style={{ width: 340, height: 110, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
               <Canvas style={{ width: 340, height: 110 }} commands={imageCommands()} />
             </Box>
@@ -592,6 +596,21 @@ export function CanvasLabScreen(props: { from?: number }) {
             <Box style={{ width: 340, height: 130, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
               <Canvas style={{ width: 340, height: 130 }} commands={turnedEffectsCommands()} />
             </Box>
+          </Tile>
+        )}
+
+        {show(17) && (
+          <Tile title="17. Sizes (a Canvas has no size of its own)" expect="no red anywhere (a Canvas with only a width is 0 tall); a blue bar across the grey box (height 24, stretched); a green bar filling the rest of a 40-tall row after 'flex'; a purple 120 × 40 box (aspectRatio 3); an orange 100 × 20 box (minHeight 20).">
+            <Column style={{ width: 340, gap: 6, backgroundColor: c.pillBg, padding: 6 }}>
+              <Canvas style={{ width: 80 }} commands={[draw.rect(0, 0, 2000, 2000, { color: DOWN })]} />
+              <Canvas style={{ height: 24 }} commands={[draw.rect(0, 0, 2000, 2000, { color: c.primary })]} />
+              <Row style={{ height: 40, alignItems: "stretch", gap: 6 }}>
+                <Text fontSize={12} color={c.ink}>flex</Text>
+                <Canvas style={{ flex: 1 }} commands={[draw.rect(0, 0, 2000, 2000, { color: UP })]} />
+              </Row>
+              <Canvas style={{ width: 120, aspectRatio: 3 }} commands={[draw.rect(0, 0, 2000, 2000, { color: "#7C3AED" })]} />
+              <Canvas style={{ width: 100, minHeight: 20 }} commands={[draw.rect(0, 0, 2000, 2000, { color: "#EA580C" })]} />
+            </Column>
           </Tile>
         )}
       </Column>
