@@ -37,7 +37,6 @@ struct ZnSpec {
             let kind = t[t.index(after: pct)...]
             return ZnSpec(pt: 0, share: n / 100, of: kind == "self" ? own : kind == "parent" ? parent : travel, src: nil)
         default:
-            if v is Bool { throw ZnInvalidArgs("bad coordinate \(v!)") }
             guard let n = znJsonNumber(v) else { throw ZnInvalidArgs("bad coordinate \(v!)") }
             let f = Float(n)
             return f.isFinite ? ZnSpec(pt: f, share: 0, of: pt, src: nil) : nil

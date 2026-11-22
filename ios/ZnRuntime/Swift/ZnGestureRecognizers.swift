@@ -248,9 +248,10 @@ final class ZnPanRec: ZnRecognizer {
             if let y = t.y { end["toY"] = Double(y) }
         }
         g.send("end", end)
+        // Android's settle answers from a coroutine, so "settle" always comes after "finalize", even with nothing to move.
+        g.send("finalize")
         let g = g
         g.settle(target, vx, vy) { anchor in g.send("settle", ["anchor": anchor as Any? ?? NSNull()]) }
-        g.send("finalize")
     }
 }
 
@@ -691,6 +692,8 @@ final class ZnGestureSession {
             leaf.zone = -1
         }
         arbiter = ZnArbiter(g, downAt: downAt)
+        // A cancelled touch ends now (the hub puts its own bookkeeping around this).
+        touch.onCancel = { [weak self] in self?.end() }
         for leaf in leaves { leaf.send("begin") }
     }
 
