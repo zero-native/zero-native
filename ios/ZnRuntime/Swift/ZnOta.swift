@@ -2,12 +2,12 @@
 // docs/ota.md, docs/milestones-ios.md). The rules are ZnOtaRules.swift (tested on the Mac: `bun run ios:ota-test`); this
 // file is the iOS side: files, network, timers, the app's life.
 //
-// Apps turn it on before ZnApp.start, after registering their plugins:
+// Apps turn it on before ZnApp.prepare (and ZnApp.start), after registering their plugins:
 //
 //     ZnOta.configure(ZnOta.Config(server: "https://updates.example.com", channel: "production",
 //                                  publicKeys: [MAIN_KEY, BACKUP_KEY]))
 //
-// Then ZnApp.start runs the bundle `zn-ota/current` names when it passes every check, else the app's own bundle (the
+// Then ZnApp.prepare runs the bundle `zn-ota/current` names when it passes every check, else the app's own bundle (the
 // built-in one, in the app's resources with its zn-bundle.json). Same protocol and the same rules as Android:
 // - a check a few seconds after the app comes on screen and on returns (at most every checkIntervalMs), never in the
 //   background; POST /v1/check with the app's capabilities, then GET the zip;
@@ -45,7 +45,7 @@ public enum ZnBundles {
         var description: String { "\(info.map { "\($0)" } ?? "unnamed bundle") \(builtIn ? "built-in" : "from files")" }
     }
 
-    /// The app's own bundle folder (set by ZnApp.start).
+    /// The app's own bundle folder (set by ZnApp.prepare).
     nonisolated(unsafe) public private(set) static var builtInURL: URL = Bundle.main.resourceURL ?? Bundle.main.bundleURL
     nonisolated(unsafe) private static var builtInRead = false
     nonisolated(unsafe) private static var builtInInfo: ZnBundleRules.Info?
@@ -54,14 +54,14 @@ public enum ZnBundles {
     nonisolated(unsafe) private static var watchers: [(String) -> Void] = []
 
     /// The running bundle as reports name it (`sample_12@1a2b3c4d5e6f`), once it is chosen; the built-in bundle has
-    /// one too (its zn-bundle.json). nil before ZnApp.start, or with no zn-bundle.json in the app.
+    /// one too (its zn-bundle.json). nil before ZnApp.prepare, or with no zn-bundle.json in the app.
     public static var runningLabel: String? { running?.label }
     /// The running bundle is the app's own (true before one is chosen).
     public static var runningIsBuiltIn: Bool { running?.builtIn ?? true }
 
     /// Calls [f] on the main thread with the running bundle's label: once it is chosen (soon after, if it already is),
     /// and again every time it changes while the app runs (an update applied in place, a rollback). For a crash
-    /// reporter's key (Android: ZnBundles.watchRunning). Any thread; plugins call it in register, before ZnApp.start.
+    /// reporter's key (Android: ZnBundles.watchRunning). Any thread; plugins call it in register, before ZnApp.prepare.
     public static func watchRunning(_ f: @escaping (String) -> Void) {
         let label = lock.withLock { () -> String? in
             watchers.append(f)
@@ -110,7 +110,7 @@ public enum ZnBundles {
         ZnOtaFiles.readText(currentFile)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 
-    /// The folder to start from (main thread, ZnApp.start, once per process). [builtIn]: the app's own bundle folder.
+    /// The folder to start from (main thread, ZnApp.prepare, once per process). [builtIn]: the app's own bundle folder.
     /// With OTA off this is [builtIn]. Never throws: whatever goes wrong, the built-in bundle runs.
     static func choose(builtIn url: URL) -> Running {
         builtInURL = url
@@ -237,7 +237,7 @@ public enum ZnBundles {
 }
 
 extension ZnCapabilities {
-    /// This app's capabilities now: modules registered later are not in it (apps register theirs before ZnApp.start).
+    /// This app's capabilities now: modules registered later are not in it (apps register theirs before ZnApp.prepare).
     static func current() -> ZnCapabilities {
         ZnCapabilities(registry: Registry.version, bytecode: ZNHost.bytecodeVersion, hostApi: ZNHost.hostApiVersion,
                        hostApiOldest: ZNHost.hostApiOldest, modules: ZnModules.versions())
@@ -646,7 +646,7 @@ public final class ZnOta: @unchecked Sendable {
         worker.async { [self] in record(kind, ZnBundles.readCurrent() ?? "built-in", detail, running: nil) }
     }
 
-    /// Main thread, from ZnApp.start at a cold start: the launch gate checks now.
+    /// Main thread, from ZnApp.start at the first window (JS may have started earlier with none): the launch gate checks now.
     @MainActor static func beginLaunchGate() {
         guard isConfigured, !ZnOtaHealth.offInProcess else { return }
         ZnOtaGate.beginCold {
@@ -660,7 +660,7 @@ public final class ZnOta: @unchecked Sendable {
     /// JS holds updates (`Updates.hold`): a pending one waits for the next start.
     var isHeld: Bool { fieldsLock.withLock { !holds.isEmpty } }
 
-    /// Turns the client on. Call once, before ZnApp.start, after the app's plugins are registered.
+    /// Turns the client on. Call once, before ZnApp.prepare (or ZnApp.start), after the app's plugins are registered.
     public static func configure(_ c: Config) {
         precondition(!c.publicKeys.isEmpty, "ZnOta needs at least one public key")
         precondition(c.server.hasPrefix("https://") || c.server.hasPrefix("http://"), "ZnOta server must be an http(s) URL")

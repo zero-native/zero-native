@@ -1,0 +1,2 @@
+# Foundation and CoreGraphics only.
+ios/ZnRuntime/Swift/ZnLifecycleRules.swift

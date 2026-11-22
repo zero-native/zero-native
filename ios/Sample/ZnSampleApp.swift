@@ -11,6 +11,10 @@
 //   ZN_OTA_HEALTHY_MS  a downloaded bundle is healthy this long after its first screens (debug; default 4000)
 //   ZN_ANIM_SPEED    the window's animation speed, e.g. 0.1: every animation 10x slower, to tap during one (debug)
 //   ZN_TOUCH_LOG     1: log each touch that begins, with the view it hits (debug)
+//   ZN_SCENE_DELAY_MS  the window (ZnApp.start) comes this much later: JS runs with no window first, as in a launch for
+//                    a push or a task (debug)
+//   ZN_BOOT_TASK     a task (e.g. lab.echo) to run at launch, before any window, as Android's DebugWakeProvider (debug)
+//   ZN_ROTATE        1: the app turns with the phone (debug; the sample is portrait only), to check Dimensions
 import UIKit
 import notify
 #if canImport(ZnRuntime)  // an app on the Swift package; the CMake build compiles everything into the app
@@ -90,9 +94,35 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
                 }
             }
         }
+        // `... notifyutil -s dev.zeronative.sample.task 8000 && ... notifyutil -p dev.zeronative.sample.task` runs the
+        // task lab.wait (it ends after ms = the state), as a plugin would: send the app to the background right after
+        // and the task still ends (ZnTasks holds background time).
+        var taskToken: Int32 = 0
+        notify_register_dispatch("dev.zeronative.sample.task", &taskToken, .main) { t in
+            var ms: UInt64 = 0
+            notify_get_state(t, &ms)
+            let t0 = CACurrentMediaTime()
+            ZnTasks.shared.run("lab.wait", ["ms": ms], timeoutMs: 20_000) { outcome in
+                let state = MainActor.assumeIsolated { UIApplication.shared.applicationState == .background ? "background" : "front" }
+                print("zn-sample: task lab.wait: \(outcome.rawValue) after \(Int((CACurrentMediaTime() - t0) * 1000)) ms (app in \(state))")
+            }
+        }
+        if let name = env["ZN_BOOT_TASK"], !name.isEmpty {
+            ZnTasks.shared.run(name, ["from": "no screen"], timeoutMs: 10_000) { print("zn-sample: boot task \(name): \($0.rawValue)") }
+        }
         #endif
+        // JS starts now, with no window: a launch for a push, a notification's button or a task runs its JS task; the
+        // window's screens come with the scene (ZnApp.start). After the plugins and ZnOta.configure.
+        ZnApp.shared.prepare(bundle: Bundle.main.resourceURL!)
         return true
     }
+
+    #if DEBUG
+    /// ZN_ROTATE=1: every orientation (the Info.plist allows portrait only), to check Dimensions on rotation.
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        ProcessInfo.processInfo.environment["ZN_ROTATE"] == "1" ? .allButUpsideDown : .portrait
+    }
+    #endif
 
     // Push (plugins/firebase-messaging): Info.plist turns Firebase's app delegate proxy off, so these three are forwarded.
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
@@ -117,6 +147,18 @@ final class ZnSceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
         guard let scene = scene as? UIWindowScene else { return }
         print("zn: scene connects")
+        #if DEBUG
+        if let ms = ProcessInfo.processInfo.environment["ZN_SCENE_DELAY_MS"].flatMap(Double.init), ms > 0 {
+            print("zn-sample: the window waits \(Int(ms)) ms (ZN_SCENE_DELAY_MS)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000) { self.open(scene, session, options) }
+            return
+        }
+        #endif
+        open(scene, session, options)
+    }
+
+    private func open(_ scene: UIWindowScene, _ session: UISceneSession, _ options: UIScene.ConnectionOptions) {
+        print("zn-sample: the window opens")
         // The app starts here, where the link that opened it is known (a URL, or a universal link's web page).
         let env = ProcessInfo.processInfo.environment
         let link = options.urlContexts.first?.url

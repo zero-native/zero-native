@@ -103,7 +103,8 @@ public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDeleg
     public weak var remote: Remote?
 
     private let lock = NSLock()
-    /// A tap on the app's own notification (no link) that came before JS had loaded: `getInitialNotification`, once.
+    /// A tap on the app's own notification (no link) that came before JS had its screens (ZnApp.isUIStarted):
+    /// `getInitialNotification`, once.
     private var initial: [String: Any]?
     private var installed = false
 
@@ -151,7 +152,7 @@ public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDeleg
             case UNNotificationDefaultActionIdentifier:
                 if let link = (info[NotificationRules.keyLink] as? String).flatMap(URL.init(string:)) {
                     ZnApp.shared.openLink(link)
-                } else if ZnTasks.shared.isLoaded {
+                } else if ZnApp.shared.isUIStarted {  // screens listen; JS alone (no window yet) doesn't
                     NotificationsModule.shared.emit("pressed", ["id": id, "data": data])
                 } else {
                     self.lock.withLock { self.initial = ["id": id, "data": data] }

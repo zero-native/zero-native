@@ -10,6 +10,8 @@
 // Sheets and Modals (the screens' and the layers') sit above both, in ZnPopups' box (ZnPopups.swift).
 // When the bundle has a `secure: true` route, all of it sits in ZnSecure's container (ZnSecure.swift), which leaves it
 // out of screenshots and recordings while a secure screen is drawn.
+// The root always fills the window, so it also reports the window: its size to JS's Dimensions (WINDOW, on rotation
+// and split view), its safe area to insets(), and both, with the keyboard, to motion's env (ZnMotionEnv.swift).
 import SwiftUI
 import UIKit
 
@@ -28,6 +30,8 @@ final class ZnRootController: UIViewController {
     private var content: CGFloat = 0
     private var height: CGFloat = 0
     private var lightIcons = false
+    /// The keyboard frame by frame, for motion's env.keyboardHeight.
+    private let keyboard = ZnKeyboardProbe()
 
     init(app: ZnApp) {
         self.app = app
@@ -79,6 +83,7 @@ final class ZnRootController: UIViewController {
         stage.addSubview(overlayBox)
         overlay.didMove(toParent: self)
         stage.addSubview(popups)
+        keyboard.install(in: view)
     }
 
     private var appeared = false
@@ -95,6 +100,7 @@ final class ZnRootController: UIViewController {
         let i = view.safeAreaInsets
         let ltr = view.effectiveUserInterfaceLayoutDirection == .leftToRight
         app.reportInsets(top: i.top, bottom: i.bottom, start: ltr ? i.left : i.right, end: ltr ? i.right : i.left)
+        ZnMotionEnv.insets(i, ltr: ltr)
     }
 
     override var childForStatusBarStyle: UIViewController? { height > 0 ? nil : nav }
@@ -106,6 +112,12 @@ final class ZnRootController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         place()
+        // The window's size: UIKit sets the final bounds as a rotation starts, so one WINDOW per turn (sent only when
+        // it changed, as Android's ZnWindow.reportWindow).
+        let size = view.window?.bounds.size ?? view.bounds.size
+        app.reportWindow(size, screen: view.window?.windowScene?.screen)
+        ZnMotionEnv.window(size)
+        keyboard.layoutChanged()
     }
 
     private func place() {

@@ -29,6 +29,21 @@ defineTask("lab.slow", (_, signal) => {
 defineTask("lab.throw", () => {
   throw new Error("core-lab task threw")
 })
+// Ends after data.ms: the iOS check that a task started just before the app goes to the background still ends there
+// (ZnTasks' background time; the sample's notifyutil hook dev.zeronative.sample.task).
+defineTask("lab.wait", async (data: { ms?: number }, signal) => {
+  const ms = data?.ms ?? 8000
+  const t0 = Date.now()
+  await new Promise<void>((done) => {
+    const t = setTimeout(done, ms)
+    signal.addEventListener("abort", () => {
+      clearTimeout(t)
+      console.info(`core-lab task wait: aborted after ${Date.now() - t0} ms`)
+      done()
+    })
+  })
+  console.info(`core-lab task wait: ${ms} ms passed (${Date.now() - t0} ms)`)
+})
 // The push lab (PushLab.tsx): a message, a new token or a swipe can start the app with no screen.
 installPushLab()
 // With no pushForResult waiting: after a kill, or from nav.push.

@@ -11,6 +11,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Plugins first, before the bundle runs: ZnPlugins.register(LocationPlugin()) (docs/plugins.md).
         // OTA updates stay off until you call ZnOta.configure here (docs/ota.md): the app's own bundle runs.
+        // Then JS starts, with no window yet: a launch for a data-only push, a notification's button or a background
+        // task runs its JS task (defineTask); the screens come with the window (SceneDelegate, ZnApp.start).
+        ZnApp.shared.prepare(bundle: Bundle.main.resourceURL!)
         return true
     }
 }

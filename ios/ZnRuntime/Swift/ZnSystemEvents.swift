@@ -1,7 +1,8 @@
 // App-level events from the system to JS, as android/runtime sends them (ZnAppState.kt, ZnWindow.kt, the Activity's
 // configuration and memory callbacks): COLOR_SCHEME (14) at start and on change, APP_STATE (11) "active" /
 // "background", LOW_MEMORY (15), KEYBOARD (18) `{ visible, height }` once per show or hide (not per frame), when the
-// keyboard starts to move, as Android sends it.
+// keyboard starts to move, as Android sends it, and WINDOW (17) again when the text size setting changes.
+// Started after the main script, which may run with no window (ZnApp.prepare): the app state is then "background".
 import UIKit
 #if SWIFT_PACKAGE
 import ZnHost
@@ -47,6 +48,11 @@ final class ZnSystemEvents {
         nc.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { self.host.dispatchEvent(0, event: UInt16(ZnAppEvent.lowMemory)) }
         }
+        // The text size setting (Settings, Control Center): WINDOW again with the new fontScale, as Android's window
+        // effect has the font scale as a key (PixelRatio.getFontScale(), Dimensions' change listeners).
+        nc.addObserver(forName: UIContentSizeCategory.didChangeNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { ZnApp.shared.refreshWindow() }
+        }
         // When the keyboard starts to move (as Android sends its target height), not when it has arrived. The height
         // is how much of the screen it covers, so a hardware keyboard (the on-screen one stays below the screen)
         // and a hide are 0.
@@ -58,6 +64,7 @@ final class ZnSystemEvents {
             MainActor.assumeIsolated {
                 // The screen (keyboard: "resize") shrinks above the keyboard as it moves; the focused field rides up.
                 if covered > 0 { ZnFieldFocus.followKeyboard(duration: duration) }
+                ZnMotionEnv.keyboardTarget(covered)  // motion's env.keyboardTarget (the frames: ZnKeyboardProbe)
                 self.keyboardChanged(height: covered)
             }
         }

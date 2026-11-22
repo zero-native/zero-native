@@ -36,7 +36,20 @@ public final class ZnApp {
     /// The last safe-area insets (dp) JS was sent, as JSON; nil until JS has started.
     @ObservationIgnored private var insetsSent: String?
     @ObservationIgnored private var insetsNow = "{\"top\":0,\"bottom\":0,\"start\":0,\"end\":0}"
-    @ObservationIgnored private var jsStarted = false
+    /// When START goes: after the main script ran and the window asked for its screens (ZnLifecycleRules.swift).
+    @ObservationIgnored private var startGate = ZnStartGate()
+    /// JS got START: it has screens and their listeners (links, insets and taps on notifications go to it now).
+    private var jsStarted: Bool { startGate.uiStarted && startHeld == nil }
+    /// prepare ran for this runtime: the bundle is read and its main script is queued or has run.
+    @ObservationIgnored private var prepared = false
+
+    /// JS has its screens (START went). Before that JS may be running already with none (a background launch: a push,
+    /// a task, ZnApp.prepare), so a plugin keeps a tap or an open for the app to ask for (getInitialNotification)
+    /// instead of sending an event nobody listens to yet. Main thread.
+    public var isUIStarted: Bool { jsStarted }
+
+    /// prepare ran: JS is starting or running in this process (with or without a window). Main thread.
+    public var isPrepared: Bool { prepared }
 
     func route(of entry: UInt32) -> ZnRoute? { entryRoutes[entry] }
 
@@ -169,7 +182,27 @@ public final class ZnApp {
         if windowInsetBottom != bottom { windowInsetBottom = bottom }
         print("zn t=\(ZnDebug.ms()) insets: top \(top) bottom \(bottom) (JS started: \(jsStarted))")
         insetsNow = "{\"top\":\(Double(top)),\"bottom\":\(Double(bottom)),\"start\":\(Double(start)),\"end\":\(Double(end))}"
-        sendInsets()
+        insetsKnown = true
+        if startHeld != nil { releaseHeldStart() } else { sendInsets() }
+    }
+
+    /// The window has reported its safe area once (it stays known across a restart: same window).
+    @ObservationIgnored private var insetsKnown = false
+    /// START, held until the window's safe area is known: JS was up before the window (a launch with no window), and
+    /// the first screen would pad its header with 0 first.
+    @ObservationIgnored private var startHeld: String?
+
+    private func startOnceWindowKnown(_ payload: String) {
+        guard !insetsKnown else { return sendStart(payload) }
+        startHeld = payload
+        // A host whose root never reports insets (none of ours): START goes anyway.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.releaseHeldStart() }
+    }
+
+    private func releaseHeldStart() {
+        guard let payload = startHeld else { return }
+        startHeld = nil
+        sendStart(payload)
     }
 
     private func sendInsets() {
@@ -185,22 +218,26 @@ public final class ZnApp {
     @ObservationIgnored private var nextNativeEntry: UInt32 = 0x8000_0001  // native entry ids have the top bit set
     @ObservationIgnored private let host = ZNHost.shared
 
-    /// Starts the app from a bundle folder (main.hbc, main.zn.ui, main.zn.ui.json) on route `routeName`.
     /// The bundle folder (main.hbc, main.zn.ui, assets such as images/): `asset:` sources resolve against it.
     @ObservationIgnored public private(set) var bundleURL: URL?
 
-    /// [routeName] nil: the app's start route (path "/"), with [link]'s screen on top when a link started the app (as
-    /// Android's ZnNav). A route name (the sample's ZN_ROUTE, debug) opens that route alone.
-    /// [restoring]: the scene's `stateRestorationActivity` (restorationActivity's): iOS gives it back only after it ended
-    /// the app itself, never after the user closed it, as Android's saved state. It wins over [link], not over [routeName].
-    public func start(bundle builtIn: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil,
-               reusing: Bool = false) {
+    /// Starts JS on the app's bundle with no window: reads the bundle, runs its main script, and from then on tasks
+    /// (`defineTask`) and events reach JS. Call it at the end of `application(_:didFinishLaunchingWithOptions:)`, after
+    /// ZnPlugins.register and ZnOta.configure: a launch with no window (a data-only push, a notification's button, a
+    /// background task) then runs its JS task, as Android starts JS in Application.onCreate. The window's screens come
+    /// later with `start` (the scene). Safe to call more than once; `start` calls it if the app didn't.
+    /// [builtIn]: the app's own bundle folder (main.hbc, main.zn.ui, main.zn.ui.json), usually Bundle.main.resourceURL.
+    public func prepare(bundle builtIn: URL) { prepare(bundle: builtIn, reusing: false) }
+
+    /// [reusing]: a restart (ZnOta's swap): [builtIn] is the folder to run, already chosen.
+    private func prepare(bundle builtIn: URL, reusing: Bool) {
+        guard !prepared else { return }
+        prepared = true
         // The bundle to run: a downloaded one when OTA is on and it passes every check, else the app's own (ZnOta.swift).
-        // [reusing]: a restart (ZnOta's swap): [builtIn] is the folder to run, already chosen.
         ZnModules.registerBuiltIns()  // a bundle's needs are checked against every module
         let bundle = reusing ? builtIn : (ZnBundles.choose(builtIn: builtIn).dir ?? builtIn)
-        if !reusing { ZnOta.beginLaunchGate() }  // a cold start: the update check runs now (ZnOtaGate)
         bundleURL = bundle
+        print("zn t=\(ZnDebug.ms()) app: JS starts on \(bundle.lastPathComponent)")
         do {
             let file = try TemplateReader.read(try Data(contentsOf: bundle.appendingPathComponent("main.zn.ui")))
             let templates = file.templates.map(ZnTemplate.init)
@@ -215,6 +252,79 @@ public final class ZnApp {
                 case .string(let s): host.dispatchEvent(instance, event: UInt16(event), string: s)
                 }
             }
+        } catch {
+            let evaluated = onEvaluated
+            onEvaluated = nil
+            failure = "can't start: \(error)"
+            ZnOta.errorScreen(kind: "start", where: "the bundle", details: "\(error)")
+            evaluated?(false, "\(error)")
+            return
+        }
+
+        // JS: batches, events, errors.
+        store.onNav = { [weak self] kind, entry, route, params in self?.nav(kind, entry, route, params) }
+        store.onError = { message in ZnDebug.log.error("\(message, privacy: .public)") }
+        host.onApply = { [weak self] data in self?.apply(data) }
+        // JS's console and the core's log lines, on the console as well as os_log (the debug run reads them).
+        host.onLog = { level, message in print("zn-js \(["D", "I", "W", "E"][min(max(level, 0), 3)]) \(message)") }
+        host.onJsError = { [weak self] kind, whereText, details in
+            ZnDebug.log.error("js error \(whereText, privacy: .public) [\(kind, privacy: .public)]: \(details, privacy: .public)")
+            // JS stopped by the time limit: the top screen's state may be half updated; it shows the error screen
+            // and "Try again" builds it again (Android's ZnNav.hung).
+            // A downloaded bundle that isn't healthy yet and shows an error screen is blocked and the last good
+            // one runs from the next start (Android's ZnRuntime.jsError). A hang in the background (a task) doesn't count.
+            if kind == "start" || kind == "screen" || (kind == "hang" && ZnOtaHealth.inFront) {
+                ZnOta.errorScreen(kind: kind, where: whereText, details: details)
+            }
+            if kind == "hang", let self, let top = self.stack.last {
+                self.failedScreens[top] = String(details.split(separator: "\n", maxSplits: 1).first ?? "")
+            }
+            self?.jsErrorListeners.forEach { $0(kind, whereText, details) }
+        }
+        let delayMs = Double(ProcessInfo.processInfo.environment["ZN_JS_DELAY_MS"] ?? "") ?? 0
+        let mainScript = bundle.appendingPathComponent("main.hbc").path
+        ZnModules.install()  // before the main script: its constants are read as it starts
+        DispatchQueue.main.asyncAfter(deadline: .now() + delayMs / 1000) { [host] in
+            ZnOta.mainScriptQueued()  // OTA status events may go now: they run after the script
+            host.evalFile(mainScript) { ok, result, ms in
+                // A restart's caller hears first; it may restart again on another bundle (that resets `failure`).
+                let evaluated = self.onEvaluated
+                self.onEvaluated = nil
+                guard ok else {
+                    self.failure = "main.hbc failed: \(result)"  // the host also sent it as a "start" JS error (OTA)
+                    evaluated?(false, result)
+                    return
+                }
+                evaluated?(true, "")
+                print("zn: main.hbc evaluated in \(String(format: "%.1f", ms)) ms")
+                // Fixed facts and the window, before any screen (ZnWindow.kt afterMainScript): the window measured
+                // already (a restart, or the window came first), else the screen's.
+                host.dispatchEvent(0, event: UInt16(ZnAppEvent.device), string: Self.deviceJson())
+                let window = self.windowNow ?? Self.screenWindowJson()
+                self.windowSent = window
+                host.dispatchEvent(0, event: UInt16(ZnAppEvent.window), string: window)
+                let start = self.startGate.scriptRan()
+                ZnTasks.shared.jsLoaded()  // tasks that waited for JS (a push, a dismiss, a button)
+                ZnSystemEvents.shared.start()  // the colour scheme now, then app state, memory, keyboard changes
+                if let start { self.startOnceWindowKnown(start) } else { print("zn t=\(ZnDebug.ms()) app: JS is up, no window yet") }
+            }
+        }
+    }
+
+    /// The window's first screens (the scene): their skeletons now, from their templates (§8.1), and START to JS once
+    /// its main script has run. JS starts here if `prepare` didn't run yet.
+    /// [routeName] nil: the app's start route (path "/"), with [link]'s screen on top when a link started the app (as
+    /// Android's ZnNav). A route name (the sample's ZN_ROUTE, debug) opens that route alone.
+    /// [restoring]: the scene's `stateRestorationActivity` (restorationActivity's): iOS gives it back only after it ended
+    /// the app itself, never after the user closed it, as Android's saved state. It wins over [link], not over [routeName].
+    public func start(bundle builtIn: URL, routeName: String?, params: String, link: URL? = nil, restoring: NSUserActivity? = nil,
+               reusing: Bool = false) {
+        // [reusing]: a restart (ZnOta's swap): [builtIn] is the folder to run, already chosen.
+        prepare(bundle: builtIn, reusing: reusing)
+        if !reusing { ZnOta.beginLaunchGate() }  // the first window: the update check runs now (ZnOtaGate)
+        guard let ctx, failure == nil else { return }  // the bundle couldn't be read: the error screen shows
+        let templates = ctx.templates
+        do {
             // The first screens: (route, params JSON, link, restorableSignal values JSON).
             var first: [(Int, String, String?, String?)] = []
             var unmatched: URL?
@@ -238,7 +348,7 @@ public final class ZnApp {
                 }
             }
 
-            // 1. The skeleton: the root instances from their templates, drawn now, before JS has started (§8.1).
+            // The skeleton: the root instances from their templates, drawn now, before JS has started (§8.1).
             var items: [String] = []
             var entries: [UInt32] = []
             for (routeIndex, p, l, values) in first {
@@ -260,60 +370,9 @@ public final class ZnApp {
                 items.append(item + "}")
             }
             stack = entries
-
-            // 2. JS: batches, events, errors.
-            store.onNav = { [weak self] kind, entry, route, params in self?.nav(kind, entry, route, params) }
-            store.onError = { message in ZnDebug.log.error("\(message, privacy: .public)") }
-            host.onApply = { [weak self] data in self?.apply(data) }
-            // JS's console and the core's log lines, on the console as well as os_log (the debug run reads them).
-            host.onLog = { level, message in print("zn-js \(["D", "I", "W", "E"][min(max(level, 0), 3)]) \(message)") }
-            host.onJsError = { [weak self] kind, whereText, details in
-                ZnDebug.log.error("js error \(whereText, privacy: .public) [\(kind, privacy: .public)]: \(details, privacy: .public)")
-                // JS stopped by the time limit: the top screen's state may be half updated; it shows the error screen
-                // and "Try again" builds it again (Android's ZnNav.hung).
-                // A downloaded bundle that isn't healthy yet and shows an error screen is blocked and the last good
-                // one runs from the next start (Android's ZnRuntime.jsError). A hang in the background (a task) doesn't count.
-                if kind == "start" || kind == "screen" || (kind == "hang" && ZnOtaHealth.inFront) {
-                    ZnOta.errorScreen(kind: kind, where: whereText, details: details)
-                }
-                if kind == "hang", let self, let top = self.stack.last {
-                    self.failedScreens[top] = String(details.split(separator: "\n", maxSplits: 1).first ?? "")
-                }
-                self?.jsErrorListeners.forEach { $0(kind, whereText, details) }
-            }
-            let delayMs = Double(ProcessInfo.processInfo.environment["ZN_JS_DELAY_MS"] ?? "") ?? 0
-            let startPayload = "[\(items.joined(separator: ","))]"
-            let mainScript = bundle.appendingPathComponent("main.hbc").path
-            ZnModules.install()  // before the main script: its constants are read as it starts
-            DispatchQueue.main.asyncAfter(deadline: .now() + delayMs / 1000) { [host] in
-                ZnOta.mainScriptQueued()  // OTA status events may go now: they run after the script
-                host.evalFile(mainScript) { ok, result, ms in
-                    // A restart's caller hears first; it may restart again on another bundle (that resets `failure`).
-                    let evaluated = self.onEvaluated
-                    self.onEvaluated = nil
-                    guard ok else {
-                        self.failure = "main.hbc failed: \(result)"  // the host also sent it as a "start" JS error (OTA)
-                        evaluated?(false, result)
-                        return
-                    }
-                    evaluated?(true, "")
-                    print("zn: main.hbc evaluated in \(String(format: "%.1f", ms)) ms")
-                    // Fixed facts and the window, before any screen (ZnWindow.kt afterMainScript).
-                    host.dispatchEvent(0, event: UInt16(ZnAppEvent.device), string: Self.deviceJson())
-                    host.dispatchEvent(0, event: UInt16(ZnAppEvent.window), string: Self.windowJson())
-                    self.jsStarted = true
-                    ZnTasks.shared.jsLoaded()  // tasks that waited for JS (a push, a dismiss, a button)
-                    ZnSystemEvents.shared.start()  // the colour scheme now, then app state, memory, keyboard changes
-                    self.sendInsets()  // before START, so a full-bleed first screen pads its header at once
-                    host.dispatchEvent(0, event: UInt16(ZnAppEvent.start), string: startPayload)
-                    // A start link that matches no route goes to JS's onUnmatchedLink now; links that came while JS
-                    // was starting follow.
-                    if let unmatched { self.sendOpen(unmatched, atStart: true) }
-                    let early = self.earlyLinks
-                    self.earlyLinks = []
-                    early.forEach { self.openLink($0) }
-                }
-            }
+            startLink = unmatched
+            // START now if JS is up (it started in the background), else when its main script has run.
+            if let start = startGate.windowAsks("[\(items.joined(separator: ","))]") { startOnceWindowKnown(start) }
         } catch {
             let evaluated = onEvaluated
             onEvaluated = nil
@@ -321,6 +380,25 @@ public final class ZnApp {
             ZnOta.errorScreen(kind: "start", where: "the bundle", details: "\(error)")
             evaluated?(false, "\(error)")
         }
+    }
+
+    /// A start link that matches no route: JS's onUnmatchedLink hears it right after START.
+    @ObservationIgnored private var startLink: URL?
+
+    /// START: JS builds the first screens. Insets first, so a full-bleed first screen pads its header at once.
+    private func sendStart(_ payload: String) {
+        sendInsets()
+        print("zn t=\(ZnDebug.ms()) app: START → JS")
+        host.dispatchEvent(0, event: UInt16(ZnAppEvent.start), string: payload)
+        // A start link that matches no route goes to JS's onUnmatchedLink now; links that came while JS was starting
+        // follow.
+        if let unmatched = startLink {
+            startLink = nil
+            sendOpen(unmatched, atStart: true)
+        }
+        let early = earlyLinks
+        earlyLinks = []
+        early.forEach { openLink($0) }
     }
 
     // MARK: Restart on another bundle (an OTA update applied in place, ZnOta.swift)
@@ -347,7 +425,11 @@ public final class ZnApp {
         entryValues = [:]
         nativeParams = [:]
         insetsSent = nil
-        jsStarted = false
+        windowSent = nil  // the new JS hears the window again (Android's generation key)
+        startGate.reset()
+        startHeld = nil
+        startLink = nil
+        prepared = false
         ZnTasks.shared.jsStopped()
         ZnModules.runtimeReplaced()
         firstScreensUp = false
@@ -376,15 +458,56 @@ public final class ZnApp {
                         "manufacturer": "Apple"]) ?? "{}"
     }
 
-    /// WINDOW (dimensions.ts): the screen in points (dp), its scale and the text size setting as a scale.
-    static func windowJson() -> String {
+    // MARK: The window (WINDOW, dimensions.ts), as Android's ZnWindow.kt
+
+    /// The window measured last (ZnRootController), as WINDOW's text; nil before the first layout.
+    @ObservationIgnored private var windowNow: String?
+    /// The last WINDOW JS got (nil: none yet for this runtime).
+    @ObservationIgnored private var windowSent: String?
+    /// The last measured window's size and screen, to send again when only the text size changes.
+    @ObservationIgnored private var windowSize: CGSize?
+    @ObservationIgnored private weak var windowScreen: UIScreen?
+
+    /// The phone's text size setting as a scale (Android's fontScale): the same number the drawn text uses. The
+    /// category is the app's (UITraitCollection.current isn't updated yet when the change notification comes).
+    static func fontScale() -> Double {
+        Double(znContentSizeScale(UIApplication.shared.preferredContentSizeCategory))
+    }
+
+    /// Before the window is measured (JS started with no window): the whole screen.
+    static func screenWindowJson() -> String {
         let screen = UIScreen.main
-        let size = screen.bounds.size
-        let fontScale = UIFontMetrics.default.scaledValue(for: 100) / 100
-        let r = { (v: CGFloat) in (Double(v) * 10).rounded() / 10 }
-        return ZnModules.json(["width": r(size.width), "height": r(size.height), "scale": Double(screen.scale),
-                               "fontScale": (Double(fontScale) * 1000).rounded() / 1000,
-                               "screenWidth": r(size.width), "screenHeight": r(size.height)]) ?? "{}"
+        return windowJson(screen.bounds.size, screen: screen)
+    }
+
+    private static func windowJson(_ size: CGSize, screen: UIScreen) -> String {
+        ZnWindowRules.windowJson(width: Double(size.width), height: Double(size.height), scale: Double(screen.scale),
+                                 fontScale: fontScale(), screenWidth: Double(screen.bounds.width),
+                                 screenHeight: Double(screen.bounds.height))
+    }
+
+    /// The window's root laid out (ZnRootController): its size, in [screen] (which turns with the phone). WINDOW goes
+    /// to JS when it changed (rotation, split view, Stage Manager) and JS is up.
+    func reportWindow(_ size: CGSize, screen: UIScreen?) {
+        guard size.width > 0, size.height > 0 else { return }
+        windowSize = size
+        windowScreen = screen
+        let json = Self.windowJson(size, screen: screen ?? .main)
+        windowNow = json
+        sendWindow()
+    }
+
+    /// The text size setting changed (ZnSystemEvents): the last window again, with the new font scale.
+    func refreshWindow() {
+        if let windowSize { reportWindow(windowSize, screen: windowScreen) } else { sendWindow() }
+    }
+
+    private func sendWindow() {
+        guard startGate.scriptLoaded, let json = windowNow ?? (windowSent != nil ? Self.screenWindowJson() : nil),
+              json != windowSent else { return }
+        windowSent = json
+        print("zn t=\(ZnDebug.ms()) window → JS \(json)")
+        host.dispatchEvent(0, event: UInt16(ZnAppEvent.window), string: json)
     }
 
     /// The batch being applied (or just applied) changes the back stack: a sheet closing in the same batch closes
