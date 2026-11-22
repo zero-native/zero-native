@@ -117,9 +117,12 @@ do {
 }
 
 // What the scan had up was closed with no answer (ZnPopups' S5): over only when it isn't presented and isn't coming in
-check("gone", DocScanRules.gone(presented: false, appearing: false), true)
-check("still up", DocScanRules.gone(presented: true, appearing: false), false)
-check("coming in", DocScanRules.gone(presented: false, appearing: true), false)
+check("gone", DocScanRules.gone(presented: false, appearing: false, appeared: true, waited: 1), true)
+check("still up", DocScanRules.gone(presented: true, appearing: false, appeared: true, waited: 30), false)
+check("coming in", DocScanRules.gone(presented: false, appearing: true, appeared: false, waited: 1), false)
+// The Photos picker isn't presented until its remote part answers: not gone while it may still come
+check("not up yet", DocScanRules.gone(presented: false, appearing: false, appeared: false, waited: 2), false)
+check("never came up", DocScanRules.gone(presented: false, appearing: false, appeared: false, waited: 10), true)
 check("jpeg quality", DocScanRules.jpegQuality, 0.85)
 
 print(failures == 0 ? "ios document-scanner rules: \(count) checks passed" : "ios document-scanner rules: \(failures) of \(count) checks failed")

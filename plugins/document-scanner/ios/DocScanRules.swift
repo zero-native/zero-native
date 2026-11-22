@@ -96,8 +96,16 @@ enum DocScanRules {
     /// How often the scan's controller is looked at while it is up (it can be closed with no answer).
     static let watchSeconds = 0.5
 
-    /// The scan's controller has gone with no answer: no longer presented, and not on its way in.
-    static func gone(presented: Bool, appearing: Bool) -> Bool { !presented && !appearing }
+    /// A controller that never came up (UIKit dropped its present) counts as gone after this. The Photos picker is
+    /// presented only once its remote part answers, so it isn't presented yet for a while after `present`.
+    static let neverUpSeconds = 10.0
+
+    /// The scan's controller has gone with no answer: it was on screen and is no longer presented (nor on its way in),
+    /// or it never came up in neverUpSeconds.
+    static func gone(presented: Bool, appearing: Bool, appeared: Bool, waited: Double) -> Bool {
+        if presented || appearing { return false }
+        return appeared || waited >= neverUpSeconds
+    }
 
     /// A photo is read at most this big on its long side (memory: one page at a time, never a 48 MP original).
     static let maxSide = 4096

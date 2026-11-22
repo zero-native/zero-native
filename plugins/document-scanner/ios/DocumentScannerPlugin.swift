@@ -59,6 +59,8 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
     private var uiUp = false
     private var watch: Timer?
     private var goneTicks = 0
+    private var appeared = false  // seen on screen once (the Photos picker comes up only once its remote part answers)
+    private var shownAt = Date.distantPast
 
     private static var fake: String? {
         #if DEBUG
@@ -178,6 +180,8 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
         shown = vc
         uiUp = true
         goneTicks = 0
+        appeared = false
+        shownAt = Date()
         top.present(vc, animated: true)
         if watch == nil {
             watch = Timer.scheduledTimer(withTimeInterval: DocScanRules.watchSeconds, repeats: true) { [weak self] _ in
@@ -198,7 +202,10 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
     @MainActor private func uiGone() -> Bool {
         guard open != nil, uiUp else { return false }
         guard let s = shown else { return true }
-        return DocScanRules.gone(presented: s.presentingViewController != nil, appearing: s.isBeingPresented)
+        let presented = s.presentingViewController != nil
+        if presented { appeared = true }
+        return DocScanRules.gone(presented: presented, appearing: s.isBeingPresented, appeared: appeared,
+                                 waited: Date().timeIntervalSince(shownAt))
     }
 
     /// Gone on two ticks in a row: an action's handler runs just after the action sheet has gone.

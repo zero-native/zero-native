@@ -5,7 +5,9 @@
 // always_finish_activities 1` plus a reboot: adb alone doesn't reach the running system) only rebuilds the screens; put it back after.
 // iOS: the gallery buttons ask Camera / Photos (straight to Photos on the simulator, which has no document camera; with
 // SIMCTL_CHILD_ZN_DOCSCAN_FAKE=2 the camera is a fake one, so the sheet shows). "Download" logs one "event" line.
-import { Box, Column, Image, Pressable, Scroll, Text } from "@zeronative/ui"
+// "Gallery scan in a sheet" opens a Sheet, scans from it and closes the Sheet after 6 s (time to choose Photos): ZnPopups then closes the
+// action sheet or picker with no answer, and the scan must end as a cancel, not stay busy (a scan after it works).
+import { Box, Column, Image, Pressable, Scroll, Sheet, Text } from "@zeronative/ui"
 import { signal } from "@zeronative/core"
 import { DocumentScanner, type ScanDocumentResponse, type ScannerStatus } from "@zeronative/document-scanner"
 import { c } from "./tokens"
@@ -30,6 +32,7 @@ export function DocScanLabScreen() {
   const status = signal("ready")
   const module = signal("?")
   const shown = signal("")
+  const sheet = signal(false)
   const say = (text: string) => {
     console.info(`docscan-lab ${text}`)
     status.set(text)
@@ -74,8 +77,22 @@ export function DocScanLabScreen() {
         <DocScanLabButton label="Scan PDF, 5 pages" onPress={() => scan("pdf", { maxNumDocuments: 5, formats: ["pdf"], tag: `order-${++n}` })} />
         <DocScanLabButton label="Scan both, gallery, base mode" onPress={() => scan("both", { formats: ["jpeg", "pdf"], galleryImport: true, mode: "base", tag: `both-${++n}` })} />
         <DocScanLabButton label="Scan both, gallery, filter mode" onPress={() => scan("filter", { formats: ["jpeg", "pdf"], galleryImport: true, mode: "filter", tag: `filter-${++n}` })} />
+        <DocScanLabButton
+          label="Gallery scan in a sheet, closed after 6 s"
+          onPress={() => {
+            sheet.set(true)
+            setTimeout(() => scan("insheet", { galleryImport: true, tag: `insheet-${++n}` }), 600)
+            setTimeout(() => {
+              console.info("docscan-lab sheet closes")
+              sheet.set(false)
+            }, 6600)
+          }}
+        />
         <DocScanLabButton label="Bad option" onPress={() => scan("bad", { maxNumDocuments: 0 })} />
         <DocScanLabButton label="Clean all" onPress={() => DocumentScanner.cleanup({ olderThanMs: 0 }).then((r) => say(`cleanup: ${r.deleted} files ${r.bytes} bytes`))} />
+        <Sheet visible={sheet()} onDismiss={() => sheet.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+          <Text fontSize={16}>A sheet the scan opens over</Text>
+        </Sheet>
       </Column>
     </Scroll>
   )
