@@ -23,6 +23,7 @@ Some suites read built files: `routes` reads the sample's `main.zn.ui.json`, so 
 |---|---|---|
 | `draw` | the <Canvas> command parser (every case of Android's tests), its path data, and the drawing: pixels of shapes, gradients (sweep from 12 o'clock), clips, dashes, trims, blend modes in their own layer, shadows and blur, text and paragraphs, images and their decode size (`ZnCanvasParse.swift`, `ZnCanvasDraw.swift`, `ZnPathData.swift`) | `ZnCanvasTest.kt`, `ZnCanvas.kt`, `ZnCanvasImage.kt` |
 | `layout` | layout values from a slot (`ZnDynamicValues.swift`) | `ZnRenderer.kt`, `ZnTouch.kt` |
+| `lifecycle` | WINDOW's text (fixed key order, one decimal for sizes, exact scale and font scale), the keyboard's height from its layout guide, and when START goes (JS first or the window first) (`ZnLifecycleRules.swift`) | `ZnWindowTest.kt`, `ZnRuntime.kt` / `ZnNav.kt` start order |
 | `list` | `<List>`'s item order (header, empty, rows, footer), grid lines, the visible range, splices and scroll command targets (`ZnListLogic.swift`, `ZnScrollCommand.swift`) | `ZnRenderer.kt` (`ZnLazyList`) |
 | `net` | fetch's progress throttle, the multipart body writer (streamed file parts, escaping, cancel, a 100 MB file's memory) and the network key (`ZnNetRules.swift`) | `ZnFetchTest.kt` (ProgressThrottler), OkHttp's `MultipartBody` |
 | `ota` | OTA rules and the zip install (`ZnOtaRules.swift`, `ZnOtaInstall.swift`) | `ZnOtaHealthTest`, `ZnBundlesTest`, `ZnOtaStoreTest`, `ZnOtaSignatureTest`, `ZnOtaInstallTest` |
