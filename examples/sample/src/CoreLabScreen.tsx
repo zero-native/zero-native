@@ -144,7 +144,16 @@ export function SeeThroughLabScreen(props: { depth?: string }) {
             placeholder="a note"
             style={{ paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: "#999999", borderRadius: 6 }}
           />
+          {/* A disabled Switch takes no taps: the row gets them (Android's ZnSwitch has no pointer input then). */}
+          <Pressable onPress={() => console.info("see-through-lab row press")}>
+            <Row gap={10} alignItems="center" style={{ paddingVertical: 4 }}>
+              <Text fontSize={13} color="#111111">Row with a disabled switch</Text>
+              <Switch value={false} disabled onValueChange={() => console.info("see-through-lab disabled switch changed")} />
+            </Row>
+          </Pressable>
           <Row gap={10}>
+            {/* JS runs past its time limit: this screen shows the error screen, whose Back must work here. */}
+            <CoreButton label="Hang" onPress={() => { while (Date.now() > 0) { /* forever */ } }} />
             <CoreButton label="Push opaque" onPress={() => nav.push("secureLab")} />
             <CoreButton label="Another" onPress={() => nav.push("seeThroughLab", { depth: String(depth + 1) })} />
             <CoreButton label="Close" onPress={() => nav.back()} />

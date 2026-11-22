@@ -95,7 +95,12 @@ extension ZnApp {
     /// The window's root: the back stack (UIKit), or the SwiftUI comparison variant.
     public func makeRootViewController() -> UIViewController {
         switch ZnImpl.nav {
-        case .uiKit: return ZnRootController(app: self)  // the back stack with startApp's layers (ZnLayers.swift)
+        case .uiKit:
+            // SwiftUI's Pressables have no UIKit view a see-through screen's holder can find (ZnSeeThroughHolder).
+            if hasTransparentRoute && ZnImpl.press == .swiftUI {
+                print("zn nav: ZN_IOS_PRESS=swiftui: Pressables on transparent routes don't take taps (they reach the screen below)")
+            }
+            return ZnRootController(app: self)  // the back stack with startApp's layers (ZnLayers.swift)
         case .swiftUI:
             if hasSecureRoute { print("zn secure: ZN_IOS_NAV=swiftui has no secure container: secure routes are not protected") }
             // NavigationStack takes the screen below out when a push ends: a see-through screen is drawn opaque there.
@@ -114,9 +119,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     private var screens: [UInt32: UIViewController] = [:]
     /// The boxes, by their first entry.
     private var boxes: [UInt32: ZnSeeThroughBox] = [:]
-    /// A box UIKit is covering while a push animates: its own change (a see-through screen closed in the same batch)
-    /// waits until the push has ended, so the box slides under as it was.
-    private var pending: [ObjectIdentifier: (ZnSeeThroughBox, [ZnSeeThroughBox.Layer])] = [:]
+    /// A box UIKit is moving (covered by a push, or in a push or pop under way): its own change (a see-through screen
+    /// closed in the same batch, or in one that came during the slide) waits until the slide has ended, so the box
+    /// slides as it was. [animate]: the box is then the top one, and its see-through screens open / close animated.
+    private var pending: [ObjectIdentifier: (box: ZnSeeThroughBox, layers: [ZnSeeThroughBox.Layer], animate: Bool)] = [:]
     private var failureShown = false
     /// Our own back swipe (not UIKit's interactivePopGestureRecognizer: in our screens, where the left edge is mostly
     /// Pressables, it often never began and the drag became a tap, 2026-11-08). It starts within [edge] of the left
@@ -176,6 +182,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             boxes[stack[g.lowerBound]] ?? {
                 let box = ZnSeeThroughBox(key: stack[g.lowerBound])
                 box.prepare = { [weak self] vc in self?.markLoaded(vc) }
+                box.takesAll = { [weak self] entry in self?.app.failedScreens[entry] != nil }
                 boxes[box.key] = box
                 return box
             }()
@@ -183,6 +190,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         let navChanges = vcs != viewControllers
         let animated = !viewControllers.isEmpty && !ZnSplash.holding  // under the splash: no slide
         let shownBox = viewControllers.last
+        // The boxes in a slide under way (a push or pop, the swipe's too).
+        let moving = transitionCoordinator.map { c in
+            [c.viewController(forKey: .from), c.viewController(forKey: .to)].compactMap { $0.map(ObjectIdentifier.init) }
+        } ?? []
         for (box, g) in zip(vcs, groups) {
             let layers = g.map { i in
                 box.layers.first { $0.entry == stack[i] && $0.vc === contents[i] }
@@ -190,7 +201,9 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
                                              transition: app.route(of: stack[i])?.transition ?? .push)
             }
             if navChanges && animated && box === shownBox && box !== vcs.last {
-                pending[ObjectIdentifier(box)] = (box, layers)  // UIKit covers it now: changed once covered
+                pending[ObjectIdentifier(box)] = (box, layers, false)  // UIKit covers it now: changed once covered
+            } else if moving.contains(ObjectIdentifier(box)) {
+                pending[ObjectIdentifier(box)] = (box, layers, !navChanges && box === vcs.last)  // changed once it stops
             } else {
                 pending[ObjectIdentifier(box)] = nil
                 // A see-through screen opening or closing on the box shown now animates; with a push or pop, at once.
@@ -200,6 +213,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         if navChanges {
             print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(stack.count) screens\(vcs.count == stack.count ? "" : " in \(vcs.count) box\(vcs.count == 1 ? "" : "es")"))")
             setViewControllers(vcs, animated: animated)
+        }
+        // didShow doesn't come after a cancelled swipe: the slide's end applies the waiting changes either way.
+        if !pending.isEmpty, let c = transitionCoordinator {
+            c.animate(alongsideTransition: nil) { [weak self] _ in self?.applyPending() }
         }
         boxes = boxes.filter { k, _ in vcs.contains { $0.key == k } }
         screens = screens.filter { stack.contains($0.key) }
@@ -268,12 +285,18 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
 
     func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
         print("zn t=\(ZnDebug.ms()) uikit: didShow")
-        // The covered box's own change, now that it is covered.
-        let waiting = pending.values
-        pending = [:]
-        for (box, layers) in waiting where viewControllers.contains(box) { box.set(layers, animated: false) }
+        applyPending()
         let shown = viewControllers.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }
         if !shown.isEmpty, shown != app.stack { app.nativeChanged(to: shown) }
+    }
+
+    /// The moved boxes' own changes, now that the slide has ended.
+    private func applyPending() {
+        let waiting = pending.values
+        pending = [:]
+        for w in waiting where viewControllers.contains(w.box) {
+            w.box.set(w.layers, animated: w.animate && w.box === viewControllers.last && !ZnSplash.holding)
+        }
     }
 
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {

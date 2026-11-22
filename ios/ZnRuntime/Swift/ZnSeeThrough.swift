@@ -10,12 +10,14 @@
 // - Where the see-through screen has nothing to tap, touches reach the screen below, as on Android (Compose gives a
 //   touch to the topmost node with pointer input; a Box with only a background takes none). Pressables, Scrolls,
 //   fields, tappable Text, Switch / Checkbox and plugin views take their touches (ZnSeeThroughHolder); a backdrop or a
-//   card's empty part lets them through, as on Android.
+//   card's empty part lets them through, as on Android. A screen showing the error screen takes them all. SwiftUI-only
+//   taps let them through too: a plugin's SwiftUI Button, and every Pressable under ZN_IOS_PRESS=swiftui.
 // - The screens below don't get viewWillDisappear / viewDidDisappear when a see-through screen opens over them (they
 //   are still on screen, as Android keeps them composed).
 // A stack whose bottom entry is see-through starts its box with it (nothing below: the window's background).
 // The see-through screen gets no shared elements (Android sets LocalZnSharedVisibility = null): a later sharedTag
 // flight must skip transparent routes.
+import SwiftUI
 import UIKit
 
 @MainActor
@@ -44,6 +46,8 @@ final class ZnSeeThroughBox: UIViewController {
     private(set) var layers: [Layer] = []
     /// Called just before a screen's view is first used here (ZnNavController marks secure screens then).
     var prepare: (UIViewController) -> Void = { _ in }
+    /// The see-through screen [entry] takes every touch on it: it shows the error screen (opaque, SwiftUI buttons).
+    var takesAll: (UInt32) -> Bool = { _ in false }
 
     init(key: UInt32) {
         self.key = key
@@ -60,7 +64,7 @@ final class ZnSeeThroughBox: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        for l in layers { attach(l) }
+        for l in layers { attach(l, above: nil, top: true) }
     }
 
     // The top screen's status bar: a see-through screen's route `statusBar` (or its <StatusBar>) wins while it shows.
@@ -81,9 +85,11 @@ final class ZnSeeThroughBox: UIViewController {
             }
             // A screen another box held (a replace under it): it moves here.
             if let other = item.vc.parent as? ZnSeeThroughBox, other !== self { other.drop(item.vc) }
+            let below = next.last
             next.append(item)
             addChild(item.vc)
-            if isViewLoaded { attach(item) }
+            // The top one goes over everything (over one closing, as a push); one below goes right over its neighbour.
+            if isViewLoaded { attach(item, above: below?.holder, top: item === items.last) }
             item.vc.didMove(toParent: self)
             if item.seeThrough { open(item, over: next.count > 1 ? next[next.count - 2].entry : nil, animated: animated && next.count > 1) }
         }
@@ -101,7 +107,7 @@ final class ZnSeeThroughBox: UIViewController {
         vc.removeFromParent()
     }
 
-    private func attach(_ l: Layer) {
+    private func attach(_ l: Layer, above below: UIView?, top: Bool) {
         prepare(l.vc)
         let v = l.vc.view!
         let holder: UIView
@@ -109,6 +115,7 @@ final class ZnSeeThroughBox: UIViewController {
             // Sized before the screen goes in: grown from zero later, it would grow the screen by as much again.
             let pass = ZnSeeThroughHolder(frame: view.bounds)
             pass.hosting = v
+            pass.takesAll = { [weak self, entry = l.entry] in self?.takesAll(entry) ?? false }
             pass.backgroundColor = .clear
             v.frame = pass.bounds
             v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -119,7 +126,13 @@ final class ZnSeeThroughBox: UIViewController {
         }
         holder.frame = view.bounds
         holder.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(holder)
+        if top {
+            view.addSubview(holder)
+        } else if let below, below.superview === view {
+            view.insertSubview(holder, aboveSubview: below)
+        } else {
+            view.insertSubview(holder, at: 0)
+        }
         l.holder = holder
     }
 
@@ -167,8 +180,9 @@ final class ZnSeeThroughBox: UIViewController {
 
     // MARK: The back swipe on a see-through screen (route transition "push")
 
-    /// The top screen is see-through, over another in this box: the back swipe moves it alone.
-    var canDragTop: Bool { layers.count > 1 && layers.last?.seeThrough == true }
+    /// The top screen is see-through, over another in this box: the back swipe moves it alone. Not one already swiped
+    /// away (it stays here until JS's pop lands, 0.25 s on).
+    var canDragTop: Bool { layers.count > 1 && layers.last?.seeThrough == true && layers.last?.dragged == false }
 
     /// [progress] 0...1 of the width: the top screen follows the finger; the screens below stay still.
     func drag(_ progress: CGFloat) {
@@ -196,14 +210,20 @@ final class ZnSeeThroughBox: UIViewController {
 /// So the UIKit views under the finger are found here, past SwiftUI's own container views.
 final class ZnSeeThroughHolder: UIView {
     weak var hosting: UIView?
+    /// The screen shows the error screen (ZnEntryScreen): it takes every touch, as its Retry / Back are SwiftUI's.
+    var takesAll: () -> Bool = { false }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hosting, isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event) else { return nil }
+        if takesAll() { return super.hitTest(point, with: event) ?? hosting }
         if let v = super.hitTest(point, with: event), v !== self, v !== hosting, !Self.isContainer(v) { return v }
         if let v = Self.touchView(in: hosting, at: convert(point, to: hosting), event) { return v }
-        if let window, let screen = znNearestController(hosting),
-           ZnFieldFocus.boxes(at: convert(point, to: window), in: window).contains(where: { $0.controller === screen }) {
-            return hosting  // SwiftUI's tap on the box
+        if let window, let screen = znNearestController(hosting) {
+            let p = convert(point, to: window)
+            if ZnFieldFocus.boxes(at: p, in: window).contains(where: { $0.controller === screen })
+                || ZnSeeThroughTaps.any(at: p, in: window, screen: screen) {
+                return hosting  // SwiftUI's tap on the box
+            }
         }
         return nil
     }
@@ -223,10 +243,42 @@ final class ZnSeeThroughHolder: UIView {
     }
 
     /// SwiftUI's own views (hosting, platform view hosts, group containers) and plain UIViews it wraps things in; not
-    /// its scroll views, which take their drags.
+    /// its scroll views, which take their drags, nor a plain UIView with gesture recognizers (a plugin's view or native
+    /// screen built from UIView() with a tap or pan: an AndroidView takes its touches too).
     private static func isContainer(_ v: UIView) -> Bool {
         if v is UIScrollView || v is UIControl { return false }
-        if type(of: v) == UIView.self { return true }
-        return NSStringFromClass(type(of: v)).contains("SwiftUI")
+        if NSStringFromClass(type(of: v)).contains("SwiftUI") { return true }
+        return type(of: v) == UIView.self && (v.gestureRecognizers ?? []).isEmpty
     }
+}
+
+/// The Switches and Checkboxes that take taps (enabled, with onValueChange), for a see-through screen's holder only:
+/// SwiftUI taps them, so the holder can't find a UIKit view there. (Not ZnFieldFocus's boxes: a Pressable around a
+/// field leaves the touch to it, but on Android a Pressable around a Switch still gets the tap.)
+@MainActor
+enum ZnSeeThroughTaps {
+    private static let views = NSHashTable<UIView>.weakObjects()
+
+    static func register(_ v: UIView) { views.add(v) }
+
+    /// One in [window] under [point] (window coordinates), in [screen].
+    static func any(at point: CGPoint, in window: UIWindow, screen: UIViewController) -> Bool {
+        views.allObjects.contains { v in
+            v.window === window && !v.isHidden && v.convert(v.bounds, to: window).contains(point) && znNearestController(v) === screen
+        }
+    }
+}
+
+/// An empty UIView the size of a Switch / Checkbox (ZnSeeThroughTaps); hidden while it takes no taps.
+struct ZnSeeThroughTapMarker: UIViewRepresentable {
+    var off = false
+
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        v.isUserInteractionEnabled = false
+        ZnSeeThroughTaps.register(v)
+        return v
+    }
+
+    func updateUIView(_ v: UIView, context: Context) { v.isHidden = off }
 }

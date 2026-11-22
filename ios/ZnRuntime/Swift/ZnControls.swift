@@ -35,9 +35,8 @@ private struct ZnToggleTap: ViewModifier {
                 guard !disabled, s.onValueChange != 0 else { return }
                 ctx.send(inst.id, s.onValueChange, .bool(!on))
             }
-            // Its frame, as a field's: a see-through screen takes the tap here (ZnSeeThroughHolder), and a Pressable
-            // around it leaves the tap to it (the innermost one wins, as on Android).
-            .background(ZnFieldBoxMarker(key: "toggle:" + ZnFieldFocus.key(inst, s.index), off: touchOff))
+            // Its frame while it takes taps: a see-through screen takes the tap here (ZnSeeThroughHolder).
+            .background(ZnSeeThroughTapMarker(off: touchOff || disabled || s.onValueChange == 0))
             .accessibilityElement()
             .accessibilityAddTraits(trait)
             .accessibilityValue(on ? "1" : "0")
