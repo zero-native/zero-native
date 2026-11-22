@@ -197,7 +197,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 15 | Fragment | done | | |
 | 16 | TextField | partial | (autoComplete → `textContentType`: done 2026-11-11; editable, placeholder / colour at runtime: done 2026-11-21) autoCapitalize / autoCorrect, placeholderColor, selectionColor | S × 3 |
 | 17 | NativeView | done | | |
-| 18 | Svg | done | filters other than a drop shadow (iOS difference) | |
+| 18 | Svg | done | (the whole filter graph runs, as Android 12+: done 2026-11-22, ZnSvgFilters.swift, SvgLab Filters, ios/tests/svg) | |
 | 19 | SvgPart | done | | |
 | 20 | Switch | done | ripple on press (optional) | |
 | 21 | Checkbox | done | ripple on press (optional) | |
@@ -267,7 +267,7 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 |---|---|---|
 | Sheet onDetentChange | missing | S |
 | Sheet backgroundColor / borderRadius | partial | S |
-| Svg filters beyond a drop shadow | partial | M (only if an app needs them) |
+| Svg filters beyond a drop shadow | done (2026-11-22: every primitive the compiler keeps; a region over 4M px at a lower resolution) | |
 | Svg autoMirror in RTL | not checked | S |
 
 Registry: iOS reads up to **24** (Registry.swift generated). Debug builds log each r23 / r24 prop it doesn't draw yet,
