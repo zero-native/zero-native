@@ -103,6 +103,8 @@ export function SecureLabScreen() {
       <CoreButton label="Show toast" onPress={() => toast("secure toast")} />
       <CoreButton label="Push normal screen" onPress={() => nav.push("coreLab")} />
       <CoreButton label="Push secure native screen" onPress={() => nav.push("secureNative", { title: "secure" })} />
+      {/* A see-through screen over this one: it stays drawn (and secure), and the app switcher cover keeps its colour. */}
+      <CoreButton label="Open see-through screen" onPress={() => nav.push("seeThroughLab", { depth: "1" })} />
       <CoreButton label="Back" onPress={() => nav.back()} />
       <Sheet visible={sheet()} onDismiss={() => sheet.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
         <Text fontSize={16}>secure sheet</Text>

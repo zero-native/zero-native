@@ -198,7 +198,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             }
         }
         if navChanges {
-            print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(stack.count) screens\(vcs.count == stack.count ? "" : " in \(vcs.count) boxes"))")
+            print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(stack.count) screens\(vcs.count == stack.count ? "" : " in \(vcs.count) box\(vcs.count == 1 ? "" : "es")"))")
             setViewControllers(vcs, animated: animated)
         }
         boxes = boxes.filter { k, _ in vcs.contains { $0.key == k } }
