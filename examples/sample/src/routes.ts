@@ -5,6 +5,7 @@ import { HomeScreen } from "./HomeScreen"
 import { AmountScreen } from "./AmountScreen"
 import { ReceiptScreen } from "./ReceiptScreen"
 import { OffersScreen } from "./OffersScreen"
+import { ImpressionsLabScreen } from "./ImpressionsLab"
 import { LaunchScreen } from "./LaunchScreen"
 import { ModulesScreen } from "./ModulesScreen"
 import { InputScreen } from "./InputScreen"
@@ -170,6 +171,8 @@ export const routes = defineRoutes({
   // The motion core with no gestures: commands, timeline, formulas, env, 3D, elements, plugin values, tilt,
   // animateLayout, useFrame (registry 24). Last, so the numbers of the routes before it do not move.
   motionCoreLab: { path: "/dev/motion/core", screen: MotionCoreLabScreen, deepLink: true },
+  // Impressions: hidden tabs, clipping, minMs, rails and rows (ImpressionsLab.tsx). Last, as above.
+  impressionsLab: { path: "/dev/impressions", screen: ImpressionsLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

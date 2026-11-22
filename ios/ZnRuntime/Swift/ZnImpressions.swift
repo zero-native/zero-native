@@ -106,34 +106,101 @@ func znImpressionKey(_ s: ZnNodeSpec, _ inst: ZnInstance) -> String? {
     return key?.isEmpty == false ? key : nil
 }
 
+extension EnvironmentValues {
+    /// The boxes of the `overflow: "hidden"` nodes around this view, on a screen that tracks impressions: SwiftUI
+    /// clips them without a UIKit view, so a keyed node inside cuts its visible box by each (Android's
+    /// boundsInWindow is clipped by them too).
+    @Entry var znImpressionClips: [ZnImpressionClipBox] = []
+}
+
 struct ZnImpressionProbe: ViewModifier {
     let ctx: ZnContext
     let s: ZnNodeSpec
     let inst: ZnInstance
     @Environment(\.znEntry) private var entry
     @Environment(\.znInHiddenTab) private var hidden
+    @Environment(\.znImpressionClips) private var clips
 
     func body(content: Content) -> some View {
-        if s.hasImpression, entry != 0, ZnImpressions.shared.tracking(entry), let key = znImpressionKey(s, inst) {
-            content.modifier(ZnImpressionMeasure(entry: entry, key: key, hidden: hidden))
+        // Read only by keyed and clipping nodes (the read observes the tracked screens).
+        let tracking = (s.hasImpression || s.clip) && entry != 0 && ZnImpressions.shared.tracking(entry)
+        let key = tracking && s.hasImpression ? znImpressionKey(s, inst) : nil
+        content
+            .modifier(ZnImpressionMeasure(entry: entry, key: key, hidden: hidden, clips: clips))
+            .modifier(ZnImpressionClip(on: tracking && s.clip))
+    }
+}
+
+/// The measuring view behind a keyed node, and a nudge when SwiftUI moves the node without resizing it. Nothing when
+/// [key] is nil.
+private struct ZnImpressionMeasure: ViewModifier {
+    let entry: UInt32
+    let key: String?
+    let hidden: Bool
+    let clips: [ZnImpressionClipBox]
+
+    func body(content: Content) -> some View {
+        if let key {
+            content.modifier(ZnImpressionMeasureOn(entry: entry, key: key, hidden: hidden, clips: clips))
         } else {
             content
         }
     }
 }
 
-/// The measuring view behind the node, and a nudge when SwiftUI moves the node without resizing it.
-private struct ZnImpressionMeasure: ViewModifier {
+private struct ZnImpressionMeasureOn: ViewModifier {
     let entry: UInt32
     let key: String
     let hidden: Bool
+    let clips: [ZnImpressionClipBox]
     @State private var box = ZnImpressionBox()
 
     func body(content: Content) -> some View {
         content
-            .background(ZnImpressionAnchor(entry: entry, key: key, hidden: hidden, box: box))
+            .background(ZnImpressionAnchor(entry: entry, key: key, hidden: hidden, clips: clips, box: box))
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _ in box.view?.measureSoon() }
     }
+}
+
+/// An `overflow: "hidden"` node on a tracking screen: a plain UIKit view behind it marks its box for the keyed nodes
+/// inside (znImpressionClips).
+private struct ZnImpressionClip: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on { content.modifier(ZnImpressionClipOn()) } else { content }
+    }
+}
+
+private struct ZnImpressionClipOn: ViewModifier {
+    @Environment(\.znImpressionClips) private var clips
+    @State private var box = ZnImpressionClipBox()
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.znImpressionClips, clips + [box])
+            .background(ZnImpressionClipMarker(box: box))
+    }
+}
+
+/// An `overflow: "hidden"` node's box, by its marker view.
+@MainActor
+final class ZnImpressionClipBox {
+    weak var view: UIView?
+}
+
+private struct ZnImpressionClipMarker: UIViewRepresentable {
+    let box: ZnImpressionClipBox
+
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        v.isUserInteractionEnabled = false
+        v.isAccessibilityElement = false
+        v.backgroundColor = .clear
+        return v
+    }
+
+    func updateUIView(_ v: UIView, context: Context) { box.view = v }
 }
 
 @MainActor
@@ -145,6 +212,7 @@ private struct ZnImpressionAnchor: UIViewRepresentable {
     let entry: UInt32
     let key: String
     let hidden: Bool
+    let clips: [ZnImpressionClipBox]
     let box: ZnImpressionBox
 
     func makeUIView(context: Context) -> ZnImpressionView {
@@ -157,6 +225,7 @@ private struct ZnImpressionAnchor: UIViewRepresentable {
 
     func updateUIView(_ v: ZnImpressionView, context: Context) {
         box.view = v
+        v.clips = clips
         v.set(entry: entry, key: key, hidden: hidden)
     }
 
@@ -168,6 +237,8 @@ final class ZnImpressionView: UIView {
     private var entry: UInt32 = 0
     private var key = ""
     private var onHiddenTab = false
+    /// The overflow-hidden boxes around (ZnImpressionClipBox).
+    var clips: [ZnImpressionClipBox] = []
     /// The scroll views around this view, watched while the key hasn't counted.
     private var watching: [NSKeyValueObservation] = []
 
@@ -238,6 +309,10 @@ final class ZnImpressionView: UIView {
             if s.isHidden { return 0 }
             if s.clipsToBounds || s is UIScrollView { visible = visible.intersection(s.convert(s.bounds, to: window)) }
             v = s.superview
+        }
+        for c in clips {
+            guard let cv = c.view, cv.window === window else { continue }
+            visible = visible.intersection(cv.convert(cv.bounds, to: window))
         }
         if visible.isNull || visible.isEmpty { return 0 }
         return min(max(Double(visible.width * visible.height / area), 0), 1)
