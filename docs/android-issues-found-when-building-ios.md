@@ -52,6 +52,19 @@ Each entry says:
 | A36 | 2026-11-21 | fetch (Android) | A missing / unreadable FormData file part fails as `connection_lost` mid-upload, not `invalid_request` before sending | open, not run on Android |
 | A37 | 2026-11-21 | Background tasks (Android) | A kept task JS is still running may be aborted by a limit counted from `run()`, dropping its saved copy | open, possible |
 | A38 | 2026-11-21 | Svg (Android) | Check the stacked drop-shadow fixture (shadow-skew.svg), especially the fallback path | open, check only |
+| A39 | 2026-11-22 | Lists (Android) | An animated `scrollToOffset` to anything but 0 goes to an estimated place, off with rows of different heights | open, not run on Android |
+| A40 | 2026-11-22 | Lists (Android) | An inverted List with a ListHeaderComponent: "follow the newest" may test the header, not the newest row | open, possible, not run |
+| A41 | 2026-11-22 | Canvas (Android) | Canvas image loads restart on every new command list, so a slow picture never shows under a ticking chart | open, a difference (Pavan to decide) |
+| A42 | 2026-11-22 | Canvas (Android) | Bad path data warns with Compose's own text, or none, and doesn't name `"d"` | open, minor |
+| A43 | 2026-11-22 | Canvas (Android) | A boolean `fontWeight` in a text command is dropped with no warning | open, minor |
+| A44 | 2026-11-22 | Motion (Android) | A corner slot from a null value reads 0 instead of falling back to the written corner, then borderRadius | open, not run on Android |
+| A45 | 2026-11-22 | Motion (Android) | `siteUsed` misses `cameraDistanceSlot`, so a cameraDistance from `self` / `parent` alone never changes | open, not run on Android |
+| A46 | 2026-11-22 | Motion (Android) | A motion value put in a `<Text>` without `format` prints raw control characters | open, minor |
+| A47 | 2026-11-22 | Motion (Android) | backgroundColor, width / height and corner formulas are read with no site, so `parent.*` / `self.*` read 0 there | open, a gap (iOS matches) |
+| A48 | 2026-11-22 | Motion (Android + iOS) | An `animate` `from` play towards a moving motion value restarts every frame and stays at `from` | open, a design question (Pavan to decide) |
+| A49 | 2026-11-22 | Text (Android) | `maxFontScale={0}` draws the text at size 0 (a negative value, a negative scale) | open, not run on Android |
+| A50 | 2026-11-22 | Accessibility (Android) | Pressable roles "link" / "text" and a tappable Text always read as a button | open, a difference (Pavan to decide) |
+| A51 | 2026-11-22 | Accessibility (Android) | A labelled Box with a Switch inside: check TalkBack reads the label, then the Switch | check only |
 
 ---
 
@@ -541,3 +554,93 @@ Each entry says:
   stacked shadows to the right and below. Android 12+ runs the real filter (RenderEffect); also look at the fallback
   path (a pattern tile, or Android before 12).
 
+## A39. An animated `scrollToOffset` to anything but 0 lands at an estimated place (from iOS work, Lists)
+- **Status:** open, not run on Android. Found on the Mac 2026-11-22 (iOS round 2, List extras).
+- **Problem:** `ZnRenderer.kt` ~820-828, ZnLazyList's scroll-command "offset" / "to" branch: an animated scrollToOffset
+  uses `animateScrollBy` from `estimatedScrollPx`, the average size of the visible rows. With rows of different heights
+  it lands off. iOS lands exactly, with a short correction while row sizes settle.
+- **Check on Android (Windows):** in rnPropsLab's extras list, from the top, call `scrollToOffset({ offset: 600,
+  animated: true })`, then the same with `animated: false`, and compare where each lands.
+
+## A40. An inverted List with a ListHeaderComponent may not follow the newest row (from iOS work, Lists)
+- **Status:** open, possible, not run on Android. Found on the Mac 2026-11-22.
+- **Problem:** `ZnRenderer.kt` ~1112, ZnLazyList's follow-newest effect (`LaunchedEffect(firstKey) { if (follow ...)
+  state.scrollToItem(0) }`). The header is lazy item 0, so a "follow" test based on `firstVisibleItemIndex == 0` may
+  be about the header, not the newest row.
+- **Check on Android (Windows):** chatLab, stay at the bottom and tap "Add message" a few times: each new message should
+  stay in view above "Ravi is typing…".
+
+## A41. Canvas image loads restart on every command list (from iOS work, Canvas)
+- **Status:** open, a difference. Pavan to decide (the iOS job recommends making Android match iOS).
+- **Problem:** `ZnCanvas.kt` ~1048-1051 with `ZnCanvasImage.kt` ~40-88 (`startCanvasImages` in
+  `DisposableEffect(commands)`): each new list cancels the loads that haven't finished. A picture slower than the list's
+  refresh never shows, and a failed picture is requested and warned about again on every list. iOS keeps a running
+  load for the next list, doesn't retry a failed picture while the lists keep it, and retries after the Canvas leaves
+  and comes back.
+- **Check on Android (Windows):** CanvasLab tile 1 now has a picsum photo in its 500 ms list. Throttle the network to
+  2G: the photo never appears while the ticks run, and a proxy shows a new request every 500 ms.
+
+## A42. Bad Canvas path data doesn't name the field (from iOS work, Canvas)
+- **Status:** open, minor. Found on the Mac 2026-11-22.
+- **Problem:** `ZnCanvas.kt` ~459 and ~478 (`pathParser.pathStringToNodes`): a bad `d` gives Compose's exception text,
+  or none, and the warning doesn't say `"d"`. iOS says `"d" is not valid path data; skipped`.
+- **Check on Android (Windows):** `draw.path("M 0 0 X 5 5", …)`, then read logcat.
+
+## A43. A boolean Canvas `fontWeight` is dropped silently (from iOS work, Canvas)
+- **Status:** open, minor.
+- **Problem:** `ZnCanvas.kt` ~508: a `fontWeight` given as a JSON boolean falls to `else -> null`, with no warning.
+- **Check on Android (Windows):** `{"type":"text","text":"a","x":0,"y":10,"options":{"fontWeight":true}}` gives no
+  logcat warning.
+
+## A44. A motion corner from a null value reads 0 (from iOS work, Motion)
+- **Status:** open, not run on Android. Found on the Mac 2026-11-22 (iOS round 2, motion bindings).
+- **Problem:** `ZnMotionUi.kt` ~129-137: a corner slot whose value is null reads 0 instead of falling back to the
+  written corner, then `borderRadius`. iOS falls back.
+- **Check on Android (Windows):** `borderRadius: v.map(...)` plus `borderTopLeftRadius` from a signal that is null: the
+  top-left corner comes out square.
+
+## A45. `siteUsed` misses `cameraDistanceSlot` (from iOS work, Motion)
+- **Status:** open, not run on Android.
+- **Problem:** `ZnRenderer.kt` ~1241-1242 (`siteUsed`) lists the layer slots that read `self` / `parent` but not
+  `cameraDistanceSlot`, so a node whose only site formula is its cameraDistance never gets its size.
+- **Check on Android (Windows):** `cameraDistance: derive(() => self.width / 20)` alone on a turned box never changes.
+
+## A46. A raw motion value in a `<Text>` prints control characters (from iOS work, Motion)
+- **Status:** open, minor.
+- **Problem:** `ZnRenderer.kt` ~1322 (`display`): a "\u0000m<id>" string (a motion value put in a Text without
+  `format`) is drawn as is. iOS shows "".
+- **Fix:** show "" for such a string (and maybe a debug warning to use `v.format()`).
+- **Check on Android (Windows):** `<Text>{v}</Text>` with a motion value `v`.
+
+## A47. Some motion formulas are read with no site (from iOS work, Motion)
+- **Status:** open, a gap. iOS matches Android today.
+- **Problem:** `parent.*` / `self.*` read 0 in these, because they are read with no site:
+  - backgroundColor colour formulas: `ZnAnimation.kt` ~372-376 (`znBackground`);
+  - `width` / `height`: `ZnRenderer.kt` `resolveSizePx`, `read(null)`;
+  - motion corners: `ZnMotionUi.kt` ~135, `read(null)`.
+- **Check on Android (Windows):** a box with `width: derive(() => p * parent.width)` stays 0 wide.
+- **Fix (both platforms, later):** read them with the node's site, as opacity and transforms do.
+
+## A48. An `animate` `from` play towards a moving motion value sits at `from` (from iOS work, Motion, both platforms)
+- **Status:** open, a design question for Pavan (the iOS job recommends fixing both, Android first).
+- **Problem:** `ZnAnimation.kt` ~508 (`znMotion` restart flow): a `from` play restarts on every change of `rest()`.
+  With a rest that follows a playing motion value it restarts each frame and stays at `from`. iOS now does the same.
+- **Check on Android (Windows):** `animate={{opacity:{from:0}}}` with `opacity: t.map(...)` while `t` plays.
+
+## A49. `maxFontScale={0}` draws text at size 0 (from iOS work, Text)
+- **Status:** open, not run on Android. Found on the Mac 2026-11-22 (iOS round 2, text and accessibility).
+- **Problem:** `ZnTemplate.kt` ~441-444 (`fontScaleCap`): a cap of 0 gives a scale of 0, and a negative cap a negative
+  scale. iOS, like React Native's `maxFontSizeMultiplier=0`, treats a cap of 0 or less as no cap.
+- **Check on Android (Windows):** `<Text maxFontScale={0}>` with the phone's font size above 1.0: the text disappears.
+
+## A50. Pressable roles "link" and "text" read as a button (from iOS work, accessibility)
+- **Status:** open, a difference. Pavan to decide (iOS reads them as a link and as text, as React Native on iOS).
+- **Problem:** `ZnPress.kt` ~75-76: roles "link", "text" and any role not listed fall to `else -> Role.Button`, so
+  TalkBack says "button". A tappable Text (the TEXT clickable in `ZnRenderer.kt`) is always `Role.Button`.
+- **Check on Android (Windows):** /dev/a11y with TalkBack on. In section 5 "Terms" and "Read only", and in section 11
+  "Privacy policy" and "Skip", all read as buttons today.
+
+## A51. A labelled Box with a Switch inside: check TalkBack (from iOS work, accessibility)
+- **Status:** check only.
+- **Check on Android (Windows):** /dev/a11y section 6, "Card settings", with TalkBack: it should read "Card settings",
+  then the Switch "Card on" on its own. iOS does this now.
