@@ -8,9 +8,11 @@
 // - a see-through screen opens and closes inside its box by its own route's transition ("none", "fade", "modal",
 //   "push"); the screen below stays still. android-issues A28: Android's scene may move the screen below too.
 // - Where the see-through screen has nothing to tap, touches reach the screen below, as on Android (Compose gives a
-//   touch to the topmost node with pointer input; a Box with only a background takes none). As the overlay layer
-//   (ZnPassThroughView): Pressables, Scrolls, fields and plugin views take their touches; a hit SwiftUI answers itself
-//   goes through.
+//   touch to the topmost node with pointer input; a Box with only a background takes none). Pressables, Scrolls,
+//   fields, tappable Text, Switch / Checkbox and plugin views take their touches (ZnSeeThroughHolder); a backdrop or a
+//   card's empty part lets them through, as on Android.
+// - The screens below don't get viewWillDisappear / viewDidDisappear when a see-through screen opens over them (they
+//   are still on screen, as Android keeps them composed).
 // A stack whose bottom entry is see-through starts its box with it (nothing below: the window's background).
 // The see-through screen gets no shared elements (Android sets LocalZnSharedVisibility = null): a later sharedTag
 // flight must skip transparent routes.
