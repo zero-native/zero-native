@@ -17,11 +17,12 @@
 // shows over the content anywhere), and comes up in UIKit's grey until the first pull (iOS 18's spinner takes the tint
 // only from a pull).
 // On a <Scroll> the control is a subview of SwiftUI's scroll view, not its `refreshControl`: SwiftUI's ScrollView owns
-// that property. Its update (UIScrollView._updateRefreshControl, from SwiftUI's render) sets it from .refreshable,
-// nil for us, so it took ours out (twice as each Scroll starts, in the stack traces of 2026-11-21) and a pull under
-// way when it ran was lost; putting it back after the fact can't save that pull. A subview is UIKit's older way to add
-// one and works the same (the pull, the spinner, its inset); SwiftUI never touches it. A <List> (UIKit's own
-// collection view) uses `refreshControl`.
+// that property. Its update (UIScrollView._updateRefreshControl, an action SwiftUI runs at render) sets it from
+// .refreshable, nil for us, so it took ours out (at the Scroll's first render, in the stack traces of 2026-11-21) and
+// ours had to be put back; a pull under way at such a moment would be lost. On iOS 26.3 it did not run again later,
+// not even when the Scroll itself updated during a pull (a spy on setRefreshControl, 2026-11-22), but that is
+// SwiftUI's to change. A subview is UIKit's older way to add one and works the same (the pull, the spinner, its inset);
+// SwiftUI never touches it. A <List> (UIKit's own collection view) uses `refreshControl`.
 import SwiftUI
 import UIKit
 
