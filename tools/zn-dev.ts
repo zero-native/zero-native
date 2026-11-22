@@ -14,7 +14,7 @@
 import { createHash } from "node:crypto"
 import { watch } from "node:fs"
 import { existsSync, mkdirSync, readdirSync } from "node:fs"
-import { join, relative, resolve } from "node:path"
+import { join, relative, resolve, sep } from "node:path"
 import type { Socket } from "bun"
 import { buildApp, type AppBuild } from "@zeronative/compiler"
 import { bytecodeVersion, hermesc } from "./hermesc"
@@ -73,7 +73,7 @@ async function rebuild(reason: string): Promise<void> {
         `${(hbc.length / 1024).toFixed(0)} KB) → ${sent} phone(s)`,
     )
   } catch (e) {
-    const message = (e as Error).message
+    const message = buildError(e)
     current = { ok: false, message }
     console.log(red(`${reason}: build failed\n${message}`))
     broadcast(frame(BUILD_FAILED, JSON.stringify({ message })))
@@ -84,6 +84,21 @@ async function rebuild(reason: string): Promise<void> {
       void rebuild("changed while building")
     }
   }
+}
+
+/** A failed build's text: Bun's bundler throws "Bundle failed" with the real messages (file, line) in `errors`. */
+function buildError(e: unknown): string {
+  const err = e as { message?: string; errors?: unknown[] }
+  const lines = (Array.isArray(err?.errors) ? err.errors : []).map((m) => {
+    const b = m as { message?: string; position?: { file?: string; line?: number; column?: number; lineText?: string } }
+    const p = b?.position
+    if (!b?.message) return String(m)
+    // A plugin's error (the compiler's) names its file itself and has no line.
+    const text = b.message.replaceAll(root + sep, "")
+    if (!p?.file || !p.line) return text
+    return `${relative(root, p.file).replaceAll("\\", "/")}:${p.line}:${p.column}: ${text}${p.lineText ? `\n  ${p.lineText.trim()}` : ""}`
+  })
+  return lines.length ? lines.join("\n") : String(err?.message ?? e)
 }
 
 function buildFrame(app: AppBuild, hbc: Uint8Array, hash: string): Uint8Array {
