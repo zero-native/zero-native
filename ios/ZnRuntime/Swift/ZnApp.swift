@@ -10,7 +10,7 @@ import ZnHost
 
 /// App-level events to JS (instance 0), as in ZnAppEvent.kt.
 enum ZnAppEvent {
-    static let start = 1, back = 2, forcedBack = 3, open = 4, insets = 5, callResult = 7, retry = 10, appState = 11, navResult = 12, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
+    static let start = 1, back = 2, forcedBack = 3, open = 4, insets = 5, impressions = 6, callResult = 7, retry = 10, appState = 11, navResult = 12, colorScheme = 14, lowMemory = 15, device = 16, window = 17, keyboard = 18
 }
 
 @MainActor
@@ -19,7 +19,13 @@ public final class ZnApp {
     public static let shared = ZnApp()
 
     /// Back-stack entries (screen root instance ids), bottom first. The top one is drawn.
-    private(set) var stack: [UInt32] = [] { didSet { topRouteMaybeChanged() } }
+    /// A change may change the top screen: impressions count only on the top one (ZnImpressions).
+    private(set) var stack: [UInt32] = [] {
+        didSet {
+            topRouteMaybeChanged()
+            if stack.last != oldValue.last { ZnImpressions.shared.refresh() }
+        }
+    }
     /// A start failure (bad bundle, JS that didn't run), shown instead of a screen.
     private(set) var failure: String?
     /// Screens whose JS threw while building them (NAV FAILED), or that hung: entry → the error message. They stay on
@@ -135,9 +141,10 @@ public final class ZnApp {
     public func restorationActivity() -> NSUserActivity? { savedStack(values: true) }
 
     /// The screens to open again, as `restorationActivity`; [values] false leaves their restorableSignal values out
-    /// (an update applied in place: new code starts its state fresh, as on Android).
-    private func savedStack(values withValuesToo: Bool) -> NSUserActivity? {
-        let keep = stack.prefix { entryRoutes[$0]?.restore ?? false }
+    /// (an update applied in place: new code starts its state fresh, as on Android). [all]: every screen, also
+    /// `restore: false` ones and those above them (a `zn dev` reload keeps you where you were, as Android's).
+    private func savedStack(values withValuesToo: Bool, all: Bool = false) -> NSUserActivity? {
+        let keep = all ? stack.filter { entryRoutes[$0] != nil }[...] : stack.prefix { entryRoutes[$0]?.restore ?? false }
         if keep.isEmpty || (keep.count == 1 && (!withValuesToo || (entryValues[keep[0]] ?? [:]).isEmpty)) { return nil }
         func json(_ withValues: Bool) -> String? {
             let list: [[String: Any]] = keep.map { e in
@@ -293,6 +300,9 @@ public final class ZnApp {
         prepared = true
         if !everPrepared {
             everPrepared = true
+            #if DEBUG
+            ZnDev.shared.start()  // `zn dev` live reload (debug builds; Android starts it in ZnRuntime)
+            #endif
             // The first time the app is in front with its screens (getInitialNotification, tapMayHaveOpenedApp).
             NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { ZnApp.shared.noteFront() }
@@ -301,6 +311,9 @@ public final class ZnApp {
         // The bundle to run: a downloaded one when OTA is on and it passes every check, else the app's own (ZnOta.swift).
         ZnModules.registerBuiltIns()  // a bundle's needs are checked against every module
         let bundle = reusing ? builtIn : (ZnBundles.choose(builtIn: builtIn).dir ?? builtIn)
+        #if DEBUG
+        if !reusing { ZnDev.shared.checkModules(ZnBundles.running?.info?.requires) }  // the app's plugins vs its bundle
+        #endif
         bundleURL = bundle
         print("zn t=\(ZnDebug.ms()) app: JS starts on \(bundle.lastPathComponent)")
         do {
@@ -497,7 +510,21 @@ public final class ZnApp {
     /// controller; [window]'s cover (the caller's) hides the swap. [done] runs on the main thread after main.hbc ran:
     /// true, or false with the error (the caller may restart again on another bundle).
     public func restart(bundle: URL, in window: UIWindow?, done: @escaping (Bool, String) -> Void) {
-        let saved = savedStack(values: false)
+        restart(bundle: bundle, in: window, keepAll: false, done: done)
+    }
+
+    /// [keepAll]: every open screen opens again, `restore: false` ones too (a `zn dev` reload, ZnDev.swift).
+    func restart(bundle asked: URL, in window: UIWindow?, keepAll: Bool, done: @escaping (Bool, String) -> Void) {
+        var bundle = asked
+        #if DEBUG
+        // After a `zn dev` reload, a restart on the app's own bundle runs the dev build: the screens stay the code
+        // you are working on (as Android's devBytecode on a fresh start).
+        if let dev = ZnDev.shared.devBundle, asked.standardizedFileURL == ZnBundles.builtInURL.standardizedFileURL {
+            print("zn: app: restart on the app's bundle runs the zn dev build \(dev.lastPathComponent)")
+            bundle = dev
+        }
+        #endif
+        let saved = savedStack(values: false, all: keepAll)
         restarting = true
         ZnPopups.shared.closeAll(why: "the runtime is replaced")  // no slide over the OTA cover; the new root has its own box
         stack = []
@@ -517,6 +544,7 @@ public final class ZnApp {
         prepared = false
         ZnTasks.shared.jsStopped()
         ZnModules.runtimeReplaced()
+        ZnImpressions.shared.resetForReload()
         firstScreensUp = false
         jsDrew = false
         batchChangesStack = false
@@ -601,6 +629,15 @@ public final class ZnApp {
 
     /// JS sent NAV STARTED: it handled START and built the first screens (ZnSplash waits for it).
     @ObservationIgnored private(set) var firstScreensUp = false
+    @ObservationIgnored private var screensUpWaiters: [() -> Void] = []
+
+    /// Runs [f] once JS has built the first screens (NAV STARTED; now if it has), or after [capMs] (JS threw first).
+    func afterScreensUp(capMs: Int = 2_000, _ f: @escaping () -> Void) {
+        if firstScreensUp { return f() }
+        let once = ZnOnce<Void> { _ in f() }
+        screensUpWaiters.append { once(()) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(capMs)) { once(()) }
+    }
 
     @ObservationIgnored private var jsDrew = false
     @ObservationIgnored private var waitingForJS: [() -> Void] = []
@@ -664,11 +701,14 @@ public final class ZnApp {
             stack.removeAll { $0 == entry }
             failedScreens[entry] = nil
             backWanted.remove(entry)
+            ZnImpressions.shared.release(entry)
             releaseLater([entry])
         case NavKind.clear:
-            for e in stack { failedScreens[e] = nil }
+            for e in stack { failedScreens[e] = nil; ZnImpressions.shared.release(e) }
             releaseLater(stack)
             stack.removeAll()
+        case NavKind.impressions:
+            ZnImpressions.shared.configure(entry, params)  // useImpressions on this screen
         case NavKind.layer:
             // The layer's root from its template (entry = root id, route = template id); entry 0 removes it.
             let name = params.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["layer"] as? String
@@ -694,6 +734,9 @@ public final class ZnApp {
             print("zn t=\(ZnDebug.ms()) nav: screen \(entry) failed: \(failedScreens[entry] ?? "")")
         case NavKind.started:
             firstScreensUp = true  // JS handled START: the splash may go (ZnSplash)
+            let waiting = screensUpWaiters
+            screensUpWaiters = []
+            waiting.forEach { $0() }
             ZnOta.screensUp()  // a downloaded bundle's healthy clock starts
             print("zn t=\(ZnDebug.ms()) nav: first screens up\(ZnDebug.sinceStart())")
         default:
@@ -732,7 +775,7 @@ public final class ZnApp {
         guard !removed.isEmpty else { return }
         stack = stack.filter { shown.contains($0) }
         ZnPopups.shared.closeEntries(Set(removed), why: "swiped back")
-        for e in removed { backWanted.remove(e); failedScreens[e] = nil }
+        for e in removed { backWanted.remove(e); failedScreens[e] = nil; ZnImpressions.shared.release(e) }
         for e in removed.reversed() { host.dispatchEvent(0, event: UInt16(ZnAppEvent.forcedBack), number: Double(e)) }
         releaseLater(removed)
     }

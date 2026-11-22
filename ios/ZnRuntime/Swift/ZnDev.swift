@@ -1,0 +1,372 @@
+// The dev client for `zn dev` (ARCHITECTURE §17), as Android's ZnDev.kt. **Debug builds only**: the whole file is
+// behind `#if DEBUG`, so a Release build has none of it.
+//
+// - Connects to the dev server on the Mac at 127.0.0.1:8082 (the simulator shares the Mac's network, so no adb step;
+//   a plain TCP socket, so no App Transport Security settings). Retries every 2 s while the server isn't running.
+//   A real iPhone can't reach the Mac's 127.0.0.1: that comes later (the LAN, W4-F).
+// - A new build replaces templates and JS: the runtime is replaced (ZnApp.restart, as an OTA update applied in place)
+//   and every screen that was open opens again by route and params, with a still picture of the old screens over
+//   the swap. Templates and JS always come from the same build folder (Android's A12 can't happen here).
+// - JS errors and build errors show on a dev error screen ([ZnDevOverlay]); the server maps JS stacks back to TSX.
+//   Only once this run has talked to a dev server: a debug build without `zn dev` keeps the app's own error screens.
+// - ZN_DEV=0 in the environment turns it off.
+// Wire format: ZnDevWire.swift.
+#if DEBUG
+import Foundation
+import Network
+import UIKit
+#if SWIFT_PACKAGE
+import ZnHost
+#endif
+
+@MainActor
+final class ZnDev {
+    static let shared = ZnDev()
+    private static let port: UInt16 = 8082
+
+    private struct Problem {
+        let id: Int
+        let title: String
+        var text: String
+    }
+
+    private let queue = DispatchQueue(label: "zn-dev")
+    private var connection: NWConnection?
+    private var connected = false
+    /// This run has talked to a dev server: errors show on the dev error screen from then on.
+    private var everConnected = false
+    private var warned = false
+    private var started = false
+    private var nextErrorId = 1
+    private var problem: Problem?
+    private var overlay: ZnDevOverlay?
+    /// The dev server's hash of the build now running ("app" until the first build arrives).
+    private var runningHash = "app"
+    /// A build that came while the last one was still starting: it goes next.
+    private var waiting: (URL, String)?
+    private var reloading = false
+
+    /// The folder of the last build `zn dev` ran, or nil. A restart on the app's own bundle in this process runs it
+    /// instead (ZnApp.restart), as Android's devBytecode on a fresh start.
+    private(set) var devBundle: URL?
+
+    private nonisolated static var buildsDir: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("zn-dev", isDirectory: true)
+    }
+
+    /// Once per process, before JS runs (ZnApp.prepare).
+    func start() {
+        guard !started else { return }
+        started = true
+        if ProcessInfo.processInfo.environment["ZN_DEV"] == "0" { return print("zn-dev: off (ZN_DEV=0)") }
+        // Builds from an earlier run: this one starts on the app's own bundle.
+        let dir = Self.buildsDir
+        queue.async { try? FileManager.default.removeItem(at: dir) }
+        ZnApp.shared.addJsErrorListener { [weak self] _, whereText, details in self?.onJsError("\(whereText)\n\(details)") }
+        connect()
+    }
+
+    /// JS threw ("where\nmessage and stack"): on the dev error screen now (when `zn dev` is in use), replaced by the
+    /// TSX-mapped text if it comes back.
+    func onJsError(_ text: String) {
+        let id = nextErrorId
+        nextErrorId += 1
+        let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        show(Problem(id: id, title: String(parts.first ?? ""), text: parts.count > 1 ? String(parts[1]) : ""))
+        send(ZnDevWire.error, json: ["id": id, "text": text])
+    }
+
+    /// The bundle about to run needs native modules no plugin registered (Android's ZnBundles warnMissingModules):
+    /// their calls fail with "unavailable". Logged; on the dev error screen when `zn dev` is in use.
+    func checkModules(_ requires: ZnBundleRules.Requires?) {
+        guard let requires else { return }
+        let have = ZnCapabilities.current().modules
+        var missing: [String] = []
+        for part in [requires.modules, requires.os["ios"] ?? [:]] {
+            for name in part.keys.sorted() where (have[name] ?? 0) < part[name]! {
+                missing.append(have[name].map { "\(name) v\(part[name]!) (this app has v\($0))" } ?? name)
+            }
+        }
+        guard !missing.isEmpty else { return }
+        let message = "the bundle needs native modules this app didn't register: \(missing.joined(separator: ", ")). "
+            + "Add the plugin to ZnPlugins.register(...) before ZnApp.prepare (its README has the line). Until then its calls "
+            + "fail with \"unavailable\"."
+        print("zn: bundle: \(message)")
+        pendingModules = message
+        showModulesIfConnected()
+    }
+
+    private var pendingModules: String?
+
+    private func showModulesIfConnected() {
+        guard everConnected, let message = pendingModules else { return }
+        pendingModules = nil
+        onJsError("native modules missing\n\(message)")
+    }
+
+    // MARK: Connection
+
+    private func connect() {
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+        tcp.connectionTimeout = 2
+        let c = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: Self.port)!, using: NWParameters(tls: nil, tcp: tcp))
+        connection = c
+        c.stateUpdateHandler = { [weak self] state in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.changed(c, state) } }
+        }
+        c.start(queue: queue)
+    }
+
+    private func changed(_ c: NWConnection, _ state: NWConnection.State) {
+        guard c === connection else { return }
+        switch state {
+        case .ready:
+            connected = true
+            everConnected = true
+            warned = false
+            print("zn-dev: connected to the dev server")
+            let env = ProcessInfo.processInfo.environment
+            let device = env["SIMULATOR_DEVICE_NAME"].map { "iOS simulator \($0)" } ?? "\(UIDevice.current.name) (\(ZnOs.model))"
+            send(ZnDevWire.hello, json: ["device": device, "hash": runningHash, "os": "ios", "bytecode": ZNHost.bytecodeVersion])
+            read(c)
+            showModulesIfConnected()
+        case .waiting(let error), .failed(let error):
+            drop(c, "\(error)")
+        default:
+            break
+        }
+    }
+
+    /// The connection ended or never came: try again in 2 s.
+    private func drop(_ c: NWConnection, _ why: String) {
+        guard c === connection else { return }
+        connection = nil
+        c.stateUpdateHandler = nil
+        c.cancel()
+        if connected {
+            print("zn-dev: dev server disconnected (\(why))")
+        } else if !warned {
+            print("zn-dev: no dev server on port \(Self.port) (run `bun run dev`); retrying every 2 s")
+        }
+        warned = true
+        connected = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.connect() }
+    }
+
+    /// Reads one frame, hands it on, and reads the next (on the zn-dev queue).
+    private nonisolated func read(_ c: NWConnection) {
+        c.receive(minimumIncompleteLength: 5, maximumLength: 5) { [weak self] data, _, done, error in
+            guard let data, error == nil, let head = ZnDevWire.head(data) else {
+                let why = error.map { "\($0)" } ?? (done ? "closed" : "a bad frame")
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.drop(c, why) } }
+                return
+            }
+            let next = { (body: Data) in
+                self?.received(head.type, body)
+                self?.read(c)
+            }
+            if head.body == 0 { return next(Data()) }
+            c.receive(minimumIncompleteLength: head.body, maximumLength: head.body) { body, _, done, error in
+                guard let body, body.count == head.body, error == nil else {
+                    let why = error.map { "\($0)" } ?? (done ? "closed" : "a short frame")
+                    DispatchQueue.main.async { MainActor.assumeIsolated { self?.drop(c, why) } }
+                    return
+                }
+                next(body)
+            }
+        }
+    }
+
+    /// A frame from the server (zn-dev queue): a build is written to its folder here, off the main thread.
+    private nonisolated func received(_ type: UInt8, _ body: Data) {
+        let json = { (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:] }
+        switch type {
+        case ZnDevWire.build:
+            do {
+                let build = try ZnDevWire.parseBuild(body)
+                let keep = DispatchQueue.main.sync { MainActor.assumeIsolated { ZnApp.shared.bundleURL } }
+                let dir = try ZnDevWire.write(build, in: Self.buildsDir, keep: keep)
+                DispatchQueue.main.async { MainActor.assumeIsolated { ZnDev.shared.apply(dir, build.hash) } }
+            } catch {
+                print("zn-dev: a build from the dev server didn't arrive whole: \(error)")
+            }
+        case ZnDevWire.buildFailed:
+            let message = json()["message"] as? String ?? ""
+            DispatchQueue.main.async { MainActor.assumeIsolated { ZnDev.shared.show(Problem(id: 0, title: "Build failed", text: message)) } }
+        case ZnDevWire.errorMapped:
+            let o = json()
+            guard let id = (o["id"] as? NSNumber)?.intValue, let text = o["text"] as? String else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let dev = ZnDev.shared
+                    guard var p = dev.problem, p.id == id else { return }
+                    p.text = text
+                    dev.show(p)
+                }
+            }
+        default:
+            print("zn-dev: unknown message type \(type)")
+        }
+    }
+
+    private func send(_ type: UInt8, json: [String: Any]) {
+        guard connected, let c = connection else { return }
+        c.send(content: ZnDevWire.frame(type, json: json), completion: .contentProcessed { error in
+            if let error { print("zn-dev: send failed: \(error)") }
+        })
+    }
+
+    // MARK: Reload
+
+    /// Runs the build in [dir]: the runtime is replaced and every open screen opens again.
+    private func apply(_ dir: URL, _ hash: String) {
+        guard !reloading, !ZnApp.shared.restarting else {
+            waiting = (dir, hash)  // after the reload going on now
+            return
+        }
+        reloading = true
+        let t0 = CACurrentMediaTime()
+        hide()
+        let window = ZnOta.window()
+        let route = ZnApp.shared.topRoute ?? "start"
+        // A still picture of the screens over the swap (a secure screen: its plain background, as ZnOta's cover).
+        var cover: UIView?
+        if let window {
+            let v = (ZnSecure.shared.on ? nil : window.snapshotView(afterScreenUpdates: false)) ?? UIView(frame: window.bounds)
+            if v.backgroundColor == nil, ZnSecure.shared.on { v.backgroundColor = ZnApp.shared.topBackground ?? .systemBackground }
+            v.frame = window.bounds
+            v.isUserInteractionEnabled = false
+            window.addSubview(v)
+            cover = v
+        }
+        ZnApp.shared.restart(bundle: dir, in: window, keepAll: true) { [self] ok, error in
+            runningHash = hash
+            devBundle = dir
+            let js = (CACurrentMediaTime() - t0) * 1000
+            let finish = { [self] in
+                cover?.removeFromSuperview()
+                if let p = problem { show(p) }  // an error while starting: above the new screens
+                reloading = false
+                print("zn-dev: reloaded in \(Int((CACurrentMediaTime() - t0) * 1000)) ms (JS up in \(Int(js)) ms), on \(route)"
+                      + (ok ? "" : " — the new code threw, see the error screen: \(error)"))
+                if let (d, h) = waiting {
+                    waiting = nil
+                    apply(d, h)
+                }
+            }
+            if ok { ZnApp.shared.afterScreensUp(finish) } else { finish() }
+        }
+    }
+
+    // MARK: Error screen
+
+    private func show(_ p: Problem) {
+        problem = p
+        guard everConnected else { return }  // no `zn dev` in this run: the app's own error screens only
+        guard let window = ZnOta.window() else {
+            // No window yet (JS failed before the scene): try again shortly.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, let p = self.problem, p.id == self.problem?.id else { return }
+                self.show(p)
+            }
+            return
+        }
+        let o = overlay ?? ZnDevOverlay(onDismiss: { [weak self] in self?.hide() },
+                                        onReload: { [weak self] in self?.hide(); self?.send(ZnDevWire.reload, json: [:]) })
+        overlay = o
+        o.set(title: p.title, text: p.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        if o.superview !== window {
+            o.removeFromSuperview()
+            o.frame = window.bounds
+            o.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            window.addSubview(o)
+        }
+        window.bringSubviewToFront(o)
+        print("zn-dev: error screen: \(p.title)")
+    }
+
+    private func hide() {
+        problem = nil
+        overlay?.removeFromSuperview()
+    }
+}
+
+/// The dev error screen: opaque, over the screens (they may be broken), and it takes every touch. As Android's
+/// ZnDev.Overlay: #111827, a red title, the text in a monospaced scrolling box, Dismiss and Reload.
+private final class ZnDevOverlay: UIView {
+    private let title = UILabel()
+    private let text = UITextView()
+    private let onDismiss: () -> Void
+    private let onReload: () -> Void
+
+    init(onDismiss: @escaping () -> Void, onReload: @escaping () -> Void) {
+        self.onDismiss = onDismiss
+        self.onReload = onReload
+        super.init(frame: .zero)
+        backgroundColor = UIColor(red: 0x11 / 255.0, green: 0x18 / 255.0, blue: 0x27 / 255.0, alpha: 1)
+        accessibilityViewIsModal = true
+        title.textColor = UIColor(red: 0xF8 / 255.0, green: 0x71 / 255.0, blue: 0x71 / 255.0, alpha: 1)
+        title.font = .systemFont(ofSize: 17, weight: .semibold)
+        title.numberOfLines = 0
+        text.backgroundColor = .clear
+        text.textColor = UIColor(red: 0xE5 / 255.0, green: 0xE7 / 255.0, blue: 0xEB / 255.0, alpha: 1)
+        text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        text.isEditable = false
+        text.textContainerInset = .zero
+        text.textContainer.lineFragmentPadding = 0
+        text.accessibilityIdentifier = "zn-dev-error-text"
+        let dismiss = Self.button("Dismiss", #selector(dismissTapped), self)
+        let reload = Self.button("Reload", #selector(reloadTapped), self)
+        let row = UIStackView(arrangedSubviews: [dismiss, reload, UIView()])
+        row.axis = .horizontal
+        row.spacing = 12
+        let column = UIStackView(arrangedSubviews: [title, text, row])
+        column.axis = .vertical
+        column.spacing = 12
+        column.alignment = .fill
+        column.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(column)
+        let g = safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            column.leadingAnchor.constraint(equalTo: g.leadingAnchor, constant: 16),
+            column.trailingAnchor.constraint(equalTo: g.trailingAnchor, constant: -16),
+            column.topAnchor.constraint(equalTo: g.topAnchor, constant: 16),
+            column.bottomAnchor.constraint(equalTo: g.bottomAnchor, constant: -16),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func set(title t: String, text body: String) {
+        title.text = t
+        text.text = body
+        text.setContentOffset(.zero, animated: false)
+    }
+
+    private static func button(_ label: String, _ action: Selector, _ target: Any) -> UIButton {
+        var config = UIButton.Configuration.filled()
+        config.title = label
+        config.baseBackgroundColor = UIColor(red: 0x37 / 255.0, green: 0x41 / 255.0, blue: 0x51 / 255.0, alpha: 1)
+        config.baseForegroundColor = .white
+        config.cornerStyle = .fixed
+        config.background.cornerRadius = 8
+        config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
+            var a = a
+            a.font = .systemFont(ofSize: 14, weight: .medium)
+            return a
+        }
+        let b = UIButton(configuration: config)
+        b.setContentHuggingPriority(.required, for: .horizontal)
+        b.setContentHuggingPriority(.required, for: .vertical)
+        b.accessibilityIdentifier = "zn-dev-\(label.lowercased())"
+        b.addTarget(target, action: action, for: .touchUpInside)
+        return b
+    }
+
+    @objc private func dismissTapped() { onDismiss() }
+    @objc private func reloadTapped() { onReload() }
+}
+#endif
