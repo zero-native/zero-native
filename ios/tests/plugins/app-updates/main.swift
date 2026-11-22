@@ -49,9 +49,24 @@ do {
 }
 
 // The storefront and the lookup URL
-check("region", R.country("IN"), "in")
-check("no region", R.country(nil), "us")
-check("number region", R.country("419"), "us")
+check("region", R.country(storefront: nil, region: "IN"), "in")
+check("no region", R.country(storefront: nil, region: nil), "us")
+check("number region", R.country(storefront: nil, region: "419"), "us")
+// The App Store account's country wins over the phone's region (an Indian account on a phone set to the US)
+check("storefront first", R.country(storefront: "IND", region: "US"), "in")
+check("storefront lower case", R.country(storefront: "usa", region: "IN"), "us")
+check("storefront unknown", R.country(storefront: "ZZZ", region: "GB"), "gb")
+check("storefront two letters", R.country(storefront: "IN", region: "GB"), "gb")
+check("alpha2 first", R.alpha2("ASC"), "ac")
+check("alpha2 last", R.alpha2("ZWE"), "zw")
+check("alpha2 GBR", R.alpha2("GBR"), "gb")
+check("alpha2 DEU", R.alpha2("DEU"), "de")
+check("alpha2 junk", R.alpha2("INDIA"), nil)
+// A forced sheet stops opening again only on a real answer about its own app that has no update
+check("ends forced", R.endsForced(found: true, sameApp: true, available: false), true)
+check("offline keeps forced", R.endsForced(found: false, sameApp: true, available: false), false)
+check("other app keeps forced", R.endsForced(found: true, sameApp: false, available: false), false)
+check("still newer keeps forced", R.endsForced(found: true, sameApp: true, available: true), false)
 check("by bundle", R.lookupURL(bundleId: "dev.zeronative.sample", appStoreId: nil, country: "in", minute: 7)?.absoluteString,
       "https://itunes.apple.com/lookup?bundleId=dev.zeronative.sample&country=in&_=7")
 check("by id", R.lookupURL(bundleId: "dev.zeronative.sample", appStoreId: "123456789", country: "us", minute: 8)?.absoluteString,

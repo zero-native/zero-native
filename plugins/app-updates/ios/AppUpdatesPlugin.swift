@@ -4,12 +4,15 @@
 //   immediateAllowed, flexibleAllowed, stalenessDays?, storeVersion, appStoreId }`; available = the store's version is
 //   newer than this build's and this iOS can run it. Kept for an hour. Any failure answers `available: false`; it
 //   never rejects. `{ appStoreId }` looks that id up instead of this app's bundle id (a lab, or an app whose bundle
-//   id the store doesn't know yet).
+//   id the store doesn't know yet). The storefront asked is the App Store account's country (StoreKit's Storefront),
+//   else the phone's region.
 // - start `{ flexible }` opens the App Store's own sheet for the app inside the app (SKStoreProductViewController;
-//   its Update button installs). `{ ok }`. When the sheet can't load it opens the App Store app instead. The sheet
+//   its Update button installs). `{ ok }`. The sheet loads first and shows once loaded; when it can't load it opens
+//   the App Store app instead. Not refused while busy (as Android: busy only holds back the re-open). The sheet
 //   closing sends `state` "declined" (optional) or "canceled" (forced): iOS never says whether Update was tapped (the
 //   App Store installs and ends the app). A forced start opens the sheet again each time the app comes back to the
-//   front, as Android's IMMEDIATE update, until a check says there is no update (not while busy).
+//   front, as Android's IMMEDIATE update, until a check of that same app says there is no update (a failed lookup
+//   doesn't count), not while busy.
 // - complete: `{ ok: false, unavailable: true }`. There is nothing to install from inside the app: the App Store does it.
 // - setBusy `{ busy }`: no forced sheet opens again while busy. Kept on disk, as on Android.
 // - openStore `{ appStoreId }`: the App Store app's page (itms-apps://apps.apple.com/app/id<appStoreId>); `{ opened }`.
@@ -34,10 +37,13 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
     private let lock = NSLock()
     // Under the lock: the last lookup's answer, for which question (the id or bundle id), and when.
     private var cached: (key: String, info: AppUpdatesRules.StoreInfo?, at: Date)?
+    // Under the lock: the App Store account's country (two letters), once StoreKit has said.
+    private var storeCountry: String?
     // Main thread only.
     private var forcedPending = false
     private var forcedId: String?
     private var sheet: SKStoreProductViewController?
+    private var loading = false  // the sheet is loading, not shown yet
     private var sheetFlexible = true
     private lazy var storeDelegate = StoreDelegate(self)
 
@@ -52,7 +58,14 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
             let id = try? call.stringOrNil("appStoreId")
             self.lookup(id) { info in
                 let out = AppUpdatesRules.availability(info, current: Self.appVersion, system: znIosVersionText(), now: Date())
-                if out["available"] as? Bool != true { DispatchQueue.main.async { self.forcedPending = false } }
+                let available = out["available"] as? Bool == true
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        if AppUpdatesRules.endsForced(found: info != nil, sameApp: id == self.forcedId, available: available) {
+                            self.forcedPending = false
+                        }
+                    }
+                }
                 call.resolve(out)
             }
         }
@@ -82,11 +95,29 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
 
     /// The App Store's answer for [appStoreId], else for this app's bundle id: kept for an hour, nil on any failure.
     private func lookup(_ appStoreId: String?, _ done: @escaping (AppUpdatesRules.StoreInfo?) -> Void) {
+        storefront { country in self.lookup(appStoreId, country: country, done) }
+    }
+
+    /// The storefront to ask: the App Store account's country once StoreKit says it (kept), else the phone's region.
+    /// StoreKit gets 2 s: no account (the simulator) or no answer is the region.
+    private func storefront(_ done: @escaping (String) -> Void) {
+        let region = Locale.current.region?.identifier
+        if let c = lock.withLock({ storeCountry }) { return done(c) }
+        let once = ZnAppUpdatesOnce(done)
+        Task {
+            let code = await Storefront.current?.countryCode
+            let country = AppUpdatesRules.country(storefront: code, region: region)
+            if code != nil { self.lock.withLock { self.storeCountry = country } }
+            once.call(country)
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2) { once.call(AppUpdatesRules.country(storefront: nil, region: region)) }
+    }
+
+    private func lookup(_ appStoreId: String?, country: String, _ done: @escaping (AppUpdatesRules.StoreInfo?) -> Void) {
         let bundle = Bundle.main.bundleIdentifier
-        let key = appStoreId.map { "id:\($0)" } ?? "bundle:\(bundle ?? "")"
+        let key = (appStoreId.map { "id:\($0)" } ?? "bundle:\(bundle ?? "")") + "|\(country)"
         let now = Date()
         if let c = lock.withLock({ cached }), c.key == key, AppUpdatesRules.fresh(savedAt: c.at, now: now) { return done(c.info) }
-        let country = AppUpdatesRules.country(Locale.current.region?.identifier)
         guard let url = AppUpdatesRules.lookupURL(bundleId: bundle, appStoreId: appStoreId, country: country,
                                                   minute: Int(now.timeIntervalSince1970 / 60)) else { return done(nil) }
         let config = URLSessionConfiguration.ephemeral
@@ -109,8 +140,8 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
 
     // MARK: The App Store sheet (main thread)
 
+    /// Not refused while busy, as Android's start: busy only holds back a forced sheet opening again (front()).
     @MainActor private func start(flexible: Bool, appStoreId: String?, _ done: @escaping (Bool) -> Void) {
-        if Self.busy { return done(false) }
         dropGoneSheet()
         if sheet != nil { return done(true) }  // already open
         lookup(appStoreId) { info in
@@ -127,23 +158,39 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
         }
     }
 
+    /// Loads the sheet, then shows it (Apple's order: a sheet that fails to load is never on screen, so there is no
+    /// blank sheet to close while it is still sliding in).
     @MainActor private func present(_ trackId: Int64, flexible: Bool, _ done: @escaping (Bool) -> Void) {
-        guard sheet == nil, let top = znTopController() else { return done(false) }
+        guard sheet == nil, znTopController() != nil else { return done(false) }
         let store = SKStoreProductViewController()
         store.delegate = storeDelegate
         sheet = store
         sheetFlexible = flexible
-        print("zn app-updates: the App Store sheet for \(trackId) (\(flexible ? "optional" : "forced"))")
-        top.present(store, animated: true)
+        loading = true
+        print("zn app-updates: loading the App Store sheet for \(trackId) (\(flexible ? "optional" : "forced"))")
         store.loadProduct(withParameters: [SKStoreProductParameterITunesItemIdentifier: NSNumber(value: trackId)]) { loaded, error in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    if loaded { return done(true) }
-                    // No sheet (no network for StoreKit, a restricted phone): the App Store app instead.
-                    print("zn app-updates: the App Store sheet didn't load (\((error as NSError?)?.code ?? 0)); opening the App Store")
-                    self.sheet = nil
-                    store.dismiss(animated: true)
-                    Self.openStoreApp(String(trackId), done)
+                    self.loading = false
+                    guard self.sheet === store else { return done(false) }
+                    guard loaded else {
+                        // No sheet (no network for StoreKit, a restricted phone): the App Store app instead.
+                        print("zn app-updates: the App Store sheet didn't load (\((error as NSError?)?.code ?? 0)); opening the App Store")
+                        self.sheet = nil
+                        return Self.openStoreApp(String(trackId), done)
+                    }
+                    guard let top = znTopController() else {
+                        self.sheet = nil
+                        return done(false)
+                    }
+                    top.present(store, animated: true)
+                    // UIKit drops a present over a controller that is already presenting or going: no sheet, no state.
+                    guard store.presentingViewController != nil || store.isBeingPresented else {
+                        print("zn app-updates: the App Store sheet couldn't be shown over the \(type(of: top))")
+                        self.sheet = nil
+                        return done(false)
+                    }
+                    done(true)
                 }
             }
         }
@@ -160,7 +207,7 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
 
     /// A sheet that went away without its delegate hearing it (a swipe down): closed now.
     @MainActor private func dropGoneSheet() {
-        if let s = sheet, s.presentingViewController == nil, !s.isBeingPresented { sheetClosed(s) }
+        if !loading, let s = sheet, s.presentingViewController == nil, !s.isBeingPresented { sheetClosed(s) }
     }
 
     /// Back in front: a forced update the App Store hasn't installed yet opens again.
@@ -186,6 +233,17 @@ final class AppUpdatesModule: ZnModuleBase, @unchecked Sendable {
         func productViewControllerDidFinish(_ c: SKStoreProductViewController) {
             MainActor.assumeIsolated { module?.sheetClosed(c) }
         }
+    }
+}
+
+/// Calls its function once, from whichever comes first (StoreKit's answer or the time limit).
+private final class ZnAppUpdatesOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done: ((String) -> Void)?
+    init(_ done: @escaping (String) -> Void) { self.done = done }
+    func call(_ value: String) {
+        let d: ((String) -> Void)? = lock.withLock { let d = done; done = nil; return d }
+        d?(value)
     }
 }
 

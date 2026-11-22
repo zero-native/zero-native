@@ -59,11 +59,44 @@ enum AppUpdatesRules {
 
     // MARK: The lookup
 
-    /// The storefront to ask: the phone's region (two letters), else "us". An app not sold there answers no result.
-    static func country(_ region: String?) -> String {
+    /// The storefront to ask: the App Store account's country (StoreKit's Storefront, three letters), else the phone's
+    /// region (two letters), else "us". The account's country is the one that counts: an app sold only in India answers
+    /// no result for an Indian account on a phone set to the US region. An app not sold there answers no result.
+    static func country(storefront: String?, region: String?) -> String {
+        if let s = storefront.flatMap(alpha2) { return s }
         guard let r = region?.lowercased(), r.count == 2, r.allSatisfy({ ("a"..."z").contains($0) }) else { return "us" }
         return r
     }
+
+    /// "IND" = "in": an ISO 3166 three-letter country as the lookup's two letters. nil for one it doesn't know.
+    static func alpha2(_ alpha3: String) -> String? {
+        let key = alpha3.uppercased()
+        guard key.count == 3 else { return nil }
+        return iso3[key]
+    }
+
+    /// ISO 3166's countries, three letters then two ("ASCAC" = ASC, AC), as ICU lists them (Storefront's countryCode is
+    /// the three-letter one; the lookup wants two).
+    private static let iso3: [String: String] = {
+        let all = Array(
+            "ASCACANDADAREAEAFGAFATGAGAIAAIALBALARMAMAGOAOATAAQARGARASMASAUTATAUSAUABWAWALAAXAZEAZBIHBABRBBBBGDBD" +
+            "BELBEBFABFBGRBGBHRBHBDIBIBENBJBLMBLBMUBMBRNBNBOLBOBESBQBRABRBHSBSBTNBTBVTBVBWABWBLRBYBLZBZCANCACCKCC" +
+            "CODCDCAFCFCOGCGCHECHCIVCICOKCKCHLCLCMRCMCHNCNCOLCOCPTCPCRQCQCRICRCUBCUCPVCVCUWCWCXRCXCYPCYCZECZDEUDE" +
+            "DGADGDJIDJDNKDKDMADMDOMDODZADZXEAEAECUECESTEEEGYEGESHEHERIERESPESETHETFINFIFJIFJFLKFKFSMFMFROFOFRAFR" +
+            "GABGAGBRGBGRDGDGEOGEGUFGFGGYGGGHAGHGIBGIGRLGLGMBGMGINGNGLPGPGNQGQGRCGRSGSGSGTMGTGUMGUGNBGWGUYGYHKGHK" +
+            "HMDHMHNDHNHRVHRHTIHTHUNHUXICICIDNIDIRLIEISRILIMNIMINDINIOTIOIRQIQIRNIRISLISITAITJEYJEJAMJMJORJOJPNJP" +
+            "KENKEKGZKGKHMKHKIRKICOMKMKNAKNPRKKPKORKRKWTKWCYMKYKAZKZLAOLALBNLBLCALCLIELILKALKLBRLRLSOLSLTULTLUXLU" +
+            "LVALVLBYLYMARMAMCOMCMDAMDMNEMEMAFMFMDGMGMHLMHMKDMKMLIMLMMRMMMNGMNMACMOMNPMPMTQMQMRTMRMSRMSMLTMTMUSMU" +
+            "MDVMVMWIMWMEXMXMYSMYMOZMZNAMNANCLNCNERNENFKNFNGANGNICNINLDNLNORNONPLNPNRUNRNIUNUNZLNZOMNOMPANPAPERPE" +
+            "PYFPFPNGPGPHLPHPAKPKPOLPLSPMPMPCNPNPRIPRPSEPSPRTPTPLWPWPRYPYQATQAREUREROUROSRBRSRUSRURWARWSAUSASLBSB" +
+            "SYCSCSDNSDSWESESGPSGSHNSHSVNSISJMSJSVKSKSLESLSMRSMSENSNSOMSOSURSRSSDSSSTPSTSLVSVSXMSXSYRSYSWZSZTAATA" +
+            "TCATCTCDTDATFTFTGOTGTHATHTJKTJTKLTKTLSTLTKMTMTUNTNTONTOTURTRTTOTTTUVTVTWNTWTZATZUKRUAUGAUGUMIUMUSAUS" +
+            "URYUYUZBUZVATVAVCTVCVENVEVGBVGVIRVIVNMVNVUTVUWLFWFWSMWSXKKXKYEMYEMYTYTZAFZAZMBZMZWEZW"
+        )
+        var out: [String: String] = [:]
+        for i in stride(from: 0, to: all.count - 4, by: 5) { out[String(all[i..<i + 3])] = String(all[i + 3..<i + 5]).lowercased() }
+        return out
+    }()
 
     /// The lookup URL: by App Store id when given (all digits), else by bundle id. `minute` busts caches between Apple's
     /// CDN and the phone once a minute. nil with neither.
@@ -117,4 +150,8 @@ enum AppUpdatesRules {
     /// The app came to the front: open the forced sheet again (Android's IMMEDIATE can't be skipped), not while the app
     /// is busy (a payment) or while a sheet is open.
     static func reopen(forcedPending: Bool, busy: Bool, open: Bool) -> Bool { forcedPending && !busy && !open }
+
+    /// A check ends a forced update's re-opening only when the App Store answered (a failed lookup, offline say, says
+    /// nothing), about the same app the forced sheet is for, and has no update for it.
+    static func endsForced(found: Bool, sameApp: Bool, available: Bool) -> Bool { found && sameApp && !available }
 }
