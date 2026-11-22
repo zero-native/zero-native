@@ -3,6 +3,8 @@
 // Kill test: open the scanner, then `adb shell am kill dev.zeronative.sample`, then finish the scan. The app starts again and
 // the result arrives at onResult below ("restored ..."). "Don't keep activities" (Settings, or `settings put global
 // always_finish_activities 1` plus a reboot: adb alone doesn't reach the running system) only rebuilds the screens; put it back after.
+// iOS: the gallery buttons ask Camera / Photos (straight to Photos on the simulator, which has no document camera; with
+// SIMCTL_CHILD_ZN_DOCSCAN_FAKE=2 the camera is a fake one, so the sheet shows). "Download" logs one "event" line.
 import { Box, Column, Image, Pressable, Scroll, Text } from "@zeronative/ui"
 import { signal } from "@zeronative/core"
 import { DocumentScanner, type ScanDocumentResponse, type ScannerStatus } from "@zeronative/document-scanner"
@@ -71,6 +73,7 @@ export function DocScanLabScreen() {
         <DocScanLabButton label="Scan pages" onPress={() => scan("scan", { tag: `jpeg-${++n}` })} />
         <DocScanLabButton label="Scan PDF, 5 pages" onPress={() => scan("pdf", { maxNumDocuments: 5, formats: ["pdf"], tag: `order-${++n}` })} />
         <DocScanLabButton label="Scan both, gallery, base mode" onPress={() => scan("both", { formats: ["jpeg", "pdf"], galleryImport: true, mode: "base", tag: `both-${++n}` })} />
+        <DocScanLabButton label="Scan both, gallery, filter mode" onPress={() => scan("filter", { formats: ["jpeg", "pdf"], galleryImport: true, mode: "filter", tag: `filter-${++n}` })} />
         <DocScanLabButton label="Bad option" onPress={() => scan("bad", { maxNumDocuments: 0 })} />
         <DocScanLabButton label="Clean all" onPress={() => DocumentScanner.cleanup({ olderThanMs: 0 }).then((r) => say(`cleanup: ${r.deleted} files ${r.bytes} bytes`))} />
       </Column>

@@ -1,5 +1,5 @@
 // A dev screen for the webview plugin. The phone test (tools/plugin-phone/webview.ts) reads these lines and the log lines "webview-lab ...".
-import { nav, signal } from "@zeronative/core"
+import { nav, Os, signal } from "@zeronative/core"
 import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
 import { WebView, WebViewNative, webViewController } from "@zeronative/webview"
 import { c } from "./tokens"
@@ -20,6 +20,30 @@ if (window.ZeroNative) {
 }
 </script></body>`
 
+// Upload and media, with no server (the iOS simulator): a file input, and a tone the page plays on a tap and reports
+// ("media playing" / "media paused") through the bridge, so a pause (a screen on top, the share sheet, the
+// background) shows the media stop. Its base is an allowed host, so the picker may open.
+const UPLOAD = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+<body style="margin:0;font:16px sans-serif;padding:8px">
+<label style="display:inline-block;padding:10px;background:#ddd">Pick files<input id="f" type="file" multiple accept="image/*" style="display:none"></label>
+<button id="p" style="padding:10px;margin-left:8px">Play tone</button><p id="s">-</p><script>
+function wav() {
+  var rate = 8000, n = rate * 2, b = new ArrayBuffer(44 + n * 2), v = new DataView(b)
+  function str(o, t) { for (var i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)) }
+  str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true)
+  v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true)
+  v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, n * 2, true)
+  for (var i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.sin(i / rate * 2 * Math.PI * 440) * 3000, true)
+  return URL.createObjectURL(new Blob([b], { type: "audio/wav" }))
+}
+var a = new Audio(wav()); a.loop = true
+function tell(t) { document.getElementById("s").textContent = t; if (window.ZeroNative) ZeroNative.postMessage(t) }
+a.addEventListener("playing", function () { tell("media playing") })
+a.addEventListener("pause", function () { tell("media paused") })
+document.getElementById("p").onclick = function () { a.play() }
+document.getElementById("f").onchange = function (e) { tell("page saw " + e.target.files.length + " files") }
+</script></body>`
+
 function WebViewLabButton(props: { label: string; onPress: () => void }) {
   return (
     <Pressable onPress={props.onPress} alignItems="center" style={{ flex: 1, paddingHorizontal: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: c.primary }}>
@@ -35,6 +59,7 @@ export function WebViewLabScreen() {
   const url = signal<string | undefined>(undefined)
   const html = signal<string | undefined>(undefined)
   const base = signal<string | undefined>(undefined)
+  const uploads = signal(true)
   const web = webViewController()
   const say = (text: string) => {
     console.info(`webview-lab ${text}`)
@@ -47,10 +72,10 @@ export function WebViewLabScreen() {
     base.set(undefined)
     url.set(to)
   }
-  const inline = (baseUrl: string | undefined) => {
+  const inline = (baseUrl: string | undefined, page = INLINE) => {
     url.set(undefined)
     base.set(baseUrl)
-    html.set(INLINE)
+    html.set(page)
   }
   const send = (text: string) => web.postMessage(text).then((r) => say(`sent: ${r.sent} ${r.reason ?? ""}`))
   const leaves = (link: { scheme: string; gesture: boolean }) => {
@@ -75,6 +100,7 @@ export function WebViewLabScreen() {
           headers={{ "x-zn-lab": "1" }}
           allowedHosts={HOSTS}
           leaveSchemes={LEAVE}
+          fileUpload={uploads()}
           onReady={(r) => say(`ready bridge=${r.bridge} refused=${r.refused.length}`)}
           onLoadStart={(u) => say(`load start: ${u}`)}
           onLoadFinish={(p) => say(`load finish: ok=${p.ok} status=${p.status} title=${p.title}`)}
@@ -134,6 +160,18 @@ export function WebViewLabScreen() {
             <WebViewLabButton label="Open fake screen" onPress={() => void nav.pushForResult("fakeScreen", { title: "Web" }).then(() => say("fake closed"))} />
           </Row>
           <Row gap={8}>
+            <WebViewLabButton label="Inline upload" onPress={() => inline(BASE, UPLOAD)} />
+            <WebViewLabButton label="Upload, no base" onPress={() => inline(undefined, UPLOAD)} />
+            <WebViewLabButton label="Share (covers)" onPress={() => void Os.share({ text: "webview lab" }).then((r) => say(`share closed: ${r}`))} />
+          </Row>
+          <Row gap={8}>
+            <WebViewLabButton
+              label={uploads() ? "Uploads: on" : "Uploads: off"}
+              onPress={() => {
+                uploads.set(!uploads())
+                say(`file upload ${uploads()}`)
+              }}
+            />
             <WebViewLabButton label="Crash renderer" onPress={() => void web.debugRenderer("crash").then((r) => say(`crash asked: ${r}`))} />
             <WebViewLabButton label="Kill renderer" onPress={() => void web.debugRenderer("terminate").then((r) => say(`kill asked: ${r}`))} />
           </Row>
