@@ -94,6 +94,7 @@ export function DevScreen() {
           <Entry title="Motion: sheets and tabs" step="M.1" detail="Tab underline that follows the pages, sheet with backdrop and header that follow it, input bar on the keyboard, A–Z side bar for a list" onOpen={() => nav.push("motionSheetsLab")} />
           <Entry title="Motion: screens" step="M.1" detail="Store photo that flies to the next screen and back, drag-to-reorder list, chips dropped on Keep / Archive" onOpen={() => nav.push("motionScreensLab")} />
           <Entry title="Motion: extension" step="M.1" detail="Tilt card, dot moved by a plugin, wobble curve, plugin view drawn from a motion value, frame counter, drag with a manual start" onOpen={() => nav.push("motionExtensionLab")} />
+          <Entry title="Motion: core" step="M.1" detail="Commands and their promises, timeline, formulas, env, 3D and blur, corners, element values, plugin values and curves, tilt, animateLayout, useFrame; no gestures" onOpen={() => nav.push("motionCoreLab")} />
           <Entry title="Updates (OTA)" step="4.5" detail="What runs now and next, the last check, check now" onOpen={() => nav.push("updates")} />
         </Column>
       </Scroll>

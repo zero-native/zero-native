@@ -64,6 +64,7 @@ import { MotionExtensionLabScreen } from "./MotionExtensionLab"
 import { WebSocketLabScreen } from "./WebSocketLab"
 import { LifecycleLabScreen } from "./LifecycleLab"
 import { GestureLabScreen } from "./GestureLab"
+import { MotionCoreLabScreen } from "./MotionCoreLab"
 import { MotionEngineLabScreen } from "./MotionEngineLab"
 import { MotionBindingsLabScreen } from "./MotionBindingsLab"
 import { ElementValuesLabScreen } from "./ElementValuesLab"
@@ -166,6 +167,9 @@ export const routes = defineRoutes({
   elementValuesLab: { path: "/dev/motion/element-values", screen: ElementValuesLabScreen, deepLink: true },
   // The same lab on a modal route: its box values once the screen has come up (W3-B review). Last, as above.
   elementValuesModal: { path: "/dev/motion/element-values-modal", screen: ElementValuesLabScreen, transition: "modal", restore: false },
+  // The motion core with no gestures: commands, timeline, formulas, env, 3D, elements, plugin values, tilt,
+  // animateLayout, useFrame (registry 24). Last, so the numbers of the routes before it do not move.
+  motionCoreLab: { path: "/dev/motion/core", screen: MotionCoreLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
