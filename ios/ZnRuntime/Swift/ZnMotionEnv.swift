@@ -67,10 +67,14 @@ final class ZnKeyboardProbe {
     func layoutChanged() {
         guard let root else { return }
         let top = probe.frame.minY
-        if top == lastTop && !ticking { return write(root) }
+        if top == lastTop {
+            if !ticking { write(root) }  // the window's height may have changed (a turn)
+            return
+        }
+        // The guard moved: its new place is where the keyboard ends; the frames go from where it is now.
         lastTop = top
         settled = 0
-        write(root)
+        write(root, top: probe.layer.presentation()?.frame.minY)
         guard !ticking else { return }
         ticking = true
         ZnFrameClock.shared.add(self) { [weak self] _ in self?.frame() ?? false }
@@ -98,5 +102,9 @@ final class ZnKeyboardProbe {
         guard h != lastHeight else { return }
         lastHeight = h
         ZnMotionEnv.keyboard(h)
+        if Self.logFrames { print("zn t=\(ZnDebug.ms()) env keyboard \(String(format: "%.1f", h))\(ticking ? "" : " (still)")") }
     }
+
+    /// ZN_KEYBOARD_FRAMES=1 (debug): each value written, to see the frames of a keyboard animation.
+    private static let logFrames = ProcessInfo.processInfo.environment["ZN_KEYBOARD_FRAMES"] == "1"
 }

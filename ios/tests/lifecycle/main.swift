@@ -34,7 +34,7 @@ do {
     let landscape = ZnWindowRules.windowJson(width: 874, height: 402, scale: 3, fontScale: 1, screenWidth: 874, screenHeight: 402)
     check("a turn is a change", portrait == landscape, false)
     check("landscape text", landscape, "{\"width\":874,\"height\":402,\"scale\":3,\"fontScale\":1,\"screenWidth\":874,\"screenHeight\":402}")
-    // Text size: iOS's xxxLarge is about 1.353 (UIFontMetrics' body curve), three decimals.
+    // Text size: three decimals (on an iOS 26 simulator xxLarge gives 1.183 and AX5 2.817, UIFontMetrics' body curve).
     check("font scale rounded", ZnWindowRules.windowJson(width: 402, height: 874, scale: 3, fontScale: 1.35294, screenWidth: 402,
                                                          screenHeight: 874).contains("\"fontScale\":1.353"), true)
     // Split view: the window is narrower than the screen.
