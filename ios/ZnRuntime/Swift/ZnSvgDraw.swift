@@ -5,12 +5,13 @@
 // motion paths, animated gradient stops). Drawn into a SwiftUI Canvas's CGContext (ZnSvgView.swift).
 //
 // iOS differences:
-// - Filters: iOS draws the group over the plain drop shadows the compiler found in its filter, every one of them,
-//   bottom first, as Android does where it can't run the filter (before Android 12, a pattern tile, a region over 4096
-//   px). Other filter primitives (a blur on its own, colour matrices, blends inside a filter) aren't run. With two
-//   or more shadows the group is drawn once into an image the size of what shows, and each shadow is cast from it; in
-//   a pattern tile, or when that image would be too big, each shadow is drawn with a copy of the group (exact where
-//   the group is opaque, a little darker where it isn't).
+// - Filters run whole (ZnSvgFilters.swift: the group drawn into an image of the filter's region, each primitive on
+//   its pixels, 8 bits a channel), as Android 12+'s RenderEffect. A region over 4M pixels runs at a lower resolution
+//   (Android has no such cap). Where it can't run, as on Android (a pattern tile, a region over 4096 px a side), the
+//   group is drawn over the plain drop shadows the compiler found in its filter, every one of them, bottom first.
+//   With two or more shadows the group is drawn once into an image the size of what shows, and each shadow is cast
+//   from it; in a pattern tile, or when that image would be too big, each shadow is drawn with a copy of the group
+//   (exact where the group is opaque, a little darker where it isn't).
 // - Gradients that repeat or reflect (spreadMethod) repeat 10 times each way from their line, which covers any
 //   shape they paint in practice. A focal radial gradient that repeats is drawn padded.
 // - Non-scaling strokes are their width in points along the shape's scale; Android also redraws them on screen when
@@ -456,6 +457,7 @@ final class ZnSvgDrawing {
         if g.mask >= 0, let image = maskImage(&f, data.masks[g.mask]) {
             cg.clip(to: f.bounds, mask: image)
         }
+        if g.filter >= 0, drawFiltered(&f, l, at, g, s, parts: parts) { return }
         let shadows = g.filter >= 0 ? data.filters[g.filter].shadows : []
         if shadows.count == 1 {
             // One drop shadow: set on the layer that holds the group, the cheap way.
@@ -470,6 +472,47 @@ final class ZnSvgDrawing {
         } else {
             drawRange(&f, l, at + 1, g.end, s, parts: parts)
         }
+    }
+
+    /// Group [g] through its whole filter (ZnSvgEffects.kt drawWithEffect): drawn into an image of the filter's region
+    /// at the device pixels one unit of the group's space has now (screen scale, the SVG's scale, parts' scales), run
+    /// through ZnSvgFilterGraph and drawn back in its place, so a part's turn or skew turns the result with it, as on
+    /// Android. False when it can't run here (a pattern tile, a region over 4096 px a side, Core Image failed): the
+    /// caller draws the plain drop shadows then. Nothing has been drawn into [f] when it returns false.
+    private func drawFiltered(_ f: inout Frame, _ l: Int, _ at: Int, _ g: SvgGroup, _ s: State, parts: Bool) -> Bool {
+        guard !f.inPattern else { return false }
+        let filter = data.filters[g.filter]
+        let cg = f.cg
+        let ctm = cg.userSpaceToDeviceSpaceTransform
+        let px = sqrt(abs(ctm.a * ctm.d - ctm.b * ctm.c))
+        guard let area = ZnSvgFilterGraph.area(filter.region, px: px) else { return false }
+        if area.w == 0 { return true }  // nothing shows
+        let started = ZnSvgFilterTiming.on ? CFAbsoluteTimeGetCurrent() : 0
+        guard let off = CGContext(data: nil, width: area.w, height: area.h, bitsPerComponent: 8, bytesPerRow: area.w * 4,
+                                  space: ZnSvgFilterGraph.srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        // y down as the view's context (UIKit text draws the right way up), the region's top left at the corner.
+        off.translateBy(x: 0, y: CGFloat(area.h))
+        off.scaleBy(x: 1, y: -1)
+        off.scaleBy(x: area.px, y: area.px)
+        off.translateBy(x: -area.left / area.px, y: -area.top / area.px)
+        let rect = area.rect
+        var mf = f
+        mf.cg = off
+        mf.bounds = rect
+        // A bitmap context's base space is its own pixels (y up): a shadow inside the group is cast there.
+        mf.base = .identity
+        drawRange(&mf, l, at + 1, g.end, s, parts: parts)
+        let g0 = ZnSvgFilterTiming.on ? CFAbsoluteTimeGetCurrent() : 0
+        guard let src = off.makeImage(), let out = ZnSvgFilterGraph.run(filter, source: src, px: area.px) else { return false }
+        if ZnSvgFilterTiming.on { ZnSvgFilterTiming.graph += CFAbsoluteTimeGetCurrent() - g0 }
+        // The image's first row is its top: flipped back into the y-down space.
+        cg.saveGState()
+        cg.translateBy(x: 0, y: rect.minY + rect.maxY)
+        cg.scaleBy(x: 1, y: -1)
+        cg.draw(out, in: rect)
+        cg.restoreGState()
+        if ZnSvgFilterTiming.on { ZnSvgFilterTiming.add(CFAbsoluteTimeGetCurrent() - started, area) }
+        return true
     }
 
     private struct ShadowNow {

@@ -1,0 +1,2 @@
+# CoreGraphics and Accelerate only: the SVG filter graph.
+ios/ZnRuntime/Swift/ZnSvgFilters.swift
