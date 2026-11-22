@@ -88,10 +88,12 @@
 		<string>remote-notification</string>
 		<string>fetch</string>
 	</array>
-	<!-- A push's OTA check that must wait (plugins/firebase-messaging/ios/OtaPush.swift). -->
+	<!-- A push's OTA check that must wait (plugins/firebase-messaging/ios/OtaPush.swift), and the sample's background
+	     refresh task that runs a JS task (ZnBackgroundTasks, debug builds: ZnSampleApp.swift). -->
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>dev.zeronative.ota-check</string>
+		<string>dev.zeronative.sample.lab-sync</string>
 	</array>
 </dict>
 </plist>

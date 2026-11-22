@@ -16,6 +16,8 @@
 //   ZN_BOOT_TASK     a task (e.g. lab.echo) to run at launch, before any window, as Android's DebugWakeProvider (debug)
 //   ZN_ROTATE        1: the app turns with the phone (debug; the sample is portrait only), to check Dimensions
 //   ZN_NO_PREPARE    1: no ZnApp.prepare at launch, as an app that doesn't call it (ZeroBill): a task starts JS (debug)
+//   ZN_BGTASK_MS     how long the background task's lab.wait runs (default 3000; e.g. 60000 to see iOS end it) (debug)
+//   ZN_MEDIA_FAKE_CAMERA  1: Media.takePhoto answers with a drawn photo where there is no camera (the simulator) (debug)
 import UIKit
 import notify
 #if canImport(ZnRuntime)  // an app on the Swift package; the CMake build compiles everything into the app
@@ -132,6 +134,16 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
                 }
             }
         }
+        // A background refresh task (BGTaskScheduler) that runs the JS task lab.wait, as an app's background sync would
+        // (ZnBackgroundTasks; Info.plist permits the identifier). iOS runs it when it likes; to run it now, pause the app
+        // in a debugger: `e -l objc -- (void)[[BGTaskScheduler sharedScheduler]
+        // _simulateLaunchForTaskWithIdentifier:@"dev.zeronative.sample.lab-sync"]` (and `_simulateExpirationFor...`).
+        let labSync = "dev.zeronative.sample.lab-sync"
+        let syncMs = env["ZN_BGTASK_MS"].flatMap(Int.init) ?? 3_000
+        ZnBackgroundTasks.register(labSync, jsTask: "lab.wait", data: ["ms": syncMs], timeoutMs: syncMs + 20_000) {
+            ZnBackgroundTasks.refresh(labSync, in: 15 * 60)
+        }
+        ZnBackgroundTasks.schedule(ZnBackgroundTasks.refresh(labSync, in: 60))
         if let name = env["ZN_BOOT_TASK"], !name.isEmpty {
             ZnTasks.shared.run(name, ["from": "no screen"], timeoutMs: 10_000) { print("zn-sample: boot task \(name): \($0.rawValue)") }
         }

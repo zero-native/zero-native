@@ -441,6 +441,14 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
 
     private func answerByPassed(_ id: String, _ ms: Int) { expire(id, why: "within \(ms) ms") }
 
+    /// A caller with its own background time (a BGTask, ZnBackgroundTasks) whose time ends: its open tasks named [name]
+    /// (run with holdsBackgroundTime false) are answered now, as at their answer-by time. Any thread.
+    public func expire(named name: String) {
+        DispatchQueue.main.async {
+            for (id, t) in self.tasks where t.name == name && !t.holds && t.keptId == nil { self.expire(id, why: "the caller's background time ended") }
+        }
+    }
+
     /// Task [id] must be answered now ([why]: its answer-by time, or iOS ended the background time).
     private func expire(_ id: String, why: String) {
         guard var task = tasks[id] else { return }
