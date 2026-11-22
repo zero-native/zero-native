@@ -1,0 +1,2 @@
+# Foundation only: the Performance plugin's rules (no Firebase).
+plugins/firebase-perf/ios/PerfRules.swift

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { readFileSync } from "node:fs"
+import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs"
 import { join } from "node:path"
 import { MAIN_URL, PACKAGES_DIR, pluginPackages, releaseManifest } from "../make-plugin-packages"
 
@@ -32,6 +32,32 @@ test("a release header names what the package holds", () => {
 test("a version that isn't x.y.z is refused", () => {
   expect(() => releaseManifest(manifest("lottie"), "v0.1.0", "lottie")).toThrow(/like 0.1.0/)
   expect(() => releaseManifest(manifest("lottie"), "0.1", "lottie")).toThrow(/like 0.1.0/)
+})
+
+test("every Sources symlink is a target and a .library product, and goes to a plugin's ios/ folder", () => {
+  for (const name of pluginPackages()) {
+    const m = manifest(name)
+    const dir = join(PACKAGES_DIR, name, "Sources")
+    for (const target of readdirSync(dir).sort()) {
+      const link = join(dir, target)
+      expect(lstatSync(link).isSymbolicLink()).toBe(true)
+      expect(realpathSync(link)).toMatch(/\/plugins\/[^/]+\/ios$/)
+      expect(m).toContain(`.library(name: "${target}", targets: ["${target}"])`)
+      expect(m).toContain(`path: "Sources/${target}"`)
+    }
+    // ... and no product without its folder
+    const products = [...m.matchAll(/\.library\(name: "([^"]+)"/g)].map((x) => x[1])
+    expect(products.sort()).toEqual(readdirSync(dir).sort())
+  }
+})
+
+test("Remote Config and Performance are in the Firebase package, each with its own Firebase product", () => {
+  const firebase = manifest("firebase")
+  expect(firebase).toContain(`.product(name: "FirebaseRemoteConfig", package: "firebase-ios-sdk")`)
+  expect(firebase).toContain(`.product(name: "FirebasePerformance", package: "firebase-ios-sdk")`)
+  const parts = /const PARTS = \[([^\]]+)\]/.exec(readFileSync(join(import.meta.dir, "..", "fetch-firebase-apple.ts"), "utf8"))![1]
+  expect(parts).toContain(`"FirebaseRemoteConfig"`)
+  expect(parts).toContain(`"FirebasePerformance"`)
 })
 
 test("the lowest Firebase and Lottie versions are the ones the CMake build fetches, and each package has only its SDK", () => {

@@ -1,0 +1,2 @@
+# Foundation only: the Remote Config plugin's rules (no Firebase).
+plugins/firebase-remote-config/ios/RemoteConfigRules.swift

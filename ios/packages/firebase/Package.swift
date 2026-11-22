@@ -24,6 +24,8 @@ let package = Package(
     .library(name: "ZnPluginFirebaseAnalytics", targets: ["ZnPluginFirebaseAnalytics"]),
     .library(name: "ZnPluginFirebaseCrashlytics", targets: ["ZnPluginFirebaseCrashlytics"]),
     .library(name: "ZnPluginFirebaseMessaging", targets: ["ZnPluginFirebaseMessaging"]),
+    .library(name: "ZnPluginFirebaseRemoteConfig", targets: ["ZnPluginFirebaseRemoteConfig"]),
+    .library(name: "ZnPluginFirebasePerf", targets: ["ZnPluginFirebasePerf"]),
   ],
   dependencies: [
     .package(name: "ZeroNative", path: "../../.."),
@@ -54,5 +56,14 @@ let package = Package(
         .product(name: "FirebaseMessaging", package: "firebase-ios-sdk"),
       ],
       path: "Sources/ZnPluginFirebaseMessaging", swiftSettings: swift5),
+    .target(
+      name: "ZnPluginFirebaseRemoteConfig",
+      dependencies: [runtime, "ZnPluginFirebaseApp", .product(name: "FirebaseRemoteConfig", package: "firebase-ios-sdk")],
+      path: "Sources/ZnPluginFirebaseRemoteConfig", swiftSettings: swift5),
+    // FirebasePerformance brings Remote Config, A/B Testing and GoogleDataTransport itself (iOS and tvOS only).
+    .target(
+      name: "ZnPluginFirebasePerf",
+      dependencies: [runtime, "ZnPluginFirebaseApp", .product(name: "FirebasePerformance", package: "firebase-ios-sdk")],
+      path: "Sources/ZnPluginFirebasePerf", swiftSettings: swift5),
   ]
 )
