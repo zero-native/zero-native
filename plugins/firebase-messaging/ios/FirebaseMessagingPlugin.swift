@@ -183,8 +183,10 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
     /// Waiting for the APNs token: each gets nil (have it) or a TokenReason.
     private var apnsWaiters: [(String?) -> Void] = []
     private var apnsError: String?
-    /// A tap that came before JS had its screens (ZnApp.isUIStarted): `getInitialNotification`, once.
+    /// A tap that came before JS had its screens (ZnApp.isUIStarted), or while it asks: `getInitialNotification`, once.
     private var initial: [String: Any]?
+    /// getInitialNotification calls waiting for the screens (main thread): a tap now is theirs, not an event.
+    private var asking = 0
     /// Recent message ids, kept across starts: a push can reach willPresent, the app delegate, the service extension's
     /// note and the notification centre's list.
     private lazy var seen: [String] = UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? []
@@ -211,8 +213,16 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         }
         function("subscribe") { call in self.topic(call, subscribe: true) }
         function("unsubscribe") { call in self.topic(call, subscribe: false) }
+        // Once JS has its screens and the app is in front, as Android waits for its Activity: JS may ask from its main
+        // script, before the window, and the tap that opened the app comes around then.
         function("getInitialNotification", onMain: true) { call in
-            call.resolve(self.lock.withLock { () -> Any? in defer { self.initial = nil }; return self.initial })
+            MainActor.assumeIsolated {
+                self.asking += 1
+                ZnApp.shared.whenUIStartedInFront {
+                    self.asking -= 1
+                    call.resolve(self.lock.withLock { () -> Any? in defer { self.initial = nil }; return self.initial })
+                }
+            }
         }
         function("setAutoInitEnabled") { call in
             let value = call.args["on"] as? Bool ?? false
@@ -513,7 +523,7 @@ final class FirebaseMessagingModule: ZnModuleBase, @unchecked Sendable {
         let message = PushRules.opened(info, now: Self.now)
         // Screens, not only JS: JS may run with none yet (a launch with no window, or the tap's own cold start, where
         // the main script runs before the window's START), and nobody listens to "opened" then.
-        if ZnApp.shared.isUIStarted {
+        if ZnApp.shared.isUIStarted && asking == 0 {
             emit("opened", message)
         } else {
             lock.withLock { initial = message }

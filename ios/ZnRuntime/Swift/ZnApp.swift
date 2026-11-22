@@ -51,6 +51,27 @@ public final class ZnApp {
     /// prepare ran: JS is starting or running in this process (with or without a window). Main thread.
     public var isPrepared: Bool { prepared }
 
+    /// Runs [f] once JS has its screens and the app has come to the front (and a moment more: iOS hands a tap that
+    /// opened the app to the notification delegate around then), or after [capMs]. For getInitialNotification, which
+    /// JS may call from its main script before any window, as Android's waits for its Activity (INITIAL_WAIT_MS).
+    /// Main thread.
+    public func whenUIStartedInFront(capMs: Int = 10_000, _ f: @escaping () -> Void) {
+        let once = ZnOnce<Void> { _ in f() }
+        let t0 = CACurrentMediaTime()
+        func check() {
+            guard !once.done else { return }
+            if Double(capMs) / 1000 <= CACurrentMediaTime() - t0 { once(()); return }
+            if isUIStarted && UIApplication.shared.applicationState == .active {
+                // Long after START (a screen opened later asks): nothing is on its way.
+                if CACurrentMediaTime() - uiStartedAt > 2 { once(()); return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { once(()) }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { MainActor.assumeIsolated { check() } }
+        }
+        check()
+    }
+
     func route(of entry: UInt32) -> ZnRoute? { entryRoutes[entry] }
 
     /// The bundle has a `secure: true` route: the window root then holds its content in ZnSecure's container.
@@ -382,11 +403,15 @@ public final class ZnApp {
         }
     }
 
+    /// When START went (CACurrentMediaTime), for whenUIStartedInFront.
+    @ObservationIgnored private var uiStartedAt: CFTimeInterval = 0
+
     /// A start link that matches no route: JS's onUnmatchedLink hears it right after START.
     @ObservationIgnored private var startLink: URL?
 
     /// START: JS builds the first screens. Insets first, so a full-bleed first screen pads its header at once.
     private func sendStart(_ payload: String) {
+        uiStartedAt = CACurrentMediaTime()
         sendInsets()
         print("zn t=\(ZnDebug.ms()) app: START → JS")
         host.dispatchEvent(0, event: UInt16(ZnAppEvent.start), string: payload)

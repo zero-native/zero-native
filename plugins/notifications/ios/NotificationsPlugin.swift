@@ -117,6 +117,19 @@ public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDeleg
 
     func takeInitial() -> [String: Any]? { lock.withLock { defer { initial = nil }; return initial } }
 
+    /// getInitialNotification calls waiting for the screens (main thread): a tap now is theirs, not an event.
+    private var asking = 0
+
+    /// getInitialNotification: once JS has its screens and the app is in front, as Android waits for its Activity (JS
+    /// may ask from its main script, before the window, and the tap that opened the app comes around then).
+    @MainActor func initialWhenReady(_ done: @escaping ([String: Any]?) -> Void) {
+        asking += 1
+        ZnApp.shared.whenUIStartedInFront { [self] in
+            asking -= 1
+            done(takeInitial())
+        }
+    }
+
     public static func isOwn(_ n: UNNotification) -> Bool { n.request.content.userInfo[NotificationRules.keyId] is String }
 
     public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
@@ -152,7 +165,7 @@ public final class ZnNotificationCenter: NSObject, UNUserNotificationCenterDeleg
             case UNNotificationDefaultActionIdentifier:
                 if let link = (info[NotificationRules.keyLink] as? String).flatMap(URL.init(string:)) {
                     ZnApp.shared.openLink(link)
-                } else if ZnApp.shared.isUIStarted {  // screens listen; JS alone (no window yet) doesn't
+                } else if ZnApp.shared.isUIStarted && self.asking == 0 {  // screens listen; JS alone (no window yet) doesn't
                     NotificationsModule.shared.emit("pressed", ["id": id, "data": data])
                 } else {
                     self.lock.withLock { self.initial = ["id": id, "data": data] }
@@ -263,7 +276,9 @@ final class NotificationsModule: ZnModuleBase, @unchecked Sendable {
             }
             UIApplication.shared.open(url) { call.resolve($0) }
         }
-        function("getInitialNotification") { call in call.resolve(ZnNotificationCenter.shared.takeInitial()) }
+        function("getInitialNotification", onMain: true) { call in
+            MainActor.assumeIsolated { ZnNotificationCenter.shared.initialWhenReady { call.resolve($0) } }
+        }
 
         // iOS only
         function("requestPermission") { call in
