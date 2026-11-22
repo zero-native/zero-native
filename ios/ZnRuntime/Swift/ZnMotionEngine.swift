@@ -117,10 +117,14 @@ final class ZnMotionValue: ZnSource {
 /// last value when the component goes away.
 final class ZnLambdaSource: ZnSource {
     var reader: (() -> Float)? {
-        didSet { ZnMotionEngine.shared.markDirty() }
+        didSet { given.write(given.v + 1) }  // (a write marks the engine dirty)
     }
+    /// Read by read(), so a binding that read this before its component gave a reader (or after it took it back) draws
+    /// again when that changes: the reader itself isn't observed (Android's reader is a MutableState).
+    private let given = ZnCell(0)
     private var last: Float = 0
     override func read(_ site: ZnSite?) -> Float {
+        _ = given.v
         guard let r = reader else { return last }
         let v = r()
         if v.isFinite { last = v }

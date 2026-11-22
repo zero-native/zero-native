@@ -513,7 +513,9 @@ final class ZnScrollDriver: NSObject, ObservableObject {
     /// Scroll's while it is on screen (ZnProvide); a new element gives the old one back.
     func element(_ e: ZnElementMotion?, follow: ZnSource?) {
         if e !== element {
-            print("zn t=\(ZnDebug.ms()) scroll: element \(e.map { "\($0.id)" } ?? "none") (was \(element.map { "\($0.id)" } ?? "none")), scroll view \(sv == nil ? "not found" : "found")")
+            #if DEBUG
+            if ZnDebug.enabled { print("zn t=\(ZnDebug.ms()) scroll: element \(e.map { "\($0.id)" } ?? "none") (was \(element.map { "\($0.id)" } ?? "none"))") }
+            #endif
             if let old = element { for n in ["scrollX", "scrollY", "pull"] { ZnProvided.release(old.lambda(n), by: self) } }
             element = e
             if let e {

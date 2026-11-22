@@ -209,8 +209,10 @@ final class ZnRefresh: NSObject {
     /// ZnPullMath.progress with its 1.5 cap.
     func pull(_ sv: UIScrollView) -> Float { Float(ZnElementRules.pull(distance: Double(pullDistance(sv)), line: Self.line)) }
 
-    /// Where UIKit's control starts a refresh (pt pulled), measured on iOS 26 (Android's line is 80 dp).
-    static let line: CGFloat = 100
+    /// Where UIKit's control starts a refresh (pt pulled): between 110 and 114 on the iOS 26 simulator, pulled in 10 pt
+    /// steps (2026-11-22; Android's line is 80 dp). While refreshing the content rests 60 pt down: pull about 0.54
+    /// (Android's 0.7). UIKit doesn't publish the line, so a later iOS may move it a little.
+    static let line: CGFloat = 112
 
     @objc private func pulled() {
         guard control.isRefreshing else { return }

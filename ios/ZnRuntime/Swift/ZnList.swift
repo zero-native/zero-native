@@ -272,7 +272,7 @@ struct ZnLazyList: View {
     var body: some View {
         let rows = list.rows
         let lineKeys = znLineKeys(rows.map(\.key), cols: cols)
-        let _ = values.bind(horizontal: s.horizontal, padding: padding, total: shape.total,
+        let _ = values.bind(horizontal: s.horizontal, total: shape.total,
                             flat: { [shape] id in item(id).map { shape.flat($0.part, $0.item) } },
                             id: { [shape] i in shape.item(i).flatMap { itemId($0, lineKeys) } })
         ScrollViewReader { proxy in
@@ -293,7 +293,11 @@ struct ZnLazyList: View {
                 .background { if element != nil { ZnScrollFinder(driver: scroll) } }
                 .padding(padding)
             }
-            .onAppear { tellUnsupported() }
+            .onAppear {
+                tellUnsupported()
+                values.set(element, scroll)  // back on screen: its readers and follow again
+                values.follower.set(element == nil ? nil : follow)
+            }
             .onChange(of: command, initial: true) { _, text in run(text, proxy, lineKeys) }
             .onChange(of: element.map(ObjectIdentifier.init), initial: true) { values.set(element, scroll) }
             .onChange(of: follow.map(ObjectIdentifier.init), initial: true) { values.follower.set(element == nil ? nil : follow) }
@@ -435,17 +439,15 @@ final class ZnLazyListElement {
     private var element: ZnElementMotion?
     private weak var sv: UIScrollView?
     private var horizontal = false
-    private var padStart: CGFloat = 0
     private var total = 0
     private var flat: (String) -> Int? = { _ in nil }
     private var idOf: (Int) -> String? = { _ in nil }
     private let index = ZnCell(0), within = ZnCell(0), along = ZnCell(0)
 
     /// The list's shape now (each body run).
-    func bind(horizontal: Bool, padding: EdgeInsets, total: Int, flat: @escaping (String) -> Int?, id: @escaping (Int) -> String?) {
+    func bind(horizontal: Bool, total: Int, flat: @escaping (String) -> Int?, id: @escaping (Int) -> String?) {
         self.horizontal = horizontal
         self.total = total
-        padStart = horizontal ? padding.leading : padding.top
         self.flat = flat
         idOf = id
     }
@@ -501,7 +503,8 @@ final class ZnLazyListElement {
         let start = horizontal ? inset.left : inset.top, end = horizontal ? inset.right : inset.bottom
         let content = horizontal ? sv.contentSize.width : sv.contentSize.height
         let viewport = horizontal ? sv.bounds.width : sv.bounds.height
-        let to = min(max(padStart + place.start + CGFloat(f) * place.size - start, -start), max(-start, content + end - viewport))
+        // At [place.start] from the start the item sits just below the padding, as Compose's scrollToItem.
+        let to = min(max(place.start + CGFloat(f) * place.size - start, -start), max(-start, content + end - viewport))
         var o = sv.contentOffset
         if horizontal { o.x = to } else { o.y = to }
         sv.setContentOffset(o, animated: false)
