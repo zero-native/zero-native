@@ -11,9 +11,13 @@
 //
 // iOS differences:
 // - Nothing to download: getStatus is "available" where VisionKit can scan (a camera), else "unavailable", reason
-//   "not_supported" (the simulator). download answers the same.
-// - VisionKit has no page limit, gallery import or modes: `maxNumDocuments` keeps the first pages, `galleryImport` and
-//   `mode` are checked and ignored.
+//   "not_supported" (the simulator). download answers the same and sends it as one `status` event (Android's last
+//   one): there is never a "downloading" step. getStatus sends no event, as on Android.
+// - VisionKit has no page limit, gallery import or modes: `maxNumDocuments` keeps the first pages. `galleryImport`:
+//   an action sheet first (Scan with camera / Choose from Photos / Cancel; Pavan's decision 6), straight to Photos
+//   where there is no document camera (DocScanImport.swift: Vision finds the paper, Core Image straightens it).
+//   `mode` counts for pages from Photos only ("base" = crop only; "filter" and "full" add Core Image's document
+//   filter); with the camera VisionKit's own filter bar lets the user choose.
 // - A kill while the camera is open: the pages were only in memory, so the scan is "lost" (Android can bring ML Kit's
 //   answer back).
 // - Debug builds with no camera (the simulator, where VisionKit opens but can't capture): ZN_DOCSCAN_FAKE=<pages> (or "cancel") makes a fake scan of
@@ -34,73 +38,6 @@ public struct DocumentScannerPlugin: ZnPlugin {
     }
 }
 
-/// One scan's record (DocScanJob in DocScanRules.kt). `pages` and `pdf` are our own file names here.
-struct DocScanJob {
-    var id: String
-    var tag: String?
-    var resultCode: Int?
-    var pages: [String] = []
-    var pdf: String?
-    var pdfPages = 0
-
-    var json: [String: Any] {
-        ["id": id, "tag": tag ?? NSNull(), "resultCode": resultCode.map { $0 as Any } ?? NSNull(), "pages": pages,
-         "pdf": pdf ?? NSNull(), "pdfPages": pdfPages]
-    }
-
-    static func from(_ raw: String?) -> DocScanJob? {
-        guard let raw, let o = (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [String: Any], let id = o["id"] as? String else { return nil }
-        return DocScanJob(id: id, tag: o["tag"] as? String, resultCode: (o["resultCode"] as? NSNumber)?.intValue,
-                          pages: o["pages"] as? [String] ?? [], pdf: o["pdf"] as? String, pdfPages: (o["pdfPages"] as? NSNumber)?.intValue ?? 0)
-    }
-}
-
-/// The plugin's rules (DocScanRules.kt), apart from UIKit.
-enum DocScanRules {
-    static let maxPages = 100
-    static let keepMs: Double = 7 * 24 * 3600 * 1000
-    static let dayMs: Double = 24 * 3600 * 1000
-    static let prefix = "docscanner-"
-
-    struct Options { let pageLimit: Int?; let jpeg: Bool; let pdf: Bool }
-
-    static func options(_ args: [String: Any]) throws -> Options {
-        let limit = (args["maxNumDocuments"] as? NSNumber)?.intValue
-        if let l = limit, !(1...maxPages).contains(l) { throw ZnInvalidArgs("\"maxNumDocuments\" must be 1 to \(maxPages)") }
-        let formats = args["formats"] as? [String] ?? ["jpeg"]
-        if formats.isEmpty { throw ZnInvalidArgs("\"formats\" must have \"jpeg\", \"pdf\" or both") }
-        for f in formats where f != "jpeg" && f != "pdf" { throw ZnInvalidArgs("\"formats\" can't have \"\(f)\": only \"jpeg\" and \"pdf\"") }
-        if let m = args["mode"] as? String, !["full", "filter", "base"].contains(m) {
-            throw ZnInvalidArgs("\"mode\" must be \"full\", \"filter\" or \"base\", got \"\(m)\"")
-        }
-        return Options(pageLimit: limit, jpeg: formats.contains("jpeg"), pdf: formats.contains("pdf"))
-    }
-
-    static func tag(_ t: String?) throws -> String? {
-        if let t, t.count > 200 { throw ZnInvalidArgs("\"tag\" must be 200 characters or fewer") }
-        return t
-    }
-
-    enum Collect { case lost, cancel, files, empty }
-
-    static func collect(_ job: DocScanJob?, _ id: String) -> Collect {
-        guard let job, job.id == id, let code = job.resultCode else { return .lost }
-        if code != -1 { return .cancel }
-        return job.pages.isEmpty && job.pdf == nil ? .empty : .files
-    }
-
-    static func pageName(_ id: String, _ i: Int) -> String { "\(prefix)\(id)-\(i).jpg" }
-    static func pdfName(_ id: String) -> String { "\(prefix)\(id).pdf" }
-    static func partName(_ name: String) -> String { ".\(name).part" }
-
-    static func toDelete(_ files: [(String, Double)], now: Double, maxAgeMs: Double, keep: Set<String>, openJob: String?) -> [String] {
-        files.filter { name, modified in
-            let ours = name.hasPrefix(prefix) || (name.hasPrefix(".\(prefix)") && name.hasSuffix(".part"))
-            return ours && !keep.contains(name) && (openJob == nil || !name.contains("\(prefix)\(openJob!)")) && now - modified >= maxAgeMs
-        }.map(\.0)
-    }
-}
-
 final class DocScanModule: ZnModuleBase, @unchecked Sendable {
     private static let key = "docscanner", store = "zn.docscanner", jobKey = "job"
     private let queue = DispatchQueue(label: "zn-docscan")
@@ -108,6 +45,8 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
     private var open: (id: String, options: DocScanRules.Options)?
     private var count = 0
     private lazy var delegate = CameraDelegate(self)
+    // Main thread only: the Photos picker's delegate while it is open.
+    private var importer: DocScanImport?
 
     private static var fake: String? {
         #if DEBUG
@@ -125,7 +64,13 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
     init() {
         super.init("DocumentScanner", version: 1)
         function("getStatus") { call in call.resolve(Self.status) }
-        function("download") { call in call.resolve(Self.status) }  // nothing to download on iOS
+        // Nothing to download on iOS: the end comes at once, as Android's last `status` event (DocScanModule.kt
+        // endDownload: the event, then the answer), so a JS onStatus listener waiting for the end hears it.
+        function("download") { call in
+            let now = Self.status
+            self.emit("status", now)
+            call.resolve(now)
+        }
         function("scanDocument", onMain: true) { call in
             let options = try DocScanRules.options(call.args)
             let tag = try DocScanRules.tag(call.args["tag"] as? String)
@@ -162,7 +107,8 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
     // MARK: A scan
 
     @MainActor private func scan(_ call: ZnCall, _ options: DocScanRules.Options, _ tag: String?) {
-        guard VNDocumentCameraViewController.isSupported || Self.fake != nil else {
+        let camera = VNDocumentCameraViewController.isSupported || Self.fake != nil
+        guard let source = DocScanRules.source(gallery: options.gallery, camera: camera) else {
             return call.resolve(["launched": false, "reason": "not_supported", "unavailable": true])
         }
         if open != nil { return call.resolve(["launched": false, "reason": "busy"]) }
@@ -179,6 +125,36 @@ final class DocScanModule: ZnModuleBase, @unchecked Sendable {
         }
         open = (id, options)
         call.resolve(["launched": true, "id": id])
+        switch source {
+        case .camera: openCamera(top)
+        case .photos: openPhotos(top, options)
+        case .ask: ask(top, options)
+        }
+    }
+
+    /// Pavan's decision 6: with galleryImport, an action sheet first (VisionKit's camera has no import button). Cancel
+    /// ends the scan as the camera's cancel does (resultCode 0).
+    @MainActor private func ask(_ top: UIViewController, _ options: DocScanRules.Options) {
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: "Scan with camera", style: .default) { _ in self.openCamera(top) })
+        sheet.addAction(UIAlertAction(title: "Choose from Photos", style: .default) { _ in self.openPhotos(top, options) })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in self.answer(images: nil) })
+        if let pop = sheet.popoverPresentationController {  // iPad: a popover in the middle, no arrow
+            pop.sourceView = top.view
+            pop.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
+            pop.permittedArrowDirections = []
+        }
+        top.present(sheet, animated: true)
+    }
+
+    @MainActor private func openPhotos(_ top: UIViewController, _ options: DocScanRules.Options) {
+        importer = DocScanImport.present(from: top, options: options) { [weak self] pages in
+            self?.importer = nil
+            self?.answer(images: pages)
+        }
+    }
+
+    @MainActor private func openCamera(_ top: UIViewController) {
         if let fake = Self.fake {
             print("zn docscanner: no document camera; a fake scan (ZN_DOCSCAN_FAKE=\(fake))")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

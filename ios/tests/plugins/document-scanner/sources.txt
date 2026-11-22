@@ -1,0 +1,2 @@
+# Foundation only. ZnInvalidArgs, which the rules throw, is the runtime's: main.swift has a copy.
+plugins/document-scanner/ios/DocScanRules.swift
