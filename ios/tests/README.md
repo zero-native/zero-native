@@ -34,6 +34,11 @@ Some suites read built files: `routes` reads the sample's `main.zn.ui.json`, so 
 | `svg` | the SVG filter graph: the region in pixels and its caps, blur sigma (round, one side, big), offsets, flood, colour matrices on unpremultiplied colour (greyscale, the gooey alpha), composites with src = in and dst = in2 (in, out, atop, xor, plus, in2 minus in), blends with alpha, merge order, SourceAlpha, sRGB maths, a drop shadow, bad graphs, matrix values too big for vImage, the hook's maths (region on device pixels, flips, a turn, a mirror, nested, lower resolution, fallback) (`ZnSvgFilters.swift`) | `ZnSvgEffects.kt` (ZnSvgFilterGraph) |
 | `text` | the text scale with maxFontScale, the font table, the font file check, the face a weight and style pick (CSS), the phone's font names, and the sample's font files loaded with their weights (`ZnFontRules.swift`) | `ZnTemplate.kt` fontScaleCap, `ZnFontsTest.kt`, Compose's font matching |
 | `uirules` | Carousel page width, Text auto-fit scale, TextField capitalization and autocorrect (`ZnUIRules.swift`) | `ZnRenderer.kt`, `ZnTextField.kt` |
+| `plugins/app-updates` | versions, the iOS a build needs, staleness, the App Store lookup's URL and answer, isUpdateAvailable's shape, the cache, the sheet's state and re-open rules (`plugins/app-updates/ios/AppUpdatesRules.swift`) | `AppUpdatesRules.kt` |
+| `plugins/document-scanner` | the job record, options, collect, file names, cleanup, Camera or Photos, the picker's limit, the mode for imported pages, Vision's corners (`plugins/document-scanner/ios/DocScanRules.swift`) | `DocScanRulesTest.kt` |
+| `plugins/webview` | links, hosts, schemes, origins, the page check, the upload count and the scripts' host JSON (`plugins/webview/ios/WebViewRules.swift`) | `WebViewRulesTest.kt` |
+
+A plugin's suite sits one level down, in `ios/tests/plugins/<plugin>`, and is named `plugins/<plugin>`.
 
 ## Adding a suite
 

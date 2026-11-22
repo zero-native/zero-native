@@ -334,11 +334,11 @@ manifest must not claim what it can't draw.
 | Plugin (folder) | Module | iOS | Note |
 |---|---|---|---|
 | android-play-auth | Auth | done (answers "unavailable") | No phone hint or SMS reading on iOS; OtpInput's `.oneTimeCode` fills the code. Server keeps the Android SMS format. |
-| app-updates (new, from Windows) | AppUpdates | done (builds in both samples) | Store updates: Play in-app updates on Android; iOS `isUpdateAvailable` → `{ available: false }`, `openStore()` by appStoreId, start / complete "unavailable". Its Swift is written without a Mac: build and fix it here. Replaces ZeroBill's InAppUpdate. |
+| app-updates (new, from Windows) | AppUpdates | done (W2-K, 2026-11-22; the sheet itself needs an iPhone) | Store updates: Play in-app updates on Android; iOS `isUpdateAvailable` asks the App Store lookup (`storeVersion`, `appStoreId`, kept an hour), `start` shows the App Store sheet in the app (`state` declined / canceled on close; a forced one opens again on return), `setBusy` kept on disk, `complete` "unavailable", `openStore()` by appStoreId. JS `confirm: appStoreUpdates`. Mac suite `plugins/app-updates`. Replaces ZeroBill's InAppUpdate. |
 | android-ad-id | AdId | n/a (no iOS side) | Android-only by meaning. Its JS answers `{ id: null }` when the module is missing, so nothing to build. |
 | device-info | DeviceInfo | done | react-native-device-info's iOS answers (A13). |
 | device-test | Device | done | `ios/Sample/DeviceTestPlugin.swift` (info, slowEcho, fail, mock UPI launches). |
-| document-scanner | DocumentScanner | done (fake scan) | VisionKit; pages and PDF as `zn://file`. |
+| document-scanner | DocumentScanner | done (fake scan; Photos import on the simulator, W2-K) | VisionKit; pages and PDF as `zn://file`. `download` sends one `status` event; `galleryImport` asks Camera / Photos (Photos: Vision finds the paper, Core Image straightens it, `mode` filter / base). Mac suite `plugins/document-scanner`. |
 | firebase-app | Firebase | done | SDK by `fetch-firebase-apple.ts`; plist outside git. |
 | firebase-analytics | Analytics | done | Console events not checked by Pavan yet. `zn_bundle` is the running bundle's label (ZnBundles.watchRunning, also after an update applied in place), 2026-11-21. |
 | firebase-crashlytics | Crashlytics | done | dSYM upload per build; a processed crash seen in the console. Bundle keys from the running bundle, OTA outcomes as log lines and serious ones as non-fatals (ZnOta.addReportListener), JS error reasons `[label] kind in where` (2026-11-21; on the simulator the log showed the downloaded bundle's label at a cold start and a serious OTA outcome recorded; an in-place apply and the console not checked yet). |
@@ -353,7 +353,7 @@ manifest must not claim what it can't draw.
 | notifications | Notifications | done | Phase 3 (i.17): show, schedule, actions, threads, summaries, badge, categories. |
 | pdf | Pdf | done | PDFKit viewer and preview. |
 | scanner | Scanner | done (fake reads) | AVFoundation; `autoZoom` n/a; real camera, torch, zoom not tried. |
-| webview | WebView | done | WKWebView, origin-checked bridge. |
+| webview | WebView | done | WKWebView, origin-checked bridge. W2-K: paused under a presented controller too (media suspended), `onUpload` with the count from an isolated script world. Mac suite `plugins/webview`. |
 
 Each plugin has a Kotlin `*RulesTest.kt`; no iOS test target exists yet (§11).
 
