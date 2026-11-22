@@ -15,12 +15,16 @@ function lines(file: string): string[] {
   return readFileSync(file, "utf8").split("\n").map((l) => l.trim()).filter((l) => l !== "" && !l.startsWith("#"))
 }
 
-// The suites, by folder name, in name order.
+// The suites, by folder name, in name order. The plugins' suites are one level down: ios/tests/plugins/<plugin>,
+// named "plugins/<plugin>".
 export function iosSuites(): string[] {
-  return readdirSync(testsDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && existsSync(join(testsDir, d.name, "sources.txt")))
-    .map((d) => d.name)
-    .sort()
+  const suitesIn = (dir: string, prefix: string) =>
+    existsSync(dir)
+      ? readdirSync(dir, { withFileTypes: true })
+          .filter((d) => d.isDirectory() && existsSync(join(dir, d.name, "sources.txt")))
+          .map((d) => prefix + d.name)
+      : []
+  return [...suitesIn(testsDir, ""), ...suitesIn(join(testsDir, "plugins"), "plugins/")].sort()
 }
 
 // The files a suite's args.txt names that aren't there (a built sample, say), with the file's # lines as the hint.
@@ -60,7 +64,7 @@ function runSuite(suite: string): boolean {
     console.error(`${suite}: no ${missing.join(", ")}${hint ? ` (${hint})` : ""}`)
     return false
   }
-  const work = mkdtempSync(join(tmpdir(), `zn-ios-${suite}-`))
+  const work = mkdtempSync(join(tmpdir(), `zn-ios-${suite.replaceAll("/", "-")}-`))
   const run = (cmd: string[]) => Bun.spawnSync(cmd, { cwd: root, stdout: "inherit", stderr: "inherit" }).exitCode === 0
   try {
     if (existsSync(join(dir, "setup.ts"))) {
@@ -70,7 +74,7 @@ function runSuite(suite: string): boolean {
         return false
       }
     }
-    const exe = join(work, `${suite}-tests`)
+    const exe = join(work, `${suite.replaceAll("/", "-")}-tests`)
     if (!run(["xcrun", "swiftc", "-O", "-o", exe, ...sources, `ios/tests/${suite}/main.swift`])) {
       console.error(`${suite}: didn't build`)
       return false
