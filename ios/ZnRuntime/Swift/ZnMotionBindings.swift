@@ -37,55 +37,71 @@ extension ZnNodeSpec {
     /// ZnLayer draws transforms (2D or 3D, blur), not only opacity.
     var layerTransforms: Bool { hasTransform || hasDepth || layerTransformSlots }
 
+    /// A vertical Scroll: its children's `parent` is its scrolled content, not its viewport.
+    var scrollsVertically: Bool { type == Registry.Component.scroll && !horizontal }
+
     /// blurRadius is written or comes from a slot.
     var blurs: Bool { blurRadius != 0 || blurRadiusSlot >= 0 }
 }
 
 /// A layer slot follows a formula that reads `self` / `parent` now (reads the slots, so the caller follows them).
+/// Each slot goes through znUsesSite, the rule the Mac suite checks.
 @MainActor func znSiteUsed(_ s: ZnNodeSpec, _ inst: ZnInstance) -> Bool {
-    func uses(_ slot: Int) -> Bool { slot >= 0 && znMotionSource(inst.slot(slot).value)?.usesSite == true }
+    func uses(_ slot: Int) -> Bool { slot >= 0 && znUsesSite(inst.slot(slot).value) }
     return uses(s.opacitySlot) || uses(s.scaleSlot) || uses(s.scaleXSlot) || uses(s.scaleYSlot) || uses(s.rotateSlot) ||
         uses(s.translateXSlot) || uses(s.translateYSlot) || uses(s.rotateXSlot) || uses(s.rotateYSlot) ||
         uses(s.cameraDistanceSlot) || uses(s.blurRadiusSlot)
 }
 
-/// The content box of the node an element is laid out in: its template parent, or for an instance's root the node
-/// of the parent instance that holds the anchor it is mounted at (a fragment root goes up once more, as its children
-/// are laid out in its own parent).
+/// The content box of the node an element is laid out in (Android's parentLayoutCoordinates): its template parent,
+/// or, for an instance's root or a child of a fragment root (znChildRefs lays a fragment's children out in the node
+/// that holds the instance's anchor), the node of the parent instance that holds that anchor, going up again while
+/// that one is a fragment root's child too.
 @MainActor func znParentContentBox(_ s: ZnNodeSpec, _ inst: ZnInstance) -> ZnSizeBox? {
-    if s.parent >= 0 { return inst.contentBox(s.parent) }
-    guard let ctx = ZnApp.shared.ctx else { return nil }
+    guard let ctx = ZnApp.shared.ctx else { return s.parent >= 0 ? inst.contentBox(s.parent) : nil }
+    return znLayoutParentBox(ctx, inst, s.parent)
+}
+
+/// [parent] in [inst]'s template, or where it is laid out when it is a fragment root (or there is none: -1).
+@MainActor func znLayoutParentBox(_ ctx: ZnContext, _ inst: ZnInstance, _ parent: Int) -> ZnSizeBox? {
     var child = inst
-    for _ in 0..<8 {
+    var parent = parent
+    for _ in 0..<16 {
+        let fragmentRoot = parent == 0 && ctx.templates[safe: child.templateId]?.nodes.first?.type == Registry.Component.fragment
+        if parent >= 0 && !fragmentRoot { return child.contentBox(parent) }
         guard let p = ctx.store.find(child.parent), let t = ctx.templates[safe: p.templateId],
-              let anchor = t.nodes[safe: child.anchor], anchor.parent >= 0 else { return nil }
-        if anchor.parent == 0 && t.nodes[0].type == Registry.Component.fragment {
-            child = p
-            continue
-        }
-        return p.contentBox(anchor.parent)
+              let anchor = t.nodes[safe: child.anchor] else { return nil }
+        child = p
+        parent = anchor.parent
     }
     return nil
 }
 
+extension ZnNodeSpec {
+    /// borderRadius or a corner holds a motion value now (so znShapeNow reads them through the engine).
+    @MainActor func cornersFollowMotion(_ inst: ZnInstance) -> Bool {
+        inst.followsMotion(borderRadiusSlot) || inst.followsMotion(topStartRadiusSlot) || inst.followsMotion(topEndRadiusSlot) ||
+            inst.followsMotion(bottomEndRadiusSlot) || inst.followsMotion(bottomStartRadiusSlot)
+    }
+}
+
 /// The node's corners now, with any corner (or borderRadius) that follows a motion value read from it: the same
-/// precedence as ZnNodeSpec.cornersNow (a corner of its own beats borderRadius; negative is 0). Read in
-/// ZnPaintLayers, so a corner morph re-runs that modifier alone.
+/// precedence as ZnNodeSpec.cornersNow (znCorner). Read in ZnPaintLayers, so a corner morph re-runs that modifier
+/// alone; it makes no arrays, as it runs each frame of the morph.
 @MainActor func znShapeNow(_ s: ZnNodeSpec, _ inst: ZnInstance) -> UnevenRoundedRectangle {
     guard s.hasDynamicRadius else { return s.shape }
-    let slots = [s.topStartRadiusSlot, s.topEndRadiusSlot, s.bottomEndRadiusSlot, s.bottomStartRadiusSlot]
-    guard inst.followsMotion(s.borderRadiusSlot) || slots.contains(where: { inst.followsMotion($0) }) else {
-        return s.shapeNow(inst)
-    }
+    guard s.cornersFollowMotion(inst) else { return s.shapeNow(inst) }
     typealias P = Registry.Prop
-    func has(_ a: Int, _ b: Int) -> Bool { s.props[a] != nil || s.props[b] != nil }
-    let c = znCorners(fixed: [s.topStart, s.topEnd, s.bottomEnd, s.bottomStart],
-                      written: [has(P.borderTopStartRadius, P.borderTopLeftRadius), has(P.borderTopEndRadius, P.borderTopRightRadius),
-                                has(P.borderBottomEndRadius, P.borderBottomRightRadius),
-                                has(P.borderBottomStartRadius, P.borderBottomLeftRadius)],
-                      cornerSlots: slots.map { inst.boundNumber($0) }, all: inst.boundNumber(s.borderRadiusSlot))
-    return UnevenRoundedRectangle(topLeadingRadius: c[0], bottomLeadingRadius: c[3], bottomTrailingRadius: c[2],
-                                  topTrailingRadius: c[1], style: .circular)
+    let all = inst.boundNumber(s.borderRadiusSlot)
+    func corner(_ fixed: CGFloat, _ a: Int, _ b: Int, _ slot: Int) -> CGFloat {
+        znCorner(fixed: fixed, written: s.props[a] != nil || s.props[b] != nil, slot: inst.boundNumber(slot), all: all)
+    }
+    let topStart = corner(s.topStart, P.borderTopStartRadius, P.borderTopLeftRadius, s.topStartRadiusSlot)
+    let topEnd = corner(s.topEnd, P.borderTopEndRadius, P.borderTopRightRadius, s.topEndRadiusSlot)
+    let bottomEnd = corner(s.bottomEnd, P.borderBottomEndRadius, P.borderBottomRightRadius, s.bottomEndRadiusSlot)
+    let bottomStart = corner(s.bottomStart, P.borderBottomStartRadius, P.borderBottomLeftRadius, s.bottomStartRadiusSlot)
+    return UnevenRoundedRectangle(topLeadingRadius: topStart, bottomLeadingRadius: bottomStart, bottomTrailingRadius: bottomEnd,
+                                  topTrailingRadius: topEnd, style: .circular)
 }
 
 /// width / height from a slot that follows a motion value (registry 24): points now, never below 0; nil while the

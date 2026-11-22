@@ -46,16 +46,26 @@ func znBoundColor(_ v: ZnValue, site: ZnSite? = nil, _ engine: ZnMotionEngine = 
     return src.readColor(site)
 }
 
-/// Any of these slot values follows a formula that reads `self` / `parent` (Android's siteUsed): only then does the
-/// node measure itself and ask its parent for its size.
-func znSiteUsed(_ values: [ZnValue], _ engine: ZnMotionEngine = .shared) -> Bool {
-    values.contains { znMotionSource($0, engine)?.usesSite == true }
+/// A slot value follows a formula that reads `self` / `parent` (one value of Android's siteUsed): only then does the
+/// node measure itself and ask its parent for its size. znSiteUsed (ZnMotionBindings.swift) asks it of each layer slot.
+func znUsesSite(_ v: ZnValue, _ engine: ZnMotionEngine = .shared) -> Bool {
+    znMotionSource(v, engine)?.usesSite == true
+}
+
+/// One corner now, the precedence of ZnNodeSpec.cornersNow (znCorners) for one corner with no arrays (it runs each
+/// frame of a corner morph): the corner's own slot (a number or a motion value; nil when it is neither, a null
+/// included), else its written value, else borderRadius's slot, else [fixed] (borderRadius when the corner isn't
+/// written). Negative is 0.
+func znCorner(fixed: CGFloat, written: Bool, slot: CGFloat?, all: CGFloat?) -> CGFloat {
+    max(slot ?? (written ? fixed : nil) ?? all ?? fixed, 0)
 }
 
 /// What a Text shows for a string slot: a motion value as text ("\u{0}f<id>|<format>", `v.format(...)`) formatted
-/// from its value now, never the raw control characters (an empty string while the value isn't made, or with the
-/// engine off). Any other string is itself, as Android's display().
+/// from its value now (an empty string while the value isn't made, or with the engine off). A motion value itself
+/// ("\u{0}m<id>", a value put in a Text without format) shows nothing, so raw control characters never show (Android
+/// prints them: see the report). Any other string is itself, as Android's display().
 func znShownString(_ s: String, _ engine: ZnMotionEngine = .shared) -> String {
+    if s.hasPrefix(ZnMotionEngine.refPrefix) { return "" }
     guard s.hasPrefix(ZnMotionEngine.textPrefix) else { return s }
     return engine.text(s) ?? ""
 }
