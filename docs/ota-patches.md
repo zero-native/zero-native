@@ -84,16 +84,22 @@ smallest patch it has. The full `bundle` (manifest + url) is always there too: t
   kept: by id, ids are unique per bytes).
 - **Admin:** the bundle page and `updates status` show the patches (from, size). `updates patches --bundle N` remakes them.
 
-## 6. Phone (`android/runtime`, later iOS)
+## 6. Phone (`android/runtime`, and iOS since 2026-11-22)
 - Sends `patches` and `builtIn.sha256`.
 - On UPDATE with `patch`: checks that `from` is the running, a kept or the built-in bundle and that its bundle SHA is
-  `fromSha256`. Downloads the patch zip (resumable, `download.part`, checked against `patch.sha256` / `size`), builds
+  `fromSha256`. Downloads the patch zip (resumable, `patch.part` / `patch.json`, checked against `patch.sha256` / `size`), builds
   the bundle into `tmp/<id>` from the base folder (or the APK's assets), checks everything as §3, then installs as
   usual. Limits: a patch entry may unpack to at most 2 × the file's listed size + 1 MiB; old files are read into
   memory (largest today: main.hbc, 1.6 MB).
 - **Any failure** (bad zip, base missing, a SHA mismatch, no space): outcome `patch_failed` with the reason, the patch
   files are deleted, and the same check downloads the full zip. A patch never blocks an update.
 - Free space: the patch size plus the unpacked bundle plus the 50 MB kept for the user.
+- **iOS** (`ios/ZnRuntime/Swift`: ZnBsPatch.swift, ZnOtaInstall.buildFromPatch, ZnOta.installPatch) does the same, with
+  the same messages and limits. Two differences: Swift stops the app on an integer overflow, so every sum a patch's
+  numbers feed is checked first; and the new `zn-bundle.json`'s file list (sizes and SHA-256s) is checked against the
+  signed bundle SHA before any file is made (Android checks it at the end), so every size a patch makes is signed. The
+  built-in base is the app's own resources folder. Mac tests: `bun run ios:ota-test` (Android's fixtures, 30 more
+  bsdiff.ts shapes, and a patch zip made by `buildPatchZip`).
 
 ## 7. Priority (unsigned, like RN; set per channel change)
 | Value | Meaning | Phone |
