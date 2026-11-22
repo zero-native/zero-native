@@ -157,13 +157,16 @@ The sample's "App updates plugin" lab (Dev screen) runs `Updates.check()` and sh
 Apple has no in-app update API like Play's: the server's rule decides and the app shows its own screens (`prompt`).
 The App Store id comes from the server's app facts (`store.ios.appStoreId`), answered as `store.appStoreId`.
 
-- `isUpdateAvailable` asks Apple's public lookup (`https://itunes.apple.com/lookup?bundleId=<this app>&country=<the
-  phone's region>`, or `id=<appStoreId>` when given). It sends Apple only the bundle id (or id) and the country. It is
-  not a documented API, though widely used; an app not sold in that storefront gets no result (`available: false`).
+- `isUpdateAvailable` asks Apple's public lookup (`https://itunes.apple.com/lookup?bundleId=<this app>&country=<cc>`,
+  or `id=<appStoreId>` when given). The country is the App Store account's (StoreKit's storefront), then the phone's
+  region when that storefront has no answer. It sends Apple only the bundle id (or id) and the country. It is not a
+  documented API, though widely used; an app not sold in either storefront gets no result (`available: false`).
   Answers are kept an hour, and Apple's CDN can lag a release by hours.
-- `start` shows the App Store's sheet in the app. It can't be made full screen, so a forced update still needs your own
-  screen behind it. It doesn't load on the simulator (no App Store there); then it opens the App Store app, which the
-  simulator doesn't have either (`ok: false`).
+- `start` loads the App Store's sheet, then shows it in the app. It can't be made full screen, so a forced update still
+  needs your own screen behind it. It isn't refused while busy (as Android); busy only stops a forced sheet opening
+  again. A forced sheet keeps opening again on each return until a check of that same app says there is no update (a
+  failed lookup, offline say, doesn't end it). It doesn't load on the simulator (no App Store there); then it opens the
+  App Store app, which the simulator doesn't have either (`ok: false`).
 - `complete` can't exist: the App Store installs the update and ends the app.
 - The rules are in `ios/AppUpdatesRules.swift`, checked on the Mac by `bun run tools/ios-unit-test.ts plugins/app-updates`.
 - The lab: `bun run tools/ios-sample.ts --route appUpdatesLab --params '{"appStoreId":"<a published app's id>"}'`.
