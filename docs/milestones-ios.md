@@ -184,9 +184,9 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 2 | Row | done | flexWrap / alignContent / crossGap done 2026-11-09 (ZnWrapLayout.swift); gap / rowGap from a slot done 2026-11-21 | |
 | 3 | Stack | done | | |
 | 4 | Box | done | | |
-| 5 | Text | partial | Dynamic Type + maxFontScale, accessibility, `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` (r23), `fontFamily` (r24). Top-level onPress / onLongPress and fontSize / lineHeight / letterSpacing from slots done 2026-11-21 | §6 |
+| 5 | Text | partial | `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` (r23). Top-level onPress / onLongPress and fontSize / lineHeight / letterSpacing from slots done 2026-11-21; Dynamic Type + maxFontScale, accessibility, `fontFamily` (r24) and motion values as text (`v.format`) done 2026-11-21 (W2-B) | §6 |
 | 6 | Image | done | asset, http, file, `zn://file` handles, fallback, tint, events. `zn://app-icon` is n/a (no installed-apps icons on iOS). The picture is centred in its box for contain and cover (2026-11-09; it sat at the top left) | |
-| 7 | Pressable | partial | accessibility. Press feedback, runtime `disabled` and hitSlop (2026-11-12) done | §6 |
+| 7 | Pressable | done | Press feedback, runtime `disabled` and hitSlop (2026-11-12); accessibility (2026-11-21, §6) | §6 |
 | 8 | Spacer | done | | |
 | 9 | Icon | done | | |
 | 10 | Anchor | done | | |
@@ -220,16 +220,16 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 ### Every component
 | Prop | iOS | Size | Note |
 |---|---|---|---|
-| accessibilityLabel / Hint / Role / Hidden | missing | L | The UIKit press view must become the VoiceOver element. Check with VoiceOver on a device. |
-| Font scaling + maxFontScale | missing | M | Fixed point sizes today, while WINDOW tells JS the real fontScale. |
-| testID | missing | S | `accessibilityIdentifier`. |
+| accessibilityLabel / Hint / Role / Hidden | done (simulator, 2026-11-21) | L | ZnAccessibility.swift: a Pressable is one element (ZnPressA11y: a button unless its role says otherwise, the label also from a slot, the hint, a disabled one dimmed, VoiceOver's activate sends onPress, a "Long press" action while JS has a handler; with a control inside it holds them as separate elements). Other nodes (ZnA11y): hidden hides the subtree, a label or role makes one element, header is a heading, a labelled Image / Svg / Icon / Canvas is an image and an unlabelled one is skipped. Switch, Checkbox, TextField, OtpInput apply theirs on their own element. Checked with an XCUITest tree dump of /dev/a11y (A11yLab.tsx), ComponentsScreen section 8 and RnPropsLab. Still to check with VoiceOver on a phone: the Long press action, the order inside a Pressable with a Switch. |
+| Font scaling + maxFontScale | done (2026-11-21) | M | ZnTextStyle.swift: Text (spans too), TextField and OtpInput follow Dynamic Type through znContentSizeScale (the number JS gets), capped by maxFontScale; a Settings change redraws at once. Mac test: ios/tests/text. Check: `xcrun simctl ui <sim> content_size accessibility-extra-large` on /dev/rn-gaps and /dev/components section 8. |
+| testID | done (2026-11-21) | S | accessibilityIdentifier on the element (a plain container becomes one that holds its children); fields and NativeView on their UIView. XCUITest finds fill-stack, rn-status, row-pressable-wrap, a11y-*. |
 | pointerEvents | done (2026-11-21) | M | none / box-none / box-only / auto, written or from a slot, and the absolute-layer default (ZnRenderer.swift ZnPointerEventsNone / ZnPointerEventsKids / znStopsTaps, ZnPress.swift znTouchOff). A background no longer stops taps by itself, as on Android. Check: RnPropsLab pe1–pe4, PressScreen. |
 | impressionKey | missing | §8 | |
 | Layout values from slots (width, height, min / max, flex, aspectRatio, gap, insets, radii, font sizes) (r23) | done (2026-11-21) | L | ZnTemplate.swift "now" readers, ZnDynamicValues.swift (Mac test: ios/tests/layout, `bun run tools/ios-unit-test.ts layout`). A size is read in its own ZnSizeFrame, an absolute child's insets in its own ZnChildTraits, so an animated value lays out that node alone. aspectRatio keeps both sides inside their min / max, the given side first, as Android's dynamicSize (2026-11-21 review). While section 2's width animates, only the label's Text body runs, once per change (ZnDebug counts). Check: DynamicLayoutLab sections 1–5 and 7. |
 | `display: "none"` (r23) | done (2026-11-21) | M | Written or from a slot; Column / Row / Stack / wrap leave it out (no gap), other parents draw nothing. |
 | Style that follows a motion value: opacity, transforms, rotateX / rotateY / cameraDistance, blurRadius, backgroundColor (a motion colour), border radii, width / height (r24) | done behind ZN_MOTION_ENGINE=1 (2026-11-21) | L | ZnMotionBindings.swift, ZnMotionBindRules.swift (Mac test: ios/tests/motion). Read in leaf modifiers: a moving value runs only its node's ZnLayer (or ZnBackground, ZnPaintLayers for corners, ZnSizeFrame for a size) body, never the node, its children or JS. A node without `animate` moves its transforms with SwiftUI's own effects and no animation scopes (HWUI's order; a custom GeometryEffect left a UITextField's touch area behind). `self` / `parent` sizes through ZnSite and ZnInstance.sizeBox (gestures can reuse them); a fragment root's children read the node they are laid out in, a vertical Scroll's children its scrolled content. Cost on the simulator (60 Hz, a busy Mac, -O): 3–5 ms of main-thread time per frame for 30 bound boxes (translate, rotate, opacity), 4.5–5.5 ms with blur, rotateY and corners too, 2–2.7 ms for one; check on a 120 Hz iPhone (13 Pro or later). A transformed Pressable's touch area stays where it is laid out (ZnPress.swift puts the touch view outside the layer; pre-existing). Check: MotionBindingsLab (`--route motionBindingsLab`; `--params '{"n":30}'`, `{"n":30,"mixed":true}` or `{"n":30,"playing":true}` with ZN_MOTION_PERF=1). |
 | Negative margins | not checked | S | Needs a LayoutLab case. |
-| `fontFamily` with app fonts (r24) | missing | M | Register bundle fonts, pick the face by weight / italic. |
+| `fontFamily` with app fonts (r24) | done (2026-11-21) | M | ZnFonts.swift / ZnFontRules.swift: the manifest's font table, the face by weight and style (CSS), a synthesized italic, the phone's fonts by Android's names, per span, TextField and OtpInput; files from the running OTA bundle, else the app's, never registered system-wide. The sample builds copy fonts/ (CMake glob, package sample script). Mac test: ios/tests/text. Check: /dev/rn-gaps sections 1–5. |
 | includeFontPadding | n/a | | Android only. |
 
 ### Pressable
@@ -317,7 +317,7 @@ manifest must not claim what it can't draw.
 | zn dev (live reload, dev error overlay) | missing | L | Simulator reaches the Mac on localhost. |
 | Secure screens (route `secure`) | done (simulator) | M | ZnSecure.swift (2026-11-21): while a secure screen is drawn (exit and cover animations included) the window root's content sits in a password field's canvas, so screenshots, recordings and mirroring show it blank; Sheets, Modals, layers and toasts too, not Alerts. App switcher: a plain cover in the screen's background from willResignActive (the switcher shows an inactive app live, seen without the cover), so it also shows behind Face ID, permission prompts, Control Center and Notification Center, where Android shows the screen. iOS can't refuse a screenshot as FLAG_SECURE does. The text field is not in the accessibility tree (XCUITest dump: the screens' texts and fields, no TextField around them). Checked on the iOS 26.3 and 18.0 simulators with the render server's capture (`ZN_IOS_SECURE_PROBE=1` logs blank / shows content); no iOS 17 simulator here. Still to check on a phone: side-button screenshot, Control Center recording, AirPlay / QuickTime, VoiceOver, password AutoFill on a secure screen's fields, scroll speed of a long list on a secure screen. |
 | Impressions | missing | M | |
-| Accessibility semantics, autofill | missing | §6 | |
+| Accessibility semantics, autofill | done (accessibility 2026-11-21; autofill hints earlier) | §6 | |
 | RTL layout | not checked | S | |
 | NAV EXIT, predictive back / BACK_ANSWERED timer, main-process check | n/a | | |
 
