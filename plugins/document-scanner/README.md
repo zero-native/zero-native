@@ -137,7 +137,11 @@ first status check or scan. **Do** register the plugin in `Application.onCreate`
   them. **Don't** save a handle across days. After each scan the plugin deletes its files older than 7 days;
   `DocumentScanner.cleanup({ olderThanMs: 0 })` deletes all of them except the open scan's.
 - The scanner's look and words are Google's: no colours or brand of your own.
-- Android only. iOS (VisionKit) later.
+- iOS uses VisionKit's document camera. `galleryImport` asks "Scan with camera" / "Choose from Photos" in an action sheet
+  (straight to Photos where there's no document camera, as on the simulator, where `getStatus` says "unavailable").
+  Pages from Photos are cropped and straightened by Vision; `mode` applies only to them ("base" crops; "filter" and
+  "full" add Core Image's document filter). `download` sends one `status` event, with no "downloading" step. A sheet,
+  picker or camera closed with no answer ends the scan as a cancel. The camera's look and words are Apple's.
 
 ## Size
 

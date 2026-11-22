@@ -41,7 +41,7 @@ Each entry says:
 | A25 | 2026-11-19 | Updates (Android) | The update screen's icon check used an Android 8 class on Android 7 | fixed on the Mac, not run on a phone |
 | A26 | 2026-11-21 | Layout (Android) | A child's flex from a signal is read from the parent's instance | open, not run on Android |
 | A27 | 2026-11-21 | Layout (Android) | A "%" width from a signal inside a Row is a fraction of the room left, not of the Row | open, not run on Android |
-| A28 | 2026-11-21 | Navigation (Android) | A transparent route with a transition other than "none" may animate the screen below it too | open, possible, not run |
+| A28 | 2026-11-21 | Navigation (Android) | A transparent route with a transition other than "none" may animate the screen below it too | open, likely (code read again 2026-11-22), not run |
 | A29 | 2026-11-21 | Sheet (Android) | A Sheet's backgroundColor may be painted twice (the card and the sheet's own content box) | open, possible, minor |
 | A30 | 2026-11-21 | Compiler (shared) | The Motion OTA gate's name list misses some motion APIs, so a bundle using only them doesn't declare Motion | fixed in the compiler (0c522b5 on the Mac), not run on Android |
 | A31 | 2026-11-21 | Lists (Android) | A reorderable List row's `onLongPress` probably fires as the drag starts (Pavan: the long press only drags) | open, not run on Android |
@@ -65,6 +65,17 @@ Each entry says:
 | A49 | 2026-11-22 | Text (Android) | `maxFontScale={0}` draws the text at size 0 (a negative value, a negative scale) | open, not run on Android |
 | A50 | 2026-11-22 | Accessibility (Android) | Pressable roles "link" / "text" and a tappable Text always read as a button | open, a difference (Pavan to decide) |
 | A51 | 2026-11-22 | Accessibility (Android) | A labelled Box with a Switch inside: check TalkBack reads the label, then the Switch | check only |
+| A52 | 2026-11-22 | Navigation (Android) | Predictive back on a see-through "push" route probably drags the screen below too | open, possible, not run |
+| A53 | 2026-11-22 | Touch (Android) | A Switch or Checkbox inside a Pressable fires both onValueChange and onPress | open, a design question (Pavan to decide) |
+| A54 | 2026-11-22 | Navigation (Android) | See-through lab: taps on the backdrop reach the screen below; a disabled Switch in a row only presses the row | check only |
+| A55 | 2026-11-22 | Compiler (shared) | A white luminance mask whose shape has a `filter` is compiled into a clip, so the filter is lost (both platforms) | open, a one-line fix (Pavan to decide) |
+| A56 | 2026-11-22 | Compiler (shared) | A filter, mask or clip in object units on text alone gets an empty box, so the text vanishes (both platforms) | open (Pavan to decide: estimate a text box or document userSpaceOnUse) |
+| A57 | 2026-11-22 | Svg (Android) | A blur with one side 0 still blurs that side about half a pixel (iOS copies it) | open, minor, parity note |
+| A58 | 2026-11-22 | firebase-perf (Android) | The first `screen_<route>` trace may have no `zn_bundle` | open, not run on Android |
+| A59 | 2026-11-22 | firebase-perf (Android) | Smaller: a frozen frame isn't also counted slow; the 64-trace check and a reused id aren't safe | open, minor |
+| A60 | 2026-11-22 | webview (Android) | Media may keep playing while the page is paused | open, not run on Android |
+| A61 | 2026-11-22 | webview (Android) | Uploads: a cancelled picker on Android 14+, showPicker() and shadow-root inputs | check only |
+| A62 | 2026-11-22 | webview (Android) | Reload of an inline (loadDataWithBaseURL) page may fetch the base URL instead | open, possible, not run |
 
 ---
 
@@ -452,6 +463,10 @@ Each entry says:
   `transition: "none"` (and maybe warn in the compiler).
 - **Check on Android (Windows):** add `transition: "fade"` to the sample's `photoViewer` route (or any transparent
   route) and open it: does the screen below move or fade?
+- **Update 2026-11-22:** iOS now has transparent routes (round 2b): only the see-through screen animates. Read again
+  in `ZnNavHost.kt` ~289 and ~371-391, the Android problem looks real. Easier check: Dev > Core lab > "Open sliding
+  see-through" (route `seeThroughSlide`, transition "push"): does the core lab move? Pavan to decide (the iOS job
+  recommends fixing Android so only the see-through screen animates, and keeping the "use none" advice in the docs).
 
 ## A29. A Sheet's backgroundColor may be painted twice (from iOS work)
 - **Status:** open, possible, minor (overdraw only). Seen in the code on the Mac 2026-11-21.
@@ -644,3 +659,86 @@ Each entry says:
 - **Status:** check only.
 - **Check on Android (Windows):** /dev/a11y section 6, "Card settings", with TalkBack: it should read "Card settings",
   then the Switch "Card on" on its own. iOS does this now.
+
+## A52. Predictive back on a see-through "push" route probably drags the screen below too (from iOS work, navigation)
+- **Status:** open, possible, not run on Android. Found on the Mac 2026-11-22 (iOS round 2b, transparent routes).
+- **Problem:** `ZnNavHost.kt` ~289 and ~371: the see-through scene holds the screen below, so a predictive back gesture
+  on a transparent route with transition "push" probably drags the whole scene. iOS drags only the see-through screen.
+- **Check on Android (Windows):** Dev > Core lab > "Open sliding see-through" (route `seeThroughSlide`), then a slow
+  predictive back: does the core lab move with it?
+
+## A53. A Switch or Checkbox inside a Pressable fires both (from iOS work, touch)
+- **Status:** open, a design question for Pavan (the iOS job recommends "the innermost wins" on both platforms; until he
+  decides, iOS keeps its old behaviour).
+- **Problem:** `ZnSwitch.kt` ~91-103 and `ZnCheckbox.kt` ~94-105 with `ZnPress.kt` ~91 and ~116: the toggle's
+  pointerInput never consumes the down or the up, so the parent Pressable's `awaitFirstDown()` /
+  `waitForUpOrCancellation()` sees an unconsumed up, and both onValueChange and onPress fire.
+- **Check on Android (Windows):** `<Pressable onPress={log}><Switch value onValueChange={log2} /></Pressable>`: tap the
+  Switch and look for both log lines.
+
+## A54. See-through lab: what taps should do (from iOS work, check only)
+- **Check on Android (Windows):** Dev > Core lab > "Open see-through screen": a tap on the dim backdrop over "Run task"
+  should reach the core lab ("core-lab task lab.echo"), as on iOS. In "Row with a disabled switch", a tap on the
+  disabled Switch should log "see-through-lab row press" only.
+
+## A55. A white mask whose shape has a `filter` becomes a clip (from iOS work, shared compiler)
+- **Status:** open. Both platforms draw it wrong. Pavan to decide (the iOS job recommends the one-line fix).
+- **Problem:** `compiler/src/svg.ts` ~1602 (`whiteMask`, used at ~1580) rejects shapes with clip-path or mask, but not
+  ones with `filter` (and probably `mix-blend-mode`), although its comment says "no effects". So a luminance mask of
+  opaque white shapes, one blurred, is compiled into a clip and the blur is lost: a hard edge where browsers show a
+  soft one.
+- **Fix:** also reject a shape with `filter` (and `mix-blend-mode`) in `whiteMask`.
+- **Check (any machine):** in `examples/sample/src/svg/r13/filter-in-pattern.svg`, change the `#dotMask` circle's fill
+  from `#FFFFFE` to `#FFFFFF`: the compiled data loses its second `FL` filter and the mask becomes a clip of the
+  circle path. On Android, use that blurred mask outside a pattern to see its edge go sharp.
+
+## A56. A filter, mask or clip in object units on text alone hides the text (from iOS work, shared compiler)
+- **Status:** open, both platforms. Pavan to decide: estimate a text box in the compiler (the iOS job's recommendation)
+  or document "use userSpaceOnUse".
+- **Problem:** `compiler/src/svg.ts` contentBox (~1620, called from userBox and filterOf ~1272) ignores `<text>`, so a
+  `<g filter>` holding only text, with the default objectBoundingBox units, gets an empty box and is hidden.
+- **Check:** in `examples/sample/src/svg/r13/filter-blend.svg`, remove `filterUnits="userSpaceOnUse"` and the
+  x/y/width/height from `#glow`: the "zn" text vanishes.
+
+## A57. A blur with one side 0 still blurs that side slightly (from iOS work, Svg)
+- **Status:** open, minor. iOS copies it for parity.
+- **Problem:** `ZnSvgEffects.kt` ~209-212: a zero side passes radius 0.01, about a 0.5 px blur, so `stdDeviation="4 0"`
+  is a little soft vertically. (`ZnSvgEffects.kt` ~224-228, plus as BlendMode.PLUS, is correct: don't change it.)
+- **Check on Android (Windows):** zoom into svgLab's "across only" bar and look at its top and bottom edges.
+
+## A58. The first `screen_<route>` trace may have no `zn_bundle` (from iOS work, firebase-perf)
+- **Status:** open, not run on Android. It happened on iOS and was fixed there (an open trace gets the label when it
+  arrives).
+- **Problem:** `plugins/firebase-perf/android/.../PerfPlugin.kt` ~58 and ~138-141 set `zn_bundle` only when a screen
+  trace starts. If the first route comes before `ZnBundles.watchRunning` delivers the label, that trace has none.
+- **Check on Android (Windows):** start with `-e ZN_ROUTE perfLab` and `firebase_performance_logcat_enabled`, and read
+  the first `screen_` trace's attributes.
+
+## A59. firebase-perf: smaller issues (from iOS work)
+- **Status:** open, minor; read the code.
+- `PerfPlugin.kt` ~221-225 (`PerfRules.frameKind`): a frozen frame isn't also counted as slow (Firebase's own
+  `_fr_slo` counts both). The shared README now says `frames_slow` leaves out frozen frames, so either keep that or
+  change both.
+- `PerfPlugin.kt` ~166-176: the 64-trace check and the insert aren't atomic, and a reused `id` replaces a running trace
+  without stopping it.
+
+## A60. webview: media may keep playing while the page is paused (from iOS work)
+- **Status:** open, not run on Android. iOS suspends media while paused.
+- **Problem:** `WebViewPage.kt` ~280-290 (`resume()` / `pause()`).
+- **Check on Android (Windows):** WebViewLab > Inline upload > "Play tone" > "Open fake screen": the page should report
+  "media paused".
+
+## A61. webview uploads: checks on Android (from iOS work)
+- **Status:** check only.
+- **Check on Android (Windows):**
+  - Android 14+: WebViewLab > Inline upload > "Pick files", then back out of the picker: the lab should log "upload
+    answered: 0" (`WebViewPage.kt` ~373-431, pickFiles).
+  - Uploads off: the new showPicker, open shadow and closed shadow buttons should each log "upload answered: 0" with
+    no chooser (`WebViewPage.kt` ~383-389, onShowFileChooser). With uploads on they should be counted.
+
+## A62. webview: reload of an inline page (from iOS work)
+- **Status:** open, possible, not run on Android.
+- **Problem:** after `loadDataWithBaseURL`, does reload reload the html or fetch the base URL? iOS had this bug and now
+  tracks the inline navigation.
+- **Check on Android (Windows):** WebViewLab > Inline upload, then "#frag" or "pushState", then Reload: the page should
+  still show "Pick files", with no load error. "Upload, bare base", then Reload, should behave the same.
