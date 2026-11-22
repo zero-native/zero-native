@@ -22,7 +22,9 @@
 //   time is the executable's date (Android: versionCode and lastUpdateTime).
 // - How a launch ended: iOS keeps no exit records (Android's ApplicationExitInfo). A crash mark written by signal and
 //   exception handlers says "crash" (sure); a launch that ended on screen with no mark counts as unsure.
-// - No patches yet: the check says it reads none, so the server sends full zips.
+// - Patches as Android (docs/ota-patches.md §6): the check lists znbsdiff1, and an UPDATE with a patch from the running,
+//   a kept or the built-in bundle downloads the small patch zip and builds the bundle from it (ZnBsPatch.swift,
+//   ZnOtaInstall.buildFromPatch); any failure falls back to the full zip in the same check (outcome patch_failed).
 // - Not yet (plan steps 5, 7): applying an update while the app runs (applyNow answers "not_started"), the launch
 //   gate, rollback in place: a rollback makes the good bundle current and it runs from the next start.
 import UIKit
@@ -839,7 +841,7 @@ public final class ZnOta: @unchecked Sendable {
             "kept": Array(ZnBundles.kept(builtIn, caps).prefix(16)),
             "seq": st.seq(c.channel),
             "outcomes": st.outcomes,
-            "patches": [String](),  // no patch format on iOS yet: the server sends full zips
+            "patches": [ZnBsPatch.format],  // the patch formats this phone applies (docs/ota-patches.md §4)
             "store": ["os": "ios", "version": Self.storeVersion],
         ]
         guard let url = URL(string: c.server.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/v1/check") else {
@@ -934,7 +936,8 @@ public final class ZnOta: @unchecked Sendable {
             var how: String?
             if action == "UPDATE" {
                 ZnOtaGate.found(Self.priorityOf(p))
-                how = try install(c, m)
+                // The detail says which way it came ("patch from sample_11, 3.4 KB" or "full zip, 824 KB").
+                how = try install(c, builtIn, st, m, answer["patch"] as? [String: Any])
             } else {
                 try switchTo(builtIn, m)
             }
@@ -959,11 +962,16 @@ public final class ZnOta: @unchecked Sendable {
 
     private var ota: URL { ZnBundles.otaDir }
 
-    private func checkSpace(_ m: ZnOtaSigned.Manifest) throws {
-        let partInfo = ota.appendingPathComponent("download.json")
-        let same = (ZnOtaFiles.readText(partInfo).flatMap { try? ZnJSON.object(Data($0.utf8)) }?["sha256"] as? String) == m.zipSha256
-        let have = same ? min(ZnBundleRules.fileSize(ota.appendingPathComponent("download.part")), m.zipSize) : 0
-        let need = (m.zipSize - max(have, 0)) + m.zipSize * Self.unzipFactor + Self.minFreeBytes
+    /// Before downloading: is there room for the rest of the file ([name].part: the zip, or the patch zip of [sha] /
+    /// [size]), the unzipped bundle and minFreeBytes? If not, the check fails with `no_space` (nothing written; the seq
+    /// isn't saved, so the next check tries again).
+    private func checkSpace(_ m: ZnOtaSigned.Manifest, name: String = "download", sha: String? = nil, size: Int64? = nil) throws {
+        let sha = sha ?? m.zipSha256
+        let size = size ?? m.zipSize
+        let partInfo = ota.appendingPathComponent("\(name).json")
+        let same = (ZnOtaFiles.readText(partInfo).flatMap { try? ZnJSON.object(Data($0.utf8)) }?["sha256"] as? String) == sha
+        let have = same ? min(ZnBundleRules.fileSize(ota.appendingPathComponent("\(name).part")), size) : 0
+        let need = (size - max(have, 0)) + m.zipSize * Self.unzipFactor + Self.minFreeBytes
         let values = try? ota.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         var free = values?.volumeAvailableCapacityForImportantUsage ?? Int64.max
         #if DEBUG
@@ -978,63 +986,153 @@ public final class ZnOta: @unchecked Sendable {
     private static func mb(_ b: Int64) -> String { String(format: "%.1f", Double(b) / 1_048_576) }
     private static func kb(_ b: Int64) -> String { b < 10 * 1024 ? String(format: "%.1f KB", Double(b) / 1024) : "\((b + 512) / 1024) KB" }
 
-    /// Downloads and installs [m] from its full zip. Returns how it came, for the `downloaded` outcome.
-    private func install(_ c: Config, _ m: ZnOtaSigned.Manifest) throws -> String {
+    /// True for an error that says the phone is full.
+    private static func isNoSpace(_ e: Error) -> Bool {
+        let n = e as NSError
+        return (n.domain == NSCocoaErrorDomain && n.code == NSFileWriteOutOfSpaceError) || (n.domain == NSPOSIXErrorDomain && n.code == Int(ENOSPC))
+    }
+
+    /// Downloads and installs [m]: from the check's [patch] when it has one this phone can use, else (or if the patch
+    /// fails in any way) from the full zip. Returns how it came, for the `downloaded` outcome ("patch from sample_11,
+    /// 3.4 KB" or "full zip, 824 KB").
+    private func install(_ c: Config, _ builtIn: ZnBundleRules.Info, _ st: OtaState, _ m: ZnOtaSigned.Manifest,
+                         _ patch: [String: Any]?) throws -> String {
         if let r = ZnBundles.running, r.key == m.id { throw ZnOtaError("install", "\(m.id) is running already") }
         let fm = FileManager.default
         try fm.createDirectory(at: ota, withIntermediateDirectories: true)
         let tmp = ota.appendingPathComponent("tmp")
         let staged = tmp.appendingPathComponent(m.id)
-        try checkSpace(m)
-        let part = try download(c, m)
-        setPhase("installing")
-        try? fm.removeItem(at: tmp)
-        do {
-            try ZnOtaInstall.extract(zip: part, manifest: m, dest: staged)
-        } catch let e as NSError where e.domain == NSCocoaErrorDomain && e.code == NSFileWriteOutOfSpaceError {
+        var how = try patch.flatMap { try installPatch(c, builtIn, st, m, $0, tmp, staged) }
+        if how == nil {
+            try checkSpace(m)
+            let part = try download(c, m.url, m.zipSha256, m.zipSize, m.id)
+            setPhase("installing")
             try? fm.removeItem(at: tmp)
-            for n in ["download.part", "download.json"] { try? fm.removeItem(at: ota.appendingPathComponent(n)) }
-            throw ZnOtaError("no_space", "the phone ran out of space while installing \(m.id); its files were removed")
+            do {
+                try ZnOtaInstall.extract(zip: part, manifest: m, dest: staged)
+            } catch where Self.isNoSpace(error) {
+                // The phone filled up while we wrote (another app, a big photo): give the space back at once.
+                try? fm.removeItem(at: tmp)
+                for n in ["download.part", "download.json"] { try? fm.removeItem(at: ota.appendingPathComponent(n)) }
+                throw ZnOtaError("no_space", "the phone ran out of space while installing \(m.id); its files were removed")
+            }
+            how = "full zip, \(Self.kb(m.zipSize))"
         }
         let dest = ZnBundles.folder(m.id)
         try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }  // an earlier copy of the same bytes
         do { try fm.moveItem(at: staged, to: dest) } catch { throw ZnOtaError("install", "can't move \(m.id) into place") }
         try ZnOtaFiles.writeAtomic(ZnBundles.currentFile, m.id)  // the last step: until here the old bundle stays current
-        for n in ["download.part", "download.json"] { try? fm.removeItem(at: ota.appendingPathComponent(n)) }
+        // Neither download is needed any more (after a patch, a cut download of the full zip is of no use either).
+        for n in ["download.part", "download.json", "patch.part", "patch.json"] { try? fm.removeItem(at: ota.appendingPathComponent(n)) }
         try? fm.removeItem(at: tmp)
-        print("zn-ota: installed \(m.id) (full zip, \(Self.kb(m.zipSize))); it runs from the next start")
-        return "full zip, \(Self.kb(m.zipSize))"
+        print("zn-ota: installed \(m.id) (\(how!)); it runs from the next start")
+        return how!
     }
 
-    /// Downloads the zip to download.part, resuming a cut download of the same file (download.json remembers which).
-    private func download(_ c: Config, _ m: ZnOtaSigned.Manifest) throws -> URL {
+    /// The patch way (docs/ota-patches.md §6): checks that the check's [patch] starts from a bundle this phone has (the
+    /// running one, a kept one or the built-in one) with the same bundle SHA, downloads the patch zip to patch.part
+    /// (resumable, like the zip), and builds the bundle into [staged] (ZnOtaInstall.buildFromPatch). Returns how it
+    /// came, or nil if anything went wrong: the patch files are then deleted, outcome `patch_failed` says why, and the
+    /// caller downloads the full zip in the same check. Only "the phone is full" fails the check (`no_space`): the full
+    /// zip needs more room still.
+    private func installPatch(_ c: Config, _ builtIn: ZnBundleRules.Info, _ st: OtaState, _ m: ZnOtaSigned.Manifest,
+                              _ patch: [String: Any], _ tmp: URL, _ staged: URL) throws -> String? {
         let fm = FileManager.default
-        let part = ota.appendingPathComponent("download.part")
-        let partInfo = ota.appendingPathComponent("download.json")
-        let same = (ZnOtaFiles.readText(partInfo).flatMap { try? ZnJSON.object(Data($0.utf8)) }?["sha256"] as? String) == m.zipSha256
-        if !same || ZnBundleRules.fileSize(part) > m.zipSize {
+        let from = patch["from"] as? String ?? ""
+        func dropPatchFiles() {
+            try? fm.removeItem(at: tmp)
+            for n in ["patch.part", "patch.json"] { try? fm.removeItem(at: ota.appendingPathComponent(n)) }
+        }
+        let why: String
+        do {
+            let format = patch["format"] as? String ?? ""
+            if format != ZnBsPatch.format { throw ZnOtaError("patch", "unknown patch format \"\(format)\"") }
+            guard let fromSha = patch["fromSha256"] as? String, let sha = patch["sha256"] as? String,
+                  let url = patch["url"] as? String, let size = (patch["size"] as? NSNumber)?.int64Value else {
+                throw ZnOtaError("patch", "the check's patch has no fromSha256, sha256, url or size")
+            }
+            if size <= 0 { throw ZnOtaError("patch", "bad patch size \(size)") }
+            let base = try patchBase(builtIn, from, fromSha)
+            try checkSpace(m, name: "patch", sha: sha, size: size)  // no_space: thrown on (the full zip needs more)
+            let file = try download(c, url, sha, size, "the patch for \(m.id)", name: "patch", checkedBy: "the check's patch sha256")
+            setPhase("installing")
+            try? fm.removeItem(at: tmp)
+            try ZnOtaInstall.buildFromPatch(patchZip: file, manifest: m, fromId: from, fromSha256: fromSha, base: base, dest: staged)
+            return "patch from \(from), \(Self.kb(size))"
+        } catch let e as ZnOtaError {
+            if e.code == "no_space" { throw e }  // nothing written yet; a cut patch download stays for the next check
+            why = "\(e.code): \(e.message)"
+        } catch where Self.isNoSpace(error) {
+            dropPatchFiles()
+            throw ZnOtaError("no_space", "the phone ran out of space while building \(m.id) from a patch; its files were removed")
+        } catch {
+            why = "\(error)"
+        }
+        dropPatchFiles()
+        print("zn-ota: the patch for \(m.id) from \(from) failed, downloading the full zip: \(why)")
+        outcome(st, "patch_failed", m.id, "from \(from): \(why)")
+        return nil
+    }
+
+    /// Opens files of the patch's base bundle [from], which must be the built-in bundle, the running one or a kept one
+    /// (bundles/<id>, passing ZnBundleRules.checkBundle, not blocked unless it runs) whose bundle SHA is [fromSha]. Only
+    /// the files its `zn-bundle.json` lists can be opened. Throws ZnOtaError "patch" if there is no such bundle here.
+    private func patchBase(_ builtIn: ZnBundleRules.Info, _ from: String, _ fromSha: String) throws -> (String) -> URL? {
+        if from == builtIn.id {
+            if builtIn.sha256 != fromSha { throw ZnOtaError("patch", "the built-in \(from) has another bundle SHA-256") }
+            let dir = ZnBundles.builtInURL
+            return { name in builtIn.files[name] != nil ? dir.appendingPathComponent(name) : nil }
+        }
+        let info: ZnBundleRules.Info
+        let dir: URL
+        if let r = ZnBundles.running, r.key == from, let i = r.info, let d = r.dir {
+            (info, dir) = (i, d)
+        } else {
+            if ZnOtaHealth.isBlocked(from) { throw ZnOtaError("patch", "the base \(from) is blocked on this phone") }
+            switch ZnBundleRules.checkBundle(from, builtIn: builtIn, caps: .current(), folder: ZnBundles.folder) {
+            case let .ok(i): (info, dir) = (i, ZnBundles.folder(from))
+            case let .no(reason, _): throw ZnOtaError("patch", "the base \(from) isn't on this phone (\(reason))")
+            }
+        }
+        if info.sha256 != fromSha { throw ZnOtaError("patch", "the base \(from) has another bundle SHA-256") }
+        return { name in
+            let f = dir.appendingPathComponent(name)
+            return info.files[name] != nil && ZnBundleRules.isFile(f) ? f : nil
+        }
+    }
+
+    /// Downloads [url] (relative to the server) to [name].part, resuming a cut download of the same file ([sha]; the
+    /// .json beside it remembers which). [what] names it in logs. Returns the file, checked against [size] and [sha]
+    /// ([checkedBy] says where they came from).
+    private func download(_ c: Config, _ url: String, _ sha: String, _ size: Int64, _ what: String,
+                          name: String = "download", checkedBy: String = "the signed manifest") throws -> URL {
+        let fm = FileManager.default
+        let part = ota.appendingPathComponent("\(name).part")
+        let partInfo = ota.appendingPathComponent("\(name).json")
+        let same = (ZnOtaFiles.readText(partInfo).flatMap { try? ZnJSON.object(Data($0.utf8)) }?["sha256"] as? String) == sha
+        if !same || ZnBundleRules.fileSize(part) > size {
             try? fm.removeItem(at: part)
-            try ZnOtaFiles.writeAtomic(partInfo, ZnJSON.text(["sha256": m.zipSha256, "size": m.zipSize]) ?? "{}")
+            try ZnOtaFiles.writeAtomic(partInfo, ZnJSON.text(["sha256": sha, "size": size]) ?? "{}")
         }
         var have = max(ZnBundleRules.fileSize(part), 0)
-        if have < m.zipSize {
-            setPhase("downloading", Double(have) / Double(m.zipSize))
+        if have < size {
+            setPhase("downloading", Double(have) / Double(size))
             guard let base = URL(string: c.server.hasSuffix("/") ? c.server : c.server + "/"),
-                  let full = URL(string: m.url, relativeTo: base)?.absoluteURL else { throw ZnOtaError("bundle", "bad download url \(m.url)") }
+                  let full = URL(string: url, relativeTo: base)?.absoluteURL else { throw ZnOtaError("bundle", "bad download url \(url)") }
             var request = URLRequest(url: full, timeoutInterval: Self.downloadIdleTimeout)
             if have > 0 {
                 request.setValue("bytes=\(have)-", forHTTPHeaderField: "Range")
-                print("zn-ota: resuming \(m.id) at \(have) of \(m.zipSize) bytes")
+                print("zn-ota: resuming \(what) at \(have) of \(size) bytes")
             }
-            have = try ZnOtaDownload(part: part, have: have, size: m.zipSize) { [weak self] got in
-                self?.setPhase("downloading", Double(got) / Double(m.zipSize))
+            have = try ZnOtaDownload(part: part, have: have, size: size) { [weak self] got in
+                self?.setPhase("downloading", Double(got) / Double(size))
             }.run(request)
         }
-        if ZnBundleRules.fileSize(part) != m.zipSize || (try? ZnOtaFiles.sha256(part)) != m.zipSha256 {
+        if ZnBundleRules.fileSize(part) != size || (try? ZnOtaFiles.sha256(part)) != sha {
             try? fm.removeItem(at: part)
             try? fm.removeItem(at: partInfo)
-            throw ZnOtaError("zip_sha", "the downloaded zip doesn't match the signed manifest")
+            throw ZnOtaError("zip_sha", "the downloaded \(name == "download" ? "zip" : "patch zip") doesn't match \(checkedBy)")
         }
         return part
     }
