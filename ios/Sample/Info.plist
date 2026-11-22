@@ -79,6 +79,10 @@
 	<!-- Push (plugins/firebase-messaging): the app delegate forwards the APNs calls itself, so nothing is swizzled. -->
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
+	<!-- Performance (plugins/firebase-perf): Firebase's own URLSession and view controller hooks stay off, also before
+	     PerfPlugin is registered or when it comes after FirebaseAppPlugin; PerfPlugin(automatic: true) turns them on. -->
+	<key>firebase_performance_instrumentation_enabled</key>
+	<false/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

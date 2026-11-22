@@ -6,8 +6,8 @@ JS. By itself it sends:
 - **The app start** (Firebase's own trace).
 - **Every `fetch`**: a network trace (time, response code, sizes) from an interceptor on core's fetch client. Firebase
   sees the URL with no query and no fragment, since those may hold tokens or personal data.
-- **Every screen**: a trace per top route, `screen_<route>`, with `frames`, `frames_slow` (over 16 ms) and
-  `frames_frozen` (over 700 ms). The app is one Activity, so Firebase's own screen traces would all be one screen.
+- **Every screen**: a trace per top route, `screen_<route>`, with `frames`, `frames_slow` (over 16 ms, not counting
+  frozen ones) and `frames_frozen` (over 700 ms). The app is one Activity, so Firebase's own screen traces would all be one screen.
 - **`zn_bundle`** on every trace: the running bundle, to compare OTA bundles.
 
 No Gradle plugin is needed (Firebase's `firebase-perf` Gradle plugin only rewrites bytecode for apps that use plain
@@ -40,24 +40,31 @@ testing: `<meta-data android:name="firebase_performance_logcat_enabled" android:
 1. Firebase as for [`@zeronative/firebase-app`](../firebase-app/README.md) (`GoogleService-Info.plist` in the app).
 2. The Swift package's `ZnPluginFirebasePerf` product (`zero-native-firebase`, `ios/packages/firebase`), or in a CMake
    build the Firebase SDK (`bun run tools/fetch-firebase-apple.ts`) and `plugins/firebase-perf/ios`.
-3. Register it **before the other Firebase plugins** (Firebase reads the automatic-traces switch when it starts):
+3. In the app's Info.plist, so Firebase's own URLSession and UIKit hooks stay off whatever the order below (the SDK
+   turns them on by itself as soon as it is linked, even with no PerfPlugin):
+   `<key>firebase_performance_instrumentation_enabled</key><false/>` (the sample has it).
+4. Register it **first, before `FirebaseAppPlugin`** and the other Firebase plugins (Firebase reads the switch for
+   its own hooks when it starts, and `FirebaseAppPlugin` starts it):
    ```swift
-   ZnPlugins.register(PerfPlugin(), AnalyticsPlugin(), ...)
-   PerfPlugin(automatic: false)   // no network traces: the app start, screens and your own
-   PerfPlugin(screens: false)     // no screen_<route> traces
+   ZnPlugins.register(PerfPlugin(), FirebaseAppPlugin(), AnalyticsPlugin(), ...)
+   PerfPlugin(screens: false)     // no screen_<route> traces (and no display link)
+   PerfPlugin(automatic: true)    // Firebase's own network and view controller traces, see below
    ```
 
 iOS differences:
-- **Network traces are Firebase's own** (`automatic: true`, the default): Firebase hooks URLSession, so every request
-  is traced, core's `fetch` and also images and OTA downloads, with the URL without query, fragment, user and
-  password; Firebase's own calls are traced too. There is no `url` option, and network traces have no `zn_bundle`.
-  `automatic: false` turns them off together with Firebase's view controller screen traces; the app start trace
-  stays (one switch in iOS's Firebase, kept on the phone; registered after another Firebase plugin, turning it off
-  applies from the next start).
-- **Frames** are counted with a display link, as Firebase iOS does: `frames_slow` is a frame longer than 1/59 s (so a
-  ProMotion frame that misses 120 Hz isn't slow), `frames_frozen` longer than 700 ms. Firebase's own screen traces
-  (`_st_ZnScreenController`: one view controller for every route) come with `automatic`; read the `screen_<route>`
-  ones.
+- **No network traces yet.** On Android every `fetch` gets one from the interceptor. iOS needs an observer on core's
+  fetch that is not built yet; until then `network` and `url` are accepted and change nothing.
+  `PerfPlugin(automatic: true)` (iOS only, off by default) turns on Firebase's own hooks instead: every URLSession
+  request is traced, core's `fetch` and also images, OTA downloads and Firebase's own calls, with the URL without
+  query, fragment, user and password, no `url` option and no `zn_bundle`. They also bring Firebase's view controller
+  screen traces (`_st_ZnScreenController`: one view controller for every route; read the `screen_<route>` ones). The
+  switch is kept on the phone: registered after `FirebaseAppPlugin`, a change applies from the next start.
+- **Frames** come from a display link, as in Firebase iOS. It ticks at every screen refresh whether or not anything
+  was drawn, so `frames` counts refreshes (a still screen adds about 60 a second; Android counts only drawn frames):
+  compare `frames_slow` and `frames_frozen` between screens and bundles, not with Android. `frames_slow` is a frame
+  longer than 1/59 s (so a ProMotion frame that misses 120 Hz isn't slow), `frames_frozen` longer than 700 ms; a
+  frozen frame isn't also slow. The link runs while the app is in front, so a still screen doesn't drop to a lower
+  refresh rate (some battery); `screens: false` turns it off.
 - **Consent:** `firebase_performance_collection_enabled` = NO in the app's Info.plist, then
   `setPerformanceCollectionEnabled(true)` after the yes. `-FIRDebugEnabled` as a launch argument logs each trace.
 

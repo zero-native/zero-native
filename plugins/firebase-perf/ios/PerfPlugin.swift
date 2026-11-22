@@ -1,8 +1,6 @@
 // The Performance plugin's iOS side (plugins/firebase-perf, as android/.../PerfPlugin.kt): RN Firebase's `perf()` custom
 // traces, and by itself:
 // - Firebase's own app start trace;
-// - Firebase's automatic network traces ([automatic], on by default): one for every URLSession request (core's fetch,
-//   images, OTA downloads, Firebase's own calls), its URL without query, fragment, user and password;
 // - a screen trace per top route, `screen_<route>`, with frames, slow frames and frozen frames ([screens]).
 // Every trace the plugin makes carries `zn_bundle`, the running bundle. With Firebase off (no SDK or no
 // GoogleService-Info.plist) the module still answers: every call does nothing, and `status` says available false.
@@ -10,13 +8,19 @@
 // The rules with no Firebase in them are PerfRules.swift (tested on the Mac: ios/tests/perf).
 //
 // iOS differences:
-// - Network traces: Android traces each `fetch` itself (an OkHttp interceptor with a `url` choice and `zn_bundle`).
-//   Here Firebase's automatic tracing does it, for every URLSession request, without `zn_bundle`. `automatic: false`
-//   turns it off together with Firebase's own screen traces (per UIViewController: the whole app is one); the app
-//   start trace stays. Firebase reads that switch when it starts, so register this plugin before the other Firebase
-//   plugins; registered later, turning it off applies from the next start.
-// - Frames are counted with a CADisplayLink (as Firebase iOS does): slow is under 59 a second, so a ProMotion frame
-//   that misses 120 Hz is not slow.
+// - Network traces: Android traces each `fetch` itself (an OkHttp interceptor, [network] and [url]). Here they need an
+//   observer on core's fetch, which is not built yet: until it is, `network` and `url` change nothing and there are
+//   no network traces. [automatic] (off by default; Android has nothing like it) turns on Firebase's own URLSession
+//   hooks instead: every request (core's fetch, images, OTA downloads, Firebase's own calls), the URL without query,
+//   fragment, user and password, no `zn_bundle`. It also brings Firebase's view controller screen traces (the whole
+//   app is one). Firebase reads that switch when it starts, so register this plugin before FirebaseAppPlugin and the
+//   other Firebase plugins; registered later, the switch applies from the next start. An app that links the SDK and
+//   never registers this plugin gets Firebase's hooks unless its Info.plist says
+//   `firebase_performance_instrumentation_enabled` NO (the sample's does).
+// - Frames are counted with a CADisplayLink (as Firebase iOS does). It ticks at every screen refresh, drawn or not,
+//   so `frames` counts refreshes (about 60 a second on a still screen; Android counts only drawn frames), and it keeps
+//   the screen from slowing its refresh while the app is in front (`screens: false` stops it). Slow is under 59 a
+//   second, so a ProMotion frame that misses 120 Hz is not slow; a frozen frame is not also slow, as on Android.
 import Foundation
 import QuartzCore
 import UIKit
@@ -34,17 +38,24 @@ import FirebaseCore
 import FirebasePerformance
 #endif
 
-/// Add it with `ZnPlugins.register(PerfPlugin(), ...)`, before the other Firebase plugins (see [automatic]).
-/// `automatic`: Firebase's own network traces (every URLSession request) and view controller screen traces.
+/// Add it with `ZnPlugins.register(PerfPlugin(), FirebaseAppPlugin(), ...)`: before FirebaseAppPlugin and the other
+/// Firebase plugins (see [automatic]).
+/// `network` / `url`: a trace for every `fetch` and the URL Firebase sees (nil: no query, no fragment), as on Android.
+/// Not built on iOS yet (core's fetch has no observer for plugins): until then there are no network traces.
 /// `screens`: a trace per route.
+/// `automatic`: Firebase's own network traces (every URLSession request) and view controller screen traces. iOS only.
 public struct PerfPlugin: ZnPlugin {
-    public init(automatic: Bool = true, screens: Bool = true) {
-        self.automatic = automatic
+    public init(network: Bool = true, url: ((URL) -> String?)? = nil, screens: Bool = true, automatic: Bool = false) {
+        self.network = network
+        self.url = url
         self.screens = screens
+        self.automatic = automatic
     }
 
-    public var automatic = true
+    public var network = true
+    public var url: ((URL) -> String?)?
     public var screens = true
+    public var automatic = false
 
     public func register(_ r: ZnPluginRegistry) {
         r.requireHostApi(8)
@@ -52,11 +63,12 @@ public struct PerfPlugin: ZnPlugin {
         let hasConfig = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil
         if hasConfig {
             // Before Firebase starts: it hooks URLSession and UIKit when it starts, or not at all. The switch is kept on
-            // the phone, so it is set every start (an earlier build may have turned it off).
+            // the phone, so it is set every start (an earlier build may have changed it). Firebase's getter says true
+            // once it has hooked in.
             let perf = Performance.sharedInstance()
             if perf.isInstrumentationEnabled != automatic {
-                if !automatic && FirebaseApp.app() != nil {
-                    print("zn-perf: Firebase started before PerfPlugin registered: automatic traces are off from the next start")
+                if FirebaseApp.app() != nil {
+                    print("zn-perf: Firebase started before PerfPlugin registered: automatic: \(automatic) applies from the next start")
                 }
                 perf.isInstrumentationEnabled = automatic
             }
@@ -94,6 +106,7 @@ enum PerfState {
 private final class ScreenTraces: NSObject {
     private var total: Int64 = 0, slow: Int64 = 0, frozen: Int64 = 0
     private var current: Trace?
+    private var labelled = false  // the current trace has its zn_bundle
     private var link: CADisplayLink?
     private var last: CFTimeInterval = 0
 
@@ -114,15 +127,19 @@ private final class ScreenTraces: NSObject {
         current = nil
         total = 0; slow = 0; frozen = 0
         guard let route, let t = Performance.sharedInstance().trace(name: PerfRules.screenTrace(route)) else { return stopLink() }
+        labelled = PerfState.bundle != nil
         if let b = PerfState.bundle { t.setValue(b, forAttribute: PerfRules.attrBundle) }
         t.start()
         current = t
         startLink()
     }
 
-    /// The running bundle's label came (or changed): the open screen trace gets it too.
+    /// The running bundle's label came: the open screen trace gets it if it started without one. A trace that has
+    /// one keeps it when the bundle changes (as Android, which puts it on at the start only).
     func bundleKnown() {
-        if let t = current, let b = PerfState.bundle { t.setValue(b, forAttribute: PerfRules.attrBundle) }
+        guard let t = current, !labelled, let b = PerfState.bundle else { return }
+        t.setValue(b, forAttribute: PerfRules.attrBundle)
+        labelled = true
     }
 
     private func startLink() {
@@ -209,14 +226,16 @@ final class PerfModule: ZnModuleBase, @unchecked Sendable {
         }
 
         function("putAttribute") { call in
-            let id = try Self.string(call, "id"), name = try Self.string(call, "name")
+            // Android's order: the name is checked before the id is read.
+            let name = try Self.string(call, "name")
             let value = call.args["value"] as? String
             if let p = PerfRules.attributeProblem(name) { return call.resolve(p) }
+            let id = try Self.string(call, "id")
             #if canImport(FirebasePerformance)
             guard let t = self.trace(id) else { return call.resolve("") }
             if let value { t.setValue(PerfRules.attributeValue(value), forAttribute: name) } else { t.removeAttribute(name) }
             #endif
-            _ = value
+            _ = (id, value)
             call.resolve("")
         }
 

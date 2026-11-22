@@ -10,7 +10,7 @@ an app without Firebase never downloads it.
 | `ZnPluginFirebaseCrashlytics` | Crashlytics, with JS errors |
 | `ZnPluginFirebaseMessaging` | push messages (FirebaseMessaging; uses `ZnPluginNotifications` from zero-native) |
 | `ZnPluginFirebaseRemoteConfig` | Remote Config (FirebaseRemoteConfig) |
-| `ZnPluginFirebasePerf` | Performance Monitoring (FirebasePerformance: it hooks URLSession for its automatic network traces; register it before the other Firebase plugins) |
+| `ZnPluginFirebasePerf` | Performance Monitoring (FirebasePerformance). Register `PerfPlugin` before `FirebaseAppPlugin`, and put `firebase_performance_instrumentation_enabled` NO in the app's Info.plist: the SDK hooks URLSession and UIKit by itself once linked |
 
 **Add it together with zero-native, at the same version.** It depends on `https://github.com/zero-native/zero-native.git`
 at exactly its own version:
