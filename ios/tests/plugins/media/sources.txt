@@ -1,0 +1,3 @@
+# Foundation, ImageIO and Core Graphics only: the rules and the picture writer (main.swift makes test pictures).
+plugins/media/ios/MediaRules.swift
+plugins/media/ios/MediaImage.swift

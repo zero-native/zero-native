@@ -29,7 +29,8 @@
   },
   "zeroNative": {
     "platforms": [
-      "android"
+      "android",
+      "ios"
     ],
     "android": {
       "plugin": "dev.zeronative.plugins.media.MediaPlugin"

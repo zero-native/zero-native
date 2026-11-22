@@ -35,6 +35,7 @@ let plugins: [(name: String, folder: String, uses: [String])] = [
   ("DocumentScanner", "document-scanner", []),
   ("ImageViewer", "image-viewer", []),
   ("Location", "location", []),
+  ("Media", "media", []),
   ("Notifications", "notifications", []),
   ("Pdf", "pdf", []),
   ("Scanner", "scanner", []),
