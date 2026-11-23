@@ -83,9 +83,12 @@ async function main() {
     // This Mac's arch only (a simulator offers arm64 and x86_64 on Apple silicon).
     "-destination", `id=${device.udid},arch=${process.arch === "arm64" ? "arm64" : "x86_64"}`,
     "-derivedDataPath", derived,
+    // The package versions in Package.resolved only, as CI's and the release's builds of this project.
+    "-onlyUsePackageVersionsFromResolvedFile",
     ...(packages ? ["-clonedSourcePackagesDirPath", resolve(root, packages)] : []),
   ]
-  // Simulator builds need no signing identity (as CI's builds).
+  // Simulator builds need no signing identity (as CI's builds). So no entitlements are embedded: a test of a
+  // Keychain screen (SecureStore) would get -34018 and needs an ad hoc signed build (CODE_SIGN_IDENTITY=-).
   const settings = ["CODE_SIGNING_ALLOWED=NO"]
 
   if (!testOnly) {

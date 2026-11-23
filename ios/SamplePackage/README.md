@@ -49,3 +49,6 @@ bun run ios:ui-test --device "iPhone 17"
 `--only ComponentsTests` (or `Class/testName`, repeatable) runs some; `--dump a11yLab --ready a11y-status` prints a
 route's accessibility tree, to write a new test; `--packages <dir>` keeps SwiftPM checkouts between CI runs. The
 simulator is booted for the run and shut down after, unless it was already on (or `--keep-booted`).
+
+The test build is not signed (`CODE_SIGNING_ALLOWED=NO`, as CI's builds), so the app has no entitlements: a test of a
+Keychain screen (SecureStore) would fail with -34018 until the test build is signed ad hoc (`CODE_SIGN_IDENTITY=-`).
