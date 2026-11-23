@@ -221,8 +221,22 @@ final class ZnDev {
 
     /// Runs the build in [dir]: the runtime is replaced and every open screen opens again.
     private func apply(_ dir: URL, _ hash: String) {
-        guard !reloading, !ZnApp.shared.restarting else {
+        guard !reloading else {
             waiting = (dir, hash)  // after the reload going on now
+            return
+        }
+        if ZnApp.shared.restarting {
+            // Another restart (an OTA update applied in place) is going on: this build (or a newer one) goes after it.
+            waiting = (dir, hash)
+            if !retrying {
+                retrying = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
+                    retrying = false
+                    guard let (d, h) = waiting else { return }
+                    waiting = nil
+                    apply(d, h)
+                }
+            }
             return
         }
         // The app has just started (the first build comes right after HELLO): its first screens and the module
@@ -252,6 +266,8 @@ final class ZnDev {
 
     /// A build waits for the app's first screens to settle (apply).
     private var settling = false
+    /// A build waits for another restart to end (apply).
+    private var retrying = false
 
     private func reload(_ dir: URL, _ hash: String) {
         reloading = true
