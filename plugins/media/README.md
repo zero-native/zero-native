@@ -29,16 +29,20 @@ user picked). `takePhoto` needs `NSCameraUsageDescription` in Info.plist.
 
 What is different on iOS:
 - `pickPhotos` is the Photos picker (`PHPickerViewController`); HEIC photos are read as they are. An iCloud photo is
-  downloaded first, so the promise can take a while.
+  downloaded first, so the promise can take a while: a photo not read in 60 s fails (`read_failed`, counted in
+  `skipped`).
 - `pickFile` is the Files picker. `types` are matched to iOS's content types (`image/*` is any picture); a type iOS
-  doesn't know matches no file.
+  doesn't know matches no file. Two are broader than on Android: `application/*` lets any file be picked (iOS has no
+  type for every `application/` one), and `text/*` lets JSON and XML be picked too. Check the file's `mime` when it
+  matters. A package from Files (a `.pages` or `.key` document, which is a folder on iOS) fails with `read_failed`.
 - `takePhoto` is the system camera (`UIImagePickerController`). It needs the camera permission: JS asks for it and tries
   again, as on Android. iOS asks only once, so a "no" there comes back as `camera_blocked` (Android says
   `camera_denied` the first time). No camera (the simulator) fails with `no_app`; debug builds can set
   `ZN_MEDIA_FAKE_CAMERA=1` for a drawn photo instead.
 - **After a kill** the pick is `lost`: the pickers run inside the app, so their answer dies with it. Everything else in
   that section holds: a half-written file never gets a handle, and `collect` again is safe.
-- A picker that goes away with no answer (a swipe down, or a Sheet that closes under it) ends as `cancelled`.
+- A picker that goes away with no answer (a swipe down, or a Sheet that closes under it) ends as `cancelled`. A new
+  pick within a second of that, before the plugin noticed, fails with `busy`.
 - `fileDir` is in Caches, which iOS can clear when the phone is short of space: as on Android, a handle is for now.
 
 ## Use it

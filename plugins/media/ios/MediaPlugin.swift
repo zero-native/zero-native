@@ -218,7 +218,12 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
 
     /// Main thread: the job on disk, the launch, then the picker [make] gives (nil: it answers by itself).
     @MainActor private func launch(_ call: ZnCall, _ job: MediaJob, _ make: () -> UIViewController?) {
-        if uiGone() { dropGone() }  // closed with no answer: that pick is over
+        // Closed with no answer: that pick is over. Its own promise acks its "cancelled" in a moment, so until then this
+        // one is busy (ZnLaunch would say "unacked", which a pick never is on Android).
+        if uiGone() {
+            dropGone()
+            return call.resolve(["launched": false, "reason": "busy"])
+        }
         guard let top = znTopController() else { return call.resolve(["launched": false, "reason": "no_activity"]) }
         let before = ZNStorage.string(Self.store, key: Self.jobKey)
         Self.write(job)
@@ -264,8 +269,15 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
     /// The copies of one pick while they are made (main thread).
     final class Copies: @unchecked Sendable {
         var list: [Copy]
+        /// The items read (or failed), the loads still going, and whether the pick was answered.
+        var done = Set<Int>()
+        var loads: [Progress] = []
+        var answered = false
         init(_ list: [Copy]) { self.list = list }
     }
+
+    /// A photo not read in this time (an iCloud download that never ends) fails as read_failed, so the pick ends.
+    static let photoReadLimit: TimeInterval = 60
 
     // MARK: The pickers' answers (main thread)
 
@@ -275,26 +287,42 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
         let results = Array(results.prefix(job.max))
         if results.isEmpty { return answer(id, code: 0) }
         let copies = Copies(results.indices.map { Copy(part: MediaRules.partName(id, $0, "in")) })
-        let group = DispatchGroup()
+        let end = {
+            guard !copies.answered else { return }
+            copies.answered = true
+            self.answer(id, code: -1, copies: copies.list)
+        }
         for (i, r) in results.enumerated() {
             let provider = r.itemProvider
             let type = provider.registeredTypeIdentifiers.compactMap(UTType.init).first { $0.conforms(to: .image) } ?? .image
             copies.list[i].name = provider.suggestedName
             copies.list[i].mime = type.preferredMIMEType
             let part = copies.list[i].part, maxBytes = job.maxBytes
-            group.enter()
             // The file lives only while this callback runs: copied here, on its queue. An iCloud photo is downloaded
-            // first (the promise waits).
-            provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
+            // first (the promise waits, at most photoReadLimit).
+            let load = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
                 let failed = url.map { Self.copy($0, to: part, maxBytes: maxBytes) } ?? "read_failed"
                 if url == nil { print("zn media: a photo can't be read: \((error as NSError?)?.code ?? 0)") }
                 DispatchQueue.main.async {
+                    guard !copies.answered else {  // too late: it failed already
+                        try? FileManager.default.removeItem(at: ZnHandles.fileDir.appendingPathComponent(part))
+                        return
+                    }
                     copies.list[i].failed = failed
-                    group.leave()
+                    copies.done.insert(i)
+                    if copies.done.count == results.count { end() }
                 }
             }
+            copies.loads.append(load)
         }
-        group.notify(queue: .main) { self.answer(id, code: -1, copies: copies.list) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.photoReadLimit) {
+            guard !copies.answered else { return }
+            let late = copies.list.indices.filter { !copies.done.contains($0) }
+            print("zn media: \(late.count) photo(s) not read in \(Int(Self.photoReadLimit)) s (an iCloud download?): failed")
+            for i in late { copies.list[i].failed = "read_failed" }
+            copies.loads.forEach { $0.cancel() }
+            end()
+        }
     }
 
     @MainActor fileprivate func picked(files urls: [URL]) {
@@ -333,7 +361,13 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
     private static func copy(_ from: URL, to name: String, maxBytes: Int64) -> String? {
         let target = ZnHandles.fileDir.appendingPathComponent(name)
         try? FileManager.default.removeItem(at: target)
-        let size = (try? from.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init) ?? 0
+        let values = try? from.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+        // A package from Files (.pages, .key, .rtfd, a bundle) is a folder: no file to hand JS (Android has none).
+        if values?.isDirectory == true {
+            print("zn media: the picked item is a folder (a package), not a file")
+            return "read_failed"
+        }
+        let size = values?.fileSize.map(Int64.init) ?? 0
         if size > maxBytes { return "too_big" }
         do {
             try FileManager.default.copyItem(at: from, to: target)
@@ -506,7 +540,10 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
         guard fm.fileExists(atPath: part.path) else { throw MediaFailure("access_lost", "the copy is gone; pick again") }
         let mime = MediaRules.mimeOr(job.mimes.first ?? nil, "application/octet-stream")
         let target = dir.appendingPathComponent(MediaRules.fileName(job.id, 0, MediaRules.extensionFor(mime, name)))
-        guard rename(part.path, target.path) == 0 else { throw MediaFailure("write_failed", "can't move the copy into place") }
+        guard rename(part.path, target.path) == 0 else {
+            try? fm.removeItem(at: part)  // as Android: the copy goes, and the user picks again
+            throw MediaFailure("write_failed", "can't move the copy into place")
+        }
         return Self.describe(target, name, mime)
     }
 
@@ -591,13 +628,16 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
         return types.isEmpty ? ["*/*"] : types
     }
 
-    /// Mime types → the document picker's content types. "image/*" and the like are the family's base type; one iOS
-    /// doesn't know matches no file (as an Android type no app has).
+    /// Mime types → the document picker's content types. "image/*" and the like are the family's base type; a type or
+    /// family iOS doesn't know is a made-up type, which matches no file (as an Android type no app has). Broader than
+    /// Android: "application/*" is any file (iOS has no type for every application/ one), and "text/*" is any text,
+    /// JSON and XML too (application/ on Android).
     static func contentTypes(_ mimes: [String]) -> [UTType] {
         guard let list = MediaRules.pickTypes(mimes) else { return [.item] }
-        let families: [String: UTType] = ["image": .image, "video": .movie, "audio": .audio, "text": .text, "application": .data, "font": .font]
+        let families: [String: UTType] = ["image": .image, "video": .movie, "audio": .audio, "text": .text, "application": .data,
+                                          "font": .font, "model": .threeDContent, "message": .message]
         let types = list.compactMap { m -> UTType? in
-            if m.hasSuffix("/*") { return families[String(m.dropLast(2))] ?? .data }
+            if m.hasSuffix("/*"), let family = families[String(m.dropLast(2))] { return family }
             return UTType(mimeType: m) ?? UTType(tag: m, tagClass: .mimeType, conformingTo: .data)
         }
         return types.isEmpty ? [.item] : types
