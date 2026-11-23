@@ -27,7 +27,8 @@ One line each: what is missing, what to do today, and where it is tracked. "Fram
 pilot; "known limit" items are built but have a gap we plan to fix before real users.
 
 **Not built**
-- **iOS.** No host yet; Android only. Do: build for Android. Tracked: ARCHITECTURE §20 (iOS notes) and §23.
+- ~~**iOS.**~~ Built since 2026-11-08 (`docs/milestones-ios.md`). Do: check `docs/guides/platform-differences.md` §3
+  before you ship a screen to iOS; what is still only checked on the simulator is in `docs/milestones-ios.md` §12.
 - **The flow engine** (`@flow`). Parked. Do: save the payment step in `flowStore`, then ask the backend (save-then-verify,
   §16). Tracked: ARCHITECTURE §12 and §23.
 - **Runtime `width`, `height` and other layout values** (`margin`, `flex`, `fontSize`, `borderRadius`), also from a
@@ -1659,7 +1660,8 @@ Example: all four tabs of [TabsLab.tsx](../examples/sample/src/TabsLab.tsx) (two
   inside `refreshControl={...}`. **Why:** the compiler reads it there, at build time.
 - **Don't** put pull to refresh on `<Scroll horizontal>`: it is a build error.
 - **Know:** one colour only. RN's `colors` array (colours that take turns) uses its first colour.
-- **Know:** the content doesn't move down with the pull, as on Android. On iOS it will (SwiftUI's own refresh).
+- **Know:** on Android the content doesn't move down with the pull. On iOS it does (UIKit's refresh control, with the
+  scroll's bounce); each platform keeps its own look.
 - **Know:** TalkBack has no pull gesture (the same as in RN). If reloading matters, give screen reader users a button.
 
 ## 42. SVG (docs/svg.md, registry 13; built as 11-13, first planned as 10)

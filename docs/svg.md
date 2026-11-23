@@ -515,8 +515,8 @@ Where the code is:
 - Sample: [SvgLab.tsx](../examples/sample/src/SvgLab.tsx:1), route `/dev/svg`, a row on the Dev screens list.
 
 What changed from the design above:
-- **Paths are SVG path text, arcs kept** (§6.1; second-opinions entry 53). For the iOS renderer later this means a
-  small SVG-path reader with an arc → cubic helper (about 80 lines), not "plain cubics only".
+- **Paths are SVG path text, arcs kept** (§6.1; second-opinions entry 53). The iOS renderer has that
+  reader (`ios/ZnRuntime/Swift/ZnPathData.swift`: every command, arcs as cubics), not "plain cubics only".
 - **Precision is 1/2,000 of the viewBox's larger side** (the design said 1/10,000). At 1/2,000 a 24 dp icon is exact
   to 0.012 dp, far below a pixel; it saved ~10 % more data (125 → 112 KB on the RN assets).
 - **The node count includes the parts:** a `.svg` with 2 parts is 3 template nodes (`Svg` + 2 `SvgPart`), so a branch

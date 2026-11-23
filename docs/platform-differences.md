@@ -12,5 +12,5 @@ Add a row whenever a test needs a tolerance or a rule differs by platform.
 | Shadows | Android uses elevation shadows: `shadowColor` / `shadowOffset` are approximated | Compose `shadow()` is elevation-based | decided |
 | Text metrics | Line height, font metrics and wrapping may differ by 1–2 px | Different native text engines | tolerance set by conformance tests |
 | Per-side borders | Drawn with `drawBehind` on Android | Compose `border()` is uniform | [check cost] |
-| Shared elements | Compose API still experimental; SwiftUI zoom transition needs iOS 18 | Platform API maturity | v1 optional |
+| Shared elements | Android: Compose's shared transitions; iOS: the element flies in UIKit (ZnShared.swift, iOS 17+), not inside Sheets / Modals or with ZN_IOS_NAV=swiftui | Platform API maturity | built on both (iOS on the simulator, 2026-11-23) |
 | UPI result delivery | Android: activity result; iOS: app switch + callback URL | OS design | handled by flows (ARCHITECTURE §20) |

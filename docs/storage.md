@@ -49,7 +49,7 @@ and a boolean back, JS reads all three with their types.
 - **MMKV from source, not the AAR.** `core/third_party/mmkv/Core` (MMKV 2.4.3, BSD-3, unchanged; upgrade = replace
   the folder) is built by its own CMake file into `libzn.so`. The AAR's `libmmkv.so` carries its own copy of the C++
   library plus a Java layer: 1.15 MB raw / ~372 KB download. Built from source against the `libc++_shared` we already
-  ship: ~87 KB download (measured with a probe library). The same C++ serves iOS later, and our core tests run against
+  ship: ~87 KB download (measured with a probe library). The same C++ serves iOS (`ZNHost.mm`), and our core tests run against
   real MMKV on the phone.
 - **Hidden symbols in `libzn.so`:** it now exports only its JNI entry points (`-Wl,--exclude-libs,ALL`,
   `--gc-sections`), so the linker drops MMKV and core code nothing calls. `libzn.so`: 509 KB → 356 KB raw

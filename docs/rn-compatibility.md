@@ -488,4 +488,4 @@ the docs (not re-checked in code). Pavan: write them down as later work. Suggest
 | Sensors | `useAnimatedSensor` (gyroscope, rotation vector, …) | Gravity tilt only (`useTilt`) |
 | Skia extras | Shaders (SkSL), text measuring from JS, snapshot to an image, Atlas, Picture recording, video frames | None. Gradients, dash, path data and text layout can't follow a motion value |
 | Libraries | Rive, maps with gestures, @gorhom bottom-sheet, FlashList, SectionList | Our Sheet and List only (grids: rn-gaps-pack). List offset is an estimate past measured rows |
-| Platform | Both | Nothing in §12 runs on iOS yet. Pinch, rotate, the edge-back band, TalkBack and frame timings not yet proven on the Lava |
+| Platform | Both | iOS runs §12 on the simulator with the engine on (ZN_MOTION_ENGINE=1 in a Debug build; Release builds register the stub until the motion gate, `docs/motion.md`); not yet on an iPhone. Pinch, rotate, the edge-back band, TalkBack and frame timings not yet proven on the Lava |

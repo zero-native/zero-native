@@ -11,7 +11,7 @@ From the app's folder:
 | Command | What it does |
 |---|---|
 | `zn build <appDir> --name <app> --assets <dir>` | the app's JS bundle: templates, Hermes bytecode, `zn-bundle.json` |
-| `zn dev [appDir]` | live reload to a debug build on the phone |
+| `zn dev [appDir] [--lan]` | live reload to debug builds: an Android phone over USB (`adb reverse`), the iOS simulator (no setup), and with `--lan` an iPhone on the same Wi-Fi (Bonjour; opt in, as anyone on the network can then fetch the app's code) |
 | `zn builtin`, `zn release`, `zn store-build`, `zn status`, ... | OTA releases with a zn-updates server (`zn-updates.json` in the app) |
 | `zn where` | the folder this `zn` runs from |
 

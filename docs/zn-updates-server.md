@@ -19,7 +19,7 @@ stats), the zn-ota-server session's notes (one-call streaming, families, delta z
 | Server | `server/src/` | `Bun.serve`: phone API, admin API, dashboard. Postgres (`Bun.sql`; PGlite for local runs and tests). Files on GCS (or a local folder) |
 | Dashboard | `server/web/` | React, served by the same server. Signs pointers **in the browser** (WebCrypto) with the key file loaded from the owner's laptop: the server never holds the private key |
 | CLI | `tools/updates/` (`bun run updates ...`) | Builds an app's bundle, signs it, uploads it; registers store builds (reserves their serial); every dashboard action too |
-| Phone | `android/runtime` `ZnOta` (built), iOS later | Unchanged protocol 1 (POST `/v1/check`, then GET the zip). Protocol 2 (one call that streams the zip) comes with the next store build |
+| Phone | `android/runtime` `ZnOta` and `ios/ZnRuntime/Swift/ZnOta.swift` (both built) | Unchanged protocol 1 (POST `/v1/check`, then GET the zip). Protocol 2 (one call that streams the zip) comes with the next store build |
 | Store updates | `plugins/app-updates` | Play in-app updates (Android), App Store page (iOS); the app shows its own screens. The store answer comes with the check (§4.6): no second request |
 
 ## 2. Trust (unchanged from docs/ota.md)

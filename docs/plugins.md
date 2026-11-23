@@ -4,9 +4,11 @@
 (P.1), the plumbing (P.2: permissions, results from other apps), an app outside this repo with its own plugin (P.3),
 native screens and `<NativeView>` (P.3b to P.4b), background JS tasks and the core items (P.5, P.6), and the official
 plugins `auth`, `scanner`, `media`, `webview`, `pdf`, `location`, `firebase-app`, `crashlytics`, `push`, `analytics`,
-`remote-config`, `perf`, `lottie`, `document-scanner` and `image-viewer` (2026-11-05). Not built: codegen, `zn://mem`, certificate pinning, iOS. Parts below that are written as
+`remote-config`, `perf`, `lottie`, `document-scanner` and `image-viewer` (2026-11-05). Not built: codegen, `zn://mem`, certificate pinning. Parts below that are written as
 design keep their original wording; the tables say what is built. Decisions D1–D7 were taken on 2026-11-02 (section 8);
-section 10 has the questions for reviewers. Android only for now; every choice must also work for iOS later.
+section 10 has the questions for reviewers. Written for Android first; since 2026-11-08 every official plugin but
+`android-ad-id` has an iOS side too (`plugins/<name>/ios`, registered with `ZnPlugins.register(...)`;
+`docs/milestones-ios.md` §9).
 
 **Why now.** The next features (QR scan, WebView, UPI apps, photos, push) each need native code, a native view or
 another app's result. If each one invents its own way to plug in, apps get five different patterns and OTA safety

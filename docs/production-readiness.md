@@ -6,7 +6,8 @@ for prod 10M+ user apps, including iOS"). Tick items off here as they land, with
 **Where we stand (2026-11-05):**
 - **Android:** the foundations are built and ready for the ZeroBill pilot. The work left is mostly **proving it at
   scale**, plus a few real gaps.
-- **iOS:** not built. No host yet (`ARCHITECTURE.md` "Where things stand").
+- **iOS:** not built. No host yet (`ARCHITECTURE.md` "Where things stand"). *(2026-11-24: built since 2026-11-08 and
+  checked on the simulator; see section D and `docs/milestones-ios.md`.)*
 
 **How to read the tags:**
 - **[fact]** checked in the repo when written.
@@ -127,6 +128,10 @@ Parked by Pavan until building is done (2026-11-04). Details are in the shared n
   (guide §16). It works, but needs discipline.
 
 ## D. iOS: a whole second track. Blocks: 10M (start it in parallel with step 4)
+**Status 2026-11-24:** the iOS host exists (`ios/`, SwiftUI + UIKit) and the items below are built and checked on the
+simulator (`docs/milestones-ios.md` §5–9, gaps left in `docs/guides/platform-differences.md` §3); the boxes stay open
+until the device checks in `docs/milestones-ios.md` §12 pass. As written on 2026-11-05:
+
 The C++ core, Hermes and the template format are shared. **The iOS host doesn't exist.** It needs:
 - [ ] **A SwiftUI renderer:** slot cells, lists, sheets, `NavigationStack`, safe areas, keyboard. Plus conformance
   tests so Android and iOS draw the same templates the same way (`ARCHITECTURE.md` 9.5).

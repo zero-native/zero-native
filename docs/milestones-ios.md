@@ -5,7 +5,8 @@ part of zn what iOS has and what is left. **Update it after every iOS piece**, t
 `docs/ios-parity-checklist.md` (item-level notes) and the dated log entry in `docs/milestones.md` `## Log` (the story
 of each piece: what was built, what was checked, what wasn't).
 
-Status as of **2026-11-09, zn main 646b042**. Android (`android/runtime`, `plugins/*/android`) is the reference: iOS
+Status as of **2026-11-24** (zn main 30d895c, after the iOS gap rounds 1–4 of 2026-11-21 to 11-24; the phase notes in
+§4 are dated where they say). Android (`android/runtime`, `plugins/*/android`) is the reference: iOS
 keeps its contracts (same functions, answers, error codes) and writes down every difference.
 
 Status words: **done** (on the simulator unless it says device), **partial** (what's missing is in the note),
@@ -33,7 +34,10 @@ Pavan's goal (2026-11-09): the ZeroBill app on iPhone, checked the way it was ch
 3. **Every Android-only thing has a written iOS answer**: built, "unavailable", or "not needed" with why.
 
 Where it stands: Phase 1 (the checkout path in zn) is **done on the simulator**. Phase 2 (ZeroBill's own iOS app) is
-**in progress**: it builds and runs on the simulator up to Welcome (ZB 9aebed5). Nothing has run on a real iPhone yet.
+**in progress**: it builds and runs on the simulator up to Welcome (ZB 9aebed5). On Pavan's iPhone so far: a layout look
+(2026-11-09) and real FCM pushes (i.18); every other device check is in §12. The gap list of
+`docs/guides/platform-differences.md` §3 was closed on the simulator in rounds 1–4 (2026-11-21 to 11-24): §5–9 say
+what each piece does and what is left.
 
 ---
 
@@ -78,8 +82,11 @@ bun run tools/ios-sample.ts --route rnPropsLab --params '{}'
   the console attached. Flags: `--route` / `--params`, `--link <url>` (a cold start by link), `--splash-hold <ms>`,
   `--delay <ms>` (JS late, to see the skeleton), `--count` (SwiftUI body runs), `--build-only`, `--no-symbols`
   (skip the dSYM upload). Env: `ZN_SCANNER_FAKE=<code>`, `ZN_DOCSCAN_FAKE=<pages>|cancel`, `ZN_IOS_*` switches.
-- Simulator "zn iPhone 16" (iOS 18.0). Xcode here has no device platform: simulator only until the device build.
-- Tests: `bun test packages plugins compiler tools` (1292 / 1293, the known A7), `bun run tools/run-core-tests-apple.ts
+- Simulator "zn iPhone 16" (iOS 18.0); the gap rounds used their own simulators. Device builds exist (Pavan's iPhone 11:
+  FCM pushes 2026-11-11, cold start and App Store size 2026-11-19, `docs/milestones.md`); ask Pavan before any
+  device build or signing.
+- Tests: `bun run test` (1666 pass on 2026-11-24), `bun run tools/ios-unit-test.ts` (the Mac unit suites,
+  `ios/tests/README.md`), `bun run ios:ui-test` (XCUITest on a simulator), `bun run tools/run-core-tests-apple.ts
   --sim` (C++ core), LayoutLab route `layoutLab` (97 / 97 on 2026-11-09). `--device <name>` picks a simulator when two are booted.
 - Tips (simulator taps, screenshots, swipes): `docs/ios-handoff.md`.
 
@@ -95,8 +102,8 @@ bun run tools/ios-sample.ts --route rnPropsLab --params '{}'
 | i.1a | Hermes (`hermes-ios` 260318099.0.5) + the C++ core on the simulator; the Android bundle's bytecode loads unchanged | **done** (simulator; arm64 device build not tried) |
 | i.1b | Renderer spike: `zn::Platform` in ObjC++, JS thread, batches on the main actor, amount screen in SwiftUI, skeleton before JS | **done**: a digit redraws 2 views of ~169 |
 | i.1c | The hard parts both ways (back stack, text field, long list, sheet, presses) | **done**: UIKit for all five |
-| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience | **done** except `zn dev` (missing) and the registry 23 / 24 drawing (§5–6) |
-| i.3 | Platform modules: fetch, storage, SecureStore, restore, OTA | **partial**: fetch, storage, SecureStore, restore done; OTA missing (Phase 4a) |
+| i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience | **done**; `zn dev` (simulator 2026-11-22, an iPhone over the LAN 2026-11-24, §8) and the registry 23 / 24 drawing (2026-11-21 to 11-23, §5–6) since |
+| i.3 | Platform modules: fetch, storage, SecureStore, restore, OTA | **done** on the simulator: fetch, storage, SecureStore, restore; OTA (Phase 4a, 2026-11-10; patches 2026-11-22); OTA's phone part left |
 | i.4 | Plugins in ZeroBill's order; UPI by scheme + server verify | **partial**: 13 plugin iOS sides done (§9); push / notifications in Phase 3; UPI in Phase 2 |
 
 ### Step 0 (2026-11-09): refresh the truth — **done** (fcb71bd)
@@ -153,6 +160,7 @@ Original plan:
 Plan: docs/ios-ota-plan-2026-11-10.md (Swift copy of the Kotlin rules, no patches yet). Done: rules, check, download,
 install, crash mark, rollback (ZnOta.swift, ZnOtaRules.swift, ZnOtaInstall.swift; `bun run ios:ota-test`). Apply in place
 and rollback in place done (5a), the launch gate (5b), the simulator matrix (7, 18 of 18, docs/ota-test-matrix.md).
+Patches (znbsdiff1) since 2026-11-22: ZnBsPatch.swift, `docs/ota-patches.md` §6.
 Next: ZeroBill (6, its session), then the phone part of 7 on Pavan's iPhone. Earlier text:
 The update server is now zn's own `server/` (zn-updates, `docs/zn-updates-server.md`, landing from Windows);
 phones use protocol 1 unchanged (POST /v1/check, then GET the zip). Decision logic (bundle choice, health, signature rules) moved from Kotlin to C++ first so both phones share it (A1);
@@ -160,7 +168,10 @@ then Android must pass its 38-case phone matrix again. Then on iOS: bundle pool 
 verify (ECDSA P-256 / SHA-256, CryptoKit), install, health facts and boot guard (MetricKit or core's crash mark),
 Updates module, apply in place behind a cover. Same protocol as Android (`docs/ota.md` §3.4–3.6). About 5 days.
 
-### Phase 4: gestures and motion [zn] — **waits** (ZeroBill uses none)
+### Phase 4: gestures and motion [zn] — **done on the simulator, behind ZN_MOTION_ENGINE=1 in Debug** (2026-11-21 to 11-23; ZeroBill uses none)
+Built in the gap rounds: the engine, bindings, gestures, element values, useZoom, tilt, animateLayout, shared elements,
+reorder, the plugin API (§6, §8). Release builds still register the stub Motion module (ZnMotionModule.swift) until the
+motion gate decides (`docs/motion.md`). The plan as it was:
 `docs/motion.md` §14 is the porting guide. Motion values, timings, formulas, bindings; gestures, element values,
 shared elements, reorder, drop zones, tilt; v1.1: `useZoom`, snapping and scroll events, `keyboardDismissMode`,
 width / height from a value, the transparent route; then the TSX image viewer replaces the Swift one.
@@ -176,9 +187,10 @@ Motion (`tools/ota/decide.ts`, docs/ota.md §3.2). `tools/test/motion-coverage.t
 module (gestures and plugins' drivers included) or core's motion.ts has a method iOS lacks. Cost with the engine on
 in a Release build: see the motion-ota-gate row in "Gestures and motion".
 
-### Phase 5: the rest [zn] — **waits**
+### Phase 5: the rest [zn] — **done on the simulator** (2026-11-21 to 11-24)
 Background tasks, accessibility + font scaling, secure screens, impressions, Canvas, registry 23 / 24 drawing, media /
-perf / remote-config plugins, `zn dev`, the Mac tools.
+perf / remote-config plugins, `zn dev`, the Mac unit suites and the UI tests (§5–9, §11). Left: the phone checks (§12)
+and the measurement tools (§11).
 
 ---
 
@@ -190,18 +202,18 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 2 | Row | done | flexWrap / alignContent / crossGap done 2026-11-09 (ZnWrapLayout.swift); gap / rowGap from a slot done 2026-11-21 | |
 | 3 | Stack | done | | |
 | 4 | Box | done | | |
-| 5 | Text | partial | `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` (r23). Top-level onPress / onLongPress and fontSize / lineHeight / letterSpacing from slots done 2026-11-21; Dynamic Type + maxFontScale, accessibility, `fontFamily` (r24) and motion values as text (`v.format`) done 2026-11-21 (W2-B) | §6 |
+| 5 | Text | done | `selectable` / `adjustsFontSizeToFit` / `minimumFontScale` (r23) done 2026-11-21 (7e787b2, ZnUIRules.swift). Top-level onPress / onLongPress and fontSize / lineHeight / letterSpacing from slots done 2026-11-21; Dynamic Type + maxFontScale, accessibility, `fontFamily` (r24) and motion values as text (`v.format`) done 2026-11-21 (W2-B) | §6 |
 | 6 | Image | done | asset, http, file, `zn://file` handles, fallback, tint, events. `zn://app-icon` is n/a (no installed-apps icons on iOS). The picture is centred in its box for contain and cover (2026-11-09; it sat at the top left). Remote pictures' bytes on disk (Caches/zn-images, 200 MB, LRU), and two askers for one URL share one download (2026-11-23, W4-C) | |
 | 7 | Pressable | done | Press feedback, runtime `disabled` and hitSlop (2026-11-12); accessibility (2026-11-21, §6) | §6 |
 | 8 | Spacer | done | | |
 | 9 | Icon | done | | |
 | 10 | Anchor | done | | |
-| 11 | List | partial | impressions. Window, sticky, inverted, pull to refresh (with refreshBackground), header / footer / empty, ref scroll commands (r23), `numColumns` / `columnWrapper` (r24), horizontal and the cells' environment (entry, hidden tab, touch off) done (2026-11-21; GridLab, ChatListLab, RnPropsLab). Item animation (fade / move, moves found by key), drag to reorder (UIKit drag and drop; a row's onLongPress is off, decision 7), image preload into a disk cache, scroll extras (events, paging, snap, decelerationRate, keyboardDismissMode) and an inverted list following its newest row done 2026-11-23 (W4-C; ListsTwoLab /dev/lists2, ScrollLab b, /dev/image-list; ios/tests/list). The SwiftUI variant (ZN_IOS_LIST=swiftui) does the same, scrollToOffset / viewOffset and the image preload included; review fixes 2026-11-23 (JS rows wait for a drag to end, header / footer / empty keep onLongPress, flipped fling direction, a lost SwiftUI drag goes back) | |
+| 11 | List | done | Impressions (2026-11-22, §8). Window, sticky, inverted, pull to refresh (with refreshBackground), header / footer / empty, ref scroll commands (r23), `numColumns` / `columnWrapper` (r24), horizontal and the cells' environment (entry, hidden tab, touch off) done (2026-11-21; GridLab, ChatListLab, RnPropsLab). Item animation (fade / move, moves found by key), drag to reorder (UIKit drag and drop; a row's onLongPress is off, decision 7), image preload into a disk cache, scroll extras (events, paging, snap, decelerationRate, keyboardDismissMode) and an inverted list following its newest row done 2026-11-23 (W4-C; ListsTwoLab /dev/lists2, ScrollLab b, /dev/image-list; ios/tests/list). The SwiftUI variant (ZN_IOS_LIST=swiftui) does the same, scrollToOffset / viewOffset and the image preload included; review fixes 2026-11-23 (JS rows wait for a drag to end, header / footer / empty keep onLongPress, flipped fling direction, a lost SwiftUI drag goes back) | |
 | 12 | Scroll | done | Pull to refresh, refreshBackground; scroll events, snapping, decelerationRate, scrollTo / scrollToEnd and keyboardDismissMode (r24) done 2026-11-21 (ZnScroll.swift, ZnScrollSnap.swift; ios/tests/scroll; ScrollLab, InputScreen) | |
-| 13 | Carousel | partial | `itemWidthPercent` (r23). autoAdvance pauses after a touch on plain pages too (2026-11-21; DynamicLayoutLab section 8) | S |
-| 14 | Sheet | partial | onDetentChange; sheet colour and corner radius fixed. animateIn done | S + S |
+| 13 | Carousel | done | `itemWidthPercent` (r23) done 2026-11-21 (7e787b2). autoAdvance pauses after a touch on plain pages too (2026-11-21; DynamicLayoutLab section 8) | S |
+| 14 | Sheet | done | onDetentChange, backgroundColor and borderRadius done 2026-11-21 (235deb6; the default corner is 10 pt, Android's 24); `motion` progress 2026-11-23 (W4-A). animateIn done | |
 | 15 | Fragment | done | | |
-| 16 | TextField | partial | (autoComplete → `textContentType`: done 2026-11-11; editable, placeholder / colour at runtime: done 2026-11-21) autoCapitalize / autoCorrect, placeholderColor, selectionColor | S × 3 |
+| 16 | TextField | done | autoComplete → `textContentType` (2026-11-11); editable, placeholder / colour at runtime (2026-11-21); autoCapitalize / autoCorrect, placeholderColor (#9CA3AF when not set, decision 2), selectionColor (2026-11-21, 7e787b2) | |
 | 17 | NativeView | done | | |
 | 18 | Svg | done | (the whole filter graph runs, as Android 12+: done 2026-11-22, ZnSvgFilters.swift, SvgLab Filters, ios/tests/svg) | |
 | 19 | SvgPart | done | | |
@@ -215,9 +227,9 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | 32 | StatusBar | done (2026-11-09) | barStyle / hidden / backgroundColor per screen, newest wins (ZnSystemBars.swift) | |
 | 33 | NavigationBar | done (2026-11-09) | backgroundColor fills the bottom safe area behind the home indicator; barStyle does nothing (the indicator has no colour of its own) | |
 | 34 | OtpInput | done | | |
-| 35 | Canvas | done (simulator) | Core Graphics in a plain UIView, as Svg (ZnCanvas.swift, ZnCanvasParse.swift, ZnCanvasDraw.swift, ZnPathData.swift; 2026-11-21): every command, paint, clip, blend layer, shadow, blur on solid colours, text, paragraph and image; Android's parse rules and warning texts; Mac suite ios/tests/draw. Not yet: motion values in commands (CanvasLab 9-11 stay still, with a warning), blur on gradient paints (drawn sharp) | L |
+| 35 | Canvas | done (simulator) | Core Graphics in a plain UIView, as Svg (ZnCanvas.swift, ZnCanvasParse.swift, ZnCanvasDraw.swift, ZnPathData.swift; 2026-11-21): every command, paint, clip, blend layer, shadow, blur on solid colours, text, paragraph and image; Android's parse rules and warning texts; Mac suite ios/tests/draw. Motion values in commands and blur on gradient / sweep paints since 2026-11-22 (b9e80d7; CanvasLab 9–11, 18, 19) | |
 
-**Done 20, partial 7, missing 3** of 30.
+**Done 30** of 30 (2026-11-24; on the simulator).
 
 ---
 
@@ -255,9 +267,9 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | Prop | iOS | Size |
 |---|---|---|
 | autoComplete → `textContentType` (OtpInput already uses `.oneTimeCode`) | done 2026-11-11 (ZnTextField.swift) | S |
-| autoCapitalize, autoCorrect | missing | S |
+| autoCapitalize, autoCorrect | done (2026-11-21, 7e787b2; ZnUIRules.swift, Mac suite uirules) | S |
 | editable (also at runtime), placeholder / colour at runtime | done (2026-11-21; a read-only one-line field takes no focus on iOS) | S |
-| placeholderColor, selectionColor | missing | S |
+| placeholderColor, selectionColor | done (2026-11-21, 7e787b2; #9CA3AF when not set, decision 2) | S |
 
 ### List, Scroll, Carousel, Text
 | Prop | iOS | Size |
@@ -270,20 +282,20 @@ perf / remote-config plugins, `zn dev`, the Mac tools.
 | Scroll pagingEnabled, snapToInterval / Alignment, snapToOffsets, snapToStart / End, disableIntervalMomentum, decelerationRate (r24) | done (2026-11-21; Android's ZnSnap.pick through scrollTargetBehavior, a let-go with no speed snaps too, also while refreshing; the rate is UIKit's own, set again at each drag) | M |
 | Scroll ref scrollTo / scrollToEnd (r24) | done (2026-11-21; once per seq on the instance, waits for the scroll view and its first layout) | S |
 | Scroll keyboardDismissMode (r24) | done (2026-11-21; SwiftUI's scrollDismissesKeyboard, interactive only vertical as Android, none never closes it) | S |
-| Carousel `itemWidthPercent` (r23) | missing | S |
-| Text `selectable`, `adjustsFontSizeToFit`, `minimumFontScale` (r23) | missing | S |
+| Carousel `itemWidthPercent` (r23) | done (2026-11-21, 7e787b2; the last page shown at the scroll's end) | S |
+| Text `selectable`, `adjustsFontSizeToFit`, `minimumFontScale` (r23) | done (2026-11-21, 7e787b2) | S |
 
 ### Sheet, Svg
 | Prop | iOS | Size |
 |---|---|---|
-| Sheet onDetentChange | missing | S |
-| Sheet backgroundColor / borderRadius | partial | S |
+| Sheet onDetentChange | done (2026-11-21, 235deb6; sent when a drag rests on another detent) | S |
+| Sheet backgroundColor / borderRadius | done (2026-11-21, 235deb6; the whole card; default corner 10 pt, Android's 24) | S |
 | Svg filters beyond a drop shadow | done (2026-11-22: every primitive the compiler keeps; a region over 4M px at a lower resolution) | |
 | Svg autoMirror in RTL | not checked | S |
 
-Registry: iOS reads up to **24** (Registry.swift generated). Debug builds log each r23 / r24 prop it doesn't draw yet,
-once. Release draws nothing for them: fine while bundles ship inside the app; once iOS has OTA its capability
-manifest must not claim what it can't draw.
+Registry: iOS reads up to **24** (Registry.swift generated) and draws every r23 / r24 prop and slot (2026-11-24); the
+debug notice for props it didn't draw yet is gone (ZnTemplate.swift). The props with nothing to map to on iOS
+(includeFontPadding, NavigationBar barStyle) are n/a above.
 
 ---
 
@@ -304,7 +316,7 @@ manifest must not claim what it can't draw.
 | Storage (JS) | done | C++ core + MMKV. |
 | Storage native API (`ZnStorage` for app / plugin code) | done | `ZNStorage` (ZNHost.mm): string, number, boolean, bytes, `storedType`, has, remove, keys, clear, flush, in JS's format; Swift `ZnStorage.store(id)` (ZnStorage.swift). Mac test `zn_znstorage_tests` (run-core-tests-apple). /dev/storage 9 / 9 on the iOS simulator (2026-11-22: the test plugin's storageEcho / storageHammer). |
 | WebSocket (1) | done | `ZnWebSocket.swift` on URLSessionWebSocketTask; lab `/dev/websocket` 28 / 28 (iOS simulator; not run on Android yet); differences in docs/fetch.md §8. |
-| Updates (3) | done | Real OTA (ZnOta.swift, Phase 4a); `ZnUpdatesOff` answers only while OTA isn't configured. Full bundles only, no patches. |
+| Updates (3) | done | Real OTA (ZnOta.swift, Phase 4a); `ZnUpdatesOff` answers only while OTA isn't configured. znbsdiff1 patches since 2026-11-22 (ZnBsPatch.swift, `docs/ota-patches.md` §6). |
 | Tasks (1) | done | `ZnTasks` (2026-11-22, W2-C): JS starts with no window (`ZnApp.prepare` at launch, or `ZnTasks.run` starts it), so a plugin's task runs in a background launch; UIApplication background time is held while a task waits or runs. BGTask bridge: `ZnBackgroundTasks` (2026-11-23, W3-E). |
 
 ---
@@ -327,14 +339,13 @@ manifest must not claim what it can't draw.
 | Error screen, RETRY, hung JS, JS time limit | done | | |
 | Native screens, native views, plugin loading (modules, screens, views, host API check, JS error / top-route listeners) | done | | |
 | `zn://file` handles | done | | Caches/zn-files. `app-icon` n/a. |
-| Plugin loading: activity events, batch listeners, packaging a plugin's iOS code | partial | M | Today the app compiles plugin Swift (CMake globs `plugins/*/ios`). |
+| Plugin loading: activity events, batch listeners, packaging a plugin's iOS code | partial | M | Packaging done: the CMake builds compile `plugins/*/ios`, the Swift package has one `ZnPlugin<Name>` product per plugin (Package.swift, `ios/packages/firebase`, `ios/packages/lottie`). Activity events and batch listeners: iOS plugins listen to UIKit's own app and scene notifications; not compared with Android's `activityEvents` / `addBatchListener` yet. |
 | A push before NAV STARTED comes in with no slide | done (simulator, 2026-11-23, W4-B) | S | As Android's openedAtStart: ZnApp marks an entry pushed before NAV STARTED (or under the splash hold); ZnNavController shows it with no slide when it is the new top; its back still slides. Lab: `--route navStartLab --params '{"then":"sharedLab"}'` logs `setViewControllers (2 screens, animated false, opened at start)`. ZN_IOS_NAV=swiftui pushes with no slide anyway (its NavigationStack follows the stack with no animation). |
 | Screens kept until their exit transition ends | done (simulator, 2026-11-23, W4-B) | S | As Android's ZnNav.shown / hidden: every screen's view carries a ZnDrawnMarker (ZnSecure.swift), and a screen off the stack keeps its instances until its view has left the window (a JS pop, a finished or slow swipe, a modal spring, a see-through screen's close), then they go one main-queue turn later; one never drawn or covered goes at once. A screen still drawn 2 s after it left the stack is logged (a host bug), not freed. ZN_IOS_NAV=swiftui counts onAppear / onDisappear. Logs `nav: released <entry>` right after didShow. |
 | Shared elements (`sharedTag`) between screens | done (simulator, 2026-11-23, W4-B) | L | ZnShared.swift: a tagged node has an anchor view and hides while it flies; ZnNavController gives push, pop, modal, fade and the edge swipe a ZnSharedFlight (UIKit's own push is replaced by ZnSlideAnimator only when the covered screen has tags). An Image flies as its ZnImageCache picture (contentScale, the destination's corners), anything else moves its bounds and cross-fades two snapshots scaled to the box. The edge swipe scrubs it and a cancel puts it back (`ZN_SHARED_LOG=1` logs its frames). Not for "none", a push at start, Reduce Motion, a see-through screen's own tags (as Android), Sheets / Modals, or ZN_IOS_NAV=swiftui. Works over and from see-through routes (the opaque screen under one flies) and secure routes (the flight is inside the secure container: the capture probe reads blank mid-flight). A push waits one main-queue turn for the new screen's layout (60–120 ms on the simulator). Labs: `--route sharedLab`, `motionScreensLab`. |
-| OTA (rules, pool, manifest, download / verify / install, health, Updates, apply behind a cover) | partial | L (5 d) | Phase 4a: steps 1–5 and the fault matrix done on the simulator (2026-11-10); ZeroBill (6) and the phone check left. |
+| OTA (rules, pool, manifest, download / verify / install, health, Updates, apply behind a cover, patches) | partial | L (5 d) | Phase 4a: steps 1–5 and the fault matrix done on the simulator (2026-11-10); patches 2026-11-22; ZeroBill (6) and the phone check left. |
 | Background tasks (`defineTask`, TASK event) | partial | L | 2026-11-22 (W2-C): runs with no window (ZnApp.prepare; checked on the simulator with `ZN_SCENE_DELAY_MS` + `ZN_BOOT_TASK`), background time held while a task waits or runs (a 12 s task ends in the background; without it iOS suspends it; at about 30 s iOS ends the time and the task is aborted; notifyutil `dev.zeronative.sample.task` / `.task.nohold`). A real background launch (silent push, background fetch) is not run on a simulator. 2026-11-23 (W3-E): `ZnBackgroundTasks` runs a JS task from a BGTaskScheduler task (register before launch ends, Info.plist checked, schedule / refresh, the BGTask is the background time, iOS ending it aborts the JS task and ends as failed); the simulator refuses every request, so the debugger's `_simulateLaunch` finds nothing: `ZnBackgroundTasks.simulateLaunch` with a stand-in (notifyutil `dev.zeronative.sample.bgtask`, state = ms until iOS ends it) checked done, expired (JS signal aborted) and before any window; iOS ending it aborts only its own run (`ZnTasks.expire(handle)`: a no-hold `lab.wait` beside it still ends done) and ends the BGTask in the same main-thread turn. Not run with a real BGTask (needs a phone). |
-| zn dev (live reload, dev error overlay) | done on the simulator (2026-11-22); a real iPhone over the LAN built and checked on the simulator by the LAN address and Bonjour (2026-11-24), not yet on a phone | L | ZnDev.swift (Debug builds only: no ZnDev symbol in a Release build), ZnDevWire.swift (Mac test: ios/tests/dev), tools/zn-dev.ts (test: tools/test/zn-dev.test.ts). The simulator reaches `bun run dev` on 127.0.0.1:8082 with no adb step; one build serves Android and the simulator at once. A build runs through ZnApp.restart (keepAll: every open screen opens again by route and params, a lone ZN_ROUTE screen too, over the start screen as Android); templates and JS come from one folder (Caches/zn-dev/<hash>), so A12 can't happen; a restart on the app's bundle later in the process runs the dev build (Android's devBytecode). The first build waits until the first screens have been up 0.5 s. Error screen (Dismiss / Reload) for JS errors (TSX-mapped by the server), build failures (file:line) and missing native modules, only once this run has talked to a dev server. Reload 0.4–1.6 s (0.6–0.8 s on a quiet Mac) (a whole runtime replacement; Android reloads in place). `ZN_DEV=0` turns it off. A real iPhone (2026-11-24): `zn dev --lan` listens on every network (IPv4 and IPv6) and advertises `_zn-dev._tcp` with dns-sd (stopped with the server however it ends); the app looks at ZN_DEV_HOST (environment), then ZNDevHost (Info.plist, the ZN_DEV_HOST build setting), then 127.0.0.1 on the simulator and Bonjour on an iPhone (a server that doesn't answer in 5 s is skipped for the next one), and logs how to turn Local Network access on when it is off (again every minute while it stays off). Bonjour never takes a server for another app (TXT app= against the build's zn-bundle.json; `zn dev --name`) and prefers the Mac the build was made on (TXT mac= against ZNDevMac); a ZNDevHost that stops answering gives way to Bonjour after 3 tries; a build without NSBonjourServices says so once and doesn't browse. NSLocalNetworkUsageDescription and NSBonjourServices are in Debug builds only (ios/cmake/ZnDev.cmake: a Debug Info.plist for CMake hosts, filled in as Release's, keeping an app's own Local Network text and Bonjour types; the packages template's build phase "zn dev keys (Debug)"), so App Store builds never ask (checked: the packages template's Release build has none). No ATS key: plain TCP. Check on a phone (not done): a Debug build on the iPhone (same Wi-Fi as the Mac), `bun run dev --lan`, allow Local Network: the Mac logs `phone connected: <name> (ios, <phone IP>)` and a save to examples/sample/src/offers.ts reloads it; "Don't Allow" on the first prompt, then Settings > Privacy & Security > Local Network on: the console says how, and it connects; ZN_DEV_HOST=<Mac IP> in the scheme connects with no Bonjour; a build without the keys (ios/SamplePackage) says so once; a Release archive has no NSBonjourServices, NSLocalNetworkUsageDescription, ZNDevHost or ZNDevMac. Check: `bun run dev`, then the sample on a simulator; edit examples/sample/src/offers.ts. |
-| zn dev (live reload, dev error overlay) | missing | L | Simulator reaches the Mac on localhost. |
+| zn dev (live reload, dev error overlay) | done on the simulator (2026-11-22); a real iPhone over the LAN built and checked on the simulator by the LAN address and Bonjour (2026-11-24), not yet on a phone | L | ZnDev.swift (Debug builds only: no ZnDev symbol in a Release build), ZnDevWire.swift (Mac test: ios/tests/dev), tools/zn-dev.ts (test: tools/test/zn-dev.test.ts). The simulator reaches `bun run dev` on 127.0.0.1:8082 with no adb step; one build serves Android and the simulator at once. A build runs through ZnApp.restart (keepAll: every open screen opens again by route and params, a lone ZN_ROUTE screen too, over the start screen as Android); templates and JS come from one folder (Caches/zn-dev/<hash>), so A12 can't happen; a restart on the app's bundle later in the process runs the dev build (Android's devBytecode). The first build waits until the first screens have been up 0.5 s. Error screen (Dismiss / Reload) for JS errors (TSX-mapped by the server), build failures (file:line) and missing native modules, only once this run has talked to a dev server. Reload 0.4–1.6 s (0.6–0.8 s on a quiet Mac) (a whole runtime replacement; Android reloads in place). `ZN_DEV=0` turns it off. A real iPhone (2026-11-24): `zn dev --lan` listens on every network (IPv4 and IPv6) and advertises `_zn-dev._tcp` with dns-sd (stopped with the server however it ends); the app looks at ZN_DEV_HOST (environment), then ZNDevHost (Info.plist, the ZN_DEV_HOST build setting), then 127.0.0.1 on the simulator and Bonjour on an iPhone (a server that doesn't answer in 5 s is skipped for the next one), and logs how to turn Local Network access on when it is off (again every minute while it stays off). Bonjour never takes a server for another app (TXT app= against the build's zn-bundle.json; `zn dev --name`) and prefers the Mac the build was made on (TXT mac= against ZNDevMac); a ZNDevHost that stops answering gives way to Bonjour after 3 tries; a build without NSBonjourServices says so once and doesn't browse. NSLocalNetworkUsageDescription and NSBonjourServices are in Debug builds only (ios/cmake/ZnDev.cmake: a Debug Info.plist for CMake hosts, filled in as Release's, keeping an app's own Local Network text and Bonjour types; the packages template's build phase "zn dev keys (Debug)", and the same phase in the package sample ios/SamplePackage since 2026-11-24, tools/test/ios-builds.test.ts keeps the two scripts equal), so App Store builds never ask (checked: the packages template's and the package sample's Release builds have none). No ATS key: plain TCP. Check on a phone (not done): a Debug build on the iPhone (same Wi-Fi as the Mac), `bun run dev --lan`, allow Local Network: the Mac logs `phone connected: <name> (ios, <phone IP>)` and a save to examples/sample/src/offers.ts reloads it; "Don't Allow" on the first prompt, then Settings > Privacy & Security > Local Network on: the console says how, and it connects; ZN_DEV_HOST=<Mac IP> in the scheme connects with no Bonjour; a Debug build with NSBonjourServices removed from its Info.plist says so once; a Release archive has no NSBonjourServices, NSLocalNetworkUsageDescription, ZNDevHost or ZNDevMac. Check: `bun run dev`, then the sample on a simulator; edit examples/sample/src/offers.ts. |
 | Secure screens (route `secure`) | done (simulator) | M | ZnSecure.swift (2026-11-21): while a secure screen is drawn (exit and cover animations included) the window root's content sits in a password field's canvas, so screenshots, recordings and mirroring show it blank; Sheets, Modals, layers and toasts too, not Alerts. App switcher: a plain cover in the screen's background from willResignActive (the switcher shows an inactive app live, seen without the cover), so it also shows behind Face ID, permission prompts, Control Center and Notification Center, where Android shows the screen. iOS can't refuse a screenshot as FLAG_SECURE does. The text field is not in the accessibility tree (XCUITest dump: the screens' texts and fields, no TextField around them). Checked on the iOS 26.3 and 18.0 simulators with the render server's capture (`ZN_IOS_SECURE_PROBE=1` logs blank / shows content); no iOS 17 simulator here. Still to check on a phone: side-button screenshot, Control Center recording, AirPlay / QuickTime, VoiceOver, password AutoFill on a secure screen's fields, scroll speed of a long list on a secure screen. |
 | See-through screens (route `transparent`) | done (simulator) | M | ZnSeeThrough.swift (2026-11-22): the UINavigationController holds one box per opaque screen with the see-through screens over it (Android's ZnSeeThroughStrategy scene), so the screens below stay drawn and updating, a push over a see-through screen slides over both and Back brings both back. A see-through screen opens and closes alone by its route transition (the screen below stays still; android-issues A28); with "push" the edge swipe moves it alone (FORCED_BACK as after a pop). Touches: it takes them on UIKit touch views (Pressables, Scrolls, fields, plugin views, plain UIViews with gesture recognizers), field boxes, tappable Text and enabled Switch / Checkbox; elsewhere they reach the screen below (Compose's rule); SwiftUI-only taps (a plugin's SwiftUI Button, ZN_IOS_PRESS=swiftui) pass through. Showing the error screen (time limit), it takes every touch. Secure screens under it stay protected; the app switcher cover takes the colour of the screen below. ZN_IOS_NAV=swiftui draws it opaque (logged). Lab: Dev > Core lab > "Open see-through screen" / "Open sliding see-through". Not checked: rotation (the sample is portrait), restore after the system ends the app. |
 | Impressions | done (simulator, 2026-11-22) | M | ZnImpressionsCore.swift (Android's ZnImpressions.kt rules: threshold 0.35 clamped 0.01–1, minMs, top screen and in front only, once per visit, 500 ms batches, flush on resign and release, reset on a restart; Mac test: ios/tests/impressions), ZnImpressions.swift (a UIKit view behind each keyed node on a tracking screen: its box in the window cut by the window, every scroll view and clipping UIKit view, and the overflow-hidden nodes around it; measured one main-queue turn after a layout or scroll, so a List row placed by its estimated size doesn't count; stops once counted; the node's structure stays the same when tracking or its key turns on or off, so what is inside keeps its state). Difference: only clipping views cut the box, not every layout around it as Android's boundsInWindow. List cells get the entry through ZnHostedEnv. Keys inside a Sheet or Modal count under the screen (2026-11-23, W4-A: their hosting controllers get the screen's entry, hidden tab and touchOff through ZnHostedEnv; lab buttons Sheet / Modal). Check: `--route offers` (OffersScreen) and `--route impressionsLab` (/dev/impressions). |
@@ -350,7 +361,7 @@ manifest must not claim what it can't draw.
 |---|---|---|---|
 | android-play-auth | Auth | done (answers "unavailable") | No phone hint or SMS reading on iOS; OtpInput's `.oneTimeCode` fills the code. Server keeps the Android SMS format. |
 | app-updates (new, from Windows) | AppUpdates | done (W2-K, 2026-11-22; the sheet itself needs an iPhone) | Store updates: Play in-app updates on Android; iOS `isUpdateAvailable` asks the App Store lookup (`storeVersion`, `appStoreId`, kept an hour), `start` shows the App Store sheet in the app (`state` declined / canceled on close; a forced one opens again on return), `setBusy` kept on disk (start isn't refused while busy, as Android), the account's storefront then the phone's region, `complete` "unavailable", `openStore()` by appStoreId. JS `confirm: appStoreUpdates`. Mac suite `plugins/app-updates`. Replaces ZeroBill's InAppUpdate. |
-| android-ad-id | AdId | n/a (no iOS side) | Android-only by meaning. Its JS answers `{ id: null }` when the module is missing, so nothing to build. |
+| android-ad-id | AdId | n/a (no iOS side, by design) | Android-only by meaning. Its JS answers `{ id: null }` when the module is missing, so nothing to build. No IDFA plugin for 0.1.0 (Pavan, 2026-11-24): an app that needs iOS ad attribution would use AdAttributionKit / SKAdNetwork, or a separate opt-in tracking plugin (plugins/android-ad-id/README.md "iOS"). |
 | device-info | DeviceInfo | done | react-native-device-info's iOS answers (A13). |
 | device-test | Device | done | `ios/Sample/DeviceTestPlugin.swift` (info, slowEcho, fail, mock UPI launches; orbit, the device.wobble curve and the fake view's motion `level`, W3-C). |
 | document-scanner | DocumentScanner | done (fake scan; Photos import on the simulator, W2-K) | VisionKit; pages and PDF as `zn://file`. `download` sends one `status` event; `galleryImport` asks Camera / Photos (Photos: Vision finds the paper, Core Image straightens it, `mode` filter / base); a sheet, picker or camera closed with no answer ends the scan as a cancel. Mac suite `plugins/document-scanner`. |
@@ -370,7 +381,9 @@ manifest must not claim what it can't draw.
 | scanner | Scanner | done (fake reads) | AVFoundation; `autoZoom` n/a; real camera, torch, zoom not tried. |
 | webview | WebView | done | WKWebView, origin-checked bridge. W2-K: paused under a presented controller too (media suspended), `onUpload` with the count from an isolated script world (open shadow roots and showPicker() too; refused natively on iOS 18.4+), a swipe back waits for its end, reload of inline html. Mac suite `plugins/webview` (the upload script under JavaScriptCore). |
 
-Each plugin has a Kotlin `*RulesTest.kt`; no iOS test target exists yet (§11).
+Each plugin has a Kotlin `*RulesTest.kt`. On iOS the plugins' plain rules run as Mac suites (`ios/tests/README.md`):
+`plugins/app-updates`, `plugins/document-scanner`, `plugins/image-viewer`, `plugins/media`, `plugins/webview`, and
+`perf`, `remote-config`, `push` (Crashlytics' rules).
 
 ---
 
@@ -380,15 +393,15 @@ Repo `my-app` (`~/apps/my-app`, remote
 `my-app`), well tested on Android. Its own plugins: `upi`, `google-signin`, `truecaller`,
 `in-app-update`, `install-referrer`, `legacy-data`. ZeroBill's code uses none of registry 23's new parts and none of
 motion (grep 2026-11-09). Its bundle still needs registry 24 and Motion 1, both only because `@zero-native/image-viewer`
-brings its TSX screen along; ZeroBill opens the Swift one. The debug log's "doesn't draw a runtime value for prop 1 /
-2 / 293 (registry 23)" lines at start come from that screen and are harmless for ZeroBill.
+brings its TSX screen along; ZeroBill opens the Swift one. (Until 2026-11-21 a debug log said iOS didn't draw some of
+that screen's runtime values; iOS draws them now and the notice is gone.)
 
 ### The 34 native modules its bundle needs
 | State | Modules |
 |---|---|
-| zn, done on iOS (23) | Alert, Analytics, Auth, Clipboard, Crashlytics, DeviceInfo, DocumentScanner, Fetch, ImageViewer (3), Keyboard, Launches, Location, Lottie, NetInfo, Os, Pdf, Permissions, Scanner, SecureStore, Splash, Toast, Vibration, WebView |
-| zn, answering "off" (2) | Updates (OTA off, Android's answers), Tasks (`done`) |
-| zn, no iOS module, JS falls back (4) | AdId (`{ id: null }`), Notifications and Push (Phase 3; their JS catches every call; listeners on a missing module are ignored), Motion (only image-viewer's TSX screen uses it; ZeroBill doesn't open that screen) |
+| zn, done on iOS (27) | Alert, Analytics, Auth, Clipboard, Crashlytics, DeviceInfo, DocumentScanner, Fetch, ImageViewer (3), Keyboard, Launches, Location, Lottie, NetInfo, Notifications, Os, Pdf, Permissions, Push, Scanner, SecureStore, Splash, Tasks, Toast, Updates (real OTA once the app configures it; Android's "off" answers until then), Vibration, WebView |
+| zn, Motion (1) | The stub (v1) in Release builds; the engine with ZN_MOTION_ENGINE=1 in Debug (§4 Phase 4). Only image-viewer's TSX screen uses it; ZeroBill doesn't open that screen |
+| zn, no iOS module by design (1) | AdId (JS answers `{ id: null }`) |
 | ZeroBill's own (6), Phase 2 | Upi (done), GoogleSignIn (to build; answers no meanwhile), Truecaller / InAppUpdate / InstallReferrer (answer no; InAppUpdate → zn app-updates later), LegacyData (reads nothing yet) |
 
 ### The pilot flow and its iOS state
@@ -401,7 +414,7 @@ brings its TSX screen along; ZeroBill opens the Swift one. The debug log's "does
 | Checkout, UPI app by scheme, back by link, server verify | done (Launches by URL, links) | Upi plugin, Phase 2; device |
 | Killed while the UPI app is open → back on checkout, processing sheet at rest | done (restore, animateIn) | Phase 2; device |
 | Receipts: PDF, image viewer | done | Phase 2 |
-| Push (APNs + FCM) | missing (Phase 3) | APNs entitlement in Phase 2 |
+| Push (APNs + FCM) | done (Phase 3, i.16–i.19; data-only background wakes 2026-11-21 / 22, not yet on a phone) | APNs entitlement in Phase 2 |
 | Crashlytics, Analytics | done | Phase 2 (its plists) |
 
 ---
@@ -416,15 +429,15 @@ brings its TSX screen along; ZeroBill opens the Swift one. The debug log's "does
 | `tools/fetch-test-server.ts` (the simulator reaches localhost) | done | |
 | Layout conformance screen (`layoutLab`) | done | |
 | UI tests (XCUITest, `ios/SamplePackage/ZnSampleUITests`, `bun run ios:ui-test [--device <sim>] [--only Class/test] [--dump <route>]`) | done (simulator, 2026-11-24): 25 tests by testID on ComponentsScreen, the Dev hub, A11yLab, RnPropsLab, InputScreen and Dynamic Type: switches, checkboxes, progress buttons, toasts, a sheet (open, grow, toast inside, drag closed), roles, labels, disabled, long press, hitSlop, typing in fields. 5.5 min cold (build, boot, run) on the iOS 26.3 simulator, two green cold runs in a row. They found and fixed: a toast out of the accessibility tree, a tappable Text read as two elements. A Switch inside a Pressable still gives the tap to the row (A53, open; the test checks today's behaviour). Known: a burst of keys into a field that JS reformats can lose one (InputTests/testBurst, an expected failure). Not in CI yet. | M |
-| XCTest target (readers, routes, animation; plugin rules tests; OTA later) | missing | L |
+| Unit tests (readers, routes, animation, OTA, plugin rules) | done as Mac suites instead of an XCTest target (2026-11-21 to 11-24): `bun run tools/ios-unit-test.ts`, 25 suites, run by `bun run test` and CI (`ios/tests/README.md`) | L |
 | Golden `.zn.ui` / batch files read by both test suites (i.0) | missing | M |
-| Startup / frame / tabs measurements (`measure-*.ps1`, `measure-tabs.ts`) | missing | M × 3 |
+| Startup / frame / tabs measurements (`measure-*.ps1`, `measure-tabs.ts`) | partial: cold start on an iPhone 11 measured by hand (2026-11-19, `docs/milestones.md`); no Mac script yet | M × 3 |
 | Plugin phone checks (`plugin-phone.ts`) | missing | L (2 d) |
 | OTA phone matrix (38 cases) | partial: 18 iOS fault cases on the simulator (2026-11-10, docs/ota-test-matrix.md); phone part left | L (1.5 d), after OTA |
-| `zn-dev.ts` without adb, `ota/cli.ts`, `push-send.ts` | missing | S × 3 |
+| `zn-dev.ts` without adb, `ota/cli.ts`, `push-send.ts` | done: `zn dev` reaches the simulator with no adb (2026-11-22) and an iPhone with `--lan` (2026-11-24); `push-send.ts --background` sends iOS's apns block (2026-11-21); `ota/cli.ts` runs on the Mac (its USB hint is Android's) | S × 3 |
 | Macrobenchmarks (startup, typing, journey) | missing | M, device |
 | Docs' `gradlew.bat` commands in Mac form (A2) | missing | S |
-| **Real iPhone build** (device platform in Xcode, signing) | missing | S, needs Pavan's team; blocks every device check |
+| **Real iPhone build** (device platform in Xcode, signing) | done for Pavan's iPhone 11 (signed Debug 2026-11-11, Release 2026-11-19); the device checks in §12 are still open | S, needs Pavan's team |
 
 ---
 
@@ -444,7 +457,8 @@ Everything above marked done was checked on the simulator only. Waiting for a re
 
 ## 13. Android issues found by the port
 
-Full entries: `docs/android-issues-found-when-building-ios.md`. Next number: **A23**.
+Full entries: `docs/android-issues-found-when-building-ios.md` (A1–A95 on 2026-11-24, most from A26 on still open; the
+table below keeps only the first ones). Next number: **A96**.
 
 | # | Area | Status |
 |---|---|---|
