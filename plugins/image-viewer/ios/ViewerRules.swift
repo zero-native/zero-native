@@ -73,9 +73,10 @@ enum ViewerRules {
         return uri.index(after: comma)
     }
 
+    /// By scalars: in Swift "\r\n" is one Character, so `value.contains("\n")` misses it.
     static func safeHeader(_ name: String, _ value: String) -> Bool {
         !name.isEmpty && name.count <= 256 && name.unicodeScalars.allSatisfy { $0.value >= 33 && $0.value <= 126 && $0 != ":" }
-            && value.count <= 8192 && !value.contains("\r") && !value.contains("\n") && !value.contains("\0")
+            && value.count <= 8192 && !value.unicodeScalars.contains { $0 == "\r" || $0 == "\n" || $0 == "\0" }
     }
 
     /// A plain path inside the bundle: no "..", no leading "/".

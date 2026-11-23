@@ -1,0 +1,3 @@
+# Foundation, ImageIO and Core Graphics only: the rules and the page's decoding (main.swift makes test pictures).
+plugins/image-viewer/ios/ViewerRules.swift
+plugins/image-viewer/ios/ViewerSource.swift
