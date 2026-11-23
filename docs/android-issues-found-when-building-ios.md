@@ -76,6 +76,24 @@ Each entry says:
 | A60 | 2026-11-22 | webview (Android) | Media may keep playing while the page is paused | open, not run on Android |
 | A61 | 2026-11-22 | webview (Android) | Uploads: a cancelled picker on Android 14+, showPicker() and shadow-root inputs | check only |
 | A62 | 2026-11-22 | webview (Android) | Reload of an inline (loadDataWithBaseURL) page may fetch the base URL instead | open, possible, not run |
+| A63 | 2026-11-23 | Gestures (Android) | Pinch and rotation are measured in the node's own transformed space, so a node scaled or turned by its own gesture lags | open, Pavan to decide (rec: fix Android) |
+| A64 | 2026-11-23 | Gestures (Android) | useLongPress sends `begin` twice per touch | open, Pavan to decide (rec: fix) |
+| A65 | 2026-11-23 | Gestures (Android + iOS) | After snapTo, a gesture doesn't rest on the anchor and follow it when the anchor moves | open, Pavan to decide (rec: fix both) |
+| A66 | 2026-11-23 | Gestures (Android) | A settle re-attaches to its old anchor even when its runs were cancelled (snapTo or a grab during a settle) | open, fixed on iOS |
+| A67 | 2026-11-23 | Gestures (Android) | A pan's velocity tracker never gets the up: hold still, then lift, keeps the last move's speed | open, low |
+| A68 | 2026-11-23 | Gestures (Android) | An after-edge panel being dragged through a list can be pulled back by a moving anchor | open |
+| A69 | 2026-11-23 | OTA (Android) | A patch zip's listed sizes are trusted until the end: a hostile patch can make Android allocate ~1.5 GB | open (rec: check early, as iOS) |
+| A70 | 2026-11-23 | Impressions (Android) | A numeric impressionKey from a slot can reach JS as "7.0" (iOS sends "7") | open |
+| A71 | 2026-11-23 | Impressions (Android) | A keyed node composed before its screen's NAV IMPRESSIONS may never measure | open, possible |
+| A72 | 2026-11-23 | Impressions (Android) | A second configure of the same screen drops counted-but-unsent keys | open |
+| A73 | 2026-11-23 | firebase-perf (Android) | A network trace stops at the headers: no body time, and no size for chunked or gzip answers | open (Pavan: rec make Android measure the body, as iOS) |
+| A74 | 2026-11-23 | firebase-perf (Android) | Only an IOException stops a network trace; another exception leaves it started | open |
+| A75 | 2026-11-23 | Canvas (Android) | Canvas blur (BlurMaskFilter) and shadows (setShadowLayer) may not draw on hardware canvases before Android 9 | check (likely) |
+| A76 | 2026-11-23 | Motion (Android) | animateLayout: a style size change (`height: open ? 110 : 50`) jumps instead of animating | open, Pavan to decide (rec: animate, as iOS) |
+| A77 | 2026-11-23 | Motion (Android) | useTilt: x and y have the wrong sign in landscape | open, Pavan to decide (rec: fix Android) |
+| A78 | 2026-11-23 | Motion (Android) | useTilt keeps its old lean for a new user or after a reload; its lifecycle observer stays | open |
+| A79 | 2026-11-23 | Motion (Android) | A plugin Handle's second onDispose replaces the first | open |
+| A80 | 2026-11-23 | Motion (both) | 3D turns: check the camera distance matches (iOS may turn harder than Android) | check, from iOS |
 
 ---
 
@@ -742,3 +760,122 @@ Each entry says:
   tracks the inline navigation.
 - **Check on Android (Windows):** WebViewLab > Inline upload, then "#frag" or "pushState", then Reload: the page should
   still show "Pick files", with no load error. "Upload, bare base", then Reload, should behave the same.
+
+## A63. Pinch and rotation are measured in the node's own transformed space, so a node scaled or turned by its own gesture lags (from iOS work, round 3)
+- **Status:** open, Pavan to decide (rec: fix Android). Found on the Mac 2026-11-23.
+- **Problem:** `ZnGesture.kt` ~870-874 (`PinchRec.spread`) and ~931-934 (`RotateRec.angleOf`) measure the fingers in the
+  node's transformed space. When the node's scale or rotation follows the same gesture, the pinch converges to about the
+  square root of the finger spread and the rotation lags. iOS measures in the window.
+- **Check on Android (Windows):** GestureLab (`/dev/motion/gestures`) c: turn two fingers 60°; onEnd's angle isn't 60.
+  MotionVideoLab: the card grows slower than the fingers.
+
+## A64. useLongPress sends `begin` twice per touch (from iOS work, round 3)
+- **Status:** open, Pavan to decide (rec: fix). Found on the Mac 2026-11-23.
+- **Problem:** `ZnGesture.kt` ~1077 (`LongPressRec` sends "begin") and ~1434 (`leaves.forEach { it.send("begin") }`) both
+  fire, so onBegin runs twice. The iOS job says iOS does the same today (copied); fix both together.
+- **Check:** `useLongPress({ onBegin: () => console.log("b") })` logs twice per long press.
+
+## A65. After snapTo, a gesture doesn't rest on the anchor and follow it when the anchor moves (from iOS work, round 3)
+- **Status:** open, Pavan to decide (rec: fix both). Found on the Mac 2026-11-23.
+- **Problem:** `ZnGesture.kt` ~480-501 (`snapTo`) never calls `attach()`, so a gesture placed by snapTo doesn't follow a
+  moving anchor (keyboard, resize).
+- **Check:** MotionVideoLab without dragging the card first: tap the field; the card at br stays under the keyboard.
+
+## A66. A settle re-attaches to its old anchor even when its runs were cancelled (snapTo or a grab during a settle) (from iOS work, round 3)
+- **Status:** open, fixed on iOS. Found on the Mac 2026-11-23.
+- **Problem:** `ZnGesture.kt` ~474 (`settle`) calls `attach(t.id)` after the joins even when the runs were cancelled, so
+  snapTo during a settle ends at, or follows, the old anchor; a grab during a settle can re-attach too.
+- **Fix (as iOS):** attach only when every run finished.
+- **Check:** release slide-to-pay so it springs back, call snapTo("paid") within 100 ms, then open the keyboard: it should
+  stay at "paid".
+
+## A67. A pan's velocity tracker never gets the up: hold still, then lift, keeps the last move's speed (from iOS work, round 3)
+- **Status:** open, low. Found on the Mac 2026-11-23.
+- **Problem:** `ZnGesture.kt` ~776 (`PanRec`): the tracker gets only moves, not the up.
+- **Check:** slide-to-pay, drag halfway, hold 300 ms, lift: end's vx should be 0.
+
+## A68. An after-edge panel being dragged through a list can be pulled back by a moving anchor (from iOS work, round 3)
+- **Status:** open. Found on the Mac 2026-11-23.
+- **Problem:** `ZnGesture.kt` ~1558-1571 (`ZnNestedPan.nested`) interrupts y but never calls `g.detach()`.
+- **Check:** a panel whose anchors depend on keyboardHeight: open the keyboard, then drag the list.
+
+## A69. A patch zip's listed sizes are trusted until the end: a hostile patch can make Android allocate ~1.5 GB (from iOS work, round 3)
+- **Status:** open (rec: check early, as iOS). Found on the Mac 2026-11-23.
+- **Problem:** `ZnOtaInstall.kt` ~241-285 with `ZnBsPatch.kt` ~50: buildFromPatch trusts the sizes in the patch zip's
+  `zn-bundle.json` until `finish`, so `ByteArray(newSize.toInt())` can try ~1.5 GB, ends in an OutOfMemoryError ("out of
+  memory") and installs the full zip. No wrong bundle, but a huge allocation.
+- **Fix (as iOS):** check the listed sizes and SHAs against `m.bundleSha256` right after `readInfo`.
+- **Check:** a JVM test in ZnOtaInstallPatchTest with main.hbc's listed size and the patch header's newSize at 1.5e9.
+
+## A70. A numeric impressionKey from a slot can reach JS as "7.0" (iOS sends "7") (from iOS work, round 3)
+- **Status:** open. Found on the Mac 2026-11-23.
+- **Problem:** `ZnRenderer.kt` ~617: `.toString()` on whatever number type the slot holds.
+- **Check:** `impressionKey={someNumberSignal()}` on a screen with useImpressions; read the keys the handler gets.
+
+## A71. A keyed node composed before its screen's NAV IMPRESSIONS may never measure (from iOS work, round 3)
+- **Status:** open, possible. Found on the Mac 2026-11-23.
+- **Problem:** `ZnImpressions.kt` ~56 and `ZnRenderer.kt` ~618: `tracking(entry)` reads a plain HashMap, not Compose
+  state, so such a node gets an empty Modifier until something recomposes it.
+- **Check:** a screen whose useImpressions runs after its first draw, with static cards that never recompose: do they
+  ever count?
+
+## A72. A second configure of the same screen drops counted-but-unsent keys (from iOS work, round 3)
+- **Status:** open. Found on the Mac 2026-11-23.
+- **Problem:** `ZnImpressions.kt` ~53: `tracks[entry] = Track(...)` drops keys not yet sent (a `flush()` first would keep
+  them), and nodes that had counted stop at the `done` early return until their next onGloballyPositioned.
+- **Check:** count some keys, rebuild the screen within 500 ms, keep still: does the first batch reach JS, and do visible
+  keys count again?
+
+## A73. A network trace stops at the headers: no body time, and no size for chunked or gzip answers (from iOS work, round 3)
+- **Status:** open (Pavan: rec make Android measure the body, as iOS). Found on the Mac 2026-11-23.
+- **Problem:** `plugins/firebase-perf/android/.../PerfPlugin.kt` ~92-96 stops the HTTPMetric when the headers arrive.
+- **Check:** with Perf on, fetch `/big` and `/gzip` from tools/fetch-test-server.ts: the payload size is missing and the
+  time is about the time to first byte.
+
+## A74. Only an IOException stops a network trace; another exception leaves it started (from iOS work, round 3)
+- **Status:** open. Found on the Mac 2026-11-23.
+- **Problem:** `PerfPlugin.kt` ~88: a RuntimeException from another interceptor leaves an HTTPMetric never stopped. A
+  `finally` fixes it. (Also a difference, not a bug: `ZnFetch.kt` ~106 `addInterceptor` refuses after the first fetch,
+  so a late PerfPlugin gets no traces; iOS's observer hears calls from when it is added.)
+- **Check:** add an interceptor that throws IllegalStateException: no trace is logged for that call.
+
+## A75. Canvas blur (BlurMaskFilter) and shadows (setShadowLayer) may not draw on hardware canvases before Android 9 (from iOS work, round 3)
+- **Status:** check (likely). Found on the Mac 2026-11-23.
+- **Problem:** `ZnCanvas.kt` ~178-179 on a hardware-accelerated canvas, minSdk 24. docs/svg.md already says "Android 9+"
+  for the SVG equivalents; the Canvas docs don't.
+- **Check:** CanvasLab tile 18 and the blur and shadow tiles on an API 24-27 emulator: is the bottom row soft, and do the
+  shadows show?
+
+## A76. animateLayout: a style size change (`height: open ? 110 : 50`) jumps instead of animating (from iOS work, round 3)
+- **Status:** open, Pavan to decide (rec: animate, as iOS). Found on the Mac 2026-11-23.
+- **Problem:** `ZnTemplate.kt` ~815 (with `ZnRenderer.kt` ~1270 and `ZnMotionUi.kt` ~167): `animateContentSize` comes
+  after the fixed `.width` / `.height` modifiers (~754-760).
+- **Check:** `/dev/motion/core` §7: tap the "50 tall" box; if it snaps to 110, it's real.
+
+## A77. useTilt: x and y have the wrong sign in landscape (from iOS work, round 3)
+- **Status:** open, Pavan to decide (rec: fix Android). Found on the Mac 2026-11-23.
+- **Problem:** `ZnMotionApi.kt` ~174-177 (`ZnTilt.onSensorChanged`): ROTATION_90 gives (ax, ay) = (-ay, ax), but the
+  reference (AccelerometerPlay) is ax = ay, ay = -ax; ROTATION_270 the reverse. The iOS Mac suite (ios/tests/motion)
+  reads these three lines and fails if they change: update that check with the fix.
+- **Check:** landscape with the phone's top on the left, lower the screen's right edge: x should go positive.
+
+## A78. useTilt keeps its old lean for a new user or after a reload; its lifecycle observer stays (from iOS work, round 3)
+- **Status:** open. Found on the Mac 2026-11-23.
+- **Problem:** `ZnMotionApi.kt` ~149-152 (`ZnTilt.remove`) and `reset()` never reset sx / sy; the observer stays on the
+  activity after the last user (a leak per activity).
+- **Check:** tilt, close and reopen a useTilt screen while the phone lies flat: does x start from the old value?
+
+## A79. A plugin Handle's second onDispose replaces the first (from iOS work, round 3)
+- **Status:** open. Found on the Mac 2026-11-23.
+- **Problem:** `ZnMotionApi.kt` ~48-50 (`Handle.onDispose`): `DeviceModule.orbit` called twice for one id leaves the first
+  frame job running after JS drops the value. iOS chains them.
+- **Check:** call `orbit` twice with one id, close the screen: does a frame job keep running (a log in its block)?
+
+## A80. 3D turns: check the camera distance matches (iOS may turn harder than Android) (from iOS work, round 3)
+- **Status:** check, from iOS. Found on the Mac 2026-11-23.
+- **Why:** `ios/ZnRuntime/Swift/ZnDepth.swift` puts the camera at cameraDistance × 72 device pixels (576 px for the
+  default 8). If Compose's layer scales cameraDistance by the screen density before HWUI uses it, Android's camera is
+  that many times further away and its turns look milder. On the iOS simulator GestureLab a)'s card (rotateY 40, default
+  camera) is drawn far past its box, over its title.
+- **Check on Android (Windows):** a screenshot of GestureLab (`/dev/motion/gestures`) a) and MotionBindingsLab b), to put
+  side by side with iOS's. If Android's card stays inside its box, the iOS camera is too close.
