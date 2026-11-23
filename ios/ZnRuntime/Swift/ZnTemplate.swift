@@ -123,9 +123,10 @@ final class ZnNodeSpec {
     let enter: ZnTransition?
     let exit: ZnTransition?
 
-    // Gestures and motion (registry 24), read but not drawn yet (ZnTemplate.kt): 3D turns in degrees, the camera
-    // distance (default 8), blur, each also from a slot; the gesture this node handles and the useElementMotion() it
-    // fills (slots holding their ids); animateLayout's timing; a shared element's tag.
+    // Gestures and motion (registry 24, ZnTemplate.kt): 3D turns in degrees, the camera distance (default 8), blur,
+    // each also from a slot; the gesture this node handles and the useElementMotion() it fills (slots holding their
+    // ids); animateLayout's timing; a shared element's tag. Drawn by ZnMotionBindings / ZnDepthEffect, ZnGestureHub,
+    // ZnElementMotion, ZnLayoutMotion and ZnShared.
     let rotateX: CGFloat, rotateY: CGFloat, cameraDistance: CGFloat, blurRadius: CGFloat
     let rotateXSlot: Int, rotateYSlot: Int, cameraDistanceSlot: Int, blurRadiusSlot: Int
     let gestureSlot: Int
@@ -850,6 +851,9 @@ final class ZnNodeSpec {
     }
 }
 
+// A screen's template with its nodes read. iOS reads every prop and slot of registry 24 (the props with nothing to map
+// to on iOS, such as Text includeFontPadding, are in docs/guides/platform-differences.md "Different by design"), so
+// the debug notice for props iOS didn't draw yet is gone (2026-11-24).
 final class ZnTemplate {
     let raw: RawTemplate
     let nodes: [ZnNodeSpec]
@@ -877,28 +881,7 @@ final class ZnTemplate {
                 up = nodes[up].parent
             }
         }
-        #if DEBUG
-        Self.reportNotDrawn(raw)
-        #endif
     }
-
-    // Props Android draws and iOS doesn't yet (registry 23 and 24: Text and List extras): iOS reads the templates but doesn't draw these. A slot on one of them keeps the template's value; a written one is ignored. Debug builds say so,
-    // once per prop, so a screen that looks wrong on iOS points at the reason.
-    #if DEBUG
-    private static let slotsNotDrawn: Set<Int> = propsNotDrawn
-    // Empty since Scroll and List both run scrollCommand (2026-11-22); kept for the next prop iOS lags on.
-    private static let propsNotDrawn: Set<Int> = []
-    nonisolated(unsafe) private static var reported: Set<String> = []
-
-    private static func reportNotDrawn(_ raw: RawTemplate) {
-        func say(_ what: String) {
-            guard reported.insert(what).inserted else { return }
-            print("zn: iOS doesn't draw \(what) yet; it is left as the template has it (docs/guides/platform-differences.md; prop numbers: packages/template/src/registry.ts)")
-        }
-        for s in raw.slots where slotsNotDrawn.contains(s.prop) { say("a runtime value for prop \(s.prop)") }
-        for p in raw.props { for k in p.keys where propsNotDrawn.contains(k) { say("prop \(k)") } }
-    }
-    #endif
 }
 
 extension Array {
