@@ -112,6 +112,20 @@ function EvBox() {
         <EvButton label="drop" onPress={() => drop.set(drop() > 0 ? 0 : 30)} />
         <EvButton label="open as modal" onPress={() => nav.push("elementValuesModal", { mode: "box" })} />
       </Row>
+      {/* A Pressable inside a scaled, turned Pressable, nearly as big as it: the inner one takes a tap on it (sizes are
+          compared as drawn in the window). */}
+      <Column style={{ height: 110, paddingTop: 12, paddingLeft: 60 }}>
+        <Pressable
+          onPress={() => say("outer tap")}
+          style={{ width: 140, height: 80, borderRadius: 12, backgroundColor: c.success, alignItems: "center", justifyContent: "center", transform: [{ rotate: -8 }, { scale: 1.2 }] }}
+        >
+          <Pressable onPress={() => say("inner tap")} style={{ width: 130, height: 70, borderRadius: 10, backgroundColor: c.primary, alignItems: "center", justifyContent: "center" }}>
+            <Text fontSize={13} color={c.white}>
+              inner
+            </Text>
+          </Pressable>
+        </Pressable>
+      </Column>
     </Column>
   )
 }
