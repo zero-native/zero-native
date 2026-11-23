@@ -126,10 +126,11 @@ final class Finger {
         send([change(0, a, fa, true, true), change(1, b, fb, true, true)])
     }
 
-    func up(id: Int = 0, after ms: Int64 = 16) {
+    /// Lifts finger [id], [by] (dx, dy) from where it was (UIKit's up can carry the last bit of movement).
+    func up(id: Int = 0, after ms: Int64 = 16, by d: (Float, Float) = (0, 0)) {
         t += ms
         let p = fingers[id]!
-        var cs = [change(id, p, p, false, true)]
+        var cs = [change(id, (p.0 + d.0, p.1 + d.1), p, false, true)]
         for (k, q) in fingers where k != id { cs.append(change(k, q, q, true, true)) }
         fingers[id] = nil
         send(cs)
@@ -308,6 +309,17 @@ do {  // anchors: a flick to the far one, the haptic, end's anchor, settle there
     let still = lastEvent(920, "end")!
     check("held still before the lift: no speed", still["vx"] as? Double, 0)
     check("held still: the nearest anchor", still["anchor"] as? String, "b")
+    clock.run(120)
+
+    // A flick whose last movement comes with the lift itself (no move event first): the lift carries the speed.
+    let l = Finger(g)
+    l.down(0, 0)
+    l.move(-10, 0)
+    l.move(-15, 0)
+    l.up(by: (-15, 0))
+    let lift = lastEvent(920, "end")!
+    near("the lift's movement is a speed (15 pt in 16 ms, as the move before)", Float((lift["vx"] as? Double) ?? 0), -937.5, 1)
+    check("so the flick goes to a", lift["anchor"] as? String, "a")
     clock.run(120)
 }
 

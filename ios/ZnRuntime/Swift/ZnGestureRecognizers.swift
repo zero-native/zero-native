@@ -132,7 +132,13 @@ final class ZnPanRec: ZnRecognizer {
         // The lift is a sample too (as Compose's tracker takes the up): a finger held still and then lifted has no
         // speed. UIKit sends no moves for a still finger (Android's touch screen does), so without it the last
         // movement before the pause would count as the speed at the lift.
-        if state == znActive && e.changes.contains(where: { !$0.pressed && $0.previousPressed }) { vt.add(e.time, trackX, trackY) }
+        // The lift's own movement counts for the speed only (the pan doesn't move on it, as on Android).
+        let lifted = e.changes.filter { !$0.pressed && $0.previousPressed }
+        if state == znActive, !lifted.isEmpty {
+            let n = Float(lifted.count)
+            let lx = lifted.reduce(Float(0)) { $0 + $1.wx - $1.pwx } / n, ly = lifted.reduce(Float(0)) { $0 + $1.wy - $1.pwy } / n
+            vt.add(e.time, trackX + lx, trackY + ly)
+        }
         if state != znPossible || wants { return }
         if count < minPointers { return }
         let slop = minDist >= 0 ? minDist : ZnGestureMath.slop
