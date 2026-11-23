@@ -24,6 +24,13 @@ final class ImageViewerTests: ZnUITestCase {
     /// The lab's thumbnail n (from 1): a button read as "Store photo n".
     private func thumb(_ n: Int) -> XCUIElement { app.buttons["Store photo \(n)"].firstMatch }
 
+    /// Waits for the open to end: until the photo has loaded (at most 0.4 s) and flown in (0.28 s) the viewer is see-through
+    /// (opacity 0 at first), and on iOS touches on a part with nothing drawn go to the screen below.
+    private func opened(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(appears(close, timeout: 10), "no close button", file: file, line: line)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+    }
+
     private var close: XCUIElement { app.buttons.matching(NSPredicate(format: "label == %@", "Close")).firstMatch }
 
     /// The counter: a text read as "Photo n of count".
@@ -37,7 +44,7 @@ final class ImageViewerTests: ZnUITestCase {
     func testStripPagesAndCloses() {
         thumb(2).tap()
         status("strip opened (TSX screen)")
-        XCTAssertTrue(appears(close, timeout: 10), "no close button")
+        opened()
         XCTAssertTrue(appears(counter(2, of: 4), timeout: 5), "the counter doesn't read photo 2 of 4")
         XCTAssertTrue(appears(photo(2, of: 4), timeout: 5), "photo 2 isn't one picture element")
 
@@ -55,7 +62,7 @@ final class ImageViewerTests: ZnUITestCase {
     func testOnePhotoReadsItsAlt() {
         app.buttons["One photo (no count)"].tap()
         status("one opened (TSX screen)")
-        XCTAssertTrue(appears(close, timeout: 10))
+        opened()
         // Its own alt, no counter with one photo.
         XCTAssertTrue(appears(app.images["Shop front"], timeout: 5), "the photo doesn't read its alt")
         XCTAssertFalse(counter(1, of: 1).exists)
@@ -69,6 +76,7 @@ final class ImageViewerTests: ZnUITestCase {
         // The app's own words: the close label and the photo label template.
         let band = app.buttons.matching(NSPredicate(format: "label == %@", "Band karein")).firstMatch
         XCTAssertTrue(appears(band, timeout: 10), "no close button with the app's label")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))  // the open's flight (see opened())
         XCTAssertTrue(appears(text("Photo 2 / 4"), timeout: 5), "the counter doesn't use photoLabel")
         // swipeToCloseEnabled false: a drag down leaves it open.
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
@@ -82,7 +90,8 @@ final class ImageViewerTests: ZnUITestCase {
     func testDragDownCloses() {
         thumb(1).tap()
         status("strip opened (TSX screen)")
-        XCTAssertTrue(appears(photo(1, of: 4), timeout: 10))
+        opened()
+        XCTAssertTrue(appears(photo(1, of: 4), timeout: 5))
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 350)))
         status("strip closed on 0")
@@ -94,6 +103,7 @@ final class ImageViewerTests: ZnUITestCase {
         // The picsum 404: the error words and the retry button, which loads again.
         let retry = app.buttons["Try again"].firstMatch
         XCTAssertTrue(appears(retry, timeout: 15), "no retry button")
+        opened()
         XCTAssertTrue(text("Couldn't load this photo").exists)
         retry.tap()
         XCTAssertTrue(appears(app.buttons["Try again"].firstMatch, timeout: 15), "the retry button went for a 404")
