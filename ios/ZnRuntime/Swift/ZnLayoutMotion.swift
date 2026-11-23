@@ -88,7 +88,10 @@ extension LayoutSubview {
     /// place(at:) from the top start corner, for zn's own layouts (ZnFlexLayout, ZnWrapLayout, ZnStackLayout): an
     /// animateLayout child is also told its place in [bounds], the parent's box (Android's positionInParent).
     func znPlace(at p: CGPoint, in bounds: CGRect, proposal: ProposedViewSize) {
-        if let b = self[ZnPlaceKey.self] { b.place.parentPlaced(CGPoint(x: p.x - bounds.minX, y: p.y - bounds.minY)) }
+        if let b = self[ZnPlaceKey.self] {
+            b.place.parentPlaced(CGPoint(x: p.x - bounds.minX, y: p.y - bounds.minY))
+            b.grow.markPlacing(proposal)
+        }
         place(at: p, anchor: .topLeading, proposal: proposal)
     }
 }
@@ -178,16 +181,48 @@ final class ZnGrowBox {
     let step: ZnLayoutStepper
     /// The content's own size from the latest measure (the parent's last measure before it places the node).
     var natural: CGSize?
-    /// The parent is measuring the node now (set by its place layout around the measure). Asked at other times, the
-    /// size layout is the node being placed (the chain above passes its placed size down): the content isn't measured
-    /// again then, so [natural] stays the parent's (a Text asked at its old width would say it is narrower).
-    var measuring = false
+    /// The size it is being placed at, from the moment its parent places it (znPlace) or its place layout places
+    /// its chain, until it is placed (or the run loop turns). Asked at that size, the size layout is the node being
+    /// placed (the chain passes its placed size down), not measured: the content isn't measured again then, so
+    /// [natural] stays the parent's measure (a Text asked at its old width would say it is narrower). Any other ask,
+    /// one of the same size in a later pass included, measures.
+    private(set) var placing: CGSize?
     var settled = false
 
     init(_ spec: ZnTimingSpec) { step = ZnLayoutStepper(spec) }
 
+    func markPlacing(_ p: ProposedViewSize) {
+        guard let w = p.width, let h = p.height else { return }
+        if placing == nil { MainActor.assumeIsolated { ZnPlacingSweep.add(self) } }
+        placing = CGSize(width: w, height: h)
+    }
+
+    func placed() { placing = nil }
+
+    /// [p] is the size it is being placed at.
+    func isPlacing(_ p: ProposedViewSize) -> Bool {
+        guard let at = placing, let w = p.width, let h = p.height else { return false }
+        return abs(w - at.width) <= 0.01 && abs(h - at.height) <= 0.01
+    }
+
     var shown: CGSize { CGSize(width: CGFloat(step.anim.x), height: CGFloat(step.anim.y)) }
     var target: CGSize { CGSize(width: CGFloat(step.anim.toX), height: CGFloat(step.anim.toY)) }
+}
+
+/// Clears the placing marks once the run loop turns: a mark lasts one layout pass at most.
+@MainActor
+private enum ZnPlacingSweep {
+    private static var boxes: [ZnGrowBox] = []
+
+    static func add(_ b: ZnGrowBox) {
+        if boxes.isEmpty {
+            DispatchQueue.main.async {
+                for b in boxes { b.placed() }
+                boxes.removeAll(keepingCapacity: true)
+            }
+        }
+        boxes.append(b)
+    }
 }
 
 private func znApart(_ a: CGSize, _ b: CGSize) -> Bool { abs(a.width - b.width) > 0.5 || abs(a.height - b.height) > 0.5 }
@@ -199,12 +234,13 @@ private struct ZnAnimatedSizeLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let child = subviews.first else { return .zero }
+        let placing = box.isPlacing(proposal)
         let n: CGSize
-        if box.measuring || box.natural == nil {
+        if placing, let kept = box.natural {
+            n = kept
+        } else {
             n = child.sizeThatFits(proposal)
             box.natural = n
-        } else {
-            n = box.natural!
         }
         let r: CGSize
         if !box.settled {
@@ -216,12 +252,13 @@ private struct ZnAnimatedSizeLayout: Layout {
             // starts the animation from there), so no frame shows the new size first.
             r = znApart(n, box.target) ? box.target : n
         }
-        if znLayoutLog { print("zn layout-motion size: \(box.measuring ? "measured" : "placing"), \(proposal.width.map { "\($0)" } ?? "nil") x \(proposal.height.map { "\($0)" } ?? "nil") own \(n) answer \(r)") }
+        if znLayoutLog { print("zn layout-motion size: \(placing ? "placing" : "measured"), \(proposal.width.map { "\($0)" } ?? "nil") x \(proposal.height.map { "\($0)" } ?? "nil") own \(n) answer \(r)") }
         return r
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let child = subviews.first else { return }
+        box.placed()
         let n = box.natural ?? bounds.size
         if znLayoutLog { print("zn layout-motion size: placed \(bounds.size) own \(n) target \(box.target)") }
         if !box.settled {
@@ -307,11 +344,7 @@ private struct ZnAnimatedPlaceLayout: Layout {
     let tick: Int
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let child = subviews.first else { return .zero }
-        // The parent measuring the node (the size layout below measures its content only now).
-        box.grow.measuring = true
-        defer { box.grow.measuring = false }
-        return child.sizeThatFits(proposal)
+        subviews.first?.sizeThatFits(proposal) ?? .zero
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -319,6 +352,7 @@ private struct ZnAnimatedPlaceLayout: Layout {
         let p = box.place
         if !p.byParent { p.moved(to: bounds.origin) }
         let a = p.step.anim
+        box.grow.markPlacing(ProposedViewSize(bounds.size))
         child.place(at: CGPoint(x: bounds.minX + CGFloat(a.x), y: bounds.minY + CGFloat(a.y)), anchor: .topLeading,
                     proposal: ProposedViewSize(bounds.size))
     }
