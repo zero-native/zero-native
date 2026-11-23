@@ -152,9 +152,12 @@ function MkFormulas(props: { run?: boolean }) {
   const trailY = follow(cy, { spring: { damping: 12, stiffness: 120 } })
   const amount = derive(() => Math.round(t() * 125000))
   if (props.run) {
+    // JS sees a value only after its first read (that read starts the "watch"), so read both now and log later.
+    cx()
+    trailX()
     setTimeout(() => {
       log("derive cx", cx())
-      log("follow trails", Math.abs(trailX() - cx()) > 0.5)
+      log("follow trail x", trailX())
     }, 1500)
   }
   return (
@@ -177,9 +180,13 @@ function MkWindow() {
   setTimeout(() => void t.play(), 300)
   return (
     <MkCard title="4. Window, 3D and blur" hint="env as text (width, insets, keyboard); a card turned with rotateX / rotateY and blurred by the same timeline.">
-      <Text fontSize={12} color={c.ink}>
-        width {env.width.format({ decimals: 0 })} · top {env.insets.top.format({ decimals: 0 })} · bottom {env.insets.bottom.format({ decimals: 0 })} · keyboard {env.keyboardHeight.format({ decimals: 0 })}
-      </Text>
+      {/* One v.format(...) per <Text>, so each value is its own Text in a row. */}
+      <Row style={{ gap: 10, flexWrap: "wrap" }}>
+        <Text fontSize={12} color={c.ink}>{env.width.format({ prefix: "width ", decimals: 0 })}</Text>
+        <Text fontSize={12} color={c.ink}>{env.insets.top.format({ prefix: "top ", decimals: 0 })}</Text>
+        <Text fontSize={12} color={c.ink}>{env.insets.bottom.format({ prefix: "bottom ", decimals: 0 })}</Text>
+        <Text fontSize={12} color={c.ink}>{env.keyboardHeight.format({ prefix: "keyboard ", decimals: 0 })}</Text>
+      </Row>
       <Row style={{ gap: 16, justifyContent: "center" }}>
         <Column style={{ width: 110, height: 70, borderRadius: 14, backgroundColor: c.primary, cameraDistance: 10, transform: [{ rotateX: t.map([0, 1], [-30, 30]) }, { rotateY: t.map([0, 1], [40, -40]) }] }} />
         <Column style={{ width: 110, height: 70, borderRadius: 14, backgroundColor: "#E23744", blurRadius: t.map([0, 1], [0, 10]) }} />
@@ -257,6 +264,12 @@ function MkPlugin(props: { run?: boolean }) {
     void spring.to(to)
   }
   if (props.run) {
+    // First reads start the watch (JS sees a value only after it), so read each one now and log later.
+    wob()
+    ox()
+    oy()
+    tilt.x()
+    tilt.y()
     setTimeout(() => {
       log("orbit x", ox())
       log("orbit y", oy())
@@ -285,9 +298,12 @@ function MkPlugin(props: { run?: boolean }) {
         </Column>
       </Row>
       <NativeView name="device.fake-view" props={{ label: "level bar", level }} onEvent={(e) => said.set("the view sent " + e.name)} style={{ width: "100%", height: 56 }} />
-      <Text fontSize={12} color={c.ink}>
-        level {derive(() => level() * 100).format({ decimals: 0, suffix: "%" })} · tilt x {tilt.x.format({ decimals: 2 })} y {tilt.y.format({ decimals: 2 })} {said()}
-      </Text>
+      <Row style={{ gap: 10, flexWrap: "wrap" }}>
+        <Text fontSize={12} color={c.ink}>{derive(() => level() * 100).format({ prefix: "level ", decimals: 0, suffix: "%" })}</Text>
+        <Text fontSize={12} color={c.ink}>{tilt.x.format({ prefix: "tilt x ", decimals: 2 })}</Text>
+        <Text fontSize={12} color={c.ink}>{tilt.y.format({ prefix: "y ", decimals: 2 })}</Text>
+        <Text fontSize={12} color={c.ink}>{said()}</Text>
+      </Row>
     </MkCard>
   )
 }
