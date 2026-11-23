@@ -77,11 +77,21 @@ private struct ZnGestureNode: ViewModifier {
         // The parent's size for "%" coordinates (read here: a parent resize reaches the gesture).
         let parent = znParentContentBox(s, inst)
         let p = CGSize(width: parent?.w ?? 0, height: parent?.h ?? 0)
+        // VoiceOver: the gestures with an a11yLabel get an element with their actions (ZnAccessibility.swift).
+        let spoken = g?.leaves.filter { $0.a11yLabel != nil } ?? []
         content
             .environment(\.znGestureDepth, depth + 1)
             .background(ZnGestureProbe(g: g, depth: depth, off: hiddenTab || touchOff, parent: p, mark: mark, layer: layer))
+            .background {
+                if !spoken.isEmpty { ZnGestureA11y(s: s, inst: inst, leaves: spoken).allowsHitTesting(false) }
+            }
             .overlay(ZnGestureEnd(mark: mark).allowsHitTesting(false))
-            .onAppear { parent?.wanted = true }
+            .onAppear {
+                parent?.wanted = true
+                #if DEBUG
+                ZnA11yDebug.startOnce()
+                #endif
+            }
     }
 
     @State private var mark = ZnGestureMark()

@@ -150,6 +150,9 @@ struct ZnPressA11y: ViewModifier {
     let disabled: Bool
 
     func body(content: Content) -> some View {
+        #if DEBUG
+        let _ = ZnA11yDebug.startOnce()
+        #endif
         let (ctx, s, inst, disabled) = (ctx, s, inst, disabled)
         // Its children's own state (a TextField, a Switch inside) stays usable, as on Android: only the element
         // reads dimmed. Its plain texts are hidden when the element reads them itself (a control inside), else they
@@ -347,3 +350,234 @@ extension View {
     if let id = s.testID, v.accessibilityIdentifier != id { v.accessibilityIdentifier = id }
     if s.accessibilityHidden { v.accessibilityElementsHidden = true }
 }
+
+// MARK: - Gestures
+
+/// VoiceOver for a node's gestures that have an `a11yLabel` (Android: ZnGesture.kt's semantics; VoiceOver users can't
+/// drag or pinch), drawn by ZnGestureHub.swift behind the node, inside its layer (so it moves with the node):
+/// - a tap gesture: the element is a button, and VoiceOver's double tap sends its onEnd with `accessibility: true`;
+/// - useZoom: actions "<label>: zoom in" (at the centre, to the double tap's scale) and "<label>: zoom out" (names from
+///   `a11yActions.zoomIn` / `zoomOut`);
+/// - each anchor: an action "<label>: <anchor id>" (or `a11yActions[id]`) that settles there and sends onEnd with
+///   `{anchor, accessibility: true}`;
+/// - iOS only, as a slider: a one-axis pan with two or more anchors is adjustable (swipe up / down goes to the next
+///   anchor: along x to the right, along y up), its value the anchor it rests nearest to; one with no anchors and both
+///   bounds on its axis moves a tenth of them per swipe, its value a percentage. Each sends onEnd with
+///   `accessibility: true`.
+/// The element reads the node's label, else the gesture's a11yLabel (the node's texts stay elements of their own: a
+/// knob's "›" isn't a name). A node with its own label that ZnA11y makes one element (no control inside) reads that
+/// label: this element has none and merges into it with its actions.
+struct ZnGestureA11y: View {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    /// The node's gestures with an a11yLabel (leaves).
+    let leaves: [ZnGesture]
+
+    /// ZnA11y makes the node one element with its own label: this element merges into it.
+    static func mergesIntoNode(_ s: ZnNodeSpec) -> Bool { s.hasAccessibilityLabel && !s.hasInteractiveDescendant && !s.isPressable }
+
+    var body: some View {
+        let tap = leaves.first { $0.kind == ZnGesture.tap }
+        let slider = leaves.first { $0.kind == ZnGesture.pan && $0.axis != ZnGesture.axisXY && ($0.anchors.count >= 2 || Self.range($0) != nil) }
+        let label = Self.mergesIntoNode(s) ? nil : s.accessibilityLabelNow(inst) ?? leaves.first?.a11yLabel
+        // (SwiftUI lists accessibilityActions last to first: given reversed, VoiceOver offers them in Android's order.)
+        let actions = Self.actions(leaves).reversed()
+        Color.clear
+            .accessibilityElement(children: .ignore)
+            .znWhen(label != nil) { $0.accessibilityLabel(label ?? "") }
+            .znWhen(tap != nil) { v in
+                v.accessibilityAddTraits(.isButton)
+                    .accessibilityAction { tap?.send("end", ["cancelled": false, "accessibility": true]) }
+            }
+            .znWhen(slider != nil) { v in
+                v.accessibilityValue(slider.map(Self.value) ?? "")
+                    .accessibilityAdjustableAction { d in if let slider { Self.step(slider, up: d == .increment) } }
+            }
+            .accessibilityActions {
+                ForEach(Array(actions), id: \.name) { a in Button(a.name) { a.run() } }
+            }
+    }
+
+    private struct Action {
+        let name: String
+        let run: () -> Void
+    }
+
+    /// Android's custom actions, in its order: per gesture, zoom in / out, then its anchors.
+    private static func actions(_ leaves: [ZnGesture]) -> [Action] {
+        var out: [Action] = []
+        for leaf in leaves {
+            let names = leaf.o["a11yActions"] as? [String: Any]
+            func name(_ key: String, _ fallback: String) -> String {
+                (names?[key] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "\(leaf.a11yLabel ?? ""): \(fallback)"
+            }
+            if leaf.kind == ZnGesture.zoom {
+                out.append(Action(name: name("zoomIn", "zoom in")) { leaf.zoomInAtCentre() })
+                out.append(Action(name: name("zoomOut", "zoom out")) { leaf.zoomAnimate(leaf.zoomMin, 0, 0) })
+            }
+            for a in leaf.anchors {
+                out.append(Action(name: name(a.id, a.id)) { go(leaf, a) })
+            }
+        }
+        // (Two gestures with the same action name: the first one's.)
+        var seen = Set<String>()
+        return out.filter { seen.insert($0.name).inserted }
+    }
+
+    /// Settles [g] on anchor [a], as if released there; onEnd says so.
+    private static func go(_ g: ZnGesture, _ a: ZnAnchor) {
+        let (ax, ay) = g.anchorPoint(a)
+        g.touch?.cancel()
+        g.settle(ZnGesture.Target(id: a.id, x: ax, y: ay), 0, 0)
+        g.send("end", ["anchor": a.id, "cancelled": false, "accessibility": true])
+    }
+
+    /// A one-axis pan's anchors in their order on screen (x: left to right; y: bottom to top), with their points.
+    private static func ordered(_ g: ZnGesture) -> [(ZnAnchor, Float)] {
+        let onX = g.axis == ZnGesture.axisX
+        let points = g.anchors.compactMap { a -> (ZnAnchor, Float)? in
+            let p = g.anchorPoint(a)
+            return (onX ? p.0 : p.1).map { (a, $0) }
+        }
+        return points.sorted { onX ? $0.1 < $1.1 : $0.1 > $1.1 }
+    }
+
+    private static func nearest(_ g: ZnGesture) -> ZnAnchor? {
+        let at = (g.axis == ZnGesture.axisX ? g.x : g.y)?.value ?? 0
+        return ordered(g).min { abs($0.1 - at) < abs($1.1 - at) }?.0
+    }
+
+    /// A one-axis pan's bounds on its axis (low, high), when it has both and they differ.
+    private static func range(_ g: ZnGesture) -> (Float, Float)? {
+        let onX = g.axis == ZnGesture.axisX
+        guard let lo = g.lo(onX), let hi = g.hi(onX), hi != lo else { return nil }
+        return (lo, hi)
+    }
+
+    /// What VoiceOver reads as the slider's value: the anchor it rests nearest to, or how far along its bounds.
+    private static func value(_ g: ZnGesture) -> String {
+        if g.anchors.count >= 2 { return nearest(g)?.id ?? "" }
+        guard let (lo, hi) = range(g) else { return "" }
+        let at = (g.axis == ZnGesture.axisX ? g.x : g.y)?.value ?? lo
+        let p = (at - lo) / (hi - lo)
+        return "\(Int(((g.axis == ZnGesture.axisX ? p : 1 - p) * 100).rounded()))%"
+    }
+
+    /// VoiceOver's swipe up / down on an adjustable pan: the next anchor that way, or a tenth of its bounds.
+    private static func step(_ g: ZnGesture, up: Bool) {
+        if g.anchors.count >= 2 {
+            let list = ordered(g)
+            guard let cur = nearest(g), let i = list.firstIndex(where: { $0.0.id == cur.id }) else { return }
+            let j = up ? i + 1 : i - 1
+            guard list.indices.contains(j) else { return }
+            return go(g, list[j].0)
+        }
+        let onX = g.axis == ZnGesture.axisX
+        guard let (lo, hi) = range(g), let v = onX ? g.x : g.y else { return }
+        // Up: to the right along x, up the screen along y.
+        let by = (hi - lo) / 10 * (up == onX ? 1 : -1)
+        let to = min(max(v.value + by, min(lo, hi)), max(lo, hi))
+        // At once (the next swipe steps on from there), as VoiceOver's own sliders.
+        g.touch?.cancel()
+        g.detach()
+        v.interrupt()
+        v.value = to
+        g.send("end", [onX ? "x" : "y": Double(to), "cancelled": false, "accessibility": true])
+    }
+}
+
+// MARK: - Debug: the accessibility tree
+
+#if DEBUG
+/// ZN_A11Y_DUMP=<seconds> (a Debug build): that long after the first screen, prints what VoiceOver sees (each element's
+/// label, value, traits, frame and custom actions), runs ZN_A11Y_DO, then prints it again. ZN_A11Y_DO: steps split by
+/// "|": "action:<name>" runs the first custom action whose name contains it, "activate:<label>" VoiceOver's double tap,
+/// "inc:<label>" / "dec:<label>" a swipe up / down on an adjustable element. For lab checks without VoiceOver's UI.
+@MainActor
+enum ZnA11yDebug {
+    private static var started = false
+
+    static func startOnce() {
+        guard !started else { return }
+        started = true
+        let env = ProcessInfo.processInfo.environment
+        guard let s = env["ZN_A11Y_DUMP"].flatMap(Double.init) else { return }
+        // SwiftUI builds its accessibility tree only while an assistive app asks: turn the app's accessibility on, as
+        // UI tests do (libAccessibility, a Debug-only check).
+        if let lib = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW),
+           let f = dlsym(lib, "_AXSApplicationAccessibilitySetEnabled") {
+            unsafeBitCast(f, to: (@convention(c) (Bool) -> Void).self)(true)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + s) {
+            dump("before")
+            guard let steps = env["ZN_A11Y_DO"], !steps.isEmpty else { return }
+            for step in steps.split(separator: "|") { run(String(step)) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dump("after") }
+        }
+    }
+
+    private static func elements() -> [NSObject] {
+        var out: [NSObject] = []
+        func walk(_ o: NSObject, _ depth: Int) {
+            guard depth < 80 else { return }
+            if let v = o as? UIView, v.isHidden || v.alpha < 0.01 || v.accessibilityElementsHidden { return }
+            if o.isAccessibilityElement { out.append(o) }
+            if let kids = o.accessibilityElements as? [NSObject], !kids.isEmpty {
+                for k in kids { walk(k, depth + 1) }
+            } else if let v = o as? UIView, !o.isAccessibilityElement {
+                for k in v.subviews { walk(k, depth + 1) }
+            }
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            for w in (scene as? UIWindowScene)?.windows ?? [] where !w.isHidden { walk(w, 0) }
+        }
+        return out
+    }
+
+    private static func dump(_ when: String) {
+        print("zn a11y \(when):")
+        for e in elements() {
+            let f = e.accessibilityFrame
+            var traits: [String] = []
+            let t = e.accessibilityTraits
+            if t.contains(.button) { traits.append("button") }
+            if t.contains(.adjustable) { traits.append("adjustable") }
+            if t.contains(.image) { traits.append("image") }
+            if t.contains(.header) { traits.append("header") }
+            if t.contains(.staticText) { traits.append("text") }
+            let actions = (e.accessibilityCustomActions ?? []).map(\.name)
+            print("zn a11y   \"\(e.accessibilityLabel ?? "")\" value \"\(e.accessibilityValue ?? "")\" [\(traits.joined(separator: ","))] at (\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width))x\(Int(f.height)))\(actions.isEmpty ? "" : " actions \(actions)")")
+        }
+    }
+
+    private static func run(_ step: String) {
+        let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return }
+        let (kind, what) = (parts[0], parts[1])
+        let all = elements()
+        switch kind {
+        case "action":
+            for e in all {
+                guard let a = (e.accessibilityCustomActions ?? []).first(where: { $0.name.contains(what) }) else { continue }
+                print("zn a11y do: action \"\(a.name)\"")
+                if let h = a.actionHandler { _ = h(a) } else if let t = a.target as? NSObject { _ = t.perform(a.selector, with: a) }
+                return
+            }
+        default:
+            let adjusts = kind == "inc" || kind == "dec"
+            guard let e = all.first(where: { e in
+                (e.accessibilityLabel ?? "").contains(what) && (!adjusts || e.accessibilityTraits.contains(.adjustable))
+            }) else { break }
+            print("zn a11y do: \(kind) \"\(e.accessibilityLabel ?? "")\"")
+            switch kind {
+            case "activate": _ = e.accessibilityActivate()
+            case "inc": e.accessibilityIncrement()
+            case "dec": e.accessibilityDecrement()
+            default: break
+            }
+            return
+        }
+        print("zn a11y do: nothing matches \(step)")
+    }
+}
+#endif
