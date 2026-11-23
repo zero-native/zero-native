@@ -70,6 +70,7 @@ import { MotionEngineLabScreen } from "./MotionEngineLab"
 import { MotionBindingsLabScreen } from "./MotionBindingsLab"
 import { ElementValuesLabScreen } from "./ElementValuesLab"
 import { ListsTwoLabScreen } from "./ListsTwoLab"
+import { NavStartLabScreen, SharedLabDetailScreen, SharedLabScreen, SharedLabSeeThroughScreen } from "./SharedLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -176,6 +177,16 @@ export const routes = defineRoutes({
   impressionsLab: { path: "/dev/impressions", screen: ImpressionsLabScreen, deepLink: true },
   // Lists 2: item animation, drag to reorder, scroll extras, pinned rows and an inverted chat on <List>. Last, as above.
   listsTwoLab: { path: "/dev/lists2", screen: ListsTwoLabScreen, deepLink: true },
+  // Shared elements over every kind of route (SharedLab.tsx): push, modal, fade, secure, see-through, none; and a
+  // start screen that pushes a route before NAV STARTED (no slide in). Last, so the numbers before them stay.
+  sharedLab: { path: "/dev/nav/shared", screen: SharedLabScreen, deepLink: true },
+  sharedLabDetail: { path: "/dev/nav/shared/detail", screen: SharedLabDetailScreen, restore: false },
+  sharedLabModal: { path: "/dev/nav/shared/modal", screen: SharedLabDetailScreen, transition: "modal", restore: false },
+  sharedLabFade: { path: "/dev/nav/shared/fade", screen: SharedLabDetailScreen, transition: "fade", restore: false },
+  sharedLabSecure: { path: "/dev/nav/shared/secure", screen: SharedLabDetailScreen, secure: true, restore: false },
+  sharedLabNone: { path: "/dev/nav/shared/none", screen: SharedLabDetailScreen, transition: "none", restore: false },
+  sharedLabSeeThrough: { path: "/dev/nav/shared/see-through", screen: SharedLabSeeThroughScreen, transparent: true, transition: "fade", safeArea: "none", restore: false },
+  navStartLab: { path: "/dev/nav/start", screen: NavStartLabScreen, restore: false },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
