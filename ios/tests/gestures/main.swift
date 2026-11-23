@@ -898,6 +898,61 @@ do {  // useZoom's double tap (a tap gesture with `zoom`): in around the tapped 
     sent = []
 }
 
+do {  // a finger right after a double tap, while the zoom is still on its way in: it drags the photo, at the goal
+    let z = zoom(1350)
+    _ = gesture(1355, #"{"kind":"tap","values":{},"taps":2,"zoom":1350}"#)
+    let both = group(1356, "simultaneous", [1350, 1355])
+    both.placed(300, 300, 400, 800)
+    let f = Finger(both)
+    f.down(150, 150)
+    f.up(after: 60)
+    f.down(150, 150, after: 100)
+    f.up(after: 60)
+    clock.run(2)
+    truth("still on its way in (scale drawn near 1)", z.scale!.value < 1.5 && z.zoomGoal != nil)
+    let d = Finger(both)
+    d.down(150, 150, after: 1)
+    d.move(-20, 0)
+    check("past the slop mid-zoom: it takes the touch (by the goal, 2.5x)", z.live, znActive)
+    truth("and claims it before the Carousel's pan", d.s.claims)
+    truth("the tween ended", z.zoomGoal == nil)
+    near("at the goal's scale", z.scale!.value, 2.5, 0.001)
+    d.move(-20, 0)
+    near("the finger drags it from the goal", z.x!.value, -20, 0.001)
+    d.up(after: 400)
+    clock.run(60)
+    // Zooming back out: a finger then decides by the goal (1x): the parent's.
+    let out = Finger(both)
+    out.down(150, 150, after: 1000)
+    out.up(after: 60)
+    out.down(150, 150, after: 100)
+    out.up(after: 60)
+    clock.run(2)
+    truth("on its way out", z.scale!.value > 1.5)
+    let p = Finger(both)
+    p.down(150, 150, after: 1)
+    p.move(-20, 0)
+    check("going to 1x: the parent's", z.live, znFailed)
+    p.up()
+    clock.run(30)
+    // VoiceOver's zoom in / out say so in their end.
+    _ = events(1350)
+    sent = []
+    z.zoomInAtCentre()
+    clock.run(30)
+    truth("zoom in's end says accessibility", lastEvent(1350, "end")?["accessibility"] as? Bool == true)
+    sent = []
+    z.zoomOutForA11y()
+    clock.run(30)
+    near("zoomed out", z.scale!.value, 1, 0.001)
+    truth("zoom out's end says accessibility", lastEvent(1350, "end")?["accessibility"] as? Bool == true)
+    sent = []
+    try! ZnGestures.zoomTo(["id": 1350, "s": 2]) { _ in }
+    clock.run(30)
+    truth("zoomTo's end doesn't", lastEvent(1350, "end")?["accessibility"] == nil)
+    sent = []
+}
+
 do {  // zoomTo (and reset): clamped scale and edges, {finished}; fingers on a transformed node map to its box
     let z = zoom(1340)
     var got: [String: Any]?
@@ -913,7 +968,21 @@ do {  // zoomTo (and reset): clamped scale and edges, {finished}; fingers on a t
     z.layerNow = { (2, 2, -100, 0) }
     let (bx, by) = z.zoomBox(200, 150)
     near("box x", bx, 150); near("box y", by, 150)
+    z.layerNow = { nil }  // its screen's instance has gone
+    let (gx, _) = z.zoomBox(200, 150)
+    near("no layer: the point as it is", gx, 200)
     sent = []
+}
+
+// MARK: - Sheet progress (ZnSheetMath, ZnSheet.swift)
+
+do {
+    near("closed: at its rest bottom", ZnSheetMath.progress(top: 800, restBottom: 800, tallest: 600), 0)
+    near("half way up", ZnSheetMath.progress(top: 500, restBottom: 800, tallest: 600), 0.5)
+    near("at the tallest detent", ZnSheetMath.progress(top: 200, restBottom: 800, tallest: 600), 1)
+    near("pulled past it: 1", ZnSheetMath.progress(top: 100, restBottom: 800, tallest: 600), 1)
+    near("slid below its rest: 0", ZnSheetMath.progress(top: 900, restBottom: 800, tallest: 600), 0)
+    near("no detent yet: 0", ZnSheetMath.progress(top: 100, restBottom: 800, tallest: 0), 0)
 }
 
 // MARK: - Groups and disposal

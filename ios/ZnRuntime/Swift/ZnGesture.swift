@@ -169,7 +169,13 @@ final class ZnGesture {
     private(set) var zoomAspect: ZnSpec?
     /// The node's own layer now (scale x, scale y, translate x, translate y; its probe sets it): a zoom on an element
     /// that also carries the zoom's transform maps the fingers back into its box (ZnZoomMath.toBox). Nil: no layer.
-    var layerNow: (() -> (Float, Float, Float, Float))?
+    var layerNow: (() -> (Float, Float, Float, Float)?)?
+    /// The probe that set [layerNow] (only it clears it when it goes).
+    weak var layerOwner: AnyObject?
+    /// Where a zoom tween (double tap, zoomTo, VoiceOver) is going, while it runs: a finger that lands then decides
+    /// "zoomed or not" by it, not by the scale drawn halfway, and drags from there (ZnZoomRec).
+    var zoomGoal: (s: Float, x: Float, y: Float)?
+    var zoomSeq = 0
 
     /// The touch in progress (a JS command with interruptGesture cancels it).
     var touch: ZnGestureTouch?

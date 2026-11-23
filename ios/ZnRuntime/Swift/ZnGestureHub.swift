@@ -97,12 +97,14 @@ private struct ZnGestureNode: ViewModifier {
     @State private var mark = ZnGestureMark()
 
     /// The node's own scale and translation now (useZoom maps the fingers back into its box with them), read when a
-    /// touch needs them; nil when the node has no transform.
-    private var layer: (() -> (Float, Float, Float, Float))? {
+    /// touch needs them; nil when the node has no transform. Holds its instance weakly: a gesture JS keeps (module
+    /// level, or used again on another screen) doesn't keep a closed screen's tree.
+    private var layer: (() -> (Float, Float, Float, Float)?)? {
         guard s.layerTransforms else { return nil }
-        let (s, inst) = (s, inst)
-        return {
-            MainActor.assumeIsolated {
+        let s = s
+        return { [weak inst] in
+            guard let inst else { return nil }
+            return MainActor.assumeIsolated {
                 let all = inst.layerNumber(s.scaleSlot, s.scaleBase)
                 return (Float(all * inst.layerNumber(s.scaleXSlot, s.scaleXOnly)), Float(all * inst.layerNumber(s.scaleYSlot, s.scaleYOnly)),
                         Float(inst.layerNumber(s.translateXSlot, s.translateX)), Float(inst.layerNumber(s.translateYSlot, s.translateY)))
@@ -139,7 +141,7 @@ private struct ZnGestureProbe: UIViewRepresentable {
     let off: Bool
     let parent: CGSize
     let mark: ZnGestureMark
-    let layer: (() -> (Float, Float, Float, Float))?
+    let layer: (() -> (Float, Float, Float, Float)?)?
 
     func makeUIView(context: Context) -> ZnGestureProbeView { ZnGestureProbeView() }
 
@@ -148,8 +150,22 @@ private struct ZnGestureProbe: UIViewRepresentable {
         v.depth = depth
         v.off = off
         v.parentSize = parent
+        if v.gesture !== g { Self.release(v) }
         v.gesture = g
-        for leaf in g?.leaves ?? [] { leaf.layerNow = layer }
+        for leaf in g?.leaves ?? [] {
+            leaf.layerNow = layer
+            leaf.layerOwner = v
+        }
+    }
+
+    /// The node went: its layer reader goes too, unless another node's probe has set its own since.
+    static func dismantleUIView(_ v: ZnGestureProbeView, coordinator: ()) { release(v) }
+
+    private static func release(_ v: ZnGestureProbeView) {
+        for leaf in v.gesture?.leaves ?? [] where leaf.layerOwner === v {
+            leaf.layerNow = nil
+            leaf.layerOwner = nil
+        }
     }
 }
 
@@ -326,7 +342,7 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     // MARK: Touches (from the feed)
 
     fileprivate func began(_ touches: Set<UITouch>) {
-        if Self.log { print("zn t=\(ZnDebug.ms()) gesture: \(touches.count) finger(s) down, \(ZnGestureProbeView.live.count) node(s) with gestures") }
+        if Self.log { print("zn t=\(ZnDebug.ms()) gesture: \(touches.count) finger(s) down, \(ZnGestureProbeView.live.count) node(s) with gestures, claim \(claim.state.rawValue) feed \(feed.state.rawValue)") }
         edges.removeAll { a in
             if a.over || a.touch.phase == .ended || a.touch.phase == .cancelled { a.drop(); return true }
             return false
@@ -576,7 +592,11 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
               other.name != ZnNavController.backPanName, let ov = other.view else { return false }
         if !entries.isEmpty {
             return entries.contains { e in
-                e.session.mayClaim(fingers: max(1, e.touches.count)) && (e.probe?.isDescendant(of: ov) ?? false)
+                guard e.probe?.isDescendant(of: ov) ?? false else { return false }
+                // A double tap's next tap (its pans already failed) answers as the first tap did: UIKit may keep this
+                // answer for the touch after it (a drag right after a double tap, the photo zooming in), and the
+                // claim fails at the first move anyway when nothing can take the touch.
+                return e.session.mayClaim(fingers: max(1, e.touches.count)) || Self.mayConsume(e.session.g)
             }
         }
         // Asked before the feed saw the touch: the probes under it.
@@ -584,9 +604,12 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
         let under = ZnGestureProbeView.live.allObjects.filter { p in
             p.host === view && p.takes && znShows(p, p.bounds, at: at, upTo: view)
         }
-        return frontmost(under, at: at).contains { p in
-            p.isDescendant(of: ov) && (p.gesture?.leaves.contains { $0.withParent != "simultaneous" && ZnGestureHub.consuming($0.kind) } ?? false)
-        }
+        return frontmost(under, at: at).contains { p in p.isDescendant(of: ov) && p.gesture.map(Self.mayConsume) == true }
+    }
+
+    /// [g] has a leaf that may take a touch from the scroll around it.
+    private static func mayConsume(_ g: ZnGesture) -> Bool {
+        g.leaves.contains { $0.withParent != "simultaneous" && consuming($0.kind) }
     }
 
     fileprivate static func consuming(_ kind: Int) -> Bool { kind != ZnGesture.tap && kind != ZnGesture.fling }

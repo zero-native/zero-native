@@ -81,7 +81,7 @@ extension ZnGesture {
 
     /// A point of the element (local points, inside the node's own layer) in its box (not moved by the zoom).
     func zoomBox(_ lx: Float, _ ly: Float) -> (Float, Float) {
-        guard let layer = layerNow?() else { return (lx, ly) }
+        guard let layer = layerNow?() ?? nil else { return (lx, ly) }
         let sx = layer.0.isFinite && layer.0 != 0 ? layer.0 : 1
         let sy = layer.1.isFinite && layer.1 != 0 ? layer.1 : 1
         return (ZnZoomMath.toBox(lx, selfW / 2, sx, layer.2), ZnZoomMath.toBox(ly, selfH / 2, sy, layer.3))
@@ -89,18 +89,26 @@ extension ZnGesture {
 
     /// Animates the zoom to ([s], [tx], [ty]): one tween for the three, so the point zoomed around stays put on the
     /// way; "settle" when it rests. [sendEnd]: also "end" then (a zoom from JS, a double tap or VoiceOver, which have
-    /// no finger lift; a pinch released past a limit sends its own "end" at the lift). [resolve] gets {finished}.
+    /// no finger lift; a pinch released past a limit sends its own "end" at the lift). [accessibility]: that "end" says
+    /// so (VoiceOver's zoom in / out, as its tap and anchor actions). [resolve] gets {finished}.
     func zoomAnimate(_ s: Float, _ tx: Float, _ ty: Float, _ spec: ZnTimingSpec = zoomTween, sendEnd: Bool = true,
-                     _ resolve: (([String: Any]) -> Void)? = nil) {
+                     accessibility: Bool = false, _ resolve: (([String: Any]) -> Void)? = nil) {
         let parts: [(ZnMotionValue, Float)] = [(scale, s), (x, tx), (y, ty)].compactMap { v, to in v.map { ($0, to) } }
         var open = parts.count
         var finished = true
+        // The tween before this one ends first (its "end" says cancelled), then this one's goal holds until it rests.
+        for (v, _) in parts { v.interrupt() }
+        zoomSeq += 1
+        let seq = zoomSeq
+        zoomGoal = parts.isEmpty ? nil : (s, tx, ty)
         let done = { [weak self] in
             guard let self else { return }
+            if self.zoomSeq == seq { self.zoomGoal = nil }
             let at: [String: Any] = ["scale": Double(self.scale?.value ?? 1), "x": Double(self.x?.value ?? 0), "y": Double(self.y?.value ?? 0)]
             if sendEnd {
                 var end = at
                 end["cancelled"] = !finished
+                if accessibility { end["accessibility"] = true }
                 self.send("end", end)
             }
             self.send("settle", at)
@@ -108,7 +116,6 @@ extension ZnGesture {
         }
         if parts.isEmpty { return done() }
         for (v, to) in parts {
-            v.interrupt()
             v.velocity = 0
             move(v, to: to, spec) { ok in
                 if !ok { finished = false }
@@ -132,8 +139,11 @@ extension ZnGesture {
         let (cw, ch) = zoomContent()
         let to = min(max(zoomDouble > 0 ? zoomDouble : zoomMax, zoomMin), zoomMax)
         let (s, tx, ty) = ZnZoomMath.zoomTo(scale?.value ?? 1, x?.value ?? 0, y?.value ?? 0, selfW / 2, selfH / 2, selfW, selfH, cw, ch, to)
-        zoomAnimate(s, tx, ty)
+        zoomAnimate(s, tx, ty, accessibility: true)
     }
+
+    /// VoiceOver's "zoom out": back to the least scale, centred.
+    func zoomOutForA11y() { zoomAnimate(zoomMin, 0, 0, accessibility: true) }
 }
 
 extension ZnGestures {
@@ -206,7 +216,11 @@ final class ZnZoomRec: ZnRecognizer {
                 return
             }
             if hypot(movedX, movedY) <= slop { return }
-            let s = g.scale?.value ?? 1
+            // A double tap (or zoomTo) still on its way decides by where it goes: read halfway, a zoom in would still
+            // look "not zoomed" and the Carousel would turn the page under a photo that is zooming in. (Waiting for
+            // the tween doesn't work: UIKit's paging scroll doesn't wait that long for the hub's claim.)
+            let goal = g.zoomGoal
+            let s = goal?.s ?? g.scale?.value ?? 1
             // Not zoomed: one finger belongs to the parent (next photo, drag down to close).
             if s <= g.zoomMin * 1.01 {
                 ZnGestures.trace?("\(g.id) zoom: not zoomed, one finger: the parent's")
@@ -215,7 +229,7 @@ final class ZnZoomRec: ZnRecognizer {
             // Zoomed, at the edge it drags toward: the parent turns the page.
             if abs(movedX) > abs(movedY) {
                 let r = ZnZoomMath.range(g.zoomContent().0, s, w)
-                let t = g.x?.value ?? 0
+                let t = goal?.x ?? g.x?.value ?? 0
                 if (movedX > 0 && t >= r - 0.5) || (movedX < 0 && t <= -r + 0.5) {
                     ZnGestures.trace?("\(g.id) zoom: at the edge it drags toward: the parent's")
                     return fail()
@@ -250,8 +264,15 @@ final class ZnZoomRec: ZnRecognizer {
 
     override func activate() {
         let values = [g.scale, g.x, g.y].compactMap { $0 }
+        let goal = g.zoomGoal
         for v in values { v.heldBy = g.touch }
         for v in values { v.interrupt() }
+        // A zoom tween under way (it decided at the slop): the fingers take it from where it was going.
+        if let goal {
+            g.scale?.value = goal.s
+            g.x?.value = goal.x
+            g.y?.value = goal.y
+        }
         rawS = g.scale?.value ?? 1
         rawX = g.x?.value ?? 0
         rawY = g.y?.value ?? 0

@@ -333,7 +333,7 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
 
     /// Progress for the sheet's top edge at [y] (the view's points).
     private func progressAt(_ y: CGFloat) -> Float {
-        tallest > 0 ? Float(min(max((restBottom - y) / tallest, 0), 1)) : 0
+        ZnSheetMath.progress(top: y, restBottom: restBottom, tallest: tallest)
     }
 
     /// Follows [v]'s presentation layer each frame until its animations end (a UIKit animation sets the end values at
