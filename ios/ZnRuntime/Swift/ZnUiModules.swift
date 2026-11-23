@@ -166,9 +166,13 @@ final class ZnToast: ZnModuleBase, @unchecked Sendable {
         showing = pill
         pill.alpha = 0
         // The fade-out starts after the fade-in: started together, UIKit sets alpha 0 at once and the toast never shows.
+        // It is started [seconds] later, not given as the animation's delay: a delayed animation sets alpha 0 at once,
+        // and a view at alpha 0 is out of the accessibility tree (VoiceOver and UI tests didn't find the toast; on
+        // Android it is a live region while it shows).
         UIView.animate(withDuration: 0.2) { pill.alpha = 1 } completion: { _ in
-            UIView.animate(withDuration: 0.25, delay: seconds, options: []) { pill.alpha = 0 } completion: { _ in
-                pill.removeFromSuperview()
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                guard pill.superview != nil else { return }
+                UIView.animate(withDuration: 0.25) { pill.alpha = 0 } completion: { _ in pill.removeFromSuperview() }
             }
         }
         UIAccessibility.post(notification: .announcement, argument: message)
