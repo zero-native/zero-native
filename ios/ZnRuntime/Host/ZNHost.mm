@@ -135,6 +135,8 @@ class IosPlatform final : public zn::Platform {
   return zn::hermesBytecodeVersion();
 }
 
+// 10 from the Motion engine (2026-11-24, a native-only step): the update server sends an iOS app below 10 no bundle
+// that uses Motion, as its Motion module was a stub (tools/ota/decide.ts, docs/ota.md §3.2).
 + (NSInteger)hostApiVersion {
   return zn::kHostApiVersion;
 }

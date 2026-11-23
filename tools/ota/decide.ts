@@ -101,8 +101,19 @@ export function missing(caps: Capabilities, req: BundleRequires): string | null 
     if (have === undefined) return `needs native module ${name}`
     if (have < v) return `needs ${name} v${v}, app has v${have}`
   }
+  if (caps.os === "ios" && caps.hostApi < IOS_MOTION_HOST_API && ("Motion" in req.modules || "Motion" in own)) {
+    return `uses Motion; this iOS app (host API v${caps.hostApi}) has only the Motion stub (the engine is v${IOS_MOTION_HOST_API}+)`
+  }
   return null
 }
+
+/**
+ * iOS apps below this host API register a stub as "Motion" v1 (no engine: every call answers "unavailable"), so the
+ * module check alone would let a bundle that uses Motion through and nothing would move. Server only: the phones it is
+ * for can't be changed, and every iOS app from host API 10 has the engine (docs/ota.md §3.2, "Motion on older iOS
+ * apps"). Android always had the engine.
+ */
+export const IOS_MOTION_HOST_API = 10
 
 /**
  * The install's rollout bucket, 0–99: stable for an install and channel, so raising the rollout only adds installs

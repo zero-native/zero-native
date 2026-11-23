@@ -124,8 +124,9 @@ uint32_t hermesBytecodeVersion();
 // The JS ↔ native contract that a bundle's `@zeronative/core` relies on: the `__zn_*` host functions, app event
 // numbers, the batch and value formats. Raise kHostApiVersion when any of them gains something (packages/core/src/
 // host-api.ts must say the same number); raise kHostApiOldest only when something is removed or changes meaning,
-// which makes every bundle built before it refuse to run on this app (docs/ota.md §3.2).
-inline constexpr uint32_t kHostApiVersion = 9;  // 2: NAV FAILED, app event RETRY (step 3.9); 3: NAV STARTED (4.7);
+// which makes every bundle built before it refuse to run on this app (docs/ota.md §3.2). A native-only step (the host
+// says it; no bundle needs it) is listed in NATIVE_ONLY_HOST_API in host-api.ts, which then stays one lower.
+inline constexpr uint32_t kHostApiVersion = 10;  // 2: NAV FAILED, app event RETRY (step 3.9); 3: NAV STARTED (4.7);
                                                 // 4: NAV RESTORE, START "values" (restorableSignal);
                                                 // 5: app event APP_STATE (H.7);
                                                 // 6: app events NAV_RESULT, TASK, COLOR_SCHEME, LOW_MEMORY
@@ -133,6 +134,9 @@ inline constexpr uint32_t kHostApiVersion = 9;  // 2: NAV FAILED, app event RETR
                                                 // 8: tabs: NAV BACK_WANTED, route "tabs" in the manifest, a link to
                                                 //    the start route keeps its params
                                                 // 9: NAV LAYER (startApp's top and overlay)
+                                                // 10 (native only): Motion v1 is the engine on iOS too; an iOS host
+                                                //    at 9 or less has a stub that answers "unavailable", so the update
+                                                //    server sends it no bundle that uses Motion (docs/ota.md §3.2)
 inline constexpr uint32_t kHostApiOldest = 1;
 
 }  // namespace zn

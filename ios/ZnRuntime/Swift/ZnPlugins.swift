@@ -134,7 +134,8 @@ public final class ZnPluginRegistry {
 
 @MainActor
 public enum ZnPlugins {
-    /// The host API of this runtime (kHostApiVersion in core/include/zn/engine.h).
+    /// The host API a plugin can ask for: the JS contract's number (HOST_API_VERSION, as Android's ZnPlugins.HOST_API;
+    /// kHostApiVersion less its native-only steps; a test checks).
     public static let hostApi = 9
     fileprivate(set) static var screens: [String: ZnScreenContent] = [:]
     fileprivate(set) static var views: [String: ZnViewContent] = [:]

@@ -27,8 +27,11 @@ export const SOFT_CORE_MODULES: ReadonlySet<string> = new Set(["Splash", "WebSoc
 
 /**
  * Core modules a bundle needs only when the app uses their API (registry 24 motion: docs/gestures-and-motion-v1.md §5).
- * Core's own calls don't count; an app file that imports one of these names from @zeronative/core does, so an older
- * APK without the module refuses that bundle, and keeps running bundles that don't use it.
+ * Core's own calls don't count; an app file (or a plugin's) that imports one of these names from @zeronative/core
+ * does, so an older APK without the module refuses that bundle, and keeps running bundles that don't use it.
+ * Older iOS apps (host API 9 or less) have "Motion" v1 too, but as a stub that answers every call "unavailable": the
+ * phone's check would take a motion bundle and nothing would move, so the update server refuses it for them
+ * (tools/ota/decide.ts IOS_MOTION_HOST_API; docs/ota.md §3.2, "Motion on older iOS apps").
  */
 export const GATED_CORE_MODULES: Readonly<Record<string, { version: number; names: ReadonlySet<string> }>> = {
   Motion: {

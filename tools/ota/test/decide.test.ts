@@ -117,6 +117,23 @@ describe("rules underneath", () => {
     expect(missing({ ...caps, os: "ios", modules: { ...caps.modules, Haptics: 1 } }, r)).toBeNull()
   })
 
+  test("Motion on older iOS apps: below host API 10 their Motion v1 is a stub, so no bundle that uses Motion", () => {
+    const ios9 = { registry: 24, bytecode: 99, hostApi: 9, hostApiOldest: 1, modules: { Fetch: 1, Motion: 1 }, os: "ios" as const }
+    const motion = { registry: 24, bytecode: 99, hostApi: 9, modules: { Fetch: 1, Motion: 1 } }
+    const plain = { registry: 24, bytecode: 99, hostApi: 9, modules: { Fetch: 1 } }
+    expect(missing(ios9, motion)).toBe("uses Motion; this iOS app (host API v9) has only the Motion stub (the engine is v10+)")
+    expect(missing(ios9, plain)).toBeNull() // bundles without motion still reach it
+    expect(missing(ios9, { ...plain, os: { ios: { Motion: 1 } } })).toMatch(/Motion stub/)
+    expect(missing(ios9, { ...plain, os: { android: { Motion: 1 } } })).toBeNull() // Android's own part doesn't count
+    expect(missing({ ...ios9, hostApi: 10 }, motion)).toBeNull() // the engine
+    expect(missing({ ...ios9, os: "android" }, motion)).toBeNull() // Android always had the engine
+    const { os: _, ...noOs } = ios9
+    expect(missing(noOs, motion)).toBeNull() // no os: Android
+    // Through the decision: the phone stays on what it runs.
+    const d = decide(req({ capabilities: ios9 }), pointer(1, "sample_11"), bundle(11, motion))
+    expect(d).toMatchObject({ action: "NONE", reason: "INCOMPATIBLE" })
+  })
+
   test("rollout buckets are stable and spread evenly; raising the rollout only adds installs", () => {
     expect(rolloutBucket("a", "sample", "production")).toBe(rolloutBucket("a", "sample", "production"))
     const buckets = Array.from({ length: 10_000 }, (_, i) => rolloutBucket(`install-${i}`, "sample", "production"))
