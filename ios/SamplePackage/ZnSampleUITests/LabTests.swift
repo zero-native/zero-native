@@ -78,7 +78,7 @@ final class InputTests: ZnUITestCase {
     private func openAmount() -> XCUIElement {
         launch("input", ready: "")
         let amount = field("₹0")
-        XCTAssertTrue(amount.waitForExistence(timeout: 30), "no amount field")
+        XCTAssertTrue(appears(amount, timeout: 30), "no amount field")
         amount.tap()
         return amount
     }

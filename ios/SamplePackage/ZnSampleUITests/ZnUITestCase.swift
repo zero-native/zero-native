@@ -27,7 +27,7 @@ class ZnUITestCase: XCTestCase {
         app.launch()
         self.app = app
         if ready.isEmpty { sleep(3); return app }  // DumpTests with no id to wait for
-        XCTAssertTrue(id(ready).waitForExistence(timeout: 30), "\(route): no \"\(ready)\" after 30 s", file: file, line: line)
+        XCTAssertTrue(appears(id(ready), timeout: 30), "\(route): no \"\(ready)\" after 30 s", file: file, line: line)
         return app
     }
 
@@ -44,6 +44,17 @@ class ZnUITestCase: XCTestCase {
     /// The first static text whose label is exactly [label].
     func text(_ label: String) -> XCUIElement {
         app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    /// Whether [element] is there within [timeout]: polled every 0.1 s (waitForExistence takes about a second even
+    /// for one already there, and the suite waits for hundreds).
+    func appears(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while !element.exists {
+            if Date() >= end { return false }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return true
     }
 
     /// Polls [check] every 0.1 s until it holds or [timeout] passes (faster than an XCTNSPredicateExpectation).
@@ -82,8 +93,12 @@ class ZnUITestCase: XCTestCase {
     /// [hittable] false: on screen is enough (a multiline field reads as not hittable: tap its coordinate).
     func reveal(_ element: XCUIElement, hittable: Bool = true, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         let window = app.windows.firstMatch.frame
-        for _ in 0..<12 where !element.exists { app.swipeUp() }
-        XCTAssertTrue(element.waitForExistence(timeout: 5), "no \(element)", file: file, line: line)
+        var swipes = 0
+        while !element.exists && swipes < 12 {
+            app.swipeUp()
+            swipes += 1
+        }
+        XCTAssertTrue(appears(element, timeout: 5), "no \(element)", file: file, line: line)
         let columns = [window.midX, window.maxX - 8, window.minX + 24]
         var still = 0  // drags in a row that moved nothing: the next column; all of them: covered, or the content's end
         for _ in 0..<40 where still < columns.count {

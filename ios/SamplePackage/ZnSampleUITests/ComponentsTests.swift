@@ -83,20 +83,20 @@ final class ComponentsTests: ZnUITestCase {
 
     func testToastAndSheet() {
         reveal(id("comp-toast-short")).tap()
-        XCTAssertTrue(text("Changes saved successfully").waitForExistence(timeout: 3), "no toast")
+        XCTAssertTrue(appears(text("Changes saved successfully"), timeout: 3), "no toast")
 
         // The sheet draws in its own window; a toast from inside it must still show.
         reveal(id("comp-sheet-open")).tap()
         let title = id("comp-sheet-title")
-        XCTAssertTrue(title.waitForExistence(timeout: 3), "the sheet didn't open")
+        XCTAssertTrue(appears(title, timeout: 3), "the sheet didn't open")
         XCTAssertEqual(title.label, "UPI ID: store@upi")
         id("comp-sheet-copy").tap()
-        XCTAssertTrue(text("UPI ID copied").waitForExistence(timeout: 3), "no toast from the sheet")
+        XCTAssertTrue(appears(text("UPI ID copied"), timeout: 3), "no toast from the sheet")
 
         // Its content grows and shrinks.
         XCTAssertFalse(id("comp-sheet-lines").exists)
         id("comp-sheet-more").tap()
-        XCTAssertTrue(id("comp-sheet-lines").waitForExistence(timeout: 3))
+        XCTAssertTrue(appears(id("comp-sheet-lines"), timeout: 3))
         id("comp-sheet-more").tap()
         eventually("the extra lines go") { !self.id("comp-sheet-lines").exists }
 
@@ -121,7 +121,7 @@ final class ComponentsTests: ZnUITestCase {
         XCTAssertNotEqual(none.elementType, .button)
         XCTAssertEqual(app.buttons.matching(identifier: "comp-role-none").count, 0)
         none.tap()
-        XCTAssertTrue(text("Tapped role:none pressable").waitForExistence(timeout: 3), "role none didn't press")
+        XCTAssertTrue(appears(text("Tapped role:none pressable"), timeout: 3), "role none didn't press")
 
         // accessibilityHidden: neither the card (even with a testID) nor its text is there.
         XCTAssertEqual(count("comp-hidden"), 0)
@@ -147,9 +147,9 @@ final class NavigationTests: ZnUITestCase {
     func testOpenComponentsAndBack() {
         launch("dev", ready: "")
         let entry = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Components & a11y")).firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 30), "no Components entry on the Dev screen")
+        XCTAssertTrue(appears(entry, timeout: 30), "no Components entry on the Dev screen")
         reveal(entry).tap()
-        XCTAssertTrue(id("comp-title").waitForExistence(timeout: 5), "Components didn't open")
+        XCTAssertTrue(appears(id("comp-title"), timeout: 5), "Components didn't open")
         id("comp-back").tap()
         eventually("back on the Dev screen") { !self.id("comp-title").exists && entry.exists }
     }
