@@ -472,8 +472,27 @@ final class ZnLazyListElement {
     }
 
     func placed(_ id: String, _ r: CGRect) {
-        frames[id] = horizontal ? (r.minX, r.width) : (r.minY, r.height)
+        let f = horizontal ? (start: r.minX, size: r.width) : (start: r.minY, size: r.height)
+        frames[id] = f
+        // The item a follow just went to moved (the stack settles rows near a jump a pass later): go where it really
+        // is now, a few times at most. Only a move: an item placed again where it was (the user scrolled it out and
+        // back) doesn't pull the list back.
+        if let c = fresh(), c.id == id, abs(c.start - f.start) > 0.5 || abs(c.size - f.size) > 0.5 { correct(c) }
         if let sv { scrolled(sv) }
+    }
+    /// The follow just applied, while its item may still move (see placed) or SwiftUI may still move the list: a
+    /// ScrollViewReader.scrollTo that brought the item on screen lands again a pass after the exact offset was set.
+    private var correcting: (id: String, v: Float, tries: Int, start: CGFloat, size: CGFloat, to: CGFloat)?
+
+    /// Only for half a second after the follow applied (a scroll command after it must not be pulled back).
+    private var correctUntil: CFTimeInterval = 0
+    private func fresh() -> (id: String, v: Float, tries: Int, start: CGFloat, size: CGFloat, to: CGFloat)? {
+        CACurrentMediaTime() < correctUntil ? correcting : nil
+    }
+
+    private func correct(_ c: (id: String, v: Float, tries: Int, start: CGFloat, size: CGFloat, to: CGFloat)) {
+        correcting = c.tries > 1 ? (c.id, c.v, c.tries - 1, c.start, c.size, c.to) : nil
+        _ = followTo(c.v, again: true)
     }
 
     private func main(_ p: CGPoint) -> CGFloat { horizontal ? p.x : p.y }
@@ -483,6 +502,9 @@ final class ZnLazyListElement {
         guard element != nil else { return }
         // A follow that came before the scroll view was found, or before its item was placed, applies now.
         defer { follower.check() }
+        // Moved off the follow's offset by something other than the user (SwiftUI's scrollTo landing late): back.
+        if let c = fresh(), !sv.isTracking, !sv.isDecelerating, abs(main(sv.contentOffset) - c.to) > 0.5 { correct(c) }
+        if sv.isTracking { correcting = nil }  // the user's scroll wins
         let i = sv.adjustedContentInset
         let start = horizontal ? i.left : i.top, end = horizontal ? i.right : i.bottom
         let content = horizontal ? sv.contentSize.width : sv.contentSize.height
@@ -497,12 +519,14 @@ final class ZnLazyListElement {
 
     /// m.follow(v): an item on screen goes exactly there (with its fraction); one that isn't drawn yet is brought to the
     /// start by ScrollViewReader, and the value waits until it is placed (then its fraction applies). False until then.
-    private func followTo(_ v: Float) -> Bool {
+    private func followTo(_ v: Float, again: Bool = false) -> Bool {
         guard let (i, f) = ZnElementRules.listFollow(Double(v), total: total), let id = idOf(i) else { return true }
         guard let sv, let place = frames[id] else {
+            if !again { correcting = nil }
             proxy?.scrollTo(id, anchor: horizontal ? .leading : .top)
             return false
         }
+        let old = correcting
         let inset = sv.adjustedContentInset
         let start = horizontal ? inset.left : inset.top, end = horizontal ? inset.right : inset.bottom
         let content = horizontal ? sv.contentSize.width : sv.contentSize.height
@@ -511,6 +535,8 @@ final class ZnLazyListElement {
         let to = min(max(place.start + CGFloat(f) * place.size - start, -start), max(-start, content + end - viewport))
         var o = sv.contentOffset
         if horizontal { o.x = to } else { o.y = to }
+        correcting = again ? old.map { ($0.id, $0.v, $0.tries, place.start, place.size, to) } : (id, v, 3, place.start, place.size, to)
+        if !again { correctUntil = CACurrentMediaTime() + 0.5 }
         if abs(main(o) - main(sv.contentOffset)) > 0.25 { sv.setContentOffset(o, animated: false) }
         return true
     }
@@ -804,7 +830,12 @@ struct ZnCollectionList: UIViewRepresentable {
             followed = cv
             follower.apply = { [weak self] v in
                 guard let self, let cv = self.followed else { return false }
-                return self.followTo(v, cv)
+                guard self.followTo(v, cv) else { return false }
+                // From the items laid out where it landed (its scrolls don't follow again).
+                self.applying = true
+                self.writeElement(cv)
+                self.applying = false
+                return true
             }
             follower.set(e == nil ? nil : follow)
             writeElement(cv)
@@ -814,7 +845,7 @@ struct ZnCollectionList: UIViewRepresentable {
         /// values are written at the first one with a size.
         func laidOut(_ cv: UICollectionView) {
             guard element != nil, !cv.bounds.isEmpty else { return }
-            if laid { return follower.check() }
+            if laid { return applying ? () : follower.check() }
             laid = true
             writeElement(cv)
         }
@@ -837,7 +868,7 @@ struct ZnCollectionList: UIViewRepresentable {
         func writeElement(_ cv: UICollectionView) {
             guard element != nil, !cv.bounds.isEmpty else { return }
             // A follow that came before the list had a size applies now (a scroll, an update, a layout come here).
-            follower.check()
+            if !applying { follower.check() }
             let at = scrolled(cv)
             along.write(Float(at))
             if let refresh { pull.write(refresh.pull(cv)) }
@@ -859,18 +890,33 @@ struct ZnCollectionList: UIViewRepresentable {
         private func followTo(_ v: Float, _ cv: UICollectionView) -> Bool {
             guard !cv.bounds.isEmpty, cv.window != nil else { return false }
             guard let (i, f) = ZnElementRules.listFollow(Double(v), total: shape.total), let it = shape.item(i) else { return true }
-            let frac = CGFloat(f)
             let ip = IndexPath(item: it.item, section: it.part.rawValue)
-            guard let a = (cv.collectionViewLayout as? ZnStickyLayout)?.unpinned(ip) ?? cv.collectionViewLayout.layoutAttributesForItem(at: ip)
-            else { return false }
-            let size = horizontal ? a.frame.width : a.frame.height
-            // The start without the spinner's height while refreshing, as scrolled() reads it (index / offset agree).
-            _ = scrolled(cv)
-            let start = horizontal ? cv.adjustedContentInset.left : restTop
-            let to = clamp(cv, main(a.frame.origin) + frac * size - start)
-            if abs(to - main(cv.contentOffset)) > 0.25 { cv.setContentOffset(offset(cv, to), animated: false) }
+            // Where item i, f of its size in, sits at the list's start (below the padding).
+            func target() -> CGFloat? {
+                guard let a = (cv.collectionViewLayout as? ZnStickyLayout)?.unpinned(ip)
+                        ?? cv.collectionViewLayout.layoutAttributesForItem(at: ip) else { return nil }
+                let size = horizontal ? a.frame.width : a.frame.height
+                // The start without the spinner's height while refreshing, as scrolled() reads it (index / offset agree).
+                _ = scrolled(cv)
+                let start = horizontal ? cv.adjustedContentInset.left : restTop
+                return clamp(cv, main(a.frame.origin) + CGFloat(f) * size - start)
+            }
+            guard var to = target() else { return false }
+            // A far item has an estimated size and place until it is laid out (a jump, a follow set at mount): go there,
+            // lay out, and correct, a few times at most (as a scroll command). The scrolls it causes don't follow again.
+            applying = true
+            defer { applying = false }
+            for _ in 0..<4 {
+                guard abs(to - main(cv.contentOffset)) > 0.25 else { break }
+                cv.setContentOffset(offset(cv, to), animated: false)
+                cv.layoutIfNeeded()
+                guard let again = target() else { break }
+                to = again
+            }
             return true
         }
+        /// Inside followTo: its own scrolls don't check the follow again.
+        private var applying = false
 
         /// Sends the rows on screen (onRange) and, near the end, onEndReached.
         func report(_ cv: UICollectionView) {
