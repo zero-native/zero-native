@@ -29,9 +29,10 @@ test("the app templates copy the whole bundle folder, fonts included", () => {
   expect(read("templates/app-ios-packages/ios/__APP_CLASS__.xcodeproj/project.pbxproj")).toContain(`cp -R \\"$src/.\\" \\"$dst/\\"`)
 })
 
-test("CoreMotion (useTilt) is linked by the CMake sample and the Swift package's runtime", () => {
+test("CoreMotion (useTilt) is linked by the CMake sample, the CMake app template and the Swift package's runtime", () => {
   expect(read("ios/CMakeLists.txt")).toContain(`"-framework CoreMotion"`)
   expect(read("Package.swift")).toContain(`.linkedFramework("CoreMotion")`)
+  expect(read("templates/app/ios/CMakeLists.txt")).toContain(`"-framework CoreMotion"`)
 })
 
 test("the CMake sample links every part fetch-firebase-apple.ts downloads", () => {
