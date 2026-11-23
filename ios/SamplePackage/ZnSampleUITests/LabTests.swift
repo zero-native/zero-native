@@ -40,11 +40,20 @@ final class RnPropsLabTests: ZnUITestCase {
     }
 
     func testHitSlop() {
-        // 12 pt left of each 24 pt square: inside "slop"'s 20 pt hitSlop, outside "noslop" (the Pressable under it gets it).
-        let slop = reveal(id("slop"))
-        slop.coordinate(withNormalizedOffset: CGVector(dx: -0.5, dy: 0.5)).tap()
+        // 12 pt left of each 24 pt square (24 pt from its centre). "slop-free": over empty space its 20 pt hitSlop
+        // takes the tap. "slop": its slop lies over another Pressable ("pe5-under"), which wins there, as on Android
+        // (ZnTouchControl.hitTest). "noslop": no slop, so the one under it gets it; its centre is its own.
+        let left = CGVector(dx: -24, dy: 0)
+        func leftOf(_ testID: String) -> XCUICoordinate {
+            reveal(id(testID)).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(left)
+        }
+        leftOf("slop-free").tap()
+        status("slop-free hit")
+        leftOf("slop").tap()
+        status("pe5 under")
+        id("slop").tap()
         status("slop hit")
-        id("noslop").coordinate(withNormalizedOffset: CGVector(dx: -0.5, dy: 0.5)).tap()
+        leftOf("noslop").tap()
         status("pe5 under")
         id("noslop").tap()
         status("noslop hit")

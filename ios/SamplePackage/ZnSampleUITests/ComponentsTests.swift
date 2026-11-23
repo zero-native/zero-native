@@ -100,8 +100,10 @@ final class ComponentsTests: ZnUITestCase {
         id("comp-sheet-more").tap()
         eventually("the extra lines go") { !self.id("comp-sheet-lines").exists }
 
-        // Dragged down, it closes (onDismiss sets visible false).
-        title.swipeDown(velocity: .fast)
+        // Dragged down from its title to the bottom of the screen, it closes (onDismiss sets visible false).
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98))
+        title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .fast, thenHoldForDuration: 0)
         eventually("the sheet closes", timeout: 5) { !title.exists }
     }
 

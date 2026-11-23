@@ -140,7 +140,7 @@ enum ZnFieldFocus {
     }
     /// The boxes of the fields in [window] under [point] (window coordinates), with the view controller each is in: a
     /// Pressable around a field leaves the touch to it (ZnTouchControl.hitTest). A tappable Text with span links puts
-    /// its frame here too ("text:" keys, ZnTextLinkPress), for the same reason.
+    /// its frame here too ("text:" keys, ZnTextLinkPress), and so does a Switch or Checkbox ("toggle:", ZnToggleTap).
     static func boxes(at point: CGPoint, in window: UIWindow) -> [(frame: CGRect, controller: UIViewController?)] {
         boxes.values.compactMap { w in
             guard let v = w.view, v.window === window, !v.isHidden else { return nil }
@@ -259,6 +259,9 @@ struct ZnFieldBoxMarker: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let v = UIView()
         v.isUserInteractionEnabled = false
+        // Only a place: not in the accessibility tree, where it lay over the field (a UI test's isHittable was false
+        // for a multiline field under its box).
+        v.accessibilityElementsHidden = true
         ZnFieldFocus.registerBox(v, key)
         return v
     }

@@ -88,14 +88,26 @@ final class A11yLabTests: ZnUITestCase {
         XCTAssertEqual(sw.value as? String, "0")
         sw.tap()
         waitValue(sw, "1")
+        XCTAssertEqual(id("a11y-status").label, "a11y-lab: ready", "the row around the Switch took its tap")
         let check = id("a11y-check")
         XCTAssertEqual(check.label, "Save this card")
         XCTAssertEqual(check.value as? String, "1")
         check.tap()
         waitValue(check, "0")
-        // The row around the Switch is its own button; tapping it presses the row, not the Switch.
+        // The row around the Switch is its own button: a tap on its text presses the row, one on the Switch turns
+        // the Switch (above), as Android's innermost clickable.
         let row = id("a11y-row")
         XCTAssertEqual(row.elementType, .button)
+        XCTAssertEqual(row.label, "Notifications")
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        status("row pressed")
+        XCTAssertEqual(sw.value as? String, "1")
+        // A Switch in a labelled box: the box is read first, the Switch stays its own.
+        XCTAssertEqual(id("a11y-box-ctl").label, "Card settings")
+        let boxSwitch = id("a11y-box-switch")
+        XCTAssertEqual(boxSwitch.value as? String, "1")
+        boxSwitch.tap()
+        waitValue(boxSwitch, "0")
     }
 
     func testHiddenAndPictures() {
@@ -126,15 +138,16 @@ final class A11yLabTests: ZnUITestCase {
         name.typeText("Ravi")
         waitValue(name, "Ravi")
 
-        let note = reveal(id("a11y-note"))
+        // XCUITest calls the multiline field not hittable (its centre is in it, on screen): tapped by coordinate.
+        let note = reveal(id("a11y-note"), hittable: false)
         XCTAssertEqual(note.elementType, .textView)
-        note.tap()
+        note.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         note.typeText("one\ntwo")
         waitValue(note, "one\ntwo")
 
         // Under pointerEvents="none" the field can't be focused: typing goes nowhere.
-        let off = reveal(id("a11y-field-off"))
-        off.tap()
+        let off = reveal(id("a11y-field-off"), hittable: false)
+        off.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         XCTAssertFalse(off.value(forKey: "hasKeyboardFocus") as? Bool ?? false, "a field under pointerEvents none took focus")
     }

@@ -202,6 +202,9 @@ struct ZnTextTouch: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay(ZnTouchTarget(ctx: ctx, s: s, inst: inst, state: press, disabled: false))
+            // One element with the touch view: alone, the touch view was a second one with the testID and no label (an
+            // empty "link" for VoiceOver, and UI tests found it before the text; 2026-11-24).
+            .accessibilityElement(children: .combine)
             .modifier(ZnTextButtonA11y(ctx: ctx, s: s, inst: inst, longPress: znTextLongPressOn(s, inst)))
     }
 }
@@ -253,8 +256,9 @@ struct ZnTextLinkPress: ViewModifier {
 }
 
 /// A tappable Text reads as a button; VoiceOver's double tap sends onPress, and a "Long press" action (only on a Text
-/// with onLongPress) sends onLongPress. Another accessibilityRole ("link", "none", ...) takes the button off, as a
-/// Pressable's (ZnPressA11y; Android keeps Role.Button): ZnA11y adds the role's own trait.
+/// with onLongPress) sends onLongPress. Another accessibilityRole ("link", "none", ...) takes the button and the static
+/// text off, as a Pressable's (ZnPressA11y; Android keeps Role.Button): ZnA11y adds the role's own trait (a "link" read
+/// as a link, not a text with a link trait: UI tests find it in app.links, as a Pressable's).
 struct ZnTextButtonA11y: ViewModifier {
     let ctx: ZnContext
     let s: ZnNodeSpec
@@ -267,7 +271,7 @@ struct ZnTextButtonA11y: ViewModifier {
         let button = content
             .accessibilityAction { if s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) } }
             .accessibilityAddTraits(role < 0 || role == Registry.AccessibilityRole.button ? .isButton : [])
-            .accessibilityRemoveTraits(role < 0 || role == Registry.AccessibilityRole.button ? [] : .isButton)
+            .accessibilityRemoveTraits(role < 0 || role == Registry.AccessibilityRole.button ? [] : [.isButton, .isStaticText])
         // On the template's onLongPress, so the branch never changes; [longPress] says JS still has a handler. None in
         // a row of a reorderable List (decision 7: VoiceOver's drag actions move the row there).
         if s.onLongPress != 0 && !reorderRow {

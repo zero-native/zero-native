@@ -114,7 +114,14 @@ async function main() {
     ? { TEST_RUNNER_ZN_UI_DUMP_ROUTE: dump, TEST_RUNNER_ZN_UI_DUMP_READY: opt("--ready") ?? "" }
     : {}
   if (dump && only.length === 0) only.push("-only-testing:ZnSampleUITests/DumpTests")
-  const dumpOut = (line: string) => dump && !/^(Test Case|Test Suite|\s*$)/.test(line)
+  // Only the tree: DumpTests prints it between these two lines.
+  let inDump = false
+  const dumpOut = (line: string) => {
+    if (line.includes("ZN-DUMP-BEGIN")) inDump = true
+    else if (line.includes("ZN-DUMP-END")) inDump = false
+    else return inDump
+    return false
+  }
   const log = join(derived, "ui-test.log")
   let text = ""
   let code = 1

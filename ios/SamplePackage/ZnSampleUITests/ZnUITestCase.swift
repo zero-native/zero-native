@@ -71,19 +71,40 @@ class ZnUITestCase: XCTestCase {
                    file: file, line: line) { (element.value as? String) == expected }
     }
 
-    /// Swipes the screen up until [element] can be tapped (a long Scroll's lower parts), at most [swipes] times.
+    /// Scrolls until [element] is on screen and can be tapped: a long Scroll's lower parts (or upper ones, after a
+    /// scroll down), above the keyboard while it shows. By drags, each as far as it still needs (at most most of a
+    /// screen) and held at the end so nothing flings past it; quicker ones while it is more than that away. A drag that moved nothing
+    /// (it began on a nested scroll or a carousel) is tried again in the right gutter, then near the left edge. (A
+    /// fast swipeUp() scrolled nothing in the RN props lab, 2026-11-24.) A lazy list's row that doesn't exist yet:
+    /// swipes up until it does.
     @discardableResult
-    func reveal(_ element: XCUIElement, swipes: Int = 12, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+    /// [hittable] false: on screen is enough (a multiline field reads as not hittable: tap its coordinate).
+    func reveal(_ element: XCUIElement, hittable: Bool = true, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let window = app.windows.firstMatch.frame
+        for _ in 0..<12 where !element.exists { app.swipeUp() }
         XCTAssertTrue(element.waitForExistence(timeout: 5), "no \(element)", file: file, line: line)
-        var left = swipes
-        while !element.isHittable && left > 0 {
-            app.swipeUp()
-            left -= 1
+        let columns = [window.midX, window.maxX - 8, window.minX + 24]
+        var still = 0  // drags in a row that moved nothing: the next column; all of them: covered, or the content's end
+        for _ in 0..<40 where still < columns.count {
+            let keyboard = app.keyboards.firstMatch
+            let top = window.minY + 100
+            let bottom = (keyboard.exists ? keyboard.frame.minY : window.maxY) - 40
+            let f = element.frame
+            if f.minY >= top && f.maxY <= bottom && (!hittable || element.isHittable) { return element }
+            // How far the content must move up (down when negative) to put the element in the middle of what shows.
+            let move = f.midY - (top + bottom) / 2
+            let room = (bottom - top) * 0.8
+            let step = max(min(move, room), -room)
+            let mid = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: columns[still], dy: (top + bottom) / 2))
+            mid.withOffset(CGVector(dx: 0, dy: step / 2))
+                .press(forDuration: 0.05, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: -step / 2)),
+                       withVelocity: abs(move) > room ? .default : .slow, thenHoldForDuration: 0.1)
+            still = abs(element.frame.minY - f.minY) < 1 ? still + 1 : 0
         }
-        XCTAssertTrue(element.isHittable, "\(element) can't be tapped after \(swipes) swipes", file: file, line: line)
+        XCTAssertTrue(element.isHittable, "\(element) can't be tapped (frame \(element.frame))", file: file, line: line)
         return element
     }
 
     /// Prints the app's accessibility tree (what XCUITest sees) to the test log.
-    func dump() { print(app.debugDescription) }
+    func dump() { print("ZN-DUMP-BEGIN\n\(app.debugDescription)\nZN-DUMP-END") }
 }
