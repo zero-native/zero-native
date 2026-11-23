@@ -167,14 +167,23 @@ final class ZnSharedFlight {
             } else {
                 // Anything else, or a picture not loaded: the two looks cross-fade in the moving box (sharedBounds).
                 box = UIView()
-                out = Self.snapshot(a)
-                into = Self.snapshot(b)
-                for v in [out, into].compactMap({ $0 }) {
-                    v.frame = CGRect(origin: .zero, size: start.size)
-                    v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                    box.addSubview(v)
+                out = Self.snapshot(a, fresh: false)
+                // A screen coming back (a pop) went into the window this turn: drawn now, else its snapshot is blank.
+                into = Self.snapshot(b, fresh: !waitsForLayout)
+                // Each keeps its own size and is scaled to the moving box (a snapshot view doesn't stretch its picture),
+                // as Compose's sharedBounds scales the two contents to the bounds.
+                if let out {
+                    out.bounds = CGRect(origin: .zero, size: start.size)
+                    out.center = CGPoint(x: start.width / 2, y: start.height / 2)
+                    box.addSubview(out)
                 }
-                if out != nil { into?.alpha = 0 }
+                if let into {
+                    into.bounds = CGRect(origin: .zero, size: end.size)
+                    into.center = CGPoint(x: start.width / 2, y: start.height / 2)
+                    into.transform = CGAffineTransform(scaleX: start.width / end.width, y: start.height / end.height)
+                    if out != nil { into.alpha = 0 }
+                    box.addSubview(into)
+                }
             }
             box.frame = start
             box.clipsToBounds = true
@@ -185,8 +194,17 @@ final class ZnSharedFlight {
             flying.append(Flying(view: box, end: end, endRadius: endRadius, out: out, into: into, sites: [a.site, b.site]))
         }
         // The originals hide (SwiftUI draws it on its next frame; the flight view covers the source now, and a pushed
-        // screen's element is off screen at the start).
-        for f in flying { for s in f.sites { s.hidden = true } }
+        // screen's element is off screen at the start). Under a cross-fade, one main-queue turn later: UIKit takes a
+        // snapshot view's picture when this turn's changes are drawn, so hidden now they would be blank (seen
+        // 2026-11-23 on a pop).
+        let now = flying.filter { $0.out == nil && $0.into == nil }, later = flying.filter { $0.out != nil || $0.into != nil }
+        for f in now { for s in f.sites { s.hidden = true } }
+        if !later.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                for f in later where self.flying.contains(where: { $0.view === f.view }) { for s in f.sites { s.hidden = true } }
+            }
+        }
         if !flying.isEmpty {
             print("zn t=\(ZnDebug.ms()) shared: \(flying.count) flight(s): \(from.keys.filter { dest[$0] != nil }.sorted().joined(separator: ", "))")
         }
@@ -195,10 +213,19 @@ final class ZnSharedFlight {
     /// Inside the transition's animation block: each flight to its destination.
     func fly() {
         for f in flying {
+            let middle = CGPoint(x: f.end.width / 2, y: f.end.height / 2)
+            if let out = f.out {
+                out.center = middle
+                out.transform = CGAffineTransform(scaleX: f.end.width / max(out.bounds.width, 1), y: f.end.height / max(out.bounds.height, 1))
+                out.alpha = 0
+            }
+            if let into = f.into {
+                into.center = middle
+                into.transform = .identity
+                into.alpha = 1
+            }
             f.view.frame = f.end
             f.view.layer.cornerRadius = f.endRadius
-            f.out?.alpha = 0
-            f.into?.alpha = 1
         }
     }
 
@@ -251,10 +278,11 @@ final class ZnSharedFlight {
         }
     }
 
-    /// What the node's box shows now, from its screen's view (what is under and over it in the box too).
-    private static func snapshot(_ a: ZnSharedAnchorView) -> UIView? {
+    /// What the node's box shows now, from its screen's view (what is under and over it in the box too). [fresh]: the
+    /// screen isn't on the render server yet (it came into the window this turn): draw it first.
+    private static func snapshot(_ a: ZnSharedAnchorView, fresh: Bool) -> UIView? {
         guard let screen = znNearestController(a)?.view else { return nil }
         let rect = a.convert(a.bounds, to: screen)
-        return screen.resizableSnapshotView(from: rect, afterScreenUpdates: false, withCapInsets: .zero)
+        return screen.resizableSnapshotView(from: rect, afterScreenUpdates: fresh, withCapInsets: .zero)
     }
 }
