@@ -146,18 +146,17 @@ final class ZnDev {
         case .host(let host, let port):
             c = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
         case .bonjour:
-            // The first dev server Bonjour sees (by name). None yet: connect when one comes (browse).
-            guard let service = services.first else {
+            // The first dev server Bonjour sees (by name) that hasn't just failed. None yet: connect when one comes
+            // (browse).
+            if !services.isEmpty, services.allSatisfy({ failed.contains($0.name) }) { failed.removeAll() }
+            guard let service = services.first(where: { !failed.contains($0.name) }) else {
                 if !saidLooking {
                     saidLooking = true
                     print("zn-dev: no `zn dev --lan` on this network yet (run it on the Mac, on the same Wi-Fi as this phone)")
                 }
                 return
             }
-            if services.count > 1 {
-                print("zn-dev: \(services.count) dev servers on this network (\(services.map(\.name).joined(separator: ", "))); "
-                      + "using \(service.name). For another: ZN_DEV_HOST=<its address>")
-            }
+            trying = service.name
             c = NWConnection(to: service.endpoint, using: params)
         }
         connection = c
@@ -165,7 +164,17 @@ final class ZnDev {
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.changed(c, state) } }
         }
         c.start(queue: queue)
+        // A connection can wait on its own for long (a Bonjour name whose server is gone, a network that drops the
+        // packets): not up in 5 s, try again (the next server Bonjour sees, if there is one).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self, self.connection === c, !self.connected else { return }
+            self.drop(c, "no answer in 5 s")
+        }
     }
+
+    /// Bonjour: the server being tried, and the ones that didn't answer (tried again once every one has failed).
+    private var trying: String?
+    private var failed = Set<String>()
 
     /// Bonjour looks for `zn dev --lan` for as long as the app runs: the Mac's address can change, and the server can
     /// stop and start again.
@@ -182,6 +191,10 @@ final class ZnDev {
                     let dev = ZnDev.shared
                     let was = Set(dev.services.map(\.name))
                     for s in found where !was.contains(s.name) { print("zn-dev: found \(s.name)") }
+                    if found.count > 1, Set(found.map(\.name)) != was {
+                        print("zn-dev: \(found.count) dev servers on this network; the first that answers is used (by "
+                              + "name). For one of them: ZN_DEV_HOST=<its Mac's address>")
+                    }
                     dev.services = found
                     // Nothing to connect to until now: go (a connection that is up or on its way stays).
                     if dev.connection == nil, !found.isEmpty, !dev.retryPending { dev.connect() }
@@ -227,7 +240,8 @@ final class ZnDev {
             connected = true
             everConnected = true
             warned = false
-            print("zn-dev: connected to the dev server")
+            failed.removeAll()
+            print("zn-dev: connected to the dev server" + (target == .bonjour ? " \(trying ?? "")" : " at \(target)"))
             let env = ProcessInfo.processInfo.environment
             let device = env["SIMULATOR_DEVICE_NAME"].map { "iOS simulator \($0)" } ?? "\(UIDevice.current.name) (\(ZnOs.model))"
             send(ZnDevWire.hello, json: ["device": device, "hash": runningHash, "os": "ios", "bytecode": ZNHost.bytecodeVersion])
@@ -247,6 +261,7 @@ final class ZnDev {
         connection = nil
         c.stateUpdateHandler = nil
         c.cancel()
+        if !connected, target == .bonjour, let name = trying { failed.insert(name) }  // the next one first
         if connected {
             print("zn-dev: dev server disconnected (\(why))")
         } else if !warned {

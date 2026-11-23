@@ -293,26 +293,24 @@ function lanAddresses(): { name: string; address: string }[] {
 }
 
 // --lan: a real iPhone finds this server by Bonjour (`_zn-dev._tcp`, ZnDev.swift). macOS's dns-sd advertises it for as
-// long as it runs; a small shell around it stops it when this process ends in any way (also killed), so no
-// advertisement outlives the server.
+// long as it runs; a small shell around it stops it within a second of this process ending in any way (Ctrl-C, kill,
+// kill -9) or of the shell itself being stopped, so no advertisement outlives the server.
 function advertise(): void {
-  const app = basename(appDir)
-  const host = hostname().replace(/\.local$/, "")
-  const name = `zn dev ${app} on ${host}`
   if (process.env.ZN_DEV_BONJOUR === "0") return
+  const app = basename(appDir)
+  const name = `zn dev ${app} on ${hostname().replace(/\.local$/, "")}`
   if (!Bun.which("dns-sd")) {
     console.log(dim("iPhone: no dns-sd on this computer (macOS has it), so no Bonjour: set ZN_DEV_HOST in the app to an address below."))
     return
   }
   const watcher = 'dns-sd -R "$1" _zn-dev._tcp local "$2" app="$3" >/dev/null & d=$!; ' +
-    "while kill -0 \"$4\" 2>/dev/null && kill -0 $d 2>/dev/null; do sleep 1; done; kill $d 2>/dev/null"
+    "trap 'kill $d 2>/dev/null; exit 0' TERM INT HUP; " +
+    'while kill -0 "$4" 2>/dev/null && kill -0 $d 2>/dev/null; do sleep 1; done; kill $d 2>/dev/null'
   const child = Bun.spawn(["/bin/sh", "-c", watcher, "zn-dev-bonjour", name, String(PORT), app, String(process.pid)], {
     stdout: "ignore",
     stderr: "ignore",
   })
-  const stop = () => child.kill()
-  process.on("exit", stop)
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.on(signal, () => process.exit(130))
+  process.on("exit", () => child.kill())
   console.log(`iPhone: advertised on this network as "${name}" (Bonjour ${dim("_zn-dev._tcp")}).`)
 }
 
@@ -327,7 +325,7 @@ if (lan) {
   )
   console.log(dim(`--lan: anyone on this network can download the app's code from port ${PORT} while this runs.`))
 } else {
-  console.log(dim("iPhone (a real one): run with --lan (zn dev --lan, bun run dev -- --lan). The simulator and Android need nothing more."))
+  console.log(dim("iPhone (a real one): run with --lan (zn dev --lan, bun run dev --lan). The simulator and Android need nothing more."))
 }
 
 console.log(`zn dev: ${relative(root, appDir) || "."} on port ${PORT}. Open the app's debug build on the phone or the iOS simulator.`)
