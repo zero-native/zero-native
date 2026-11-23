@@ -7,7 +7,7 @@
 //   d) Pinned: stickyHeaderIndices + pull to refresh (its y stays 0 at rest while refreshing), and an inverted chat
 //      (for ZN_IOS_LIST=swiftui too)
 //   e) More: a sideways List with only a ref (its commands go along x), and an inverted List that snaps to 60 dp rows
-//      (a fling up goes to older rows, its momentum speed is + toward older rows)
+//      (a fling down goes to older rows, its momentum speed is + toward older rows)
 //   b) also: the header's onLongPress DOES run (only rows are picked up), and "Add 3 in 2 s" adds rows while a drag
 //      may be under way (they go in when it ends)
 // Each change is logged as "lists2 ..." in the console.
@@ -361,7 +361,7 @@ function L2More() {
         ))}
       </Column>
       <Text fontSize={12} fontWeight={700} color={c.ink} style={{ paddingHorizontal: 16 }}>
-        Inverted, snaps to 60 dp rows: a fling up shows older ones
+        Inverted, snaps to 60 dp rows: a fling down shows older ones (speed +)
       </Text>
       <List
         data={OLDER}

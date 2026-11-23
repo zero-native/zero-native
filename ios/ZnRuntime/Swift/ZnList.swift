@@ -321,6 +321,12 @@ final class ZnLazyReorder {
     /// been over none for a second: SwiftUI tells no one about a drag let go outside the list.
     @ObservationIgnored var over = 0
     @ObservationIgnored var lost: DispatchWorkItem?
+    /// When the drag last did anything (picked, entered, left, moved over the list): a drag that started but never
+    /// reached a drop target leaves no other trace.
+    @ObservationIgnored var lastEvent: CFTimeInterval = 0
+    /// The row SwiftUI last asked for its drag (ZnLazyList.dragArmed); kept after a drop, as SwiftUI keeps the drag
+    /// it was given.
+    @ObservationIgnored var armed: String?
 
     /// The drag left (let go outside the list, or a drag that was never ours): JS's order again.
     func forget(_ why: String) {
@@ -336,9 +342,9 @@ final class ZnLazyReorder {
     }
 }
 
-/// The type of a reorderable SwiftUI list's drag: its own (a dynamic type no other app reads), its data visible only to
-/// this process, so a row's key never leaves the app and other apps' drags aren't taken.
-let znListRowDragType = UTType(filenameExtension: "zn-list-row", conformingTo: .data) ?? .data
+/// The type of a reorderable SwiftUI list's drag: plain text whose data only this process can read, so a row's key
+/// never leaves the app. A drag whose text isn't one of the list's row keys moves nothing.
+let znListRowDragType = UTType.plainText
 
 struct ZnLazyList: View {
     let ctx: ZnContext
@@ -604,6 +610,7 @@ struct ZnLazyList: View {
     /// JS's rows changed: a drop's order gives way to them (JS moved the row, or changed the rows). During a drag the
     /// order shown stays while it has JS's rows; rows added or gone mid-drag: JS's order (as Android's rowAt).
     private func jsRowsChanged() {
+        if reorder.dragging != nil, CACurrentMediaTime() - reorder.lastEvent > 1 { reorder.forget("the drag was lost") }
         guard let shown = reorder.shown else { return }
         if reorder.dragging != nil {
             if shown.count != list.rows.count || Set(shown.map(\.key)) != Set(list.rows.map(\.key)) { reorder.shown = nil }
@@ -617,6 +624,7 @@ struct ZnLazyList: View {
     /// The drag came over one of the list's drop targets ([entered]) or left one.
     fileprivate func dragOverList(_ entered: Bool) {
         guard reorder.dragging != nil else { return }
+        reorder.lastEvent = CACurrentMediaTime()
         reorder.over = max(0, reorder.over + (entered ? 1 : -1))
         reorder.lost?.cancel()
         reorder.lost = nil
@@ -628,6 +636,27 @@ struct ZnLazyList: View {
     }
 
     fileprivate var isDragging: Bool { reorder.dragging != nil }
+    fileprivate var canTakeDrop: Bool { reorder.dragging != nil || reorder.armed != nil }
+
+    /// The drag moved over the list.
+    fileprivate func dragSeen() { reorder.lastEvent = CACurrentMediaTime() }
+
+    /// A row gave its drag (onDrag): SwiftUI asks at other times too (at a touch, just after a drop) and once started a
+    /// drag without asking again (seen 2026-11-23 on the simulator), so this only notes the row whose key the drag
+    /// carries; the drag starts when it comes over the list (dragArrived).
+    fileprivate func dragArmed(_ key: String) { reorder.armed = key }
+
+    /// A drag came over the list ([over]: the row under it, nil: between rows): the first time, the drag of the row
+    /// SwiftUI last asked starts.
+    fileprivate func dragArrived(over: String?) {
+        // None yet, or another row's after a quiet half second (a drag whose end SwiftUI never told: this is a new one;
+        // a row asked in the middle of a drag that is moving doesn't take it over).
+        if let key = reorder.armed, reorder.dragging != key,
+           reorder.dragging == nil || CACurrentMediaTime() - reorder.lastEvent > 0.5 {
+            dragStart(key)
+        }
+        if let over { dragOver(over) }
+    }
 
     /// The drag is over [key]'s row: the dragged row takes its place (the others make room).
     fileprivate func dragOver(_ key: String) {
@@ -639,13 +668,16 @@ struct ZnLazyList: View {
         reorder.tick.selectionChanged()
     }
 
-    fileprivate func dragStart(_ key: String) {
+    private func dragStart(_ key: String) {
+        // Only a row of this list (another list's or app's drag moves nothing).
+        guard list.row(key) != nil else { return }
         // A drag that was lost (never dropped, the check not run yet) starts again from JS's order.
         if reorder.dragging != nil { reorder.forget("a new drag before the last one ended") }
         reorder.lost?.cancel()
         reorder.over = 0
         reorder.timer?.cancel()
         reorder.dragging = key
+        reorder.lastEvent = CACurrentMediaTime()
         if reorder.shown == nil { reorder.shown = list.rows }
         reorder.tick.prepare()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -729,7 +761,7 @@ private struct ZnLazyDrag: ViewModifier {
         if on {
             content
                 .onDrag {
-                    list.dragStart(key)
+                    list.dragArmed(key)
                     let p = NSItemProvider()
                     p.registerDataRepresentation(forTypeIdentifier: znListRowDragType.identifier, visibility: .ownProcess) { done in
                         done(Data(key.utf8), nil)
@@ -759,17 +791,21 @@ private struct ZnLazyDrop: DropDelegate {
     let key: String?
     let list: ZnLazyList
 
-    /// Only this list's own drag (not another list's, not another app's).
-    func validateDrop(info: DropInfo) -> Bool { list.isDragging }
+    /// Only a drag of this list's rows (another list's or app's has no row picked here).
+    func validateDrop(info: DropInfo) -> Bool { list.canTakeDrop }
 
     func dropEntered(info: DropInfo) {
+        list.dragArrived(over: key)
         list.dragOverList(true)
-        if let key { list.dragOver(key) }
     }
 
     func dropExited(info: DropInfo) { list.dragOverList(false) }
 
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: list.isDragging ? .move : .forbidden) }
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        list.dragSeen()
+        if !list.isDragging { list.dragArrived(over: key) }
+        return DropProposal(operation: .move)
+    }
 
     func performDrop(info: DropInfo) -> Bool { list.drop() }
 }
