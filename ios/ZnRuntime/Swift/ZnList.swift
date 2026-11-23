@@ -979,6 +979,15 @@ final class ZnListCollectionView: UICollectionView {
     // sideways page grew by both sides' insets in landscape), and its SwiftUI keeps out of it (12 pt low in portrait).
     override var safeAreaInsets: UIEdgeInsets { .zero }
 
+    /// Its width is about to change (the phone turned, a split view): a sideways list keeps its first item seen
+    /// (Coordinator.resizing). Asked before the change, while the rows still have their old places.
+    var onResize: (() -> Void)?
+    override var frame: CGRect { willSet { resizing(newValue.size) } }
+    override var bounds: CGRect { willSet { resizing(newValue.size) } }
+    private func resizing(_ size: CGSize) {
+        if bounds.width > 0, size.width > 0, abs(size.width - bounds.width) > 0.5 { onResize?() }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?()
@@ -1018,8 +1027,8 @@ struct ZnCollectionList: UIViewRepresentable {
         if s.horizontal { cfg.scrollDirection = .horizontal }
         // Rows are laid out in the whole list, not in its safe area (ZnListCollectionView has none).
         cfg.contentInsetsReference = .none
-        let layout = ZnStickyLayout(sectionProvider: { [weak c] index, _ in
-            MainActor.assumeIsolated { c?.section(index) }
+        let layout = ZnStickyLayout(sectionProvider: { [weak c] index, env in
+            MainActor.assumeIsolated { c?.section(index, width: env.container.contentSize.width) }
         }, configuration: cfg)
         let cv = ZnListCollectionView(frame: .zero, collectionViewLayout: layout)
         cv.backgroundColor = .clear
@@ -1048,9 +1057,14 @@ struct ZnCollectionList: UIViewRepresentable {
             cv.dropDelegate = c
             cv.reorderingCadence = .immediate
         }
+        cv.onResize = { [weak c, weak cv] in
+            guard let c, let cv else { return }
+            MainActor.assumeIsolated { c.resizing(cv) }
+        }
         cv.onLayout = { [weak c, weak cv] in
             guard let c, let cv else { return }
             MainActor.assumeIsolated {
+                c.keepAnchor(cv)
                 c.runPending(cv)
                 c.laidOut(cv)
             }
@@ -1094,6 +1108,7 @@ struct ZnCollectionList: UIViewRepresentable {
             layout?.invalidateLayout()
         }
         c.gap = s.gap
+        c.paging = ZnSnap.parse(snap)?.paging == true
         if let layout, layout.sticky != sticky {
             // A new layout pass forgets the scroll position (the lab's list jumped 34 rows on each toggle,
             // 2026-11-08): keep the first row that isn't pinned where it is.
@@ -1300,12 +1315,15 @@ struct ZnCollectionList: UIViewRepresentable {
 
         /// The layout of section [index] (a ZnListPart): one item per row (grid line) or extra, full width in a column
         /// (self-sized height), the list's height in a row (self-sized width).
-        func section(_ index: Int) -> NSCollectionLayoutSection? {
+        func section(_ index: Int, width: CGFloat) -> NSCollectionLayoutSection? {
             let part = ZnListPart(rawValue: index) ?? .rows
             let pad = padding ?? EdgeInsets()
             let gapBefore = shape.gapBefore(part) ? gap : 0
+            // A paging row's pages are usually the list's width: a page not measured yet is guessed at that, so the pages
+            // land on the list's width steps (the snap) before they are measured, after a turn too.
+            let guess = horizontal && paging && part == .rows && width > 0 ? width : 100
             let size = horizontal
-                ? NSCollectionLayoutSize(widthDimension: .estimated(100), heightDimension: .fractionalHeight(1))
+                ? NSCollectionLayoutSize(widthDimension: .estimated(guess), heightDimension: .fractionalHeight(1))
                 : NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(part == .rows ? 60 : 44))
             let item = NSCollectionLayoutItem(layoutSize: size)
             let group = horizontal ? NSCollectionLayoutGroup.horizontal(layoutSize: size, subitems: [item])
@@ -1558,6 +1576,37 @@ struct ZnCollectionList: UIViewRepresentable {
                 : znClampOffset(v, before: i.top, content: cv.contentSize.height, viewport: cv.bounds.height, after: i.bottom)
         }
 
+        // MARK: A new width
+
+        /// A sideways list's width changed: the first item seen stays where it was in the list, as Compose's LazyRow
+        /// keeps its first visible item. UIKit keeps the offset in points, so a paging list sat between two pages after
+        /// a turn. Kept for a second, until the user drags or a scroll command runs: rows sized from the window's width
+        /// (in JS) take another layout or two to get their new size.
+        private var resizeAnchor: (key: String, at: CGFloat, until: CFTimeInterval)?
+        /// pagingEnabled (the snap rules' p).
+        var paging = false
+
+        func resizing(_ cv: UICollectionView) {
+            // Another change while one is kept (frame and bounds both change): the first anchor, from before both.
+            if let r = resizeAnchor, CACurrentMediaTime() <= r.until { return }
+            guard horizontal, let a = anchor(cv) else { resizeAnchor = nil; return }
+            resizeAnchor = (a.key, a.at, CACurrentMediaTime() + 1)
+            // Every page is measured again at the new width (one measured at the old width and off screen would keep
+            // its old size, and the pages would sit off the snap's steps).
+            cv.collectionViewLayout.invalidateLayout()
+        }
+
+        /// After each layout while a new width's anchor is kept: the anchor item back at its place.
+        func keepAnchor(_ cv: UICollectionView) {
+            guard let r = resizeAnchor else { return }
+            if CACurrentMediaTime() > r.until || cv.isTracking { resizeAnchor = nil; return }
+            guard let ip = indexPath(forAnchor: r.key), let a = cv.collectionViewLayout.layoutAttributesForItem(at: ip) else { return }
+            let target = clamp(cv, main(a.frame.origin) - r.at)
+            guard abs(target - main(cv.contentOffset)) > 0.5 else { return }
+            cv.contentOffset.x = target
+            print("zn t=\(ZnDebug.ms()) list: new width \(cv.bounds.width), item \(ip.section):\(ip.item) kept → offset \(target)")
+        }
+
         // MARK: Scroll commands
 
         /// Runs the waiting command once the list has a size.
@@ -1588,6 +1637,7 @@ struct ZnCollectionList: UIViewRepresentable {
         }
 
         private func run(_ cmd: ZnScrollCommand, _ cv: UICollectionView) {
+            resizeAnchor = nil  // the command says where to be
             // A fling still going stops first.
             cv.setContentOffset(cv.contentOffset, animated: false)
             cv.layoutIfNeeded()
@@ -1623,6 +1673,7 @@ struct ZnCollectionList: UIViewRepresentable {
 
         func scrollViewWillBeginDragging(_ sv: UIScrollView) {
             settling = nil  // the user took over
+            resizeAnchor = nil
         }
     }
 }
