@@ -98,7 +98,7 @@ class ZnUITestCase: XCTestCase {
             let mid = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: columns[still], dy: (top + bottom) / 2))
             mid.withOffset(CGVector(dx: 0, dy: step / 2))
                 .press(forDuration: 0.05, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: -step / 2)),
-                       withVelocity: abs(move) > room ? .default : .slow, thenHoldForDuration: 0.1)
+                       withVelocity: abs(move) > room ? XCUIGestureVelocity(2500) : .slow, thenHoldForDuration: 0.1)
             still = abs(element.frame.minY - f.minY) < 1 ? still + 1 : 0
         }
         XCTAssertTrue(element.isHittable, "\(element) can't be tapped (frame \(element.frame))", file: file, line: line)
