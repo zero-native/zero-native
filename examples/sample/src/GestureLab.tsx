@@ -117,6 +117,7 @@ function GlHoldThenDrag() {
   const pan = usePan({
     activateAfterLongPress: 400,
     anchors: [{ id: "home", x: 0, y: 0 }],
+    a11yLabel: "Chip",
     haptic: { longPress: "medium" },
     onStart: () => log("hold-drag start"),
     onEnd: () => log("hold-drag end"),
