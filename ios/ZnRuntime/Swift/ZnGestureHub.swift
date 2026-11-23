@@ -256,7 +256,7 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     static func hub(of probe: ZnGestureProbeView) -> ZnGestureHub? { probe.host.flatMap { of($0) } }
 
     /// One node in a touch: its session, its probe and the fingers it has.
-    private final class Entry {
+    @MainActor private final class Entry {
         let session: ZnGestureSession
         weak var probe: ZnGestureProbeView?
         let depth: Int
