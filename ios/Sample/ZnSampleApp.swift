@@ -144,6 +144,18 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
             ZnBackgroundTasks.refresh(labSync, in: 15 * 60)
         }
         ZnBackgroundTasks.schedule(ZnBackgroundTasks.refresh(labSync, in: 60))
+        // The simulator refuses every BGTask request, so the debugger finds nothing to launch there: `... notifyutil -p
+        // dev.zeronative.sample.bgtask` launches it as iOS would (ZnBackgroundTasks.simulateLaunch), and with
+        // `... notifyutil -s dev.zeronative.sample.bgtask <ms>` first, iOS "ends its time" after ms.
+        var bgToken: Int32 = 0
+        notify_register_dispatch("dev.zeronative.sample.bgtask", &bgToken, .main) { t in
+            var ms: UInt64 = 0
+            notify_get_state(t, &ms)
+            MainActor.assumeIsolated {
+                guard let expire = ZnBackgroundTasks.simulateLaunch(labSync), ms > 0 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(ms))) { expire() }
+            }
+        }
         if let name = env["ZN_BOOT_TASK"], !name.isEmpty {
             ZnTasks.shared.run(name, ["from": "no screen"], timeoutMs: 10_000) { print("zn-sample: boot task \(name): \($0.rawValue)") }
         }

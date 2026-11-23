@@ -19,8 +19,13 @@ import BackgroundTasks
 import UIKit
 
 public enum ZnBackgroundTasks {
+    /// What a registered identifier runs.
+    private struct Handler {
+        let jsTask: String, data: Any?, timeoutMs: Int, reschedule: (() -> BGTaskRequest?)?
+    }
+
     /// Main thread: registered identifiers, and whether launching has finished (registering after it throws in iOS).
-    nonisolated(unsafe) private static var registered: Set<String> = []
+    nonisolated(unsafe) private static var registered: [String: Handler] = [:]
     nonisolated(unsafe) private static var launchEnded = false
     nonisolated(unsafe) private static var watching = false
 
@@ -43,14 +48,17 @@ public enum ZnBackgroundTasks {
             assertionFailure("ZnBackgroundTasks.register(\(identifier)) after launch")
             return false
         }
-        guard !registered.contains(identifier) else {
+        guard registered[identifier] == nil else {
             print("zn: background task \(identifier) is registered already")
             return false
         }
+        let handler = Handler(jsTask: jsTask, data: data, timeoutMs: timeoutMs, reschedule: reschedule)
         let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
-            MainActor.assumeIsolated { run(task, jsTask: jsTask, data: data, timeoutMs: timeoutMs, reschedule: reschedule) }
+            MainActor.assumeIsolated {
+                run(task.identifier, handler, onExpire: { task.expirationHandler = $0 }, complete: { task.setTaskCompleted(success: $0) })
+            }
         }
-        if ok { registered.insert(identifier) }
+        if ok { registered[identifier] = handler }
         print("zn: background task \(identifier) → JS task \(jsTask): \(ok ? "registered" : "refused by iOS")")
         return ok
     }
@@ -78,18 +86,38 @@ public enum ZnBackgroundTasks {
         return r
     }
 
-    @MainActor private static func run(_ task: BGTask, jsTask: String, data: Any?, timeoutMs: Int, reschedule: (() -> BGTaskRequest?)?) {
-        let id = task.identifier
+    /// Runs registered [identifier] now, as iOS would, with a stand-in for the BGTask: for labs and tests, as the
+    /// simulator refuses every request, so Xcode's `_simulateLaunchForTaskWithIdentifier` finds nothing to run there.
+    /// What it returns ends the stand-in's time, as iOS would (`_simulateExpirationForTaskWithIdentifier`). nil when
+    /// [identifier] isn't registered. Main thread.
+    @MainActor @discardableResult
+    public static func simulateLaunch(_ identifier: String) -> (() -> Void)? {
+        guard let handler = registered[identifier] else {
+            print("zn: background task \(identifier) isn't registered: nothing to launch")
+            return nil
+        }
+        var expiration: (() -> Void)?
+        print("zn: background task \(identifier): a simulated launch")
+        run(identifier, handler, onExpire: { expiration = $0 }, complete: { ok in
+            print("zn: background task \(identifier): setTaskCompleted(success: \(ok)) (simulated)")
+        })
+        return { expiration?() }
+    }
+
+    /// [onExpire] hands over the BGTask's expiration handler; [complete] is its setTaskCompleted (called once).
+    @MainActor private static func run(_ id: String, _ handler: Handler, onExpire: (@escaping () -> Void) -> Void,
+                                       complete: @escaping (Bool) -> Void) {
+        let jsTask = handler.jsTask
         print("zn: background task \(id): running JS task \(jsTask)")
-        if let next = reschedule?() { schedule(next) }
+        if let next = handler.reschedule?() { schedule(next) }
         var finished = false
         let finish = { (ok: Bool, why: String) in
             guard !finished else { return }
             finished = true
             print("zn: background task \(id): \(why)")
-            task.setTaskCompleted(success: ok)
+            complete(ok)
         }
-        task.expirationHandler = {
+        onExpire {
             DispatchQueue.main.async {
                 guard !finished else { return }
                 print("zn: background task \(id): iOS ends its time; JS task \(jsTask) is aborted")
@@ -98,7 +126,7 @@ public enum ZnBackgroundTasks {
             }
         }
         // The BGTask is the background time: ZnTasks holds none of its own.
-        ZnTasks.shared.run(jsTask, data, timeoutMs: timeoutMs, holdsBackgroundTime: false) { outcome in
+        ZnTasks.shared.run(jsTask, handler.data, timeoutMs: handler.timeoutMs, holdsBackgroundTime: false) { outcome in
             finish(outcome == .done, "JS task \(jsTask): \(outcome.rawValue)")
         }
     }
