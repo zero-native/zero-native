@@ -4,6 +4,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import UniformTypeIdentifiers
 
 var failures = 0
 var count = 0
@@ -98,6 +99,18 @@ check("any file", MediaRules.pickTypes(["*/*"]), nil)
 check("no types", MediaRules.pickTypes([]), nil)
 check("pdf", MediaRules.pickTypes(["application/pdf"]), ["application/pdf"])
 
+// pickFile's types as the Files picker's content types: a family is its base type; one iOS doesn't know matches no file.
+check("any file is .item", MediaRules.contentTypes(["*/*"]), [.item])
+check("image family", MediaRules.contentTypes(["image/*"]), [.image])
+check("pdf type", MediaRules.contentTypes(["application/pdf"]), [.pdf])
+check("3D family", MediaRules.contentTypes(["model/*"]), [.threeDContent])
+let unknownFamily = MediaRules.contentTypes(["chemical/*"])
+check("an unknown family is one made-up type", unknownFamily.count == 1 && unknownFamily[0].isDynamic, true)
+check("it matches no picture", UTType.png.conforms(to: unknownFamily[0]), false)
+check("nor any file", UTType.pdf.conforms(to: unknownFamily[0]) || UTType.plainText.conforms(to: unknownFamily[0]), false)
+let unknownType = MediaRules.contentTypes(["application/x-zn-none"])
+check("an unknown type matches no file", UTType.pdf.conforms(to: unknownType[0]) || UTType.data.conforms(to: unknownType[0]), false)
+
 // EXIF orientations: ExifInterface's rotationDegrees and isFlipped.
 check("EXIF 1...8", (1...8).map { MediaRules.orientation($0).degrees }, [0, 0, 180, 180, 270, 90, 90, 270])
 check("EXIF mirrors", (1...8).map { MediaRules.orientation($0).flip }, [false, true, false, true, true, false, true, false])
@@ -144,6 +157,16 @@ check("nothing", MediaJob.from(nil), nil)
 let work = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : NSTemporaryDirectory() + "zn-media-test")
 try? FileManager.default.removeItem(at: work)
 try! FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+
+// A picked item that is a folder (a package from Files: .pages, .key) is no file; one over maxBytes is too big.
+let package = work.appendingPathComponent("Report.pages")
+try! FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+try! Data(count: 10).write(to: package.appendingPathComponent("Index.zip"))
+check("a package is refused", MediaRules.refusedCopy(package, maxBytes: 1_000_000), "read_failed")
+let small = work.appendingPathComponent("small.bin")
+try! Data(count: 100).write(to: small)
+check("a small file is copied", MediaRules.refusedCopy(small, maxBytes: 100), nil)
+check("one byte over", MediaRules.refusedCopy(small, maxBytes: 99), "too_big")
 
 /// A w x h picture: the left half red, the right half blue (stored pixels), saved as [type] with [props].
 func picture(_ name: String, _ w: Int, _ h: Int, type: String = "public.jpeg", alpha: Bool = false, props: [CFString: Any] = [:]) -> URL {

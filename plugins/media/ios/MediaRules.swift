@@ -1,6 +1,7 @@
 // The media plugin's rules with no UIKit in them (Android: MediaRules.kt), so the Mac tests can check them
 // (ios/tests/plugins/media). Names, limits, the read plan, cleanup and the job on disk are the same as on Android.
 import Foundation
+import UniformTypeIdentifiers
 
 /// Why one file can't be used. [code] reaches JS.
 struct MediaFailure: Error {
@@ -172,6 +173,32 @@ enum MediaRules {
     static func pickTypes(_ mimes: [String]) -> [String]? {
         if mimes.isEmpty || mimes.contains("*/*") { return nil }
         return mimes
+    }
+
+    /// Mime types → the document picker's content types. "image/*" and the like are the family's base type; a type or
+    /// family iOS doesn't know is a made-up type, which matches no file (as an Android type no app has). Broader than
+    /// Android: "application/*" is any file (iOS has no type for every application/ one), and "text/*" is any text,
+    /// JSON and XML too (application/ on Android).
+    static func contentTypes(_ mimes: [String]) -> [UTType] {
+        guard let list = MediaRules.pickTypes(mimes) else { return [.item] }
+        let families: [String: UTType] = ["image": .image, "video": .movie, "audio": .audio, "text": .text, "application": .data,
+                                          "font": .font, "model": .threeDContent, "message": .message]
+        let types = list.compactMap { m -> UTType? in
+            if m.hasSuffix("/*"), let family = families[String(m.dropLast(2))] { return family }
+            return UTType(mimeType: m) ?? UTType(tag: m, tagClass: .mimeType, conformingTo: .data)
+        }
+        return types.isEmpty ? [.item] : types
+    }
+
+    /// Why the picked item [from] can't be copied, before copying: a package from Files (.pages, .key, .rtfd, a
+    /// bundle) is a folder, with no file to hand JS (Android has none): read_failed. Over [maxBytes]: too_big.
+    static func refusedCopy(_ from: URL, maxBytes: Int64) -> String? {
+        let values = try? from.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+        if values?.isDirectory == true {
+            print("zn media: the picked item is a folder (a package), not a file")
+            return "read_failed"
+        }
+        return Int64(values?.fileSize ?? 0) > maxBytes ? "too_big" : nil
     }
 
     /// The camera opens only with the permission (UIImagePickerController shows a black screen without it). Not asked

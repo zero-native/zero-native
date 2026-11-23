@@ -95,7 +95,7 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
             let job = MediaJob(id: self.newId(), kind: MediaJob.file, maxBytes: maxBytes)
             MainActor.assumeIsolated {
                 self.launch(call, job) {
-                    let picker = UIDocumentPickerViewController(forOpeningContentTypes: Self.contentTypes(types), asCopy: true)
+                    let picker = UIDocumentPickerViewController(forOpeningContentTypes: MediaRules.contentTypes(types), asCopy: true)
                     picker.allowsMultipleSelection = false
                     picker.delegate = self.delegate
                     return picker
@@ -361,14 +361,7 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
     private static func copy(_ from: URL, to name: String, maxBytes: Int64) -> String? {
         let target = ZnHandles.fileDir.appendingPathComponent(name)
         try? FileManager.default.removeItem(at: target)
-        let values = try? from.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
-        // A package from Files (.pages, .key, .rtfd, a bundle) is a folder: no file to hand JS (Android has none).
-        if values?.isDirectory == true {
-            print("zn media: the picked item is a folder (a package), not a file")
-            return "read_failed"
-        }
-        let size = values?.fileSize.map(Int64.init) ?? 0
-        if size > maxBytes { return "too_big" }
+        if let refused = MediaRules.refusedCopy(from, maxBytes: maxBytes) { return refused }
         do {
             try FileManager.default.copyItem(at: from, to: target)
             try MediaImage.sync(target)
@@ -626,20 +619,5 @@ final class MediaModule: ZnModuleBase, @unchecked Sendable {
         let types = list.map { $0 as? String ?? "" }
         if let bad = types.first(where: { MediaRules.mimeOr($0, "") == "" }) { throw ZnInvalidArgs("\"\(bad)\" isn't a file type") }
         return types.isEmpty ? ["*/*"] : types
-    }
-
-    /// Mime types → the document picker's content types. "image/*" and the like are the family's base type; a type or
-    /// family iOS doesn't know is a made-up type, which matches no file (as an Android type no app has). Broader than
-    /// Android: "application/*" is any file (iOS has no type for every application/ one), and "text/*" is any text,
-    /// JSON and XML too (application/ on Android).
-    static func contentTypes(_ mimes: [String]) -> [UTType] {
-        guard let list = MediaRules.pickTypes(mimes) else { return [.item] }
-        let families: [String: UTType] = ["image": .image, "video": .movie, "audio": .audio, "text": .text, "application": .data,
-                                          "font": .font, "model": .threeDContent, "message": .message]
-        let types = list.compactMap { m -> UTType? in
-            if m.hasSuffix("/*"), let family = families[String(m.dropLast(2))] { return family }
-            return UTType(mimeType: m) ?? UTType(tag: m, tagClass: .mimeType, conformingTo: .data)
-        }
-        return types.isEmpty ? [.item] : types
     }
 }
