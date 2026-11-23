@@ -69,6 +69,7 @@ import { MotionCoreLabScreen } from "./MotionCoreLab"
 import { MotionEngineLabScreen } from "./MotionEngineLab"
 import { MotionBindingsLabScreen } from "./MotionBindingsLab"
 import { ElementValuesLabScreen } from "./ElementValuesLab"
+import { ListsTwoLabScreen } from "./ListsTwoLab"
 
 export const routes = defineRoutes({
   home: { path: "/", screen: HomeScreen },
@@ -173,6 +174,8 @@ export const routes = defineRoutes({
   motionCoreLab: { path: "/dev/motion/core", screen: MotionCoreLabScreen, deepLink: true },
   // Impressions: hidden tabs, clipping, minMs, rails and rows (ImpressionsLab.tsx). Last, as above.
   impressionsLab: { path: "/dev/impressions", screen: ImpressionsLabScreen, deepLink: true },
+  // Lists 2: item animation, drag to reorder, scroll extras, pinned rows and an inverted chat on <List>. Last, as above.
+  listsTwoLab: { path: "/dev/lists2", screen: ListsTwoLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.
