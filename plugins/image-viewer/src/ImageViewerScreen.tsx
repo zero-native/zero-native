@@ -41,7 +41,8 @@ export function ImageViewerScreen(props: ImageViewerScreenProps) {
   if (!o) return <ViewerGone />
   const count = o.images.length
   const page = signal(o.index)
-  const width = Dimensions.get("window").width
+  // Each page is one window wide, followed when the screen turns (read where it is used, so it is tracked).
+  const width = () => Dimensions.get("window").width
   // 0: at the thumbnail (or hidden), 1: open. Drives the flight, the backdrop and the overlay.
   const shown = useMotion(0)
   // The photo's place while dragged away (dp). Not zoomed only: a zoomed photo takes one finger itself.
@@ -56,6 +57,15 @@ export function ImageViewerScreen(props: ImageViewerScreenProps) {
   })
   const pager = listController()
   pager.scrollToIndex({ index: o.index, animated: false })
+  // The screen turned: the pages change width, so put the photo shown back in place (iOS's list keeps its offset in
+  // points, so it would sit between two pages).
+  let laidOutFor = width()
+  effect(() => {
+    const w = width()
+    if (w === laidOutFor) return
+    laidOutFor = w
+    pager.scrollToIndex({ index: page(), animated: false })
+  })
   let closing = false
 
   const from = o.from
@@ -179,7 +189,7 @@ function ViewerGone() {
 
 /** One photo: its own zoom; the native page draws it moved by the zoom's values. */
 function ViewerPhoto(p: {
-  width: number
+  width: () => number
   uri: string
   alt: string
   held: string | undefined
@@ -198,8 +208,16 @@ function ViewerPhoto(p: {
   effect(() => {
     if (p.page() !== p.i) void zoom.reset({ duration: 0 })
   })
+  // The screen turned: back to fit (the zoom's limits were for the old size).
+  let fitFor = p.width()
+  effect(() => {
+    const w = p.width()
+    if (w === fitFor) return
+    fitFor = w
+    void zoom.reset({ duration: 0 })
+  })
   return (
-    <Column gesture={zoom} style={{ width: p.width, flex: 1 }} accessibilityLabel={p.alt} accessibilityRole="image">
+    <Column gesture={zoom} style={{ width: p.width(), flex: 1 }} accessibilityLabel={p.alt} accessibilityRole="image">
       <NativeView
         name="imageviewer.page"
         props={{ uri: p.uri, held: p.held ?? "", i: p.i, scale: zoom.scale, x: zoom.x, y: zoom.y, errorText: p.errorText, retryLabel: p.retryLabel }}
