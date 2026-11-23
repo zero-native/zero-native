@@ -141,6 +141,7 @@ export function ImageViewerLabScreen() {
           show("twice-a", { images: STORE })
           show("twice-b", { images: STORE, imageIndex: 3 })
         }} />
+        <ViewerLabButton label="The page view alone (zoom by buttons)" onPress={() => nav.push("imageViewerPageLab")} />
         <ViewerLabButton label="Empty list (rejects)" onPress={() => show("empty", { images: [] })} />
       </Column>
     </Scroll>

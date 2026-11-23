@@ -47,6 +47,7 @@ import { AppUpdatesLabScreen } from "./AppUpdatesLab"
 import { MarkdownLabScreen } from "./MarkdownLab"
 import { DocScanLabScreen } from "./DocScanLab"
 import { ImageViewerLabScreen } from "./ImageViewerLab"
+import { ImageViewerPageLabScreen } from "./ImageViewerPageLab"
 import { ImageViewerScreen } from "@zeronative/image-viewer/screen"
 import { LayerLabScreen } from "./AppLayers"
 import { ChatListLabScreen } from "./ChatListLab"
@@ -187,6 +188,9 @@ export const routes = defineRoutes({
   sharedLabNone: { path: "/dev/nav/shared/none", screen: SharedLabDetailScreen, transition: "none", restore: false },
   sharedLabSeeThrough: { path: "/dev/nav/shared/see-through", screen: SharedLabSeeThroughScreen, transparent: true, transition: "fade", safeArea: "none", restore: false },
   navStartLab: { path: "/dev/nav/start", screen: NavStartLabScreen, restore: false },
+  // The image viewer's page view alone, moved by buttons (no gestures): loading, events, the zoom's move, sharp parts.
+  // Last, as above.
+  imageViewerPageLab: { path: "/dev/image-viewer/page", screen: ImageViewerPageLabScreen, deepLink: true },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

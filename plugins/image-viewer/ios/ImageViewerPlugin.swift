@@ -4,18 +4,18 @@
 // and rules as Android.
 //
 // iOS differences:
-// - Pictures are decoded once with ImageIO (EXIF turns applied, mirror images too), at most 4096 pixels on the long side:
-//   a 5000 × 3333 photo is a little soft at 5x, where Android decodes the visible part again at full size.
+// - This screen decodes each picture once with ImageIO (EXIF turns applied, mirror images too), at most 4096 pixels on
+//   the long side: a 5000 × 3333 photo is a little soft at 5x, where Android decodes the visible part again at full
+//   size. The TSX viewer's page does cut sharp parts (ViewerSource.swift).
 // - `content://` links are Android's: refused here (the error shows). `file://` must be inside the app's own folder.
 // - No edge swipe back: the route is a fade screen, and ZnNavHost's back swipe is only for screens that slid in (an
 //   iOS modal closes with its own button). It closes with the back arrow or a drag up or down, both answering
 //   { index }, as on Android. A left-edge swipe pages back, as in Photos.
 // - ZeroBill is portrait only, so turning the phone does nothing; the pages lay out again only when the size changes
 //   (laying out again at the same size used to reset the pager while it slid, skipping a page).
-// - Version 3's TSX viewer (a route with `screen: ImageViewerScreen`, src/ImageViewerScreen.tsx) is not drawn yet: it
-//   needs the view "imageviewer.page" and zero-native's Motion gestures (useZoom), which iOS doesn't have. A route that
-//   still says `native: "imageviewer.full"` (ZeroBill's) gets this screen. Module v3 is here for `release`, which the
-//   v3 JS calls, so the module answers v3 bundles.
+// - Version 3's TSX viewer (a route with `screen: ImageViewerScreen`, src/ImageViewerScreen.tsx) draws each photo with
+//   the view "imageviewer.page" (ViewerPage.swift; rules in ViewerRules.swift, decoding in ViewerSource.swift). A route
+//   that still says `native: "imageviewer.full"` (ZeroBill's) gets this screen.
 import ImageIO
 import UIKit
 #if SWIFT_PACKAGE
@@ -28,69 +28,8 @@ public struct ImageViewerPlugin: ZnPlugin {
     public func register(_ r: ZnPluginRegistry) {
         r.module(ImageViewerModule())
         r.screen("imageviewer.full") { scope in ImageViewerScreen(scope) }
-    }
-}
-
-/// The viewer's rules (ViewerRules.kt), apart from UIKit.
-enum ViewerRules {
-    static let maxZoom: CGFloat = 5
-    static let doubleTapZoom: CGFloat = 2.5
-    static let zoomed: CGFloat = 1.01
-    static let closeDrag: CGFloat = 0.15
-    static let closeSpeed: CGFloat = 1000
-    static let heldData = "held:data"
-    static let maxDataBytes = 5 * 1024 * 1024
-    static let maxHeldBytes = 20 * 1024 * 1024
-    static let maxPixels: CGFloat = 4096
-
-    enum Source { case web, asset, file, fileUri, content, held, refused }
-
-    static func kind(_ uri: String) -> Source {
-        let l = uri.lowercased()
-        if l.hasPrefix("https://") || l.hasPrefix("http://") { return .web }
-        if uri.hasPrefix("asset:") { return .asset }
-        if uri.hasPrefix("zn://file/") { return .file }
-        if l.hasPrefix("file://") { return .fileUri }
-        if l.hasPrefix("content://") { return .content }
-        if uri == heldData { return .held }
-        return .refused
-    }
-
-    /// Where the base64 text of a `data:image/...;base64,` link starts, or nil (not a picture, or over 5 MB decoded).
-    static func dataStart(_ uri: String) -> String.Index? {
-        guard uri.lowercased().hasPrefix("data:image/"), let comma = uri.firstIndex(of: ","),
-              uri.distance(from: uri.startIndex, to: comma) <= 200, uri[..<comma].lowercased().hasSuffix(";base64") else { return nil }
-        let text = uri.distance(from: comma, to: uri.endIndex) - 1
-        guard text > 0, text / 4 * 3 <= maxDataBytes else { return nil }
-        return uri.index(after: comma)
-    }
-
-    static func safeHeader(_ name: String, _ value: String) -> Bool {
-        !name.isEmpty && name.count <= 256 && name.unicodeScalars.allSatisfy { $0.value >= 33 && $0.value <= 126 && $0 != ":" }
-            && value.count <= 8192 && !value.contains("\r") && !value.contains("\n") && !value.contains("\0")
-    }
-
-    /// A plain path inside the bundle: no "..", no leading "/".
-    static func assetPath(_ uri: String) -> String? {
-        let p = uri.hasPrefix("asset://") ? String(uri.dropFirst(8)) : String(uri.dropFirst(6))
-        if p.isEmpty || p.hasPrefix("/") || p.contains("\\") { return nil }
-        if p.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) { return nil }
-        return p
-    }
-
-    static func label(_ template: String, _ index: Int, _ count: Int) -> String {
-        template.replacingOccurrences(of: "{n}", with: "\(index + 1)").replacingOccurrences(of: "{count}", with: "\(count)")
-    }
-
-    /// Whether a swipe of `drag` points at `speed` points per second closes the viewer.
-    static func closes(_ drag: CGFloat, _ speed: CGFloat, _ height: CGFloat) -> Bool {
-        guard height > 0 else { return false }
-        if abs(drag) > height * closeDrag { return true }
-        return abs(speed) > closeSpeed && (speed > 0) == (drag > 0) && drag != 0
-    }
-
-    static func backgroundAlpha(_ drag: CGFloat, _ height: CGFloat) -> CGFloat {
-        height <= 0 ? 1 : 1 - 0.7 * min(1, abs(drag) / (height * 0.5))
+        // Version 3: one picture of the TSX viewer (src/ImageViewerScreen.tsx), moved by useZoom's values.
+        r.view("imageviewer.page") { scope in ViewerPage(scope) }
     }
 }
 
@@ -216,43 +155,51 @@ enum ViewerLoader {
     }()
 
     static func load(_ image: ViewerSpec.Image, maxPixels: CGFloat, base: URL?, done: @escaping (UIImage?) -> Void) {
-        func decode(_ data: Data?) {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let img = data.flatMap { downsample($0, maxPixels) }
-                DispatchQueue.main.async { done(img) }
-            }
+        fetch(image, base: base) { data in
+            let img = data.flatMap { downsample($0, maxPixels) }
+            DispatchQueue.main.async { done(img) }
         }
+    }
+
+    /// The picture's encoded bytes (a file's are mapped, not read), given on a background queue; nil when it can't be
+    /// had (an error answer, no such file, a refused link).
+    static func fetch(_ image: ViewerSpec.Image, base: URL?, done: @escaping (Data?) -> Void) {
+        func give(_ data: @escaping () -> Data?) { DispatchQueue.global(qos: .userInitiated).async { done(data()) } }
+        func file(_ url: URL) -> Data? { try? Data(contentsOf: url, options: .mappedIfSafe) }
         let uri = image.uri
         switch ViewerRules.kind(uri) {
         case .web:
-            guard let url = URL(string: uri) else { return done(nil) }
+            guard let url = URL(string: uri) else { return give { nil } }
             var r = URLRequest(url: url)
             for (k, v) in image.held?.headers ?? [:] { r.setValue(v, forHTTPHeaderField: k) }
             session.dataTask(with: r) { data, response, _ in
                 let ok = ((response as? HTTPURLResponse)?.statusCode ?? 0) < 400
                 if !ok { print("zn image-viewer: \(url.host ?? "?") answered \((response as? HTTPURLResponse)?.statusCode ?? 0)") }
-                decode(ok ? data : nil)
+                done(ok ? data : nil)
             }.resume()
         case .asset:
-            guard let path = ViewerRules.assetPath(uri), base != nil else { return done(nil) }
-            decode(try? Data(contentsOf: ZnBundles.assetURL(path)))  // the running bundle's copy, else the app's own
+            guard let path = ViewerRules.assetPath(uri), base != nil else { return give { nil } }
+            let url = ZnBundles.assetURL(path)  // the running bundle's copy, else the app's own
+            give { file(url) }
         case .file:
-            decode(ZnHandles.fileOf(uri).flatMap { try? Data(contentsOf: $0) })
+            let url = ZnHandles.fileOf(uri)
+            give { url.flatMap(file) }
         case .fileUri:
             // Only the app's own folder: a bundle comes over the air, so it may not name any file it likes.
-            guard let url = URL(string: uri), url.isFileURL else { return done(nil) }
+            guard let url = URL(string: uri), url.isFileURL else { return give { nil } }
             let real = url.resolvingSymlinksInPath().standardizedFileURL.path
             let root = URL(fileURLWithPath: NSHomeDirectory()).resolvingSymlinksInPath().standardizedFileURL.path
             guard real == root || real.hasPrefix(root + "/") else {
                 print("zn image-viewer: a file:// link outside the app's folder refused")
-                return done(nil)
+                return give { nil }
             }
-            decode(try? Data(contentsOf: URL(fileURLWithPath: real)))
+            give { file(URL(fileURLWithPath: real)) }
         case .held:
-            decode(image.held?.bytes)
+            let bytes = image.held?.bytes
+            give { bytes }
         case .content, .refused:
             print("zn image-viewer: link kind not shown on iOS: \(uri.prefix(12))…")
-            done(nil)
+            give { nil }
         }
     }
 
@@ -274,7 +221,7 @@ enum ViewerLoader {
 private final class ZoomPage: UIScrollView, UIScrollViewDelegate {
     let imageView = UIImageView()
     private let spinner = UIActivityIndicatorView(style: .medium)  // Android: a small turning white arc
-    private let errorStack = UIStackView()
+    private let errorStack = ViewerErrorView()
     var onRetry: (() -> Void)?
     /// The zoom changed (the screen stops swipes between pictures while one is zoomed, as Android's pager).
     var onZoom: ((CGFloat) -> Void)?
@@ -295,27 +242,8 @@ private final class ZoomPage: UIScrollView, UIScrollViewDelegate {
         addSubview(imageView)
         spinner.color = .white
         addSubview(spinner)
-        let label = UILabel()
-        label.text = spec.error
-        label.textColor = .white
-        label.numberOfLines = 0
-        label.textAlignment = .center
-        let button = UIButton(type: .system, primaryAction: UIAction { [weak self] _ in self?.onRetry?() })
-        button.setTitle(spec.retry, for: .normal)
-        button.setTitleColor(.white, for: .normal)
-        button.layer.borderColor = UIColor.white.withAlphaComponent(0.6).cgColor
-        button.layer.borderWidth = 1
-        button.layer.cornerRadius = 18
-        button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 18, bottom: 8, right: 18)
-        errorStack.axis = .vertical
-        errorStack.alignment = .center
-        errorStack.spacing = 16
-        // A picture sign over the words, as Android's broken-picture drawing.
-        let sign = UIImageView(image: UIImage(systemName: "photo", withConfiguration: UIImage.SymbolConfiguration(pointSize: 40, weight: .light)))
-        sign.tintColor = UIColor.white.withAlphaComponent(0.7)
-        errorStack.addArrangedSubview(sign)
-        errorStack.addArrangedSubview(label)
-        errorStack.addArrangedSubview(button)
+        errorStack.set(text: spec.error, retry: spec.retry)
+        errorStack.onRetry = { [weak self] in self?.onRetry?() }
         errorStack.isHidden = true
         addSubview(errorStack)
     }
