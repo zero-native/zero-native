@@ -410,6 +410,16 @@ do {  // a release on an anchor rests there and follows it when it moves (the ke
     kb.value = -100
     clock.run(120)
     near("a JS command ends the follow", g.y!.value, 0, 0.01)
+    // The anchor moves while the release springs to it (the keyboard opens during the settle): once there, it goes
+    // on to where the anchor is now (Android's snapshotFlow starts with the current point).
+    let k = Finger(g)
+    k.down(0, 0)
+    k.move(0, -120, steps: 4)
+    k.up(after: 200)
+    clock.run(3)
+    kb.value = -250
+    clock.run(240)
+    near("goes on to the anchor that moved during the settle", g.y!.value, -250, 0.01)
     _ = events(966)
 }
 

@@ -369,12 +369,14 @@ final class ZnGesture {
         detach()
         guard let a = anchors.first(where: { $0.id == anchorId }) else { return }
         attached = a
-        attachedAt = anchorPoint(a)
         // The anchor's coordinates may be motion values (env.keyboardHeight): look again whenever one moved, and when
         // the node or its parent is resized (placed).
         engine.onDirty(self) { [weak self] in self?.followAnchor() }
         // A JS command to x or y ends it.
         for v in [x, y] { v?.onCommand = { [weak self] in self?.detach() } }
+        // And once now (Android's snapshotFlow starts with the current point): the anchor may have moved while the
+        // release went to it (the keyboard opened during the settle), so it goes on to where the anchor is now.
+        followAnchor()
     }
 
     /// The anchor it rests on moved: spring there (as Android's snapshotFlow, only when the point changed).
