@@ -175,7 +175,7 @@ enum ViewerLoader {
             session.dataTask(with: r) { data, response, _ in
                 let ok = ((response as? HTTPURLResponse)?.statusCode ?? 0) < 400
                 if !ok { print("zn image-viewer: \(url.host ?? "?") answered \((response as? HTTPURLResponse)?.statusCode ?? 0)") }
-                done(ok ? data : nil)
+                give { ok ? data : nil }  // off the session's queue: the caller decodes there
             }.resume()
         case .asset:
             guard let path = ViewerRules.assetPath(uri), base != nil else { return give { nil } }
