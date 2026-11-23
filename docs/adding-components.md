@@ -67,5 +67,7 @@ and `ZnAppEvent.kt`. Take the next free number there; a test checks both lists a
 7 for RETRY, which took over native call answers until step 4.5 found it.)
 Adding a `__zn_*` host function, an app event number, or changing the batch / value formats changes the **host API**.
 Raise `kHostApiVersion` in `core/include/zn/engine.h` and `HOST_API_VERSION` in `packages/core/src/host-api.ts`
-together (a test checks they are equal). Removing one, or changing its meaning, also raises `kHostApiOldest`: every
+together, to the next number neither has used (a test checks they are equal less `NATIVE_ONLY_HOST_API`). A step only
+the native side takes (10: iOS has the Motion engine) raises `kHostApiVersion` alone and is listed in
+`NATIVE_ONLY_HOST_API`, so bundles keep running on older apps; the next contract change skips it. Removing one, or changing its meaning, also raises `kHostApiOldest`: every
 bundle built before then stops running on the new app, so this needs Pavan's approval.

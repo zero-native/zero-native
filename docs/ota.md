@@ -84,9 +84,10 @@ keeping every lesson that applies.
   at runtime in this app). A mistake in `requires` costs one refused update, never a wrong screen.
 - **Motion on older iOS apps** (2026-11-24, motion-ota-gate). An iOS app with host API 9 or less registers a stub as
   `Motion` v1: no engine, every call answers "unavailable". On such an app a bundle that uses motion runs but nothing
-  moves: bindings stay at their first value, gestures never fire, element values read 0. A `to` / `decay` /
-  `sequence` / `snapTo` / `zoomTo` waits forever with an older core; a core from 2026-11-24 on treats "unavailable" as
-  done at once. The module check alone lets such a bundle through. A bundle "uses motion" when it requires
+  moves: bindings stay at their first value, gestures never fire, element values read 0. With an older core a `to` /
+  `decay` / `sequence` / `snapTo` / `zoomTo` rejects at once with "unavailable", so code after its `await` (closing a
+  viewer, say) never runs; a core from 2026-11-24 on treats "unavailable" as done at once and warns once in the log.
+  The module check alone lets such a bundle through. A bundle "uses motion" when it requires
   `Motion`: an app or plugin file imports a `GATED_CORE_MODULES` name (`compiler/src/modules.ts`), and core's own
   imports don't count. So:
   - From host API 10 every iOS app has the engine (`ZnMotionModule`, the same functions as Android's; `tools/test/
@@ -100,11 +101,14 @@ keeping every lesson that applies.
     The phone's own check (ZnOtaRules.swift) has no such row: an iOS app new enough to run it has the engine.
   - An app's own update backend that ports `decide.ts` must port this row too. A backend that can't should publish
     motion bundles for those builds on a channel they don't read.
-  - An iOS app built before 2026-11-10 sends no `os` and counts as Android, so the row can't see it. Check that none
-    of those shipped.
-  - ZeroBill: every ZeroBill bundle requires `Motion` (`@zeronative/image-viewer`'s TSX screen imports `useZoom`). So
-    ZeroBill iOS builds below host API 10 get no new bundles. They need the App Store update; a store rule can ask for
-    it.
+  - The phone's OS is `capabilities.os`, or else `store.os` (`phoneOs` in `decide.ts`; `parseCheck` keeps it even
+    when it drops a store version in the wrong shape). iOS sent `store: {os: "ios"}` from its first OTA check
+    (2026-11-10 01:20) and `capabilities.os` from 17:58 that day, so every iOS build that checks is seen as iOS.
+  - ZeroBill (2026-11-24, ZeroBill 61693e2): its bundles don't require `Motion`. It opens the native viewer
+    (`imageviewer.full`) through `@zeronative/image-viewer`, which uses no motion; only the TSX screen
+    (`@zeronative/image-viewer/screen`) does, and ZeroBill doesn't import it. So its iOS builds below host API 10 keep
+    getting bundles. Once ZeroBill uses the TSX viewer or any motion API, they get none and need the App Store update
+    (a store rule can ask for it).
 - **Registry changes are checked by machine:** `packages/template/registry.lock.json` keeps the last accepted
   registry. The registry test (and `bun run gen:registry`, which then refuses to write) fails if anything is removed,
   renumbered or retyped, if something new isn't in `Added` with the new `REGISTRY_VERSION`, or if a `since` goes
