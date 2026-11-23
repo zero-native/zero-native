@@ -124,7 +124,7 @@ struct ZnFlexLayout: Layout {
             }
             let origin = vertical ? CGPoint(x: bounds.minX + c, y: bounds.minY + at)
                                   : CGPoint(x: bounds.minX + at, y: bounds.minY + c)
-            sv.place(at: origin, anchor: .topLeading, proposal: ProposedViewSize(s))
+            sv.znPlace(at: origin, in: bounds, proposal: ProposedViewSize(s))
             at += main(s) + between
         }
     }

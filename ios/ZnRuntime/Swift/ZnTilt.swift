@@ -31,7 +31,10 @@ final class ZnTilt {
 
     func remove(_ id: Int) {
         guard users.removeValue(forKey: id) != nil else { return }
-        if users.isEmpty { stop() }
+        if users.isEmpty {
+            stop()
+            filter.reset()  // the next useTilt starts from flat, not from this one's lean
+        }
     }
 
     /// The JS that made them is gone (a reload).

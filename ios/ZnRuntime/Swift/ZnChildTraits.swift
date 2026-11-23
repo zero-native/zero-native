@@ -11,6 +11,7 @@ struct ZnChildTraits: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .modifier(ZnLayoutMotionLink(s: s))  // animateLayout's box, for the parent's layout (ZnLayoutMotion.swift)
             .layoutValue(key: ZnPercentKey.self, value: s.percentNow(inst))
             .layoutValue(key: ZnAbsoluteKey.self, value: s.absolute ? ZnAbsolute(s, inst) : nil)
     }

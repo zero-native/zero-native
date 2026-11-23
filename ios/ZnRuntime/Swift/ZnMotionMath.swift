@@ -419,7 +419,8 @@ func znFriction(_ deceleration: Double) -> Float {
 /// target starts a new curve from where they are, with the speed they have (a spring keeps it, a tween starts at rest).
 /// The first frame of a curve already moves (as ZnRun's). Points; rests within the curve's own end.
 struct ZnLayoutAnim {
-    let spec: ZnTimingSpec
+    /// The timing for the next go (a running one keeps its curves).
+    var spec: ZnTimingSpec
     private(set) var x: Float
     private(set) var y: Float
     private(set) var toX: Float

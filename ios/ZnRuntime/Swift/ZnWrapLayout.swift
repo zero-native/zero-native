@@ -145,8 +145,8 @@ struct ZnWrapLayout: Layout {
         let m = measure(ProposedViewSize(bounds.size), subviews)
         for (i, sv) in subviews.enumerated() {
             let f = m.frames[i]
-            sv.place(at: CGPoint(x: bounds.minX + f.minX, y: bounds.minY + f.minY), anchor: .topLeading,
-                     proposal: ProposedViewSize(f.size))
+            sv.znPlace(at: CGPoint(x: bounds.minX + f.minX, y: bounds.minY + f.minY), in: bounds,
+                       proposal: ProposedViewSize(f.size))
         }
     }
 }

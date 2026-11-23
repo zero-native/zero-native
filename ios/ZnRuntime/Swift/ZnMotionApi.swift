@@ -11,7 +11,9 @@
 //   `reader` turns it into a function to read now. UIKit views aren't redrawn by SwiftUI, so ZnViewScope also has
 //   `onMotion(name) { v in ... }`, called on each frame the value changes (ZnPlugins.swift).
 //
-// Rules: what runs each frame must not allocate; never block the main thread. In the app binary, never from OTA.
+// Rules: what runs each frame must not allocate; never block the main thread. In the app binary, never from OTA. A
+// frame call lives until it returns false or its token is cancelled, a JS reload included: tie it to the value it
+// moves (`handle.onDispose { token.cancel() }`), as on Android, where the job outlives a reload too.
 // Foundation only (the Mac unit suite ios/tests/motion runs it with the engine).
 import Foundation
 
@@ -29,9 +31,14 @@ public enum ZnMotionApi {
             set { v.value = newValue }
         }
 
-        /// Called once when JS drops the value (its screen closed) or the JS reloads.
+        /// Called once when JS drops the value (its screen closed) or the JS reloads. Each call adds its block, so a
+        /// plugin started twice for one id stops both runs (Android's replaces the first).
         public func onDispose(_ block: @escaping @MainActor () -> Void) {
-            v.onDispose = { MainActor.assumeIsolated { block() } }
+            let before = v.onDispose
+            v.onDispose = {
+                before?()
+                MainActor.assumeIsolated { block() }
+            }
         }
     }
 
@@ -100,10 +107,16 @@ public enum ZnMotionApi {
 /// checked on the frames where motion values moved (ZnMotionEngine.onDirty), so a still value costs nothing.
 @MainActor
 final class ZnMotionPropWatch {
-    private struct Watch {
+    /// A class, so a frame's check changes it in place (a struct in the dictionary would copy the dictionary).
+    private final class Watch {
         let apply: @MainActor (Float) -> Void
         var read: (() -> Float)?
         var last: Float = .nan
+
+        init(apply: @escaping @MainActor (Float) -> Void, read: (() -> Float)?) {
+            self.apply = apply
+            self.read = read
+        }
     }
     private var watches: [String: Watch] = [:]
     private var subscribed = false
@@ -120,10 +133,9 @@ final class ZnMotionPropWatch {
 
     /// New props: each watched prop may now be another value, a plain number, or gone.
     func update(_ props: [String: Any]) {
-        for name in Array(watches.keys) {
-            let raw = props[name]
-            watches[name]!.read = ZnMotionApi.reader(raw)
-            if watches[name]!.read == nil { watches[name]!.last = .nan }
+        for (name, w) in watches {
+            w.read = ZnMotionApi.reader(props[name])
+            if w.read == nil { w.last = .nan }
         }
         check()
     }
@@ -132,11 +144,11 @@ final class ZnMotionPropWatch {
     func follows(_ name: String) -> Bool { watches[name]?.read != nil }
 
     private func check() {
-        for (name, w) in watches {
+        for w in watches.values {
             guard let read = w.read else { continue }
             let v = read()
             if v == w.last { continue }
-            watches[name]!.last = v
+            w.last = v
             w.apply(v)
         }
     }

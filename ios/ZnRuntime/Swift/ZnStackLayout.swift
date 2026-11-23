@@ -63,8 +63,8 @@ struct ZnStackLayout: Layout {
         for sv in subviews {
             guard let a = sv[ZnAbsoluteKey.self] else {
                 let s = sv.sizeThatFits(znPercentOffer(sv, ProposedViewSize(width: w, height: h)))
-                sv.place(at: CGPoint(x: bounds.minX + bx * (w - s.width), y: bounds.minY + by * (h - s.height)),
-                         anchor: .topLeading, proposal: ProposedViewSize(width: s.width, height: s.height))
+                sv.znPlace(at: CGPoint(x: bounds.minX + bx * (w - s.width), y: bounds.minY + by * (h - s.height)),
+                           in: bounds, proposal: ProposedViewSize(width: s.width, height: s.height))
                 continue
             }
             let fillW = a.start != nil && a.end != nil
@@ -79,8 +79,8 @@ struct ZnStackLayout: Layout {
             if fillH { s.height = fullH }
             let x = a.start ?? a.end.map { w - s.width - $0 } ?? bx * (w - s.width)
             let y = a.top ?? a.bottom.map { h - s.height - $0 } ?? by * (h - s.height)
-            sv.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y), anchor: .topLeading,
-                     proposal: ProposedViewSize(width: s.width, height: s.height))
+            sv.znPlace(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y), in: bounds,
+                       proposal: ProposedViewSize(width: s.width, height: s.height))
         }
     }
 }

@@ -691,6 +691,13 @@ MainActor.assumeIsolated {
     near("the orbit moved each frame", orbit.value, 33.333, 0.01)
     e.dispose(702)
     truth("dropping the value stops its frames", !frames.isActive)
+    // Started twice for one id (JS called orbit twice): each onDispose adds, so dropping it stops both runs.
+    let twice = ZnMotionApi.value(706)
+    let run1 = ZnMotionApi.onFrame { _ in true }, run2 = ZnMotionApi.onFrame { _ in true }
+    twice.onDispose { run1.cancel() }
+    ZnMotionApi.value(706).onDispose { run2.cancel() }
+    e.dispose(706)
+    truth("both runs stop when the value goes", !run1.isActive && !run2.isActive)
 
     // aPluginDriverRunsAsAnAnimation: a Swift driver through registerDriver, run by v.to(x, { driver }).
     struct Half: ZnMotionDriver {
@@ -779,6 +786,13 @@ truth("it rests at 0", !glide.moving && glide.y == 0)
 var jumpy = ZnLayoutAnim(.spring, x: 10, y: 10)
 jumpy.go(10, 10)
 truth("going where it is starts nothing", !jumpy.moving)
+// A new timing (zn dev reloaded the template) is used from the next change.
+var retimed = ZnLayoutAnim(ZnTimingSpec(ms: 300, easing: 0, bezier: nil, ratio: 1, stiffness: 0, clamp: false), x: 0, y: 0)
+retimed.spec = ZnTimingSpec(ms: 100, easing: 0, bezier: nil, ratio: 1, stiffness: 0, clamp: false)
+retimed.go(50, 0)
+var rt: Int64 = 0, rframes = 0
+while retimed.frame(rt) { rt += 16_666_667; rframes += 1 }
+truth("the new timing's 100 ms, not 300 (\(rframes) frames)", rframes >= 5 && rframes <= 7 && retimed.x == 50)
 
 // MARK: - Tilt (ZnTiltFilter; the phone's sensors can't move on the simulator, so the signs are checked here)
 
@@ -808,6 +822,41 @@ near("clamped to 1", tf.x, 1, 1e-4)
 near("y clamped to 1", tf.y, 1, 1e-4)
 tf.reset()
 check("reset", tf.x, 0)
+
+// Both platforms against one reference: Android's sensor (TYPE_GRAVITY, flat: z +g) reads minus CoreMotion's gravity;
+// turned onto the screen per display rotation as Android's AccelerometerPlay sample does (ROTATION_90, the phone's top
+// on the left: x = -v1, y = v0; 270: x = v1, y = -v0; 180: both minus), then zn's x = -sx, y = sy.
+func tiltReference(_ gx: Float, _ gy: Float, _ turn: ZnTiltFilter.Turn) -> (x: Float, y: Float) {
+    let v0 = -gx, v1 = -gy
+    let (sx, sy): (Float, Float)
+    switch turn {
+    case .portrait: (sx, sy) = (v0, v1)
+    case .landscapeRight: (sx, sy) = (-v1, v0)
+    case .upsideDown: (sx, sy) = (-v0, -v1)
+    case .landscapeLeft: (sx, sy) = (v1, -v0)
+    }
+    return (-sx, sy)
+}
+let tiltTurns: [(String, ZnTiltFilter.Turn)] = [("portrait", .portrait), ("landscapeRight (ROTATION_90)", .landscapeRight),
+                                                 ("upside down", .upsideDown), ("landscapeLeft (ROTATION_270)", .landscapeLeft)]
+for (name, turn) in tiltTurns {
+    for (gx, gy) in [(Float(0.6), Float(0)), (0, -0.6), (0.3, 0.5)] {
+        let got = ZnTiltFilter.lean(gx: gx, gy: gy, turn), want = tiltReference(gx, gy, turn)
+        check("iOS lean = the reference, \(name), g (\(gx), \(gy))", "\(got)", "\(want)")
+    }
+}
+// Android's turn today (ZnMotionApi.kt ZnTilt.onSensorChanged) is the reference's opposite in landscape (reported as an
+// Android issue, W3-C). This reads its lines, so a change there shows here: then check it against the reference above.
+let ktPath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(
+    "../../../android/runtime/src/main/java/dev/zeronative/runtime/ZnMotionApi.kt").standardizedFileURL.path
+if let kt = try? String(contentsOfFile: ktPath, encoding: .utf8) {
+    let turns = kt.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("Surface.ROTATION_") }
+    check("Android's tilt turn is unchanged since the iOS check (landscape: the reference's opposite)", turns, [
+        "Surface.ROTATION_90 -> { val t = ax; ax = -ay; ay = t }",
+        "Surface.ROTATION_180 -> { ax = -ax; ay = -ay }",
+        "Surface.ROTATION_270 -> { val t = ax; ax = ay; ay = -t }",
+    ])
+}
 
 print(failures == 0 ? "ios motion: \(count) checks passed" : "ios motion: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)
