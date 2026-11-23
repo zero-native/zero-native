@@ -44,8 +44,11 @@ public final class ZnApp {
     @ObservationIgnored private var insetsNow = "{\"top\":0,\"bottom\":0,\"start\":0,\"end\":0}"
     /// When START goes: after the main script ran and the window asked for its screens (ZnLifecycleRules.swift).
     @ObservationIgnored private var startGate = ZnStartGate()
-    /// Node events that came before this runtime's main script ran (a restart's skeletons): sent once it has.
+    /// Node events that came before this runtime's main script ran (the skeletons of a first start or a restart):
+    /// sent once it has, as Android's JS thread runs them after the script. At most `maxEventsBeforeScript`; dropped
+    /// when the script fails (no handler will come).
     @ObservationIgnored private var eventsBeforeScript: [() -> Void] = []
+    private static let maxEventsBeforeScript = 256
     /// JS got START: it has screens and their listeners (links, insets and taps on notifications go to it now).
     private var jsStarted: Bool { startGate.uiStarted && startHeld == nil }
     /// prepare ran for this runtime: the bundle is read and its main script is queued or has run.
@@ -328,12 +331,14 @@ public final class ZnApp {
             routes = manifest.routes
             ZnFontTable.install(manifest: manifest.json)  // this bundle's fonts (a restart too)
             ctx = ZnContext(templates: templates, store: store) { [host] instance, event, payload in
-                // A restart draws the screens' skeletons at once, and the new JS runs a moment later: an event
-                // from a skeleton (a list's first layout) waits for the main script, which defines the handler
-                // (else JS reports "global function not defined: __zn_onEvent").
+                // The screens' skeletons are drawn at once (a first start, a restart), and the JS runs a moment
+                // later: an event from a skeleton (a list's first layout, a tap) waits for the main script, which
+                // defines the handler (else JS reports "global function not defined: __zn_onEvent").
                 let app = ZnApp.shared
                 if !app.startGate.scriptLoaded {
-                    app.eventsBeforeScript.append { app.ctx?.send(instance, event, payload) }
+                    if app.failure == nil, app.eventsBeforeScript.count < Self.maxEventsBeforeScript {
+                        app.eventsBeforeScript.append { app.ctx?.send(instance, event, payload) }
+                    }
                     return
                 }
                 switch payload {
@@ -383,6 +388,7 @@ public final class ZnApp {
                 self.onEvaluated = nil
                 guard ok else {
                     self.failure = "main.hbc failed: \(result)"  // the host also sent it as a "start" JS error (OTA)
+                    self.eventsBeforeScript = []
                     evaluated?(false, result)
                     return
                 }
@@ -556,6 +562,10 @@ public final class ZnApp {
         windowSent = nil  // the new JS hears the window again (Android's generation key)
         startGate.reset()
         eventsBeforeScript = []
+        // Waiters of the old runtime run now (their JS is gone), not on the new one's NAV STARTED.
+        let oldWaiters = screensUpWaiters
+        screensUpWaiters = []
+        oldWaiters.forEach { $0() }
         startHeld = nil
         startLink = nil
         prepared = false
@@ -651,6 +661,7 @@ public final class ZnApp {
     @ObservationIgnored private(set) var screensUpAt: CFTimeInterval = 0
 
     /// Runs [f] once JS has built the first screens (NAV STARTED; now if it has), or after [capMs] (JS threw first).
+    /// A restart runs the waiters of the runtime it replaces at once (never on the new runtime's NAV STARTED).
     func afterScreensUp(capMs: Int = 2_000, _ f: @escaping () -> Void) {
         if firstScreensUp { return f() }
         let once = ZnOnce<Void> { _ in f() }

@@ -252,7 +252,8 @@ final class ZnDev {
                 settling = false
                 guard let (d, h) = waiting else { return }
                 waiting = nil
-                reload(d, h)
+                // A restart that came meanwhile (an OTA update in place) runs its waiters at once: go after it.
+                if ZnApp.shared.restarting { apply(d, h) } else { reload(d, h) }
             }
             app.afterScreensUp(capMs: 5_000) {
                 let left = max(0, 0.5 - (CACurrentMediaTime() - app.screensUpAt))
@@ -310,10 +311,14 @@ final class ZnDev {
         problem = p
         guard everConnected else { return }  // no `zn dev` in this run: the app's own error screens only
         guard let window = ZnOta.window() else {
-            // No window yet (JS failed before the scene): try again shortly.
+            // No window yet (JS failed before the scene, or a launch in the back): try again shortly, one retry at
+            // a time, with the newest problem, until it is dismissed or a window comes.
+            guard !showLater else { return }
+            showLater = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self, let p = self.problem, p.id == self.problem?.id else { return }
-                self.show(p)
+                guard let self else { return }
+                self.showLater = false
+                if let p = self.problem { self.show(p) }
             }
             return
         }
@@ -330,6 +335,9 @@ final class ZnDev {
         window.bringSubviewToFront(o)
         print("zn-dev: error screen: \(p.title)")
     }
+
+    /// A show waits for a window (show).
+    private var showLater = false
 
     private func hide() {
         problem = nil
