@@ -38,6 +38,13 @@
 			remoteGlobalIDString = 2B66177A24555090FCBAFBBF;
 			remoteInfo = ZnSampleNotificationService;
 		};
+		2EA402F57EF6CD29D3140B33 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 42AEFBAE01D2DFD981F7DA7D;
+			remoteInfo = ZnSamplePackage;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -57,6 +64,7 @@
 /* Begin PBXFileReference section */
 		D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZnSamplePackage.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B76D1A3EEAF6860F8F9E0E3 /* ZnSampleNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ZnSampleNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		22498AE8F3E0D4AE5ABDCD52 /* ZnSampleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZnSampleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -92,6 +100,11 @@
 				622F7163206AC59CFEBCBFDA /* Exceptions for "NotificationService" folder in "ZnSampleNotificationService" target */,
 			);
 			path = NotificationService;
+			sourceTree = "<group>";
+		};
+		56F1AC94BCEA195EA1A9A7EC /* ZnSampleUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ZnSampleUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -131,6 +144,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		ED172C42162504454909E9EE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -139,6 +159,7 @@
 			children = (
 				63AD9D34F3503826E5F649AE /* Sample */,
 				E3E33D1CA597378311EC973A /* NotificationService */,
+				56F1AC94BCEA195EA1A9A7EC /* ZnSampleUITests */,
 				86024CAD1E83101D97359D73 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -148,6 +169,7 @@
 			children = (
 				D2A57DC1D883FD21FB995169 /* ZnSamplePackage.app */,
 				7B76D1A3EEAF6860F8F9E0E3 /* ZnSampleNotificationService.appex */,
+				22498AE8F3E0D4AE5ABDCD52 /* ZnSampleUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -223,6 +245,27 @@
 			productReference = 7B76D1A3EEAF6860F8F9E0E3 /* ZnSampleNotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		C1D818D9641E43BF95CA4461 /* ZnSampleUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 061F8A54BF37E4BCF6040594 /* Build configuration list for PBXNativeTarget "ZnSampleUITests" */;
+			buildPhases = (
+				4DE98CF49667F9C7D28D4B82 /* Sources */,
+				ED172C42162504454909E9EE /* Frameworks */,
+				C69AF3F82C6E8DD364C7582C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8BEF41656E117D831FAACB41 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				56F1AC94BCEA195EA1A9A7EC /* ZnSampleUITests */,
+			);
+			name = ZnSampleUITests;
+			productName = ZnSampleUITests;
+			productReference = 22498AE8F3E0D4AE5ABDCD52 /* ZnSampleUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -232,6 +275,11 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					C1D818D9641E43BF95CA4461 = {
+						TestTargetID = 42AEFBAE01D2DFD981F7DA7D;
+					};
+				};
 			};
 			buildConfigurationList = 1746C6E2409525C3FFBB01D7 /* Build configuration list for PBXProject "ZnSamplePackage" */;
 			developmentRegion = en;
@@ -254,6 +302,7 @@
 			targets = (
 				42AEFBAE01D2DFD981F7DA7D /* ZnSamplePackage */,
 				2B66177A24555090FCBAFBBF /* ZnSampleNotificationService */,
+				C1D818D9641E43BF95CA4461 /* ZnSampleUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -267,6 +316,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		EEF2A02B8B9E044FC86B01F9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C69AF3F82C6E8DD364C7582C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -328,6 +384,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4DE98CF49667F9C7D28D4B82 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -335,6 +398,11 @@
 			isa = PBXTargetDependency;
 			target = 2B66177A24555090FCBAFBBF /* ZnSampleNotificationService */;
 			targetProxy = 30C07DED144F01A7BAD37394 /* PBXContainerItemProxy */;
+		};
+		8BEF41656E117D831FAACB41 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 42AEFBAE01D2DFD981F7DA7D /* ZnSamplePackage */;
+			targetProxy = 2EA402F57EF6CD29D3140B33 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -435,6 +503,36 @@
 			};
 			name = Release;
 		};
+		7CE09C595A33EFC9F42543E0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zeronative.sample.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = ZnSamplePackage;
+			};
+			name = Debug;
+		};
+		646F0730D18CA78B974C011B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zeronative.sample.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = ZnSamplePackage;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -461,6 +559,15 @@
 			buildConfigurations = (
 				8056401B23177D3FB71C7FB6 /* Debug */,
 				84500F0D8DF0A7DBD9A60DFD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		061F8A54BF37E4BCF6040594 /* Build configuration list for PBXNativeTarget "ZnSampleUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7CE09C595A33EFC9F42543E0 /* Debug */,
+				646F0730D18CA78B974C011B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

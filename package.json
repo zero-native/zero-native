@@ -27,7 +27,8 @@
     "test:types": "tsc -p packages/core/test/tsconfig.types.json && tsc -p examples/sample",
     "ios:unit-test": "bun run tools/ios-unit-test.ts",
     "ios:ota-test": "bun run tools/ios-ota-test.ts",
-    "ios:routes-test": "bun run tools/ios-routes-test.ts"
+    "ios:routes-test": "bun run tools/ios-routes-test.ts",
+    "ios:ui-test": "bun run tools/ios-ui-test.ts"
   },
   "devDependencies": {
     "fflate": "0.8.2",
