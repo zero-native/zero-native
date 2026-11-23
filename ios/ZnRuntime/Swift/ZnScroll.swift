@@ -199,6 +199,7 @@ final class ZnScrollDriver: NSObject, ObservableObject {
     private var snap: ZnSnap?
     private var hasSnap = false
     private var refresh: ZnRefresh?
+    private weak var outsideRefresh: ZnRefresh?
     private var spec: (ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance)?
 
     // onScroll: the last offset seen, when the last event went, and the one trailing send of a throttle.
@@ -233,8 +234,10 @@ final class ZnScrollDriver: NSObject, ObservableObject {
     }
 
     /// The node this driver serves (each update: the spec is the same for a template; the context and instance too).
-    /// [ownsRefresh] false: the scroll view has a refresh control of its own (the UIKit List's), so none is made here.
-    func configure(ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance, ownsRefresh: Bool = true) {
+    /// [listRefresh]: the scroll view's own refresh control (the UIKit List's): none is made here, and offsets leave
+    /// out what it adds while refreshing, as with the driver's own.
+    func configure(ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance, listRefresh: ZnRefresh? = nil) {
+        outsideRefresh = listRefresh
         guard spec?.inst !== inst || spec?.s.index != s.index || spec?.ctx !== ctx else { return }
         spec = (ctx, s, inst)
         horizontal = s.horizontal
@@ -244,7 +247,7 @@ final class ZnScrollDriver: NSObject, ObservableObject {
             guard let inst else { return }
             ctx.send(inst.id, s.onScrollEvent, .string(json))
         } : nil
-        if ownsRefresh && s.hasRefresh && !s.horizontal {
+        if listRefresh == nil && s.hasRefresh && !s.horizontal {
             let r = refresh ?? ZnRefresh(asSubview: true)
             r.onRefresh = s.onRefresh != 0 ? { [weak inst] in if let inst { ctx.send(inst.id, s.onRefresh, .none) } } : nil
             refresh = r
@@ -338,7 +341,7 @@ final class ZnScrollDriver: NSObject, ObservableObject {
     func metrics() -> ZnScrollMetrics? {
         guard let sv else { return nil }
         var i = sv.adjustedContentInset
-        if refresh?.control.isRefreshing == true { i.top = restTop } else { restTop = i.top }
+        if (refresh ?? outsideRefresh)?.control.isRefreshing == true { i.top = restTop } else { restTop = i.top }
         if horizontal {
             return .along(offset: sv.contentOffset.x, inset: i.left, insetEnd: i.right, content: sv.contentSize.width,
                           viewport: sv.bounds.width, cross: sv.bounds.height)
@@ -360,10 +363,13 @@ final class ZnScrollDriver: NSObject, ObservableObject {
         horizontal ? 0 : sv.adjustedContentInset.top - restTop
     }
 
-    /// The finger's speed along the axis in pt/s, + toward the content's end (Android's fling velocity).
+    /// The finger's speed along the axis in pt/s, + toward the content's end (Android's fling velocity). Read on the
+    /// screen and turned into the scroll view's own directions, so a flipped one (an inverted List) reads it the right
+    /// way round.
     private func fingerVelocity(_ sv: UIScrollView) -> Double {
-        let v = sv.panGestureRecognizer.velocity(in: sv.superview ?? sv)
-        return -(horizontal ? v.x : v.y)
+        let w = sv.panGestureRecognizer.velocity(in: nil)
+        let o = sv.convert(CGPoint.zero, from: nil), p = sv.convert(CGPoint(x: w.x, y: w.y), from: nil)
+        return -(horizontal ? p.x - o.x : p.y - o.y)
     }
 
     // MARK: Commands

@@ -60,13 +60,14 @@ final class ZnImageCache {
         } else {
             let disk = disk
             task = Task<Data, Error> { [weak self] in
-                if let d = await disk.read(url) { return d }
+                // The file is read off the main thread, and the picture doesn't wait for its bytes to be written.
+                if let d = await Task.detached(priority: .userInitiated, operation: { disk.read(url) }).value { return d }
                 self?.downloads += 1
                 let (d, response) = try await URLSession.shared.data(from: url)
                 if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                     throw ZnImageError("HTTP \(http.statusCode)")
                 }
-                await disk.write(d, for: url)
+                disk.write(d, for: url)
                 return d
             }
             inflight[url] = (task, [me])
@@ -95,9 +96,15 @@ final class ZnImageCache {
 /// Remote pictures' bytes on disk (Caches/zn-images, one file per URL, named by its SHA-256): up to 200 MB, the
 /// least recently used go first. Caches/, so iOS may clear it when the phone is short of space. Kept whatever the
 /// response's cache headers say, as Android's image loader does by default (Coil 3 ignores them).
-actor ZnImageDisk {
+/// Reads run on the caller's thread, side by side (call them off the main thread). Writes and the trim go one at a
+/// time on a low-priority queue; a picture waiting there is read from memory until its file is written.
+final class ZnImageDisk: @unchecked Sendable {
     static let maxBytes = 200 * 1024 * 1024
     private let dir: URL?
+    private let queue = DispatchQueue(label: "zn.image-disk", qos: .utility)
+    private let lock = NSLock()
+    /// Bytes waiting for their file (under lock), and the writes since launch (on the queue).
+    private var unwritten: [URL: Data] = [:]
     private var writes = 0
 
     init() {
@@ -112,20 +119,26 @@ actor ZnImageDisk {
     }
 
     func read(_ url: URL) -> Data? {
+        if let d = lock.withLock({ unwritten[url] }) { return d }
         guard let f = file(url), let d = try? Data(contentsOf: f) else { return nil }
         // Used now: the trim keeps it longer.
         try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: f.path)
         return d
     }
 
+    /// Keeps [data] for [url]: in memory at once, in its file soon. Returns at once.
     func write(_ data: Data, for url: URL) {
         guard let f = file(url) else { return }
-        try? data.write(to: f, options: .atomic)
-        writes += 1
-        if writes % 32 == 1 { trim() }
+        lock.withLock { unwritten[url] = data }
+        queue.async { [self] in
+            try? data.write(to: f, options: .atomic)
+            lock.withLock { unwritten[url] = nil }
+            writes += 1
+            if writes % 32 == 1 { trim() }
+        }
     }
 
-    /// Over the limit: the oldest files go until it is at three quarters of it.
+    /// Over the limit: the oldest files go until it is at three quarters of it (on the queue).
     private func trim() {
         guard let dir, let files = try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else { return }

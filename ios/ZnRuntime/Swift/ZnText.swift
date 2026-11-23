@@ -223,9 +223,11 @@ struct ZnTextLinkPress: ViewModifier {
     let inst: ZnInstance
     @State private var taps = ZnTextLinkTaps()
     @Environment(\.znTouchOff) private var touchOff
+    @Environment(\.znReorderRow) private var reorderRow
 
     func body(content: Content) -> some View {
-        let longPressOn = znTextLongPressOn(s, inst)
+        // In a row of a reorderable List the long press picks the row up (decision 7, ZnListReorder.swift).
+        let longPressOn = !reorderRow && znTextLongPressOn(s, inst)
         content
             .environment(\.openURL, znSpanLinks(ctx, s, inst) { taps.lastLinkAt = CACurrentMediaTime() })
             .simultaneousGesture(LongPressGesture(minimumDuration: 0.5)
@@ -258,6 +260,7 @@ struct ZnTextButtonA11y: ViewModifier {
     let s: ZnNodeSpec
     let inst: ZnInstance
     let longPress: Bool
+    @Environment(\.znReorderRow) private var reorderRow
 
     func body(content: Content) -> some View {
         let role = s.accessibilityRole
@@ -265,8 +268,9 @@ struct ZnTextButtonA11y: ViewModifier {
             .accessibilityAction { if s.onPress != 0 { ctx.send(inst.id, s.onPress, .none) } }
             .accessibilityAddTraits(role < 0 || role == Registry.AccessibilityRole.button ? .isButton : [])
             .accessibilityRemoveTraits(role < 0 || role == Registry.AccessibilityRole.button ? [] : .isButton)
-        // On the template's onLongPress, so the branch never changes; [longPress] says JS still has a handler.
-        if s.onLongPress != 0 {
+        // On the template's onLongPress, so the branch never changes; [longPress] says JS still has a handler. None in
+        // a row of a reorderable List (decision 7: VoiceOver's drag actions move the row there).
+        if s.onLongPress != 0 && !reorderRow {
             button.accessibilityAction(named: Text("Long press")) { if longPress { ctx.send(inst.id, s.onLongPress, .none) } }
         } else {
             button

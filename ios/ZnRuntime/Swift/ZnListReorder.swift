@@ -99,6 +99,37 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
 
     func collectionView(_ cv: UICollectionView, dropSessionDidEnd session: UIDropSession) {
         dropShown = nil
+        flushHeld(cv)
+    }
+
+    func collectionView(_ cv: UICollectionView, dragSessionDidEnd session: UIDragSession) {
+        flushHeld(cv)
+    }
+
+    // MARK: JS's rows during a drag
+
+    /// UIKit is moving rows for a drag now: no batch updates or reloads then (they would clash with its own).
+    func dragBusy(_ cv: UICollectionView) -> Bool {
+        cv.hasActiveDrag || cv.hasActiveDrop || cv.hasUncommittedUpdates
+    }
+
+    /// The drag ended: JS's rows that came meanwhile go in (once UIKit has finished the drop).
+    func flushHeld(_ cv: UICollectionView, tries: Int = 20) {
+        guard held != nil else { return }
+        DispatchQueue.main.async { [weak self, weak cv] in
+            guard let self, let cv, let run = self.held else { return }
+            guard !self.dragBusy(cv) else {
+                if tries > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak cv] in
+                        if let self, let cv { self.flushHeld(cv, tries: tries - 1) }
+                    }
+                }
+                return
+            }
+            self.held = nil
+            print("zn t=\(ZnDebug.ms()) list: reorder: the rows JS sent during the drag go in now")
+            run()
+        }
     }
 
     // MARK: The wait for JS
@@ -111,11 +142,20 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
             guard let self, let cv, let list else { return }
             self.reorderTimer = nil
             guard self.reorderWait.timedOut(at: list.version) else { return }
-            let rows = list.rows
             print("zn t=\(ZnDebug.ms()) list: reorder: JS kept its order, the row goes back")
-            var shape = self.shape
-            shape.rows = rows.count
-            self.apply(cv, rows: rows, keys: rows.map(\.key), shape: shape, animation: "move")
+            let back = { [weak self, weak cv, weak list] in
+                guard let self, let cv, let list else { return }
+                let rows = list.rows
+                var shape = self.shape
+                shape.rows = rows.count
+                self.apply(cv, rows: rows, keys: znLineKeys(rows.map(\.key), cols: shape.cols), shape: shape, animation: "move")
+            }
+            // Another drag under way: after it (unless JS's rows come first and take its place).
+            if self.dragBusy(cv) {
+                if self.held == nil { self.held = back }
+            } else {
+                back()
+            }
         }
         reorderTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(ZnReorderWait.ms), execute: work)

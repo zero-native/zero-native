@@ -241,6 +241,12 @@ struct ZnListUpdates: Equatable {
         let now = first - removed + added
         return inserts.allSatisfy { $0 < now } && moves.allSatisfy { $0.to < now }
     }
+
+    /// Is the item at [first] (its index before) still there and not moved? Then the list keeps it where it is on
+    /// screen through an animated change (rows added or removed above it don't push it along).
+    func anchorStays(_ first: Int) -> Bool {
+        !deletes.contains(first) && !moves.contains { $0.from == first }
+    }
 }
 
 /// The updates from [old] to [new] keys, moves found (Swift's CollectionDifference with inferringMoves), or nil for a

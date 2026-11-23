@@ -155,6 +155,11 @@ check("insert inside the screen", znListUpdates(abc, ["a", "b", "c", "n", "d", "
 check("remove above the screen", znListUpdates(abc, ["b", "c", "d", "e", "f"])!.onlyBefore(2), true)
 check("remove the first shown", znListUpdates(abc, ["a", "b", "d", "e", "f"])!.onlyBefore(2), false)
 check("move from below to the top", znListUpdates(abc, ["f", "a", "b", "c", "d", "e"])!.onlyBefore(2), false)
+// An animated change keeps the first row on screen in place unless that row itself moved or went.
+check("anchor stays: insert above and inside", znListUpdates(abc, ["n", "a", "b", "c", "m", "d", "e", "f"])!.anchorStays(2), true)
+check("anchor stays: remove above, insert inside", znListUpdates(abc, ["b", "c", "n", "d", "e", "f"])!.anchorStays(2), true)
+check("anchor removed", znListUpdates(abc, ["a", "b", "d", "e", "f"])!.anchorStays(2), false)
+check("anchor moved", znListUpdates(abc, ["a", "b", "d", "e", "f", "c"])!.anchorStays(2), false)
 
 // The SwiftUI list's sections for pinned rows.
 func runs(_ sticky: [Int], _ n: Int) -> String {

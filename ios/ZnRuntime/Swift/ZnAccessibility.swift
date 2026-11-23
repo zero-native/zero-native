@@ -188,12 +188,14 @@ private struct ZnPressActions: ViewModifier {
     let s: ZnNodeSpec
     let inst: ZnInstance
     let disabled: Bool
+    @Environment(\.znReorderRow) private var reorderRow
 
     func body(content: Content) -> some View {
         let role = s.accessibilityRole
         // Not written: a button, as Android's Role.Button default.
         let traits: AccessibilityTraits = role < 0 ? .isButton : znRoleTraits(role)
-        let longPressOn = s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false))
+        // Not in a row of a reorderable List (decision 7: the long press picks the row up there).
+        let longPressOn = !reorderRow && s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false))
         let (ctx, s, inst, disabled) = (ctx, s, inst, disabled)
         content
             .znWhen(s.accessibilityHint != nil) { $0.accessibilityHint(s.accessibilityHint ?? "") }
