@@ -229,6 +229,14 @@ final class ZnSharedFlight {
         }
     }
 
+    /// The flights where they are drawn now (their presentation frames), for a debug log.
+    func whereNow() -> String {
+        flying.map { f in
+            let r = f.view.layer.presentation()?.frame ?? f.view.frame
+            return String(format: "(%.0f,%.0f %.0fx%.0f)", r.minX, r.minY, r.width, r.height)
+        }.joined(separator: " ")
+    }
+
     /// The transition ended (or the swipe was cancelled): the flight views go, the originals show again.
     func land() {
         for f in flying {

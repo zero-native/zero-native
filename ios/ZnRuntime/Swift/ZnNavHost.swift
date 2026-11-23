@@ -154,6 +154,8 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     /// edge, moving right, cancels the press under the finger, and drives the pop with the finger (ZnPopAnimator).
     private lazy var backPan = UIPanGestureRecognizer(target: self, action: #selector(backPanned(_:)))
     private var interaction: UIPercentDrivenInteractiveTransition?
+    /// The swipe's shared-element flights (the debug log only).
+    private weak var swipeFlight: ZnSharedFlight?
     /// The swipe on a see-through screen moves it alone, inside its box (no UIKit pop).
     private var dragging: ZnSeeThroughBox?
     private let edge: CGFloat = 30
@@ -371,6 +373,12 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             popViewController(animated: true)
         case .changed:
             interaction?.update(progress)
+            #if DEBUG
+            // ZN_SHARED_LOG=1: where the flights are under the finger (the swipe scrubs them).
+            if ProcessInfo.processInfo.environment["ZN_SHARED_LOG"] == "1", let f = swipeFlight {
+                print("zn t=\(ZnDebug.ms()) shared: swipe \(String(format: "%.2f", progress)) \(f.whereNow())")
+            }
+            #endif
         case .ended, .cancelled, .failed:
             let fling = g.velocity(in: view).x
             if g.state == .ended && (progress > 0.5 || fling > 600) {
@@ -416,6 +424,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         let interactive = interaction != nil && !opening
         let transition = entry(of: opening ? to : from).flatMap { app.route(of: $0)?.transition } ?? .push
         let flight = interactive || transition != .none ? sharedFlight(from: from, to: to, opening: opening) : nil
+        swipeFlight = interactive ? flight : nil
         if interactive { return ZnPopAnimator(flight: flight) }
         if transition != .push { return ZnTransitionAnimator(transition: transition, opening: opening, flight: flight) }
         return flight.map { ZnSlideAnimator(opening: opening, flight: $0) }
