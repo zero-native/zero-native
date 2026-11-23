@@ -4,7 +4,7 @@
 //   bun run tools/release-notes.ts --version 0.1.0 [--bytecode <main.hbc of any built bundle>]
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
-import { HOST_API_VERSION } from "../packages/core/src/host-api"
+import { HOST_API_VERSION, NATIVE_ONLY_HOST_API } from "../packages/core/src/host-api"
 import { REGISTRY_VERSION } from "../packages/template/src/registry"
 import { bytecodeVersion } from "./hermesc"
 import { hermesPins } from "./check-release"
@@ -16,13 +16,17 @@ if (!/^\d+\.\d+\.\d+$/.test(v)) throw new Error("--version <x.y.z>")
 const hbc = values.bytecode ?? join(root, "android/sample/src/main/assets/main.hbc")
 const bytecode = await bytecodeVersion(hbc)
 const hermes = hermesPins().fetchScript
+// The number apps of this release say (kHostApiVersion): the bundles' one plus its native-only steps, if any.
+let nativeHostApi = HOST_API_VERSION
+while (NATIVE_ONLY_HOST_API.includes(nativeHostApi + 1)) nativeHostApi++
+const hostApi = nativeHostApi === HOST_API_VERSION ? `${HOST_API_VERSION}` : `${HOST_API_VERSION} (apps say ${nativeHostApi}: a native-only step, bundles still need ${HOST_API_VERSION})`
 
 console.log(`zero-native ${v}.
 
 | | |
 |---|---|
 | Registry | ${REGISTRY_VERSION} |
-| Host API | ${HOST_API_VERSION} |
+| Host API | ${hostApi} |
 | Hermes bytecode | ${bytecode} |
 | Hermes | ${hermes} |
 
