@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
 import { className, keepIosBlocks, newApp, title, znPaths } from "../zn-new"
@@ -116,14 +116,63 @@ test("zn dev on a real iPhone: both iOS hosts add the Local Network keys to Debu
   expect(pbx).toContain('"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",') // after Xcode writes the Info.plist
   // One text and one Bonjour type everywhere: the CMake module, the Xcode build phase, the app and the server.
   const module = readFileSync(join(root, "ios/cmake/ZnDev.cmake"), "utf8")
-  const text = module.match(/<key>NSLocalNetworkUsageDescription<\/key>\s*<string>([^<]+)<\/string>/)?.[1]
+  const text = module.match(/<key>NSLocalNetworkUsageDescription<\/key>[^<]*<string>([^<]+)<\/string>/)?.[1]
   expect(text).toBeTruthy()
   expect(pbx).toContain(`Add :NSLocalNetworkUsageDescription string ${text}`)
   expect(module).toContain("<string>_zn-dev._tcp</string>")
   expect(pbx).toContain("string _zn-dev._tcp")
   expect(readFileSync(join(root, "ios/ZnRuntime/Swift/ZnDevWire.swift"), "utf8")).toContain('bonjourType = "_zn-dev._tcp"')
   expect(readFileSync(join(root, "tools/zn-dev.ts"), "utf8")).toContain("_zn-dev._tcp local")
+  // The Mac the build was made on (the app prefers its server), in both hosts.
+  expect(module).toContain("<key>ZNDevMac</key>")
+  expect(pbx).toContain("Add :ZNDevMac string $mac")
+  // zn dev says the app's bundle name (zn-build's --name), so an iPhone knows the server is its app's.
+  const scripts = JSON.parse(readFileSync(join(cmake.dir, "package.json"), "utf8")).scripts
+  expect(scripts.dev).toContain("--name lan-app")
+  expect(scripts["app:js:ios"]).toContain("--name lan-app")
 })
+
+// The CMake module on its own (cmake's Makefile generator, no Xcode): what a Debug Info.plist gets.
+test.skipIf(!Bun.which("cmake"))("ZnDev.cmake fills in the Debug Info.plist as Release's and merges an app's own Local Network keys", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zn-dev-cmake-"))
+  const head = '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>V</key>\n\t<string>${MACOSX_BUNDLE_SHORT_VERSION_STRING} $(EXECUTABLE_NAME)</string>\n'
+  const plists: Record<string, string> = {
+    plain: head,
+    own: head + "\t<key>NSLocalNetworkUsageDescription</key>\n\t<string>Mine</string>\n\t<key>NSBonjourServices</key>\n\t<array>\n\t\t<string>_ipp._tcp</string>\n\t</array>\n",
+    empty: head + "\t<key>NSBonjourServices</key>\n\t<array/>\n",
+    bad: head + "\t<key>ZNDevHost</key>\n\t<string>x</string>\n",
+  }
+  for (const [name, body] of Object.entries(plists)) writeFileSync(join(dir, `${name}.plist`), body + "</dict>\n</plist>\n")
+  writeFileSync(join(dir, "CMakeLists.txt"), [
+    "cmake_minimum_required(VERSION 3.20)",
+    "project(t NONE)",
+    `include("${join(root, "ios/cmake/ZnDev.cmake")}")`,
+    "add_custom_target(T)",
+    "set_target_properties(T PROPERTIES MACOSX_BUNDLE_SHORT_VERSION_STRING 1.2.3)",
+    'zn_dev_info_plist(T "${CMAKE_CURRENT_SOURCE_DIR}/${PLIST}")',
+  ].join("\n"))
+  const configure = (name: string) =>
+    Bun.spawnSync(["cmake", "-S", dir, "-B", join(dir, `b-${name}`), `-DPLIST=${name}.plist`], { stdout: "pipe", stderr: "pipe" })
+  const debug = (name: string) => {
+    expect(configure(name).exitCode).toBe(0)
+    return readFileSync(join(dir, `b-${name}`, "T-Info-Debug.plist"), "utf8")
+  }
+  const plain = debug("plain")
+  expect(plain).toContain("<string>1.2.3 $(EXECUTABLE_NAME)</string>") // ${...} filled in, $(...) left to Xcode
+  expect(plain).toContain("<string>Debug builds connect to zn dev on your Mac for live reload.</string>")
+  expect(plain).toMatch(/<key>NSBonjourServices<\/key>\s*<array>\s*<string>_zn-dev\._tcp<\/string>\s*<\/array>/)
+  expect(plain).toContain("<key>ZNDevHost</key>\n\t<string>$(ZN_DEV_HOST)</string>")
+  expect(plain).toMatch(/<key>ZNDevMac<\/key>\n\t<string>[^<]*<\/string>/)
+  const own = debug("own")
+  expect(own).toContain("<string>Mine</string>")
+  expect(own).not.toContain("Debug builds connect")
+  expect(own.match(/NSBonjourServices/g)?.length).toBe(1)
+  expect(own).toMatch(/<array>\s*<string>_zn-dev\._tcp<\/string>\s*<string>_ipp\._tcp<\/string>\s*<\/array>/)
+  expect(debug("empty")).toMatch(/<key>NSBonjourServices<\/key>\s*<array>\s*<string>_zn-dev\._tcp<\/string>\s*<\/array>/)
+  const bad = configure("bad")
+  expect(bad.exitCode).not.toBe(0)
+  expect(bad.stderr.toString()).toContain("has ZNDevHost or ZNDevMac")
+}, 60_000)
 
 test("an unknown --ios is refused", () => {
   expect(() => newApp(join(mkdtempSync(join(tmpdir(), "zn-new-")), "x-app"), { ios: "spm" as never })).toThrow(/cmake or packages/)

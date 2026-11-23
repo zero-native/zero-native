@@ -113,6 +113,11 @@ do {
     let bad = ZnDevWire.target(env: "mac:port", plist: "mac.local", simulator: false)
     check("bad env skipped", bad.target, T.host("mac.local", 8082))
     check("bad env named", bad.bad, "mac:port")
+    check("from the plist", bad.source, .plist)
+    check("plist falls back to Bonjour", bad.fallback, T.bonjour)
+    check("env source", ZnDevWire.target(env: "h", plist: nil, simulator: true).source, .env)
+    check("simulator fallback", ZnDevWire.target(env: nil, plist: "h", simulator: true).fallback, T.host("127.0.0.1", 8082))
+    check("default source", ZnDevWire.target(env: nil, plist: nil, simulator: false).source, .none)
     check("bad only", ZnDevWire.target(env: "a b", plist: nil, simulator: true).target, T.host("127.0.0.1", 8082))
     check("name", ZnDevWire.parseTarget("my-mac.local"), T.host("my-mac.local", 8082))
     check("pasted url", ZnDevWire.parseTarget("tcp://192.168.1.5:8082/"), T.host("192.168.1.5", 8082))
@@ -124,6 +129,25 @@ do {
     check("no host", ZnDevWire.parseTarget(":8082"), nil)
     check("v6 junk after", ZnDevWire.parseTarget("[::1]x"), nil)
     check("printed", "\(T.host("::1", 8082)) \(T.host("a", 1)) \(T.bonjour)", "[::1]:8082 a:1 Bonjour (_zn-dev._tcp)")
+}
+
+// choose(): never another app's server; this Mac's first, then by name; failed ones only when every one has failed.
+do {
+    typealias S = ZnDevWire.Service
+    let mine = S(name: "zn dev sample on my-mac", app: "sample", mac: "my-mac")
+    let colleague = S(name: "zn dev sample on a-mac", app: "sample", mac: "a-mac")
+    let other = S(name: "zn dev billing on a-mac", app: "billing", mac: "my-mac")
+    let old = S(name: "zn dev sample on old", app: nil, mac: nil)
+    let all = [colleague, mine, other, old]
+    check("this Mac first", ZnDevWire.choose(all, failed: [], app: "sample", mac: "MY-MAC"), mine)
+    check("then by name", ZnDevWire.choose(all, failed: [mine.name], app: "sample", mac: "my-mac"), colleague)
+    check("unknown app usable", ZnDevWire.choose(all, failed: [mine.name, colleague.name], app: "sample", mac: "my-mac"), old)
+    check("all failed: round again", ZnDevWire.choose(all, failed: [mine.name, colleague.name, old.name], app: "sample", mac: "my-mac"), mine)
+    check("other app never", ZnDevWire.choose([other], failed: [], app: "sample", mac: "my-mac"), nil)
+    check("app unknown here", ZnDevWire.choose([other], failed: [], app: nil, mac: nil), other)
+    check("no mac: by name", ZnDevWire.choose([mine, colleague], failed: [], app: "sample", mac: nil), colleague)
+    check("none", ZnDevWire.choose([], failed: [], app: "sample", mac: "my-mac"), nil)
+    check("otherApp", [ZnDevWire.otherApp(other, app: "sample"), ZnDevWire.otherApp(old, app: "sample"), ZnDevWire.otherApp(other, app: "")], [true, false, false])
 }
 
 print(failures == 0 ? "ios dev wire: \(count) checks passed" : "ios dev wire: \(failures) of \(count) checks failed")

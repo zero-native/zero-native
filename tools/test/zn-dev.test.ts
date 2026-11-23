@@ -118,11 +118,11 @@ function lanIPv4(): string | undefined {
 }
 
 /** Says hello from [host] and waits for the first frame back: its type, or 0 when nothing came (or no connection). */
-async function hello(host: string, port: number, device: string): Promise<number> {
+async function hello(host: string, port: number, device: string, app = "sample"): Promise<number> {
   let type = 0
   try {
     const socket = await Bun.connect({ hostname: host, port, socket: { data(_s, chunk) { if (!type && chunk.length >= 5) type = chunk[4] } } })
-    socket.write(frame(10, JSON.stringify({ device, hash: "app", os: "ios" })))
+    socket.write(frame(10, JSON.stringify({ device, hash: "app", os: "ios", app })))
     const t = Date.now()
     while (!type && Date.now() - t < 20_000) await Bun.sleep(50)
     socket.end()
@@ -169,6 +169,10 @@ test("zn dev --lan also takes phones from this computer's network (a real iPhone
       expect(plain(out)).toContain(`phone connected: lan phone (ios, ${address})`)
     }
     expect(plain(out)).toContain("phone connected: usb phone (ios)\n")
+    // A phone running another app is warned about (the sample's bundle is "sample", zn-ota.json's app).
+    expect(await hello("127.0.0.1", port, "billing phone", "billing")).toBe(1)
+    expect(plain(out)).toContain('billing phone runs the app "billing", this serves "sample"')
+    expect(plain(out)).not.toContain('usb phone runs the app')
   } finally {
     server.kill()
     await server.exited
@@ -176,3 +180,52 @@ test("zn dev --lan also takes phones from this computer's network (a real iPhone
     rmSync(outDir, { recursive: true, force: true })
   }
 }, 200_000)
+
+/** The dns-sd advertisements for [port] still running (their command lines). */
+function advertisements(port: number): string[] {
+  const r = Bun.spawnSync(["pgrep", "-fl", `_zn-dev._tcp local ${port} `])
+  return r.stdout.toString().split("\n").filter((l) => l.includes("dns-sd -R"))
+}
+
+// macOS only (dns-sd): it advertises on this network for a few seconds.
+test.skipIf(!Bun.which("dns-sd"))("zn dev --lan's Bonjour says app= and mac=, and stops however the server ends", async () => {
+  for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+    const port = 22000 + Math.floor(Math.random() * 2000)
+    const outDir = mkdtempSync(join(tmpdir(), "zn-dev-test-"))
+    const server = Bun.spawn(["bun", "run", join(root, "tools/zn-dev.ts"), "--lan", "--name", "bonjour-test"], {
+      cwd: root,
+      env: { ...process.env, ZN_DEV_PORT: String(port), ZN_DEV_ADB: "0", ZN_DEV_OUT: outDir, ZN_DEV_BONJOUR: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    let out = ""
+    const reading = (async () => {
+      for await (const chunk of server.stdout) out += new TextDecoder().decode(chunk)
+    })()
+    try {
+      const t0 = Date.now()
+      while (!advertisements(port).length && Date.now() - t0 < 20_000) await Bun.sleep(200)
+      const [line] = advertisements(port)
+      expect(line).toContain("app=bonjour-test")
+      expect(line).toMatch(/mac=\S+/)
+      expect(plain(out)).toMatch(/advertised on this network as "zn dev bonjour-test on [^"]+"/)
+    } finally {
+      server.kill(signal)
+      await server.exited
+      await reading.catch(() => {})
+      rmSync(outDir, { recursive: true, force: true })
+    }
+    // The shell around dns-sd sees the server gone within a second or two.
+    const t1 = Date.now()
+    while (advertisements(port).length && Date.now() - t1 < 6_000) await Bun.sleep(200)
+    expect(advertisements(port)).toEqual([])
+  }
+}, 60_000)
+
+test("zn dev refuses an unknown flag with its usage (no stack trace)", () => {
+  const r = Bun.spawnSync(["bun", "run", join(root, "tools/zn-dev.ts"), "--foo"], { cwd: root, env: { ...process.env, ZN_DEV_ADB: "0" } })
+  expect(r.exitCode).toBe(1)
+  const err = r.stderr.toString()
+  expect(err).toContain("usage: zn dev")
+  expect(err).not.toContain("    at ")
+})

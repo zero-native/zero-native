@@ -64,6 +64,9 @@ The simulator's debug build finds `bun run dev` by itself (127.0.0.1). A real iP
 2. On the Mac: `bun run dev --lan`. It advertises itself with Bonjour and prints the Mac's address.
 3. Open the app and allow Local Network access when iOS asks. The console says `phone connected: ...`.
 
+The phone only takes a `zn dev` for its own app (by its bundle name), and prefers the Mac it was built on when
+several are on the network.
+
 Only Debug builds have the Local Network keys (NSLocalNetworkUsageDescription, NSBonjourServices `_zn-dev._tcp`);
 <!-- ios:cmake -->
 `ios/CMakeLists.txt` adds them (zero-native's `ios/cmake/ZnDev.cmake`), so App Store builds never ask.
@@ -73,7 +76,8 @@ the build phase "zn dev keys (Debug)" adds them, so App Store builds never ask.
 <!-- /ios:packages -->
 <!-- ios:cmake -->
 Without Bonjour, name the Mac yourself: `ZN_DEV_HOST=<address>` in the Xcode scheme's environment, or
-`-DZN_DEV_HOST=<address>` when CMake configures (the `ZN_DEV_HOST` build setting).
+`-DZN_DEV_HOST=<address>` when CMake configures (the `ZN_DEV_HOST` build setting). That one stays in the build
+folder until `-DZN_DEV_HOST=` clears it; the app goes back to Bonjour if it stops answering.
 <!-- /ios:cmake -->
 <!-- ios:packages -->
 Without Bonjour, name the Mac yourself: `ZN_DEV_HOST=<address>` in the Xcode scheme's environment, or a

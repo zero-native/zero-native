@@ -7,7 +7,7 @@
     "app:js:ios": "bun run __ZN_DIR__/tools/zn-build.ts app --name __APP_NAME__ --assets ios/bundle",
     "android": "bun run app:js && cd android && ./gradlew :app:installDebug",
     "ios": "bun run tools/ios.ts",
-    "dev": "bun run __ZN_DIR__/tools/zn-dev.ts app",
+    "dev": "bun run __ZN_DIR__/tools/zn-dev.ts app --name __APP_NAME__",
     "typecheck": "tsc -p app"
   },
   "dependencies": {

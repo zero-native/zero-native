@@ -17,7 +17,7 @@
 //   zn ota <command> ...       the older local OTA tool (tools/ota/cli.ts)
 //   zn server [--demo]         a local zn-updates server (server/src/local.ts)
 //   zn where                   print the zero-native folder this `zn` uses
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 // The CLI's own files sit next to this one (tools/ in a checkout, the package's folder from npm). The checkout's root
@@ -69,8 +69,20 @@ switch (cmd) {
     // zn-dev.ts defaults to the sample app; from an app folder, the app is this folder (or its app/ folder, as in ZeroBill).
     const cwd = process.cwd()
     const appHere = existsSync(join(cwd, "src/main.ts")) ? [cwd] : existsSync(join(cwd, "app/src/main.ts")) ? [join(cwd, "app")] : []
-    // Flags (--lan) don't name the app: without a folder named, it is still this one.
-    run(tool("zn-dev.ts"), rest.some((a) => !a.startsWith("-")) ? rest : [...appHere, ...rest])
+    // Flags (--lan, --name N) don't name the app: without a folder named, it is still this one.
+    const named = rest.some((a, i) => !a.startsWith("-") && rest[i - 1] !== "--name")
+    // A `zn new` app (app/ in this folder): its bundle is named as package.json (app:js:ios's --name), so zn dev says
+    // that name to an iPhone (Bonjour), not "app".
+    const name = (() => {
+      if (named || appHere[0] !== join(cwd, "app") || rest.some((a) => a === "--name" || a.startsWith("--name="))) return []
+      try {
+        const n = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")).name
+        return typeof n === "string" && n ? ["--name", n] : []
+      } catch {
+        return []
+      }
+    })()
+    run(tool("zn-dev.ts"), named ? rest : [...appHere, ...name, ...rest])
   }
   case "build":
     run(tool("zn-build.ts"), rest)

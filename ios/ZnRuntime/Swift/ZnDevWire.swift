@@ -12,7 +12,7 @@ enum ZnDevWire {
     static let buildFailed: UInt8 = 2  // JSON {message}
     static let errorMapped: UInt8 = 3  // JSON {id, text}
     // Phone → server
-    static let hello: UInt8 = 10  // JSON {device, hash, os, bytecode}
+    static let hello: UInt8 = 10  // JSON {device, hash, os, bytecode, app}
     static let error: UInt8 = 11  // JSON {id, text}
     static let reload: UInt8 = 12  // JSON {}: send the current build again
 
@@ -39,20 +39,76 @@ enum ZnDevWire {
         }
     }
 
+    /// Where a Target came from (target()): a value from the build (the Info.plist) can go stale (the Mac's address
+    /// changed), so the app falls back to [Found.fallback] after a few failed tries; one in the environment is meant.
+    enum Source: Equatable { case env, plist, none }
+
+    struct Found: Equatable {
+        let target: Target
+        let source: Source
+        /// A value that is none of the forms below (skipped), to log.
+        let bad: String?
+        /// Without a value: the simulator's 127.0.0.1, an iPhone's Bonjour.
+        let fallback: Target
+    }
+
     /// Where to look for `zn dev`, the first that says something:
     /// 1. ZN_DEV_HOST in the environment (an Xcode scheme, SIMCTL_CHILD_ZN_DEV_HOST, devicectl --environment-variables);
     /// 2. the Info.plist's ZNDevHost (Debug builds: the ZN_DEV_HOST build setting, e.g. cmake -DZN_DEV_HOST=...);
     /// 3. the simulator: 127.0.0.1 (it shares the Mac's network); an iPhone: Bonjour (the Mac runs `zn dev --lan`).
-    /// A value is "host", "host:port", "[v6 address]:port" or "bonjour". [bad]: a value that is none of them (skipped).
-    static func target(env: String?, plist: String?, simulator: Bool) -> (target: Target, bad: String?) {
+    /// A value is "host", "host:port", "[v6 address]:port" or "bonjour".
+    static func target(env: String?, plist: String?, simulator: Bool) -> Found {
+        let fallback: Target = simulator ? .host("127.0.0.1", port) : .bonjour
         var bad: String?
-        for value in [env, plist] {
+        for (value, source) in [(env, Source.env), (plist, Source.plist)] {
             guard let value, !value.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
-            if let t = parseTarget(value) { return (t, bad) }
+            if let t = parseTarget(value) { return Found(target: t, source: source, bad: bad, fallback: fallback) }
             bad = bad ?? value
         }
-        return (simulator ? .host("127.0.0.1", port) : .bonjour, bad)
+        return Found(target: fallback, source: .none, bad: bad, fallback: fallback)
     }
+
+    /// Failed tries at a host from the Info.plist before the app looks the default way (Found.fallback) instead.
+    static let plistTries = 3
+
+    // MARK: Which Bonjour server
+
+    /// A `zn dev --lan` Bonjour sees: its name and its TXT record's app= (the bundle it serves) and mac= (the Mac's
+    /// LocalHostName). nil: not said (an older server).
+    struct Service: Equatable {
+        let name: String
+        let app: String?
+        let mac: String?
+    }
+
+    /// [s] serves another app than this build's [app] (both known): its JS is not this app's, so it is never used.
+    static func otherApp(_ s: Service, app: String?) -> Bool {
+        guard let a = s.app, let app, !a.isEmpty, !app.isEmpty else { return false }
+        return a != app
+    }
+
+    /// [s] runs on the Mac this build was made on ([mac]: the Info.plist's ZNDevMac). Unknown on either side: false.
+    static func sameMac(_ s: Service, mac: String?) -> Bool {
+        guard let m = s.mac, let mac, !m.isEmpty, !mac.isEmpty else { return false }
+        return m.caseInsensitiveCompare(mac) == .orderedSame
+    }
+
+    /// The server to try next: never one for another app; this Mac's before others, then by name; one that just
+    /// failed only once every one has (then the caller forgets the failures). nil: none to try.
+    static func choose(_ services: [Service], failed: Set<String>, app: String?, mac: String?) -> Service? {
+        let usable = services.filter { !otherApp($0, app: app) }
+        let fresh = usable.filter { !failed.contains($0.name) }
+        return (fresh.isEmpty ? usable : fresh).min { a, b in
+            let (ma, mb) = (sameMac(a, mac: mac), sameMac(b, mac: mac))
+            return ma != mb ? ma : a.name < b.name
+        }
+    }
+
+    /// Local Network access is off for this app: iOS says so with kDNSServiceErr_PolicyDenied.
+    static let policyDenied: Int32 = -65570
+    /// The build's Info.plist doesn't list the Bonjour type (NSBonjourServices): kDNSServiceErr_NoAuth. It can't change
+    /// while the app runs, so the app stops browsing.
+    static let noAuth: Int32 = -65555
 
     static func parseTarget(_ text: String) -> Target? {
         var s = text.trimmingCharacters(in: .whitespaces)

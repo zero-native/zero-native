@@ -7,11 +7,12 @@
 //   bun run dev                       → the sample app (examples/sample)
 //   bun run tools/zn-dev.ts <appDir>  → another app laid out the same way (src/main.ts)
 //   ... --lan                         → also a real iPhone on the same Wi-Fi (see below)
+//   ... --name N                      → the app's bundle name, when it isn't zn-ota.json's app or the folder's name
 // Android: a phone connected with USB debugging (this runs `adb reverse`). iOS simulator: a Debug build connects to
 // this computer's 127.0.0.1 by itself. A real iPhone can't reach this computer's 127.0.0.1 (and iOS has no adb
 // reverse), so it comes over the local network: --lan listens on every network of this computer (not only 127.0.0.1)
-// and advertises `_zn-dev._tcp` with Bonjour (macOS's dns-sd), and the phone's Debug build finds it by itself (it
-// asks for Local Network access the first time). Without Bonjour (a network that blocks it), the app's ZN_DEV_HOST
+// and advertises `_zn-dev._tcp` with Bonjour (macOS's dns-sd; TXT app= and mac=), and the phone's Debug build finds it
+// by itself (it asks for Local Network access the first time; it never takes another app's server). Without Bonjour (a network that blocks it), the app's ZN_DEV_HOST
 // (environment) or ZNDevHost (Info.plist) names this computer's address, which --lan prints. Opt in: anyone on the
 // network can then download the app's code from this port while it runs. Android works the same with or without it.
 // ZN_DEV_PORT (tests): another port than 8082 (the phones only know 8082). ZN_DEV_ADB=0: no `adb reverse`.
@@ -21,7 +22,7 @@
 // Wire format, both ways: u32 length (big endian), then u8 type and the body. Same list as ZnDev.kt and ZnDevWire.swift.
 import { createHash } from "node:crypto"
 import { watch } from "node:fs"
-import { existsSync, mkdirSync, readdirSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs"
 import { hostname, networkInterfaces } from "node:os"
 import { basename, join, relative, resolve, sep } from "node:path"
 import { parseArgs } from "node:util"
@@ -39,18 +40,44 @@ const RELOAD = 12
 
 // In a zero-native checkout, the framework's own sources are watched too. Installed from npm (@zeronative/cli), only
 // the app's: the packages in node_modules don't change while you work.
-const { values: flags, positionals } = parseArgs({
-  allowPositionals: true,
-  options: { lan: { type: "boolean" }, help: { type: "boolean", short: "h" } },
-})
+const usage = "usage: zn dev [appDir] [--lan] [--name N]   (--lan: also a real iPhone on the same Wi-Fi, found by Bonjour;\n" +
+  "  --name: the app's bundle name, as zn-build's --name, for the iPhone to know this server is its app's)"
+const readArgs = () =>
+  parseArgs({
+    allowPositionals: true,
+    options: { lan: { type: "boolean" }, name: { type: "string" }, help: { type: "boolean", short: "h" } },
+  })
+// An unknown flag (zn dev --foo): the usage, not a stack trace.
+let parsed: ReturnType<typeof readArgs>
+try {
+  parsed = readArgs()
+} catch (e) {
+  console.error(`${(e as Error).message}\n${usage}`)
+  process.exit(1)
+}
+const { values: flags, positionals } = parsed
 if (flags.help || positionals.length > 1) {
-  console.log("usage: zn dev [appDir] [--lan]   (--lan: also a real iPhone on the same Wi-Fi, found by Bonjour)")
+  console.log(usage)
   process.exit(flags.help ? 0 : 1)
 }
 const lan = flags.lan === true
 const checkout = existsSync(join(import.meta.dir, "../plugins"))
 const root = checkout ? resolve(import.meta.dir, "..") : resolve(positionals[0] ?? ".")
 const appDir = resolve(positionals[0] ?? (checkout ? join(root, "examples/sample") : "."))
+// The app's bundle name (zn-bundle.json's app, which the iPhone's build has): --name, else zn-ota.json's app (in the
+// app's folder or the one above), else the folder's name (zn-build's default). Bonjour says it, so an iPhone never
+// takes another app's server; a phone that says another one is warned about.
+function appName(): string {
+  if (flags.name) return flags.name
+  for (const dir of [appDir, resolve(appDir, "..")]) {
+    try {
+      const app = JSON.parse(readFileSync(join(dir, "zn-ota.json"), "utf8")).app
+      if (typeof app === "string" && app) return app
+    } catch {}
+  }
+  return basename(appDir)
+}
+const app = appName()
 const entry = join(appDir, "src/main.ts")
 const asset = "main.zn.ui"
 const tmpDir = process.env.ZN_DEV_OUT ? resolve(process.env.ZN_DEV_OUT) : join(appDir, "build")
@@ -196,14 +223,17 @@ function onMessage(s: Socket<Phone>, type: number, body: Uint8Array): void {
   const json = () => JSON.parse(new TextDecoder().decode(body))
   switch (type) {
     case HELLO: {
-      // os and bytecode: iOS sends them (Android's HELLO has device and hash only).
-      const { device, hash, os, bytecode } = json()
+      // os, bytecode and app: iOS sends them (Android's HELLO has device and hash only).
+      const { device, hash, os, bytecode, app: phoneApp } = json()
       s.data.name = device
       // Where from: a phone over the local network (--lan) shows its address; USB (adb reverse) and the simulator
       // come from 127.0.0.1.
       const from = s.remoteAddress.replace(/^::ffff:/, "")
       const local = from === "127.0.0.1" || from === "::1"
       console.log(`phone connected: ${device}${os || !local ? dim(` (${[os, local ? "" : from].filter(Boolean).join(", ")})`) : ""}`)
+      if (typeof phoneApp === "string" && phoneApp && phoneApp !== app) {
+        console.log(red(`${device} runs the app "${phoneApp}", this serves "${app}": its builds replace that app's JS (zn dev --name ${phoneApp}, or the right app's folder)`))
+      }
       if (typeof bytecode === "number" && current?.ok && bytecode !== current.bytecode) {
         console.log(red(`${device} runs Hermes bytecode ${bytecode}, this hermesc writes ${current.bytecode}: its builds won't run there`))
       }
@@ -292,23 +322,32 @@ function lanAddresses(): { name: string; address: string }[] {
   )
 }
 
+/** This Mac's Bonjour name without .local (what a Debug build's ZNDevMac says: ios/cmake/ZnDev.cmake). */
+function localHostName(): string {
+  const r = Bun.which("scutil") ? Bun.spawnSync(["scutil", "--get", "LocalHostName"], { stderr: "ignore" }) : undefined
+  const name = r?.success ? r.stdout.toString().trim() : ""
+  return name || hostname().replace(/\.local$/, "")
+}
+
 // --lan: a real iPhone finds this server by Bonjour (`_zn-dev._tcp`, ZnDev.swift). macOS's dns-sd advertises it for as
 // long as it runs; a small shell around it stops it within a second of this process ending in any way (Ctrl-C, kill,
 // kill -9) or of the shell itself being stopped, so no advertisement outlives the server.
 function advertise(): void {
   if (process.env.ZN_DEV_BONJOUR === "0") return
-  const app = basename(appDir)
-  // A Bonjour name has at most 63 bytes (dns-sd refuses a longer one).
-  let name = `zn dev ${app} on ${hostname().replace(/\.local$/, "")}`
-  while (Buffer.byteLength(name) > 63) name = name.slice(0, -1)
+  const mac = localHostName()
+  // A Bonjour name has at most 63 bytes (dns-sd refuses a longer one); cut by characters, not UTF-16 halves.
+  const chars = [...`zn dev ${app} on ${mac}`]
+  while (Buffer.byteLength(chars.join("")) > 63) chars.pop()
+  const name = chars.join("")
   if (!Bun.which("dns-sd")) {
     console.log(dim("iPhone: no dns-sd on this computer (macOS has it), so no Bonjour: set ZN_DEV_HOST in the app to an address below."))
     return
   }
-  const watcher = 'dns-sd -R "$1" _zn-dev._tcp local "$2" app="$3" >/dev/null & d=$!; ' +
+  // TXT: app= (the iPhone never takes another app's server) and mac= (it prefers the Mac it was built on: ZNDevMac).
+  const watcher = 'dns-sd -R "$1" _zn-dev._tcp local "$2" "app=$3" "mac=$5" >/dev/null & d=$!; ' +
     "trap 'kill $d 2>/dev/null; exit 0' TERM INT HUP; " +
     'while kill -0 "$4" 2>/dev/null && kill -0 $d 2>/dev/null; do sleep 1; done; kill $d 2>/dev/null'
-  const child = Bun.spawn(["/bin/sh", "-c", watcher, "zn-dev-bonjour", name, String(PORT), app, String(process.pid)], {
+  const child = Bun.spawn(["/bin/sh", "-c", watcher, "zn-dev-bonjour", name, String(PORT), app, String(process.pid), mac], {
     stdout: "ignore",
     stderr: "ignore",
   })
