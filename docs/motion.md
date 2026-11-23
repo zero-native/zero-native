@@ -217,7 +217,16 @@ listening only while held and while the app is in front.
 `<List reorderable onReorder={(from, to) => move(from, to)}>`: a long press on a row picks it up, a drag moves it
 (the list scrolls near its edges), the drop calls `onReorder`. Move the row in your data there (remove at `from`,
 insert at `to`). Until JS's rows change, the list shows the new order itself; if JS doesn't move it within 1 s, the row
-glides back. Not with `stickyHeaderIndices`. A row's own `onLongPress` competes with the pick-up: don't use both.
+glides back. Not with `stickyHeaderIndices` or `numColumns`. The rows glide to their new places (as `itemAnimation="move"`)
+unless the List sets its own `itemAnimation`.
+
+In a reorderable List the long press on a row **is** the pick-up, so a row's own `onLongPress` is ignored there (Pavan's
+decision 7, 2026-11-21): iOS doesn't run it, and the compiler warns at build time for every `onLongPress` in a row
+(Android may still run it as the drag starts; don't rely on it). Use `onPress` or a button in the row instead. With
+pinned rows the List doesn't reorder, and `onLongPress` works as usual.
+
+iOS uses UIKit's own drag and drop inside the list (the lift, the room the other rows make, the scroll near the ends,
+VoiceOver's drag actions); the drag stays in the app.
 
 ## 12. Do / don't / why
 
