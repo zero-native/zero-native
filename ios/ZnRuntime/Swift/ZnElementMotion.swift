@@ -9,7 +9,7 @@
 // - a Pressable's press as 0 → 1 (`pressed`): a quick spring down (ratio 1, stiffness 1500), a softer one back (0.6);
 // - scrolling things' values (Scroll scrollX / scrollY, List index / offset / scroll, Carousel page, pull to refresh):
 //   their owners give the element's lambda source a reader while they are on screen (ZnProvided) and follow m.follow(v)
-//   through ZnFollower. Sheet progress comes with the sheet's own work (W4-A).
+//   through ZnFollower. A Sheet's progress comes from its layer (ZnSheetLayer.element, UIKit variant).
 //
 // Also here, inside the layer for the same reason: a Pressable's press feedback and touch view (ZnPressInLayer). They
 // used to sit around the node, outside its transforms, so a moved Pressable took taps where it was laid out, not where

@@ -9,7 +9,9 @@
 //   - keep: a card with overflow hidden and no key at first, holding a rail of its own. Scroll that rail, then press
 //     "Key it": "keep" counts and the rail stays where you left it (turning a key on must not rebuild what is inside;
 //     the same goes for the screen leaving and the skeleton before JS).
-import { Box, Column, Pressable, Row, Scroll, Tabs, Text } from "@zeronative/ui"
+//   - sheet / modal: "Sheet" opens a Sheet with "sheet-1", "Modal" a Modal with "modal-1": each counts under this
+//     screen once shown (iOS: the Sheet's and the Modal's own SwiftUI trees get the screen's entry, 2026-11-23).
+import { Box, Column, Modal, Pressable, Row, Scroll, Sheet, Tabs, Text } from "@zeronative/ui"
 import { signal, useImpressions } from "@zeronative/core"
 import { c } from "./tokens"
 
@@ -43,6 +45,8 @@ export function ImpressionsLabScreen() {
   const tab = signal(0)
   const late = signal(false)
   const keep = signal("")
+  const sheet = signal(false)
+  const modal = signal(false)
   useImpressions(
     (keys) => {
       console.info(`imp-lab +${keys.join(",")}`)
@@ -63,6 +67,10 @@ export function ImpressionsLabScreen() {
         <ImpButton label="Tab B" onPress={() => tab.set(1)} />
         <ImpButton label="Show late" onPress={() => late.set(true)} />
         <ImpButton label="Key it" onPress={() => keep.set("keep")} />
+      </Row>
+      <Row style={{ gap: 8 }}>
+        <ImpButton label="Sheet" onPress={() => sheet.set(true)} />
+        <ImpButton label="Modal" onPress={() => modal.set(true)} />
       </Row>
       <Tabs selected={tab()} style={{ height: 60 }}>
         <ImpCard k="tab-a" height={60} color="#DCFCE7" />
@@ -89,6 +97,16 @@ export function ImpressionsLabScreen() {
       {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
         <ImpCard key={i} k={`row-${i}`} />
       ))}
+      <Sheet visible={sheet()} onDismiss={() => sheet.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+        <ImpCard k="sheet-1" height={100} color="#DBEAFE" />
+        <ImpButton label="Close sheet" onPress={() => sheet.set(false)} />
+      </Sheet>
+      <Modal visible={modal()} transparent animationType="fade">
+        <Column justifyContent="center" alignItems="center" style={{ flex: 1, gap: 12, backgroundColor: "#00000080" }}>
+          <ImpCard k="modal-1" height={100} width={240} color="#FCE7F3" />
+          <ImpButton label="Close modal" onPress={() => modal.set(false)} />
+        </Column>
+      </Modal>
     </Scroll>
   )
 }

@@ -33,13 +33,18 @@ struct ZnModalContent: View {
     let t: ZnTemplate
     let inst: ZnInstance
     let s: ZnNodeSpec
+    /// The screen's environment, which the layer's hosting controller doesn't get (its own SwiftUI tree): the entry
+    /// (impressions inside count under the screen, as Android's), a hidden tab, pointerEvents "none" around it.
+    let env: ZnHostedEnvBox
 
     var body: some View {
         var free: Edge.Set = []
         if s.statusBarTranslucent { free.insert(.top) }
         if s.navigationBarTranslucent { free.insert(.bottom) }
-        return ZnNodeView(ctx: ctx, t: t, inst: inst, n: s.index, outer: ZnOuter(fillWidth: true, fillHeight: true),
-                          definiteWidth: true, sheetBody: true)
+        return ZnHostedEnvView(box: env) {
+            ZnNodeView(ctx: ctx, t: t, inst: inst, n: s.index, outer: ZnOuter(fillWidth: true, fillHeight: true),
+                       definiteWidth: true, sheetBody: true)
+        }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .ignoresSafeArea(.container, edges: free)
             .background((s.transparent ? Color.clear : Color.white).ignoresSafeArea())
@@ -55,8 +60,9 @@ struct ZnModalPresenter: UIViewControllerRepresentable {
 
     static let duration = 0.25
 
-    final class Coordinator {
+    @MainActor final class Coordinator {
         var layer: ZnModalLayer?
+        let env = ZnHostedEnvBox()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -65,8 +71,12 @@ struct ZnModalPresenter: UIViewControllerRepresentable {
     func updateUIViewController(_ host: UIViewController, context: Context) {
         let c = context.coordinator
         let anim = s.animationType
+        // The screen's environment, for the layer's own SwiftUI tree (a new value redraws what reads it).
+        var env = ZnHostedEnv(context.environment)
+        env.gestureDepth = 0  // the layer's gestures have their own hub
+        if c.env.env != env { c.env.env = env }
         if visible, c.layer == nil {
-            let layer = ZnModalLayer(rootView: ZnModalContent(ctx: ctx, t: t, inst: inst, s: s))
+            let layer = ZnModalLayer(rootView: ZnModalContent(ctx: ctx, t: t, inst: inst, s: s, env: c.env))
             layer.view.backgroundColor = .clear
             layer.anim = anim
             let (ctx, id, onShow) = (ctx, inst.id, s.onShow)

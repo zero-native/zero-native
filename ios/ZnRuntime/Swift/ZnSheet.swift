@@ -33,7 +33,8 @@ struct ZnSheetHost: View {
                         .presentationCornerRadius(s.radius > 0 ? s.radius : nil)
                 }
         case .uiKit:
-            ZnSheetPresenter(ctx: ctx, t: t, inst: inst, s: s, visible: visible)
+            // `motion={m}`: read here (a miss redraws when JS's element arrives), given to the sheet for m.progress.
+            ZnSheetPresenter(ctx: ctx, t: t, inst: inst, s: s, visible: visible, element: s.motionSlot >= 0 ? s.elementNow(inst) : nil)
                 .frame(width: 0, height: 0)
         }
     }
@@ -48,6 +49,9 @@ struct ZnSheetContent: View {
     /// UIKit variant: its height whenever it changes, so the "content" detent follows the content (text set after the
     /// sheet opened, a row added; ZeroBill's scanner sheets get their title and text after they open, 2026-11-09).
     var onHeight: ((CGFloat) -> Void)? = nil
+    /// UIKit variant: the screen's environment, which a hosting controller doesn't get (its own SwiftUI tree): the
+    /// entry (impressions inside count under the screen, as Android's), a hidden tab, pointerEvents "none" around it.
+    var env: ZnHostedEnvBox? = nil
 
     var body: some View {
         if let onHeight {
@@ -67,10 +71,11 @@ struct ZnSheetContent: View {
         }
     }
 
-    private func node(fillHeight: Bool) -> some View {
-        ZnNodeView(ctx: ctx, t: t, inst: inst, n: s.index, outer: ZnOuter(fillWidth: true, fillHeight: fillHeight),
-                   definiteWidth: true, sheetBody: true)
+    @ViewBuilder private func node(fillHeight: Bool) -> some View {
+        let v = ZnNodeView(ctx: ctx, t: t, inst: inst, n: s.index, outer: ZnOuter(fillWidth: true, fillHeight: fillHeight),
+                           definiteWidth: true, sheetBody: true)
             .padding(.top, 20)  // room for the grabber
+        if let env { ZnHostedEnvView(box: env) { v } } else { v }
     }
 }
 
@@ -119,22 +124,29 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
     let inst: ZnInstance
     let s: ZnNodeSpec
     let visible: Bool
+    var element: ZnElementMotion? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
 
     func updateUIViewController(_ host: UIViewController, context: Context) {
         let c = context.coordinator
+        c.sheet?.element = element
         c.onAttempt = { [ctx, inst, s] in if s.onDismiss != 0 { ctx.send(inst.id, s.onDismiss, .none) } }
         c.onDetent = { [ctx, inst, s] d in if s.onDetentChange != 0 { ctx.send(inst.id, s.onDetentChange, .string(d)) } }
+        // The screen's environment, for the sheet's own SwiftUI tree (a new value redraws what reads it).
+        var env = ZnHostedEnv(context.environment)
+        env.gestureDepth = 0  // the sheet's gestures have their own hub
+        if c.env.env != env { c.env.env = env }
         if visible, c.sheet == nil {
             let layer = ZnSheetLayer(detents: s.detents, dismissible: s.dismissible,
                                      background: s.background.map(UIColor.init), radius: s.radius)
-            layer.content = UIHostingController(rootView: ZnSheetContent(ctx: ctx, t: t, inst: inst, s: s) { [weak layer] h in
+            layer.content = UIHostingController(rootView: ZnSheetContent(ctx: ctx, t: t, inst: inst, s: s, onHeight: { [weak layer] h in
                 layer?.contentHeight(h)
-            })
+            }, env: c.env))
             layer.onAttempt = { [weak c] in c?.onAttempt() }
             layer.onDetentChange = { [weak c] d in c?.onDetent(d) }
+            layer.element = element
             c.sheet = layer
             // animateIn={false}: already at rest, no slide-up or dimming fade (a sheet that is part of a restored
             // screen). Read now, when it opens; later opens read it again.
@@ -173,6 +185,7 @@ struct ZnSheetPresenter: UIViewControllerRepresentable {
 
     @MainActor final class Coordinator {
         var sheet: ZnSheetLayer?
+        let env = ZnHostedEnvBox()
         var onAttempt: () -> Void = {}
         var onDetent: (String) -> Void = { _ in }
     }
@@ -289,7 +302,88 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
     private func rest(_ d: String) -> CGFloat { bottom - safeBottom - height(d) }
     private var rests: [CGFloat] { detents.map(rest) }
 
+    // MARK: Progress (useElementMotion)
+
+    /// `<Sheet motion={m}>`: m.progress, 0 closed → 1 at its tallest detent (Android: ZnSheet.kt progressOf, the
+    /// shown height over the tallest detent's height), each frame it moves: the drag, the slides and springs (read
+    /// from the card's presentation layer while a UIKit animation runs), the picture that slides down after JS closed
+    /// it. Once it has gone the value stays at 0 (a lambda source keeps its last value).
+    var element: ZnElementMotion? {
+        didSet {
+            guard element !== oldValue else { return }
+            if let old = oldValue { ZnProvided.release(old.lambda("progress"), by: self) }
+            if let e = element, !gone {
+                let p = progress
+                ZnProvided.provide(e.lambda("progress"), by: self) { p.v }
+            }
+        }
+    }
+    private let progress = ZnCell(0)
+    private var progressLink: CADisplayLink?
+    /// What the link reads: the card, or the picture sliding down after a close, and how far that picture's top is
+    /// from the card's place in the view.
+    private weak var tracked: UIView?
+    private var trackedShift: CGFloat = 0
+    /// Closed and its slide-down done: no more progress.
+    private var gone = false
+
+    /// Where the sheet's bottom rests and its tallest detent's height, from the last place() (they hold after it left
+    /// the window, for the picture sliding down).
+    private var restBottom: CGFloat = 0, tallest: CGFloat = 0
+
+    /// Progress for the sheet's top edge at [y] (the view's points).
+    private func progressAt(_ y: CGFloat) -> Float {
+        tallest > 0 ? Float(min(max((restBottom - y) / tallest, 0), 1)) : 0
+    }
+
+    /// Follows [v]'s presentation layer each frame until its animations end (a UIKit animation sets the end values at
+    /// once; the presentation layer has the frame on screen).
+    private func trackProgress(_ v: UIView, shift: CGFloat = 0) {
+        guard element != nil, !gone else { return }
+        tracked = v
+        trackedShift = shift
+        guard progressLink == nil else { return }
+        let link = CADisplayLink(target: ZnSheetTick(self), selector: #selector(ZnSheetTick.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        progressLink = link
+    }
+
+    private func stopProgress() {
+        progressLink?.invalidate()
+        progressLink = nil
+        tracked = nil
+    }
+
+    fileprivate func progressTick() {
+        guard let v = tracked else { return stopProgress() }
+        let y = (v.layer.presentation()?.frame.minY ?? v.frame.minY) + trackedShift
+        setProgress(progressAt(y))
+        if v.layer.animationKeys()?.isEmpty ?? true { stopProgress() }
+    }
+
+    private func setProgress(_ p: Float) {
+        #if DEBUG
+        // ZN_GESTURE_LOG=1: each tenth it passes (the lab check reads these).
+        if ZnGestureHub.log, element != nil, Int(p * 10) != Int(progress.v * 10) || (p == 0) != (progress.v == 0) {
+            print("zn t=\(ZnDebug.ms()) sheet: progress \(String(format: "%.2f", p))")
+        }
+        #endif
+        progress.write(p)
+    }
+
+    /// The sheet has gone: 0, and its reader goes (the value keeps 0).
+    private func progressGone() {
+        stopProgress()
+        setProgress(0)
+        gone = true
+        if let e = element { ZnProvided.release(e.lambda("progress"), by: self) }
+    }
+
     private func place() {
+        restBottom = bottom - safeBottom
+        tallest = detents.map(height).max() ?? 0
+        // (While a UIKit animation runs, the link reads where the card is drawn: these are its end values.)
+        if progressLink == nil, !gone { setProgress(progressAt(top)) }
         let w = view.bounds.width
         dim.frame = view.bounds
         let lowest = rests.max() ?? screenH
@@ -353,6 +447,7 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
                          done: ((Bool) -> Void)? = nil) {
         let distance = y - top
         top = y
+        trackProgress(card)
         UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 1,
                        initialSpringVelocity: abs(distance) > 1 ? velocity / distance : 0,
                        options: [.allowUserInteraction, .beginFromCurrentState]) { self.place() } completion: { done?($0) }
@@ -427,6 +522,7 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
             // Caught while it moves: from where it is on screen.
             if let p = card.layer.presentation() { top = p.frame.minY }
             [card, dim, content.view, grabber].forEach { $0.layer.removeAllAnimations() }
+            stopProgress()
             place()
             lastY = y
         case .changed:
@@ -492,6 +588,7 @@ final class ZnSheetLayer: UIViewController, UIGestureRecognizerDelegate {
         let duration = n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
         let curve = n.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         top = rest(detent)
+        trackProgress(card)
         UIView.animate(withDuration: duration, delay: 0,
                        options: [.beginFromCurrentState, UIView.AnimationOptions(rawValue: curve << 16)]) { self.place() }
     }
@@ -521,12 +618,33 @@ extension ZnSheetLayer: ZnPopupLayer {
                 ghost.addSubview(shade)
                 ghost.addSubview(pic)
                 box.insertSubview(ghost, aboveSubview: view)  // in its own place: under any layer over it
+                // m.progress follows the picture down (Android's sheet slides down itself).
+                stopProgress()
+                trackProgress(pic, shift: from - pic.frame.minY)
                 UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
                     pic.frame.origin.y = box.bounds.height
                     shade.alpha = 0
-                } completion: { _ in ghost.removeFromSuperview() }
+                } completion: { _ in
+                    ghost.removeFromSuperview()
+                    self.progressGone()  // (holds the layer until then)
+                }
+                box.drop(self)
+                return
             }
         }
+        progressGone()
         box.drop(self)
+    }
+}
+
+/// The display link's target (a link keeps its target): ticks the sheet while it lives.
+@MainActor
+private final class ZnSheetTick: NSObject {
+    weak var sheet: ZnSheetLayer?
+    init(_ s: ZnSheetLayer) { sheet = s }
+
+    @objc func tick(_ link: CADisplayLink) {
+        guard let sheet else { return link.invalidate() }
+        sheet.progressTick()
     }
 }
