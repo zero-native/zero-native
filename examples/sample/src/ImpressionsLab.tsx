@@ -101,7 +101,7 @@ export function ImpressionsLabScreen() {
         <ImpCard k="sheet-1" height={100} color="#DBEAFE" />
         <ImpButton label="Close sheet" onPress={() => sheet.set(false)} />
       </Sheet>
-      <Modal visible={modal()} transparent animationType="fade">
+      <Modal visible={modal()} transparent animationType="fade" onRequestClose={() => modal.set(false)}>
         <Column justifyContent="center" alignItems="center" style={{ flex: 1, gap: 12, backgroundColor: "#00000080" }}>
           <ImpCard k="modal-1" height={100} width={240} color="#FCE7F3" />
           <ImpButton label="Close modal" onPress={() => modal.set(false)} />

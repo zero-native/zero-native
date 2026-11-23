@@ -10,6 +10,8 @@
 //   g) a slider in a Sheet: a sideways drag moves it, the sheet stays; a drag down elsewhere closes the sheet
 //   h) overlapping nodes: of two tap boxes, the one on top takes a tap where they overlap; a button over a box takes
 //      its tap and the box gets none (as Compose's hit test)
+//   i) VoiceOver / TalkBack, one stop per node: a Pressable row that also swipes open (its pan's anchors are actions on
+//      the row's own element), and a box with its own accessibilityLabel and a tap gesture (one element, a button)
 import { Column, Pressable, Row, Scroll, Sheet, Stack, Text } from "@zeronative/ui"
 import { Gesture, nav, signal, useFling, usePan, useRotate, useTap } from "@zeronative/core"
 import { c } from "./tokens"
@@ -200,6 +202,37 @@ function GlOverlap() {
   )
 }
 
+function GlOneStop() {
+  const opened = signal(0)
+  const tiles = signal(0)
+  const swipe = usePan({
+    axis: "x",
+    bounds: { x: [-120, 0] },
+    anchors: [{ id: "closed", x: 0 }, { id: "open", x: -120 }],
+    a11yLabel: "Mail row",
+    onEnd: (e: { anchor?: string; accessibility?: boolean }) => log("row end " + (e.anchor ?? "") + (e.accessibility ? " (accessibility)" : "")),
+  })
+  const tileTap = useTap({ a11yLabel: "Tile tap", onEnd: (e: { accessibility?: boolean }) => { tiles.set(tiles() + 1); log("tile tap " + tiles() + (e.accessibility ? " (accessibility)" : "")) } })
+  return (
+    <GlCard title="i) One stop per node" hint="With VoiceOver on: the row is one element with actions closed / open, the tile one button.">
+      <Pressable
+        gesture={swipe}
+        onPress={() => { opened.set(opened() + 1); log("row press " + opened()) }}
+        style={{ height: 56, borderRadius: 12, paddingHorizontal: 16, justifyContent: "center", backgroundColor: c.pillBg, transform: [{ translateX: swipe.x }] }}
+      >
+        <Text fontSize={13} fontWeight={700} color={c.ink}>
+          {"Mail row (pressed " + opened() + ")"}
+        </Text>
+      </Pressable>
+      <Stack gesture={tileTap} accessibilityLabel="Labelled tile" style={{ marginTop: 12, height: 56, borderRadius: 12, padding: 12, backgroundColor: c.successBg }}>
+        <Text fontSize={13} fontWeight={700} color={c.success}>
+          {"Tile " + tiles()}
+        </Text>
+      </Stack>
+    </GlCard>
+  )
+}
+
 export function GestureLabScreen() {
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
@@ -223,6 +256,7 @@ export function GestureLabScreen() {
           <GlHoldThenDrag />
           <GlSheetSlider />
           <GlOverlap />
+          <GlOneStop />
         </Column>
       </Scroll>
     </Column>
