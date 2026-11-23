@@ -90,3 +90,22 @@ test("every motion driver a plugin registers on Android is registered on iOS too
   expect(android.size).toBeGreaterThanOrEqual(1) // device-test's device.wobble
   expect([...android].filter(([n]) => !ios.has(n)).map(([n, where]) => `${n} (Android: ${where})`)).toEqual([])
 })
+
+/** [src] without its `#if DEBUG ... #endif` blocks: what a Release build compiles (none of them nest an #if today). */
+function releaseOnly(src: string): string {
+  return src.replace(/^[ \t]*#if DEBUG\b[\s\S]*?^[ \t]*#endif\b.*$/gm, "")
+}
+
+test("a Release build registers the engine as Motion, not a stub", () => {
+  // The function list above is read from ZnMotionModule.swift; this checks that module is the one registered.
+  const modules = readFileSync(join(ROOT, "ios/ZnRuntime/Swift/ZnModules.swift"), "utf8")
+  const builtIns = /static func registerBuiltIns\(\)[\s\S]*?\bfor m: ZnModule in \[([\s\S]*?)\] where/.exec(modules)?.[1]
+  expect(builtIns).toContain("znMotionModuleForThisBuild()")
+  const motion = readFileSync(join(ROOT, "ios/ZnRuntime/Swift/ZnMotionModule.swift"), "utf8")
+  const pick = /func znMotionModuleForThisBuild\(\) -> ZnModule \{([\s\S]*?)\n\}/.exec(releaseOnly(motion))?.[1]
+  expect(pick?.trim()).toBe("return ZnMotionModule.shared")
+  // No other module named "Motion" in a Release build (ZnMotionOff is Debug only; the stub, ZnMotionNone, is gone).
+  const named = iosSwift.filter((p) => /\binit\(\s*"Motion"/.test(releaseOnly(readFileSync(p, "utf8")))).map((p) => relative(ROOT, p))
+  expect(named).toEqual(["ios/ZnRuntime/Swift/ZnMotionModule.swift"])
+  expect(releaseOnly(motion).match(/\binit\(\s*"Motion"/g)?.length).toBe(1)
+})

@@ -21,7 +21,7 @@ test("the Swift host API version for plugins is the JS one (ZnPlugins.hostApi, f
   expect(Number(version![1])).toBe(HOST_API_VERSION)
 })
 
-test("the Kotlin host API version is the native one (ZnPlugins.HOST_API, for requireHostApi)", () => {
+test("the Kotlin host API version for plugins is the JS one (ZnPlugins.HOST_API, for requireHostApi)", () => {
   const kotlin = readFileSync(join(import.meta.dir, "../../../android/runtime/src/main/java/dev/zeronative/runtime/ZnPlugins.kt"), "utf8")
   const version = kotlin.match(/const val HOST_API = (\d+)/)
   expect(version).not.toBeNull()

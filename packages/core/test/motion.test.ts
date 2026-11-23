@@ -83,6 +83,13 @@ test("commands on an app with only the Motion stub (iOS host API 9 or less) are 
   const p = v.to(100)
   reply({ id: motionCalls().at(-1)!.id, ok: false, code: "unavailable", error: "Motion has no method \"animate\"" })
   expect(await p).toEqual({ finished: true })
+  const p2 = v.to(50)
+  reply({ id: motionCalls().at(-1)!.id, ok: false, code: "unavailable", error: "Motion has no method \"animate\"" })
+  expect(await p2).toEqual({ finished: true })
+  // Said once in the log, so a real gap (a method one OS lacks) shows there.
+  expect(host.logs.filter(([, m]) => m.includes("done at once, nothing moves"))).toEqual([
+    [2, 'Motion.animate: Motion has no method "animate"; done at once, nothing moves (an app without the Motion engine?)'],
+  ])
   const q = v.decay()
   reply({ id: motionCalls().at(-1)!.id, ok: false, code: "failed", error: "boom" })
   await expect(q).rejects.toMatchObject({ code: "failed" })

@@ -135,14 +135,22 @@ function ask<T>(method: string, args: Record<string, unknown>): Promise<T> {
 /**
  * A command that answers when the value stops (animate, snapTo, zoomTo). An iOS app built before its Motion engine
  * (host API 9 or less: a stub registered as Motion v1) answers "unavailable": then it is done at once, so code that
- * waits for it (a close after a slide out) still goes on. Nothing moved there; other errors are passed on.
+ * waits for it (a close after a slide out) still goes on. Nothing moved there, so it is said once in the log (a real
+ * gap, a method one OS lacks, shows there too); other errors are passed on.
  */
 function command(method: string, args: Record<string, unknown>): Promise<Finished> {
   return ask<Finished>(method, args).catch((e: unknown) => {
-    if (e instanceof NativeError && e.code === "unavailable") return { finished: true }
+    if (e instanceof NativeError && e.code === "unavailable") {
+      if (!saidUnavailable) {
+        saidUnavailable = true
+        globalThis.__zn_log(2, `Motion.${method}: ${e.message}; done at once, nothing moves (an app without the Motion engine?)`)
+      }
+      return { finished: true }
+    }
     throw e
   })
 }
+let saidUnavailable = false
 
 interface Entry {
   id: number
