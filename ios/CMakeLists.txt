@@ -130,6 +130,10 @@ set_target_properties(ZnSample PROPERTIES
   XCODE_EMBED_FRAMEWORKS "${hermes_xcf}"
   XCODE_EMBED_FRAMEWORKS_CODE_SIGN_ON_COPY YES
 )
+# `zn dev` on a real iPhone: the Debug build's Info.plist also has Local Network access and the Bonjour type
+# (Sample/Info.plist stays as Release builds have it). -DZN_DEV_HOST=<the Mac's address>: no Bonjour.
+include(cmake/ZnDev.cmake)
+zn_dev_info_plist(ZnSample "${CMAKE_CURRENT_SOURCE_DIR}/Sample/Info.plist")
 # Signing. Simulator (and CI) builds: ad hoc, no team. An iPhone build: -DZN_TEAM=<Apple team id>, Xcode's automatic
 # signing with that team's development profile for dev.zeronative.sample (the iPhone must be in it).
 set(ZN_TEAM "" CACHE STRING "Apple team id for iPhone builds; empty: ad hoc (simulator)")

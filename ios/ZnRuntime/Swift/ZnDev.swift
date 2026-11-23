@@ -1,9 +1,12 @@
 // The dev client for `zn dev` (ARCHITECTURE §17), as Android's ZnDev.kt. **Debug builds only**: the whole file is
 // behind `#if DEBUG`, so a Release build has none of it.
 //
-// - Connects to the dev server on the Mac at 127.0.0.1:8082 (the simulator shares the Mac's network, so no adb step;
-//   a plain TCP socket, so no App Transport Security settings). Retries every 2 s while the server isn't running.
-//   A real iPhone can't reach the Mac's 127.0.0.1: that comes later (the LAN, W4-F).
+// - Connects to `zn dev` on the Mac (a plain TCP socket, so no App Transport Security settings), retrying every 2 s
+//   while it isn't running. Where (ZnDevWire.target): ZN_DEV_HOST in the environment, else the Info.plist's ZNDevHost,
+//   else 127.0.0.1:8082 on the simulator (it shares the Mac's network, so no adb step) and Bonjour on an iPhone: the
+//   Mac runs `zn dev --lan`, which advertises _zn-dev._tcp (a phone can't reach the Mac's 127.0.0.1, and iOS has no
+//   adb reverse). An iPhone asks for Local Network access the first time (NSLocalNetworkUsageDescription and
+//   NSBonjourServices are Debug-only Info.plist keys: ios/cmake/ZnDev.cmake).
 // - A new build replaces templates and JS: the runtime is replaced (ZnApp.restart, as an OTA update applied in place)
 //   and every screen that was open opens again by route and params, with a still picture of the old screens over
 //   the swap. Templates and JS always come from the same build folder (Android's A12 can't happen here).
@@ -22,7 +25,6 @@ import ZnHost
 @MainActor
 final class ZnDev {
     static let shared = ZnDev()
-    private static let port: UInt16 = 8082
 
     private struct Problem {
         let id: Int
@@ -32,6 +34,16 @@ final class ZnDev {
 
     private let queue = DispatchQueue(label: "zn-dev")
     private var connection: NWConnection?
+    /// Where `zn dev` is (start).
+    private var target = ZnDevWire.Target.host("127.0.0.1", ZnDevWire.port)
+    /// Bonjour (an iPhone): the browser, and the dev servers it sees now, by name.
+    private var browser: NWBrowser?
+    private var services: [(name: String, endpoint: NWEndpoint)] = []
+    /// Said once each: Local Network is off for this app; no `zn dev --lan` seen yet.
+    private var saidDenied = false
+    private var saidLooking = false
+    /// A connect is due in 2 s (drop): Bonjour finding a server meanwhile doesn't start a second one.
+    private var retryPending = false
     private var connected = false
     /// This run has talked to a dev server: errors show on the dev error screen from then on.
     private var everConnected = false
@@ -63,6 +75,24 @@ final class ZnDev {
         let dir = Self.buildsDir
         queue.async { try? FileManager.default.removeItem(at: dir) }
         ZnApp.shared.addJsErrorListener { [weak self] _, whereText, details in self?.onJsError("\(whereText)\n\(details)") }
+        #if targetEnvironment(simulator)
+        let simulator = true
+        #else
+        let simulator = false
+        #endif
+        let found = ZnDevWire.target(env: ProcessInfo.processInfo.environment["ZN_DEV_HOST"],
+                                     plist: Bundle.main.object(forInfoDictionaryKey: "ZNDevHost") as? String, simulator: simulator)
+        if let bad = found.bad { print("zn-dev: ZN_DEV_HOST / ZNDevHost \"\(bad)\" isn't host, host:port or bonjour; skipped") }
+        target = found.target
+        print("zn-dev: looking for `zn dev` at \(target)")
+        if target == .bonjour {
+            let types = Bundle.main.object(forInfoDictionaryKey: "NSBonjourServices") as? [String] ?? []
+            if !simulator, !types.contains(ZnDevWire.bonjourType) {
+                print("zn-dev: this build's Info.plist has no NSBonjourServices \(ZnDevWire.bonjourType) (a Debug key: "
+                      + "ios/cmake/ZnDev.cmake), so iOS won't let it browse. Set ZN_DEV_HOST=<the Mac's address> instead")
+            }
+            browse()
+        }
         connect()
     }
 
@@ -110,12 +140,84 @@ final class ZnDev {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         tcp.connectionTimeout = 2
-        let c = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: Self.port)!, using: NWParameters(tls: nil, tcp: tcp))
+        let params = NWParameters(tls: nil, tcp: tcp)
+        let c: NWConnection
+        switch target {
+        case .host(let host, let port):
+            c = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
+        case .bonjour:
+            // The first dev server Bonjour sees (by name). None yet: connect when one comes (browse).
+            guard let service = services.first else {
+                if !saidLooking {
+                    saidLooking = true
+                    print("zn-dev: no `zn dev --lan` on this network yet (run it on the Mac, on the same Wi-Fi as this phone)")
+                }
+                return
+            }
+            if services.count > 1 {
+                print("zn-dev: \(services.count) dev servers on this network (\(services.map(\.name).joined(separator: ", "))); "
+                      + "using \(service.name). For another: ZN_DEV_HOST=<its address>")
+            }
+            c = NWConnection(to: service.endpoint, using: params)
+        }
         connection = c
         c.stateUpdateHandler = { [weak self] state in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.changed(c, state) } }
         }
         c.start(queue: queue)
+    }
+
+    /// Bonjour looks for `zn dev --lan` for as long as the app runs: the Mac's address can change, and the server can
+    /// stop and start again.
+    private func browse() {
+        let b = NWBrowser(for: .bonjour(type: ZnDevWire.bonjourType, domain: nil), using: NWParameters())
+        browser = b
+        b.browseResultsChangedHandler = { results, _ in
+            let found: [(name: String, endpoint: NWEndpoint)] = results.compactMap { r in
+                if case .service(let name, _, _, _) = r.endpoint { return (name, r.endpoint) }
+                return nil
+            }.sorted { $0.name < $1.name }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let dev = ZnDev.shared
+                    let was = Set(dev.services.map(\.name))
+                    for s in found where !was.contains(s.name) { print("zn-dev: found \(s.name)") }
+                    dev.services = found
+                    // Nothing to connect to until now: go (a connection that is up or on its way stays).
+                    if dev.connection == nil, !found.isEmpty, !dev.retryPending { dev.connect() }
+                }
+            }
+        }
+        b.stateUpdateHandler = { state in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let dev = ZnDev.shared
+                    switch state {
+                    case .waiting(let error):
+                        dev.sayIfDenied(error)
+                    case .failed(let error):
+                        dev.sayIfDenied(error)
+                        print("zn-dev: Bonjour stopped (\(error)); again in 2 s")
+                        b.cancel()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { if dev.browser === b { dev.browse() } }
+                    default:
+                        break
+                    }
+                }
+            }
+        }
+        b.start(queue: queue)
+    }
+
+    /// Local Network access is off for this app (the user said no, or turned it off later): say how to turn it on,
+    /// once. Bonjour says so with kDNSServiceErr_PolicyDenied (-65570), a connection with its path's reason.
+    private func sayIfDenied(_ error: NWError?, path: NWPath? = nil) {
+        var denied = path?.unsatisfiedReason == .localNetworkDenied
+        if case .dns(let code) = error, code == -65570 { denied = true }
+        guard denied, !saidDenied else { return }
+        saidDenied = true
+        print("zn-dev: Local Network access is off for this app, so it can't reach `zn dev` on the Mac. Turn it on in "
+              + "Settings > Privacy & Security > Local Network")
     }
 
     private func changed(_ c: NWConnection, _ state: NWConnection.State) {
@@ -132,6 +234,7 @@ final class ZnDev {
             read(c)
             showModulesIfConnected()
         case .waiting(let error), .failed(let error):
+            sayIfDenied(error, path: c.currentPath)
             drop(c, "\(error)")
         default:
             break
@@ -147,11 +250,20 @@ final class ZnDev {
         if connected {
             print("zn-dev: dev server disconnected (\(why))")
         } else if !warned {
-            print("zn-dev: no dev server on port \(Self.port) (run `bun run dev`); retrying every 2 s")
+            #if targetEnvironment(simulator)
+            let run = target == .host("127.0.0.1", ZnDevWire.port) ? "`bun run dev` or `zn dev`" : "`zn dev --lan`"
+            #else
+            let run = "`zn dev --lan` on the Mac, on the same Wi-Fi as this phone"
+            #endif
+            print("zn-dev: no dev server at \(target) (\(why)); run \(run). Retrying every 2 s")
         }
         warned = true
         connected = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.connect() }
+        retryPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.retryPending = false
+            self?.connect()
+        }
     }
 
     /// Reads one frame, hands it on, and reads the next (on the zn-dev queue).

@@ -6,16 +6,25 @@
 // Usage (repo root):
 //   bun run dev                       → the sample app (examples/sample)
 //   bun run tools/zn-dev.ts <appDir>  → another app laid out the same way (src/main.ts)
+//   ... --lan                         → also a real iPhone on the same Wi-Fi (see below)
 // Android: a phone connected with USB debugging (this runs `adb reverse`). iOS simulator: a Debug build connects to
-// this computer's 127.0.0.1 by itself. A real iPhone can't reach it yet.
+// this computer's 127.0.0.1 by itself. A real iPhone can't reach this computer's 127.0.0.1 (and iOS has no adb
+// reverse), so it comes over the local network: --lan listens on every network of this computer (not only 127.0.0.1)
+// and advertises `_zn-dev._tcp` with Bonjour (macOS's dns-sd), and the phone's Debug build finds it by itself (it
+// asks for Local Network access the first time). Without Bonjour (a network that blocks it), the app's ZN_DEV_HOST
+// (environment) or ZNDevHost (Info.plist) names this computer's address, which --lan prints. Opt in: anyone on the
+// network can then download the app's code from this port while it runs. Android works the same with or without it.
 // ZN_DEV_PORT (tests): another port than 8082 (the phones only know 8082). ZN_DEV_ADB=0: no `adb reverse`.
+// ZN_DEV_BONJOUR=0 (tests): --lan without advertising.
 // ZN_DEV_OUT (tests): the folder for dev.js and dev.hbc instead of <appDir>/build (a running `zn dev` uses that one).
 //
 // Wire format, both ways: u32 length (big endian), then u8 type and the body. Same list as ZnDev.kt and ZnDevWire.swift.
 import { createHash } from "node:crypto"
 import { watch } from "node:fs"
 import { existsSync, mkdirSync, readdirSync } from "node:fs"
-import { join, relative, resolve, sep } from "node:path"
+import { hostname, networkInterfaces } from "node:os"
+import { basename, join, relative, resolve, sep } from "node:path"
+import { parseArgs } from "node:util"
 import type { Socket } from "bun"
 import { buildApp, type AppBuild } from "@zeronative/compiler"
 import { bytecodeVersion, hermesc } from "./hermesc"
@@ -30,9 +39,18 @@ const RELOAD = 12
 
 // In a zero-native checkout, the framework's own sources are watched too. Installed from npm (@zeronative/cli), only
 // the app's: the packages in node_modules don't change while you work.
+const { values: flags, positionals } = parseArgs({
+  allowPositionals: true,
+  options: { lan: { type: "boolean" }, help: { type: "boolean", short: "h" } },
+})
+if (flags.help || positionals.length > 1) {
+  console.log("usage: zn dev [appDir] [--lan]   (--lan: also a real iPhone on the same Wi-Fi, found by Bonjour)")
+  process.exit(flags.help ? 0 : 1)
+}
+const lan = flags.lan === true
 const checkout = existsSync(join(import.meta.dir, "../plugins"))
-const root = checkout ? resolve(import.meta.dir, "..") : resolve(process.argv[2] ?? ".")
-const appDir = resolve(process.argv[2] ?? (checkout ? join(root, "examples/sample") : "."))
+const root = checkout ? resolve(import.meta.dir, "..") : resolve(positionals[0] ?? ".")
+const appDir = resolve(positionals[0] ?? (checkout ? join(root, "examples/sample") : "."))
 const entry = join(appDir, "src/main.ts")
 const asset = "main.zn.ui"
 const tmpDir = process.env.ZN_DEV_OUT ? resolve(process.env.ZN_DEV_OUT) : join(appDir, "build")
@@ -181,7 +199,11 @@ function onMessage(s: Socket<Phone>, type: number, body: Uint8Array): void {
       // os and bytecode: iOS sends them (Android's HELLO has device and hash only).
       const { device, hash, os, bytecode } = json()
       s.data.name = device
-      console.log(`phone connected: ${device}${os ? dim(` (${os})`) : ""}`)
+      // Where from: a phone over the local network (--lan) shows its address; USB (adb reverse) and the simulator
+      // come from 127.0.0.1.
+      const from = s.remoteAddress.replace(/^::ffff:/, "")
+      const local = from === "127.0.0.1" || from === "::1"
+      console.log(`phone connected: ${device}${os || !local ? dim(` (${[os, local ? "" : from].filter(Boolean).join(", ")})`) : ""}`)
       if (typeof bytecode === "number" && current?.ok && bytecode !== current.bytecode) {
         console.log(red(`${device} runs Hermes bytecode ${bytecode}, this hermesc writes ${current.bytecode}: its builds won't run there`))
       }
@@ -206,8 +228,10 @@ function onMessage(s: Socket<Phone>, type: number, body: Uint8Array): void {
   }
 }
 
+// --lan: every network of this computer, IPv4 and IPv6 ("::" takes both); else this computer only (adb reverse and
+// the simulator come from 127.0.0.1).
 Bun.listen<Phone>({
-  hostname: "127.0.0.1",
+  hostname: lan ? "::" : "127.0.0.1",
   port: PORT,
   socket: {
     open(s) {
@@ -260,6 +284,51 @@ function adbReverse(): void {
   }
 }
 adbReverse()
+
+/** This computer's addresses a phone on the same network can use (IPv4, not 127.0.0.1), by network name (en0, ...). */
+function lanAddresses(): { name: string; address: string }[] {
+  return Object.entries(networkInterfaces()).flatMap(([name, list]) =>
+    (list ?? []).filter((a) => a.family === "IPv4" && !a.internal).map((a) => ({ name, address: a.address })),
+  )
+}
+
+// --lan: a real iPhone finds this server by Bonjour (`_zn-dev._tcp`, ZnDev.swift). macOS's dns-sd advertises it for as
+// long as it runs; a small shell around it stops it when this process ends in any way (also killed), so no
+// advertisement outlives the server.
+function advertise(): void {
+  const app = basename(appDir)
+  const host = hostname().replace(/\.local$/, "")
+  const name = `zn dev ${app} on ${host}`
+  if (process.env.ZN_DEV_BONJOUR === "0") return
+  if (!Bun.which("dns-sd")) {
+    console.log(dim("iPhone: no dns-sd on this computer (macOS has it), so no Bonjour: set ZN_DEV_HOST in the app to an address below."))
+    return
+  }
+  const watcher = 'dns-sd -R "$1" _zn-dev._tcp local "$2" app="$3" >/dev/null & d=$!; ' +
+    "while kill -0 \"$4\" 2>/dev/null && kill -0 $d 2>/dev/null; do sleep 1; done; kill $d 2>/dev/null"
+  const child = Bun.spawn(["/bin/sh", "-c", watcher, "zn-dev-bonjour", name, String(PORT), app, String(process.pid)], {
+    stdout: "ignore",
+    stderr: "ignore",
+  })
+  const stop = () => child.kill()
+  process.on("exit", stop)
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.on(signal, () => process.exit(130))
+  console.log(`iPhone: advertised on this network as "${name}" (Bonjour ${dim("_zn-dev._tcp")}).`)
+}
+
+if (lan) {
+  advertise()
+  const addresses = lanAddresses()
+  const list = addresses.map((a) => `${a.address}${dim(` (${a.name})`)}`).join(", ")
+  console.log(
+    addresses.length
+      ? `iPhone: this computer is ${list}. Without Bonjour, set ZN_DEV_HOST=<address> in the app's environment (Xcode scheme).`
+      : red("--lan: this computer has no network address besides 127.0.0.1: connect it to the phone's Wi-Fi."),
+  )
+  console.log(dim(`--lan: anyone on this network can download the app's code from port ${PORT} while this runs.`))
+} else {
+  console.log(dim("iPhone (a real one): run with --lan (zn dev --lan, bun run dev -- --lan). The simulator and Android need nothing more."))
+}
 
 console.log(`zn dev: ${relative(root, appDir) || "."} on port ${PORT}. Open the app's debug build on the phone or the iOS simulator.`)
 await rebuild("start")

@@ -101,5 +101,30 @@ do {
     check("bad hash refused", (try? ZnDevWire.write(build("../evil", 5), in: root, keep: nil)) == nil, true)
 }
 
+// target(): ZN_DEV_HOST, then the Info.plist's ZNDevHost, then 127.0.0.1 on the simulator and Bonjour on an iPhone.
+do {
+    typealias T = ZnDevWire.Target
+    check("simulator default", ZnDevWire.target(env: nil, plist: nil, simulator: true).target, T.host("127.0.0.1", 8082))
+    check("iPhone default", ZnDevWire.target(env: nil, plist: nil, simulator: false).target, T.bonjour)
+    check("empty plist value", ZnDevWire.target(env: nil, plist: " ", simulator: false).target, T.bonjour)
+    check("env first", ZnDevWire.target(env: "192.168.0.7", plist: "10.0.0.2", simulator: true).target, T.host("192.168.0.7", 8082))
+    check("plist next", ZnDevWire.target(env: "", plist: "10.0.0.2:9000", simulator: false).target, T.host("10.0.0.2", 9000))
+    check("bonjour on the simulator", ZnDevWire.target(env: "Bonjour", plist: nil, simulator: true).target, T.bonjour)
+    let bad = ZnDevWire.target(env: "mac:port", plist: "mac.local", simulator: false)
+    check("bad env skipped", bad.target, T.host("mac.local", 8082))
+    check("bad env named", bad.bad, "mac:port")
+    check("bad only", ZnDevWire.target(env: "a b", plist: nil, simulator: true).target, T.host("127.0.0.1", 8082))
+    check("name", ZnDevWire.parseTarget("my-mac.local"), T.host("my-mac.local", 8082))
+    check("pasted url", ZnDevWire.parseTarget("tcp://192.168.1.5:8082/"), T.host("192.168.1.5", 8082))
+    check("v6 bare", ZnDevWire.parseTarget("fe80::1"), T.host("fe80::1", 8082))
+    check("v6 port", ZnDevWire.parseTarget("[fe80::1%en0]:9001"), T.host("fe80::1%en0", 9001))
+    check("v6 brackets", ZnDevWire.parseTarget("[::1]"), T.host("::1", 8082))
+    check("port 0", ZnDevWire.parseTarget("h:0"), nil)
+    check("port too big", ZnDevWire.parseTarget("h:70000"), nil)
+    check("no host", ZnDevWire.parseTarget(":8082"), nil)
+    check("v6 junk after", ZnDevWire.parseTarget("[::1]x"), nil)
+    check("printed", "\(T.host("::1", 8082)) \(T.host("a", 1)) \(T.bonjour)", "[::1]:8082 a:1 Bonjour (_zn-dev._tcp)")
+}
+
 print(failures == 0 ? "ios dev wire: \(count) checks passed" : "ios dev wire: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)

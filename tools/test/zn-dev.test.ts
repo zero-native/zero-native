@@ -3,7 +3,7 @@
 // The phones' side of the wire: android/runtime/.../ZnDev.kt, ios/ZnRuntime/Swift/ZnDevWire.swift (ios/tests/dev).
 import { expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { networkInterfaces, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 const root = resolve(import.meta.dir, "../..")
@@ -97,6 +97,78 @@ test("zn dev sends a whole build to a phone that says hello, and maps its errors
 
     expect(out).toContain("phone connected: test phone")
     expect(out).toContain("(ios)")
+    // Without --lan: this computer only, and it says how a real iPhone gets in.
+    expect(out).toContain("run with --lan")
+    const lanAddress = lanIPv4()
+    if (lanAddress) expect(await reaches(lanAddress, port)).toBe(false)
+  } finally {
+    server.kill()
+    await server.exited
+    await reading.catch(() => {})
+    rmSync(outDir, { recursive: true, force: true })
+  }
+}, 200_000)
+
+/** The text without its colours. */
+const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "")
+
+/** One of this computer's network addresses a phone on the same Wi-Fi would use, or undefined (no network). */
+function lanIPv4(): string | undefined {
+  return Object.values(networkInterfaces()).flat().find((a) => a?.family === "IPv4" && !a.internal)?.address
+}
+
+/** Says hello from [host] and waits for the first frame back: its type, or 0 when nothing came (or no connection). */
+async function hello(host: string, port: number, device: string): Promise<number> {
+  let type = 0
+  try {
+    const socket = await Bun.connect({ hostname: host, port, socket: { data(_s, chunk) { if (!type && chunk.length >= 5) type = chunk[4] } } })
+    socket.write(frame(10, JSON.stringify({ device, hash: "app", os: "ios" })))
+    const t = Date.now()
+    while (!type && Date.now() - t < 20_000) await Bun.sleep(50)
+    socket.end()
+  } catch {}
+  return type
+}
+
+async function reaches(host: string, port: number): Promise<boolean> {
+  try {
+    const socket = await Bun.connect({ hostname: host, port, socket: { data() {} } })
+    socket.end()
+    return true
+  } catch {
+    return false
+  }
+}
+
+test("zn dev --lan also takes phones from this computer's network (a real iPhone), IPv4 and IPv6", async () => {
+  const port = 20000 + Math.floor(Math.random() * 2000)
+  const outDir = mkdtempSync(join(tmpdir(), "zn-dev-test-"))
+  // No Bonjour here: a test shouldn't advertise on the network (dns-sd is checked by hand: ios/tests/README.md).
+  const server = Bun.spawn(["bun", "run", join(root, "tools/zn-dev.ts"), "--lan"], {
+    cwd: root,
+    env: { ...process.env, ZN_DEV_PORT: String(port), ZN_DEV_ADB: "0", ZN_DEV_OUT: outDir, ZN_DEV_BONJOUR: "0" },
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  let out = ""
+  const reading = (async () => {
+    for await (const chunk of server.stdout) out += new TextDecoder().decode(chunk)
+  })()
+  try {
+    const t0 = Date.now()
+    while (!/start: (built|build failed)/.test(out) && Date.now() - t0 < 170_000) await Bun.sleep(200)
+    expect(out).toContain("start: built")
+    expect(out).toContain("anyone on this network")
+    expect(await hello("127.0.0.1", port, "usb phone")).toBe(1)
+    expect(await hello("::1", port, "v6 phone")).toBe(1)
+    const address = lanIPv4()
+    if (address) {
+      expect(out).toContain(`iPhone: this computer is ${address}`)
+      expect(await hello(address, port, "lan phone")).toBe(1)
+      // A phone from the network shows where it is; one through USB or the simulator doesn't.
+      expect(plain(out)).toContain(`phone connected: lan phone (ios, ${address})`)
+    }
+    expect(plain(out)).toContain("phone connected: usb phone (ios)\n")
   } finally {
     server.kill()
     await server.exited

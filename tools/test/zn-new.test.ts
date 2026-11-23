@@ -100,6 +100,31 @@ test("keepIosBlocks keeps one host's blocks without their markers", () => {
   expect(keepIosBlocks(crlf, "packages")).toBe("a\r\nP\r\nb\r\n")
 })
 
+test("zn dev on a real iPhone: both iOS hosts add the Local Network keys to Debug builds only, with one text and type", () => {
+  const cmake = newApp(join(mkdtempSync(join(tmpdir(), "zn-new-")), "lan-app"))
+  const cm = readFileSync(join(cmake.dir, "ios/CMakeLists.txt"), "utf8")
+  expect(cm).toContain('include("${ZN_IOS}/cmake/ZnDev.cmake")')
+  expect(cm).toContain('zn_dev_info_plist(LanApp "${CMAKE_CURRENT_SOURCE_DIR}/App/Info.plist")')
+  // App Store builds never ask: the app's own Info.plist has none of them.
+  for (const plist of [join(cmake.dir, "ios/App/Info.plist"), join(root, "ios/Sample/Info.plist")]) {
+    expect(readFileSync(plist, "utf8")).not.toMatch(/NSLocalNetworkUsageDescription|NSBonjourServices|ZNDevHost/)
+  }
+  const pkg = newApp(join(mkdtempSync(join(tmpdir(), "zn-new-")), "lan-pkg"), { ios: "packages" })
+  const pbx = readFileSync(join(pkg.dir, "ios/LanPkg.xcodeproj/project.pbxproj"), "utf8")
+  expect(pbx).toContain('[ \\"$CONFIGURATION\\" = \\"Debug\\" ] || exit 0')
+  expect(pbx.match(/5B7E2C914D8A3F6E01C2B4D7 \/\* zn dev keys \(Debug\) \*\//g)?.length).toBe(2) // listed and defined
+  expect(pbx).toContain('"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",') // after Xcode writes the Info.plist
+  // One text and one Bonjour type everywhere: the CMake module, the Xcode build phase, the app and the server.
+  const module = readFileSync(join(root, "ios/cmake/ZnDev.cmake"), "utf8")
+  const text = module.match(/<key>NSLocalNetworkUsageDescription<\/key>\s*<string>([^<]+)<\/string>/)?.[1]
+  expect(text).toBeTruthy()
+  expect(pbx).toContain(`Add :NSLocalNetworkUsageDescription string ${text}`)
+  expect(module).toContain("<string>_zn-dev._tcp</string>")
+  expect(pbx).toContain("string _zn-dev._tcp")
+  expect(readFileSync(join(root, "ios/ZnRuntime/Swift/ZnDevWire.swift"), "utf8")).toContain('bonjourType = "_zn-dev._tcp"')
+  expect(readFileSync(join(root, "tools/zn-dev.ts"), "utf8")).toContain("_zn-dev._tcp local")
+})
+
 test("an unknown --ios is refused", () => {
   expect(() => newApp(join(mkdtempSync(join(tmpdir(), "zn-new-")), "x-app"), { ios: "spm" as never })).toThrow(/cmake or packages/)
 })

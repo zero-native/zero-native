@@ -19,6 +19,67 @@ enum ZnDevWire {
     /// The largest frame taken (a build is a few MB): anything bigger is a broken stream.
     static let maxFrame = 256 << 20
 
+    // MARK: Where the dev server is
+
+    static let port: UInt16 = 8082
+    /// What `zn dev --lan` advertises on the local network (tools/zn-dev.ts). An app browsing for it lists it in its
+    /// Info.plist's NSBonjourServices (Debug builds only: ios/cmake/ZnDev.cmake).
+    static let bonjourType = "_zn-dev._tcp"
+
+    enum Target: Equatable, CustomStringConvertible {
+        case host(String, UInt16)
+        /// `zn dev --lan` found by Bonjour.
+        case bonjour
+
+        var description: String {
+            switch self {
+            case .host(let h, let p): return h.contains(":") ? "[\(h)]:\(p)" : "\(h):\(p)"
+            case .bonjour: return "Bonjour (\(ZnDevWire.bonjourType))"
+            }
+        }
+    }
+
+    /// Where to look for `zn dev`, the first that says something:
+    /// 1. ZN_DEV_HOST in the environment (an Xcode scheme, SIMCTL_CHILD_ZN_DEV_HOST, devicectl --environment-variables);
+    /// 2. the Info.plist's ZNDevHost (Debug builds: the ZN_DEV_HOST build setting, e.g. cmake -DZN_DEV_HOST=...);
+    /// 3. the simulator: 127.0.0.1 (it shares the Mac's network); an iPhone: Bonjour (the Mac runs `zn dev --lan`).
+    /// A value is "host", "host:port", "[v6 address]:port" or "bonjour". [bad]: a value that is none of them (skipped).
+    static func target(env: String?, plist: String?, simulator: Bool) -> (target: Target, bad: String?) {
+        var bad: String?
+        for value in [env, plist] {
+            guard let value, !value.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+            if let t = parseTarget(value) { return (t, bad) }
+            bad = bad ?? value
+        }
+        return (simulator ? .host("127.0.0.1", port) : .bonjour, bad)
+    }
+
+    static func parseTarget(_ text: String) -> Target? {
+        var s = text.trimmingCharacters(in: .whitespaces)
+        if let scheme = s.range(of: "://") { s = String(s[scheme.upperBound...]) }  // tcp://, http:// pasted from a log
+        while s.hasSuffix("/") { s.removeLast() }
+        if s.lowercased() == "bonjour" { return .bonjour }
+        func port(_ p: Substring) -> UInt16? { UInt16(p).flatMap { $0 > 0 ? $0 : nil } }
+        func name(_ h: Substring) -> Bool { !h.isEmpty && !h.contains { $0.isWhitespace || $0 == "/" || $0 == "[" || $0 == "]" } }
+        if s.hasPrefix("[") {  // [v6]:port or [v6]
+            guard let close = s.firstIndex(of: "]") else { return nil }
+            let h = s[s.index(after: s.startIndex) ..< close]
+            let rest = s[s.index(after: close)...]
+            guard name(h) else { return nil }
+            if rest.isEmpty { return .host(String(h), self.port) }
+            guard rest.hasPrefix(":"), let p = port(rest.dropFirst()) else { return nil }
+            return .host(String(h), p)
+        }
+        let colons = s.filter { $0 == ":" }.count
+        if colons > 1 { return name(Substring(s)) ? .host(s, self.port) : nil }  // a bare v6 address
+        if colons == 1 {
+            let parts = s.split(separator: ":", omittingEmptySubsequences: false)
+            guard name(parts[0]), let p = port(parts[1]) else { return nil }
+            return .host(String(parts[0]), p)
+        }
+        return name(Substring(s)) ? .host(s, self.port) : nil
+    }
+
     /// One frame: length, type, body.
     static func frame(_ type: UInt8, _ body: Data) -> Data {
         var out = Data(capacity: 5 + body.count)

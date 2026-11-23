@@ -113,6 +113,11 @@ set_target_properties(__APP_CLASS__ PROPERTIES
   XCODE_EMBED_FRAMEWORKS "${hermes_xcf}"
   XCODE_EMBED_FRAMEWORKS_CODE_SIGN_ON_COPY YES
 )
+# `zn dev --lan` on a real iPhone: the Debug build's Info.plist also asks for Local Network access and lists the
+# Bonjour type it looks for (App/Info.plist stays as App Store builds have it). -DZN_DEV_HOST=<the Mac's address>:
+# connect there instead of looking with Bonjour.
+include("${ZN_IOS}/cmake/ZnDev.cmake")
+zn_dev_info_plist(__APP_CLASS__ "${CMAKE_CURRENT_SOURCE_DIR}/App/Info.plist")
 
 # Signing. Simulator builds: ad hoc, no team. An iPhone build: -DAPP_TEAM=<your Apple team id> (Xcode's automatic
 # signing with the team's development profile).

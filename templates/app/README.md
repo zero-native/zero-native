@@ -56,6 +56,30 @@ It builds the JS into `android/app/src/main/assets` and installs the debug build
 Android Studio, after `bun run app:js`. `bun run dev` (live reload to the debug build) is
 not tried from an app made by `zn new` yet.
 
+## Live reload on a real iPhone
+
+The simulator's debug build finds `bun run dev` by itself (127.0.0.1). A real iPhone reaches the Mac over Wi-Fi:
+
+1. Install the Debug build on the iPhone (same Wi-Fi as the Mac; a guest network that keeps devices apart won't work).
+2. On the Mac: `bun run dev --lan`. It advertises itself with Bonjour and prints the Mac's address.
+3. Open the app and allow Local Network access when iOS asks. The console says `phone connected: ...`.
+
+Only Debug builds have the Local Network keys (NSLocalNetworkUsageDescription, NSBonjourServices `_zn-dev._tcp`);
+<!-- ios:cmake -->
+`ios/CMakeLists.txt` adds them (zero-native's `ios/cmake/ZnDev.cmake`), so App Store builds never ask.
+<!-- /ios:cmake -->
+<!-- ios:packages -->
+the build phase "zn dev keys (Debug)" adds them, so App Store builds never ask.
+<!-- /ios:packages -->
+<!-- ios:cmake -->
+Without Bonjour, name the Mac yourself: `ZN_DEV_HOST=<address>` in the Xcode scheme's environment, or
+`-DZN_DEV_HOST=<address>` when CMake configures (the `ZN_DEV_HOST` build setting).
+<!-- /ios:cmake -->
+<!-- ios:packages -->
+Without Bonjour, name the Mac yourself: `ZN_DEV_HOST=<address>` in the Xcode scheme's environment, or a
+`ZN_DEV_HOST` build setting on the app target.
+<!-- /ios:packages -->
+
 ## Layout
 
 ```
