@@ -94,6 +94,21 @@ Each entry says:
 | A78 | 2026-11-23 | Motion (Android) | useTilt keeps its old lean for a new user or after a reload; its lifecycle observer stays | open |
 | A79 | 2026-11-23 | Motion (Android) | A plugin Handle's second onDispose replaces the first | open |
 | A80 | 2026-11-23 | Motion (both) | 3D turns: check the camera distance matches (iOS may turn harder than Android) | check, from iOS |
+| A81 | 2026-11-24 | List (Android) | A List's scroll offset is estimated from the visible rows, so onScroll, paging and snapToInterval drift with mixed heights | open |
+| A82 | 2026-11-24 | List (Android) | A reorderable List row's onLongPress still runs when the drag starts | open |
+| A83 | 2026-11-24 | List (Android) | A picture on screen whose preload is still running downloads twice | check (likely) |
+| A84 | 2026-11-24 | List (Android) | With itemAnimation, a List's header, footer and empty item jump; iOS fades them | open, Pavan to decide (rec: animate on Android) |
+| A85 | 2026-11-24 | List (Android) | Check: rows JS adds while a reorder drag is held | check |
+| A86 | 2026-11-24 | Sample (both) | Check: MotionScreensDetail's "Scan & Pay" bar | check, from iOS |
+| A87 | 2026-11-24 | Gestures (Android) | useZoom: a drag right after a double tap turns the page instead of moving the photo | open |
+| A88 | 2026-11-24 | Gestures (Android) | TalkBack can't move a plain bounded slider (no tap, zoom or anchors) | open, Pavan to decide (rec: add on Android) |
+| A89 | 2026-11-24 | Gestures (Android) | useZoom's TalkBack zoom in / out end without `accessibility: true` | open |
+| A90 | 2026-11-24 | Gestures (Android) | Check: the order TalkBack lists gesture actions | check |
+| A91 | 2026-11-24 | Motion (shared) | Check: a motion value read outside derive() in a handler (env.width() gave 0 on iOS) | check (likely shared) |
+| A92 | 2026-11-24 | image-viewer (Android) | Check: the image viewer page emits `error` before JS sends its props | check |
+| A93 | 2026-11-24 | TextField (both) | Check: typing fast into a field that onChangeText reformats loses a key on iOS | check |
+| A94 | 2026-11-24 | zn dev (Android) | zn dev on Android can only use adb reverse | open (feature gap) |
+| A95 | 2026-11-24 | zn dev (Android) | zn dev's HELLO from Android has no `os`, `bytecode` or `app` | open |
 
 ---
 
@@ -879,3 +894,96 @@ Each entry says:
   camera) is drawn far past its box, over its title.
 - **Check on Android (Windows):** a screenshot of GestureLab (`/dev/motion/gestures`) a) and MotionBindingsLab b), to put
   side by side with iOS's. If Android's card stays inside its box, the iOS camera is too close.
+
+## A81. A List's scroll offset is estimated from the visible rows, so onScroll, paging and snapToInterval drift with mixed heights (from iOS work, round 4)
+- **Status:** open. Found on the Mac 2026-11-24.
+- **Problem:** `ZnScrollExtras.kt` ~58-75 (`ZnLazyPos`) works out a List's offset and max from the average size of the
+  visible items. With rows of different heights the onScroll y, paging and snapToInterval targets drift. iOS reads the
+  exact offset.
+- **Check:** ScrollLab b) or ListsTwoLab (`/dev/lists2`) Scroll tab with rows of mixed heights and snapToInterval: fling,
+  then compare the momentum-end y with the row starts.
+
+## A82. A reorderable List row's onLongPress still runs when the drag starts (from iOS work, round 4)
+- **Status:** open (decision 7 says it is ignored; the compiler warns). Found on the Mac 2026-11-24.
+- **Problem:** `ZnPress.kt` with `ZnReorder.kt` ~208-231: the row's long press fires as the reorder drag starts.
+- **Check:** ListsTwoLab Reorder tab: drag a row; the "onLongPress ran N times" counter should stay at 0.
+
+## A83. A picture on screen whose preload is still running downloads twice (from iOS work, round 4)
+- **Status:** check (likely). Found on the Mac 2026-11-24.
+- **Problem:** `ZnImagePreload.kt` ~31-33: Coil doesn't join a running preload, so the on-screen request downloads again.
+  iOS joins it.
+- **Check:** `/dev/image-list` with `tools/repro/http-stall.ts list`: does the server log show a URL fetched twice?
+
+## A84. With itemAnimation, a List's header, footer and empty item jump; iOS fades them (from iOS work, round 4)
+- **Status:** open, Pavan to decide (rec: add animateItem to the extras on Android). Found on the Mac 2026-11-24.
+- **Problem:** `ZnRenderer.kt` ~897-899 and ~943 give the header, footer and empty item no `znItemAnimation`.
+- **Check:** ListsTwoLab Animate tab with a ListHeaderComponent: empty the data and fill it again.
+
+## A85. Check: rows JS adds while a reorder drag is held (from iOS work, round 4)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Why:** iOS holds rows that come during a drag and puts them in after the drop. Android's reorderable LazyColumn may
+  jump or drop the drag.
+- **Check:** ListsTwoLab Reorder tab: tap "Add 3 in 2 s", then hold a dragged row for more than 2 s, and drop it.
+
+## A86. Check: MotionScreensDetail's "Scan & Pay" bar (from iOS work, round 4)
+- **Status:** check, from iOS. Found on the Mac 2026-11-24.
+- **Why:** iOS draws a dark strip under the bar on `motionScreensDetail`. It is likely an iOS issue; a screenshot of the
+  Android screen tells which side is right.
+- **Check (Windows):** a screenshot of `motionScreensDetail` on Android.
+
+## A87. useZoom: a drag right after a double tap turns the page instead of moving the photo (from iOS work, round 4)
+- **Status:** open. Found on the Mac 2026-11-24.
+- **Problem:** `ZnGesture.kt` ~1196-1199 (ZoomRec's slop check) reads `g.scale.value` while the 280 ms double-tap tween is
+  still near 1x and fails, so the pager takes the drag. iOS decides by where the tween is going and jumps to it.
+- **Check:** MotionMediaLab: double tap the photo, then drag sideways within about 100 ms. The page turns.
+
+## A88. TalkBack can't move a plain bounded slider (no tap, zoom or anchors) (from iOS work, round 4)
+- **Status:** open, Pavan to decide (rec: add an adjustable action on Android, still not for pans with anchors). Found on
+  the Mac 2026-11-24.
+- **Problem:** `ZnGesture.kt` ~1502-1543 (semantics): a gesture with an a11yLabel but no tap, zoom or anchors
+  (MotionPayLab "Loan amount", the price thumbs) gets no TalkBack action. iOS makes a one-axis pan with both bounds and no
+  anchors adjustable (swipe up / down moves a tenth). Pans with anchors stay rotor actions on both, so one swipe can't
+  complete a slide to pay.
+- **Check:** TalkBack on, MotionPayLab b) and c): nothing moves the knobs.
+
+## A89. useZoom's TalkBack zoom in / out end without `accessibility: true` (from iOS work, round 4)
+- **Status:** open. Found on the Mac 2026-11-24.
+- **Problem:** `ZnGesture.kt` ~1513-1527: tap and anchor actions send onEnd with `accessibility: true`, the zoom actions
+  don't. iOS sends it.
+- **Check:** run "Photo: zoom in" with onEnd logging `e.accessibility`.
+
+## A90. Check: the order TalkBack lists gesture actions (from iOS work, round 4)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Why:** iOS hands its actions over reversed so VoiceOver lists them in Android's order (`ZnGesture.kt` ~1504-1538).
+- **Check:** TalkBack on, MotionPayLab a): "start" should come before "paid".
+
+## A91. Check: a motion value read outside derive() in a handler (env.width() gave 0 on iOS) (from iOS work, round 4)
+- **Status:** check (likely shared, packages/core). Found on the Mac 2026-11-24.
+- **Why:** with the engine on, `env.width()` in an event handler returned 0 on iOS. It looks like the open "`peek()` of an
+  unwatched value" issue in packages/core.
+- **Check:** `console.info(env.width())` in a Pressable's onPress should print the window width, not 0.
+
+## A92. Check: the image viewer page emits `error` before JS sends its props (from iOS work, round 4)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Why:** `ViewerPage.kt` ~57 reads `props.optString("uri", "")`, so a page composed before its props arrive may make Coil
+  fail with no data and emit `error`. iOS reports an empty link only when JS sent it.
+- **Check:** log `error` events while the TSX viewer opens: none should come before `loaded`.
+
+## A93. Check: typing fast into a field that onChangeText reformats loses a key on iOS (from iOS work, round 4)
+- **Status:** check (shared code if Android loses keys too). Found on the Mac 2026-11-24.
+- **Why:** XCUITest's typeText of "1234567" into the sample's amount field (`examples/sample/src/InputScreen.tsx` ~110)
+  showed "1,23,456" in about half the runs. The cause isn't found yet.
+- **Check:** emulator, `/input`, focus the "₹0" field, `adb shell input text 1234567`: it should show "12,34,567".
+
+## A94. zn dev on Android can only use adb reverse (from iOS work, round 4)
+- **Status:** open (a feature gap). Found on the Mac 2026-11-24.
+- **Problem:** `ZnDev.kt` ~104 connects to a fixed `InetSocketAddress("127.0.0.1", PORT)`. iOS now finds `zn dev --lan`
+  over Bonjour (`_zn-dev._tcp`, TXT `app=` and `mac=`) or a `ZN_DEV_HOST`.
+- **Fix idea:** a debug-only host override, and NSD for `_zn-dev._tcp` that reads `app=` from the TXT, as iOS does.
+- **Check:** `bun run dev --lan` with no adb reverse and the phone on the same Wi-Fi: the phone never connects.
+
+## A95. zn dev's HELLO from Android has no `os`, `bytecode` or `app` (from iOS work, round 4)
+- **Status:** open. Found on the Mac 2026-11-24.
+- **Problem:** `ZnDev.kt` HELLO sends only `device` and `hash`, so the server can't warn about a Hermes bytecode mismatch
+  or a phone running another app. iOS sends `"os":"ios"`, `bytecode` and `app` (zn-bundle.json's app).
+- **Fix:** add `"os":"android"`, `"bytecode"` and `"app"` to HELLO.
