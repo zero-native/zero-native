@@ -5,7 +5,7 @@ import { Column, NativeView, Pressable, Row, Scroll, Text } from "@zeronative/ui
 import { Dimensions, signal, useMotion } from "@zeronative/core"
 import { c } from "./tokens"
 
-const PICTURES: { name: string; uri: string }[] = [
+const PICTURES: { name: string; uri: string; errorText?: string }[] = [
   // 5000 x 3333: at 5x the fitted copy is stretched, so the page cuts a sharp part of the original.
   { name: "big", uri: "https://picsum.photos/id/1015/5000/3333" },
   // Stored on its side with EXIF 6: upright, and its sharp part too.
@@ -14,7 +14,14 @@ const PICTURES: { name: string; uri: string }[] = [
   { name: "mirror", uri: "https://raw.githubusercontent.com/recurser/exif-orientation-examples/master/Landscape_2.jpg" },
   { name: "asset", uri: "asset:images/offer-placeholder.png" },
   { name: "broken", uri: "https://picsum.photos/id/99999999/400/300" },
-  { name: "refused", uri: "content://media/external/images/media/1" },
+  // Refused on iOS; its long words wrap in the error view, above the retry button (not clipped, not under it).
+  {
+    name: "refused",
+    uri: "content://media/external/images/media/1",
+    errorText: "This photo is kept by another app on Android and can't be shown here, so try opening it from where you saved it instead",
+  },
+  // An empty link from JS: an error, as Android's Coil fails a request with no data.
+  { name: "empty", uri: "" },
 ]
 
 function PageLabButton(props: { label: string; onPress: () => void }) {
@@ -53,7 +60,7 @@ export function ImageViewerPageLabScreen() {
     <Column style={{ flex: 1, backgroundColor: "#000000" }}>
       <NativeView
         name="imageviewer.page"
-        props={{ uri: PICTURES[picture()]!.uri, i: 0, scale, x, y, errorText: "No photo here", retryLabel: "Again" }}
+        props={{ uri: PICTURES[picture()]!.uri, i: 0, scale, x, y, errorText: PICTURES[picture()]!.errorText ?? "No photo here", retryLabel: "Again" }}
         onEvent={(e) => say(e.name === "loaded" ? `loaded ${e.data.width}x${e.data.height}` : e.name)}
         style={{ flex: 1 }}
       />

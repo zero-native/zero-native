@@ -94,6 +94,8 @@ final class ViewerPage: UIView {
     private var loads = 0
     private var started = false
     private var failed = false
+    /// Whether JS has named a link at all: the view can be drawn before its props come, with none (not an error).
+    private var named = false
     /// The download under way, cancelled when the page shows another picture or goes (Coil cancels as the page leaves).
     private var download: URLSessionTask?
     private var source: ViewerSource?
@@ -157,6 +159,7 @@ final class ViewerPage: UIView {
 
     private func read(_ p: [String: Any]) {
         let uri = p["uri"] as? String ?? ""
+        named = p["uri"] != nil
         let held = (p["held"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let i = (p["i"] as? NSNumber)?.intValue ?? 0
         errorView.set(text: text(p["errorText"]) ?? "Couldn't load this photo", retry: text(p["retryLabel"]) ?? "Try again")
@@ -219,8 +222,8 @@ final class ViewerPage: UIView {
             return show(hit.base, hit.source)
         }
         errorView.isHidden = true
-        // No link: an error, as Android (Coil fails a request with no data).
-        guard !image.uri.isEmpty else { return fail(mine) }
+        // An empty link from JS: an error, as Android (Coil fails a request with no data). No props yet: nothing yet.
+        guard !image.uri.isEmpty else { return named ? fail(mine) : spinner.stopAnimating() }
         spinner.startAnimating()
         download?.cancel()
         download = ViewerLoader.fetch(image, base: ZnApp.shared.bundleURL) { [weak self] data in
