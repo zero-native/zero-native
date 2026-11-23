@@ -85,10 +85,14 @@ bun run tools/ios-sample.ts --route rnPropsLab --params '{}'
 - Simulator "zn iPhone 16" (iOS 18.0); the gap rounds used their own simulators. Device builds exist (Pavan's iPhone 11:
   FCM pushes 2026-11-11, cold start and App Store size 2026-11-19, `docs/milestones.md`); ask Pavan before any
   device build or signing.
-- Tests: `bun run test` (1666 pass on 2026-11-24), `bun run tools/ios-unit-test.ts` (the Mac unit suites,
+- Tests: `bun run test` (1666 pass on 2026-11-24; the `draw` Mac suite hit its 180 s timeout once under load and passes alone, 319 / 319), `bun run tools/ios-unit-test.ts` (the Mac unit suites,
   `ios/tests/README.md`), `bun run ios:ui-test` (XCUITest on a simulator), `bun run tools/run-core-tests-apple.ts
   --sim` (C++ core), LayoutLab route `layoutLab` (97 / 97 on 2026-11-09). `--device <name>` picks a simulator when two are booted.
 - Tips (simulator taps, screenshots, swipes): `docs/ios-handoff.md`.
+- The iOS 26.3 simulator runtime (23D8133) draws every emoji as a boxed "?": the system font asks for
+  `Fonts/Core/AppleColorEmoji.ttc`, which that runtime doesn't have (only `CoreAddition/AppleColorEmoji-160px.ttc`), and
+  the log says "Requested font not available … fallback to LastResort" (2026-11-24). Not zn: the same build draws
+  them on the iOS 18.0 simulator (MotionCardsLab's 🍛).
 
 ---
 
@@ -99,12 +103,12 @@ bun run tools/ios-sample.ts --route rnPropsLab --params '{}'
 | Step | What | Status |
 |---|---|---|
 | i.0 | Shared ground: Mac tools, `gen:registry` writes Swift, golden `.zn.ui` / batch files for both test suites, OTA decision logic moved to C++ | **partial**: registry Swift and the core tests on the Mac done; golden files and OTA logic in C++ not started (A1) |
-| i.1a | Hermes (`hermes-ios` 260318099.0.5) + the C++ core on the simulator; the Android bundle's bytecode loads unchanged | **done** (simulator; arm64 device build not tried) |
+| i.1a | Hermes (`hermes-ios` 260318099.0.5) + the C++ core on the simulator; the Android bundle's bytecode loads unchanged | **done** (simulator; arm64 device builds on Pavan's iPhone 11 since 2026-11-11) |
 | i.1b | Renderer spike: `zn::Platform` in ObjC++, JS thread, batches on the main actor, amount screen in SwiftUI, skeleton before JS | **done**: a digit redraws 2 views of ~169 |
 | i.1c | The hard parts both ways (back stack, text field, long list, sheet, presses) | **done**: UIKit for all five |
 | i.2 | Milestone 2–3 equivalents: navigation, safe areas, lists, sheets, text input, animation, resilience | **done**; `zn dev` (simulator 2026-11-22, an iPhone over the LAN 2026-11-24, §8) and the registry 23 / 24 drawing (2026-11-21 to 11-23, §5–6) since |
 | i.3 | Platform modules: fetch, storage, SecureStore, restore, OTA | **done** on the simulator: fetch, storage, SecureStore, restore; OTA (Phase 4a, 2026-11-10; patches 2026-11-22); OTA's phone part left |
-| i.4 | Plugins in ZeroBill's order; UPI by scheme + server verify | **partial**: 13 plugin iOS sides done (§9); push / notifications in Phase 3; UPI in Phase 2 |
+| i.4 | Plugins in ZeroBill's order; UPI by scheme + server verify | **partial**: 20 plugin iOS sides done (§9, push and notifications included; android-ad-id has none by design); ZeroBill's Upi done, GoogleSignIn left (§10, 2.3) |
 
 ### Step 0 (2026-11-09): refresh the truth — **done** (fcb71bd)
 Checklist checked against the code; registry 24 read; LayoutLab 67 / 84.
@@ -138,7 +142,7 @@ Runs in `my-app` (its own session). Details in §10.
 | 2.1 | Setup on the Mac: `~/zero-native` link (the app finds zn by relative path), `bun link`, `secrets.local.ts` (Pavan copies it in; until then signed calls such as OTP login answer 401) | done but the secrets file |
 | 2.2 | `ios/` project (ZB 9aebed5): CMake as the zn sample, **one app id `com.example.app.ios`** (Pavan: no .dev / .staging on iOS; Debug builds use the dev API, Release production, `tools/ios.ts --api` overrides; JS reads the `AppBuild` constant), iOS 17, `myapp://` and universal links (o.example.com, get.example.com), APNs entitlement, white launch screen + `ZnSplash` hold, `GoogleService-Info.plist` from `ios/Firebase/` (gitignored), `tools/ios.ts` | done (simulator, up to Welcome) |
 | 2.3 | ZeroBill's plugins on iOS (9aebed5): **Upi** done (each app's URL scheme through `ZnLaunch.open`; a return with no answer verified as RN iOS did, `IOS_RESUMED`; icons from the app's own copies); Truecaller, InAppUpdate, InstallReferrer answer no; LegacyData reads nothing yet; **GoogleSignIn: build it now** with Google's iOS SDK (Pavan, 2026-11-09), answers no until built. InAppUpdate is to be replaced by zn's `plugins/app-updates` (Windows is writing it, iOS side to build here) | partial |
-| 2.4 | iOS answers for every module the bundle needs (34): zn side done (Updates, Tasks added; AdId / Notifications / Push fall back in JS); ZeroBill's six in 2.3 | partial |
+| 2.4 | iOS answers for every module the bundle needs (35, §10): zn side done (Updates, Tasks, Notifications, Push on iOS; AdId answers in JS by design; Motion the stub in Release); ZeroBill's six in 2.3 | partial |
 | 2.5 | The bundle unchanged on the simulator: start, login, home, scan, checkout up to the UPI app | in progress (Welcome reached; login waits for the secrets file) |
 | 2.6 | Signing and a real iPhone build (needs Pavan's team; then universal links, UPI apps, camera, SMS code) | todo |
 
@@ -393,10 +397,10 @@ Repo `my-app` (`~/apps/my-app`, remote
 `my-app`), well tested on Android. Its own plugins: `upi`, `google-signin`, `truecaller`,
 `in-app-update`, `install-referrer`, `legacy-data`. ZeroBill's code uses none of registry 23's new parts and none of
 motion (grep 2026-11-09). Its bundle still needs registry 24 and Motion 1, both only because `@zero-native/image-viewer`
-brings its TSX screen along; ZeroBill opens the Swift one. (Until 2026-11-21 a debug log said iOS didn't draw some of
-that screen's runtime values; iOS draws them now and the notice is gone.)
+brings its TSX screen along; ZeroBill opens the Swift one. (A debug notice listed the props iOS didn't draw yet; the list was
+empty from 2026-11-22 (the last was prop 293, scrollCommand) and the notice was removed on 2026-11-24.)
 
-### The 34 native modules its bundle needs
+### The 35 native modules its bundle needs
 | State | Modules |
 |---|---|
 | zn, done on iOS (27) | Alert, Analytics, Auth, Clipboard, Crashlytics, DeviceInfo, DocumentScanner, Fetch, ImageViewer (3), Keyboard, Launches, Location, Lottie, NetInfo, Notifications, Os, Pdf, Permissions, Push, Scanner, SecureStore, Splash, Tasks, Toast, Updates (real OTA once the app configures it; Android's "off" answers until then), Vibration, WebView |

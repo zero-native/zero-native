@@ -157,8 +157,8 @@ Data-only pushes on the simulator (2026-11-21), debug hook only, in a running ap
 since the iOS 26 simulator doesn't hand simctl's background pushes to the app delegate. With JS 45 s late iOS was
 answered once at 25 s and `onMessage` ran when JS came up; with a JS handler slower than the task's 15 s it was
 aborted and iOS answered at 15 s; with a process whose JS never loaded (a foreground start), the kept message ran at
-the next start. Not checked yet: a real background wake of a suspended app, and a background launch (no scene, no
-JS); those need a real iPhone (`tools/push-send.ts --token … --background`, app suspended and app not running).
+the next start. Not checked yet: a real background wake of a suspended app, and a background launch (no scene;
+JS starts headless); those need a real iPhone (`tools/push-send.ts --token … --background`, app suspended and app not running).
 Then on an iPhone 11 through FCM (2026-11-11, a signed debug build, the server's planned `apns` shape): in front
 (`onMessage`, the app's own notification), closed (iOS showed it with the HTML gone and the picture attached; a tap
 started the app and opened its action).
