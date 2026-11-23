@@ -1061,6 +1061,7 @@ struct ZnCollectionList: UIViewRepresentable {
         // A drag is moving rows now (UIKit has its own updates under way): JS's rows wait until it ends, then the
         // latest ones go in (Coordinator.flushHeld; rows added mid-drag, by onEndReached as the list scrolls to its end).
         if c.dragBusy(cv) {
+            print("zn t=\(ZnDebug.ms()) list: rows held during a drag (\(list.rows.count) rows, drag \(cv.hasActiveDrag), drop \(cv.hasActiveDrop), uncommitted \(cv.hasUncommittedUpdates), footer \(footer != nil))")
             c.held = { [weak cv, weak c] in
                 guard let cv, let c else { return }
                 self.update(cv, c, cv.collectionViewLayout as? ZnStickyLayout)
@@ -1072,10 +1073,13 @@ struct ZnCollectionList: UIViewRepresentable {
         let shape = ZnListShape(header: header != nil, empty: empty != nil, rows: rows.count, footer: footer != nil, cols: cols)
         // itemAnimation; a reorderable list's rows glide by default (Android: "move").
         let animation = s.itemAnimation.flatMap { ["fade", "move"].contains($0) ? $0 : nil } ?? (c.canReorder ? "move" : nil)
-        // A drop waits for JS: the order shown stays until JS's rows change (ZnListReorder.swift). A header, footer or
-        // empty item that comes or goes meanwhile still does, with the rows as they are shown.
-        if c.reorderWait.keepsOrder(at: list.version) && shape.rows == c.shape.rows && shape.cols == c.shape.cols {
-            if shape != c.shape { c.apply(cv, rows: c.rows, keys: c.keys, shape: shape, animation: animation) }
+        // A drop waits for JS: the order shown stays until JS's rows change (ZnListReorder.swift). JS's rows are still
+        // those from before its answer: rows it added during the drag come with the answer, or with the go-back after
+        // a second. A header, footer or empty item that comes or goes meanwhile still does, with the rows as shown.
+        if c.reorderWait.keepsOrder(at: list.version) {
+            if shape.rows == c.shape.rows && shape.cols == c.shape.cols && shape != c.shape {
+                c.apply(cv, rows: c.rows, keys: c.keys, shape: shape, animation: animation)
+            }
             return
         }
         let keys = znLineKeys(rows.map(\.key), cols: cols)
@@ -1120,8 +1124,10 @@ struct ZnCollectionList: UIViewRepresentable {
         var reorderTimer: DispatchWorkItem?
         var dropShown: IndexPath?
         let dropTick = UISelectionFeedbackGenerator()
-        /// JS's rows that came during a drag: the update that shows them, run when the drag ends.
+        /// JS's rows that came during a drag: the update that shows them, run when the drag ends; the drag's drop was
+        /// performed (or it ended without one).
         var held: (() -> Void)?
+        var dropDone = true
         /// The image preload (ZnImagePreload.swift): this list's id there, and the direction it last moved.
         lazy var preloadOwner = ObjectIdentifier(self).hashValue
         var preloadFirst = -1

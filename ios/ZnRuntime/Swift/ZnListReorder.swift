@@ -31,6 +31,7 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
         let item = UIDragItem(itemProvider: NSItemProvider())
         item.localObject = row.key
         dropShown = ip
+        dropDone = false
         dropTick.prepare()
         // Android's LONG_PRESS haptic on the pick.
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -77,6 +78,9 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
                               rows: rows.count)
         let target = IndexPath(item: to, section: rowsPart)
         dropShown = nil
+        // From here UIKit only animates the row into its place: JS's rows can go in again.
+        dropDone = true
+        defer { flushHeld(cv) }
         guard to != src.item else {
             coordinator.drop(item.dragItem, toItemAt: src)
             return
@@ -103,14 +107,16 @@ extension ZnCollectionList.Coordinator: UICollectionViewDragDelegate, UICollecti
     }
 
     func collectionView(_ cv: UICollectionView, dragSessionDidEnd session: UIDragSession) {
+        dropDone = true
         flushHeld(cv)
     }
 
     // MARK: JS's rows during a drag
 
-    /// UIKit is moving rows for a drag now: no batch updates or reloads then (they would clash with its own).
+    /// UIKit is moving rows for a drag now: no batch updates or reloads then (they would clash with its own). Once
+    /// the drop is done (the row only glides into place, about a second on the simulator) they can go in.
     func dragBusy(_ cv: UICollectionView) -> Bool {
-        cv.hasActiveDrag || cv.hasActiveDrop || cv.hasUncommittedUpdates
+        cv.hasUncommittedUpdates || (!dropDone && (cv.hasActiveDrag || cv.hasActiveDrop))
     }
 
     /// The drag ended: JS's rows that came meanwhile go in (once UIKit has finished the drop).

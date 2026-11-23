@@ -4,7 +4,12 @@
 //      rows have an onLongPress that must NOT run (a reorderable List's long press is the pick-up, decision 7)
 //   c) Scroll: snapToInterval on rows, decelerationRate, onScroll / drag / momentum log, keyboardDismissMode on-drag,
 //      scrollToIndex with viewOffset, scrollToOffset
-//   d) Pinned: stickyHeaderIndices + pull to refresh, and an inverted chat (for ZN_IOS_LIST=swiftui too)
+//   d) Pinned: stickyHeaderIndices + pull to refresh (its y stays 0 at rest while refreshing), and an inverted chat
+//      (for ZN_IOS_LIST=swiftui too)
+//   e) More: a sideways List with only a ref (its commands go along x), and an inverted List that snaps to 60 dp rows
+//      (a fling up goes to older rows, its momentum speed is + toward older rows)
+//   b) also: the header's onLongPress DOES run (only rows are picked up), and "Add 3 in 2 s" adds rows while a drag
+//      may be under way (they go in when it ends)
 // Each change is logged as "lists2 ..." in the console.
 import { Column, List, Pressable, Row, Text, TextField } from "@zeronative/ui"
 import { listController, nav, signal } from "@zeronative/core"
@@ -108,6 +113,19 @@ function L2Reorder() {
   const refuse = signal(false)
   const last = signal("Long press a row, drag it, drop it.")
   const longs = signal(0)
+  const headerLongs = signal(0)
+  let added = 24
+  const addLater = () => {
+    console.log("lists2 reorder: 3 rows come in 2 s")
+    setTimeout(() => {
+      const more = Array.from({ length: 3 }, () => {
+        added++
+        return { id: `p${added}`, name: `Item ${added} (added)`, tint: TINTS[added % TINTS.length] }
+      })
+      items.set([...items(), ...more])
+      console.log(`lists2 reorder: added ${more.map((i) => i.id).join(",")} → ${items().length} rows`)
+    }, 2000)
+  }
   const move = (from: number, to: number) => {
     console.log(`lists2 reorder onReorder ${from} → ${to}${refuse() ? " (JS says no)" : ""}`)
     if (refuse()) {
@@ -125,6 +143,7 @@ function L2Reorder() {
     <Column style={{ flex: 1 }}>
       <Row style={{ gap: 6, paddingHorizontal: 16, paddingBottom: 6, alignItems: "center" }}>
         <L2Button label={refuse() ? "JS says no" : "JS moves it"} on={refuse()} onPress={() => refuse.set(!refuse())} />
+        <L2Button label="Add 3 in 2 s" onPress={addLater} />
         <Text fontSize={11} color={longs() > 0 ? "#B91C1C" : c.muted} style={{ flex: 1 }}>
           {`onLongPress ran ${longs()} times (should stay 0)`}
         </Text>
@@ -138,6 +157,20 @@ function L2Reorder() {
         reorderable
         onReorder={move}
         style={{ flex: 1 }}
+        ListHeaderComponent={
+          <Pressable
+            onLongPress={() => {
+              headerLongs.set(headerLongs() + 1)
+              console.log(`lists2 reorder header onLongPress ran (${headerLongs()})`)
+            }}
+            style={{ marginHorizontal: 16, marginBottom: 4, padding: 10, borderRadius: 10, backgroundColor: c.pillBg }}
+          >
+            <Text fontSize={12} color={c.ink}>
+              {`Header: long press me (ran ${headerLongs()} times, should go up)`}
+            </Text>
+          </Pressable>
+        }
+
         row={(item, i) => (
           <L2Row
             item={item}
@@ -222,9 +255,13 @@ const PINNED: L2Item[] = Array.from({ length: 30 }, (_, i) =>
 
 function L2Pinned() {
   const refreshing = signal(false)
+  const y = signal(0)
   const messages = signal<string[]>(["Hello", "How are you?", "Fine, thanks", "See you"])
   return (
     <Column style={{ flex: 1, gap: 8 }}>
+      <Text fontSize={12} fontWeight={700} color={c.ink} style={{ paddingHorizontal: 16 }}>
+        {`y = ${y()}${refreshing() ? " (refreshing: stays 0 at rest)" : ""}`}
+      </Text>
       <List
         data={PINNED}
         key={(i) => i.id}
@@ -233,8 +270,11 @@ function L2Pinned() {
         onRefresh={() => {
           console.log("lists2 pinned refresh")
           refreshing.set(true)
-          setTimeout(() => refreshing.set(false), 1500)
+          setTimeout(() => refreshing.set(false), 3000)
         }}
+        scrollEventThrottle={100}
+        onScroll={(e) => y.set(Math.round(e.nativeEvent.contentOffset.y))}
+        onMomentumScrollEnd={(e) => console.log(`lists2 pinned momentum end at ${Math.round(e.nativeEvent.contentOffset.y)}${refreshing() ? " (refreshing)" : ""}`)}
         style={{ flex: 1 }}
         row={(item) =>
           item.id.startsWith("h") ? (
@@ -276,10 +316,77 @@ function L2Pinned() {
   )
 }
 
+// ---- e) More: sideways commands, inverted snapping -------------------------------------------------------------------
+
+const SIDE: L2Item[] = Array.from({ length: 20 }, (_, i) => ({ id: `w${i}`, name: `Card ${i}`, tint: TINTS[i % TINTS.length] }))
+const OLDER: L2Item[] = Array.from({ length: 30 }, (_, i) => ({ id: `o${i}`, name: `Message ${i} (0 is newest)`, tint: TINTS[i % TINTS.length] }))
+
+function L2More() {
+  const side = listController()
+  const log = signal<string[]>([])
+  const add = (line: string) => {
+    console.log(`lists2 more ${line}`)
+    log.set([line, ...log()].slice(0, 3))
+  }
+  return (
+    <Column style={{ flex: 1, gap: 6 }}>
+      <Row style={{ gap: 6, paddingHorizontal: 16, flexWrap: "wrap" }}>
+        <L2Button label="Side: offset 300" onPress={() => { add("side: offset 300"); side.scrollToOffset({ offset: 300, animated: false }) }} />
+        <L2Button label="Side: index 5, viewOffset 20" onPress={() => { add("side: index 5 viewOffset 20"); side.scrollToIndex({ index: 5, viewOffset: 20, animated: false }) }} />
+        <L2Button label="Side: start" onPress={() => { add("side: start"); side.scrollToOffset({ offset: 0, animated: false }) }} />
+      </Row>
+      <Text fontSize={11} color={c.muted} style={{ paddingHorizontal: 16 }}>
+        {"Cards are 100 dp wide with 8 dp gaps: offset 300 shows Card 2 cut at its 84th dp, index 5 + 20 puts Card 5 at 20 dp."}
+      </Text>
+      <List
+        data={SIDE}
+        key={(i) => i.id}
+        horizontal
+        controller={side}
+        gap={8}
+        style={{ height: 80, flexGrow: 0 }}
+        row={(item) => (
+          <Column style={{ width: 100, height: 80, borderRadius: 12, backgroundColor: item.tint, justifyContent: "center", alignItems: "center" }}>
+            <Text fontSize={14} fontWeight={700} color={c.ink}>
+              {item.name}
+            </Text>
+          </Column>
+        )}
+      />
+      <Column style={{ paddingHorizontal: 16, gap: 1 }}>
+        {log().map((line, i) => (
+          <Text key={String(i) + line} fontSize={11} color={i === 0 ? c.ink : c.muted}>
+            {line}
+          </Text>
+        ))}
+      </Column>
+      <Text fontSize={12} fontWeight={700} color={c.ink} style={{ paddingHorizontal: 16 }}>
+        Inverted, snaps to 60 dp rows: a fling up shows older ones
+      </Text>
+      <List
+        data={OLDER}
+        key={(i) => i.id}
+        inverted
+        snapToInterval={60}
+        onMomentumScrollBegin={(e) => add(`inverted momentum begin, speed ${Math.round(e.nativeEvent.velocity?.y ?? 0)}`)}
+        onMomentumScrollEnd={(e) => add(`inverted momentum end at ${Math.round(e.nativeEvent.contentOffset.y)} (${Math.round(e.nativeEvent.contentOffset.y) % 60 === 0 ? "on a row" : "between rows"})`)}
+        style={{ flex: 1, marginHorizontal: 16, marginBottom: 12, borderRadius: 12, backgroundColor: c.white }}
+        row={(item) => (
+          <Column style={{ height: 60, paddingHorizontal: 12, justifyContent: "center", backgroundColor: item.tint }}>
+            <Text fontSize={14} color={c.ink}>
+              {item.name}
+            </Text>
+          </Column>
+        )}
+      />
+    </Column>
+  )
+}
+
 // ---- The lab -------------------------------------------------------------------------------------------------------
 
 export function ListsTwoLabScreen() {
-  const tab = signal<"animate" | "reorder" | "scroll" | "pinned">("animate")
+  const tab = signal<"animate" | "reorder" | "scroll" | "pinned" | "more">("animate")
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
       <Row style={{ alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12 }}>
@@ -297,8 +404,9 @@ export function ListsTwoLabScreen() {
         <L2Button label="Reorder" on={tab() === "reorder"} onPress={() => tab.set("reorder")} />
         <L2Button label="Scroll" on={tab() === "scroll"} onPress={() => tab.set("scroll")} />
         <L2Button label="Pinned" on={tab() === "pinned"} onPress={() => tab.set("pinned")} />
+        <L2Button label="More" on={tab() === "more"} onPress={() => tab.set("more")} />
       </Row>
-      {tab() === "animate" ? <L2Animate /> : tab() === "reorder" ? <L2Reorder /> : tab() === "scroll" ? <L2Scroll /> : <L2Pinned />}
+      {tab() === "animate" ? <L2Animate /> : tab() === "reorder" ? <L2Reorder /> : tab() === "scroll" ? <L2Scroll /> : tab() === "pinned" ? <L2Pinned /> : <L2More />}
     </Column>
   )
 }
