@@ -100,10 +100,12 @@ final class ComponentsTests: ZnUITestCase {
         id("comp-sheet-more").tap()
         eventually("the extra lines go") { !self.id("comp-sheet-lines").exists }
 
-        // Dragged down from its title to the bottom of the screen, it closes (onDismiss sets visible false).
+        // Dragged down from its title to the bottom of the screen, it closes (onDismiss sets visible false). Slowly:
+        // XCUITest's quicker drags (400 px/s, its plain drag, swipeDown) left it open every time, while a slow one
+        // closed it every time (2026-11-24; a hand's quick flick closes it).
         let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98))
         title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .fast, thenHoldForDuration: 0)
+            .press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0)
         eventually("the sheet closes", timeout: 5) { !title.exists }
     }
 

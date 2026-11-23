@@ -73,7 +73,8 @@ class ZnUITestCase: XCTestCase {
 
     /// Scrolls until [element] is on screen and can be tapped: a long Scroll's lower parts (or upper ones, after a
     /// scroll down), above the keyboard while it shows. By drags, each as far as it still needs (at most most of a
-    /// screen) and held at the end so nothing flings past it; quicker ones while it is more than that away. A drag that moved nothing
+    /// screen) and held at the end so nothing flings past it; quicker ones while it is more than two of those away (a quick
+    /// one may still go past: near, back and forth for ever on a just-booted simulator, 2026-11-24). A drag that moved nothing
     /// (it began on a nested scroll or a carousel) is tried again in the right gutter, then near the left edge. (A
     /// fast swipeUp() scrolled nothing in the RN props lab, 2026-11-24.) A lazy list's row that doesn't exist yet:
     /// swipes up until it does.
@@ -98,7 +99,7 @@ class ZnUITestCase: XCTestCase {
             let mid = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: columns[still], dy: (top + bottom) / 2))
             mid.withOffset(CGVector(dx: 0, dy: step / 2))
                 .press(forDuration: 0.05, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: -step / 2)),
-                       withVelocity: abs(move) > room ? XCUIGestureVelocity(2500) : .slow, thenHoldForDuration: 0.1)
+                       withVelocity: abs(move) > room * 2 ? XCUIGestureVelocity(2500) : .slow, thenHoldForDuration: 0.1)
             still = abs(element.frame.minY - f.minY) < 1 ? still + 1 : 0
         }
         XCTAssertTrue(element.isHittable, "\(element) can't be tapped (frame \(element.frame))", file: file, line: line)
