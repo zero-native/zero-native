@@ -40,3 +40,16 @@ test("the CMake sample links every part fetch-firebase-apple.ts downloads", () =
   const linked = /set\(firebase_parts ([^)]+)\)/.exec(read("ios/CMakeLists.txt"))![1].trim().split(/\s+/)
   expect(linked).toEqual(parts)
 })
+
+test("the package sample has the packages template's zn dev keys (Debug) phase, listed and with the same script", () => {
+  const phase = (pbx: string) => {
+    const id = /\t\t([0-9A-F]{24}) \/\* zn dev keys \(Debug\) \*\/ = \{/.exec(pbx)![1]
+    const body = new RegExp(`\\t\\t${id} /\\* zn dev keys \\(Debug\\) \\*/ = \\{([\\s\\S]*?)\\n\\t\\t\\};`).exec(pbx)![1]
+    expect(pbx).toContain(`\t\t\t\t${id} /* zn dev keys (Debug) */,\n`) // in the target's buildPhases
+    // The script without its first comment line, which names the Info.plist each project uses.
+    return /shellScript = "#[^\n]*?\\n(.*)";/.exec(body)![1]
+  }
+  const sample = phase(read("ios/SamplePackage/ZnSamplePackage.xcodeproj/project.pbxproj"))
+  expect(sample).toBe(phase(read("templates/app-ios-packages/ios/__APP_CLASS__.xcodeproj/project.pbxproj")))
+  expect(sample).toContain(`[ \\"$CONFIGURATION\\" = \\"Debug\\" ] || exit 0`)
+})

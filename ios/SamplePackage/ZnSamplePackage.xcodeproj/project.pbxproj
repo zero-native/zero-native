@@ -187,6 +187,7 @@
 				77CBC257E66302866CF61917 /* Copy the JS bundle */,
 				CFB8E671BCA9377F008B04CE /* Embed Foundation Extensions */,
 				26711ABE8FA7BADC7F273B38 /* Upload dSYMs to Crashlytics */,
+				4704D561AEE209451BB5DEF0 /* zn dev keys (Debug) */,
 			);
 			buildRules = (
 			);
@@ -346,6 +347,22 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# The JS bundle the sample runs (bun run sample:js writes it): the four files and the asset folders, into the app.\nset -e\nsrc=\"$SRCROOT/../../android/sample/src/main/assets\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nfor f in main.hbc main.zn.ui main.zn.ui.json zn-bundle.json; do\n  [ -f \"$src/$f\" ] || { echo \"error: no $src/$f. Run: bun run sample:js\"; exit 1; }\n  cp \"$src/$f\" \"$dst/$f\"\ndone\nfor d in images lottie fonts; do\n  if [ -d \"$src/$d\" ]; then rm -rf \"$dst/$d\"; cp -R \"$src/$d\" \"$dst/$d\"; fi\ndone\n";
+		};
+		4704D561AEE209451BB5DEF0 /* zn dev keys (Debug) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "zn dev keys (Debug)";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# zn dev on a real iPhone (Debug builds only, as ios/cmake/ZnDev.cmake and the packages template's phase of the same name): Local Network access and the Bonjour type `zn dev --lan` advertises. Release builds keep ../Sample/Info.plist as it is.\n# ZN_DEV_HOST (a build setting: the Mac's address, or host:port): connect there first (Bonjour after 3 failed tries).\nset -e\n[ \"$CONFIGURATION\" = \"Debug\" ] || exit 0\np=\"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\npb=/usr/libexec/PlistBuddy\n$pb -c \"Print :NSLocalNetworkUsageDescription\" \"$p\" >/dev/null 2>&1 || $pb -c \"Add :NSLocalNetworkUsageDescription string Debug builds connect to zn dev on your Mac for live reload.\" \"$p\"\n$pb -c \"Print :NSBonjourServices\" \"$p\" >/dev/null 2>&1 || $pb -c \"Add :NSBonjourServices array\" \"$p\"\n$pb -c \"Print :NSBonjourServices\" \"$p\" | grep -q \"_zn-dev._tcp\" || $pb -c \"Add :NSBonjourServices:0 string _zn-dev._tcp\" \"$p\"\n$pb -c \"Delete :ZNDevHost\" \"$p\" >/dev/null 2>&1 || true\n[ -z \"$ZN_DEV_HOST\" ] || $pb -c \"Add :ZNDevHost string $ZN_DEV_HOST\" \"$p\"\n# ZNDevMac: this Mac, so the app prefers this Mac's zn dev when Bonjour sees several.\n$pb -c \"Delete :ZNDevMac\" \"$p\" >/dev/null 2>&1 || true\nmac=$(scutil --get LocalHostName 2>/dev/null || true)\n[ -z \"$mac\" ] || $pb -c \"Add :ZNDevMac string $mac\" \"$p\"\n";
 		};
 		26711ABE8FA7BADC7F273B38 /* Upload dSYMs to Crashlytics */ = {
 			isa = PBXShellScriptBuildPhase;
