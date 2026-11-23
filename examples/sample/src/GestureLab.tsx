@@ -8,6 +8,8 @@
 //   e) a Pressable on a draggable card: a drag cancels the press (onPressOut(true)), a still tap presses
 //   f) a pan that starts only after a long press (activateAfterLongPress), in the Scroll: a quick drag scrolls
 //   g) a slider in a Sheet: a sideways drag moves it, the sheet stays; a drag down elsewhere closes the sheet
+//   h) overlapping nodes: of two tap boxes, the one on top takes a tap where they overlap; a button over a box takes
+//      its tap and the box gets none (as Compose's hit test)
 import { Column, Pressable, Row, Scroll, Sheet, Stack, Text } from "@zeronative/ui"
 import { Gesture, nav, signal, useFling, usePan, useRotate, useTap } from "@zeronative/core"
 import { c } from "./tokens"
@@ -166,6 +168,38 @@ function GlSheetSlider() {
   )
 }
 
+function GlOverlap() {
+  const back = signal(0)
+  const front = signal(0)
+  const pressed = signal(0)
+  const backTap = useTap({ a11yLabel: "Back box", onEnd: () => { back.set(back() + 1); log("overlap back " + back()) } })
+  const frontTap = useTap({ a11yLabel: "Front box", onEnd: () => { front.set(front() + 1); log("overlap front " + front()) } })
+  return (
+    <GlCard title="h) Overlapping boxes" hint="Tap where the boxes overlap: only the front one counts. Tap the button: only the button counts.">
+      <Stack style={{ height: 120 }}>
+        <Stack gesture={backTap} style={{ position: "absolute", top: 0, start: 0, width: 180, height: 120, borderRadius: 14, padding: 10, backgroundColor: c.pillBg }}>
+          <Text fontSize={13} fontWeight={700} color={c.ink}>
+            {"Back " + back()}
+          </Text>
+        </Stack>
+        <Stack gesture={frontTap} style={{ position: "absolute", top: 20, start: 110, width: 180, height: 100, borderRadius: 14, padding: 10, alignItems: "flex-end", backgroundColor: c.successBg }}>
+          <Text fontSize={13} fontWeight={700} color={c.success}>
+            {"Front " + front()}
+          </Text>
+        </Stack>
+        <Pressable
+          onPress={() => { pressed.set(pressed() + 1); log("overlap button " + pressed()) }}
+          style={{ position: "absolute", top: 70, start: 200, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: c.primary }}
+        >
+          <Text fontSize={12} fontWeight={700} color={c.white}>
+            {"Button " + pressed()}
+          </Text>
+        </Pressable>
+      </Stack>
+    </GlCard>
+  )
+}
+
 export function GestureLabScreen() {
   return (
     <Column style={{ flex: 1, backgroundColor: c.bg }}>
@@ -188,6 +222,7 @@ export function GestureLabScreen() {
           <GlPressInPan />
           <GlHoldThenDrag />
           <GlSheetSlider />
+          <GlOverlap />
         </Column>
       </Scroll>
     </Column>
