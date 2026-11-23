@@ -39,11 +39,16 @@ function ViewerLabButton(props: { label: string; onPress: () => void }) {
   )
 }
 
-function ViewerLabThumb(props: { src: string; onPress: (from: ElementMotion) => void }) {
+function ViewerLabThumb(props: { src: string; i: number; onPress: (from: ElementMotion) => void }) {
   // Its box in the window: the TSX viewer's photo flies from here and back.
   const box = useElementMotion()
   return (
-    <Pressable motion={box} onPress={() => props.onPress(box)} style={{ borderRadius: 10, overflow: "hidden" }}>
+    <Pressable
+      motion={box}
+      onPress={() => props.onPress(box)}
+      accessibilityLabel={`Store photo ${props.i + 1}`}
+      style={{ borderRadius: 10, overflow: "hidden" }}
+    >
       <Image src={props.src} loading="shimmer" style={{ width: 72, height: 72 }} />
     </Pressable>
   )
@@ -76,12 +81,12 @@ export function ImageViewerLabScreen() {
     <Scroll style={{ flex: 1, backgroundColor: c.white }}>
       <Column gap={10} style={{ padding: 16 }}>
         <Text fontSize={16}>Image viewer lab</Text>
-        <Text fontSize={13}>{`status: ${status()}`}</Text>
+        <Text fontSize={13} testID="iv-status">{`status: ${status()}`}</Text>
         <ViewerLabButton label={tsx() ? "Screen: new TSX (tap for the old one)" : "Screen: old Compose (tap for the new one)"} onPress={() => tsx.set(!tsx())} />
         <Text fontSize={12}>Tap a photo: the viewer opens on it (a store's photo strip). TSX screen: it flies from the photo and back.</Text>
         <Row gap={8}>
           {STORE.map((src, i) => (
-            <ViewerLabThumb key={src} src={src} onPress={(from) => show("strip", { images: STORE, imageIndex: i, from })} />
+            <ViewerLabThumb key={src} src={src} i={i} onPress={(from) => show("strip", { images: STORE, imageIndex: i, from })} />
           ))}
         </Row>
         <ViewerLabButton label="One photo (no count)" onPress={() => show("one", { images: [{ uri: STORE[0]!, alt: "Shop front" }] })} />
