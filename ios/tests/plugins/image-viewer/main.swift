@@ -1,7 +1,9 @@
 // The image viewer on the Mac: its rules (plugins/image-viewer/ios/ViewerRules.swift, the cases of android's
 // ViewerRulesTest.kt) and the page's decoding (ViewerSource.swift) on real files: the fitted copy upright for each EXIF
 // turn, sharp parts that match the same part of the upright picture, every nth pixel read for a part much bigger than
-// the screen, no part for a mirror image, and a part of a big JPEG read without decoding the whole picture.
+// the screen, no part for a mirror image, and a part of a big JPEG read without decoding the whole picture. Other
+// formats: a PNG's part reads every nth pixel (an 8000 x 6000 PNG's part without the whole 192 MB), a GIF gets no part,
+// a Display P3 photo's part stays in P3, and a colour space an 8-bit bitmap can't use falls back to sRGB.
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -28,8 +30,9 @@ func near(_ name: String, _ got: CGFloat?, _ want: CGFloat, _ eps: CGFloat = 0.0
 
 let work = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : NSTemporaryDirectory())
 
-// A big JPEG for the memory check, made in a child process (its 192 MB bitmap would count in this one's peak).
-if CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "make-big" {
+// A big JPEG (or PNG) for the memory check, made in a child process (its 192 MB bitmap would count in this one's peak).
+if CommandLine.arguments.count > 2 && (CommandLine.arguments[2] == "make-big" || CommandLine.arguments[2] == "make-big-png") {
+    let png = CommandLine.arguments[2] == "make-big-png"
     let (w, h) = (8000, 6000)
     let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
@@ -37,9 +40,24 @@ if CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "make-big" {
         ctx.setFillColor(CGColor(red: CGFloat(i % 7) / 7, green: CGFloat(i % 5) / 5, blue: CGFloat(i % 3) / 3, alpha: 1))
         ctx.fill(CGRect(x: (i * 397) % w, y: (i * 211) % h, width: 600, height: 400))
     }
-    let dest = CGImageDestinationCreateWithURL(work.appendingPathComponent("big.jpg") as CFURL, "public.jpeg" as CFString, 1, nil)!
-    CGImageDestinationAddImage(dest, ctx.makeImage()!, [kCGImagePropertyOrientation: 6] as CFDictionary)
+    let dest = CGImageDestinationCreateWithURL(work.appendingPathComponent(png ? "big.png" : "big.jpg") as CFURL,
+                                               (png ? "public.png" : "public.jpeg") as CFString, 1, nil)!
+    CGImageDestinationAddImage(dest, ctx.makeImage()!, (png ? [:] : [kCGImagePropertyOrientation: 6]) as CFDictionary)
     exit(CGImageDestinationFinalize(dest) ? 0 : 1)
+}
+
+// A part of a big PNG reads the whole picture every 2nd pixel (48 MB), not every pixel (192 MB). In a child process:
+// this one's peak is already past that from the JPEG (run at the end, below).
+if CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "png-part" {
+    let data = try! Data(contentsOf: work.appendingPathComponent("big.png"))
+    let before = footprint().peak
+    let s = ViewerSource(data: data)
+    let part = s?.decode(ViewerArea(screen: rect(0, 0, 1179, 2556), source: rect(2000, 3000, 3200, 5600)), maxPixels: 2.5 * 1179 * 2556)
+    let grew = footprint().peak - before
+    print("big PNG: a 1200 x 2600 part, read every 2nd pixel (\(part.map { "\($0.width) x \($0.height)" } ?? "none")), raised the peak by \(grew) MB")
+    let ok = part?.width == 600 && part?.height == 1300 && grew < 100
+    if !ok { print("FAIL big PNG: want a 600 x 1300 part under 100 MB") }
+    exit(ok ? 0 : 1)
 }
 
 // MARK: The rules (ViewerRulesTest.kt; Android counts in pixels, so do these)
@@ -184,10 +202,11 @@ do {
 
 /// A 120 x 80 picture as the user sees it: red top left, green top right, blue bottom left, white bottom right. Stored
 /// turned for [orientation] (so it shows upright), as a JPEG.
-func picture(_ name: String, orientation: Int, w: Int = 120, h: Int = 80) -> URL {
+func picture(_ name: String, orientation: Int, w: Int = 120, h: Int = 80, type: String = "public.jpeg",
+             space: CFString = CGColorSpace.sRGB) -> URL {
     let turned = orientation >= 5
     let (sw, sh) = turned ? (h, w) : (w, h)
-    let ctx = CGContext(data: nil, width: sw, height: sh, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    let ctx = CGContext(data: nil, width: sw, height: sh, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: space)!,
                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
     // Draw the upright picture through the inverse of the EXIF turn: Core Graphics' y goes up.
     let (W, H) = (CGFloat(w), CGFloat(h))
@@ -207,7 +226,7 @@ func picture(_ name: String, orientation: Int, w: Int = 120, h: Int = 80) -> URL
     fill(0, 0, 1, 0, 0)
     fill(1, 1, 1, W / 2, 0)
     let url = work.appendingPathComponent(name)
-    let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil)!
+    let dest = CGImageDestinationCreateWithURL(url as CFURL, type as CFString, 1, nil)!
     CGImageDestinationAddImage(dest, ctx.makeImage()!, [kCGImagePropertyOrientation: orientation, kCGImageDestinationLossyCompressionQuality: 1.0] as CFDictionary)
     CGImageDestinationFinalize(dest)
     return url
@@ -273,6 +292,42 @@ do {
     check("capped: 75 x 50", capped.map { [$0.width, $0.height] }, [75, 50])
 }
 
+// MARK: Other formats
+
+do {
+    let png = ViewerSource(data: try! Data(contentsOf: picture("small.png", orientation: 1, type: "public.png")))
+    check("PNG: read every nth pixel", png?.reading == .subsampled, true)
+    check("PNG: part upright", quarters(png?.decode(ViewerArea(screen: rect(0, 0, 400, 400), source: rect(40, 20, 80, 60)), maxPixels: 1e9)),
+          ["r", "g", "b", "w"])
+    let gif = ViewerSource(data: try! Data(contentsOf: picture("small.gif", orientation: 1, type: "com.compuserve.gif")))
+    check("GIF: read", gif?.reading == ViewerSource.Reading.none, true)
+    check("GIF: fitted copy", quarters(gif?.fitted(maxPixels: 120)), ["r", "g", "b", "w"])
+    check("GIF: no sharp part", gif?.decode(ViewerArea(screen: rect(0, 0, 60, 40), source: rect(0, 0, 60, 40)), maxPixels: 1e9) == nil, true)
+    // An 8000 x 6000 PNG (48 MP) is read every 2nd pixel (12 MP), a 30000 x 30000 one would need more than ImageIO's 8th.
+    check("subsampled: 12 MP every pixel", ViewerSource.sampling(.subsampled, ViewerDims(w: 4000, h: 3000), 1), 1)
+    check("subsampled: 48 MP every 2nd", ViewerSource.sampling(.subsampled, ViewerDims(w: 8000, h: 6000), 1), 2)
+    check("subsampled: at least the rules' n", ViewerSource.sampling(.subsampled, ViewerDims(w: 8000, h: 6000), 4), 4)
+    check("subsampled: 900 MP none", ViewerSource.sampling(.subsampled, ViewerDims(w: 30000, h: 30000), 1), nil)
+    check("whole: 12 MP", ViewerSource.sampling(.whole, ViewerDims(w: 4000, h: 3000), 2), 2)
+    check("whole: 48 MP none", ViewerSource.sampling(.whole, ViewerDims(w: 8000, h: 6000), 2), nil)
+    check("lazy: as the rules say", ViewerSource.sampling(.lazy, ViewerDims(w: 30000, h: 30000), 1), 1)
+    check("kinds", [ViewerSource.reading("public.jpeg"), ViewerSource.reading("public.heic"), ViewerSource.reading("public.png"),
+                    ViewerSource.reading("com.compuserve.gif"), ViewerSource.reading("org.webmproject.webp")],
+          [.lazy, .lazy, .subsampled, ViewerSource.Reading.none, .whole])
+
+    // Display P3: the part keeps the photo's colours, as the fitted copy does.
+    let p3 = ViewerSource(data: try! Data(contentsOf: picture("p3.jpg", orientation: 6, type: "public.jpeg", space: CGColorSpace.displayP3)))
+    let p3part = p3?.decode(ViewerArea(screen: rect(0, 0, 400, 400), source: rect(40, 20, 80, 60)), maxPixels: 1e9)
+    check("P3: part in Display P3", p3part?.colorSpace?.name.map { $0 as String }, CGColorSpace.displayP3 as String)
+    check("P3: fitted in Display P3", p3?.fitted(maxPixels: 120)?.colorSpace?.name.map { $0 as String }, CGColorSpace.displayP3 as String)
+    check("P3: part upright", quarters(p3part), ["r", "g", "b", "w"])
+    // A colour space an 8-bit bitmap can't use: sRGB, not no part.
+    let ext = ViewerSource.bitmap(10, 10, colours: CGColorSpace(name: CGColorSpace.extendedLinearSRGB), opaque: true)
+    check("extended range: a bitmap still", ext != nil, true)
+    check("extended range: in sRGB", ext?.colorSpace?.name.map { $0 as String }, CGColorSpace.sRGB as String)
+    check("grey: in sRGB", ViewerSource.bitmap(10, 10, colours: CGColorSpaceCreateDeviceGray(), opaque: false)?.colorSpace?.model, .rgb)
+}
+
 // MARK: Memory: a part of a big JPEG doesn't decode the whole picture
 
 func footprint() -> (now: Int, peak: Int) {
@@ -305,6 +360,17 @@ do {
     // The fitted copy at a phone's size: never the whole picture either.
     let fitted = s?.fitted(maxPixels: 1600)
     check("big: fitted 1200 x 1600", fitted.map { [$0.width, $0.height] }, [1200, 1600])
+}
+
+do {
+    for mode in ["make-big-png", "png-part"] {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        p.arguments = [work.path, mode]
+        try! p.run()
+        p.waitUntilExit()
+        check("big PNG: \(mode)", p.terminationStatus, 0)
+    }
 }
 
 print(failures == 0 ? "ios image-viewer plugin: \(count) checks passed" : "ios image-viewer plugin: \(failures) of \(count) checks failed")

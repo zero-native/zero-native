@@ -10,8 +10,10 @@
 //
 // iOS differences:
 // - The fitted copy is decoded at the size on screen by ImageIO (Coil on Android); recent ones are kept in a small
-//   memory cache (48 MB), so paging back doesn't decode again. A web picture's bytes stay with the page for its sharp
-//   parts (Android reads Coil's disk cache).
+//   memory cache (48 MB), so paging back, or opening the viewer again on the same links, doesn't decode again (Coil's
+//   memory cache lasts as long, on Android). It empties when the app goes to the background and on a memory warning;
+//   held `data:` pictures leave it when the last page goes (the viewer closed: no other viewer has those bytes). A web
+//   picture's bytes stay with the page for its sharp parts (Android reads Coil's disk cache).
 // - The sharp part is cut from a lazily decoded image (ViewerSource.swift), which reads only the rows or tiles it needs;
 //   Android uses BitmapRegionDecoder. Mirror images get none, as on Android.
 // - Short of memory (a memory warning), the pages drop their sharp parts and the cache empties (ViewerMemory on Android).
@@ -20,7 +22,8 @@ import UIKit
 import ZnRuntime
 #endif
 
-/// The fitted copies of pictures seen lately, with their bytes, by picture and size.
+/// The fitted copies of pictures seen lately, with their bytes, by picture and size. Main thread only. A link is keyed
+/// without its request headers: they let the picture be had, they don't change which picture it is.
 private enum ViewerPageCache {
     final class Entry {
         let base: CGImage
@@ -34,10 +37,42 @@ private enum ViewerPageCache {
         return c
     }()
 
-    static func put(_ key: String, _ e: Entry) {
-        // A mapped file costs no memory of its own; downloaded and held bytes do.
+    static func put(_ key: String, _ e: Entry, held: Bool) {
+        // The bytes count too (downloaded, held or read from a file; only the bundle's read-only assets are mapped).
         shared.setObject(e, forKey: key as NSString, cost: e.base.bytesPerRow * e.base.height + e.source.bytes)
+        if held { heldKeys.insert(key) }
     }
+
+    /// The pages alive: with none, the viewer has closed and its held pictures go.
+    private static var live = 0
+    private static var heldKeys: Set<String> = []
+    private static var watches: [NSObjectProtocol] = []
+
+    static func arrived() {
+        live += 1
+        guard watches.isEmpty else { return }
+        // Once for all pages: short of memory, or in the background, the copies go (the pages keep the ones they show).
+        for name in [UIApplication.didReceiveMemoryWarningNotification, UIApplication.didEnterBackgroundNotification] {
+            watches.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { shared.removeAllObjects(); heldKeys.removeAll() }
+            })
+        }
+    }
+
+    static func left() {
+        live -= 1
+        guard live == 0 else { return }
+        for k in heldKeys { shared.removeObject(forKey: k as NSString) }
+        heldKeys.removeAll()
+    }
+}
+
+/// Counts the sharp cuts; read on the sharp queue too, so a decode queued for an older cut is skipped.
+private final class ViewerCuts: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    func next() -> Int { lock.withLock { n += 1; return n } }
+    var current: Int { lock.withLock { n } }
 }
 
 /// The sharp parts are cut one at a time, off the main thread.
@@ -59,6 +94,8 @@ final class ViewerPage: UIView {
     private var loads = 0
     private var started = false
     private var failed = false
+    /// The download under way, cancelled when the page shows another picture or goes (Coil cancels as the page leaves).
+    private var download: URLSessionTask?
     private var source: ViewerSource?
     private var base: CGImage?
 
@@ -67,8 +104,10 @@ final class ViewerPage: UIView {
     private var zoomY: Float?
     /// The camera the sharp part was cut for.
     private var sharpCamera: ViewerCamera?
-    private var sharpWait: DispatchWorkItem?
-    private var cuts = 0
+    private let cuts = ViewerCuts()
+    /// When a zoom value last changed, and whether a check for the rest is queued (one at a time, not one per frame).
+    private var lastMove: CFTimeInterval = 0
+    private var restCheck = false
     private var memoryWatch: NSObjectProtocol?
     private var laidOut: CGSize = .zero
 
@@ -92,6 +131,7 @@ final class ViewerPage: UIView {
         errorView.onRetry = { [weak self] in self?.retry() }
         addSubview(errorView)
 
+        ViewerPageCache.arrived()
         read(scope.props)
         scope.onProps = { [weak self] p in self?.read(p) }
         // useZoom's values: each moves the picture in the frame it changes.
@@ -100,10 +140,7 @@ final class ViewerPage: UIView {
         scope.onMotion("y") { [weak self] v in self?.zoomY = v; self?.moved() }
         memoryWatch = NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil,
                                                              queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                ViewerPageCache.shared.removeAllObjects()
-                self?.dropSharp()
-            }
+            MainActor.assumeIsolated { self?.dropSharp() }
         }
     }
 
@@ -112,6 +149,8 @@ final class ViewerPage: UIView {
 
     deinit {
         if let memoryWatch { NotificationCenter.default.removeObserver(memoryWatch) }
+        download?.cancel()
+        DispatchQueue.main.async { ViewerPageCache.left() }
     }
 
     // MARK: Props
@@ -127,6 +166,13 @@ final class ViewerPage: UIView {
         heldKey = held
         image = ViewerSpec.Image(uri: uri, alt: nil, held: ViewerHeld.get(held, i))
         started = false
+        // An answer still coming for the old picture is dropped, even if it comes before the next layout.
+        loads += 1
+        download?.cancel()
+        download = nil
+        failed = false
+        spinner.stopAnimating()
+        errorView.isHidden = true
         source = nil
         base = nil
         imageView.image = nil
@@ -145,13 +191,15 @@ final class ViewerPage: UIView {
         imageView.center = CGPoint(x: bounds.midX, y: bounds.midY)
         spinner.center = CGPoint(x: bounds.midX, y: bounds.midY)
         let w = max(0, min(bounds.width - 48, 320))
-        let h = errorView.systemLayoutSizeFitting(CGSize(width: w, height: 0)).height
+        // The width held, so long words wrap onto more lines (fitting priorities alone measure one line).
+        let h = errorView.systemLayoutSizeFitting(CGSize(width: w, height: 0), withHorizontalFittingPriority: .required,
+                                                  verticalFittingPriority: .fittingSizeLevel).height
         errorView.frame = CGRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2, width: w, height: h)
         // Loaded at the first size on screen (Android: Coil's size from the first draw).
         if !started && bounds.width > 0 && bounds.height > 0 { load() }
         if bounds.size != laidOut {
             // A new size (a turn, split view): a sharp part's place is stale.
-            if laidOut != .zero { dropSharp(); scheduleSharp() }
+            if laidOut != .zero { dropSharp(); soon() }
             laidOut = bounds.size
         }
     }
@@ -164,15 +212,18 @@ final class ViewerPage: UIView {
         loads += 1
         let mine = loads
         let px = ViewerDims(w: bounds.width * max(1, screenScale()), h: bounds.height * max(1, screenScale()))
-        let cacheKey = "\(key)|\(Int(px.w))x\(Int(px.h))"
+        // Held bytes are this viewer's own (its key and index); a link is the same picture in any viewer.
+        let held = image.held?.bytes != nil
+        let cacheKey = "\(held ? key : image.uri)|\(Int(px.w))x\(Int(px.h))"
         if let hit = ViewerPageCache.shared.object(forKey: cacheKey as NSString) {
             return show(hit.base, hit.source)
         }
         errorView.isHidden = true
-        // No link yet: the screen can be drawn before JS gives the props. Nothing to load, nothing failed.
-        guard !image.uri.isEmpty else { return spinner.stopAnimating() }
+        // No link: an error, as Android (Coil fails a request with no data).
+        guard !image.uri.isEmpty else { return fail(mine) }
         spinner.startAnimating()
-        ViewerLoader.fetch(image, base: ZnApp.shared.bundleURL) { [weak self] data in
+        download?.cancel()
+        download = ViewerLoader.fetch(image, base: ZnApp.shared.bundleURL) { [weak self] data in
             // Background queue: read the header, then decode only the fitted copy, at the size on screen.
             let source = data.flatMap { ViewerSource(data: $0) }
             let base = source.flatMap { s -> CGImage? in
@@ -181,8 +232,9 @@ final class ViewerPage: UIView {
             }
             DispatchQueue.main.async {
                 guard let self, self.loads == mine else { return }
+                self.download = nil
                 guard let source, let base else { return self.fail(mine) }
-                ViewerPageCache.put(cacheKey, .init(base, source))
+                ViewerPageCache.put(cacheKey, .init(base, source), held: held)
                 self.show(base, source)
             }
         }
@@ -195,7 +247,7 @@ final class ViewerPage: UIView {
         errorView.isHidden = true
         imageView.image = UIImage(cgImage: base)
         scope.emit("loaded", ["width": base.width, "height": base.height])
-        scheduleSharp()
+        soon()
     }
 
     private func fail(_ load: Int) {
@@ -220,8 +272,8 @@ final class ViewerPage: UIView {
         ViewerRules.camera(scale: zoomScale, x: zoomX, y: zoomY, pixels: max(1, screenScale()))
     }
 
-    /// A motion value changed: move the picture (same frame), hide a sharp part cut for another camera, and wait for the
-    /// zoom to rest before cutting a new one.
+    /// A motion value changed: move the picture (same frame), hide a sharp part cut for another camera, and note the
+    /// time, for the check that the zoom rests. No allocation: each of scale, x and y calls this each frame.
     private func moved() {
         let z = CGFloat(zoomScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 1)
         let x = CGFloat(zoomX.flatMap { $0.isFinite ? $0 : nil } ?? 0), y = CGFloat(zoomY.flatMap { $0.isFinite ? $0 : nil } ?? 0)
@@ -229,48 +281,61 @@ final class ViewerPage: UIView {
         CATransaction.setDisableActions(true)
         // About the view's middle, as Android's graphicsLayer: scale, then move.
         imageView.transform = CGAffineTransform(translationX: x, y: y).scaledBy(x: z, y: z)
-        sharpView.isHidden = sharpView.image == nil || sharpCamera != camera()
+        if !sharpView.isHidden && sharpCamera != camera() { sharpView.isHidden = true }
         CATransaction.commit()
-        scheduleSharp()
+        soon()
     }
 
-    /// The sharp part for the zoom on screen, made once the zoom has rested and only while the fitted copy is stretched.
-    private func scheduleSharp() {
-        sharpWait?.cancel()
+    /// Looks for a sharp part once nothing has moved for ViewerRules.settle (Android: collectLatest, then a delay).
+    private func soon() {
+        lastMove = CACurrentMediaTime()
+        checkRest(after: ViewerRules.settle)
+    }
+
+    private func checkRest(after wait: TimeInterval) {
+        guard !restCheck else { return }
+        restCheck = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+            guard let self else { return }
+            self.restCheck = false
+            let still = CACurrentMediaTime() - self.lastMove
+            // Moved since: wait the rest of the time again.
+            if still < ViewerRules.settle { return self.checkRest(after: ViewerRules.settle - still) }
+            self.cutSharp()
+        }
+    }
+
+    /// The sharp part for the zoom on screen, only while the fitted copy is stretched.
+    private func cutSharp() {
         guard let base, let source, window != nil, bounds.width > 0 else { return }
         let c = camera()
         let k = max(1, screenScale())
         let screen = ViewerDims(w: bounds.width * k, h: bounds.height * k)
         let fitted = ViewerRules.fitted(ViewerDims(w: CGFloat(base.width), h: CGFloat(base.height)), screen)
         guard ViewerRules.needsSharp(c, fitted, CGFloat(base.width), source.upright.w) else { return dropSharp() }
-        if sharpCamera == c, sharpView.image != nil { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.cuts += 1
-            let mine = self.cuts
-            guard let area = ViewerRules.visibleArea(c, fitted, screen, source.upright).map(ViewerRules.snapped) else { return }
-            viewerSharpQueue.async {
-                let part = source.decode(area, maxPixels: ViewerRules.areaScreens * screen.w * screen.h)
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let part, mine == self.cuts, self.source === source, self.camera() == c else { return }
-                    let r = area.screen
-                    self.sharpView.image = UIImage(cgImage: part)
-                    self.sharpView.frame = CGRect(x: r.left / k, y: r.top / k, width: r.width / k, height: r.height / k)
-                    self.sharpCamera = c
-                    self.sharpView.isHidden = false
-                    #if DEBUG
-                    print("zn image-viewer: sharp part \(part.width)x\(part.height) of \(Int(area.source.width))x\(Int(area.source.height)) at zoom \(c.z)")
-                    #endif
-                }
+        if sharpCamera == c, sharpView.image != nil { sharpView.isHidden = false; return }
+        guard let area = ViewerRules.visibleArea(c, fitted, screen, source.upright).map(ViewerRules.snapped) else { return }
+        let cuts = self.cuts, mine = cuts.next()
+        viewerSharpQueue.async { [weak self] in
+            // A newer cut, or the part dropped, since this was queued: don't decode for a zoom that has gone.
+            guard cuts.current == mine else { return }
+            let part = source.decode(area, maxPixels: ViewerRules.areaScreens * screen.w * screen.h)
+            DispatchQueue.main.async {
+                guard let self, let part, cuts.current == mine, self.source === source, self.camera() == c else { return }
+                let r = area.screen
+                self.sharpView.image = UIImage(cgImage: part)
+                self.sharpView.frame = CGRect(x: r.left / k, y: r.top / k, width: r.width / k, height: r.height / k)
+                self.sharpCamera = c
+                self.sharpView.isHidden = false
+                #if DEBUG
+                print("zn image-viewer: sharp part \(part.width)x\(part.height) of \(Int(area.source.width))x\(Int(area.source.height)) at zoom \(c.z)")
+                #endif
             }
         }
-        sharpWait = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + ViewerRules.settle, execute: work)
     }
 
     private func dropSharp() {
-        sharpWait?.cancel()
-        cuts += 1
+        _ = cuts.next()
         sharpView.image = nil
         sharpView.isHidden = true
         sharpCamera = nil
@@ -279,7 +344,7 @@ final class ViewerPage: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         // Off screen (paged far away, the screen closed): the sharp part goes; it comes back when the page shows again.
-        if window == nil { dropSharp() } else { scheduleSharp() }
+        if window == nil { dropSharp() } else { soon() }
     }
 }
 

@@ -161,37 +161,47 @@ enum ViewerLoader {
         }
     }
 
-    /// The picture's encoded bytes (a file's are mapped, not read), given on a background queue; nil when it can't be
-    /// had (an error answer, no such file, a refused link).
-    static func fetch(_ image: ViewerSpec.Image, base: URL?, done: @escaping (Data?) -> Void) {
+    /// The picture's encoded bytes, given on a background queue; nil when it can't be had (an error answer, no such
+    /// file, a refused link, a cancelled download). Returns the download for a web picture, to cancel it.
+    ///
+    /// Only the bundle's assets are mapped (read-only files): the page keeps a picture's bytes and reads them lazily
+    /// for its sharp parts, and a mapped file the app rewrites in place would crash that read (SIGBUS). The app's own
+    /// files (zn://file, file://) are read into memory.
+    @discardableResult
+    static func fetch(_ image: ViewerSpec.Image, base: URL?, done: @escaping (Data?) -> Void) -> URLSessionTask? {
         func give(_ data: @escaping () -> Data?) { DispatchQueue.global(qos: .userInitiated).async { done(data()) } }
-        func file(_ url: URL) -> Data? { try? Data(contentsOf: url, options: .mappedIfSafe) }
+        func file(_ url: URL) -> Data? { try? Data(contentsOf: url) }
+        func asset(_ url: URL) -> Data? { try? Data(contentsOf: url, options: .mappedIfSafe) }
         let uri = image.uri
         switch ViewerRules.kind(uri) {
         case .web:
-            guard let url = URL(string: uri) else { return give { nil } }
+            guard let url = URL(string: uri) else { give { nil }; return nil }
             var r = URLRequest(url: url)
             for (k, v) in image.held?.headers ?? [:] { r.setValue(v, forHTTPHeaderField: k) }
-            session.dataTask(with: r) { data, response, _ in
+            let task = session.dataTask(with: r) { data, response, error in
+                if (error as? URLError)?.code == .cancelled { return give { nil } }
                 let ok = ((response as? HTTPURLResponse)?.statusCode ?? 0) < 400
                 if !ok { print("zn image-viewer: \(url.host ?? "?") answered \((response as? HTTPURLResponse)?.statusCode ?? 0)") }
                 give { ok ? data : nil }  // off the session's queue: the caller decodes there
-            }.resume()
+            }
+            task.resume()
+            return task
         case .asset:
-            guard let path = ViewerRules.assetPath(uri), base != nil else { return give { nil } }
+            guard let path = ViewerRules.assetPath(uri), base != nil else { give { nil }; return nil }
             let url = ZnBundles.assetURL(path)  // the running bundle's copy, else the app's own
-            give { file(url) }
+            give { asset(url) }
         case .file:
             let url = ZnHandles.fileOf(uri)
             give { url.flatMap(file) }
         case .fileUri:
             // Only the app's own folder: a bundle comes over the air, so it may not name any file it likes.
-            guard let url = URL(string: uri), url.isFileURL else { return give { nil } }
+            guard let url = URL(string: uri), url.isFileURL else { give { nil }; return nil }
             let real = url.resolvingSymlinksInPath().standardizedFileURL.path
             let root = URL(fileURLWithPath: NSHomeDirectory()).resolvingSymlinksInPath().standardizedFileURL.path
             guard real == root || real.hasPrefix(root + "/") else {
                 print("zn image-viewer: a file:// link outside the app's folder refused")
-                return give { nil }
+                give { nil }
+                return nil
             }
             give { file(URL(fileURLWithPath: real)) }
         case .held:
@@ -201,6 +211,7 @@ enum ViewerLoader {
             print("zn image-viewer: link kind not shown on iOS: \(uri.prefix(12))…")
             give { nil }
         }
+        return nil
     }
 
     /// The picture upright (EXIF applied), at most `maxPixels` on the long side.
@@ -277,7 +288,8 @@ private final class ZoomPage: UIScrollView, UIScrollViewDelegate {
         center()
         spinner.center = CGPoint(x: bounds.midX, y: bounds.midY)
         let w = min(bounds.width - 48, 320)
-        let h = errorStack.systemLayoutSizeFitting(CGSize(width: w, height: 0)).height
+        let h = errorStack.systemLayoutSizeFitting(CGSize(width: w, height: 0), withHorizontalFittingPriority: .required,
+                                                   verticalFittingPriority: .fittingSizeLevel).height
         errorStack.frame = CGRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2, width: w, height: h)
     }
 
