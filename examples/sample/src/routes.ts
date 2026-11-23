@@ -47,6 +47,7 @@ import { AppUpdatesLabScreen } from "./AppUpdatesLab"
 import { MarkdownLabScreen } from "./MarkdownLab"
 import { DocScanLabScreen } from "./DocScanLab"
 import { ImageViewerLabScreen } from "./ImageViewerLab"
+import { InvisibleLayerScreen } from "./ImageViewerLab"
 import { ImageViewerPageLabScreen } from "./ImageViewerPageLab"
 import { ImageViewerScreen } from "@zeronative/image-viewer/screen"
 import { LayerLabScreen } from "./AppLayers"
@@ -191,6 +192,8 @@ export const routes = defineRoutes({
   // The image viewer's page view alone, moved by buttons (no gestures): loading, events, the zoom's move, sharp parts.
   // Last, as above.
   imageViewerPageLab: { path: "/dev/image-viewer/page", screen: ImageViewerPageLabScreen, deepLink: true },
+  // An absolute layer at opacity 0 over the image viewer lab (see-through): it stops taps, as on Android. Last, as above.
+  ivInvisibleLayer: { path: "/dev/image-viewer/invisible-layer", screen: InvisibleLayerScreen, transparent: true, transition: "none", restore: false },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

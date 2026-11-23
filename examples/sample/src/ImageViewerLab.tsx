@@ -1,5 +1,5 @@
 // A dev screen for the image viewer plugin. Log lines "image-viewer-lab ..." are for checks from adb logcat.
-import { Column, Image, Pressable, Row, Scroll, Text } from "@zeronative/ui"
+import { Column, Image, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
 import { nav, onNavResult, signal, useElementMotion, type ElementMotion } from "@zeronative/core"
 import { ImageViewer, type ImageViewerResult } from "@zeronative/image-viewer"
 import { Media } from "@zeronative/media"
@@ -148,7 +148,28 @@ export function ImageViewerLabScreen() {
         }} />
         <ViewerLabButton label="The page view alone (zoom by buttons)" onPress={() => nav.push("imageViewerPageLab")} />
         <ViewerLabButton label="Empty list (rejects)" onPress={() => show("empty", { images: [] })} />
+        {/* The app leaves the viewer itself (a timeout, a push): the promise's answer. */}
+        <ViewerLabButton label="Open, then the app's nav.back() at 1.5 s" onPress={() => {
+          show("app-back", { images: STORE })
+          setTimeout(() => nav.back(), 1500)
+        }} />
+        {/* Registry 24: an absolute layer stops taps even at opacity 0, on a see-through screen too (Android's
+            znBlockTouches; Compose doesn't skip a node for its alpha). Taps on this lab under it do nothing. */}
+        <ViewerLabButton label="Invisible layer over this lab" onPress={() => nav.push("ivInvisibleLayer")} />
       </Column>
     </Scroll>
+  )
+}
+
+/** Route ivInvisibleLayer (transparent): an absolute layer at opacity 0 over the whole lab, and a close button. */
+export function InvisibleLayerScreen() {
+  console.info("image-viewer-lab invisible layer open")
+  return (
+    <Stack style={{ flex: 1 }}>
+      <Column style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0, backgroundColor: "#000000", opacity: 0 }} />
+      <Column style={{ position: "absolute", bottom: 48, start: 16, end: 16 }}>
+        <ViewerLabButton label="Close the invisible layer" onPress={() => nav.back()} />
+      </Column>
+    </Stack>
   )
 }
