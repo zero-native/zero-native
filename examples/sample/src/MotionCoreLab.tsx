@@ -7,9 +7,10 @@
 //   5. Corners: a box whose corners morph; elements: a Scroll's header that fades with scrollY, a Pressable's pressed
 //      scale, measure()
 //   6. Plugin: a dot moved each frame by native code (orbit), a curve from the plugin (wobble) next to the spring, the
-//      plugin's view drawing a bar from a motion `level`; useTilt's x / y (0 on a simulator: it has no motion)
+//      plugin's view drawing a bar from a motion `level` and a Lottie whose `progress` is that level; useTilt's x / y (0 on a simulator: it has no motion)
 //   7. animateLayout: a card that grows and the box under it glides, a box whose height is set by style, a pill whose
-//      text gets longer, chips that reflow in a wrapping row
+//      text gets longer, chips that reflow in a wrapping row, a nested card (animateLayout chips in an animateLayout
+//      card pushed down by a line above it), a box that fills a fixed Stack and gets shorter text
 //   8. useFrame: a JS frame counter; "Keep JS busy" stalls it while everything above keeps moving
 // Open with: bun run tools/ios-sample.ts --route motionCoreLab (iOS: start it with SIMCTL_CHILD_ZN_MOTION_ENGINE=1
 // while the engine is behind that flag), or zn://sample/dev/motion/core. With --params '{"run":true}' it presses the
@@ -17,6 +18,7 @@
 import { Column, NativeView, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
 import { derive, env, follow, nav, signal, useElementMotion, useFrame, useMotion, useTilt, useTimeline } from "@zeronative/core"
 import { orbit, wobble } from "@zeronative/device-test"
+import LottieView from "@zeronative/lottie"
 import { c } from "./tokens"
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -282,7 +284,7 @@ function MkPlugin(props: { run?: boolean }) {
     }, 2600)
   }
   return (
-    <MkCard title="6. Plugin" hint="A dot on a circle moved each frame by native code (orbit); a wobble curve from the plugin above the built-in spring; the plugin's view draws its bar from a motion level; tilt (0 on a simulator).">
+    <MkCard title="6. Plugin" hint="A dot on a circle moved each frame by native code (orbit); a wobble curve from the plugin above the built-in spring; the plugin's view draws its bar from a motion level, and the Lottie check follows it; tilt (0 on a simulator).">
       <Row style={{ gap: 16, alignItems: "center" }}>
         <Stack style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: c.pillBg }}>
           <Column style={{ position: "absolute", top: 32, start: 32, width: 20, height: 20, borderRadius: 10, backgroundColor: c.primary, transform: [{ translateX: ox }, { translateY: oy }] }} />
@@ -297,7 +299,13 @@ function MkPlugin(props: { run?: boolean }) {
           <MkButton label="wobble vs spring" onPress={jump} />
         </Column>
       </Row>
-      <NativeView name="device.fake-view" props={{ label: "level bar", level }} onEvent={(e) => said.set("the view sent " + e.name)} style={{ width: "100%", height: 56 }} />
+      <Row style={{ gap: 10, alignItems: "center" }}>
+        <NativeView name="device.fake-view" props={{ label: "level bar", level }} onEvent={(e) => said.set("the view sent " + e.name)} style={{ flex: 1, height: 56 }} />
+        {/* Lottie follows the same motion level: the check draws and undraws with the bar, no JS per frame. */}
+        <Column style={{ width: 56, height: 56 }}>
+          <LottieView source="asset:lottie/check.json" progress={level} />
+        </Column>
+      </Row>
       <Row style={{ gap: 10, flexWrap: "wrap" }}>
         <Text fontSize={12} color={c.ink}>{derive(() => level() * 100).format({ prefix: "level ", decimals: 0, suffix: "%" })}</Text>
         <Text fontSize={12} color={c.ink}>{tilt.x.format({ prefix: "tilt x ", decimals: 2 })}</Text>
@@ -312,12 +320,16 @@ function MkPlugin(props: { run?: boolean }) {
 
 const ROWS = Array.from({ length: 12 }, (_, i) => i)
 const CHIPS = ["Groceries", "Fuel", "Rent", "Mobile", "Movies", "Dining", "Travel", "Gifts"]
+const INNER_CHIPS = ["Food", "Bills", "Fuel", "Gifts", "Rent"]
 
 function MkLayout(props: { run?: boolean }) {
   const open = signal(false)
   const tall = signal(false)
   const long = signal(false)
   const chips = signal(CHIPS.slice(0, 5))
+  const above = signal(false)
+  const inner = signal(false)
+  const shrink = signal(false)
   const addChip = () => {
     const have = chips()
     const next = CHIPS.find((x) => !have.includes(x))
@@ -328,6 +340,9 @@ function MkLayout(props: { run?: boolean }) {
     setTimeout(() => tall.set(true), 1400)
     setTimeout(() => long.set(true), 1400)
     setTimeout(addChip, 1400)
+    setTimeout(() => above.set(true), 2800)
+    setTimeout(() => inner.set(true), 4000)
+    setTimeout(() => shrink.set(true), 4000)
   }
   return (
     <MkCard title="7. animateLayout" hint="Tap the card: it grows with a spring and the box below glides. The style height, the pill's text and the chips animate too.">
@@ -368,6 +383,40 @@ function MkLayout(props: { run?: boolean }) {
         ))}
       </Row>
       <MkButton label="add a chip at the front" onPress={addChip} />
+      <MkButton label="a line above the nested card" onPress={() => above.set(!above())} />
+      {above() ? (
+        <Text fontSize={12} color={c.muted}>
+          This line pushes the nested card down: it glides, and its chips go with it (they don't trail behind).
+        </Text>
+      ) : null}
+      <Column animateLayout="spring" style={{ padding: 10, gap: 8, borderRadius: 12, backgroundColor: "#FEF3C7" }}>
+        <Pressable onPress={() => inner.set(!inner())}>
+          <Text fontSize={12} fontWeight={700} color={c.ink}>
+            {inner() ? "Nested card (tap to close)" : "Nested card (tap to open)"}
+          </Text>
+        </Pressable>
+        {inner() ? (
+          <Text fontSize={12} color={c.ink}>
+            A line inside: the card grows; its chip row moves at once inside it, as on Android (a chip's place in its row
+            is the same).
+          </Text>
+        ) : null}
+        <Row style={{ flexWrap: "wrap", gap: 6 }}>
+          {INNER_CHIPS.map((x) => (
+            <Column key={x} animateLayout="spring" style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: c.white }}>
+              <Text fontSize={11} color={c.ink}>{x}</Text>
+            </Column>
+          ))}
+        </Row>
+      </Column>
+      <Text fontSize={12} color={c.muted}>
+        A box whose long text makes it as big as its fixed Stack (150 × 22): with shorter text it shrinks.
+      </Text>
+      <Stack style={{ width: 150, height: 22, alignItems: "flex-start", borderRadius: 6, backgroundColor: c.pillBg }}>
+        <Pressable onPress={() => shrink.set(!shrink())} animateLayout={{ duration: 300 }} style={{ height: 22, paddingHorizontal: 6, justifyContent: "center", borderRadius: 6, backgroundColor: "#DCFCE7" }}>
+          <Text fontSize={12} color={c.ink}>{shrink() ? "short" : "a long label that fills the whole box"}</Text>
+        </Pressable>
+      </Stack>
     </MkCard>
   )
 }
