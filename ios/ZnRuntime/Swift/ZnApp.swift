@@ -559,6 +559,10 @@ public final class ZnApp {
         entryParams = [:]
         entryValues = [:]
         nativeParams = [:]
+        openedAtStart = []
+        drawnScreens = [:]
+        leaving = []
+        screensGeneration += 1
         insetsSent = nil
         windowSent = nil  // the new JS hears the window again (Android's generation key)
         startGate.reset()
@@ -720,6 +724,9 @@ public final class ZnApp {
             }
             entryRoutes[entry] = r
             entryParams[entry] = params ?? "{}"
+            // Before NAV STARTED JS is still opening the first screens (a push while START builds them), or the splash
+            // is still held: the user sees this screen first, not a slide to it (Android's ZnEntry.openedAtStart).
+            if !firstScreensUp || ZnSplash.holding { openedAtStart.insert(entry) }
             stack.append(entry)
         case NavKind.restore:
             // A restorableSignal of [entry] changed: {"key":k,"value":v} keeps v; no "value" forgets k.
@@ -776,17 +783,67 @@ public final class ZnApp {
         }
     }
 
-    /// A screen leaving keeps its instances until its transition has played (spike: a fixed delay).
+    // MARK: Screens drawn, and when a leaving screen's instances go (Android's ZnNav.shown / hidden / release)
+
+    /// Entries pushed before the first screens were up (or under the splash hold): they come in with no slide; their
+    /// back still slides (ZnNavController.sync).
+    @ObservationIgnored private(set) var openedAtStart = Set<UInt32>()
+    /// The screens drawn now, by entry: how many of its views are in a window (ZnDrawnMarker; the SwiftUI variant
+    /// counts appear / disappear). Android's ZnNav.composed.
+    @ObservationIgnored private var drawnScreens: [UInt32: Int] = [:]
+    /// Entries off the stack whose instances wait for their screen to leave the window.
+    @ObservationIgnored private var leaving = Set<UInt32>()
+    /// Changes with each runtime (a restart): markers of the old root's screens report nothing to the new one, whose
+    /// entries may have the same ids.
+    @ObservationIgnored private(set) var screensGeneration = 0
+
+    /// [entry]'s screen is drawn (one of its views went into a window).
+    func screenShown(_ entry: UInt32, generation: Int) {
+        guard generation == screensGeneration else { return }
+        drawnScreens[entry, default: 0] += 1
+    }
+
+    /// [entry]'s screen left the window (after its exit or cover animation). Off the stack, its instances go a
+    /// main-queue turn later if it isn't drawn again by then (a transition moves a view out and back in one turn).
+    func screenHidden(_ entry: UInt32, generation: Int) {
+        guard generation == screensGeneration, let n = drawnScreens[entry] else { return }
+        drawnScreens[entry] = n > 1 ? n - 1 : nil
+        guard n == 1, leaving.contains(entry) else { return }
+        DispatchQueue.main.async { [weak self] in self?.releaseIfHidden(entry, generation: generation) }
+    }
+
+    /// Entries that left the stack: their instances go now when their screen isn't drawn (covered, never shown, or
+    /// removed in the batch that pushed it), else once it has left the window (screenHidden), as Android's release.
     private func releaseLater(_ entries: [UInt32]) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            guard let self else { return }
-            for e in entries where !self.stack.contains(e) {
-                self.store.removeTree(e)
-                self.entryRoutes[e] = nil
-                self.entryParams[e] = nil
-                self.entryValues[e] = nil
+        let generation = screensGeneration
+        for e in entries where !stack.contains(e) {
+            if drawnScreens[e] == nil {
+                release(e)
+                continue
+            }
+            leaving.insert(e)
+            // A screen still drawn long after it left the stack is a host bug (a view kept in the window): say so.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self, generation == self.screensGeneration, self.leaving.contains(e) else { return }
+                print("zn t=\(ZnDebug.ms()) nav: screen \(e) left the stack 2 s ago and is still drawn; its instances stay until it leaves the window")
             }
         }
+    }
+
+    private func releaseIfHidden(_ entry: UInt32, generation: Int) {
+        guard generation == screensGeneration, leaving.contains(entry), drawnScreens[entry] == nil, !stack.contains(entry) else { return }
+        release(entry)
+    }
+
+    private func release(_ e: UInt32) {
+        leaving.remove(e)
+        openedAtStart.remove(e)
+        store.removeTree(e)
+        entryRoutes[e] = nil
+        entryParams[e] = nil
+        entryValues[e] = nil
+        nativeParams[e] = nil
+        print("zn t=\(ZnDebug.ms()) nav: released \(e)")
     }
 
     /// "Try again" on a failed screen: drop what the failed build left under its root, make a fresh root from the

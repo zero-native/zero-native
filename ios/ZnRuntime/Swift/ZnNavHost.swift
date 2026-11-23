@@ -80,12 +80,37 @@ struct ZnNavSwiftUI: View {
             )) {
                 ZnEntryScreen(app: app, entry: first)
                     .toolbar(.hidden, for: .navigationBar)
+                    .modifier(ZnSwiftUIDrawn(app: app, entry: first))
                     .navigationDestination(for: UInt32.self) { entry in
                         ZnEntryScreen(app: app, entry: entry)
                             .toolbar(.hidden, for: .navigationBar)
+                            .modifier(ZnSwiftUIDrawn(app: app, entry: entry))
                     }
             }
         }
+    }
+}
+
+/// The SwiftUI variant's ZnDrawnMarker: a screen counts as drawn from onAppear to onDisappear (NavigationStack calls
+/// it once a pop's slide has ended), so a leaving screen's instances go then. No secure counting here (no container).
+private struct ZnSwiftUIDrawn: ViewModifier {
+    let app: ZnApp
+    let entry: UInt32
+    @State private var generation = ZnApp.shared.screensGeneration
+    @State private var counted = false
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                guard !counted else { return }
+                counted = true
+                app.screenShown(entry, generation: generation)
+            }
+            .onDisappear {
+                guard counted else { return }
+                counted = false
+                app.screenHidden(entry, generation: generation)
+            }
     }
 }
 
@@ -191,7 +216,11 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             }()
         }
         let navChanges = vcs != viewControllers
-        let animated = !viewControllers.isEmpty && !ZnSplash.holding  // under the splash: no slide
+        // Under the splash: no slide. Nor for a new top screen JS pushed while opening the first screens (before NAV
+        // STARTED): it is simply there, as Android's openedAtStart; its back still slides.
+        let shownBefore = viewControllers.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] }
+        let atStart = stack.last.map { !shownBefore.contains($0) && app.openedAtStart.contains($0) } ?? false
+        let animated = !viewControllers.isEmpty && !ZnSplash.holding && !atStart
         let shownBox = viewControllers.last
         // The boxes in a slide under way (a push or pop, the swipe's too).
         let moving = transitionCoordinator.map { c in
@@ -214,7 +243,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             }
         }
         if navChanges {
-            print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(stack.count) screens\(vcs.count == stack.count ? "" : " in \(vcs.count) box\(vcs.count == 1 ? "" : "es")"))")
+            print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(stack.count) screens\(vcs.count == stack.count ? "" : " in \(vcs.count) box\(vcs.count == 1 ? "" : "es")"), animated \(animated)\(atStart ? ", opened at start" : ""))")
             setViewControllers(vcs, animated: animated)
         }
         // didShow doesn't come after a cancelled swipe: the slide's end applies the waiting changes either way.
@@ -223,7 +252,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         }
         boxes = boxes.filter { k, _ in vcs.contains { $0.key == k } }
         screens = screens.filter { stack.contains($0.key) }
-        unmarked = unmarked.filter { id in screens.values.contains { ObjectIdentifier($0) == id } }
+        unmarked = unmarked.filter { id, _ in screens.values.contains { ObjectIdentifier($0) == id } }
     }
 
     /// [entry]'s own controller, made the first time.
@@ -241,7 +270,7 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
             screen.view.backgroundColor = seeThrough ? .clear : .white
             vc = screen
         }
-        markIfSecure(vc, entry)
+        markDrawn(vc, entry)
         screens[entry] = vc
         return vc
     }
@@ -249,23 +278,24 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     /// The entry UIKit's transitions go by: a box's first (opaque) one.
     private func entry(of vc: UIViewController) -> UInt32? { (vc as? ZnSeeThroughBox)?.key }
 
-    /// A `secure: true` screen counts itself drawn while its view is in the window (ZnSecure), native screens included.
-    /// A native screen's view not loaded yet gets it when it is about to show (willShow), so its viewDidLoad still runs
-    /// then, not when the stack is built.
-    private func markIfSecure(_ vc: UIViewController, _ entry: UInt32) {
-        guard app.route(of: entry)?.secure == true else { return }
-        if let v = vc.viewIfLoaded { mark(v) } else { unmarked.insert(ObjectIdentifier(vc)) }
+    /// Every screen counts itself drawn while its view is in the window (ZnDrawnMarker): a leaving screen's instances
+    /// go once it has left (ZnApp.screenHidden), and a `secure: true` one protects captures meanwhile (ZnSecure), native
+    /// screens included. A native screen's view not loaded yet gets it when a box is about to use it, so its
+    /// viewDidLoad still runs then, not when the stack is built.
+    private func markDrawn(_ vc: UIViewController, _ entry: UInt32) {
+        if let v = vc.viewIfLoaded { mark(v, entry) } else { unmarked[ObjectIdentifier(vc)] = entry }
     }
 
-    private var unmarked: Set<ObjectIdentifier> = []
+    private var unmarked: [ObjectIdentifier: UInt32] = [:]
 
     /// A box is about to use [vc]'s view (ZnSeeThroughBox.prepare).
     private func markLoaded(_ vc: UIViewController) {
-        if unmarked.remove(ObjectIdentifier(vc)) != nil { mark(vc.view) }
+        if let entry = unmarked.removeValue(forKey: ObjectIdentifier(vc)) { mark(vc.view, entry) }
     }
 
-    private func mark(_ v: UIView) {
-        if !v.subviews.contains(where: { $0 is ZnDrawnMarker }) { v.addSubview(ZnDrawnMarker()) }
+    private func mark(_ v: UIView, _ entry: UInt32) {
+        guard !v.subviews.contains(where: { $0 is ZnDrawnMarker }) else { return }
+        v.addSubview(ZnDrawnMarker(entry: entry, secure: app.route(of: entry)?.secure == true))
     }
 
     // A swipe that finished: native popped; JS is told (FORCED_BACK).
@@ -378,62 +408,133 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     // The swipe drives our pop animation. Otherwise the route's transition, as on Android: a push uses the new
-    // screen's, a pop the leaving screen's. "push" is UIKit's own slide.
+    // screen's, a pop the leaving screen's. "push" is UIKit's own slide, or ours when shared elements fly with it
+    // (ZnShared.swift: UIKit's own can't carry them).
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
                               from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-        if interaction != nil && operation == .pop { return ZnPopAnimator() }
-        guard let entry = entry(of: operation == .push ? to : from),
-              let transition = app.route(of: entry)?.transition, transition != .push else { return nil }
-        return ZnTransitionAnimator(transition: transition, opening: operation == .push)
+        let opening = operation == .push
+        let interactive = interaction != nil && !opening
+        let transition = entry(of: opening ? to : from).flatMap { app.route(of: $0)?.transition } ?? .push
+        let flight = interactive || transition != .none ? sharedFlight(from: from, to: to, opening: opening) : nil
+        if interactive { return ZnPopAnimator(flight: flight) }
+        if transition != .push { return ZnTransitionAnimator(transition: transition, opening: opening, flight: flight) }
+        return flight.map { ZnSlideAnimator(opening: opening, flight: $0) }
     }
 
     func navigationController(_ nav: UINavigationController,
                               interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
         animator is ZnPopAnimator ? interaction : nil
     }
+
+    /// The shared elements of a push or pop from box [from] to box [to] (ZnShared.swift), or nil when none can fly: a
+    /// push needs a tag on the screen it covers (the new screen's are known once it is laid out), a pop one tag on both.
+    private func sharedFlight(from: UIViewController, to: UIViewController, opening: Bool) -> ZnSharedFlight? {
+        guard !znAnimationsOff(), let a = from as? ZnSeeThroughBox, let b = to as? ZnSeeThroughBox else { return nil }
+        let source = sharedAnchors(a)
+        guard !source.isEmpty else { return nil }
+        if !opening, Set(source.keys).isDisjoint(with: sharedAnchors(b).keys) { return nil }
+        return ZnSharedFlight(from: source, to: { [weak self, weak b] in b.flatMap { self?.sharedAnchors($0) } ?? [:] },
+                              waitsForLayout: opening)
+    }
+
+    /// The tagged nodes of a box's screens, by tag: not a see-through screen's (Android gives it no shared scope), nor
+    /// a native screen's (none), nor a Sheet's or Modal's (another view tree).
+    private func sharedAnchors(_ box: ZnSeeThroughBox) -> [String: ZnSharedAnchorView] {
+        var out: [String: ZnSharedAnchorView] = [:]
+        for l in box.layers where app.route(of: l.entry)?.transparent != true {
+            guard let root = l.vc.viewIfLoaded else { continue }
+            out.merge(ZnShared.anchors(entry: l.entry, under: root)) { _, top in top }  // the upper screen's wins
+        }
+        return out
+    }
+}
+
+/// UIKit's slide (the new screen in from the end edge over the old one, which moves a third of the way behind it,
+/// dimmed; Back the other way), for a push or pop that carries shared elements: they fly in the same animation.
+class ZnSlideAnimator: NSObject, UIViewControllerAnimatedTransitioning {
+    let opening: Bool
+    let flight: ZnSharedFlight?
+    /// The edge swipe's pop: linear, so the finger sets the pace (UIPercentDrivenInteractiveTransition).
+    var interactive: Bool { false }
+
+    init(opening: Bool, flight: ZnSharedFlight?) {
+        self.opening = opening
+        self.flight = flight
+    }
+
+    func transitionDuration(using ctx: UIViewControllerContextTransitioning?) -> TimeInterval { interactive ? 0.35 : 0.4 }
+
+    func animateTransition(using ctx: UIViewControllerContextTransitioning) {
+        guard let from = ctx.view(forKey: .from), let to = ctx.view(forKey: .to),
+              let toVC = ctx.viewController(forKey: .to) else { return ctx.completeTransition(false) }
+        let box = ctx.containerView
+        let toFrame = ctx.finalFrame(for: toVC)
+        to.frame = toFrame
+        box.insertSubview(to, belowSubview: from)  // a pushed screen is drawn under the old one first (ZnSharedFlight)
+        to.layoutIfNeeded()
+        let start = { [self] in
+            flight?.lift(in: box, toView: to, toFrame: toFrame)
+            let ltr = box.effectiveUserInterfaceLayoutDirection == .leftToRight
+            let width = box.bounds.width * (ltr ? 1 : -1)
+            let top = opening ? to : from, under = opening ? from : to
+            if opening { box.insertSubview(to, aboveSubview: from) }
+            let dim = UIView(frame: under.bounds)
+            dim.backgroundColor = UIColor.black.withAlphaComponent(0.1)
+            dim.alpha = opening ? 0 : 1
+            under.addSubview(dim)
+            if opening { to.transform = CGAffineTransform(translationX: width, y: 0) } else { to.transform = CGAffineTransform(translationX: -width / 3, y: 0) }
+            top.layer.shadowColor = UIColor.black.cgColor
+            top.layer.shadowOpacity = 0.15
+            top.layer.shadowRadius = 8
+            let animations = {
+                if self.opening {
+                    to.transform = .identity
+                    from.transform = CGAffineTransform(translationX: -width / 3, y: 0)
+                } else {
+                    to.transform = .identity
+                    from.transform = CGAffineTransform(translationX: width, y: 0)
+                }
+                dim.alpha = self.opening ? 1 : 0
+                self.flight?.fly()
+            }
+            let done = { (_: Bool) in
+                dim.removeFromSuperview()
+                top.layer.shadowOpacity = 0
+                from.transform = .identity
+                to.transform = .identity
+                self.flight?.land()
+                ctx.completeTransition(!ctx.transitionWasCancelled)
+            }
+            if interactive {
+                UIView.animate(withDuration: transitionDuration(using: ctx), delay: 0, options: .curveLinear, animations: animations, completion: done)
+            } else {
+                UIView.animate(withDuration: transitionDuration(using: ctx), delay: 0, usingSpringWithDamping: 1,
+                               initialSpringVelocity: 0, options: [], animations: animations, completion: done)
+            }
+        }
+        if flight?.waitsForLayout == true { DispatchQueue.main.async(execute: start) } else { start() }
+    }
 }
 
 /// The pop the back swipe drives: like UIKit's (the top screen slides off to the right with a shadow, the one under it
-/// comes in from a third of the way left, dimmed), linear so the finger sets the pace.
-final class ZnPopAnimator: NSObject, UIViewControllerAnimatedTransitioning {
-    func transitionDuration(using ctx: UIViewControllerContextTransitioning?) -> TimeInterval { 0.35 }
-
-    func animateTransition(using ctx: UIViewControllerContextTransitioning) {
-        guard let from = ctx.view(forKey: .from), let to = ctx.view(forKey: .to) else { return ctx.completeTransition(false) }
-        let box = ctx.containerView
-        let width = box.bounds.width
-        to.frame = ctx.finalFrame(for: ctx.viewController(forKey: .to)!)
-        box.insertSubview(to, belowSubview: from)
-        let dim = UIView(frame: to.bounds)
-        dim.backgroundColor = UIColor.black.withAlphaComponent(0.1)
-        to.addSubview(dim)
-        to.transform = CGAffineTransform(translationX: -width / 3, y: 0)
-        from.layer.shadowColor = UIColor.black.cgColor
-        from.layer.shadowOpacity = 0.15
-        from.layer.shadowRadius = 8
-        UIView.animate(withDuration: transitionDuration(using: ctx), delay: 0, options: .curveLinear, animations: {
-            to.transform = .identity
-            from.transform = CGAffineTransform(translationX: width, y: 0)
-            dim.alpha = 0
-        }, completion: { _ in
-            dim.removeFromSuperview()
-            from.layer.shadowOpacity = 0
-            from.transform = .identity
-            to.transform = .identity
-            ctx.completeTransition(!ctx.transitionWasCancelled)
-        })
-    }
+/// comes in from a third of the way left, dimmed), linear so the finger sets the pace; shared elements fly with it.
+final class ZnPopAnimator: ZnSlideAnimator {
+    init(flight: ZnSharedFlight?) { super.init(opening: false, flight: flight) }
+    override var interactive: Bool { true }
 }
 
 /// A route's transition other than "push" (routes.ts `transition`, as android/runtime's ZnNavHost.transitions):
 /// "modal" comes up from the bottom over the old screen and goes back down; "fade" cross-fades; "none" is instant.
+/// Shared elements fly in the same animation (not with "none").
 final class ZnTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
     let transition: ZnRoute.Transition
     let opening: Bool
+    let flight: ZnSharedFlight?
 
-    init(transition: ZnRoute.Transition, opening: Bool) {
+    init(transition: ZnRoute.Transition, opening: Bool, flight: ZnSharedFlight? = nil) {
         self.transition = transition
         self.opening = opening
+        self.flight = transition == .none ? nil : flight
     }
 
     func transitionDuration(using ctx: UIViewControllerContextTransitioning?) -> TimeInterval {
@@ -445,34 +546,45 @@ final class ZnTransitionAnimator: NSObject, UIViewControllerAnimatedTransitionin
               let toVC = ctx.viewController(forKey: .to) else { return ctx.completeTransition(false) }
         print("zn t=\(ZnDebug.ms()) uikit: \(transition.rawValue) transition, \(opening ? "opening" : "closing")")
         let box = ctx.containerView
-        to.frame = ctx.finalFrame(for: toVC)
+        let toFrame = ctx.finalFrame(for: toVC)
+        to.frame = toFrame
         let height = box.bounds.height
-        switch (transition, opening) {
-        case (.modal, true):
-            box.addSubview(to)
-            to.transform = CGAffineTransform(translationX: 0, y: height)
-        case (.modal, false):
-            box.insertSubview(to, belowSubview: from)
-        case (.fade, _):
-            box.addSubview(to)
-            to.alpha = 0
-        default:
-            box.addSubview(to)
+        if flight != nil {
+            box.insertSubview(to, belowSubview: from)  // a pushed screen is drawn under the old one first (ZnSharedFlight)
+            to.layoutIfNeeded()
         }
-        let done = { (finished: Bool) in
-            to.transform = .identity
-            from.transform = .identity
-            to.alpha = 1
-            ctx.completeTransition(!ctx.transitionWasCancelled)
-        }
-        guard transition != .none else { return done(true) }
-        UIView.animate(withDuration: transitionDuration(using: ctx), delay: 0,
-                       usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [], animations: {
-            switch (self.transition, self.opening) {
-            case (.modal, true): to.transform = .identity
-            case (.modal, false): from.transform = CGAffineTransform(translationX: 0, y: height)
-            default: to.alpha = 1
+        let start = { [self] in
+            flight?.lift(in: box, toView: to, toFrame: toFrame)
+            switch (transition, opening) {
+            case (.modal, true):
+                box.insertSubview(to, aboveSubview: from)
+                to.transform = CGAffineTransform(translationX: 0, y: height)
+            case (.modal, false):
+                box.insertSubview(to, belowSubview: from)
+            case (.fade, _):
+                box.insertSubview(to, aboveSubview: from)
+                to.alpha = 0
+            default:
+                box.insertSubview(to, aboveSubview: from)
             }
-        }, completion: done)
+            let done = { (finished: Bool) in
+                to.transform = .identity
+                from.transform = .identity
+                to.alpha = 1
+                self.flight?.land()
+                ctx.completeTransition(!ctx.transitionWasCancelled)
+            }
+            guard transition != .none else { return done(true) }
+            UIView.animate(withDuration: transitionDuration(using: ctx), delay: 0,
+                           usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [], animations: {
+                switch (self.transition, self.opening) {
+                case (.modal, true): to.transform = .identity
+                case (.modal, false): from.transform = CGAffineTransform(translationX: 0, y: height)
+                default: to.alpha = 1
+                }
+                self.flight?.fly()
+            }, completion: done)
+        }
+        if flight?.waitsForLayout == true { DispatchQueue.main.async(execute: start) } else { start() }
     }
 }

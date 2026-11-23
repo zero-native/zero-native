@@ -1,6 +1,6 @@
 // `secure: true` routes on iOS, as android/runtime's ZnNavHost.kt SecureWindow (FLAG_SECURE). iOS can't refuse a
 // screenshot, so while a secure screen is drawn its content is left out of them instead:
-// - What is drawn: each secure screen's view carries a ZnDrawnMarker, which counts itself while it is in the window
+// - What is drawn: each screen's view carries a ZnDrawnMarker, which counts a secure one while it is in the window
 //   (Android's secureDrawn): from the frame the screen appears, through its exit or cover animation, until UIKit takes
 //   its view out of the window.
 // - Screenshots, screen recordings and mirroring (AirPlay, QuickTime): the window root's content sits inside a
@@ -141,11 +141,20 @@ final class ZnSecure {
     }
 }
 
-/// Counts its screen as drawn while it is in the window (Android's DisposableEffect on a secure NavEntry).
+/// Counts its screen as drawn while it is in the window: to ZnApp for every screen (Android's ZnNav.shown / hidden: a
+/// leaving screen's instances go once it has left), and to ZnSecure for a secure one (Android's DisposableEffect on a
+/// secure NavEntry).
 final class ZnDrawnMarker: UIView {
+    let entry: UInt32
+    let secure: Bool
+    /// ZnApp's runtime when the marker was made: an old root's screens report nothing to a new runtime.
+    private let generation: Int
     private var counted = false
 
-    init() {
+    init(entry: UInt32, secure: Bool) {
+        self.entry = entry
+        self.secure = secure
+        generation = ZnApp.shared.screensGeneration
         super.init(frame: .zero)
         isHidden = true
         isUserInteractionEnabled = false
@@ -160,7 +169,13 @@ final class ZnDrawnMarker: UIView {
         let inWindow = window != nil
         guard inWindow != counted else { return }
         counted = inWindow
-        if inWindow { ZnSecure.shared.markerEntered() } else { ZnSecure.shared.markerLeft() }
+        if inWindow {
+            ZnApp.shared.screenShown(entry, generation: generation)
+            if secure { ZnSecure.shared.markerEntered() }
+        } else {
+            if secure { ZnSecure.shared.markerLeft() }
+            ZnApp.shared.screenHidden(entry, generation: generation)
+        }
     }
 }
 
