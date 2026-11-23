@@ -407,6 +407,7 @@ brings its TSX screen along; ZeroBill opens the Swift one. The debug log's "does
 | `tools/fetch-hermes-apple.ts`, `fetch-lottie-apple.ts`, `fetch-firebase-apple.ts` | done | |
 | `tools/fetch-test-server.ts` (the simulator reaches localhost) | done | |
 | Layout conformance screen (`layoutLab`) | done | |
+| UI tests (XCUITest, `ios/SamplePackage/ZnSampleUITests`, `bun run ios:ui-test [--device <sim>] [--only Class/test] [--dump <route>]`) | done (simulator, 2026-11-24) | M | 25 tests by testID on ComponentsScreen, the Dev hub, A11yLab, RnPropsLab, InputScreen and Dynamic Type: switches, checkboxes, progress buttons, toasts, a sheet (open, grow, toast inside, drag closed), roles, labels, disabled, long press, hitSlop, typing in fields. 5.5 min cold (build, boot, run) on the iOS 26.3 simulator, two green cold runs in a row. They found and fixed: a toast out of the accessibility tree, a Switch inside a Pressable that pressed the row, a tappable Text read as two elements. Known: a burst of keys into a field that JS reformats can lose one (InputTests/testBurst, an expected failure). Not in CI yet. |
 | XCTest target (readers, routes, animation; plugin rules tests; OTA later) | missing | L |
 | Golden `.zn.ui` / batch files read by both test suites (i.0) | missing | M |
 | Startup / frame / tabs measurements (`measure-*.ps1`, `measure-tabs.ts`) | missing | M × 3 |

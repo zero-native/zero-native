@@ -38,3 +38,14 @@ Info.plist keys (`FirebaseAppDelegateProxyEnabled` off, `UIBackgroundModes` remo
 A Release build uploads its dSYM to Crashlytics ("Upload dSYMs to Crashlytics", Firebase's own `Crashlytics/run`
 script from the package checkout); it skips itself in Debug builds and when there is no
 `ios/Sample/GoogleService-Info.plist`, as on CI.
+
+`ZnSampleUITests/` is the sample's UI tests (XCUITest, in the shared scheme's Test action; a plain build leaves them
+out). They launch the app on one route (`ZN_ROUTE`) and find elements by `testID`, the accessibilityIdentifier:
+
+```bash
+bun run ios:ui-test --device "iPhone 17"
+```
+
+`--only ComponentsTests` (or `Class/testName`, repeatable) runs some; `--dump a11yLab --ready a11y-status` prints a
+route's accessibility tree, to write a new test; `--packages <dir>` keeps SwiftPM checkouts between CI runs. The
+simulator is booted for the run and shut down after, unless it was already on (or `--keep-booted`).
