@@ -65,7 +65,7 @@ keeping every lesson that applies.
     new component still runs on older apps. The same number is in the `.zn.ui` header.
   - `bytecode`: read from `main.hbc`'s header (must match the app exactly).
   - `hostApi`: `HOST_API_VERSION` of the bundled `@zeronative/core` (`packages/core/src/host-api.ts`; a test keeps
-    it equal to the C++ number).
+    it equal to the C++ number less its native-only steps, `NATIVE_ONLY_HOST_API`: 10).
   - `modules`: every `nativeModule("X", { version })` / `callNative("X", ..., { __v })` in the bundled code, with
     the highest version asked for, read from the source at build time. The name must be a string literal (else a
     build error). These are the modules needed on **both** OSes.
@@ -82,6 +82,29 @@ keeping every lesson that applies.
   from step 4.4, by the server. **Safety net:** the phone also reads the bundle's templates while choosing it and
   refuses any id it doesn't know (unknown component, prop, enum value, event, or a slot on a prop that can't change
   at runtime in this app). A mistake in `requires` costs one refused update, never a wrong screen.
+- **Motion on older iOS apps** (2026-11-24, motion-ota-gate). An iOS app with host API 9 or less registers a stub as
+  `Motion` v1: no engine, every call answers "unavailable". On such an app a bundle that uses motion runs but nothing
+  moves: bindings stay at their first value, gestures never fire, element values read 0. A `to` / `decay` /
+  `sequence` / `snapTo` / `zoomTo` waits forever with an older core; a core from 2026-11-24 on treats "unavailable" as
+  done at once. The module check alone lets such a bundle through. A bundle "uses motion" when it requires
+  `Motion`: an app or plugin file imports a `GATED_CORE_MODULES` name (`compiler/src/modules.ts`), and core's own
+  imports don't count. So:
+  - From host API 10 every iOS app has the engine (`ZnMotionModule`, the same functions as Android's; `tools/test/
+    motion-coverage.test.ts` fails otherwise). 10 is a native-only step: the app says it, but bundles still need 9
+    (`NATIVE_ONLY_HOST_API` in `packages/core/src/host-api.ts`), so every app at 9 keeps getting bundles. Android
+    says 10 too once rebuilt, and always had the engine.
+  - The update server refuses the bundle (INCOMPATIBLE, "uses Motion; this iOS app ... has only the Motion stub") for
+    a check with `os: "ios"` and `hostApi` below 10, when `requires.modules` or `requires.os.ios` has `Motion`. The
+    rule is `missing()` in `tools/ota/decide.ts` (`IOS_MOTION_HOST_API`), which `tools/ota/server.ts`, `server/`
+    and the dashboard's "can run" view use. The phone keeps what it runs, and bundles without motion still reach it.
+    The phone's own check (ZnOtaRules.swift) has no such row: an iOS app new enough to run it has the engine.
+  - An app's own update backend that ports `decide.ts` must port this row too. A backend that can't should publish
+    motion bundles for those builds on a channel they don't read.
+  - An iOS app built before 2026-11-10 sends no `os` and counts as Android, so the row can't see it. Check that none
+    of those shipped.
+  - ZeroBill: every ZeroBill bundle requires `Motion` (`@zeronative/image-viewer`'s TSX screen imports `useZoom`). So
+    ZeroBill iOS builds below host API 10 get no new bundles. They need the App Store update; a store rule can ask for
+    it.
 - **Registry changes are checked by machine:** `packages/template/registry.lock.json` keeps the last accepted
   registry. The registry test (and `bun run gen:registry`, which then refuses to write) fails if anything is removed,
   renumbered or retyped, if something new isn't in `Added` with the new `REGISTRY_VERSION`, or if a `since` goes
@@ -162,7 +185,7 @@ answers it. No `store` in the request = none in the answer, and the OTA part is 
 | 5 | the install's bucket (SHA-256 of app, channel, install id; 0–99, stable) ≥ rollout % | NONE `NOT_IN_ROLLOUT` |
 | 6 | the store lacks the named bundle | NONE `MISSING_BUNDLE` |
 | 7 | the APK's built-in serial ≥ the bundle's | BUILT_IN `APK_NEWER` (NONE if already on it) |
-| 8 | the app can't run it (same rule as `ZnCapabilities.kt`) | NONE `INCOMPATIBLE` + what it lacks |
+| 8 | the app can't run it (same rule as `ZnCapabilities.kt`, plus: no motion bundle for an iOS app below host API 10, §3.2) | NONE `INCOMPATIBLE` + what it lacks |
 | 9 | the phone keeps the bundle | USE_LOCAL `KEPT` (a rollback downloads nothing) |
 | 10 | otherwise | UPDATE `NEW_BUNDLE` |
 | 11 | (applied last, step 4.6) rows 3, 7, 9 or 10 gave a change, but the phone already has this pointer's seq | NONE `ALREADY_DONE` |

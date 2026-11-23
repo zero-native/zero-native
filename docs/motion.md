@@ -2,7 +2,7 @@
 
 zero-native's version of react-native-gesture-handler + Reanimated + worklets, built our own way. The plan and its
 decisions are in `docs/gestures-and-motion-v1.md` (D1–D10). This file is the reference: the model, every API, and the
-do / don't / why. Android is built (registry 24); iOS ports it next (see "iOS port" at the end).
+do / don't / why. Android is built (registry 24); iOS has it too (see "iOS port" at the end).
 
 Code: `packages/core/src/motion.ts` (JS), `compiler/src/motion.ts` (derive), `android/runtime/.../ZnMotion.kt`
 (values, animations), `ZnFormula.kt` (derive), `ZnGesture.kt` (gestures), `ZnMotionUi.kt` (element values, corners,
@@ -248,7 +248,17 @@ Everything here needs registry 24 and the `Motion` module (version 1): an app fi
 stretch presets raise the bundle's registry need through the `transition.depth` format. Plugin sources and drivers
 are gated by their plugin's module version.
 
+iOS (2026-11-24): the engine is `Motion` v1 in every build, with Android's functions (a test,
+`tools/test/motion-coverage.test.ts`, fails when Android registers one iOS lacks, or a plugin's driver). iOS apps
+below host API 10 had a stub of the same name and number that answered every call "unavailable": the update server
+sends them no bundle that requires `Motion` (docs/ota.md §3.2, "Motion on older iOS apps"). If one gets there anyway,
+core (from 2026-11-24) treats an unavailable `to` / `decay` / `sequence` / `snapTo` / `zoomTo` as done at once.
+`ZN_MOTION_ENGINE=0` (environment, Debug builds only) swaps the engine for that stub, to compare a screen's cost.
+
 ## 14. iOS port (for the iOS session)
+
+Done (2026-11-24; docs/milestones-ios.md "Gestures and motion"). The notes below are the port's plan, kept for the
+reasons.
 
 Same JSON from JS; port in this order: values + timings (CADisplayLink), env values (keyboard frame notifications),
 formulas (port ZnFormula.kt op for op: same opcodes, `x / 0 = 0`, JS Math.round), bindings (CALayer properties or
