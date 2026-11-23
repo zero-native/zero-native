@@ -18,6 +18,7 @@
 //   ZN_NO_PREPARE    1: no ZnApp.prepare at launch, as an app that doesn't call it (ZeroBill): a task starts JS (debug)
 //   ZN_BGTASK_MS     how long the background task's lab.wait runs (default 3000; e.g. 60000 to see iOS end it) (debug)
 //   ZN_MEDIA_FAKE_CAMERA  1: Media.takePhoto answers with a drawn photo where there is no camera (the simulator) (debug)
+//   ZN_FETCH_LOG     1: log what a fetch observer hears as each call ends (the Perf plugin's network traces) (debug)
 import UIKit
 import notify
 #if canImport(ZnRuntime)  // an app on the Swift package; the CMake build compiles everything into the app
@@ -54,6 +55,16 @@ final class ZnAppDelegate: UIResponder, UIApplicationDelegate {
         // Plugins first, before the bundle runs (docs/plugins.md). PerfPlugin before the other Firebase plugins (it sets
         // Firebase's own hooks before Firebase starts) and before the first fetch (its network traces watch core's fetch).
         ZnPlugins.register(PerfPlugin())
+        #if DEBUG
+        if env["ZN_FETCH_LOG"] == "1" {  // what Perf's network traces hear: the code, sizes, type and JS's error
+            ZnFetch.addObserver { start in
+                let url = "\(start.method) \(start.url.path)"
+                return { end in
+                    print("zn-sample: fetch \(url): status \(end.status.map(String.init) ?? "none"), sent \(end.requestBytes.map(String.init) ?? "-"), got \(end.responseBytes.map(String.init) ?? "-"), type \(end.contentType ?? "-"), error \(end.error ?? "none")")
+                }
+            }
+        }
+        #endif
         ZnPlugins.register(DeviceTestPlugin(), ScannerPlugin(), MediaPlugin(), AuthPlugin(), DeviceInfoPlugin(), LocationPlugin(), FirebaseAppPlugin(), CrashlyticsPlugin(), AnalyticsPlugin(), LottiePlugin(), PdfPlugin(), WebViewPlugin(), ImageViewerPlugin(), DocumentScannerPlugin(), AppUpdatesPlugin(), NotificationsPlugin(), FirebaseMessagingPlugin())
         ZnPlugins.register(RemoteConfigPlugin())  // its own line, as android/sample's SampleApp.kt
         _ = env
