@@ -1011,6 +1011,8 @@ struct ZnCollectionList: UIViewRepresentable {
         c.horizontal = s.horizontal
         let cfg = UICollectionViewCompositionalLayoutConfiguration()
         if s.horizontal { cfg.scrollDirection = .horizontal }
+        // Rows are laid out in the whole list, not in its safe area (the layout's default): see below.
+        cfg.contentInsetsReference = .none
         let layout = ZnStickyLayout(sectionProvider: { [weak c] index, _ in
             MainActor.assumeIsolated { c?.section(index) }
         }, configuration: cfg)
@@ -1021,6 +1023,9 @@ struct ZnCollectionList: UIViewRepresentable {
         cv.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "extra")
         cv.dataSource = c
         cv.delegate = c
+        // No safe-area insets of its own, as Compose's lazy lists and a <Scroll>: the screen's safeArea decides (a
+        // vertical list under the status bar with safeArea "none" starts under it, as on Android).
+        cv.contentInsetAdjustmentBehavior = .never
         // A sideways list shows no scroll bar, as Compose's LazyRow.
         if s.horizontal { cv.showsHorizontalScrollIndicator = false }
         // inverted (RN): row 0 at the bottom, growing upwards (a chat). The list is flipped and each cell flipped back.
@@ -1301,6 +1306,7 @@ struct ZnCollectionList: UIViewRepresentable {
             let group = horizontal ? NSCollectionLayoutGroup.horizontal(layoutSize: size, subitems: [item])
                 : NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [item])
             let section = NSCollectionLayoutSection(group: group)
+            section.contentInsetsReference = .none  // the whole list, not its safe area (makeUIView)
             section.interGroupSpacing = gap
             section.contentInsets = horizontal
                 ? NSDirectionalEdgeInsets(top: pad.top, leading: gapBefore, bottom: pad.bottom, trailing: 0)
@@ -1321,22 +1327,25 @@ struct ZnCollectionList: UIViewRepresentable {
             let grid = part == .rows && shape.cols > 1
             let cell = cv.dequeueReusableCell(withReuseIdentifier: part != .rows ? "extra" : grid ? "line" : "row", for: ip)
             if let ctx, let list, let s {
+                // Each cell ignores the safe area: one under the status bar or the home bar (safeArea "none") is drawn
+                // whole, as Android's (a hosted cell's SwiftUI keeps out of it by itself: the TSX image viewer's pages
+                // sat 12 pt low).
                 let (box, horizontal, align, cols) = (envBox, horizontal, s.alignItems, shape.cols)
                 if part != .rows {
                     let box = extraEnvBox
                     cell.contentConfiguration = UIHostingConfiguration {
-                        ZnHostedEnvView(box: box) { ZnListExtraView(ctx: ctx, list: list, part: part, horizontal: horizontal, alignItems: align) }
+                        ZnHostedEnvView(box: box) { ZnListExtraView(ctx: ctx, list: list, part: part, horizontal: horizontal, alignItems: align) }.ignoresSafeArea()
                     }.margins(.all, 0)
                 } else if grid {
                     // The line's first row key, not its index: UIKit keeps this cell when rows are added or removed
                     // above it, so an index would draw the wrong rows.
                     let (first, wrapper) = (rows[safe: ip.item * cols]?.key ?? "", s.columnWrapper)
                     cell.contentConfiguration = UIHostingConfiguration {
-                        ZnHostedEnvView(box: box) { ZnGridLineView(ctx: ctx, list: list, first: first, cols: cols, wrapper: wrapper) }
+                        ZnHostedEnvView(box: box) { ZnGridLineView(ctx: ctx, list: list, first: first, cols: cols, wrapper: wrapper) }.ignoresSafeArea()
                     }.margins(.all, 0)
                 } else if let row = rows[safe: ip.item] {
                     cell.contentConfiguration = UIHostingConfiguration {
-                        ZnHostedEnvView(box: box) { ZnListRowView(ctx: ctx, list: list, row: row, horizontal: horizontal, alignItems: align) }
+                        ZnHostedEnvView(box: box) { ZnListRowView(ctx: ctx, list: list, row: row, horizontal: horizontal, alignItems: align) }.ignoresSafeArea()
                     }.margins(.all, 0)
                 }
             }
