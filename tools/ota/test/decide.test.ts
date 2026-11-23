@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Manifest, Pointer } from "../core"
-import { decide, missing, rolloutBucket, type CheckRequest } from "../decide"
+import { decide, missing, phoneOs, rolloutBucket, type CheckRequest } from "../decide"
+import { parseCheck } from "../server"
 import { BUILT_IN } from "../signing"
 
 const caps = { registry: 8, bytecode: 99, hostApi: 2, hostApiOldest: 1, modules: { Fetch: 1, Device: 2 } }
@@ -132,6 +133,18 @@ describe("rules underneath", () => {
     // Through the decision: the phone stays on what it runs.
     const d = decide(req({ capabilities: ios9 }), pointer(1, "sample_11"), bundle(11, motion))
     expect(d).toMatchObject({ action: "NONE", reason: "INCOMPATIBLE" })
+    // An iOS build that sends store.os but no capabilities.os (2026-11-10) is iOS too.
+    const early = req({ capabilities: noOs, store: { os: "ios", version: "1.0" } })
+    expect(phoneOs(early)).toBe("ios")
+    expect(decide(early, pointer(1, "sample_11"), bundle(11, motion))).toMatchObject({ action: "NONE", reason: "INCOMPATIBLE" })
+    expect(phoneOs(req({ capabilities: noOs, store: { os: "android", version: 170 } }))).toBeUndefined()
+    expect(phoneOs(req({ capabilities: { ...noOs, os: "android" }, store: { os: "ios", version: "1.0" } }))).toBe("android")
+    // The server's parser keeps that OS even when it drops a store version in the wrong shape.
+    const body = { ...req({ capabilities: { ...noOs } }), store: { os: "ios", version: "1.0 beta" } }
+    const parsed = parseCheck(JSON.parse(JSON.stringify(body)))
+    expect(parsed.store).toBeUndefined()
+    expect(parsed.capabilities.os).toBe("ios")
+    expect(parseCheck(JSON.parse(JSON.stringify(req({ capabilities: { ...noOs } })))).capabilities.os).toBeUndefined()
   })
 
   test("rollout buckets are stable and spread evenly; raising the rollout only adds installs", () => {

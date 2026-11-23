@@ -70,6 +70,9 @@ export function parseCheck(body: unknown): CheckRequest {
   check(typeof c.modules === "object" && c.modules !== null && Object.entries(c.modules).every(([k, v]) => isId(k, 64) && isCount(v)), "capabilities.modules")
   // The phone's OS (docs/ota-requires-per-os.md §4): absent from apps built before it, all Android
   check(c.os === undefined || c.os === "android" || c.os === "ios", "capabilities.os")
+  // An iOS build from 2026-11-10 that sends `store.os` but not `capabilities.os` is iOS all the same (decide.ts
+  // phoneOs), even when its store version is in a shape parseStore drops.
+  if (c.os === undefined && (r.store as Record<string, unknown> | null | undefined)?.os === "ios") c.os = "ios"
   const running = r.running as Record<string, unknown> | null
   check(running === null || (running && isId(running.id) && isId(running.sha256)), "running")
   const builtIn = r.builtIn as Record<string, unknown> | undefined

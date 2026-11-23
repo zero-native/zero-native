@@ -671,12 +671,17 @@ export async function storeBuilds(db: Db, app: string) {
 export function familiesView(builds: Awaited<ReturnType<typeof storeBuilds>>, all: BundleRow[]) {
   const by = new Map<string, typeof builds>()
   for (const b of builds) if (b.family) by.set(b.family, [...(by.get(b.family) ?? []), b])
-  return [...by.entries()].map(([family, list]) => ({
-    family,
-    capabilities: list[0]!.capabilities!,
-    builds: list.map((b) => ({ label: b.label, os: b.os, channel: b.channel, versionCode: b.versionCode, versionName: b.versionName, builtinSerial: b.builtinSerial })),
-    canRun: Object.fromEntries(all.map((b) => [b.id, missing(list[0]!.capabilities!, b.manifest.requires)])),
-  }))
+  return [...by.entries()].map(([family, list]) => {
+    const caps = list[0]!.capabilities!
+    // Capabilities learned from an iOS build that sent no `os` (2026-11-10, decide.ts phoneOs): the store builds' OS says it.
+    const os = caps.os ?? (list.every((b) => b.os === "ios") ? "ios" : undefined)
+    return {
+      family,
+      capabilities: caps,
+      builds: list.map((b) => ({ label: b.label, os: b.os, channel: b.channel, versionCode: b.versionCode, versionName: b.versionName, builtinSerial: b.builtinSerial })),
+      canRun: Object.fromEntries(all.map((b) => [b.id, missing({ ...caps, os }, b.manifest.requires)])),
+    }
+  })
 }
 
 const learned = new Set<string>()

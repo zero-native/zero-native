@@ -88,7 +88,8 @@ export interface Decision {
 
 /**
  * Why an app with [caps] can't run a bundle that needs [req], or null if it can: the modules for both OSes and those for
- * the phone's own OS (docs/ota-requires-per-os.md §4). Same rule as ZnCapabilities.kt and ZnOtaRules.swift.
+ * the phone's own OS (docs/ota-requires-per-os.md §4). Same rule as ZnCapabilities.kt and ZnOtaRules.swift, plus one
+ * row only the server has: no motion bundle for an iOS app below host API 10 (IOS_MOTION_HOST_API).
  */
 export function missing(caps: Capabilities, req: BundleRequires): string | null {
   if (req.registry > caps.registry) return `needs registry v${req.registry}, app has v${caps.registry}`
@@ -114,6 +115,15 @@ export function missing(caps: Capabilities, req: BundleRequires): string | null 
  * apps"). Android always had the engine.
  */
 export const IOS_MOTION_HOST_API = 10
+
+/**
+ * The phone's OS: `capabilities.os`, or else the store field's. iOS sent `store: {os: "ios"}` from its first OTA check
+ * (2026-11-10 01:20) and `capabilities.os` only from 17:58 that day, so an iOS build between the two is still seen as
+ * iOS. No OS at all: Android.
+ */
+export function phoneOs(req: Pick<CheckRequest, "capabilities" | "store">): BundleOs | undefined {
+  return req.capabilities.os ?? (req.store?.os === "ios" ? "ios" : undefined)
+}
 
 /**
  * The install's rollout bucket, 0–99: stable for an install and channel, so raising the rollout only adds installs
@@ -157,7 +167,7 @@ function decideRow(req: CheckRequest, pointer: Pointer | null, target: Manifest 
     // The APK carries this bundle or a newer one: run that (a phone already on it has nothing to do).
     return withPointer({ action: req.running === null ? "NONE" : "BUILT_IN", reason: "APK_NEWER" })
   }
-  const lacks = missing(req.capabilities, target.requires)
+  const lacks = missing({ ...req.capabilities, os: phoneOs(req) }, target.requires)
   if (lacks) return { action: "NONE", reason: "INCOMPATIBLE", detail: lacks }
   if (req.kept.includes(target.id)) return withPointer({ action: "USE_LOCAL", reason: "KEPT", bundle: target })
   return withPointer({ action: "UPDATE", reason: "NEW_BUNDLE", bundle: target })
