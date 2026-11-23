@@ -25,8 +25,8 @@
 // - Patches as Android (docs/ota-patches.md §6): the check lists znbsdiff1, and an UPDATE with a patch from the running,
 //   a kept or the built-in bundle downloads the small patch zip and builds the bundle from it (ZnBsPatch.swift,
 //   ZnOtaInstall.buildFromPatch); any failure falls back to the full zip in the same check (outcome patch_failed).
-// - Not yet (plan steps 5, 7): applying an update while the app runs (applyNow answers "not_started"), the launch
-//   gate, rollback in place: a rollback makes the good bundle current and it runs from the next start.
+// - Applying an update while the app runs (applyNow), the launch gate (ZnOtaGate) and rolling back in place work as
+//   on Android (ZnOta.kt applyNow / swap).
 import UIKit
 #if SWIFT_PACKAGE
 import ZnHost
@@ -1045,6 +1045,7 @@ public final class ZnOta: @unchecked Sendable {
             for n in ["patch.part", "patch.json"] { try? fm.removeItem(at: ota.appendingPathComponent(n)) }
         }
         let why: String
+        var downloading = false  // after checkSpace: a no_space now has written files, which go
         do {
             let format = patch["format"] as? String ?? ""
             if format != ZnBsPatch.format { throw ZnOtaError("patch", "unknown patch format \"\(format)\"") }
@@ -1055,19 +1056,27 @@ public final class ZnOta: @unchecked Sendable {
             if size <= 0 { throw ZnOtaError("patch", "bad patch size \(size)") }
             let base = try patchBase(builtIn, from, fromSha)
             try checkSpace(m, name: "patch", sha: sha, size: size)  // no_space: thrown on (the full zip needs more)
+            downloading = true
             let file = try download(c, url, sha, size, "the patch for \(m.id)", name: "patch", checkedBy: "the check's patch sha256")
             setPhase("installing")
             try? fm.removeItem(at: tmp)
             try ZnOtaInstall.buildFromPatch(patchZip: file, manifest: m, fromId: from, fromSha256: fromSha, base: base, dest: staged)
             return "patch from \(from), \(Self.kb(size))"
+        } catch let e as ZnOtaError where e.code == "no_space" && !downloading {
+            throw e  // checkSpace said no: nothing written yet; a cut patch download stays for the next check
+        } catch let e as ZnOtaError where e.code == "no_space" {
+            // The phone filled up while the patch downloaded (ZnOtaDownload says no_space; Android: an IOException).
+            dropPatchFiles()
+            throw ZnOtaError("no_space", "the phone ran out of space while building \(m.id) from a patch; its files were removed (\(e.message))")
         } catch let e as ZnOtaError {
-            if e.code == "no_space" { throw e }  // nothing written yet; a cut patch download stays for the next check
             why = "\(e.code): \(e.message)"
         } catch where Self.isNoSpace(error) {
             dropPatchFiles()
-            throw ZnOtaError("no_space", "the phone ran out of space while building \(m.id) from a patch; its files were removed")
+            throw ZnOtaError("no_space", "the phone ran out of space while building \(m.id) from a patch; its files were removed (\((error as NSError).localizedDescription))")
         } catch {
-            why = "\(error)"
+            // Android sends "SimpleName: message"; an NSError's own text is long (its whole userInfo).
+            let n = error as NSError
+            why = "\(n.domain) \(n.code): \(n.localizedDescription)"
         }
         dropPatchFiles()
         print("zn-ota: the patch for \(m.id) from \(from) failed, downloading the full zip: \(why)")

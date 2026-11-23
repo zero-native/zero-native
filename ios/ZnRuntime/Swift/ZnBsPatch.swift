@@ -80,7 +80,7 @@ enum ZnBsPatch {
                     if lo < hi {
                         let from = old.baseAddress!.advanced(by: Int(lo)).assumingMemoryBound(to: UInt8.self)
                         let into = to.advanced(by: Int(lo - oldPos))
-                        for i in 0..<Int(hi - lo) { into[i] = into[i] &+ from[i] }
+                        addBytes(into, from, Int(hi - lo))
                     }
                 }
                 diffAt += add
@@ -116,4 +116,21 @@ enum ZnBsPatch {
     }
 
     private static func bad(_ why: String) -> ZnOtaError { ZnOtaError("patch", why) }
+
+    /// into[i] = into[i] + from[i] (wrapping) for [count] bytes, 16 at a time: a byte loop takes ~170 ms for 1.6 MB in
+    /// a Debug (-Onone) build, this ~2 ms.
+    private static func addBytes(_ into: UnsafeMutablePointer<UInt8>, _ from: UnsafePointer<UInt8>, _ count: Int) {
+        let to = UnsafeMutableRawPointer(into)
+        let add = UnsafeRawPointer(from)
+        var i = 0
+        while i + 16 <= count {
+            let sum = to.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self) &+ add.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+            to.storeBytes(of: sum, toByteOffset: i, as: SIMD16<UInt8>.self)
+            i += 16
+        }
+        while i < count {
+            into[i] = into[i] &+ from[i]
+            i += 1
+        }
+    }
 }
