@@ -38,6 +38,7 @@ struct ZnEntryScreen: View {
             // The entry: impressions, shared elements and List cells count under it (ZnEnv.swift).
             ZnScreenView(ctx: ctx, root: root)
                 .environment(\.znEntry, entry)
+                .environment(\.znSeeThrough, seeThrough)
                 .ignoresSafeArea(.container, edges: unsafeEdges(route))
                 .background(ZnBarStrips(entry: entry, base: background ?? (seeThrough ? .clear : .white)))
                 .ignoresSafeArea(.keyboard, edges: route?.resizeForKeyboard == false ? .bottom : [])

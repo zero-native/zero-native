@@ -10,7 +10,9 @@
 // - Where the see-through screen has nothing to tap, touches reach the screen below, as on Android (Compose gives a
 //   touch to the topmost node with pointer input; a Box with only a background takes none). Pressables, Scrolls,
 //   fields, tappable Text, Switch / Checkbox and plugin views take their touches (ZnSeeThroughHolder); a backdrop or a
-//   card's empty part lets them through, as on Android. A screen showing the error screen takes them all. SwiftUI-only
+//   card's empty part lets them through, as on Android. An absolute layer that stops taps (one with a background or
+//   children, or pointerEvents "auto" / "box-only": Android's znBlockTouches) takes them, even at opacity 0, as Compose
+//   doesn't skip a node for its alpha. A screen showing the error screen takes them all. SwiftUI-only
 //   taps let them through too: a plugin's SwiftUI Button, and every Pressable under ZN_IOS_PRESS=swiftui.
 // - The screens below don't get viewWillDisappear / viewDidDisappear when a see-through screen opens over them (they
 //   are still on screen, as Android keeps them composed).
@@ -252,7 +254,13 @@ final class ZnSeeThroughHolder: UIView {
     }
 }
 
-/// The Switches and Checkboxes that take taps (enabled, with onValueChange), for a see-through screen's holder only:
+extension EnvironmentValues {
+    /// Drawn in a see-through screen (ZnEntryScreen): boxes that stop taps put a ZnSeeThroughTapMarker under them.
+    @Entry var znSeeThrough = false
+}
+
+/// The Switches and Checkboxes that take taps (enabled, with onValueChange), and the boxes that stop taps (znStopsTaps:
+/// an absolute layer, pointerEvents "auto" / "box-only"), for a see-through screen's holder only:
 /// SwiftUI taps them, so the holder can't find a UIKit view there. (Not ZnFieldFocus's boxes: a Pressable around a
 /// field leaves the touch to it, but on Android a Pressable around a Switch still gets the tap.)
 @MainActor

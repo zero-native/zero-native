@@ -564,6 +564,7 @@ struct ZnPaintLayers: ViewModifier {
     let inst: ZnInstance
     let motion: ZnMotion?
     @Environment(\.znTouchOff) private var touchOff
+    @Environment(\.znSeeThrough) private var seeThrough
 
     func body(content: Content) -> some View {
         #if DEBUG
@@ -592,7 +593,10 @@ struct ZnPaintLayers: ViewModifier {
             .background {
                 // pointerEvents "auto" / "box-only", or an absolute layer without pointerEvents: the box stops taps
                 // here, so a Pressable under it gets none, as a React Native view (ZnTouch.kt znBlockTouches).
-                if znStopsTaps(s, inst, touchOff: touchOff) { Color.clear.contentShape(shape) }
+                // In a see-through screen its holder only finds UIKit views, so a marker tells it the box stops taps.
+                if znStopsTaps(s, inst, touchOff: touchOff) {
+                    Color.clear.contentShape(shape).background { if seeThrough { ZnSeeThroughTapMarker() } }
+                }
             }
             // Inside the layer: a gesture's touch area and the element's box move, scale and turn with the node.
             .modifier(ZnGestureModifier(s: s, inst: inst))
