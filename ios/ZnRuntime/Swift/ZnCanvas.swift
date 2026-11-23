@@ -14,12 +14,14 @@
 //   on for the next list. Nothing is drawn while loading or after an error (one warning; not tried again while the
 //   lists keep that picture). Loads stop when no list uses them any more or the canvas leaves.
 // - Motion values in commands (gesture-driven charts, a ring that springs, a path that draws itself: CanvasLab tiles
-//   9-11) are found once per list and read in draw(_:), inside withObservationTracking: a value the last draw read
-//   that moves (its ZnCell, an @Observable) marks this view for a draw, so it redraws on that frame with no JS, no
-//   SwiftUI update and no new parse, as Android's drawBehind. A canvas with no motion values tracks nothing. One out of
-//   the window (a screen pushed over it) isn't drawn, and draws once when it's back; one only scrolled out of sight
-//   still draws each frame, as on Android (CanvasLab tile 19: about 0.1-0.2 ms a frame on the CPU). A value not made
-//   yet when the list was read: read again once sources arrive (ZnMotionEngine.generation).
+//   9-11) are found once per list and read in draw(_:), watched with Observation (ZnCanvasWatch, one watch at a time
+//   per view): a value of the list that moves (its ZnCell, an @Observable) marks this view for a draw, so it redraws
+//   on that frame with no JS, no SwiftUI update and no new parse, as Android's drawBehind. A canvas with no motion
+//   values tracks nothing. One out of the window (a screen pushed over it) isn't drawn, and draws once when it's back;
+//   one only scrolled out of sight still draws each frame, as on Android (CanvasLab tile 19: about 0.1-0.2 ms a frame
+//   on the CPU). A value not made yet when the list was read: read again once sources arrive
+//   (ZnMotionEngine.generation). Sources are found once per list, as Android: JS ids only go up, and a reload or an
+//   OTA applied in place builds a new tree (ZnApp.restart), so a list never holds a source another took the id of.
 // - ZN_CANVAS_TIMING=1 prints how long moving canvases take to draw, every 120 draws.
 import SwiftUI
 import UIKit
@@ -78,7 +80,7 @@ final class ZnCanvasModel {
         self.raw = raw
         self.scale = scale
         let px = scale > 0 ? scale : 1
-        let s = UIScreen.main.bounds.size
+        let s = (view?.window?.windowScene?.screen ?? UIScreen.main).bounds.size
         parsed = znParseCanvasCommands(raw, density: 1, pixels: px, screen: max(s.width, s.height) * px)
         missedAt = parsed.missed ? ZnMotionEngine.shared.generation.n : -1
         report(parsed)
@@ -217,37 +219,16 @@ struct ZnCanvasSurface: UIViewRepresentable {
     let minW: CGFloat, minH: CGFloat
 
     final class View: UIView {
-        var commands = ZnCanvasCommands.empty {
-            didSet { if commands !== oldValue { tracked += 1 } }
-        }
-        /// Goes up with each new list: a change seen by the tracking of an older one is dropped.
-        private var tracked = 0
+        var commands = ZnCanvasCommands.empty
+        /// The motion values of a moving list: when one moves, this view draws again on that frame.
+        private lazy var watch = ZnCanvasWatch { [weak self] in self?.setNeedsDisplay() }
 
         override func draw(_ rect: CGRect) {
             guard !commands.ops.isEmpty, let cg = UIGraphicsGetCurrentContext() else { return }
             let c = commands
-            guard c.moving else {
-                znDrawCanvas(cg, c, size: bounds.size)
-                return
-            }
-            // The motion values this draw reads: when one changes, draw again (on the frame it changed).
-            let t0 = ZnCanvasTiming.on ? CFAbsoluteTimeGetCurrent() : 0
-            let seen = tracked
-            withObservationTracking {
-                znDrawCanvas(cg, c, size: bounds.size)
-            } onChange: { [weak self] in
-                // Motion values move on the main thread (in the frame clock's tick): the draw lands on that frame.
-                if Thread.isMainThread {
-                    MainActor.assumeIsolated { self?.moved(seen) }
-                } else {
-                    DispatchQueue.main.async { self?.moved(seen) }
-                }
-            }
-            if ZnCanvasTiming.on { ZnCanvasTiming.add(CFAbsoluteTimeGetCurrent() - t0, bounds.size, contentScaleFactor) }
-        }
-
-        private func moved(_ seen: Int) {
-            if tracked == seen { setNeedsDisplay() }
+            let t0 = ZnCanvasTiming.on && c.moving ? CFAbsoluteTimeGetCurrent() : 0
+            watch.draw(c) { znDrawCanvas(cg, c, size: bounds.size) }
+            if t0 > 0 { ZnCanvasTiming.add(CFAbsoluteTimeGetCurrent() - t0, bounds.size, contentScaleFactor) }
         }
     }
 

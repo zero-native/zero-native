@@ -16,6 +16,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 import ImageIO
+import Observation
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -33,6 +34,65 @@ func znDrawCanvas(_ cg: CGContext, _ c: ZnCanvasCommands, size: CGSize, base: CG
     d.run(c.ops)
     if c.needsLayer { cg.endTransparencyLayer() }
     cg.restoreGState()
+}
+
+/// Watches the motion values a moving list reads (ZnCanvas.swift's view), one watch at a time: a draw starts one only
+/// when none is on for the list's sources. Observation drops a watch only when something it read changes, so one per
+/// draw would pile up on values that sit still (a chart whose list comes every 500 ms while its cursor rests), then all
+/// fire on the finger's first frame; Compose's draw observer replaces the last draw's reads instead. A watch reads every
+/// source of the list, not only what that draw reached, so the draws that don't start one miss nothing. Main thread.
+final class ZnCanvasWatch: @unchecked Sendable {  // main thread only (its onChange hops there)
+    /// Called on the main thread, once per watch, when a value it reads is about to change.
+    private let moved: () -> Void
+    /// Goes up each time a watch starts or stops: a change heard by an older one is dropped.
+    private var tracked = 0
+    private var armed = false
+    private var watching: [ObjectIdentifier] = []
+    /// Watches started (the Mac tests count them).
+    private(set) var started = 0
+
+    init(_ moved: @escaping () -> Void) { self.moved = moved }
+
+    /// Runs [draw] for [c], inside a new watch when [c] moves and none is on for its sources.
+    func draw(_ c: ZnCanvasCommands, _ draw: () -> Void) {
+        guard c.moving else {
+            if armed { stop() }
+            return draw()
+        }
+        let ids = c.sources.map(ObjectIdentifier.init)
+        if armed && ids == watching { return draw() }
+        tracked += 1
+        started += 1
+        armed = true
+        watching = ids
+        let seen = tracked
+        withObservationTracking {
+            for src in c.sources {
+                if src.isColor { _ = src.readColor(nil) } else { _ = src.read(nil) }
+            }
+            draw()
+        } onChange: { [weak self] in
+            // Motion values move on the main thread (in the frame clock's tick): the draw lands on that frame.
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.heard(seen) }
+            } else {
+                DispatchQueue.main.async { self?.heard(seen) }
+            }
+        }
+    }
+
+    private func heard(_ seen: Int) {
+        guard tracked == seen else { return }
+        armed = false
+        moved()
+    }
+
+    /// The list no longer moves: the watch still on is ignored when it fires.
+    private func stop() {
+        tracked += 1
+        armed = false
+        watching = []
+    }
 }
 
 private func znCanvasCGColor(_ argb: UInt32, alpha: CGFloat = 1) -> CGColor {
@@ -289,6 +349,10 @@ private struct ZnCanvasDrawer {
         if let dash = p.dash { cg.setLineDash(phase: 0, lengths: dash) }
     }
 
+    /// How far a stroke of [p] reaches past its path: a miter tip up to the limit (4) × half the width, else the width
+    /// (round and square caps and joins reach half of it).
+    private func strokeReach(_ p: ZnCanvasPaint) -> CGFloat { p.join == .miter ? 2 * p.width() : p.width() }
+
     /// One shape with its paint: colour or gradient, fill or stroke, opacity, blend mode, shadow and blur.
     private func shape(_ path: CGPath, _ p: ZnCanvasPaint, line: Bool = false) {
         let stroke = p.isStroke || line
@@ -373,7 +437,7 @@ private struct ZnCanvasDrawer {
         // Skia's sigma for radius r (BlurMaskFilter's radius, in this space, so a scale makes it softer) in pixels:
         // 0.57735·r + 0.5, as the solid blur above.
         let sigma = 0.57735 * p.blur * u + 0.5
-        let reach = stroke ? p.width() : 0
+        let reach = stroke ? strokeReach(p) : 0
         let margin = ceil(3 * sigma) + 1
         let box = path.boundingBox.insetBy(dx: -reach, dy: -reach).applying(m).insetBy(dx: -margin, dy: -margin)
         // Only what can show: the clip (a view's dirty rect at least), plus what blurs into it.
@@ -418,7 +482,7 @@ private struct ZnCanvasDrawer {
     private func shadowOnly(_ path: CGPath, _ p: ZnCanvasPaint, stroke: Bool, color: UInt32, dx: CGFloat, dy: CGFloat, radius: CGFloat) {
         let m = cg.ctm.concatenating(base.inverted())  // user space to base space
         let (o, b) = shadowNow(dx, dy, radius)
-        let reach = stroke ? p.width() : 0
+        let reach = stroke ? strokeReach(p) : 0
         let shapeBox = path.boundingBox.insetBy(dx: -reach, dy: -reach).applying(m)
         let shown = CGRect(origin: .zero, size: size).applying(start)
         guard shapeBox.minX.isFinite, shapeBox.maxX.isFinite, shown.minX.isFinite else { return }

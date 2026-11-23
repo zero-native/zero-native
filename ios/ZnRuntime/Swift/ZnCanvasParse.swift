@@ -38,8 +38,6 @@ struct ZnCanvasNum: Equatable {
         return CGFloat(src.read(nil)) * scale
     }
 
-    /// The value now, for sizes worked out once (an image's decode size).
-    func initial() -> CGFloat { value }
     static func of(_ v: CGFloat) -> ZnCanvasNum { ZnCanvasNum(const: v) }
 
     static func == (a: ZnCanvasNum, b: ZnCanvasNum) -> Bool { a.const == b.const && a.src === b.src && a.scale == b.scale }
@@ -360,11 +358,13 @@ final class ZnCanvasCommands {
     /// Some motion value wasn't there when the list was read (not made yet, or disposed with nothing kept): the list
     /// is read again once more sources arrive (ZnMotionEngine.generation).
     let missed: Bool
+    /// The motion sources the list reads, each once: the canvas watches these (ZnCanvas.swift).
+    let sources: [ZnSource]
 
     init(_ ops: [ZnCanvasOp], _ errors: [String], needsLayer: Bool = false, density: CGFloat = 1, moving: Bool = false,
-         missed: Bool = false) {
+         missed: Bool = false, sources: [ZnSource] = []) {
         self.ops = ops; self.errors = errors; self.needsLayer = needsLayer; self.density = density
-        self.moving = moving; self.missed = missed
+        self.moving = moving || !sources.isEmpty; self.missed = missed; self.sources = sources
     }
 
     static let empty = ZnCanvasCommands([], [])
@@ -452,6 +452,8 @@ private struct ZnCanvasParser {
     let screen: CGFloat
     private var moving = false
     private var missed = false
+    private var sources: [ZnSource] = []
+    private var seen = Set<ObjectIdentifier>()
 
     init(d: CGFloat, pixels: CGFloat, screen: CGFloat) {
         self.d = d
@@ -498,7 +500,14 @@ private struct ZnCanvasParser {
             }
         }
         if errorCount > errors.count { errors.append("and \(errorCount - errors.count) more") }
-        return ZnCanvasCommands(ops, errors, needsLayer: blends, density: d, moving: moving, missed: missed)
+        return ZnCanvasCommands(ops, errors, needsLayer: blends, density: d, moving: moving, missed: missed,
+                                 sources: sources)
+    }
+
+    /// [src] is read by this list: kept once.
+    private mutating func follows(_ src: ZnSource) {
+        moving = true
+        if seen.insert(ObjectIdentifier(src)).inserted { sources.append(src) }
     }
 
     private mutating func command(_ o: [String: Any]) throws -> ZnCanvasOp {
@@ -698,8 +707,9 @@ private struct ZnCanvasParser {
         // read may be 1 px, and a decode at that would stay blurry as it grows. The decode never blows a small
         // picture up (znCanvasDecode).
         let moves = w.src != nil || h.src != nil
-        let dw = Int(min(max(moves ? screen : w.initial() * pixels, 1), 4096))
-        let dh = Int(min(max(moves ? screen : h.initial() * pixels, 1), 4096))
+        // Constants only: a source is never read here (this runs in the SwiftUI body, which would then follow it).
+        let dw = Int(min(max(moves ? screen : w.const * pixels, 1), 4096))
+        let dh = Int(min(max(moves ? screen : h.const * pixels, 1), 4096))
         return ZnCanvasOp.Image(src, x, y, w, h, fit, radius, opacity, dw, dh)
     }
 
@@ -886,7 +896,7 @@ private struct ZnCanvasParser {
                 error("\(key) follows a number, not a colour (use v.mapColor(...)); black is used")
                 return .black
             }
-            moving = true
+            follows(src)
             return ZnCanvasColor(argb: 0xFF00_0000, src: src)
         }
         return ZnCanvasColor(argb: colorValue(v, key))
@@ -932,7 +942,7 @@ private struct ZnCanvasParser {
                 error("\"\(key)\" follows motion value \(s.dropFirst(motionRef.count)), which is gone; 0 is used")
                 return ZnCanvasNum(const: 0, scale: scale)
             }
-            moving = true
+            follows(src)
             return ZnCanvasNum(const: 0, src: src, scale: scale)
         }
         guard let n = jsonNumber(v) else {

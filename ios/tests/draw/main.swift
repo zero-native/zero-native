@@ -927,6 +927,76 @@ do {  // blur radius is in the canvas's space: scale(2) blurs twice as far; a 3�
     ok("gradient blur spreads as the solid one", abs(solid - one) <= 2, "\(solid) \(one)")
 }
 
+do {  // ZnCanvasWatch (the view's redraw): one watch at a time, however often it draws while its values sit still
+    let x = try! engine.putValue(5208, 10)
+    let other = try! engine.putValue(5209, 0)
+    defer { engine.dispose(5208); engine.dispose(5209) }
+    let heard = Counter()
+    let watch = ZnCanvasWatch { heard.n += 1 }
+    func list(_ w: Int) -> ZnCanvasCommands {
+        parse(#"[{"type": "rect", "x": "\u0000m5208", "y": 0, "w": \#(w), "h": 10, "paint": {"color": \#(BLACK)}}]"#)
+    }
+    let a = list(10)
+    check("list sources", a.sources.map(\.id), [5208])
+    var drew = 0
+    for _ in 0..<100 { watch.draw(a) { drew += 1 } }
+    check("100 draws, all run", drew, 100)
+    check("100 draws, one watch", watch.started, 1)
+    // A new list (a chart's every 500 ms) that reads the same values keeps the watch.
+    for w in 0..<50 { watch.draw(list(11 + w)) {} }
+    check("new lists, same values: still one watch", watch.started, 1)
+    x.value = 20
+    check("one change: heard once", heard.n, 1)
+    x.value = 30
+    check("before the next draw: not again", heard.n, 1)
+    watch.draw(a) {}
+    check("the next draw watches again", watch.started, 2)
+    x.value = 40
+    check("and hears the next change", heard.n, 2)
+    // A list with other values: a new watch, and the old one's change is dropped.
+    watch.draw(a) {}
+    let b = parse(#"[{"type": "rect", "x": "\u0000m5209", "y": 0, "w": 10, "h": 10, "paint": {"color": \#(BLACK)}}]"#)
+    watch.draw(b) {}
+    check("other values: a new watch", watch.started, 4)
+    x.value = 50
+    check("the old list's value: dropped", heard.n, 2)
+    other.value = 1
+    check("the new list's value: heard", heard.n, 3)
+    // A list that stops moving: the watch still on is ignored.
+    watch.draw(a) {}
+    watch.draw(list(10)) {}
+    watch.draw(parse(#"[{"type": "rect", "x": 0, "y": 0, "w": 10, "h": 10}]"#)) {}
+    x.value = 60
+    check("a still list: nothing heard", heard.n, 3)
+    // Every source of the list is watched, not only what the draw read.
+    let c = parse(#"[{"type": "rect", "x": "\u0000m5208", "y": "\u0000m5209", "w": 10, "h": 10, "paint": {"color": \#(BLACK)}}]"#)
+    watch.draw(c) {}  // reads nothing itself
+    other.value = 2
+    check("a source the draw didn't reach: heard", heard.n, 4)
+}
+
+do {  // a blurred stroked gradient keeps its miter tips (they reach past the stroke's width before the blur)
+    // A V of 20-wide strokes, apex at y 60: the miter tip reaches about 35 above it (y 25), past the width (20).
+    let v = Bitmap(#"[{"type": "path", "d": "M38 100 L50 60 L62 100", "paint": {"style": "stroke", "strokeWidth": 20, "linearGradient": {"x0": 0, "y0": 0, "x1": 100, "y1": 0, "colors": [\#(RED), \#(BLUE)]}, "blur": 0.5}}]"#)
+    ok("miter tip drawn", v.alpha(50, 33) > 200, "\(v.alpha(50, 33))")
+    ok("miter tip ends near its point", v.alpha(50, 21) < 60, "\(v.alpha(50, 21))")
+}
+
+do {  // a blurred vertical gradient stays the right way up (red at the top, y down as UIKit)
+    let g = Bitmap(#"[{"type": "rect", "x": 20, "y": 10, "w": 60, "h": 80, "paint": {"linearGradient": {"x0": 0, "y0": 10, "x1": 0, "y1": 90, "colors": [\#(RED), \#(BLUE)]}, "blur": 4}}]"#)
+    let top = g.at(50, 20), bottom = g.at(50, 80)
+    ok("blurred vertical gradient: red at the top", top.r > 150 && top.r > top.b + 100, "\(top)")
+    ok("blurred vertical gradient: blue at the bottom", bottom.b > 150 && bottom.b > bottom.r + 100, "\(bottom)")
+    // Its shape too: soft at the top edge, sharp nowhere, nothing far above.
+    ok("blurred vertical gradient soft at its top", g.alpha(50, 10) > 50 && g.alpha(50, 10) < 200, "\(g.alpha(50, 10))")
+    check("nothing far above", g.alpha(50, 0), 0)
+    // The same with a turn of 90° (device y from user x): red still where the gradient starts.
+    let t = Bitmap(#"[{"type": "rotate", "degrees": 90, "px": 50, "py": 50}, {"type": "rect", "x": 10, "y": 30, "w": 80, "h": 40, "paint": {"linearGradient": {"x0": 10, "y0": 0, "x1": 90, "y1": 0, "colors": [\#(RED), \#(BLUE)]}, "blur": 3}}]"#)
+    let t1 = t.at(50, 20), t2 = t.at(50, 80)
+    ok("turned blurred gradient: red at the top", t1.r > t1.b + 100, "\(t1)")
+    ok("turned blurred gradient: blue at the bottom", t2.b > t2.r + 100, "\(t2)")
+}
+
 do {  // per-frame cost of a moving canvas (tiles 10 and 11 at 3×), on this Mac: printed, with a loose bound
     let v = try! engine.putValue(5207, 0)
     defer { engine.dispose(5207) }
