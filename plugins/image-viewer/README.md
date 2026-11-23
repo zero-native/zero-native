@@ -175,6 +175,6 @@ adb shell am broadcast -a dev.zeronative.imageviewer.DEBUG_GESTURE --es kind pin
 
 ## Not built
 
-iOS (the TSX screen needs only the `imageviewer.page` view there: `docs/motion.md` §14). Video. Share or save. Zoom
+On iOS, pinch and double tap in the TSX screen (the `imageviewer.page` view is there; useZoom is not yet). Video. Share or save. Zoom
 kept across a turn of the screen (it goes back to fit; the picture stays). The TSX screen's overlay is fixed today
 (close and count); an app can copy `ImageViewerScreen.tsx` to change it.
