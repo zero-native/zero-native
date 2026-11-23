@@ -257,7 +257,7 @@ struct ZnTextLinkPress: ViewModifier {
 
 /// A tappable Text reads as a button; VoiceOver's double tap sends onPress, and a "Long press" action (only on a Text
 /// with onLongPress) sends onLongPress. Another accessibilityRole ("link", "none", ...) takes the button and the static
-/// text off, as a Pressable's (ZnPressA11y; Android keeps Role.Button): ZnA11y adds the role's own trait (a "link" read
+/// text off, as a Pressable's (ZnPressA11y; Android keeps Role.Button, A50): ZnA11y adds the role's own trait (a "link" read
 /// as a link, not a text with a link trait: UI tests find it in app.links, as a Pressable's).
 struct ZnTextButtonA11y: ViewModifier {
     let ctx: ZnContext

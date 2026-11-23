@@ -6,7 +6,13 @@ final class DumpTests: ZnUITestCase {
     func testDump() throws {
         let env = ProcessInfo.processInfo.environment
         guard let route = env["ZN_UI_DUMP_ROUTE"], !route.isEmpty else { throw XCTSkip("no ZN_UI_DUMP_ROUTE") }
-        launch(route, ready: env["ZN_UI_DUMP_READY"] ?? "")
+        if let ready = env["ZN_UI_DUMP_READY"], !ready.isEmpty {
+            launch(route, ready: ready)
+        } else {
+            // No id to wait for: give the first JS batch a moment to draw.
+            launch(route, until: { self.app.windows.firstMatch })
+            sleep(3)
+        }
         dump()
     }
 }

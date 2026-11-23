@@ -37,10 +37,6 @@ private struct ZnToggleTap: ViewModifier {
             }
             // Its frame while it takes taps: a see-through screen takes the tap here (ZnSeeThroughHolder).
             .background(ZnSeeThroughTapMarker(off: touchOff || disabled || s.onValueChange == 0))
-            // And a box a Pressable around it leaves to it (ZnTouchControl.hitTest), as Android's innermost clickable:
-            // in a tappable row the row took the tap and the Switch never turned (found by the UI tests, 2026-11-24).
-            .background(ZnFieldBoxMarker(key: "toggle:" + ZnFieldFocus.key(inst, s.index),
-                                         off: touchOff || disabled || s.onValueChange == 0))
             .accessibilityElement()
             .accessibilityAddTraits(trait)
             .accessibilityValue(on ? "1" : "0")

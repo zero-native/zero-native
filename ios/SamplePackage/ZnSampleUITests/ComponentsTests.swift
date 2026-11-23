@@ -144,10 +144,13 @@ final class ComponentsTests: ZnUITestCase {
 
 /// Opening a screen from the Dev hub and going back (nav.push / nav.back).
 final class NavigationTests: ZnUITestCase {
+    private var componentsEntry: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Components & a11y")).firstMatch
+    }
+
     func testOpenComponentsAndBack() {
-        launch("dev", ready: "")
-        let entry = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Components & a11y")).firstMatch
-        XCTAssertTrue(appears(entry, timeout: 30), "no Components entry on the Dev screen")
+        launch("dev", until: { self.componentsEntry })
+        let entry = componentsEntry
         reveal(entry).tap()
         XCTAssertTrue(appears(id("comp-title"), timeout: 5), "Components didn't open")
         id("comp-back").tap()

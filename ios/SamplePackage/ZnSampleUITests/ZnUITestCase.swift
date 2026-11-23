@@ -20,14 +20,22 @@ class ZnUITestCase: XCTestCase {
     @discardableResult
     func launch(_ route: String, params: String? = nil, arguments: [String] = [], ready: String,
                 file: StaticString = #filePath, line: UInt = #line) -> XCUIApplication {
+        launch(route, params: params, arguments: arguments, until: { self.id(ready) }, file: file, line: line)
+    }
+
+    /// Starts the sample on [route] and waits until the element [until] gives (found once the app runs) is on
+    /// screen, for a screen whose first element has no testID (a field found by its placeholder, a hub row by its label).
+    @discardableResult
+    func launch(_ route: String, params: String? = nil, arguments: [String] = [], until: () -> XCUIElement,
+                file: StaticString = #filePath, line: UInt = #line) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZN_ROUTE"] = route
         if let params { app.launchEnvironment["ZN_PARAMS"] = params }
         app.launchArguments += arguments
         app.launch()
         self.app = app
-        if ready.isEmpty { sleep(3); return app }  // DumpTests with no id to wait for
-        XCTAssertTrue(appears(id(ready), timeout: 30), "\(route): no \"\(ready)\" after 30 s", file: file, line: line)
+        let ready = until()
+        XCTAssertTrue(appears(ready, timeout: 30), "\(route): no \(ready) after 30 s", file: file, line: line)
         return app
     }
 
@@ -89,8 +97,8 @@ class ZnUITestCase: XCTestCase {
     /// (it began on a nested scroll or a carousel) is tried again in the right gutter, then near the left edge. (A
     /// fast swipeUp() scrolled nothing in the RN props lab, 2026-11-24.) A lazy list's row that doesn't exist yet:
     /// swipes up until it does.
-    @discardableResult
     /// [hittable] false: on screen is enough (a multiline field reads as not hittable: tap its coordinate).
+    @discardableResult
     func reveal(_ element: XCUIElement, hittable: Bool = true, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         let window = app.windows.firstMatch.frame
         var swipes = 0

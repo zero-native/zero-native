@@ -22,6 +22,8 @@ final class RnPropsLabTests: ZnUITestCase {
 
     func testTextPressAndLongPress() {
         let tile = reveal(id("text-press-tile"))
+        // One element: the testID isn't also on an empty element around the text.
+        XCTAssertEqual(count("text-press-tile"), 1)
         tile.tap()
         status("text tapped")
         tile.press(forDuration: 1.0)
@@ -76,9 +78,8 @@ final class InputTests: ZnUITestCase {
     }
 
     private func openAmount() -> XCUIElement {
-        launch("input", ready: "")
+        launch("input", until: { self.field("₹0") })
         let amount = field("₹0")
-        XCTAssertTrue(appears(amount, timeout: 30), "no amount field")
         amount.tap()
         return amount
     }
@@ -108,5 +109,7 @@ final class InputTests: ZnUITestCase {
             let o = XCTExpectedFailure.Options(); o.isStrict = false; return o
         }())
         waitValue(amount, "12,34,567", timeout: 3)
+        // Non-strict, so it passes either way: the log says which (docs/milestones-ios.md section 11, "Known").
+        print("ZN-BURST: the amount field shows \(String(describing: amount.value))")
     }
 }
