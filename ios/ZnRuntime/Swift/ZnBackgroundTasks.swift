@@ -117,22 +117,27 @@ public enum ZnBackgroundTasks {
             print("zn: background task \(id): \(why)")
             complete(ok)
         }
+        var handle: ZnTasks.Handle?
         onExpire {
-            DispatchQueue.main.async {
+            // At once: iOS wants the task ended when its time is up (launch handlers run on .main, so this is too).
+            let end = {
                 guard !finished else { return }
                 print("zn: background task \(id): iOS ends its time; JS task \(jsTask) is aborted")
-                ZnTasks.shared.expire(named: jsTask)  // its answer (timed_out) ends the BGTask
-                DispatchQueue.main.async { finish(false, "ended by iOS") }  // and if nothing was open, at once
+                if let handle { ZnTasks.shared.expire(handle) }  // only this run; its answer (timed_out) ends the BGTask
+                finish(false, "ended by iOS")  // and if it had ended already, or wasn't queued yet
             }
+            if Thread.isMainThread { end() } else { DispatchQueue.main.async(execute: end) }
         }
         // The BGTask is the background time: ZnTasks holds none of its own.
-        ZnTasks.shared.run(jsTask, handler.data, timeoutMs: handler.timeoutMs, holdsBackgroundTime: false) { outcome in
+        handle = ZnTasks.shared.run(jsTask, handler.data, timeoutMs: handler.timeoutMs, holdsBackgroundTime: false) { outcome in
             finish(outcome == .done, "JS task \(jsTask): \(outcome.rawValue)")
         }
     }
 
-    /// From the first register on: launching ends (UIApplication's notification comes after didFinishLaunching returns).
-    @MainActor private static func watchLaunch() {
+    /// Launching ends (UIApplication's notification comes after didFinishLaunching returns). From the first of
+    /// ZnPlugins.register, ZnApp.prepare and register, so a register after a background launch (no scene, so the scene
+    /// check can't tell) is caught too, in an app that calls either at launch, as every zn app does.
+    @MainActor static func watchLaunch() {
         guard !watching else { return }
         watching = true
         NotificationCenter.default.addObserver(forName: UIApplication.didFinishLaunchingNotification, object: nil, queue: .main) { _ in

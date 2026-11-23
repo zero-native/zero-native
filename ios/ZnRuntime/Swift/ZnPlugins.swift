@@ -140,6 +140,7 @@ public enum ZnPlugins {
     fileprivate(set) static var views: [String: ZnViewContent] = [:]
 
     public static func register(_ plugins: ZnPlugin...) {
+        ZnBackgroundTasks.watchLaunch()  // a BGTask registered after launch ends the app: notice when launching ends
         for plugin in plugins {
             let r = ZnPluginRegistry()
             plugin.register(r)

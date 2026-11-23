@@ -311,6 +311,7 @@ public final class ZnApp {
             #if DEBUG
             ZnDev.shared.start()  // `zn dev` live reload (debug builds; Android starts it in ZnRuntime)
             #endif
+            ZnBackgroundTasks.watchLaunch()  // when launching ends (a BGTask registered after it ends the app)
             // The first time the app is in front with its screens (getInitialNotification, tapMayHaveOpenedApp).
             NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { ZnApp.shared.noteFront() }

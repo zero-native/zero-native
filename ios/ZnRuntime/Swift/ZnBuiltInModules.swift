@@ -367,15 +367,20 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
     /// if it waited, as on Android. A kept task still runs once JS is up (this process or the next start), and one JS
     /// is already running goes on to its own [timeoutMs]. [holdsBackgroundTime] false: the caller keeps the app awake
     /// itself. JS starts now if nothing started it yet (ZnApp.prepare). Any thread.
+    /// It returns this task's handle, for expire(_:).
+    @discardableResult
     public func run(_ name: String, _ data: Any? = nil, timeoutMs: Int = 30_000, keep: Bool = false, answerByMs: Int? = nil,
-                    holdsBackgroundTime: Bool = true, onDone: @escaping (Outcome) -> Void = { _ in }) {
+                    holdsBackgroundTime: Bool = true, onDone: @escaping (Outcome) -> Void = { _ in }) -> Handle {
         let answerAt = answerByMs.map { DispatchTime.now() + .milliseconds(max(0, $0)) }  // from now, not from the main thread's turn
+        let handle = Handle()
         DispatchQueue.main.async {
             let keptId = keep ? self.saveKept(name, data, timeoutMs) : nil
             var task = Task(name: name, data: data, timeoutMs: timeoutMs, keptId: keptId, onDone: onDone)
             task.holds = holdsBackgroundTime
             let id = self.enqueue(task)
+            handle.id = id
             if let answerAt, let ms = answerByMs { self.answerBy(id, at: answerAt, ms: ms) }
+            if handle.expireAsked { self.expire(id, why: "the caller's background time ended") }  // before it was queued
             MainActor.assumeIsolated {
                 // An app that doesn't call ZnApp.prepare at launch: a plugin's wake (a push, a button) starts JS here.
                 // Once per process: a restart (an update applied in place) brings its own runtime up.
@@ -385,6 +390,7 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
                 }
             }
         }
+        return handle
     }
 
     @discardableResult private func enqueue(_ task: Task) -> String {
@@ -441,12 +447,22 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
 
     private func answerByPassed(_ id: String, _ ms: Int) { expire(id, why: "within \(ms) ms") }
 
-    /// A caller with its own background time (a BGTask, ZnBackgroundTasks) whose time ends: its open tasks named [name]
-    /// (run with holdsBackgroundTime false) are answered now, as at their answer-by time. Any thread.
-    public func expire(named name: String) {
-        DispatchQueue.main.async {
-            for (id, t) in self.tasks where t.name == name && !t.holds && t.keptId == nil { self.expire(id, why: "the caller's background time ended") }
+    /// One run() call's task, for expire(_:).
+    public final class Handle: @unchecked Sendable {
+        // Main thread: the task's id once run() queued it, and whether expire came first.
+        fileprivate var id: String?
+        fileprivate var expireAsked = false
+    }
+
+    /// A caller with its own background time (a BGTask, ZnBackgroundTasks) whose time ends: the task of [handle] is
+    /// answered now, as at its answer-by time (aborted if JS runs it, dropped if it waits, answered and kept if kept).
+    /// Only that task: another run of the same JS task goes on. On the main thread it is answered before this returns.
+    public func expire(_ handle: Handle) {
+        let go = {
+            guard let id = handle.id else { handle.expireAsked = true; return }  // run() hasn't queued it yet
+            self.expire(id, why: "the caller's background time ended")
         }
+        if Thread.isMainThread { go() } else { DispatchQueue.main.async(execute: go) }
     }
 
     /// Task [id] must be answered now ([why]: its answer-by time, or iOS ended the background time).
