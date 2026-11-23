@@ -293,7 +293,7 @@ manifest must not claim what it can't draw.
 | Storage (JS) | done | C++ core + MMKV. |
 | Storage native API (`ZnStorage` for app / plugin code) | done | `ZNStorage` (ZNHost.mm): string, number, boolean, bytes, `storedType`, has, remove, keys, clear, flush, in JS's format; Swift `ZnStorage.store(id)` (ZnStorage.swift). Mac test `zn_znstorage_tests` (run-core-tests-apple). /dev/storage 9 / 9 on the iOS simulator (2026-11-22: the test plugin's storageEcho / storageHammer). |
 | WebSocket (1) | done | `ZnWebSocket.swift` on URLSessionWebSocketTask; lab `/dev/websocket` 28 / 28 (iOS simulator; not run on Android yet); differences in docs/fetch.md §8. |
-| Updates (3) | done | Real OTA (ZnOta.swift, Phase 4a); `ZnUpdatesOff` answers only while OTA isn't configured. ZNBSDIFF1 patches as Android since 2026-11-22 (W3-F, docs/ota-patches.md §6): any patch failure falls back to the full zip in the same check (`patch_failed`). |
+| Updates (3) | done | Real OTA (ZnOta.swift, Phase 4a); `ZnUpdatesOff` answers only while OTA isn't configured. Full bundles only, no patches. |
 | Tasks (1) | done | `ZnTasks` (2026-11-22, W2-C): JS starts with no window (`ZnApp.prepare` at launch, or `ZnTasks.run` starts it), so a plugin's task runs in a background launch; UIApplication background time is held while a task waits or runs. BGTask bridge still to do (§8). |
 
 ---
