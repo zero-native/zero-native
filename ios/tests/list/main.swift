@@ -156,6 +156,16 @@ check("remove above the screen", znListUpdates(abc, ["b", "c", "d", "e", "f"])!.
 check("remove the first shown", znListUpdates(abc, ["a", "b", "d", "e", "f"])!.onlyBefore(2), false)
 check("move from below to the top", znListUpdates(abc, ["f", "a", "b", "c", "d", "e"])!.onlyBefore(2), false)
 
+// The SwiftUI list's sections for pinned rows.
+func runs(_ sticky: [Int], _ n: Int) -> String {
+    let r = znStickyRuns(sticky, rows: n)
+    return "\(r.lead) " + r.sections.map { "\($0.pinned):\($0.rows.lowerBound)-\($0.rows.upperBound)" }.joined(separator: " ")
+}
+check("no pinned rows", runs([], 30), "30 ")
+check("pinned 0, 10, 20", runs([0, 10, 20], 30), "0 0:1-10 10:11-20 20:21-30")
+check("rows before the first pinned", runs([3, 4], 8), "3 3:4-4 4:5-8")
+check("pinned past the rows left out", runs([2, 40], 10), "2 2:3-10")
+
 // Drag to reorder (Android's ZnReorder): the order shown after a drop stays until JS's rows change; a second without
 // an answer → back to JS's order.
 var wait = ZnReorderWait()

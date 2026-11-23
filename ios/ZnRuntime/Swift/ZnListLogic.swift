@@ -193,6 +193,26 @@ func znClampOffset(_ v: Double, before: Double, content: Double, viewport: Doubl
     return min(max(v, lo), hi)
 }
 
+/// A pinned row (stickyHeaderIndices) and the rows after it up to the next pinned one: one section of the SwiftUI
+/// list, whose header SwiftUI pins.
+struct ZnStickyRun: Equatable {
+    let pinned: Int
+    let rows: Range<Int>
+}
+
+/// The SwiftUI list's sections for pinned rows [sticky] (sorted, from znParseSticky) in [rows] rows: [lead] rows before
+/// the first pinned one, then one run per pinned row inside the rows.
+func znStickyRuns(_ sticky: [Int], rows: Int) -> (lead: Int, sections: [ZnStickyRun]) {
+    let pins = sticky.filter { $0 >= 0 && $0 < rows }
+    guard let first = pins.first else { return (rows, []) }
+    var out: [ZnStickyRun] = []
+    for (k, p) in pins.enumerated() {
+        let next = k + 1 < pins.count ? pins[k + 1] : rows
+        out.append(ZnStickyRun(pinned: p, rows: (p + 1)..<next))
+    }
+    return (first, out)
+}
+
 // MARK: - Item animation (itemAnimation, reorderable)
 
 /// One move in a list update: the item at [from] (before) goes to [to] (after).

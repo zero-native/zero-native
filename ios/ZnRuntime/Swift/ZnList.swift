@@ -15,6 +15,7 @@
 // one section per part (ZnListPart).
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct ZnListRow: Equatable {
     let key: String
@@ -255,8 +256,20 @@ final class ZnVisibleRows {
     var shown = Set<String>()
     /// onEndReached was sent while the list had this many rows.
     var endSentAt = -1
-    /// The props this variant doesn't draw were named once.
-    var told = false
+    /// The first row key seen (an inverted list follows a new newest row, as Android's FollowNewestRow).
+    var firstKey: String?
+}
+
+/// The SwiftUI list's drag to reorder (ZnListReorder.swift's rules): the order shown while dragging and after a drop
+/// until JS answers (nil: JS's rows), the row being dragged.
+@MainActor
+@Observable
+final class ZnLazyReorder {
+    var shown: [ZnListRow]?
+    @ObservationIgnored var dragging: String?
+    @ObservationIgnored var wait = ZnReorderWait()
+    @ObservationIgnored var timer: DispatchWorkItem?
+    @ObservationIgnored let tick = UISelectionFeedbackGenerator()
 }
 
 struct ZnLazyList: View {
@@ -272,81 +285,126 @@ struct ZnLazyList: View {
     let padding: EdgeInsets
     let element: ZnElementMotion?
     let follow: ZnSource?
+    /// Pinned rows (stickyHeaderIndices), pull to refresh's `refreshing`, the snap rules' text: read in the parent body.
     let sticky: [Int]
     let refreshing: Bool
     let snap: String?
     @State private var visible = ZnVisibleRows()
-    /// useElementMotion: the scroll view (found by a probe in the stack) and the items' places.
+    /// The scroll view (found by a probe in the stack): useElementMotion, pull to refresh, snapping, scroll events and
+    /// offsets, as a <Scroll>'s (ZnScroll.swift).
     @StateObject private var scroll = ZnScrollDriver()
     @State private var values = ZnLazyListElement()
+    @State private var reorder = ZnLazyReorder()
 
     private var shape: ZnListShape {
         ZnListShape(header: header != nil, empty: empty != nil, rows: list.rows.count, footer: footer != nil, cols: cols)
     }
 
+    /// Drag to reorder: a plain column or row with no pinned rows (as the UIKit list and Android).
+    private var canReorder: Bool { s.reorderable && sticky.isEmpty && cols == 1 }
+    /// Flipped (row 0 at the bottom): vertical only, as the UIKit list.
+    private var inverted: Bool { s.inverted && !s.horizontal }
+    /// The scroll view is needed: fixed per template, so the probe never comes and goes.
+    private var needsScrollView: Bool {
+        s.motionSlot >= 0 || s.hasRefresh || s.listUsesScrollDriver || s.scrollCommandSlot >= 0 || s.inverted
+    }
+
     var body: some View {
-        let rows = list.rows
+        // The rows shown: JS's, or the order a drag made until JS answers (reorder).
+        let rows = canReorder ? (reorder.shown ?? list.rows) : list.rows
         let lineKeys = znLineKeys(rows.map(\.key), cols: cols)
         let _ = values.bind(horizontal: s.horizontal, total: shape.total,
                             flat: { [shape] id in item(id).map { shape.flat($0.part, $0.item) } },
                             id: { [shape] i in shape.item(i).flatMap { itemId($0, lineKeys) } })
+        let keyboard = ZnKeyboardDismiss.of(s.keyboardDismissMode, vertical: !s.horizontal)
+        // itemAnimation (a reorderable list's rows glide by default, as Android's "move").
+        let animation = s.itemAnimation.flatMap { ["fade", "move"].contains($0) ? $0 : nil } ?? (canReorder ? "move" : nil)
         ScrollViewReader { proxy in
             let _ = values.proxy = proxy
             ScrollView(s.horizontal ? .horizontal : .vertical, showsIndicators: !s.horizontal) {
                 Group {
                     if s.horizontal {
                         LazyHStack(alignment: znRowAlignment(s.alignItems).vertical, spacing: s.gap) {
-                            items(rows, lineKeys)
+                            items(rows, lineKeys, animation)
                         }
                     } else {
-                        LazyVStack(spacing: s.gap) {
-                            items(rows, lineKeys)
+                        LazyVStack(spacing: s.gap, pinnedViews: sticky.isEmpty ? [] : [.sectionHeaders]) {
+                            items(rows, lineKeys, animation)
                         }
                     }
                 }
+                .animation(animation == nil ? nil : .spring(duration: 0.35, bounce: 0), value: lineKeys)
                 .coordinateSpace(.named(ZnLazyListElement.space))
-                .background { if element != nil { ZnScrollFinder(driver: scroll) } }
+                .background { if needsScrollView { ZnScrollFinder(driver: scroll) } }
                 .padding(padding)
+                // A drop between rows or past them lands where the drag has put the row.
+                .modifier(ZnLazyDropArea(on: canReorder, list: self))
             }
+            .modifier(ZnFlip(on: inverted))
+            .scrollDismissesKeyboard(keyboard == .onDrag ? .immediately : keyboard == .interactive ? .interactively : .never)
+            .modifier(ZnLazySnap(on: s.hasSnap, driver: scroll))
+            .environment(\.znReorderRow, canReorder)
             .onAppear {
-                tellUnsupported()
                 values.set(element, scroll)  // back on screen: its readers and follow again
                 values.follower.set(element == nil ? nil : follow)
             }
+            .onChange(of: ZnLazyDriven(refreshing: refreshing, snap: snap), initial: true) { _, now in drive(now) }
             .onChange(of: command, initial: true) { _, text in run(text, proxy, lineKeys) }
             .onChange(of: element.map(ObjectIdentifier.init), initial: true) { values.set(element, scroll) }
             .onChange(of: follow.map(ObjectIdentifier.init), initial: true) { values.follower.set(element == nil ? nil : follow) }
+            .onChange(of: list.version) { jsRowsChanged() }
+            .onChange(of: rows.first?.key) { _, first in followNewest(first, proxy) }
             .onDisappear { values.set(nil, scroll) }
         }
     }
 
     @ViewBuilder
-    private func items(_ rows: [ZnListRow], _ lineKeys: [String]) -> some View {
+    private func items(_ rows: [ZnListRow], _ lineKeys: [String], _ animation: String?) -> some View {
         if header != nil {
             ZnListExtraView(ctx: ctx, list: list, part: .header, horizontal: s.horizontal, alignItems: s.alignItems)
-                .id("__zn_header").modifier(seen("__zn_header"))
+                .modifier(ZnFlip(on: inverted)).id("__zn_header").modifier(seen("__zn_header"))
         }
         if rows.isEmpty, empty != nil {
             ZnListExtraView(ctx: ctx, list: list, part: .empty, horizontal: s.horizontal, alignItems: s.alignItems)
-                .id("__zn_empty").modifier(seen("__zn_empty"))
+                .modifier(ZnFlip(on: inverted)).id("__zn_empty").modifier(seen("__zn_empty"))
         }
         // Identified by key (a grid line by its line key), so a new numColumns builds new lines rather than keeping
         // the old ones at the same places (seen 2026-11-21: lines of 2 left in a 3-column grid).
         if cols > 1 {
             ForEach(Array(lineKeys.enumerated()), id: \.element) { g, key in
                 ZnGridLineView(ctx: ctx, list: list, first: rows[safe: g * cols]?.key ?? "", cols: cols, wrapper: s.columnWrapper)
-                    .id(key).modifier(seen(key))
+                    .modifier(ZnFlip(on: inverted)).id(key).modifier(seen(key))
+                    .transition(animation == "fade" ? .opacity : .identity)
             }
+        } else if sticky.isEmpty || s.horizontal {
+            ForEach(rows, id: \.key) { row in rowView(row, animation) }
         } else {
-            ForEach(rows, id: \.key) { row in
-                ZnListRowView(ctx: ctx, list: list, row: row, horizontal: s.horizontal, alignItems: s.alignItems)
-                    .id(row.key).modifier(seen(row.key))
+            // Pinned rows (RN stickyHeaderIndices): each pinned row heads a section of the rows up to the next one, and
+            // SwiftUI pins a section's header at the top until the next header pushes it up (Compose's stickyHeader).
+            let runs = znStickyRuns(sticky, rows: rows.count)
+            ForEach(rows[0..<runs.lead], id: \.key) { row in rowView(row, animation) }
+            ForEach(runs.sections, id: \.pinned) { sec in
+                if let head = rows[safe: sec.pinned] {
+                    Section {
+                        ForEach(rows[sec.rows], id: \.key) { row in rowView(row, animation) }
+                    } header: {
+                        rowView(head, nil)
+                    }
+                }
             }
         }
         if footer != nil {
             ZnListExtraView(ctx: ctx, list: list, part: .footer, horizontal: s.horizontal, alignItems: s.alignItems)
-                .id("__zn_footer").modifier(seen("__zn_footer"))
+                .modifier(ZnFlip(on: inverted)).id("__zn_footer").modifier(seen("__zn_footer"))
         }
+    }
+
+    private func rowView(_ row: ZnListRow, _ animation: String?) -> some View {
+        ZnListRowView(ctx: ctx, list: list, row: row, horizontal: s.horizontal, alignItems: s.alignItems)
+            .modifier(ZnFlip(on: inverted))
+            .id(row.key).modifier(seen(row.key))
+            .transition(animation == "fade" ? .opacity : .identity)
+            .modifier(ZnLazyDrag(on: canReorder, key: row.key, list: self))
     }
 
     private func seen(_ id: String) -> ZnSeen {
@@ -375,7 +433,8 @@ struct ZnLazyList: View {
         let items = visible.shown.compactMap(item)
         guard !items.isEmpty else { return }
         let n = list.rows.count
-        let (a, b) = znVisibleRange(items, rows: n, cols: cols, pinned: [])
+        // A pinned row shows above rows far below it: left out (as the UIKit list and Android).
+        let (a, b) = znVisibleRange(items, rows: n, cols: cols, pinned: Set(sticky))
         znSendRange(ctx, inst, s, list, a, b)
         // Near the end: ask JS for more (onEndReached), once per list length, as Android does.
         if s.onEndReached != 0, n > 0, b >= n - znEndReachedRows, visible.endSentAt != n {
@@ -384,25 +443,64 @@ struct ZnLazyList: View {
         }
     }
 
-    /// A ref's command: index and end scroll to that item (its id); offset 0 to the start. A viewOffset or another offset
-    /// needs the scroll view's offset, which SwiftUI gives only from iOS 18 (ScrollPosition): named, nothing moves.
+    // MARK: Scroll view (refresh, snapping, events, offsets)
+
+    /// Pull to refresh, the snap rules and decelerationRate, scroll events: a <Scroll>'s driver on SwiftUI's scroll view
+    /// (it attaches when the probe finds it). Commands stay the list's own (run below).
+    private func drive(_ now: ZnLazyDriven, tries: Int = 20) {
+        guard s.hasRefresh || s.listUsesScrollDriver else { return }
+        scroll.configure(ctx: ctx, s: s, inst: inst)
+        scroll.update(refreshing: now.refreshing, snap: now.snap, command: nil)
+        // The refresh control goes into the scroll view at an update after it is found (the probe finds it a moment
+        // after the first draw): until then, again a little later.
+        if scroll.sv == nil, tries > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { drive(now, tries: tries - 1) }
+        }
+    }
+
+    /// Moves SwiftUI's scroll view to [to] along the list (from the content's start: the padding counts), kept inside
+    /// the content. False before the scroll view is found.
+    @discardableResult
+    private func scrollTo(_ to: Double, animated: Bool) -> Bool {
+        guard let sv = scroll.sv, let m = scroll.metrics() else { return false }
+        let v = min(max(to, 0), m.max)
+        var p = sv.contentOffset
+        if s.horizontal { p.x = v - sv.adjustedContentInset.left } else { p.y = v - sv.adjustedContentInset.top }
+        sv.setContentOffset(p, animated: animated)
+        return true
+    }
+
+    /// A ref's command: index and end scroll to that item (its id), then index moves [viewOffset] further from the
+    /// start; offset / to go to that offset on the scroll view (UIKit's, found by the probe: iOS 17 and 18 alike).
     private func run(_ text: String?, _ proxy: ScrollViewProxy, _ lineKeys: [String]) {
         guard let cmd = ZnScrollCommand(text), cmd.isNew(after: list.lastScrollSeq) else { return }
         list.lastScrollSeq = cmd.seq
-        let start: UnitPoint = s.horizontal ? .leading : .top
-        var id: String?
-        var anchor = start
         if let offset = cmd.axisOffset(horizontal: s.horizontal) {
-            if offset <= 0, let first = shape.item(0) { id = itemId(first, lineKeys) }
-            else { print("zn t=\(ZnDebug.ms()) list: SwiftUI list can't scroll to offset \(offset) (UIKit list only)") }
-        } else if let flat = znScrollTarget(cmd, shape), let it = shape.item(flat) {
-            id = itemId(it, lineKeys)
-            if cmd.action == .end { anchor = s.horizontal ? .trailing : .bottom }
-            if cmd.action == .index, cmd.second != 0 { print("zn t=\(ZnDebug.ms()) list: SwiftUI list ignores viewOffset \(cmd.second)") }
+            print("zn t=\(ZnDebug.ms()) list: command \(text ?? "") → offset \(offset)")
+            if scrollTo(offset, animated: cmd.animated) { return }
+            // Before the scroll view is found: only the start can be reached (its first item).
+            if offset <= 0, let first = shape.item(0), let id = itemId(first, lineKeys) {
+                proxy.scrollTo(id, anchor: s.horizontal ? .leading : .top)
+            }
+            return
         }
-        guard let id else { return }
-        print("zn t=\(ZnDebug.ms()) list: command \(text ?? "") → \(id)")
-        if cmd.animated { withAnimation { proxy.scrollTo(id, anchor: anchor) } } else { proxy.scrollTo(id, anchor: anchor) }
+        guard let flat = znScrollTarget(cmd, shape), let it = shape.item(flat), let id = itemId(it, lineKeys) else { return }
+        let end = cmd.action == .end
+        let anchor: UnitPoint = s.horizontal ? (end ? .trailing : .leading) : (end ? .bottom : .top)
+        let viewOffset = cmd.action == .index ? cmd.second : 0
+        print("zn t=\(ZnDebug.ms()) list: command \(text ?? "") → \(id)\(viewOffset != 0 ? " viewOffset \(viewOffset)" : "")")
+        // viewOffset: once the item is at the start, the list moves that much back (RN: the item ends up further in).
+        let then = { [scroll] in
+            guard viewOffset != 0, let m = scroll.metrics() else { return }
+            _ = scrollTo(m.offset - viewOffset, animated: cmd.animated)
+        }
+        if cmd.animated {
+            withAnimation(.default, completionCriteria: .logicallyComplete) { proxy.scrollTo(id, anchor: anchor) } completion: { then() }
+        } else {
+            proxy.scrollTo(id, anchor: anchor)
+            // SwiftUI moves the scroll view in its next update.
+            DispatchQueue.main.async { DispatchQueue.main.async { then() } }
+        }
     }
 
     private func itemId(_ it: (part: ZnListPart, item: Int), _ lineKeys: [String]) -> String? {
@@ -414,16 +512,136 @@ struct ZnLazyList: View {
         }
     }
 
-    /// Once per list: the props only the UIKit list draws.
-    private func tellUnsupported() {
-        guard !visible.told else { return }
-        visible.told = true
-        var names: [String] = []
-        if s.inverted { names.append("inverted") }
-        if s.stickySlot >= 0 || s.stickyHeaderIndices != nil { names.append("stickyHeaderIndices") }
-        if s.hasRefresh { names.append("pull to refresh") }
-        if s.reorderable { names.append("reorderable") }
-        if !names.isEmpty { print("zn t=\(ZnDebug.ms()) list: the SwiftUI list doesn't draw \(names.joined(separator: ", ")) (ZN_IOS_LIST=swiftui)") }
+    /// An inverted list (a chat) at its newest row keeps showing the newest row when one arrives (FollowNewestRow).
+    private func followNewest(_ first: String?, _ proxy: ScrollViewProxy) {
+        defer { visible.firstKey = first }
+        guard inverted, let first, visible.firstKey != nil, first != visible.firstKey,
+              let m = scroll.metrics(), m.offset <= 24 else { return }
+        _ = scrollTo(0, animated: true)
+    }
+
+    // MARK: Reorder
+
+    /// JS's rows changed: a drop's order gives way to them (JS moved the row, or changed the rows).
+    private func jsRowsChanged() {
+        guard reorder.shown != nil, reorder.dragging == nil else { return }
+        if reorder.wait.keepsOrder(at: list.version) { return }
+        reorder.timer?.cancel()
+        reorder.shown = nil
+    }
+
+    /// The drag is over [key]'s row: the dragged row takes its place (the others make room).
+    fileprivate func dragOver(_ key: String) {
+        guard let dragged = reorder.dragging, dragged != key else { return }
+        var r = reorder.shown ?? list.rows
+        guard let from = r.firstIndex(where: { $0.key == dragged }), let to = r.firstIndex(where: { $0.key == key }) else { return }
+        r.insert(r.remove(at: from), at: to)
+        reorder.shown = r
+        reorder.tick.selectionChanged()
+    }
+
+    fileprivate func dragStart(_ key: String) {
+        reorder.timer?.cancel()
+        reorder.dragging = key
+        if reorder.shown == nil { reorder.shown = list.rows }
+        reorder.tick.prepare()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        print("zn t=\(ZnDebug.ms()) list: reorder picks \(key) (SwiftUI list)")
+    }
+
+    /// The drop: onReorder(from, to) (from: JS's index of the row; to: its place now), then the wait for JS.
+    fileprivate func drop() {
+        guard let key = reorder.dragging else { return }
+        reorder.dragging = nil
+        let shown = reorder.shown ?? list.rows
+        guard let to = shown.firstIndex(where: { $0.key == key }), let from = list.row(key)?.index else { return }
+        guard from != to else {
+            reorder.shown = nil
+            return
+        }
+        print("zn t=\(ZnDebug.ms()) list: reorder drops \(key) \(from) → \(to), waiting for JS (SwiftUI list)")
+        reorder.wait.version = list.version
+        let (reorder, list) = (reorder, list)
+        let work = DispatchWorkItem {
+            guard reorder.wait.timedOut(at: list.version) else { return }
+            print("zn t=\(ZnDebug.ms()) list: reorder: JS kept its order, the row goes back (SwiftUI list)")
+            reorder.shown = nil
+        }
+        reorder.timer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(ZnReorderWait.ms), execute: work)
+        if s.onReorder != 0 { ctx.send(inst.id, s.onReorder, .string("\(from),\(to)")) }
+    }
+}
+
+/// The values the SwiftUI list hands its scroll driver (one change key for onChange).
+struct ZnLazyDriven: Equatable {
+    let refreshing: Bool
+    let snap: String?
+}
+
+/// RN inverted on the SwiftUI list: the scroll view flipped, each item flipped back (row 0 at the bottom).
+private struct ZnFlip: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on { content.scaleEffect(x: 1, y: -1) } else { content }
+    }
+}
+
+/// Snapping with Android's rules (ZnSnapBehavior, ZnScroll.swift), on a list with snap rules.
+private struct ZnLazySnap: ViewModifier {
+    let on: Bool
+    let driver: ZnScrollDriver
+
+    func body(content: Content) -> some View {
+        if on { content.scrollTargetBehavior(ZnSnapBehavior(driver: driver)) } else { content }
+    }
+}
+
+/// A row of a reorderable SwiftUI list: a long press lifts it (SwiftUI's onDrag), and the drag over it moves it.
+private struct ZnLazyDrag: ViewModifier {
+    let on: Bool
+    let key: String
+    let list: ZnLazyList
+
+    func body(content: Content) -> some View {
+        if on {
+            content
+                .onDrag {
+                    list.dragStart(key)
+                    return NSItemProvider(object: key as NSString)
+                }
+                .onDrop(of: [.text], delegate: ZnLazyDrop(key: key, list: list))
+        } else {
+            content
+        }
+    }
+}
+
+/// A reorderable list's whole content takes the drop (between rows, past the last one).
+private struct ZnLazyDropArea: ViewModifier {
+    let on: Bool
+    let list: ZnLazyList
+
+    func body(content: Content) -> some View {
+        if on { content.onDrop(of: [.text], delegate: ZnLazyDrop(key: nil, list: list)) } else { content }
+    }
+}
+
+/// Drops on a row ([key]) or anywhere in the list (nil).
+private struct ZnLazyDrop: DropDelegate {
+    let key: String?
+    let list: ZnLazyList
+
+    func dropEntered(info: DropInfo) {
+        if let key { list.dragOver(key) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        list.drop()
+        return true
     }
 }
 
@@ -782,9 +1000,13 @@ struct ZnCollectionList: UIViewRepresentable {
                     plan = ZnListUpdates(deletes: Array(removed), inserts: Array(inserted))
                 }
             }
+            // An inverted list (a chat) at its newest row follows a new newest row, as Android's FollowNewestRow (at
+            // most 24 pt from the start counts as there); else the new row would sit unseen below the screen.
+            let atStart = main(cv.contentOffset) + (horizontal ? cv.adjustedContentInset.left : cv.adjustedContentInset.top) <= 24
+            let follow = s?.inverted == true && !horizontal && atStart && !old.isEmpty && keys.first != old.first
             // Animated only when a change shows: one wholly above the first row on screen keeps the place instead.
             let firstShown = cv.indexPathsForVisibleItems.filter { $0.section == rowsPart }.map(\.item).min()
-            let animate = animation != nil && plan.map { p in firstShown.map { !p.onlyBefore($0) } ?? true } == true
+            let animate = animation != nil && plan.map { p in follow || (firstShown.map { !p.onlyBefore($0) } ?? true) } == true
             print("zn t=\(ZnDebug.ms()) list: \(old.count) → \(keys.count) \(shape.cols > 1 ? "lines (\(shape.cols) columns)" : "rows"), changed \(plan.map { "-\($0.deletes.count) +\($0.inserts.count) moved \($0.moves.count)" } ?? "all"), extras \(extrasText(shape)), \(animate ? "animated (\(animation!))" : "anchor \(anchor.map { "\($0.key) at \($0.at)" } ?? "none")")")
             if let plan {
                 // The data source changes inside the update block, never before it: UIKit reads the item count before
@@ -821,7 +1043,11 @@ struct ZnCollectionList: UIViewRepresentable {
             // The gap before each part depends on which parts have items (ZnListShape.gapBefore).
             if ZnListPart.allCases.contains(where: { oldShape.gapBefore($0) != shape.gapBefore($0) }) { layout?.invalidateLayout() }
             // Restoring the place mid-animation would fight the glide; an animated change is one the user sees.
-            if !animate { restore(cv, anchor) }
+            if follow {
+                cv.setContentOffset(offset(cv, -cv.adjustedContentInset.top), animated: animate)
+            } else if !animate {
+                restore(cv, anchor)
+            }
             // Android sends the range when it changes, also without a scroll (rows added, the columns changed).
             if !cv.bounds.isEmpty {
                 if !animate { cv.layoutIfNeeded() }
