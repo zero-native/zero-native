@@ -15,8 +15,7 @@
 // cost per frame (iOS: ZN_MOTION_PERF=1 logs it; "still": true shows them without moving, for the baseline; "mixed":
 // true also binds blurRadius, rotateY and borderRadius on each box; "playing": true gives each box a scale that plays by
 // itself (animate keyframes) next to its bound values, whose body must not run per frame for them).
-// Open with: bun run tools/ios-sample.ts --route motionBindingsLab (iOS: start it with SIMCTL_CHILD_ZN_MOTION_ENGINE=1
-// while the engine is behind that flag), or zn://sample/dev/motion/bindings (Android).
+// Open with: bun run tools/ios-sample.ts --route motionBindingsLab, or zn://sample/dev/motion/bindings (Android).
 import { Column, NativeView, Pressable, Row, Scroll, Stack, Text, TextField } from "@zeronative/ui"
 import { derive, nav, parent, self, signal, useMotion, useTimeline } from "@zeronative/core"
 import { c } from "./tokens"

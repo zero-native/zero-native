@@ -12,9 +12,8 @@
 //      text gets longer, chips that reflow in a wrapping row, a nested card (animateLayout chips in an animateLayout
 //      card pushed down by a line above it), a box that fills a fixed Stack and gets shorter text
 //   8. useFrame: a JS frame counter; "Keep JS busy" stalls it while everything above keeps moving
-// Open with: bun run tools/ios-sample.ts --route motionCoreLab (iOS: start it with SIMCTL_CHILD_ZN_MOTION_ENGINE=1
-// while the engine is behind that flag), or zn://sample/dev/motion/core. With --params '{"run":true}' it presses the
-// buttons by itself and logs what JS reads back: motion-core <what>: <value>.
+// Open with: bun run tools/ios-sample.ts --route motionCoreLab, or zn://sample/dev/motion/core. With --params
+// '{"run":true}' it presses the buttons by itself and logs what JS reads back: motion-core <what>: <value>.
 import { Column, NativeView, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
 import { derive, env, follow, nav, signal, useElementMotion, useFrame, useMotion, useTilt, useTimeline } from "@zeronative/core"
 import { orbit, wobble } from "@zeronative/device-test"

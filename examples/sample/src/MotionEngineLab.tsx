@@ -1,8 +1,7 @@
 // A dev screen for the motion engine itself (docs/motion.md): commands, their promises, values read back in JS,
 // derive / map / follow, and useFrame, checked from JS with pass / fail. Nothing here is bound to a view, so it runs
 // before the renderer reads motion values. Open with: bun run tools/ios-sample.ts --route motionEngineLab
-// --params '{"run":true}' (iOS: start it with SIMCTL_CHILD_ZN_MOTION_ENGINE=1 while the engine is behind that flag),
-// or zn://sample/dev/motion/engine (Android). Each result is also logged: motion-check PASS / FAIL.
+// --params '{"run":true}', or zn://sample/dev/motion/engine (Android). Each result is also logged: motion-check PASS / FAIL.
 import { Column, Pressable, Row, Scroll, Text } from "@zeronative/ui"
 import { derive, follow, nav, signal, useFrame, useMotion, type MotionSource } from "@zeronative/core"
 import { c } from "./tokens"
