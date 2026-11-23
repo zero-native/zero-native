@@ -24,7 +24,12 @@ struct ZnListRow: Equatable {
 /// A <List>'s rows. Observable: a row redraws when its instance arrives.
 @Observable
 final class ZnListState {
-    var rows: [ZnListRow] = [] { didSet { indexOf = nil } }
+    var rows: [ZnListRow] = [] { didSet { indexOf = nil; version &+= 1 } }
+    /// Counts each change of [rows] (LIST_SET / LIST_SPLICE): the UIKit list hears a change that keeps the count (JS
+    /// moved a row), and a drop's wait for JS knows whether JS has answered (ZnListReorder.swift).
+    @ObservationIgnored private(set) var version = 0
+    /// A row got its instance (the image preload looks again at the rows past the screen, ZnImagePreload.swift).
+    @ObservationIgnored var onBind: (() -> Void)?
     /// Row key → its index in [rows], built when first asked after a change.
     @ObservationIgnored private var indexOf: [String: Int]?
     /// Row key → the instance that draws it.
@@ -51,6 +56,7 @@ final class ZnListState {
             if let old = bound[key] { keyOf[old] = nil }
             bound[key] = row
             keyOf[row] = key
+            onBind?()
         }
     }
 
@@ -97,6 +103,8 @@ struct ZnHostedEnv: Equatable {
     var inHiddenTab = false
     var touchOff = false
     var gestureDepth = 0
+    /// The list is reorderable now: a long press on a row picks it up, so the row's onLongPress is off (decision 7).
+    var reorderRow = false
 
     init() {}
 
@@ -126,6 +134,7 @@ struct ZnHostedEnvView<Content: View>: View {
             .environment(\.znInHiddenTab, e.inHiddenTab)
             .environment(\.znTouchOff, e.touchOff)
             .environment(\.znGestureDepth, e.gestureDepth)
+            .environment(\.znReorderRow, e.reorderRow)
     }
 }
 
@@ -145,17 +154,20 @@ struct ZnListView: View {
         // useElementMotion (motion={m}): the element and the value m.follow(v) gave it (observed: a new one comes here).
         let element = s.elementNow(inst)
         let follow = element?.follow.source
+        // RN's snapping and decelerationRate (registry 24, ZnScrollSnap.swift): from the slot when the compiler gave one.
+        let snap = s.snapSlot >= 0 ? inst.slot(s.snapSlot).value.string : s.snap
+        let stickyText = s.stickySlot >= 0 ? inst.slot(s.stickySlot).value.string : s.stickyHeaderIndices
+        // Pinned rows: not sideways or in a grid (Android draws them only in a plain column).
+        let sticky = s.horizontal || cols > 1 ? [] : znParseSticky(stickyText)
         switch ZnImpl.list {
         case .swiftUI:
             ZnLazyList(ctx: ctx, inst: inst, s: s, list: list, cols: cols, header: header, footer: footer, empty: empty,
-                       command: command, padding: padding, element: element, follow: follow)
+                       command: command, padding: padding, element: element, follow: follow, sticky: sticky,
+                       refreshing: s.refreshingNow(inst), snap: snap)
         case .uiKit:
-            let stickyText = s.stickySlot >= 0 ? inst.slot(s.stickySlot).value.string : s.stickyHeaderIndices
-            // Pinned rows: not sideways or in a grid (Android draws them only in a plain column).
-            let sticky = s.horizontal || cols > 1 ? [] : znParseSticky(stickyText)
-            ZnCollectionList(ctx: ctx, inst: inst, s: s, list: list, count: list.rows.count, sticky: sticky,
-                             refreshing: s.refreshingNow(inst), cols: cols, header: header, footer: footer, empty: empty,
-                             command: command, padding: padding, element: element, follow: follow)
+            ZnCollectionList(ctx: ctx, inst: inst, s: s, list: list, count: list.rows.count, version: list.version,
+                             sticky: sticky, refreshing: s.refreshingNow(inst), cols: cols, header: header, footer: footer,
+                             empty: empty, command: command, padding: padding, element: element, follow: follow, snap: snap)
         }
     }
 
@@ -260,6 +272,9 @@ struct ZnLazyList: View {
     let padding: EdgeInsets
     let element: ZnElementMotion?
     let follow: ZnSource?
+    let sticky: [Int]
+    let refreshing: Bool
+    let snap: String?
     @State private var visible = ZnVisibleRows()
     /// useElementMotion: the scroll view (found by a probe in the stack) and the items' places.
     @StateObject private var scroll = ZnScrollDriver()
@@ -561,6 +576,8 @@ struct ZnCollectionList: UIViewRepresentable {
     let s: ZnNodeSpec
     let list: ZnListState
     let count: Int  // read in the parent body, so a row count change reaches updateUIView
+    /// ZnListState.version: a change that keeps the count (JS moved a row) reaches updateUIView too.
+    let version: Int
     let sticky: [Int]
     /// Pull to refresh (ZnTabsRefresh.swift): `refreshing` now (read in the parent body).
     let refreshing: Bool
@@ -574,6 +591,8 @@ struct ZnCollectionList: UIViewRepresentable {
     let padding: EdgeInsets
     let element: ZnElementMotion?
     let follow: ZnSource?
+    /// The snap rules' text now (ZnSnap), or nil.
+    let snap: String?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -597,6 +616,18 @@ struct ZnCollectionList: UIViewRepresentable {
         // inverted (RN): row 0 at the bottom, growing upwards (a chat). The list is flipped and each cell flipped back.
         // Not sideways (Android's LazyRow has no reverseLayout here).
         if s.inverted && !s.horizontal { cv.transform = CGAffineTransform(scaleX: 1, y: -1) }
+        // RN keyboardDismissMode (Android's znKeyboardDismiss): UIKit's own, as a <Scroll>'s.
+        switch ZnKeyboardDismiss.of(s.keyboardDismissMode, vertical: !s.horizontal) {
+        case .onDrag: cv.keyboardDismissMode = .onDrag
+        case .interactive: cv.keyboardDismissMode = .interactive
+        case .none: cv.keyboardDismissMode = .none
+        }
+        // <List reorderable>: UIKit's drag and drop moves the rows (ZnListReorder.swift); on only while it can reorder.
+        if s.reorderable {
+            cv.dragDelegate = c
+            cv.dropDelegate = c
+            cv.reorderingCadence = .immediate
+        }
         cv.onLayout = { [weak c, weak cv] in
             guard let c, let cv else { return }
             MainActor.assumeIsolated {
@@ -610,8 +641,12 @@ struct ZnCollectionList: UIViewRepresentable {
     func updateUIView(_ cv: ZnListCollectionView, context: Context) {
         let c = context.coordinator
         c.ctx = ctx; c.inst = inst; c.s = s; c.list = list
+        // Drag to reorder: a plain column or row, no pinned rows (they can't move), as Android's ZnReorder.
+        c.canReorder = s.reorderable && sticky.isEmpty && cols == 1
+        if cv.dragInteractionEnabled != c.canReorder { cv.dragInteractionEnabled = c.canReorder }
         // The environment the cells need (a UIHostingConfiguration cell doesn't inherit it).
-        let env = ZnHostedEnv(context.environment)
+        var env = ZnHostedEnv(context.environment)
+        env.reorderRow = c.canReorder
         if c.envBox.env != env {
             c.envBox.env = env
             print("zn t=\(ZnDebug.ms()) list: cells get entry \(env.entry), hidden tab \(env.inHiddenTab), touch off \(env.touchOff), gesture depth \(env.gestureDepth)")
@@ -653,62 +688,38 @@ struct ZnCollectionList: UIViewRepresentable {
         }
         c.runPending(cv)
         c.element(element, follow: follow, cv)
+        // RN's snapping, decelerationRate and scroll events (registry 24): a <Scroll>'s driver on this collection view,
+        // without its refresh control (the list has its own) or its commands (the list runs its own).
+        if s.listUsesScrollDriver {
+            c.scroll.configure(ctx: ctx, s: s, inst: inst, ownsRefresh: false)
+            c.scroll.attach(cv)
+            c.scroll.update(refreshing: false, snap: snap, command: nil)
+        }
+        c.preloadAhead(cv)
     }
 
     static func dismantleUIView(_ cv: ZnListCollectionView, coordinator c: Coordinator) {
         c.element(nil, follow: nil, cv)
+        c.scroll.detach()
+        c.endReorderWait()
+        c.list?.onBind = nil
+        ZnImagePreload.shared.cancel(owner: c.preloadOwner)
     }
 
     /// The rows and extras: inserts and removals in one batch when they are few, else a reload.
     private func update(_ cv: ZnListCollectionView, _ c: Coordinator, _ layout: ZnStickyLayout?) {
         let rows = list.rows
         let shape = ZnListShape(header: header != nil, empty: empty != nil, rows: rows.count, footer: footer != nil, cols: cols)
+        // A drop waits for JS: the order shown stays until JS's rows change (ZnListReorder.swift).
+        if c.reorderWait.keepsOrder(at: list.version) && shape.rows == c.shape.rows { return }
         let keys = znLineKeys(rows.map(\.key), cols: cols)
         guard c.keys != keys || c.shape != shape else {
             if c.rows != rows { c.rows = rows }  // a row's type changed under the same key
             return
         }
-        let old = c.keys, oldShape = c.shape
-        // The first visible item stays where it is on screen (Home: "New payment arrives" inserts at the top, and the
-        // rows being read must not move), as on Android, where LazyColumn keeps the first visible key in place.
-        let anchor = c.anchor(cv)
-        let ranges = oldShape.cols == cols ? znChangedRanges(old, keys) : nil
-        print("zn t=\(ZnDebug.ms()) list: \(old.count) → \(keys.count) \(cols > 1 ? "lines (\(cols) columns)" : "rows"), changed \(ranges.map { "\($0.removed) → \($0.inserted)" } ?? "all"), extras \(extrasText(shape)), anchor \(anchor.map { "\($0.key) at \($0.at)" } ?? "none")")
-        if let (removed, inserted) = ranges, removed.count + inserted.count <= 200 {
-            // The data source changes inside the update block, never before it: UIKit reads the item count before
-            // and after, and they must differ by exactly these updates (crashed on 30 older chat messages,
-            // 2026-11-08, when the count was read early).
-            cv.layoutIfNeeded()
-            let rowsPart = ZnListPart.rows.rawValue
-            UIView.performWithoutAnimation {
-                cv.performBatchUpdates {
-                    c.keys = keys; c.rows = rows; c.shape = shape
-                    cv.deleteItems(at: removed.map { IndexPath(item: $0, section: rowsPart) })
-                    cv.insertItems(at: inserted.map { IndexPath(item: $0, section: rowsPart) })
-                    for part in [ZnListPart.header, .empty, .footer] {
-                        let (was, now) = (oldShape.count(part), shape.count(part))
-                        if was > now { cv.deleteItems(at: [IndexPath(item: 0, section: part.rawValue)]) }
-                        if now > was { cv.insertItems(at: [IndexPath(item: 0, section: part.rawValue)]) }
-                    }
-                }
-            }
-        } else {
-            c.keys = keys; c.rows = rows; c.shape = shape
-            cv.reloadData()
-        }
-        // The gap before each part depends on which parts have items (ZnListShape.gapBefore).
-        if ZnListPart.allCases.contains(where: { oldShape.gapBefore($0) != shape.gapBefore($0) }) { layout?.invalidateLayout() }
-        c.restore(cv, anchor)
-        // Android sends the range when it changes, also without a scroll (rows added, the columns changed).
-        if !cv.bounds.isEmpty {
-            cv.layoutIfNeeded()
-            c.report(cv)
-        }
-    }
-
-    private func extrasText(_ shape: ZnListShape) -> String {
-        let names = [shape.header ? "header" : nil, shape.count(.empty) > 0 ? "empty" : nil, shape.footer ? "footer" : nil].compactMap { $0 }
-        return names.isEmpty ? "none" : names.joined(separator: "+")
+        // itemAnimation; a reorderable list's rows glide by default (Android: "move").
+        let animation = s.itemAnimation.flatMap { ["fade", "move"].contains($0) ? $0 : nil } ?? (c.canReorder ? "move" : nil)
+        c.apply(cv, rows: rows, keys: keys, shape: shape, animation: animation)
     }
 
     @MainActor
@@ -735,6 +746,93 @@ struct ZnCollectionList: UIViewRepresentable {
         /// (estimated sizes settle as the target's rows are measured).
         var pending: ZnScrollCommand?
         var settling: (cmd: ZnScrollCommand, tries: Int)?
+        /// Snapping, decelerationRate and scroll events (a <Scroll>'s, ZnScroll.swift), when the list has any.
+        let scroll = ZnScrollDriver()
+        /// Drag to reorder (ZnListReorder.swift): on now, the wait for JS after a drop, the drop place last shown.
+        var canReorder = false
+        var reorderWait = ZnReorderWait()
+        var reorderTimer: DispatchWorkItem?
+        var dropShown: IndexPath?
+        let dropTick = UISelectionFeedbackGenerator()
+        /// The image preload (ZnImagePreload.swift): this list's id there, and the direction it last moved.
+        lazy var preloadOwner = ObjectIdentifier(self).hashValue
+        var preloadFirst = -1
+        var preloadForward = true
+        var preloadAsked: [UInt32] = []
+        var preloadSoon = false
+        weak var preloadHooked: ZnListState?
+
+        // MARK: Updates
+
+        /// Shows [rows] (their [keys]: line keys in a grid) and [shape]: in one batch when the changes are few, else a
+        /// reload. [animation] ("fade" / "move", itemAnimation): the rows glide to their new places (moves found by
+        /// key) and fade in and out ("fade"); without it nothing animates and the first visible item keeps its place.
+        func apply(_ cv: UICollectionView, rows: [ZnListRow], keys: [String], shape: ZnListShape, animation: String?) {
+            let old = self.keys, oldShape = self.shape
+            let layout = cv.collectionViewLayout as? ZnStickyLayout
+            // The first visible item stays where it is on screen (Home: "New payment arrives" inserts at the top, and
+            // the rows being read must not move), as on Android, where LazyColumn keeps the first visible key in place.
+            let anchor = anchor(cv)
+            let rowsPart = ZnListPart.rows.rawValue
+            var plan: ZnListUpdates?
+            if oldShape.cols == shape.cols {
+                if animation != nil {
+                    plan = znListUpdates(old, keys)
+                } else if let (removed, inserted) = znChangedRanges(old, keys), removed.count + inserted.count <= 200 {
+                    plan = ZnListUpdates(deletes: Array(removed), inserts: Array(inserted))
+                }
+            }
+            // Animated only when a change shows: one wholly above the first row on screen keeps the place instead.
+            let firstShown = cv.indexPathsForVisibleItems.filter { $0.section == rowsPart }.map(\.item).min()
+            let animate = animation != nil && plan.map { p in firstShown.map { !p.onlyBefore($0) } ?? true } == true
+            print("zn t=\(ZnDebug.ms()) list: \(old.count) → \(keys.count) \(shape.cols > 1 ? "lines (\(shape.cols) columns)" : "rows"), changed \(plan.map { "-\($0.deletes.count) +\($0.inserts.count) moved \($0.moves.count)" } ?? "all"), extras \(extrasText(shape)), \(animate ? "animated (\(animation!))" : "anchor \(anchor.map { "\($0.key) at \($0.at)" } ?? "none")")")
+            if let plan {
+                // The data source changes inside the update block, never before it: UIKit reads the item count before
+                // and after, and they must differ by exactly these updates (crashed on 30 older chat messages,
+                // 2026-11-08, when the count was read early).
+                cv.layoutIfNeeded()
+                let batch = {
+                    cv.performBatchUpdates {
+                        self.keys = keys; self.rows = rows; self.shape = shape
+                        cv.deleteItems(at: plan.deletes.map { IndexPath(item: $0, section: rowsPart) })
+                        cv.insertItems(at: plan.inserts.map { IndexPath(item: $0, section: rowsPart) })
+                        for m in plan.moves {
+                            cv.moveItem(at: IndexPath(item: m.from, section: rowsPart), to: IndexPath(item: m.to, section: rowsPart))
+                        }
+                        for part in [ZnListPart.header, .empty, .footer] {
+                            let (was, now) = (oldShape.count(part), shape.count(part))
+                            if was > now { cv.deleteItems(at: [IndexPath(item: 0, section: part.rawValue)]) }
+                            if now > was { cv.insertItems(at: [IndexPath(item: 0, section: part.rawValue)]) }
+                        }
+                    }
+                }
+                if animate {
+                    // Compose's animateItem springs (no bounce); "move": no fade (ZnStickyLayout).
+                    layout?.itemAnimation = animation
+                    UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,
+                                   options: [.allowUserInteraction, .beginFromCurrentState], animations: batch)
+                } else {
+                    UIView.performWithoutAnimation(batch)
+                }
+            } else {
+                self.keys = keys; self.rows = rows; self.shape = shape
+                cv.reloadData()
+            }
+            // The gap before each part depends on which parts have items (ZnListShape.gapBefore).
+            if ZnListPart.allCases.contains(where: { oldShape.gapBefore($0) != shape.gapBefore($0) }) { layout?.invalidateLayout() }
+            // Restoring the place mid-animation would fight the glide; an animated change is one the user sees.
+            if !animate { restore(cv, anchor) }
+            // Android sends the range when it changes, also without a scroll (rows added, the columns changed).
+            if !cv.bounds.isEmpty {
+                if !animate { cv.layoutIfNeeded() }
+                report(cv)
+            }
+        }
+
+        private func extrasText(_ shape: ZnListShape) -> String {
+            let names = [shape.header ? "header" : nil, shape.count(.empty) > 0 ? "empty" : nil, shape.footer ? "footer" : nil].compactMap { $0 }
+            return names.isEmpty ? "none" : names.joined(separator: "+")
+        }
 
         // MARK: Layout
 
@@ -800,6 +898,20 @@ struct ZnCollectionList: UIViewRepresentable {
             if ProcessInfo.processInfo.environment["ZN_LIST_TRACE"] == "1" { print("zn t=\(ZnDebug.ms()) list: offset \(cv.contentOffset)") }
             report(cv)
             writeElement(cv)
+            preloadAhead(cv)
+        }
+
+        /// A released drag with snap rules stops where Android's would (ZnSnap.pick through the scroll driver, which
+        /// takes SwiftUI's target: the content offset plus the inset before it).
+        func scrollViewWillEndDragging(_ sv: UIScrollView, withVelocity velocity: CGPoint,
+                                       targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+            guard s?.hasSnap == true, scroll.sv === sv else { return }
+            let i = sv.adjustedContentInset
+            var origin = targetContentOffset.pointee
+            origin.x += i.left
+            origin.y += i.top
+            scroll.snapTarget(&origin)
+            targetContentOffset.pointee = CGPoint(x: origin.x - i.left, y: origin.y - i.top)
         }
 
         // MARK: Element values (useElementMotion)
@@ -1119,6 +1231,46 @@ final class ZnStickyLayout: UICollectionViewCompositionalLayout {
             pin(a, top: pinTop(cv), count: count)
         }
         return a
+    }
+
+    // MARK: itemAnimation
+
+    /// The animated update now ("fade" / "move"), set by Coordinator.apply just before it. "fade" keeps UIKit's own
+    /// cross-fade for rows added and removed (Compose's animateItem); "move": an added row is there at once and a
+    /// removed one gone at once, only the others glide (animateItem with no fade).
+    var itemAnimation: String?
+    private var added = Set<IndexPath>(), removed = Set<IndexPath>()
+
+    override func prepare(forCollectionViewUpdates items: [UICollectionViewUpdateItem]) {
+        super.prepare(forCollectionViewUpdates: items)
+        added = []; removed = []
+        for u in items {
+            switch u.updateAction {
+            case .insert: if let ip = u.indexPathAfterUpdate { added.insert(ip) }
+            case .delete: if let ip = u.indexPathBeforeUpdate { removed.insert(ip) }
+            default: break
+            }
+        }
+    }
+
+    override func finalizeCollectionViewUpdates() {
+        super.finalizeCollectionViewUpdates()
+        added = []; removed = []
+        itemAnimation = nil
+    }
+
+    override func initialLayoutAttributesForAppearingItem(at ip: IndexPath) -> UICollectionViewLayoutAttributes? {
+        let a = super.initialLayoutAttributesForAppearingItem(at: ip)
+        guard itemAnimation == "move", added.contains(ip), let c = a?.copy() as? UICollectionViewLayoutAttributes else { return a }
+        c.alpha = 1
+        return c
+    }
+
+    override func finalLayoutAttributesForDisappearingItem(at ip: IndexPath) -> UICollectionViewLayoutAttributes? {
+        let a = super.finalLayoutAttributesForDisappearingItem(at: ip)
+        guard itemAnimation == "move", removed.contains(ip), let c = a?.copy() as? UICollectionViewLayoutAttributes else { return a }
+        c.isHidden = true
+        return c
     }
 
     override func shouldInvalidateLayout(forBoundsChange b: CGRect) -> Bool {

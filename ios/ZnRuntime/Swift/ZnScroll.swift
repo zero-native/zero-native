@@ -233,7 +233,8 @@ final class ZnScrollDriver: NSObject, ObservableObject {
     }
 
     /// The node this driver serves (each update: the spec is the same for a template; the context and instance too).
-    func configure(ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance) {
+    /// [ownsRefresh] false: the scroll view has a refresh control of its own (the UIKit List's), so none is made here.
+    func configure(ctx: ZnContext, s: ZnNodeSpec, inst: ZnInstance, ownsRefresh: Bool = true) {
         guard spec?.inst !== inst || spec?.s.index != s.index || spec?.ctx !== ctx else { return }
         spec = (ctx, s, inst)
         horizontal = s.horizontal
@@ -243,7 +244,7 @@ final class ZnScrollDriver: NSObject, ObservableObject {
             guard let inst else { return }
             ctx.send(inst.id, s.onScrollEvent, .string(json))
         } : nil
-        if s.hasRefresh && !s.horizontal {
+        if ownsRefresh && s.hasRefresh && !s.horizontal {
             let r = refresh ?? ZnRefresh(asSubview: true)
             r.onRefresh = s.onRefresh != 0 ? { [weak inst] in if let inst { ctx.send(inst.id, s.onRefresh, .none) } } : nil
             refresh = r

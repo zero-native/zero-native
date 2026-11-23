@@ -9,14 +9,25 @@
 //
 // Shimmer: a base colour with a lighter band sweeping across, every Shimmer on screen in step (one shared clock,
 // the time since boot modulo the period), as on Android.
+import CryptoKit
 import SwiftUI
 import UIKit
 
-/// Pictures by URL: decoded once, kept in memory while there is room.
+/// Pictures by URL: decoded once, kept in memory while there is room. A remote picture's bytes are also kept on disk
+/// (ZnImageDisk), as Android's image loader keeps them (Coil's disk cache), so a picture seen before, or loaded ahead
+/// for a List row (ZnImagePreload.swift), comes from the file. Two askers for one URL share one download: an on-screen
+/// picture joins the preload of its row (Android downloads it twice then).
 @MainActor
 final class ZnImageCache {
     static let shared = ZnImageCache()
     private let cache = NSCache<NSURL, UIImage>()
+    let disk = ZnImageDisk()
+    /// Remote pictures being fetched, and who waits for each: a stopped asker's download stops only when none waits.
+    private var inflight: [URL: (task: Task<Data, Error>, waiters: Set<Int>)] = [:]
+    private var lastWaiter = 0
+    /// Downloads that started (not from disk, not joined), for the logs and the lab.
+    private(set) var downloads = 0
+    private(set) var joins = 0
 
     func cached(_ url: URL) -> UIImage? { cache.object(forKey: url as NSURL) }
 
@@ -26,15 +37,109 @@ final class ZnImageCache {
         if url.isFileURL {
             data = try await Task.detached { try Data(contentsOf: url) }.value
         } else {
-            let (d, response) = try await URLSession.shared.data(from: url)
-            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                throw ZnImageError("HTTP \(http.statusCode)")
-            }
-            data = d
+            data = try await remote(url)
         }
         guard let image = UIImage(data: data) else { throw ZnImageError("not a picture") }
         cache.setObject(image, forKey: url as NSURL)
         return image
+    }
+
+    /// A remote picture's bytes: from the disk, from a download already running, or downloaded now (then kept on disk).
+    /// [preload]: a preload asks (it only wants the file; nothing is decoded).
+    func remote(_ url: URL, preload: Bool = false) async throws -> Data {
+        let task: Task<Data, Error>
+        lastWaiter += 1
+        let me = lastWaiter
+        if let running = inflight[url] {
+            task = running.task
+            inflight[url]?.waiters.insert(me)
+            if !preload {
+                joins += 1
+                print("zn t=\(ZnDebug.ms()) image: joins the download already running (\(joins) so far): \(url.absoluteString)")
+            }
+        } else {
+            let disk = disk
+            task = Task<Data, Error> { [weak self] in
+                if let d = await disk.read(url) { return d }
+                self?.downloads += 1
+                let (d, response) = try await URLSession.shared.data(from: url)
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                    throw ZnImageError("HTTP \(http.statusCode)")
+                }
+                await disk.write(d, for: url)
+                return d
+            }
+            inflight[url] = (task, [me])
+        }
+        // The asker left (its view went, the preload was stopped): the download stops when no one else waits for it.
+        return try await withTaskCancellationHandler {
+            defer { leave(url, task, me, stop: false) }
+            return try await task.value
+        } onCancel: {
+            Task { @MainActor in self.leave(url, task, me, stop: true) }
+        }
+    }
+
+    /// [me] no longer waits for [url]'s download; [stop]: it was stopped, so the download stops too if it was the last.
+    private func leave(_ url: URL, _ task: Task<Data, Error>, _ me: Int, stop: Bool) {
+        guard var e = inflight[url], e.task == task, e.waiters.remove(me) != nil else { return }
+        if e.waiters.isEmpty {
+            inflight[url] = nil
+            if stop { task.cancel() }
+        } else {
+            inflight[url] = e
+        }
+    }
+}
+
+/// Remote pictures' bytes on disk (Caches/zn-images, one file per URL, named by its SHA-256): up to 200 MB, the
+/// least recently used go first. Caches/, so iOS may clear it when the phone is short of space. Kept whatever the
+/// response's cache headers say, as Android's image loader does by default (Coil 3 ignores them).
+actor ZnImageDisk {
+    static let maxBytes = 200 * 1024 * 1024
+    private let dir: URL?
+    private var writes = 0
+
+    init() {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        dir = caches?.appendingPathComponent("zn-images", isDirectory: true)
+        if let dir { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+    }
+
+    private func file(_ url: URL) -> URL? {
+        let hash = SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+        return dir?.appendingPathComponent(hash)
+    }
+
+    func read(_ url: URL) -> Data? {
+        guard let f = file(url), let d = try? Data(contentsOf: f) else { return nil }
+        // Used now: the trim keeps it longer.
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: f.path)
+        return d
+    }
+
+    func write(_ data: Data, for url: URL) {
+        guard let f = file(url) else { return }
+        try? data.write(to: f, options: .atomic)
+        writes += 1
+        if writes % 32 == 1 { trim() }
+    }
+
+    /// Over the limit: the oldest files go until it is at three quarters of it.
+    private func trim() {
+        guard let dir, let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else { return }
+        var all = files.compactMap { f -> (URL, Int, Date)? in
+            guard let v = try? f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return nil }
+            return (f, v.fileSize ?? 0, v.contentModificationDate ?? .distantPast)
+        }
+        var total = all.reduce(0) { $0 + $1.1 }
+        guard total > Self.maxBytes else { return }
+        all.sort { $0.2 < $1.2 }
+        for (f, size, _) in all where total > Self.maxBytes * 3 / 4 {
+            try? FileManager.default.removeItem(at: f)
+            total -= size
+        }
     }
 }
 
@@ -104,6 +209,8 @@ struct ZnImageView: View {
             loaded = Loaded(src: src, stage: stage, image: nil)
             do {
                 guard let url = znImageURL(which) else { throw ZnImageError("this kind of src is not supported on iOS yet: \(which)") }
+                // On screen now: no preload for it from here on (a running one is joined).
+                if !url.isFileURL { ZnImagePreload.shared.onScreen(which) }
                 let image = try await ZnImageCache.shared.load(url)
                 if Task.isCancelled { return }
                 loaded = Loaded(src: src, stage: stage, image: image)

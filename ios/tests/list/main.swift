@@ -116,5 +116,94 @@ check("clamp past the end", znClampOffset(5000, before: 8, content: 1000, viewpo
 check("clamp short content", znClampOffset(100, before: 0, content: 300, viewport: 400, after: 0), 0)
 check("clamp inside", znClampOffset(200, before: 0, content: 1000, viewport: 400, after: 0), 200)
 
+// itemAnimation (Android's animateItem): keyed updates with moves, as UICollectionView applies them. [play] runs them
+// on [old] the way performBatchUpdates does (deletes and move sources from the old indices, inserts and move targets
+// at the new ones), so each case checks the updates really give [new].
+func play(_ old: [String], _ u: ZnListUpdates, _ new: [String]) -> [String] {
+    let gone = Set(u.deletes + u.moves.map(\.from))
+    var placed = [Int: String]()
+    for m in u.moves { placed[m.to] = old[m.from] }
+    for i in u.inserts { placed[i] = new[i] }
+    var rest = old.enumerated().filter { !gone.contains($0.offset) }.map(\.element).makeIterator()
+    return (0..<(old.count - gone.count + placed.count)).compactMap { placed[$0] ?? rest.next() }
+}
+func updates(_ old: [String], _ new: [String], cap: Int = 300) -> String {
+    guard let u = znListUpdates(old, new, cap: cap) else { return "reload" }
+    if play(old, u, new) != new { return "WRONG \(play(old, u, new))" }
+    return "-\(u.deletes) +\(u.inserts) " + u.moves.map { "\($0.from)>\($0.to)" }.joined(separator: ",")
+}
+let abc = ["a", "b", "c", "d", "e", "f"]
+check("same keys", updates(abc, abc), "-[] +[] ")
+check("remove one", updates(abc, ["a", "b", "d", "e", "f"]), "-[2] +[] ")
+check("add at the top", updates(abc, ["n"] + abc), "-[] +[0] ")
+check("last to top is a move", updates(abc, ["f", "a", "b", "c", "d", "e"]), "-[] +[] 5>0")
+check("first to the end is a move", updates(abc, ["b", "c", "d", "e", "f", "a"]), "-[] +[] 0>5")
+check("swap pairs are moves", updates(abc, ["b", "a", "d", "c", "f", "e"]).hasPrefix("-[] +[] "), true)
+check("swap pairs play right", updates(abc, ["b", "a", "d", "c", "f", "e"]).contains("WRONG"), false)
+check("remove, add and move at once", updates(abc, ["f", "a", "x", "c", "d"]).contains("WRONG"), false)
+check("all gone", updates(abc, []), "-[0, 1, 2, 3, 4, 5] +[] ")
+check("first fill reloads", updates([], abc), "reload")
+check("too many changes reload", updates(abc, ["u", "v", "w", "x", "y", "z"], cap: 4), "reload")
+let long = (0..<10_000).map { "k\($0)" }
+var longMoved = long
+longMoved.insert(longMoved.remove(at: 9_000), at: 10)
+check("one move in 10,000 rows", updates(long, longMoved), "-[] +[] 9000>10")
+// Animate only a change that shows: all before the first row on screen → keep the place instead.
+check("insert above the screen", znListUpdates(abc, ["n"] + abc)!.onlyBefore(2), true)
+check("insert at the first shown", znListUpdates(abc, ["a", "b", "n", "c", "d", "e", "f"])!.onlyBefore(2), true)
+check("insert inside the screen", znListUpdates(abc, ["a", "b", "c", "n", "d", "e", "f"])!.onlyBefore(2), false)
+check("remove above the screen", znListUpdates(abc, ["b", "c", "d", "e", "f"])!.onlyBefore(2), true)
+check("remove the first shown", znListUpdates(abc, ["a", "b", "d", "e", "f"])!.onlyBefore(2), false)
+check("move from below to the top", znListUpdates(abc, ["f", "a", "b", "c", "d", "e"])!.onlyBefore(2), false)
+
+// Drag to reorder (Android's ZnReorder): the order shown after a drop stays until JS's rows change; a second without
+// an answer → back to JS's order.
+var wait = ZnReorderWait()
+check("no wait at first", wait.keepsOrder(at: 4), false)
+wait.version = 4
+check("JS hasn't answered: keep the drop", wait.keepsOrder(at: 4), true)
+check("JS answered: show its rows", wait.keepsOrder(at: 5), false)
+check("the answer ends the wait", wait.version, nil)
+wait.version = 7
+check("a second, no answer: go back", wait.timedOut(at: 7), true)
+check("timeout ends the wait", wait.version, nil)
+wait.version = 7
+check("a second after an answer: nothing", wait.timedOut(at: 8), false)
+check("drop on the header: first row", znDropTarget(part: .header, item: 0, rows: 9), 0)
+check("drop on the footer: last row", znDropTarget(part: .footer, item: 0, rows: 9), 8)
+check("drop past the rows", znDropTarget(part: .rows, item: 12, rows: 9), 8)
+check("drop in the rows", znDropTarget(part: .rows, item: 3, rows: 9), 3)
+
+// Image preload (Android's ZnImagePreload / ZnPreloadAhead): the rows ahead in the scroll direction.
+check("ahead going down", znPreloadRows(first: 0, last: 5, forward: true, rows: 60, cols: 1), Array(6..<14))
+check("ahead going up", znPreloadRows(first: 20, last: 26, forward: false, rows: 60, cols: 1), Array((12...19).reversed()))
+check("ahead near the end", znPreloadRows(first: 50, last: 57, forward: true, rows: 60, cols: 1), [58, 59])
+check("ahead near the start", znPreloadRows(first: 2, last: 9, forward: false, rows: 60, cols: 1), [1, 0])
+check("ahead in a 3-column grid", znPreloadRows(first: 0, last: 2, forward: true, rows: 40, cols: 3), Array(9..<18))
+var book = ZnPreloadBook()
+check("want a url", book.want("https://x/1", owner: 1), true)
+check("not twice", book.want("https://x/1", owner: 1), false)
+for i in 2...30 { _ = book.want("https://x/\(i)", owner: i < 20 ? 1 : 2) }
+check("24 waiting or running at most", book.pending, 24)
+check("3 run at once", book.next(), ["https://x/1", "https://x/2", "https://x/3"])
+check("no more while 3 run", book.next(), [])
+book.finished("https://x/1", ok: true)
+check("done is not asked again", book.want("https://x/1", owner: 1), false)
+check("the next one starts", book.next(), ["https://x/4"])
+check("on screen while running is early", book.onScreen("https://x/2"), true)
+check("on screen while waiting is early", book.onScreen("https://x/10"), true)
+check("on screen when not asked", book.onScreen("https://y/1"), false)
+check("a list leaving stops its running ones", Set(book.drop(owner: 1)), ["https://x/2", "https://x/3", "https://x/4"])
+check("its waiting ones are gone", book.isWaitingOrRunning("https://x/12"), false)
+check("another list's stay", book.isWaitingOrRunning("https://x/20"), true)
+check("keep: rows still there stay", book.drop(owner: 2, keep: { $0 != "https://x/21" }), [])
+check("keep: a gone row is dropped", book.isWaitingOrRunning("https://x/21"), false)
+var small = ZnPreloadBook()
+small.doneKeep = 8
+for i in 0..<20 { _ = small.want("https://z/\(i)", owner: 0); _ = small.next(); small.finished("https://z/\(i)", ok: true) }
+check("old done ones are forgotten", small.isKnown("https://z/0"), false)
+check("new done ones are kept", small.isKnown("https://z/19"), true)
+check("remote src", [znIsRemoteSrc("https://a"), znIsRemoteSrc("HTTP://a"), znIsRemoteSrc("asset:x.png"), znIsRemoteSrc("zn://file/a")], [true, true, false, false])
+
 print(failures == 0 ? "ios list logic: \(count) checks passed" : "ios list logic: \(failures) of \(count) checks failed")
 exit(failures == 0 ? 0 : 1)

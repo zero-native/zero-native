@@ -192,3 +192,213 @@ func znClampOffset(_ v: Double, before: Double, content: Double, viewport: Doubl
     let hi = max(lo, content - viewport + after)
     return min(max(v, lo), hi)
 }
+
+// MARK: - Item animation (itemAnimation, reorderable)
+
+/// One move in a list update: the item at [from] (before) goes to [to] (after).
+struct ZnListMove: Equatable {
+    let from: Int
+    let to: Int
+}
+
+/// A keyed change of the rows part as UICollectionView updates: deletes and the moves' [from] are indices before,
+/// inserts and the moves' [to] after (performBatchUpdates' rules). Moves let a row glide to its new place (Compose's
+/// animateItem placement) instead of fading out and in again.
+struct ZnListUpdates: Equatable {
+    var deletes: [Int] = []
+    var inserts: [Int] = []
+    var moves: [ZnListMove] = []
+
+    var count: Int { deletes.count + inserts.count + moves.count }
+
+    /// Does every change come before the item at [first] (its index before)? Then the items from there on stay as they
+    /// are, only further along: nothing on screen changes, so the list keeps its place without an animation.
+    func onlyBefore(_ first: Int) -> Bool {
+        let removed = deletes.count + moves.count
+        let added = inserts.count + moves.count
+        guard deletes.allSatisfy({ $0 < first }), moves.allSatisfy({ $0.from < first }) else { return false }
+        // The item at [first] is now at first - removed + added; every insert (and move target) lands before it.
+        let now = first - removed + added
+        return inserts.allSatisfy { $0 < now } && moves.allSatisfy { $0.to < now }
+    }
+}
+
+/// The updates from [old] to [new] keys, moves found (Swift's CollectionDifference with inferringMoves), or nil for a
+/// reload: no rows before (the first fill doesn't animate, as Compose's first layout), or more than [cap] changes. Only
+/// the changed middle is diffed (znChangedRanges), so a long list with one change stays cheap.
+func znListUpdates(_ old: [String], _ new: [String], cap: Int = 300) -> ZnListUpdates? {
+    guard !old.isEmpty else { return nil }
+    let ranges: (removed: Range<Int>, inserted: Range<Int>)
+    if new.isEmpty { ranges = (0..<old.count, 0..<0) } else if let r = znChangedRanges(old, new) { ranges = r } else { return nil }
+    let (removed, inserted) = ranges
+    if removed.isEmpty && inserted.isEmpty { return ZnListUpdates() }
+    // By key, in O(n log n): keys only in the old middle are deleted, only in the new one inserted; of the keys in
+    // both, the longest run already in order stays, the others move (a row moved far is one move, not a long diff).
+    var oldAt = [String: Int](minimumCapacity: removed.count)
+    for i in removed {
+        guard oldAt.updateValue(i, forKey: old[i]) == nil else { return nil }  // a key twice: reload
+    }
+    var newKeys = Set<String>(minimumCapacity: inserted.count)
+    for j in inserted { guard newKeys.insert(new[j]).inserted else { return nil } }
+    var out = ZnListUpdates()
+    for i in removed where !newKeys.contains(old[i]) { out.deletes.append(i) }
+    var common: [(from: Int, to: Int)] = []
+    for j in inserted {
+        if let i = oldAt[new[j]] { common.append((i, j)) } else { out.inserts.append(j) }
+    }
+    let stay = znLongestIncreasing(common.map(\.from))
+    for (k, c) in common.enumerated() where !stay.contains(k) { out.moves.append(ZnListMove(from: c.from, to: c.to)) }
+    return out.count <= cap ? out : nil
+}
+
+/// The positions in [xs] of one longest strictly increasing run (patience sorting, O(n log n)).
+func znLongestIncreasing(_ xs: [Int]) -> Set<Int> {
+    var tails: [Int] = []  // positions in xs: the smallest tail of a run of each length
+    var prev = [Int](repeating: -1, count: xs.count)
+    for (p, x) in xs.enumerated() {
+        var lo = 0, hi = tails.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if xs[tails[mid]] < x { lo = mid + 1 } else { hi = mid }
+        }
+        if lo > 0 { prev[p] = tails[lo - 1] }
+        if lo == tails.count { tails.append(p) } else { tails[lo] = p }
+    }
+    var out = Set<Int>()
+    var p = tails.last ?? -1
+    while p >= 0 { out.insert(p); p = prev[p] }
+    return out
+}
+
+/// A drop's wait for JS (Android's ZnReorder: the order shown after a drop stays until JS's rows change, or a second
+/// passes and the row goes back). [version] is ZnListState.version at the drop.
+struct ZnReorderWait: Equatable {
+    static let ms = 1000
+    var version: Int?
+
+    /// JS's rows now have [version]: keep the dropped order (true) while JS hasn't answered; an answer ends the wait.
+    mutating func keepsOrder(at version: Int) -> Bool {
+        guard let v = self.version else { return false }
+        if v == version { return true }
+        self.version = nil
+        return false
+    }
+
+    /// The second has passed: go back to JS's order if JS still hasn't answered (true), else nothing to do.
+    mutating func timedOut(at version: Int) -> Bool {
+        defer { self.version = nil }
+        return self.version == version
+    }
+}
+
+/// The new place of the row dragged from [from] (rows part) to the drop's place [to] in [part], kept in the rows: the
+/// header or empty item → the first row, the footer → the last (a row can't leave the rows).
+func znDropTarget(part: ZnListPart, item: Int, rows: Int) -> Int {
+    guard rows > 0 else { return 0 }
+    switch part {
+    case .header, .empty: return 0
+    case .footer: return rows - 1
+    case .rows: return min(max(item, 0), rows - 1)
+    }
+}
+
+// MARK: - Image preload (ZnImagePreload.swift)
+
+/// The rows whose pictures load ahead (Android's ZnPreloadAhead): the next [ahead] rows past the last item on screen
+/// when the list last moved toward its end (and at first), else the [ahead] before the first one. [first] / [last]
+/// are rows-part items (grid lines with [cols] > 1), nearest first; rows past either end are left out.
+func znPreloadRows(first: Int, last: Int, forward: Bool, rows: Int, cols: Int, ahead: Int = 8) -> [Int] {
+    let c = max(cols, 1)
+    let items = (ahead + c - 1) / c
+    var out: [Int] = []
+    let lines = forward ? Array((last + 1)..<(last + 1 + items)) : Array(stride(from: first - 1, through: first - items, by: -1))
+    for g in lines where g >= 0 {
+        for r in znGridRows(line: g, cols: c, rows: rows) { out.append(r) }
+    }
+    return out
+}
+
+/// The preload's book keeping, as Android's ZnImagePreload: URLs waiting or running (at most [maxPending], all lists
+/// together), how many run at once ([maxRunning]: a low-priority queue that never crowds an on-screen picture), and
+/// the URLs done in this process (the last [doneKeep], so a list scrolled back and forth doesn't ask again).
+struct ZnPreloadBook {
+    static let maxPerRow = 4
+    static let maxInstancesPerRow = 64
+
+    var maxPending = 24
+    var maxRunning = 3
+    var doneKeep = 512
+    /// URL → its owner (a list), in the order asked.
+    private(set) var waiting: [(url: String, owner: Int)] = []
+    private(set) var running: [String: Int] = [:]
+    private var done: [String: Int] = [:]
+    private var doneTick = 0
+
+    var pending: Int { waiting.count + running.count }
+
+    func isWaitingOrRunning(_ url: String) -> Bool { running[url] != nil || waiting.contains { $0.url == url } }
+
+    func isKnown(_ url: String) -> Bool { done[url] != nil || isWaitingOrRunning(url) }
+
+    /// Asks for [url] for [owner]: false when it is done, already asked, or the book is full.
+    mutating func want(_ url: String, owner: Int) -> Bool {
+        guard !isKnown(url), pending < maxPending else { return false }
+        waiting.append((url, owner))
+        return true
+    }
+
+    /// The next URLs to start now (up to [maxRunning] running).
+    mutating func next() -> [String] {
+        var out: [String] = []
+        while running.count < maxRunning, !waiting.isEmpty {
+            let w = waiting.removeFirst()
+            running[w.url] = w.owner
+            out.append(w.url)
+        }
+        return out
+    }
+
+    /// A preload ended; [ok]: its picture is on disk now.
+    mutating func finished(_ url: String, ok: Bool) {
+        running[url] = nil
+        if ok { markDone(url) }
+    }
+
+    /// An on-screen picture asked for [url]: no preload for it from now on. True when its preload was still waiting or
+    /// running (iOS joins the running download, so it is not fetched twice; a waiting one is dropped).
+    mutating func onScreen(_ url: String) -> Bool {
+        let was = running[url] != nil || waiting.contains { $0.url == url }
+        waiting.removeAll { $0.url == url }
+        markDone(url)
+        return was
+    }
+
+    /// Drops the waiting URLs of [owner] (the list left, or [keep] says its row is gone); returns the running ones
+    /// to cancel (they end with finished(ok: false)).
+    mutating func drop(owner: Int, keep: (String) -> Bool = { _ in false }) -> [String] {
+        waiting.removeAll { $0.owner == owner && !keep($0.url) }
+        return running.filter { $0.value == owner && !keep($0.key) }.map(\.key)
+    }
+
+    /// Everything waiting is dropped; returns the running ones to cancel (low memory).
+    mutating func dropAll() -> [String] {
+        waiting.removeAll()
+        return Array(running.keys)
+    }
+
+    private mutating func markDone(_ url: String) {
+        doneTick += 1
+        done[url] = doneTick
+        if done.count > doneKeep {
+            // Forget the oldest quarter at once (cheap, rarely).
+            let cut = done.sorted { $0.value < $1.value }.prefix(done.count - doneKeep * 3 / 4)
+            for (u, _) in cut { done[u] = nil }
+        }
+    }
+}
+
+/// An http(s) src (the only kind preloaded).
+func znIsRemoteSrc(_ src: String) -> Bool {
+    let l = src.prefix(8).lowercased()
+    return l.hasPrefix("https://") || l.hasPrefix("http://")
+}

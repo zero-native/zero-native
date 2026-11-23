@@ -186,7 +186,9 @@ struct ZnTouchTarget: UIViewRepresentable {
         c.haptic = s.haptic
         c.repeatDelay = s.onPressRepeat != 0 ? s.repeatDelayMs / 1000 : nil
         c.repeatInterval = s.repeatIntervalMs / 1000
-        c.longPressOn = { s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false)) }
+        // In a row of a reorderable List the long press picks the row up: no onLongPress (decision 7, ZnListReorder.swift).
+        let reorderRow = context.environment.znReorderRow
+        c.longPressOn = { !reorderRow && s.onLongPress != 0 && (s.hasLongPressSlot < 0 || inst.slot(s.hasLongPressSlot).value != .bool(false)) }
         c.onEvent = { [weak c] kind, payload in
             switch kind {
             case .down:
