@@ -572,6 +572,7 @@ private final class ZnAfterEdge {
     func release() {
         guard moving else { return }
         moving = false
+        vt.add(Int64(touch.timestamp * 1000), 0, pan.y?.value ?? 0)  // the lift: held still first, no speed
         let vy = vt.velocity().y
         let y = pan.y?.value ?? 0
         let t = pan.chooseTarget(0, y, 0, vy, 0, y)

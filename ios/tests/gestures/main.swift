@@ -297,6 +297,18 @@ do {  // anchors: a flick to the far one, the haptic, end's anchor, settle there
     clock.run(120)
     near("rests on b", g.x!.value, 200, 0.01)
     check("settle on b", lastEvent(920, "settle")?["anchor"] as? String, "b")
+
+    // A flick back toward a, then the finger rests 300 ms before it lifts (UIKit sends no moves meanwhile): no
+    // speed, so the nearest anchor wins (b, from 140), not the flick's.
+    let h = Finger(g)
+    h.down(0, 0)
+    h.move(-10, 0)
+    h.move(-60, 0, steps: 4)
+    h.up(after: 300)
+    let still = lastEvent(920, "end")!
+    check("held still before the lift: no speed", still["vx"] as? Double, 0)
+    check("held still: the nearest anchor", still["anchor"] as? String, "b")
+    clock.run(120)
 }
 
 do {  // magnets pull and say when the finger goes in and out
