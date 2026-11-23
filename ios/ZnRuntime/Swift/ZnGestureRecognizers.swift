@@ -160,14 +160,13 @@ final class ZnPanRec: ZnRecognizer {
     }
 
     override func activate() {
-        g.detach()
         // The finger takes the values where they are (an animation running on them stops; JS's promise says
-        // finished: false). Movement counts from here, so nothing jumps by the touch slop.
-        for v in [g.x, g.y] {
-            guard let v else { continue }
-            v.interrupt()
-            v.heldBy = g.touch
-        }
+        // finished: false). Movement counts from here, so nothing jumps by the touch slop. Held before any run stops:
+        // a settle that ends here mustn't start a spring to its anchor on the other value.
+        let values = [g.x, g.y].compactMap { $0 }
+        for v in values { v.heldBy = g.touch }
+        for v in values { v.interrupt() }
+        g.detach()
         startX = g.x?.value ?? 0
         startY = g.y?.value ?? 0
         rawX = startX

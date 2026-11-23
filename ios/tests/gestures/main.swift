@@ -423,6 +423,57 @@ do {  // a release on an anchor rests there and follows it when it moves (the ke
     _ = events(966)
 }
 
+do {  // a finger grabbing the card while it settles holds it: no spring to the old anchor pulls it away
+    let g = gesture(1210, #"{"kind":"pan","values":{"x":1211,"y":1212},"anchors":[{"id":"a","x":0,"y":0},{"id":"b","x":300,"y":400}]}"#)
+    let f = Finger(g)
+    f.down(0, 0)
+    f.move(60, 80, steps: 4)
+    f.up(after: 200)
+    clock.run(4)  // springing back to a
+    let h = Finger(g)
+    h.down(0, 0)
+    h.move(20, 20, steps: 2)  // past the slop: the pan starts where the card is
+    let gx = g.x!.value, gy = g.y!.value
+    clock.run(60)  // the finger holds still
+    near("x stays under the finger", g.x!.value, gx, 0.01)
+    near("y stays under the finger", g.y!.value, gy, 0.01)
+    h.move(10, 0)
+    clock.run(10)
+    near("x moves with the finger only", g.x!.value, gx + 10, 0.01)
+    near("y still", g.y!.value, gy, 0.01)
+    h.up(after: 200)
+    clock.run(240)
+    // A 1D slider grabbed mid-spring: the same.
+    let s1 = gesture(1215, #"{"kind":"pan","axis":"x","values":{"x":1216,"y":1217},"anchors":[{"id":"start","x":0},{"id":"end","x":300}]}"#)
+    let k = Finger(s1)
+    k.down(0, 0)
+    k.move(100, 0, steps: 4)
+    k.up(after: 200)
+    clock.run(4)
+    let m = Finger(s1)
+    m.down(0, 0)
+    m.move(12, 0, steps: 2)
+    let sx = s1.x!.value
+    clock.run(60)
+    near("the slider stays under the finger", s1.x!.value, sx, 0.01)
+    m.up(after: 200)
+    clock.run(240)
+    // snapTo while a settle runs: both values go to the new anchor, and it doesn't rest on the old one.
+    let n = Finger(g)
+    n.down(0, 0)
+    n.move(-40, -40, steps: 4)
+    n.up(after: 200)
+    clock.run(4)
+    var answer: [String: Any]?
+    try! ZnGestures.snapTo(["id": 1210, "anchor": "b"]) { answer = $0 }
+    clock.run(240)
+    near("snapTo x", g.x!.value, 300, 0.01)
+    near("snapTo y", g.y!.value, 400, 0.01)
+    check("snapTo finished", answer?["finished"] as? Bool, true)
+    _ = events(1210)
+    _ = events(1215)
+}
+
 do {  // crosses: each way once per crossing, with the haptic
     haptics = []
     let g = gesture(970, #"{"kind":"pan","axis":"x","values":{"x":971,"y":972},"cross":[50],"haptic":{"cross":"selection"},"ev":["cross"]}"#)

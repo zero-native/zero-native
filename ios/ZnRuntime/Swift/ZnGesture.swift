@@ -451,9 +451,12 @@ final class ZnGesture {
         let decay = znJsonBool(release["decay"])
         var open = 0
         var allStarted = false
+        var allOk = true
         let finished = { [weak self] in
             guard let self else { return }
-            if let t, self.anchors.contains(where: { $0.id == t.id }) { self.attach(t.id) }
+            // Rests on the anchor only when it got there: a run cut short (a finger grabbed it, snapTo) means someone
+            // else moves it now, and following the old anchor would pull it away from them.
+            if allOk, let t, self.anchors.contains(where: { $0.id == t.id }) { self.attach(t.id) }
             done?(t?.id)
         }
         func go(_ v: ZnMotionValue?, _ onX: Bool, _ to: Float?, _ vel: Float) {
@@ -473,7 +476,8 @@ final class ZnGesture {
             }
             guard let step else { return }
             open += 1
-            move(v, [step]) { _ in
+            move(v, [step]) { ok in
+                if !ok { allOk = false }
                 open -= 1
                 if open == 0 && allStarted { finished() }
             }
