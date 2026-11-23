@@ -13,7 +13,8 @@
 // - Network traces: as Android (an OkHttp interceptor there, ZnFetch.addObserver here), an HTTPMetric per `fetch`
 //   with `zn_bundle`, the method, the response code, the payload sizes and the content type. The response size is
 //   the body received (unzipped); Android's is its Content-Length. A method Firebase doesn't know (PROPPATCH, REPORT)
-//   gets no trace. A call that fails with no response stops with no code, which Firebase counts as a network error.
+//   gets no trace. A call that fails with no response stops with no code, which Firebase counts as a network error;
+//   a redirect the rules refuse (`redirect: "error"`, HTTPS to HTTP) is traced with its 3xx, as on Android.
 //   [automatic] (off by default; Android has nothing like it) turns on Firebase's own URLSession hooks as well:
 //   every request (core's fetch again, images, OTA downloads, Firebase's own calls), the URL without query,
 //   fragment, user and password, no `zn_bundle`. It also brings Firebase's view controller screen traces (the whole

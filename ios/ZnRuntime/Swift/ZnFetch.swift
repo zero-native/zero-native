@@ -30,9 +30,10 @@ public struct ZnFetchStart {
     public let method: String
 }
 
-/// What a fetch observer hears as the call ends. [status]: the response's code, nil when none came. [requestBytes]: the
-/// body sent (nil: no body). [responseBytes]: the body received, unzipped (nil when no response came). [error]: the
-/// code JS gets (`timeout`, `offline`, ..., `aborted` when JS gave up), nil when the call answered.
+/// What a fetch observer hears as the call ends. [status]: the response's code (a redirect the rules refused: its 3xx),
+/// nil when none came. [requestBytes]: the body sent (nil: no body). [responseBytes]: the body received, unzipped (nil
+/// when no response came). [error]: the code JS gets (`timeout`, `offline`, ..., `aborted` when JS gave up), nil when
+/// the call answered.
 public struct ZnFetchEnd {
     public let status: Int?
     public let requestBytes: Int64?
@@ -85,6 +86,9 @@ public final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         /// The body's size (nil: none), and the observers waiting for the end.
         var sentBytes: Int64?
         var ends: [(ZnFetchEnd) -> Void] = []
+        /// The 3xx a redirect rule refused (`redirect: "error"`, HTTPS to HTTP): the observers hear its code, as
+        /// Android's interceptor sees that response.
+        var refused: HTTPURLResponse?
         init(call: ZnCall, where_: String, redirect: String, maxBody: Int, t0: Date) {
             self.call = call; self.where_ = where_; self.redirect = redirect; self.maxBody = maxBody; self.t0 = t0
         }
@@ -347,6 +351,7 @@ public final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         switch t.redirect {
         case "error":
             t.ours = ("redirect_not_allowed", "\(t.where_): got a \(response.statusCode) redirect, and redirect is \"error\"")
+            t.refused = response
             completionHandler(nil)
             task.cancel()
         case "manual":
@@ -355,6 +360,7 @@ public final class ZnFetch: ZnModuleBase, @unchecked Sendable {
             let from = task.currentRequest?.url ?? response.url
             if from?.scheme == "https", newRequest.url?.scheme == "http" {
                 t.ours = ("insecure_redirect", "\(t.where_): refused a redirect from HTTPS to plain HTTP (\(newRequest.url?.absoluteString ?? ""))")
+                t.refused = response
                 completionHandler(nil)
                 task.cancel()
                 return
@@ -454,7 +460,8 @@ public final class ZnFetch: ZnModuleBase, @unchecked Sendable {
         let code: String? = t.call.isCancelled ? "aborted"
             : t.ours?.code ?? ((error == nil || manualEnd) ? (t.response == nil ? "connection_lost" : nil)
                 : Self.errorCode(error! as NSError, online: online))
-        let r = t.response
+        // A refused redirect: its 3xx, with no body (JS gets the rule's error).
+        let r = t.response ?? (t.call.isCancelled ? nil : t.refused)
         Self.tell(t.ends, status: r?.statusCode, sent: t.sentBytes, received: r.map { _ in Int64(t.body.count) },
                   type: r?.value(forHTTPHeaderField: "Content-Type"), error: code)
     }
