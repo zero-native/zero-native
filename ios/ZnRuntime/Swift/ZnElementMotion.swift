@@ -1,8 +1,11 @@
 // useElementMotion() on iOS (`motion={m}`; Android: ZnMotionUi.kt znElementOf / ZnProvide / ZnFollow / ZnPressMotion /
 // znElementBox). An element gives:
-// - its box in the window (x, y, width, height, in points = dp), written when it is placed, when a scroll view around it
-//   scrolls, and right before a measure() read (ZnElementBoxView, a clear UIView in the node's background, inside its
-//   layer, so a moved or scaled node gives where it is drawn: Android's positionInWindow inside graphicsLayer);
+// - its box in the window (x, y, width, height, in points = dp), written when it is placed, when it or anything around
+//   it moves (its layer's place and transform, and every layer up to the window: SwiftUI's effects, a sheet's card, a
+//   screen's transition), when a scroll view around it scrolls, and right before a measure() read (ZnElementBoxView, a
+//   clear UIView in the node's background, inside its layer, so a moved or scaled node gives where it is drawn:
+//   Android's positionInWindow inside graphicsLayer). During a UIKit animation (a push, a modal) it is where the
+//   animation ends, not each step of it;
 // - a Pressable's press as 0 → 1 (`pressed`): a quick spring down (ratio 1, stiffness 1500), a softer one back (0.6);
 // - scrolling things' values (Scroll scrollX / scrollY, List index / offset / scroll, Carousel page, pull to refresh):
 //   their owners give the element's lambda source a reader while they are on screen (ZnProvided) and follow m.follow(v)
@@ -33,13 +36,16 @@ extension ZnNodeSpec {
 enum ZnProvided {
     private final class Owner {
         weak var o: AnyObject?
-        init(_ o: AnyObject) { self.o = o }
+        weak var src: ZnLambdaSource?
+        init(_ o: AnyObject, _ src: ZnLambdaSource) { self.o = o; self.src = src }
     }
     private static var owners: [ObjectIdentifier: Owner] = [:]
 
     static func provide(_ src: ZnLambdaSource?, by owner: AnyObject, _ reader: @escaping () -> Float) {
         guard let src else { return }
-        owners[ObjectIdentifier(src)] = Owner(owner)
+        // Entries whose source (JS disposed it: its screen left) or owner went without a release.
+        owners = owners.filter { $0.value.o != nil && $0.value.src != nil }
+        owners[ObjectIdentifier(src)] = Owner(owner, src)
         src.reader = reader
     }
 
@@ -53,13 +59,18 @@ enum ZnProvided {
 /// m.follow(v) (ZnFollow): while set, each new value of v goes to [apply] at once (on the frame after it moved), which
 /// scrolls the element there with no animation. Smoothness comes from v itself; the user can still scroll, and the
 /// next change of v wins. Only a change applies (Android's snapshotFlow), so the scroll it causes doesn't loop back.
+/// [apply] answers false when the scroll view isn't ready (not found, no size yet): the value waits, and the owner calls
+/// check() again when it is (Android's scrollTo works before the first layout too).
 @MainActor
 final class ZnFollower {
     private var src: ZnSource?
     private var last: Float = .nan
-    var apply: (Float) -> Void
+    var apply: (Float) -> Bool
 
-    init(_ apply: @escaping (Float) -> Void = { _ in }) { self.apply = apply }
+    init(_ apply: @escaping (Float) -> Bool = { _ in false }) { self.apply = apply }
+
+    /// A value to follow is set.
+    var following: Bool { src != nil }
 
     /// The value to follow now (nil stops). A new source applies its value at once.
     func set(_ s: ZnSource?) {
@@ -80,26 +91,40 @@ final class ZnFollower {
         guard let src else { return }
         let v = src.read(nil)
         guard v.isFinite, force || v != last else { return }
-        last = v
-        apply(v)
+        if apply(v) { last = v }
     }
 }
 
 /// The element seam inside ZnPaintLayers, before ZnLayer (so inside the node's transforms): the box writer, and for a
-/// Pressable (UIKit variant) its feedback, press look and touch view.
+/// Pressable (UIKit variant) its feedback, press look and touch view. Every other node passes through: the branch is
+/// fixed per node (its type and motion slot never change), so it never swaps.
 struct ZnElementProbe: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+
+    func body(content: Content) -> some View {
+        if (s.isPressable && ZnImpl.press == .uiKit) || s.motionSlot >= 0 {
+            content.modifier(ZnElementSeam(s: s, inst: inst))
+        } else {
+            content
+        }
+    }
+}
+
+private struct ZnElementSeam: ViewModifier {
     let s: ZnNodeSpec
     let inst: ZnInstance
     @Environment(\.znPressLink) private var press
 
     func body(content: Content) -> some View {
+        // Only this node's own link: a Pressable's children see it in the environment too, and pass it by.
         let link = press.flatMap { $0.node == s.index && $0.inst === inst ? $0 : nil }
         let element = s.motionSlot >= 0 ? s.elementNow(inst) : nil
         content
-            // The link is this node's: its children don't see it (a Pressable inside starts its own).
-            .environment(\.znPressLink, nil)
             .modifier(ZnPressInLayer(s: s, inst: inst, link: link, element: element))
             .background {
+                // (No `if` on the element here: a box view that comes with JS's `element` call, a frame after the
+                // template, would be the only thing added; the node's content keeps its identity either way.)
                 if let element, element.hasBox { ZnElementBoxView(element: element).allowsHitTesting(false).accessibilityHidden(true) }
             }
     }
@@ -131,7 +156,7 @@ struct ZnElementBoxView: UIViewRepresentable {
 
     static func dismantleUIView(_ v: ZnElementBoxUIView, coordinator: ()) {
         v.element = nil
-        v.watchScrolls(false)
+        v.watch(false)
     }
 }
 
@@ -165,24 +190,49 @@ final class ZnElementBoxUIView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        watchScrolls(window != nil)
+        watch(window != nil)
         if window != nil { write() }
     }
 
-    /// Android's onGloballyPositioned also runs when a scroll moves the element: every scroll view around it is watched
-    /// (a SwiftUI one, a List's collection view, a Carousel).
-    func watchScrolls(_ on: Bool) {
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        if window != nil { watch(true) }
+    }
+
+    /// Android's onGloballyPositioned runs whenever the element moves in the window: a layout, a scroll, a transform of
+    /// it or of anything around it (graphicsLayer), a screen's transition. Here every layer from this view up to the
+    /// window is watched for its place and transform (SwiftUI's offset / scale / rotation effects and its animations
+    /// set them; so does UIKit: a sheet's card, a transition's views), and every scroll view for its offset.
+    func watch(_ on: Bool) {
         watches.forEach { $0.invalidate() }
         watches = []
         guard on else { return }
-        var p = superview
-        while let v = p {
+        var p: UIView? = self
+        while let v = p, !(v is UIWindow) {
+            watches.append(v.layer.observe(\.position, options: []) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.writeSoon() }
+            })
+            watches.append(v.layer.observe(\.transform, options: []) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.writeSoon() }
+            })
             if let sv = v as? UIScrollView {
                 watches.append(sv.observe(\.contentOffset, options: []) { [weak self] _, _ in
                     MainActor.assumeIsolated { self?.write() }
                 })
             }
             p = v.superview
+        }
+    }
+
+    /// Once, after what moved has finished moving in this turn (a transition sets its start and then its end; SwiftUI
+    /// places a few layers in a row): the place where it ends up, written once.
+    private var queued = false
+    private func writeSoon() {
+        guard !queued else { return }
+        queued = true
+        DispatchQueue.main.async { [weak self] in
+            self?.queued = false
+            self?.write()
         }
     }
 
@@ -210,6 +260,18 @@ final class ZnPressLink {
     var node = -1
     /// `pressed` of the element motion: 0 → 1, moved by springs (ZnPressMotion).
     let pressed = ZnMotionValue(id: -1, 0)
+    /// The `pressed` source this Pressable gives its reader to now.
+    private(set) var given: ZnLambdaSource?
+
+    /// Gives [e]'s `pressed` its reader (nil: takes it back), the old element's back first.
+    func give(_ e: ZnElementMotion?) {
+        let src = e?.lambda("pressed")
+        guard src !== given else { return }
+        if let old = given { ZnProvided.release(old, by: self) }
+        given = src
+        let v = pressed
+        ZnProvided.provide(src, by: self) { v.cell.v }
+    }
 }
 
 extension EnvironmentValues {
@@ -250,7 +312,7 @@ private struct ZnPressDrawn: ViewModifier {
         let pe = s.pointerEventsNow(inst)
         let selfOff = pe == Registry.PointerEvents.none || pe == Registry.PointerEvents.boxNone
         content
-            .overlay { ZnPressFeedback(s: s, state: state, shape: znShapeNow(s, inst)).accessibilityHidden(true) }
+            .overlay { ZnPressFeedbackNow(s: s, inst: inst, state: state).accessibilityHidden(true) }
             .scaleEffect(state.pressed ? s.pressScale : 1)
             .opacity(state.pressed ? s.pressOpacity : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.8), value: state.pressed)
@@ -262,24 +324,33 @@ private struct ZnPressDrawn: ViewModifier {
     }
 }
 
+/// The feedback in the node's shape now: corners that follow a motion value redraw the feedback alone each frame, not
+/// the touch view and the rest of the press layer.
+private struct ZnPressFeedbackNow: View {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    let state: ZnPressState
+
+    var body: some View { ZnPressFeedback(s: s, state: state, shape: znShapeNow(s, inst)) }
+}
+
 /// `pressed` of the element motion (ZnPressMotion): springs towards 1 on a press, back to 0 on its release. With
-/// Reduce Motion (animations off) it jumps.
+/// Reduce Motion (animations off) it jumps. One branch whatever the element: it comes with JS's `element` call, a frame
+/// after the template, and a branch on it would make the Pressable's whole content new (its children's state lost).
 private struct ZnPressMotion: ViewModifier {
     let link: ZnPressLink
     let element: ZnElementMotion?
 
     func body(content: Content) -> some View {
-        if let element, let src = element.lambda("pressed") {
-            content
-                .onAppear {
-                    let v = link.pressed
-                    ZnProvided.provide(src, by: link) { v.cell.v }
-                }
-                .onDisappear { ZnProvided.release(src, by: link) }
-                .onChange(of: link.state.pressed) { _, down in Self.move(link.pressed, to: down ? 1 : 0) }
-        } else {
-            content
-        }
+        content
+            // A new element (the slot points at another `m`, a row reused for another item) gets the reader too.
+            .onChange(of: element.map(ObjectIdentifier.init), initial: true) { link.give(element) }
+            .onAppear { link.give(element) }  // back on screen
+            .onDisappear { link.give(nil) }
+            .onChange(of: link.state.pressed) { _, down in
+                guard link.given != nil else { return }  // nobody reads it: no spring per press
+                Self.move(link.pressed, to: down ? 1 : 0)
+            }
     }
 
     @MainActor static func move(_ v: ZnMotionValue, to target: Float) {

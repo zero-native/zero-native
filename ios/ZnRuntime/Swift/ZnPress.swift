@@ -226,7 +226,9 @@ final class ZnTouchControl: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event), let window else { return nil }
         let p = convert(point, to: window)
-        let area = core.width * core.height
+        // Sizes and the finger in the window's space: the touch views sit inside their Pressables' layers, so a scaled
+        // or turned parent scales and turns them (its children with it).
+        let area = windowArea(core, window)
         // In the slop, past the Pressable's own edges: another Pressable right under the finger wins, as on Android
         // (Compose's minimum touch size; RN would give it to the one on top). Over empty space the slop counts.
         let inSlop = !core.contains(point)
@@ -235,9 +237,10 @@ final class ZnTouchControl: UIView {
         // push) must not take its taps (found 2026-11-08: Home's buttons blocked the Dev screen's).
         for other in ZnTouchControl.live.allObjects
         where other !== self && other.window === window && !other.isHidden && other.screenController === screen {
-            let f = other.convert(other.core, to: window)
+            // Under the finger: in its own space, so a turned one's corners don't count.
+            guard other.core.contains(other.convert(p, from: window)) else { continue }
             // An inner Pressable takes the touch; in our slop, any Pressable under the finger does.
-            if f.contains(p) && (inSlop || f.width * f.height < area) { return nil }
+            if inSlop || other.windowArea(other.core, window) < area { return nil }
         }
         // A TextField inside the Pressable (a dialog's note field in a tappable dim, a search field in a tappable row):
         // the field takes the touch, as on Android, where the innermost one gets it. It never could (2026-11-19).
@@ -246,6 +249,14 @@ final class ZnTouchControl: UIView {
             return nil
         }
         return hit
+    }
+
+    /// [r]'s area as drawn in [window] (its transforms' scale; a turn doesn't change it).
+    func windowArea(_ r: CGRect, _ window: UIWindow) -> CGFloat {
+        let a = convert(CGPoint(x: r.minX, y: r.minY), to: window)
+        let b = convert(CGPoint(x: r.maxX, y: r.minY), to: window)
+        let c = convert(CGPoint(x: r.minX, y: r.maxY), to: window)
+        return abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x))
     }
 
     /// The view controller hosting this control's screen (the nearest one up the responder chain).

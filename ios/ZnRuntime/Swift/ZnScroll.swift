@@ -224,7 +224,7 @@ final class ZnScrollDriver: NSObject, ObservableObject {
     private var element: ZnElementMotion?
     private let along = ZnCell(0)
     private let pull = ZnCell(0)
-    private lazy var follower = ZnFollower { [weak self] v in self?.followTo(v) }
+    private lazy var follower = ZnFollower { [weak self] v in self?.followTo(v) ?? false }
 
     /// Another reader of this scroll view (a SwiftUI List's or a Carousel's element values, found by ZnScrollFinder):
     /// told when it is found and at each contentOffset change.
@@ -380,6 +380,10 @@ final class ZnScrollDriver: NSObject, ObservableObject {
 
     private func sized() {
         if let p = pending { run(p) }
+        // A follow that came before the content had a size applies now; another reader (a Carousel's, a SwiftUI
+        // List's) hears it too.
+        follower.check()
+        if let sv { onScroll?(sv) }
     }
 
     // MARK: Events
@@ -535,12 +539,13 @@ final class ZnScrollDriver: NSObject, ObservableObject {
         if let refresh { pull.write(refresh.pull(sv)) }
     }
 
-    /// m.follow(v): v in points from the content's start, kept inside the content (Android's scrollTo).
-    private func followTo(_ v: Float) {
-        guard let sv, let m = metrics() else { return }
+    /// m.follow(v): v in points from the content's start, kept inside the content (Android's scrollTo). False before
+    /// the content has a size (sized() tries again).
+    private func followTo(_ v: Float) -> Bool {
+        guard let sv, let m = metrics(), (horizontal ? sv.contentSize.width : sv.contentSize.height) > 0 else { return false }
         let to = min(max(Double(v), 0), m.max)
-        guard abs(to - m.offset) > 0.25 else { return }
-        sv.setContentOffset(raw(to, sv), animated: false)
+        if abs(to - m.offset) > 0.25 { sv.setContentOffset(raw(to, sv), animated: false) }
+        return true
     }
 
     // MARK: Snapping

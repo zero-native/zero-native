@@ -164,6 +164,8 @@ export const routes = defineRoutes({
   // useElementMotion values (box, pressed, Scroll / List / Carousel values, follow) and a Pressable drawn away from its
   // place by its transforms. Last, as above.
   elementValuesLab: { path: "/dev/motion/element-values", screen: ElementValuesLabScreen, deepLink: true },
+  // The same lab on a modal route: its box values once the screen has come up (W3-B review). Last, as above.
+  elementValuesModal: { path: "/dev/motion/element-values-modal", screen: ElementValuesLabScreen, transition: "modal", restore: false },
 })
 
 // Typed navigation: nav.push("amount", { merchantId }) is checked against these routes.

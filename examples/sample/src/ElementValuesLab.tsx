@@ -6,8 +6,13 @@
 //   scroll:   a vertical Scroll's scrollY and pull (with pull to refresh), follow (scroll to 600, then let go); a rail's
 //             scrollX
 //   list:     a List's index, offset, scrollY and pull; follow to row 20.5
-//   carousel: a Carousel's page; follow to page 3, then back to 0
-// Open one part with --params '{"mode":"list"}' (box by default). An example, not framework code.
+//   carousel: a Carousel's page; follow to page 3, then back to 0; "hold at 1": a follow that stays set while you swipe
+//             (the dots and onPageChange still go with the pages)
+// Box also has "slide": its parent moved by a motion value (the box follows with no layout), "drop": its grandparent
+// moved by a signal with an `animate` timing (SwiftUI's animation), and "open as modal" (the same lab on a modal route:
+// the box is where the screen ends up). Open one part with --params '{"mode":"list"}' (box by default); `followAt` (a
+// number) sets a follow as the part mounts, before the native element exists (it must still apply). An example, not
+// framework code.
 import { Carousel, Column, List, Pressable, Row, Scroll, Text } from "@zeronative/ui"
 import { effect, nav, signal, useElementMotion, useMotion, type ElementMotion, type MotionSource } from "@zeronative/core"
 import { c } from "./tokens"
@@ -57,25 +62,31 @@ function EvBox() {
   const m = useElementMotion()
   const taps = signal(0)
   const box = signal("")
+  const slide = useMotion(0)
+  const drop = signal(0)
   logEach("pressed", m.pressed)
+  logEach("x", m.x)
+  logEach("y", m.y)
   return (
     <Column style={{ gap: 12, padding: 16 }}>
       <Text fontSize={13} color={c.muted}>
         The purple card is laid out at the left and drawn 120 pt to the right, turned 12° and 1.2x: tap where you see it.
       </Text>
-      <Column style={{ height: 120 }}>
-        <Pressable
-          motion={m}
-          testID="moved-card"
-          onPress={() => {
-            taps.set(taps() + 1)
-            say(`tap ${taps()}`)
-          }}
-          pressScale={0.95}
-          style={{ width: 140, height: 80, borderRadius: 16, backgroundColor: c.primary, alignItems: "center", justifyContent: "center", transform: [{ translateX: 120 }, { rotate: 12 }, { scale: 1.2 }] }}
-        >
-          <Text fontSize={15} color={c.white}>{`Taps: ${taps()}`}</Text>
-        </Pressable>
+      <Column animate={{ translateY: { duration: 400 } }} style={{ height: 120, transform: [{ translateY: drop() }] }}>
+        <Column style={{ height: 120, transform: [{ translateX: slide }] }}>
+          <Pressable
+            motion={m}
+            testID="moved-card"
+            onPress={() => {
+              taps.set(taps() + 1)
+              say(`tap ${taps()}`)
+            }}
+            pressScale={0.95}
+            style={{ width: 140, height: 80, borderRadius: 16, backgroundColor: c.primary, alignItems: "center", justifyContent: "center", transform: [{ translateX: 120 }, { rotate: 12 }, { scale: 1.2 }] }}
+          >
+            <Text fontSize={15} color={c.white}>{`Taps: ${taps()}`}</Text>
+          </Pressable>
+        </Column>
       </Column>
       <EvValue label="x" v={m.x} />
       <EvValue label="y" v={m.y} />
@@ -96,12 +107,26 @@ function EvBox() {
         }}
       />
       <Text fontSize={13} color={c.ink}>{`measured: ${box()}`}</Text>
+      <Row style={{ gap: 8, flexWrap: "wrap" }}>
+        <EvButton label="slide" onPress={() => void slide.to(slide.peek() < 0 ? 0 : -80, "spring").then(() => say(`slide done ${slide.peek()}`))} />
+        <EvButton label="drop" onPress={() => drop.set(drop() > 0 ? 0 : 30)} />
+        <EvButton label="open as modal" onPress={() => nav.push("elementValuesModal", { mode: "box" })} />
+      </Row>
     </Column>
   )
 }
 
-function EvScroll() {
+/** A follow set as the part mounts ([at]), before the native element has its scroll view. */
+function followAtMount(m: ElementMotion, at: number | undefined) {
+  if (at === undefined) return
+  const held = useMotion(at)
+  m.follow(held)
+  say(`follow at mount ${at}`)
+}
+
+function EvScroll(props: { followAt?: number }) {
   const m = useElementMotion()
+  followAtMount(m, props.followAt)
   const rail = useElementMotion()
   const target = useMotion(0)
   const refreshing = signal(false)
@@ -167,8 +192,9 @@ function EvScroll() {
   )
 }
 
-function EvList() {
+function EvList(props: { followAt?: number }) {
   const m = useElementMotion()
+  followAtMount(m, props.followAt)
   const target = useMotion(0)
   const refreshing = signal(false)
   logEach("index", m.index)
@@ -231,9 +257,11 @@ function EvList() {
   )
 }
 
-function EvCarousel() {
+function EvCarousel(props: { followAt?: number }) {
   const m = useElementMotion()
   const target = useMotion(0)
+  const held = useMotion(1)
+  followAtMount(m, props.followAt)
   logEach("page", m.page)
   const go = (p: number) => {
     target.set(m.page.peek())
@@ -250,6 +278,20 @@ function EvCarousel() {
         <Row style={{ gap: 8 }}>
           <EvButton label="follow → 3" onPress={() => go(3)} />
           <EvButton label="follow → 0" onPress={() => go(0)} />
+          <EvButton
+            label="hold at 1"
+            onPress={() => {
+              m.follow(held)
+              say("hold at 1")
+            }}
+          />
+          <EvButton
+            label="let go"
+            onPress={() => {
+              m.follow(null)
+              say("let go")
+            }}
+          />
         </Row>
       </Column>
       <Carousel motion={m} itemWidth="80%" dots onPageChange={(i) => say(`onPageChange ${i}`)} style={{ height: 180, gap: 12, paddingHorizontal: 16 }}>
@@ -277,7 +319,7 @@ function EvTab(props: { name: string; mode: () => string; onPick: (name: string)
   )
 }
 
-export function ElementValuesLabScreen(props: { mode?: string }) {
+export function ElementValuesLabScreen(props: { mode?: string; followAt?: number }) {
   const mode = signal(props.mode ?? "box")
   say(`open ${mode()}`)
   return (
@@ -291,7 +333,15 @@ export function ElementValuesLabScreen(props: { mode?: string }) {
         <EvTab name="list" mode={mode} onPick={(n) => mode.set(n)} />
         <EvTab name="carousel" mode={mode} onPick={(n) => mode.set(n)} />
       </Row>
-      {mode() === "box" ? <EvBox /> : mode() === "scroll" ? <EvScroll /> : mode() === "list" ? <EvList /> : <EvCarousel />}
+      {mode() === "box" ? (
+        <EvBox />
+      ) : mode() === "scroll" ? (
+        <EvScroll followAt={props.followAt} />
+      ) : mode() === "list" ? (
+        <EvList followAt={props.followAt} />
+      ) : (
+        <EvCarousel followAt={props.followAt} />
+      )}
     </Column>
   )
 }

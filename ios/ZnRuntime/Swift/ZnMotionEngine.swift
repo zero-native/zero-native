@@ -117,8 +117,13 @@ final class ZnMotionValue: ZnSource {
 /// last value when the component goes away.
 final class ZnLambdaSource: ZnSource {
     var reader: (() -> Float)? {
-        didSet { given.write(given.v + 1) }  // (a write marks the engine dirty)
+        didSet {
+            // A plain counter: reading the cell here would make the view updating now (a List's provide) depend on it.
+            gives += 1
+            given.write(Float(gives))  // (a write marks the engine dirty)
+        }
     }
+    private var gives = 0
     /// Read by read(), so a binding that read this before its component gave a reader (or after it took it back) draws
     /// again when that changes: the reader itself isn't observed (Android's reader is a MutableState).
     private let given = ZnCell(0)

@@ -13,6 +13,8 @@
 //   a new page settles; not for the first.
 // - motion={m} (useElementMotion): m.page is the page as a number (2.5: half way from page 2 to 3), from the scroll view
 //   (ZnScrollDriver's watch, found by ZnScrollFinder); m.follow(v) moves the pages to page v at once, with no animation.
+//   While it follows, the dots, onPageChange and autoAdvance go by where the pages are (moved by the follow or by the
+//   user), as Android's pager's currentPage: SwiftUI's scroll position doesn't hear an offset set from code.
 import SwiftUI
 import UIKit
 
@@ -32,14 +34,14 @@ struct ZnCarouselView: View {
     /// useElementMotion: the scroll view, and the page from it.
     @StateObject private var scroll = ZnScrollDriver()
     @State private var values = ZnCarouselElement()
-    /// The page (rounded) m.follow(v) last moved to, while it follows.
+    /// The page (rounded) the pages are at while m.follow(v) is set (moved by it or by the user).
     @State private var followed: Int?
 
     var body: some View {
         let refs = znShownRefs(ctx, t, inst, s.children)
         let pad = s.paddingInsets(inst)
         let fill = s.hasHeight || s.flexNow(inst) > 0
-        // The page m.follow(v) moved to: SwiftUI's scroll position doesn't hear a contentOffset set from code.
+        // While it follows: where the pages are (SwiftUI's scroll position doesn't hear a contentOffset set from code).
         let shown = followed ?? (atEnd && refs.count > 1 ? refs.count - 1 : (page ?? settled))
         let element = s.elementNow(inst)
         let follow = element?.follow.source
@@ -101,7 +103,7 @@ struct ZnCarouselView: View {
         }
         .onChange(of: element.map(ObjectIdentifier.init), initial: true) { values.set(element, scroll) }
         .onChange(of: follow.map(ObjectIdentifier.init), initial: true) {
-            values.follower.set(element == nil ? nil : follow)
+            values.follow(element == nil ? nil : follow)
             // Follow stopped: SwiftUI's position takes the page it left (already there, so nothing moves).
             if follow == nil, let f = followed {
                 page = f
@@ -110,7 +112,7 @@ struct ZnCarouselView: View {
         }
         .onAppear {  // back on screen: its reader and follow again
             values.set(element, scroll)
-            values.follower.set(element == nil ? nil : follow)
+            values.follow(element == nil ? nil : follow)
         }
         .onDisappear { values.set(nil, scroll) }
         .onChange(of: shown) { _, p in
@@ -124,6 +126,11 @@ struct ZnCarouselView: View {
                 try? await Task.sleep(for: .milliseconds(s.autoAdvanceMs))
                 if Date().timeIntervalSince(lastTouch) * 1000 < s.pauseAfterTouchMs { continue }
                 // From the state now (this closure was made when the task started).
+                if let f = followed {
+                    // Following: SwiftUI's position is stale (setting it to the page it still holds moves nothing).
+                    values.go(to: (f + 1) % refs.count)
+                    continue
+                }
                 let now = atEnd && refs.count > 1 ? refs.count - 1 : (page ?? settled)
                 let next = (now + 1) % refs.count
                 withAnimation(.easeInOut(duration: 0.35)) { page = next }
@@ -138,7 +145,8 @@ struct ZnCarouselView: View {
 @MainActor
 final class ZnCarouselElement {
     let follower = ZnFollower()
-    /// Told the page (rounded) each time m.follow(v) moves the pages, for the dots and onPageChange.
+    /// Told the page (rounded) the pages are at while a follow is set, each time they move (by the follow or the user),
+    /// for the dots, onPageChange and autoAdvance.
     var onFollowed: (Int) -> Void = { _ in }
     private var element: ZnElementMotion?
     private weak var sv: UIScrollView?
@@ -160,28 +168,65 @@ final class ZnCarouselElement {
             let page = page
             ZnProvided.provide(e.lambda("page"), by: self) { page.v }
             driver.onScroll = { [weak self] sv in self?.scrolled(sv) }
-            follower.apply = { [weak self] v in self?.followTo(v) }
+            follower.apply = { [weak self] v in self?.followTo(v) ?? false }
         } else {
             driver.onScroll = nil
             follower.set(nil)
         }
+        reported = nil
     }
 
-    /// The offset from the first page's place (contentMargins are the scroll view's inset).
+    /// The value to follow now (nil stops).
+    func follow(_ src: ZnSource?) {
+        if follower.following != (src != nil) { reported = nil }
+        follower.set(src)
+    }
+
+    /// The offset from the first page's place (contentMargins are the scroll view's inset). Also when the scroll view
+    /// is found or its content gets its size: a follow that came first applies then.
     private func scrolled(_ sv: UIScrollView) {
         self.sv = sv
         let offset = sv.contentOffset.x + sv.adjustedContentInset.left
-        page.write(Float(ZnElementRules.carouselPage(offset: offset, pageWidth: pageWidth, gap: gap, count: count)))
+        let p = ZnElementRules.carouselPage(offset: offset, pageWidth: pageWidth, gap: gap, count: count)
+        page.write(Float(p))
+        if follower.following {
+            report(Int(p.rounded()))
+            follower.check()
+        }
     }
 
-    private func followTo(_ v: Float) {
-        guard let sv else { return }
+    /// The page the pages are at, to the view's state after this turn (the offset may move inside SwiftUI's update).
+    private var reported: Int?
+    private func report(_ p: Int) {
+        guard p != reported else { return }
+        reported = p
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.follower.following else { return }  // (stopped in between)
+            self.onFollowed(p)
+        }
+    }
+
+    /// False until the pages are laid out (no scroll view, or no size yet): the value waits.
+    private func followTo(_ v: Float) -> Bool {
+        guard let sv, sv.contentSize.width > 0, pageWidth > 0 else { return false }
         let i = sv.adjustedContentInset
         let maxOffset = sv.contentSize.width + i.left + i.right - sv.bounds.width
-        guard let to = ZnElementRules.carouselFollow(Double(v), pageWidth: pageWidth, gap: gap, count: count, maxOffset: maxOffset),
-              abs(to - (sv.contentOffset.x + i.left)) > 0.25 else { return }
-        sv.setContentOffset(CGPoint(x: to - i.left, y: sv.contentOffset.y), animated: false)
-        let p = ZnElementRules.carouselPage(offset: to, pageWidth: pageWidth, gap: gap, count: count)
-        onFollowed(Int(p.rounded()))
+        guard let to = ZnElementRules.carouselFollow(Double(v), pageWidth: pageWidth, gap: gap, count: count, maxOffset: maxOffset)
+        else { return true }
+        if abs(to - (sv.contentOffset.x + i.left)) > 0.25 {
+            sv.setContentOffset(CGPoint(x: to - i.left, y: sv.contentOffset.y), animated: false)
+        }
+        report(Int(ZnElementRules.carouselPage(offset: to, pageWidth: pageWidth, gap: gap, count: count).rounded()))
+        return true
+    }
+
+    /// autoAdvance while following: to page [p], animated (the follow's next change wins again).
+    func go(to p: Int) {
+        guard let sv, sv.contentSize.width > 0 else { return }
+        let i = sv.adjustedContentInset
+        let maxOffset = sv.contentSize.width + i.left + i.right - sv.bounds.width
+        guard let to = ZnElementRules.carouselFollow(Double(p), pageWidth: pageWidth, gap: gap, count: count, maxOffset: maxOffset)
+        else { return }
+        sv.setContentOffset(CGPoint(x: to - i.left, y: sv.contentOffset.y), animated: true)
     }
 }
