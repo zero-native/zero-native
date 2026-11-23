@@ -16,9 +16,10 @@
 // - Motion values in commands (gesture-driven charts, a ring that springs, a path that draws itself: CanvasLab tiles
 //   9-11) are found once per list and read in draw(_:), inside withObservationTracking: a value the last draw read
 //   that moves (its ZnCell, an @Observable) marks this view for a draw, so it redraws on that frame with no JS, no
-//   SwiftUI update and no new parse, as Android's drawBehind. A canvas with no motion values tracks nothing; one off
-//   screen isn't drawn (it draws once when it shows). A value not made yet when the list was read: read again once
-//   sources arrive (ZnMotionEngine.generation).
+//   SwiftUI update and no new parse, as Android's drawBehind. A canvas with no motion values tracks nothing. One out of
+//   the window (a screen pushed over it) isn't drawn, and draws once when it's back; one only scrolled out of sight
+//   still draws each frame, as on Android (CanvasLab tile 19: about 0.1-0.2 ms a frame on the CPU). A value not made
+//   yet when the list was read: read again once sources arrive (ZnMotionEngine.generation).
 // - ZN_CANVAS_TIMING=1 prints how long moving canvases take to draw, every 120 draws.
 import SwiftUI
 import UIKit
