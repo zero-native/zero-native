@@ -25,14 +25,11 @@ import ZnHost
 }
 
 #if DEBUG
-/// The engine turned off (ZN_MOTION_ENGINE=0, Debug only), like the stub of older iOS hosts: nothing moves and calls
-/// answer "unavailable", except that animate, snapTo and zoomTo answer finished at once, so a screen that waits for
-/// one (the TSX image viewer's close) still goes on.
+/// The engine turned off (ZN_MOTION_ENGINE=0, Debug only): the stub of older iOS hosts, so nothing moves and every
+/// call answers "unavailable". Core treats an unavailable animate, snapTo or zoomTo as finished at once and says so
+/// once in the log, so a screen that waits for one (the TSX image viewer's close) still goes on.
 final class ZnMotionOff: ZnModuleBase, @unchecked Sendable {
-    init() {
-        super.init("Motion", version: 1)
-        for name in ["animate", "snapTo", "zoomTo"] { function(name) { c in c.resolve(["finished": true]) } }
-    }
+    init() { super.init("Motion", version: 1) }
 }
 #endif
 

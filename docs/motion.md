@@ -254,8 +254,8 @@ below host API 10 had a stub of the same name and number that answered every cal
 sends them no bundle that requires `Motion` (docs/ota.md §3.2, "Motion on older iOS apps"). If one gets there anyway,
 core (from 2026-11-24) treats an unavailable `to` / `decay` / `sequence` / `snapTo` / `zoomTo` as done at once and
 says so once in the log (an older core rejects them at once). `ZN_MOTION_ENGINE=0` (environment, Debug builds only)
-swaps the engine for ZnMotionOff, to compare a screen's cost: nothing moves, animate / snapTo / zoomTo answer finished
-at once and the rest "unavailable".
+swaps the engine for ZnMotionOff, the old stub (every call "unavailable"), to see what an older iOS app does with a
+bundle and to compare a screen's cost.
 
 ## 14. iOS port (for the iOS session)
 
