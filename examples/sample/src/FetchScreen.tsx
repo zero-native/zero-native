@@ -284,9 +284,10 @@ function checksFor(port: number, dir?: string): Array<[string, Check]> {
       const r = await (await fetch(`${L}/upload`, { method: "POST", body: form as any, timeout: 180_000, onUploadProgress: up.on })).json()
       const f = (r.parts as UploadPart[])[0]!
       must(f.size === MB200 && f.pattern === true, `file part ${f.size} bytes, pattern ${f.pattern}`)
-      // At least 2 (one on the way, the last): over localhost 200 MB can go in under 300 ms, so the 100 ms throttle may
-      // let only those through.
-      must(up.events.length >= 2 && up.growing() && up.last()?.loaded === r.length && up.last()?.total === r.length, up.text())
+      // At least 1, ending at the total: over localhost 200 MB can go in under 300 ms, and iOS's URLSession may report the
+      // whole body in its first progress callback (seen 2026-11-23), so the 100 ms throttle may let only the last through.
+      // Events that grow to the total are checked by "upload progress, 5 MB body".
+      must(up.events.length >= 1 && up.growing() && up.last()?.loaded === r.length && up.last()?.total === r.length, up.text())
       return `${Math.round(r.length / 1e6)} MB in ${Date.now() - t0} ms; ${up.text()}`
     }],
     ["FormData 200 MB upload aborted", async () => {
