@@ -13,9 +13,11 @@
 //   { index }, as on Android. A left-edge swipe pages back, as in Photos.
 // - ZeroBill is portrait only, so turning the phone does nothing; the pages lay out again only when the size changes
 //   (laying out again at the same size used to reset the pager while it slid, skipping a page).
-// - Version 3's TSX viewer (a route with `screen: ImageViewerScreen`, src/ImageViewerScreen.tsx) draws each photo with
-//   the view "imageviewer.page" (ViewerPage.swift; rules in ViewerRules.swift, decoding in ViewerSource.swift). A route
-//   that still says `native: "imageviewer.full"` (ZeroBill's) gets this screen.
+// - Version 3's TSX viewer (a route with `screen: ImageViewerScreen`, src/ImageViewerScreen.tsx) is the same screen as
+//   on Android: useZoom per photo, usePan to drag it away, a paging <List>, the flight from `from`, on a transparent
+//   route. Each photo is the view "imageviewer.page" (ViewerPage.swift; rules in ViewerRules.swift, decoding in
+//   ViewerSource.swift). It needs the motion engine. A route that still says `native: "imageviewer.full"` (ZeroBill's)
+//   gets this screen.
 import ImageIO
 import UIKit
 #if SWIFT_PACKAGE

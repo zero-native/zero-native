@@ -17,7 +17,8 @@ A full-screen photo viewer, opened with one call. For store photos, offer pictur
 Since registry 24 (ImageViewer module 3) the screen is TSX (`ImageViewerScreen`), built on zero-native's own
 `useZoom` and a paging `List`, on a see-through route. Each picture is drawn by the plugin's native view
 `imageviewer.page` (loading, EXIF, the sharp part when zoomed). An app whose route still says
-`native: "imageviewer.full"` gets the older Compose screen until that screen is removed. Android only for now.
+`native: "imageviewer.full"` gets the older native screen (Compose on Android, UIKit on iOS) until that screen is
+removed. Android and iOS (see "On iOS").
 
 ## Add it
 
@@ -38,7 +39,27 @@ imageViewer: { path: "/image-viewer", screen: ImageViewerScreen, transparent: tr
 `safeArea: "none"`: the pictures go under the status bar; the close button keeps clear of it by itself.
 `restore: false`: the viewer's pictures live in JS memory, so after a kill it does not come back.
 
-Before registry 24 (or to keep the old Compose screen for now):
+### On iOS
+
+The Swift package's `ZnPluginImageViewer` product (or `plugins/image-viewer/ios` in a CMake build), then with the other
+plugins in `application(_:didFinishLaunchingWithOptions:)`:
+
+```swift
+ZnPlugins.register(ImageViewerPlugin())
+```
+
+The same route line. The TSX screen needs the motion engine (Motion 1) on iOS. What is different on iOS:
+- There is no Back button: the viewer closes with its close button or a drag up or down. A swipe from the left edge
+  pages back, as in Photos (on the first picture it does nothing). `nav.back()` from the app closes it at once and the
+  promise gives null, as on Android.
+- `content://` links are Android's: they show the error. `file://` must be inside the app's own folder (its container).
+- The sharp part when zoomed comes from ImageIO (rows or tiles of the original) instead of `BitmapRegionDecoder`; PNG and
+  TIFF over 12 MP are read every nth pixel, other formats only up to 12 MP, and GIF gets none ("Memory").
+- Pictures load with the plugin's own loader (its own URLSession with a 128 MB disk cache, ImageIO at the size on
+  screen, a 48 MB memory cache of recent ones), not `<Image>`'s: a photo already shown in a list is fetched again
+  unless the server let it be cached.
+
+Before registry 24 (or to keep the old native screen for now):
 `imageViewer: { path: "/image-viewer", native: "imageviewer.full", safeArea: "none", transition: "fade" }`.
 
 ## Use it
@@ -173,8 +194,14 @@ adb shell am broadcast -a dev.zeronative.imageviewer.DEBUG_GESTURE --es kind pin
 
 `from` / `to` are the gap between the fingers in screen pixels; `dx` / `dy` move both fingers together. For a double tap, tap twice by hand.
 
+On iOS: `bun run tools/ios-unit-test.ts plugins/image-viewer` (the page's rules, loading and sharp parts on the Mac),
+`bun run ios:ui-test --only ImageViewerTests` (the TSX screen from the lab, found as VoiceOver finds it: the close button,
+"Photo n of count", paging, the answer, the error's retry, the app's words), and the same lab on a simulator
+(`bun run tools/ios-sample.ts --route imageViewerLab`; "Header" needs `bun run tools/fetch-test-server.ts`, no reverse).
+
 ## Not built
 
-On iOS, pinch and double tap in the TSX screen (the `imageviewer.page` view is there; useZoom is not yet). Video. Share or save. Zoom
+TalkBack / VoiceOver actions for the next and previous picture in the TSX screen (`nextLabel` and `previousLabel` are
+read only by the old native screens). Video. Share or save. Zoom
 kept across a turn of the screen (it goes back to fit; the picture stays). The TSX screen's overlay is fixed today
 (close and count); an app can copy `ImageViewerScreen.tsx` to change it.
