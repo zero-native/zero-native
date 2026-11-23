@@ -9,23 +9,35 @@
 //   It measures again when it is laid out or moves, when a scroll view around it scrolls, and reports 0 when it leaves
 //   the window, sits on a hidden tab or goes away. Once its key has counted it stops (no work while scrolling).
 //   Rows and cards a list hasn't made (off screen) cost nothing. JS does nothing while the user scrolls.
+//   Difference: Android's boundsInWindow is cut by every layout around the node; here only by the clipping ones
+//   (window, scroll views, clipping views, overflow-hidden nodes), so a keyed node that sticks out of a parent that
+//   doesn't clip (a negative margin, an absolute child outside it, a translate) counts the part outside too.
 import SwiftUI
 import UIKit
 #if SWIFT_PACKAGE
 import ZnHost
 #endif
 
+/// One screen's switch, observed by the keyed and overflow-hidden nodes of that screen only: a probe drawn before
+/// its screen's useImpressions (the skeleton, before JS) starts measuring when the screen turns it on, and one that
+/// stopped (its key counted) measures again when the screen starts its counts again.
 @MainActor
 @Observable
+final class ZnImpressionScreen {
+    /// How many times the screen was configured (0: it doesn't track).
+    fileprivate(set) var generation = 0
+}
+
+@MainActor
 final class ZnImpressions {
     static let shared = ZnImpressions()
 
-    /// The entries that track impressions, each with how many times it was configured: the only observed part, so a
-    /// probe drawn before its screen's useImpressions (the skeleton, before JS) starts measuring when the screen
-    /// turns it on, and one that stopped (its key counted) measures again when the screen starts its counts again.
-    private(set) var tracked: [UInt32: Int] = [:]
+    /// Every screen a probe asked about (tracking or not), until it leaves the back stack or the runtime is replaced.
+    private var screens: [UInt32: ZnImpressionScreen] = [:]
+    /// The entries that track impressions.
+    private var tracked: Set<UInt32> = []
 
-    @ObservationIgnored private let core = ZnImpressionsCore(
+    private let core = ZnImpressionsCore(
         now: { CACurrentMediaTime() * 1000 },
         isTop: { entry in MainActor.assumeIsolated { ZnApp.shared.stack.last == entry } },
         schedule: { ms, f in
@@ -38,7 +50,7 @@ final class ZnImpressions {
                 ZNHost.shared.dispatchEvent(0, event: UInt16(ZnAppEvent.impressions), string: json)
             }
         })
-    @ObservationIgnored private var watchingApp = false
+    private var watchingApp = false
 
     /// In front or not, from the app's state (Android: the Activity's resume and pause). Set up with the first screen
     /// that tracks.
@@ -59,18 +71,24 @@ final class ZnImpressions {
     func configure(_ entry: UInt32, _ params: String?) {
         watchApp()
         core.configure(entry, params)
-        tracked[entry, default: 0] += 1
+        tracked.insert(entry)
+        screen(entry).generation += 1
     }
 
-    func tracking(_ entry: UInt32) -> Bool { tracked[entry] != nil }
+    func tracking(_ entry: UInt32) -> Bool { tracked.contains(entry) }
 
-    /// How many times [entry] was configured (0: it doesn't track). Read in a view body, it observes the screen.
-    func generation(_ entry: UInt32) -> Int { tracked[entry] ?? 0 }
+    /// [entry]'s switch. Read its generation in a view body: it observes that screen alone.
+    func screen(_ entry: UInt32) -> ZnImpressionScreen {
+        if let s = screens[entry] { return s }
+        let s = ZnImpressionScreen()
+        screens[entry] = s
+        return s
+    }
 
     func done(_ entry: UInt32, _ key: String) -> Bool { core.done(entry, key) }
 
     func report(_ entry: UInt32, _ key: String, _ fraction: Double) {
-        guard tracked[entry] != nil else { return }
+        guard tracked.contains(entry) else { return }
         core.report(entry, key, fraction)
     }
 
@@ -80,17 +98,19 @@ final class ZnImpressions {
         DispatchQueue.main.async { MainActor.assumeIsolated { ZnImpressions.shared.core.refresh() } }
     }
 
-    /// [entry] left the back stack: what it counted goes to JS now, and it is forgotten.
+    /// [entry] left the back stack: what it counted goes to JS now, and it is forgotten. Its nodes, still drawn while
+    /// the screen slides away, keep their views (their generation stays) and report nothing more.
     func release(_ entry: UInt32) {
-        guard tracked[entry] != nil else { return }
+        screens[entry] = nil
+        guard tracked.remove(entry) != nil else { return }
         core.release(entry)
-        tracked[entry] = nil
     }
 
     /// The runtime is replaced (an OTA update in place, a `zn dev` reload): every screen is dropped unsent.
     func resetForReload() {
         core.resetForReload()
-        if !tracked.isEmpty { tracked = [:] }
+        tracked = []
+        screens = [:]
     }
 }
 
@@ -117,83 +137,59 @@ extension EnvironmentValues {
     @Entry var znImpressionClips: [ZnImpressionClipBox] = []
 }
 
+/// On a node with an impressionKey or `overflow: "hidden"` (both fixed by the template); nothing on the others. Its
+/// structure never changes with the screen's switch or the key: only what sits in the background does, so turning
+/// tracking on or off (the skeleton before JS, the screen leaving) keeps the node's state and UIKit views.
 struct ZnImpressionProbe: ViewModifier {
     let ctx: ZnContext
     let s: ZnNodeSpec
     let inst: ZnInstance
-    @Environment(\.znEntry) private var entry
-    @Environment(\.znInHiddenTab) private var hidden
-    @Environment(\.znImpressionClips) private var clips
 
     func body(content: Content) -> some View {
-        // Read only by keyed and clipping nodes (the read observes the tracked screens).
-        let generation = (s.hasImpression || s.clip) && entry != 0 ? ZnImpressions.shared.generation(entry) : 0
-        let tracking = generation > 0
-        let key = tracking && s.hasImpression ? znImpressionKey(s, inst) : nil
-        content
-            .modifier(ZnImpressionMeasure(entry: entry, key: key, generation: generation, hidden: hidden, clips: clips))
-            .modifier(ZnImpressionClip(on: tracking && s.clip))
-    }
-}
-
-/// The measuring view behind a keyed node, and a nudge when SwiftUI moves the node without resizing it. Nothing when
-/// [key] is nil.
-private struct ZnImpressionMeasure: ViewModifier {
-    let entry: UInt32
-    let key: String?
-    let generation: Int
-    let hidden: Bool
-    let clips: [ZnImpressionClipBox]
-
-    func body(content: Content) -> some View {
-        if let key {
-            content.modifier(ZnImpressionMeasureOn(entry: entry, key: key, generation: generation, hidden: hidden, clips: clips))
+        if s.hasImpression || s.clip {
+            content.modifier(ZnImpressionProbeOn(s: s, inst: inst))
         } else {
             content
         }
     }
 }
 
-private struct ZnImpressionMeasureOn: ViewModifier {
-    let entry: UInt32
-    let key: String
-    let generation: Int
-    let hidden: Bool
-    let clips: [ZnImpressionClipBox]
-    @State private var box = ZnImpressionBox()
-
-    func body(content: Content) -> some View {
-        content
-            .background(ZnImpressionAnchor(entry: entry, key: key, generation: generation, hidden: hidden, clips: clips, box: box))
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _ in box.view?.measureSoon() }
-    }
-}
-
-/// An `overflow: "hidden"` node on a tracking screen: a plain UIKit view behind it marks its box for the keyed nodes
-/// inside (znImpressionClips).
-private struct ZnImpressionClip: ViewModifier {
-    let on: Bool
-
-    func body(content: Content) -> some View {
-        if on { content.modifier(ZnImpressionClipOn()) } else { content }
-    }
-}
-
-private struct ZnImpressionClipOn: ViewModifier {
+private struct ZnImpressionProbeOn: ViewModifier {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    @Environment(\.znEntry) private var entry
+    @Environment(\.znInHiddenTab) private var hidden
     @Environment(\.znImpressionClips) private var clips
-    @State private var box = ZnImpressionClipBox()
+    @State private var box = ZnImpressionBox()
+    @State private var clipBox = ZnImpressionClipBox()
 
     func body(content: Content) -> some View {
+        // Observes this screen's switch only.
+        let generation = entry != 0 ? ZnImpressions.shared.screen(entry).generation : 0
+        let tracking = generation > 0
+        let key = tracking && s.hasImpression ? znImpressionKey(s, inst) : nil
+        let clipOn = tracking && s.clip
         content
-            .environment(\.znImpressionClips, clips + [box])
-            .background(ZnImpressionClipMarker(box: box))
+            .environment(\.znImpressionClips, clipOn ? clips + [clipBox] : clips)
+            .background {
+                if let key {
+                    ZnImpressionAnchor(entry: entry, key: key, generation: generation, hidden: hidden, clips: clips, box: box)
+                }
+                if clipOn { ZnImpressionClipMarker(box: clipBox) }
+            }
+            .onGeometryChange(for: CGRect.self) { key != nil ? $0.frame(in: .global) : .zero } action: { _ in
+                box.view?.measureSoon()  // SwiftUI moved the node without resizing it
+            }
     }
 }
 
-/// An `overflow: "hidden"` node's box, by its marker view.
+/// An `overflow: "hidden"` node's box, by its marker view. Equal by identity, so a parent drawn again passes an
+/// equal list down and the probes inside aren't drawn again.
 @MainActor
-final class ZnImpressionClipBox {
+final class ZnImpressionClipBox: Equatable {
     weak var view: UIView?
+
+    nonisolated static func == (a: ZnImpressionClipBox, b: ZnImpressionClipBox) -> Bool { a === b }
 }
 
 private struct ZnImpressionClipMarker: UIViewRepresentable {
