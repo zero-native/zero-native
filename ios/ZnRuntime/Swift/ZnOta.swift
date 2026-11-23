@@ -1713,7 +1713,15 @@ private final class ZnOtaDownload: NSObject, URLSessionDataDelegate {
             dataTask.cancel()
             return
         }
-        do { try handle?.write(contentsOf: data) } catch {
+        do {
+            #if DEBUG
+            // Tests: the disk "fills up" once a download passes ZN_OTA_FULL_AT bytes (a write fails as on a full phone).
+            if let s = ProcessInfo.processInfo.environment["ZN_OTA_FULL_AT"], let n = Int64(s), have > n {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)
+            }
+            #endif
+            try handle?.write(contentsOf: data)
+        } catch {
             failure = (error as NSError).code == NSFileWriteOutOfSpaceError
                 ? ZnOtaError("no_space", "the phone ran out of space while downloading") : error
             dataTask.cancel()
