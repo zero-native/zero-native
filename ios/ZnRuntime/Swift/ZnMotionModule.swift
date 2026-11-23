@@ -2,9 +2,10 @@
 // the engine (ZnMotionEngine.swift) keeps them until JS disposes them. Every function runs on the main thread, and
 // most need no answer (core's `send`, call id 0); `animate` and `read` answer.
 //
-// Registered only in a Debug build started with ZN_MOTION_ENGINE=1 for now: until bindings, gestures and the rest
-// exist, release builds keep ZnMotionNone (ZnBuiltInModules.swift), so what an app claims to the update server does
-// not change (motion-ota-gate, the last step).
+// Registered in every build (2026-11-24, motion-ota-gate): "Motion" v1 means the engine, as on Android, and the host
+// API is 10 (core/include/zn/engine.h). iOS hosts at 9 or less had a stub of the same name and number that answered
+// every call "unavailable"; the update server gives them no bundle that uses Motion (docs/ota.md §3.2, "Motion on
+// older iOS apps"). tools/test/motion-coverage.test.ts fails if Android's Motion module has a function this one lacks.
 //
 // Also here: the app's side of the engine (its frame clock, Reduce Motion, events to JS) and the read helpers a
 // renderer uses for a slot that may hold a motion reference.
@@ -14,13 +15,26 @@ import SwiftUI
 import ZnHost
 #endif
 
-/// The Motion module for this build: the engine behind ZN_MOTION_ENGINE=1 in a Debug build, else the stub.
+/// The Motion module for this build: the engine. Only a Debug build started with ZN_MOTION_ENGINE=0 gets
+/// ZnMotionOff, to compare a screen's cost without the engine; a Release build can't turn it off.
 @MainActor func znMotionModuleForThisBuild() -> ZnModule {
     #if DEBUG
-    if ProcessInfo.processInfo.environment["ZN_MOTION_ENGINE"] == "1" { return ZnMotionModule.shared }
+    if ProcessInfo.processInfo.environment["ZN_MOTION_ENGINE"] == "0" { return ZnMotionOff() }
     #endif
-    return ZnMotionNone()
+    return ZnMotionModule.shared
 }
+
+#if DEBUG
+/// The engine turned off (ZN_MOTION_ENGINE=0, Debug only), like the stub of older iOS hosts: nothing moves and calls
+/// answer "unavailable", except that animate, snapTo and zoomTo answer finished at once, so a screen that waits for
+/// one (the TSX image viewer's close) still goes on.
+final class ZnMotionOff: ZnModuleBase, @unchecked Sendable {
+    init() {
+        super.init("Motion", version: 1)
+        for name in ["animate", "snapTo", "zoomTo"] { function(name) { c in c.resolve(["finished": true]) } }
+    }
+}
+#endif
 
 /// ZnFrameClock as the engine's clock.
 private final class ZnMotionFrameClock: ZnMotionClock {

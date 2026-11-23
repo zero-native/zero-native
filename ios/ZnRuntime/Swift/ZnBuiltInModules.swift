@@ -581,11 +581,3 @@ public final class ZnTasks: ZnModuleBase, @unchecked Sendable {
         }
     }
 }
-
-/// Native motion (Android: ZnMotion.kt, values driven on the UI thread) isn't on iOS yet (milestones-ios.md, Phase 4).
-/// Core imports it, so every bundle lists Motion v1 in its needs, though an app that never calls it (ZeroBill) doesn't
-/// need it. Registered so such bundles (and OTA updates of them) run; every call answers "unavailable", as for a
-/// missing method. A bundle that does use Motion must not ship to iOS until Phase 4.
-final class ZnMotionNone: ZnModuleBase, @unchecked Sendable {
-    init() { super.init("Motion", version: 1) }
-}

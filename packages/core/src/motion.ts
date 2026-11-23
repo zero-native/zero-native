@@ -10,7 +10,7 @@
 // style (translateX: pan.x) and native draws it every frame with no JS. Call it (pan.x()) and JS reads it as a signal,
 // at most once per frame, and only from the first read on. JS never runs on the UI thread: formulas are compiled to
 // data at build time (`derive`), and gestures are options, not callbacks per frame.
-import { callNative, onNativeEvent } from "./calls"
+import { callNative, NativeError, onNativeEvent } from "./calls"
 import { getOwner, onCleanup, runEventHandler, runWithOwner, signal, type Owner, type Signal } from "./signals"
 import { parseColor } from "./color"
 import { reportError } from "./errors"
@@ -130,6 +130,18 @@ function send(method: string, args: Record<string, unknown>): void {
 
 function ask<T>(method: string, args: Record<string, unknown>): Promise<T> {
   return callNative<T>("Motion", method, { ...args, __v: 1 }) // MOTION_V (a literal: the build reads it)
+}
+
+/**
+ * A command that answers when the value stops (animate, snapTo, zoomTo). An iOS app built before its Motion engine
+ * (host API 9 or less: a stub registered as Motion v1) answers "unavailable": then it is done at once, so code that
+ * waits for it (a close after a slide out) still goes on. Nothing moved there; other errors are passed on.
+ */
+function command(method: string, args: Record<string, unknown>): Promise<Finished> {
+  return ask<Finished>(method, args).catch((e: unknown) => {
+    if (e instanceof NativeError && e.code === "unavailable") return { finished: true }
+    throw e
+  })
 }
 
 interface Entry {
@@ -324,7 +336,7 @@ function makeValue(e: Entry): MotionValue {
   const run = (steps: Record<string, unknown>[], o: { interruptGesture?: boolean; repeat?: number | "forever"; reverse?: boolean } = {}) => {
     if (e.disposed) return Promise.resolve({ finished: false })
     const repeat = o.repeat === "forever" ? -1 : Math.max(1, Math.floor(o.repeat ?? 1))
-    return ask<Finished>("animate", { id: e.id, steps, repeat, reverse: o.reverse === true, interrupt: o.interruptGesture === true })
+    return command("animate", { id: e.id, steps, repeat, reverse: o.reverse === true, interrupt: o.interruptGesture === true })
   }
   v.set = (value, options) => {
     if (e.disposed) return
@@ -879,7 +891,7 @@ export function usePan(o: PanOptions = {}): PanGesture {
       if (m === undefined) throw new Error(`usePan has no magnet "${name}"`)
       return makeSource(entries.get(m) ?? entry(m, 0))
     },
-    snapTo: (anchor, timing) => ask<Finished>("snapTo", { id, anchor, t: timingJson(timing) }),
+    snapTo: (anchor, timing) => command("snapTo", { id, anchor, t: timingJson(timing) }),
   }
 }
 
@@ -967,8 +979,8 @@ export function useZoom(o: ZoomOptions = {}): ZoomGesture {
     scale: valueFor(ids.scale, min),
     x: valueFor(ids.x, 0),
     y: valueFor(ids.y, 0),
-    zoomTo: (scale, at, timing) => ask<Finished>("zoomTo", { id: zoomId, s: scale, x: at?.x, y: at?.y, t: timing === undefined ? undefined : timingJson(timing) }),
-    reset: (timing) => ask<Finished>("zoomTo", { id: zoomId, s: min, t: timing === undefined ? undefined : timingJson(timing) }),
+    zoomTo: (scale, at, timing) => command("zoomTo", { id: zoomId, s: scale, x: at?.x, y: at?.y, t: timing === undefined ? undefined : timingJson(timing) }),
+    reset: (timing) => command("zoomTo", { id: zoomId, s: min, t: timing === undefined ? undefined : timingJson(timing) }),
   }
 }
 

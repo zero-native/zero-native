@@ -78,6 +78,16 @@ test("commands: to answers finished; the timing is sent as native reads it", asy
   expect(await p).toEqual({ finished: false })
 })
 
+test("commands on an app with only the Motion stub (iOS host API 9 or less) are done at once", async () => {
+  const v = useMotion(0)
+  const p = v.to(100)
+  reply({ id: motionCalls().at(-1)!.id, ok: false, code: "unavailable", error: "Motion has no method \"animate\"" })
+  expect(await p).toEqual({ finished: true })
+  const q = v.decay()
+  reply({ id: motionCalls().at(-1)!.id, ok: false, code: "failed", error: "boom" })
+  await expect(q).rejects.toMatchObject({ code: "failed" })
+})
+
 test("timings: presets, tweens with easing, duration springs", () => {
   expect(timingJson("spring")).toEqual({ r: 0.75, k: 400 })
   expect(timingJson(250)).toEqual({ t: 250, e: 0 })
