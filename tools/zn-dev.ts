@@ -298,7 +298,9 @@ function lanAddresses(): { name: string; address: string }[] {
 function advertise(): void {
   if (process.env.ZN_DEV_BONJOUR === "0") return
   const app = basename(appDir)
-  const name = `zn dev ${app} on ${hostname().replace(/\.local$/, "")}`
+  // A Bonjour name has at most 63 bytes (dns-sd refuses a longer one).
+  let name = `zn dev ${app} on ${hostname().replace(/\.local$/, "")}`
+  while (Buffer.byteLength(name) > 63) name = name.slice(0, -1)
   if (!Bun.which("dns-sd")) {
     console.log(dim("iPhone: no dns-sd on this computer (macOS has it), so no Bonjour: set ZN_DEV_HOST in the app to an address below."))
     return
