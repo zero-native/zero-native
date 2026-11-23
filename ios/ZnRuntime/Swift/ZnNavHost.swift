@@ -97,19 +97,27 @@ private struct ZnSwiftUIDrawn: ViewModifier {
     let app: ZnApp
     let entry: UInt32
     @State private var generation = ZnApp.shared.screensGeneration
-    @State private var counted = false
+    /// The entry this view counted as drawn. The root sits at one place in the tree: when a reset or replace gives
+    /// it a new entry, SwiftUI keeps this view (no disappear / appear), so the old entry is hidden and the new shown.
+    @State private var counted: UInt32?
 
     func body(content: Content) -> some View {
         content
             .onAppear {
-                guard !counted else { return }
-                counted = true
+                guard counted == nil else { return }
+                counted = entry
                 app.screenShown(entry, generation: generation)
             }
             .onDisappear {
-                guard counted else { return }
-                counted = false
-                app.screenHidden(entry, generation: generation)
+                guard let c = counted else { return }
+                counted = nil
+                app.screenHidden(c, generation: generation)
+            }
+            .onChange(of: entry) { _, new in
+                guard let c = counted, c != new else { return }
+                counted = new
+                app.screenShown(new, generation: generation)
+                app.screenHidden(c, generation: generation)
             }
     }
 }
@@ -495,6 +503,8 @@ class ZnSlideAnimator: NSObject, UIViewControllerAnimatedTransitioning {
             top.layer.shadowColor = UIColor.black.cgColor
             top.layer.shadowOpacity = 0.15
             top.layer.shadowRadius = 8
+            // A path: with none Core Animation finds the shadow's shape offscreen on every frame.
+            top.layer.shadowPath = UIBezierPath(rect: top.bounds).cgPath
             let animations = {
                 if self.opening {
                     to.transform = .identity
@@ -509,6 +519,7 @@ class ZnSlideAnimator: NSObject, UIViewControllerAnimatedTransitioning {
             let done = { (_: Bool) in
                 dim.removeFromSuperview()
                 top.layer.shadowOpacity = 0
+                top.layer.shadowPath = nil
                 from.transform = .identity
                 to.transform = .identity
                 self.flight?.land()
@@ -521,7 +532,7 @@ class ZnSlideAnimator: NSObject, UIViewControllerAnimatedTransitioning {
                                initialSpringVelocity: 0, options: [], animations: animations, completion: done)
             }
         }
-        if flight?.waitsForLayout == true { DispatchQueue.main.async(execute: start) } else { start() }
+        if let flight, flight.waitsForLayout { flight.whenLaidOut(start) } else { start() }
     }
 }
 
@@ -594,6 +605,6 @@ final class ZnTransitionAnimator: NSObject, UIViewControllerAnimatedTransitionin
                 self.flight?.fly()
             }, completion: done)
         }
-        if flight?.waitsForLayout == true { DispatchQueue.main.async(execute: start) } else { start() }
+        if let flight, flight.waitsForLayout { flight.whenLaidOut(start) } else { start() }
     }
 }

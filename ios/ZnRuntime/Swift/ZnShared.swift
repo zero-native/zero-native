@@ -17,7 +17,8 @@
 // - Timing: the flights move in the transition's own animation block, so they share its curve, and the edge swipe's
 //   UIPercentDrivenInteractiveTransition scrubs them with the screens; a cancelled swipe puts them back.
 // - A push waits one main-queue turn before it starts, with the new screen drawn under the old one, so SwiftUI has
-//   laid the new screen out and its anchors are where they will be (about one frame).
+//   laid the new screen out and its anchors are where they will be (about one frame); up to two more while a paired
+//   anchor has no frame yet. The destination's snapshot draws the screen first, so it never depends on that timing.
 // - No flight with transition "none", a push at start (no slide), Reduce Motion (animations off), or the SwiftUI
 //   navigation variant (ZN_IOS_NAV=swiftui: NavigationStack's own transitions).
 import SwiftUI
@@ -33,6 +34,12 @@ final class ZnSharedSite {
     @ObservationIgnored var entry: UInt32 = 0
     @ObservationIgnored var spec: ZnNodeSpec?
     @ObservationIgnored weak var inst: ZnInstance?
+}
+
+/// Keeps a node's ZnSharedSite for the life of its view (ZnSharedTagged).
+@MainActor
+private final class ZnSharedSiteHolder: ObservableObject {
+    let site = ZnSharedSite()
 }
 
 /// A node's sharedTag: its anchor and its opacity while it flies.
@@ -53,9 +60,11 @@ private struct ZnSharedTagged: ViewModifier {
     let s: ZnNodeSpec
     let inst: ZnInstance
     @Environment(\.znEntry) private var entry
-    @State private var site = ZnSharedSite()
+    /// Made once per drawn node (a StateObject's value is built only the first time; a @State default every update).
+    @StateObject private var holder = ZnSharedSiteHolder()
 
     func body(content: Content) -> some View {
+        let site = holder.site
         let tag = s.sharedTagSlot >= 0 ? inst.slot(s.sharedTagSlot).value.string : s.sharedTag
         content
             .opacity(site.hidden ? 0 : 1)
@@ -145,6 +154,23 @@ final class ZnSharedFlight {
         self.waitsForLayout = waitsForLayout
     }
 
+    /// A push: runs [start] once the new screen is laid out: a main-queue turn later, and up to two more while a tag on
+    /// both screens has a destination anchor with no window or no size yet (lift skips those).
+    func whenLaidOut(_ start: @escaping () -> Void, turns: Int = 3) {
+        DispatchQueue.main.async { [self] in
+            if turns <= 1 || laidOut() { return start() }
+            whenLaidOut(start, turns: turns - 1)
+        }
+    }
+
+    private func laidOut() -> Bool {
+        let dest = to()
+        return from.keys.allSatisfy { tag in
+            guard let b = dest[tag] else { return true }
+            return b.window != nil && b.bounds.width > 0 && b.bounds.height > 0
+        }
+    }
+
     /// Puts a flight view over the source of each tag on both screens, on top of [container]. The source screen sits in
     /// place; the destination [toView] may already be moved for its transition: its anchors are measured in its own
     /// space and placed at its final frame [toFrame]. Before the transition moves anything.
@@ -168,8 +194,9 @@ final class ZnSharedFlight {
                 // Anything else, or a picture not loaded: the two looks cross-fade in the moving box (sharedBounds).
                 box = UIView()
                 out = Self.snapshot(a, fresh: false)
-                // A screen coming back (a pop) went into the window this turn: drawn now, else its snapshot is blank.
-                into = Self.snapshot(b, fresh: !waitsForLayout)
+                // The destination is drawn for its snapshot: a screen coming back (a pop) went into the window this turn,
+                // and a pushed one may not be on the render server yet after the one-turn wait; either would be blank.
+                into = Self.snapshot(b, fresh: true)
                 // Each keeps its own size and is scaled to the moving box (a snapshot view doesn't stretch its picture),
                 // as Compose's sharedBounds scales the two contents to the bounds.
                 if let out {
@@ -237,13 +264,16 @@ final class ZnSharedFlight {
         }.joined(separator: " ")
     }
 
-    /// The transition ended (or the swipe was cancelled): the flight views go, the originals show again.
+    /// The transition ended (or the swipe was cancelled): the originals show again, and the flight views go a little
+    /// later. SwiftUI draws the originals' opacity on its next update, which can be a frame after this one: removed
+    /// now, neither would show for that frame. The flight views sit exactly over the originals, so the overlap is not
+    /// seen (50 ms: 3 frames at 60 Hz).
     func land() {
-        for f in flying {
-            f.view.removeFromSuperview()
-            for s in f.sites { s.hidden = false }
-        }
+        let views = flying.map(\.view)
+        for f in flying { for s in f.sites { s.hidden = false } }
         flying = []
+        guard !views.isEmpty else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { views.forEach { $0.removeFromSuperview() } }
     }
 
     /// The node's corners, one radius (the largest; UIKit animates one), at most half the short side.

@@ -742,9 +742,12 @@ public final class ZnApp {
             ZnImpressions.shared.release(entry)
             releaseLater([entry])
         case NavKind.clear:
-            for e in stack { failedScreens[e] = nil; ZnImpressions.shared.release(e) }
-            releaseLater(stack)
+            // The stack empties first, then each old entry goes (now, or once its screen has left the window), as
+            // Android's CLEAR.
+            let old = stack
             stack.removeAll()
+            for e in old { failedScreens[e] = nil; backWanted.remove(e); ZnImpressions.shared.release(e) }
+            releaseLater(old)
         case NavKind.impressions:
             ZnImpressions.shared.configure(entry, params)  // useImpressions on this screen
         case NavKind.layer:
