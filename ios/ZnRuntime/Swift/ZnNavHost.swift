@@ -50,6 +50,9 @@ struct ZnEntryScreen: View {
         var e: Edge.Set = []
         if route?.safeTop == false { e.insert(.top) }
         if route?.safeBottom == false { e.insert(.bottom) }
+        // safeArea "none": the sides too (landscape's notch side), as Android's safeSides (it keeps them clear only
+        // while it keeps the top or the bottom clear). The TSX image viewer left the screen below showing at both sides.
+        if route?.safeTop == false && route?.safeBottom == false { e.formUnion([.leading, .trailing]) }
         return e
     }
 }
