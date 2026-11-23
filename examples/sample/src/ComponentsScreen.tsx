@@ -1,5 +1,6 @@
 // Dev screen showcasing Milestone 3 Steps 3.7 (Small Components) & 3.8 (Accessibility Basics).
 // Open via zn://sample/dev/components or the Dev screens hub.
+// The testIDs ("comp-...") are what the iOS UI tests find (ios/SamplePackage/ZnSampleUITests/ComponentsTests.swift).
 import {
   Box,
   Checkbox,
@@ -93,6 +94,7 @@ export function ComponentsScreen() {
       {/* Top App Bar */}
       <Row style={{ gap: 8, alignItems: "center", paddingHorizontal: 20, paddingVertical: 12 }}>
         <Pressable
+          testID="comp-back"
           accessibilityLabel="Back to dev menu"
           onPress={() => nav.back()}
           style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}
@@ -101,12 +103,12 @@ export function ComponentsScreen() {
             ←
           </Text>
         </Pressable>
-        <Text fontSize={20} fontWeight={700} color={c.ink}>
+        <Text testID="comp-title" fontSize={20} fontWeight={700} color={c.ink}>
           Components &amp; a11y
         </Text>
       </Row>
 
-      <Scroll style={{ flex: 1 }}>
+      <Scroll testID="comp-scroll" style={{ flex: 1 }}>
         <Column style={{ paddingHorizontal: 20, paddingBottom: 40, gap: 16 }}>
           {/* Section 1: Switch */}
           <Column style={cardStyle}>
@@ -118,11 +120,12 @@ export function ComponentsScreen() {
             <Row style={rowBetweenStyle}>
               <Column style={{ flex: 1, gap: 2 }}>
                 <Text style={labelStyle}>Interactive Switch</Text>
-                <Text style={descStyle}>
+                <Text testID="comp-switch-state" style={descStyle}>
                   {switchEnabled() ? "State: ON (active)" : "State: OFF (inactive)"}
                 </Text>
               </Column>
               <Switch
+                testID="comp-switch"
                 value={switchEnabled()}
                 onValueChange={(next) => switchEnabled.set(next)}
               />
@@ -135,6 +138,7 @@ export function ComponentsScreen() {
                 <Text style={descStyle}>Tapping sends event, but value stays false. Thumb must NOT slide.</Text>
               </Column>
               <Switch
+                testID="comp-switch-ignored"
                 value={false}
                 onValueChange={() => {
                   /* Intentional no-op */
@@ -149,6 +153,7 @@ export function ComponentsScreen() {
                 <Text style={descStyle}>Thumb moves only after 300ms delay.</Text>
               </Column>
               <Switch
+                testID="comp-switch-delayed"
                 value={switchDelayed()}
                 onValueChange={(next) => {
                   setTimeout(() => switchDelayed.set(next), 300)
@@ -163,8 +168,8 @@ export function ComponentsScreen() {
                 <Text style={descStyle}>38% alpha, ignores taps, TalkBack says disabled.</Text>
               </Column>
               <Row style={{ gap: 8, alignItems: "center" }}>
-                <Switch value={false} disabled />
-                <Switch value={true} disabled />
+                <Switch testID="comp-switch-off-disabled" value={false} disabled />
+                <Switch testID="comp-switch-on-disabled" value={true} disabled />
               </Row>
             </Row>
           </Column>
@@ -178,11 +183,12 @@ export function ComponentsScreen() {
             <Row style={rowBetweenStyle}>
               <Column style={{ flex: 1, gap: 2 }}>
                 <Text style={labelStyle}>Interactive Checkbox</Text>
-                <Text style={descStyle}>
+                <Text testID="comp-check-state" style={descStyle}>
                   {checkboxChecked() ? "State: Checked" : "State: Unchecked"}
                 </Text>
               </Column>
               <Checkbox
+                testID="comp-check"
                 value={checkboxChecked()}
                 onValueChange={(next) => checkboxChecked.set(next)}
               />
@@ -194,6 +200,7 @@ export function ComponentsScreen() {
                 <Text style={descStyle}>Stays unchecked upon tap.</Text>
               </Column>
               <Checkbox
+                testID="comp-check-ignored"
                 value={false}
                 onValueChange={() => {
                   /* No-op */
@@ -207,8 +214,8 @@ export function ComponentsScreen() {
                 <Text style={descStyle}>Disabled off &amp; on.</Text>
               </Column>
               <Row style={{ gap: 8, alignItems: "center" }}>
-                <Checkbox value={false} disabled />
-                <Checkbox value={true} disabled />
+                <Checkbox testID="comp-check-off-disabled" value={false} disabled />
+                <Checkbox testID="comp-check-on-disabled" value={true} disabled />
               </Row>
             </Row>
           </Column>
@@ -237,20 +244,20 @@ export function ComponentsScreen() {
               Progress Bar
             </Text>
 
-            <Text style={labelStyle}>Determinate (Value: {Math.round(progressFraction() * 100)}%)</Text>
-            <Progress value={progressFraction()} />
+            <Text testID="comp-progress-label" style={labelStyle}>Determinate (Value: {Math.round(progressFraction() * 100)}%)</Text>
+            <Progress testID="comp-progress" value={progressFraction()} />
 
             <Row style={{ gap: 8, alignItems: "center" }}>
-              <Pressable onPress={() => progressFraction.set(0.1)} style={secondaryButtonStyle}>
+              <Pressable testID="comp-progress-10" onPress={() => progressFraction.set(0.1)} style={secondaryButtonStyle}>
                 <Text style={secondaryButtonTextStyle}>10%</Text>
               </Pressable>
-              <Pressable onPress={() => progressFraction.set(0.4)} style={secondaryButtonStyle}>
+              <Pressable testID="comp-progress-40" onPress={() => progressFraction.set(0.4)} style={secondaryButtonStyle}>
                 <Text style={secondaryButtonTextStyle}>40%</Text>
               </Pressable>
-              <Pressable onPress={() => progressFraction.set(0.75)} style={secondaryButtonStyle}>
+              <Pressable testID="comp-progress-75" onPress={() => progressFraction.set(0.75)} style={secondaryButtonStyle}>
                 <Text style={secondaryButtonTextStyle}>75%</Text>
               </Pressable>
-              <Pressable onPress={() => progressFraction.set(1.0)} style={secondaryButtonStyle}>
+              <Pressable testID="comp-progress-100" onPress={() => progressFraction.set(1.0)} style={secondaryButtonStyle}>
                 <Text style={secondaryButtonTextStyle}>100%</Text>
               </Pressable>
             </Row>
@@ -305,6 +312,7 @@ export function ComponentsScreen() {
               <Text style={descStyle}>Shows the fallback after a 404, one request each, never loops.</Text>
               <Image
                 src="https://zeronative.dev/nonexistent_image_404.png"
+                testID="comp-image-fallback"
                 fallbackSrc="https://picsum.photos/id/1080/600/240"
                 accessibilityLabel="Fallback demo image"
                 loading="shimmer"
@@ -324,6 +332,7 @@ export function ComponentsScreen() {
 
             <Row style={{ gap: 8, alignItems: "center" }}>
               <Pressable
+                testID="comp-toast-short"
                 onPress={() => toast("Changes saved successfully")}
                 style={actionButtonStyle}
               >
@@ -331,6 +340,7 @@ export function ComponentsScreen() {
               </Pressable>
 
               <Pressable
+                testID="comp-toast-long"
                 onPress={() =>
                   toast(
                     "Payment of ₹400 to Blue Tokai completed successfully. Receipt has been saved to your account.",
@@ -344,6 +354,7 @@ export function ComponentsScreen() {
             </Row>
 
             <Pressable
+              testID="comp-toast-back"
               onPress={() => {
                 toast("Saved before leaving")
                 nav.back()
@@ -353,11 +364,12 @@ export function ComponentsScreen() {
               <Text style={actionButtonTextStyle}>Toast &amp; nav.back()</Text>
             </Pressable>
 
-            <Pressable onPress={() => sheetOpen.set(true)} style={actionButtonStyle}>
+            <Pressable testID="comp-sheet-open" onPress={() => sheetOpen.set(true)} style={actionButtonStyle}>
               <Text style={actionButtonTextStyle}>Toast from inside a sheet</Text>
             </Pressable>
 
             <Pressable
+              testID="comp-sheet-early"
               onPress={() => {
                 const t0 = Date.now()
                 console.log("sheet-close-early: open")
@@ -381,6 +393,7 @@ export function ComponentsScreen() {
 
             {/* accessibilityLabel dynamic replacement */}
             <Pressable
+              testID="comp-a11y-label"
               accessibilityLabel="Custom accessibility label for TalkBack"
               accessibilityHint="Tap to activate this button"
               style={{
@@ -397,6 +410,7 @@ export function ComponentsScreen() {
 
             {/* accessibilityRole="none" */}
             <Pressable
+              testID="comp-role-none"
               accessibilityRole="none"
               onPress={() => toast("Tapped role:none pressable")}
               style={{
@@ -413,6 +427,7 @@ export function ComponentsScreen() {
 
             {/* accessibilityHidden */}
             <Box
+              testID="comp-hidden"
               accessibilityHidden
               style={{
                 padding: 12,
@@ -428,13 +443,13 @@ export function ComponentsScreen() {
             {/* maxFontScale */}
             <Column style={{ gap: 4 }}>
               <Text style={labelStyle}>maxFontScale comparison:</Text>
-              <Text fontSize={15} color={c.ink}>
+              <Text testID="comp-font-uncapped" fontSize={15} color={c.ink}>
                 Uncapped Text: grows with system font size setting without limit.
               </Text>
-              <Text fontSize={15} maxFontScale={1.15} color={c.ink}>
+              <Text testID="comp-font-capped" fontSize={15} maxFontScale={1.15} color={c.ink}>
                 Capped Text (maxFontScale=1.15): caps scaling locally to preserve layout.
               </Text>
-              <Text fontSize={15} maxFontScale={1.15} color={c.ink}>
+              <Text testID="comp-font-spans" fontSize={15} maxFontScale={1.15} color={c.ink}>
                 Capped with spans: a <Text fontWeight={700}>bold span</Text> and a{" "}
                 <Text fontSize={18} color={c.primary}>bigger span</Text>.
               </Text>
@@ -444,17 +459,17 @@ export function ComponentsScreen() {
       </Scroll>
 
       <Sheet visible={sheetOpen()} onDismiss={() => sheetOpen.set(false)} style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
-        <Text fontSize={18} fontWeight={700} color={c.ink}>
+        <Text testID="comp-sheet-title" fontSize={18} fontWeight={700} color={c.ink}>
           UPI ID: store@upi
         </Text>
-        <Pressable onPress={() => toast("UPI ID copied")} style={actionButtonStyle}>
+        <Pressable testID="comp-sheet-copy" onPress={() => toast("UPI ID copied")} style={actionButtonStyle}>
           <Text style={actionButtonTextStyle}>Copy UPI ID</Text>
         </Pressable>
-        <Pressable onPress={() => sheetMore.set(!sheetMore())} style={actionButtonStyle}>
+        <Pressable testID="comp-sheet-more" onPress={() => sheetMore.set(!sheetMore())} style={actionButtonStyle}>
           <Text style={actionButtonTextStyle}>{sheetMore() ? "Fewer lines" : "More lines (the sheet grows)"}</Text>
         </Pressable>
         {sheetMore() ? (
-          <Text fontSize={14} color={c.ink}>
+          <Text testID="comp-sheet-lines" fontSize={14} color={c.ink}>
             Line one{"\n"}Line two{"\n"}Line three{"\n"}Line four
           </Text>
         ) : null}
