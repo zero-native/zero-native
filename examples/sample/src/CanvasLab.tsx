@@ -1,7 +1,7 @@
 // A dev screen for <Canvas> (registry 23, docs/components.md §14). Each tile says what you should see.
 // Tiles draw their own background (c.white), so they look the same in light and dark mode.
 import { Box, Canvas, Column, Pressable, Row, Scroll, Stack, Text } from "@zeronative/ui"
-import { draw, type CanvasCommand, clearTimeout, nav, onCleanup, setInterval, setTimeout, signal, smoothPath, useMotion, usePan } from "@zeronative/core"
+import { draw, type CanvasCommand, clearTimeout, nav, onCleanup, setInterval, setTimeout, signal, smoothPath, useMotion, usePan, useTimeline } from "@zeronative/core"
 import { c } from "./tokens"
 
 // Lab colours (the tokens have no chart colours).
@@ -167,10 +167,74 @@ function PathTrimTile() {
   )
 }
 
+// 18. Blur on gradients: the same three shapes sharp (top) and with paint blur (bottom). Android's BlurMaskFilter
+// blurs what a gradient paints; iOS blurs the painted pixels the same way.
+function GradientBlurTile() {
+  const shapes = (y: number, blur?: number): CanvasCommand[] => [
+    draw.circle(55, y, 26, { radialGradient: { cx: 55, cy: y, r: 26, colors: ["#F59E0B", DOWN] }, blur }),
+    draw.circle(165, y, 24, {
+      style: "stroke",
+      strokeWidth: 10,
+      sweepGradient: { cx: 165, cy: y, colors: [c.primary, ACCENT, UP, c.primary], startAngle: -90 },
+      blur,
+    }),
+    draw.line(230, y, 310, y, { strokeWidth: 10, strokeCap: "round", linearGradient: { x0: 230, y0: 0, x1: 310, y1: 0, colors: [UP, c.primary] }, blur }),
+  ]
+  const commands = (): CanvasCommand[] => [draw.rect(0, 0, 340, 170, { color: c.white }), ...shapes(42), ...shapes(124, 8)]
+  return (
+    <Tile
+      title="18. Blur on gradients"
+      expect="top row sharp: an orange-to-red ball, a ring that fades blue → purple → green from 12 o'clock, a green-to-blue bar. Bottom row: the same three, soft at every edge (no sharp outline left), keeping their colours."
+    >
+      <Box style={{ width: 340, height: 170, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+        <Canvas style={{ width: 340, height: 170 }} commands={commands()} />
+      </Box>
+    </Tile>
+  )
+}
+
+// 19. Colour, size, stroke width, opacity and a turn from one looping timeline: every frame redraws the canvas
+// natively, with no JS (play: start playing at once, for measuring a moving canvas).
+function MotionPaintTile(props: { play?: boolean }) {
+  const t = useTimeline({ duration: 1200, easing: "standard", repeat: "forever", yoyo: true })
+  const fill = t.mapColor([0, 1], [c.primary, DOWN])
+  const r = t.map([0, 1], [12, 36])
+  const width = t.map([0, 1], [2, 12])
+  const fade = t.map([0, 1], [1, 0.25])
+  const x = t.map([0, 1], [200, 300])
+  const turn = t.map([0, 1], [0, 180])
+  if (props.play) t.play()
+  const commands = (): CanvasCommand[] => [
+    draw.rect(0, 0, 340, 110, { color: c.white }),
+    draw.circle(55, 55, r, { color: fill }),
+    draw.line(110, 20, 110, 90, { color: c.ink, strokeWidth: width, strokeCap: "round" }),
+    draw.save(),
+    draw.rotate(turn, 155, 55),
+    draw.rect(135, 35, 40, 40, { color: ACCENT, opacity: fade }),
+    draw.restore(),
+    draw.circle(x, 55, 10, { color: UP }),
+  ]
+  return (
+    <Tile
+      title="19. Motion colour, size, width, opacity and a turn"
+      expect="tap Play: the ball grows and turns from blue to red, the black bar gets thicker, the purple square turns and fades, the green dot slides right; then all of it goes back, and again. Pause stops it where it is."
+    >
+      <Row gap={8}>
+        <CanvasButton label="Play" onPress={() => t.play()} />
+        <CanvasButton label="Pause" onPress={() => t.pause()} />
+      </Row>
+      <Box style={{ width: 340, height: 110, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: c.border }}>
+        <Canvas style={{ width: 340, height: 110 }} commands={commands()} />
+      </Box>
+    </Tile>
+  )
+}
+
 // from: start at this tile (`--params '{"from": 12}'`), to see a tile on a simulator without scrolling.
 // away: after 2 s open the Dev screen over this one, and come back after `away` seconds (`{"away": 4}`): checks that
 // pictures show at once on return while the chart ticked under the other screen, and that a failed one is tried again.
-export function CanvasLabScreen(props: { from?: number; away?: number }) {
+// play: tile 19 starts playing at once (`{"from": 19, "play": true}`).
+export function CanvasLabScreen(props: { from?: number; away?: number; play?: boolean }) {
   const show = (n: number) => (props.from ?? 1) <= n
   if (props.away) {
     const away = props.away
@@ -624,6 +688,9 @@ export function CanvasLabScreen(props: { from?: number; away?: number }) {
             </Column>
           </Tile>
         )}
+
+        {show(18) && <GradientBlurTile />}
+        {show(19) && <MotionPaintTile play={props.play} />}
       </Column>
     </Scroll>
   )
