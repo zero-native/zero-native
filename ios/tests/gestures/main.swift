@@ -745,6 +745,177 @@ do {  // simultaneousWith: a linked gesture on another element doesn't take the 
     sent = []
 }
 
+// MARK: - useZoom (ZnZoom.swift; the maths: android/runtime's ZnZoomTest.kt, the same numbers)
+
+do {  // fittedIsContain
+    let a = ZnZoomMath.fitted(300, 300, 4 / 3), b = ZnZoomMath.fitted(300, 300, 0.5)
+    near("4:3 w", a.0, 300); near("4:3 h", a.1, 225)
+    near("1:2 w", b.0, 150); near("1:2 h", b.1, 300)
+    near("no aspect", ZnZoomMath.fitted(300, 300, 0).1, 300)
+    near("NaN aspect", ZnZoomMath.fitted(300, 300, .nan).0, 300)
+}
+
+do {  // rangeIsHalfTheOverflow
+    near("1x", ZnZoomMath.range(300, 1, 300), 0)
+    near("2x", ZnZoomMath.range(300, 2, 300), 150)
+    near("smaller than the box", ZnZoomMath.range(100, 2, 300), 0)
+}
+
+do {  // theSpotUnderTheFingersStays
+    let t = ZnZoomMath.around(1, 0, 250, 150, 2)
+    near("around 250 to 2x", t, -100, 0.001)
+    near("drawn where it was", 150 + (250 - 150) * 2 + t, 250, 0.001)
+    let p: Float = 150 + (100 - 150 - (-100)) / 2
+    let t3 = ZnZoomMath.around(2, -100, 100, 150, 3)
+    near("2x to 3x around 100", 150 + (p - 150) * 3 + t3, 100, 0.001)
+}
+
+do {  // doubleTapZoomsInThereThenOut
+    let a = ZnZoomMath.doubleTap(1, 0, 0, 250, 150, 300, 300, 300, 300, 1, 2.5)
+    near("in: 2.5x", a.0, 2.5); near("in: tx", a.1, -150, 0.001); near("in: ty", a.2, 0, 0.001)
+    near("at the edge: clamped", ZnZoomMath.doubleTap(1, 0, 0, 300, 150, 300, 300, 300, 300, 1, 2.5).1, -225, 0.001)
+    let out = ZnZoomMath.doubleTap(2.5, -150, 0, 10, 10, 300, 300, 300, 300, 1, 2.5)
+    truth("zoomed in: back out", out.0 == 1 && out.1 == 0 && out.2 == 0)
+}
+
+do {  // rubberBandsGiveLessThanTheFinger
+    let past = ZnZoomMath.rubberT(260, 150, 300)
+    truth("t past the edge gives less", past > 150 && past < 260)
+    near("t inside", ZnZoomMath.rubberT(100, 150, 300), 100)
+    let under = ZnZoomMath.rubberS(0.5, 1, 4), over = ZnZoomMath.rubberS(6, 1, 4)
+    truth("scale under", under < 1 && under > 0.5)
+    truth("scale over", over > 4 && over < 6)
+}
+
+do {  // toBoxUndoesTheLayer
+    near("toBox", ZnZoomMath.toBox(200, 150, 2, -100), 150)
+}
+
+/// A zoom on a 300 x 300 element (the content fills it).
+func zoom(_ id: Int, _ extra: String = "") -> ZnGesture {
+    let g = gesture(id, #"{"kind":"zoom","values":{"scale":\#(id + 1),"scale.v":1,"x":\#(id + 2),"y":\#(id + 3)},"min":1,"max":4,"ev":["begin","start","end","finalize","settle"]\#(extra)}"#)
+    g.placed(300, 300, 400, 800)
+    return g
+}
+
+do {  // not zoomed, one finger: the zoom gives the touch up at the slop (the Carousel turns the page)
+    let g = zoom(1300)
+    let f = Finger(g)
+    f.down(150, 150)
+    f.move(5, 0)
+    check("still possible under the slop", g.live, znPossible)
+    truth("the scroll waits for it", f.s.mayClaim(fingers: 1))
+    f.move(20, 0)
+    check("failed past the slop", g.live, znFailed)
+    truth("no claim", !f.s.claims)
+    f.up()
+    sent = []
+}
+
+do {  // a pinch scales around the fingers; zoomed, one finger drags inside the edges; at the edge it gives up
+    let g = zoom(1310)
+    let f = Finger(g)
+    f.down(220, 150, id: 0)
+    f.down(280, 150, id: 1)
+    f.move2((200, 150), (300, 150))
+    check("pinch started", g.live, znActive)
+    truth("it takes the touch", f.s.claims)
+    f.move2((150, 150), (350, 150))  // spread 100 → 200 around x = 250
+    near("2x", g.scale!.value, 2, 0.001)
+    near("the spot under the fingers stays", g.x!.value, -100, 0.001)
+    near("y", g.y!.value, 0, 0.001)
+    _ = events(1310)
+    f.up(id: 1)
+    f.up(id: 0)
+    check("lift: end, finalize, settle", events(1310), ["end", "finalize", "settle"])
+    // Zoomed: one finger drags it (inside ±150).
+    let d = Finger(g)
+    d.down(150, 150)
+    d.move(30, 0, steps: 3)
+    check("drag started", g.live, znActive)
+    d.move(30, 0)
+    near("x follows the finger (from the move after the one that started it)", g.x!.value, -50, 0.001)
+    d.up(after: 400)  // held still, then lifted: no fling
+    clock.run(60)
+    near("rests where it was let go", g.x!.value, -50, 0.001)
+    // At the right edge, dragging right: the parent's turn.
+    g.x!.value = 150
+    let edge = Finger(g)
+    edge.down(150, 150)
+    edge.move(20, 0)
+    check("at the edge it fails", g.live, znFailed)
+    edge.up()
+    sent = []
+}
+
+do {  // past max: back to max at the lift; a fling stops at the edge
+    let g = zoom(1320)
+    let f = Finger(g)
+    f.down(140, 150, id: 0)
+    f.down(160, 150, id: 1)
+    f.move2((130, 150), (170, 150))
+    f.move2((50, 150), (250, 150))  // 40 → 200: 5x, past max 4
+    truth("rubber past max", g.scale!.value > 4 && g.scale!.value < 5)
+    f.up(id: 1)
+    f.up(id: 0)
+    clock.run(60)
+    near("back to max", g.scale!.value, 4, 0.001)
+    truth("inside the edges", abs(g.x!.value) <= ZnZoomMath.range(300, 4, 300) + 0.001)
+    sent = []
+    g.x!.value = 0
+    let fl = Finger(g)
+    fl.down(150, 150)
+    fl.move(-30, 0, steps: 2)
+    fl.move(-90, 0, steps: 3)
+    fl.up(after: 16, by: (-30, 0))
+    clock.run(240)
+    near("a fling stops at the edge", g.x!.value, -450, 0.01)
+    truth("settle after the fling", events(1320).contains("settle"))
+}
+
+do {  // useZoom's double tap (a tap gesture with `zoom`): in around the tapped spot, then out; no JS in between
+    let z = zoom(1330)
+    _ = gesture(1335, #"{"kind":"tap","values":{},"taps":2,"zoom":1330}"#)
+    let both = group(1336, "simultaneous", [1330, 1335])
+    both.placed(300, 300, 400, 800)
+    let f = Finger(both)
+    f.down(250, 150)
+    f.up(after: 60)
+    f.down(250, 150, after: 100)
+    f.up(after: 60)
+    clock.run(30)
+    near("in to 2.5x", z.scale!.value, 2.5, 0.001)
+    near("around the tap, inside the edge", z.x!.value, -150, 0.001)
+    check("end and settle (no finger lift of its own)", events(1330).filter { $0 == "end" || $0 == "settle" }, ["end", "settle"])
+    let g2 = Finger(both)
+    g2.down(10, 10)
+    g2.up(after: 60)
+    g2.down(10, 10, after: 100)
+    g2.up(after: 60)
+    clock.run(30)
+    near("out to 1x", z.scale!.value, 1, 0.001)
+    near("centred", z.x!.value, 0, 0.001)
+    sent = []
+}
+
+do {  // zoomTo (and reset): clamped scale and edges, {finished}; fingers on a transformed node map to its box
+    let z = zoom(1340)
+    var got: [String: Any]?
+    try! ZnGestures.zoomTo(["id": 1340, "s": 9, "x": 300, "y": 150]) { got = $0 }
+    clock.run(30)
+    near("clamped to max", z.scale!.value, 4, 0.001)
+    near("inside the edge", z.x!.value, -450, 0.001)
+    check("finished", got?["finished"] as? Bool, true)
+    try! ZnGestures.zoomTo(["id": 1340, "s": 1]) { got = $0 }
+    clock.run(30)
+    near("reset", z.scale!.value, 1, 0.001)
+    truth("not a zoom throws", (try? ZnGestures.zoomTo(["id": 1310_000]) { _ in }) == nil)
+    z.layerNow = { (2, 2, -100, 0) }
+    let (bx, by) = z.zoomBox(200, 150)
+    near("box x", bx, 150); near("box y", by, 150)
+    sent = []
+}
+
 // MARK: - Groups and disposal
 
 do {

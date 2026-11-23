@@ -7,3 +7,4 @@ ios/ZnRuntime/Swift/ZnGestureMath.swift
 ios/ZnRuntime/Swift/ZnVelocityTracker.swift
 ios/ZnRuntime/Swift/ZnGesture.swift
 ios/ZnRuntime/Swift/ZnGestureRecognizers.swift
+ios/ZnRuntime/Swift/ZnZoom.swift

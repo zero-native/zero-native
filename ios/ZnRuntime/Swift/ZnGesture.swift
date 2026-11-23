@@ -160,6 +160,17 @@ final class ZnGesture {
     let withParent: String
     let a11yLabel: String?
 
+    // useZoom (kind "zoom"; the maths and its recognizer: ZnZoom.swift).
+    let zoomMin: Float
+    let zoomMax: Float
+    /// The scale a double tap zooms to (0: a double tap does nothing).
+    let zoomDouble: Float
+    /// The content's shape (width / height), fitted inside the element; nil or 0: the content fills the element.
+    private(set) var zoomAspect: ZnSpec?
+    /// The node's own layer now (scale x, scale y, translate x, translate y; its probe sets it): a zoom on an element
+    /// that also carries the zoom's transform maps the fingers back into its box (ZnZoomMath.toBox). Nil: no layer.
+    var layerNow: (() -> (Float, Float, Float, Float))?
+
     /// The touch in progress (a JS command with interruptGesture cancels it).
     var touch: ZnGestureTouch?
 
@@ -200,6 +211,12 @@ final class ZnGesture {
         simWith = Self.ints(o["with"])
         manual = znJsonBool(o["manual"])
         dropZones = Self.ints(o["zones"])
+        let zMin = Float(znJsonNumber(o["min"]) ?? 1)
+        zoomMin = zMin.isFinite && zMin > 0 ? zMin : 1
+        let zMax = Float(znJsonNumber(o["max"]) ?? 4)
+        zoomMax = zMax.isFinite && zMax >= zoomMin ? zMax : Swift.max(zoomMin, 4)
+        let dt = Float(znJsonNumber(o["doubleTap"]) ?? 2.5)
+        zoomDouble = dt.isFinite && dt > 0 ? dt : 0
         x = try valueOf("x")
         y = try valueOf("y")
         scale = try valueOf("scale", 1)
@@ -212,6 +229,7 @@ final class ZnGesture {
         touchY = try valueOf("touchY")
         boundsX = try boundsOf("x")
         boundsY = try boundsOf("y")
+        if kind == Self.zoom, let a = o["aspect"], !(a is NSNull) { zoomAspect = try ZnSpec.parse(a, engine) }
         anchors = try ((o["anchors"] as? [Any]) ?? []).enumerated().map { i, a in
             let e = a as? [String: Any] ?? [:]
             return ZnAnchor(id: (e["id"] as? String) ?? String(i), x: try ZnSpec.parse(e["x"], engine), y: try ZnSpec.parse(e["y"], engine))

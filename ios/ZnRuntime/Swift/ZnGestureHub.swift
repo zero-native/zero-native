@@ -30,8 +30,7 @@ import SwiftUI
 import UIKit
 
 extension ZnGestures {
-    /// The gesture functions of the `Motion` module (Android: ZnGestures.install). useZoom's zoomTo comes with
-    /// gesture-zoom.
+    /// The gesture functions of the `Motion` module (Android: ZnGestures.install).
     @MainActor static func install(_ m: ZnMotionModule) {
         haptic = { k in MainActor.assumeIsolated { ZnHaptics.play(k) } }
         if ZnGestureHub.log { trace = { print("zn t=\(ZnDebug.ms()) gesture event: \($0)") } }
@@ -48,6 +47,7 @@ extension ZnGestures {
             c.resolve()
         }
         m.addFunction("snapTo") { c in try snapTo(c.args) { c.resolve($0) } }
+        m.addFunction("zoomTo") { c in try zoomTo(c.args) { c.resolve($0) } }
     }
 }
 
@@ -79,12 +79,26 @@ private struct ZnGestureNode: ViewModifier {
         let p = CGSize(width: parent?.w ?? 0, height: parent?.h ?? 0)
         content
             .environment(\.znGestureDepth, depth + 1)
-            .background(ZnGestureProbe(g: g, depth: depth, off: hiddenTab || touchOff, parent: p, mark: mark))
+            .background(ZnGestureProbe(g: g, depth: depth, off: hiddenTab || touchOff, parent: p, mark: mark, layer: layer))
             .overlay(ZnGestureEnd(mark: mark).allowsHitTesting(false))
             .onAppear { parent?.wanted = true }
     }
 
     @State private var mark = ZnGestureMark()
+
+    /// The node's own scale and translation now (useZoom maps the fingers back into its box with them), read when a
+    /// touch needs them; nil when the node has no transform.
+    private var layer: (() -> (Float, Float, Float, Float))? {
+        guard s.layerTransforms else { return nil }
+        let (s, inst) = (s, inst)
+        return {
+            MainActor.assumeIsolated {
+                let all = inst.layerNumber(s.scaleSlot, s.scaleBase)
+                return (Float(all * inst.layerNumber(s.scaleXSlot, s.scaleXOnly)), Float(all * inst.layerNumber(s.scaleYSlot, s.scaleYOnly)),
+                        Float(inst.layerNumber(s.translateXSlot, s.translateX)), Float(inst.layerNumber(s.translateYSlot, s.translateY)))
+            }
+        }
+    }
 }
 
 /// Where a gesture node's drawing ends: a view over its content that takes no touches. A Pressable drawn between the
@@ -115,6 +129,7 @@ private struct ZnGestureProbe: UIViewRepresentable {
     let off: Bool
     let parent: CGSize
     let mark: ZnGestureMark
+    let layer: (() -> (Float, Float, Float, Float))?
 
     func makeUIView(context: Context) -> ZnGestureProbeView { ZnGestureProbeView() }
 
@@ -124,6 +139,7 @@ private struct ZnGestureProbe: UIViewRepresentable {
         v.off = off
         v.parentSize = parent
         v.gesture = g
+        for leaf in g?.leaves ?? [] { leaf.layerNow = layer }
     }
 }
 
@@ -399,6 +415,17 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
             // On the list inside an "after-edge" pan, the list takes the touch (it sees it first, as on Android). A
             // "simultaneous" pan goes on with the scroll that took it.
             var ev = ZnPointerEvent(changes: changes, consumed: consumed || (taken && !e.session.shareTouch) || e.inList)
+            #if DEBUG
+            if Self.log, taken, !e.session.shareTouch {
+                var by: [String] = []
+                for t in touches {
+                    for r in t.gestureRecognizers ?? [] where r.state == .began || r.state == .changed {
+                        by.append("\(type(of: r))(\(r.name ?? "")) on \(r.view.map { "\($0.frame)" } ?? "-")")
+                    }
+                }
+                print("zn t=\(ZnDebug.ms()) gesture: \(e.session.g.id): taken by \(by)")
+            }
+            #endif
             e.session.handle(&ev)
             if ev.consumed && !e.inList { consumed = true }
         }
@@ -446,6 +473,7 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
             } else if entries.isEmpty || ((claim.moved || !down) && !entries.contains(where: { $0.session.mayClaim(fingers: $0.touches.count) })) {
                 // No consuming recognizer can start any more: the scroll around it may go now.
                 claim.state = .failed
+                if Self.log { print("zn t=\(ZnDebug.ms()) gesture: no node can take the touch: the scrolls around may go") }
             }
         case .began, .changed:
             claim.state = claiming || entries.contains(where: { $0.session.mayClaim(fingers: $0.touches.count) && !$0.touches.isEmpty }) ? .changed : .ended
@@ -528,6 +556,12 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     /// The claim waits for nothing; [other] waits for the claim when it is a pan of a scroll or sheet around a node
     /// whose consuming recognizer may still start (not the back swipe: claimsBackEdge decides that one).
     fileprivate func otherWaits(_ other: UIGestureRecognizer) -> Bool {
+        let w = otherWaitsNow(other)
+        if Self.log, other is UIPanGestureRecognizer { print("zn t=\(ZnDebug.ms()) gesture: \(type(of: other)) on \(other.view.map { "\(type(of: $0)) \($0.frame)" } ?? "-") waits: \(w), \(entries.count) node(s)") }
+        return w
+    }
+
+    private func otherWaitsNow(_ other: UIGestureRecognizer) -> Bool {
         guard other is UIPanGestureRecognizer || other is UIPinchGestureRecognizer, !(other is ZnGestureFeed),
               other.name != ZnNavController.backPanName, let ov = other.view else { return false }
         if !entries.isEmpty {

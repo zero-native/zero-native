@@ -386,8 +386,11 @@ final class ZnTapRec: ZnRecognizer {
     private var moved: Float = 0
     private var down = false
     private var x: Float = 0, y: Float = 0
+    /// useZoom's own double tap: the zoom gesture it moves (0: none).
+    private let zoomId: Int
 
     override init(_ g: ZnGesture) {
+        zoomId = Int(znJsonNumber(g.o["zoom"]) ?? 0)
         taps = Swift.max(1, Int(znJsonNumber(g.o["taps"]) ?? 1))
         maxDuration = Int64(znJsonNumber(g.o["maxDuration"]) ?? 500)
         maxDelay = Int64(znJsonNumber(g.o["maxDelay"]) ?? 300)
@@ -451,7 +454,11 @@ final class ZnTapRec: ZnRecognizer {
     override func activate() {
         state = znDone
         g.play("start")
-        // (useZoom's own double tap, `zoom` in its options, moves the zoom here: gesture-zoom.)
+        // useZoom's own double tap (`zoom` in its options): moves that zoom here, with no JS in between.
+        if zoomId != 0, let z = ZnGestures.find(zoomId) {
+            let (bx, by) = z.zoomBox(x, y)
+            z.zoomDoubleTap(bx, by)
+        }
         g.send("end", ["x": Double(x), "y": Double(y), "cancelled": false])
         g.send("finalize")
     }
@@ -568,15 +575,7 @@ final class ZnFlingRec: ZnRecognizer {
     }
 }
 
-/// useZoom's recognizer comes with gesture-zoom (ZnZoom.swift). Until then a zoom leaves every touch to its parent (a
-/// Carousel turns the page), as Android's does with one finger when not zoomed.
-final class ZnZoomRecPending: ZnRecognizer {
-    override func onEvent(_ e: ZnPointerEvent) { fail() }
-}
-
-/// A recognizer for one touch of [g] (a leaf). The zoom's comes from gesture-zoom when it lands.
-nonisolated(unsafe) var znZoomRecognizer: (ZnGesture) -> ZnRecognizer = { ZnZoomRecPending($0) }
-
+/// A recognizer for one touch of [g] (a leaf). useZoom's is in ZnZoom.swift.
 func znRecognizer(_ g: ZnGesture, downAt: Int64) -> ZnRecognizer {
     switch g.kind {
     case ZnGesture.pan: return ZnPanRec(g, downAt: downAt)
@@ -584,7 +583,7 @@ func znRecognizer(_ g: ZnGesture, downAt: Int64) -> ZnRecognizer {
     case ZnGesture.rotate: return ZnRotateRec(g)
     case ZnGesture.tap: return ZnTapRec(g)
     case ZnGesture.longPress: return ZnLongPressRec(g, downAt: downAt)
-    case ZnGesture.zoom: return znZoomRecognizer(g)
+    case ZnGesture.zoom: return ZnZoomRec(g)
     default: return ZnFlingRec(g)
     }
 }
