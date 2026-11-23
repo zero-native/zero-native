@@ -255,7 +255,9 @@ final class ZnPanRec: ZnRecognizer {
     }
 }
 
-/// Pinch (RNGH Pinch): scale from the finger spread, focal point; springs back inside min / max on release.
+/// Pinch (RNGH Pinch): scale from the finger spread, focal point; springs back inside min / max on release. The spread is
+/// measured in the window, as the pan's movement: in the node, scaled by the pinch itself, it would grow slower than
+/// the fingers (Android measures it in the node).
 final class ZnPinchRec: ZnRecognizer {
     private var dist0: Float = 0
     private var s0: Float = 1
@@ -273,7 +275,7 @@ final class ZnPinchRec: ZnRecognizer {
     private func spread(_ e: ZnPointerEvent) -> Float? {
         let p = pressed(e)
         guard p.count >= 2 else { return nil }
-        return hypot(p[0].x - p[1].x, p[0].y - p[1].y)
+        return hypot(p[0].wx - p[1].wx, p[0].wy - p[1].wy)
     }
 
     override func onEvent(_ e: ZnPointerEvent) {
@@ -317,7 +319,8 @@ final class ZnPinchRec: ZnRecognizer {
     }
 }
 
-/// Rotation (RNGH Rotation): degrees the two fingers turned.
+/// Rotation (RNGH Rotation): degrees the two fingers turned, in the window (as the pinch's spread: a node that turns
+/// with its own rotation would otherwise turn less than the fingers).
 final class ZnRotateRec: ZnRecognizer {
     private var a0 = Float.nan
     private var v0: Float = 0
@@ -325,7 +328,7 @@ final class ZnRotateRec: ZnRecognizer {
     private func angleOf(_ e: ZnPointerEvent) -> Float? {
         let p = e.changes.filter(\.pressed)
         guard p.count >= 2 else { return nil }
-        return atan2(p[1].y - p[0].y, p[1].x - p[0].x) * 180 / .pi
+        return atan2(p[1].wy - p[0].wy, p[1].wx - p[0].wx) * 180 / .pi
     }
 
     override func onEvent(_ e: ZnPointerEvent) {
