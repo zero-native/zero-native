@@ -9,6 +9,7 @@
 // Android: a phone connected with USB debugging (this runs `adb reverse`). iOS simulator: a Debug build connects to
 // this computer's 127.0.0.1 by itself. A real iPhone can't reach it yet.
 // ZN_DEV_PORT (tests): another port than 8082 (the phones only know 8082). ZN_DEV_ADB=0: no `adb reverse`.
+// ZN_DEV_OUT (tests): the folder for dev.js and dev.hbc instead of <appDir>/build (a running `zn dev` uses that one).
 //
 // Wire format, both ways: u32 length (big endian), then u8 type and the body. Same list as ZnDev.kt and ZnDevWire.swift.
 import { createHash } from "node:crypto"
@@ -34,7 +35,7 @@ const root = checkout ? resolve(import.meta.dir, "..") : resolve(process.argv[2]
 const appDir = resolve(process.argv[2] ?? (checkout ? join(root, "examples/sample") : "."))
 const entry = join(appDir, "src/main.ts")
 const asset = "main.zn.ui"
-const tmpDir = join(appDir, "build")
+const tmpDir = process.env.ZN_DEV_OUT ? resolve(process.env.ZN_DEV_OUT) : join(appDir, "build")
 mkdirSync(tmpDir, { recursive: true })
 
 // Plain console output in simple words; colours only where they help.
@@ -245,9 +246,10 @@ function adbReverse(): void {
     console.log(dim(`Android: adb isn't on PATH, so no adb reverse (install the Android SDK platform-tools). ${iosHint}`))
     return
   }
+  // Any phone adb lists (also one that is unauthorized or offline): adb reverse runs, and says what is wrong with it.
   const devices = Bun.spawnSync(["adb", "devices"], { stderr: "pipe" })
-  const attached = devices.stdout.toString().split("\n").slice(1).some((l) => /\tdevice\s*$/.test(l))
-  if (devices.exitCode === 0 && !attached) {
+  const listed = devices.stdout.toString().split("\n").slice(1).some((l) => /\S+\t\S+/.test(l))
+  if (devices.exitCode === 0 && !listed) {
     console.log(dim(`Android: no phone on adb; connect one with USB debugging on, then run this again. ${iosHint}`))
     return
   }

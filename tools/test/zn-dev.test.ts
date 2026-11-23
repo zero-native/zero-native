@@ -2,6 +2,8 @@
 // (a frame of more than a megabyte: Bun's write takes only part of it at once), and a JS error comes back mapped.
 // The phones' side of the wire: android/runtime/.../ZnDev.kt, ios/ZnRuntime/Swift/ZnDevWire.swift (ios/tests/dev).
 import { expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 const root = resolve(import.meta.dir, "../..")
@@ -18,9 +20,11 @@ function frame(type: number, body: string): Uint8Array {
 
 test("zn dev sends a whole build to a phone that says hello, and maps its errors", async () => {
   const port = 18000 + Math.floor(Math.random() * 2000)
+  // Its own folder for dev.js / dev.hbc: a `zn dev` running meanwhile keeps sending its own.
+  const outDir = mkdtempSync(join(tmpdir(), "zn-dev-test-"))
   const server = Bun.spawn(["bun", "run", join(root, "tools/zn-dev.ts")], {
     cwd: root,
-    env: { ...process.env, ZN_DEV_PORT: String(port), ZN_DEV_ADB: "0" },
+    env: { ...process.env, ZN_DEV_PORT: String(port), ZN_DEV_ADB: "0", ZN_DEV_OUT: outDir },
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -97,5 +101,6 @@ test("zn dev sends a whole build to a phone that says hello, and maps its errors
     server.kill()
     await server.exited
     await reading.catch(() => {})
+    rmSync(outDir, { recursive: true, force: true })
   }
 }, 200_000)
