@@ -591,9 +591,27 @@ struct ZnLazyList: View {
         if cmd.animated {
             withAnimation(.default, completionCriteria: .logicallyComplete) { proxy.scrollTo(id, anchor: anchor) } completion: { then() }
         } else {
+            let start = scroll.metrics()?.offset
             proxy.scrollTo(id, anchor: anchor)
-            // SwiftUI moves the scroll view in its next update.
-            DispatchQueue.main.async { DispatchQueue.main.async { then() } }
+            // SwiftUI moves the scroll view in a later update (a sideways list a few frames later than a vertical one,
+            // seen 2026-11-24 on the simulator); moving it before then cancels SwiftUI's move. So: once it has moved,
+            // or after about 0.2 s when the item was already at the start.
+            guard viewOffset != 0 else { return }
+            afterMove(from: start, tries: 12, then)
+        }
+    }
+
+    /// Runs [then] once SwiftUI's scroll view has left [from] (and stayed a frame), or after [tries] frames.
+    private func afterMove(from: Double?, tries: Int, _ then: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [scroll] in
+            let now = scroll.metrics()?.offset
+            if now != from {
+                DispatchQueue.main.async { then() }
+            } else if tries > 0 {
+                afterMove(from: from, tries: tries - 1, then)
+            } else {
+                then()
+            }
         }
     }
 
