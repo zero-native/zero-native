@@ -265,6 +265,7 @@ final class ZnVisibleRows {
     var preloadForward = true
     var preloadAsked: [UInt32] = []
     var preloadSoon = false
+    var preloadQueued = false
     weak var preloadHooked: ZnListState?
 
     /// The pictures of the rows just past the items on screen ([lines]: rows-part items, grid lines with [cols] > 1),
@@ -515,13 +516,21 @@ struct ZnLazyList: View {
         let pinned = Set(sticky)
         let (a, b) = znVisibleRange(items, rows: n, cols: cols, pinned: pinned)
         znSendRange(ctx, inst, s, list, a, b)
-        // The pictures of the rows past the screen (a pinned row sits on screen wherever its own place is: left out).
-        let lines = items.filter { $0.part == .rows && !(cols == 1 && pinned.contains($0.item)) }.map(\.item)
-        visible.preloadAhead(ctx, list, lines: lines, cols: cols)
         // Near the end: ask JS for more (onEndReached), once per list length, as Android does.
         if s.onEndReached != 0, n > 0, b >= n - znEndReachedRows, visible.endSentAt != n {
             visible.endSentAt = n
             ctx.send(inst.id, s.onEndReached, .none)
+        }
+        // The pictures of the rows past the screen (a pinned row sits on screen wherever its own place is: left out),
+        // once the items appearing in this pass have all said so (each appears on its own).
+        guard !visible.preloadQueued else { return }
+        visible.preloadQueued = true
+        let (visible, ctx, list, cols) = (visible, ctx, list, cols)
+        let item = item
+        DispatchQueue.main.async {
+            visible.preloadQueued = false
+            let lines = visible.shown.compactMap(item).filter { $0.part == .rows && !(cols == 1 && pinned.contains($0.item)) }.map(\.item)
+            visible.preloadAhead(ctx, list, lines: lines, cols: cols)
         }
     }
 
