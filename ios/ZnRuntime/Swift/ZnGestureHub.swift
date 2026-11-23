@@ -7,6 +7,8 @@
 // - The feed sees every touch and never stops anyone (simultaneous with all, never prevented). A finger landing on
 //   probes starts one touch session per node (ZnGestureRecognizers.swift), ordered as Compose's passes: withParent
 //   "block" outermost first, then the rest innermost first. Each UIKit callback becomes one ZnPointerEvent per session.
+//   As Compose's hit test, only the frontmost node under the finger and the nodes around it get the touch: not a
+//   sibling it covers, and not one a Pressable in front of it covers (frontmost).
 // - The claim is the touch in UIKit's terms. It begins when a consuming recognizer becomes active (a pan, pinch,
 //   rotate or long press that started), so a scroll around it stops and the Pressables under the finger get their
 //   touches cancelled (onPressOut(true)), as on Android. The pans of the scrolls and sheets around a probe wait for it
@@ -17,9 +19,10 @@
 //   marked consumed, and their consuming recognizers that haven't started give up, as Android's takenByOther.
 // - The back swipe (ZnNavHost.swift) doesn't start on a horizontal pan: claimsBackEdge, Android's
 //   systemGestureExclusion band (the whole node if at most 200 pt tall, else a 200 pt band at its centre).
-// - withParent "after-edge" on a vertical pan with a list inside (a panel): the list scrolls; finger up while the pan
-//   is below its top bound, or pulling down with the list at its top, moves the pan instead and stops the list's drag
-//   (Android: ZnNestedPan). "simultaneous": the pan never takes the touch from the scroll it is in.
+// - withParent "after-edge" on a vertical pan with a list inside (a panel): the list scrolls; once the list's drag has
+//   started, finger up while the pan is below its top bound, or pulling down with the list at its top, moves the pan
+//   first and the rest scrolls the list, in the same drag (Android: ZnNestedPan). "simultaneous": the pan never takes
+//   the touch from the scroll it is in.
 //
 // Deadlines (long press, the gap of a double tap) run on one timer per hub; manualActivation and requireToFail look
 // again each frame (16 ms) while they wait, as Android's loop.
@@ -76,9 +79,34 @@ private struct ZnGestureNode: ViewModifier {
         let p = CGSize(width: parent?.w ?? 0, height: parent?.h ?? 0)
         content
             .environment(\.znGestureDepth, depth + 1)
-            .background(ZnGestureProbe(g: g, depth: depth, off: hiddenTab || touchOff, parent: p))
+            .background(ZnGestureProbe(g: g, depth: depth, off: hiddenTab || touchOff, parent: p, mark: mark))
+            .overlay(ZnGestureEnd(mark: mark).allowsHitTesting(false))
             .onAppear { parent?.wanted = true }
     }
+
+    @State private var mark = ZnGestureMark()
+}
+
+/// Where a gesture node's drawing ends: a view over its content that takes no touches. A Pressable drawn between the
+/// node's probe and it is inside the node; one drawn after it covers the node (ZnGestureHub.frontmost).
+final class ZnGestureMark {
+    weak var end: UIView?
+}
+
+private struct ZnGestureEnd: UIViewRepresentable {
+    let mark: ZnGestureMark
+
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        v.backgroundColor = .clear
+        v.isOpaque = false
+        v.isUserInteractionEnabled = false
+        v.isAccessibilityElement = false
+        mark.end = v
+        return v
+    }
+
+    func updateUIView(_ v: UIView, context: Context) { mark.end = v }
 }
 
 private struct ZnGestureProbe: UIViewRepresentable {
@@ -86,10 +114,12 @@ private struct ZnGestureProbe: UIViewRepresentable {
     let depth: Int
     let off: Bool
     let parent: CGSize
+    let mark: ZnGestureMark
 
     func makeUIView(context: Context) -> ZnGestureProbeView { ZnGestureProbeView() }
 
     func updateUIView(_ v: ZnGestureProbeView, context: Context) {
+        v.mark = mark
         v.depth = depth
         v.off = off
         v.parentSize = parent
@@ -109,6 +139,8 @@ final class ZnGestureProbeView: UIView {
     }
     var depth = 0
     var off = false
+    /// The node's end mark (its drawing ends there).
+    var mark: ZnGestureMark?
     var parentSize: CGSize = .zero {
         didSet { if parentSize != oldValue { place() } }
     }
@@ -128,7 +160,9 @@ final class ZnGestureProbeView: UIView {
     required init?(coder: NSCoder) { fatalError("not from a storyboard") }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        !off && !isHidden && self.point(inside: point, with: event) ? self : nil
+        // Without its gesture (not arrived yet, or the Motion engine off) it is no hit target: a tap goes through to
+        // what is under it, as for any node without handlers.
+        takes && self.point(inside: point, with: event) ? self : nil
     }
 
     override func layoutSubviews() {
@@ -159,15 +193,42 @@ final class ZnGestureProbeView: UIView {
     var takes: Bool { window != nil && !off && !isHidden && alpha > 0.01 && gesture != nil }
 
     /// [t] landed inside it, and inside every clipping view around it up to its host (a scrolled-away row doesn't).
-    func contains(_ t: UITouch) -> Bool {
-        guard point(inside: t.location(in: self), with: nil) else { return false }
-        var v = superview
-        while let s = v, s !== host {
-            if s.clipsToBounds && !s.point(inside: t.location(in: s), with: nil) { return false }
-            v = s.superview
-        }
-        return true
+    func contains(_ t: UITouch) -> Bool { znShows(self, bounds, at: t.location(in: nil), upTo: host) }
+}
+
+/// [rect] of [v] holds window point [w], and so does every clipping view around [v] up to [top] (a row scrolled under
+/// its list's edge doesn't).
+@MainActor func znShows(_ v: UIView, _ rect: CGRect, at w: CGPoint, upTo top: UIView?) -> Bool {
+    guard rect.contains(v.convert(w, from: nil)) else { return false }
+    var u = v.superview
+    while let s = u, s !== top {
+        if s.clipsToBounds && !s.bounds.contains(s.convert(w, from: nil)) { return false }
+        u = s.superview
     }
+    return true
+}
+
+/// Is [a] drawn in front of [b] (one window)? Under their nearest common superview, the later subview (or the higher
+/// zPosition) is in front; a view is in front of its superviews.
+@MainActor func znInFront(_ a: UIView, _ b: UIView) -> Bool {
+    var onA: [ObjectIdentifier: UIView] = [:]  // each superview of a, and its subview on a's way up
+    var c = a
+    while let s = c.superview {
+        onA[ObjectIdentifier(s)] = c
+        c = s
+    }
+    if onA[ObjectIdentifier(b)] != nil { return true }  // a is inside b
+    var d = b
+    while let s = d.superview {
+        if s === a { return false }  // b is inside a
+        if let ca = onA[ObjectIdentifier(s)] {
+            if ca.layer.zPosition != d.layer.zPosition { return ca.layer.zPosition > d.layer.zPosition }
+            let subs = s.subviews
+            return (subs.firstIndex { $0 === ca } ?? 0) > (subs.firstIndex { $0 === d } ?? 0)
+        }
+        d = s
+    }
+    return false
 }
 
 // MARK: - The hub
@@ -181,15 +242,18 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     static let log = false
     #endif
 
-    private static let hubs = NSMapTable<UIView, ZnGestureHub>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+    /// The hub lives with its view (an associated object): a popped screen's hub goes with the screen. (A weak-key
+    /// NSMapTable keeps its values until it next resizes.)
+    private static var key: UInt8 = 0
 
     static func install(on view: UIView) {
-        guard hubs.object(forKey: view) == nil else { return }
-        let h = ZnGestureHub(view)
-        hubs.setObject(h, forKey: view)
+        guard of(view) == nil else { return }
+        objc_setAssociatedObject(view, &key, ZnGestureHub(view), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
-    static func hub(of probe: ZnGestureProbeView) -> ZnGestureHub? { probe.host.flatMap { hubs.object(forKey: $0) } }
+    private static func of(_ view: UIView) -> ZnGestureHub? { objc_getAssociatedObject(view, &key) as? ZnGestureHub }
+
+    static func hub(of probe: ZnGestureProbeView) -> ZnGestureHub? { probe.host.flatMap { of($0) } }
 
     /// One node in a touch: its session, its probe and the fingers it has.
     private final class Entry {
@@ -216,6 +280,7 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     private var entries: [Entry] = []
     private var edges: [ZnAfterEdge] = []
     private var timer: Timer?
+    private var timerAt: Int64?
 
     private init(_ view: UIView) {
         self.view = view
@@ -236,9 +301,17 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
 
     fileprivate func began(_ touches: Set<UITouch>) {
         if Self.log { print("zn t=\(ZnDebug.ms()) gesture: \(touches.count) finger(s) down, \(ZnGestureProbeView.live.count) node(s) with gestures") }
+        edges.removeAll { a in
+            if a.over || a.touch.phase == .ended || a.touch.phase == .cancelled { a.drop(); return true }
+            return false
+        }
         for t in touches {
-            let hits = ZnGestureProbeView.live.allObjects.filter { p in
+            let under = ZnGestureProbeView.live.allObjects.filter { p in
                 p.host === view && p.window === t.window && p.takes && p.contains(t)
+            }
+            let hits = frontmost(under, at: t.location(in: nil))
+            if Self.log, hits.count < under.count {
+                print("zn t=\(ZnDebug.ms()) gesture: covered, no touch for \(under.filter { p in !hits.contains { $0 === p } }.map { $0.gesture?.id ?? -1 })")
             }
             for p in hits {
                 guard let g = p.gesture else { continue }
@@ -262,6 +335,7 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
                    !edges.contains(where: { $0.pan === pan }), let list = innerList(t, inside: p) {
                     e.inList = true
                     edges.append(ZnAfterEdge(pan: pan, list: list, touch: t))
+                    if Self.log { print("zn t=\(ZnDebug.ms()) gesture: \(g.id) after-edge, the list \(type(of: list)) scrolls first") }
                 }
             }
             #if DEBUG
@@ -276,13 +350,16 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
 
     fileprivate func moved(_ touches: Set<UITouch>) {
         claim.moved = true
-        for a in edges where touches.contains(a.touch) { a.moved() }
         deliver(touches, phase: .moved)
     }
 
     fileprivate func ended(_ touches: Set<UITouch>, cancelled: Bool) {
-        for a in edges where touches.contains(a.touch) { a.release() }
-        edges.removeAll { touches.contains($0.touch) }
+        // An after-edge whose list is dragging ends with that drag (its release comes from the list's pan).
+        edges.removeAll { a in
+            let gone = a.over || (touches.contains(a.touch) && !a.dragging)
+            if gone { a.drop() }
+            return gone
+        }
         if cancelled {
             // The system took the touches (a call, Control Center): their nodes' touches end, cancelled.
             for e in entries where e.touches.contains(where: { touches.contains($0) }) { e.session.end(cancel: true) }
@@ -319,8 +396,9 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
                                                pressed: isDown, previousPressed: wasDown, t: ms(t.timestamp)))
                 e.last[id] = isDown ? (local, win) : nil
             }
-            // On the list inside an "after-edge" pan, the list takes the touch (it sees it first, as on Android).
-            var ev = ZnPointerEvent(changes: changes, consumed: consumed || taken || e.inList)
+            // On the list inside an "after-edge" pan, the list takes the touch (it sees it first, as on Android). A
+            // "simultaneous" pan goes on with the scroll that took it.
+            var ev = ZnPointerEvent(changes: changes, consumed: consumed || (taken && !e.session.shareTouch) || e.inList)
             e.session.handle(&ev)
             if ev.consumed && !e.inList { consumed = true }
         }
@@ -357,6 +435,7 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     /// After every event, deadline and cancel: the claim's state, the timer, and the feed's end.
     private func afterEvent() {
         entries.removeAll { $0.session.over }
+        edges.removeAll { $0.over }
         let down = entries.contains { !$0.touches.isEmpty }
         let claiming = entries.contains { $0.session.claims }
         switch claim.state {
@@ -383,10 +462,13 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     // MARK: Deadlines
 
     private func schedule() {
+        let now = ZnGestures.now()
+        let next = entries.compactMap { $0.session.wakeAt(now) }.min()
+        if let next, next == timerAt, timer?.isValid == true { return }  // the same deadline: the timer stands
         timer?.invalidate()
         timer = nil
-        let now = ZnGestures.now()
-        guard let next = entries.compactMap({ $0.session.wakeAt(now) }).min() else { return }
+        timerAt = next
+        guard let next else { return }
         let t = Timer(fire: Date(timeIntervalSinceNow: Double(max(0, next - now)) / 1000), interval: 0, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.wake() }
         }
@@ -395,6 +477,7 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func wake() {
+        timerAt = nil
         let now = ZnGestures.now()
         for e in entries { if let w = e.session.wakeAt(now), w <= now { e.session.tick(now) } }
         afterEvent()
@@ -416,6 +499,32 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
         return nil
     }
 
+    /// Compose's hit test: the touch goes to the frontmost node under the finger and to the nodes around it, not to a
+    /// sibling it covers. Of [under], the frontmost, and at each depth outside it the frontmost one there (the node
+    /// around it); then none that a Pressable covers (one drawn in front of the node and not inside it: after its end
+    /// mark). A Pressable inside the node, or the node itself being one, doesn't stop it.
+    private func frontmost(_ under: [ZnGestureProbeView], at w: CGPoint) -> [ZnGestureProbeView] {
+        guard let top = under.max(by: { znInFront($1, $0) }) else { return [] }
+        var keep = [top]
+        for d in Set(under.map(\.depth)) where d < top.depth {
+            if let f = under.filter({ $0.depth == d }).max(by: { znInFront($1, $0) }) { keep.append(f) }
+        }
+        let covers = ZnTouchControl.live.allObjects.filter { c in
+            !c.isHidden && c.window === top.window && znShows(c, c.core, at: w, upTo: view) && znNearestController(c)?.view === view
+        }
+        if covers.isEmpty { return keep }
+        return keep.filter { p in
+            !covers.contains { c in
+                guard znInFront(c, p) else { return false }
+                guard let end = p.mark?.end, end.window === p.window else { return false }  // no mark yet: don't guess
+                if znInFront(end, c) { return false }  // inside the node
+                // The node is the Pressable (its touch area lies over the whole node, outside the layer).
+                let a = c.convert(c.core, to: nil), b = p.convert(p.bounds, to: nil)
+                return abs(a.minX - b.minX) > 1 || abs(a.minY - b.minY) > 1 || abs(a.maxX - b.maxX) > 1 || abs(a.maxY - b.maxY) > 1
+            }
+        }
+    }
+
     /// The claim waits for nothing; [other] waits for the claim when it is a pan of a scroll or sheet around a node
     /// whose consuming recognizer may still start (not the back swipe: claimsBackEdge decides that one).
     fileprivate func otherWaits(_ other: UIGestureRecognizer) -> Bool {
@@ -428,9 +537,11 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
         }
         // Asked before the feed saw the touch: the probes under it.
         let at = other.location(in: nil)
-        return ZnGestureProbeView.live.allObjects.contains { p in
-            p.host === view && p.takes && p.isDescendant(of: ov) && p.point(inside: p.convert(at, from: nil), with: nil)
-                && (p.gesture?.leaves.contains { $0.withParent != "simultaneous" && ZnGestureHub.consuming($0.kind) } ?? false)
+        let under = ZnGestureProbeView.live.allObjects.filter { p in
+            p.host === view && p.takes && znShows(p, p.bounds, at: at, upTo: view)
+        }
+        return frontmost(under, at: at).contains { p in
+            p.isDescendant(of: ov) && (p.gesture?.leaves.contains { $0.withParent != "simultaneous" && ZnGestureHub.consuming($0.kind) } ?? false)
         }
     }
 
@@ -446,8 +557,9 @@ final class ZnGestureHub: NSObject, UIGestureRecognizerDelegate {
         return ZnGestureProbeView.live.allObjects.contains { p in
             guard p.takes, let host = p.host, host === top || host.isDescendant(of: top),
                   p.gesture?.leaves.contains(where: { $0.kind == ZnGesture.pan && $0.axis != ZnGesture.axisY }) == true else { return false }
+            // Where it shows (not where a clipping scroll hides it), as Android's exclusion rects.
+            guard znShows(p, p.bounds, at: point, upTo: host) else { return false }
             let local = p.convert(point, from: nil)
-            guard p.point(inside: local, with: nil) else { return false }
             let h = p.bounds.height
             return h <= 200 || abs(local.y - h / 2) <= 100
         }
@@ -525,54 +637,96 @@ private final class ZnGestureClaim: UIGestureRecognizer {
     }
 }
 
-/// withParent "after-edge" (Android: ZnNestedPan): a vertical pan with a list inside, the finger on the list. The
-/// list scrolls; finger up while the pan is below its top bound, or pulling down with the list at its top, moves the
-/// pan instead, and the list's own drag ends there (off and on cancels it, as ZnSheet's), so it stays still and
-/// doesn't fling. (Pinning its offset on each change loops: ZnSheet.swift, 2026-11-12.)
+/// withParent "after-edge" (Android: ZnNestedPan): a vertical pan with a list inside, the finger on the list. Nothing
+/// happens until the list's own drag starts (its slop and axis). Then each move of the finger is shared as Compose's
+/// nested scroll: finger up while the pan is below its top bound, the pan moves first and the rest scrolls the list;
+/// finger down, the list scrolls back first and the rest moves the pan. It runs as a target of the list's pan, after
+/// the list's own handler, and sets the list's offset to its share (FloatingPanel does the same). Once the pan moved
+/// in a drag, the release is the pan's: the list doesn't fling.
 @MainActor
-private final class ZnAfterEdge {
+private final class ZnAfterEdge: NSObject {
     let pan: ZnGesture
     let touch: UITouch
     private weak var list: UIScrollView?
-    private var lastY: CGFloat
+    /// The finger's y (window) and the list's offset after the last share.
+    private var lastY: CGFloat = 0
+    private var offset: CGFloat = 0
     private var moving = false
     private var vt = ZnVelocityTracker()
+    /// The list's drag started in this touch (its release comes from there).
+    private(set) var dragging = false
+    private(set) var over = false
 
     init(pan: ZnGesture, list: UIScrollView, touch: UITouch) {
         self.pan = pan
         self.list = list
         self.touch = touch
-        lastY = touch.location(in: nil).y
+        super.init()
+        list.panGestureRecognizer.addTarget(self, action: #selector(listPanned(_:)))
     }
 
-    func moved() {
+    @objc private func listPanned(_ r: UIPanGestureRecognizer) {
+        guard !over, let s = list else { return done() }
         let y = touch.location(in: nil).y
-        let dy = Float(y - lastY)
-        lastY = y
-        guard let v = pan.y, dy != 0 else { return }
-        let lo = pan.lo(false) ?? -.greatestFiniteMagnitude, hi = pan.hi(false) ?? .greatestFiniteMagnitude
+        let t = Int64(touch.timestamp * 1000)
+        switch r.state {
+        case .began:
+            dragging = true
+            lastY = y
+            offset = s.contentOffset.y
+            vt.add(t, 0, Float(y))
+        case .changed:
+            let dy = y - lastY  // the finger's way: < 0 up
+            lastY = y
+            vt.add(t, 0, Float(y))
+            share(dy, s)
+        default:  // ended, cancelled, failed
+            if moving { release(s) }
+            done()
+        }
+    }
+
+    /// Splits the finger's move [dy] between the pan and the list.
+    private func share(_ dy: CGFloat, _ s: UIScrollView) {
+        guard let v = pan.y, dy != 0 else {
+            offset = s.contentOffset.y
+            return
+        }
+        let lo = CGFloat(pan.lo(false) ?? -.greatestFiniteMagnitude), hi = CGFloat(pan.hi(false) ?? .greatestFiniteMagnitude)
+        let cur = CGFloat(v.value)
+        let top = -s.adjustedContentInset.top
+        var listDy = dy, panDy: CGFloat = 0
+        if dy < 0 {
+            // Content going up: the pan first (Android's onPreScroll), until its top bound.
+            if cur > lo { panDy = max(cur + dy, lo) - cur }
+            listDy = dy - panDy
+        } else {
+            // Content going down: the list first, back to its top; the rest moves the pan (onPostScroll).
+            listDy = min(dy, max(0, offset - top))
+            panDy = min(cur + dy - listDy, hi) - cur
+            if panDy < 0 { panDy = 0 }
+        }
+        guard panDy != 0 else {
+            offset = s.contentOffset.y  // the list's own move (with its edge bounce)
+            return
+        }
         if !moving {
-            guard let s = list else { return }
-            let top = -s.adjustedContentInset.top
-            let atTop = s.contentOffset.y <= top + 0.5
-            // Content going up while the pan isn't at its top; or the list at its top and the finger pulling down.
-            guard (dy < 0 && v.value > lo) || (dy > 0 && atTop) else { return }
             moving = true
             v.interrupt()
             pan.detach()
-            s.panGestureRecognizer.isEnabled = false
-            s.panGestureRecognizer.isEnabled = true
-            if atTop { s.contentOffset.y = top }
         }
-        v.value = min(max(v.value + dy, lo), hi)
-        vt.add(Int64(touch.timestamp * 1000), 0, v.value)
+        v.value = Float(cur + panDy)
+        let end = max(top, s.contentSize.height - s.bounds.height + s.adjustedContentInset.bottom)
+        offset = min(max(offset - listDy, top), end)
+        s.contentOffset.y = offset
     }
 
-    /// The finger lifted: where the pan goes (Android's onPreFling: chooseTarget + settle).
-    func release() {
-        guard moving else { return }
+    /// The finger lifted after the pan moved: where the pan goes (Android's onPreFling: chooseTarget + settle, with
+    /// the finger's speed; the list's fling is used up).
+    private func release(_ s: UIScrollView) {
         moving = false
-        vt.add(Int64(touch.timestamp * 1000), 0, pan.y?.value ?? 0)  // the lift: held still first, no speed
+        vt.add(Int64(touch.timestamp * 1000), 0, Float(touch.location(in: nil).y))  // the lift: held still first, no speed
+        s.setContentOffset(s.contentOffset, animated: false)  // stops the list's deceleration
         let vy = vt.velocity().y
         let y = pan.y?.value ?? 0
         let t = pan.chooseTarget(0, y, 0, vy, 0, y)
@@ -581,4 +735,13 @@ private final class ZnAfterEdge {
         pan.send("end", end)
         pan.settle(t, 0, vy)
     }
+
+    private func done() {
+        guard !over else { return }
+        over = true
+        list?.panGestureRecognizer.removeTarget(self, action: #selector(listPanned(_:)))
+    }
+
+    /// The hub dropped it before the list's drag started (a tap, a swipe a row took).
+    func drop() { done() }
 }

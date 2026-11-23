@@ -710,16 +710,27 @@ final class ZnGestureSession {
     }
 
     /// A consuming recognizer may still take the touch (or has) with [fingers] down: the scroll around it waits for it
-    /// to give up. A pinch or a rotation needs two fingers to start, so with one a scroll around it may go (on Android
-    /// the scroll would take it at its own slop).
+    /// to give up. A pinch or a rotation needs two fingers to start: with one, the scroll around it may go once that
+    /// finger moved past the slop, as on Android, where the scroll takes the touch at its own slop. (Giving up at the
+    /// first move would let the scroll pan along with a pinch whose second finger lands a moment later.)
     func mayClaim(fingers: Int) -> Bool {
         guard !over, !shareTouch else { return false }
         return arbiter.recs.contains { r in
             guard r.consumes else { return false }
             if r.state == znActive { return true }
             guard r.state == znPossible else { return false }
-            return !(r is ZnPinchRec || r is ZnRotateRec) || fingers >= 2
+            return !(r is ZnPinchRec || r is ZnRotateRec) || fingers >= 2 || (fingers == 1 && !pastSlop)
         }
+    }
+
+    /// The first finger, where it went down (window), and whether it has moved past the slop from there.
+    private var firstDown: (id: Int, x: Float, y: Float)?
+    private(set) var pastSlop = false
+
+    private func track(_ e: ZnPointerEvent) {
+        if firstDown == nil, let c = e.changes.first(where: \.pressed) { firstDown = (c.id, c.wx, c.wy) }
+        guard !pastSlop, let f = firstDown, let c = e.changes.first(where: { $0.id == f.id }) else { return }
+        if hypot(c.wx - f.x, c.wy - f.y) > ZnGestureMath.slop { pastSlop = true }
     }
 
     /// When it needs [tick] (ms since boot), or nil: a deadline (long press time, double-tap gap), or the next frame
@@ -746,6 +757,7 @@ final class ZnGestureSession {
     func handle(_ e: inout ZnPointerEvent) {
         guard !over else { return }
         if touch.cancelled { return end() }
+        track(e)
         // Someone else (a scroll, an inner node) used this event before us: we lose the touch.
         let anyActive = arbiter.recs.contains { $0.state == znActive }
         // A gesture on another element linked by simultaneousWith took it: we keep going too.

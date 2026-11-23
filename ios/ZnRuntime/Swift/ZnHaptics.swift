@@ -30,6 +30,8 @@ enum ZnHaptics {
     static func prepare() {
         light.prepare()
         medium.prepare()
+        heavy.prepare()
         selection.prepare()
+        notice.prepare()
     }
 }

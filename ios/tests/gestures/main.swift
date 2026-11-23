@@ -612,12 +612,29 @@ do {  // Gesture.simultaneous(pinch, pan): both run; the pinch scales by the spr
     sent = []
 }
 
-do {  // one finger on a pinch: a scroll around it may take the touch
+do {  // one finger on a pinch: a scroll around it may take the touch once the finger passed the slop (Android: the
+    // scroll's own slop); before that a second finger may still land and the pinch takes the touch
     let g = gesture(1048, #"{"kind":"pinch","values":{"scale":1049}}"#)
     let f = Finger(g)
     f.down(0, 0)
-    check("one finger", f.s.mayClaim(fingers: 1), false)
+    check("one finger, still: may claim", f.s.mayClaim(fingers: 1), true)
+    f.move(5, 0)
+    check("one finger, 5 pt: may claim", f.s.mayClaim(fingers: 1), true)
+    f.move(5, 0)
+    check("one finger past the slop: the scroll may go", f.s.mayClaim(fingers: 1), false)
     f.up()
+    let h = Finger(g)
+    h.down(100, 100, id: 0)
+    h.move(3, 2)
+    h.down(200, 100, id: 1)
+    check("the second finger lands before the slop", h.s.mayClaim(fingers: 2), true)
+    h.move2((100, 100), (240, 100))
+    check("the pinch takes it", g.live, znActive)
+    truth("and claims", h.s.claims)
+    h.up(id: 1)
+    h.up(id: 0)
+    check("no fingers: none", h.s.mayClaim(fingers: 0), false)
+    sent = []
 }
 
 do {  // rotation: the angle's sign follows the fingers (clockwise on screen is positive, y down)
