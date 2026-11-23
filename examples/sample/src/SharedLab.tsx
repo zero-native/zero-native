@@ -5,6 +5,8 @@
 //   and a see-through screen over this one: its own tagged photo never flies (a see-through screen shares nothing, as
 //   on Android), but a push from it takes this screen's photo along (it is drawn under the see-through one).
 //   A photo with a tag only on this screen moves with its screen (no flight).
+//   "Reset to the lab" (nav.reset) frees every old screen: the covered ones at once, this one after it has left the
+//   window (each logs `nav: released <entry>`).
 //   navStartLab: with params {"then": "<route>"} it pushes that route while the first screens are built (before NAV
 //   STARTED), so the pushed screen is simply there, with no slide in (Android's openedAtStart).
 import { Column, Image, Pressable, Row, Scroll, Text } from "@zeronative/ui"
@@ -121,6 +123,7 @@ export function SharedLabDetailScreen(props: { id?: string }) {
           <ShlButton label="Back" onPress={() => nav.back()} />
           <ShlButton label="Secure from here" onPress={() => nav.push("sharedLabSecure", { id: s.id })} />
           <ShlButton label="Replace with next" onPress={() => nav.replace("sharedLabDetail", { id: CARDS[(CARDS.indexOf(s) + 1) % CARDS.length].id })} />
+          <ShlButton label="Reset to the lab" onPress={() => nav.reset([{ name: "sharedLab" }])} />
           <ShlButton label="JS busy 300 ms, then back" onPress={() => {
             nav.back()
             const until = Date.now() + 300
