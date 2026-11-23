@@ -20,9 +20,10 @@ import ZnHost
 final class ZnImpressions {
     static let shared = ZnImpressions()
 
-    /// The entries that track impressions: the only observed part, so a probe drawn before its screen's
-    /// useImpressions (the skeleton, before JS) starts measuring when the screen turns it on.
-    private(set) var tracked = Set<UInt32>()
+    /// The entries that track impressions, each with how many times it was configured: the only observed part, so a
+    /// probe drawn before its screen's useImpressions (the skeleton, before JS) starts measuring when the screen
+    /// turns it on, and one that stopped (its key counted) measures again when the screen starts its counts again.
+    private(set) var tracked: [UInt32: Int] = [:]
 
     @ObservationIgnored private let core = ZnImpressionsCore(
         now: { CACurrentMediaTime() * 1000 },
@@ -58,15 +59,18 @@ final class ZnImpressions {
     func configure(_ entry: UInt32, _ params: String?) {
         watchApp()
         core.configure(entry, params)
-        tracked.insert(entry)
+        tracked[entry, default: 0] += 1
     }
 
-    func tracking(_ entry: UInt32) -> Bool { tracked.contains(entry) }
+    func tracking(_ entry: UInt32) -> Bool { tracked[entry] != nil }
+
+    /// How many times [entry] was configured (0: it doesn't track). Read in a view body, it observes the screen.
+    func generation(_ entry: UInt32) -> Int { tracked[entry] ?? 0 }
 
     func done(_ entry: UInt32, _ key: String) -> Bool { core.done(entry, key) }
 
     func report(_ entry: UInt32, _ key: String, _ fraction: Double) {
-        guard tracked.contains(entry) else { return }
+        guard tracked[entry] != nil else { return }
         core.report(entry, key, fraction)
     }
 
@@ -78,15 +82,15 @@ final class ZnImpressions {
 
     /// [entry] left the back stack: what it counted goes to JS now, and it is forgotten.
     func release(_ entry: UInt32) {
-        guard tracked.contains(entry) else { return }
+        guard tracked[entry] != nil else { return }
         core.release(entry)
-        tracked.remove(entry)
+        tracked[entry] = nil
     }
 
     /// The runtime is replaced (an OTA update in place, a `zn dev` reload): every screen is dropped unsent.
     func resetForReload() {
         core.resetForReload()
-        if !tracked.isEmpty { tracked = [] }
+        if !tracked.isEmpty { tracked = [:] }
     }
 }
 
@@ -123,10 +127,11 @@ struct ZnImpressionProbe: ViewModifier {
 
     func body(content: Content) -> some View {
         // Read only by keyed and clipping nodes (the read observes the tracked screens).
-        let tracking = (s.hasImpression || s.clip) && entry != 0 && ZnImpressions.shared.tracking(entry)
+        let generation = (s.hasImpression || s.clip) && entry != 0 ? ZnImpressions.shared.generation(entry) : 0
+        let tracking = generation > 0
         let key = tracking && s.hasImpression ? znImpressionKey(s, inst) : nil
         content
-            .modifier(ZnImpressionMeasure(entry: entry, key: key, hidden: hidden, clips: clips))
+            .modifier(ZnImpressionMeasure(entry: entry, key: key, generation: generation, hidden: hidden, clips: clips))
             .modifier(ZnImpressionClip(on: tracking && s.clip))
     }
 }
@@ -136,12 +141,13 @@ struct ZnImpressionProbe: ViewModifier {
 private struct ZnImpressionMeasure: ViewModifier {
     let entry: UInt32
     let key: String?
+    let generation: Int
     let hidden: Bool
     let clips: [ZnImpressionClipBox]
 
     func body(content: Content) -> some View {
         if let key {
-            content.modifier(ZnImpressionMeasureOn(entry: entry, key: key, hidden: hidden, clips: clips))
+            content.modifier(ZnImpressionMeasureOn(entry: entry, key: key, generation: generation, hidden: hidden, clips: clips))
         } else {
             content
         }
@@ -151,13 +157,14 @@ private struct ZnImpressionMeasure: ViewModifier {
 private struct ZnImpressionMeasureOn: ViewModifier {
     let entry: UInt32
     let key: String
+    let generation: Int
     let hidden: Bool
     let clips: [ZnImpressionClipBox]
     @State private var box = ZnImpressionBox()
 
     func body(content: Content) -> some View {
         content
-            .background(ZnImpressionAnchor(entry: entry, key: key, hidden: hidden, clips: clips, box: box))
+            .background(ZnImpressionAnchor(entry: entry, key: key, generation: generation, hidden: hidden, clips: clips, box: box))
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _ in box.view?.measureSoon() }
     }
 }
@@ -211,6 +218,7 @@ private final class ZnImpressionBox {
 private struct ZnImpressionAnchor: UIViewRepresentable {
     let entry: UInt32
     let key: String
+    let generation: Int
     let hidden: Bool
     let clips: [ZnImpressionClipBox]
     let box: ZnImpressionBox
@@ -226,7 +234,7 @@ private struct ZnImpressionAnchor: UIViewRepresentable {
     func updateUIView(_ v: ZnImpressionView, context: Context) {
         box.view = v
         v.clips = clips
-        v.set(entry: entry, key: key, hidden: hidden)
+        v.set(entry: entry, key: key, generation: generation, hidden: hidden)
     }
 
     static func dismantleUIView(_ v: ZnImpressionView, coordinator: ()) { v.leave() }
@@ -236,18 +244,25 @@ private struct ZnImpressionAnchor: UIViewRepresentable {
 final class ZnImpressionView: UIView {
     private var entry: UInt32 = 0
     private var key = ""
+    private var generation = 0
     private var onHiddenTab = false
     /// The overflow-hidden boxes around (ZnImpressionClipBox).
     var clips: [ZnImpressionClipBox] = []
     /// The scroll views around this view, watched while the key hasn't counted.
     private var watching: [NSKeyValueObservation] = []
 
-    func set(entry: UInt32, key: String, hidden: Bool) {
+    func set(entry: UInt32, key: String, generation: Int, hidden: Bool) {
         if entry != self.entry || key != self.key {
             // A reused row with another key: the old key left the screen.
             if !self.key.isEmpty { send(0) }
             self.entry = entry
             self.key = key
+            self.generation = generation
+            watchScrolls()
+        } else if generation != self.generation {
+            // The screen started its counts again (useImpressions ran again): watch the scrolls again if this key
+            // had counted and stopped.
+            self.generation = generation
             watchScrolls()
         }
         onHiddenTab = hidden
