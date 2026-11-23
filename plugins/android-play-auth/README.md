@@ -102,7 +102,14 @@ That build was a release build signed with a debug key. The Play build's hash (G
 add before real users.
 
 ## Limits
-- Android only. On any other platform, or with no Play services (Huawei, some emulators), each call answers with a reason.
+- Android only by nature: on iOS there is no Play services and an app can't read SMS, so the plugin's iOS side
+  answers as Android does with no Play services (different by design, not planned to change): `phoneHint` gives
+  `{ phone: null, reason: "unavailable" }`, `listenForOtp` gives `{ code: null, reason: "unavailable" }`,
+  `stopListening` does nothing and `appHash()` is `""`. The module exists, so a bundle that needs it runs. What iOS gives instead needs no plugin:
+  `OtpInput` (and a field with `autoComplete="sms-otp"`) offers the code from Messages above the keyboard
+  (`.oneTimeCode`), and a field with `autoComplete="tel"` gets the user's number from AutoFill. Keep the server's SMS
+  format for Android; iOS reads any SMS that has the code in it. With no Play services on Android (Huawei, some
+  emulators), each call answers with a reason too.
 - The hint needs a SIM with a number the phone knows. A phone with none gives no sheet.
 - The hint's number is what the user tapped. It proves nothing. Always verify it by OTP.
 - The default pattern takes the first match. It can't tell a code from another 4 digit number in the SMS.

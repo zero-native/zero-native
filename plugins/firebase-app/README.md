@@ -42,6 +42,12 @@ What `firebase.gradle.kts` does:
 
 Permissions: none of its own (Firebase's libraries add `INTERNET` and `ACCESS_NETWORK_STATE`).
 
+On iOS: `GoogleService-Info.plist` in the app (never commit it if your repo is public), the Swift package in
+`ios/packages/firebase` (product `ZnPluginFirebaseApp`; a CMake build gets the SDK with
+`bun run tools/fetch-firebase-apple.ts`), then `ZnPlugins.register(FirebaseAppPlugin())`. The first Firebase plugin to
+register calls `FirebaseApp.configure()` before JS runs (Android's google-services plugin does it by itself). With no
+SDK or no plist every Firebase plugin answers `available: false`, as on Android.
+
 ## Use it
 ```ts
 import { Firebase, installations } from "@zeronative/firebase-app"

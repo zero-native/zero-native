@@ -29,6 +29,12 @@ the first in your app's manifest:
 ```
 It never asks for background location, and no foreground service.
 
+On iOS: the Swift package's `ZnPluginLocation` product (or `plugins/location/ios` in a CMake build), then
+`ZnPlugins.register(LocationPlugin())`, and `NSLocationWhenInUseUsageDescription` in Info.plist. Core Location with
+the same calls, answers and rules. Differences: one permission ("while using", with the user's own "precise"
+switch), never "always"; a fix's provider is `fused`; `turnOn` answers `{ on: false, reason: "unavailable" }` when
+location is off (iOS has no such dialog; JS's fallback opens Settings).
+
 ## Use it
 ```ts
 import { Location } from "@zeronative/location"

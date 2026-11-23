@@ -13,6 +13,9 @@ Drawing is Android's own `PdfRenderer`. No PDF library, no new Maven dependency.
 
 The host needs the `INTERNET` permission for downloads. Nothing else: no storage permission, no manifest entries.
 
+On iOS: the Swift package's `ZnPluginPdf` product (or `plugins/pdf/ios` in a CMake build), then
+`ZnPlugins.register(PdfPlugin())` in `application(_:didFinishLaunchingWithOptions:)`. No Info.plist key.
+
 ## Use it
 
 ```tsx
@@ -140,7 +143,9 @@ A download that was running dies with the process, and so does its promise. Its 
 - No base64 source: the bytes would pass through JS.
 - Scroll position and zoom aren't kept after a kill. `onPageChange` + `initialPage` can do it.
 - A view keeps its file open while it shows. Up to 3 views at once is fine; a list of 20 previews isn't, as each has its own budget.
-- Android only.
+- iOS draws with Apple's PDFKit (`ios/PdfPlugin.swift`): the same calls, answers, events and rules, but PDFKit keeps
+  pages sharp at any zoom and handles its own memory, so Android's bitmap budget, sharp layer and low-memory trim
+  don't apply there. A double tap zooms to 2.5x and back. Downloads follow redirects by hand as on Android.
 
 ## Size
 

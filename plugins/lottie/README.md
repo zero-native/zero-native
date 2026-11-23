@@ -17,6 +17,13 @@ the APK. Nothing is downloaded from Play, and nothing comes from the network.
 
 No permission and no manifest entries. No R8 rule is needed (checked in a release build, see Size).
 
+On iOS: Airbnb's lottie-ios, the same library lottie-react-native uses there, so a file draws the same. The Swift
+package in `ios/packages/lottie` (product `ZnPluginLottie`), or in a CMake build
+`bun run tools/fetch-lottie-apple.ts` and `plugins/lottie/ios`; then `ZnPlugins.register(LottiePlugin())`. Without
+lottie-ios in a CMake build the view stays empty and sends `failure` "failed". Reduce Motion does what Android's
+"Remove animations" does (the view shows the end at once). `mergePaths`, `opacityToLayers` and `safeMode` are
+accepted and not used (nothing to map them to).
+
 Put the files in your app's `assets/` folder, for example `assets/lottie/receipt_loading.lottie`. They ship in the
 bundle, so an OTA update can change or add them, like `asset:` images.
 
@@ -111,7 +118,6 @@ rejects. Views and `preload` share Lottie's cache of 20 animations. Low memory e
 - `imageAssetsFolder` (JSON with image files next to it). Images inside the file (base64) and inside a `.lottie` work.
 - `textFiltersAndroid` / `textFiltersIOS`, `onAnimationLoop`, `onLayout`, `containerStyle`, `webStyle`, `hover`.
 - A `.lottie` file with more than one animation: Lottie shows one of them.
-- iOS.
 
 ## Size
 

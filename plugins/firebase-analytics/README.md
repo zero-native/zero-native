@@ -41,6 +41,12 @@ To have it off until the user agrees (a consent step first), put this in the app
 `<meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />`.
 Only the manifest can stop the first start's events (`first_open`, `session_start`): Firebase starts before JS.
 
+On iOS: as `@zeronative/firebase-app` says, then the product `ZnPluginFirebaseAnalytics` and
+`ZnPlugins.register(AnalyticsPlugin())`. Put `FirebaseAutomaticScreenReportingEnabled` = NO in Info.plist: Firebase's
+own screen views would name UIKit classes, and the plugin sends the route names instead, as on Android. It is linked
+without Analytics' IDFA part, so no advertising id is collected and the app shows no tracking prompt. The consent
+switch there is `FIREBASE_ANALYTICS_COLLECTION_ENABLED` = NO in Info.plist.
+
 ## Use it
 ```ts
 import { Analytics } from "@zeronative/firebase-analytics"

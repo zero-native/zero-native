@@ -13,6 +13,9 @@ A page is outside input. So this plugin refuses by default: only hosts you list 
 
 The host needs the `INTERNET` permission and `ZnActivity.attach(this)` in `onCreate`.
 
+On iOS: the Swift package's `ZnPluginWebView` product (or `plugins/webview/ios` in a CMake build), then
+`ZnPlugins.register(WebViewPlugin())` in `application(_:didFinishLaunchingWithOptions:)`.
+
 ## Use it
 
 ```tsx
@@ -114,7 +117,12 @@ The page must post one message first. That message is what opens the way back to
 - A form post that is refused shows an empty page, then `about:blank`.
 - A POST that a server on an allowed host redirects (307) to another host is caught only as the page starts. By then the other host has the request. Only pages from your own hosts can do this.
 - A page's camera capture (`<input capture>`), folders and fullscreen video are not supported. `upi:` opens the app with no result: for a payment result, write a plugin on `ZnLaunch`.
-- Android only.
+- iOS is WKWebView (`ios/WebViewPlugin.swift`, rules in `ios/WebViewRules.swift`) with the same props, events and
+  rules. Differences: `thirdPartyCookies` can't be turned on (WebKit always blocks them); uploads use iOS's own
+  picker (photos, camera, files), and `fileUpload: false` or a host not allowed is also refused natively on iOS 18.4
+  and later; paused / resumed also when a controller is presented over the page; `renderGone` has `crashed: false`
+  (iOS doesn't say why) and `debugRenderer` answers false; `backInPage` is WKWebView's own back swipe (no Back
+  button). Mac suite: `bun run tools/ios-unit-test.ts plugins/webview`.
 
 ## Size
 

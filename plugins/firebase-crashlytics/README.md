@@ -43,6 +43,11 @@ names. The sample uploads only with `-PznUploadMapping`. JS stacks are not chang
 your build machine: Crashlytics shows `main.js` lines. Paste the stack into `bun run ota symbolicate` for the TSX
 lines (`docs/guide-notes.md`, "Finding the TSX line of a release crash").
 
+On iOS: as `@zeronative/firebase-app` says, then the product `ZnPluginFirebaseCrashlytics` and
+`ZnPlugins.register(CrashlyticsPlugin())`. Upload each build's dSYM so native stacks show names (Crashlytics'
+`upload-symbols`; `tools/ios-sample.ts` does it for the sample unless `--no-symbols`). JS errors need none: their
+frames are sent as text.
+
 ## Use it
 ```ts
 import { Crashlytics } from "@zeronative/firebase-crashlytics"

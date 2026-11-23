@@ -29,6 +29,23 @@ if (id !== null) attribution.setAdId(id, { limitAdTracking })
 - It takes a few ms to ~0.5 s (a call into Play services; slower on the first call after boot). It runs on its own
   thread, never on the main thread and never holding up other modules' calls.
 
+## iOS: no iOS side (by design)
+The Google advertising id comes from Play services, which iOS doesn't have, so this plugin is Android only
+(`platforms: ["android"]`) and is not planned for iOS. On iOS the module is missing and `AdId.get()` answers
+`{ id: null, limitAdTracking: false }`, as an APK without the plugin does. A bundle that imports it still runs and
+updates over the air on iOS: its need for `AndroidAdId` is listed under `os.android` only (docs/ota-requires-per-os.md).
+
+Apple's own id for ads (the IDFA) is not the same thing, and zero-native doesn't mirror one with the other's name
+(decision of 2026-11-09). **zero-native 0.1.0 has no IDFA plugin** (Pavan, 2026-11-24). Firebase Analytics on iOS is
+linked without its IDFA part on purpose, so the app never shows the tracking prompt. An app that needs ad
+attribution on iOS has two ways, neither built yet:
+- **Without tracking (Apple's preferred way):** AdAttributionKit / SKAdNetwork. No prompt and no id; the ad network
+  gets the install from Apple.
+- **With tracking:** a separate opt-in plugin (for example `@zeronative/ios-tracking`) that asks with
+  `ATTrackingManager.requestTrackingAuthorization` (it needs `NSUserTrackingUsageDescription`, and shows only while
+  the app is in front) and then reads `ASIdentifierManager`'s id (all zeros means none). It makes the whole app's App
+  Store privacy label say "Used to track you", and App Review checks the prompt's text.
+
 ## Play's rules (Google Play's advertising id policy)
 - Use it **only for ads and user analytics** (ad attribution is one). Not to identify a user, not for fraud checks.
 - **Never link it** to personal data (phone number, email, name) or to a device id (ANDROID_ID, IMEI) without the

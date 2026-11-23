@@ -110,6 +110,10 @@ const open = DocumentScanner.pending()        // { id, tag, status: "waiting" | 
 - **Never lost:** the answer is on disk before JS hears it, and stays until `ack`. A kill or a rollback between hearing it and
   `ack` brings it again at the next start, so **do** make your handler safe to run twice (key your upload on `r.id`).
 - **Do** check `tag`. A result can belong to another order the user started before the kill.
+- **iOS: a kill while the camera is open loses the scan** (different by design). VisionKit's camera runs inside the
+  app's own process and hands over no page until the user taps Save, so nothing survives a swipe-away or a memory kill.
+  The next start reports it as `lost` (through `onResult` and `pending()`), as above. On `lost`, show "The scan was
+  interrupted. Scan again." with a button that calls `scanDocument` again; there is nothing to recover.
 - If no screen listens, the result is dropped when the next scan starts.
 
 What happens underneath, step by step:

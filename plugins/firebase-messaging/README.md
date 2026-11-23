@@ -133,13 +133,17 @@ calls. Details: `docs/milestones-ios.md` (Phase 3).
 - While the app is in front the same push runs `onMessage` (`inFront: true`, `notification` set) and iOS shows nothing,
   so the app shows its own with `Notifications.show`, as on Android. `FirebaseMessagingPlugin(foreground: [.banner])`
   makes iOS show it too.
-- Data-only messages reach iOS only while the app runs, or as a background wake (`content-available`: send it with
-  `apns-push-type: background` and `apns-priority: 5`, `tools/push-send.ts --background`). iOS rations those (a few an
-  hour), holds them in Low Power Mode, and never wakes an app the user closed. The plugin answers iOS's
+- Data-only messages reach iOS while the app runs, or as a background wake (`content-available`: send it with
+  `apns-push-type: background` and `apns-priority: 5`, `tools/push-send.ts --background`). The plugin answers iOS's
   `fetchCompletionHandler` once, within 25 s, even when JS is slow or not running (a handler never called makes iOS end
-  the app and wake it less). JS doesn't start for a background launch yet: such a message is kept and `onMessage` runs
-  at the next start (or when the app opens), late; compare `sentAt` with `Date.now()` before acting on old data. For
-  anything that must arrive, send an alert push (above).
+  the app and wake it less). JS starts for a background launch with no window (`ZnApp.prepare` in the app delegate,
+  or `ZnTasks.run` starts it), so `onMessage` runs then; a message that still finds no JS is kept and runs at the next
+  start, late: compare `sentAt` with `Date.now()` before acting on old data.
+- **Different by design (no API changes it):** iOS rations background wakes (Apple's guidance: a few an hour), holds
+  them in Low Power Mode, may drop or merge them, and never delivers one to an app the user swiped away until the user
+  opens it again. Android's high-priority FCM data message has no iOS twin. For anything that must arrive, send an
+  alert push with `mutable-content` (above): iOS shows it, the service extension notes it, and JS hears of it as
+  `shown: true`.
 - `getToken` waits up to 10 s for the APNs token: `not_now` without it (no network; a simulator build without the push
   entitlement). A message reaching both the app delegate and the notification center runs `onMessage` once.
 - `zn_ota=check` messages run the OTA check natively: "OTA pushes" below, "On iOS".
