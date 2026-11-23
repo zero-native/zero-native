@@ -333,7 +333,7 @@ struct ZnLazyList: View {
                         }
                     }
                 }
-                .animation(animation == nil ? nil : .spring(duration: 0.35, bounce: 0), value: lineKeys)
+                .modifier(ZnLazyAnimate(on: animation != nil, keys: lineKeys))
                 .coordinateSpace(.named(ZnLazyListElement.space))
                 .background { if needsScrollView { ZnScrollFinder(driver: scroll) } }
                 .padding(padding)
@@ -577,6 +577,17 @@ struct ZnLazyList: View {
 struct ZnLazyDriven: Equatable {
     let refreshing: Bool
     let snap: String?
+}
+
+/// itemAnimation on the SwiftUI list: a change of the rows springs (no bounce, as Compose's animateItem); a list
+/// without it gets no animation modifier at all.
+private struct ZnLazyAnimate: ViewModifier {
+    let on: Bool
+    let keys: [String]
+
+    func body(content: Content) -> some View {
+        if on { content.animation(.spring(duration: 0.35, bounce: 0), value: keys) } else { content }
+    }
 }
 
 /// RN inverted on the SwiftUI list: the scroll view flipped, each item flipped back (row 0 at the bottom).
