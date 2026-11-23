@@ -158,6 +158,8 @@ struct ZnPressA11y: ViewModifier {
         // reads dimmed. Its plain texts are hidden when the element reads them itself (a control inside), else they
         // are combined (a nested Pressable's are its own again).
         let inner = content.environment(\.isEnabled, true).environment(\.znA11yMerged, s.hasInteractiveDescendant)
+        // Its gestures with an a11yLabel: their actions go on its element (one stop, as Android's semantics on the node).
+        let gestures = znSpokenGestures(s, inst)
         if s.hasInteractiveDescendant {
             // The controls stay their own elements; the Pressable's own is a box behind them, read first.
             inner
@@ -166,6 +168,7 @@ struct ZnPressA11y: ViewModifier {
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(s.accessibilityLabelNow(inst) ?? znMergedText(ctx, inst, s.index))
                         .modifier(ZnPressActions(ctx: ctx, s: s, inst: inst, disabled: disabled))
+                        .modifier(ZnGestureA11yActions(leaves: gestures, tap: false))
                         .accessibilitySortPriority(1)
                 }
                 .accessibilityElement(children: .contain)
@@ -178,6 +181,7 @@ struct ZnPressA11y: ViewModifier {
                     $0.znLabel(s.accessibilityLabelNow(inst)) { znMergedText(ctx, inst, s.index) }
                 }
                 .modifier(ZnPressActions(ctx: ctx, s: s, inst: inst, disabled: disabled))
+                .modifier(ZnGestureA11yActions(leaves: gestures, tap: false))
                 .znWhen(s.accessibilityHidden) { $0.accessibilityHidden(true) }
                 // VoiceOver reads a disabled element as "dimmed".
                 .environment(\.isEnabled, !disabled)
@@ -242,7 +246,9 @@ private struct ZnNodeA11y: ViewModifier {
 
     private enum Kind { case own, picture, text, container }
 
-    private var kind: Kind {
+    private var kind: Kind { Self.kind(s) }
+
+    private static func kind(_ s: ZnNodeSpec) -> Kind {
         typealias C = Registry.Component
         switch s.type {
         case C.textField, C.otpInput, C.switch, C.checkbox, C.nativeView: return .own
@@ -251,8 +257,17 @@ private struct ZnNodeA11y: ViewModifier {
         }
     }
 
+    /// The node's element reads its own label: its gestures' VoiceOver actions go on it (ZnGestureA11yActions), not on
+    /// a second element with the same label and frame.
+    @MainActor static func takesGestures(_ s: ZnNodeSpec, _ inst: ZnInstance) -> Bool {
+        guard s.needsA11y, !s.isPressable, !s.accessibilityHidden, s.hasAccessibilityLabel, kind(s) != .own else { return false }
+        return s.accessibilityLabelNow(inst) != nil
+    }
+
     func body(content: Content) -> some View {
         let (s, inst) = (s, inst)
+        // Its gestures with an a11yLabel, when its element takes them (else ZnGestureA11y draws their own).
+        let gestures = Self.takesGestures(s, inst) ? znSpokenGestures(s, inst) : []
         let role = s.accessibilityRole
         let roleTraits = znRoleTraits(role)
         // "none" is no role, as Android's (no semantics without a label).
@@ -272,6 +287,7 @@ private struct ZnNodeA11y: ViewModifier {
                     .znWhen(s.accessibilityHint != nil) { $0.accessibilityHint(s.accessibilityHint ?? "") }
                     .accessibilityAddTraits(role < 0 ? (s.isImageRole ? .isImage : []) : roleTraits)
                     .znWhen(s.testID != nil) { $0.accessibilityIdentifier(s.testID ?? "") }
+                    .modifier(ZnGestureA11yActions(leaves: gestures, tap: true))
                     // A label from a slot that holds no string now: decorative again.
                     .accessibilityHidden(!hasRole && now == nil)
             }
@@ -286,6 +302,7 @@ private struct ZnNodeA11y: ViewModifier {
                     .znWhen(s.accessibilityHint != nil) { $0.accessibilityHint(s.accessibilityHint ?? "") }
                     .accessibilityAddTraits(roleTraits)
                     .znWhen(s.testID != nil) { $0.accessibilityIdentifier(s.testID ?? "") }
+                    .modifier(ZnGestureA11yActions(leaves: gestures, tap: true))
             }
         case .container:
             if s.accessibilityHidden {
@@ -305,6 +322,7 @@ private struct ZnNodeA11y: ViewModifier {
                                 .znWhen(s.accessibilityHint != nil) { $0.accessibilityHint(s.accessibilityHint ?? "") }
                                 .accessibilityAddTraits(roleTraits)
                                 .znWhen(s.testID != nil) { $0.accessibilityIdentifier(s.testID ?? "") }
+                                .modifier(ZnGestureA11yActions(leaves: gestures, tap: true))
                                 .accessibilitySortPriority(1)
                                 .accessibilityHidden(now == nil)
                         }
@@ -317,6 +335,7 @@ private struct ZnNodeA11y: ViewModifier {
                         .znWhen(s.accessibilityHint != nil) { $0.accessibilityHint(s.accessibilityHint ?? "") }
                         .accessibilityAddTraits(roleTraits)
                         .znWhen(s.testID != nil) { $0.accessibilityIdentifier(s.testID ?? "") }
+                        .modifier(ZnGestureA11yActions(leaves: gestures, tap: true))
                 }
             } else {
                 // A role alone (header, ...): its trait, the children stay separate (Android: no merge without a
@@ -353,49 +372,59 @@ extension View {
 
 // MARK: - Gestures
 
+/// The node's gestures with an `a11yLabel` (leaves), read in a body: a gesture made later draws it again.
+@MainActor func znSpokenGestures(_ s: ZnNodeSpec, _ inst: ZnInstance) -> [ZnGesture] {
+    guard s.gestureSlot >= 0, let id = inst.slot(s.gestureSlot).value.number.flatMap({ $0.isFinite ? Int($0) : nil }),
+          let g = ZnGestures.findObserved(id) else { return [] }
+    return g.leaves.filter { $0.a11yLabel != nil }
+}
+
 /// VoiceOver for a node's gestures that have an `a11yLabel` (Android: ZnGesture.kt's semantics; VoiceOver users can't
-/// drag or pinch), drawn by ZnGestureHub.swift behind the node, inside its layer (so it moves with the node):
-/// - a tap gesture: the element is a button, and VoiceOver's double tap sends its onEnd with `accessibility: true`;
+/// drag or pinch):
+/// - a tap gesture: the element is a button, and VoiceOver's double tap sends its onEnd with `accessibility: true`
+///   (not on a Pressable: its onPress is the double tap);
 /// - useZoom: actions "<label>: zoom in" (at the centre, to the double tap's scale) and "<label>: zoom out" (names from
-///   `a11yActions.zoomIn` / `zoomOut`);
+///   `a11yActions.zoomIn` / `zoomOut`), whose onEnd has `accessibility: true`;
 /// - each anchor: an action "<label>: <anchor id>" (or `a11yActions[id]`) that settles there and sends onEnd with
-///   `{anchor, accessibility: true}`;
-/// - iOS only, as a slider: a one-axis pan with two or more anchors is adjustable (swipe up / down goes to the next
-///   anchor: along x to the right, along y up), its value the anchor it rests nearest to; one with no anchors and both
-///   bounds on its axis moves a tenth of them per swipe, its value a percentage. Each sends onEnd with
+///   `{anchor, accessibility: true}`. Only from the actions rotor, as on Android: a pan with anchors isn't adjustable,
+///   so one swipe can't, say, complete a slide to pay;
+/// - iOS only, as a slider: a one-axis pan with no anchors and both bounds on its axis is adjustable (swipe up / down
+///   moves a tenth of them; up: right along x, up the screen along y), its value a percentage; onEnd has
 ///   `accessibility: true`.
-/// The element reads the node's label, else the gesture's a11yLabel (the node's texts stay elements of their own: a
-/// knob's "›" isn't a name). A node with its own label that ZnA11y makes one element (no control inside) reads that
-/// label: this element has none and merges into it with its actions.
-struct ZnGestureA11y: View {
-    let s: ZnNodeSpec
-    let inst: ZnInstance
-    /// The node's gestures with an a11yLabel (leaves).
+/// The node's own element takes them (a Pressable's, or one ZnA11y makes from the node's label: one stop, as Android's
+/// semantics on the node). Else ZnGestureA11y draws one behind the node, inside its layer (so it moves with the node),
+/// read as the gesture's a11yLabel (the node's texts stay elements of their own: a knob's "›" isn't a name).
+struct ZnGestureA11yActions: ViewModifier {
     let leaves: [ZnGesture]
+    /// The tap gesture is the element's double tap (false on a Pressable).
+    let tap: Bool
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.accessibilitySwitchControlEnabled) private var switchControl
 
-    /// ZnA11y makes the node one element with its own label: this element merges into it.
-    static func mergesIntoNode(_ s: ZnNodeSpec) -> Bool { s.hasAccessibilityLabel && !s.hasInteractiveDescendant && !s.isPressable }
-
-    var body: some View {
-        let tap = leaves.first { $0.kind == ZnGesture.tap }
-        let slider = leaves.first { $0.kind == ZnGesture.pan && $0.axis != ZnGesture.axisXY && ($0.anchors.count >= 2 || Self.range($0) != nil) }
-        let label = Self.mergesIntoNode(s) ? nil : s.accessibilityLabelNow(inst) ?? leaves.first?.a11yLabel
-        // (SwiftUI lists accessibilityActions last to first: given reversed, VoiceOver offers them in Android's order.)
-        let actions = Self.actions(leaves).reversed()
-        Color.clear
-            .accessibilityElement(children: .ignore)
-            .znWhen(label != nil) { $0.accessibilityLabel(label ?? "") }
-            .znWhen(tap != nil) { v in
-                v.accessibilityAddTraits(.isButton)
-                    .accessibilityAction { tap?.send("end", ["cancelled": false, "accessibility": true]) }
-            }
-            .znWhen(slider != nil) { v in
-                v.accessibilityValue(slider.map(Self.value) ?? "")
-                    .accessibilityAdjustableAction { d in if let slider { Self.step(slider, up: d == .increment) } }
-            }
-            .accessibilityActions {
-                ForEach(Array(actions), id: \.name) { a in Button(a.name) { a.run() } }
-            }
+    func body(content: Content) -> some View {
+        if leaves.isEmpty {
+            content
+        } else {
+            let tapLeaf = tap ? leaves.first { $0.kind == ZnGesture.tap } : nil
+            let slider = leaves.first(where: Self.isSlider)
+            // The value reads the pan's position, which moves each frame of a drag: only while an assistive app reads it
+            // (the body then runs per frame), not for every labelled slider on screen.
+            let read = slider != nil && (voiceOver || switchControl || znA11yForced)
+            // (SwiftUI lists accessibilityActions last to first: given reversed, VoiceOver offers them in Android's order.)
+            let actions = Self.actions(leaves).reversed()
+            content
+                .znWhen(tapLeaf != nil) { v in
+                    v.accessibilityAddTraits(.isButton)
+                        .accessibilityAction { tapLeaf?.send("end", ["cancelled": false, "accessibility": true]) }
+                }
+                .znWhen(slider != nil) { v in
+                    v.accessibilityAdjustableAction { d in if let slider { Self.step(slider, up: d == .increment) } }
+                }
+                .znWhen(read) { v in v.accessibilityValue(slider.map(Self.value) ?? "") }
+                .accessibilityActions {
+                    ForEach(Array(actions), id: \.name) { a in Button(a.name) { a.run() } }
+                }
+        }
     }
 
     private struct Action {
@@ -413,7 +442,7 @@ struct ZnGestureA11y: View {
             }
             if leaf.kind == ZnGesture.zoom {
                 out.append(Action(name: name("zoomIn", "zoom in")) { leaf.zoomInAtCentre() })
-                out.append(Action(name: name("zoomOut", "zoom out")) { leaf.zoomAnimate(leaf.zoomMin, 0, 0) })
+                out.append(Action(name: name("zoomOut", "zoom out")) { leaf.zoomOutForA11y() })
             }
             for a in leaf.anchors {
                 out.append(Action(name: name(a.id, a.id)) { go(leaf, a) })
@@ -432,19 +461,9 @@ struct ZnGestureA11y: View {
         g.send("end", ["anchor": a.id, "cancelled": false, "accessibility": true])
     }
 
-    /// A one-axis pan's anchors in their order on screen (x: left to right; y: bottom to top), with their points.
-    private static func ordered(_ g: ZnGesture) -> [(ZnAnchor, Float)] {
-        let onX = g.axis == ZnGesture.axisX
-        let points = g.anchors.compactMap { a -> (ZnAnchor, Float)? in
-            let p = g.anchorPoint(a)
-            return (onX ? p.0 : p.1).map { (a, $0) }
-        }
-        return points.sorted { onX ? $0.1 < $1.1 : $0.1 > $1.1 }
-    }
-
-    private static func nearest(_ g: ZnGesture) -> ZnAnchor? {
-        let at = (g.axis == ZnGesture.axisX ? g.x : g.y)?.value ?? 0
-        return ordered(g).min { abs($0.1 - at) < abs($1.1 - at) }?.0
+    /// A one-axis pan with no anchors and both bounds on its axis.
+    private static func isSlider(_ g: ZnGesture) -> Bool {
+        g.kind == ZnGesture.pan && g.axis != ZnGesture.axisXY && g.anchors.isEmpty && range(g) != nil
     }
 
     /// A one-axis pan's bounds on its axis (low, high), when it has both and they differ.
@@ -454,24 +473,16 @@ struct ZnGestureA11y: View {
         return (lo, hi)
     }
 
-    /// What VoiceOver reads as the slider's value: the anchor it rests nearest to, or how far along its bounds.
+    /// What VoiceOver reads as the slider's value: how far along its bounds.
     private static func value(_ g: ZnGesture) -> String {
-        if g.anchors.count >= 2 { return nearest(g)?.id ?? "" }
         guard let (lo, hi) = range(g) else { return "" }
         let at = (g.axis == ZnGesture.axisX ? g.x : g.y)?.value ?? lo
         let p = (at - lo) / (hi - lo)
         return "\(Int(((g.axis == ZnGesture.axisX ? p : 1 - p) * 100).rounded()))%"
     }
 
-    /// VoiceOver's swipe up / down on an adjustable pan: the next anchor that way, or a tenth of its bounds.
+    /// VoiceOver's swipe up / down on the slider: a tenth of its bounds that way.
     private static func step(_ g: ZnGesture, up: Bool) {
-        if g.anchors.count >= 2 {
-            let list = ordered(g)
-            guard let cur = nearest(g), let i = list.firstIndex(where: { $0.0.id == cur.id }) else { return }
-            let j = up ? i + 1 : i - 1
-            guard list.indices.contains(j) else { return }
-            return go(g, list[j].0)
-        }
         let onX = g.axis == ZnGesture.axisX
         guard let (lo, hi) = range(g), let v = onX ? g.x : g.y else { return }
         // Up: to the right along x, up the screen along y.
@@ -485,6 +496,36 @@ struct ZnGestureA11y: View {
         g.send("end", [onX ? "x" : "y": Double(to), "cancelled": false, "accessibility": true])
     }
 }
+
+/// The element ZnGestureHub.swift draws behind a gesture node whose own element doesn't take its gestures (see
+/// ZnGestureA11yActions): read as the node's label, else the gesture's a11yLabel.
+struct ZnGestureA11y: View {
+    let s: ZnNodeSpec
+    let inst: ZnInstance
+    /// The node's gestures with an a11yLabel (leaves).
+    let leaves: [ZnGesture]
+
+    /// The node's own element takes its gestures' actions (ZnPressA11y, ZnNodeA11y).
+    @MainActor static func takenByNode(_ s: ZnNodeSpec, _ inst: ZnInstance) -> Bool {
+        s.isPressable || ZnNodeA11y.takesGestures(s, inst)
+    }
+
+    var body: some View {
+        if !Self.takenByNode(s, inst) {
+            Color.clear
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(s.accessibilityLabelNow(inst) ?? leaves.first?.a11yLabel ?? "")
+                .modifier(ZnGestureA11yActions(leaves: leaves, tap: true))
+        }
+    }
+}
+
+#if DEBUG
+/// ZN_A11Y_DUMP (ZnA11yDebug) reads values as VoiceOver would.
+let znA11yForced = ProcessInfo.processInfo.environment["ZN_A11Y_DUMP"] != nil
+#else
+let znA11yForced = false
+#endif
 
 // MARK: - Debug: the accessibility tree
 
