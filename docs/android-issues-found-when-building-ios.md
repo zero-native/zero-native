@@ -115,6 +115,8 @@ Each entry says:
 | A99 | 2026-11-24 | image-viewer (both) | The image viewer's next / previous labels are never used: TalkBack has no next / previous actions | open |
 | A100 | 2026-11-24 | Routes (both) | Screens under a see-through screen stay in the TalkBack tree | open, Pavan to decide |
 | A101 | 2026-11-24 | image-viewer (Android) | The image viewer's invisible ✕ takes taps while the viewer opens | check |
+| A102 | 2026-11-24 | Layout (Android) | Check: a Column raised by minWidth stretches its children to that width (layout case 48) | check |
+| A103 | 2026-11-24 | Touch (Android) | hitSlop shrinks a small Pressable's touch area below Compose's 48 dp minimum | open |
 
 ---
 
@@ -1032,3 +1034,22 @@ Each entry says:
   can't see yet. iOS answers only once it shows (UIKit skips alpha below 0.01). A fix for both may be `pointerEvents`
   "none" on the bar until it shows.
 - **Check:** tap the top-left corner right after tapping a thumbnail.
+
+## A102. Check: a Column raised by minWidth stretches its children to that width (layout case 48) (from iOS work, 2026-11-24)
+- **Status:** check. Found on the Mac 2026-11-24.
+- **Why:** iOS now stretches a stretching child (no width, alignItems unset or stretch) of a Column whose width comes
+  only from `minWidth` to the raised width, as Yoga does (docs/styling-and-layout.md §5 rule 4). Before, iOS left it at
+  its content width: ZeroBill's notification badge pill (flexGrow in an absolute ring with minWidth 18) was narrow. By
+  reading `ZnRenderer.kt` ZnColumn (~566-590), Android follows the old rule too (no `fillMaxWidth` without a definite
+  width); Compose may still give a `weight()` child the Column's min width.
+- **Check:** `/dev/layout`: case 48 (c48a-c). If c48b or c48c fail, Android needs the same rule: a stretching child of a
+  Column with only minWidth gets `widthIn(min = the Column's inner minWidth)`.
+
+## A103. hitSlop shrinks a small Pressable's touch area below Compose's 48 dp minimum (from iOS work, 2026-11-24)
+- **Status:** open. Found on the Mac 2026-11-24 (reading the code).
+- **Problem:** `ZnTouch.kt` ~59-71 (`WithHitSlop`) sets `minimumTouchTargetSize` to the size plus twice the slop,
+  replacing the 48 dp minimum instead of raising it. A 24 dp icon with `hitSlop={4}` gets 32 dp, smaller than the 48 dp
+  it has with no hitSlop.
+- **Fix:** `max(48 dp, size + 2 × slop)` per axis (the base configuration's minimum, not a fixed 48).
+- **Check:** a 24 dp Pressable with `hitSlop={4}`: tap 10 dp outside its edge; it should still fire (it does without
+  the prop).
