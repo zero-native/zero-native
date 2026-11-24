@@ -52,9 +52,10 @@ struct ZnStackLayout: Layout {
             size.width = max(size.width, s.width)
             size.height = max(size.height, s.height)
         }
-        if fillWidth, let w = Self.bounded(proposal.width) { size.width = w }
-        if fillHeight, let h = Self.bounded(proposal.height) { size.height = h }
-        return CGSize(width: max(size.width, minWidth), height: max(size.height, minHeight))
+        // A filled axis that is offered a size takes it as it is (its min is already kept inside the offer:
+        // ZnMinMaxLayout, ZnFlexLayout.measure); the min raises the others.
+        let w = fillWidth ? Self.bounded(proposal.width) : nil, h = fillHeight ? Self.bounded(proposal.height) : nil
+        return CGSize(width: w ?? max(size.width, minWidth), height: h ?? max(size.height, minHeight))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {

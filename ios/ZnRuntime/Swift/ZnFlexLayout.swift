@@ -115,9 +115,13 @@ struct ZnFlexLayout: Layout {
         let contentCross = sizes.map(cross).max() ?? 0
         let definiteMain = vertical ? definiteHeight : definiteWidth
         let definiteCross = vertical ? definiteWidth : definiteHeight
-        // Flex children fill a bounded main axis, as Compose's weight() does.
-        let m = max(((definiteMain || weights > 0) ? mainAvail : nil) ?? contentMain, vertical ? minHeight : minWidth)
-        let c = max((definiteCross ? crossAvail : nil) ?? contentCross, vertical ? minWidth : minHeight)
+        // Flex children fill a bounded main axis, as Compose's weight() does. A definite axis that is offered a size
+        // takes it as it is: the node's ZnMinMaxLayout already applied the min, kept inside what it was offered
+        // (Android's znSizeInConstraints), so a `flex: 1, minHeight: 320` body lays its children out in its share,
+        // not in a taller box drawn past it. The min still raises a content-sized or unbounded axis.
+        let mainMin = vertical ? minHeight : minWidth, crossMin = vertical ? minWidth : minHeight
+        let m = definiteMain && mainAvail != nil ? mainAvail! : max((weights > 0 ? mainAvail : nil) ?? contentMain, mainMin)
+        let c = definiteCross && crossAvail != nil ? crossAvail! : max(contentCross, crossMin)
         return Measured(size: vertical ? CGSize(width: c, height: m) : CGSize(width: m, height: c), children: sizes)
     }
 
