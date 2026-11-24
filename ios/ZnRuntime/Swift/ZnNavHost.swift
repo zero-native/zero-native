@@ -179,6 +179,14 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     /// tap on a screen still sliding in (a push queued behind the slide) is never taken for a swipe back (2026-11-24:
     /// the pushed screen's instance was released and it showed blank white).
     private var popped: [ZnSeeThroughBox] = []
+    /// A change JS asked for that UIKit still holds (queued behind a slide, or an animated pop's old boxes still in
+    /// `viewControllers`), until a didShow finds `lastSet` shown.
+    private var queued = false
+    /// Counts each setViewControllers and didShow: the safety net acts only if nothing happened since it was set up.
+    private var navTurn = 0
+    /// A back swipe on a screen that wants Back: JS heard BACK when it began; the swipe holds the touch (a Carousel
+    /// under it doesn't scroll as well) and moves nothing.
+    private var backToJS = false
     /// A touch on backPan that started within [edge] of the left edge: scroll views under it wait for the swipe.
     private var edgeTouch = false
     /// backPan's name: the gesture hub (ZnGestureHub.swift) leaves it to claimsBackEdge instead of making it wait.
@@ -274,11 +282,13 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         if navChanges {
             print("zn t=\(ZnDebug.ms()) uikit: setViewControllers (\(stack.count) screens\(vcs.count == stack.count ? "" : " in \(vcs.count) box\(vcs.count == 1 ? "" : "es")"), animated \(animated)\(atStart ? ", opened at start" : ""))")
             lastSet = vcs
+            navTurn += 1
             setViewControllers(vcs, animated: animated)
             // An animated pop keeps the old boxes until its slide ends; a change during a slide waits behind it.
-            if viewControllers != vcs { print("zn t=\(ZnDebug.ms()) uikit: not shown yet (its slide, or the one under way, first)") }
+            queued = viewControllers != vcs
+            if queued { print("zn t=\(ZnDebug.ms()) uikit: not shown yet (its slide, or the one under way, first)") }
         }
-        // didShow doesn't come after a cancelled swipe: the slide's end applies the waiting changes either way.
+        // The slide's end applies the waiting changes (didShow does too, a cancelled swipe's included).
         if !pending.isEmpty, let c = transitionCoordinator {
             c.animate(alongsideTransition: nil) { [weak self] _ in self?.applyPending() }
         }
@@ -349,28 +359,39 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
     }
 
     func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
-        print("zn t=\(ZnDebug.ms()) uikit: didShow")
+        // The entries native shows, so a log can be checked against JS's stack ("nav: ... → stack").
+        print("zn t=\(ZnDebug.ms()) uikit: didShow \(Self.entries(viewControllers))\(viewControllers == lastSet ? "" : ", set \(Self.entries(lastSet))")")
         applyPending()
+        navTurn += 1
         // A pop UIKit made itself: the boxes it took off are gone from JS's stack too (FORCED_BACK).
         let gone = popped.filter { !viewControllers.contains($0) }
         popped = []
         if !gone.isEmpty {
-            lastSet = lastSet.filter { box in !gone.contains { $0 === box } }
+            // With a change JS made during the swipe still queued, UIKit shows it next, the popped box included: lastSet
+            // keeps it, so JS's stack without it (after FORCED_BACK) is set again. Else native shows lastSet without it.
+            if !queued { lastSet = lastSet.filter { box in !gone.contains { $0 === box } } }
             let entries = Set(gone.flatMap(\.entries))
             let shown = app.stack.filter { !entries.contains($0) }
             if !shown.isEmpty, shown != app.stack { app.nativeChanged(to: shown) }
-            return
         }
-        guard viewControllers != lastSet else { return }
+        guard viewControllers != lastSet else { queued = false; return }
         // JS's change (queued behind the slide that just ended) comes next: its own slide starts now. Should UIKit
-        // have dropped it, it is shown at once.
+        // have dropped it (no slide, no newer change or didShow for 0.5 s), it is shown at once.
         print("zn t=\(ZnDebug.ms()) uikit: JS's newer stack still to come")
+        let turn = navTurn
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, self.transitionCoordinator == nil, self.viewControllers != self.lastSet, !self.failureShown else { return }
+            guard let self, self.navTurn == turn, self.transitionCoordinator == nil, !self.failureShown else { return }
+            guard self.viewControllers != self.lastSet else {
+                return print("zn t=\(ZnDebug.ms()) uikit: JS's stack shown \(Self.entries(self.viewControllers))")
+            }
             print("zn t=\(ZnDebug.ms()) uikit: the queued change didn't run; shown at once")
+            self.navTurn += 1
+            self.queued = false
             self.setViewControllers(self.lastSet, animated: false)
         }
     }
+
+    private static func entries(_ vcs: [UIViewController]) -> [UInt32] { vcs.flatMap { ($0 as? ZnSeeThroughBox)?.entries ?? [] } }
 
     /// Every pop UIKit makes by itself comes here (our back swipe's popViewController; a native screen's own pop).
     override func popViewController(animated: Bool) -> UIViewController? {
@@ -425,7 +446,8 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         if app.backWanted.contains(top) {
             print("zn t=\(ZnDebug.ms()) nav: swipe on a screen that wants Back → BACK to JS")
             app.systemBack()  // JS decides; the screen moves only if JS pops it
-            return false
+            backToJS = true  // the swipe still takes the touch, so a Carousel waiting on it doesn't scroll as well
+            return true
         }
         print("zn t=\(ZnDebug.ms()) nav: swipe back, native pop\(box == nil ? "" : " (see-through)")")
         dragging = box
@@ -436,6 +458,10 @@ final class ZnNavController: UINavigationController, UINavigationControllerDeleg
         let width = max(view.bounds.width, 1)
         let progress = min(max(g.translation(in: view).x / width, 0), 1)
         if let box = dragging { return dragSeeThrough(box, g, progress) }
+        if backToJS {
+            if [.ended, .cancelled, .failed].contains(g.state) { backToJS = false }
+            return
+        }
         switch g.state {
         case .began:
             interaction = UIPercentDrivenInteractiveTransition()
