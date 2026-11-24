@@ -201,8 +201,7 @@ adb shell am broadcast -a dev.zeronative.imageviewer.DEBUG_GESTURE --es kind pin
 On iOS: `bun run tools/ios-unit-test.ts plugins/image-viewer` (the page's rules, loading and sharp parts on the Mac),
 `bun run ios:ui-test --only ImageViewerTests` (the TSX screen from the lab, found as VoiceOver finds it: the close button,
 "Photo n of count", paging, the answer, the error's retry by its load count, the app's words, the app's own
-`nav.back()`, taps stopped by an invisible layer; a double tap and a pinch keeping the page with
-`TEST_RUNNER_ZN_UI_ZOOM=1`, off by default as about one run in four still pages), and the same lab on a simulator
+`nav.back()`, taps stopped by an invisible layer, a double tap and a pinch keeping the page), and the same lab on a simulator
 (`bun run tools/ios-sample.ts --route imageViewerLab`; "Header" needs `bun run tools/fetch-test-server.ts`, no reverse).
 
 ## Not built
