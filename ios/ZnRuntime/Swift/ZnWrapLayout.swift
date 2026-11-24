@@ -56,7 +56,7 @@ struct ZnWrapLayout: Layout {
         }
     }
 
-    func measure(_ proposal: ProposedViewSize, _ subviews: Subviews) -> Measured {
+    func measure(_ proposal: ProposedViewSize, _ subviews: [LayoutSubview]) -> Measured {
         let n = subviews.count
         let maxW = Self.finite(proposal.width)
         var sizes = Array(repeating: CGSize.zero, count: n)
@@ -137,11 +137,14 @@ struct ZnWrapLayout: Layout {
         return Measured(size: CGSize(width: width, height: height), frames: frames)
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        measure(proposal, subviews).size
+    func sizeThatFits(proposal: ProposedViewSize, subviews all: Subviews, cache: inout ()) -> CGSize {
+        measure(proposal, all.znRoomy).size
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    // A Sheet, Modal or bar takes no room in a line (ZnNoRoomKey).
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews all: Subviews, cache: inout ()) {
+        all.znPlaceRoomless(in: bounds)
+        let subviews = all.znRoomy
         let m = measure(ProposedViewSize(bounds.size), subviews)
         for (i, sv) in subviews.enumerated() {
             let f = m.frames[i]

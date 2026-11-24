@@ -302,6 +302,7 @@ struct ZnNodeView: View {
                 let (outer, childDefinite) = childLayout(s, child, flex: flex, vertical: vertical, stretchAll: stretchAll,
                                                          raisedWidth: raised)
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node, outer: outer, definiteWidth: childDefinite)
+                    .layoutValue(key: ZnNoRoomKey.self, value: child.takesNoRoom)
                     .layoutValue(key: ZnFlexKey.self, value: flex)
                     .layoutValue(key: ZnMinStretchKey.self, value: raised && outer.fillWidth)
                     .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
@@ -338,6 +339,7 @@ struct ZnNodeView: View {
                 ZnNodeView(ctx: ctx, t: ref.t, inst: ref.inst, n: ref.node,
                            outer: ZnOuter(fillWidth: flex > 0, fillHeight: stretch),
                            definiteWidth: child.hasWidth || flex > 0)
+                    .layoutValue(key: ZnNoRoomKey.self, value: child.takesNoRoom)
                     .layoutValue(key: ZnFlexKey.self, value: flex)
                     .layoutValue(key: ZnAlignSelfKey.self, value: child.alignSelf)
                     .layoutValue(key: ZnStretchKey.self, value: stretch)
@@ -582,10 +584,15 @@ struct ZnPaintLayers: ViewModifier {
         #endif
         // Corners from slots are read here (motion values too): a change redraws this node's paint alone.
         let shape = znShapeNow(s, inst)
-        // Images and shimmers clip to their rounded shape by default, as in RN (and Android). One whose corners come
-        // from a slot always clips (to a square when they are 0), so the branch never swaps and the picture never reloads.
+        // Images and shimmers clip to their rounded shape by default, as in RN (and Android). So does a rounded Pressable
+        // whose ripple isn't borderless, whatever its pressFeedback, as on Android (ZnTemplate.kt clipsByDefault): a
+        // card's full-width picture or coloured strip gets its rounded corners without overflow: "hidden" (2026-11-24).
+        // One whose corners come from a slot always clips (to a square when they are 0; Android doesn't clip then), so
+        // the branch never swaps and nothing inside is made again (a picture would reload). The shadow and the border
+        // are outside the clip.
         let picture = s.type == Registry.Component.image || s.type == Registry.Component.shimmer
-        let clips = s.clip || (picture && (s.hasDynamicRadius || s.rounded))
+        let pressClip = s.isPressable && !s.rippleBorderless
+        let clips = s.clip || ((picture || pressClip) && (s.hasDynamicRadius || s.rounded))
         content
             .modifier(ZnClip(clip: clips, shape: shape))
             .overlay { ZnBorder(s: s, inst: inst, shape: shape) }
@@ -690,7 +697,8 @@ struct ZnLayer: ViewModifier {
             content.modifier(ZnLayerFull(s: s, inst: inst, motion: motion))
         } else {
             let _ = ZnDebug.hit(name: "Layer", inst: inst, node: s.index)
-            content.opacity(motion?.values[P.opacity]?.first.map { CGFloat($0) } ?? CGFloat(s.opacity))
+            content.modifier(ZnOpacityGroup(on: s.fadesAsGroup))
+                .opacity(motion?.values[P.opacity]?.first.map { CGFloat($0) } ?? CGFloat(s.opacity))
         }
     }
 }
@@ -736,7 +744,7 @@ struct ZnLayerFull: ViewModifier {
         let depth = s.hasDepth
         if !s.layerTransforms {
             // Opacity from a slot only: `animate` implies a transform (ZnTemplate), so no timing applies here.
-            fed.opacity(opacity)
+            fed.modifier(ZnOpacityGroup(on: s.fadesAsGroup)).opacity(opacity)
         } else if s.animate == nil {
             // Nothing animates through SwiftUI here: SwiftUI's own effects with no animation scopes, the cheapest to
             // move per frame. (One custom GeometryEffect for the whole matrix was cheaper still, but a UITextField
@@ -754,6 +762,7 @@ struct ZnLayerFull: ViewModifier {
                                     camera: depth ? value(P.cameraDistance, s.cameraDistanceSlot, s.cameraDistance) : 8,
                                     origin: o, scale: displayScale))
                 .offset(x: value(P.translateX, s.translateXSlot, s.translateX), y: value(P.translateY, s.translateYSlot, s.translateY))
+                .modifier(ZnOpacityGroup(on: s.fadesAsGroup))
                 .opacity(opacity)
         } else {
             fed
@@ -770,9 +779,33 @@ struct ZnLayerFull: ViewModifier {
                                     origin: o, scale: displayScale))
                 .animation(follow(P.translateX, s.translateXSlot)) { $0.offset(x: value(P.translateX, s.translateXSlot, s.translateX)) }
                 .animation(follow(P.translateY, s.translateYSlot)) { $0.offset(y: value(P.translateY, s.translateYSlot, s.translateY)) }
+                .modifier(ZnOpacityGroup(on: s.fadesAsGroup))
                 .animation(follow(P.opacity, s.opacitySlot)) { $0.opacity(opacity) }
         }
     }
+}
+
+/// opacity below 1 fades the node as one picture (its shadow, background, border and children together), as Android's
+/// graphicsLayer alpha, drawn offscreen when alpha < 1. Without it SwiftUI fades each drawn part on its own, so
+/// overlapping children, and a picture under text, show through each other (2026-11-24). Only on a node whose opacity
+/// can be below 1 (fadesAsGroup); fixed per node, so the branch never swaps.
+struct ZnOpacityGroup: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.compositingGroup() } else { content }
+    }
+}
+
+extension ZnNodeSpec {
+    /// A Sheet, Modal, StatusBar or NavigationBar: no room in its Column / Row, so no gap or justifyContent share
+    /// (ZnNoRoomKey), as Android, where they have no layout node in the parent (ZnRenderer.kt ZnNodeContent).
+    var takesNoRoom: Bool {
+        type == Registry.Component.sheet || type == Registry.Component.modal ||
+            type == Registry.Component.statusBar || type == Registry.Component.navigationBar
+    }
+
+    /// Its opacity can be below 1: written below 1, from a slot (a motion value too), or animated.
+    var fadesAsGroup: Bool { opacity < 1 || opacitySlot >= 0 || animate?.timing(Registry.Prop.opacity) != nil }
 }
 
 /// overflow: hidden. Only when asked: the old way, `clipShape(Rectangle().inset(by: -1e6))` for "no clip", made SwiftUI
@@ -859,6 +892,11 @@ struct ZnBackground: View {
         let color = played ?? inst.motionColor(s.backgroundSlot)
             ?? (s.backgroundSlot >= 0 ? znColor(inst.slot(s.backgroundSlot).value) : s.background)
         let follow = s.animate?.timing(Registry.Prop.backgroundColor).flatMap { $0.selfPlaying ? nil : $0.animation }
+        // elevation: Android's material shadow, cast by the node's shape whether or not anything is painted (Compose's
+        // shadow(elevation, shape) from the outline): an image card with no backgroundColor is lifted too, and a
+        // translucent background casts the full shadow (before 2026-11-24 the shadow followed the fill: none without
+        // one, faint under a translucent one).
+        if s.elevation > 0 { ZnElevationShadow(s: s, shape: shape) }
         if color != nil || s.gradient != nil {
             ZStack {
                 if let color { shape.fill(color) }
@@ -871,11 +909,29 @@ struct ZnBackground: View {
                     }
                 }
             }
-            // elevation: Android's material shadow, drawn here as a soft shadow below (y = elevation / 2, blur =
-            // elevation, 20 % of shadowColor); only under a background, as nothing else has a shape to cast it.
-            .shadow(color: s.elevation > 0 ? s.shadowColor.opacity(0.2) : .clear, radius: s.elevation, x: 0, y: s.elevation / 2)
             .animation(follow, value: s.backgroundSlot >= 0 ? znColorVector(inst.slot(s.backgroundSlot).value) : nil)
         }
+    }
+}
+
+/// The elevation shadow alone: a soft shadow below the shape (y = elevation / 2, blur = elevation, 20 % of
+/// shadowColor), the shape itself not drawn. Its canvas reaches past the box by the blur, so the shadow isn't cut.
+struct ZnElevationShadow: View {
+    let s: ZnNodeSpec
+    let shape: UnevenRoundedRectangle
+
+    var body: some View {
+        let e = s.elevation
+        let pad = e * 3 + e / 2
+        let color = s.shadowColor.opacity(0.2)
+        Canvas { ctx, size in
+            let box = CGRect(x: pad, y: pad, width: max(0, size.width - 2 * pad), height: max(0, size.height - 2 * pad))
+            ctx.addFilter(.shadow(color: color, radius: e, x: 0, y: e / 2, options: .shadowOnly))
+            ctx.fill(shape.path(in: box), with: .color(.black))
+        }
+        .padding(-pad)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

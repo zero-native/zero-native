@@ -14,6 +14,18 @@ struct ZnFlexKey: LayoutValueKey { static let defaultValue: CGFloat = 0 }
 /// min), so it fills the raised box without pushing it wider (Yoga's stretch to the final width; ZnRenderer flex()).
 struct ZnMinStretchKey: LayoutValueKey { static let defaultValue = false }
 struct ZnAlignSelfKey: LayoutValueKey { static let defaultValue: Int = -1 }
+/// A child that takes no room (a Sheet, Modal, StatusBar or NavigationBar: Android draws them in their own window or
+/// as effects, with no layout node): left out of the gaps, justifyContent's shares and line breaking, placed 0 x 0.
+struct ZnNoRoomKey: LayoutValueKey { static let defaultValue = false }
+
+extension LayoutSubviews {
+    /// The children that take room (ZnNoRoomKey).
+    var znRoomy: [LayoutSubview] { filter { !$0[ZnNoRoomKey.self] } }
+    /// The others, placed at the top-left with no size.
+    func znPlaceRoomless(in bounds: CGRect) {
+        for sv in self where sv[ZnNoRoomKey.self] { sv.place(at: bounds.origin, anchor: .topLeading, proposal: .zero) }
+    }
+}
 /// A percent width / height (fractions; zn flex rule 5): the parent offers that much of its content box, and the
 /// child fills what it is offered. Resolved by the parent, as a re-proposal at placement must not take it again.
 struct ZnPercentKey: LayoutValueKey { static let defaultValue: ZnPercent = ZnPercent() }
@@ -66,7 +78,7 @@ struct ZnFlexLayout: Layout {
         return max(min(own, crossAvail ?? own), minWidth)
     }
 
-    private func measure(_ proposal: ProposedViewSize, _ subviews: Subviews) -> Measured {
+    private func measure(_ proposal: ProposedViewSize, _ subviews: [LayoutSubview]) -> Measured {
         let mainAvail = Self.bounded(vertical ? proposal.height : proposal.width)
         let crossAvail = Self.bounded(vertical ? proposal.width : proposal.height)
         let gaps = gap * CGFloat(max(subviews.count - 1, 0))
@@ -105,11 +117,13 @@ struct ZnFlexLayout: Layout {
         return Measured(size: vertical ? CGSize(width: c, height: m) : CGSize(width: m, height: c), children: sizes)
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        measure(proposal, subviews).size
+    func sizeThatFits(proposal: ProposedViewSize, subviews all: Subviews, cache: inout ()) -> CGSize {
+        measure(proposal, all.znRoomy).size
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews all: Subviews, cache: inout ()) {
+        all.znPlaceRoomless(in: bounds)
+        let subviews = all.znRoomy
         let m = measure(ProposedViewSize(bounds.size), subviews)
         let mainSize = main(bounds.size), crossSize = cross(bounds.size)
         let content = m.children.reduce(0) { $0 + main($1) } + gap * CGFloat(max(subviews.count - 1, 0))
