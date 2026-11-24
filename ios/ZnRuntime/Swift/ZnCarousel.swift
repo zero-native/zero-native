@@ -101,6 +101,8 @@ struct ZnCarouselView: View {
                             .frame(width: active ? 20 : 6, height: 6)
                     }
                 }
+                // 10 pt over the dots and none under them, as Android's Row(padding(top = 10.dp)): in a carousel with a
+                // height the dots touch its bottom edge on both (checked 2026-11-24: 30 px / 18 px / 0 px at 3x).
                 .padding(.top, 10)
                 .animation(.easeOut(duration: 0.2), value: shown)
             }
