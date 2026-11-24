@@ -481,6 +481,10 @@ struct ZnEnterExit: ViewModifier {
                                     rotateY: turns ? inV(enter?.rotateY, 0) + outV(exit?.rotateY, 0) : 0,
                                     cameraDistance: s.cameraDistance, origin: s.origin, scale: displayScale))
             .offset(x: inV(enter?.translateX, 0) + outV(exit?.translateX, 0), y: inV(enter?.translateY, 0) + outV(exit?.translateY, 0))
+            // A fade fades the element as one picture, as Android's graphicsLayer alpha: overlapping parts (a card's
+            // fill under its text) don't show through each other. Static for the node (its template's enter / exit),
+            // so the group never comes or goes mid-fade.
+            .modifier(ZnOpacityGroup(on: (enter?.opacity != nil || exit?.opacity != nil) && s.drawsOverlappingParts))
             .opacity(inV(enter?.opacity, 1) * outV(exit?.opacity, 1))
             .allowsHitTesting(!exiting)
             .onAppear {
