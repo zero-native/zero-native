@@ -104,7 +104,7 @@ keeping every lesson that applies.
   - The phone's OS is `capabilities.os`, or else `store.os` (`phoneOs` in `decide.ts`; `parseCheck` keeps it even
     when it drops a store version in the wrong shape). iOS sent `store: {os: "ios"}` from its first OTA check
     (2026-11-10 01:20) and `capabilities.os` from 17:58 that day, so every iOS build that checks is seen as iOS.
-  - ZeroBill (2026-11-24, ZeroBill 61693e2): its bundles don't require `Motion`. It opens the native viewer
+  - ZeroBill (checked 2026-11-24): its bundles don't require `Motion`. It opens the native viewer
     (`imageviewer.full`) through `@zeronative/image-viewer`, which uses no motion; only the TSX screen
     (`@zeronative/image-viewer/screen`) does, and ZeroBill doesn't import it. So its iOS builds below host API 10 keep
     getting bundles. Once ZeroBill uses the TSX viewer or any motion API, they get none and need the App Store update
