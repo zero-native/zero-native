@@ -274,8 +274,14 @@ private struct ZnNodeA11y: ViewModifier {
         let hasRole = role >= 0 && role != Registry.AccessibilityRole.none
         switch kind {
         case .own:
-            // Label, hint and testID are on their own element (ZnControls, ZnTextField, ZnOtpInput, ZnPlugins).
-            content.znWhen(s.accessibilityHidden) { $0.accessibilityHidden(true) }
+            // Label, hint and testID are on their own element (ZnControls, ZnTextField, ZnOtpInput). A NativeView's
+            // testID is a container around the plugin's view, which keeps its own elements (Android: testTag on the
+            // Box around it): the plugin's UIView is often no element itself, so an identifier on it is never seen.
+            if s.type == Registry.Component.nativeView, let id = s.testID, !s.accessibilityHidden {
+                content.accessibilityElement(children: .contain).accessibilityIdentifier(id)
+            } else {
+                content.znWhen(s.accessibilityHidden) { $0.accessibilityHidden(true) }
+            }
         case .picture:
             if s.accessibilityHidden || (!s.hasAccessibilityLabel && !hasRole) {
                 content.accessibilityHidden(true)  // decorative, as Android (no content description)
@@ -359,7 +365,7 @@ extension View {
     }
 }
 
-// MARK: - UIKit views (TextField, OtpInput, NativeView)
+// MARK: - UIKit views (TextField, OtpInput)
 
 /// Label, hint, testID and hidden on a UIKit view of a node, each only when written (the view's own stay otherwise:
 /// a field's placeholder is its label). [label]: accessibilityLabelNow, read by the caller's body.

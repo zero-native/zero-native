@@ -247,8 +247,8 @@ struct ZnNativeViewNode: UIViewRepresentable {
     func updateUIView(_ v: UIView, context: Context) {
         let c = context.coordinator
         // pointerEvents "none" around it (or a "box-only" parent): the plugin's view takes no touches, set only when
-        // that changes (the plugin may turn touches off itself). testID is the view's identifier for UI tests; the
-        // plugin's view does its own VoiceOver (ZnA11y only hides it).
+        // that changes (the plugin may turn touches off itself). testID is on a container around it (ZnA11y), not
+        // on the view: the plugin's view does its own VoiceOver.
         let off = context.environment.znTouchOff
         // Inside a Pressable: a plugin view that takes touches keeps them (ZnPressInner.swift).
         ZnPressInner.note(v, ancestors: context.environment.znPressAncestors, native: true)
@@ -256,7 +256,6 @@ struct ZnNativeViewNode: UIViewRepresentable {
             c.touchOff = off
             v.isUserInteractionEnabled = !off
         }
-        if let id = s.testID, v.accessibilityIdentifier != id { v.accessibilityIdentifier = id }
         guard c.raw != props, let scope = c.scope else { return }
         c.raw = props
         scope.update(Self.parse(s.viewName ?? "", props))

@@ -5,8 +5,8 @@
 //   b) Taps on a Pressable and a TextField turned in 3D by a motion value (rotateY 40, the depth effect: one like it once
 //      broke TextField taps), and on a tilted (rotateX) Pressable.
 //   c) A NativeView in a Box with a testID, and one in a Box with pointerEvents="none" over a Pressable: the tap goes
-//      to the Pressable. (The compiler takes only name, props, onEvent and style on <NativeView> itself, though its
-//      type allows testID and pointerEvents: so a wrapper.)
+//      to the Pressable. Then the same on <NativeView> itself (the compiler takes testID and pointerEvents on it since
+//      round 7, A112): testID "native-direct-id", and pointerEvents="none" over a Pressable ("under-direct").
 //   d) Reorder in a sideways List (chips of different widths) and in an inverted List with rows of mixed heights: long
 //      press, drag, drop; each onReorder is logged ("checks-lab reorder ...") and shown in the status.
 //   e) ChecksSnapLabScreen (routes checksSnapSafeLab and checksSnapLab): a snapping Scroll with and without a safe-area
@@ -118,7 +118,7 @@ export function ChecksLabScreen() {
         />
       </ChkSection>
 
-      <ChkSection title="c) NativeView testID and pointerEvents" note="Top: a native view in a box with a testID (tap it: view event). Bottom: a native view in a box with pointerEvents none over a green Pressable: a tap reaches the Pressable.">
+      <ChkSection title="c) NativeView testID and pointerEvents" note="Top: a native view in a box with a testID (tap it: view event). Then a native view in a box with pointerEvents none over a green Pressable: a tap reaches the Pressable. The last two: the same with testID and pointerEvents on the NativeView itself.">
         <Box testID="native-with-id" style={{ height: 44 }}>
           <NativeView name="device.fake-view" props={{ label: "with id" }} onEvent={() => { viewEvents.set(viewEvents() + 1); say(`view event ${viewEvents()}`) }} style={{ height: 44 }} />
         </Box>
@@ -129,6 +129,13 @@ export function ChecksLabScreen() {
           <Box testID="native-none" pointerEvents="none" style={{ position: "absolute", top: 8, bottom: 8, start: 24, end: 24 }}>
             <NativeView name="device.fake-view" props={{ label: "pointerEvents none" }} onEvent={() => say("view none got an event")} style={{ flex: 1 }} />
           </Box>
+        </Stack>
+        <NativeView testID="native-direct-id" name="device.fake-view" props={{ label: "own testID" }} onEvent={() => { viewEvents.set(viewEvents() + 1); say(`direct view event ${viewEvents()}`) }} style={{ height: 44 }} />
+        <Stack style={{ height: 60 }}>
+          <Pressable testID="under-direct" onPress={() => { underTaps.set(underTaps() + 1); say(`under direct ${underTaps()}`) }} style={{ position: "absolute", top: 0, bottom: 0, start: 0, end: 0, backgroundColor: "#15803D" }}>
+            <Box style={{ flex: 1 }} />
+          </Pressable>
+          <NativeView testID="native-direct-none" pointerEvents="none" name="device.fake-view" props={{ label: "own pointerEvents none" }} onEvent={() => say("direct view none got an event")} style={{ position: "absolute", top: 8, bottom: 8, start: 24, end: 24 }} />
         </Stack>
       </ChkSection>
 

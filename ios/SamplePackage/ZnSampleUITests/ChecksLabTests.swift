@@ -172,4 +172,15 @@ final class NextRtlTests: ZnUITestCase {
         XCTAssertLessThan(s2.frame.midX, s1.frame.midX, "the layout isn't right to left")
         ChecksLabTests.nextGoesByRowOrder(self)
     }
+
+    /// The same with testID and pointerEvents on the NativeView itself (A112): the view is found by its own testID and
+    /// takes its tap; pointerEvents="none" on it lets the tap through to the Pressable under it.
+    func testNativeViewOwnTestIDAndPointerEvents() {
+        reveal(id("native-direct-id")).tap()
+        status("direct view event 1")
+        // The middle of the Pressable is under the native view.
+        reveal(id("under-direct")).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        status("under direct 1")
+        XCTAssertTrue(id("native-direct-none").exists, "the native view with pointerEvents none keeps its testID")
+    }
 }
